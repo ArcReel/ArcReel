@@ -6,7 +6,7 @@
  *    返回的 task_id 兑现（见 {@link submit}）——占用态因此从点击那一刻起就成立，
  *    调用方无须自备「请求在途」标记来覆盖网络往返窗口；
  * 2. 调用对应 API 入队端点；
- * 3. 弹提示：后端 deduped=true（同资源任务已在处理中，本次未新建）时统一
+ * 3. 弹提示：后端 deduped=true（同资源任务已在处理中，该调用未新建）时统一
  *    弹 info 提示，否则沿用各操作原有的成功文案。
  *
  * 失败一律向上抛，由调用方决定错误提示。返回值统一归一化为 EnqueueResult，
@@ -17,6 +17,11 @@
 import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
+import type {
+  ReferenceBatchAdmission,
+  ReferenceBatchGenerateRequest,
+  ReferenceGenerationRequestOptions,
+} from "@/types";
 import {
   useTasksStore,
   type ImageEditResourceKind,
@@ -74,12 +79,13 @@ function markScriptFile(projectName: string, taskType: string, scriptFile: strin
 async function submit<T>(
   marks: readonly OptimisticHandle[],
   request: () => Promise<T>,
-  taskIdsOf: (res: T) => string[],
+  taskIdsOf: (res: T, markIndex: number) => string[],
 ): Promise<T> {
   try {
     const res = await request();
-    const taskIds = taskIdsOf(res);
-    for (const m of marks) m.settle(taskIds);
+    // 逐标记取自己的任务行：标记要等它的 task_id 全部落库才让位，把整批清单发给每个标记
+    // 会让每个资源都等到全批出现，而任务列表快照只保留最新若干行，早的行可能再不出现。
+    marks.forEach((m, index) => m.settle(taskIdsOf(res, index)));
     return res;
   } catch (e) {
     for (const m of marks) m.rollback();
@@ -116,10 +122,13 @@ export async function enqueueVideo(
   prompt: string | Record<string, unknown>,
   scriptFile: string,
   durationSeconds?: number,
+  requestOptions?: ReferenceGenerationRequestOptions,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "video", segmentId, "video")],
-    () => API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds),
+    () => requestOptions
+      ? API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds, requestOptions)
+      : API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:video_task_submitted_toast", { id: segmentId }));
@@ -288,12 +297,48 @@ export async function enqueueReferenceVideoUnit(
   projectName: string,
   episode: number,
   unitId: string,
+  options: ReferenceGenerationRequestOptions = {},
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "reference_video", unitId, "reference_video")],
-    () => API.generateReferenceVideoUnit(projectName, episode, unitId),
+    () => API.generateReferenceVideoUnit(projectName, episode, unitId, options),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:reference_generate_queued"), "info");
   return { taskIds: [res.task_id], deduped: res.deduped };
+}
+
+/**
+ * 批量视频生成：一次请求走全有或全无准入，由服务端评估全部目标单元。
+ *
+ * 三种结局都是评估成功，只有 `admitted` 建了任务——`confirmation_required` 与
+ * `blocked` 一个任务也没建，故乐观占用标记随即整批回滚，由调用方按结论展示确认或缺口。
+ * 请求体省略 unit_ids 时（缺失即生成）目标集合由服务端决定，前端无从打标，此时不打标。
+ */
+export async function enqueueReferenceVideoBatch(
+  projectName: string,
+  episode: number,
+  payload: ReferenceBatchGenerateRequest,
+): Promise<ReferenceBatchAdmission> {
+  const unitIds = payload.unit_ids ?? [];
+  const marks = unitIds.map((unitId) =>
+    markResource(projectName, "reference_video", unitId, "reference_video"),
+  );
+  const res = await submit(
+    marks,
+    () => API.generateReferenceVideoBatch(projectName, episode, payload),
+    (admission, index) => {
+      if (admission.decision !== "admitted") return [];
+      const taskId = admission.task_ids_by_unit[unitIds[index]];
+      return taskId === undefined ? [] : [taskId];
+    },
+  );
+  if (res.decision === "admitted") {
+    notifyEnqueued(
+      res.deduped,
+      i18n.t("dashboard:reference_batch_queued", { count: res.task_ids.length }),
+      "info",
+    );
+  }
+  return res;
 }

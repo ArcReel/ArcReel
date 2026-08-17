@@ -9,11 +9,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import lib.project_manager as project_manager_module
+from lib.artifact_activation import ArtifactCurrencyResolver
+from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
-from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
@@ -43,15 +45,15 @@ async def _fake_create_backend(*args, **kwargs):
     return _FakeTextBackend(), "fake"
 
 
-def _img_bytes(fmt="JPEG"):
-    image = Image.new("RGB", (8, 8), (255, 0, 0))
+def _img_bytes(fmt="JPEG", color=(255, 0, 0)):
+    image = Image.new("RGB", (8, 8), color)
     buf = BytesIO()
     image.save(buf, format=fmt)
     return buf.getvalue()
 
 
 def _client(monkeypatch, tmp_path):
-    pm = ProjectManager(tmp_path / "projects")
+    pm = project_manager_module.ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.add_character("demo", "Alice", "desc")
@@ -225,6 +227,90 @@ class TestFilesRouter:
             assert project["props"]["玉佩"]["prop_sheet"] == "props/玉佩.jpg"
 
     @pytest.mark.unit
+    def test_formal_sheet_upload_registration_failure_restores_file_and_metadata(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            first = client.post(
+                "/api/v1/projects/demo/upload/character?name=Alice",
+                files={"file": ("alice.png", _img_bytes("PNG"), "image/png")},
+            )
+            assert first.status_code == 200, first.text
+
+            project_dir = pm.get_project_path("demo")
+            target = project_dir / first.json()["path"]
+            manifest = project_dir / ".arcreel_artifacts.json"
+            before = (target.read_bytes(), (project_dir / "project.json").read_bytes(), manifest.read_bytes())
+
+            def _fail(*_args, **_kwargs):
+                raise RuntimeError("injected manifest failure")
+
+            monkeypatch.setattr(files, "register_current_resource_artifact", _fail)
+            failed = client.post(
+                "/api/v1/projects/demo/upload/character?name=Alice",
+                files={"file": ("replacement.png", _img_bytes("PNG", (0, 0, 255)), "image/png")},
+            )
+
+            assert failed.status_code == 500
+            assert (target.read_bytes(), (project_dir / "project.json").read_bytes(), manifest.read_bytes()) == before
+
+    @pytest.mark.unit
+    def test_formal_sheet_upload_rechecks_a_definition_created_before_install(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        name = "Late Arrival"
+        project_dir = pm.get_project_path("demo")
+        relative_path = f"characters/{name}.png"
+        generated = _img_bytes("PNG", (10, 20, 30))
+        uploaded = _img_bytes("PNG", (40, 50, 60))
+        real_install = pm.install_asset_sheet_bytes
+        delegated = False
+
+        def _create_then_install(asset_type, project_name, asset_name, sheet_path, content, *, on_commit=None):
+            nonlocal delegated
+            assert delegated is False
+            delegated = True
+            pm.add_character("demo", name, "created while upload was waiting")
+            real_install(
+                "character",
+                "demo",
+                name,
+                relative_path,
+                generated,
+                on_commit=lambda _target: files.register_current_resource_artifact(
+                    project_dir,
+                    resource_type="characters",
+                    resource_id=name,
+                ),
+            )
+            return real_install(
+                asset_type,
+                project_name,
+                asset_name,
+                sheet_path,
+                content,
+                on_commit=on_commit,
+            )
+
+        monkeypatch.setattr(pm, "install_asset_sheet_bytes", _create_then_install)
+
+        with client:
+            response = client.post(
+                f"/api/v1/projects/demo/upload/character?name={name}",
+                files={"file": ("late.png", uploaded, "image/png")},
+            )
+
+        assert response.status_code == 200, response.text
+        assert delegated is True
+        assert (project_dir / relative_path).read_bytes() == uploaded
+        assert pm.load_project("demo")["characters"][name]["character_sheet"] == relative_path
+        key = ArtifactKey.asset_sheet("character", name)
+        entry = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert entry is not None
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=entry.artifact_path).status
+            is ArtifactStatus.CURRENT
+        )
+
+    @pytest.mark.unit
     def test_character_audio_ref_upload_success(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -236,6 +322,19 @@ class TestFilesRouter:
             assert resp.json()["path"] == "characters/refs_audio/Alice.wav"
             project = pm.load_project("demo")
             assert project["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.wav"
+
+    @pytest.mark.unit
+    def test_character_audio_ref_without_name_is_rejected_without_writing_an_orphan(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref",
+                files={"file": ("orphan.wav", _wav_bytes(3), "audio/wav")},
+            )
+
+            assert resp.status_code == 404
+            refs_dir = pm.get_project_path("demo") / "characters" / "refs_audio"
+            assert not refs_dir.exists() or not any(refs_dir.iterdir())
 
     @pytest.mark.unit
     def test_character_audio_ref_rejects_bad_extension(self, tmp_path, monkeypatch):
@@ -373,8 +472,8 @@ class TestFilesRouter:
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
 
     @pytest.mark.unit
-    def test_delete_character_reference_audio_preserves_pointer_on_unlink_failure(self, tmp_path, monkeypatch):
-        """物理删除失败（权限/IO 错误，含 Windows 文件占用）时保留字段指针，允许重试发现并清理该文件。"""
+    def test_delete_character_reference_audio_succeeds_when_cleanup_fails(self, tmp_path, monkeypatch):
+        """字段已提交清空后，物理删除失败只残留无引用文件，不应让请求误报失败。"""
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             upload = client.post(
@@ -394,6 +493,32 @@ class TestFilesRouter:
                 return original_unlink(self, *args, **kwargs)
 
             monkeypatch.setattr(Path, "unlink", _boom)
+
+            resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
+            assert resp.status_code == 200
+            assert pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == ""
+            assert audio_path.exists()
+
+    @pytest.mark.unit
+    def test_delete_character_reference_audio_preserves_file_when_project_commit_fails(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            upload = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("alice_voice.wav", _wav_bytes(3), "audio/wav")},
+            )
+            assert upload.status_code == 200
+            project_dir = pm.get_project_path("demo")
+            project_file = project_dir / "project.json"
+            audio_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
+            real_atomic_write = project_manager_module.atomic_write_json
+
+            def _fail_project_write(path, data):
+                if path == project_file:
+                    raise OSError("injected project write failure")
+                return real_atomic_write(path, data)
+
+            monkeypatch.setattr(project_manager_module, "atomic_write_json", _fail_project_write)
 
             resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
             assert resp.status_code == 500
@@ -824,6 +949,16 @@ class TestFilesRouter:
                 host_not_found_key="product_not_found",
             )
 
+        # 参考音频的元数据字段是文件唯一指针；清理旧文件的类型不能漏掉宿主存在性约束。
+        with pytest.raises(ValueError):
+            files.UploadSpec(
+                allowed_exts=(".wav",),
+                subdir=("x",),
+                naming="keep_ext",
+                content_check="audio",
+                tracks_stale_audio=True,
+            )
+
     @pytest.mark.integration
     def test_upload_rejects_oversized_payload_for_any_type(self, tmp_path, monkeypatch):
         """max_bytes 是通用请求体闸门：登记了上限的类型无论 content_check 为何都应拒收超限请求。"""
@@ -939,6 +1074,95 @@ class TestFilesRouter:
 
             unknown_draft = client.delete("/api/v1/projects/demo/drafts/9/step1")
             assert unknown_draft.status_code == 404
+
+    @pytest.mark.integration
+    def test_plain_step1_save_registers_active_manifest_and_rolls_back_on_registration_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+
+        def _activate(project: dict) -> None:
+            project["schema_version"] = 8
+            project["content_mode"] = "narration"
+            project["generation_mode"] = "storyboard"
+            project["episodes"] = [
+                {
+                    "episode": 1,
+                    "title": "第一集",
+                    "script_file": "scripts/episode_1.json",
+                    "ledger_status": "planned",
+                }
+            ]
+
+        pm.update_project("demo", _activate)
+        source = project_dir / "source" / "episode_1.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("第一集原文", encoding="utf-8")
+        content = json.dumps(
+            {
+                "episode": 1,
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "novel_text": "第一集原文",
+                        "duration_seconds": 6,
+                        "segment_break": False,
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+        with client:
+            response = client.put(
+                "/api/v1/projects/demo/drafts/1/step1",
+                content=content,
+                headers={"content-type": "text/plain"},
+            )
+        assert response.status_code == 200, response.text
+        draft_path = project_dir / response.json()["path"]
+        key = ArtifactKey.episode_step1(1)
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        entry = adapter.get_entry(key)
+        assert entry is not None
+        assert entry.artifact_path == draft_path.relative_to(project_dir).as_posix()
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=entry.artifact_path).status
+            is ArtifactStatus.CURRENT
+        )
+
+        draft_before = draft_path.read_bytes()
+        manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
+
+        def _fail_registration(*_args, **_kwargs):
+            raise RuntimeError("manifest unavailable")
+
+        with monkeypatch.context() as registration_patch:
+            registration_patch.setattr(
+                "lib.artifact_activation.register_current_artifact_if_provable",
+                _fail_registration,
+            )
+            with pytest.raises(RuntimeError, match="manifest unavailable"):
+                files._write_plain_draft(
+                    project_dir,
+                    1,
+                    draft_path,
+                    content.replace("第一集原文", "修改后原文"),
+                    lambda key, **_kwargs: key,
+                )
+
+        assert draft_path.read_bytes() == draft_before
+        assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
+
+        with client:
+            deleted = client.delete("/api/v1/projects/demo/drafts/1/step1")
+        assert deleted.status_code == 200, deleted.text
+        assert not draft_path.exists()
+        assert adapter.get_entry(key) is None
 
     @pytest.mark.unit
     def test_cache_control_immutable_with_version_param(self, tmp_path, monkeypatch):

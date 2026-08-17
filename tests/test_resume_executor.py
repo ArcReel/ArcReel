@@ -16,6 +16,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from lib.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
+from lib.narration_delivery import TtsSynthesisSettings
+from lib.reference_video.execution_checkpoint import (
+    NarrationExecutionFacts,
+    StagedProviderMedia,
+    StoryboardSubmissionCheckpoint,
+)
+from lib.version_manager import PaidVersionCommit
+from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_backends.base import ResumeExpiredError
 
 pytestmark = pytest.mark.unit
@@ -49,7 +58,20 @@ class _FakeGenerator:
         self.resume_calls.append(kwargs)
         if self.raises is not None:
             raise self.raises
-        output_path = kwargs["output_path"] if "output_path" in kwargs else Path(tempfile.gettempdir()) / "video.mp4"
+        output_path = kwargs.get("output_path") or Path(tempfile.gettempdir()) / "video.mp4"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"paid-resume-video")
+        prepare = kwargs.get("before_formal_commit")
+        if prepare is not None:
+            metadata = {
+                key: value
+                for key, value in kwargs.items()
+                if key.startswith("execution_") or key.startswith("artifact_")
+            }
+            await prepare(output_path, int(kwargs.get("duration_seconds") or 8), metadata)
+        commit = kwargs.get("commit_formal_output")
+        if commit is not None:
+            commit.outcome = PaidVersionCommit(version=3, selected=True)
         return output_path, 3, None, "video-uri-xyz"
 
     def get_versions(self, _resource_type: str, _resource_id: str) -> dict[str, Any]:
@@ -69,7 +91,7 @@ def fake_pm(tmp_path: Path) -> _FakeProjectManager:
 
 @pytest.fixture
 def video_task() -> dict[str, Any]:
-    return {
+    task = {
         "task_id": "T-1",
         "task_type": "video",
         "media_type": "video",
@@ -77,31 +99,127 @@ def video_task() -> dict[str, Any]:
         "resource_id": "E1S01",
         "provider_id": "openai",
         "provider_job_id": "openai-job-1",
+        "script_file": "episode_1.json",
         "payload": {"script_file": "episode_1.json", "prompt": "p"},
     }
+    task["execution_checkpoint_json"] = _storyboard_checkpoint_json()
+    return task
 
 
-def _fake_video_context(fake_generator: _FakeGenerator, *, endpoint: str | None = None):
+def _storyboard_checkpoint_json(
+    *,
+    task_id: str = "T-1",
+    provider_id: str = "openai",
+    provider_model_id: str = "sora-2",
+    backend_model_id: str = "sora-2",
+    endpoint_guard: str | None = None,
+) -> str:
+    media = StagedProviderMedia(
+        index=0,
+        role="start_image",
+        logical_type="storyboard",
+        logical_name="E1S01",
+        kind="first_frame",
+        source_locator="storyboards/scene_E1S01.png",
+        staged_locator=f".arcreel/tasks/{task_id}/provider_media/000-start_image.png",
+        sha256="a" * 64,
+        size_bytes=1,
+    )
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs={
+            "resource_id": "E1S01",
+            "visual_prompt": {"action": "Run.", "camera_motion": "Static"},
+            "canvas": {"aspect_ratio": "9:16"},
+            "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+        },
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 8},
+    )
+    return StoryboardSubmissionCheckpoint.create(
+        task_id=task_id,
+        project_name="demo",
+        script_file="episode_1.json",
+        unit_id="E1S01",
+        capability="i2v",
+        provider_id=provider_id,
+        provider_model_id=provider_model_id,
+        backend_model_id=backend_model_id,
+        endpoint_guard=endpoint_guard,
+        api_call_id=11,
+        prompt="p",
+        duration_seconds=8,
+        aspect_ratio="9:16",
+        resolution="720p",
+        generate_audio=True,
+        service_tier="default",
+        seed=None,
+        visual_basis_digest="b" * 64,
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=8,
+            visual_basis=visual,
+            speech_basis=speech,
+            duration_basis=duration,
+            video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+            voice_style_speakers=(),
+            duration_tiers=(8,),
+            reference_image_limit=None,
+            parent_version=0,
+        ),
+        narration=NarrationExecutionFacts(
+            delivery="post_production",
+            tts_status="not_applicable",
+            artifact_path="",
+            basis_digest=None,
+            actual_duration_seconds=None,
+        ),
+        media=(media,),
+        reference_audio_targets=None,
+    ).to_json()
+
+
+def _fake_video_context(
+    fake_generator: _FakeGenerator,
+    *,
+    endpoint: str | None = None,
+    provider_id: str = "openai",
+    provider_model_id: str = "sora-2",
+    backend_model_id: str = "sora-2",
+):
     """把 fake generator 包成 GenerationContext。
 
     video lane 必须声明：resume 除 generator 外还读 ``ctx.video.endpoint`` 做 endpoint 比对，
     与生产路径（``video=VideoLaneRequest()``）一致。
     """
     from lib.config.resolver import ProviderModel
-    from server.services.generation_context import GenerationContext, VideoLaneResult
+    from server.services.generation_context import AudioLaneResult, GenerationContext, VideoLaneResult
 
     return GenerationContext(
         generator=fake_generator,  # type: ignore[arg-type]
         video_lane=VideoLaneResult(
-            provider_model=ProviderModel("openai", "sora-2"),
+            provider_model=ProviderModel(provider_id, provider_model_id),
             backend_name="openai",
-            backend_model="sora-2",
+            backend_model=backend_model_id,
             resolution="720p",
             resolution_or_fallback="720p",
             supported_durations=(8,),
             max_duration=8,
             max_reference_images=None,
             endpoint=endpoint,
+        ),
+        audio_lane=AudioLaneResult(
+            provider_model=ProviderModel("dashscope", "tts-model"),
+            backend_name="dashscope",
+            backend_model="tts-model",
+            narration_voice="Cherry",
+            narration_speed=None,
+            voices=(),
         ),
     )
 
@@ -112,6 +230,9 @@ def _patch_resume_executor_deps(
     fake_generator: _FakeGenerator,
     *,
     endpoint: str | None = None,
+    provider_id: str = "openai",
+    provider_model_id: str = "sora-2",
+    backend_model_id: str = "sora-2",
 ) -> None:
     """同时 patch resume_executor 的 pm/generator 来源——它从 generation_tasks 顶层 re-import。"""
     from server.services import resume_executor
@@ -120,7 +241,15 @@ def _patch_resume_executor_deps(
     monkeypatch.setattr(
         resume_executor,
         "resolve_generation_context",
-        AsyncMock(return_value=_fake_video_context(fake_generator, endpoint=endpoint)),
+        AsyncMock(
+            return_value=_fake_video_context(
+                fake_generator,
+                endpoint=endpoint,
+                provider_id=provider_id,
+                provider_model_id=provider_model_id,
+                backend_model_id=backend_model_id,
+            )
+        ),
     )
     # finalize helpers 内部也通过 generation_tasks/reference_video_tasks 的 get_project_manager
     monkeypatch.setattr("server.services.generation_tasks.get_project_manager", lambda: fake_pm)
@@ -134,11 +263,35 @@ def _patch_resume_executor_deps(
     monkeypatch.setattr("server.services.reference_video_tasks.extract_video_thumbnail", _fake_thumb)
 
 
+def _with_storyboard_identity(
+    task: dict[str, Any],
+    *,
+    provider_id: str,
+    endpoint_guard: str | None,
+) -> dict[str, Any]:
+    return {
+        **task,
+        "provider_id": provider_id,
+        "execution_checkpoint_json": _storyboard_checkpoint_json(
+            provider_id=provider_id,
+            endpoint_guard=endpoint_guard,
+        ),
+    }
+
+
 @pytest.mark.asyncio
 async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, fake_pm, video_task):
     """resume_executor 调 generator.resume_video_async（间接走 backend.resume_video），而非 generate。"""
     from server.services.resume_executor import execute_resume_video_task
 
+    video_task["payload"].update(
+        {
+            "prompt": "stale enqueue prompt",
+            "duration_seconds": 12,
+            "video_provider_i2v": "grok/grok-imagine-video",
+        }
+    )
+    fake_pm.project.update({"default_duration": 12, "aspect_ratio": "16:9"})
     fake_gen = _FakeGenerator()
     _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen)
 
@@ -150,6 +303,22 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
     assert call["resource_type"] == "videos"
     assert call["resource_id"] == "E1S01"
     assert call["task_id"] == "T-1"
+    assert call["prompt"] == "p"
+    assert call["duration_seconds"] == 8
+    assert call["aspect_ratio"] == "9:16"
+    assert call["resolution"] == "720p"
+    assert call["generate_audio"] is True
+    assert call["formal_output"] is True
+    assert call["api_call_id"] == 11
+    assert call["execution_provider_id"] == "openai"
+    assert call["execution_provider_model_id"] == "sora-2"
+    assert call["execution_backend_model_id"] == "sora-2"
+    assert call["execution_visual_basis_digest"] == "b" * 64
+    checkpoint = StoryboardSubmissionCheckpoint.from_json(video_task["execution_checkpoint_json"])
+    assert checkpoint.artifact_visual_basis is not None
+    assert checkpoint.artifact_currency is not None
+    assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
+    assert call["execution_provider_media"][0]["source_locator"] == "storyboards/scene_E1S01.png"
     # 返回结果带 file_path / resource_type，供 worker mark_succeeded
     assert result["resource_type"] == "videos"
     assert result["file_path"] == "videos/scene_E1S01.mp4"
@@ -280,8 +449,52 @@ async def test_execute_resume_failure_does_not_emit(monkeypatch, fake_pm, video_
 
 
 @pytest.mark.asyncio
+async def test_execute_resume_releases_selection_guard_when_generator_fails_after_prepare(
+    monkeypatch,
+    fake_pm,
+    video_task,
+):
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    class _FailAfterPrepareGenerator(_FakeGenerator):
+        async def resume_video_async(self, **kwargs: Any) -> tuple[Path, int, Any, str | None]:
+            self.resume_calls.append(kwargs)
+            prepare = kwargs["before_formal_commit"]
+            await prepare(
+                Path(tempfile.gettempdir()) / "video.mp4",
+                int(kwargs["duration_seconds"]),
+                {"execution_script_file": kwargs["execution_script_file"]},
+            )
+            raise RuntimeError("commit failed after selection preparation")
+
+    class _GuardedCommitter:
+        instance: _GuardedCommitter | None = None
+
+        def __init__(self, **_kwargs: Any) -> None:
+            self.guard_active = False
+            type(self).instance = self
+
+        async def prepare_selection(self, *_args: Any, **_kwargs: Any) -> None:
+            self.guard_active = True
+
+        async def release_admission_guard(self) -> None:
+            self.guard_active = False
+
+    fake_gen = _FailAfterPrepareGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen)
+    monkeypatch.setattr(resume_executor, "VideoArtifactCommitter", _GuardedCommitter)
+
+    with pytest.raises(RuntimeError, match="commit failed after selection preparation"):
+        await execute_resume_video_task(video_task, job_id="openai-job-1")
+
+    assert _GuardedCommitter.instance is not None
+    assert not _GuardedCommitter.instance.guard_active
+
+
+@pytest.mark.asyncio
 async def test_execute_resume_accepts_float_string_duration(monkeypatch, fake_pm):
-    """payload.duration_seconds = \"8.0\"（浮点字符串）应被 int(float()) 兜底转 8，不应 ValueError。"""
+    """Resume ignores legacy payload duration and uses the strict checkpoint value."""
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -295,7 +508,9 @@ async def test_execute_resume_accepts_float_string_duration(monkeypatch, fake_pm
         "resource_id": "E1S01",
         "provider_id": "openai",
         "provider_job_id": "openai-job-1",
+        "script_file": "episode_1.json",
         "payload": {"script_file": "episode_1.json", "prompt": "p", "duration_seconds": "8.0"},
+        "execution_checkpoint_json": _storyboard_checkpoint_json(task_id="T-float"),
     }
     # 不应抛 ValueError
     result = await execute_resume_video_task(task, job_id="openai-job-1")
@@ -325,6 +540,310 @@ async def test_execute_resume_rejects_image_task(monkeypatch, fake_pm):
         await execute_resume_video_task(image_task, job_id="x")
 
 
+def _reference_checkpoint(
+    project_path: Path,
+    *,
+    endpoint_guard: str | None = None,
+    use_tts: bool = True,
+) -> str:
+    from lib.reference_video.execution_checkpoint import NarrationExecutionFacts, ReferenceSubmissionCheckpoint
+
+    staging = project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media"
+    staging.mkdir(parents=True, exist_ok=True)
+    (staging / "crash-leftover").write_bytes(b"staged")
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-reference",
+        kind_version=1,
+        inputs={
+            "unit_id": "E1U1",
+            "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+            "style": "cinematic",
+            "canvas": {"aspect_ratio": "16:9"},
+            "request_references": [],
+        },
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = ArtifactBasis.build(
+        "artifact-speech/video-duration",
+        kind_version=1,
+        inputs={"request_duration_seconds": 12},
+    )
+    return ReferenceSubmissionCheckpoint.create(
+        task_id="T-ref",
+        project_name="demo",
+        script_file="scripts/frozen.json",
+        unit_id="E1U1",
+        capability="r2v",
+        provider_id="custom-7",
+        provider_model_id="cinema-v1",
+        backend_model_id="cinema-v1-resolved",
+        endpoint_guard=endpoint_guard,
+        api_call_id=91,
+        prompt="frozen actual prompt",
+        duration_seconds=12,
+        aspect_ratio="16:9",
+        resolution="1080p",
+        generate_audio=False,
+        service_tier="pro",
+        seed=123,
+        visual_basis_digest="sha256-v1:" + "a" * 64,
+        artifact_currency=VideoArtifactCurrencyFacts(
+            episode=1,
+            request_duration_seconds=12,
+            visual_basis=visual,
+            speech_basis=speech,
+            duration_basis=duration,
+            video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+            voice_style_speakers=(),
+            duration_tiers=(12,),
+            reference_image_limit=3,
+            parent_version=0,
+        ),
+        narration=(
+            NarrationExecutionFacts(
+                delivery="use_tts",
+                tts_status="current",
+                artifact_path="audio/segment_E1U1.wav",
+                basis_digest="sha256-v1:" + "b" * 64,
+                actual_duration_seconds=10.5,
+            )
+            if use_tts
+            else NarrationExecutionFacts(
+                delivery="post_production",
+                tts_status="not_applicable",
+                artifact_path="",
+                basis_digest=None,
+                actual_duration_seconds=None,
+            )
+        ),
+        media=(),
+        reference_audio_targets=None,
+    ).to_json()
+
+
+@pytest.mark.asyncio
+async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_staging(monkeypatch, fake_pm):
+    from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    monkeypatch.setattr(resume_executor, "get_project_manager", lambda: fake_pm)
+    captured_context: dict[str, Any] = {}
+
+    async def _resolve(project_name: str, payload: dict, **kwargs: Any):
+        captured_context.update(project_name=project_name, payload=payload, kwargs=kwargs)
+        return _fake_video_context(
+            fake_gen,
+            endpoint="dashscope-async-video",
+            provider_id="custom-7",
+            provider_model_id="cinema-v1",
+            backend_model_id="cinema-v1-resolved",
+        )
+
+    monkeypatch.setattr(resume_executor, "resolve_generation_context", _resolve)
+    output_guard = AsyncMock()
+    monkeypatch.setattr(
+        "server.services.video_artifact_currency.validate_generated_video_covers_tts_duration",
+        output_guard,
+    )
+    monkeypatch.setattr(
+        "server.services.video_artifact_currency.CurrentTtsSettingsResolver.resolve_tts_synthesis_settings",
+        AsyncMock(return_value=TtsSynthesisSettings("dashscope", "tts-model", "Cherry", None)),
+    )
+    finalize = AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"})
+    monkeypatch.setattr(resume_executor, "_finalize_reference_video_unit", finalize)
+    monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
+    task = {
+        "task_id": "T-ref",
+        "task_type": "reference_video",
+        "media_type": "video",
+        "project_name": "demo",
+        "resource_id": "E1U1",
+        "script_file": "scripts/frozen.json",
+        "provider_id": "stale-provider",
+        "provider_job_id": "job-1",
+        "provider_endpoint": "stale-endpoint-column",
+        "submitted_base_url": "https://submitted.example/v1",
+        "execution_checkpoint_json": _reference_checkpoint(
+            fake_pm.project_path,
+            endpoint_guard="dashscope-async-video",
+        ),
+        "payload": {
+            "script_file": "scripts/current-wrong.json",
+            "prompt": "current wrong prompt",
+            "duration_seconds": 3,
+            "video_provider_r2v": "wrong/model",
+            "api_call_id": 999,
+            "resolution": "360p",
+            "generate_audio": True,
+        },
+    }
+
+    result = await execute_resume_video_task(task, job_id="job-1")
+
+    assert result["resource_type"] == "reference_videos"
+    assert captured_context["payload"] == {"video_provider_r2v": "custom-7/cinema-v1"}
+    assert captured_context["kwargs"]["video"].capability == "r2v"
+    call = fake_gen.resume_calls[0]
+    assert call["prompt"] == "frozen actual prompt"
+    assert call["duration_seconds"] == 12
+    assert call["aspect_ratio"] == "16:9"
+    assert call["resolution"] == "1080p"
+    assert call["generate_audio"] is False
+    assert call["service_tier"] == "pro"
+    assert call["seed"] == 123
+    assert call["api_call_id"] == 91
+    assert call["formal_output"] is True
+    assert call["submitted_base_url"] == "https://submitted.example/v1"
+    assert call["execution_prompt_sha256"]
+    checkpoint = ReferenceSubmissionCheckpoint.from_json(task["execution_checkpoint_json"])
+    assert call["execution_request_digest"] == checkpoint.request_digest
+    assert call["execution_provider_media"] == []
+    assert call["visual_basis_digest"] == checkpoint.visual_basis_digest
+    assert checkpoint.artifact_visual_basis is not None
+    assert checkpoint.artifact_currency is not None
+    assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
+    output_guard.assert_awaited_once_with(
+        resource_id="E1U1",
+        request_duration_seconds=12,
+        output_path=Path(tempfile.gettempdir()) / "video.mp4",
+        tts_actual_duration_seconds=10.5,
+    )
+    finalize.assert_awaited_once()
+    assert finalize.await_args.kwargs["script_file"] == "scripts/frozen.json"
+    assert not (fake_pm.project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media").exists()
+
+
+@pytest.mark.asyncio
+async def test_reference_resume_post_production_does_not_reproject_tts(monkeypatch, fake_pm):
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    monkeypatch.setattr(resume_executor, "get_project_manager", lambda: fake_pm)
+    monkeypatch.setattr(
+        resume_executor,
+        "resolve_generation_context",
+        AsyncMock(
+            return_value=_fake_video_context(
+                fake_gen,
+                provider_id="custom-7",
+                provider_model_id="cinema-v1",
+                backend_model_id="cinema-v1-resolved",
+            )
+        ),
+    )
+    output_guard = AsyncMock()
+    monkeypatch.setattr(
+        "server.services.video_artifact_currency.validate_generated_video_covers_tts_duration",
+        output_guard,
+    )
+    monkeypatch.setattr(
+        resume_executor,
+        "_finalize_reference_video_unit",
+        AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"}),
+    )
+    monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
+    task = {
+        "task_id": "T-ref",
+        "task_type": "reference_video",
+        "project_name": "demo",
+        "resource_id": "E1U1",
+        "script_file": "scripts/frozen.json",
+        "execution_checkpoint_json": _reference_checkpoint(fake_pm.project_path, use_tts=False),
+        "payload": {},
+    }
+
+    await execute_resume_video_task(task, job_id="job-1")
+
+    output_guard.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("checkpoint_endpoint", "current_endpoint"),
+    [(None, "openai-video"), ("openai-video", None), ("openai-video", "minimax-video")],
+)
+async def test_reference_resume_endpoint_guard_is_exact(
+    monkeypatch,
+    fake_pm,
+    checkpoint_endpoint: str | None,
+    current_endpoint: str | None,
+):
+    from lib.video_backends.base import ResumeEndpointChangedError
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    monkeypatch.setattr(resume_executor, "get_project_manager", lambda: fake_pm)
+    monkeypatch.setattr(
+        resume_executor,
+        "resolve_generation_context",
+        AsyncMock(
+            return_value=_fake_video_context(
+                fake_gen,
+                endpoint=current_endpoint,
+                provider_id="custom-7",
+                provider_model_id="cinema-v1",
+                backend_model_id="cinema-v1-resolved",
+            )
+        ),
+    )
+    task = {
+        "task_id": "T-ref",
+        "task_type": "reference_video",
+        "project_name": "demo",
+        "resource_id": "E1U1",
+        "script_file": "scripts/frozen.json",
+        "execution_checkpoint_json": _reference_checkpoint(fake_pm.project_path, endpoint_guard=checkpoint_endpoint),
+        "payload": {},
+    }
+
+    with pytest.raises(ResumeEndpointChangedError):
+        await execute_resume_video_task(task, job_id="job-1")
+
+    assert fake_gen.resume_calls == []
+    assert not (fake_pm.project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media").exists()
+
+
+@pytest.mark.asyncio
+async def test_reference_resume_rejects_resolved_model_drift_before_poll(monkeypatch, fake_pm):
+    from lib.reference_video.execution_checkpoint import ReferenceExecutionIdentityError
+    from server.services import resume_executor
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    monkeypatch.setattr(resume_executor, "get_project_manager", lambda: fake_pm)
+    monkeypatch.setattr(
+        resume_executor,
+        "resolve_generation_context",
+        AsyncMock(
+            return_value=_fake_video_context(
+                fake_gen,
+                provider_id="custom-7",
+                provider_model_id="cinema-v1",
+                backend_model_id="fallback-model",
+            )
+        ),
+    )
+    task = {
+        "task_id": "T-ref",
+        "task_type": "reference_video",
+        "project_name": "demo",
+        "resource_id": "E1U1",
+        "script_file": "scripts/frozen.json",
+        "execution_checkpoint_json": _reference_checkpoint(fake_pm.project_path),
+        "payload": {},
+    }
+
+    with pytest.raises(ReferenceExecutionIdentityError):
+        await execute_resume_video_task(task, job_id="job-1")
+
+    assert fake_gen.resume_calls == []
+    assert not (fake_pm.project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media").exists()
+
+
 # ── endpoint 比对闸 ──────────────────────────────────────────────
 
 
@@ -339,9 +858,9 @@ async def test_resume_fails_when_endpoint_changed(monkeypatch, fake_pm, video_ta
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
-    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="minimax-video")
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="minimax-video", provider_id="custom-7")
 
-    task = {**video_task, "provider_id": "custom-7", "provider_endpoint": "openai-video"}
+    task = _with_storyboard_identity(video_task, provider_id="custom-7", endpoint_guard="openai-video")
     with pytest.raises(ResumeEndpointChangedError) as exc_info:
         await execute_resume_video_task(task, job_id="custom-job-1")
 
@@ -357,26 +876,27 @@ async def test_resume_proceeds_when_endpoint_unchanged(monkeypatch, fake_pm, vid
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
-    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="openai-video")
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="openai-video", provider_id="custom-7")
 
-    task = {**video_task, "provider_id": "custom-7", "provider_endpoint": "openai-video"}
+    task = _with_storyboard_identity(video_task, provider_id="custom-7", endpoint_guard="openai-video")
     await execute_resume_video_task(task, job_id="custom-job-1")
 
     assert len(fake_gen.resume_calls) == 1
 
 
 @pytest.mark.asyncio
-async def test_resume_proceeds_when_endpoint_not_persisted(monkeypatch, fake_pm, video_task):
-    """存量任务未持久化 endpoint（列为 NULL）→ 无从比对，照常接续，不因新增列而回归。"""
+async def test_resume_rejects_builtin_checkpoint_when_current_backend_is_custom(monkeypatch, fake_pm, video_task):
+    """A null checkpoint guard means builtin submit and cannot be replayed through a custom protocol."""
+    from lib.video_backends.base import ResumeEndpointChangedError
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
     _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="minimax-video")
 
-    task = {**video_task, "provider_id": "custom-7", "provider_endpoint": None}
-    await execute_resume_video_task(task, job_id="custom-job-1")
+    with pytest.raises(ResumeEndpointChangedError):
+        await execute_resume_video_task(video_task, job_id="custom-job-1")
 
-    assert len(fake_gen.resume_calls) == 1
+    assert fake_gen.resume_calls == []
 
 
 @pytest.mark.asyncio
@@ -429,12 +949,62 @@ async def test_resume_does_not_replay_endpoint_id_for_custom(monkeypatch, fake_p
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
-    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="openai-video")
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="openai-video", provider_id="custom-7")
 
-    task = {**video_task, "provider_id": "custom-7", "provider_endpoint": "openai-video"}
+    task = _with_storyboard_identity(video_task, provider_id="custom-7", endpoint_guard="openai-video")
+    task["provider_endpoint"] = "openai-video"
     await execute_resume_video_task(task, job_id="custom-job-1")
 
     assert fake_gen.resume_calls[0]["submitted_base_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_resume_replays_submitted_base_url_for_custom(monkeypatch, fake_pm, video_task):
+    """自定义供应商：域名落在专列，在途改 base_url 后续跑仍按提交时的域名轮询。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(
+        monkeypatch,
+        fake_pm,
+        fake_gen,
+        endpoint="dashscope-async-video",
+        provider_id="custom-7",
+    )
+
+    task = {
+        **_with_storyboard_identity(
+            video_task,
+            provider_id="custom-7",
+            endpoint_guard="dashscope-async-video",
+        ),
+        "provider_endpoint": "dashscope-async-video",
+        "submitted_base_url": "https://custom-a.example.com/api/v1",
+    }
+    await execute_resume_video_task(task, job_id="custom-job-1")
+
+    assert fake_gen.resume_calls[0]["submitted_base_url"] == "https://custom-a.example.com/api/v1"
+
+
+@pytest.mark.asyncio
+async def test_resume_fails_when_custom_endpoint_changed_even_with_base_url(monkeypatch, fake_pm, video_task):
+    """协议标识不一致仍显式失败——域名回放不为换协议的续跑开口子。"""
+    from lib.video_backends.base import ResumeEndpointChangedError
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="minimax-video")
+
+    task = {
+        **video_task,
+        "provider_id": "custom-7",
+        "provider_endpoint": "dashscope-async-video",
+        "submitted_base_url": "https://custom-a.example.com/api/v1",
+    }
+    with pytest.raises(ResumeEndpointChangedError):
+        await execute_resume_video_task(task, job_id="custom-job-1")
+
+    assert fake_gen.resume_calls == []
 
 
 @pytest.mark.asyncio
@@ -449,6 +1019,28 @@ async def test_resume_ignores_endpoint_id_left_by_provider_switch(monkeypatch, f
     _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
 
     task = {**video_task, "provider_id": "dashscope", "provider_endpoint": "openai-video"}
+    await execute_resume_video_task(task, job_id="dashscope-job-1")
+
+    assert fake_gen.resume_calls[0]["submitted_base_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_resume_ignores_custom_domain_left_by_provider_switch(monkeypatch, fake_pm, video_task):
+    """同一跨类切换下专列里的自定义域名同样不回放：当下是内置供应商，只认 ``provider_endpoint``。
+
+    拿另一个供应商的域名配内置凭据轮询，只会把可归因的 404 换成认证或连接错误。
+    """
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
+
+    task = {
+        **video_task,
+        "provider_id": "dashscope",
+        "provider_endpoint": "dashscope-async-video",
+        "submitted_base_url": "https://custom-a.example.com/api/v1",
+    }
     await execute_resume_video_task(task, job_id="dashscope-job-1")
 
     assert fake_gen.resume_calls[0]["submitted_base_url"] is None

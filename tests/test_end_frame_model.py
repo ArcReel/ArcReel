@@ -104,11 +104,11 @@ def _seed_project(tmp_path, content_mode: str) -> ProjectManager:
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
     if content_mode == "narration":
-        script = {"segments": [{"segment_id": "E1S01", "novel_text": "t", "duration_seconds": 5}]}
+        script = {"segments": [_narration_segment().model_dump(mode="json")]}
     elif content_mode == "drama":
-        script = {"scenes": [{"scene_id": "E1S01", "duration_seconds": 5}]}
+        script = {"scenes": [_drama_scene().model_dump(mode="json")]}
     else:
-        script = {"shots": [{"shot_id": "E1S01", "section": "hook", "voiceover_text": "v", "duration_seconds": 3}]}
+        script = {"shots": [_ad_shot().model_dump(mode="json")]}
     pm.save_script(
         "demo",
         {"episode": 1, "title": "E1", "content_mode": content_mode, **script},

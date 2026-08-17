@@ -31,7 +31,7 @@
 
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/图片编辑/集脚本/规范化剧本/说书片段拆分/参考视频单元拆分/分集规划与重置/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
 - **图片编辑 vs 重新生成**：审核检查点用户只想改设计图/分镜图的局部（换色、去杂物、调光线等）时用 `edit_images`——保底图微调、不改 `description`/`image_prompt`；用户想推翻构图整体重来、或本来就要改 description/image_prompt 时仍用对应的 `generate_*` 工具重新生成。用户脱离生成流程直接说「把某某改一下」时也可直接调 `edit_images`，不依赖处于哪个工作流步骤。
-- **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——剧本改字段用 `patch_episode_script`（batch-native：传 `{分镜id: {字段路径: 值}}` 映射，单次调用改多分镜 × 多字段，单条编辑写成长度 1 的 map；all-or-nothing 原子，任一编辑非法则整批不落盘、错误会指出出错的分镜 id 与字段（结构校验类错误按字段路径报告）；批量编辑前先 Read 该剧本确认现状），改分集标题用 `patch_episode_meta`，增/删/拆分镜用 `insert_segment` / `remove_segment` / `split_segment`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
+- **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script_revision`，再把其 revision 原样作为 `patch_episode_script` 的 `expected_revision`，并传有序 `operations[]`（`update` / `insert_after` / `move_after` / `remove`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，增/删/拆分镜的便捷工具也委托同一事务编辑器；角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `compose-video` skill 内还保留的 Python 脚本。
 - **敏感文件保护**：`.env` / `vertex_keys/` / `.system_config.json*` / `.arcreel.db*` / `.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
@@ -83,7 +83,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 ```
 主 Agent（编排层 — 极轻量）
   │  只持有：项目状态摘要 + 用户对话历史
-  │  职责：状态检测、流程决策、用户确认、dispatch subagent
+  │  职责：查服务端计划、按受控动作决策、用户确认、dispatch subagent
   │
   ├─ dispatch → analyze-assets               全局角色/场景/道具提取
   ├─ dispatch → split-narration-segments     说书模式片段拆分
@@ -116,37 +116,41 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 | Skill | 触发命令 | 功能 |
 |-------|---------|------|
-| manga-workflow | `/manga-workflow` | 编排 skill：状态检测 + subagent dispatch + 用户确认 |
+| video-workflow | `/video-workflow` | 编排 skill：查计划 + subagent dispatch + 用户确认 |
 | manage-project | — | 项目管理工具集：角色/场景/道具批量写入、项目 settings 与概述编辑 |
 | generate-script | — | 调用项目配置的文本模型生成 JSON 剧本（由 subagent 调用） |
 | generate-assets | `/generate-assets` | 统一资产生成：可指定 `type=character\|scene\|prop`，省略则三类并行 |
 | generate-storyboard | `/generate-storyboard` | 生成分镜图片（storyboard 模式） |
 | generate-grid | `/generate-grid` | 生成宫格分镜图（`grid_storyboard=true` 时：按 segment_break 分组的链式宫格） |
 | generate-video | `/generate-video` | 生成视频 |
-| compose-video | `/compose-video` | 视频后期合成（BGM、片头片尾、多集拼接，ffmpeg） |
+| compose-video | `/compose-video` | 单集片段串接 + 可选 BGM（仅 drama，ffmpeg） |
 
 ## 快速开始
 
-新用户请使用 `/manga-workflow` 开始完整的视频创作流程。
+新用户请使用 `/video-workflow` 开始完整的视频创作流程。
 
 ## 工作流程概览
 
-`/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
+`/video-workflow` 编排 skill 按服务端计划推进（每个动作完成后等待用户确认）。**步骤表不在这里，
+也不在 skill 里**：调用 `mcp__arcreel__get_workflow_plan` 取回 `steps[]` 与唯一的 `next_action`，
+照它路由。六种模式组合的步骤适用性、受控动作表、旁白交付、批量准入与状态轴读法见
+`.claude/references/workflow-plan.md`。
 
-1. **项目设置**：创建项目（创建时确定 `content_mode` 与 `generation_mode`，之后均不可变）、上传小说、生成项目概述。用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；要求改宫格装配（`grid_storyboard`）时指引用户前往设置页操作，agent 无对应写入权限；该开关只影响后续生成，已生成的分镜图不会自动失效，须显式重新生成对应分镜才会按新装配方式出图
-2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
-3. **分集规划** → 主 agent 调用 `mcp__arcreel__plan_episodes` 服务端工具规划一批集（账本+派生集文件由工具维护）+ 批级审阅。用户对已规划内容提出调整意见时走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning` 退回到意见中最早受影响的集（保留其前的集），再带调整后的 `instructions` 分批重新调用 `plan_episodes`。用户表达常驻分集偏好（如按章节对齐切分）时，须经 `plan_episodes` 的 `instructions` 传入，并在规划完成前**每一批调用都重复带上**（偏好不持久化）；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
-4. **单集预处理** → 按项目 `generation_mode` × `content_mode` 选（中间文件统一位于 `drafts/episode_{N}/`）：
-   - reference_video（任一 content_mode）→ `split-reference-video-units`（产出 `step1_reference_units.json`）
-   - storyboard + narration → `split-narration-segments`（产出 `step1_segments.json`）
-   - storyboard + drama → `normalize-drama-script`（产出结构化内容 `step1_normalized_script.json`）
-5. **JSON 剧本生成** → dispatch `create-episode-script` subagent；中间文件被修改/重拆后必须重新执行本阶段
-6. **资产设计（character/scene/prop 三类并行）** → dispatch `generate-assets` subagent
-7. **分镜图生成**：仅 `storyboard` 模式（`grid_storyboard=true` 时生成宫格图）；`reference_video` 跳过 → dispatch `generate-assets` subagent
-8. **视频生成** → dispatch `generate-assets` subagent（脚本自动按 video_units/segments/scenes 分派）
+需要在这里说清、不由计划表达的几条：
 
-工作流支持**灵活入口**：状态检测自动定位到第一个未完成的阶段，支持中断后恢复。
-视频生成完成后，用户可在 Web 端导出为剪映草稿。
+- 生成路线（storyboard ↔ reference_video）创建后不可更改，无绕过方式；宫格装配（`grid_storyboard`）
+  由用户在设置页开关，agent 无写入权限。该开关只影响后续生成，已生成的分镜图不会自动失效，
+  须显式重新生成对应分镜才会按新装配方式出图
+- 分集规划的常驻偏好（如按章节对齐切分）不持久化，须经 `plan_episodes` 的 `instructions` 在**每一批
+  调用上重复带上**；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
+- 预处理中间文件被修改 / 重拆后必须重新生成剧本 JSON，剧本不会自动跟随中间文件更新
+- `reference_video` **只跳过分镜图**，不跳过 audio：旁白交付选择在两条路线上都要逐次做
+- 批量旁白配音由用户显式要求触发，不由 `next_action` 驱动
+
+工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，支持中断后恢复。
+视频生成完成后，用户可在 Web 端导出为剪映草稿——声音归属与字幕时序由服务端 presentation 结果决定，
+预览、下载与剪映草稿消费同一份；agent 不自行估算字幕时序、不静音 provider 原音、
+也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。
 
 ## 关键原则
 

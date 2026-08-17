@@ -1,0 +1,14 @@
+{
+  "title": {
+    "message": "ArcReel",
+    "description": "The title in the navbar"
+  },
+  "logo.alt": {
+    "message": "ArcReel",
+    "description": "The alt text of navbar logo"
+  },
+  "item.label.GitHub 仓库": {
+    "message": "GitHub Repository",
+    "description": "Navbar item with label GitHub 仓库"
+  }
+}

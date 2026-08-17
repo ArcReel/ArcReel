@@ -428,7 +428,7 @@ def test_valid_content_modes_constant() -> None:
 def _make_profile(tmp_path: Path) -> Path:
     """构造典型 profile：通用文件 + narration/drama/ad 变体配对。"""
     profile = tmp_path / "profile"
-    (profile / ".claude" / "skills" / "manga-workflow").mkdir(parents=True)
+    (profile / ".claude" / "skills" / "video-workflow").mkdir(parents=True)
     (profile / ".claude" / "agents").mkdir(parents=True)
     # 通用文件
     (profile / ".claude" / "agents" / "generate-assets.md").write_text("common")
@@ -437,9 +437,9 @@ def _make_profile(tmp_path: Path) -> Path:
     (profile / "CLAUDE.drama.md").write_text("drama top")
     (profile / "CLAUDE.ad.md").write_text("ad top")
     # SKILL.md 变体配对
-    (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.narration.md").write_text("nar skill")
-    (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.drama.md").write_text("dra skill")
-    (profile / ".claude" / "skills" / "manga-workflow" / "SKILL.ad.md").write_text("ad skill")
+    (profile / ".claude" / "skills" / "video-workflow" / "SKILL.narration.md").write_text("nar skill")
+    (profile / ".claude" / "skills" / "video-workflow" / "SKILL.drama.md").write_text("dra skill")
+    (profile / ".claude" / "skills" / "video-workflow" / "SKILL.ad.md").write_text("ad skill")
     return profile
 
 
@@ -452,7 +452,7 @@ def test_resolve_for_narration_picks_narration_variants(tmp_path: Path) -> None:
     assert mapping == {
         "CLAUDE.md": "CLAUDE.narration.md",
         ".claude/agents/generate-assets.md": ".claude/agents/generate-assets.md",
-        ".claude/skills/manga-workflow/SKILL.md": ".claude/skills/manga-workflow/SKILL.narration.md",
+        ".claude/skills/video-workflow/SKILL.md": ".claude/skills/video-workflow/SKILL.narration.md",
     }
 
 
@@ -462,7 +462,7 @@ def test_resolve_for_drama_picks_drama_variants(tmp_path: Path) -> None:
     profile = _make_profile(tmp_path)
     mapping = resolve_profile_files_for_mode(profile, "drama")
 
-    assert mapping[".claude/skills/manga-workflow/SKILL.md"] == ".claude/skills/manga-workflow/SKILL.drama.md"
+    assert mapping[".claude/skills/video-workflow/SKILL.md"] == ".claude/skills/video-workflow/SKILL.drama.md"
     assert mapping["CLAUDE.md"] == "CLAUDE.drama.md"
 
 
@@ -473,7 +473,7 @@ def test_resolve_for_ad_picks_ad_variants(tmp_path: Path) -> None:
     mapping = resolve_profile_files_for_mode(profile, "ad")
 
     assert mapping["CLAUDE.md"] == "CLAUDE.ad.md"
-    assert mapping[".claude/skills/manga-workflow/SKILL.md"] == ".claude/skills/manga-workflow/SKILL.ad.md"
+    assert mapping[".claude/skills/video-workflow/SKILL.md"] == ".claude/skills/video-workflow/SKILL.ad.md"
 
 
 def test_repo_profile_resolves_for_every_content_mode() -> None:
@@ -484,7 +484,7 @@ def test_repo_profile_resolves_for_every_content_mode() -> None:
     for mode in sorted(VALID_CONTENT_MODES):
         mapping = resolve_profile_files_for_mode(repo_profile, mode)  # type: ignore[arg-type]
         assert mapping["CLAUDE.md"] == f"CLAUDE.{mode}.md"
-        assert mapping[".claude/skills/manga-workflow/SKILL.md"] == f".claude/skills/manga-workflow/SKILL.{mode}.md"
+        assert mapping[".claude/skills/video-workflow/SKILL.md"] == f".claude/skills/video-workflow/SKILL.{mode}.md"
 
 
 def test_sync_ad_project_writes_ad_variant(tmp_path: Path) -> None:
@@ -497,7 +497,7 @@ def test_sync_ad_project_writes_ad_variant(tmp_path: Path) -> None:
     sync_profile_to_project(profile, project, content_mode="ad")
 
     assert (project / "CLAUDE.md").read_text() == "ad top"
-    assert (project / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "ad skill"
+    assert (project / ".claude" / "skills" / "video-workflow" / "SKILL.md").read_text() == "ad skill"
     assert not (project / "CLAUDE.ad.md").exists()
 
 
@@ -631,7 +631,7 @@ def test_sync_narration_project_writes_narration_variant(tmp_path: Path) -> None
     sync_profile_to_project(profile, project, content_mode="narration")
 
     assert (project / "CLAUDE.md").read_text() == "narration top"
-    assert (project / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "nar skill"
+    assert (project / ".claude" / "skills" / "video-workflow" / "SKILL.md").read_text() == "nar skill"
     assert not (project / "CLAUDE.narration.md").exists()
     assert not (project / "CLAUDE.drama.md").exists()
 
@@ -730,6 +730,148 @@ def test_force_resync_full_uses_mapping(tmp_path: Path) -> None:
     assert (project / "CLAUDE.md").read_text() == "drama top"
 
 
+@pytest.mark.parametrize("mode", ["narration", "drama", "ad"])
+def test_variants_to_common_upgrade_preserves_modified_legacy_files_and_reports_them(tmp_path: Path, mode: str) -> None:
+    from lib.profile_manifest import get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode=mode)  # type: ignore[arg-type]
+    old_agent = project / ".claude" / "agents" / "generate-assets.md"
+    old_agent.write_text("user customized legacy agent", encoding="utf-8")
+
+    for path in profile.glob("CLAUDE.*.md"):
+        path.unlink()
+    workflow = profile / ".claude" / "skills" / "video-workflow"
+    for path in workflow.glob("SKILL.*.md"):
+        path.unlink()
+    (profile / "CLAUDE.md").write_text("common top", encoding="utf-8")
+    (workflow / "SKILL.md").write_text("common skill", encoding="utf-8")
+    (profile / ".claude" / "agents" / "generate-assets.md").unlink()
+    references = profile / ".claude" / "references"
+    references.mkdir()
+    for variant in ("narration", "drama", "ad"):
+        (references / f"workflow-mode.{variant}.md").write_text(variant, encoding="utf-8")
+
+    sync_profile_to_project(profile, project, content_mode=mode)  # type: ignore[arg-type]
+
+    assert (project / "CLAUDE.md").read_text(encoding="utf-8") == "common top"
+    assert (project / ".claude" / "skills" / "video-workflow" / "SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "common skill"
+    assert (project / ".claude" / "references" / "workflow-mode.md").read_text(encoding="utf-8") == mode
+    assert old_agent.read_text(encoding="utf-8") == "user customized legacy agent"
+    assert get_profile_status(profile, project, content_mode=mode) == {  # type: ignore[arg-type]
+        "customized": True,
+        "customized_files": [".claude/agents/generate-assets.md"],
+    }
+
+
+def test_full_force_reset_discards_all_customized_files_and_restores_builtin(tmp_path: Path) -> None:
+    from lib.profile_manifest import force_resync_profile, get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode="narration")
+    (project / "CLAUDE.md").write_text("custom", encoding="utf-8")
+    user_only = project / ".claude" / "skills" / "private" / "SKILL.md"
+    user_only.parent.mkdir(parents=True)
+    user_only.write_text("private", encoding="utf-8")
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": [".claude/skills/private/SKILL.md", "CLAUDE.md"],
+    }
+
+    force_resync_profile(profile, project, content_mode="narration")
+
+    assert (project / "CLAUDE.md").read_text(encoding="utf-8") == "narration top"
+    assert not user_only.exists()
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": False,
+        "customized_files": [],
+    }
+
+
+def test_profile_status_reports_user_deletion_before_next_sync(tmp_path: Path) -> None:
+    from lib.profile_manifest import get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode="narration")
+    (project / "CLAUDE.md").unlink()
+
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": ["CLAUDE.md"],
+    }
+
+
+def test_profile_status_reports_newly_projected_file_missing_from_manifest(tmp_path: Path) -> None:
+    from lib.profile_manifest import get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode="narration")
+    (profile / ".claude" / "agents" / "new.md").write_text("new built-in", encoding="utf-8")
+
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": [".claude/agents/new.md"],
+    }
+
+
+@pytest.mark.parametrize("manifest_payload", [None, "{invalid"])
+def test_profile_status_reports_missing_builtins_without_trusted_manifest(
+    tmp_path: Path, manifest_payload: str | None
+) -> None:
+    from lib.profile_manifest import get_profile_status
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    if manifest_payload is not None:
+        (project / MANIFEST_FILENAME).write_text(manifest_payload, encoding="utf-8")
+
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": [
+            ".claude/agents/generate-assets.md",
+            ".claude/skills/video-workflow/SKILL.md",
+            "CLAUDE.md",
+        ],
+    }
+
+
+def test_profile_status_reports_nested_directory_symlink(tmp_path: Path) -> None:
+    from lib.profile_manifest import get_profile_status, sync_profile_to_project
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    sync_profile_to_project(profile, project, content_mode="narration")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    custom = project / ".claude" / "skills" / "custom"
+    custom.symlink_to(outside, target_is_directory=True)
+
+    assert get_profile_status(profile, project, content_mode="narration") == {
+        "customized": True,
+        "customized_files": [".claude/skills/custom"],
+    }
+
+
+def test_profile_status_rejects_symlinked_profile_tree(tmp_path: Path) -> None:
+    from lib.profile_manifest import get_profile_status
+
+    profile = _make_profile(tmp_path)
+    project = _fresh_project(tmp_path / "proj_root")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.md").write_text("secret", encoding="utf-8")
+    (project / ".claude").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="profile tree is a symlink"):
+        get_profile_status(profile, project, content_mode="narration")
+
+
 def test_force_resync_invalid_mode_raises(tmp_path: Path) -> None:
     from lib.profile_manifest import force_resync_profile
 
@@ -758,7 +900,7 @@ def test_create_project_with_drama_mode_materializes_drama_variant(
     pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
     project_dir = pm.create_project("demo", content_mode="drama")
     assert (project_dir / "CLAUDE.md").read_text() == "drama top"
-    assert (project_dir / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "dra skill"
+    assert (project_dir / ".claude" / "skills" / "video-workflow" / "SKILL.md").read_text() == "dra skill"
 
 
 def test_create_project_default_is_narration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

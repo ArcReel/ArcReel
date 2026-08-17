@@ -15,9 +15,12 @@ import logging
 from collections.abc import Callable, Sequence
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from lib.api_errors import ApiError
+from lib.generation_queue import ActiveTaskRequestConflict
 from lib.generation_queue_client import TaskSpecValidationError
 from lib.i18n import get_translator
 from lib.script_editor import ScriptEditError
@@ -89,10 +92,36 @@ def register_error_handlers(
         _t = get_translator(request)
         return JSONResponse(status_code=exc.status_code, content={"detail": _t(exc.key, **exc.params)})
 
+    @app.exception_handler(RequestValidationError)
+    async def _handle_request_validation(request: Request, exc: RequestValidationError) -> JSONResponse:
+        _t = get_translator(request)
+        error_types = {error["type"] for error in exc.errors()}
+        if "assistant_image_too_large" in error_types:
+            return JSONResponse(status_code=422, content={"detail": _t("assistant_image_too_large")})
+        if "assistant_images_total_too_large" in error_types:
+            return JSONResponse(status_code=422, content={"detail": _t("assistant_images_total_too_large")})
+        return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
+
     @app.exception_handler(TaskSpecValidationError)
     async def _handle_task_spec_error(request: Request, exc: TaskSpecValidationError) -> JSONResponse:
         _t = get_translator(request)
         return JSONResponse(status_code=400, content={"detail": _t(exc.code, **exc.params)})
+
+    @app.exception_handler(ActiveTaskRequestConflict)
+    async def _handle_active_task_request_conflict(
+        request: Request,
+        exc: ActiveTaskRequestConflict,
+    ) -> JSONResponse:
+        _t = get_translator(request)
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": _t(
+                    "video_request_conflicts_with_active_task",
+                    resource_id=exc.resource_id,
+                )
+            },
+        )
 
     @app.exception_handler(ScriptEditError)
     async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:

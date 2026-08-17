@@ -2,8 +2,8 @@
 
 import pytest
 
+from lib import prompt_builders_ad as ad_prompts
 from lib.prompt_builders_ad import _shot_duration_constraint, build_ad_prompt, nearest_ad_tier
-from lib.script_models import REFERENCE_SHOT_DURATION_RANGE
 from lib.speech_rate import speech_rate_units_per_second
 
 pytestmark = pytest.mark.unit
@@ -118,11 +118,27 @@ class TestDurationConstraint:
         with pytest.raises(ValueError):
             _build(generation_mode="storyboard", supported_durations=None)
 
-    def test_reference_path_allows_free_integers_1_to_15(self):
-        constraint = _shot_duration_constraint("reference_video", None)
-        low, high = REFERENCE_SHOT_DURATION_RANGE
-        assert str(low) in constraint
-        assert str(high) in constraint
+    def test_reference_path_cannot_use_storyboard_prompt(self):
+        with pytest.raises(ValueError, match="build_ad_reference_prompt"):
+            _shot_duration_constraint("reference_video", None)
+
+    def test_reference_prompt_injects_structural_duration_range(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(ad_prompts, "REFERENCE_UNIT_DURATION_RANGE", (7, 91))
+
+        prompt = ad_prompts.build_ad_reference_prompt(
+            project_overview={},
+            style="实拍",
+            style_description="真实质感",
+            characters={},
+            scenes={},
+            props={},
+            products={},
+            brief="通用短片",
+            target_duration=30,
+        )
+
+        assert '"duration_seconds": 7' in prompt
+        assert "取 7-91 的整数" in prompt
 
 
 class TestEpisodeConstraint:

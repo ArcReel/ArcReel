@@ -1,24 +1,24 @@
 ## ADDED Requirements
 
-### Requirement: manga-workflow 编排 skill 须具备项目状态检测能力
+### Requirement: video-workflow 编排 skill 须按服务端权威计划路由
 
-manga-workflow skill 被加载后，SHALL 自动检测当前项目的工作流状态，基于 project.json 和文件系统判断当前所处阶段。
+video-workflow skill 被加载后，SHALL 调用 `mcp__arcreel__get_workflow_plan` 取得权威计划，按 `next_action` 决定下一步，不自行读 project.json 或探测文件系统推断阶段。
 
-#### Scenario: 新项目无角色 / 场景 / 道具
-- **WHEN** project.json 中 characters、scenes、props 均为空
-- **THEN** 编排 skill 判定当前阶段为"全局资产设计"，指引主 agent dispatch `analyze-assets` subagent
+#### Scenario: 计划交回资产分析动作
+- **WHEN** `next_action.type == "analyze_assets"`
+- **THEN** 编排 skill 指引主 agent dispatch `analyze-assets` subagent，不另行判断角色是否为空
 
-#### Scenario: 已有角色但无 drafts 中间文件
-- **WHEN** project.json 中 characters 非空，但 `drafts/episode_{N}/` 目录不存在或为空
-- **THEN** 编排 skill 判定当前阶段为"单集预处理"，指引主 agent dispatch 对应模式的预处理 subagent
+#### Scenario: 计划交回单集预处理动作
+- **WHEN** `next_action.type == "prepare_step1"`
+- **THEN** 编排 skill 按 `next_action.args.preprocessor` dispatch 对应的预处理 subagent，不按内容模式与生成路线自己推
 
-#### Scenario: 已有 drafts 但无 scripts
-- **WHEN** `drafts/episode_{N}/` 中间文件存在，但 `scripts/episode_{N}.json` 不存在
-- **THEN** 编排 skill 判定当前阶段为"JSON 剧本生成"，指引主 agent dispatch `create-episode-script` subagent
+#### Scenario: 计划交回剧本生成动作
+- **WHEN** `next_action.type == "generate_script"`
+- **THEN** 编排 skill 指引主 agent dispatch `create-episode-script` subagent，不按 `scripts/` 下是否有文件自行判定
 
-#### Scenario: 已有 scripts 但缺少资产
-- **WHEN** `scripts/episode_{N}.json` 存在，但 characters/ 或 storyboards/ 或 videos/ 中有缺失资产
-- **THEN** 编排 skill 判定当前阶段为"资产生成"，指引主 agent dispatch 对应的资产生成 subagent
+#### Scenario: 计划报出 blockers
+- **WHEN** `blockers` 非空或 `next_action.type == "none"`
+- **THEN** 编排 skill 向用户展示 blockers 并停止一切变更，不入队任何任务
 
 ### Requirement: 编排 skill 须定义阶段间的 dispatch 和确认协议
 
@@ -38,19 +38,19 @@ manga-workflow skill 被加载后，SHALL 自动检测当前项目的工作流�
 
 ### Requirement: 编排 skill 须支持灵活入口点
 
-manga-workflow SHALL 支持从任意阶段开始执行，而非强制从头开始。
+video-workflow SHALL 支持从任意阶段开始执行，而非强制从头开始。
 
 #### Scenario: 用户只想做角色设计
 - **WHEN** 用户请求"分析小说角色"但不需要创建剧本
 - **THEN** 主 agent 只 dispatch `analyze-assets` subagent，完成后不自动进入下一阶段
 
 #### Scenario: 用户已有角色想直接创建剧本
-- **WHEN** project.json 中已有角色 / 场景 / 道具定义，用户请求创建某集剧本
-- **THEN** 编排 skill 跳过资产提取阶段，直接进入单集预处理阶段
+- **WHEN** 用户请求创建某集剧本，计划的 `next_action.type` 已越过 `analyze_assets`
+- **THEN** 编排 skill 从计划交回的动作开始，不重跑资产提取
 
 #### Scenario: 用户想续做上次中断的工作
-- **WHEN** 用户运行 /manga-workflow，项目有部分完成的工作
-- **THEN** 编排 skill 通过状态检测自动定位到上次中断的阶段，从该阶段继续
+- **WHEN** 用户运行 /video-workflow，项目有部分完成的工作
+- **THEN** 编排 skill 以计划交回的 `next_action` 为准继续，不自行定位阶段
 
 ### Requirement: 编排 skill 须正确传递上下文给 subagent
 

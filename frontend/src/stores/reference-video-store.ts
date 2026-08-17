@@ -42,7 +42,7 @@ interface ReferenceVideoStore {
 }
 
 // 每个 cache key 上最新一次 loadUnits 的序号：`loadUnits` 有多个入口（画布 effect 随
-// 项目/剧集/任务完成失效重跑、重新派生后重拉、手动重试），同一 key 上可能有多个请求并发
+// 项目/剧集/任务完成失效重跑、单元写入后重拉、手动重试），同一 key 上可能有多个请求并发
 // 在途。没有这道校验时，先发后到的旧响应会盖掉新响应里已经生成的成片，界面停在「无成片」
 // 直到下一次失效。响应落定时序号已被更新的请求接管即丢弃，只让最新一次写回。
 const _loadSeqByKey = new Map<string, number>();

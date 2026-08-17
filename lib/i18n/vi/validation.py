@@ -72,6 +72,10 @@ MESSAGES = {
     "val_asset_field_bad_timestamp": ("{asset_type} '{name}'.{field} không phải dấu thời gian ISO8601 hợp lệ: {value}"),
     "val_asset_field_must_be_string_list": ("{asset_type} '{name}'.{field} phải là danh sách chuỗi, hiện là {actual}"),
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] phải là chuỗi, hiện là {actual}",
+    "val_asset_name_duplicate": (
+        "Trùng tên tài nguyên dự án: {duplicate_type} '{duplicate_name}' xung đột với "
+        "{first_type} '{first_name}' sau khi strip + chuẩn hóa Unicode NFC"
+    ),
     # ---- tham chiếu cấp mục ----
     "val_refs_unregistered": "{prefix}: {field} tham chiếu {asset_type} không có trong project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: thiếu {field}, sẽ dùng mảng rỗng mặc định",
@@ -106,6 +110,10 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
+    "val_unit_shots_too_many": "{prefix}: shots có {count} mục; chỉ cho phép tối đa {max}",
+    "val_migration_content_replan_requires_needs_replan": (
+        "{prefix}: migration_requires_content_replan=true yêu cầu needs_replan=true"
+    ),
     "val_reference_entry_must_be_object": "{prefix}: mỗi mục reference phải là đối tượng",
     "val_reference_type_invalid": "{prefix}: reference.type không hợp lệ: {value}",
     "val_reference_name_invalid": "{prefix}: reference.name phải là chuỗi không rỗng: {value}",
@@ -114,10 +122,6 @@ MESSAGES = {
     ),
     "val_ref_type_invalid": "{prefix}: type không hợp lệ: {value}",
     "val_ref_name_invalid": "{prefix}: name phải là chuỗi không rỗng: {value}",
-    "val_ref_unregistered_regroup": ("{prefix}: {asset_type} “{name}” được tham chiếu chưa đăng ký; cần tạo lại nhóm"),
-    "val_reference_units_dangling_shots": (
-        "{prefix}: các cảnh quay được tham chiếu không tồn tại ({ids}); cần tạo lại nhóm"
-    ),
     # ---- khung xương và tuyến sinh video ----
     "val_skeleton_noun_segments": "phân cảnh",
     "val_skeleton_noun_scenes": "cảnh",
@@ -193,6 +197,7 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "Chính sách xử lý xung đột không hợp lệ",
     "arch_conflict_policy_unsupported": "conflict_policy chỉ hỗ trợ prompt, rename hoặc overwrite; nhận được: {value}",
     "arch_import_validation_failed": "Kiểm tra gói nhập thất bại",
+    "arch_artifact_activation_failed": "Trạng thái sản phẩm của dự án nhập không nhất quán",
     "arch_not_a_zip": "Tệp tải lên không phải gói ZIP hợp lệ",
     "arch_zip_encrypted_entry": "ZIP chứa mục đã mã hóa nên không thể nhập: {name}",
     "arch_zip_absolute_path_entry": "ZIP chứa mục có đường dẫn tuyệt đối: {name}",

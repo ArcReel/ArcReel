@@ -72,6 +72,10 @@ MESSAGES = {
     "val_asset_field_bad_timestamp": "{asset_type} '{name}'.{field} is not a valid ISO8601 timestamp: {value}",
     "val_asset_field_must_be_string_list": "{asset_type} '{name}'.{field} must be a list of strings, got {actual}",
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] must be a string, got {actual}",
+    "val_asset_name_duplicate": (
+        "Duplicate project asset name: {duplicate_type} '{duplicate_name}' conflicts with "
+        "{first_type} '{first_name}' after strip + Unicode NFC normalization"
+    ),
     # ---- item-level references ----
     "val_refs_unregistered": "{prefix}: {field} references {asset_type} entries missing from project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: {field} is missing, defaulting to an empty array",
@@ -106,6 +110,10 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: duplicate unit_id '{value}'",
     "val_video_units_missing": "The reference_video script is missing the video_units array, or it is empty",
     "val_unit_duration_range": "{prefix}: duration_seconds must be an integer between {low} and {high}",
+    "val_unit_shots_too_many": "{prefix}: shots contains {count} entries; at most {max} are allowed",
+    "val_migration_content_replan_requires_needs_replan": (
+        "{prefix}: migration_requires_content_replan=true requires needs_replan=true"
+    ),
     "val_reference_entry_must_be_object": "{prefix}: each reference entry must be an object",
     "val_reference_type_invalid": "{prefix}: invalid reference.type: {value}",
     "val_reference_name_invalid": "{prefix}: reference.name must be a non-empty string: {value}",
@@ -114,10 +122,6 @@ MESSAGES = {
     ),
     "val_ref_type_invalid": "{prefix}: invalid type: {value}",
     "val_ref_name_invalid": "{prefix}: name must be a non-empty string: {value}",
-    "val_ref_unregistered_regroup": (
-        "{prefix}: referenced {asset_type} “{name}” is not registered; regenerate the grouping"
-    ),
-    "val_reference_units_dangling_shots": ("{prefix}: referenced shots do not exist ({ids}); regenerate the grouping"),
     # ---- skeleton / route mismatch ----
     "val_skeleton_noun_segments": "segments",
     "val_skeleton_noun_scenes": "scenes",
@@ -193,6 +197,7 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "Invalid conflict policy",
     "arch_conflict_policy_unsupported": "conflict_policy only supports prompt, rename or overwrite; got: {value}",
     "arch_import_validation_failed": "Import package validation failed",
+    "arch_artifact_activation_failed": "The imported project's artifact state is inconsistent",
     "arch_not_a_zip": "The uploaded file is not a valid ZIP archive",
     "arch_zip_encrypted_entry": "The ZIP contains an encrypted entry and cannot be imported: {name}",
     "arch_zip_absolute_path_entry": "The ZIP contains an absolute-path entry: {name}",

@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.resolver import ConfigResolver, VideoCapability, constrain_durations_for_project
 from lib.db import async_session_factory
+from lib.generation_result import GenerationBatchResult, render_generation_result
 from lib.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,25 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
     msg = f"{name} 失败: {exc}"
     text = "\n".join([msg, *log]) if log else msg
     return {"content": [{"type": "text", "text": text}], "is_error": True}
+
+
+def generation_result_response(
+    result: GenerationBatchResult,
+    log: list[str] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Envelope one generation batch contract for an SDK MCP tool response.
+
+    ``generation_result`` is the machine-readable payload; the text block is a
+    rendering of the same fields, so no consumer has to parse it to decide
+    whether to retry.
+    """
+    return {
+        "content": [{"type": "text", "text": render_generation_result(result, log=log or ())}],
+        "is_error": not result.ok,
+        "generation_result": result.model_dump(mode="json"),
+        **extra,
+    }
 
 
 # instructions 超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。

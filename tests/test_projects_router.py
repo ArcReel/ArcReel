@@ -1,6 +1,7 @@
 import json
 import re
 import shutil
+import unicodedata
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -10,8 +11,21 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.i18n.zh import errors as zh_errors
-from lib.project_manager import EmptySourceError
+from lib.project_change_hints import get_project_change_source
+from lib.project_manager import EmptySourceError, ProjectManager
+from lib.script_batch_edit import (
+    InsertAfterOperation,
+    MoveAfterOperation,
+    RemoveOperation,
+    ScriptBatchEditLocation,
+    ScriptBatchEditProblem,
+    ScriptBatchEditResult,
+    script_revision,
+)
+from lib.script_editor import ScriptEditError, patch_field, resolve_items
+from lib.speech_composition import admit_script_unit
 
 
 class _OverviewProbe(BaseModel):
@@ -29,6 +43,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 class _FakePM:
     def __init__(self, base: Path):
         self.base = base
+        self.projects_root = base
         self.project_data = {
             "ready": {
                 "title": "Ready",
@@ -63,7 +78,9 @@ class _FakePM:
         }
         self.created = set()
         self.generated_names = ["project-aa11bb22", "project-cc33dd44"]
+        self.profile_reset_calls: list[str] = []
         (self.base / "ready" / "storyboards").mkdir(parents=True, exist_ok=True)
+        (self.base / "ad-ready" / "scripts").mkdir(parents=True, exist_ok=True)
         (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         (self.base / "empty").mkdir(parents=True, exist_ok=True)
         (self.base / "remove-me").mkdir(parents=True, exist_ok=True)
@@ -96,11 +113,28 @@ class _FakePM:
             raise FileNotFoundError(name)
         return path
 
+    @contextmanager
+    def locked_source_mutation(self, name):
+        source_dir = self.get_project_path(name) / "source"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        yield source_dir
+
     def delete_project_directory(self, name):
         shutil.rmtree(self.get_project_path(name))
 
     def get_project_status(self, name):
         return {"current_stage": "source_ready"}
+
+    def get_agent_profile_status(self, project_dir):
+        assert project_dir == self.base / "ready"
+        return {
+            "customized": True,
+            "customized_files": ["CLAUDE.md", ".claude/agents/legacy.md"],
+        }
+
+    def force_resync_profile(self, project_dir):
+        self.profile_reset_calls.append(project_dir.name)
+        return {"repaired": 2, "errors": 0}
 
     def create_project(self, name, content_mode="narration"):
         if not name or not re.fullmatch(r"[A-Za-z0-9-]+", name):
@@ -164,6 +198,10 @@ class _FakePM:
             raise FileNotFoundError(script_file)
         return self.scripts[key]
 
+    @staticmethod
+    def normalize_script_filename(script_file):
+        return script_file.removeprefix("scripts/")
+
     def save_script(self, name, payload, script_file):
         if script_file.startswith("scripts/"):
             script_file = script_file[len("scripts/") :]
@@ -179,6 +217,9 @@ class _FakePM:
         self.save_project(name, project)
         return project
 
+    def update_project_reconciling_episode_bindings(self, name, mutate_fn):
+        return self.update_project(name, mutate_fn)
+
     @contextmanager
     def locked_script(self, name, script_file):
         # 复刻真实 ProjectManager.locked_script：load → yield → save，异常时跳过写回。
@@ -188,7 +229,7 @@ class _FakePM:
         self.save_script(name, script, script_file)
 
     @contextmanager
-    def locked_episode_script(self, name, resolve_script_file, *, validate=True):
+    def locked_episode_script(self, name, resolve_script_file, *, validate=True, on_commit=None):
         # 复刻真实 ProjectManager.locked_episode_script：解析 episode→script_file →
         # 锁内读改写脚本 → 内联把 title/script_file 镜像回 project.json episodes[]
         # （仅当脚本含 episode int，与真实 _apply_episode_sync 触发条件一致）。
@@ -207,6 +248,8 @@ class _FakePM:
             entry["title"] = script.get("title", "")
             entry["script_file"] = f"scripts/{norm}"
             self.save_project(name, project)
+        if on_commit is not None:
+            on_commit(self.base / name / "scripts" / norm)
 
     async def generate_overview(self, name):
         if name == "ready":
@@ -255,9 +298,140 @@ class _FakeCalc:
         return script
 
 
+class _RejectedFakeEdit(Exception):
+    def __init__(self, result: ScriptBatchEditResult):
+        self.result = result
+
+
+class _FakeBatchEditor:
+    """Router-unit-test adapter; aggregate validation is covered against the real service separately."""
+
+    def __init__(self, pm: _FakePM):
+        self.pm = pm
+
+    def execute(self, project_name, command):
+        script_file = command.script
+        assert script_file is not None
+        before_revision = script_revision(self.pm.load_script(project_name, script_file))
+        if command.expected_revision != before_revision:
+            return self._failure(script_file, before_revision, "revision_conflict", None, None)
+        affected: list[str] = []
+        try:
+            with self.pm.locked_script(project_name, script_file) as script:
+                for index, operation in enumerate(command.operations):
+                    items, id_field, kind = resolve_items(script)
+                    item_id = getattr(operation, "id", None)
+                    if isinstance(operation, InsertAfterOperation):
+                        raise AssertionError("insert is not used by project router unit tests")
+                    try:
+                        item_index = next(i for i, item in enumerate(items) if item.get(id_field) == item_id)
+                    except StopIteration:
+                        raise _RejectedFakeEdit(
+                            self._failure(script_file, before_revision, "operation_invalid", index, item_id)
+                        ) from None
+                    before = admit_script_unit(kind, items[item_index])
+                    if isinstance(operation, MoveAfterOperation):
+                        item = items.pop(item_index)
+                        if operation.after_id is None:
+                            insert_at = 0
+                        else:
+                            try:
+                                insert_at = (
+                                    next(
+                                        i
+                                        for i, existing in enumerate(items)
+                                        if existing.get(id_field) == operation.after_id
+                                    )
+                                    + 1
+                                )
+                            except StopIteration:
+                                raise _RejectedFakeEdit(
+                                    self._failure(script_file, before_revision, "operation_invalid", index, item_id)
+                                ) from None
+                        items.insert(insert_at, item)
+                    elif isinstance(operation, RemoveOperation):
+                        items.pop(item_index)
+                    else:
+                        before_content = admit_script_unit(kind, items[item_index], ignore_marker=True)
+                        try:
+                            for field, value in operation.fields.items():
+                                patch_field(script, operation.id, field, value)
+                        except ScriptEditError:
+                            raise _RejectedFakeEdit(
+                                self._failure(script_file, before_revision, "operation_invalid", index, item_id)
+                            ) from None
+                        after_content = admit_script_unit(kind, items[item_index], ignore_marker=True)
+                        if before_content.preparation != after_content.preparation and after_content.allowed:
+                            items[item_index].pop("needs_replan", None)
+                    if item_id not in affected:
+                        affected.append(item_id)
+                    if not isinstance(operation, RemoveOperation):
+                        after = admit_script_unit(
+                            kind, items[next(i for i, v in enumerate(items) if v.get(id_field) == item_id)]
+                        )
+                        if after.preparation != before.preparation and not after.allowed:
+                            problems = tuple(
+                                ScriptBatchEditProblem(
+                                    code=problem.code.value,
+                                    operation_index=index,
+                                    unit_id=problem.unit_id,
+                                    locations=tuple(
+                                        ScriptBatchEditLocation(path=location.path, line=location.line)
+                                        for location in problem.locations
+                                    ),
+                                    reason=problem.reason.value,
+                                    next_action=problem.action.value,
+                                )
+                                for problem in after.problems
+                                if problem.code.value != "needs_replan"
+                                or not any(p.code.value != "needs_replan" for p in after.problems)
+                            )
+                            raise _RejectedFakeEdit(
+                                ScriptBatchEditResult(
+                                    success=False,
+                                    script=script_file,
+                                    episode=None,
+                                    before_revision=before_revision,
+                                    revision=before_revision,
+                                    problems=problems,
+                                )
+                            )
+        except _RejectedFakeEdit as exc:
+            return exc.result
+        revision = script_revision(self.pm.load_script(project_name, script_file))
+        return ScriptBatchEditResult(
+            success=True,
+            script=script_file,
+            episode=None,
+            before_revision=before_revision,
+            revision=revision,
+            affected_ids=tuple(affected),
+        )
+
+    @staticmethod
+    def _failure(script_file, revision, code, index, item_id):
+        return ScriptBatchEditResult(
+            success=False,
+            script=script_file,
+            episode=None,
+            before_revision=revision,
+            revision=revision,
+            problems=(
+                ScriptBatchEditProblem(
+                    code=code,
+                    operation_index=index,
+                    unit_id=item_id,
+                    reason="operation_invalid",
+                    next_action="fix_operation",
+                ),
+            ),
+        )
+
+
 def _client(monkeypatch, fake_pm, fake_calc):
     monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(projects, "get_status_calculator", lambda: fake_calc)
+    monkeypatch.setattr(projects, "get_script_batch_editor", lambda manager=None: _FakeBatchEditor(manager or fake_pm))
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -268,6 +442,126 @@ def _client(monkeypatch, fake_pm, fake_calc):
 
 
 class TestProjectsRouter:
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("project_name", "script_file", "endpoint", "script", "request_body", "kind"),
+        [
+            (
+                "ready",
+                "narration.json",
+                "/api/v1/projects/ready/segments/E1S01",
+                {
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": "E1S01",
+                            "duration_seconds": 4,
+                            "novel_text": "风吹过旷野。",
+                            "video_prompt": {},
+                        }
+                    ],
+                },
+                {"video_prompt": {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}},
+                "segments",
+            ),
+            (
+                "ready",
+                "episode_1.json",
+                "/api/v1/projects/ready/script-scenes/E1S01",
+                {
+                    "content_mode": "drama",
+                    "scenes": [{"scene_id": "E1S01", "duration_seconds": 4, "utterances": []}],
+                },
+                {
+                    "updates": {
+                        "utterances": [
+                            {"kind": "dialogue", "speaker": "Alice", "text": "快走。"},
+                            {"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"},
+                        ]
+                    }
+                },
+                "scenes",
+            ),
+            (
+                "ad-ready",
+                "episode_1.json",
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                {
+                    "content_mode": "ad",
+                    "shots": [
+                        {
+                            "shot_id": "E1S01",
+                            "duration_seconds": 4,
+                            "voiceover_text": "风吹过旷野。",
+                            "video_prompt": {},
+                        }
+                    ],
+                },
+                {"updates": {"video_prompt": {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}}},
+                "shots",
+            ),
+        ],
+    )
+    def test_three_storyboard_web_manual_edits_atomically_reject_mixed_speech_on_save(
+        self,
+        tmp_path,
+        monkeypatch,
+        project_name: str,
+        script_file: str,
+        endpoint: str,
+        script: dict,
+        request_body: dict,
+        kind: str,
+    ):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[(project_name, script_file)] = script
+        before = deepcopy(script)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        body = {"script_file": script_file, **request_body}
+
+        with client:
+            response = client.patch(endpoint, json=body)
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["success"] is False
+        problem = detail["problems"][0]
+        assert problem["code"] == "mixed_speech"
+        assert problem["operation_index"] == 0
+        assert problem["reason"] == "character_and_narrator_mixed"
+        assert problem["next_action"] == "replan_unit"
+        assert kind in before
+        assert fake_pm.scripts[(project_name, script_file)] == before
+
+    @pytest.mark.unit
+    def test_agent_profile_status_and_explicit_reset(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            status = client.get("/api/v1/projects/ready/agent-profile")
+            assert status.status_code == 200
+            assert status.json() == {
+                "customized": True,
+                "customized_files": ["CLAUDE.md", ".claude/agents/legacy.md"],
+            }
+
+            reset = client.post("/api/v1/projects/ready/agent-profile/reset")
+            assert reset.status_code == 200
+            assert reset.json() == {"customized": False, "customized_files": []}
+            assert fake_pm.profile_reset_calls == ["ready"]
+
+    @pytest.mark.unit
+    def test_agent_profile_endpoints_reject_invalid_project_name(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            status = client.get("/api/v1/projects/illegal-name/agent-profile")
+            reset = client.post("/api/v1/projects/illegal-name/agent-profile/reset")
+
+        assert status.status_code == 400
+        assert status.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+        assert reset.status_code == 400
+        assert reset.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+
     @pytest.mark.unit
     def test_list_and_create_and_delete(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
@@ -434,9 +728,134 @@ class TestProjectsRouter:
 
             get_script = client.get("/api/v1/projects/ready/scripts/episode_1.json")
             assert get_script.status_code == 200
+            assert get_script.json()["revision"].startswith("sha256-v1:")
 
             get_script_missing = client.get("/api/v1/projects/ready/scripts/missing.json")
             assert get_script_missing.status_code == 404
+
+    @pytest.mark.integration
+    def test_revisioned_batch_endpoint_returns_shared_result_and_rejects_stale_write(self, tmp_path, monkeypatch):
+        pm = ProjectManager(str(tmp_path))
+        pm.create_project("demo", content_mode="narration")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "summary": "摘要",
+                "novel": {"title": "小说", "chapter": "第一章"},
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "风吹过旷野。",
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                        "image_prompt": {
+                            "scene": "荒野",
+                            "composition": {
+                                "shot_type": "Medium Shot",
+                                "lighting": "暖光",
+                                "ambiance": "薄雾",
+                            },
+                        },
+                        "video_prompt": {
+                            "action": "转身",
+                            "camera_motion": "Static",
+                            "ambiance_audio": "风声",
+                        },
+                        "generated_assets": {},
+                    }
+                ],
+            },
+            "episode_1.json",
+        )
+        monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
+            id="default",
+            sub="testuser",
+            role="admin",
+        )
+        app.include_router(projects.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        client = TestClient(app)
+        with client:
+            snapshot = client.get("/api/v1/projects/demo/scripts/episode_1.json").json()
+            command = {
+                "script": "episode_1.json",
+                "expected_revision": snapshot["revision"],
+                "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+            }
+
+            edited = client.post("/api/v1/projects/demo/script-edits", json=command)
+
+            assert edited.status_code == 200, edited.text
+            result = edited.json()
+            assert result["success"] is True
+            assert result["before_revision"] == snapshot["revision"]
+            assert result["revision"] != snapshot["revision"]
+            assert result["affected_ids"] == ["E1S01"]
+
+            command["operations"] = [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}]
+            stale = client.post("/api/v1/projects/demo/script-edits", json=command)
+
+            assert stale.status_code == 409
+            assert stale.json()["problems"][0]["code"] == "revision_conflict"
+            assert pm.load_script("demo", "episode_1.json")["segments"][0]["note"] == "first"
+
+    @pytest.mark.unit
+    def test_revisioned_batch_endpoint_tags_webui_source_across_worker_thread(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        observed_sources: list[str] = []
+        revision = f"sha256-v1:{'0' * 64}"
+
+        class CapturingEditor:
+            def execute(self, _project_name, _command):
+                observed_sources.append(get_project_change_source())
+                return ScriptBatchEditResult(
+                    success=True,
+                    script="episode_1.json",
+                    episode=1,
+                    before_revision=revision,
+                    revision=revision,
+                )
+
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        monkeypatch.setattr(projects, "get_script_batch_editor", lambda _manager=None: CapturingEditor())
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/ready/script-edits",
+                json={
+                    "script": "episode_1.json",
+                    "expected_revision": revision,
+                    "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+                },
+            )
+
+        assert response.status_code == 200
+        assert observed_sources == ["webui"]
+
+    @pytest.mark.unit
+    def test_revisioned_batch_endpoint_rejects_invalid_project_name(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/illegal-name/script-edits",
+                json={
+                    "script": "episode_1.json",
+                    "expected_revision": f"sha256-v1:{'0' * 64}",
+                    "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+                },
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
 
     @pytest.mark.unit
     def test_create_ad_project(self, tmp_path, monkeypatch):
@@ -695,6 +1114,7 @@ class TestProjectsRouter:
         }
 
         client = _client(monkeypatch, fake_pm, _FakeCalc())
+        nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
             # 写入新引用列表
@@ -702,14 +1122,14 @@ class TestProjectsRouter:
                 "/api/v1/projects/ready/segments/E1S01",
                 json={
                     "script_file": "narration.json",
-                    "characters_in_segment": ["Bob", "Carol"],
-                    "scenes": ["Castle"],
+                    "characters_in_segment": [" Bob ", f" {nfd_cafe} "],
+                    "scenes": [" Castle "],
                     "props": [],
                 },
             )
             assert patched.status_code == 200
             seg = patched.json()["segment"]
-            assert seg["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg["characters_in_segment"] == ["Bob", "Café"]
             assert seg["scenes"] == ["Castle"]
             assert seg["props"] == []
 
@@ -721,9 +1141,67 @@ class TestProjectsRouter:
             assert untouched.status_code == 200
             seg2 = untouched.json()["segment"]
             assert seg2["duration_seconds"] == 7
-            assert seg2["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg2["characters_in_segment"] == ["Bob", "Café"]
             assert seg2["scenes"] == ["Castle"]
             assert seg2["props"] == []
+
+    @pytest.mark.unit
+    def test_update_segment_allows_unchanged_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        prompt = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": prompt,
+                    "needs_replan": True,
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "narration.json", "video_prompt": prompt, "note": "保留历史媒体"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["segment"]["note"] == "保留历史媒体"
+        assert response.json()["segment"]["needs_replan"] is True
+
+    @pytest.mark.unit
+    def test_update_segment_allows_visual_prompt_edit_on_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {"action": "转身", "dialogue": [{"speaker": "Alice", "line": "快走。"}]},
+                    "needs_replan": True,
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={
+                    "script_file": "narration.json",
+                    "video_prompt": {"action": "慢慢转身", "dialogue": [{"speaker": "Alice", "line": "快走。"}]},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["segment"]["video_prompt"]["action"] == "慢慢转身"
+        assert response.json()["segment"]["needs_replan"] is True
 
     @pytest.mark.unit
     def test_update_segment_rejects_drama_script_with_residual_segments(self, tmp_path, monkeypatch):
@@ -788,6 +1266,7 @@ class TestProjectsRouter:
         }
 
         client = _client(monkeypatch, fake_pm, _FakeCalc())
+        nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
             patched = client.patch(
@@ -795,15 +1274,15 @@ class TestProjectsRouter:
                 json={
                     "script_file": "episode_1.json",
                     "updates": {
-                        "characters_in_scene": ["Bob"],
-                        "scenes": ["Castle"],
-                        "props": ["Map"],
+                        "characters_in_scene": [f" {nfd_cafe} "],
+                        "scenes": [" Castle "],
+                        "props": [" Map "],
                     },
                 },
             )
             assert patched.status_code == 200
             scene = patched.json()["scene"]
-            assert scene["characters_in_scene"] == ["Bob"]
+            assert scene["characters_in_scene"] == ["Café"]
             assert scene["scenes"] == ["Castle"]
             assert scene["props"] == ["Map"]
 
@@ -824,8 +1303,8 @@ class TestProjectsRouter:
             assert update_overview.json()["overview"]["synopsis"] == "new synopsis"
 
     @pytest.mark.unit
-    def test_update_scene_accepts_utterances(self, tmp_path, monkeypatch):
-        # drama 分镜详情编辑场景级发声序列：utterances 在白名单内，PATCH 写回并持久化
+    def test_update_scene_atomically_rejects_mixed_utterances(self, tmp_path, monkeypatch):
+        # 人工编辑不能把一次视频请求写成角色发声 + 叙述旁白混合单元。
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
             "content_mode": "drama",
@@ -848,14 +1327,82 @@ class TestProjectsRouter:
         ]
 
         with client:
-            patched = client.patch(
+            rejected = client.patch(
                 "/api/v1/projects/ready/script-scenes/001",
                 json={"script_file": "episode_1.json", "updates": {"utterances": utterances}},
             )
-            assert patched.status_code == 200
-            assert patched.json()["scene"]["utterances"] == utterances
-            # 落库持久化（不被白名单静默丢弃）
-            assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == utterances
+            assert rejected.status_code == 409
+            detail = rejected.json()["detail"]
+            assert detail["problems"][0]["code"] == "mixed_speech"
+            assert detail["problems"][0]["operation_index"] == 0
+            assert detail["problems"][0]["next_action"] == "replan_unit"
+            assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == []
+
+    @pytest.mark.unit
+    def test_update_scene_allows_unchanged_legacy_mixed_utterances(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        utterances = [
+            {"kind": "dialogue", "speaker": "Alice", "text": "你来了。"},
+            {"kind": "voiceover", "speaker": None, "text": "命运就此转向。"},
+        ]
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [{"scene_id": "001", "duration_seconds": 8, "utterances": utterances}],
+        }
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/script-scenes/001",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {"utterances": utterances, "note": "保留历史媒体"},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["scene"]["note"] == "保留历史媒体"
+
+    @pytest.mark.unit
+    def test_update_scene_rejects_legacy_prompt_edit_that_introduces_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        original_prompt = {"action": "转身"}
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "001",
+                    "duration_seconds": 8,
+                    "video_prompt": original_prompt,
+                    "voiceover": ["命运就此转向。"],
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/script-scenes/001",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {
+                        "video_prompt": {
+                            "action": "转身",
+                            "dialogue": [{"speaker": "Alice", "line": "跟紧我。"}],
+                        }
+                    },
+                },
+            )
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["problems"][0]["code"] == "mixed_speech"
+        assert detail["problems"][0]["locations"] == [
+            {"path": ["video_prompt", "dialogue", 0, "line"], "line": None},
+            {"path": ["voiceover", 0], "line": None},
+        ]
+        saved = fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]
+        assert saved["video_prompt"] == original_prompt
 
     @staticmethod
     def _ad_script(shot_ids: list[str]) -> dict:
@@ -867,6 +1414,7 @@ class TestProjectsRouter:
                     "section": "hook",
                     "duration_seconds": 4,
                     "voiceover_text": f"口播 {sid}",
+                    "video_prompt": {},
                     "products_in_shot": [],
                 }
                 for sid in shot_ids
@@ -901,6 +1449,56 @@ class TestProjectsRouter:
             # 持久化落到脚本存储
             saved = fake_pm.scripts[("ad-ready", "episode_1.json")]["shots"][0]
             assert saved["voiceover_text"] == "新口播"
+
+    @pytest.mark.unit
+    def test_update_shot_allows_unchanged_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        script = self._ad_script(["E1S01"])
+        script["shots"][0]["video_prompt"] = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
+        fake_pm.scripts[("ad-ready", "episode_1.json")] = script
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {"voiceover_text": "口播 E1S01", "note": "保留历史媒体"},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["shot"]["note"] == "保留历史媒体"
+
+    @pytest.mark.unit
+    def test_update_shot_allows_visual_prompt_edit_on_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        script = self._ad_script(["E1S01"])
+        script["shots"][0]["video_prompt"] = {
+            "action": "转身",
+            "dialogue": [{"speaker": "Alice", "line": "快走。"}],
+        }
+        script["shots"][0]["needs_replan"] = True
+        fake_pm.scripts[("ad-ready", "episode_1.json")] = script
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {
+                        "video_prompt": {
+                            "action": "慢慢转身",
+                            "dialogue": [{"speaker": "Alice", "line": "快走。"}],
+                        }
+                    },
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["shot"]["video_prompt"]["action"] == "慢慢转身"
+        assert response.json()["shot"]["needs_replan"] is True
 
     @pytest.mark.unit
     def test_update_shot_ignores_non_whitelisted_fields(self, tmp_path, monkeypatch):
@@ -1646,6 +2244,78 @@ class TestProjectsRouter:
     # ---------------------------------------------------------------------------
     # Episodes PATCH tests
     # ---------------------------------------------------------------------------
+
+    @pytest.mark.integration
+    def test_patch_project_episode_rebinding_forgets_unbound_resource_claims(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        project_dir = pm.get_project_path("demo")
+
+        def _script(resource_id: str) -> dict:
+            return {
+                "episode": 1,
+                "title": "Episode 1",
+                "content_mode": "narration",
+                "duration_seconds": 4,
+                "summary": "",
+                "novel": {"title": "Demo", "chapter": "Chapter 1"},
+                "segments": [
+                    {
+                        "segment_id": resource_id,
+                        "duration_seconds": 4,
+                        "segment_break": False,
+                        "novel_text": "text",
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                        "image_prompt": "image",
+                        "video_prompt": "video",
+                        "transition_to_next": "cut",
+                        "generated_assets": {},
+                    }
+                ],
+            }
+
+        scripts_dir = project_dir / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        (scripts_dir / "old.json").write_text(json.dumps(_script("E1S01")), encoding="utf-8")
+        (scripts_dir / "new.json").write_text(json.dumps(_script("E1S02")), encoding="utf-8")
+        pm.update_project(
+            "demo",
+            lambda project: project.__setitem__(
+                "episodes",
+                [{"episode": 1, "title": "Episode 1", "script_file": "scripts/old.json"}],
+            ),
+        )
+
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        old_keys = ArtifactKey.episode_resource_artifacts(1, "E1S01")
+        for index, key in enumerate(old_keys):
+            adapter.put_entry(
+                key,
+                ArtifactManifestEntry(
+                    artifact_path=f"formal/old-{index}.bin",
+                    basis_digest=f"sha256-v1:{index:064x}",
+                ),
+            )
+        unrelated = ArtifactKey.asset_sheet("character", "Unrelated")
+        unrelated_entry = ArtifactManifestEntry(
+            artifact_path="characters/Unrelated.png",
+            basis_digest=f"sha256-v1:{99:064x}",
+        )
+        adapter.put_entry(unrelated, unrelated_entry)
+
+        with _client(monkeypatch, pm, _FakeCalc()) as client:
+            response = client.patch(
+                "/api/v1/projects/demo",
+                json={"episodes": [{"episode": 1, "script_file": "scripts/new.json"}]},
+            )
+
+        assert response.status_code == 200, response.text
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/new.json"
+        assert all(adapter.get_entry(key) is None for key in old_keys)
+        assert adapter.get_entry(unrelated) == unrelated_entry
 
     @pytest.mark.unit
     def test_patch_project_episodes_updates_script_file(self, tmp_path, monkeypatch):

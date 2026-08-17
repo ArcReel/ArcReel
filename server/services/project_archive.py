@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -8,22 +9,36 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
+from lib.artifact_activation import (
+    ensure_imported_artifact_target_state,
+    snapshot_preserved_artifact_manifest,
+)
+from lib.artifact_manifest import (
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ArtifactManifestError,
+    ProjectArtifactManifestAdapter,
+    decode_artifact_manifest_payload,
+    encode_artifact_manifest_payload,
+)
 from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
 from lib.data_validator import DataValidator
 from lib.episode_ledger import parse_positive_episode_num
+from lib.formal_write import project_metadata_lock
 from lib.json_io import load_json
 from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
+from lib.project_schema import project_schema_is_current
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
@@ -36,6 +51,8 @@ ARCHIVE_MANIFEST_NAME = "arcreel-export.json"
 ARCHIVE_FORMAT_VERSION = 2
 ARCHIVE_SCRIPT_SCHEMA_VERSION = 2
 DEFAULT_IMPORT_FILENAME = "imported-project.zip"
+_ARTIFACT_ACTIVATION_ERRORS = (ArtifactManifestError, OSError, UnicodeError, ValueError)
+_EXPORT_SNAPSHOT_ATTEMPTS = 3
 
 
 def _resolve_existing_asset(name: str, candidates: set[str]) -> str:
@@ -202,6 +219,7 @@ class ProjectArchiveService:
         }
     )
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
+    _TYPED_VERSION_HISTORY_DIRS = frozenset({"audio", "videos", "reference_videos"})
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
     _PLACEHOLDER_CHARACTER_DESCRIPTION = "Imported placeholder character"
 
@@ -274,6 +292,23 @@ class ProjectArchiveService:
         download_name = f"{project_name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
         return archive_path, download_name
 
+    @staticmethod
+    def _raise_artifact_activation_validation_error(
+        diagnostics: ArchiveDiagnostics,
+        cause: Exception,
+    ) -> None:
+        diagnostics.add(
+            "blocking",
+            "artifact_activation_failed",
+            ValidationMessage("arch_artifact_activation_failed"),
+        )
+        raise ProjectArchiveValidationError(
+            ValidationMessage("arch_import_validation_failed"),
+            errors=diagnostics.blocking_messages(),
+            warnings=diagnostics.warning_messages(),
+            diagnostics=diagnostics,
+        ) from cause
+
     def import_project_archive(
         self,
         archive_path: Path,
@@ -321,7 +356,13 @@ class ProjectArchiveService:
                             "source_encoding_unconverted",
                             ValidationMessage("arch_source_encoding_unconverted", {"name": failed_name}),
                         )
-                    migrate_project_dir(staging_dir)
+                    try:
+                        migrate_project_dir(staging_dir)
+                    except _ARTIFACT_ACTIVATION_ERRORS as exc:
+                        stalled_project = self._load_json_file(staging_dir / self.project_manager.PROJECT_FILE)
+                        if stalled_project is not None and stalled_project.get("schema_version") == 7:
+                            self._raise_artifact_activation_validation_error(diagnostics, exc)
+                        raise
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
                     if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
@@ -330,6 +371,21 @@ class ProjectArchiveService:
                             warnings=diagnostics.warning_messages(),
                             diagnostics=diagnostics,
                         )
+                    # Artifact Manifest 是 hidden sidecar，不进入归档成员。官方导出把完整
+                    # claim snapshot 放进 visible archive envelope；旧的手工归档没有该字段，
+                    # 仍走 self-proving reconstruction。两条路径均在 staging 一次性提交。
+                    try:
+                        preserved_manifest = (
+                            decode_artifact_manifest_payload(manifest["artifact_manifest"])
+                            if isinstance(manifest, dict) and "artifact_manifest" in manifest
+                            else None
+                        )
+                        ensure_imported_artifact_target_state(
+                            staging_dir,
+                            preserved_manifest=preserved_manifest,
+                        )
+                    except _ARTIFACT_ACTIVATION_ERRORS as exc:
+                        self._raise_artifact_activation_validation_error(diagnostics, exc)
 
                     project = self._load_project_file(staging_dir / self.project_manager.PROJECT_FILE)
                     target_name = self._resolve_target_project_name(
@@ -381,7 +437,7 @@ class ProjectArchiveService:
         source_dir = self.project_manager.get_project_path(project_name)
         temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
         snapshot_dir = Path(temp_dir.name) / project_name
-        self._copy_visible_tree(source_dir, snapshot_dir)
+        source_manifest_entries = self._capture_stable_visible_tree(source_dir, snapshot_dir)
 
         diagnostics = self._repair_project_tree(snapshot_dir)
         diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
@@ -397,6 +453,16 @@ class ProjectArchiveService:
             )
 
         snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
+        artifact_manifest = None
+        if isinstance(snapshot_project, dict) and project_schema_is_current(snapshot_project):
+            if source_manifest_entries is None:
+                raise ArtifactManifestError("schema-v8 archive snapshot has no matching Artifact Manifest state")
+            artifact_manifest = encode_artifact_manifest_payload(
+                snapshot_preserved_artifact_manifest(
+                    snapshot_dir,
+                    source_manifest_entries,
+                )
+            )
         manifest = self._build_archive_manifest(
             project_name,
             snapshot_project,
@@ -405,6 +471,7 @@ class ProjectArchiveService:
             # 面向请求的渲染只发生在 router 边界。
             diagnostics=diagnostics.to_export_payload(),
             pass_through_entries=excluded_entries,
+            artifact_manifest=artifact_manifest,
         )
         return temp_dir, snapshot_dir, manifest, diagnostics
 
@@ -416,9 +483,10 @@ class ProjectArchiveService:
         scope: str,
         diagnostics: dict[str, Any],
         pass_through_entries: list[str],
+        artifact_manifest: dict[str, object] | None,
     ) -> dict[str, Any]:
         project_payload = project or {}
-        return {
+        payload = {
             "format_version": ARCHIVE_FORMAT_VERSION,
             "script_schema_version": ARCHIVE_SCRIPT_SCHEMA_VERSION,
             "project_name": project_name,
@@ -429,6 +497,9 @@ class ProjectArchiveService:
             "export_diagnostics": diagnostics,
             "pass_through_entries": pass_through_entries,
         }
+        if artifact_manifest is not None:
+            payload["artifact_manifest"] = artifact_manifest
+        return payload
 
     @staticmethod
     def _write_directory_entry(
@@ -449,6 +520,13 @@ class ProjectArchiveService:
         scope: str,
     ) -> None:
         is_current = scope == "current"
+        trimmed_versions: dict[str, Any] | None = None
+        retained_version_files: frozenset[str] = frozenset()
+        if is_current:
+            versions_path = snapshot_dir / "versions" / "versions.json"
+            payload = self._load_json_file(versions_path) if versions_path.is_file() else None
+            trimmed_versions = self._trim_versions_payload(payload or {})
+            retained_version_files = self._selected_typed_version_files(trimmed_versions)
 
         for current_dir, dirnames, filenames in os.walk(snapshot_dir):
             current_path = Path(current_dir)
@@ -463,7 +541,17 @@ class ProjectArchiveService:
 
             relative_dir = current_path.relative_to(snapshot_dir)
             if is_current and relative_dir.parts == ("versions",):
-                dirnames[:] = [name for name in dirnames if name not in self._VERSION_HISTORY_DIRS]
+                retained_dirs = {PurePosixPath(path).parts[1] for path in retained_version_files}
+                dirnames[:] = [
+                    name for name in dirnames if name not in self._VERSION_HISTORY_DIRS or name in retained_dirs
+                ]
+            elif is_current and relative_dir.parts[:1] == ("versions",):
+                prefix = relative_dir.as_posix().rstrip("/") + "/"
+                dirnames[:] = [
+                    name
+                    for name in dirnames
+                    if any(path.startswith(f"{prefix}{name}/") for path in retained_version_files)
+                ]
 
             visible_files = [
                 name
@@ -472,6 +560,13 @@ class ProjectArchiveService:
                 and not (current_path / name).is_symlink()
                 and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
             ]
+            if is_current and len(relative_dir.parts) >= 2 and relative_dir.parts[0] == "versions":
+                visible_files = [
+                    name
+                    for name in visible_files
+                    if relative_dir.parts[1] not in self._VERSION_HISTORY_DIRS
+                    or (relative_dir / name).as_posix() in retained_version_files
+                ]
 
             if relative_dir != Path("."):
                 self._write_directory_entry(
@@ -484,11 +579,11 @@ class ProjectArchiveService:
                 archive_name = Path(project_name, relative_dir, filename).as_posix()
 
                 if is_current and relative_dir.parts == ("versions",) and filename == "versions.json":
-                    payload = self._load_json_file(source_path) or {}
+                    assert trimmed_versions is not None
                     archive.writestr(
                         archive_name,
                         json.dumps(
-                            self._trim_versions_payload(payload),
+                            trimmed_versions,
                             ensure_ascii=False,
                             indent=2,
                         ),
@@ -497,10 +592,17 @@ class ProjectArchiveService:
 
                 archive.write(source_path, arcname=archive_name)
 
-    @staticmethod
-    def _trim_versions_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    @classmethod
+    def _trim_versions_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
         trimmed = json.loads(json.dumps(payload))
-        for resource_type_data in trimmed.values():
+        for resource_type, resource_type_data in tuple(trimmed.items()):
+            # Current-only exports retain canonical non-typed media, not their
+            # version-history snapshots.  Their metadata must leave with those
+            # omitted files; typed selected snapshots remain because artifact
+            # activation uses them as independent provenance evidence.
+            if resource_type in cls._VERSION_HISTORY_DIRS and resource_type not in cls._TYPED_VERSION_HISTORY_DIRS:
+                del trimmed[resource_type]
+                continue
             if not isinstance(resource_type_data, dict):
                 continue
             for resource_info in resource_type_data.values():
@@ -516,11 +618,90 @@ class ProjectArchiveService:
                     ]
         return trimmed
 
-    def _copy_visible_tree(self, source_dir: Path, target_dir: Path) -> None:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        for current_dir, dirnames, filenames in os.walk(source_dir):
+    @classmethod
+    def _selected_typed_version_files(cls, payload: dict[str, Any]) -> frozenset[str]:
+        """Return exact selected typed snapshots required to prove current media."""
+
+        selected: set[str] = set()
+        for resource_type in cls._TYPED_VERSION_HISTORY_DIRS:
+            resources = payload.get(resource_type)
+            if not isinstance(resources, dict):
+                continue
+            for resource in resources.values():
+                if not isinstance(resource, dict):
+                    continue
+                records = resource.get("versions")
+                if not isinstance(records, list) or len(records) != 1 or not isinstance(records[0], dict):
+                    continue
+                raw_path = records[0].get("file")
+                if not isinstance(raw_path, str) or "\\" in raw_path:
+                    continue
+                path = PurePosixPath(raw_path)
+                if path.is_absolute() or path.parts[:2] != ("versions", resource_type) or len(path.parts) != 3:
+                    continue
+                if any(part in {"", ".", ".."} for part in path.parts):
+                    continue
+                selected.add(path.as_posix())
+        return frozenset(selected)
+
+    def _capture_stable_visible_tree(
+        self,
+        source_dir: Path,
+        target_dir: Path,
+    ) -> dict[ArtifactKey, ArtifactManifestEntry] | None:
+        """Copy one visible tree whose bytes and Manifest stayed unchanged.
+
+        Export cannot atomically snapshot a directory with ordinary filesystem
+        primitives.  Hold the shared formal-write lock around each attempt, then
+        compare complete content signatures and the whole Manifest on both sides
+        of the copy.  The comparison still rejects unmanaged filesystem changes
+        that do not participate in the formal-write lock.
+        """
+
+        last_missing: FileNotFoundError | None = None
+        for _attempt in range(_EXPORT_SNAPSHOT_ATTEMPTS):
+            with project_metadata_lock(source_dir):
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                try:
+                    manifest_before = self._source_manifest_entries(source_dir)
+                    copied = self._copy_visible_tree(source_dir, target_dir)
+                    source_after = self._visible_tree_signature(source_dir)
+                    manifest_after = self._source_manifest_entries(source_dir)
+                except FileNotFoundError as exc:
+                    last_missing = exc
+                    continue
+            if manifest_before == manifest_after and source_after == copied:
+                return manifest_before
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        raise ArtifactManifestError("project changed repeatedly while creating an archive snapshot") from last_missing
+
+    def _source_manifest_entries(
+        self,
+        source_dir: Path,
+    ) -> dict[ArtifactKey, ArtifactManifestEntry] | None:
+        project = self._load_json_file(source_dir / self.project_manager.PROJECT_FILE)
+        if not isinstance(project, dict) or not project_schema_is_current(project):
+            return None
+        return dict(ProjectArtifactManifestAdapter(source_dir).snapshot_entries())
+
+    def _visible_tree_signature(self, root: Path) -> tuple[tuple[str, str], ...]:
+        signature: list[tuple[str, str]] = []
+        for current_path, relative_dir, filenames in self._iter_visible_tree(root):
+            if relative_dir != Path("."):
+                signature.append((f"{relative_dir.as_posix()}/", "directory"))
+            for filename in filenames:
+                path = current_path / filename
+                with path.open("rb") as handle:
+                    digest = hashlib.file_digest(handle, "sha256").hexdigest()
+                signature.append(((relative_dir / filename).as_posix(), digest))
+        return tuple(signature)
+
+    def _iter_visible_tree(self, root: Path) -> Iterator[tuple[Path, Path, tuple[str, ...]]]:
+        for current_dir, dirnames, filenames in os.walk(root):
             current_path = Path(current_dir)
-            is_root = current_path == source_dir
+            is_root = current_path == root
             dirnames[:] = [
                 name
                 for name in sorted(dirnames)
@@ -529,21 +710,37 @@ class ProjectArchiveService:
                 and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
                 and not (is_root and name not in self._ROOT_VISIBLE_ENTRIES)
             ]
-            relative_dir = current_path.relative_to(source_dir)
+            visible_files = tuple(
+                name
+                for name in sorted(filenames)
+                if not name.startswith(".")
+                and not (current_path / name).is_symlink()
+                and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
+                and not (is_root and name not in self._ROOT_VISIBLE_ENTRIES)
+            )
+            yield current_path, current_path.relative_to(root), visible_files
+
+    def _copy_visible_tree(self, source_dir: Path, target_dir: Path) -> tuple[tuple[str, str], ...]:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        copied: list[tuple[str, str]] = []
+        for current_path, relative_dir, filenames in self._iter_visible_tree(source_dir):
             destination_dir = target_dir / relative_dir
             destination_dir.mkdir(parents=True, exist_ok=True)
+            if relative_dir != Path("."):
+                copied.append((f"{relative_dir.as_posix()}/", "directory"))
 
-            for filename in sorted(filenames):
+            for filename in filenames:
                 source_path = current_path / filename
-                if filename.startswith(".") or source_path.is_symlink():
-                    continue
-                if is_root and filename in self._AGENT_RUNTIME_EXCLUDES:
-                    continue
-                if is_root and filename not in self._ROOT_VISIBLE_ENTRIES:
-                    continue
                 destination_path = destination_dir / filename
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_path, destination_path)
+                digest = hashlib.sha256()
+                with source_path.open("rb") as source, destination_path.open("wb") as destination:
+                    while chunk := source.read(1024 * 1024):
+                        digest.update(chunk)
+                        destination.write(chunk)
+                shutil.copystat(source_path, destination_path, follow_symlinks=False)
+                copied.append(((relative_dir / filename).as_posix(), digest.hexdigest()))
+        return tuple(copied)
 
     def _repair_project_tree(self, project_dir: Path) -> ArchiveDiagnostics:
         diagnostics = ArchiveDiagnostics()
@@ -655,6 +852,8 @@ class ProjectArchiveService:
         project_characters = {name for name, payload in (characters or {}).items() if isinstance(payload, dict)}
         project_scenes = {name for name, payload in (scenes or {}).items() if isinstance(payload, dict)}
         project_props = {name for name, payload in (props or {}).items() if isinstance(payload, dict)}
+        products = project.get("products")
+        project_products = {name for name, payload in (products or {}).items() if isinstance(payload, dict)}
 
         episodes = project.get("episodes")
         if isinstance(episodes, list):
@@ -737,6 +936,7 @@ class ProjectArchiveService:
                     project_characters=project_characters,
                     project_scenes=project_scenes,
                     project_props=project_props,
+                    project_products=project_products,
                     versions_payload=versions_payload,
                     diagnostics=diagnostics,
                     basename_index=basename_index,
@@ -761,6 +961,7 @@ class ProjectArchiveService:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
+        project_products: set[str],
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
         basename_index: dict[str, list[str]],
@@ -801,12 +1002,11 @@ class ProjectArchiveService:
         content_mode = raw_content_mode
         generation_mode = project_payload.get("generation_mode")
 
-        # 修复分流按规范解析的骨架种类走，而非 generation_mode：ad 项目 generation_mode
-        # 可为 reference_video 但骨架恒为 shots（不含 video_units），按 generation_mode
-        # 分流会把它错误送进 video_units 专用分支而静默 no-op。
+        # 修复分流按规范解析的骨架种类走：所有参考路线都使用 video_units，storyboard
+        # 路线按内容模式使用 segments/scenes/shots。
         kind = resolve_declared_kind(content_mode, generation_mode)
 
-        # video_units 骨架（narration/drama + 参考生视频）用 references 组织资产，结构与
+        # video_units 骨架用 references 组织资产，结构与
         # storyboard 骨架的 characters/scenes/props 不同，单独走专用修复分支。
         if kind == "video_units":
             units_changed, units_project_changed = self._repair_video_units_payload(
@@ -817,6 +1017,7 @@ class ProjectArchiveService:
                 project_characters=project_characters,
                 project_scenes=project_scenes,
                 project_props=project_props,
+                project_products=project_products,
                 content_mode=content_mode,
                 versions_payload=versions_payload,
                 diagnostics=diagnostics,
@@ -939,52 +1140,7 @@ class ProjectArchiveService:
                     ):
                         script_changed = True
 
-        # ad 参考直出的派生索引 reference_units 挂在 shots 之外，storyboard 循环不触及；
-        # 就地补全各 unit 的 generated_assets 缺失字段。
-        if kind == "shots" and self._repair_ad_reference_units(
-            script_path_rel=script_path_rel,
-            script_payload=script_payload,
-            content_mode=content_mode,
-            diagnostics=diagnostics,
-        ):
-            script_changed = True
-
         return script_changed, project_changed
-
-    def _repair_ad_reference_units(
-        self,
-        *,
-        script_path_rel: str,
-        script_payload: dict[str, Any],
-        content_mode: str,
-        diagnostics: ArchiveDiagnostics,
-    ) -> bool:
-        """回填 ad 参考直出派生索引 reference_units 各 unit 的 generated_assets（就地，缺字段才补）。
-
-        reference_units 是 shots 的派生索引，产物挂在 unit 上而非 shots。这里只对已存在的
-        unit 就地补全缺失的 generated_assets 字段——不从 shots 重派生分组：重派生需供应商时长
-        上限（归档修复时不可得），分组一旦改变会让既有产物指针错位丢失。既有资产值一律保留、
-        仅补缺失键，与派生索引 merge 的资产保留语义一致。
-        """
-        units = script_payload.get("reference_units")
-        if not isinstance(units, list):
-            return False
-
-        changed = False
-        for index, unit in enumerate(units):
-            if not isinstance(unit, dict):
-                continue
-            _, assets_changed = self._backfill_generated_assets(
-                unit,
-                content_mode=content_mode,
-                label="reference_units",
-                index=index,
-                location_prefix=f"{script_path_rel}:reference_units[{index}]",
-                diagnostics=diagnostics,
-            )
-            if assets_changed:
-                changed = True
-        return changed
 
     def _backfill_generated_assets(
         self,
@@ -1080,13 +1236,14 @@ class ProjectArchiveService:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
+        project_products: set[str],
         content_mode: str,
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
     ) -> tuple[bool, bool]:
         """修复 reference_video 模式剧本的 video_units，返回 (script_changed, project_changed)。
 
-        video_units 没有 narration/drama 的 characters/scenes/props 字段，引用资产改放在
+        video_units 没有 storyboard 条目的 characters/scenes/props 字段，引用资产改放在
         references（list[{type, name}]）里。本方法做三件事，与 narration/drama 分支对齐：
         generated_assets 补全；references 自愈（缺失角色补占位、缺失场景/道具报阻断）；
         video_clip / video_thumbnail 路径规范化与版本回溯。
@@ -1146,6 +1303,7 @@ class ProjectArchiveService:
                 project_characters=project_characters,
                 project_scenes=project_scenes,
                 project_props=project_props,
+                project_products=project_products,
                 index=index,
                 location_prefix=location_prefix,
                 diagnostics=diagnostics,
@@ -1190,6 +1348,7 @@ class ProjectArchiveService:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
+        project_products: set[str],
         index: int,
         location_prefix: str,
         diagnostics: ArchiveDiagnostics,
@@ -1207,8 +1366,7 @@ class ProjectArchiveService:
             return False
 
         project_changed = False
-        missing_scenes: set[str] = set()
-        missing_props: set[str] = set()
+        missing_by_type: dict[str, set[str]] = {"product": set(), "scene": set(), "prop": set()}
         for ref in references:
             if not isinstance(ref, dict):
                 continue
@@ -1219,12 +1377,12 @@ class ProjectArchiveService:
             if ref_type == "character":
                 if self._add_placeholder_character(project_payload, project_characters, ref_name, diagnostics):
                     project_changed = True
-            elif ref_type == "scene" and _resolve_existing_asset(ref_name, project_scenes) not in project_scenes:
-                missing_scenes.add(ref_name)
-            elif ref_type == "prop" and _resolve_existing_asset(ref_name, project_props) not in project_props:
-                missing_props.add(ref_name)
+            elif ref_type in missing_by_type:
+                pool = {"product": project_products, "scene": project_scenes, "prop": project_props}[ref_type]
+                if _resolve_existing_asset(ref_name, pool) not in pool:
+                    missing_by_type[ref_type].add(ref_name)
 
-        for missing, asset_type in ((missing_scenes, "scene"), (missing_props, "prop")):
+        for asset_type, missing in missing_by_type.items():
             if missing:
                 diagnostics.add(
                     "blocking",

@@ -23,7 +23,7 @@ export default {
   'workbench_timeline_title': 'Bảng phân cảnh',
   'workbench_timeline_body': 'Các cảnh quay của mỗi tập xếp theo dòng thời gian, gồm prompt hình ảnh, ảnh phân cảnh và video. Có thể tạo ảnh phân cảnh trước để chốt bố cục rồi mới tạo video; từng cảnh quay đều có thể tạo lại bất cứ lúc nào.',
   'workbench_export_title': 'Xuất',
-  'workbench_export_body': 'Sản xuất xong, xuất bản nháp JianYing từ thanh trên cùng để tiếp tục dựng, hoặc tải cả dự án về. Dự án minh hoạ chưa có thành phẩm nên nút xuất không khả dụng.',
+  'workbench_export_body': 'Sản xuất xong, xuất bản nháp Jianying từ thanh trên cùng để tiếp tục dựng, hoặc tải cả dự án về. Dự án minh hoạ chưa có thành phẩm nên nút xuất không khả dụng.',
   'finish_title': 'Bắt đầu dự án đầu tiên của bạn',
   'finish_body': 'Tạo dự án và nhập tiểu thuyết hoặc kịch bản là có thể bắt đầu sản xuất. Có thể xem lại phần hướng dẫn này bất cứ lúc nào trong Cài đặt → Giới thiệu.',
 

@@ -11,7 +11,7 @@ import globals from "globals";
 // 该文件应受的全部约束一次性列全，豁免用「少列一条」表达，而不是另起一块。
 const RESTRICT_ENQUEUE = {
   selector:
-    "CallExpression[callee.object.name='API'][callee.property.name=/^(generateStoryboard|generateVideo|generateNarrationAudio|generateEpisodeNarrationAudio|generateCharacter|generateCharacterVoiceSample|generateProjectScene|generateProjectProp|generateProjectProduct|editImage|generateGrid|regenerateGrid|generateReferenceVideoUnit)$/]",
+    "CallExpression[callee.object.name='API'][callee.property.name=/^(generateStoryboard|generateVideo|generateNarrationAudio|generateEpisodeNarrationAudio|generateCharacter|generateCharacterVoiceSample|generateProjectScene|generateProjectProp|generateProjectProduct|editImage|generateGrid|regenerateGrid|generateReferenceVideoUnit|generateReferenceVideoBatch)$/]",
   message:
     "入队类 API 方法只能经 src/actions/ 的入队动作层调用（统一封装乐观占用打标与去重提示）。",
 };

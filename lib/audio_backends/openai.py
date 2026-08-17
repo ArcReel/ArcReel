@@ -28,8 +28,7 @@ _SUPPORTED_RESPONSE_FORMATS = frozenset({"mp3", "opus", "aac", "flac", "wav", "p
 _FALLBACK_RESPONSE_FORMAT = "wav"
 
 # 官方内置音色（gpt-4o-mini-tts，含 tts-1/tts-1-hd legacy 子集），出处见
-# docs/openai-docs/文本转语音-TTS.md（2026-07-31 核实快照，来源：
-# https://developers.openai.com/api/docs/guides/text-to-speech）。
+# docs/api-docs/endpoints/openai-tts.md 所列 OpenAI 官方文档。
 # 官方文档未给出性别/描述信息，故 label 仅取 id 本身——不编造。
 # 经自定义供应商 openai-tts endpoint 接入的第三方兼容服务音色集合可能与本目录不同，
 # 边界说明见上述文档。

@@ -80,7 +80,9 @@ MCP 工具自动处理以下参考图传入，无需手动指定：
 
 ## 错误处理
 
-- 单场景失败不影响批次，记录失败场景后继续
-- 生成结束后汇总报告所有失败场景和原因
-- 支持增量生成（跳过已存在的场景图）
-- 使用 `mcp__arcreel__generate_storyboards({"script": "...", "segment_ids": [...]})` 重新生成失败场景
+结果结构与逐 ID 问题码见 `.claude/references/generation-results.md`。
+
+- 单场景失败不影响批次，工具返回 `requested / succeeded / failed / blocked` 的逐 ID 结果
+- 按每一项自带的 `problem.code` 与 `problem.action` 决定重试还是先改输入，不要读文本猜
+- 不传 `segment_ids` 即只补缺；已失效但可用的旧分镜图会被复用，不自动重生
+- 可重试的场景用 `mcp__arcreel__generate_storyboards({"script": "...", "segment_ids": [...]})` 点名重做

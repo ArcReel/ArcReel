@@ -19,6 +19,7 @@ import type {
   DramaScene,
   AdShot,
   ProjectData,
+  ReferenceGenerationRequestOptions,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
@@ -40,7 +41,11 @@ interface TimelineCanvasProps {
   /** ad 模式镜头顺序调整（向前/向后移动一位），resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
-  onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateVideo?: (
+    segmentId: string,
+    scriptFile?: string,
+    requestOptions?: ReferenceGenerationRequestOptions,
+  ) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   durationOptions?: number[];
@@ -213,7 +218,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     ? (segId: string) => onGenerateStoryboard(segId, scriptFile)
     : undefined;
   const handleGenVid = onGenerateVideo
-    ? (segId: string) => onGenerateVideo(segId, scriptFile)
+    ? (segId: string, requestOptions?: ReferenceGenerationRequestOptions) =>
+        onGenerateVideo(segId, scriptFile, requestOptions)
     : undefined;
   const handleGenNarration = onGenerateNarration
     ? (segId: string) => onGenerateNarration(segId, scriptFile)

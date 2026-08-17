@@ -27,7 +27,7 @@ import logging
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -35,8 +35,10 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_relpath,
 )
+from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
+from lib.project_schema import project_schema_is_current
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.reference_video.quarantine import (
     QUARANTINE_KIND_STEP1,
@@ -46,6 +48,9 @@ from lib.reference_video.quarantine import (
 )
 from lib.validation_messages import ValidationMessage
 
+if TYPE_CHECKING:
+    from lib.artifact_manifest import ArtifactBasis
+
 logger = logging.getLogger(__name__)
 
 #: 审核状态：not_applicable=该集不走 gate；no_step1=适用但 step1 未产出；
@@ -54,6 +59,16 @@ ReviewStatus = Literal["not_applicable", "no_step1", "pending_review", "confirme
 
 #: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
 REVIEW_FIELD = "step1_review"
+
+#: stale 账本条目记录重规划提交时旧 step1 的内容指纹；live 指纹变化即证明 step1 已按新账本重建。
+STALE_STEP1_REVISION_FIELD = "stale_step1_revision"
+
+#: stale 分集的 step1 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
+STALE_STEP1_REBUILT_REVISION_FIELD = "stale_step1_rebuilt_revision"
+
+#: 最终剧本 metadata 记录其实际消费的 step1 内容指纹；workflow status 用它识别 step1
+#: 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 step2 已完成。
+SCRIPT_STEP1_REVISION_FIELD = "step1_revision"
 
 #: step1 变体：drama / narration（按 content_mode）+ reference_video（按项目生成路线，跨 content_mode）。
 #: 决定 step1 文件名与结构校验模型；三者共用同一审核 gate。
@@ -169,6 +184,48 @@ class Step1WriteConflict(Exception):
         self.current_content = current_content
 
 
+class Step1RebuildCompletionError(ValueError):
+    """A stale step1 rebuild cannot be recorded against the current ledger state."""
+
+    def __init__(self, code: str, detail: str):
+        super().__init__(detail)
+        self.code = code
+
+
+def complete_stale_step1_rebuild(
+    pm: ProjectManager,
+    project_name: str,
+    episode: int,
+    expected_stale_revision: str | None,
+) -> str:
+    """Record preprocessing completion for a stale entry, including byte-identical rebuilds."""
+    if isinstance(episode, bool) or episode < 1:
+        raise Step1RebuildCompletionError("invalid_episode", "episode must be a positive integer")
+
+    project_path = pm.get_project_path(project_name)
+    committed: dict[str, str] = {}
+
+    def _commit(project: dict[str, Any]) -> None:
+        entry = find_episode(project, episode)
+        if entry is None or entry.get("ledger_status") != "stale":
+            raise Step1RebuildCompletionError("not_stale", "episode is not awaiting a stale step1 rebuild")
+        if STALE_STEP1_REVISION_FIELD not in entry:
+            raise Step1RebuildCompletionError("missing_baseline", "stale episode has no rebuild baseline")
+        if entry.get(STALE_STEP1_REVISION_FIELD) != expected_stale_revision:
+            raise Step1RebuildCompletionError(
+                "baseline_conflict", "stale step1 baseline changed; refresh workflow status"
+            )
+        path = step1_path(project_path, project, episode)
+        revision = content_fingerprint(path) if path is not None else None
+        if revision is None:
+            raise Step1RebuildCompletionError("step1_missing", "rebuilt step1 file is missing")
+        entry[STALE_STEP1_REBUILT_REVISION_FIELD] = revision
+        committed["revision"] = revision
+
+    pm.update_project(project_name, _commit)
+    return committed["revision"]
+
+
 def assert_base_fingerprint(path: Path, expected: str | None | _UncheckedFingerprint) -> None:
     """乐观并发比对：``expected`` 与 ``path`` 盘上现值不一致时抛 ``Step1WriteConflict``、不落盘。
 
@@ -214,6 +271,80 @@ def step1_write_lock(project_path: Path, episode: int) -> Iterator[Path]:
         yield path
 
 
+@contextmanager
+def formal_step1_write_transaction(
+    project_path: Path,
+    episode: int,
+    *paths: Path,
+    basis: ArtifactBasis | None = None,
+) -> Iterator[None]:
+    """Commit formal step1 files and their active Manifest claim as one unit.
+
+    Callers own the canonical per-path lock.  Every Python write path for a
+    drama, narration, or reference-video step1 enters this context so a
+    successful write refreshes the same typed claim, while registration
+    failure restores every supplied formal file byte-for-byte.
+    """
+
+    with project_metadata_lock(project_path), formal_write_transaction(*paths):
+        yield
+        from lib.artifact_activation import (
+            register_current_artifact,
+            register_current_artifact_if_provable,
+        )
+        from lib.artifact_manifest import ArtifactKey
+
+        project_file = project_path / "project.json"
+        try:
+            project = json.loads(project_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            logger.warning("cannot inspect project schema after formal step1 write: %s", exc)
+            project = None
+        if isinstance(project, dict) and project_schema_is_current(project):
+            # A successful no-op write can still repair a missing claim after a
+            # temporarily unavailable source made activation skip this target.
+            key = ArtifactKey.episode_step1(episode)
+            if basis is None:
+                register_current_artifact_if_provable(project_path, key)
+            else:
+                if not paths:
+                    raise ValueError("a frozen step1 basis requires its formal artifact path")
+                register_current_artifact(
+                    project_path,
+                    key,
+                    artifact_path=paths[0].relative_to(project_path).as_posix(),
+                    basis=basis,
+                )
+
+
+def write_step1_json(
+    project_path: Path,
+    episode: int,
+    path: Path,
+    content: object,
+    *,
+    basis: ArtifactBasis | None = None,
+) -> None:
+    """Atomically write a structured step1 through its canonical lock and claim seam."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pm = ProjectManager(str(project_path.parent))
+    with pm.file_lock(path), formal_step1_write_transaction(project_path, episode, path, basis=basis):
+        atomic_write_json(path, content)
+
+
+def delete_step1_file(project_path: Path, episode: int, path: Path) -> bool:
+    """Delete a formal step1 and forget its active claim through the same transaction."""
+
+    pm = ProjectManager(str(project_path.parent))
+    with pm.file_lock(path):
+        if not path.exists():
+            return False
+        with formal_step1_write_transaction(project_path, episode, path):
+            path.unlink()
+    return True
+
+
 def write_step1_locked(
     project_path: Path,
     episode: int,
@@ -221,6 +352,7 @@ def write_step1_locked(
     *,
     expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
     clear_step2_quarantine: bool = True,
+    basis: ArtifactBasis | None = None,
 ) -> bool:
     """参考生视频正式 step1 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清 step2
     隔离草稿。返回内容是否发生变化。
@@ -241,9 +373,11 @@ def write_step1_locked(
     assert_base_fingerprint(path, expected_fingerprint)
     previous = load_json_or_none(path)
     changed = previous != content
-    atomic_write_json(path, content)
-    if changed and clear_step2_quarantine:
-        clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
+    quarantine = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
+    with formal_step1_write_transaction(project_path, episode, path, quarantine, basis=basis):
+        atomic_write_json(path, content)
+        if changed and clear_step2_quarantine:
+            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
     return changed
 
 

@@ -31,6 +31,12 @@ interface ReferenceStep1PreviewPanelProps {
 
 /** 原文锚失配类违约：呈现为「原文」小节的红标，不进逐行锚定或聚合区。 */
 const SOURCE_ANCHOR_CODES = new Set(["source_text_not_verbatim", "source_text_empty"]);
+const SPEECH_VIOLATION_KEYS: Record<string, string> = {
+  mixed_speech: "speech_admission_mixed_speech",
+  needs_replan: "speech_admission_needs_replan",
+  parse_failed: "speech_admission_parse_failed",
+  empty_speaker: "speech_admission_empty_speaker",
+};
 
 function unitKeyFromLabel(label: string): string | null {
   const m = /^unit\s+(\S+)$/.exec(label);
@@ -84,7 +90,7 @@ function deriveDisplayReferences(text: string, lookup: MentionLookup): Reference
   // extract_mentions 同口径——tokenizePrompt 是给高亮用的，不做这条跳过。
   for (const name of extractMentions(text)) {
     const assetKind = lookup[name];
-    if (!assetKind) continue;
+    if (!assetKind || assetKind === "product") continue;
     out.push({ type: assetKind, name });
   }
   return out;
@@ -162,7 +168,10 @@ function unitDurationTiers(
   tiers: NonNullable<ScriptReviewState["duration_tiers"]> | null,
 ): number[] | null {
   if (!tiers) return null;
-  const hasReferences = extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
+  const hasReferences = extractMentions(unit.scriptText).some((name) => {
+    const kind = lookup[name];
+    return Boolean(kind && kind !== "product");
+  });
   return hasReferences ? tiers.with_references : tiers.without_references;
 }
 
@@ -194,15 +203,25 @@ function ReferencePills({ references }: { references: ReferenceResource[] }) {
 }
 
 function InlineViolations({ violations }: { violations: ScriptReviewViolation[] }) {
+  const { t } = useTranslation("dashboard");
   if (!violations.length) return null;
   return (
     <>
-      {violations.map((v, i) => (
-        <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-[11px] leading-snug text-red-300">
-          <OctagonAlert className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
-          <span>{v.message}</span>
-        </p>
-      ))}
+      {violations.map((v, i) => {
+        const speechKey = SPEECH_VIOLATION_KEYS[v.code];
+        const location = v.locations
+          ?.map(({ path, line }) => `${path.join(".")}${line === null ? "" : `:${line + 1}`}`)
+          .join(", ");
+        const message = speechKey && location
+          ? t(speechKey, { unitId: unitKeyFromLabel(v.label) ?? v.label, location })
+          : v.message;
+        return (
+          <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-[11px] leading-snug text-red-300">
+            <OctagonAlert className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+            <span>{message}</span>
+          </p>
+        );
+      })}
     </>
   );
 }

@@ -15,12 +15,17 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from lib.api_errors import NotFoundError
+from lib.artifact_activation import register_artifact_entries_atomically, resolve_current_artifact_target
+from lib.artifact_manifest import ArtifactKey
 from lib.asset_types import (
     BUCKET_KEY,
     GLOBAL_LIBRARY_ASSET_TYPES,
     SHEET_KEY,
+    ProjectAssetNameConflictError,
+    asset_name_comparison_key,
+    ensure_project_asset_name_available,
+    find_project_asset_name,
     localize_asset_type,
-    normalize_asset_name,
     resolve_asset_key,
     validate_asset_name,
 )
@@ -28,6 +33,7 @@ from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
 from lib.project_manager import ProjectManager, get_project_manager
+from server.routers._asset_router_factory import localize_project_asset_name_conflict
 
 logger = logging.getLogger(__name__)
 
@@ -442,11 +448,14 @@ async def apply_to_project(
     # 1) 校验冲突策略（400 先于其它检查）
     if req.conflict_policy not in {"skip", "overwrite", "rename"}:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_conflict_policy"))
+    asset_ids = list(dict.fromkeys(req.asset_ids))
 
     # 2) 校验目标项目存在
     project_manager = get_project_manager()
     try:
         project = project_manager.load_project(req.target_project)
+    except ProjectAssetNameConflictError as exc:
+        raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
     except FileNotFoundError as exc:
         raise NotFoundError("asset_target_project_not_found", project=req.target_project) from exc
 
@@ -456,48 +465,53 @@ async def apply_to_project(
 
     # 3) 批量读取所有请求的 asset，缺失的直接归入 failed
     async with async_session_factory() as s:
-        assets = await AssetRepository(s).get_by_ids(req.asset_ids)
+        assets = await AssetRepository(s).get_by_ids(asset_ids)
     assets_by_id = {a.id: a for a in assets}
-    for asset_id in req.asset_ids:
+    for asset_id in asset_ids:
         if asset_id not in assets_by_id:
             failed.append({"id": asset_id, "reason": "not_found"})
 
     # 4) 先在内存里算好每条 asset 的目标名 + 是否需要拷贝文件，
     #    再一次性执行文件拷贝和 project.json 写回
     project_dir = project_manager.get_project_path(req.target_project)
-    # 按 bucket 维护一份"已占用的名字"集合（NFC 坐标系，存量 key 可能是 NFD），
-    # 用于冲突判定与 rename 策略的累积冲突检查
-    bucket_names: dict[str, set[str]] = {
-        bk: {normalize_asset_name(str(k)) for k in (project.get(bk) or {})} for bk in BUCKET_KEY.values()
-    }
+    # 四类资产共用一份名称占用表；owner 用于区分同类 overwrite 与不可覆盖的跨类型冲突。
+    occupied: dict[str, tuple[str, str]] = {}
+    for asset_type, bucket_key in BUCKET_KEY.items():
+        bucket = project.get(bucket_key)
+        if isinstance(bucket, dict):
+            for raw_name in bucket:
+                if isinstance(raw_name, str):
+                    occupied[asset_name_comparison_key(raw_name)] = (asset_type, raw_name)
     plans: list[dict] = []
-    for asset_id in req.asset_ids:
+    for asset_id in asset_ids:
         a = assets_by_id.get(asset_id)
         if a is None:
             continue  # 已在 failed
 
         bucket_key = BUCKET_KEY[a.type]
         sheet_key = SHEET_KEY[a.type]
-        names = bucket_names[bucket_key]
-
         try:
             desired_name = _validate_asset_name(a.name, _t)
         except HTTPException:
             failed.append({"id": a.id, "reason": "invalid_name"})
             continue
 
-        if desired_name in names:
+        existing = occupied.get(asset_name_comparison_key(desired_name))
+        if existing is not None:
+            same_type = existing[0] == a.type
             if req.conflict_policy == "skip":
                 skipped.append({"id": a.id, "name": a.name})
                 continue
             if req.conflict_policy == "rename":
-                # 基名用校验后的 desired_name（NFC），与 names 集合同坐标系，DB 原文可能是 NFD
                 base_name = desired_name
                 i = 2
-                while f"{base_name} ({i})" in names:
+                while asset_name_comparison_key(f"{base_name} ({i})") in occupied:
                     i += 1
                 desired_name = f"{base_name} ({i})"
-            # overwrite: 保留原名，后续覆盖
+            elif not same_type:
+                failed.append({"id": a.id, "reason": "project_name_conflict"})
+                continue
+            # overwrite 只能覆盖同类型条目。
 
         # 规划图片拷贝
         target_sheet: str | None = None
@@ -551,10 +565,11 @@ async def apply_to_project(
                 failed.append({"id": a.id, "reason": "audio_missing"})
                 continue
 
-        names.add(desired_name)
+        occupied[asset_name_comparison_key(desired_name)] = (a.type, desired_name)
         plans.append(
             {
                 "asset": a,
+                "requested_name": _validate_asset_name(a.name, _t),
                 "bucket_key": bucket_key,
                 "sheet_key": sheet_key,
                 "desired_name": desired_name,
@@ -567,29 +582,53 @@ async def apply_to_project(
             }
         )
 
-    # 5) 执行文件拷贝（off event loop）
-    def _copy_all() -> None:
-        for plan in plans:
-            for src_key, dst_key in (("copy_src", "copy_dst"), ("copy_audio_src", "copy_audio_dst")):
-                src = plan[src_key]
-                dst = plan[dst_key]
-                if src is None or dst is None:
-                    continue
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(src, dst)
+    # 5) 单次事务把所有文件替换与 bucket 变更一次性写回。锁外规划只用于快速失败；
+    #    锁内必须从 requested_name 重施策略，覆盖快照之后出现的同类型占用。
+    file_copies: list[tuple[Path, Path]] = []
 
-    if plans:
-        await asyncio.to_thread(_copy_all)
-
-    # 6) 单次 update_project 把所有 bucket 变更一次性写回
     def _apply_all(data: dict) -> None:
+        applied_plans: list[dict] = []
         for plan in plans:
             a_ = plan["asset"]
             bk = plan["bucket_key"]
             sk = plan["sheet_key"]
-            name_ = plan["desired_name"]
+            name_ = plan["requested_name"]
+            existing = find_project_asset_name(data, name_)
+            if existing is not None:
+                if req.conflict_policy == "skip":
+                    skipped.append({"id": a_.id, "name": a_.name})
+                    continue
+                if req.conflict_policy == "rename":
+                    base_name = name_
+                    index = 2
+                    while find_project_asset_name(data, f"{base_name} ({index})") is not None:
+                        index += 1
+                    name_ = f"{base_name} ({index})"
+                    existing = None
+                elif existing.asset_type != a_.type:
+                    raise ProjectAssetNameConflictError(name_, existing, a_.type)
+
+            plan["desired_name"] = name_
+            if plan["copy_src"] is not None:
+                extension = plan["copy_src"].suffix.lower() or ".png"
+                plan["target_sheet"] = f"{bk}/{name_}{extension}"
+                plan["copy_dst"] = project_dir / plan["target_sheet"]
+                file_copies.append((plan["copy_src"], plan["copy_dst"]))
+            if plan["copy_audio_src"] is not None:
+                extension = plan["copy_audio_src"].suffix.lower() or ".wav"
+                plan["target_audio"] = f"characters/refs_audio/{name_}{extension}"
+                plan["copy_audio_dst"] = project_dir / plan["target_audio"]
+                file_copies.append((plan["copy_audio_src"], plan["copy_audio_dst"]))
+
             ts = plan["target_sheet"]
             ta = plan["target_audio"]
+            ensure_project_asset_name_available(
+                data,
+                name_,
+                requested_asset_type=a_.type,
+                exclude_asset_type=a_.type,
+                exclude_name=existing.name if existing is not None and existing.asset_type == a_.type else None,
+            )
             payload: dict = {"description": a_.description or ""}
             if a_.type == "character":
                 payload["voice_style"] = a_.voice_style or ""
@@ -602,11 +641,31 @@ async def apply_to_project(
             if bk not in data or not isinstance(data.get(bk), dict):
                 data[bk] = {}
             # overwrite 策略要落在存量真实 key 上（可能是 NFD），否则会并存两条视觉同名条目
-            key = resolve_asset_key(data[bk], name_) or name_
+            key = existing.name if existing is not None and existing.asset_type == a_.type else name_
             data[bk][key] = payload
+            applied_plans.append(plan)
+
+        plans[:] = applied_plans
 
     if plans:
-        project_manager.update_project(req.target_project, _apply_all)
+
+        def _register_imported_sheet_claims(_project_file: Path) -> None:
+            keys = {ArtifactKey.asset_sheet(plan["asset"].type, plan["desired_name"]) for plan in plans}
+            register_artifact_entries_atomically(
+                project_dir,
+                {key: resolve_current_artifact_target(project_dir, key) for key in keys},
+            )
+
+        try:
+            await asyncio.to_thread(
+                project_manager.update_project_with_file_copies,
+                req.target_project,
+                _apply_all,
+                file_copies,
+                on_commit=_register_imported_sheet_claims,
+            )
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
 
     for plan in plans:
         succeeded.append({"id": plan["asset"].id, "name": plan["desired_name"]})

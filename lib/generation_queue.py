@@ -16,12 +16,86 @@ from typing import TYPE_CHECKING, Any
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskRepository
+from lib.generation_admission import generation_admission_lock
 from lib.task_terminal_events import emit_task_terminal_events
 
 if TYPE_CHECKING:
-    from lib.config.resolver import ProviderModel, VideoCapability
+    from lib.config.resolver import ConfigResolver, ProviderModel, VideoCapability
+    from lib.reference_video.request_projection import ReferenceUnitRequestProjection
 
 logger = logging.getLogger(__name__)
+
+
+_VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
+_REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
+_NARRATION_REQUEST_KEY_BY_TASK_TYPE = {
+    "video": "narration_delivery_options",
+    "reference_video": "reference_request_options",
+}
+
+
+class ActiveTaskRequestConflict(RuntimeError):
+    """An active video task owns the resource with different request facts."""
+
+    def __init__(self, *, resource_id: str, existing_task_id: str) -> None:
+        self.resource_id = resource_id
+        self.existing_task_id = existing_task_id
+        super().__init__(
+            f"resource '{resource_id}' already has active task '{existing_task_id}' "
+            "with a different narration delivery request"
+        )
+
+
+def _narration_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, object] | None:
+    key = _NARRATION_REQUEST_KEY_BY_TASK_TYPE.get(task_type)
+    if key is None:
+        return None
+
+    from lib.narration_delivery import NarrationDeliveryRequestOptions
+
+    return NarrationDeliveryRequestOptions.from_payload(payload or {}, key=key).to_payload()
+
+
+class DispatchProviderChanged(RuntimeError):
+    """执行投影与 worker 已占用的 provider 槽不一致，需要回队重认领。"""
+
+    def __init__(self, *, claimed_provider_id: str, actual_provider_id: str) -> None:
+        self.claimed_provider_id = claimed_provider_id
+        self.actual_provider_id = actual_provider_id
+        super().__init__(f"dispatch provider changed: {claimed_provider_id} -> {actual_provider_id}")
+
+
+def reference_video_enqueue_payload(
+    payload: dict[str, Any] | None,
+    *,
+    script_file: str | None,
+) -> dict[str, Any]:
+    """把新入队的参考视频载荷收窄为定位与请求选项。
+
+    prompt、references、style、duration 等可变请求事实不是任务快照；worker 开始时
+    从当前 project/script/unit 重新投影。提交后的执行身份保存在专用 checkpoint，
+    不经过该入队边界。
+    """
+
+    normalized = {key: value for key, value in (payload or {}).items() if key in _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS}
+    if "reference_request_options" in normalized:
+        from lib.reference_video.request_projection import ReferenceRequestOptions
+
+        normalized["reference_request_options"] = ReferenceRequestOptions.from_payload(
+            {"reference_request_options": normalized["reference_request_options"]}
+        ).to_payload()
+    if script_file is not None:
+        normalized["script_file"] = script_file
+    return normalized
+
+
+def without_video_execution_identity(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """移除 payload 中的 enqueue-time 视频身份，使未提交任务按当前配置投影。"""
+
+    return {key: value for key, value in (payload or {}).items() if key not in _VIDEO_EXECUTION_IDENTITY_KEYS}
+
+
+without_reference_video_execution_identity = without_video_execution_identity
 
 
 async def video_bucket_for_queued_task(
@@ -34,42 +108,104 @@ async def video_bucket_for_queued_task(
 ) -> VideoCapability | None:
     """视频任务的定桶口径，入队派生与 worker 限流投影共用、与执行侧同步（docs/adr/0054）。
 
-    图生视频 / 宫格 → i2v；参考生视频按 unit 的参考集分流（ad 从成员镜头现算，其余按
-    unit 声明）——无参考图的退化镜头降级 → i2v，其余 → r2v。剧本 / unit 读不到时回退代表桶 r2v：这只影响 claim 池过滤与限流槽
-    路由的精度，执行层会按解析后的实际参考图独立精确定桶。表外任务类型返回 None（不定桶）。
+    图生视频 / 宫格 → i2v；参考生视频调公共 request projection 按当前实际可用资产分流——
+    无参考图的退化镜头 → i2v，其余 → r2v。剧本 / unit / 能力读不到时回退代表桶 r2v；
+    回退只影响 claim 池过滤与限流槽路由的精度，执行层仍在处理开始时重新投影。
+    表外任务类型返回 None（不定桶）。
     """
-    from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, get_project_manager
-    from lib.reference_video.units import find_reference_unit, reference_unit_video_bucket
+    from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE
 
     if task_type != "reference_video":
         return VIDEO_BUCKET_BY_TASK_TYPE.get(task_type)
     fallback = VIDEO_BUCKET_BY_TASK_TYPE["reference_video"]
-    script_file = (payload or {}).get("script_file")
-    if not project_name or not script_file or not resource_id:
-        return fallback
-    try:
-        script = await asyncio.to_thread(get_project_manager().load_script, project_name, str(script_file))
-    except Exception:
-        logger.debug("reference_video 定桶读取剧本失败，回退 %s 桶", fallback, exc_info=True)
-        return fallback
-    is_ad = (project or {}).get("content_mode") == "ad"
-    unit = find_reference_unit(script, str(resource_id), is_ad=is_ad)
-    if unit is None:
-        return fallback
-    if not is_ad:
-        return reference_unit_video_bucket(unit)
-    # ad 的参考集从成员镜头现算（与执行侧同源），索引里的 references 只是展示缓存；
-    # 索引悬空（ValueError）或索引结构被裸写坏（如 shot_ids 写成布尔值，遍历抛 TypeError）
-    # 时，按「读不到 unit」同处置回退代表桶：成员镜头无从水合也就无从定桶，而定桶只影响
-    # claim 池过滤与限流槽路由的精度，不该让一次入队整体失败——与上方读剧本失败同口径。
-    from lib.reference_video.ad_units import resolve_ad_unit_shots
+    projection = await reference_projection_for_queued_task(
+        project=project,
+        project_name=project_name,
+        payload=payload,
+        resource_id=resource_id,
+    )
+    return projection.hydrated_capability if projection is not None else fallback
 
+
+async def reference_projection_for_queued_task(
+    *,
+    project: dict | None,
+    project_name: str | None,
+    payload: dict[str, Any] | None,
+    resource_id: str | None,
+) -> ReferenceUnitRequestProjection | None:
+    """按任务定位信息读取当前 unit，并生成 claim/限流共用的 current-state 投影。"""
+
+    from lib.config.resolver import get_project_manager
+    from lib.reference_video.request_projection import (
+        ReferenceRequestOptions,
+        project_reference_unit_request,
+    )
+    from lib.reference_video.units import find_reference_unit
+
+    script_file = (payload or {}).get("script_file")
+    if project is None or not project_name or not script_file or not resource_id:
+        return None
     try:
-        ad_shots = resolve_ad_unit_shots(script, unit)
+        pm = get_project_manager()
+        script = await asyncio.to_thread(pm.load_script, project_name, str(script_file))
+        project_path = await asyncio.to_thread(pm.get_project_path, project_name)
+        unit = find_reference_unit(script, str(resource_id))
+        if unit is None:
+            return None
+        return await project_reference_unit_request(
+            project=project,
+            script=script,
+            unit=unit,
+            project_path=project_path,
+            # Claim/rate-limit routing only needs hydrated visual capability.
+            # Narration currency belongs to Web/Agent/worker projections, whose
+            # server adapter can assemble the effective audio backend identity.
+            options=ReferenceRequestOptions(),
+        )
     except Exception:
-        logger.debug("reference_video 定桶水合成员镜头失败，回退 %s 桶", fallback, exc_info=True)
-        return fallback
-    return reference_unit_video_bucket(unit, ad_shots=ad_shots)
+        logger.debug("reference_video 当前请求投影失败，限流路由回退代表桶", exc_info=True)
+        return None
+
+
+async def resolve_video_execution_for_queued_task(
+    *,
+    resolver: ConfigResolver,
+    project: dict | None,
+    project_name: str | None,
+    task_type: str,
+    payload: dict[str, Any] | None,
+    resource_id: str | None,
+) -> tuple[ProviderModel, VideoCapability | None]:
+    """解析队列视频任务的当前身份与能力桶，供入队 advisory 和 worker 限流共用。"""
+
+    projection = (
+        await reference_projection_for_queued_task(
+            project=project,
+            project_name=project_name,
+            payload=payload,
+            resource_id=resource_id,
+        )
+        if task_type == "reference_video"
+        else None
+    )
+    if projection is not None and projection.provider_candidate is not None:
+        from lib.config.resolver import ProviderModel
+
+        return ProviderModel(projection.provider_id or "", projection.model_id or ""), projection.hydrated_capability
+
+    capability = await video_bucket_for_queued_task(
+        project=project,
+        project_name=project_name,
+        task_type=task_type,
+        payload=payload,
+        resource_id=resource_id,
+    )
+    execution_payload = (
+        without_video_execution_identity(payload) if task_type in ("video", "reference_video") else payload
+    )
+    resolved = await resolver.resolve_video_backend(project, execution_payload or {}, capability=capability)
+    return resolved, capability
 
 
 async def _derive_execution_model_for_enqueue(
@@ -80,10 +216,10 @@ async def _derive_execution_model_for_enqueue(
     media_type: str,
     resource_id: str | None,
 ) -> tuple[ProviderModel, VideoCapability | None] | None:
-    """入队时按 project + payload 派生该任务的执行身份，视频任务连同定桶结果一并返回。
+    """入队时按 project + payload 派生任务的 advisory provider 与视频桶。
 
-    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；视频任务的完整身份另锁进 payload
-    （见 ``_pin_video_execution_model``）。与 worker ``_extract_provider`` 同套解析逻辑，
+    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；两条视频路线都只保存 advisory provider，
+    worker 开始处理时重新投影当前状态。与 worker ``_extract_provider`` 同套解析逻辑，
     但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
     """
@@ -102,14 +238,14 @@ async def _derive_execution_model_for_enqueue(
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            video_capability = await video_bucket_for_queued_task(
+            resolved, video_capability = await resolve_video_execution_for_queued_task(
+                resolver=resolver,
                 project=project,
                 project_name=project_name,
                 task_type=task_type,
                 payload=payload,
                 resource_id=resource_id,
             )
-            resolved = await resolver.resolve_video_backend(project, payload or {}, capability=video_capability)
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
@@ -125,27 +261,6 @@ async def _derive_execution_model_for_enqueue(
     return resolved, video_capability
 
 
-def _pin_video_execution_model(
-    payload: dict[str, Any] | None,
-    *,
-    capability: VideoCapability | None,
-    execution_model: ProviderModel,
-) -> dict[str, Any] | None:
-    """把入队解析出的执行身份锁进视频任务 payload 的能力桶键，返回新 payload（不改调用方的 dict）。
-
-    锁定的是「任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
-    provider_id，锁不住 model（``docs/adr/0054``「不静默换模型」）。桶键与复合值形态和解析侧
-    payload 层同源（``lib.config.resolver``），此处是该组键的唯一写入方。``capability`` 取
-    入队派生的定桶结果（参考路线内逐镜头分流后的桶），锁定键因此与解析用的桶一致——resolver
-    的 payload 层只认「任务所属那一个桶」的键。
-
-    非视频任务与不定桶的任务（``capability`` 为 None）、以及解析不出 model 时原样返回。
-    """
-    if capability is None or not execution_model.model_id:
-        return payload
-    return {**(payload or {}), f"video_provider_{capability}": execution_model.pair_key}
-
-
 ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
 TERMINAL_TASK_STATUSES = ("succeeded", "failed", "cancelled")
 TASK_WORKER_LEASE_TTL_SEC = 10.0
@@ -157,6 +272,26 @@ _QUEUE_INSTANCE: GenerationQueue | None = None
 
 
 WorkerCancelCallback = Callable[[str], bool]
+
+
+class CompensableGenerationResult(dict[str, Any]):
+    """Runtime-only result whose activated media can be undone if cancellation wins.
+
+    The callback is intentionally absent from the JSON payload persisted for a
+    succeeded task.  It only spans the executor-return → terminal-UPDATE window,
+    where a user cancellation may already have moved the row to ``cancelling``.
+    """
+
+    def __init__(self, result: dict[str, Any], *, cancel_compensation: Callable[[], None]) -> None:
+        super().__init__(result)
+        self._cancel_compensation = cancel_compensation
+        self._compensated = False
+
+    def compensate_cancelled(self) -> None:
+        if self._compensated:
+            return
+        self._compensated = True
+        self._cancel_compensation()
 
 
 class GenerationQueue:
@@ -209,11 +344,12 @@ class GenerationQueue:
         user_id: str = DEFAULT_USER_ID,
         provider_id: str | None = None,
     ) -> dict[str, Any]:
+        if task_type == "reference_video":
+            payload = reference_video_enqueue_payload(payload, script_file=script_file)
+
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
         # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
-        # 派生成功时视频任务同时把执行 model 锁进 payload，中断续跑据此沿用同一 model。
-        # 锁定只发生在这条派生分支上：显式传 provider_id 的调用没有配套的 model 可锁，
-        # 需要锁定视频执行 model 的入队点走派生路径。
+        # 派生成功只把 provider_id 作为 claim/rate-limit advisory；视频 model 不在入队时冻结。
         if provider_id is None:
             derived = await _derive_execution_model_for_enqueue(
                 project_name=project_name,
@@ -223,28 +359,56 @@ class GenerationQueue:
                 resource_id=resource_id,
             )
             if derived is not None:
-                execution_model, video_capability = derived
+                execution_model, _video_capability = derived
                 provider_id = execution_model.provider_id
-                payload = _pin_video_execution_model(
-                    payload, capability=video_capability, execution_model=execution_model
+                # Video provider/model is only an advisory claim projection until the worker materializes the
+                # current request and persists its pre-submit checkpoint. Enqueue payload never freezes identity.
+
+        async def _enqueue() -> dict[str, Any]:
+            async with self._task_repo() as repo:
+                return await repo.enqueue(
+                    project_name=project_name,
+                    task_type=task_type,
+                    media_type=media_type,
+                    resource_id=resource_id,
+                    payload=payload,
+                    script_file=script_file,
+                    resource_type=resource_type,
+                    source=source,
+                    dependency_task_id=dependency_task_id,
+                    dependency_group=dependency_group,
+                    dependency_index=dependency_index,
+                    user_id=user_id,
+                    provider_id=provider_id,
                 )
 
-        async with self._task_repo() as repo:
-            result = await repo.enqueue(
+        # Audio restoration observes active TTS/video consumers while holding the
+        # same per-unit admission guard.  Keeping the guard here makes every Web,
+        # Agent, and batch enqueue entry participate without duplicating checks.
+        if task_type in {"tts", "video", "reference_video"} and script_file:
+            async with generation_admission_lock(
                 project_name=project_name,
-                task_type=task_type,
-                media_type=media_type,
-                resource_id=resource_id,
-                payload=payload,
                 script_file=script_file,
-                resource_type=resource_type,
-                source=source,
-                dependency_task_id=dependency_task_id,
-                dependency_group=dependency_group,
-                dependency_index=dependency_index,
-                user_id=user_id,
-                provider_id=provider_id,
+                resource_id=resource_id,
+            ):
+                result = await _enqueue()
+        else:
+            result = await _enqueue()
+        # The unique index intentionally protects one active task per resource. A matching
+        # video task is reusable only when its durable narration request facts also match;
+        # current TTS evidence and other mutable generation intent are re-read by the worker.
+        existing_payload = result.pop("_existing_payload", None)
+        requested_facts = _narration_request_facts(task_type, payload)
+        if result.get("deduped") and requested_facts is not None:
+            existing_facts = _narration_request_facts(
+                task_type,
+                existing_payload if isinstance(existing_payload, dict) else None,
             )
+            if existing_facts != requested_facts:
+                raise ActiveTaskRequestConflict(
+                    resource_id=resource_id,
+                    existing_task_id=str(result["task_id"]),
+                )
         if not result.get("deduped"):
             logger.info("任务入队 task_id=%s type=%s", result["task_id"], task_type)
         else:
@@ -274,9 +438,14 @@ class GenerationQueue:
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
+        exclude_task_ids: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
         async with self._task_repo() as repo:
-            task = await repo.claim_next(media_type, pool_full_providers=pool_full_providers)
+            task = await repo.claim_next(
+                media_type,
+                pool_full_providers=pool_full_providers,
+                exclude_task_ids=exclude_task_ids,
+            )
         if task:
             logger.debug("任务被领取 task_id=%s", task["task_id"])
         return task
@@ -292,43 +461,28 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             return await repo.list_orphan_tasks_on_start()
 
-    async def persist_provider_job_id(self, task_id: str, job_id: str, *, endpoint: str | None = None) -> None:
+    async def persist_provider_job_id(
+        self,
+        task_id: str,
+        job_id: str,
+        *,
+        endpoint: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
         async with self._task_repo() as repo:
-            await repo.persist_provider_job_id(task_id, job_id, endpoint=endpoint)
+            await repo.persist_provider_job_id(task_id, job_id, endpoint=endpoint, base_url=base_url)
 
     async def persist_api_call_id(self, task_id: str, call_id: int) -> None:
         async with self._task_repo() as repo:
             await repo.persist_api_call_id(task_id, call_id)
 
-    async def persist_effective_duration(self, task_id: str, duration_seconds: int) -> None:
+    async def persist_execution_checkpoint(self, task_id: str, checkpoint_json: str, provider_id: str) -> None:
         async with self._task_repo() as repo:
-            await repo.persist_effective_duration(task_id, duration_seconds)
+            await repo.persist_execution_checkpoint(task_id, checkpoint_json, provider_id)
 
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
         async with self._task_repo() as repo:
             await repo.persist_execution_provider_id(task_id, provider_id)
-
-    async def persist_execution_identity(
-        self, task_id: str, *, execution_model: ProviderModel, capability: VideoCapability
-    ) -> None:
-        """执行前把实际执行身份写回投影列与 payload 锁定键。
-
-        入队按 unit 声明近似定桶锁定身份（``_pin_video_execution_model``），执行按解析后的
-        实际参考图定桶，二者分裂时（ad 声明了参考但资产全缺图：锁定 r2v、执行 i2v）陈旧
-        桶键在 resume 解析里优先于 ``provider_id`` 列注入，只刷新列锁不住轮询 backend——
-        故连同锁定键一起改写：清掉其它桶的键、把实际执行身份写进实际桶的键。非分裂场景
-        等值改写，幂等。
-        """
-        from typing import get_args
-
-        from lib.config.resolver import VideoCapability as _VideoCapabilityAlias
-
-        payload_patch: dict[str, Any] = {
-            f"video_provider_{cap}": None for cap in get_args(_VideoCapabilityAlias) if cap != capability
-        }
-        payload_patch[f"video_provider_{capability}"] = execution_model.pair_key
-        async with self._task_repo() as repo:
-            await repo.persist_execution_identity(task_id, execution_model.provider_id, payload_patch)
 
     async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
         """Returns rows_affected (0 = 已被外部翻成非 running 终/中间态，worker 走 0-rows-cancelled 协议)."""
@@ -338,6 +492,11 @@ class GenerationQueue:
             logger.info("任务成功 task_id=%s", task_id)
         else:
             logger.info("mark_succeeded 0 rows task_id=%s (已被外部翻状态)", task_id)
+            if isinstance(result, CompensableGenerationResult):
+                try:
+                    await asyncio.to_thread(result.compensate_cancelled)
+                except Exception:
+                    logger.exception("取消补偿失败 task_id=%s", task_id)
         return affected
 
     async def mark_task_failed(self, task_id: str, error_message: str) -> int:

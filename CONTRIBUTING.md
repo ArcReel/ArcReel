@@ -6,6 +6,7 @@
 
 ```bash
 # 前置要求：Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
+# 文档站 website/ 另需 Node 24（版本钉在 website/.node-version）
 # 操作系统：Linux / MacOS / Windows WSL2（Windows 原生不支持）
 
 # 安装依赖
@@ -27,6 +28,31 @@ uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --po
 cd frontend && pnpm dev
 
 # 访问 http://localhost:5173
+```
+
+### 文档站
+
+`website/` 是独立包根，有自己的 lockfile，不与 frontend 组 workspace：
+
+```bash
+cd website && pnpm install
+
+pnpm start        # 开发预览
+pnpm build        # 双 locale 构建，broken link / anchor 直接 fail
+pnpm typecheck
+pnpm lint         # ESLint
+pnpm format       # prettier 写回；format:check 只校验不改写
+pnpm check        # typecheck + lint + format:check，等价于 CI 的三道静态闸
+
+# 站内搜索只在构建产物上生效，dev server 里不工作
+pnpm build && pnpm serve
+
+# 把仓库根 CONTRIBUTING.md 同步为开发区页面（start / build 已自动前置执行，一般无需手动跑）
+pnpm sync-contributing
+
+# CI 一致性闸门：页面库存 / 孤儿译文 / 上站文档标题缺显式锚点 / UI JSON key 齐全性，任一命中非零退出；
+# 依赖 sync-contributing 已同步过的产物，须先跑 sync-contributing 再跑本命令
+pnpm check-consistency
 ```
 
 ## 运行测试
@@ -62,6 +88,19 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 - 规则集：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - typed linting 启用 `projectService: true`，能检查 `no-floating-promises`、`no-misused-promises` 等 async 相关问题
 - CI 中强制检查：`frontend-tests` job 的 `Lint` step
+
+**Lint & Format（文档站 ESLint + prettier）：**
+
+```bash
+cd website && pnpm check          # typecheck + lint + format:check
+cd website && pnpm lint:fix       # ESLint 自动修可修的部分
+cd website && pnpm format         # prettier 写回
+```
+
+- 配置：`website/eslint.config.mjs` + `website/.prettierrc.json`（`website/` 是独立包根，工具链与 `frontend/` 各自独立，因为两者的 TypeScript 大版本不同）
+- ESLint 规则集与 frontend 同构：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
+- prettier printWidth 120（与后端 ruff 的 line-length 对齐）；`docs/` 与 `i18n/` 不参与格式化，排除依据见 `website/.prettierignore` 顶部注释
+- CI 中强制检查：`website-checks` job 的 `Typecheck` / `Lint` / `Format check` 三个 step，均排在 `Build` 之前
 
 ### ESLint disable 使用规范
 
@@ -113,6 +152,37 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 
 `unit`/`integration` 的现存分类由批量默认档得出（真实调用 ffmpeg 生成测试用音视频资源、`uses_db` 命中的归 `integration`，其余归 `unit`），不保证逐条语义精确；新增测试按上表语义自行选择——用真实 ffmpeg 生成用例夹具与 `e2e` 定义的"真实 ffmpeg 重活"不是同一回事：前者是调用 ffmpeg 产出测试输入，后者指端到端场景里的重量级 ffmpeg 处理链路。
 
+## 文档维护
+
+用户文档的唯一发布位置是 [docs.arc-reel.com](https://docs.arc-reel.com)，源文件在 `website/docs/`（本地构建与预览见上文「文档站」）。中文是唯一写作源，英文译文由 AI 生成、人工只审中文源。内部文档（ADR、`CONTEXT.md`、`AGENTS.md`、安全威胁模型、供应商 API 文档索引等）不上站，留在仓库 `docs/` 下；`SECURITY.md` 因 GitHub Security 选项卡依赖也留在仓库根。
+
+本文件是贡献指南的真相源，构建时复制为站点的开发区页面（`website/scripts/sync-contributing.mjs`），中文副本不入库。
+
+### 各页职责
+
+| 页面 | 应该包含 | 不应该包含 |
+|---|---|---|
+| `README.md` | 产品定位、核心价值、最短上手路径 | 完整模型清单、所有环境变量、内部实现细节 |
+| `website/docs/index.mdx` | 文档站定位、主要入口和导航概览 | 具体功能的完整操作步骤 |
+| `website/docs/guide/getting-started.md` | 从部署到第一条成片的完整操作路径 | 生产级反向代理和备份策略 |
+| `website/docs/guide/workflows.md` | 内容模式、视频制作方式、审核节点、选择建议 | 供应商密钥和运维命令 |
+| `website/docs/guide/providers.md` | 供应商类型、覆盖能力、选择原则、配置层级 | 容易过期的价格承诺 |
+| `website/docs/guide/jianying-export.md` | 剪映草稿目录定位、导出与二次编辑操作步骤 | 视频生成本身的流程说明 |
+| `website/docs/guide/faq.md` | 高频问题和短答案 | 长篇教程 |
+| `website/docs/ops/deployment.md` | 部署、升级、备份、恢复、监控和安全 | 产品营销文案 |
+| `website/docs/ops/migrate-to-postgres.md` | SQLite 到 PostgreSQL 的迁移步骤、校验和回滚 | PostgreSQL 的日常部署与运维手册 |
+| `website/docs/dev/architecture.md` | 稳定的架构边界、数据流和扩展点 | 临时实现计划和未完成设计 |
+| `SECURITY.md` | 支持版本、支持的部署边界、私密漏洞报告和协调披露政策 | 未修复漏洞细节和动态风险登记 |
+| `docs/security/threat-model.md` | 安全资产、信任边界、攻击面、现有控制和重评触发条件 | 可直接利用的未修复漏洞与补丁历史 |
+
+### 写作约定
+
+- **README 保持稳定**：README 只需让第一次访问仓库的人回答「ArcReel 是什么、适不适合我、和直接调模型 API 有什么区别、怎样最快跑起来」。具体模型名称、单价和接口参数放到站点对应页面，避免供应商每次更新都要重写首页。
+- **供应商信息以运行时能力为准**：文档描述覆盖哪些媒体类型、ArcReel 如何统一配置、不同能力如何选择、具体信息在哪里确认；设置页中实际可选的模型与供应商官方文档是最终依据。
+- **标题带显式锚点 ID**：上站页面的每个标题写成 `## 标题 {#english-id}`，中英两个 locale 共用同一锚点，避免中文自动 slug 随文案改动而失效。站内互引用相对文件路径（如 `../ops/deployment.md`），指向未上站的仓库文件时用 GitHub 绝对链接。
+- **文档变更应与功能变更一起提交**：新增内容模式或视频制作方式、新增供应商或媒体能力、部署目录/端口/环境变量变化、数据目录/备份方式/迁移行为变化、对外 API/许可证或商业使用方式变化，均须同步更新对应文档。
+- **上站 `.md` 不能使用 JSX / import**：`website/docusaurus.config.ts` 设 `markdown.format: "detect"`，`.md` 按 CommonMark 解析而非 MDX：两者都不会报编译错误，但也都不会按 MDX 语法执行——JSX 标签被当作原始 HTML 原样输出（带子内容的标签，子内容会直接显示成页面文本），import 语句被当作普通文本原样显示。需要 JSX 的页面改用 `.mdx`。
+
 ## 工作流程
 
 ### 分支策略（trunk-based）
@@ -141,10 +211,6 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 ### Squash merge
 
 每个 PR 压成 1 个 commit 合回 `main`，commit message 用 conventional commits 规范（见下节）。GitHub 上 merge 按钮选 "Squash and merge"。
-
-### 已知 defer 的处理
-
-PR 模板有"已知 defer"一节。合入前必须把每一条**开成 follow-up issue** 并把链接填进 PR description；不允许以"之后再说"的形式遗留。
 
 ## 提交规范
 

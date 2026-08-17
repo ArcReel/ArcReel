@@ -67,6 +67,66 @@ class TestCostEstimationRouter:
         assert "episodes" in body
         assert "project_totals" in body
 
+    def test_unit_quote_passes_delivery_choice_without_client_duration_facts(self):
+        mock_pm = _mock_pm(
+            project_exists=True,
+            load_project={"episodes": [{"script_file": "ep1.json"}]},
+            load_script={"video_units": [{"unit_id": "E1U1"}]},
+        )
+
+        with (
+            patch.object(cost_estimation, "get_project_manager", lambda: mock_pm),
+            patch.object(cost_estimation, "CostEstimationService") as mock_service,
+        ):
+            mock_service.return_value.compute = AsyncMock(return_value={})
+            with TestClient(_make_app()) as client:
+                response = client.get(
+                    "/api/v1/projects/demo/cost-estimate",
+                    params={
+                        "reference_unit_id": "E1U1",
+                        "narration_delivery": "use_tts",
+                    },
+                )
+
+        assert response.status_code == 200, response.text
+        call = mock_service.return_value.compute.await_args
+        assert call is not None
+        options = call.kwargs["reference_request_options"]["E1U1"]
+        assert options.to_payload() == {"narration_delivery": "use_tts"}
+
+    def test_delivery_without_unit_keeps_project_quote_scope(self):
+        mock_pm = _mock_pm(project_exists=True, load_project={"episodes": []})
+
+        with (
+            patch.object(cost_estimation, "get_project_manager", lambda: mock_pm),
+            patch.object(cost_estimation, "CostEstimationService") as mock_service,
+        ):
+            mock_service.return_value.compute = AsyncMock(return_value={})
+            with TestClient(_make_app()) as client:
+                response = client.get(
+                    "/api/v1/projects/demo/cost-estimate",
+                    params={"narration_delivery": "use_tts"},
+                )
+
+        assert response.status_code == 200
+        assert mock_service.return_value.compute.await_args.kwargs["reference_request_options"] is None
+
+    def test_unit_quote_rejects_unknown_unit(self):
+        mock_pm = _mock_pm(
+            project_exists=True,
+            load_project={"episodes": [{"script_file": "ep1.json"}]},
+            load_script={"video_units": []},
+        )
+
+        with patch.object(cost_estimation, "get_project_manager", lambda: mock_pm):
+            with TestClient(_make_app()) as client:
+                response = client.get(
+                    "/api/v1/projects/demo/cost-estimate",
+                    params={"reference_unit_id": "missing"},
+                )
+
+        assert response.status_code == 404
+
     def test_no_auth_returns_401(self, monkeypatch):
         # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，这里就测不到拒绝。
         monkeypatch.setenv("AUTH_ENABLED", "true")

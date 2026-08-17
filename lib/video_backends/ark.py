@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import re
 from pathlib import Path
@@ -25,6 +24,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     download_video,
     poll_with_retry,
+    reference_audio_to_data_uri,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,8 +59,8 @@ def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]
 
     content 里的图片与音频都是 base64 data URI。``format_kwargs_for_log`` 只截断长字符串、
     不认识这层结构，直接交给它会把每个素材的 base64 前缀写进 info 日志（音频还可能带上
-    mp3 文件头的 ID3 元数据）。dashscope / vidu / minimax 三家均已各有同名的安全视图并在
-    注释里点明对齐 CodeQL clear-text-logging，Ark 此前是唯一漏网的一家。
+    mp3 文件头的 ID3 元数据）。dashscope / vidu / minimax 三家各有同名的安全视图，同为
+    对齐 CodeQL clear-text-logging。
 
     prompt 是用户文本、不是素材，仍按 ``format_kwargs_for_log`` 的既有截断规则输出，
     以保留排查生成效果时最常用的那一项。
@@ -79,28 +79,6 @@ def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]
         if isinstance(prompt, str):
             view["prompt"] = prompt
     return view
-
-
-def _reference_audio_to_data_uri(path: Path, *, model: str) -> str:
-    """参考音频 → base64 data URI；格式不受支持或文件不可读一律抛错。
-
-    与参考图的「缺失即跳过」不同，音频不能静默跳过：prompt 里的「音频N」按 content 数组中
-    音频条目的出现顺序编号，跳过一段会让其后所有编号整体前移，把某个角色的音色安到另一个
-    角色头上——错得无声无息，且照常扣费。
-    """
-    mime = _REFERENCE_AUDIO_MIME_TYPES.get(path.suffix.lower())
-    if mime is None:
-        raise VideoCapabilityError(
-            "video_reference_audio_format_unsupported",
-            model=model,
-            name=path.name,
-            supported=", ".join(sorted(_REFERENCE_AUDIO_MIME_TYPES)),
-        )
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise VideoCapabilityError("video_reference_audio_unreadable", model=model, names=path.name) from exc
-    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
 
 
 class ArkVideoBackend(ProviderJobIdPersistenceMixin):
@@ -157,12 +135,12 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         model_lower = model.lower()
         return "seedance-2-5" in model_lower or "seedance-2.5" in model_lower
 
-    # docs/ark-docs/seedance2.0.md 能力表中，非 seedance-2.0 系列里明确支持首尾帧的仅这三个
+    # docs/api-docs/providers/ark.md 所列官方能力表中，非 seedance-2.0 系列里明确支持首尾帧的仅这三个
     # 1.x 型号（1.0 pro fast 与 1.0 lite t2v 标 "-"，其余未上表的型号未经验证）。改用白名单
     # 而非黑名单：自定义供应商配置或上游新增的未知型号一律保守判定为不支持尾帧，避免错误声明
-    # 支持而绕过本模块新增的硬拒绝——一旦放行，真实不支持的型号会照样产生供应商侧调用与扣费，
-    # 与本 issue 的验收标准直接相悖。子串同时收录连字符与点号两种版本号写法（如 "1-0" /
-    # "1.0"）——上游命名不统一，docs/ark-docs/火山方舟费用参考.md 中 doubao-seedance-1.0-pro-fast
+    # 支持而绕过本模块的硬拒绝；一旦放行，真实不支持的型号会照样产生供应商侧调用与扣费。
+    # 子串同时收录连字符与点号两种版本号写法（如 "1-0" /
+    # "1.0"）——上游命名不统一，docs/api-docs/providers/ark.md 所列官方价格页中 doubao-seedance-1.0-pro-fast
     # 即用点号。
     _NO_FIRST_FRAME_SUBSTRINGS = ("seedance-1-0-lite-t2v", "seedance-1.0-lite-t2v")
     _LAST_FRAME_ALLOW_SUBSTRINGS = (
@@ -181,7 +159,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     )
     # 白名单命中后要求剩余部分为空或纯数字日期戳（如 "-251215"）——单纯 `in` 子串匹配会让
     # "doubao-seedance-1-5-pro-future" 这类未上表的未知变体因包含 "seedance-1-5-pro" 而
-    # 被误判为继承已验证型号的尾帧能力，绕过本模块新增的硬拒绝。
+    # 被误判为继承已验证型号的尾帧能力，绕过本模块的硬拒绝。
     _KNOWN_MODEL_SUFFIX_RE = re.compile(r"^(-\d+)?$")
 
     # 非 2.0 系列里支持参考生视频的型号：1.5 pro 的参考图上限由本模块的 VideoCapabilities
@@ -241,11 +219,11 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             )
         if ArkVideoBackend._is_seedance_2(model):
             # API 拒绝首帧/尾帧与参考素材混合请求（InvalidParameter: first/last frame content
-            # cannot be mixed with reference media content，实测）——参考图是与首尾帧互斥的
-            # 参考生视频模式，故不声明首帧叠加参考能力；若上游后续放开混合可重新开启。
+            # cannot be mixed with reference media content）——参考图是与首尾帧互斥的
+            # 参考生视频模式，故在官方契约未声明支持混合时不开启首帧叠加能力。
             # 尾帧与参考音频都单独走边界校验的已验证型号白名单：_is_seedance_2 本身只做宽松
-            # 族群识别（供 service_tier 剔除复用），未验证的 2.0 系列未来变体不应继承这两项
-            # 能力。两者当前覆盖同一组已上表型号（2.0 / 2.0-fast / 2.0-mini 三档官方均声明
+            # 族群识别（供 service_tier 剔除复用），未验证的 2.0 系列变体不应继承这两项
+            # 能力。两者覆盖同一组已上表型号（2.0 / 2.0-fast / 2.0-mini 三档官方均声明
             # 支持音频参考），故共用同一份白名单常量而非维护两份同内容清单。
             on_verified_allowlist = ArkVideoBackend._matches_known_model(
                 model.lower(), ArkVideoBackend._SEEDANCE_2_LAST_FRAME_ALLOW_SUBSTRINGS
@@ -263,10 +241,9 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                     _SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS if on_verified_allowlist else None
                 ),
             )
-        # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 实测正常下发 role="last_frame"（见
-        # test_first_last_frame_role_fields），此前统一按 VideoCapabilities() 默认
-        # last_frame=False 处理是误判；白名单覆盖能力表已验证支持首尾帧的三个型号，
-        # 未命中白名单的一律 last_frame=False（含未来新增/自定义供应商的未知型号）。
+        # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 可正常下发 role="last_frame"（见
+        # test_first_last_frame_role_fields）。白名单覆盖能力表已验证支持首尾帧的三个型号，
+        # 未命中白名单的一律 last_frame=False（含上游或自定义供应商的未知型号）。
         model_lower = model.lower()
         no_first_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_FIRST_FRAME_SUBSTRINGS)
         allowed_last_frame = ArkVideoBackend._matches_known_model(
@@ -378,7 +355,11 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 content.append(
                     {
                         "type": "audio_url",
-                        "audio_url": {"url": _reference_audio_to_data_uri(Path(audio_path), model=self._model)},
+                        "audio_url": {
+                            "url": reference_audio_to_data_uri(
+                                Path(audio_path), model=self._model, mime_types=_REFERENCE_AUDIO_MIME_TYPES
+                            )
+                        },
                         "role": "reference_audio",
                     }
                 )

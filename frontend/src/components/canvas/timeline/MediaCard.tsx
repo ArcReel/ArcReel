@@ -5,6 +5,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 import {
   UPLOAD_IMAGE_ACCEPT,
   UPLOAD_VIDEO_ACCEPT,
@@ -84,13 +85,7 @@ export function MediaCard({
   const assetFp = useProjectsStore((s) =>
     assetPath ? s.getAssetFingerprint(assetPath) : null,
   );
-  const posterFp = useProjectsStore((s) =>
-    posterPath ? s.getAssetFingerprint(posterPath) : null,
-  );
   const assetUrl = assetPath ? API.getFileUrl(projectName, assetPath, assetFp) : null;
-  const posterUrl = posterPath
-    ? API.getFileUrl(projectName, posterPath, posterFp)
-    : null;
 
   const Icon = kind === "storyboard" ? ImageIcon : Film;
   const title =
@@ -178,16 +173,12 @@ export function MediaCard({
             }}
           >
             <AspectFrame ratio={aspectRatio}>
-              {/* eslint-disable-next-line jsx-a11y/media-has-caption -- 生成式预览视频暂无字幕源 */}
-              <video
-                src={assetUrl}
-                poster={posterUrl ?? undefined}
-                controls
-                playsInline
-                // object-contain：卡片内容器比例一致时铺满，全屏到 16:9 屏幕时
-                // 9:16 视频会带左右黑边，避免被裁剪。
-                className="h-full w-full object-contain"
-                preload="metadata"
+              <PresentationPlayer
+                key={`${segmentId}:${assetFp ?? "current"}`}
+                projectName={projectName}
+                resourceType="videos"
+                resourceId={segmentId}
+                posterPath={posterPath}
               />
             </AspectFrame>
           </div>

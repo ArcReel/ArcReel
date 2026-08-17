@@ -7,8 +7,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from server.agent_runtime.event_log import REPLAYED_USER_ECHO_ENTRY_UUID_KEY, REPLAYED_USER_ECHO_KEY
-from server.agent_runtime.message_serialization import PendingUserEcho, match_user_echo, message_to_dict
-from server.agent_runtime.session_manager import SDK_AVAILABLE, AgentStartupError
+from server.agent_runtime.message_serialization import (
+    IMAGE_ONLY_SENTINEL,
+    PendingUserEcho,
+    match_user_echo,
+    message_to_dict,
+)
+from server.agent_runtime.session_manager import SDK_AVAILABLE, AgentStartupError, ManagedSession
 from tests.fakes import build_managed_with_actor
 
 pytestmark = pytest.mark.unit
@@ -99,6 +104,30 @@ class TestSessionManagerUserInput:
             while not queue.empty():
                 broadcasted.append(queue.get_nowait())
             assert not any(isinstance(item, dict) and item.get("local_echo") for item in broadcasted)
+        finally:
+            await _finish(managed)
+
+    async def test_image_only_input_registers_the_sentinel_dedup_key(self, session_manager, meta_store):
+        """正文为空的带图消息（改写把文本清空即落在这条路上）靠 sentinel 认领回放副本。
+
+        SDK 的 parser 丢掉 image 块，回放的 UserMessage content 为空，按文本匹配
+        永远对不上——身份映射会漏，条目被二次落库。
+        """
+        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
+        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        try:
+            await session_manager.send_message(
+                meta.id,
+                "",
+                echo_text="",
+                echo_content=[
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}}
+                ],
+                user_entry=None,
+            )
+            assert [echo.dedup_key for echo in managed.pending_user_echoes] == [IMAGE_ONLY_SENTINEL]
+            # 空 content 的回放副本被这条 pending echo 认领
+            assert match_user_echo(managed.pending_user_echoes, {"type": "user", "content": []}) is not None
         finally:
             await _finish(managed)
 
@@ -238,6 +267,131 @@ class TestSessionManagerUserInput:
                 await session_manager.send_new_session("demo", "你好")
 
         assert "query" in seen_commands, "投递失败要发生在 query 命令上，而非更早的装配阶段"
+        assert session_manager.unclaimed_user_echoes == 0
+        assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
+
+    async def test_cleanup_on_error_disconnect_timeout_does_not_block(
+        self, session_manager, meta_store, monkeypatch, caplog, tmp_path
+    ):
+        """启动失败清理路径里 send_disconnect 挂起时，超时兜底让清理仍在限时内完成。"""
+        proj_dir = tmp_path / "projects" / "demo"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
+
+        seen_commands: list[str] = []
+        cancelled: list[bool] = []
+        captured_sessions: list[ManagedSession] = []
+        echoes_at_query: list[int] = []
+
+        class _FakeActor:
+            def __init__(self, *_, on_message=None, client_factory=None):
+                self.task = None
+
+            async def start(self):
+                return None
+
+            def add_done_callback(self, _cb):
+                pass
+
+            async def enqueue(self, cmd):
+                seen_commands.append(cmd.type)
+                if cmd.type == "query":
+                    # 此刻会话尚在注册表里、回显登记也已写入，取到的是清理前的现场。
+                    captured_sessions.extend(session_manager.sessions.values())
+                    echoes_at_query.extend(len(s.pending_user_echoes) for s in session_manager.sessions.values())
+                    cmd.error = RuntimeError("SDK 拒绝了这次投递")
+                    cmd.sent.set()
+                    cmd.done.set()
+                elif cmd.type == "disconnect":
+                    # 模拟 SDK 侧挂起：投递就卡住，send_disconnect 连 cmd.done 都等不到，
+                    # 只有 asyncio.wait_for 的超时能让 _cleanup_on_error 脱身。
+                    await asyncio.Event().wait()
+                else:
+                    cmd.sent.set()
+                    cmd.done.set()
+
+            async def wait(self):
+                return None
+
+            async def cancel_and_wait(self):
+                cancelled.append(True)
+
+        async def fake_env():
+            return {"ANTHROPIC_API_KEY": "sk"}
+
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+        monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
+        monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
+        session_manager._session_actor_shutdown_timeout = 0.05
+
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+            with pytest.raises(AgentStartupError, match="SDK 拒绝了这次投递"):
+                await asyncio.wait_for(session_manager.send_new_session("demo", "你好"), timeout=2.0)
+
+        assert "disconnect" in seen_commands
+        assert any("超时" in r.getMessage() for r in caplog.records)
+        # 断开挂起时 actor 必须被取消，否则协程随失败的会话一起泄漏。
+        assert cancelled == [True]
+        # 超时不阻断后续清理：会话从注册表摘除、登记的回放标识清空且不计入未认领。
+        assert session_manager.sessions == {}
+        assert echoes_at_query == [1]
+        assert captured_sessions[0].pending_user_echoes == []
+        assert session_manager.unclaimed_user_echoes == 0
+
+    async def test_cleanup_on_error_disconnect_timeout_keeps_startup_failure_out_of_echo_accounting(
+        self, session_manager, meta_store, monkeypatch, caplog, tmp_path
+    ):
+        """会话跑起来后才启动失败时，断开挂起不得把待回放登记误记为未认领。"""
+        proj_dir = tmp_path / "projects" / "demo"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
+
+        captured_sessions: list[ManagedSession] = []
+
+        class _FakeActor:
+            def __init__(self, *_, on_message=None, client_factory=None):
+                self.task = None
+
+            async def start(self):
+                return None
+
+            def add_done_callback(self, _cb):
+                pass
+
+            async def enqueue(self, cmd):
+                if cmd.type == "query":
+                    # 投递成功：status 落到 "running"，但 SDK 始终不回 init 消息，
+                    # 会话卡在等 sdk_session_id，最终由超时走进 _cleanup_on_error。
+                    captured_sessions.extend(session_manager.sessions.values())
+                    cmd.sent.set()
+                elif cmd.type == "disconnect":
+                    await asyncio.Event().wait()
+                else:
+                    cmd.sent.set()
+                    cmd.done.set()
+
+            async def wait(self):
+                return None
+
+            async def cancel_and_wait(self):
+                return None
+
+        async def fake_env():
+            return {"ANTHROPIC_API_KEY": "sk"}
+
+        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+        monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
+        monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
+        monkeypatch.setattr(type(session_manager), "_SDK_ID_TIMEOUT", 0.05)
+        session_manager._session_actor_shutdown_timeout = 0.05
+
+        with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(session_manager.send_new_session("demo", "你好"), timeout=2.0)
+
+        # 启动失败不是中断：终态不写 interrupted，登记的回放标识直接清空不记账。
+        assert captured_sessions[0].status == "error"
+        assert captured_sessions[0].pending_user_echoes == []
         assert session_manager.unclaimed_user_echoes == 0
         assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
 

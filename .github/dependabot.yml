@@ -216,6 +216,61 @@ updates:
           - "minor"
           - "patch"
 
+  # 文档站 npm dependencies (pnpm)
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    versioning-strategy: increase-if-necessary
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 5
+      semver-patch-days: 3
+    labels:
+      - "dependencies"
+      - "javascript"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      docusaurus:
+        patterns:
+          - "@docusaurus/*"
+          - "@easyops-cn/docusaurus-search-local"
+        update-types:
+          - "minor"
+          - "patch"
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+        update-types:
+          - "minor"
+          - "patch"
+      # website 的 typescript 停留在 5.x，且这条约束不由本文件表达——分组只收
+      # minor/patch，TypeScript 的 major 会照常单独开 PR 走人工审查。审查依据：
+      # website/tsconfig.json 继承 @docusaurus/tsconfig，后者在 compilerOptions 里
+      # 设置 baseUrl，而 TypeScript 7 已移除该选项，加载即报 TS5102 —— website-checks
+      # 的 typecheck 闸会让这类 PR 显性失败，不是 flake，不要以重跑或跳过闸门处置。
+      # 解锁条件：@docusaurus/tsconfig 移除 baseUrl，或发布 TS7 兼容版本；在那之前
+      # TypeScript major PR 一律关闭。该约束只覆盖 website/，frontend/ 的 TypeScript
+      # 升级独立判断，不适用本条。
+      dev-dependencies:
+        dependency-type: "development"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      all-other:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"

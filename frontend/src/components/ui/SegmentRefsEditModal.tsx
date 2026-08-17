@@ -17,13 +17,15 @@ import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { Character, Prop, Scene } from "@/types";
 import { type AssetKind, SHEET_FIELD } from "@/types/reference-video";
+
+type SegmentAssetKind = Exclude<AssetKind, "product">;
 import { colorForName } from "@/utils/color";
 import { WARM_TONE } from "@/utils/severity-tone";
 
 type Asset = Character | Scene | Prop;
 
 interface RefRow {
-  kind: AssetKind;
+  kind: SegmentAssetKind;
   name: string;
   thumbPath?: string;
   description?: string;
@@ -49,7 +51,7 @@ interface SegmentRefsEditModalProps {
   scenes: Record<string, Scene>;
   props: Record<string, Prop>;
   projectName: string;
-  onManageClick?: (kind: AssetKind) => void;
+  onManageClick?: (kind: SegmentAssetKind) => void;
 }
 
 function arraysEqualUnordered(a: string[], b: string[]): boolean {
@@ -59,13 +61,13 @@ function arraysEqualUnordered(a: string[], b: string[]): boolean {
   return sa.every((v, i) => v === sb[i]);
 }
 
-function getSheetPath(kind: AssetKind, asset: Asset): string | undefined {
+function getSheetPath(kind: SegmentAssetKind, asset: Asset): string | undefined {
   const value = (asset as unknown as Record<string, unknown>)[SHEET_FIELD[kind]];
   return typeof value === "string" ? value : undefined;
 }
 
 function buildRows<A extends Asset>(
-  kind: AssetKind,
+  kind: SegmentAssetKind,
   dict: Record<string, A>,
   selected: string[],
 ): RefRow[] {
@@ -141,12 +143,12 @@ export function SegmentRefsEditModal({
     prop: countSelectedStale(propRows, tempPropsSet),
   };
 
-  const setterByKind: Record<AssetKind, typeof setTempChars> = {
+  const setterByKind: Record<SegmentAssetKind, typeof setTempChars> = {
     character: setTempChars,
     scene: setTempScenes,
     prop: setTempProps,
   };
-  const toggle = (kind: AssetKind, name: string) => {
+  const toggle = (kind: SegmentAssetKind, name: string) => {
     setterByKind[kind]((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
     );
@@ -326,17 +328,17 @@ export function SegmentRefsEditModal({
 
 interface SectionProps {
   title: string;
-  kind: AssetKind;
+  kind: SegmentAssetKind;
   icon: ReactNode;
   rows: RefRow[];
   selectedSet: Set<string>;
   /** 已选且失效的引用数；由 parent 基于未过滤集合计算，避免搜索过滤后徽标消失 */
   staleCount: number;
-  onToggle: (kind: AssetKind, name: string) => void;
+  onToggle: (kind: SegmentAssetKind, name: string) => void;
   projectName: string;
   emptyText: string;
   manageText: string;
-  onManageClick?: (kind: AssetKind) => void;
+  onManageClick?: (kind: SegmentAssetKind) => void;
   hasQuery: boolean;
   staleHint: string;
   searchEmptyText: string;

@@ -67,6 +67,41 @@ def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> 
     )
 
 
+def make_test_video_with_audio_tail(
+    path: Path,
+    *,
+    video_duration_sec: float = 1.0,
+    audio_duration_sec: float = 1.5,
+    fps: int = 30,
+) -> None:
+    """生成音轨/容器尾部比视频轨更长的极短 MP4。"""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=black:size=64x64:duration={video_duration_sec}:rate={fps}",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:duration={audio_duration_sec}",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            str(path),
+        ],
+        capture_output=True,
+        check=True,
+    )
+
+
 def make_test_audio(path: Path, *, duration_sec: float = 1.0) -> None:
     """使用 ffmpeg 生成极短测试音频（正弦波 wav，pcm_s16le 为 ffmpeg 内置编码器）"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,6 +188,22 @@ def fd_count():
         return -1
 
     return _count
+
+
+# ---------------------------------------------------------------------------
+# Shared database fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+async def db_factory():
+    """Create an async session factory backed by an isolated in-memory database."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    yield factory
+    await engine.dispose()
 
 
 # ---------------------------------------------------------------------------

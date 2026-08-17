@@ -1,15 +1,15 @@
 """智能体视频入队路径上的音频开关预检。
 
 WebUI 提交入口拒绝的配置（成片恒有声的模型 + 关闭音频），从智能体入队同样要被拒——放行会让
-编排层按无声路径裁掉全部音色约束，用户拿到失去音色约束的有声成片。判据与路由入口同源
-（``server.services.video_caps.resolve_audio_switch_conflict``），本文件覆盖智能体侧的接线：
-两条路线各自的闸门位置、参考路线的逐桶去重、以及冲突时抛出的消息。
+编排层按无声路径裁掉全部音色约束，用户拿到失去音色约束的有声成片。分镜路线复用
+``server.services.video_caps``，参考路线由公共 request projection 承载相同判据。
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -17,8 +17,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.config.service import ConfigService
 from lib.db.base import Base
 from lib.generation_queue_client import TaskSpec
+from lib.generation_result import GenerationAction, GenerationSelectionMode
+from lib.reference_video.request_projection import ReferenceRequestOptions
 from server.agent_runtime.sdk_tools import enqueue_videos as mod
 from server.agent_runtime.sdk_tools._context import ToolContext
+from server.services import video_batch_admission as admission_mod
+from server.services.video_batch_admission import admit_reference_video_batch
 from server.services.video_caps import assert_audio_switch_supported
 
 _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
@@ -98,66 +102,101 @@ class TestStoryboardRouteGate:
             seen.append(capability)
             raise ValueError("成片恒有声")
 
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
-        with pytest.raises(ValueError):
-            await mod._assert_audio_switch_for_storyboard(_ctx(tmp_path, {"generation_mode": "storyboard"}))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
+        conflict = await admission_mod.audio_switch_conflict({"generation_mode": "storyboard"})
+        assert conflict == "成片恒有声"
         assert seen == ["i2v"]
 
     async def test_voice_characters_resolve_independently_of_the_gate(self, tmp_path, monkeypatch):
         async def _not_silent(_project):
             return False
 
-        monkeypatch.setattr(mod, "resolve_project_is_silent", _not_silent)
+        monkeypatch.setattr(admission_mod, "resolve_project_is_silent", _not_silent)
         project = {"generation_mode": "storyboard", "characters": {"张三": {"description": "主角"}}}
-        assert await mod._resolve_voice_context(_ctx(tmp_path, project), "drama") == project["characters"]
+        assert await admission_mod.resolve_voice_context(project, "drama") == project["characters"]
 
 
 @pytest.mark.unit
 class TestReferenceRouteGate:
-    """参考路线：按本批真正要入队的 unit 逐桶检查，同一桶只问一次。"""
+    """参考路线：按本批真正要入队的 unit 调用公共 request projection。"""
 
-    async def test_checks_each_bucket_once_and_skips_done_units(self, monkeypatch):
+    @staticmethod
+    def _stub_current_state(monkeypatch) -> None:
+        async def _no_active(**_kwargs):
+            return []
+
+        async def _passthrough_options(*, options, **_kwargs):
+            return options
+
+        monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _no_active)
+        monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _passthrough_options)
+
+    async def test_projects_each_pending_unit_and_skips_done_units(self, tmp_path, monkeypatch):
         seen: list[str] = []
 
-        async def _record(_project, capability):
-            seen.append(capability)
+        class _Projection:
+            unit_id = "test"
+            blocking_problems: tuple[object, ...] = ()
+            cost = None
+            planned_duration = 8
+            request_duration = None
+            current_visual_duration = None
 
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _record)
+            def to_advisory_payload(self):
+                return {"allowed": True, "unit_id": "test", "problems": []}
+
+        async def _record(*, unit, **_kwargs):
+            seen.append("r2v" if unit.get("references") else "i2v")
+            return _Projection()
+
+        self._stub_current_state(monkeypatch)
+        monkeypatch.setattr(admission_mod, "project_reference_unit_request", _record)
         units = [
-            {"unit_id": "E1U1", "references": ["characters/张三.png"]},
-            {"unit_id": "E1U2", "references": ["characters/李四.png"]},
+            {"unit_id": "E1U1", "references": [{"type": "character", "name": "张三"}]},
+            {"unit_id": "E1U2", "references": [{"type": "character", "name": "李四"}]},
             {"unit_id": "E1U3", "references": []},
-            {"unit_id": "E1U4", "references": []},
         ]
-        await mod._assert_audio_switch_for_units(
+        await admit_reference_video_batch(
+            project_name="demo",
             project={},
+            project_path=tmp_path,
+            script={"video_units": units},
+            script_file="episode_1.json",
             units=units,
-            skip_ids={"E1U4"},
-            spec_for=_unit_spec,
-            ad_shots_for=None,
+            request_options=ReferenceRequestOptions(),
+            operation="generate_video",
+            selection=GenerationSelectionMode.MISSING_ONLY,
+            spec_check=_unit_spec,
         )
-        assert sorted(seen) == ["i2v", "r2v"]
+        assert seen == ["r2v", "r2v", "i2v"]
 
-    async def test_units_that_cannot_be_enqueued_do_not_trigger_resolution(self, monkeypatch):
-        """不可入队的 unit 不该触发解析：它本就不会被生成，为它拒绝整批是失实的。"""
+    async def test_units_that_cannot_be_enqueued_do_not_trigger_projection(self, tmp_path, monkeypatch):
+        """不可入队的 unit 不该触发解析：它本就不会被生成，判定停在更早的拒绝上。"""
         called = False
 
-        async def _record(_project, _capability):
+        async def _record(**_kwargs):
             nonlocal called
             called = True
 
         def _reject(_unit):
             raise ValueError("没有 shots")
 
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _record)
-        await mod._assert_audio_switch_for_units(
+        self._stub_current_state(monkeypatch)
+        monkeypatch.setattr(admission_mod, "project_reference_unit_request", _record)
+        admission = await admit_reference_video_batch(
+            project_name="demo",
             project={},
+            project_path=tmp_path,
+            script={"video_units": []},
+            script_file="episode_1.json",
             units=[{"unit_id": "E1U1", "references": []}],
-            skip_ids=set(),
-            spec_for=_reject,
-            ad_shots_for=None,
+            request_options=ReferenceRequestOptions(),
+            operation="generate_video",
+            selection=GenerationSelectionMode.MISSING_ONLY,
+            spec_check=_reject,
         )
         assert called is False
+        assert not admission.admitted
 
 
 class _EpisodePM:
@@ -165,7 +204,11 @@ class _EpisodePM:
 
     def __init__(self, project_dir: Path, *, with_storyboard: bool) -> None:
         self._project_dir = project_dir
-        item: dict[str, Any] = {"segment_id": "E1S01", "video_prompt": "镜头平移"}
+        item: dict[str, Any] = {
+            "segment_id": "E1S01",
+            "novel_text": "镜头缓缓扫过原野。",
+            "video_prompt": "镜头平移",
+        }
         if with_storyboard:
             item["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
         self.script_payload: dict[str, Any] = {"content_mode": "narration", "episode": 1, "segments": [item]}
@@ -201,9 +244,9 @@ class TestStoryboardGateSkipsEmptyBatches:
             rejected.append(capability)
             raise ValueError("成片恒有声")
 
-        monkeypatch.setattr(mod, "assert_audio_switch_supported", _reject)
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
         tool_obj = mod.generate_video_episode_tool(ctx)
-        out = await tool_obj.handler({"script": "episode_1.json", **args})
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production", **args})
         return {"out": out, "rejected": rejected}
 
     async def test_resume_with_everything_done_reports_completion(self, tmp_path, monkeypatch):
@@ -219,11 +262,365 @@ class TestStoryboardGateSkipsEmptyBatches:
         assert result["out"].get("is_error") is not True
 
     async def test_all_items_filtered_out_still_fails_without_consulting_the_gate(self, tmp_path, monkeypatch):
-        """全部条目缺分镜图时报的应是「没有可生成的片段」，而不是音频开关冲突。"""
+        """全部条目缺分镜图时报的应是逐 ID 的输入不可用，而不是音频开关冲突。"""
         ctx = self._ctx_with(tmp_path, with_storyboard=False)
 
         result = await self._run_episode(ctx, monkeypatch)
 
         assert result["rejected"] == []
         assert result["out"].get("is_error") is True
-        assert "没有可生成的视频片段" in result["out"]["content"][0]["text"]
+        payload = result["out"]["generation_result"]
+        assert payload["blocked"] == ["E1S01"]
+        assert payload["items"][0]["problem"]["code"] == "generation_unit_input_unusable"
+
+
+@pytest.mark.unit
+class TestStoryboardGateEntersAdmission:
+    """音频开关冲突与其它缺口一起在建任务之前报全，不留到确认之后才报。"""
+
+    @pytest.fixture(autouse=True)
+    def _no_active_tasks(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """准入要查活跃任务：单元测试不碰真实数据库，一律按「没有活跃任务」作答。"""
+
+        async def _none(**_kwargs):
+            return []
+
+        monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _none)
+
+    def _ctx(self, tmp_path: Path) -> ToolContext:
+        project_dir = tmp_path / "demo"
+        (project_dir / "storyboards").mkdir(parents=True)
+        (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
+        return ToolContext(
+            project_name="demo",
+            projects_root=tmp_path,
+            pm=_EpisodePM(project_dir, with_storyboard=True),  # type: ignore[arg-type]
+        )
+
+    async def test_audio_switch_conflict_is_reported_as_a_blocked_admission(self, tmp_path, monkeypatch):
+        async def _reject(_project, _capability):
+            raise ValueError("成片恒有声，无法关闭音频")
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+        tool_obj = mod.generate_video_episode_tool(self._ctx(tmp_path))
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
+
+        assert out["batch_admission"]["decision"] == "blocked"
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes == {"E1S01": ["video_audio_switch_not_supported"]}
+
+    async def test_a_blank_prompt_is_refused_per_unit(self, tmp_path, monkeypatch):
+        """空白提示词构造不出 TaskSpec：该条目带自己的问题码进结论，不把整批打成通用报错。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        ctx.pm.script_payload["segments"][0]["video_prompt"] = "   "  # type: ignore[attr-defined]
+
+        tool_obj = mod.generate_video_episode_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
+
+        enqueue.assert_not_awaited()
+        assert out["batch_admission"]["decision"] == "blocked"
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes == {"E1S01": ["generation_unit_request_invalid"]}
+
+    async def test_a_duplicate_item_id_is_refused_before_admission(self, tmp_path, monkeypatch):
+        """同一个 id 在剧本里出现两次：副本被拒收，整批停在建任务之前。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments.append({**segments[0]})
+
+        tool_obj = mod.generate_video_episode_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
+
+        enqueue.assert_not_awaited()
+        assert out["batch_admission"]["decision"] == "blocked"
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes["E1S01#1"] == ["generation_unit_request_invalid"]
+
+    async def test_the_audio_conflict_joins_the_other_problems_of_the_same_unit(self, tmp_path, monkeypatch):
+        """音频冲突与投影侧的缺口写进同一张票：用户一次看全，不必改一条撞一条。"""
+
+        from lib.batch_admission import BatchAdmission, refused_ticket
+
+        async def _reject(_project, _capability):
+            raise ValueError("成片恒有声，无法关闭音频")
+
+        async def _admit(**kwargs: Any) -> BatchAdmission:
+            return BatchAdmission(
+                operation=kwargs["operation"],
+                selection=kwargs["selection"],
+                narration_delivery=kwargs["request_options"].narration_delivery,
+                tickets=(
+                    refused_ticket(
+                        "E1S01",
+                        code="reference_tts_stale",
+                        detail="配音已过期",
+                        action=GenerationAction.GENERATE_DEPENDENCY,
+                    ),
+                ),
+            )
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
+        monkeypatch.setattr(admission_mod, "admit_storyboard_video_batch", _admit)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+
+        tool_obj = mod.generate_video_episode_tool(self._ctx(tmp_path))
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
+
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes == {"E1S01": ["reference_tts_stale", "video_audio_switch_not_supported"]}
+
+    async def test_a_non_scalar_item_id_is_refused_per_unit(self, tmp_path, monkeypatch):
+        """id 写成数组的条目按位置记名拒收，不把整批打成一句通用报错。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        ctx.pm.script_payload["segments"][0]["segment_id"] = ["E1S01"]  # type: ignore[attr-defined]
+
+        tool_obj = mod.generate_video_episode_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
+
+        enqueue.assert_not_awaited()
+        assert out["batch_admission"]["decision"] == "blocked"
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes == {"items[0]": ["generation_unit_request_invalid"]}
+
+    async def test_a_non_object_entry_is_refused_per_unit(self, tmp_path, monkeypatch):
+        """剧本里混进非对象条目：它按位置记名拒收，不把整批打成一句通用报错。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        ctx.pm.script_payload["segments"].insert(0, 42)  # type: ignore[attr-defined]
+
+        tool_obj = mod.generate_video_episode_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
+
+        enqueue.assert_not_awaited()
+        assert out["batch_admission"]["decision"] == "blocked"
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes["items[0]"] == ["generation_unit_request_invalid"]
+
+    async def test_a_diagnostic_name_never_shadows_a_real_id(self, tmp_path, monkeypatch):
+        """按位置记的诊断名与剧本里某个真实 ID 撞上时另起一个名字：同名会让两条并成一条。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments.insert(0, 42)
+        segments[1]["segment_id"] = "items[0]"
+
+        tool_obj = mod.generate_video_episode_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
+
+        enqueue.assert_not_awaited()
+        assert out["batch_admission"]["decision"] == "blocked"
+        unit_ids = [unit["unit_id"] for unit in out["batch_admission"]["units"]]
+        assert sorted(unit_ids) == ["items[0]", "items[0]*"]
+
+    async def test_a_named_alias_pointing_at_two_items_is_refused(self, tmp_path, monkeypatch):
+        """点名用的 scene_id 别名落在两个条目上：各入口会各自选中头一个或末一个，先拒收。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        first = segments[0]
+        first["scene_id"] = "SC1"
+        segments.append({**first, "segment_id": "E1S02"})
+
+        tool_obj = mod.generate_video_selected_tool(ctx)
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["SC1"]}
+        )
+
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes["SC1"] == ["generation_unit_request_invalid"]
+
+    async def test_a_non_scalar_alias_does_not_break_addressing(self, tmp_path, monkeypatch):
+        """脏剧本把 scene_id 写成数组：按名字寻址前先判类型，该条目仍能按规范 ID 点名。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments[0]["scene_id"] = ["E1S01"]
+
+        tool_obj = mod.generate_video_selected_tool(ctx)
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["E1S01"]}
+        )
+
+        # 别名不可用不影响按规范 ID 寻址：不崩、不塌成一句通用报错，该目标照常进入这批。
+        assert out.get("is_error") is not True, out
+        assert [spec.resource_id for spec in enqueue.await_args.kwargs["specs"]] == ["E1S01"]
+
+    async def test_two_aliases_over_one_canonical_id_are_refused(self, tmp_path, monkeypatch):
+        """两个条目共用规范 ID、别名各不相同：按别名点名同样无从判定要做哪一条。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments[0]["scene_id"] = "A"
+        segments.append({**segments[0], "scene_id": "B"})
+
+        tool_obj = mod.generate_video_selected_tool(ctx)
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["B"]}
+        )
+
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes["B"] == ["generation_unit_request_invalid"]
+
+    async def test_a_non_scalar_canonical_id_is_not_masked_by_an_alias(self, tmp_path, monkeypatch):
+        """规范 ID 写成 0、别名却写得好好的：不能让别名替它蒙混过筛查。
+
+        执行期只按规范字段定位目标，这条按别名入队的话谁也做不出来，而同批健康的兄弟条目
+        已经入队计费。
+        """
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments[0]["segment_id"] = 0
+        segments[0]["scene_id"] = "E1S01"
+
+        tool_obj = mod.generate_video_selected_tool(ctx)
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["E1S01"]}
+        )
+
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes["E1S01"] == ["generation_unit_request_invalid"]
+
+    async def test_generate_all_keeps_an_id_less_item_in_the_verdict(self, tmp_path, monkeypatch):
+        """缺 ID 的条目进不了目标集合，但它属于这次请求：健康的兄弟条目不会独自入队计费。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments.append({**segments[0], "segment_id": ""})
+
+        tool_obj = mod.generate_video_all_tool(ctx)
+        out = await tool_obj.handler({"script": "episode_1.json", "narration_delivery": "post_production"})
+
+        enqueue.assert_not_awaited()
+        assert out["batch_admission"]["decision"] == "blocked"
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        assert codes["items[1]"] == ["generation_unit_request_invalid"]
+        assert codes["E1S01"] == ["generation_batch_admission_withheld"]
+
+    async def test_selected_rejects_a_duplicate_of_the_named_id(self, tmp_path, monkeypatch):
+        """点名的 ID 在剧本里有两份：无法判定要做哪一条，整批停在建任务之前。"""
+
+        async def _allow(_project, _capability):
+            return None
+
+        enqueue = AsyncMock(return_value=([], []))
+        monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _allow)
+        monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
+        ctx = self._ctx(tmp_path)
+        segments = ctx.pm.script_payload["segments"]  # type: ignore[attr-defined]
+        segments.append({**segments[0]})
+
+        tool_obj = mod.generate_video_selected_tool(ctx)
+        out = await tool_obj.handler(
+            {"script": "episode_1.json", "narration_delivery": "post_production", "scene_ids": ["E1S01"]}
+        )
+
+        enqueue.assert_not_awaited()
+        codes = {
+            unit["unit_id"]: [problem["code"] for problem in unit["problems"]]
+            for unit in out["batch_admission"]["units"]
+        }
+        # 结论记在用户点的那个名字上：他要的是 E1S01，得到的是「这个名字指向多个条目」。
+        assert codes["E1S01"] == ["generation_unit_request_invalid"]

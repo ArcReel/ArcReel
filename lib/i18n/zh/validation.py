@@ -67,6 +67,10 @@ MESSAGES = {
     "val_asset_field_bad_timestamp": "{asset_type} '{name}'.{field} 不是合法的 ISO8601 时间戳: {value}",
     "val_asset_field_must_be_string_list": "{asset_type} '{name}'.{field} 必须是字符串列表，当前为 {actual}",
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] 必须是字符串，当前为 {actual}",
+    "val_asset_name_duplicate": (
+        "项目资产名称重复：{duplicate_type}「{duplicate_name}」与{first_type}「{first_name}」"
+        "按 strip + Unicode NFC 判定同名"
+    ),
     # ---- 条目级引用 ----
     "val_refs_unregistered": "{prefix}: {field} 引用了不存在于 project.json 的{asset_type}: {names}",
     "val_missing_defaults_empty_array": "{prefix}: 缺少 {field}，将使用默认空数组",
@@ -97,14 +101,16 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
     "val_video_units_missing": "reference_video 脚本缺少 video_units 数组或为空",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数",
+    "val_unit_shots_too_many": "{prefix}: shots 含 {count} 个条目，最多允许 {max} 个",
+    "val_migration_content_replan_requires_needs_replan": (
+        "{prefix}: migration_requires_content_replan=true 时 needs_replan 必须为 true"
+    ),
     "val_reference_entry_must_be_object": "{prefix}: reference 条目必须是对象",
     "val_reference_type_invalid": "{prefix}: reference.type 无效: {value}",
     "val_reference_name_invalid": "{prefix}: reference.name 必须是非空字符串: {value}",
     "val_reference_not_in_bucket": "{prefix}: 引用的{asset_type} '{name}' 不在 project.json 对应 bucket 中",
     "val_ref_type_invalid": "{prefix}: type 无效: {value}",
     "val_ref_name_invalid": "{prefix}: name 必须是非空字符串: {value}",
-    "val_ref_unregistered_regroup": "{prefix}: 引用的{asset_type}「{name}」未注册，需重新派生分组",
-    "val_reference_units_dangling_shots": "{prefix}: 引用的镜头不存在（{ids}），需重新派生分组",
     # ---- 骨架与路线失配 ----
     "val_skeleton_noun_segments": "分镜",
     "val_skeleton_noun_scenes": "场景",
@@ -164,6 +170,7 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "无效的冲突策略",
     "arch_conflict_policy_unsupported": "conflict_policy 仅支持 prompt、rename 或 overwrite，收到: {value}",
     "arch_import_validation_failed": "导入包校验失败",
+    "arch_artifact_activation_failed": "导入项目的产物状态不一致",
     "arch_not_a_zip": "上传文件不是有效的 ZIP 归档",
     "arch_zip_encrypted_entry": "ZIP 包含加密条目，无法导入: {name}",
     "arch_zip_absolute_path_entry": "ZIP 包含绝对路径条目: {name}",

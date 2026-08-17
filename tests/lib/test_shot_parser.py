@@ -3,6 +3,7 @@ import unicodedata
 import pytest
 
 from lib.reference_video.shot_parser import (
+    missing_registered_references,
     parse_prompt,
     render_mentions_as_subjects,
     render_shots_text,
@@ -58,6 +59,11 @@ def test_extract_mentions_ordered_unique():
     assert refs == ["张三", "酒馆", "长剑"]
 
 
+def test_extract_mentions_strips_wrapped_names_before_deduplication():
+    _shots, refs = parse_prompt("镜头1：@[ Hero ] 走向 @[Hero]，随后 @Hero 转身")
+    assert refs == ["Hero"]
+
+
 def test_extract_mentions_supports_wrapped_names():
     text = "镜头1：@[角色甲（成年）] 引导@[角色乙]靠近@[载具甲]区域，使用@[道具甲]完成动作"
     _shots, refs = parse_prompt(text)
@@ -109,6 +115,13 @@ def test_bom_prefixed_dialogue_line_is_normative():
 
     assert match_dialogue_line("﻿@[张三]：{我来了}") == ("张三", "我来了")
     assert extract_mentions("﻿@[张三]：{我来了}") == []
+
+
+def test_dialogue_speaker_is_stripped_to_asset_comparison_key():
+    from lib.reference_video.shot_parser import leading_mention_before_colon, match_dialogue_line
+
+    assert match_dialogue_line("@[ 张三 ]：{我来了}") == ("张三", "我来了")
+    assert leading_mention_before_colon("@[ 张三 ]：我来了") == "张三"
 
 
 def test_bom_on_a_later_line_is_normalized_too():
@@ -184,9 +197,29 @@ def test_resolve_references_preserves_order():
     assert [r.name for r in refs] == ["A", "B", "C"]
 
 
+def test_resolve_references_deduplicates_shared_comparison_key():
+    refs, missing = resolve_references(["Hero", " Hero "], _proj(characters={"Hero": {}}))
+
+    assert [(ref.type, ref.name) for ref in refs] == [("character", "Hero")]
+    assert missing == []
+
+
 def test_resolve_references_empty_input():
     refs, missing = resolve_references([], _proj())
     assert refs == []
+    assert missing == []
+
+
+def test_missing_registered_references_skips_non_string_type():
+    assert missing_registered_references([{"type": [], "name": "张三"}], _proj(characters={"张三": {}})) == []
+
+
+def test_resolve_references_uses_priority_for_corrupt_shared_namespace():
+    project = _proj(characters={"Shared": {}}, scenes={"Shared": {}})
+
+    refs, missing = resolve_references(["Shared"], project)
+
+    assert [(ref.type, ref.name) for ref in refs] == [("character", "Shared")]
     assert missing == []
 
 
@@ -213,6 +246,10 @@ def test_resolve_references_matches_across_encoding_forms(registered: str, writt
 def test_render_mentions_as_subjects_matches_across_encoding_forms(registered: str, written: str):
     """两侧编码形式不同也要替换成主体记号：漏替换时 ``@[名称]`` 会原样进供应商请求。"""
     assert render_mentions_as_subjects(f"@[{written}] 推门而入", [registered]) == f"<{_NAME_NFC}> 推门而入"
+
+
+def test_render_mentions_as_subjects_strips_comparison_whitespace():
+    assert render_mentions_as_subjects("@[ Hero ] 推门而入", ["Hero"]) == "<Hero> 推门而入"
 
 
 def test_parse_multi_shot_preserves_pre_header_text():

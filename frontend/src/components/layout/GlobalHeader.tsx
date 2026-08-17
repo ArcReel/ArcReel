@@ -22,8 +22,7 @@ import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnostics
 import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
 import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
-import i18n from "@/i18n";
-import type { ExportDiagnostics, ProjectData, WorkspaceNotification } from "@/types";
+import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
 function triggerBrowserDownload(url: string) {
@@ -33,33 +32,6 @@ function triggerBrowserDownload(url: string) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-}
-
-/**
- * 剪映草稿导出前的 stale 预检：ad + 参考直出下剧本变更不作废成片（stale 由后端
- * 读时派生注入），导出不拦截，但含 stale 单元时提示一句。
- *
- * 导出走浏览器下载导航，响应体无法承载提示，故只能在触发下载前按当前索引预检；
- * 提示走 pushNotification 而非 toast——随后的「导出已开始」toast 会顶掉单一 toast
- * 槽位，提示须能在通知中心回看。预检纯提示性质，失败静默跳过，不阻断导出。
- */
-async function warnStaleAdReferenceUnits(
-  projectName: string,
-  episode: number,
-  project: ProjectData | null,
-): Promise<void> {
-  if (project?.content_mode !== "ad" || project?.generation_mode !== "reference_video") return;
-  try {
-    const { units } = await API.listAdReferenceUnits(projectName, episode);
-    const staleCount = units.filter((u) => u.stale).length;
-    if (staleCount > 0) {
-      useAppStore
-        .getState()
-        .pushNotification(i18n.t("dashboard:jianying_stale_units_hint", { count: staleCount }), "warning");
-    }
-  } catch {
-    return;
-  }
 }
 
 interface GlobalHeaderProps {
@@ -160,12 +132,12 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     episode: number,
     draftPath: string,
     jianyingVersion: string,
+    narrationDelivery: "post_production" | "use_tts",
   ) => {
     if (!currentProjectName || jianyingExporting) return;
 
     setJianyingExporting(true);
     try {
-      await warnStaleAdReferenceUnits(currentProjectName, episode, currentProjectData);
       const { download_token } = await API.requestExportToken(currentProjectName, "current");
       const url = API.getJianyingDraftDownloadUrl(
         currentProjectName,
@@ -173,6 +145,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         draftPath,
         download_token,
         jianyingVersion,
+        narrationDelivery,
       );
       triggerBrowserDownload(url);
       setExportDialogOpen(false);

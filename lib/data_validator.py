@@ -18,7 +18,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from lib.asset_types import ASSET_SPECS, ASSET_TYPES, normalize_asset_name
+from lib.asset_types import (
+    ASSET_SPECS,
+    ASSET_TYPES,
+    asset_name_comparison_key,
+    normalize_asset_name,
+    project_asset_name_conflicts,
+)
 from lib.episode_ledger import (
     LEDGER_STATUSES,
     EpisodeOutline,
@@ -31,14 +37,20 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
 from lib.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
 from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
+from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
-    REFERENCE_SHOT_DURATION_RANGE,
     REFERENCE_UNIT_DURATION_RANGE,
     ad_script_total_duration,
     resolve_content_mode,
 )
-from lib.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton, resolve_declared_kind
+from lib.script_skeleton import (
+    STORYBOARD_ITEM_ID_PATTERN,
+    SkeletonRouteMismatchError,
+    ensure_route_skeleton,
+    resolve_declared_kind,
+    resolve_script_kind,
+)
 from lib.speech_rate import (
     MAX_SPEECH_RATE_UPS,
     MIN_SPEECH_RATE_UPS,
@@ -131,13 +143,10 @@ class DataValidator:
     # 生成路线合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
     VALID_GENERATION_MODES = set(_VALID_GENERATION_MODES)
-    # ad 路径下单镜头时长区间，真相源在 lib.script_models（与 ad reference 路径的剧本模型
-    # 同口径），避免两处枚举漂移。
-    VALID_SHOT_DURATION_RANGE = REFERENCE_SHOT_DURATION_RANGE
     # 参考生视频 unit 时长的结构合理性区间，真相源同上（档位成员校验依赖运行时模型能力，
     # 不在归档层做）。
     VALID_UNIT_DURATION_RANGE = REFERENCE_UNIT_DURATION_RANGE
-    ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
+    ID_PATTERN = STORYBOARD_ITEM_ID_PATTERN
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
     ALLOWED_ROOT_ENTRIES = {
         "project.json",
@@ -157,6 +166,8 @@ class DataValidator:
         "end_frames",
         "videos",
         "audio",
+        "subtitles",
+        "presentations",
         "thumbnails",
         "output",
         "versions",
@@ -362,14 +373,14 @@ class DataValidator:
         content_mode = project.get("content_mode")
         if not content_mode:
             errors.append(_m("val_missing_field", field="content_mode"))
-        elif content_mode not in self.VALID_CONTENT_MODES:
+        elif not isinstance(content_mode, str) or content_mode not in self.VALID_CONTENT_MODES:
             errors.append(
                 _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
             )
 
         # source_kind 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
         source_kind = project.get("source_kind")
-        if source_kind is not None and source_kind not in self.VALID_SOURCE_KINDS:
+        if source_kind is not None and (not isinstance(source_kind, str) or source_kind not in self.VALID_SOURCE_KINDS):
             errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=_allowed(self.VALID_SOURCE_KINDS)))
 
         # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
@@ -438,6 +449,17 @@ class DataValidator:
                 PlanningCursor.model_validate(planning_cursor)
             except ValidationError as exc:
                 errors.append(_m("val_field_invalid", field="planning_cursor", detail=_pydantic_error_summary(exc)))
+
+        for first, duplicate in project_asset_name_conflicts(project):
+            errors.append(
+                _m(
+                    "val_asset_name_duplicate",
+                    first_type=_asset(first.asset_type),
+                    first_name=first.name,
+                    duplicate_type=_asset(duplicate.asset_type),
+                    duplicate_name=duplicate.name,
+                )
+            )
 
         characters = project.get("characters", {})
         if isinstance(characters, dict):
@@ -585,7 +607,7 @@ class DataValidator:
         校验层与收集层因此对同一份数据给出一致结论。资产引用的判等一律经此，不在各字段
         处按裸字符串做集合差。"""
         normalized_valid = {normalize_asset_name(v) for v in valid_set}
-        return [r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid]
+        return [r for r in refs if not isinstance(r, str) or asset_name_comparison_key(r) not in normalized_valid]
 
     def _validate_segment_refs(
         self,
@@ -627,6 +649,12 @@ class DataValidator:
         warnings: list[ValidationMessage] = []
         self._validate_project_payload(project, errors, warnings)
         return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
+
+    def validate_asset_definitions(self, project: dict[str, Any]) -> ValidationResult:
+        """Validate the asset-entry subset of an in-memory project payload."""
+        result = self.validate_project_payload(project)
+        errors = [message for message in result.error_messages if message.key.startswith("val_asset_")]
+        return ValidationResult(valid=not errors, error_messages=errors)
 
     def validate_project(self, project_name: str) -> ValidationResult:
         """验证 project.json"""
@@ -1023,13 +1051,11 @@ class DataValidator:
         warnings: list[ValidationMessage],
         *,
         project_dir: Path | None = None,
-        reference_mode: bool = False,
     ) -> None:
         """验证 shots（ad 模式）：平铺镜头列表，口播文案一等，产品按名字引用。
 
-        镜头时长约束按生成路径动态切换：storyboard 路径的成员校验在生成 schema 层
-        （supported_durations 枚举，校验器拿不到供应商能力、只把关正整数）；
-        ``reference_mode=True`` 时按 1-15 自由整数区间校验（与参考视频 Shot 同口径）。
+        storyboard 路径的时长成员校验在生成 schema 层（supported_durations 枚举，校验器
+        拿不到供应商能力、只把关正整数）。参考路线使用 ``video_units``，不经过本函数。
 
         资产引用一律按 NFC 归一比对（见 ``_validate_segment_refs``），与两条生成路径的
         各收集器同口径。
@@ -1038,7 +1064,6 @@ class DataValidator:
             errors.append(_m("val_ad_shots_missing"))
             return
 
-        low, high = self.VALID_SHOT_DURATION_RANGE
         for index, shot in enumerate(shots):
             prefix = f"shots[{index}]"
             if not isinstance(shot, dict):
@@ -1056,8 +1081,6 @@ class DataValidator:
                 warnings.append(_m("val_shot_duration_missing_zero", prefix=prefix))
             elif not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
                 errors.append(_m("val_duration_invalid", prefix=prefix, value=duration))
-            elif reference_mode and not (low <= duration <= high):
-                errors.append(_m("val_shot_duration_out_of_range", prefix=prefix, value=duration, low=low, high=high))
 
             if "voiceover_text" not in shot:
                 errors.append(_m("val_shot_missing_voiceover_text", prefix=prefix))
@@ -1155,7 +1178,7 @@ class DataValidator:
     ) -> None:
         """校验单个 unit_id 的存在性与唯一性。
 
-        video_units 与 reference_units 两处判重规则一致，共用此实现，避免规则调整时漏改一处。
+        统一校验 ``video_units`` 的 unit_id 存在性与唯一性。
         """
         if not unit_id or not isinstance(unit_id, str):
             errors.append(_m(missing_key, prefix=prefix))
@@ -1170,6 +1193,7 @@ class DataValidator:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
+        project_products: set[str],
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
         *,
@@ -1184,6 +1208,7 @@ class DataValidator:
         # reference.name 已在别处归一到 NFC（见 lib.asset_types.normalize_asset_name），
         # 裸比对会把已登记的资产误判成不在 bucket 中，产生假阳性 unregistered 报错。
         bucket_by_type = {
+            "product": {normalize_asset_name(n) for n in project_products},
             "character": {normalize_asset_name(n) for n in project_characters},
             "scene": {normalize_asset_name(n) for n in project_scenes},
             "prop": {normalize_asset_name(n) for n in project_props},
@@ -1205,14 +1230,37 @@ class DataValidator:
             )
 
             duration = unit.get("duration_seconds")
+            needs_replan = unit.get("needs_replan", False)
+            if not isinstance(needs_replan, bool):
+                errors.append(_m("val_field_type_bool", field=f"{prefix}: needs_replan"))
+            migration_requires_content_replan = unit.get("migration_requires_content_replan", False)
+            if not isinstance(migration_requires_content_replan, bool):
+                errors.append(_m("val_field_type_bool", field=f"{prefix}: migration_requires_content_replan"))
+            elif migration_requires_content_replan and needs_replan is not True:
+                errors.append(_m("val_migration_content_replan_requires_needs_replan", prefix=prefix))
             low, high = self.VALID_UNIT_DURATION_RANGE
-            if not isinstance(duration, int) or isinstance(duration, bool) or duration < low or duration > high:
+            valid_duration = False
+            if isinstance(duration, int) and not isinstance(duration, bool):
+                if needs_replan is True and not unit.get("shots"):
+                    valid_duration = duration == 0
+                else:
+                    valid_duration = low <= duration <= high
+            if not valid_duration:
                 errors.append(_m("val_unit_duration_range", prefix=prefix, low=low, high=high))
 
             shots = unit.get("shots")
-            if not isinstance(shots, list) or not shots:
+            if not isinstance(shots, list) or (not shots and needs_replan is not True):
                 errors.append(_m("val_field_must_be_nonempty_array", field=f"{prefix}: shots"))
             else:
+                if len(shots) > MAX_SHOTS_PER_UNIT:
+                    errors.append(
+                        _m(
+                            "val_unit_shots_too_many",
+                            prefix=prefix,
+                            count=len(shots),
+                            max=MAX_SHOTS_PER_UNIT,
+                        )
+                    )
                 for si, shot in enumerate(shots):
                     sp = f"{prefix}.shots[{si}]"
                     if not isinstance(shot, dict):
@@ -1240,7 +1288,7 @@ class DataValidator:
                     errors.append(_m("val_reference_name_invalid", prefix=prefix, value=repr(rname)))
                     continue
                 bucket = bucket_by_type.get(rtype, set())
-                if normalize_asset_name(rname) not in bucket:
+                if asset_name_comparison_key(rname) not in bucket:
                     errors.append(
                         _m("val_reference_not_in_bucket", prefix=prefix, asset_type=_asset(rtype), name=rname)
                     )
@@ -1253,96 +1301,6 @@ class DataValidator:
                     errors,
                 )
 
-    def _validate_ad_reference_units(
-        self,
-        units: Any,
-        shots: Any,
-        registered_names: dict[str, set[str]],
-        errors: list[ValidationMessage],
-        warnings: list[ValidationMessage],
-    ) -> None:
-        """验证 ad 参考直出派生索引（reference_units，可缺省）。
-
-        结构形状问题（非对象条目、缺 shot_ids、非法引用类型）报 error；引用层面的
-        漂移（shot_id 悬空、引用未注册资产）报 warning——shots 是内容唯一真相，
-        镜头删除后索引短暂悬空是合法中间态，重新派生即愈，不应阻塞归档/修复流程。
-        """
-        if units is None:
-            return
-        if not isinstance(units, list):
-            errors.append(_m("val_field_must_be_array", field="reference_units"))
-            return
-
-        # 归一到 NFC 再建集合，理由同 `_validate_reference_video_script`。
-        normalized_registered_names = {
-            rtype: {normalize_asset_name(n) for n in names} for rtype, names in registered_names.items()
-        }
-        shot_ids = {s.get("shot_id") for s in shots if isinstance(s, dict)} if isinstance(shots, list) else set()
-        seen_unit_ids: set[str] = set()
-        for index, unit in enumerate(units):
-            prefix = f"reference_units[{index}]"
-            if not isinstance(unit, dict):
-                errors.append(_m("val_item_must_be_object", prefix=prefix))
-                continue
-
-            self._check_unit_id_unique(
-                unit.get("unit_id"),
-                seen_unit_ids,
-                prefix,
-                errors,
-                missing_key="val_unit_id_missing_required",
-            )
-
-            ids = unit.get("shot_ids")
-            if not isinstance(ids, list) or not ids:
-                errors.append(_m("val_field_must_be_nonempty_array", field=f"{prefix}: shot_ids"))
-            else:
-                dangling = [str(sid) for sid in ids if sid not in shot_ids]
-                if dangling:
-                    warnings.append(_m("val_reference_units_dangling_shots", prefix=prefix, ids=", ".join(dangling)))
-
-            refs = unit.get("references")
-            if refs is None:
-                continue
-            if not isinstance(refs, list):
-                errors.append(_m("val_field_must_be_array", field=f"{prefix}: references"))
-                continue
-            for ri, ref in enumerate(refs):
-                ref_prefix = f"{prefix}.references[{ri}]"
-                if not isinstance(ref, dict):
-                    errors.append(_m("val_item_must_be_object", prefix=ref_prefix))
-                    continue
-                rtype = ref.get("type")
-                rname = ref.get("name")
-                if rtype not in registered_names:
-                    errors.append(_m("val_ref_type_invalid", prefix=ref_prefix, value=repr(rtype)))
-                    continue
-                if not rname or not isinstance(rname, str):
-                    errors.append(_m("val_ref_name_invalid", prefix=ref_prefix, value=repr(rname)))
-                    continue
-                if normalize_asset_name(rname) not in normalized_registered_names[rtype]:
-                    warnings.append(
-                        _m("val_ref_unregistered_regroup", prefix=ref_prefix, asset_type=_asset(rtype), name=rname)
-                    )
-
-            assets = unit.get("generated_assets")
-            if isinstance(assets, dict):
-                # ad + reference_video 的完成态 unit 与 narration/drama 的 video_units 共用
-                # video_generated_at 字段做时刻比较；外部编辑/导入写入不可解析的字符串会
-                # 在前端日期解析处静默产生 NaN。
-                video_generated_at = assets.get("video_generated_at")
-                field_name = f"{prefix}.generated_assets.video_generated_at"
-                if video_generated_at is not None and not isinstance(video_generated_at, str):
-                    errors.append(
-                        _m(
-                            "val_field_must_be_string_typed",
-                            field=field_name,
-                            actual=type(video_generated_at).__name__,
-                        )
-                    )
-                elif video_generated_at and not _is_parseable_iso_timestamp(video_generated_at):
-                    errors.append(_m("val_field_bad_timestamp", field=field_name, value=repr(video_generated_at)))
-
     def _validate_episode_payload(
         self,
         project_dir: Path,
@@ -1350,10 +1308,15 @@ class DataValidator:
         episode: dict[str, Any],
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
+        *,
+        validate_artifacts: bool = True,
+        validate_route: bool = True,
     ) -> None:
         project_characters = set(project.get("characters", {}).keys())
         project_scenes = set(project.get("scenes", {}).keys())
         project_props = set(project.get("props", {}).keys())
+        raw_products = project.get("products")
+        project_products = set(raw_products.keys()) if isinstance(raw_products, dict) else set()
 
         if not isinstance(episode.get("episode"), int):
             errors.append(_m("val_episode_missing_num"))
@@ -1378,9 +1341,8 @@ class DataValidator:
         scene_speech_rate = project_speech_rate_override(project)
 
         # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类经规范解析统一
-        # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。ad 剧本骨架唯一、
-        # 不随生成路径更换（见 docs/adr/0033），resolve_declared_kind 已内置该恒定映射。四个
-        # validator 函数及各自签名（products / reference_mode / language）保留，校验行为不变。
+        # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。广告参考路线
+        # 与其他参考路线一样使用 video_units；广告 storyboard 路线仍使用 shots。
         gen_mode = project.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, gen_mode)
@@ -1392,25 +1354,32 @@ class DataValidator:
                 _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
             )
             return
-        try:
-            # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
-            # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
-            kind = ensure_route_skeleton(episode, content_mode, gen_mode)
-        except SkeletonRouteMismatchError as exc:
-            # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
-            # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
-            # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
-            errors.append(exc.to_validation_message())
-            return
+        if validate_route:
+            try:
+                # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
+                # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
+                kind = ensure_route_skeleton(episode, content_mode, gen_mode)
+            except SkeletonRouteMismatchError as exc:
+                # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
+                # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
+                # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
+                errors.append(exc.to_validation_message())
+                return
+        else:
+            # 编辑/查看流程必须能修正路线失配的存量剧本；引用校验按磁盘实际骨架分派，生成入口
+            # 仍通过默认开启的路线闸门拒绝将这类剧本投入生产。
+            kind = resolve_script_kind(episode)
+        artifact_root = project_dir if validate_artifacts else None
         if kind == "video_units":
             self._validate_reference_video_script(
                 episode.get("video_units", []),
                 project_characters,
                 project_scenes,
                 project_props,
+                project_products,
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
             )
         elif kind == "segments":
             self._validate_segments(
@@ -1420,10 +1389,9 @@ class DataValidator:
                 project_props,
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
             )
         elif kind == "shots":
-            raw_products = project.get("products")
             shots = episode.get("shots", [])
             self._validate_shots(
                 shots,
@@ -1433,22 +1401,9 @@ class DataValidator:
                 set(raw_products.keys()) if isinstance(raw_products, dict) else set(),
                 errors,
                 warnings,
-                project_dir=project_dir,
-                reference_mode=gen_mode == "reference_video",
+                project_dir=artifact_root,
             )
             self._warn_ad_target_duration_drift(project, shots, warnings)
-            self._validate_ad_reference_units(
-                episode.get("reference_units"),
-                shots,
-                {
-                    "character": project_characters,
-                    "scene": project_scenes,
-                    "prop": project_props,
-                    "product": set(raw_products.keys()) if isinstance(raw_products, dict) else set(),
-                },
-                errors,
-                warnings,
-            )
         elif kind == "scenes":
             self._validate_scenes(
                 episode.get("scenes", []),
@@ -1457,7 +1412,7 @@ class DataValidator:
                 project_props,
                 errors,
                 warnings,
-                project_dir=project_dir,
+                project_dir=artifact_root,
                 language=scene_language,
                 speech_rate_override=scene_speech_rate,
             )
@@ -1468,15 +1423,41 @@ class DataValidator:
         """验证 episode JSON"""
         return self.validate_episode_file(self.projects_root / project_name, episode_file)
 
+    def validate_episode_payload(
+        self,
+        project_dir: Path,
+        project: dict[str, Any],
+        episode: dict[str, Any],
+        *,
+        validate_artifacts: bool = True,
+        validate_route: bool = True,
+    ) -> ValidationResult:
+        """Validate an already loaded episode without reading or rewriting project files.
+
+        Callers that classify artifact readiness separately can disable filesystem artifact
+        checks while retaining the shared episode structure and reference validation. Editing
+        flows can also disable the generation-route gate while validating references against
+        the supplied episode's actual skeleton.
+        """
+        errors: list[ValidationMessage] = []
+        warnings: list[ValidationMessage] = []
+        self._validate_episode_payload(
+            Path(project_dir),
+            project,
+            episode,
+            errors,
+            warnings,
+            validate_artifacts=validate_artifacts,
+            validate_route=validate_route,
+        )
+        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
+
     def validate_episode_file(
         self,
         project_dir: Path,
         episode_file: str | Path,
     ) -> ValidationResult:
         """验证指定目录中的剧本文件。"""
-        errors: list[ValidationMessage] = []
-        warnings: list[ValidationMessage] = []
-
         project_dir = Path(project_dir)
         project_path = project_dir / "project.json"
         project = load_json_or_none(project_path)
@@ -1505,8 +1486,7 @@ class DataValidator:
                 error_messages=[_m("val_cannot_load_script", path=episode_path)],
             )
 
-        self._validate_episode_payload(project_dir, project, episode, errors, warnings)
-        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
+        return self.validate_episode_payload(project_dir, project, episode)
 
     def validate_project_tree(self, project_dir: str | Path) -> ValidationResult:
         """

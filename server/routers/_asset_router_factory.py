@@ -28,7 +28,12 @@ from lib.asset_rename import (
     AssetRenameHistoryCollisionError,
     AssetRenameNotFoundError,
 )
-from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
+from lib.asset_types import (
+    ASSET_SPECS,
+    ProjectAssetNameConflictError,
+    localize_asset_type,
+    validate_asset_name,
+)
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
@@ -86,6 +91,16 @@ class _CreateRequest(BaseModel):
 
     name: str
     description: str = ""
+
+
+def localize_project_asset_name_conflict(exc: ProjectAssetNameConflictError, translate: Translator) -> str:
+    return translate(
+        "project_asset_name_conflict",
+        name=exc.name,
+        requested_type=localize_asset_type(exc.requested_asset_type or exc.existing.asset_type, translate),
+        existing_type=localize_asset_type(exc.existing.asset_type, translate),
+        existing_name=exc.existing.name,
+    )
 
 
 def build_asset_router(
@@ -169,6 +184,8 @@ def build_asset_router(
                 return {"success": True, result_key: data[spec.bucket_key][name]}
 
             return await asyncio.to_thread(_sync)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:
@@ -200,14 +217,8 @@ def build_asset_router(
 
             def _sync():
                 manager = pm_getter()
-                result: dict[str, Any] = {}
 
-                def _mutate(project):
-                    bucket = project.get(spec.bucket_key) or {}
-                    key = resolve_asset_key(bucket, entry_name)
-                    if key is None:
-                        raise KeyError(entry_name)
-                    entry = bucket[key]
+                def _mutate(entry: dict) -> None:
                     for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
                             # voice_notice_dismissed_at 语义是「已确认到的声音版本」，必须原样
@@ -221,13 +232,14 @@ def build_asset_router(
                             if field == "reference_audio" and req[field] != entry.get("reference_audio"):
                                 entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                             entry[field] = req[field]
-                    result.update(entry)
 
                 with project_change_source("webui"):
-                    manager.update_project(project_name, _mutate)
+                    result = manager.update_asset_entry(asset_type, project_name, entry_name, _mutate)
                 return {"success": True, result_key: result}
 
             return await asyncio.to_thread(_sync)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
         except _InvalidFieldValue as exc:
@@ -278,6 +290,8 @@ def build_asset_router(
             return await asyncio.to_thread(_sync)
         except AssetRenameNotFoundError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except AssetRenameConflictError as exc:
             raise HTTPException(status_code=409, detail=_t(keys["exists"], name=exc.conflict_name))
         except AssetRenameFileCollisionError as exc:
@@ -303,18 +317,13 @@ def build_asset_router(
             def _sync():
                 manager = pm_getter()
 
-                def _mutate(project):
-                    bucket = project.get(spec.bucket_key) or {}
-                    key = resolve_asset_key(bucket, entry_name)
-                    if key is None:
-                        raise KeyError(entry_name)
-                    del bucket[key]
-
                 with project_change_source("webui"):
-                    manager.update_project(project_name, _mutate)
+                    manager.delete_asset(project_name, spec.bucket_key, entry_name)
                 return {"success": True, "message": _t(keys["deleted"], name=entry_name)}
 
             return await asyncio.to_thread(_sync)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
         except FileNotFoundError as exc:

@@ -21,6 +21,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from lib.audio_backends.base import VoiceOption
@@ -150,14 +151,14 @@ async def _get_or_create_audio_backend(
 
 @dataclass(frozen=True)
 class ImageLaneRequest:
-    """声明本次任务需要 image lane。capability 决定 t2i / i2i 默认槽（``docs/adr/0001``）。"""
+    """声明当前任务需要 image lane。capability 决定 t2i / i2i 默认槽（``docs/adr/0001``）。"""
 
     capability: Literal["t2i", "i2i"] = "t2i"
 
 
 @dataclass(frozen=True)
 class VideoLaneRequest:
-    """声明本次任务需要 video lane。
+    """声明当前任务需要 video lane。
 
     ``capability`` 决定 i2v / r2v 能力桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
     参考生视频按镜头解析后的实际参考图分流——有参考图 → r2v，无参考图的退化镜头降级
@@ -170,7 +171,7 @@ class VideoLaneRequest:
 
 @dataclass(frozen=True)
 class AudioLaneRequest:
-    """声明本次任务需要 audio lane（旁白 TTS）。"""
+    """声明当前任务需要 audio lane（旁白 TTS）。"""
 
 
 @dataclass(frozen=True)
@@ -207,6 +208,9 @@ class VideoLaneResult:
     supported_durations: tuple[int, ...]
     max_duration: int | None
     max_reference_images: int | None
+    # 费用与实际 provider 出账口径的有声档位，直接来自 video capabilities。
+    # 它与下方的 requested_generate_audio（用户开关意图）不等价。
+    generate_audio: bool = False
     # 能力查询失败时降级为 "soft"（有信号才判定为真无声，与既有「无信号不落 none」口径一致，
     # 见 lib.config.resolver.derive_voice_consistency）。
     voice_consistency: VoiceConsistency = "soft"
@@ -299,6 +303,7 @@ async def resolve_generation_context(
     payload: dict | None,
     *,
     project: dict,
+    project_path: Path | None = None,
     user_id: str = DEFAULT_USER_ID,
     image: ImageLaneRequest | None = None,
     video: VideoLaneRequest | None = None,
@@ -308,7 +313,8 @@ async def resolve_generation_context(
 
     lane 传即声明、None 跳过，任务只为用到的 lane 付出配置要求与构造成本。任一声明 lane
     的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；仅能力
-    查询失败降级空值放行。``project`` 是调用方已加载的项目快照，本函数不读盘。
+    查询失败降级空值放行。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
+    持有项目路径的事务传入，避免同步事务解析当前配置时嵌套占用默认线程池。本函数不读项目。
 
     video lane 的定桶随 ``VideoLaneRequest.capability``：None 时按项目生成路线解析（见
     ``lib.config.resolver.caps_generation_mode``）——路线创建即定、整个项目按同一条路径生成，
@@ -317,7 +323,11 @@ async def resolve_generation_context(
     """
     from lib.db import async_session_factory
 
-    project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+    resolved_project_path = (
+        project_path
+        if project_path is not None
+        else await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+    )
     resolver = ConfigResolver(async_session_factory)
 
     image_result: ImageLaneResult | None = None
@@ -356,6 +366,7 @@ async def resolve_generation_context(
             supported_durations: tuple[int, ...] = ()
             max_duration: int | None = None
             max_reference_images: int | None = None
+            generate_audio = False
             voice_consistency: VoiceConsistency = "soft"
             max_reference_audio_count = 0
             reference_audio_per_image = False
@@ -367,6 +378,7 @@ async def resolve_generation_context(
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
+                generate_audio = bool(caps.get("generate_audio"))
                 voice_consistency = caps.get("voice_consistency") or "soft"
                 max_reference_audio_count = int(caps.get("max_reference_audio_count") or 0)
                 reference_audio_per_image = bool(caps.get("reference_audio_per_image") or False)
@@ -386,6 +398,7 @@ async def resolve_generation_context(
                 supported_durations=supported_durations,
                 max_duration=max_duration,
                 max_reference_images=max_reference_images,
+                generate_audio=generate_audio,
                 voice_consistency=voice_consistency,
                 requested_generate_audio=requested_generate_audio,
                 max_reference_audio_count=max_reference_audio_count,
@@ -413,7 +426,7 @@ async def resolve_generation_context(
             )
 
     generator = MediaGenerator(
-        project_path,
+        resolved_project_path,
         rate_limiter=rate_limiter,
         image_backend=image_backend,
         video_backend=video_backend,

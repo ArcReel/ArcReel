@@ -12,57 +12,90 @@ import logging
 from typing import Any
 
 from lib.project_change_hints import project_change_source
+from lib.reference_video.execution_checkpoint import (
+    ReferenceExecutionIdentityError,
+    VideoSubmissionCheckpoint,
+    checkpoint_version_metadata,
+    cleanup_staged_provider_media,
+    load_task_video_checkpoint,
+)
 from lib.video_backends.base import ResumeEndpointChangedError
-from server.services.generation_context import VideoLaneRequest, resolve_generation_context
+from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
     DEFAULT_USER_ID,
     _finalize_video_task,
     emit_generation_success_batch,
-    get_aspect_ratio,
     get_project_manager,
 )
 from server.services.reference_video_tasks import _finalize_reference_video_unit
+from server.services.video_artifact_currency import (
+    VideoArtifactCommitter,
+    complete_video_artifact_commit,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _ensure_endpoint_unchanged(task: dict[str, Any], current_endpoint: str | None, *, job_id: str) -> None:
-    """提交本 job 的 endpoint 与模型行当下的 endpoint 不同即显式失败，不接续轮询。
+def _ensure_checkpoint_endpoint_unchanged(
+    checkpoint: VideoSubmissionCheckpoint,
+    current_endpoint: str | None,
+    *,
+    job_id: str,
+) -> None:
+    """Submitted video jobs use an exact endpoint guard, including builtin/custom transitions."""
 
-    身份闸（``lib.config.resolver._ensure_video_identity_resolvable``）只校验媒体类型仍是
-    video，同媒体类型内的 endpoint 切换（如 openai-video → minimax-video）会直接放行，于是
-    新协议 backend 拿到旧协议下创建的 job id：轻则报错指向新协议、用户无法归因，重则轮询
-    响应被误读、任务被标失败而远端 job 仍在跑仍在计费。
-
-    两侧任一为空即跳过：内置供应商无 endpoint 维度（其持久化值是请求域名，走
-    ``_submitted_base_url`` 那条消费分支），本列未持久化的存量任务同样无从比对，
-    行为与现状一致。
-    """
-    submitted_endpoint = task.get("provider_endpoint")
-    if not submitted_endpoint or not current_endpoint or submitted_endpoint == current_endpoint:
+    if checkpoint.endpoint_guard == current_endpoint:
         return
     raise ResumeEndpointChangedError(
         job_id=job_id,
-        provider=str(task.get("provider_id") or "unknown"),
-        submitted_endpoint=str(submitted_endpoint),
-        current_endpoint=current_endpoint,
+        provider=checkpoint.provider_id,
+        submitted_endpoint=checkpoint.endpoint_guard or "<builtin>",
+        current_endpoint=current_endpoint or "<builtin>",
     )
 
 
-def _submitted_base_url(task: dict[str, Any], current_endpoint: str | None) -> str | None:
-    """内置供应商提交本 job 时的请求域名，供 backend 回放轮询；无从判定时 None。
+def _validate_resolved_checkpoint_identity(checkpoint: VideoSubmissionCheckpoint, video: Any) -> None:
+    actual = (
+        video.provider_model.provider_id,
+        video.provider_model.model_id,
+        video.backend_model,
+    )
+    frozen = (
+        checkpoint.provider_id,
+        checkpoint.provider_model_id,
+        checkpoint.backend_model_id,
+    )
+    if actual != frozen:
+        raise ReferenceExecutionIdentityError(
+            "resolved provider/model/backend identity does not match the submitted video checkpoint"
+        )
 
-    ``provider_endpoint`` 一列按供应商类型承载两种取值，此处只取内置那种：``current_endpoint``
-    非空即当下是自定义供应商，其持久化值是 endpoint 标识、归比对闸消费。空值口径与
-    ``_ensure_endpoint_unchanged`` 一致取 falsy，否则空串会让两条分支都不生效。域名形态再确认
-    一次，是为了拦住「任务由自定义供应商提交、在途把模型行改成内置供应商」这类跨类切换——此时
-    列里躺着的是 endpoint 标识，拿它拼 URL 只会把 404（可归因为任务过期）换成更难归因的连接错误。
+
+def _is_request_domain(value: Any) -> bool:
+    """落库值是否为请求域名形态——两列都可能躺着 endpoint 标识，只有 http(s) 前缀的才是域名。"""
+    return isinstance(value, str) and value.lower().startswith(("http://", "https://"))
+
+
+def _submitted_base_url(task: dict[str, Any], current_endpoint: str | None) -> str | None:
+    """提交本 job 时的请求域名，供 backend 回放轮询；无从判定时 None。
+
+    域名按供应商类型分落两列，读取时按当下的供应商类型选列——``current_endpoint`` 非空即当下
+    是自定义供应商，取专列 ``submitted_base_url``（该类供应商的 ``provider_endpoint`` 位被协议
+    标识占用，归比对闸消费）；为空即当下是内置供应商，无协议维度，域名就在 ``provider_endpoint``。
+    空值统一取 falsy，否则空串会让两条分支都不生效。
+
+    按当下类型选列而非先读专列，是为了拦住跨类切换：任务由自定义供应商提交、模型行在途被改成
+    内置供应商时，专列里躺着的是另一个供应商的域名，拿它配内置凭据轮询只会把 404（可归因为任务
+    过期）换成更难归因的认证或连接错误；反向切换同理，域名形态确认拦住把 endpoint 标识当域名用。
+    选中的列没有域名（未落此值的存量任务、非 dashscope 协议的自定义供应商、跨类切换）时回退
+    None，backend 按当下配置的域名轮询。
     """
     if current_endpoint:
-        return None
-    submitted = task.get("provider_endpoint")
-    if isinstance(submitted, str) and submitted.lower().startswith(("http://", "https://")):
-        return submitted
+        submitted = task.get("submitted_base_url")
+        return str(submitted) if _is_request_domain(submitted) else None
+    endpoint_column = task.get("provider_endpoint")
+    if _is_request_domain(endpoint_column):
+        return str(endpoint_column)
     return None
 
 
@@ -80,11 +113,16 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
     project_name = task["project_name"]
     resource_id = str(task["resource_id"])
     task_id = task["task_id"]
-    payload = task.get("payload") or {}
     user_id = task.get("user_id", DEFAULT_USER_ID)
 
     if task_type not in ("video", "reference_video"):
         raise NotImplementedError(f"resume not supported for task_type={task_type}")
+
+    checkpoint = load_task_video_checkpoint(task)
+    resolver_payload = {
+        f"video_provider_{checkpoint.capability}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
+    }
+    video_request = VideoLaneRequest(capability=checkpoint.capability)
 
     project, project_path = await asyncio.to_thread(
         lambda: (
@@ -93,102 +131,112 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         )
     )
 
-    # 仅声明 video lane：resume 路径用不到 image backend，不声明 image lane 即不构造它——
-    # 若 image 配置在 submit→重启之间被破坏，整段 resume 不该被无关检查弄失败（provider
-    # job 仍在跑）。provider/backend 身份解析收口于 GenerationContext（docs/adr/0049）。
-    ctx = await resolve_generation_context(
-        project_name,
-        payload,
-        project=project,
-        user_id=user_id,
-        video=VideoLaneRequest(),
-    )
-    generator = ctx.generator
-    _ensure_endpoint_unchanged(task, ctx.video.endpoint, job_id=job_id)
-
-    aspect_ratio = get_aspect_ratio(project, "videos") if task_type == "video" else project.get("aspect_ratio", "9:16")
-    # 浮点数字符串（如 "8.0"）直接 int() 会抛 ValueError；先 float 再 int 兜底脏数据
+    artifact_committer: VideoArtifactCommitter | None = None
     try:
-        duration_seconds = int(float(payload.get("duration_seconds") or project.get("default_duration") or 8))
-    except (ValueError, TypeError):
-        duration_seconds = 8
-    seed = payload.get("seed")
-    # 旧任务 / 脏数据可能把 video_provider_settings 存成 None / str / list，全部归一化成 dict
-    raw_vp_settings = payload.get("video_provider_settings")
-    vp_settings = raw_vp_settings if isinstance(raw_vp_settings, dict) else {}
-    service_tier = vp_settings.get("service_tier", "default")
-    raw_prompt = payload.get("prompt")
-    prompt_text = raw_prompt if isinstance(raw_prompt, str) else ""
-    raw_resolution = payload.get("resolution")
-    resolution = raw_resolution if isinstance(raw_resolution, str) else None
-    raw_generate_audio = payload.get("generate_audio")
-    # generate_audio 仅在 payload 显式提供 bool 时透传；缺省让 resume_video_async 走 config 默认，
-    # 不传 None 是因为 version_metadata.get("generate_audio", default) 会把显式 None 当作"用户选择 None"
-    optional_kwargs: dict[str, Any] = {}
-    if isinstance(raw_generate_audio, bool):
-        optional_kwargs["generate_audio"] = raw_generate_audio
+        # Only the project snapshot remains live here, and solely to resolve credentials/backend construction.
+        # A submitted reference job's prompt, duration, script locator, endpoint and model all come from checkpoint.
+        ctx = await resolve_generation_context(
+            project_name,
+            resolver_payload,
+            project=project,
+            user_id=user_id,
+            video=video_request,
+            audio=(AudioLaneRequest() if checkpoint.narration.delivery == "use_tts" else None),
+        )
+        generator = ctx.generator
 
-    if task_type == "reference_video":
-        resource_type = "reference_videos"
-        script_file = payload["script_file"]
-    else:
-        resource_type = "videos"
-        script_file = payload["script_file"]
-
-    api_call_id = payload.get("api_call_id")
-    if api_call_id is not None and not isinstance(api_call_id, int):
-        try:
-            api_call_id = int(api_call_id)
-        except (ValueError, TypeError):
-            api_call_id = None
-
-    # 与 execute_generation_task 对齐：包 project_change_source('worker') 让下游
-    # asset 写入挂在 worker 来源；finalize 完成后同步触发 emit_generation_success_batch
-    # 推 SSE batch（带 asset_fingerprints），前端能即时刷缩略图缓存。
-    with project_change_source("worker"):
-        output_path, version, _, video_uri = await generator.resume_video_async(
-            job_id=job_id,
+        _validate_resolved_checkpoint_identity(checkpoint, ctx.video)
+        _ensure_checkpoint_endpoint_unchanged(checkpoint, ctx.video.endpoint, job_id=job_id)
+        aspect_ratio = checkpoint.aspect_ratio
+        duration_seconds = checkpoint.duration_seconds
+        seed = checkpoint.seed
+        service_tier = checkpoint.service_tier
+        prompt_text = checkpoint.prompt
+        resolution = checkpoint.resolution
+        optional_kwargs: dict[str, Any] = {
+            "generate_audio": checkpoint.generate_audio,
+            "formal_output": True,
+            "visual_basis_digest": checkpoint.visual_basis_digest,
+            **checkpoint_version_metadata(checkpoint),
+        }
+        resource_type = "reference_videos" if task_type == "reference_video" else "videos"
+        script_file = checkpoint.script_file
+        api_call_id: int | None = checkpoint.api_call_id
+        event_payload: dict[str, Any] = {"script_file": checkpoint.script_file}
+        artifact_committer = VideoArtifactCommitter(
+            project_manager=get_project_manager(),
+            project_name=project_name,
+            project_path=project_path,
+            versions=generator.versions,
             resource_type=resource_type,
             resource_id=resource_id,
             prompt=prompt_text,
-            aspect_ratio=aspect_ratio,
-            duration_seconds=duration_seconds,
-            resolution=resolution,
-            task_id=task_id,
-            api_call_id=api_call_id,
-            submitted_base_url=_submitted_base_url(task, ctx.video.endpoint),
-            seed=seed,
-            service_tier=service_tier,
-            **optional_kwargs,
         )
 
-        if task_type == "reference_video":
-            result = await _finalize_reference_video_unit(
-                project_name=project_name,
-                script_file=script_file,
-                project_path=project_path,
+        with project_change_source("worker"):
+            output_path, version, _, video_uri = await generator.resume_video_async(
+                job_id=job_id,
+                resource_type=resource_type,
                 resource_id=resource_id,
-                output_path=output_path,
-                version=version,
-                video_uri=video_uri,
+                prompt=prompt_text,
+                aspect_ratio=aspect_ratio,
+                duration_seconds=duration_seconds,
+                resolution=resolution,
+                task_id=task_id,
+                api_call_id=api_call_id,
+                submitted_base_url=_submitted_base_url(task, ctx.video.endpoint),
+                seed=seed,
+                service_tier=service_tier,
+                before_formal_commit=artifact_committer.prepare_selection,
+                commit_formal_output=artifact_committer,
+                **optional_kwargs,
+            )
+
+            def _emit_success() -> None:
+                emit_generation_success_batch(
+                    task_type=task_type,
+                    project_name=project_name,
+                    resource_id=resource_id,
+                    payload=event_payload,
+                )
+
+            async def _finalize() -> dict[str, Any]:
+                if task_type == "reference_video":
+                    selected_result = await _finalize_reference_video_unit(
+                        project_name=project_name,
+                        script_file=script_file,
+                        project_path=project_path,
+                        resource_id=resource_id,
+                        output_path=output_path,
+                        version=version,
+                        video_uri=video_uri,
+                        versions=generator.versions,
+                    )
+                else:
+                    selected_result = await _finalize_video_task(
+                        project_name=project_name,
+                        script_file=script_file,
+                        project_path=project_path,
+                        resource_id=resource_id,
+                        version=version,
+                        video_uri=video_uri,
+                        generator=generator,
+                    )
+                return selected_result
+
+            return await complete_video_artifact_commit(
+                committer=artifact_committer,
                 versions=generator.versions,
-            )
-        else:
-            result = await _finalize_video_task(
-                project_name=project_name,
-                script_file=script_file,
-                project_path=project_path,
+                resource_type=resource_type,
                 resource_id=resource_id,
                 version=version,
                 video_uri=video_uri,
-                generator=generator,
+                finalize=_finalize,
+                on_completed=_emit_success,
             )
-
-        # emit_generation_success_batch 是同步函数，async caller 同步调用（不 await）
-        emit_generation_success_batch(
-            task_type=task_type,
-            project_name=project_name,
-            resource_id=resource_id,
-            payload=payload,
-        )
-        return result
+    finally:
+        try:
+            if artifact_committer is not None:
+                await artifact_committer.release_admission_guard()
+        finally:
+            await asyncio.to_thread(cleanup_staged_provider_media, project_path, checkpoint.task_id)

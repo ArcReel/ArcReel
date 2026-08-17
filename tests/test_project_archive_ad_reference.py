@@ -1,9 +1,4 @@
-"""归档导入针对 ad + 参考生视频（shots 骨架 + reference_units 派生索引）的修复测试。
-
-覆盖：修复分流此前按 generation_mode==reference_video 走 video_units 专用分支，
-ad+参考项目骨架恒为 shots、不含 video_units，导致 shots 的 generated_assets 回填、
-scenes/props 字段补全全部静默跳过，reference_units 派生索引也无任何修复路径。
-"""
+"""归档导入针对 ad + 参考生视频自包含 video_units 的修复测试。"""
 
 import json
 import shutil
@@ -39,26 +34,11 @@ def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
                 archive.write(item, arcname=relative.as_posix())
 
 
-def _ad_shot(**overrides) -> dict:
-    shot = {
-        "shot_id": "E1S01",
-        "section": "hook",
-        "duration_seconds": 4,
-        "voiceover_text": "三秒速干",
-        "characters_in_shot": [],
-        "image_prompt": "img",
-        "video_prompt": "vid",
-    }
-    shot.update(overrides)
-    return shot
-
-
 def _create_ad_reference_project(
     pm: ProjectManager,
     *,
     name: str = "addemo",
-    shots: list[dict] | None = None,
-    reference_units: list[dict] | None = None,
+    video_units: list[dict] | None = None,
 ) -> Path:
     pm.create_project(name, content_mode="ad")
     pm.create_project_metadata(name, "AdDemo", "Realistic", "ad", target_duration=12)
@@ -67,21 +47,29 @@ def _create_ad_reference_project(
     project["generation_mode"] = "reference_video"
     project["characters"] = {"主播": {"description": "出镜模特"}}
     project["scenes"] = {"客厅": {"description": "现代客厅"}}
-    project["props"] = {"速干杯": {"description": "主推产品"}}
+    project["props"] = {}
+    project["products"] = {"速干杯": {"description": "主推产品"}}
     project["episodes"] = [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}]
     pm.save_project(name, project)
 
-    if shots is None:
-        shots = [_ad_shot()]
-    episode: dict = {
+    if video_units is None:
+        video_units = [
+            {
+                "unit_id": "E1U1",
+                "duration_seconds": 4,
+                "shots": [{"text": "镜头1：@[主播] 展示 @[速干杯]"}],
+                "references": [
+                    {"type": "product", "name": "速干杯"},
+                    {"type": "character", "name": "主播"},
+                ],
+            }
+        ]
+    episode = {
         "episode": 1,
         "title": "第一集",
         "content_mode": "ad",
-        "generation_mode": "reference_video",
-        "shots": shots,
+        "video_units": video_units,
     }
-    if reference_units is not None:
-        episode["reference_units"] = reference_units
 
     project_dir = pm.get_project_path(name)
     _write_json(project_dir / "scripts" / "episode_1.json", episode)
@@ -96,10 +84,9 @@ def _import_via_manual_zip(service: ProjectArchiveService, project_dir: Path, tm
 
 
 class TestProjectArchiveAdReference:
-    def test_shots_generated_assets_and_fields_backfilled(self, tmp_path):
-        # shots 缺 generated_assets / scenes / props：走 storyboard 修复分支补全，诊断含 auto_fixed
+    def test_video_units_generated_assets_backfilled(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
-        project_dir = _create_ad_reference_project(pm, shots=[_ad_shot()])
+        project_dir = _create_ad_reference_project(pm)
         service = ProjectArchiveService(pm)
 
         result = _import_via_manual_zip(service, project_dir, tmp_path)
@@ -107,41 +94,27 @@ class TestProjectArchiveAdReference:
         imported = json.loads(
             (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )
-        shot = imported["shots"][0]
-        assert isinstance(shot["generated_assets"], dict)
-        assert shot["generated_assets"]["status"] == "pending"
-        assert shot["scenes"] == []
-        assert shot["props"] == []
-        assert result.diagnostics["auto_fixed"]
-
-    def test_reference_units_generated_assets_backfilled(self, tmp_path):
-        # reference_units 条目缺 generated_assets：就地回填
-        pm = ProjectManager(tmp_path / "projects")
-        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": []}]
-        project_dir = _create_ad_reference_project(pm, shots=[_ad_shot()], reference_units=units)
-        service = ProjectArchiveService(pm)
-
-        result = _import_via_manual_zip(service, project_dir, tmp_path)
-
-        imported = json.loads(
-            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
-        )
-        unit = imported["reference_units"][0]
+        unit = imported["video_units"][0]
         assert isinstance(unit["generated_assets"], dict)
         assert unit["generated_assets"]["status"] == "pending"
+        assert result.diagnostics["auto_fixed"]
 
-    def test_reference_units_preserves_existing_assets(self, tmp_path):
-        # reference_units 条目已有 generated_assets（video_clip 已生成）：既有资产不被覆盖
+    def test_video_units_preserve_existing_assets_and_legacy_signature(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         units = [
             {
                 "unit_id": "E1U1",
-                "shot_ids": ["E1S01"],
+                "duration_seconds": 4,
+                "shots": [{"text": "镜头1：产品特写"}],
                 "references": [],
-                "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
+                "generated_assets": {
+                    "video_clip": "reference_videos/E1U1.mp4",
+                    "status": "completed",
+                    "source_signature": "legacy",
+                },
             }
         ]
-        project_dir = _create_ad_reference_project(pm, shots=[_ad_shot()], reference_units=units)
+        project_dir = _create_ad_reference_project(pm, video_units=units)
         _write_bytes(project_dir / "reference_videos" / "E1U1.mp4", b"mp4")
         service = ProjectArchiveService(pm)
 
@@ -150,8 +123,8 @@ class TestProjectArchiveAdReference:
         imported = json.loads(
             (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )
-        assets = imported["reference_units"][0]["generated_assets"]
+        assets = imported["video_units"][0]["generated_assets"]
         assert assets["video_clip"] == "reference_videos/E1U1.mp4"
         assert assets["status"] == "completed"
-        # 缺失字段被补齐，既有值保留
+        assert assets["source_signature"] == "legacy"
         assert "video_thumbnail" in assets

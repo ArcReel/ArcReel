@@ -33,6 +33,7 @@ from fastapi.sse import ServerSentEvent
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
 from lib.i18n import DEFAULT_LOCALE, get_locale
+from lib.profile_frontmatter import FrontmatterError, parse_profile_metadata
 from lib.profile_manifest import VALID_CONTENT_MODES
 from lib.project_manager import ProjectManager
 from server.agent_runtime.event_log import (
@@ -959,7 +960,7 @@ class AssistantService:
     # ``tests/test_frontend_skill_i18n.py`` cross-checks SKILL.md against
     # those keys so adding a user-invocable skill without translations fails CI.
     _SKILL_ICONS: dict[str, str] = {
-        "manga-workflow": "clapperboard",
+        "video-workflow": "clapperboard",
         "generate-storyboard": "images",
         "generate-grid": "grid-2x2",
         "generate-video": "film",
@@ -1000,6 +1001,9 @@ class AssistantService:
                 except OSError:
                     continue
 
+                if metadata is None:
+                    continue
+
                 if not metadata["user_invocable"]:
                     continue
 
@@ -1024,72 +1028,75 @@ class AssistantService:
     def _resolve_skill_entry_file(skill_dir: Path) -> Path | None:
         # profile 端的 content_mode 变体（SKILL.narration.md / SKILL.drama.md）只在 sync
         # 进项目目录时才会被物化为 SKILL.md；列表接口直接扫 profile 时必须自己识别变体，
-        # 否则 manga-workflow 这类 variant-only skill 永远拿不到。
+        # 否则 video-workflow 这类 variant-only skill 永远拿不到。
         #
         # 查找契约与 tests/test_frontend_skill_i18n.py:_find_skill_md 保持一致：
         # 用 is_file 严格筛文件、按 sorted(VALID_CONTENT_MODES) 显式枚举有效模式、
-        # 校验所有变体的 user-invocable 状态一致。不一致时 warning 后返回 None
-        # 跳过该 skill——避免列表里随机选到某个 mode 的 frontmatter 导致行为漂移。
-        common = skill_dir / "SKILL.md"
-        if common.is_file():
-            return common
+        # 校验 common/variant 互斥、变体完整，且所有变体的 name/user-invocable 一致。
+        # 非法形态 warning 后返回 None，避免列表随机暴露某个 mode 的破损配置。
         variants = [skill_dir / f"SKILL.{mode}.md" for mode in sorted(VALID_CONTENT_MODES)]
         existing = [v for v in variants if v.is_file()]
+        common = skill_dir / "SKILL.md"
+        if common.is_file():
+            if existing:
+                logger.warning("skill %s 同时存在 common 与 content_mode 变体，跳过", skill_dir.name)
+                return None
+            return common
         if not existing:
             return None
+        if len(existing) != len(variants):
+            missing = [path.name for path in variants if path not in existing]
+            logger.warning("skill %s 的 content_mode 变体不完整，缺少 %s，跳过", skill_dir.name, missing)
+            return None
         try:
-            states = {AssistantService._load_skill_metadata(v, skill_dir.name)["user_invocable"] for v in existing}
+            metadata = [AssistantService._load_skill_metadata(v, skill_dir.name) for v in existing]
         except OSError:
             return None
-        if len(states) > 1:
+        if any(item is None for item in metadata):
+            return None
+        identities = {(item["name"], item["user_invocable"]) for item in metadata if item is not None}
+        if len(identities) > 1:
             logger.warning(
-                "skill %s 各 content_mode 变体的 user-invocable 不一致，跳过；"
-                "请保证所有 SKILL.<mode>.md frontmatter 的 user-invocable 字段相同",
+                "skill %s 各 content_mode 变体的 name 或 user-invocable 不一致，跳过；"
+                "请保证所有 SKILL.<mode>.md frontmatter 身份一致",
                 skill_dir.name,
             )
             return None
         return existing[0]
 
     @staticmethod
-    def _load_skill_metadata(skill_file: Path, fallback_name: str) -> dict[str, Any]:
+    def _load_skill_metadata(skill_file: Path, fallback_name: str) -> dict[str, Any] | None:
         """Load skill metadata from SKILL.md frontmatter.
 
         Parsed fields: name, description, user-invocable.
         """
-        content = skill_file.read_text(encoding="utf-8", errors="ignore")
+        try:
+            content = skill_file.read_text(encoding="utf-8-sig")
+        except UnicodeError as exc:
+            logger.warning("invalid skill encoding in %s: %s; skipping", skill_file, exc)
+            return None
+        if content.lstrip().startswith("---"):
+            try:
+                metadata = parse_profile_metadata(skill_file)
+            except FrontmatterError as exc:
+                logger.warning("invalid skill frontmatter in %s: %s; skipping", skill_file, exc)
+                return None
+            return {
+                "name": metadata.name,
+                "description": metadata.description,
+                "user_invocable": metadata.user_invocable,
+            }
+
+        # Keep legacy body-only Skills readable; shipped profile files are required
+        # to have YAML frontmatter by the static profile lint.
         name = fallback_name
         description = ""
         user_invocable = True
-
-        if content.startswith("---"):
-            parts = content.split("---", 2)
-            if len(parts) >= 3:
-                frontmatter = parts[1]
-                body = parts[2]
-                for line in frontmatter.splitlines():
-                    if ":" not in line:
-                        continue
-                    key, value = line.split(":", 1)
-                    key = key.strip()
-                    value = value.strip().strip('"').strip("'")
-                    if key == "name" and value:
-                        name = value
-                    elif key == "description" and value:
-                        description = value
-                    elif key == "user-invocable":
-                        user_invocable = value.lower() not in ("false", "no", "0")
-                if not description:
-                    for line in body.splitlines():
-                        text = line.strip()
-                        if text and not text.startswith("#"):
-                            description = text
-                            break
-        else:
-            for line in content.splitlines():
-                text = line.strip()
-                if text and not text.startswith("#"):
-                    description = text
-                    break
+        for line in content.splitlines():
+            text = line.strip()
+            if text and not text.startswith("#"):
+                description = text
+                break
 
         return {
             "name": name,

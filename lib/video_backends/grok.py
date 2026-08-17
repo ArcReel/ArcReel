@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from datetime import timedelta
 from pathlib import Path
 
+from lib.data_uri import image_to_data_uri
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
-from lib.grok_shared import create_grok_client, grok_should_retry
+from lib.grok_shared import create_grok_client
 from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GROK
-from lib.retry import with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     VideoCapabilities,
@@ -65,7 +64,12 @@ class GrokVideoBackend:
         raise NotImplementedError("GrokVideoBackend 不支持 resume_video（同步型 API）")
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """生成视频。生成与下载分离重试，避免下载失败导致重新生成浪费额度。"""
+        """生成视频；黑盒生成不重试，只有已取得 URL 后的下载可以独立重试。"""
+        # The SDK combines submit and provider-side waiting in one opaque call. Once it starts, an exception
+        # cannot prove the provider rejected the request before accepting a paid job, so close MediaGenerator's
+        # reference-payload compression retry window before entering it.
+        if request.on_provider_resubmit_unsafe is not None:
+            request.on_provider_resubmit_unsafe()
         response = await self._create_video(request)
 
         video_url = response.url
@@ -100,9 +104,8 @@ class GrokVideoBackend:
             generate_audio=True,
         )
 
-    @with_retry_async(retry_if=grok_should_retry)
     async def _create_video(self, request: VideoGenerationRequest):
-        """创建视频生成任务（带独立重试）。"""
+        """通过不可判定收单边界的 SDK 调用生成视频。"""
         generate_kwargs = {
             "prompt": request.prompt,
             "model": self._model,
@@ -114,21 +117,17 @@ class GrokVideoBackend:
         if request.resolution is not None:
             generate_kwargs["resolution"] = request.resolution
 
-        def _encode_to_data_uri(path: Path) -> str:
-            suffix = path.suffix.lower()
-            mime_type = IMAGE_MIME_TYPES.get(suffix, "image/png")
-            b64 = base64.b64encode(path.read_bytes()).decode("ascii")
-            return f"data:{mime_type};base64,{b64}"
-
         if request.start_image and Path(request.start_image).exists():
             image_path = Path(request.start_image)
-            generate_kwargs["image_url"] = await asyncio.to_thread(_encode_to_data_uri, image_path)
+            generate_kwargs["image_url"] = await asyncio.to_thread(image_to_data_uri, image_path, IMAGE_MIME_TYPES)
 
         if request.reference_images:
             ref_paths = [Path(p) if not isinstance(p, Path) else p for p in request.reference_images]
             existing_paths = [p for p in ref_paths if p.exists()]
             if existing_paths:
-                ref_urls = await asyncio.gather(*[asyncio.to_thread(_encode_to_data_uri, p) for p in existing_paths])
+                ref_urls = await asyncio.gather(
+                    *[asyncio.to_thread(image_to_data_uri, p, IMAGE_MIME_TYPES) for p in existing_paths]
+                )
                 generate_kwargs["reference_image_urls"] = list(ref_urls)
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)

@@ -19,7 +19,7 @@ type TabKey = "all" | AssetKind;
 export interface MentionPickerProps {
   open: boolean;
   query: string;
-  candidates: Record<AssetKind, MentionCandidate[]>;
+  candidates: Partial<Record<AssetKind, MentionCandidate[]>>;
   onSelect: (ref: { type: AssetKind; name: string }) => void;
   onClose: () => void;
   /** Project used to construct asset thumbnail URLs via API.getFileUrl. */
@@ -52,8 +52,8 @@ interface FlatItem {
   globalIndex: number;
 }
 
-const GROUP_ORDER: AssetKind[] = ["character", "scene", "prop"];
-const TAB_ORDER: TabKey[] = ["all", "character", "scene", "prop"];
+const GROUP_ORDER: AssetKind[] = ["product", "character", "scene", "prop"];
+const TAB_ORDER: TabKey[] = ["all", "product", "character", "scene", "prop"];
 
 export function MentionPicker({
   open,
@@ -86,7 +86,7 @@ export function MentionPicker({
     // 比较侧统一 NFC：candidates 携带资产原始名（落盘可能是 NFD），query 来自用户输入法产出，
     // 两者编码不保证一致，只归一比较用的副本，展示与选中回传仍用原始 name。
     const q = normalizeAssetName(query.trim()).toLowerCase();
-    const result: Record<AssetKind, MentionCandidate[]> = { character: [], scene: [], prop: [] };
+    const result: Record<AssetKind, MentionCandidate[]> = { product: [], character: [], scene: [], prop: [] };
     for (const kind of GROUP_ORDER) {
       const arr = candidates[kind] ?? [];
       result[kind] = q.length === 0 ? arr : arr.filter((c) => normalizeAssetName(c.name).toLowerCase().includes(q));
@@ -98,6 +98,7 @@ export function MentionPicker({
     if (activeTab === "all") return filteredByQuery;
     // 单 tab：保留选中 kind，其余置空数组（下游 filtered[kind] 读取契约不变）。
     return {
+      product: activeTab === "product" ? filteredByQuery.product : [],
       character: activeTab === "character" ? filteredByQuery.character : [],
       scene: activeTab === "scene" ? filteredByQuery.scene : [],
       prop: activeTab === "prop" ? filteredByQuery.prop : [],
@@ -106,6 +107,7 @@ export function MentionPicker({
 
   const totalsByKind: Record<AssetKind, number> = useMemo(
     () => ({
+      product: filteredByQuery.product.length,
       character: filteredByQuery.character.length,
       scene: filteredByQuery.scene.length,
       prop: filteredByQuery.prop.length,
@@ -211,7 +213,7 @@ export function MentionPicker({
           {TAB_ORDER.map((tab) => {
             const count =
               tab === "all"
-                ? totalsByKind.character + totalsByKind.scene + totalsByKind.prop
+                ? totalsByKind.product + totalsByKind.character + totalsByKind.scene + totalsByKind.prop
                 : totalsByKind[tab];
             const isActive = tab === activeTab;
             return (

@@ -15,13 +15,13 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 from pathlib import Path
 
 import httpx
 
+from lib.data_uri import image_to_data_uri as _image_to_data_uri
 from lib.retry import BASE_RETRYABLE_ERRORS
 
 logger = logging.getLogger(__name__)
@@ -73,10 +73,7 @@ def create_vidu_client(
 
 def image_to_data_uri(image_path: Path) -> str:
     """本地图片 → base64 data URI（Vidu 接受 URL 或 data URI；走 data URI 免依赖文件服务）。"""
-    suffix = image_path.suffix.lower()
-    mime = _IMAGE_MIME_TYPES.get(suffix, "image/png")
-    b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
-    return f"data:{mime};base64,{b64}"
+    return _image_to_data_uri(image_path, _IMAGE_MIME_TYPES)
 
 
 # 日志输出仅允许的字段白名单（避免 CodeQL 担心 body 里其他字段含敏感数据）。

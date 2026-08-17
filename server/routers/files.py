@@ -19,16 +19,15 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from lib import script_review
 from lib.api_errors import NotFoundError
+from lib.artifact_activation import register_current_resource_artifact
 from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
     AUDIO_REFERENCE_MIN_SECONDS,
-    discard_stale_reference_audio,
     probe_audio_duration_seconds,
-    resolve_audio_ref_path,
-    resolve_stale_reference_audio,
 )
 from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
@@ -40,6 +39,7 @@ from lib.episode_paths import (
 )
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
+from lib.json_io import atomic_write_bytes
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager, get_project_manager
@@ -112,13 +112,15 @@ class UploadSpec:
     # 可容忍资产后建，不设此约束。
     host_bucket: str | None = None
     host_not_found_key: str = ""
-    # 替换参考音频时先解析旧文件路径，等新文件与字段写入成功后再删除
+    # 参考音频的字节替换与字段写回须走 ProjectManager 的项目锁事务；提交后再清理旧扩展名文件
     tracks_stale_audio: bool = False
 
     def __post_init__(self) -> None:
         # 宿主约束与其 404 文案必须成对登记，否则拒收路径会拿空 key 去取翻译
         if (self.host_bucket is None) != (not self.host_not_found_key):
             raise ValueError("host_bucket 与 host_not_found_key 必须成对登记")
+        if self.tracks_stale_audio and self.host_bucket is None:
+            raise ValueError("tracks_stale_audio 必须登记宿主约束")
 
 
 UPLOAD_SPECS: dict[str, UploadSpec] = {
@@ -150,6 +152,8 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         unsupported_ext_key="unsupported_audio_type",
         max_bytes=AUDIO_REFERENCE_MAX_BYTES,
         metadata_setter=ProjectManager.update_character_reference_audio,
+        host_bucket=ASSET_SPECS["character"].bucket_key,
+        host_not_found_key="character_not_found",
         tracks_stale_audio=True,
     ),
     "scene": UploadSpec(
@@ -185,6 +189,8 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         host_not_found_key="product_not_found",
     ),
 }
+
+_FORMAL_SHEET_UPLOAD_TYPES = frozenset(ASSET_SPECS)
 
 # 允许的文件类型（前端 frontend/src/utils/source-files.ts 镜像了 source 一项）
 ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec in UPLOAD_SPECS.items()}
@@ -363,37 +369,52 @@ async def upload_file(
                         seq += 1
                 filename = candidate.name
 
-            stale_audio_path: Path | None = None
-            if spec.tracks_stale_audio and name:
-                # 实际删除推迟到新文件与字段写入成功之后（见 discard_stale_reference_audio）。
-                characters = manager.load_project(project_name).get("characters", {})
-                char_key = resolve_asset_key(characters, name)
-                old_audio = (characters.get(char_key, {}) if char_key else {}).get("reference_audio")
-                stale_audio_path = resolve_stale_reference_audio(
-                    project_dir, target_dir, old_audio, target_dir / filename
-                )
-
             target_path = target_dir / filename
-            with open(target_path, "wb") as f:
-                f.write(content)
-
             relative_path = "/".join((*spec.subdir, filename))
 
-            # 更新元数据
-            if spec.metadata_setter is not None and name:
+            if spec.tracks_stale_audio and name:
                 try:
                     with project_change_source("webui"):
-                        spec.metadata_setter(manager, project_name, name, relative_path)
+                        manager.install_character_reference_audio(project_name, name, relative_path, content)
                 except KeyError:
-                    if spec.host_bucket is not None:
-                        # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
-                        # 已落盘的文件一并清理避免孤儿
-                        target_path.unlink(missing_ok=True)
-                        raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
-                    # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
+                    raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+            else:
+                if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
+                    asset_spec = ASSET_SPECS[upload_type]
+                    asset_name = name
+
+                    def _register(_target: Path) -> None:
+                        register_current_resource_artifact(
+                            project_dir,
+                            resource_type=asset_spec.bucket_key,
+                            resource_id=asset_name,
+                        )
+
+                    with project_change_source("webui"):
+                        manager.install_asset_sheet_bytes(
+                            upload_type,
+                            project_name,
+                            asset_name,
+                            relative_path,
+                            content,
+                            on_commit=_register,
+                        )
                 else:
-                    if spec.tracks_stale_audio:
-                        discard_stale_reference_audio(stale_audio_path)
+                    with open(target_path, "wb") as f:
+                        f.write(content)
+
+                    # 更新元数据
+                    if spec.metadata_setter is not None and name:
+                        try:
+                            with project_change_source("webui"):
+                                spec.metadata_setter(manager, project_name, name, relative_path)
+                        except KeyError:
+                            if spec.host_bucket is not None:
+                                # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
+                                # 已落盘的文件一并清理避免孤儿
+                                target_path.unlink(missing_ok=True)
+                                raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+                            # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
 
             return {
                 "success": True,
@@ -420,28 +441,11 @@ async def delete_character_reference_audio(project_name: str, name: str, _t: Tra
 
         def _sync():
             manager = get_project_manager()
-            project_dir = manager.get_project_path(project_name)
-            project = manager.load_project(project_name)
-            characters = project.get("characters") or {}
-            char_key = resolve_asset_key(characters, name)
-            character = characters.get(char_key) if char_key else None
-            if character is None:
+            try:
+                with project_change_source("webui"):
+                    manager.clear_character_reference_audio(project_name, name)
+            except KeyError:
                 raise HTTPException(status_code=404, detail=_t("character_not_found", name=name))
-
-            old_audio = character.get("reference_audio")
-            # 字段值来自 project.json，可被 PATCH 写成任意字符串；经 resolve_audio_ref_path
-            # 确认落在 refs_audio 目录内才允许删除，否则只清字段不碰文件系统
-            audio_refs_dir = project_dir / "characters" / "refs_audio"
-            stale_path = (
-                resolve_audio_ref_path(project_dir, audio_refs_dir, old_audio) if isinstance(old_audio, str) else None
-            )
-            # 先删文件、后清字段：权限/IO 错误（含 Windows 文件被占用的共享冲突）导致
-            # unlink 失败时,字段仍指向该文件,可重试删除;顺序反过来会在物理删除失败时
-            # 留下「字段已清空但文件仍在」的孤儿,且没有指针可供重试发现它。
-            if stale_path is not None:
-                stale_path.unlink(missing_ok=True)
-            with project_change_source("webui"):
-                manager.update_character_reference_audio(project_name, name, "")
 
             return {"success": True}
 
@@ -467,12 +471,10 @@ async def _handle_source_upload(
     original_filename = _require_filename(file, _t)
 
     try:
-        project_dir = get_project_manager().get_project_path(project_name)
+        manager = get_project_manager()
+        project_dir = manager.get_project_path(project_name)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-
-    source_dir = project_dir / "source"
-    source_dir.mkdir(parents=True, exist_ok=True)
 
     def _sync() -> NormalizeResult:
         # 流式写入 tmp，避免把上传 body 整体拉进 Python 堆；
@@ -484,12 +486,13 @@ async def _handle_source_upload(
         try:
             with tmp_path.open("wb") as out:
                 shutil.copyfileobj(file.file, out)
-            return SourceLoader.load(
-                tmp_path,
-                source_dir,
-                original_filename=original_filename,
-                on_conflict=on_conflict,
-            )
+            with manager.locked_source_mutation(project_name) as source_dir:
+                return SourceLoader.load(
+                    tmp_path,
+                    source_dir,
+                    original_filename=original_filename,
+                    on_conflict=on_conflict,
+                )
         finally:
             tmp_path.unlink(missing_ok=True)
 
@@ -659,17 +662,17 @@ async def update_source_file(
     try:
 
         def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
-            source_dir = project_dir / "source"
-            source_dir.mkdir(parents=True, exist_ok=True)
+            manager = get_project_manager()
+            project_dir = manager.get_project_path(project_name)
 
-            # 安全检查：确保路径在项目目录内（文件尚不存在也要能通过，此处允许新建）
-            try:
-                source_path = safe_join(project_dir, "source", filename)
-            except PathTraversalError:
-                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+            with manager.locked_source_mutation(project_name):
+                # 安全检查：确保路径在项目目录内（文件尚不存在也要能通过，此处允许新建）
+                try:
+                    source_path = safe_join(project_dir, "source", filename)
+                except PathTraversalError:
+                    raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
-            source_path.write_text(content, encoding="utf-8")
+                source_path.write_text(content, encoding="utf-8")
             return {"success": True, "path": f"source/{filename}"}
 
         return await asyncio.to_thread(_sync)
@@ -689,25 +692,26 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator):
     try:
 
         def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
+            manager = get_project_manager()
+            project_dir = manager.get_project_path(project_name)
 
-            # 安全检查：确保路径在项目目录内
-            try:
-                source_path = safe_join(project_dir, "source", filename)
-            except PathTraversalError:
-                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+            with manager.locked_source_mutation(project_name):
+                # 安全检查：确保路径在项目目录内
+                try:
+                    source_path = safe_join(project_dir, "source", filename)
+                except PathTraversalError:
+                    raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
-            if source_path.exists():
-                source_path.unlink()
-                # 级联删除原文件备份（同 stem，任意扩展名）
-                raw_dir = project_dir / "source" / "raw"
-                if raw_dir.exists():
-                    stem = source_path.stem
-                    for raw_file in raw_dir.iterdir():
-                        if raw_file.is_file() and raw_file.stem == stem:
-                            raw_file.unlink()
-                return {"success": True}
-            else:
+                if source_path.exists():
+                    source_path.unlink()
+                    # 级联删除原文件备份（同 stem，任意扩展名）
+                    raw_dir = project_dir / "source" / "raw"
+                    if raw_dir.exists():
+                        stem = source_path.stem
+                        for raw_file in raw_dir.iterdir():
+                            if raw_file.is_file() and raw_file.stem == stem:
+                                raw_file.unlink()
+                    return {"success": True}
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
         return await asyncio.to_thread(_sync)
@@ -858,7 +862,7 @@ async def update_draft_content(
             except ScriptReviewError as exc:
                 raise_review_error(exc, episode, _t)
         else:
-            is_new = await asyncio.to_thread(_write_plain_draft, draft_path, content, _t)
+            is_new = await asyncio.to_thread(_write_plain_draft, project_dir, episode, draft_path, content, _t)
 
         # 发射 draft 事件通知前端
         action = "created" if is_new else "updated"
@@ -886,7 +890,13 @@ async def update_draft_content(
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
-def _write_plain_draft(draft_path: Path, content: str, _t: Translator) -> bool:
+def _write_plain_draft(
+    project_dir: Path,
+    episode: int,
+    draft_path: Path,
+    content: str,
+    _t: Translator,
+) -> bool:
     """非参考生视频 step1 的草稿落盘（同步主体），返回是否为新建文件。
 
     drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
@@ -917,7 +927,8 @@ def _write_plain_draft(draft_path: Path, content: str, _t: Translator) -> bool:
     pm = get_project_manager()
     with pm.file_lock(draft_path):
         is_new = not draft_path.exists()
-        draft_path.write_text(content, encoding="utf-8")
+        with script_review.formal_step1_write_transaction(project_dir, episode, draft_path):
+            atomic_write_bytes(draft_path, content.encode("utf-8"))
     return is_new
 
 
@@ -937,11 +948,9 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _t: Trans
             drafts_dir = episode_drafts_dir(project_dir, episode)
             draft_path = _resolve_step1_path(drafts_dir, step_num, drafts_dir / step_files[step_num])
 
-            if draft_path.exists():
-                draft_path.unlink()
+            if script_review.delete_step1_file(project_dir, episode, draft_path):
                 return {"success": True}
-            else:
-                raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
+            raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
 
         return await asyncio.to_thread(_sync)
 

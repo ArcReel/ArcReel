@@ -98,6 +98,8 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
     if parts[0] == "generated_assets":
         # patch 是纯字段 setter，资产生命周期与剧本编辑解耦（见 ADR-0003）。
         raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
+    if parts[0] in {"needs_replan", "migration_requires_content_replan"}:
+        raise ScriptEditError("patch_episode_script 不可直接改重规划标记；修改 unit 规划内容后由系统重算")
     if parts[0] == "end_frame_image":
         # 尾帧字段的值是本服务写出的快照相对路径，只由尾帧设置/清除端点写入。放行 patch
         # 会让原样写入的任意字符串绕过快照复制，重新引入悬空引用与越界路径。

@@ -17,6 +17,7 @@ from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
+    get_episode_script_revision_tool,
     insert_segment_tool,
     patch_episode_script_tool,
     remove_segment_tool,
@@ -120,11 +121,16 @@ def _ad_script() -> dict[str, Any]:
     }
 
 
+def _register_default_character(pm: ProjectManager) -> None:
+    pm.upsert_assets("demo", "characters", {"角色A": {"description": "主角"}})
+
+
 @pytest.fixture
 def ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    _register_default_character(pm)
     pm.save_script("demo", _script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
@@ -134,6 +140,7 @@ def drama_ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo", content_mode="drama")
     pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+    _register_default_character(pm)
     pm.save_script("demo", _drama_script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
@@ -143,6 +150,8 @@ def ref_ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    _register_default_character(pm)
+    pm.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
     pm.save_script("demo", _reference_script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
@@ -152,6 +161,7 @@ def ad_ctx(tmp_path: Path) -> ToolContext:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo", content_mode="ad")
     pm.create_project_metadata("demo", "Demo", "Anime", "ad")
+    _register_default_character(pm)
     pm.save_script("demo", _ad_script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
 
@@ -171,6 +181,131 @@ def _text(out: dict[str, Any]) -> str:
 
 
 class TestPatchEpisodeScript:
+    @pytest.mark.integration
+    async def test_revision_tool_feeds_ordered_multi_operation_command(self, ctx: ToolContext) -> None:
+        revision_output = await _call(
+            get_episode_script_revision_tool(ctx),
+            {"script": "episode_1.json"},
+        )
+
+        output = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "expected_revision": revision_output["revision"],
+                "operations": [
+                    {"op": "update", "id": "E1S01", "fields": {"note": "first"}},
+                    {"op": "move_after", "id": "E1S02", "after_id": None},
+                ],
+            },
+        )
+
+        assert output.get("is_error") is not True
+        assert output["script_edit"]["before_revision"] == revision_output["revision"]
+        assert output["script_edit"]["revision"] != revision_output["revision"]
+        saved = _load(ctx)["segments"]
+        assert [segment["segment_id"] for segment in saved] == ["E1S02", "E1S01"]
+        assert saved[1]["note"] == "first"
+
+    @pytest.mark.unit
+    async def test_formal_command_rejects_stale_revision(self, ctx: ToolContext) -> None:
+        before = _load(ctx)
+
+        output = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "expected_revision": "sha256-v1:" + "0" * 64,
+                "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}],
+            },
+        )
+
+        assert output.get("is_error") is True
+        assert output["script_edit"]["problems"][0]["code"] == "revision_conflict"
+        assert output["script_edit"]["problems"][0]["operation_index"] is None
+        assert _load(ctx) == before
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        ("content_mode", "generation_mode", "script_factory", "item_id", "edits", "kind"),
+        [
+            (
+                "narration",
+                "storyboard",
+                _script,
+                "E1S01",
+                {"video_prompt.dialogue": [{"speaker": "角色A", "line": "快走。"}]},
+                "segments",
+            ),
+            (
+                "drama",
+                "storyboard",
+                _drama_script,
+                "E1S01",
+                {
+                    "utterances": [
+                        {"kind": "dialogue", "speaker": "角色A", "text": "快走。"},
+                        {"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"},
+                    ]
+                },
+                "scenes",
+            ),
+            (
+                "ad",
+                "storyboard",
+                _ad_script,
+                "E1S01",
+                {"video_prompt.dialogue": [{"speaker": "角色A", "line": "快走。"}]},
+                "shots",
+            ),
+            *[
+                (
+                    content_mode,
+                    "reference_video",
+                    _reference_script,
+                    "E1U1",
+                    {"shots": [{"text": "@[角色A]：{快走。}\n{风吹过旷野。}"}]},
+                    "video_units",
+                )
+                for content_mode in ("narration", "drama", "ad")
+            ],
+        ],
+    )
+    async def test_six_route_agent_manual_edits_atomically_reject_mixed_speech_on_save(
+        self,
+        tmp_path: Path,
+        content_mode: str,
+        generation_mode: str,
+        script_factory,
+        item_id: str,
+        edits: dict[str, Any],
+        kind: str,
+    ) -> None:
+        pm = ProjectManager(str(tmp_path))
+        pm.create_project("demo", content_mode=content_mode)
+        pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+        _register_default_character(pm)
+        pm.update_project("demo", lambda project: project.update({"generation_mode": generation_mode}))
+        script = script_factory()
+        script["content_mode"] = content_mode
+        pm.save_script("demo", script, "episode_1.json")
+        tool_ctx = ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+        before = _load(tool_ctx)
+
+        out = await _call(
+            patch_episode_script_tool(tool_ctx),
+            {"script": "episode_1.json", "edits": {item_id: edits}},
+        )
+
+        assert out.get("is_error") is True
+        detail = out["speech_admission"]
+        assert detail["unit_id"] == item_id
+        assert detail["problems"][0]["code"] == "mixed_speech"
+        assert detail["problems"][0]["reason"] == "character_and_narrator_mixed"
+        assert detail["problems"][0]["action"] == "replan_unit"
+        assert kind in before
+        assert _load(tool_ctx) == before
+
     @pytest.mark.unit
     async def test_batch_multi_segment_multi_field(self, ctx: ToolContext) -> None:
         """一次调用改多分镜 × 多字段，全部落盘。"""
@@ -285,8 +420,9 @@ class TestPatchEpisodeScript:
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S01", "E1S02"]
 
     @pytest.mark.unit
-    async def test_create_missing_optional_leaf(self, ctx: ToolContext) -> None:
-        """叶子字段不存在可创建（补 LLM 漏写的 optional 字段 video_prompt.dialogue）。"""
+    async def test_creating_character_dialogue_on_narration_segment_is_atomic_rejection(self, ctx: ToolContext) -> None:
+        """补入角色台词会与 novel_text 旁白混合，因此拒绝且不落盘。"""
+        before = _load(ctx)
         out = await _call(
             patch_episode_script_tool(ctx),
             {
@@ -294,8 +430,67 @@ class TestPatchEpisodeScript:
                 "edits": {"E1S01": {"video_prompt.dialogue": [{"speaker": "甲", "line": "台词"}]}},
             },
         )
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ctx) == before
+
+    @pytest.mark.unit
+    async def test_unchanged_legacy_mixed_speech_allows_metadata_patch(self, ctx: ToolContext) -> None:
+        script = _script()
+        prompt = {**script["segments"][0]["video_prompt"], "dialogue": [{"speaker": "甲", "line": "台词"}]}
+        script["segments"][0]["video_prompt"] = prompt
+        script["segments"][0]["needs_replan"] = True
+        ctx.pm.save_script("demo", script, "episode_1.json")
+
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {"E1S01": {"video_prompt": prompt, "note": "保留历史媒体"}},
+            },
+        )
+
         assert out.get("is_error") is not True
-        assert _load(ctx)["segments"][0]["video_prompt"]["dialogue"] == [{"speaker": "甲", "line": "台词"}]
+        saved = _load(ctx)["segments"][0]
+        assert saved["note"] == "保留历史媒体"
+        assert saved["needs_replan"] is True
+
+    @pytest.mark.unit
+    async def test_legacy_mixed_speech_allows_visual_prompt_patch(self, ctx: ToolContext) -> None:
+        script = _script()
+        script["segments"][0]["video_prompt"]["dialogue"] = [{"speaker": "甲", "line": "台词"}]
+        script["segments"][0]["needs_replan"] = True
+        ctx.pm.save_script("demo", script, "episode_1.json")
+
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {"script": "episode_1.json", "edits": {"E1S01": {"video_prompt.action": "慢慢转身"}}},
+        )
+
+        assert out.get("is_error") is not True
+        saved = _load(ctx)["segments"][0]
+        assert saved["video_prompt"]["action"] == "慢慢转身"
+        assert saved["needs_replan"] is True
+
+    @pytest.mark.unit
+    async def test_repairing_machine_candidate_clears_replan_marker(self, ctx: ToolContext) -> None:
+        script = _script()
+        script["segments"][0]["video_prompt"]["dialogue"] = [{"speaker": "甲", "line": "台词"}]
+        script["segments"][0]["needs_replan"] = True
+        ctx.pm.save_script("demo", script, "episode_1.json")
+
+        out = await _call(
+            patch_episode_script_tool(ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {
+                    "E1S01": {"video_prompt": {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声"}}
+                },
+            },
+        )
+
+        assert out.get("is_error") is not True
+        assert _load(ctx)["segments"][0].get("needs_replan") is not True
 
     @pytest.mark.unit
     async def test_rejects_path_in_script_arg(self, ctx: ToolContext) -> None:
@@ -368,6 +563,229 @@ class TestPatchEpisodeScript:
         assert _load(ref_ctx)["video_units"][0]["note"] == "单元备注"
 
     @pytest.mark.unit
+    async def test_reference_mixed_speech_patch_is_atomic_and_structured(self, ref_ctx: ToolContext) -> None:
+        before = _load(ref_ctx)
+
+        out = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {
+                    "E1U1": {
+                        "shots": [
+                            {"text": "镜头1\n@[角色A]：{快走。}\n{风吹过旷野。}"},
+                        ]
+                    }
+                },
+            },
+        )
+
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["unit_id"] == "E1U1"
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ref_ctx) == before
+
+    @pytest.mark.integration
+    async def test_reference_replan_marker_requires_planning_edit(self, ref_ctx: ToolContext) -> None:
+        script = _reference_script()
+        script["video_units"][0]["needs_replan"] = True
+        script["video_units"][0]["migration_requires_content_replan"] = True
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        noted = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"note": "待复核"}}},
+        )
+        assert noted.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        resized = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"duration_seconds": 12}}},
+        )
+        assert resized.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        resubmitted = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": _unit("E1U1")["shots"]}}},
+        )
+        assert resubmitted.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        repaired = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "修复后的无声镜头"}]}}},
+        )
+        assert repaired.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
+        assert _load(ref_ctx)["video_units"][0].get("migration_requires_content_replan") is not True
+
+    @pytest.mark.integration
+    async def test_reference_duration_repair_clears_non_content_marker(self, ref_ctx: ToolContext) -> None:
+        script = _reference_script()
+        script["video_units"][0].update({"duration_seconds": 1, "needs_replan": True})
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        repaired = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"duration_seconds": 1}}},
+        )
+
+        assert repaired.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
+
+    @pytest.mark.integration
+    async def test_reference_repair_clears_non_content_marker(self, ref_ctx: ToolContext) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["scenes"] = {"酒馆": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+        script = _reference_script()
+        script["video_units"][0].update(
+            {
+                "shots": [{"text": "@[酒馆]：木门被风吹开"}],
+                "references": [],
+                "needs_replan": True,
+            }
+        )
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        repaired = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {"E1U1": {"references": [{"type": "scene", "name": "酒馆"}]}},
+            },
+        )
+
+        assert repaired.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
+
+    @pytest.mark.integration
+    async def test_reference_repair_rejects_unregistered_asset_without_clearing_marker(
+        self, ref_ctx: ToolContext
+    ) -> None:
+        script = _reference_script()
+        script["video_units"][0].update(
+            {
+                "shots": [{"text": "@[不存在]：木门被风吹开"}],
+                "references": [],
+                "needs_replan": True,
+            }
+        )
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        repaired = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {"E1U1": {"references": [{"type": "scene", "name": "不存在"}]}},
+            },
+        )
+
+        assert repaired.get("is_error") is True
+        problem = repaired["script_edit"]["problems"][0]
+        assert problem["code"] == "references_invalid"
+        assert problem["operation_index"] == 0
+        assert problem["unit_id"] == "E1U1"
+        saved = _load(ref_ctx)["video_units"][0]
+        assert saved["references"] == []
+        assert saved["needs_replan"] is True
+
+    @pytest.mark.integration
+    async def test_reference_shot_edit_rederives_registered_references(self, ref_ctx: ToolContext) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["products"] = {"产品A": {"description": ""}, "产品B": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+        script = _reference_script()
+        script["video_units"][0].update(
+            {
+                "shots": [{"text": "@[产品A] 正面展示"}],
+                "references": [{"type": "product", "name": "产品A"}],
+            }
+        )
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        changed = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[产品B] 侧面展示"}]}}},
+        )
+
+        assert changed.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["references"] == [{"type": "product", "name": "产品B"}]
+
+    @pytest.mark.integration
+    async def test_reference_shot_edit_rederives_non_character_references_before_admission(
+        self, ref_ctx: ToolContext
+    ) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["scenes"] = {"酒馆": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+
+        changed = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[酒馆]：木门被风吹开"}]}}},
+        )
+
+        assert changed.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["references"] == [{"type": "scene", "name": "酒馆"}]
+
+    @pytest.mark.integration
+    async def test_reference_shot_edit_rederives_from_locked_project_snapshot(
+        self, ref_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["products"] = {"产品B": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+
+        original_load_project = ref_ctx.pm.load_project_readonly
+        first_load = True
+
+        def _load_then_remove_product(project_name: str) -> dict[str, Any]:
+            nonlocal first_load
+            stale = original_load_project(project_name)
+            if first_load:
+                first_load = False
+                current = {**stale, "products": {}}
+                ref_ctx.pm.save_project(project_name, current)
+            return stale
+
+        monkeypatch.setattr(ref_ctx.pm, "load_project_readonly", _load_then_remove_product)
+
+        changed = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[产品B] 侧面展示"}]}}},
+        )
+
+        assert changed.get("is_error") is not True
+        assert _load(ref_ctx)["video_units"][0]["references"] == []
+
+    @pytest.mark.integration
+    async def test_reference_replan_marker_cannot_be_patched_directly(self, ref_ctx: ToolContext) -> None:
+        script = _reference_script()
+        script["video_units"][0]["needs_replan"] = True
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+
+        out = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {"script": "episode_1.json", "edits": {"E1U1": {"needs_replan": False}}},
+        )
+
+        assert out.get("is_error") is True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+        provenance = await _call(
+            patch_episode_script_tool(ref_ctx),
+            {
+                "script": "episode_1.json",
+                "edits": {"E1U1": {"migration_requires_content_replan": False}},
+            },
+        )
+
+        assert provenance.get("is_error") is True
+        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
+
+    @pytest.mark.unit
     async def test_ad_mode_by_shot_id(self, ad_ctx: ToolContext) -> None:
         """ad 模式：按 shot_id 定位，批量改字段落盘。"""
         out = await _call(
@@ -389,6 +807,69 @@ class TestInsertRemoveSplit:
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
 
+    @pytest.mark.integration
+    async def test_insert_rejects_concurrent_change_after_id_projection(
+        self,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from server.agent_runtime.sdk_tools import patch_script
+
+        original_insert = patch_script.insert_segment
+
+        def _insert_then_concurrently_edit(script, after_id, item):
+            result = original_insert(script, after_id, item)
+            with ctx.pm.locked_script(ctx.project_name, "episode_1.json") as current:
+                current["segments"][0]["note"] = "concurrent"
+            return result
+
+        monkeypatch.setattr(patch_script, "insert_segment", _insert_then_concurrently_edit)
+
+        out = await _call(
+            insert_segment_tool(ctx),
+            {"script": "episode_1.json", "after_id": "E1S01", "item": _segment("IGN")},
+        )
+
+        assert out.get("is_error") is True
+        assert out["script_edit"]["problems"][0]["code"] == "revision_conflict"
+        saved = _load(ctx)["segments"]
+        assert [segment["segment_id"] for segment in saved] == ["E1S01", "E1S02"]
+        assert saved[0]["note"] == "concurrent"
+
+    @pytest.mark.unit
+    async def test_insert_mixed_speech_is_structured_and_atomic(self, ctx: ToolContext) -> None:
+        before = _load(ctx)
+        mixed = _segment("IGN")
+        mixed["video_prompt"]["dialogue"] = [{"speaker": "角色A", "line": "快走。"}]
+
+        out = await _call(
+            insert_segment_tool(ctx),
+            {"script": "episode_1.json", "after_id": "E1S01", "item": mixed},
+        )
+
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ctx) == before
+
+    @pytest.mark.integration
+    async def test_reference_insert_derives_non_character_references_before_admission(
+        self, ref_ctx: ToolContext
+    ) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["scenes"] = {"酒馆": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+        inserted = _unit("ignored")
+        inserted["shots"] = [{"text": "@[酒馆]：木门被风吹开"}]
+        inserted.pop("references")
+
+        out = await _call(
+            insert_segment_tool(ref_ctx),
+            {"script": "episode_1.json", "after_id": "E1U1", "item": inserted},
+        )
+
+        assert out.get("is_error") is not True, out
+        assert _load(ref_ctx)["video_units"][1]["references"] == [{"type": "scene", "name": "酒馆"}]
+
     @pytest.mark.unit
     async def test_remove_by_id(self, ctx: ToolContext) -> None:
         out = await _call(remove_segment_tool(ctx), {"script": "episode_1.json", "id": "E1S01"})
@@ -396,8 +877,8 @@ class TestInsertRemoveSplit:
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S02"]
 
     @pytest.mark.unit
-    async def test_split_keeps_first_id_clears_assets(self, ctx: ToolContext) -> None:
-        # part 自带已生成资产，验证 split 改变分镜身份后会清空它（旧资产无合理归属）
+    async def test_split_keeps_first_id_and_clears_new_identity_assets(self, ctx: ToolContext) -> None:
+        # parts 自带的资产不可信：同 id 锚点以原资产为准，新身份一律清空。
         part_a = _segment("a")
         part_a["generated_assets"] = {"storyboard_image": "stale.png", "status": "completed"}
         out = await _call(
@@ -410,6 +891,71 @@ class TestInsertRemoveSplit:
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
         assert not saved[0].get("generated_assets")
         assert not saved[1].get("generated_assets")
+
+    @pytest.mark.unit
+    async def test_split_mixed_speech_preserves_original_and_generated_assets(self, ctx: ToolContext) -> None:
+        script = _script()
+        script["segments"][0]["generated_assets"] = {
+            "video_clip": "paid-video.mp4",
+            "status": "completed",
+        }
+        ctx.pm.save_script("demo", script, "episode_1.json")
+        before = _load(ctx)
+        mixed = _segment("b")
+        mixed["video_prompt"]["dialogue"] = [{"speaker": "角色A", "line": "快走。"}]
+
+        out = await _call(
+            split_segment_tool(ctx),
+            {"script": "episode_1.json", "id": "E1S01", "parts": [_segment("a"), mixed]},
+        )
+
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ctx) == before
+
+    @pytest.mark.unit
+    async def test_reference_split_validates_contiguous_replacement_after_reordered_derived_id(
+        self, ref_ctx: ToolContext
+    ) -> None:
+        script = _reference_script()
+        script["video_units"] = [_unit("E1U1_1"), _unit("E1U1"), _unit("E1U2")]
+        ref_ctx.pm.save_script("demo", script, "episode_1.json")
+        before = _load(ref_ctx)
+        mixed = _unit("ignored")
+        mixed["shots"] = [{"text": "@[角色A]：{快走。}\n{风吹过旷野。}"}]
+
+        out = await _call(
+            split_segment_tool(ref_ctx),
+            {"script": "episode_1.json", "id": "E1U1", "parts": [_unit("ignored"), mixed]},
+        )
+
+        assert out.get("is_error") is True
+        assert out["speech_admission"]["unit_id"] == "E1U1_2"
+        assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
+        assert _load(ref_ctx) == before
+
+    @pytest.mark.integration
+    async def test_reference_split_derives_non_character_references_before_admission(
+        self, ref_ctx: ToolContext
+    ) -> None:
+        project = ref_ctx.pm.load_project("demo")
+        project["scenes"] = {"酒馆": {"description": ""}}
+        ref_ctx.pm.save_project("demo", project)
+        parts = [_unit("ignored"), _unit("ignored")]
+        for part in parts:
+            part["shots"] = [{"text": "@[酒馆]：木门被风吹开"}]
+            part.pop("references")
+
+        out = await _call(
+            split_segment_tool(ref_ctx),
+            {"script": "episode_1.json", "id": "E1U1", "parts": parts},
+        )
+
+        assert out.get("is_error") is not True, out
+        assert [unit["references"] for unit in _load(ref_ctx)["video_units"][:2]] == [
+            [{"type": "scene", "name": "酒馆"}],
+            [{"type": "scene", "name": "酒馆"}],
+        ]
 
     @pytest.mark.unit
     async def test_split_too_few_parts_errors(self, ctx: ToolContext) -> None:
@@ -521,14 +1067,14 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_invalid_entry_rejected_even_when_project_already_invalid(self, ctx: ToolContext) -> None:
-        """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，本次 upsert 引入的
+        """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，upsert 引入的
         新错误（如新 entry 缺 description）仍应被拒——单纯 `before_valid AND after.valid` 判定
         会让新错误 piggyback 通过，error set diff 才能堵这条旁路。"""
         # 让项目改前先脏（与资产无关的历史问题，如空 style）
         ctx.pm.update_project("demo", lambda p: p.update({"style": ""}))
         out = await _call(
             patch_project_tool(ctx),
-            # 缺 description 的非法 entry，本次写入引入的「新错误」
+            # 缺 description 的非法 entry，写入引入的「新错误」
             {"table": "scenes", "entries": {"空场景": {"voice_style": "x"}}},
         )
         assert out.get("is_error") is True

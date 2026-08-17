@@ -18,11 +18,17 @@ import { deriveUnitStatus } from "./unit-status";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
+import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ReferenceStep1PreviewPanel } from "@/components/canvas/reference/ReferenceStep1PreviewPanel";
 import { API } from "@/api";
-import { enqueueReferenceVideoUnit } from "@/actions/generation";
+import {
+  enqueueNarration,
+  enqueueReferenceVideoBatch,
+  enqueueReferenceVideoUnit,
+} from "@/actions/generation";
 import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
@@ -36,8 +42,17 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { errMsg } from "@/utils/async";
-import { mergeReferences, normalizeAssetName } from "@/utils/reference-mentions";
+import {
+  buildMentionLookup,
+  mergeReferences,
+  matchDialogueLine,
+  matchVoiceoverLine,
+  normalizeAssetName,
+  splitScriptLines,
+} from "@/utils/reference-mentions";
 import type {
+  ReferenceBatchAdmission,
+  ReferenceRequestOptions,
   ReferenceResource,
   ReferenceVideoUnit,
   UnitStatus,
@@ -51,6 +66,10 @@ export interface ReferenceVideoCanvasProps {
   canEditTitle?: boolean;
   /** step2 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
   hasScript?: boolean;
+  /** ad 参考路线一阶段产出，不展示 step1 预处理页。 */
+  showPreprocess?: boolean;
+  /** unit 时长为自由正整数，不用供应商档位作为编排限制。 */
+  freeDuration?: boolean;
   /**
    * unit 时长下拉的档位，来自模型能力声明（已按参考图约束与分辨率收窄）。供带 references
    * 的 unit 使用；能力不可解析时为 undefined——此时不渲染下拉，只读展示当前秒数，不编造档位。
@@ -61,6 +80,8 @@ export interface ReferenceVideoCanvasProps {
    * 使用——参考图约束按 unit 生效，不能因同集内其它 unit 带图就收窄这类 unit 的可选档位。
    */
   durationOptionsNoReference?: number[];
+  /** 上游旁白工作流给出的请求事实；不在画布内探测或推断 TTS 状态。 */
+  requestOptions?: ReferenceRequestOptions;
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -113,6 +134,23 @@ function isUnitBusy(projectName: string, unitId: string): boolean {
   return isResourceBusy("reference_video", projectName, unitId);
 }
 
+function unitNarrationText(unit: ReferenceVideoUnit | null): string {
+  if (!unit) return "";
+  const narration: string[] = [];
+  let hasCharacterSpeech = false;
+  for (const shot of unit.shots) {
+    for (const line of splitScriptLines(shot.text)) {
+      if (matchDialogueLine(line)) {
+        hasCharacterSpeech = true;
+        continue;
+      }
+      const voiceover = matchVoiceoverLine(line);
+      if (voiceover) narration.push(voiceover.trim());
+    }
+  }
+  return hasCharacterSpeech ? "" : narration.join("\n");
+}
+
 export function ReferenceVideoCanvas({
   projectName,
   episode,
@@ -120,10 +158,23 @@ export function ReferenceVideoCanvas({
   onSaveTitle,
   canEditTitle,
   hasScript = true,
+  showPreprocess = true,
+  freeDuration = false,
   durationOptions,
   durationOptionsNoReference,
+  requestOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
+  const [narrationDelivery, setNarrationDelivery] = useState<"post_production" | "use_tts">(
+    requestOptions?.narration_delivery ?? "post_production",
+  );
+  const effectiveRequestOptions = useMemo<ReferenceRequestOptions>(
+    () =>
+      requestOptions || narrationDelivery !== "post_production"
+        ? { ...requestOptions, narration_delivery: narrationDelivery }
+        : {},
+    [narrationDelivery, requestOptions],
+  );
 
   const loadUnits = useReferenceVideoStore((s) => s.loadUnits);
   const addUnit = useReferenceVideoStore((s) => s.addUnit);
@@ -169,6 +220,7 @@ export function ReferenceVideoCanvas({
 
   // Drafts persist across unit switches; entry is dropped when text matches server value.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [durationDrafts, setDurationDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   // resource（=unit）→ 最新任务行。「最新行胜出」下沉到 store selector：
@@ -189,6 +241,12 @@ export function ReferenceVideoCanvas({
     () => units.find((u) => u.unit_id === selectedUnitId) ?? null,
     [units, selectedUnitId],
   );
+  const selectedDurationKey = selected
+    ? draftKey(projectName, episode, selected.unit_id)
+    : null;
+  const selectedDurationValue = selectedDurationKey
+    ? (durationDrafts[selectedDurationKey] ?? String(selected?.duration_seconds ?? ""))
+    : "";
 
   // 参考图约束按 unit 而非按集生效（同 lib.reference_video.precheck_unit 的
   // bool(unit.references) 判据）：不带 references 的 unit 用不叠加该约束的档位，
@@ -206,24 +264,28 @@ export function ReferenceVideoCanvas({
   // 乐观占用来自 tasks-store：入队动作层在请求发出前打标、失败回滚，真实任务行落库后
   // 让位，故「请求发出 → 任务行落库」全程都被覆盖，画布无须自备请求在途标记。
   const busyUnitIds = useActiveResourceIds("reference_video", projectName);
+  const ttsBusyUnitIds = useActiveResourceIds("tts", projectName);
 
-  // 成片上传与版本恢复都不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。
+  // 成片上传、版本恢复与时长保存都不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。
   // 存在这里而非 UnitPreviewPanel 内：该面板有窄屏 sub-tab 与宽屏右栏两处挂载点，切换子页
   // 或跨越 STACK_PREVIEW_BREAKPOINT 都会卸载它（在途请求不会因此取消），且它随选中项切换
   // 复用，面板内的单个布尔量还会把 A 的占用态串到 B 上。
   const uploading = useUnitFlagSet();
   const restoring = useUnitFlagSet();
+  const durationSaving = useUnitFlagSet();
 
   const setUploading = uploading.set;
   const handleRestoringChange = restoring.set;
+  const setDurationSaving = durationSaving.set;
 
-  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）、成片上传或版本恢复。 */
+  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）、成片上传、版本恢复或时长保存。 */
   const isUnitLocked = useCallback(
     (unitId: string) =>
       isUnitBusy(projectName, unitId) ||
       uploading.ref.current.has(unitId) ||
-      restoring.ref.current.has(unitId),
-    [projectName, uploading.ref, restoring.ref],
+      restoring.ref.current.has(unitId) ||
+      durationSaving.ref.current.has(unitId),
+    [projectName, uploading.ref, restoring.ref, durationSaving.ref],
   );
 
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
@@ -273,32 +335,66 @@ export function ReferenceVideoCanvas({
 
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
-  // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则一个都不入队
-  /** 单元入口的复核：只看占用。「重新生成」本就要覆盖已有成片，不能按有无成片拦。 */
-  const canEnqueueUnit = useCallback((unitId: string) => !isUnitLocked(unitId), [isUnitLocked]);
+  // 时长取档闸门：申请秒数与请求时长基准不一致时先确认，取消则一个都不入队
+  const isUnitGenerationBlocked = useCallback(
+    (unitId: string) =>
+      Boolean(
+        useReferenceVideoStore
+          .getState()
+          .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find((u) => u.unit_id === unitId)
+          ?.needs_replan,
+      ),
+    [projectName, episode],
+  );
+  /** 单元入口的复核：无占用且规划状态可生成。 */
+  const canEnqueueUnit = useCallback(
+    (unitId: string) => !isUnitLocked(unitId) && !isUnitGenerationBlocked(unitId),
+    [isUnitLocked, isUnitGenerationBlocked],
+  );
 
   /**
-   * 批量入口的复核：占用之外还要求尚无成片——批量的作用对象就是「还没有成片的单元」。
+   * 批量入口的复核：只问「这个 unit 还缺成片吗」。
    *
-   * 任务完成后该 unit 不再 busy，而队列去重只看 queued/running/cancelling，确认弹窗停留
-   * 期间完成的单元若原样提交，会再跑一次生成、重复计费并覆盖刚出的成片。实时读 store
-   * 而非渲染期 units 快照。
+   * needs_replan、在途任务这类问题不在这里过滤——它们正是服务端准入要逐条报告、并据此
+   * 让整批零任务入队的缺口；在浏览器里先摘掉，服务端看到的就只剩健康子集，会照常建任务，
+   * 用户既看不到缺口也失去了全有或全无的保证。
+   *
+   * 已有成片的单元不同：它已经不是「缺成片」的目标。任务完成后该 unit 不再 busy，而队列
+   * 去重只看 queued/running/cancelling，确认弹窗停留期间完成的单元若原样提交，会再跑一次
+   * 生成、重复计费并覆盖刚出的成片。实时读 store 而非渲染期 units 快照。
+   *
+   * 本地写入（成片上传、版本恢复、时长保存）服务端看不见，也即将改写该 unit，同样排除。
    */
   const canEnqueueBatchUnit = useCallback(
     (unitId: string) => {
-      if (isUnitLocked(unitId)) return false;
+      // 只排除本画布自己的写入（服务端看不到它们）：生成占用与 needs_replan 交给准入去报告。
+      const hasLocalWrite =
+        uploading.ref.current.has(unitId) ||
+        restoring.ref.current.has(unitId) ||
+        durationSaving.ref.current.has(unitId);
+      if (hasLocalWrite) return false;
       const fresh = useReferenceVideoStore
         .getState()
         .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find((u) => u.unit_id === unitId);
       return !fresh?.generated_assets?.video_clip;
     },
-    [isUnitLocked, projectName, episode],
+    [projectName, episode, uploading.ref, restoring.ref, durationSaving.ref],
   );
 
-  const durationGate = useReferenceDurationGate({ projectName, episode });
+  const durationGate = useReferenceDurationGate({
+    projectName,
+    episode,
+    requestOptions: effectiveRequestOptions,
+  });
+  /** 批量准入的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
+  const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
 
   const enqueue = useCallback(
-    async (unitId: string) => {
+    async (
+      unitId: string,
+      confirmedRequestDuration: number | undefined,
+      options: ReferenceRequestOptions,
+    ) => {
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
       // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
       // 时长确认弹窗打开期间同样会经过这段窗口，故复核落在入队这一刻。
@@ -306,14 +402,23 @@ export function ReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
+      if (isUnitGenerationBlocked(unitId)) {
+        useAppStore.getState().pushToast(t("reference_needs_replan"), "error");
+        return;
+      }
       try {
         // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
-        await enqueueReferenceVideoUnit(projectName, episode, unitId);
+        await enqueueReferenceVideoUnit(projectName, episode, unitId, {
+          ...options,
+          ...(confirmedRequestDuration == null
+            ? {}
+            : { confirmed_request_duration_seconds: confirmedRequestDuration }),
+        });
       } catch (e) {
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
       }
     },
-    [projectName, episode, isUnitLocked, t],
+    [projectName, episode, isUnitLocked, isUnitGenerationBlocked, t],
   );
 
   /**
@@ -321,12 +426,15 @@ export function ReferenceVideoCanvas({
    *
    * 每次 POST 前都用入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
    * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
+   *
+   * 单元入口专用：批量入口走服务端的全有或全无准入，一次请求评估全部目标。
    */
   const makeEnqueueSerially = useCallback(
-    (canEnqueue: (unitId: string) => boolean) => async (unitIds: string[]) => {
+    (canEnqueue: (unitId: string) => boolean, options: ReferenceRequestOptions) =>
+      async (unitIds: string[], confirmedDurations: ReadonlyMap<string, number>) => {
       for (const id of unitIds) {
         if (!canEnqueue(id)) continue;
-        await enqueue(id);
+        await enqueue(id, confirmedDurations.get(id), options);
       }
     },
     [enqueue],
@@ -339,9 +447,25 @@ export function ReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
-      await durationGate.run([unitId], makeEnqueueSerially(canEnqueueUnit), canEnqueueUnit);
+      if (isUnitGenerationBlocked(unitId)) {
+        useAppStore.getState().pushToast(t("reference_needs_replan"), "error");
+        return;
+      }
+      await durationGate.run(
+        [unitId],
+        makeEnqueueSerially(canEnqueueUnit, effectiveRequestOptions),
+        canEnqueueUnit,
+      );
     },
-    [durationGate, makeEnqueueSerially, isUnitLocked, canEnqueueUnit, t],
+    [
+      durationGate,
+      makeEnqueueSerially,
+      isUnitLocked,
+      isUnitGenerationBlocked,
+      canEnqueueUnit,
+      effectiveRequestOptions,
+      t,
+    ],
   );
 
   const handleUploadVideo = useCallback(
@@ -380,12 +504,59 @@ export function ReferenceVideoCanvas({
     [loadUnits, projectName, episode],
   );
 
-  // 批量生成的作用对象：全部待生成 unit。按钮禁用须与它同一口径——只看当前选中
-  // unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在没有任何待生成
-  // unit 的情况下仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
+  const handleGenerateNarration = useCallback(
+    async (unitId: string) => {
+      const scriptFile = useProjectsStore
+        .getState()
+        .currentProjectData?.episodes?.find((item) => item.episode === episode)?.script_file;
+      if (!scriptFile) {
+        useAppStore.getState().pushToast(t("timeline_script_not_ready"), "error");
+        return;
+      }
+      try {
+        await enqueueNarration(projectName, unitId, scriptFile);
+      } catch (error) {
+        toastError(error, (message) => t("generate_narration_failed", { message }));
+      }
+    },
+    [episode, projectName, t],
+  );
+  const onGenerateNarrationVoid = useCallback(
+    (unitId: string) => {
+      void handleGenerateNarration(unitId);
+    },
+    [handleGenerateNarration],
+  );
+
+  // 批量生成的作用对象：全部尚无成片的 unit（含 needs_replan、在途、失败重试）。按钮禁用须与
+  // 它同一口径——只看当前选中 unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在
+  // 没有任何待生成 unit 的情况下仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
   const batchTargets = useMemo(
-    () => units.filter((u) => statusMap[u.unit_id] === "pending"),
+    () => units.filter((u) => statusMap[u.unit_id] !== "ready"),
     [units, statusMap],
+  );
+
+  /**
+   * 一次请求走服务端的全有或全无准入。三种结局都是评估成功：admitted 已建任务（动作层
+   * 弹提示），另两种一个任务也没建，交给结论面板陈述档位或缺口。
+   */
+  const runBatch = useCallback(
+    async (unitIds: string[], confirmedDurations?: Record<string, number>) => {
+      try {
+        const admission = await enqueueReferenceVideoBatch(projectName, episode, {
+          unit_ids: unitIds,
+          // 旁白交付方式随请求走，与单元入口同一个选择：不带上它，整批会按服务端
+          // 默认的「后期配音」准入，用户在画布上选的「使用当前 TTS」被静默丢弃。
+          narration_delivery: narrationDelivery,
+          ...(confirmedDurations ? { confirmed_request_durations: confirmedDurations } : {}),
+        });
+        setBatchAdmission(admission.decision === "admitted" ? null : admission);
+      } catch (e) {
+        setBatchAdmission(null);
+        toastError(e, (msg) => t("reference_batch_request_failed", { error: msg }));
+      }
+    },
+    [projectName, episode, narrationDelivery, t],
   );
 
   const handleBatchGenerate = useCallback(async () => {
@@ -397,31 +568,121 @@ export function ReferenceVideoCanvas({
     // 实时复核而非用渲染期快照：其它入口（单元按钮、Agent 入队、SSE 落库）可能已占用
     // 同一 unit。命中即跳过，不当作错误提示——批量入口的语义是「把还能生成的都排上」，
     // 逐个报错只会刷屏。
-    const targets = batchTargets.map((u) => u.unit_id).filter((id) => !isUnitLocked(id));
-    if (targets.length === 0) return;
-    // 与单元入口共用同一条闸门：需确认的单元聚合成一次确认，否则批量按钮会成为绕过确认的旁路
-    await durationGate.run(targets, makeEnqueueSerially(canEnqueueBatchUnit), canEnqueueBatchUnit);
-  }, [batchTargets, durationGate, makeEnqueueSerially, isUnitLocked, canEnqueueBatchUnit, t]);
+    const targets = batchTargets.map((u) => u.unit_id).filter(canEnqueueBatchUnit);
+    if (targets.length === 0) {
+      useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
+      return;
+    }
+    await runBatch(targets);
+  }, [batchTargets, canEnqueueBatchUnit, runBatch, t]);
+
+  /**
+   * 聚合确认后重发同一端点完成入队：档位按 tier 摊回各 unit，目标集合仍是本轮全部
+   * 目标（无需确认的单元也在其中，否则它们永远排不上）。
+   *
+   * 提交时刻再复核一次：弹窗停留期间（用户思考时长，可以很长）清单里的单元可能已被
+   * 别处生成完成——按冻结清单原样重发会重复计费并覆盖刚出的成片。
+   */
+  const handleBatchConfirm = useCallback(() => {
+    const admission = batchAdmission;
+    setBatchAdmission(null);
+    const tiers = admission?.confirmation?.tiers ?? [];
+    if (!admission || tiers.length === 0) return;
+    const durationByUnit = new Map<string, number>();
+    for (const tier of tiers) {
+      // 档位没解析出来的组没有可确认的值：略过后重发，服务端会照旧把它算成缺口，
+      // 而不是收到一个空档位当成用户已拍板。
+      if (tier.request_duration_seconds == null) continue;
+      for (const unitId of tier.unit_ids) durationByUnit.set(unitId, tier.request_duration_seconds);
+    }
+    const targets = Array.from(
+      new Set([...admission.units.map((u) => u.unit_id), ...durationByUnit.keys()]),
+    ).filter(canEnqueueBatchUnit);
+    if (targets.length === 0) {
+      // 弹窗此刻已关闭，不给反馈的话界面只是静静地什么也没发生。
+      useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
+      return;
+    }
+    const confirmed: Record<string, number> = {};
+    for (const unitId of targets) {
+      const duration = durationByUnit.get(unitId);
+      if (duration != null) confirmed[unitId] = duration;
+    }
+    void runBatch(targets, confirmed);
+  }, [batchAdmission, canEnqueueBatchUnit, runBatch, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
 
   // 时长与正文分开提交：时长不是文本的一部分，改档位立即落盘，不牵连未保存的正文草稿。
   const handleDurationChange = useCallback(
-    (unitId: string, seconds: number) => {
+    async (unitId: string, seconds: number): Promise<boolean> => {
       // 渲染期的禁用态未必最新（SSE / Agent 入队可能刚占用），提交时刻再复核一次
-      if (isUnitBusy(projectName, unitId)) {
+      if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
+        return false;
+      }
+      setDurationSaving(unitId, true);
+      try {
+        await patchUnit(projectName, episode, unitId, { duration_seconds: seconds });
+        // 参考视频按申请秒数计价，SSE 的 unit 失效负责最终同步列表；费用面板仍需
+        // 在本地写成功时主动刷新，给当前浏览器即时反馈。
+        useCostStore.getState().debouncedFetch(projectName);
+        return true;
+      } catch (e) {
+        toastError(e);
+        return false;
+      } finally {
+        setDurationSaving(unitId, false);
+      }
+    },
+    [patchUnit, projectName, episode, isUnitLocked, setDurationSaving, t],
+  );
+
+  const clearDurationDraft = useCallback((key: string, expected: string) => {
+    setDurationDrafts((current) => {
+      if (current[key] !== expected) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const handleFreeDurationChange = useCallback(
+    (unitId: string, value: string) => {
+      const key = draftKey(projectName, episode, unitId);
+      setDurationDrafts((current) => ({ ...current, [key]: value }));
+    },
+    [projectName, episode],
+  );
+
+  const commitFreeDuration = useCallback(
+    (unitId: string, rawValue: string) => {
+      const key = draftKey(projectName, episode, unitId);
+      if (!(key in durationDrafts)) return;
+      const seconds = Number(rawValue);
+      const fresh = useReferenceVideoStore
+        .getState()
+        .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find(
+          (unit) => unit.unit_id === unitId,
+        );
+      const confirmsDurationMarker = Boolean(
+        fresh?.needs_replan && !fresh.migration_requires_content_replan,
+      );
+      if (
+        !Number.isInteger(seconds) ||
+        seconds < 1 ||
+        seconds > 300 ||
+        !fresh ||
+        (fresh.duration_seconds === seconds && !confirmsDurationMarker)
+      ) {
+        clearDurationDraft(key, rawValue);
         return;
       }
-      void patchUnit(projectName, episode, unitId, { duration_seconds: seconds })
-        .then(() => {
-          // 参考视频按申请秒数计价，改档位即改估价。落盘广播的是 reference_unit:updated，
-          // 不在 SSE 的生成动作白名单内、不会触发重拉，费用面板要在此处自行刷新。
-          useCostStore.getState().debouncedFetch(projectName);
-        })
-        .catch(toastError);
+      void handleDurationChange(unitId, seconds).then((saved) => {
+        if (saved) clearDurationDraft(key, rawValue);
+      });
     },
-    [patchUnit, projectName, episode, t],
+    [projectName, episode, durationDrafts, handleDurationChange, clearDurationDraft],
   );
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
 
@@ -454,30 +715,22 @@ export function ReferenceVideoCanvas({
   // 编辑器列内的两种视图：写文稿 / 看解析结果。解析预览是只读派生视图，与正文同一份
   // 文本，故共用编辑器列的空间而非再占一栏（右栏留给成片预览）。
   const [editorView, setEditorView] = useState<"script" | "parse">("script");
-  // 同名可以同时落在多个 bucket；优先级与后端 `resolve_references` 一致
-  // （character → scene → prop），先到先得、后面的不覆盖。
-  const mentionLookup = useMemo(() => {
-    // 无原型字典：`out["__proto__"] = kind` 在普通对象上会走继承的 setter、不落自有属性，
-    // 登记过的 `__proto__` 资产因此在高亮里显示为未登记，而后端照常解析。
-    const out: Record<string, "character" | "scene" | "prop"> = Object.create(null) as Record<
-      string,
-      "character" | "scene" | "prop"
-    >;
-    const claim = (name: string, kind: "character" | "scene" | "prop") => {
-      // hasOwn 而非 `in`：`toString` / `constructor` 等是合法资产名，`in` 命中原型链会让
-      // 真正登记的资产拿不到类型，前端高亮判它未登记、后端预览正常解析，两侧当场矛盾。
-      // key 归一到 NFC：bucket 原始 key 可能是 NFD，查询侧（pushMentionTokens/toScriptLines）
-      // 统一按归一坐标系查，两侧不归一就会出现「已登记却判未登记」。
-      const key = normalizeAssetName(name);
-      if (!Object.hasOwn(out, key)) out[key] = kind;
-    };
-    for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
-    for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
-    for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
-    return out;
-  }, [project?.characters, project?.scenes, project?.props]);
+  // schema v6 起各 bucket 共用名称空间，每个名字只会声明一次。
+  const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
 
-  const hasAnyDraft = Object.keys(drafts).length > 0;
+  const hasAnyDurationDraft = units.some((unit) => {
+    const raw = durationDrafts[draftKey(projectName, episode, unit.unit_id)];
+    if (raw === undefined) return false;
+    const seconds = Number(raw);
+    return (
+      !Number.isInteger(seconds) ||
+      seconds < 1 ||
+      seconds > 300 ||
+      seconds !== unit.duration_seconds ||
+      (Boolean(unit.needs_replan) && !unit.migration_requires_content_replan)
+    );
+  });
+  const hasAnyDraft = Object.keys(drafts).length > 0 || hasAnyDurationDraft;
 
   // 草稿已落盘 → 丢弃本地草稿。若这期间用户又敲了字（草稿值已变），保留新草稿不动，
   // 否则落盘响应回来时会把用户刚输入的内容抹掉。
@@ -579,20 +832,22 @@ export function ReferenceVideoCanvas({
   // Reset tab to units on project/episode change (render-time derived-state pattern).
   // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
   // units 面板无脚本可读、请求会 404，应先落到 preproc 审阅 gate。
-  const [tab, setTab] = useState<"units" | "preproc">(hasScript ? "units" : "preproc");
+  const [tab, setTab] = useState<"units" | "preproc">(
+    hasScript || !showPreprocess ? "units" : "preproc",
+  );
   const [lastEpisode, setLastEpisode] = useState(episode);
   const [lastProject, setLastProject] = useState(projectName);
   if (lastEpisode !== episode || lastProject !== projectName) {
     setLastEpisode(episode);
     setLastProject(projectName);
-    setTab(hasScript ? "units" : "preproc");
+    setTab(hasScript || !showPreprocess ? "units" : "preproc");
   }
 
   useEffect(() => {
     // 剧本生成完成后（hasScript 由 false 变 true）自动切到 units，同一 episode 内组件不 remount。
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 镜像 GridImageToVideoCanvas 同款效果
-    if (hasScript) setTab("units");
-  }, [hasScript]);
+    if (hasScript || !showPreprocess) setTab("units");
+  }, [hasScript, showPreprocess]);
 
   // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
   // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
@@ -677,7 +932,10 @@ export function ReferenceVideoCanvas({
     selected ? s._segmentIndex.get(selected.unit_id) : undefined,
   );
   const estimatedCost = segCost?.estimate.video;
+  const displayedEstimatedCost = narrationDelivery === "use_tts" ? undefined : estimatedCost;
   const actualCost = segCost?.actual.video;
+  const narrationEstimatedCost = segCost?.estimate.audio;
+  const selectedNarrationText = unitNarrationText(selected);
 
   const selectedIndex = selected ? units.findIndex((u) => u.unit_id === selected.unit_id) : -1;
   const goPrev = useCallback(() => {
@@ -699,65 +957,70 @@ export function ReferenceVideoCanvas({
         canEditTitle={canEditTitle}
       />
 
-      {/* Tab + 批量生成 */}
-      <div
-        role="tablist"
-        aria-label={t("reference_main_tab_aria")}
-        className="flex items-center gap-0.5 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.5)] px-5"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "preproc"}
-          onClick={() => setTab("preproc")}
-          className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
-            tab === "preproc" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
-          }`}
-        >
-          <span>{t("reference_tab_preprocess")}</span>
-          {preprocStatus === "loading" ? (
-            <Loader2 className="h-3 w-3 animate-spin text-[var(--color-text-4)]" aria-hidden="true" />
-          ) : (
-            <span
-              aria-hidden="true"
-              className={`h-1.5 w-1.5 rounded-full ${preprocDot[preprocStatus]}`}
-            />
-          )}
-          {tab === "preproc" && (
-            <span
-              aria-hidden="true"
-              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
-            />
-          )}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "units"}
-          onClick={() => setTab("units")}
-          className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
-            tab === "units" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
-          }`}
-        >
-          {t("reference_tab_units")}
-          {tab === "units" && (
-            <span
-              aria-hidden="true"
-              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
-            />
-          )}
-        </button>
-        <span className="flex-1" />
-        {tab === "units" && (
+      {/* Tabs + request-local generation controls */}
+      <div className="flex items-center gap-0.5 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.5)] px-5">
+        <div role="tablist" aria-label={t("reference_main_tab_aria")} className="flex items-center gap-0.5">
+          {showPreprocess && <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "preproc"}
+            onClick={() => setTab("preproc")}
+            className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
+              tab === "preproc" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+            }`}
+          >
+            <span>{t("reference_tab_preprocess")}</span>
+            {preprocStatus === "loading" ? (
+              <Loader2 className="h-3 w-3 animate-spin text-[var(--color-text-4)]" aria-hidden="true" />
+            ) : (
+              <span
+                aria-hidden="true"
+                className={`h-1.5 w-1.5 rounded-full ${preprocDot[preprocStatus]}`}
+              />
+            )}
+            {tab === "preproc" && (
+              <span
+                aria-hidden="true"
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+              />
+            )}
+          </button>}
           <button
             type="button"
-            onClick={() => void handleBatchGenerate()}
-            disabled={batchTargets.length === 0}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
+            role="tab"
+            aria-selected={tab === "units"}
+            onClick={() => setTab("units")}
+            className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
+              tab === "units" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+            }`}
           >
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>{t("reference_batch_generate")}</span>
+            {t("reference_tab_units")}
+            {tab === "units" && (
+              <span
+                aria-hidden="true"
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+              />
+            )}
           </button>
+        </div>
+        <span className="flex-1" />
+        {tab === "units" && (
+          <>
+            <NarrationDeliveryChoice
+              value={narrationDelivery}
+              onChange={setNarrationDelivery}
+              compact
+            />
+            <button
+              type="button"
+              onClick={() => void handleBatchGenerate()}
+              disabled={batchTargets.length === 0}
+              className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t("reference_batch_generate")}</span>
+            </button>
+          </>
         )}
       </div>
 
@@ -829,7 +1092,27 @@ export function ReferenceVideoCanvas({
                     </span>
                     <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
                       <Clock className="h-3 w-3" aria-hidden="true" />
-                      {effectiveDurationOptions && effectiveDurationOptions.length > 0 ? (
+                      {freeDuration ? (
+                        <input
+                          type="number"
+                          min={1}
+                          max={300}
+                          step={1}
+                          aria-label={t("duration_selector_aria")}
+                          value={selectedDurationValue}
+                          disabled={isUnitLocked(selected.unit_id)}
+                          onChange={(e) =>
+                            handleFreeDurationChange(selected.unit_id, e.currentTarget.value)
+                          }
+                          onBlur={(e) =>
+                            commitFreeDuration(selected.unit_id, e.currentTarget.value)
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                          }}
+                          className="focus-ring w-14 bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
+                        />
+                      ) : effectiveDurationOptions && effectiveDurationOptions.length > 0 ? (
                         <select
                           aria-label={t("duration_selector_aria")}
                           value={selected.duration_seconds}
@@ -838,7 +1121,7 @@ export function ReferenceVideoCanvas({
                             isUnitLocked(selected.unit_id) ? t("duration_locked_generating") : undefined
                           }
                           onChange={(e) =>
-                            handleDurationChange(selected.unit_id, Number(e.target.value))
+                            void handleDurationChange(selected.unit_id, Number(e.target.value))
                           }
                           className="focus-ring cursor-pointer bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
                         >
@@ -891,6 +1174,12 @@ export function ReferenceVideoCanvas({
                       <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                   </div>
+
+                  {selected.needs_replan && (
+                    <p role="alert" className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
+                      {t("reference_needs_replan")}
+                    </p>
+                  )}
 
                   {stackPreview && (
                     <div
@@ -1092,9 +1381,14 @@ export function ReferenceVideoCanvas({
                           errorMessage={failureMessage}
                           busy={selectedBusy}
                           cancelling={selectedCancelling}
-                          estimatedCost={estimatedCost}
+                          estimatedCost={displayedEstimatedCost}
                           actualCost={actualCost}
+                          narrationText={selectedNarrationText}
+                          narrationGenerating={ttsBusyUnitIds.has(selected.unit_id)}
+                          narrationEstimatedCost={narrationEstimatedCost}
+                          onGenerateNarration={onGenerateNarrationVoid}
                           onGenerate={onGenerateVoid}
+                          generationBlocked={Boolean(selected.needs_replan)}
                           onUploadVideo={handleUploadVideo}
                           uploadingVideo={uploading.ids.has(selected.unit_id)}
                           restoring={restoring.ids.has(selected.unit_id)}
@@ -1123,9 +1417,14 @@ export function ReferenceVideoCanvas({
                   errorMessage={failureMessage}
                   busy={selectedBusy}
                   cancelling={selectedCancelling}
-                  estimatedCost={estimatedCost}
+                  estimatedCost={displayedEstimatedCost}
                   actualCost={actualCost}
+                  narrationText={selectedNarrationText}
+                  narrationGenerating={selected ? ttsBusyUnitIds.has(selected.unit_id) : false}
+                  narrationEstimatedCost={narrationEstimatedCost}
+                  onGenerateNarration={onGenerateNarrationVoid}
                   onGenerate={onGenerateVoid}
+                  generationBlocked={Boolean(selected?.needs_replan)}
                   onUploadVideo={handleUploadVideo}
                   uploadingVideo={selected ? uploading.ids.has(selected.unit_id) : false}
                   restoring={selected ? restoring.ids.has(selected.unit_id) : false}
@@ -1167,6 +1466,11 @@ export function ReferenceVideoCanvas({
       )}
 
       <ReferenceDurationConfirmDialog {...durationGate.dialogProps} />
+      <ReferenceBatchAdmissionDialog
+        admission={batchAdmission}
+        onConfirm={handleBatchConfirm}
+        onClose={() => setBatchAdmission(null)}
+      />
     </div>
   );
 }

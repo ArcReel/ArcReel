@@ -3,8 +3,8 @@
 关注点：
 - resume 路径不落新 pending 行（不开记账括号）
 - ledger.resume_success / resume_failed 按 api_call_id 精准翻 pending → success/failed
-- 版本管理用 add_version：resume 成功后总是 bump 新版本，让 versions.json 与磁盘文件一致
-  （submit→poll 崩 → 登记 v1；已有 v_n 的覆盖式重新生成 → 登记 v_(n+1)）
+- resume 成功后保存一个付费版本；正式媒体经 staging callback 原子决定 current，
+  非正式请求直接追加并选中新版本
 - ResumeExpiredError 沿调用链上抛，pending 翻 failed
 """
 
@@ -19,6 +19,7 @@ import pytest
 
 from lib.media_generator import MediaGenerator
 from lib.video_backends.base import ResumeExpiredError
+from tests.fakes import select_formal_video
 
 pytestmark = pytest.mark.unit
 
@@ -310,6 +311,79 @@ async def test_resume_after_version_v1_crash_bumps_to_v2(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_path):
+    from lib.version_manager import VersionManager
+
+    gen = _build_generator(tmp_path)
+    gen.versions = VersionManager(gen.project_path)
+    current = gen._get_output_path("reference_videos", "E1U1")
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"old-current")
+
+    events = []
+
+    async def _prepare(staged_file, duration_seconds, version_metadata):
+        assert staged_file.read_bytes() == b"fake-resume-video"
+        assert duration_seconds == 8
+        events.append("prepared")
+
+    def _commit(*args):
+        events.append("committed")
+        return select_formal_video(gen)(*args)
+
+    output, version, _, _ = await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="reference_videos",
+        resource_id="E1U1",
+        task_id="T-1",
+        api_call_id=42,
+        formal_output=True,
+        before_formal_commit=_prepare,
+        commit_formal_output=_commit,
+        execution_request_digest="d" * 64,
+    )
+
+    assert output.read_bytes() == b"fake-resume-video"
+    assert version == 2
+    history = gen.versions.get_versions("reference_videos", "E1U1")
+    assert [item["prompt"] for item in history["versions"]] == ["", ""]
+    assert history["versions"][-1]["execution_request_digest"] == "d" * 64
+    assert events == ["prepared", "committed"]
+
+
+@pytest.mark.asyncio
+async def test_resume_formal_prepare_failure_archives_paid_history_without_selecting_it(tmp_path):
+    from lib.version_manager import VersionManager
+
+    gen = _build_generator(tmp_path)
+    gen.versions = VersionManager(gen.project_path)
+    current = gen._get_output_path("reference_videos", "E1U1")
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"old-current")
+
+    async def _fail_prepare(*_args):
+        raise RuntimeError("resume paid output validation failed")
+
+    with pytest.raises(RuntimeError, match="resume paid output validation failed"):
+        await gen.resume_video_async(
+            job_id="provider-job-1",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            task_id="T-1",
+            api_call_id=42,
+            formal_output=True,
+            before_formal_commit=_fail_prepare,
+        )
+
+    assert current.read_bytes() == b"old-current"
+    history = gen.versions.get_versions("reference_videos", "E1U1")
+    assert history["current_version"] == 1
+    assert len(history["versions"]) == 2
+    assert history["versions"][-1]["is_current"] is False
+    assert (gen.project_path / history["versions"][-1]["file"]).read_bytes() == b"fake-resume-video"
+
+
+@pytest.mark.asyncio
 async def test_resume_handles_float_string_duration(tmp_path):
     """duration_seconds 传浮点字符串（如 "10.0"）时应解析为 int(10)，
     不能被 try/except 静默吞成兜底值 8（int("10.0") 会 ValueError）。
@@ -444,6 +518,31 @@ async def test_resume_success_propagates_finalize_exception(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_resume_formal_output_cleans_staging_when_finalize_fails(tmp_path):
+    from lib.version_manager import VersionManager
+
+    gen = _build_generator(tmp_path)
+    gen.versions = VersionManager(gen.project_path)
+    gen.ledger = _FailingResumeLedger(exc=RuntimeError("db down"))
+    current = gen._get_output_path("reference_videos", "E1U1")
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"old-current")
+
+    with pytest.raises(RuntimeError, match="db down"):
+        await gen.resume_video_async(
+            job_id="provider-job-1",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            task_id="T-1",
+            api_call_id=42,
+            formal_output=True,
+        )
+
+    assert current.read_bytes() == b"old-current"
+    assert list(current.parent.glob(".E1U1.*.mp4")) == []
+
+
+@pytest.mark.asyncio
 async def test_resume_expired_propagates_finalize_exception(tmp_path):
     """ResumeExpiredError 分支同样不能吞 finalize 异常：让 worker finally 兜底标记
     失败，避免 ApiCall 永远卡 pending。"""
@@ -462,6 +561,67 @@ async def test_resume_expired_propagates_finalize_exception(tmp_path):
         )
 
     assert len(gen.ledger.resumed) == 1
+
+
+@pytest.mark.asyncio
+async def test_resume_expired_cleans_formal_staging_when_finalize_fails(tmp_path):
+    from lib.version_manager import VersionManager
+
+    class _WriteThenExpireBackend(_FakeVideoBackend):
+        async def resume_video(self, job_id, request):
+            request.output_path.write_bytes(b"partial-download")
+            raise ResumeExpiredError(job_id=job_id, provider="openai")
+
+    gen = _build_generator(tmp_path)
+    gen.versions = VersionManager(gen.project_path)
+    gen._video_backend = _WriteThenExpireBackend()
+    gen.ledger = _FailingResumeLedger(exc=RuntimeError("db down"))
+    current = gen._get_output_path("reference_videos", "E1U1")
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"old-current")
+
+    with pytest.raises(RuntimeError, match="db down"):
+        await gen.resume_video_async(
+            job_id="provider-job-1",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            task_id="T-1",
+            api_call_id=42,
+            formal_output=True,
+        )
+
+    assert current.read_bytes() == b"old-current"
+    assert list(current.parent.glob(".E1U1.*.mp4")) == []
+
+
+@pytest.mark.asyncio
+async def test_resume_cancellation_cleans_partial_formal_staging(tmp_path):
+    from lib.version_manager import VersionManager
+
+    class _WriteThenCancelBackend(_FakeVideoBackend):
+        async def resume_video(self, job_id, request):
+            request.output_path.write_bytes(b"partial-download")
+            raise asyncio.CancelledError
+
+    gen = _build_generator(tmp_path)
+    gen.versions = VersionManager(gen.project_path)
+    gen._video_backend = _WriteThenCancelBackend()
+    current = gen._get_output_path("reference_videos", "E1U1")
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"old-current")
+
+    with pytest.raises(asyncio.CancelledError):
+        await gen.resume_video_async(
+            job_id="provider-job-1",
+            resource_type="reference_videos",
+            resource_id="E1U1",
+            task_id="T-1",
+            api_call_id=42,
+            formal_output=True,
+        )
+
+    assert current.read_bytes() == b"old-current"
+    assert list(current.parent.glob(".E1U1.*.mp4")) == []
 
 
 @pytest.mark.asyncio

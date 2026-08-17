@@ -3,7 +3,7 @@
 # stdout and stage the FULL SNAPSHOT to a temp file for query.sh (layer-2 lookups).
 #
 # USAGE
-#   bash poll.sh <PR_NUMBER>
+#   bash poll.sh --repo-root <path> <PR_NUMBER>
 #
 # OUTPUT
 #   stdout   — minimal index JSON (schema below), semi-compact: containers expand one key
@@ -23,6 +23,15 @@
 #              backs the no_change comparison, the round_estimate ratchet, and `query.sh index`.
 #   seen     — per-PR ledger of every comment/review id observed by any earlier poll, at
 #              <snapshot>.seen.json; backs the straggler half of is_new (see PITFALL 6).
+#
+# WHY THE INDEX/SNAPSHOT LAYERS EXIST
+#   The looper's context budget is a first-class limit, alongside wall-clock time. Repeatedly
+#   injecting review bodies causes attention drift; once the looper loses the thread, the
+#   whole review loop must be handed to a fresh agent. Preserve these invariants:
+#   1. stdout is the smallest decision index: new body-bearing entries expose id, flags,
+#      and a 120-character preview; old entries collapse to counts; bodies never appear.
+#   2. the full text lives only in the snapshot and query.sh retrieves it by id on demand.
+#   3. a derived index identical to the previous full print collapses to `no_change`.
 #
 # INDEX SCHEMA (stdout)
 # {
@@ -53,19 +62,23 @@
 #       "is_in_progress":        <bool>,                # CR still processing — don't declare PASS yet
 #       "actionable_count":      "<n>" | null           # parsed from "Actionable comments posted: N"
 #     },
-#     "reviews":          [{id, submittedAt, state, is_new}],
+#     "reviews":          [{id, submittedAt, state, has_outside_diff, is_new, preview}],
+#     "reviews_history":  {total, last_submitted_at},
 #     "comments_new":     [{id, createdAt, preview}],   # this-round new non-walkthrough comments
 #     "comments_history": {total, last_created_at}      # older ones collapsed to counts ({total: 0} when empty)
 #   },
 #   "gemini": {
-#     "reviews":          [{id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new}],
+#     "reviews":          [{id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
 #                                                       # body NEVER inlined — query.sh gemini-latest-body
+#     "reviews_history":  {total, last_submitted_at},
 #     "comments_new":     [{id, createdAt, preview}],
 #     "comments_history": {total, last_created_at}
 #   },
 #   "codex": {
 #     "has_started":      <bool>,                       # Codex has acknowledged with eyes or a clean-pass comment
-#     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head, is_new}],
+#     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head,
+#                            has_body_finding, is_new, preview}],
+#     "reviews_history":  {total, last_submitted_at},
 #     "comments_new":     [{id, createdAt, reviewed_commit, reviewed_current_head,
 #                            has_pass_marker, preview}], # top-level clean-pass compatibility path
 #     "comments_history": {total, last_created_at},
@@ -126,6 +139,10 @@
 #                          is empty aside from the "## Code Review" heading (any case). Gemini-only; an unmatched
 #                          summary is treated as still actionable (safe default — no silent pass).
 #   has_started            Codex has posted eyes on the PR or an @codex review trigger comment
+#   has_outside_diff       CodeRabbit review body carries one or more "Outside diff range
+#                          comments" that could not be posted as inline comments
+#   has_body_finding       Codex review body itself carries a P0-P3 finding badge; this shape
+#                          has no guaranteed inline copy
 #   preview                first 120 chars of body after stripping HTML comments and markdown images, whitespace
 #                          collapsed — the eyeball safety net for flag misparses (flag vs preview conflict => fetch
 #                          full body via query.sh details and trust the body)
@@ -188,8 +205,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "POLL_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
+
 if [[ $# -lt 1 ]]; then
-  echo "POLL_ERROR: missing PR_NUMBER. Usage: bash poll.sh <PR_NUMBER>" >&2
+  echo "POLL_ERROR: missing PR_NUMBER. Usage: bash poll.sh [--repo-root <path>] <PR_NUMBER>" >&2
   exit 2
 fi
 
@@ -453,10 +476,16 @@ jq -n \
   def codex_comment_has_pass_marker:
     (. // "") | test("^\\s*Codex Review:\\s*Didn(\\x27|\\x{2019})t find any major issues\\."; "i");
 
+  def codex_body_has_finding:
+    (. // "") | test("!\\[P[0-3] Badge\\]"; "i");
+
   def cr_rate_limited_body:
     # CodeRabbit wraps its rate-limit banner in a dedicated HTML marker. One match backs both
     # quota_alerts and walkthrough.is_rate_limited so the two judgments cannot drift apart.
     (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->");
+
+  def has_outside_diff_body:
+    (. // "") | test("Outside diff range comments \\([1-9][0-9]*\\)"; "i");
 
   def cr_walkthrough_rest:
     [$sub_a[] | select(.user.login == "coderabbitai[bot]")]
@@ -505,7 +534,8 @@ jq -n \
        end) as $reviewed_current_head
     | {id, submittedAt, state, reviewed_commit: $reviewed_commit,
        reviewed_current_head: $reviewed_current_head,
-       is_new: fresh(.submittedAt; .id), body};
+       has_body_finding: ($rb | codex_body_has_finding),
+       is_new: fresh(.submittedAt; .id), preview: ($rb | mk_preview), body};
 
   def codex_comment_row:
     (.body // "") as $cb
@@ -587,7 +617,8 @@ jq -n \
          | map({id, createdAt, is_new: fresh(.createdAt; .id), preview: (.body | mk_preview), body})),
       reviews:
         [$main.reviews[] | select(.author.login == "coderabbitai")
-         | {id, submittedAt, state, is_new: fresh(.submittedAt; .id), body}]
+         | {id, submittedAt, state, has_outside_diff: (.body | has_outside_diff_body),
+            is_new: fresh(.submittedAt; .id), preview: (.body | mk_preview), body}]
     },
 
     gemini: {
@@ -600,7 +631,8 @@ jq -n \
                then (.submittedAt > $last_push)
                else ($reviewed_commit | codex_commit_is_current_head)
                end),
-            has_pass_marker: (.body | has_pass_marker_body), body}],
+            has_pass_marker: (.body | has_pass_marker_body),
+            preview: (.body | mk_preview), body}],
       comments:
         [$main.comments[] | select(.author.login == "gemini-code-assist")
          | {id, createdAt, is_new: fresh(.createdAt; .id), preview: (.body | mk_preview), body}]
@@ -675,6 +707,10 @@ mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
 # reach stdout — query.sh reads them from the snapshot on demand.
 jq --arg snapshot_file "$SNAPSHOT_FILE" '
   def prune_hist: if .total == 0 then {total} else . end;
+  def review_history:
+    [.[] | select(.is_new | not)]
+    | {total: length, last_submitted_at: (map(.submittedAt) | max // null)}
+    | prune_hist;
   . as $s
   | ($s.pr_created_at) as $created
   | {
@@ -689,7 +725,10 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
 
       coderabbit: {
         walkthrough: ($s.coderabbit.walkthrough | if . == null then null else del(.body) end),
-        reviews:     [$s.coderabbit.reviews[] | {id, submittedAt, state, is_new}],
+        reviews:
+          [$s.coderabbit.reviews[] | select(.is_new)
+           | {id, submittedAt, state, has_outside_diff, is_new, preview}],
+        reviews_history: ($s.coderabbit.reviews | review_history),
         comments_new:
           [$s.coderabbit.other_comments[] | select(.is_new) | {id, createdAt, preview}],
         comments_history:
@@ -699,7 +738,10 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
       },
 
       gemini: {
-        reviews: [$s.gemini.reviews[] | {id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new}],
+        reviews:
+          [$s.gemini.reviews[] | select(.is_new)
+           | {id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
+        reviews_history: ($s.gemini.reviews | review_history),
         comments_new:
           [$s.gemini.comments[] | select(.is_new) | {id, createdAt, preview}],
         comments_history:
@@ -715,8 +757,10 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
            or (any($s.own_trigger_comments[];
                    .command == "@codex review" and .has_codex_eyes))),
         reviews:
-          [$s.codex.reviews[]
-           | {id, submittedAt, state, reviewed_commit, reviewed_current_head, is_new}],
+          [$s.codex.reviews[] | select(.is_new)
+           | {id, submittedAt, state, reviewed_commit, reviewed_current_head,
+              has_body_finding, is_new, preview}],
+        reviews_history: ($s.codex.reviews | review_history),
         comments_new:
           [$s.codex.comments[] | select(.is_new)
            | {id, createdAt, reviewed_commit, reviewed_current_head, has_pass_marker, preview}],
@@ -791,7 +835,7 @@ if [[ -n "$PREV_NORM" && "$PREV_NORM" == "$NEW_NORM" ]]; then
      head: .index.head,
      last_push_at: .index.last_push_at,
      unchanged_since: .printed_at,
-     hint: ("index identical to every poll since unchanged_since; full index: bash query.sh " + $pr + " index")}
+     hint: ("index identical to every poll since unchanged_since; run query.sh " + $pr + " index for the full index")}
   ' "$INDEX_FILE"
 else
   jq -n --arg printed_at "$GENERATED_AT" --slurpfile idx "$WORKDIR/index.json" \

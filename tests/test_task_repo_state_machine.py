@@ -247,6 +247,94 @@ class TestRepoStateMachineGuards:
         refreshed = await repo.get(t["task_id"])
         assert refreshed["provider_endpoint"] == "openai-video"
 
+    async def test_persist_provider_job_id_writes_base_url_alongside_endpoint(self, db_session):
+        """自定义供应商两个维度分列落地：endpoint 位存协议标识，域名存 submitted_base_url。"""
+        repo = TaskRepository(db_session)
+        t = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r-both",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(
+            t["task_id"],
+            "provider-job-44",
+            endpoint="dashscope-async-video",
+            base_url="https://custom-a.example.com/api/v1",
+        )
+        refreshed = await repo.get(t["task_id"])
+        assert refreshed["provider_job_id"] == "provider-job-44"
+        assert refreshed["provider_endpoint"] == "dashscope-async-video"
+        assert refreshed["submitted_base_url"] == "https://custom-a.example.com/api/v1"
+
+    async def test_persist_provider_job_id_without_base_url_keeps_existing(self, db_session):
+        """base_url 传 None 不清空已有值——清空等于放弃回放，续跑会退回按当下配置的域名轮询。"""
+        repo = TaskRepository(db_session)
+        t = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r-keep-url",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(
+            t["task_id"], "job-a", endpoint="dashscope-async-video", base_url="https://custom-a.example.com/api/v1"
+        )
+        await repo.persist_provider_job_id(t["task_id"], "job-b")
+        refreshed = await repo.get(t["task_id"])
+        assert refreshed["submitted_base_url"] == "https://custom-a.example.com/api/v1"
+
+    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    async def test_persist_video_checkpoint_atomically_locks_actual_provider(self, db_session, task_type):
+        repo = TaskRepository(db_session)
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type=task_type,
+            media_type="video",
+            resource_id="E1U1",
+            payload={"script_file": "scripts/episode_1.json"},
+            script_file="scripts/episode_1.json",
+            provider_id="enqueue-advisory",
+        )
+        await repo.claim_next("video")
+
+        await repo.persist_execution_checkpoint(task["task_id"], '{"schema_version":1}', "actual-provider")
+
+        refreshed = await repo.get(task["task_id"])
+        assert refreshed["execution_checkpoint_json"] == '{"schema_version":1}'
+        assert refreshed["provider_id"] == "actual-provider"
+        assert refreshed["provider_job_id"] is None
+        assert refreshed["payload"] == {"script_file": "scripts/episode_1.json"}
+
+    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    async def test_persist_video_checkpoint_is_once_only_and_requires_running_before_job(self, db_session, task_type):
+        repo = TaskRepository(db_session)
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type=task_type,
+            media_type="video",
+            resource_id="E1U1",
+            payload={},
+            script_file="scripts/episode_1.json",
+        )
+
+        with pytest.raises(ValueError, match="checkpoint persistence guard"):
+            await repo.persist_execution_checkpoint(task["task_id"], "first", "provider-a")
+
+        await repo.claim_next("video")
+        await repo.persist_execution_checkpoint(task["task_id"], "first", "provider-a")
+        with pytest.raises(ValueError, match="checkpoint persistence guard"):
+            await repo.persist_execution_checkpoint(task["task_id"], "second", "provider-b")
+
+        refreshed = await repo.get(task["task_id"])
+        assert refreshed["execution_checkpoint_json"] == "first"
+        assert refreshed["provider_id"] == "provider-a"
+
     async def test_list_orphan_returns_running_and_cancelling(self, db_session):
         repo = TaskRepository(db_session)
         t1 = await repo.enqueue(
@@ -321,6 +409,36 @@ class TestRepoStateMachineGuards:
         third = await repo.claim_next("image", pool_full_providers=None)
         assert third is not None
         assert third["task_id"] == t1["task_id"]
+
+    async def test_claim_next_reprojects_reference_task_despite_stale_full_provider(self, db_session):
+        """参考任务的缓存 provider 不能在读取当前 unit 前参与排除。"""
+        repo = TaskRepository(db_session)
+        reference = await repo.enqueue(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={"script_file": "ep1.json"},
+            script_file="ep1.json",
+            provider_id="provider-before-edit",
+        )
+        await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S1",
+            payload={},
+            script_file="ep1.json",
+            provider_id="provider-ready",
+        )
+
+        claimed = await repo.claim_next(
+            "video",
+            pool_full_providers=frozenset({"provider-before-edit"}),
+        )
+
+        assert claimed is not None
+        assert claimed["task_id"] == reference["task_id"]
 
     async def test_finalize_cancelled_from_running(self, db_session):
         """finalize_cancelled 也能从 running 直接落 cancelled。

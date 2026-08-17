@@ -4,17 +4,31 @@ script_generator.py - 剧本生成器
 读取 Step 1 结构化中间文件，调用文本生成 Backend 生成最终 JSON 剧本
 """
 
+import asyncio
+import hashlib
 import json
 import logging
 import re
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, cast
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.artifact_activation import (
+    ArtifactInputClaim,
+    active_artifact_currency_resolver,
+    assert_current_artifact_input_claims_usable,
+    resolve_usable_artifact_input_claim,
+)
+from lib.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey
+from lib.artifact_provenance import (
+    build_ad_episode_script_basis,
+    build_episode_script_basis,
+    project_ad_episode_script_inputs,
+)
 from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import (
@@ -34,7 +48,8 @@ from lib.episode_paths import (
     episode_script_filename,
 )
 from lib.project_manager import ProjectManager
-from lib.prompt_builders_ad import build_ad_prompt
+from lib.project_schema import project_schema_is_current
+from lib.prompt_builders_ad import build_ad_prompt, build_ad_reference_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
     append_user_instructions,
@@ -60,10 +75,11 @@ from lib.reference_video.quarantine import (
     quarantine_path,
     read_quarantine,
 )
-from lib.reference_video.shot_parser import render_shots_text
+from lib.reference_video.shot_parser import derive_references_from_text, parse_prompt, render_shots_text
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     AdEpisodeScript,
+    AdReferenceFlatScript,
     DramaEpisodeScript,
     DramaSceneContent,
     DramaVisualScript,
@@ -73,14 +89,18 @@ from lib.script_models import (
     ReferenceStep1Draft,
     ReferenceStep2FlatScript,
     ReferenceVideoScript,
-    ad_script_total_duration,
-    build_ad_reference_episode_script_model,
     build_episode_script_model,
     merge_drama_visual_into_scenes,
     script_duration_total,
 )
-from lib.script_review import gate_blocks_step2, migrate_step1_draft_in_place
+from lib.script_review import (
+    SCRIPT_STEP1_REVISION_FIELD,
+    content_fingerprint_of_data,
+    gate_blocks_step2,
+    migrate_step1_draft_in_place,
+)
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
+from lib.speech_composition import admit_script_unit, require_script_unit_admitted, video_unit_replan_problems
 from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -120,6 +140,16 @@ _METADATA_COUNT_KEY: dict[str, str] = {
     "shots": "total_shots",
     "video_units": "total_units",
 }
+
+
+def _file_content_digest(path: Path) -> str:
+    """Hash one selected formal input without loading it all into memory."""
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _units_use_references(units: list[dict] | None) -> bool | None:
@@ -164,6 +194,9 @@ class ScriptGenerator:
         """
         self.project_path = Path(project_path)
         self.generator = generator
+        self._step1_revision: str | None = None
+        self._artifact_basis: ArtifactBasisDescriptor | None = None
+        self._step1_input_claim: ArtifactInputClaim | None = None
 
         # 加载 project.json
         self.project_json = self._load_project_json()
@@ -212,7 +245,7 @@ class ScriptGenerator:
             episode: 剧集编号
             output_filename: 输出文件名，默认 episode_{episode}.json。剧本一律经写盘统一入口写入
                 项目 scripts/ 目录，故此参数只决定文件名、不接受目录。
-            instructions: 用户对本次生成的意见原文；非空时以中性「用户意见」分节追加到
+            instructions: 用户输入的生成意见原文；非空时以中性「用户意见」分节追加到
                 prompt 末尾（遵循强度由正文表达），所有 content_mode / 生成路线同口径。
 
         Returns:
@@ -233,14 +266,16 @@ class ScriptGenerator:
         ):
             raise ValueError(f"output_filename 只接受纯文件名，不允许目录或路径分隔符: {output_filename!r}")
 
+        self._step1_revision = None
+        self._artifact_basis = None
+        self._step1_input_claim = None
         gen_mode = self.generation_mode
 
-        # ad 剧本骨架唯一（平铺 shots[]），先于 generation_mode 分派：即使
-        # reference_video 路径也消费 ad prompt + AdEpisodeScript，不换 video_units 骨架。
-        # ad 一键生成不走 step1 中间文件，创作输入是 brief + 产品信息 + target_duration。
+        # ad 两条路线都一键生成、不走 step1；参考路线直接产出自包含 video_units。
         if self.content_mode == "ad":
             prompt, schema = await self._compose_ad(episode, gen_mode)
             prompt = append_user_instructions(prompt, instructions)
+            self._freeze_ad_artifact_basis(episode)
             return await self._generate_and_save(prompt, schema, episode, output_filename)
 
         # drama（storyboard / grid）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
@@ -363,16 +398,17 @@ class ScriptGenerator:
         content = self._load_drama_step1_content(episode)
         raw_scenes = content.get("scenes")
         content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
+        for scene in content_scenes:
+            require_script_unit_admitted("scenes", scene)
         await self._assert_drama_step1_durations(content_scenes, episode=episode, gen_mode=gen_mode)
 
         logger.info("正在生成第 %d 集剧本（drama step2 视觉层）...", episode)
-        result = await self.generator.generate(
+        result = await self._generate_text(
             TextGenerationRequest(
                 prompt=append_user_instructions(self._build_drama_step2_prompt(content_scenes, episode), instructions),
                 response_schema=DramaVisualScript,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
-            ),
-            project_name=self.project_path.name,
+            )
         )
 
         visual_scenes = self._parse_drama_visual(result.text)
@@ -383,7 +419,13 @@ class ScriptGenerator:
 
         filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
-        output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
+        output_path = pm.save_script(
+            self.project_path.name,
+            script_data,
+            filename,
+            validate=True,
+            artifact_basis=self._artifact_basis,
+        )
 
         self._quality_probe(script_data, episode)
         logger.info("剧本已保存至 %s", output_path)
@@ -487,14 +529,12 @@ class ScriptGenerator:
         assert self.generator is not None  # generate() 入口已检查
         # 调用 TextBackend
         logger.info("正在生成第 %d 集剧本...", episode)
-        project_name = self.project_path.name
-        result = await self.generator.generate(
+        result = await self._generate_text(
             TextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
-            ),
-            project_name=project_name,
+            )
         )
         response_text = result.text
 
@@ -513,7 +553,11 @@ class ScriptGenerator:
             except DraftViolation as exc:
                 raise self._quarantine_reference_step2(episode, response_text, exc) from exc
         else:
-            script_data = self._parse_response(response_text, episode)
+            script_data = (
+                self._parse_ad_reference_response(response_text, episode)
+                if self.content_mode == "ad" and self.generation_mode == "reference_video"
+                else self._parse_response(response_text, episode)
+            )
 
         # 补充元数据。reference 路径同样纳入隔离：_add_metadata 按落地后的最终 references 重算
         # 生效档位，一个新增 / 去掉了 `@` 引用的 unit 要到合并之后才判出档——不接住的话，这份
@@ -532,7 +576,13 @@ class ScriptGenerator:
         # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
         filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
-        output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
+        output_path = pm.save_script(
+            self.project_path.name,
+            script_data,
+            filename,
+            validate=True,
+            artifact_basis=self._artifact_basis,
+        )
 
         self._quality_probe(script_data, episode)
 
@@ -542,12 +592,12 @@ class ScriptGenerator:
     async def _compose_ad(self, episode: int, gen_mode: str | None) -> tuple[str, type]:
         """ad 分支的 (prompt, response_schema) 构造，generate/build_prompt 共用。
 
-        reference 路径不消费供应商能力（镜头时长为 1-15 自由整数），跳过能力查询；
+        reference 路径不消费供应商能力（unit 编排时长不按供应商档位量化），跳过能力查询；
         storyboard 路径解析一次 supported_durations，prompt 时长枚举与 schema enum 同源。
         """
         if gen_mode == "reference_video":
             supported = None
-            schema: type = build_ad_reference_episode_script_model()
+            schema: type = AdReferenceFlatScript
         else:
             caps = await self._fetch_video_capabilities()
             supported = self._resolve_supported_durations(caps, gen_mode=gen_mode)
@@ -557,43 +607,31 @@ class ScriptGenerator:
     def _build_ad_prompt(self, episode: int, gen_mode: str | None, supported: list[int] | None) -> str:
         """构建广告/短片模式 prompt：brief + 产品信息 + 审定配比表，不读 step1 中间文件。
 
-        storyboard 路径把 supported_durations 作为单镜头时长枚举写进 prompt（与
-        response_schema 的 enum 同口径）；reference 路径 ``supported`` 为 None（1-15 自由整数）。
+        storyboard 路径把 supported_durations 作为单镜头时长枚举写进 prompt；参考路线
+        直接输出统一书写层 video unit，八段式只作为内容规划而不持久化。
         """
-        target_duration = self.project_json.get("target_duration")
-        if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
-            raise ValueError(f"广告/短片项目缺少合法的 target_duration（正整数秒），当前为 {target_duration!r}")
-        # `or` 兜底：project.json 手工编辑时字段可能显式为 null，`.get(key, default)`
-        # 拿到 None 会让 prompt 构建在 `.keys()`/`.get()` 上崩溃。characters/scenes/props/
-        # products/overview 额外校验 isinstance：`or` 无法拦截显式写成非 dict（如 list）的脏数据。
-        characters = self.project_json.get("characters")
-        characters = characters if isinstance(characters, dict) else {}
-        scenes = self.project_json.get("scenes")
-        scenes = scenes if isinstance(scenes, dict) else {}
-        props = self.project_json.get("props")
-        props = props if isinstance(props, dict) else {}
-        products = self.project_json.get("products")
-        products = products if isinstance(products, dict) else {}
-        overview = self.project_json.get("overview")
-        overview = overview if isinstance(overview, dict) else {}
+        direct_inputs = project_ad_episode_script_inputs(episode, project=self.project_json)
+        common: dict[str, Any] = {
+            "project_overview": cast(dict[str, Any], direct_inputs["overview"]),
+            "style": direct_inputs["style"],
+            "style_description": direct_inputs["style_description"],
+            "characters": cast(dict[str, Any], direct_inputs["characters"]),
+            "scenes": cast(dict[str, Any], direct_inputs["scenes"]),
+            "props": cast(dict[str, Any], direct_inputs["props"]),
+            "products": cast(dict[str, Any], direct_inputs["products"]),
+            "brief": direct_inputs["brief"],
+            "target_duration": direct_inputs["target_duration"],
+            "episode": direct_inputs["episode"],
+            "aspect_ratio": direct_inputs["aspect_ratio"],
+            "target_language": direct_inputs["target_language"],
+        }
+        if gen_mode == "reference_video":
+            return build_ad_reference_prompt(**common)
         return build_ad_prompt(
-            project_overview=overview,
-            style=self.project_json.get("style") or "",
-            style_description=self.project_json.get("style_description") or "",
-            characters=characters,
-            scenes=scenes,
-            props=props,
-            products=products,
-            brief=self.project_json.get("brief") or "",
-            target_duration=target_duration,
+            **common,
             generation_mode=gen_mode,
             supported_durations=supported,
-            episode=episode,
-            aspect_ratio=self._resolve_aspect_ratio(),
-            # 输出语言与口播语速折算同取项目 source_language，与 drama/narration 同口径
-            # （见 build_ad_prompt 内 speech_rate_units_per_second/reading_unit_noun 调用）。
-            target_language=self.project_json.get("source_language") or "中文",
-            speech_rate_override=project_speech_rate_override(self.project_json),
+            speech_rate_override=cast(float | None, direct_inputs["speech_rate_override"]),
         )
 
     async def build_prompt(self, episode: int, *, instructions: str | None = None) -> str:
@@ -830,6 +868,57 @@ class ScriptGenerator:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
 
+    def _freeze_step1_artifact_basis(self, step1_content: object) -> None:
+        """Freeze the authoritative step1 basis before the provider call."""
+        try:
+            basis = build_episode_script_basis(step1_content, project=self.project_json)
+        except (TypeError, ValueError):
+            # Legacy projects and small unit-test fixtures can predate the typed
+            # artifact contract.  Schema 8 must remain strict because its
+            # Manifest is authoritative.
+            if project_schema_is_current(self.project_json):
+                raise
+            self._artifact_basis = None
+            return
+        self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
+
+    def _freeze_step1_input_claim(self, episode: int, step1_path: Path, *, content_digest: str) -> None:
+        """Bind parsed step1 bytes to their formal identity for provider admission."""
+
+        artifact_path = step1_path.relative_to(self.project_path).as_posix()
+        claim = resolve_usable_artifact_input_claim(
+            resolver=active_artifact_currency_resolver(self.project_path, self.project_json),
+            key=ArtifactKey.episode_step1(episode),
+            artifact_path=artifact_path,
+            content_digest=content_digest,
+        )
+        if claim is None:
+            raise ValueError(f"formal step1 artifact is not registered: {artifact_path}")
+        self._step1_input_claim = claim
+
+    async def _generate_text(self, request: TextGenerationRequest) -> Any:
+        """Call the paid text provider after one shared formal-input recheck."""
+
+        assert self.generator is not None  # generate() 入口已检查
+        if self._step1_input_claim is not None:
+            await asyncio.to_thread(
+                assert_current_artifact_input_claims_usable,
+                self.project_path,
+                (self._step1_input_claim,),
+            )
+        return await self.generator.generate(request, project_name=self.project_path.name)
+
+    def _freeze_ad_artifact_basis(self, episode: int) -> None:
+        """Freeze the ad-specific canonical basis before the provider call."""
+        try:
+            basis = build_ad_episode_script_basis(episode, project=self.project_json)
+        except (TypeError, ValueError):
+            if project_schema_is_current(self.project_json):
+                raise
+            self._artifact_basis = None
+            return
+        self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
+
     def _load_step1(self, episode: int) -> str:
         """加载 drama 形状两段式的 Step 1 结构化中间文件原始文本。
 
@@ -847,7 +936,10 @@ class ScriptGenerator:
                 f"未找到 Step 1 中间文件: {step1_path}；content_mode={self.content_mode} 期望该文件，请先完成本集预处理"
             )
 
-        return step1_path.read_text(encoding="utf-8")
+        raw = step1_path.read_bytes()
+        text = raw.decode("utf-8")
+        self._freeze_step1_input_claim(episode, step1_path, content_digest=hashlib.sha256(raw).hexdigest())
+        return text
 
     def _load_reference_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
         """加载并校验 reference_video step1 结构化中间文件 ``step1_reference_units.json``。
@@ -907,6 +999,13 @@ class ScriptGenerator:
                 episode=episode,
                 update_project=lambda mutate: pm.update_project(self.project_path.name, mutate),
                 supported_durations=supported_durations,
+            )
+            self._step1_revision = content_fingerprint_of_data(raw)
+            self._freeze_step1_artifact_basis(raw)
+            self._freeze_step1_input_claim(
+                episode,
+                step1_json,
+                content_digest=_file_content_digest(step1_json),
             )
 
         # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、审阅确认随之失效。而 gate
@@ -974,10 +1073,18 @@ class ScriptGenerator:
                 f"未找到 Step 1 中间文件: {step1_json}；content_mode=narration 期望该文件，请先完成片段拆分"
             )
 
+        raw_bytes = step1_json.read_bytes()
         try:
-            raw = json.loads(step1_json.read_text(encoding="utf-8"))
+            raw = json.loads(raw_bytes.decode("utf-8"))
         except json.JSONDecodeError as e:
             raise ValueError(f"step1_segments.json 解析失败: {e}")
+        self._step1_revision = content_fingerprint_of_data(raw)
+        self._freeze_step1_artifact_basis(raw)
+        self._freeze_step1_input_claim(
+            episode,
+            step1_json,
+            content_digest=hashlib.sha256(raw_bytes).hexdigest(),
+        )
 
         try:
             draft = NarrationStep1Draft.model_validate(raw)
@@ -1024,6 +1131,8 @@ class ScriptGenerator:
             raise ValueError(f"Step 1 内容文件不是合法 JSON（drama step1 应为结构化内容）: {e}")
         if not isinstance(data, dict):
             raise ValueError("Step 1 内容文件结构异常：顶层应为对象 {title, scenes}")
+        self._step1_revision = content_fingerprint_of_data(data)
+        self._freeze_step1_artifact_basis(data)
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("Step 1 内容文件结构异常：scenes 必须是非空的场景对象数组")
@@ -1087,7 +1196,13 @@ class ScriptGenerator:
             stored_shots = unit.get("shots") or []
             text = render_shots_text(stored_shots)
             try:
-                parsed_shots, _refs = validate_unit_text(label, text, self.project_json, max_refs=max_refs)
+                parsed_shots, _refs = validate_unit_text(
+                    label,
+                    text,
+                    self.project_json,
+                    unit_id=str(unit["unit_id"]),
+                    max_refs=max_refs,
+                )
                 if len(parsed_shots) != len(stored_shots):
                     # 落盘的单个 shot 正文里又嵌了 `镜头N：`（Agent 可裸写剧本 JSON）：渲染回书写层
                     # 再解析会多切出镜头，step2 按多出来的镜头数展开，而合并时比对的是落盘的 shots
@@ -1101,13 +1216,23 @@ class ScriptGenerator:
                 validate_dialogue_load(
                     label, text, int(unit["duration_seconds"]), source_language, speech_rate_override
                 )
-            except DraftViolation as e:
-                raise DraftViolation(
-                    f"{e}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
-                    "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认",
-                    code=e.code,
-                    label=label,
-                ) from e
+            except DraftViolation as exc:
+                enriched = [
+                    DraftViolation(
+                        f"{item}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
+                        "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认",
+                        code=item.code,
+                        label=label,
+                        line=item.line,
+                        locations=item.locations,
+                        reason=item.reason,
+                        action=item.action,
+                    )
+                    for item in violation_items(exc)
+                ]
+                if len(enriched) == 1:
+                    raise enriched[0] from exc
+                raise DraftViolations(enriched) from exc
 
     def _merge_reference_visual(
         self,
@@ -1290,7 +1415,13 @@ class ScriptGenerator:
 
         filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
-        output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
+        output_path = pm.save_script(
+            self.project_path.name,
+            script_data,
+            filename,
+            validate=True,
+            artifact_basis=self._artifact_basis,
+        )
         # 落盘成功后才清草稿：写盘失败时草稿还在，重试晋升即可，不会两头皆空。
         clear_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
         self._quality_probe(script_data, episode)
@@ -1323,7 +1454,7 @@ class ScriptGenerator:
             if not (isinstance(title, str) and title.strip()):
                 data["title"] = f"第{episode}集"
 
-        # 校验模型经规范解析定骨架种类（ad→shots 骨架唯一，reference→video_units），
+        # 校验模型经规范解析定骨架种类（分镜路线按内容模式，参考路线统一 video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
         kind = resolve_declared_kind(self.content_mode, self.generation_mode)
         schema = _KIND_PARSE_SCHEMA[kind]
@@ -1333,6 +1464,52 @@ class ScriptGenerator:
             logger.warning("数据验证警告: %s", e)
             # 返回原始数据，允许部分不符合 schema
             return data
+
+    def _parse_ad_reference_response(self, response_text: str, episode: int) -> dict:
+        """把广告参考路线的扁平 LLM 输出机械提升为自包含 ``video_units``。"""
+        text = strip_json_code_fences(response_text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"广告参考剧本 JSON 解析失败: {exc}") from exc
+        try:
+            flat = AdReferenceFlatScript.model_validate(data)
+        except ValidationError as exc:
+            raise ValueError(f"广告参考剧本结构校验失败: {exc}") from exc
+
+        units: list[dict] = []
+        for ordinal, source in enumerate(flat.units, start=1):
+            unit_id = f"E{episode}U{ordinal}"
+            try:
+                shots, references = validate_unit_text(
+                    f"unit {unit_id}",
+                    source.text,
+                    self.project_json,
+                    max_refs=None,
+                )
+            except DraftViolations as exc:
+                if not exc.items or any(
+                    item.code not in {"mixed_speech", "empty_speaker", "parse_failed"} for item in exc.items
+                ):
+                    raise
+                shots, _mentions = parse_prompt(source.text)
+                references, _missing = derive_references_from_text(source.text, self.project_json)
+            unit: dict = {
+                "unit_id": unit_id,
+                "shots": [shot.model_dump() for shot in shots],
+                "references": [reference.model_dump() for reference in references],
+                "duration_seconds": source.duration_seconds,
+                "transition_to_next": "cut",
+                "note": None,
+                "generated_assets": {},
+            }
+            if video_unit_replan_problems(unit):
+                unit["needs_replan"] = True
+            units.append(unit)
+
+        return ReferenceVideoScript.model_validate(
+            {"title": flat.title or f"第{episode}集", "content_mode": "ad", "video_units": units}
+        ).model_dump()
 
     def _parse_narration_visual(self, response_text: str, episode: int) -> dict:
         """解析 step2 视觉层 LLM 响应（NarrationVisualEpisodeScript）。
@@ -1421,7 +1598,7 @@ class ScriptGenerator:
         # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
         ep = int(episode)
         # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + SKELETONS 查 id 字段改写
-        # （ad 骨架唯一、reference→video_units；不再手写 reference 分支）。self.content_mode
+        # （参考路线三种 content_mode 均映射到 video_units；不再手写 reference 分支）。self.content_mode
         # 为项目级校验值，解析不会 fail-loud。kind 复用到下方 metadata 统计。
         kind = resolve_declared_kind(self.content_mode, gen_mode)
         id_field = SKELETONS[kind].id_field
@@ -1434,6 +1611,15 @@ class ScriptGenerator:
                 s[id_field] = _rewrite_episode_prefix(s.get(id_field), ep)
                 if reference_unit_durations is not None:
                     rewritten_output_ids.append(str(s[id_field]))
+
+        for item in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
+            if not isinstance(item, dict):
+                continue
+            admission = admit_script_unit(kind, item, ignore_marker=True)
+            if admission.allowed:
+                item.pop("needs_replan", None)
+            else:
+                item["needs_replan"] = True
 
         if reference_unit_durations is not None:
             # unit_id 集合须与 step1 完全一致才覆盖时长：LLM 漏写某个已确认 unit、或输出
@@ -1481,7 +1667,7 @@ class ScriptGenerator:
                         target_duration,
                     )
                 s["duration_seconds"] = target_duration
-        # content_mode 严格只是"内容类型"（narration/drama）；"视频来源"维度是项目级事实，
+        # content_mode 严格只是"内容类型"（narration/drama/ad）；"视频来源"维度是项目级事实，
         # 剧本不落盘任何路线戳——生成分派一律读项目路线。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
         # "narration"，setdefault 拿不到项目级真值；非参考集 LLM 已在 schema 中产出
@@ -1525,6 +1711,9 @@ class ScriptGenerator:
         script_data["metadata"]["created_at"] = now
         script_data["metadata"]["updated_at"] = now
         script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
+        step1_revision = getattr(self, "_step1_revision", None)
+        if step1_revision is not None:
+            script_data["metadata"][SCRIPT_STEP1_REVISION_FIELD] = step1_revision
 
         # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）。
         # 数组键经上方规范解析所得 kind 查表；计数键名为业务附着、随 kind 显式保留。
@@ -1603,7 +1792,7 @@ class ScriptGenerator:
             if self.content_mode == "ad":
                 target = self.project_json.get("target_duration")
                 if isinstance(target, int) and not isinstance(target, bool) and target > 0:
-                    total = ad_script_total_duration(script_data.get("shots"))
+                    total = script_duration_total(kind, items)
                     delta_ratio = abs(total - target) / target
                     if delta_ratio > AD_TARGET_DURATION_DRIFT_THRESHOLD:
                         logger.warning(

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.generation_queue import ActiveTaskRequestConflict
 from lib.generation_queue_client import TaskSpecValidationError
 from lib.script_editor import ScriptEditError
 from server.error_handlers import register_error_handlers
@@ -35,6 +36,10 @@ def _make_client() -> TestClient:
     @app.get("/task-spec-error")
     async def _task_spec_error():
         raise TaskSpecValidationError("prompt_text_empty")
+
+    @app.get("/active-video-request-conflict")
+    async def _active_video_request_conflict():
+        raise ActiveTaskRequestConflict(resource_id="E1S01", existing_task_id="task-existing")
 
     @app.get("/script-edit-error")
     async def _script_edit_error():
@@ -97,6 +102,16 @@ class TestApiErrorHandler:
 
 
 class TestLibExceptionHandlers:
+    @pytest.mark.unit
+    def test_active_video_request_conflict_409(self):
+        client = _make_client()
+        resp = client.get("/active-video-request-conflict", headers={"Accept-Language": "en"})
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == (
+            "Unit 'E1S01' already has a video task using different narration delivery options; "
+            "wait for it to finish or cancel it before retrying."
+        )
+
     @pytest.mark.unit
     def test_task_spec_validation_error_400(self):
         client = _make_client()

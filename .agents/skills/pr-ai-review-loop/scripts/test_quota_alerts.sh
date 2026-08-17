@@ -111,7 +111,10 @@ for tc in "${CASES[@]}"; do
     "
     [{id: 1, user: {login: \$login}, created_at: \"2026-07-13T00:00:00Z\",
       updated_at: \$updated_at, body: \$body}] as \$sub_a
-    | $RL_DEF
+    | {reviews: [], headRefOid: \"test-head\"} as \$main
+    | {} as \$review_commit_by_id
+    | def codex_commit_is_current_head: false;
+      $RL_DEF
       $WT_DEF
       (cr_walkthrough_rest | \"\\(.is_rate_limited):\\(.reviewed_current_head)\")
     ")

@@ -1,0 +1,65 @@
+:root {
+  --ifm-color-primary: #5b5bd6;
+  --ifm-color-primary-dark: #4a4acf;
+  --ifm-color-primary-darker: #4444c6;
+  --ifm-color-primary-darkest: #3838a4;
+  --ifm-color-primary-light: #7373de;
+  --ifm-color-primary-lighter: #7e7ee2;
+  --ifm-color-primary-lightest: #9d9dea;
+  --ifm-code-font-size: 95%;
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #a5a5f0;
+  --ifm-color-primary-dark: #8888ea;
+  --ifm-color-primary-darker: #7a7ae7;
+  --ifm-color-primary-darkest: #5252dc;
+  --ifm-color-primary-light: #c2c2f6;
+  --ifm-color-primary-lighter: #d0d0f9;
+  --ifm-color-primary-lightest: #fafaff;
+}
+
+.homeCards {
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
+
+.homeCard {
+  display: block;
+  height: 100%;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  color: inherit;
+  transition:
+    border-color 200ms ease,
+    transform 200ms ease;
+}
+
+.homeCard:hover {
+  border-color: var(--ifm-color-primary);
+  color: inherit;
+  text-decoration: none;
+  transform: translateY(-2px);
+}
+
+.homeCardTitle {
+  margin-bottom: 0.5rem;
+  font-size: 1.125rem;
+  color: var(--ifm-color-primary);
+}
+
+.homeCardBody {
+  margin-bottom: 0;
+  font-size: 0.9375rem;
+  color: var(--ifm-color-emphasis-700);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .homeCard {
+    transition: none;
+  }
+
+  .homeCard:hover {
+    transform: none;
+  }
+}

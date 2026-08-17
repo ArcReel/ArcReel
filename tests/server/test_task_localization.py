@@ -134,10 +134,37 @@ class TestWarningRendering:
         localized = _localize_task(task, _translator("zh"))
 
         assert not localized["error_message"].startswith("[")
+        assert localized["error_code"] == "provider_unsupported_media"
+        assert localized["error_params"] == {"provider_id": "grok", "media_type": "image"}
         assert localized["result"]["warnings"] == ["Sora 参考模式暂不支持多图，已降级为单图"]
+
+    def test_projection_failure_keeps_machine_details_while_message_tracks_locale(self):
+        task = _task(
+            status="failed",
+            error_message=encode_failure(
+                "reference_supported_durations_invalid",
+                provider="fake",
+                model="bad-model",
+            ),
+        )
+
+        localized = {locale: _localize_task(task, _translator(locale)) for locale in ("zh", "en", "vi")}
+
+        for result in localized.values():
+            assert result["error_code"] == "reference_supported_durations_invalid"
+            assert result["error_params"] == {"provider": "fake", "model": "bad-model"}
+        assert len({result["error_message"] for result in localized.values()}) == 3
 
 
 class TestWarningPassthroughAndTolerance:
+    def test_execution_checkpoint_is_removed_without_mutating_internal_task(self):
+        task = _task(execution_checkpoint_json='{"provider_id":"secret"}')
+
+        localized = _localize_task(task, _translator("zh"))
+
+        assert "execution_checkpoint_json" not in localized
+        assert task["execution_checkpoint_json"] == '{"provider_id":"secret"}'
+
     def test_task_without_result_is_returned_unchanged(self):
         task = _task()
 

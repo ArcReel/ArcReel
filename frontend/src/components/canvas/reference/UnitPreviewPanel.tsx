@@ -3,6 +3,8 @@ import { Film, Loader2, Sparkles, RotateCcw, AlertTriangle } from "lucide-react"
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
+import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
+import { NarrationAudioCard } from "@/components/canvas/timeline/NarrationAudioCard";
 import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/ui/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
 import { StatusBadge, resolveUnitStatus } from "./unit-status";
@@ -29,6 +31,12 @@ export interface UnitPreviewPanelProps {
   /** Actual already-spent cost; rendered in the metadata block. */
   actualCost?: CostBreakdown;
   onGenerate?: (unitId: string) => void;
+  narrationText?: string;
+  narrationGenerating?: boolean;
+  narrationEstimatedCost?: CostBreakdown;
+  onGenerateNarration?: (unitId: string) => void;
+  /** 剧本单元需重新规划，在修复前不可生成。 */
+  generationBlocked?: boolean;
   /** 上传成片视频（替换该单元的 AI 生成视频）；未提供时不显示上传入口 */
   onUploadVideo?: (unitId: string, file: File) => void | Promise<void>;
   /** 上传进行中 */
@@ -66,6 +74,11 @@ export function UnitPreviewPanel({
   estimatedCost,
   actualCost,
   onGenerate,
+  narrationText,
+  narrationGenerating,
+  narrationEstimatedCost,
+  onGenerateNarration,
+  generationBlocked = false,
   onUploadVideo,
   uploadingVideo,
   restoring = false,
@@ -88,6 +101,8 @@ export function UnitPreviewPanel({
 
   const effectiveStatus = status ?? resolveUnitStatus(unit);
   const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip, clipFp) : null;
+  const hasNarrationText = Boolean(narrationText?.trim());
+  const narrationAudio = unit.generated_assets.narration_audio ?? null;
 
   // 状态先于 video_clip 落库的窗口里，effectiveStatus==="ready" 但 videoUrl
   // 还为 null —— 这种情况下走 inFlight 占位避免空白面板。
@@ -149,16 +164,13 @@ export function UnitPreviewPanel({
             : "bg-[oklch(0.18_0.010_265_/_0.5)]"
         }`}
       >
-        {ready && videoUrl && (
+        {ready && videoUrl && projectName && (
           <>
-            {/* eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated video clips have no caption track */}
-            <video
-              src={videoUrl}
-              aria-label={t("reference_preview_video_aria", { id: unit.unit_id })}
-              controls
-              preload="metadata"
-              playsInline
-              className="h-full w-full object-contain"
+            <PresentationPlayer
+              key={`${unit.unit_id}:${clipFp ?? "current"}`}
+              projectName={projectName}
+              resourceType="reference_videos"
+              resourceId={unit.unit_id}
             />
             <div
               className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[10px] text-white/85 backdrop-blur"
@@ -221,9 +233,9 @@ export function UnitPreviewPanel({
         <button
           type="button"
           onClick={() => onGenerate(unit.unit_id)}
-          disabled={inFlight || busy || restoring}
+          disabled={inFlight || busy || restoring || generationBlocked}
           className={`focus-ring inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-colors ${
-            inFlight || busy || restoring
+            inFlight || busy || restoring || generationBlocked
               ? "cursor-not-allowed border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.6)] text-[var(--color-text-3)]"
               : "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_var(--color-accent-glow)]"
           }`}
@@ -249,6 +261,26 @@ export function UnitPreviewPanel({
             </>
           )}
         </button>
+      )}
+
+      {generationBlocked && (
+        <p role="alert" className="text-xs text-amber-300">
+          {t("reference_needs_replan")}
+        </p>
+      )}
+
+      {(hasNarrationText || narrationAudio) && projectName && (
+        <NarrationAudioCard
+          projectName={projectName}
+          segmentId={unit.unit_id}
+          novelText={narrationText ?? ""}
+          assetPath={narrationAudio}
+          generating={narrationGenerating}
+          generateDisabled={!hasNarrationText}
+          generateDisabledHint={!hasNarrationText ? t("no_original_text") : undefined}
+          estimatedCost={narrationEstimatedCost}
+          onGenerate={onGenerateNarration ? () => onGenerateNarration(unit.unit_id) : undefined}
+        />
       )}
 
       <div className="rounded-lg border border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] p-3">

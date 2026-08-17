@@ -238,12 +238,68 @@ class TestDramaGateFlow:
 
         # 内容变更（指纹漂移）→ 自动重新待审
         edited = _drama_step1()
-        edited["scenes"][0]["utterances"][1]["text"] = "你怎么才回来。"
+        edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
         await svc.save_content("demo", 1, edited)
 
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
-        assert state["content"]["scenes"][0]["utterances"][1]["text"] == "你怎么才回来。"
+        assert state["content"]["scenes"][0]["scene_description"] == "雨势渐急，阿离仍站在屋檐下"
+
+    @pytest.mark.unit
+    async def test_legacy_mixed_scene_allows_metadata_edit_but_rejects_speech_edit_atomically(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        path = _write_step1(pm, "drama", _drama_step1())
+
+        metadata_edit = _drama_step1()
+        metadata_edit["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
+        await svc.save_content("demo", 1, metadata_edit)
+
+        speech_edit = json.loads(json.dumps(metadata_edit, ensure_ascii=False))
+        speech_edit["scenes"][0]["utterances"][1]["text"] = "别过来。"
+        with pytest.raises(ScriptReviewError) as exc_info:
+            await svc.save_content("demo", 1, speech_edit)
+
+        assert exc_info.value.code == "speech_admission"
+        assert exc_info.value.admission is not None
+        assert exc_info.value.admission.problems[0].code == "mixed_speech"
+        assert json.loads(path.read_text(encoding="utf-8")) == metadata_edit
+
+    @pytest.mark.unit
+    async def test_repairing_marked_drama_candidate_clears_replan_marker(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        candidate = _drama_step1()
+        candidate["scenes"][0]["needs_replan"] = True
+        path = _write_step1(pm, "drama", candidate)
+
+        repaired = json.loads(json.dumps(candidate, ensure_ascii=False))
+        repaired["scenes"][0]["utterances"] = [{"kind": "dialogue", "speaker": "阿离", "text": "你终于回来了。"}]
+        await svc.save_content("demo", 1, repaired)
+
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        assert "needs_replan" not in saved["scenes"][0]
+
+    @pytest.mark.unit
+    async def test_metadata_edit_cannot_clear_drama_replan_marker(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        candidate = _drama_step1()
+        candidate["scenes"][0]["needs_replan"] = True
+        path = _write_step1(pm, "drama", candidate)
+
+        metadata_edit = json.loads(json.dumps(candidate, ensure_ascii=False))
+        metadata_edit["scenes"][0].pop("needs_replan")
+        metadata_edit["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
+        await svc.save_content("demo", 1, metadata_edit)
+
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        assert saved["scenes"][0]["needs_replan"] is True
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+        assert exc.value.code == "speech_admission"
+        assert exc.value.admission is not None
+        assert exc.value.admission.problems[0].code == "needs_replan"
 
     @pytest.mark.unit
     async def test_whitespace_reformat_keeps_confirmed(self, tmp_path):
@@ -414,6 +470,29 @@ class TestReferenceVideoGateFlow:
             ("character", "阿离"),
             ("scene", "屋檐"),
         ]
+
+    @pytest.mark.unit
+    async def test_confirm_readmits_after_deleted_reference_is_rederived(self, tmp_path):
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm.add_scenes_batch("demo", {"酒馆": {"description": "夜雨中的酒馆"}})
+        svc = ScriptReviewService(pm)
+        candidate = _rv_step1()
+        candidate["units"][0]["shots"] = [{"text": "@[酒馆]：木门被风吹开。"}]
+        candidate["units"][0]["references"] = [{"type": "scene", "name": "酒馆"}]
+        path = _write_rv_step1(pm, candidate)
+
+        def _delete_scene(project: dict) -> None:
+            project["scenes"].pop("酒馆")
+
+        pm.update_project("demo", _delete_scene)
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+
+        assert exc.value.code == "speech_admission"
+        assert exc.value.admission is not None
+        assert exc.value.admission.problems[0].code == "parse_failed"
+        assert json.loads(path.read_text(encoding="utf-8")) == candidate
 
     @pytest.mark.integration
     async def test_reference_duration_tiers_narrows_raw_set_by_resolution_constraint(self, tmp_path, monkeypatch):
@@ -892,14 +971,30 @@ class TestApplicability:
 
 class TestErrors:
     @pytest.mark.unit
-    async def test_save_invalid_content_rejected(self, tmp_path):
+    async def test_save_empty_dialogue_speaker_returns_structured_admission(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        path = _write_step1(pm, "drama", _drama_step1())
+
+        bad = _drama_step1()
+        bad["scenes"][0]["utterances"][1] = {"kind": "dialogue", "speaker": None, "text": "无人"}
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, bad)
+        assert exc.value.code == "speech_admission"
+        assert exc.value.admission is not None
+        assert exc.value.admission.unit_id == "E1S01"
+        assert exc.value.admission.problems[0].code == "empty_speaker"
+        assert exc.value.admission.problems[0].locations[0].path == ("utterances", 1, "speaker")
+        assert json.loads(path.read_text(encoding="utf-8")) == _drama_step1()
+
+    @pytest.mark.unit
+    async def test_save_invalid_non_speech_content_rejected(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
         _write_step1(pm, "drama", _drama_step1())
 
         bad = _drama_step1()
-        # dialogue 缺 speaker → kind ⇄ speaker 约束失败
-        bad["scenes"][0]["utterances"][1] = {"kind": "dialogue", "speaker": None, "text": "无人"}
+        bad["scenes"][0]["duration_seconds"] = "invalid"
         with pytest.raises(ScriptReviewError) as exc:
             await svc.save_content("demo", 1, bad)
         assert exc.value.code == "invalid_content"
@@ -911,6 +1006,24 @@ class TestErrors:
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "no_step1"
+
+    @pytest.mark.unit
+    async def test_confirm_marked_drama_candidate_returns_structured_admission(self, tmp_path):
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        candidate = _drama_step1()
+        candidate["scenes"][0]["needs_replan"] = True
+        _write_step1(pm, "drama", candidate)
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+
+        assert exc.value.code == "speech_admission"
+        assert exc.value.admission is not None
+        assert exc.value.admission.unit_id == "E1S01"
+        assert exc.value.admission.problems[0].code == "needs_replan"
+        project = pm.load_project("demo")
+        assert script_review.gate_blocks_step2(pm.get_project_path("demo"), project, 1) is True
 
     @pytest.mark.unit
     async def test_save_not_applicable_rejected(self, tmp_path):
@@ -1103,6 +1216,30 @@ class TestStep1WriteStore:
         with script_review.step1_write_lock(project_path, 1):
             script_review.write_step1_locked(project_path, 1, {"units": [{"v": 3}]}, clear_step2_quarantine=False)
         assert step2_q.exists()
+
+    @pytest.mark.unit
+    def test_successful_noop_refreshes_active_manifest_claim(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        project_path = self._project_path(tmp_path)
+        project_file = project_path / "project.json"
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project["schema_version"] = 8
+        atomic_write_json(project_file, project)
+        content = {"units": [{"v": 1}]}
+        with script_review.step1_write_lock(project_path, 1):
+            script_review.write_step1_locked(project_path, 1, content)
+
+        registered: list[object] = []
+        monkeypatch.setattr(
+            "lib.artifact_activation.register_current_artifact_if_provable",
+            lambda _project_path, key: registered.append(key),
+        )
+
+        with script_review.step1_write_lock(project_path, 1):
+            assert script_review.write_step1_locked(project_path, 1, content) is False
+
+        from lib.artifact_manifest import ArtifactKey
+
+        assert registered == [ArtifactKey.episode_step1(1)]
 
 
 # ---------------------------------------------------------------------------

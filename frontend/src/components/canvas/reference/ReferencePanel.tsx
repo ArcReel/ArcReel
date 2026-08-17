@@ -30,7 +30,7 @@ const PICKER_ID = "reference-panel-mention-picker";
 // refId 用于 baseIds/existingKeys（资产存在性判断），不是拖拽身份——拖拽身份见下方 sortableIds。
 const refId = (r: ReferenceResource): string => `${r.type}:${normalizeAssetName(r.name)}`;
 
-type BucketEntry = Partial<Record<"character_sheet" | "scene_sheet" | "prop_sheet", string>>;
+type BucketEntry = Partial<Record<"product_sheet" | "character_sheet" | "scene_sheet" | "prop_sheet", string>>;
 // bucket key 与 name 可能是 NFC/NFD 中的任一方（bucket 来自落盘的 project.json 原始 key，
 // name 可能来自已归一的 references 或选择器候选），两侧归一后再比对，见
 // `utils/reference-mentions.ts` 顶部注释的坐标系约定。存量桶里视觉同名的多形式 key
@@ -107,6 +107,7 @@ export function ReferencePanel({
   // 感知元素变更。同一元素也作为 outside-pointerdown 的例外目标（anchorElement）。
   const [addButtonEl, setAddButtonEl] = useState<HTMLButtonElement | null>(null);
   const characters = useProjectsStore((s) => s.currentProjectData?.characters);
+  const products = useProjectsStore((s) => s.currentProjectData?.products);
   const scenes = useProjectsStore((s) => s.currentProjectData?.scenes);
   const props = useProjectsStore((s) => s.currentProjectData?.props);
   const assetFingerprints = useProjectsStore((s) => s.assetFingerprints);
@@ -128,22 +129,24 @@ export function ReferencePanel({
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
+      product: products,
       character: characters,
       scene: scenes,
       prop: props,
     };
     const out = {} as Record<AssetKind, MentionCandidate[]>;
-    for (const kind of ["character", "scene", "prop"] as const) {
+    for (const kind of ["product", "character", "scene", "prop"] as const) {
       out[kind] = Object.keys(buckets[kind] ?? {})
         .filter((name) => !existingKeys.has(`${kind}:${normalizeAssetName(name)}`))
         .map((name) => ({ name, imagePath: sheetOf(buckets[kind], kind, name) }));
     }
     return out;
-  }, [existingKeys, characters, scenes, props]);
+  }, [existingKeys, products, characters, scenes, props]);
 
   // 一次性派生每个 chip 的 imageUrl，避免每个 chip 订阅 store。
   const chipData = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
+      product: products,
       character: characters,
       scene: scenes,
       prop: props,
@@ -154,7 +157,7 @@ export function ReferencePanel({
       const imageUrl = imagePath ? API.getFileUrl(projectName, imagePath, fingerprint) : null;
       return { ref: r, imageUrl };
     });
-  }, [references, characters, scenes, props, assetFingerprints, projectName]);
+  }, [references, products, characters, scenes, props, assetFingerprints, projectName]);
 
   const handleAddClick = () => setPickerOpen((v) => !v);
 

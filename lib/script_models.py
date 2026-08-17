@@ -191,10 +191,8 @@ class GeneratedAssets(BaseModel):
     # `voice_updated_at` 比较，判定该片段是否生成于当前参考音频设置之前。
     # 缺省视为早于任何设置，落在「生成于设置之前」语义内。对 LLM 隐藏。
     video_generated_at: SkipJsonSchema[str | None] = Field(default=None, description="视频生成完成时间（ISO8601 UTC）")
-    # ad 参考单元产物的来源签名（编排 + 参考集，见 lib.reference_video.ad_units.ad_unit_source_signature）：
-    # finalize 写回，读取侧与当前剧本现算的签名比较派生 stale。缺省视为非 stale（签名机制
-    # 引入前的存量产物 / 版本还原到无签名档的版本），随下一次生成补齐。对 LLM 隐藏。
-    source_signature: SkipJsonSchema[str | None] = Field(default=None, description="产物来源签名（sha256）")
+    # 仅用于无损接收迁移前的历史记录；运行时不读取、比较或新增该键。
+    source_signature: SkipJsonSchema[str | None] = Field(default=None, description="历史产物来源签名")
 
 
 def get_generated_assets(item: dict) -> dict:
@@ -259,6 +257,7 @@ class NarrationSegment(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
 
 
 class NovelInfo(BaseModel):
@@ -381,7 +380,8 @@ class Utterance(BaseModel):
     """drama 场景级有序发声条目：插入顺序即幕内时序（台词与画外音的先后）。
 
     判别式联合 ``{kind, speaker, text}``，``kind`` 决定下游路由与 ``kind ⇄ speaker`` 约束：
-    - ``dialogue``：角色台词，必带非空 ``speaker``，进视频 YAML 交供应商出口型音轨；
+    - ``dialogue``：人物发声（对白、内心独白、人物画外解说），必带非空 ``speaker``，
+      进视频 YAML 交供应商出口型音轨；
     - ``voiceover``：无说话人的旁白解说，``speaker`` 必为 ``None``，不作视频提示词（留给字幕 / TTS）。
 
     取显式 ``kind`` 而非「speaker 有无隐式判别」：与 ``ReferenceResource.type`` 既有判别式风格一致、
@@ -390,7 +390,7 @@ class Utterance(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    kind: UtteranceKind = Field(description="发声类型：dialogue=角色台词、voiceover=无说话人画外音")
+    kind: UtteranceKind = Field(description="发声类型：dialogue=带角色归属的人物发声、voiceover=无角色归属的叙述旁白")
     speaker: str | None = Field(default=None, description="说话角色名；dialogue 必填非空、voiceover 必须为 null")
     text: str = Field(description="发声内容原文，逐字保留")
 
@@ -508,6 +508,7 @@ class DramaScene(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
 
 
 class DramaEpisodeScript(BaseModel):
@@ -569,6 +570,7 @@ class DramaSceneContent(BaseModel):
         description="场景级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列，逐字保留",
     )
     source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该场景需要人工重新规划")
 
 
 class DramaNormalizedScript(BaseModel):
@@ -702,41 +704,7 @@ class AdShot(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
-
-
-class AdUnitReference(BaseModel):
-    """ad 派生分组的参考条目——比 ``ReferenceResource`` 多 ``product`` 类型。
-
-    产品镜头沿用注入二元规则（见 docs/adr/0034）：产品参考全量进入 unit
-    参考集且排序绝对优先，故索引条目须能表达 product 类型。
-    """
-
-    model_config = _STRICT_CONFIG
-
-    type: Literal["product", "character", "scene", "prop"] = Field(description="引用的资源类型")
-    name: str = Field(description="资产名称，必须在 project.json 对应 bucket 中已注册")
-
-
-class AdReferenceUnit(BaseModel):
-    """ad + reference_video 路径的派生分组索引条目。
-
-    轻量索引仅引用 shot_id 与参考集，不复制镜头内容（shots 是内容唯一真相，
-    见 docs/adr/0033）；``generated_assets`` 是 unit 级运行时状态（产物文件按
-    unit_id 命名），由生成 finalize 写回。索引由 ``lib.reference_video.ad_units``
-    的派生分组器从 shots 重算，shot_id 引用完整性不在结构层校验——镜头删除后
-    索引短暂悬空是合法的中间态（重新派生即愈），结构层若拒绝会反过来阻塞镜头编辑。
-    """
-
-    model_config = _STRICT_CONFIG
-
-    unit_id: str = Field(description="格式 E{集}U{序号}")
-    shot_ids: list[str] = Field(min_length=1, max_length=4, description="成员镜头 ID（连续、1-4 个）")
-    references: list[AdUnitReference] = Field(default_factory=list, description="继承的参考集，产品在前")
-    generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
-    # 读时派生属性、对 LLM 隐藏：成片是否偏离当前剧本编排由读取侧比较产物来源签名
-    # 得出（lib.reference_video.ad_units.is_ad_unit_stale）并注入 API 响应副本，不落盘；
-    # 字段保留是为了容忍历史剧本残留的 stale 键（extra="forbid" 下不至拒读），读取侧忽略其值。
-    stale: SkipJsonSchema[bool] = Field(default=False, description="成片已偏离当前剧本编排，建议重新生成")
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
 
 
 class AdEpisodeScript(BaseModel):
@@ -754,28 +722,14 @@ class AdEpisodeScript(BaseModel):
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     shots: list[AdShot] = Field(description="镜头列表")
-    # reference_video 路径的派生分组索引，由分组器派生注入而非 LLM 生成；
-    # None 表示尚未派生。重新生成剧本时随 LLM 输出重建为 None（shots 已变，索引须重派生）。
-    reference_units: SkipJsonSchema[list[AdReferenceUnit] | None] = Field(
-        default=None, description="参考直出派生分组索引"
-    )
 
 
 # ============ 参考生视频模式（Reference Video） ============
 
-#: ad + 参考生视频路径下单镜头时长的合法区间（秒）。ad 骨架的短切节奏赖此成立：
-#: 不按供应商 supported_durations 枚举，而是 1-15 自由整数（ad unit 时长由成员镜头
-#: 求和派生，见 ADR 0033）。``AdShot.duration_seconds`` 与 ``DataValidator`` 共用此真相源。
-#: narration/drama 参考路径的镜头不承载时长——时长是 unit 级单一真相。
-REFERENCE_SHOT_DURATION_RANGE: tuple[int, int] = (1, 15)
-
-#: 参考生视频 unit 时长（``ReferenceVideoUnit.duration_seconds``）的结构合理性区间（秒）。
-#: unit 时长的**取值集**是模型能力声明的档位枚举，随模型而变、不进静态模型；本区间只做
-#: 与模型无关的脏数据兜底：拦住非正整数与量级明显失真的值，合法性判定整体交给档位——取值
-#: 是否合法由 ``resolve_duration_slot`` 取档（偏移记 warning）与动态枚举 schema 承担。
-#: 上界因此取一个宽于任何可预见档位声明的量级，而非由镜头数推导：镜头不承载时长，按
-#: 「4 镜头 × 单镜头上限」推导会把支持更长档位的模型判非法。存量迁移的结构 clamp 与
-#: ``DataValidator`` 的结构校验共用此真相源。
+#: 参考生视频 unit 编排时长（``ReferenceVideoUnit.duration_seconds``）的结构范围（秒）。
+#: 静态模型只拦非正整数与量级明显失真的值；生成预检再按执行模型能力投影到申请档位并把
+#: 偏移作为 warning 呈现。上界不由镜头数推导：镜头不承载时长，unit 才是一次生成调用。
+#: 存量迁移的问题壳是唯一例外，可在 ``needs_replan`` 下保存零秒。
 REFERENCE_UNIT_DURATION_RANGE: tuple[int, int] = (1, 300)
 
 #: ad 剧本总时长 vs 项目 target_duration 的偏差观察阈值（比例）。供应商时长枚举
@@ -789,8 +743,7 @@ def ad_shot_duration_seconds(shot: object) -> int:
     """ad 单镜头时长（秒）的脏数据归一口径：非 dict 条目、非正整数时长
     （bool 按 int 子类排除）一律按 0 计、不抛。
 
-    求和观察（``ad_script_total_duration``）、派生分组与剪映字幕对齐共用此
-    单一真相源，避免三处各自维护同一判定。
+    分镜路线的总时长偏差观察经 ``ad_script_total_duration`` 共用此口径。
     """
     if not isinstance(shot, dict):
         return 0
@@ -855,7 +808,7 @@ class Shot(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    text: str = Field(description="镜头描述，可包含 @[角色]/@[场景]/@[道具] 引用")
+    text: str = Field(description="镜头描述，可包含 @[产品]/@[角色]/@[场景]/@[道具] 引用")
 
 
 class ReferenceResource(BaseModel):
@@ -863,28 +816,28 @@ class ReferenceResource(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    type: Literal["character", "scene", "prop"] = Field(description="引用的资源类型")
-    name: str = Field(description="角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
+    type: Literal["product", "character", "scene", "prop"] = Field(description="引用的资源类型")
+    name: str = Field(description="产品/角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
 
 
 class ReferenceVideoUnit(BaseModel):
     """参考视频单元——一个视频文件的最小生成粒度。
 
-    unit 是一次生成调用的单元，一个 unit 一个时长：``duration_seconds`` 是时长的唯一真相，
-    直接对应发给供应商的申请秒数，取值来自模型能力声明的档位枚举。成员 shot 只承载画面
-    编排文本、不承载时长，故不存在由 shots 求和的派生与一致性校验。
+    unit 是一次生成调用的单元，一个 unit 一个编排时长：``duration_seconds`` 是剧本时长的
+    唯一真相。执行前预检再把它投影到供应商申请档位；成员 shot 只承载画面编排文本、不承载
+    时长，故不存在由 shots 求和的派生与一致性校验。
     """
 
     model_config = _STRICT_CONFIG
 
     unit_id: str = Field(description="格式 E{集}U{序号}")
-    shots: list[Shot] = Field(min_length=1, max_length=4, description="1-4 个 shot")
+    shots: list[Shot] = Field(max_length=4, description="正常单元 1-4 个 shot；迁移问题壳可为空")
     references: list[ReferenceResource] = Field(
         default_factory=list,
-        description="按顺序决定 [图N] 编号",
+        description="逻辑资产引用；执行时展开为按顺序编号的请求图片",
     )
     duration_seconds: int = Field(
-        ge=REFERENCE_UNIT_DURATION_RANGE[0],
+        ge=0,
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
     )
@@ -894,6 +847,23 @@ class ReferenceVideoUnit(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
+    migration_requires_content_replan: SkipJsonSchema[bool] = Field(
+        default=False,
+        description="迁移留下的成员归属或折叠内容尚未通过正文重写复核",
+    )
+
+    @model_validator(mode="after")
+    def _validate_replan_shell(self) -> "ReferenceVideoUnit":
+        """全悬空迁移壳可为空且为 0 秒；其余单元仍须可执行。"""
+        if self.migration_requires_content_replan and not self.needs_replan:
+            raise ValueError("迁移内容待复核的 video unit 必须标记 needs_replan=true")
+        if not self.shots:
+            if not self.needs_replan or self.duration_seconds != 0:
+                raise ValueError("空 video unit 仅允许 needs_replan=true 且 duration_seconds=0")
+        elif self.duration_seconds < REFERENCE_UNIT_DURATION_RANGE[0]:
+            raise ValueError("非空 video unit 的 duration_seconds 必须为正整数")
+        return self
 
 
 class ReferenceVideoScript(BaseModel):
@@ -902,15 +872,15 @@ class ReferenceVideoScript(BaseModel):
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
 
-    ``content_mode`` 仅承担"内容类型"维度（narration/drama）；"视频来源"维度是项目级事实
+    ``content_mode`` 仅承担"内容类型"维度（narration/drama/ad）；"视频来源"维度是项目级事实
     （``project.json`` 的 ``generation_mode``），剧本不携带——路线创建时锁定，剧本骨架种类
     本身即路线的体现。
     """
 
     title: str = Field(description="剧集标题")
     # 对 LLM 隐藏：由 _add_metadata 注入。
-    content_mode: SkipJsonSchema[Literal["narration", "drama"]] = Field(
-        default="narration", description="内容类型（narration/drama），参考视频模式实际不区分"
+    content_mode: SkipJsonSchema[Literal["narration", "drama", "ad"]] = Field(
+        default="narration", description="内容类型（narration/drama/ad）"
     )
     # 见 NarrationEpisodeScript.duration_seconds 说明。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
@@ -1030,6 +1000,28 @@ class ReferenceStep2FlatScript(BaseModel):
     units: list[ReferenceStep2FlatUnit] = Field(min_length=1, description="与 step1 units 一一对应、顺序不变")
 
 
+class AdReferenceFlatUnit(BaseModel):
+    """广告参考路线一次生成产出的自包含书写单元。"""
+
+    model_config = _STRICT_CONFIG
+
+    duration_seconds: int = Field(
+        ge=REFERENCE_UNIT_DURATION_RANGE[0],
+        le=REFERENCE_UNIT_DURATION_RANGE[1],
+        description="该单元的编排时长（秒），不按供应商档位量化",
+    )
+    text: str = Field(min_length=1, description="书写层正文：镜头行 / 台词行 / 画外音行")
+
+
+class AdReferenceFlatScript(BaseModel):
+    """广告参考路线的单阶段 LLM 输出；ID、references 与状态均由机器派生。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(description="短片标题")
+    units: list[AdReferenceFlatUnit] = Field(min_length=1, description="按播放顺序排列的视频单元")
+
+
 # ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
 
 
@@ -1130,23 +1122,6 @@ def _ad_episode_model(duration_type: object, description: str) -> type[BaseModel
         "AdEpisodeScript",
         __base__=AdEpisodeScript,
         shots=(list[shot], Field(description="镜头列表")),
-    )
-
-
-def build_ad_reference_episode_script_model() -> type[BaseModel]:
-    """构造 ad + reference_video 路径的剧集脚本模型：镜头时长 1-15 自由整数。
-
-    ad 剧本骨架唯一、不随生成路径更换（仍是平铺 ``shots[]``），只有
-    ``duration_seconds`` 的值约束随路径切换：storyboard 路径走
-    ``build_episode_script_model("ad", supported_durations)`` 的枚举硬约束；
-    reference 路径不受供应商 supported_durations 限制（参考直达按 unit 聚合
-    对接供应商 API），按 ``REFERENCE_SHOT_DURATION_RANGE`` 收紧为自由整数区间，
-    与 ``Shot.duration`` 同口径。
-    """
-    low, high = REFERENCE_SHOT_DURATION_RANGE
-    return _ad_episode_model(
-        Annotated[int, Field(ge=low, le=high)],
-        f"镜头时长（秒），{low}-{high} 间整数任选",
     )
 
 

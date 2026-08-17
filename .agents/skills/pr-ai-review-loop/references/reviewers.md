@@ -6,7 +6,7 @@
 
 - **本轮新评论**:索引中 `is_new == true` 的条目(inline 走 `inline_new_by_user`,评论走 `comments_new`)。口径与陷阱见 poll.sh PITFALL 2 与 6
 - **Acknowledgment 例外**:`is_ack == true` 的条目是 reviewer 对上一次修复或 inline 回复的确认,一律**不算** actionable;review state 为 `APPROVED` 也不算
-- **flag 以正文为准**:索引 flags(`is_ack` / `cr_markers` / `has_pass_marker` / `severity_alt`)是脚本解析结果,预览观感与 flag 冲突时用 `query.sh details` 取全文核实,以正文为准
+- **flag 以正文为准**:索引 flags(`is_ack` / `cr_markers` / `has_pass_marker` / `has_outside_diff` / `has_body_finding` / `severity_alt`)是脚本解析结果,预览观感与 flag 冲突时用 `query.sh details` 取全文核实,以正文为准
 - **unacked 兜底假阳性**:终核 unacked 非空时逐条核对,对应修复已落地或回复为在案 pushback 的不算遗漏。快照不含非 bot 的 inline 回复,核对回复串用 `gh api --paginate repos/<owner>/<repo>/pulls/<pr>/comments` 按 `in_reply_to_id` 关联
 - **fix-up 顺延(仅 Gemini)**:Gemini 对上一已审 HEAD 已通过,且其后的 push 全为 fix-up 形状(nit、format、typo、单字段调整、小 bug 修复)时,沿用该通过结论参与目标判定,不触发重审;CodeRabbit 与 Codex 均以实际审过最终 HEAD 为目标状态。**「上一已审 HEAD」指 Gemini 最近一次实际审过的 commit,不是最近一次通过的 commit**——若最近审的 HEAD 未通过,或 `query.sh unacked gemini-code-assist[bot]` 仍有未解决评论,均不得顺延
 - **触发去重**:同一 HEAD 上每种触发命令只发一次。在 `own_trigger_comments` 中按 `command` 字段取该命令最大 `createdAt`,晚于 `last_push_at` 即视为本轮已触发,跳过(`@coderabbitai resume` 例外:以 CodeRabbit 节的 `updated_at` 口径为准)。发触发命令时只写命令本身,且命令必须在评论最开头(匹配细则见 poll.sh PITFALL 4)
@@ -28,9 +28,9 @@
 
 **已审当前 HEAD**:`walkthrough.reviewed_current_head == true`。CodeRabbit 限流时会把 walkthrough 改写成限流横幅,这次改写不算审查——poll 已按 `is_rate_limited` 排除,该场景下字段恒为 false。
 
-**actionable**:`walkthrough.is_ok == true` 或 `actionable_count == "0"` 时无 actionable;否则看 `inline_new_by_user["coderabbitai[bot]"]` 各行的 `cr_markers`:含 `potential_issue` / `major` / `refactor` / `verification` 任一即 actionable;仅含 nit 级 token(`nitpick` / `trivial` / `low_value` / `minor`)不算。**残留例外**:增量重审回复 `Already reviewed` 时 `is_ok` / `actionable_count` 是上一轮残留——跳过这条短路,直接按本轮 inline 的 `cr_markers` 判。
+**actionable**:本轮新 `coderabbit.reviews` 任一行 `has_outside_diff == true` 即 actionable;用该行 `id` 经 `query.sh details` 取正文。无此形状时,`walkthrough.is_ok == true` 或 `actionable_count == "0"` 表示无 actionable;否则看 `inline_new_by_user["coderabbitai[bot]"]` 各行的 `cr_markers`:含 `potential_issue` / `major` / `refactor` / `verification` 任一即 actionable;仅含 nit 级 token(`nitpick` / `trivial` / `low_value` / `minor`)不算。**残留例外**:增量重审回复 `Already reviewed` 时 `is_ok` / `actionable_count` 是上一轮残留——跳过这条短路,直接按本轮 review 的 `has_outside_diff` 与 inline 的 `cr_markers` 判。
 
-**通过**:前置条件——`reviewed_current_head == true` **且** `is_in_progress == false` **且** `is_paused == false`(paused 时 `is_ok` 等字段可能是上一轮残留,需先经触发规则 resume 后再判)。前置之上满足任一:
+**通过**:前置条件——`reviewed_current_head == true` **且** `is_in_progress == false` **且** `is_paused == false`(paused 时 `is_ok` 等字段可能是上一轮残留,需先经触发规则 resume 后再判)。前置之上先确认本轮新 review 均为 `has_outside_diff == false`,再满足任一:
 
 - `walkthrough.is_ok == true`
 - `actionable_count == "0"`
@@ -39,17 +39,17 @@
 
 增量重审回复 `Already reviewed` 时前两条不可用(上一轮残留),凭本轮 inline 的后两条判。
 
-**outside diff range 意见**:CodeRabbit 对 diff 之外代码的建议内嵌在 review body(`coderabbit.reviews` 一行,source `coderabbit_review`)里,没有独立 inline comment id。索引只给出这条 review 的存在与 `is_new`、不含正文,`unacked coderabbitai[bot]` 兜底只扫 `inline_*_by_user`,同样看不见它——只靠 inline 口径会漏。发现靠 `query.sh <PR> history`(按 400 字 head 扫出该 review),全文用 `query.sh <PR> details <该 review 的 id>` 取;因无 inline 锚点,回复只能走 PR 顶层评论,不能回 inline。
+**outside diff range 意见**:CodeRabbit 对 diff 之外代码的建议内嵌在 review body(`coderabbit.reviews` 一行,source `coderabbit_review`)里,没有独立 inline comment id。`poll.sh` 以 `has_outside_diff` 把该形状送入上述 actionable 判定,正文用 `query.sh <PR> details <该 review 的 id>` 取;因无 inline 锚点,回复走 PR 顶层评论。
 
 **配额**:本仓库使用 CodeRabbit 免费开源方案,限流以 `walkthrough.is_rate_limited == true` 或 `quota_alerts` 判读;受阻时等待自恢复并手动 `@coderabbitai review` 重试一次;仍失败则本 PR 停用该家,记入退出汇报。全程不询问用户,也不提议付费扩容。
 
 ## Gemini Code Assist
 
-**触发**(按 `pr_created_at` 与 `gemini.reviews` 判别,均受触发去重约束):
+**触发**(按 `pr_created_at` 与 `gemini.reviews` + `reviews_history.total` 判别,均受触发去重约束):
 
-- `gemini.reviews` 完全为空,`pr_created_at` 距今**不足 5 分钟** → cold-start 窗口内,等待——此时抢跑触发既耗 quota,也容易引入第一次未提及的边缘建议
-- `gemini.reviews` 完全为空,`pr_created_at` 距今**已超 5 分钟** → cold-start fallback:自动 review 未在窗口内出现(可能失败或被跳过),发送 `/gemini review`。**此行不受 fix-up 顺延限制**——否则 Gemini 永远不会审本 PR。阈值宽松不必精确——误发代价只是一次受去重约束的额外触发
-- `gemini.reviews` 非空但无 `reviewed_current_head == true` 条目 → 发送 `/gemini review`(受 fix-up 顺延限制)
+- `gemini.reviews` 为空且 `reviews_history.total == 0`,`pr_created_at` 距今**不足 5 分钟** → cold-start 窗口内,等待——此时抢跑触发既耗 quota,也容易引入第一次未提及的边缘建议
+- `gemini.reviews` 为空且 `reviews_history.total == 0`,`pr_created_at` 距今**已超 5 分钟** → cold-start fallback:自动 review 未在窗口内出现(可能失败或被跳过),发送 `/gemini review`。**此行不受 fix-up 顺延限制**——否则 Gemini 永远不会审本 PR。阈值宽松不必精确——误发代价只是一次受去重约束的额外触发
+- 已有 review(`gemini.reviews` 非空或 `reviews_history.total > 0`)但无 `reviewed_current_head == true` 条目 → 发送 `/gemini review`(受 fix-up 顺延限制)
 
 **已审当前 HEAD**:`gemini.reviews` 至少一条 `reviewed_current_head == true`。
 
@@ -71,7 +71,7 @@
 
 **触发**(受通用触发去重约束):
 
-- `codex.has_started == true`,或已有 review / `+1` / inline → 等待
+- `codex.has_started == true`,或已有 review(`codex.reviews` 非空或 `reviews_history.total > 0`) / `+1` / inline → 等待
 - 从无上述信号,`pr_created_at` 距今不足 5 分钟 → cold-start 窗口内等待
 - 从无上述信号,已超过 5 分钟,且本轮尚无 `@codex review` → 发送一次 `@codex review`
 - 已有 `@codex review` 但尚无结果 → 评论上的 Codex `👀` 会令 `codex.has_started == true`;未出现时同样等待,30 分钟后按故障处理
@@ -90,9 +90,9 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 
 `poll.sh` 优先用 REST review 的 `commit_id` 判当前 HEAD,缺失时解析 body 的 `Reviewed commit`,再缺失才按 review 提交时间回退;顶层通过评论同样先解析 `Reviewed commit`,缺失时按评论创建时间回退。
 
-**actionable**:本轮非 ack inline 的 `P0 Badge` / `P1 Badge` 一律 actionable;兼容旧 payload 时,P2/P3 按 `receiving-code-review` 的纪律核实。判定为非 actionable 并记录 pushback 的 P2/P3 不再阻塞通过。
+**actionable**:本轮新 `codex.reviews` 任一行 `has_body_finding == true` 即进入处置,用该行 `id` 经 `query.sh details` 取正文;本轮非 ack inline 的 `P0 Badge` / `P1 Badge` 同样 actionable。两种投递面的 P2/P3 均按 `receiving-code-review` 的纪律核实;判定为非 actionable 并记录 pushback 后不再阻塞通过。
 
-**通过**:满足四种已审信号之一,且本轮无未解决的 actionable inline。
+**通过**:满足四种已审信号之一,且本轮无未解决的 actionable inline 或 review-body finding。
 
 ## GitHub code scanning bots(Code Quality + Advanced Security)
 

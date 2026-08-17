@@ -213,8 +213,8 @@ class TestGenerate:
         from google.genai import types as gtypes
 
         from lib.script_models import (
+            AdReferenceFlatScript,
             ReferenceStep2FlatScript,
-            build_ad_reference_episode_script_model,
             build_drama_normalized_script_model,
             build_episode_script_model,
             build_reference_units_step1_model,
@@ -226,7 +226,7 @@ class TestGenerate:
             for durations in ([4, 6, 8], [8])
         ]
         schemas += [
-            build_ad_reference_episode_script_model(),
+            AdReferenceFlatScript,
             build_drama_normalized_script_model([4, 6, 8]),
             build_drama_normalized_script_model([8]),
             build_reference_units_step1_model([4, 6, 8]),

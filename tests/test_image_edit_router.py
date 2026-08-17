@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.i18n import _ as i18n_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -157,6 +158,60 @@ class TestEditImageEnqueue:
 
 
 class TestEditImageValidation:
+    def test_active_asset_without_a_manifest_claim_is_not_enqueued(self, tmp_path, monkeypatch):
+        from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["schema_version"] = 8
+        fake_queue = _FakeQueue()
+        comparisons = []
+
+        class _Currency:
+            def compare(self, key, *, artifact_path):
+                comparisons.append((key, artifact_path))
+                return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+            def resolve_usable_entry(self, key, *, artifact_path):
+                self.compare(key, artifact_path=artifact_path)
+                return None
+
+        monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _Currency())
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/edit/image",
+                json={"resource_type": "character", "resource_id": "Alice", "instruction": "换发色"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert comparisons == [(ArtifactKey.asset_sheet("character", "Alice"), "characters/Alice.png")]
+        assert fake_queue.calls == []
+
+    def test_active_storyboard_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["schema_version"] = 8
+        fake_pm.script["episode"] = 1
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/edit/image",
+                json={
+                    "resource_type": "storyboard",
+                    "resource_id": "E1S01",
+                    "instruction": "去掉背景里的路人",
+                    "script_file": "episode_1.json",
+                },
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert fake_queue.calls == []
+
     def test_resource_type_whitelist_400(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_queue = _FakeQueue()

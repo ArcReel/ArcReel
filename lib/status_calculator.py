@@ -15,7 +15,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
 )
 from lib.path_safety import safe_exists
-from lib.script_models import ad_script_total_duration, get_generated_assets, script_duration_total
+from lib.script_models import get_generated_assets, script_duration_total
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 
 logger = logging.getLogger(__name__)
@@ -62,8 +62,7 @@ def _draft_candidates(content_mode: str, generation_mode: str | None = None) -> 
 def _unit_items(script: dict) -> list[dict]:
     """取 ``video_units`` 数组，容器非数组、成员非对象（外部编辑 / 归档导入的脏数据）一律剔除。
 
-    读时计算不抛错、坏数据按未派生计分（与 ``_calculate_ad_reference_stats`` 的
-    ``_wellformed`` 同口径，数据契约校验归 ``DataValidator``）：容器与成员都要归一，
+    读时计算不抛错，数据契约校验归 ``DataValidator``：容器与成员都要归一，
     ``{"video_units": {...}}`` 会让下游按 dict 的键迭代、``["bad"]`` 会让下游对 str 调
     ``get``，两者都把项目详情读取变成 500、整个项目不可查看。
     """
@@ -110,8 +109,8 @@ class StatusCalculator:
                 return kind, items
         elif generation_mode == "reference_video" and "video_units" in script:
             # 缺失/未知 content_mode 但项目走参考路线：沿用历史 legacy 容忍，按路线取 video_units。
-            # 以 video_units 键在场为前提（与 ``ensure_route_skeleton`` 同判据）——ad 剧本恒为
-            # shots 骨架却可落在参考路线项目下，无条件短路会把它的计分抢成空 video_units。
+            # 以 video_units 键在场为前提（与 ``ensure_route_skeleton`` 同判据），避免无条件
+            # 短路把遗留主骨架的计分抢成空 video_units。
             return "video_units", _unit_items(script)
 
         for legacy_kind in _LEGACY_DUCK_TYPE_KINDS:
@@ -124,17 +123,12 @@ class StatusCalculator:
         """计算单集的统计信息 — 按骨架种类分派。
 
         ``generation_mode`` 由调用方从 project.json 的项目路线字段传入——剧本不携带路线信息，
-        路线是项目级唯一事实。reference_video 路线的视频产物挂在派生索引 ``reference_units``
-        的 unit 上而非 shots，计分需按路线分派而不能嗅探数据形状（残留索引不应污染 storyboard
-        路线的状态）。
+        路线是项目级唯一事实。reference_video 路线统一按 ``video_units`` 计分。
         """
         kind, items = self._select_kind_and_items(script, generation_mode)
 
         if kind == "video_units":
             return self._calculate_reference_video_stats(items)
-
-        if kind == "shots" and generation_mode == "reference_video":
-            return self._calculate_ad_reference_stats(script, items)
 
         storyboard_done = sum(1 for i in items if get_generated_assets(i).get("storyboard_image"))
         video_done = sum(1 for i in items if get_generated_assets(i).get("video_clip"))
@@ -153,55 +147,6 @@ class StatusCalculator:
             "duration_seconds": script_duration_total(kind, items),
             "storyboards": {"total": total, "completed": storyboard_done},
             "videos": {"total": total, "completed": video_done},
-        }
-
-    @staticmethod
-    def _calculate_ad_reference_stats(script: dict, shots: list[dict]) -> dict:
-        """ad + reference_video：视频进度按派生 unit 计，其余口径仍以 shots 为真相。
-
-        索引未派生（reference_units 缺失/空）时 videos 计 0/0、状态 draft；
-        分镜计数保留 shots 口径（该路径跳过分镜，恒为 0/total，不参与状态判定）。
-        索引形状损坏（非数组 / 夹非 dict 条目 / unit 的 generated_assets 非 dict）
-        按未派生同口径计分并记 WARN——不部分计数以免坏索引伪装成真实进度；
-        读时计算保持不抛错，数据契约校验归 DataValidator，索引为派生数据、
-        重新派生即愈。
-        """
-
-        def _wellformed(u: object) -> bool:
-            if not isinstance(u, dict):
-                return False
-            ga = u.get("generated_assets")
-            return ga is None or isinstance(ga, dict)
-
-        raw_units = script.get("reference_units")
-        units: list[dict] = []
-        if isinstance(raw_units, list) and all(_wellformed(u) for u in raw_units):
-            units = raw_units
-        elif raw_units is not None:
-            logger.warning(
-                "reference_units 形状损坏（期望 dict 数组），按未派生计分 episode=%s",
-                script.get("episode"),
-            )
-        video_done = sum(1 for u in units if get_generated_assets(u).get("video_clip"))
-        total_units = len(units)
-
-        if total_units == 0:
-            status = "draft"
-        elif video_done == total_units:
-            status = "completed"
-        elif video_done > 0:
-            status = "in_production"
-        else:
-            status = "draft"
-
-        total_shots = len(shots)
-        return {
-            "scenes_count": total_shots,
-            "units_count": total_units,
-            "status": status,
-            "duration_seconds": ad_script_total_duration(shots),
-            "storyboards": {"total": total_shots, "completed": 0},
-            "videos": {"total": total_units, "completed": video_done},
         }
 
     @staticmethod

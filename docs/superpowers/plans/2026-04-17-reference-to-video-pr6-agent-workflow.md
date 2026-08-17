@@ -1392,7 +1392,7 @@ projects/{name}/
 └── videos/               # storyboard / grid 模式视频输出
 ```
 
-> 参考 `docs/google-genai-docs/nano-banana.md` 第 365 行起的 Prompting guide and strategies。
+> 参考 [Gemini 图像生成官方指南](https://ai.google.dev/gemini-api/docs/image-generation)的 prompting strategies。
 ```
 
 - [ ] **Step 9.2: 删除旧 content-modes.md**
