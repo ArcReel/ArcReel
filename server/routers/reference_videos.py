@@ -725,13 +725,16 @@ def _admission_payload(admission: BatchAdmission, _t: Translator) -> dict[str, A
 def _enqueue_failure_payload(failure: BatchTaskResult, _t: Translator) -> dict[str, Any]:
     """一个没能入队的目标，按共享契约的问题形状转述给浏览器。
 
-    问题码与下一步动作与智能体侧同源，只多一句本地化说明。
+    问题码与下一步动作与智能体侧同源，只多一句本地化说明。原始异常文本（`detail`）来自数据库与
+    队列层，可能带出连接串或内部拓扑，因此只落服务端日志，不进浏览器响应体——与 `_admission_payload`
+    只转述受控问题码的姿态一致。
     """
 
     problem = enqueue_problem(failure.error, interrupted=failure.enqueue_interrupted)
+    logger.warning("reference batch enqueue failed for unit %s: %s", failure.resource_id, problem.detail)
     return {
         "unit_id": failure.resource_id,
-        "problem": {**problem.model_dump(mode="json"), "message": _t(problem.code)},
+        "problem": {**problem.model_dump(mode="json", exclude={"detail"}), "message": _t(problem.code)},
     }
 
 
