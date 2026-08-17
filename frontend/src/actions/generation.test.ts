@@ -456,6 +456,54 @@ describe("enqueueReferenceVideoBatch", () => {
     );
   });
 
+  // 首个目标就没入队时一个任务也没建：只报中断，不要再来一句「已提交 0 个」。
+  it("入队在首个目标处中断时不弹已提交提示", async () => {
+    // 断言的是「弹了几句」，故收集全部 toast：store 只留最后一句，光看它无法发现多出来的那句。
+    const realPushToast = useAppStore.getState().pushToast;
+    type ToastTone = Parameters<typeof realPushToast>[1];
+    const pushed: Array<{ text: string; tone: ToastTone }> = [];
+    useAppStore.setState({
+      pushToast: (text: string, tone: ToastTone) => {
+        pushed.push({ text, tone });
+      },
+    });
+    vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue({
+      ...ADMISSION,
+      decision: "admitted",
+      task_ids: [],
+      task_ids_by_unit: {},
+      deduped: false,
+      enqueue_failures: [
+        {
+          unit_id: "E1U1",
+          problem: { code: "generation_enqueue_failed", action: "retry", detail: "queue down" },
+        },
+        {
+          unit_id: "E1U2",
+          problem: { code: "generation_enqueue_interrupted", action: "retry", detail: "stopped" },
+        },
+      ],
+    } as never);
+
+    try {
+      await enqueueReferenceVideoBatch("demo", 1, {
+        narration_delivery: "post_production",
+        unit_ids: ["E1U1", "E1U2"],
+      });
+    } finally {
+      useAppStore.setState({ pushToast: realPushToast });
+    }
+
+    expect(pushed).toEqual([
+      {
+        text: i18n.t("dashboard:reference_batch_enqueue_interrupted", { count: 2 }),
+        tone: "error",
+      },
+    ]);
+    expect(occupied("demo", "reference_video", "E1U1")).toBe(false);
+    expect(occupied("demo", "reference_video", "E1U2")).toBe(false);
+  });
+
   // confirmation_required / blocked 一个任务也没建：占用标记必须整批回滚，
   // 否则界面会把没入队的单元显示成生成中，直到刷新页面。
   it.each(["confirmation_required", "blocked"] as const)(

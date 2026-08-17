@@ -578,7 +578,9 @@ async def _enqueue_sequentially(
                         resource_id=pending.resource_id,
                         task_id="",
                         status="failed",
-                        error=f"批量入队在 {spec.resource_id} 处中断，本目标未创建任务",
+                        # detail 与 ``enqueue_problem`` 的两个默认值同为英文：它是契约字段，
+                        # 面向智能体与排障，用户可读的那句由各端按问题码本地化。
+                        error=f"batch enqueue stopped at '{spec.resource_id}'; this target was never queued",
                         enqueue_interrupted=True,
                     )
                     for pending in specs[index + 1 :]

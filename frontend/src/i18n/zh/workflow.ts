@@ -162,6 +162,7 @@ export default {
   'problem_generation_unit_request_invalid': '这个单元的请求参数不合法。',
   'problem_generation_artifact_state_unavailable': '这个单元已有的产物读不出来。',
   'problem_generation_enqueue_failed': '这个单元没能入队。',
+  'problem_generation_enqueue_interrupted': '入队中断，这个单元本次没建任务；已建的照常跑。',
   'problem_generation_active_task_conflict': '这个单元已经有一次尝试在跑。',
   'problem_generation_batch_admission_withheld': '同批别的单元没通过准入，本单元随之未提交。',
   'problem_generation_task_failed': '上一次尝试失败了。',
