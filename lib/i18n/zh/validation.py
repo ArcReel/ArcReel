@@ -40,7 +40,7 @@ MESSAGES = {
     "val_deprecated_clues": "project.json 含已废弃字段 clues，请等待自动迁移或手动重启服务",
     "val_deprecated_field_removable": "{field} 字段已废弃（改为读时计算），可安全移除",
     "val_cannot_load_project_json": "无法加载 project.json: {path}",
-    "val_cannot_load_script": "无法加载剧本文件: {path}",
+    "val_cannot_load_script": "无法加载脚本文件: {path}",
     "val_unrecognized_entry": "发现未识别的附加文件/目录: {name}",
     "val_novel_must_be_object": "novel 字段必须是对象",
     # ---- 剧集条目与账本 ----
@@ -55,9 +55,9 @@ MESSAGES = {
     "val_ad_no_default_duration": "广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）",
     "val_ad_no_grid_storyboard": "广告/短片项目不支持宫格分镜（grid_storyboard）",
     "val_ad_episodes_single": "广告/短片项目 episodes 必须恒为第 1 集单条",
-    "val_ad_shots_missing": "ad 剧本缺少 shots 数组或为空",
+    "val_ad_shots_missing": "ad 脚本缺少 shots 数组或为空",
     "val_ad_duration_drift": (
-        "剧本总时长 {total} 秒与 target_duration {target} 秒偏差 {delta:.0%}，"
+        "脚本总时长 {total} 秒与 target_duration {target} 秒偏差 {delta:.0%}，"
         "超过 {threshold:.0%} 观察阈值（仅提示，不阻塞保存）"
     ),
     # ---- 资产目录 ----
@@ -119,24 +119,24 @@ MESSAGES = {
     "val_route_reference_video": "参考生视频（reference_video）",
     "val_route_storyboard": "分镜图生视频（storyboard）",
     "val_skeleton_mismatch_reference_known": (
-        "剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
-        "当前剧本是 {actual}（{actual_noun}）骨架。"
-        "请重跑 split-reference-video-units 重新拆分该集，再重新生成剧本。该剧本仍可查看、编辑与导出。"
+        "脚本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "当前脚本是 {actual}（{actual_noun}）骨架。"
+        "请重跑 split-reference-video-units 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_reference_none": (
-        "剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
-        "当前剧本没有任何骨架数组。"
-        "请重跑 split-reference-video-units 重新拆分该集，再重新生成剧本。该剧本仍可查看、编辑与导出。"
+        "脚本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "当前脚本没有任何骨架数组。"
+        "请重跑 split-reference-video-units 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_known": (
-        "剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
-        "当前剧本是 {actual}（{actual_noun}）骨架。"
-        "请重跑分集拆分（step1）重新拆分该集，再重新生成剧本。该剧本仍可查看、编辑与导出。"
+        "脚本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "当前脚本是 {actual}（{actual_noun}）骨架。"
+        "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_none": (
-        "剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
-        "当前剧本没有任何骨架数组。"
-        "请重跑分集拆分（step1）重新拆分该集，再重新生成剧本。该剧本仍可查看、编辑与导出。"
+        "脚本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "当前脚本没有任何骨架数组。"
+        "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     # ---- 参考生视频时长收编迁移 ----
     "val_unit_duration_clamped": "unit {unit_id} 时长 {target}s 超出 {low}-{high}s 合理区间，已裁剪为 {clamped}s",
@@ -146,9 +146,9 @@ MESSAGES = {
     "arch_non_standard_entry_excluded": "非标准顶层目录/文件 '{entry}' 未包含在导出中",
     "arch_invalid_project_json": "无法解析 {file}: {path}",
     "arch_script_file_repaired": "{location}: 自动修复为 {path}",
-    "arch_missing_script_file_pending": "{location}: 剧本尚未生成: {path}",
+    "arch_missing_script_file_pending": "{location}: 脚本尚未生成: {path}",
     "arch_missing_script_file": "{location}: 引用的文件不存在: {path}",
-    "arch_invalid_script_json": "无法解析剧本文件: {path}",
+    "arch_invalid_script_json": "无法解析脚本文件: {path}",
     "arch_deprecated_source_file_removed": "novel.source_file 字段已废弃，已移除",
     "arch_deprecated_field_removed": "{field} 字段已废弃（改为读时计算），已移除",
     "arch_deprecated_clue_field_removed": "{items_key}[{index}]: 废弃字段 {field} 已移除（请改用 scenes/props）",

@@ -17,7 +17,7 @@ export default {
   "rename_busy_hint": "该资产正在生成中，请等生成结束后再重命名",
   "rename_confirm_title": "重命名「{{name}}」？",
   "rename_impact": "将更新 {{episodes}} 集共 {{references}} 处引用，重命名 {{files}} 个文件。",
-  "rename_impact_none": "剧本与文件中暂无对该名称的引用。",
+  "rename_impact_none": "脚本与文件中暂无对该名称的引用。",
   "rename_success": "已重命名为「{{name}}」",
   "rename_failed": "重命名失败：{{message}}",
   "rename_refresh_failed": "重命名已完成，但页面数据刷新失败，请手动刷新查看最新状态",

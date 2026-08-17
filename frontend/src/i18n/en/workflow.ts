@@ -46,8 +46,8 @@ export default {
   'artifact_empty': 'Nothing to produce here yet.',
   'artifact_usable_one': '{{count}} usable',
   'artifact_usable_other': '{{count}} usable',
-  'artifact_stale_of_usable_one': '{{count}} older than the script',
-  'artifact_stale_of_usable_other': '{{count}} older than the script',
+  'artifact_stale_of_usable_one': '{{count}} older than the current content',
+  'artifact_stale_of_usable_other': '{{count}} older than the current content',
   'artifact_missing_count_one': '{{count}} still to create',
   'artifact_missing_count_other': '{{count}} still to create',
 

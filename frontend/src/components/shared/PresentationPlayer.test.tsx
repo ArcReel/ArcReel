@@ -104,7 +104,7 @@ describe("PresentationPlayer", () => {
     expect(video).toHaveProperty("volume", 0.5);
     expect(video.querySelector("track")).toHaveAttribute("kind", "captions");
     expect(screen.getByText("当前版本")).toBeInTheDocument();
-    expect(screen.getByText("已过期")).toBeInTheDocument();
+    expect(screen.getByText("比当前内容旧")).toBeInTheDocument();
     expect(screen.getByText("机械字幕")).toBeInTheDocument();
     expect(API.getPresentation).toHaveBeenCalledWith(
       "demo",
@@ -126,7 +126,7 @@ describe("PresentationPlayer", () => {
     const video = await screen.findByLabelText("E1S01 成片预览");
     const audio = await screen.findByLabelText("E1S01 TTS 音轨");
     expect(screen.getByText("当前版本")).toBeInTheDocument();
-    expect(screen.getByText("与当前配置一致")).toBeInTheDocument();
+    expect(screen.getByText("与当前内容一致")).toBeInTheDocument();
     expect(video).toHaveProperty("muted", false);
     expect(audio).toHaveAttribute("src", "/media/versions/audio/E1S01_v2.wav");
     fireEvent.play(video);
