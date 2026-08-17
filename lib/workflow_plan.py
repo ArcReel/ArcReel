@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from lib.generation_result import GenerationAction, GenerationBatchResult, GenerationProblem, ProviderCheckpoint
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationDelivery
 from lib.workflow_rules import WorkflowStepRule, workflow_rule
-from lib.workflow_state import WorkflowBlocker, WorkflowNextAction, WorkflowStatus
+from lib.workflow_state import WorkflowActionType, WorkflowBlocker, WorkflowNextAction, WorkflowStatus
 
 PositiveStrictInt = Annotated[int, Field(strict=True, gt=0)]
 
@@ -142,13 +142,13 @@ def _baseline_step_state(
         return WorkflowStepState.COMPLETED
     if index > current_index:
         return WorkflowStepState.PENDING
-    if status.blockers or status.next_action.type == "none":
+    if status.blockers or status.next_action.type is WorkflowActionType.NONE:
         return WorkflowStepState.BLOCKED
     return WorkflowStepState.READY
 
 
 def _current_rule_index(status: WorkflowStatus, rules: tuple[WorkflowStepRule, ...]) -> int:
-    if status.next_action.type == "repair_video_units":
+    if status.next_action.type is WorkflowActionType.REPAIR_VIDEO_UNITS:
         return next(index for index, rule in enumerate(rules) if rule.id == "script_structure")
     for index, rule in enumerate(rules):
         if rule.applicable and rule.checkpoint == status.state:
@@ -189,7 +189,7 @@ def _structure_action(
     script_revision: str | None,
 ) -> WorkflowNextAction:
     return WorkflowNextAction(
-        type="patch_episode_script",
+        type=WorkflowActionType.PATCH_EPISODE_SCRIPT,
         args={
             "expected_revision": script_revision,
             "problems": [problem.model_dump(mode="json") for problem in problems],
@@ -205,8 +205,9 @@ def _admission_action(
     requested_ids: list[str],
 ) -> WorkflowNextAction:
     requires_confirmation = admission.get("decision") == "confirmation_required"
+    action = problems[0].action if problems else GenerationAction.CONFIRM_REQUEST_DURATION
     return WorkflowNextAction(
-        type=problems[0].action.value if problems else GenerationAction.CONFIRM_REQUEST_DURATION.value,
+        type=WorkflowActionType(action.value),
         args={"admission": admission},
         requested_ids=requested_ids,
         requires_confirmation=requires_confirmation,
@@ -255,7 +256,7 @@ def build_workflow_plan(
             ),
         )
         if step_rule.id == "narration_delivery":
-            step.required = status.state == "VIDEO" and status.next_action.type == "generate_videos"
+            step.required = status.state == "VIDEO" and status.next_action.type is WorkflowActionType.GENERATE_VIDEOS
         if step.artifacts.get("state") == "blocked" and step.state is not WorkflowStepState.SKIPPED:
             step.state = WorkflowStepState.BLOCKED
         steps.append(step)
@@ -306,7 +307,7 @@ def build_workflow_plan(
         next_action = _structure_action(structure_problems, script_revision=script_revision)
     elif active_tasks:
         next_action = WorkflowNextAction(
-            type=GenerationAction.WAIT_FOR_TASK.value,
+            type=WorkflowActionType.WAIT_FOR_TASK,
             args={"task_ids": [task.task_id for task in active_tasks]},
             requested_ids=[task.unit_id for task in active_tasks],
             reason="workflow has active generation tasks",
@@ -316,9 +317,13 @@ def build_workflow_plan(
                 step.action = next_action
         if video_step.state is not WorkflowStepState.ACTIVE:
             video_step.action = None
-    elif status.state == "VIDEO" and status.next_action.type == "generate_videos" and narration_delivery is None:
+    elif (
+        status.state == "VIDEO"
+        and status.next_action.type is WorkflowActionType.GENERATE_VIDEOS
+        and narration_delivery is None
+    ):
         next_action = WorkflowNextAction(
-            type="choose_narration_delivery",
+            type=WorkflowActionType.CHOOSE_NARRATION_DELIVERY,
             args={"options": [POST_PRODUCTION, USE_TTS]},
             requested_ids=list(status.next_action.requested_ids),
             reason="choose narration delivery for this video request",

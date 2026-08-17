@@ -32,7 +32,7 @@ from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationTtsStatus
 from lib.profile_manifest import VALID_CONTENT_MODES, resolve_profile_files_for_mode
 from lib.workflow_plan import _structure_action
 from lib.workflow_rules import WORKFLOW_RULES
-from lib.workflow_state import WorkflowTarget
+from lib.workflow_state import WorkflowActionType, WorkflowTarget
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 
 pytestmark = pytest.mark.unit
@@ -47,34 +47,10 @@ GENERATION_RESULTS_REFERENCE = REFERENCES / "generation-results.md"
 WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
 EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
 
-# ``workflow_state`` 自己产出的动作类型是散落的字符串字面量，没有枚举可导入，只能手写。
-_WORKFLOW_STATE_ACTIONS = (
-    "collect_project_input",
-    "draft_selling_points",
-    "analyze_assets",
-    "plan_episodes",
-    "reset_episode_planning",
-    "prepare_step1",
-    "confirm_step1",
-    "generate_script",
-    "generate_asset_sheets",
-    "generate_storyboards",
-    "generate_grid",
-    "generate_videos",
-    "repair_video_units",
-    "export",
-    "none",
-)
-
-# ``build_workflow_plan`` 额外注入的动作类型。
-_PLAN_INJECTED_ACTIONS = ("patch_episode_script", "choose_narration_delivery")
-
-# 批量准入被拒时 ``_admission_action`` 把 ``problems[0].action`` 直接当成 ``next_action.type``
-# 交回，所以整个 ``GenerationAction`` 闭集都可能出现在计划里。从枚举导出而不是手抄，新增
-# 动作时这份契约测试会直接红。
-CONTROLLED_ACTIONS = tuple(
-    dict.fromkeys((*_WORKFLOW_STATE_ACTIONS, *_PLAN_INJECTED_ACTIONS, *(action.value for action in GenerationAction)))
-)
+# ``next_action.type`` 的闭集就是 ``WorkflowActionType``：编排动作、计划注入的动作与
+# ``GenerationAction``（批量准入被拒时原样交回）都在其中。从枚举导出而不是手抄，新增成员
+# 时这份契约测试会直接红。
+CONTROLLED_ACTIONS = tuple(action.value for action in WorkflowActionType)
 
 
 def _skill(filename: str) -> str:

@@ -155,6 +155,7 @@ export default {
   'action_patch_episode_script': '修正下面列出的剧本字段',
   'action_choose_narration_delivery': '选择本批的旁白交付方式',
   'action_export': '导出成片',
+  'action_retry_project_migration': '修复报告的项目文件后重试数据升级',
 
   // ---- 问题摘要 ----
   'problem_generation_unit_not_found': '剧本里已经没有这个单元了。',

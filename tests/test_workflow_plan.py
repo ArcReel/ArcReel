@@ -22,6 +22,7 @@ from lib.workflow_plan import (
 )
 from lib.workflow_rules import WORKFLOW_RULES, workflow_rule
 from lib.workflow_state import (
+    WorkflowActionType,
     WorkflowBlocker,
     WorkflowNextAction,
     WorkflowProject,
@@ -73,7 +74,7 @@ def _status(
                 "audio": {"current_ids": [], "stale_ids": [], "missing_ids": ["E1S01"]},
             },
             "next_action": WorkflowNextAction(
-                type=action,
+                type=WorkflowActionType(action),
                 requested_ids=requested_ids or ["E1S01"],
                 reason="video clips are missing",
             ),
@@ -293,7 +294,7 @@ def test_unrepairable_structural_blocker_stays_a_status_blocker_before_media() -
         reason="script container is not repairable through media actions",
     )
     status.blockers = [blocker]
-    status.next_action = WorkflowNextAction(type="none", reason="workflow is blocked")
+    status.next_action = WorkflowNextAction(type=WorkflowActionType.NONE, reason="workflow is blocked")
 
     plan = build_workflow_plan(status)
 
@@ -399,7 +400,7 @@ def test_stale_video_remains_exportable_without_an_implicit_regeneration_step() 
         "stale_ids": ["E1S01"],
         "missing_ids": [],
     }
-    status.next_action = WorkflowNextAction(type="export", reason="usable media is ready")
+    status.next_action = WorkflowNextAction(type=WorkflowActionType.EXPORT, reason="usable media is ready")
 
     plan = build_workflow_plan(status)
 

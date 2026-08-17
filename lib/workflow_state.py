@@ -7,6 +7,7 @@ import json
 import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import partial
 from pathlib import Path
 from typing import Any, Literal
@@ -22,7 +23,6 @@ from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
     compute_source_fingerprints,
-    discover_sources,
     episodes_without_source_range,
     mismatched_source_fingerprints,
     normalize_source_text,
@@ -33,7 +33,6 @@ from lib.project_manager import ProjectManager
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MIGRATION_FAILURE_FILENAME,
-    RETRY_MIGRATION_ACTION,
     MigrationFailureRecord,
     load_migration_failure,
 )
@@ -93,10 +92,57 @@ class WorkflowBlocker(BaseModel):
     reason: str
 
 
+class WorkflowActionType(StrEnum):
+    """``WorkflowNextAction.type`` 的闭集。
+
+    三个来源合成同一份取值：本模块按编排阶段给出的动作、``lib.workflow_plan`` 投影时
+    额外注入的动作，以及批量准入被拒时原样交回的 ``lib.generation_result.GenerationAction``。
+    消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即
+    自动进入各处覆盖检查，不必再手抄一份清单。
+    """
+
+    # 本模块按编排阶段给出的动作
+    NONE = "none"
+    COLLECT_PROJECT_INPUT = "collect_project_input"
+    DRAFT_SELLING_POINTS = "draft_selling_points"
+    ANALYZE_ASSETS = "analyze_assets"
+    PLAN_EPISODES = "plan_episodes"
+    RESET_EPISODE_PLANNING = "reset_episode_planning"
+    PREPARE_STEP1 = "prepare_step1"
+    CONFIRM_STEP1 = "confirm_step1"
+    GENERATE_SCRIPT = "generate_script"
+    GENERATE_ASSET_SHEETS = "generate_asset_sheets"
+    GENERATE_STORYBOARDS = "generate_storyboards"
+    GENERATE_GRID = "generate_grid"
+    REPAIR_VIDEO_UNITS = "repair_video_units"
+    GENERATE_VIDEOS = "generate_videos"
+    EXPORT = "export"
+
+    # 数据升级失败的项目在任何阶段都只报这一个动作
+    RETRY_PROJECT_MIGRATION = "retry_project_migration"
+
+    # ``build_workflow_plan`` 投影时注入的动作
+    PATCH_EPISODE_SCRIPT = "patch_episode_script"
+    CHOOSE_NARRATION_DELIVERY = "choose_narration_delivery"
+
+    # ``GenerationAction`` 闭集；批量准入与任务失败把它原样交回成 next_action
+    RETRY = "retry"
+    RESUME = "resume"
+    FIX_INPUT = "fix_input"
+    GENERATE_DEPENDENCY = "generate_dependency"
+    GENERATE_TTS = "generate_tts"
+    REGENERATE_TTS = "regenerate_tts"
+    WAIT_FOR_TASK = "wait_for_task"
+    REPLAN_UNIT = "replan_unit"
+    CONFIRM_REQUEST_DURATION = "confirm_request_duration"
+    CONFIGURE_PROVIDER = "configure_provider"
+    REPAIR_ARTIFACT_STATE = "repair_artifact_state"
+
+
 class WorkflowNextAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: str
+    type: WorkflowActionType
     args: dict[str, Any] = Field(default_factory=dict)
     requested_ids: list[str] = Field(default_factory=list)
     requires_confirmation: bool = False
@@ -138,7 +184,7 @@ def _project_revision(project: Mapping[str, Any]) -> str:
 
 
 def _action(
-    action_type: str,
+    action_type: WorkflowActionType,
     reason: str,
     *,
     args: dict[str, Any] | None = None,
@@ -151,6 +197,21 @@ def _action(
         requested_ids=ids or [],
         requires_confirmation=requires_confirmation,
         reason=reason,
+    )
+
+
+def planning_docs(source: SourceRevisionResult | None) -> tuple[SourceDoc, ...]:
+    """把修订号计算那一次读取的原文转成账本坐标系里的源文档。
+
+    源文在一次状态查询里只读一遍：``compute_source_revision`` 已经把每份源文读进内存，
+    分集排布所需的归一化全文由那一次读取派生，不再回磁盘重读。
+    """
+
+    if source is None or source.blockers:
+        return ()
+    return tuple(
+        SourceDoc(rel_path=f"source/{document.name}", text=normalize_source_text(document.text))
+        for document in source.documents
     )
 
 
@@ -438,26 +499,29 @@ class WorkflowStateService:
     def _planning_action(project: dict[str, Any], reason: str) -> WorkflowNextAction:
         if episodes_without_source_range(project):
             return _action(
-                "reset_episode_planning",
+                WorkflowActionType.RESET_EPISODE_PLANNING,
                 "episode ledger lacks source range records",
                 args={"from_episode": 1},
             )
-        return _action("plan_episodes", reason)
+        return _action(WorkflowActionType.PLAN_EPISODES, reason)
 
     @staticmethod
     def _planning_complete(
-        project_path: Path,
         project: dict[str, Any],
         source: SourceRevisionResult | None,
-        planning_sources: tuple[SourceDoc, ...] | None = None,
+        planning_sources: tuple[SourceDoc, ...],
     ) -> bool:
+        """判定源文是否已全部排布完。
+
+        源文只来自 ``planning_sources``——本次请求已经读过一遍的那份，不再回磁盘取。
+        """
+
         if source is None or not source.files:
             return False
         recorded_fingerprints = project.get(SOURCE_FINGERPRINTS_KEY)
         if not isinstance(recorded_fingerprints, Mapping) or not recorded_fingerprints:
             return False
-        current_sources = tuple(discover_sources(project_path)) if planning_sources is None else planning_sources
-        current_fingerprints = compute_source_fingerprints(list(current_sources))
+        current_fingerprints = compute_source_fingerprints(list(planning_sources))
         if dict(recorded_fingerprints) != current_fingerprints:
             return False
         cursor = project.get("planning_cursor")
@@ -468,28 +532,8 @@ class WorkflowStateService:
         canonical_rel = unicodedata.normalize("NFC", rel) if isinstance(rel, str) else None
         if canonical_rel != source.files[-1] or not isinstance(offset, int) or isinstance(offset, bool):
             return False
-        if planning_sources is not None:
-            matching_docs = [
-                doc for doc in current_sources if unicodedata.normalize("NFC", doc.rel_path) == canonical_rel
-            ]
-            return len(matching_docs) == 1 and offset >= len(matching_docs[0].text)
-        try:
-            source_dir = project_path / "source"
-            if source_dir.is_symlink():
-                return False
-            matching_paths = [
-                path
-                for path in source_dir.iterdir()
-                if unicodedata.normalize("NFC", f"source/{path.name}") == canonical_rel
-            ]
-            if len(matching_paths) != 1 or matching_paths[0].is_symlink():
-                return False
-            path = matching_paths[0]
-            path.resolve(strict=True).relative_to(project_path.resolve())
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError, ValueError):
-            return False
-        return offset >= len(normalize_source_text(text))
+        matching_docs = [doc for doc in planning_sources if unicodedata.normalize("NFC", doc.rel_path) == canonical_rel]
+        return len(matching_docs) == 1 and offset >= len(matching_docs[0].text)
 
     def _load_script_artifacts(
         self,
@@ -741,10 +785,8 @@ class WorkflowStateService:
                 )
             )
         source, inventory = self._source_inventory(project_path, project, str(mode), blockers)
-        planning_sources = (
-            tuple(discover_sources(project_path)) if mode != "ad" and source is not None and not source.blockers else ()
-        )
-        planning_complete = self._planning_complete(project_path, project, source, planning_sources)
+        planning_sources = planning_docs(source) if mode != "ad" else ()
+        planning_complete = self._planning_complete(project, source, planning_sources)
         sheets = self._asset_sheets(project_path, project, blockers, currency)
         episodes = self._episodes(project, blockers)
         return _SharedWorkflowFacts(
@@ -825,17 +867,17 @@ class WorkflowStateService:
         next_action: WorkflowNextAction
         if blockers:
             state = "PROJECT_INPUT"
-            next_action = _action("none", "workflow is blocked")
+            next_action = _action(WorkflowActionType.NONE, "workflow is blocked")
         elif mode != "ad" and (source is None or not source.files):
             state = "PROJECT_INPUT"
-            next_action = _action("collect_project_input", "source text is required")
+            next_action = _action(WorkflowActionType.COLLECT_PROJECT_INPUT, "source text is required")
         elif mode != "ad" and not any(doc.text.strip() for doc in shared.planning_sources):
             state = "PROJECT_INPUT"
-            next_action = _action("collect_project_input", "non-blank source text is required")
+            next_action = _action(WorkflowActionType.COLLECT_PROJECT_INPUT, "non-blank source text is required")
         elif mode != "ad" and inventory.get("state") != "current":
             state = "ASSET_INVENTORY"
             next_action = _action(
-                "analyze_assets",
+                WorkflowActionType.ANALYZE_ASSETS,
                 "asset inventory is missing or out of date",
                 args={
                     "scope": {"kind": "all", "files": []},
@@ -845,14 +887,14 @@ class WorkflowStateService:
         elif mode != "ad" and _planning_fingerprints_diverged(project, shared.planning_sources):
             state = "EPISODE_PLAN"
             next_action = _action(
-                "reset_episode_planning",
+                WorkflowActionType.RESET_EPISODE_PLANNING,
                 "source files changed after episode planning",
                 args={"from_episode": 1},
             )
         elif mode != "ad" and _new_source_precedes_cursor(project, shared.planning_sources):
             state = "EPISODE_PLAN"
             next_action = _action(
-                "reset_episode_planning",
+                WorkflowActionType.RESET_EPISODE_PLANNING,
                 "new source text precedes the current planning cursor",
                 args={"from_episode": 1},
             )
@@ -866,7 +908,7 @@ class WorkflowStateService:
                         reason="requested episode is absent and all source text is already planned",
                     )
                 )
-                next_action = _action("none", "requested episode is unavailable")
+                next_action = _action(WorkflowActionType.NONE, "requested episode is unavailable")
             else:
                 next_action = self._planning_action(project, "episode ledger has no target episode")
         else:
@@ -886,7 +928,7 @@ class WorkflowStateService:
                         artifacts["step1"] = {"state": "stale"}
                         state = "EPISODE_PLAN"
                         next_action = _action(
-                            "reset_episode_planning",
+                            WorkflowActionType.RESET_EPISODE_PLANNING,
                             "legacy stale episode has no rebuild baseline",
                             args={"from_episode": target.episode},
                         )
@@ -897,7 +939,7 @@ class WorkflowStateService:
                         artifacts["step1"] = {"state": "stale"}
                         state = "STEP1_CONTENT"
                         next_action = _action(
-                            "prepare_step1",
+                            WorkflowActionType.PREPARE_STEP1,
                             "target episode was replanned and its downstream artifacts are stale",
                             args={
                                 "episode": target.episode,
@@ -920,7 +962,7 @@ class WorkflowStateService:
                     if pending_points:
                         state = "SELLING_POINTS"
                         next_action = _action(
-                            "draft_selling_points", "products need selling points", ids=pending_points
+                            WorkflowActionType.DRAFT_SELLING_POINTS, "products need selling points", ids=pending_points
                         )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
                 else:
@@ -951,16 +993,18 @@ class WorkflowStateService:
                             )
                         )
                         state = "STEP1_REVIEW"
-                        next_action = _action("none", "quarantined step1 must be repaired before confirmation")
+                        next_action = _action(
+                            WorkflowActionType.NONE, "quarantined step1 must be repaired before confirmation"
+                        )
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
                     if artifacts["step1"]["state"] == "blocked":
                         state = "STEP1_CONTENT"
-                        next_action = _action("none", "formal step1 currency is blocked")
+                        next_action = _action(WorkflowActionType.NONE, "formal step1 currency is blocked")
                         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
                     if artifacts["step1"]["state"] == "missing":
                         state = "STEP1_CONTENT"
                         next_action = _action(
-                            "prepare_step1",
+                            WorkflowActionType.PREPARE_STEP1,
                             "target episode has no formal step1",
                             args={"episode": target.episode, "preprocessor": preprocessor},
                         )
@@ -979,7 +1023,7 @@ class WorkflowStateService:
                     if review != "confirmed":
                         state = "STEP1_REVIEW"
                         next_action = _action(
-                            "confirm_step1",
+                            WorkflowActionType.CONFIRM_STEP1,
                             "formal step1 awaits content review",
                             args={"episode": target.episode},
                             requires_confirmation=True,
@@ -1006,13 +1050,13 @@ class WorkflowStateService:
                         artifacts["script"]["state"] = "stale"
                 if blockers:
                     state = "FINAL_SCRIPT"
-                    next_action = _action("none", "script is blocked")
+                    next_action = _action(WorkflowActionType.NONE, "script is blocked")
                 elif script_artifact["state"] == "missing" or (
                     currency is None and script_artifact["state"] == "stale"
                 ):
                     state = "FINAL_SCRIPT"
                     next_action = _action(
-                        "generate_script",
+                        WorkflowActionType.GENERATE_SCRIPT,
                         "target episode has no current final script",
                         args={"episode": target.episode},
                     )
@@ -1026,7 +1070,9 @@ class WorkflowStateService:
                     if missing_sheets:
                         state = "ASSET_SHEETS"
                         next_action = _action(
-                            "generate_asset_sheets", "asset definitions need sheets", ids=missing_sheets
+                            WorkflowActionType.GENERATE_ASSET_SHEETS,
+                            "asset definitions need sheets",
+                            ids=missing_sheets,
                         )
                     else:
                         artifacts["storyboards"] = (
@@ -1077,12 +1123,12 @@ class WorkflowStateService:
                         )
                         if blockers:
                             state = "VIDEO"
-                            next_action = _action("none", "video metadata is blocked")
+                            next_action = _action(WorkflowActionType.NONE, "video metadata is blocked")
                         elif generation_mode == "storyboard" and artifacts["storyboards"]["missing_ids"]:
                             missing = artifacts["storyboards"]["missing_ids"]
                             state = "STORYBOARD"
                             next_action = _action(
-                                "generate_grid" if grid else "generate_storyboards",
+                                WorkflowActionType.GENERATE_GRID if grid else WorkflowActionType.GENERATE_STORYBOARDS,
                                 "storyboard images are missing",
                                 args={"episode": target.episode},
                                 ids=missing,
@@ -1094,7 +1140,7 @@ class WorkflowStateService:
                         ]:
                             state = "VIDEO"
                             next_action = _action(
-                                "repair_video_units",
+                                WorkflowActionType.REPAIR_VIDEO_UNITS,
                                 "video units need replanning before generation",
                                 args={"episode": target.episode},
                                 ids=replan_ids,
@@ -1103,7 +1149,7 @@ class WorkflowStateService:
                             missing = artifacts["videos"]["missing_ids"]
                             state = "VIDEO"
                             next_action = _action(
-                                "generate_videos",
+                                WorkflowActionType.GENERATE_VIDEOS,
                                 "video clips are missing",
                                 args={"episode": target.episode},
                                 ids=missing,
@@ -1131,13 +1177,13 @@ class WorkflowStateService:
                                 next_action = self._planning_action(project, "source text remains unplanned")
                             else:
                                 state = "EXPORT_READY"
-                                next_action = _action("export", "all required artifacts are usable")
+                                next_action = _action(WorkflowActionType.EXPORT, "all required artifacts are usable")
                         elif mode != "ad" and not shared.planning_complete:
                             state = "EPISODE_PLAN"
                             next_action = self._planning_action(project, "source text remains unplanned")
                         else:
                             state = "EXPORT_READY"
-                            next_action = _action("export", "all required artifacts are usable")
+                            next_action = _action(WorkflowActionType.EXPORT, "all required artifacts are usable")
 
         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
 
@@ -1208,13 +1254,14 @@ def migration_next_action(failure: MigrationFailureRecord) -> WorkflowNextAction
     """Repair the reported inputs, then rerun the chain — the only way forward."""
 
     return _action(
-        RETRY_MIGRATION_ACTION,
+        WorkflowActionType.RETRY_PROJECT_MIGRATION,
         failure.reason,
         args={"details": [detail.model_dump(mode="json") for detail in failure.details]},
     )
 
 
 __all__ = [
+    "WorkflowActionType",
     "WorkflowBlocker",
     "WorkflowNextAction",
     "WorkflowProject",
@@ -1224,4 +1271,5 @@ __all__ = [
     "WorkflowTarget",
     "migration_blocker",
     "migration_next_action",
+    "planning_docs",
 ]

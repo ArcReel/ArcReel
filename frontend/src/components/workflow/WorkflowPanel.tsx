@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import type { NarrationDelivery } from "@/types/workflow";
 import { ProblemList } from "./ProblemList";
 import { WorkflowStepRow } from "./WorkflowStepRow";
@@ -12,6 +13,15 @@ import { blockerViews, nextStepForAction, problemViews } from "./problem-views";
 
 /** TTS 没配好时后端给出的问题码；它挡住的只是 use_tts 这一条路径。 */
 const TTS_NOT_CONFIGURED = "tts_not_configured";
+
+/**
+ * 任务指纹变化到发起重新求解之间的合并窗口（毫秒）。
+ *
+ * 一批任务入队/开跑/落地时状态是逐条跳的，每跳一次就求解一次计划，等于为同一批生成
+ * 打出十几个 `POST /workflow-plan`。窗口内的连续跳变合并成一次；窗口取值只需盖住同一
+ * 轮轮询写回引起的连锁跳变，不该长到让面板明显滞后于任务列表。
+ */
+const PLAN_REFRESH_DEBOUNCE_MS = 250;
 
 interface Props {
   projectName: string;
@@ -50,10 +60,17 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
 
   // 项目快照修订号与任务指纹是两条既有的变更信号：前者随 project.json / 剧本写入递增
   // （SSE 项目事件驱动），后者随任务轮询变化。计划同时依赖这两类事实，故两者都进依赖。
+  //
+  // 任务指纹只取当前项目的任务：任务列表在「不按项目过滤」的作用域下是全局的，别的项目
+  // 跑生成同样会让指纹变，本项目的计划却不会因此改变——不过滤就等于替别人的进度重求解。
   const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
   const taskFingerprint = useTasksStore((s) =>
-    s.tasks.map((task) => `${task.task_id}:${task.status}`).join("|"),
+    s.tasks
+      .filter((task) => task.project_name === projectName)
+      .map((task) => `${task.task_id}:${task.status}`)
+      .join("|"),
   );
+  const settledTaskFingerprint = useDebouncedValue(taskFingerprint, PLAN_REFRESH_DEBOUNCE_MS);
 
   useEffect(() => {
     if (!projectName) return;
@@ -62,7 +79,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
     projectName,
     episode,
     snapshotRevision,
-    taskFingerprint,
+    settledTaskFingerprint,
     narrationDelivery,
     confirmedDurations,
     refreshPlan,

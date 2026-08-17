@@ -43,6 +43,22 @@ class SourceRevisionBlocker(BaseModel):
     reason: str
 
 
+class SourceFileRead(BaseModel):
+    """One source file as it was read while computing the revision.
+
+    ``name`` is the on-disk directory entry, kept un-normalized so consumers can
+    rebuild the very same relative path other source readers use; ``rel_path`` is
+    the NFC-normalized project-relative path that ``SourceRevisionResult.files``
+    reports. ``text`` is the decoded content, not yet line-ending normalized.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    rel_path: str
+    text: str
+
+
 class SourceRevisionResult(BaseModel):
     """Revision calculation result; blockers and a revision are mutually exclusive."""
 
@@ -50,6 +66,9 @@ class SourceRevisionResult(BaseModel):
     revision: str | None
     files: list[str] = Field(default_factory=list)
     blockers: list[SourceRevisionBlocker] = Field(default_factory=list)
+    # 本次计算读到的原文，供同一请求内的其他消费方复用，免得为同一批源文再读一遍磁盘。
+    # 只在进程内传递，故排除出任何序列化输出。
+    documents: list[SourceFileRead] = Field(default_factory=list, exclude=True, repr=False)
 
 
 def _blocked(
@@ -152,9 +171,11 @@ def _read_sources(
     project_dir: Path,
     scope: SourceScope,
     paths: list[tuple[str, Path]],
-) -> tuple[list[tuple[str, str]], SourceRevisionResult | None]:
+) -> tuple[list[tuple[SourceFileRead, str]], SourceRevisionResult | None]:
+    """Read each source file exactly once, returning its text alongside its digest."""
+
     project_real = project_dir.resolve()
-    fingerprints: list[tuple[str, str]] = []
+    reads: list[tuple[SourceFileRead, str]] = []
     canonical_paths: set[str] = set()
     for rel, path in paths:
         if rel in canonical_paths:
@@ -182,11 +203,11 @@ def _read_sources(
         except OSError as exc:
             return [], _blocked(scope, "source_unreadable", rel, f"source file cannot be read: {exc}")
         try:
-            content.decode("utf-8")
+            text = content.decode("utf-8")
         except UnicodeDecodeError:
             return [], _blocked(scope, "source_unreadable", rel, "source file is not valid UTF-8")
-        fingerprints.append((rel, hashlib.sha256(content).hexdigest()))
-    return fingerprints, None
+        reads.append((SourceFileRead(name=path.name, rel_path=rel, text=text), hashlib.sha256(content).hexdigest()))
+    return reads, None
 
 
 def compute_source_revision(
@@ -212,13 +233,13 @@ def compute_source_revision(
     if error is not None:
         return error
 
-    fingerprints, error = _read_sources(project_dir, parsed_scope, paths)
+    reads, error = _read_sources(project_dir, parsed_scope, paths)
     if error is not None:
         return error
 
-    canonical_fingerprints = sorted(fingerprints, key=lambda item: item[0])
+    canonical_fingerprints = sorted(reads, key=lambda item: item[0].rel_path)
     payload = {
-        "files": [{"path": rel, "sha256": digest} for rel, digest in canonical_fingerprints],
+        "files": [{"path": read.rel_path, "sha256": digest} for read, digest in canonical_fingerprints],
         "source_kind": project.get("source_kind", "novel"),
         "source_language": project.get("source_language"),
     }
@@ -231,10 +252,12 @@ def compute_source_revision(
         scope=canonical_scope,
         revision=revision,
         files=[rel for rel, _path in paths],
+        documents=[read for read, _digest in reads],
     )
 
 
 __all__ = [
+    "SourceFileRead",
     "SourceRevisionBlocker",
     "SourceRevisionResult",
     "SourceScope",

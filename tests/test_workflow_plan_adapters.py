@@ -11,6 +11,7 @@ from lib.narration_delivery import POST_PRODUCTION
 from lib.project_manager import ProjectManager
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow_state import (
+    WorkflowActionType,
     WorkflowNextAction,
     WorkflowProject,
     WorkflowRequestError,
@@ -59,7 +60,7 @@ def _status() -> WorkflowStatus:
                 "audio": {"state": "not_applicable", "current_ids": [], "stale_ids": [], "missing_ids": []},
             },
             "next_action": WorkflowNextAction(
-                type="generate_videos",
+                type=WorkflowActionType.GENERATE_VIDEOS,
                 requested_ids=["E1S01"],
                 reason="video missing",
             ),

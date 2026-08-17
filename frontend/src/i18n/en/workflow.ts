@@ -153,6 +153,7 @@ export default {
   'action_patch_episode_script': 'correct the script fields listed below',
   'action_choose_narration_delivery': 'choose how narration is delivered for this batch',
   'action_export': 'export the finished episode',
+  'action_retry_project_migration': 'fix the reported project files, then retry the data upgrade',
 
   // ---- Problem summaries ----
   'problem_generation_unit_not_found': 'This unit is no longer in the script.',

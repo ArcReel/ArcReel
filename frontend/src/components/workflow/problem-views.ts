@@ -3,6 +3,7 @@ import type {
   AdmissionProblem,
   BatchAdmissionUnit,
   GenerationProblem,
+  WorkflowActionType,
   WorkflowBlocker,
 } from "@/types/workflow";
 
@@ -39,10 +40,11 @@ function localizedSummary(t: Translate, code: string, fallback: string): string 
 
 /**
  * 复述后端给的下一步动作。动作译文是裸的祈使短语，「下一步：」这层框架在这里统一加，
- * 各调用点不各写一遍。动作类型是开放集合，未登记的取值落到 `action_unknown` 兜底陈述——
- * 说不出是哪个动作，也好过把后端明确给出的这一步整个吞掉。
+ * 各调用点不各写一遍。动作类型是 {@link WorkflowActionType} 那个闭集，每个取值都配了
+ * 文案（覆盖检查见 `action-language.test.ts`）；`action_unknown` 只作运行时防线，接住
+ * 后端先于前端上线的新动作——说不出是哪个动作，也好过把这一步整个吞掉。
  */
-export function nextStepForAction(t: Translate, action: string): string {
+export function nextStepForAction(t: Translate, action: WorkflowActionType): string {
   return t("next_step", {
     step: t(`action_${action}`, { defaultValue: t("action_unknown") }),
   });
