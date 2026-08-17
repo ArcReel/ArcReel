@@ -11,7 +11,8 @@ import json
 import os
 import re
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -42,6 +43,7 @@ from lib.grid.models import GridGeneration
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS
+from lib.project_migration_failure import ProjectMigrationError
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version, project_schema_is_current
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
@@ -201,16 +203,24 @@ class _Planner:
             raise ValueError(f"artifact activation requires schema 7 or 8, got {schema!r}")
 
         self._activation_mode = True
-        # Parsing the existing sidecar is part of preflight.  A corrupt manifest
-        # is a real migration error, not permission to overwrite unknown state.
-        self.adapter.get_entry(ArtifactKey.episode_script(1))
-        self._load_episodes()
-        self._plan_assets()
-        self._plan_structured_content()
-        self._plan_grids()
-        self._plan_storyboards()
-        self._plan_typed_media()
-        self._plan_persisted_presentations()
+        try:
+            # Parsing the existing sidecar is part of preflight.  A corrupt manifest
+            # is a real migration error, not permission to overwrite unknown state.
+            self.adapter.get_entry(ArtifactKey.episode_script(1))
+            self._load_episodes()
+            self._plan_assets()
+            self._plan_structured_content()
+            self._plan_grids()
+            self._plan_storyboards()
+            self._plan_typed_media()
+            self._plan_persisted_presentations()
+        except ProjectMigrationError:
+            # Already carries the episode / file it was rejected at.
+            raise
+        except (ArtifactManifestError, ValueError) as exc:
+            # Preflight refused outside any single episode: the offending input is
+            # project-level (bindings, asset buckets, the manifest sidecar itself).
+            raise ProjectMigrationError(str(exc), file="project.json") from exc
         return ArtifactTargetStatePlan(
             entries=dict(self.entries),
             formal_paths=dict(self.formal_paths),
@@ -298,51 +308,73 @@ class _Planner:
         for binding in self.bindings:
             if self.episode_scope is not None and binding.episode != self.episode_scope:
                 continue
-            observation = self.adapter.inspect_artifact(binding.script_file)
-            if observation.blocker is not None:
-                raise ArtifactManifestError(observation.blocker.detail)
-            if not observation.present:
-                continue
-            raw_script = self._read_dependency(binding.script_file, "episode script")
-            parsed = self._parse_json(raw_script, f"episode script {binding.script_file}")
-            if not isinstance(parsed, dict):
-                raise ValueError(f"episode script {binding.script_file} must contain an object")
-            script = cast(dict[str, Any], parsed)
-            if script.get("episode") != binding.episode:
-                raise ValueError(f"episode script {binding.script_file} does not match its project binding")
-            items, id_field, kind = resolve_items(script)
-            seen_ids: set[str] = set()
-            typed_items: list[dict[str, Any]] = []
-            for item_index, item in enumerate(items):
-                if not isinstance(item, dict):
-                    raise ValueError(f"episode script {binding.script_file} item {item_index} must be an object")
-                resource_id = item.get(id_field)
-                if not isinstance(resource_id, str) or not resource_id:
-                    raise ValueError(f"episode script {binding.script_file} item {item_index} has no identity")
-                if resource_id in seen_ids:
-                    raise ValueError(
-                        f"episode script {binding.script_file} has duplicate resource identity {resource_id!r}"
-                    )
-                seen_ids.add(resource_id)
-                typed_items.append(item)
-            script_path = self.project_dir / binding.script_file
-            self.script_paths.append(script_path)
-            self.episodes.append(
-                _EpisodeState(
-                    episode=binding.episode,
-                    script_file=binding.script_file,
-                    script_path=script_path,
-                    script=script,
-                    items=tuple(typed_items),
-                    id_field=id_field,
-                    kind=kind,
-                )
-            )
-            self._record_formal_path(
-                ArtifactKey.episode_script(binding.episode),
-                observation.artifact_path,
-            )
+            with self._episode_context(binding):
+                self._load_episode(binding)
         self._episodes_loaded = True
+
+    @contextmanager
+    def _episode_context(self, binding: _EpisodeBinding) -> Iterator[None]:
+        """Name the episode and script a preflight rejection came from.
+
+        Only active while planning a target state: the runtime resolve paths
+        reuse the same loader and must keep raising their original exceptions.
+        """
+
+        if not self._activation_mode:
+            yield
+            return
+        try:
+            yield
+        except ProjectMigrationError:
+            raise
+        except (ArtifactManifestError, ValueError) as exc:
+            raise ProjectMigrationError(str(exc), episode=binding.episode, file=binding.script_file) from exc
+
+    def _load_episode(self, binding: _EpisodeBinding) -> None:
+        observation = self.adapter.inspect_artifact(binding.script_file)
+        if observation.blocker is not None:
+            raise ArtifactManifestError(observation.blocker.detail)
+        if not observation.present:
+            return
+        raw_script = self._read_dependency(binding.script_file, "episode script")
+        parsed = self._parse_json(raw_script, f"episode script {binding.script_file}")
+        if not isinstance(parsed, dict):
+            raise ValueError(f"episode script {binding.script_file} must contain an object")
+        script = cast(dict[str, Any], parsed)
+        if script.get("episode") != binding.episode:
+            raise ValueError(f"episode script {binding.script_file} does not match its project binding")
+        items, id_field, kind = resolve_items(script)
+        seen_ids: set[str] = set()
+        typed_items: list[dict[str, Any]] = []
+        for item_index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError(f"episode script {binding.script_file} item {item_index} must be an object")
+            resource_id = item.get(id_field)
+            if not isinstance(resource_id, str) or not resource_id:
+                raise ValueError(f"episode script {binding.script_file} item {item_index} has no identity")
+            if resource_id in seen_ids:
+                raise ValueError(
+                    f"episode script {binding.script_file} has duplicate resource identity {resource_id!r}"
+                )
+            seen_ids.add(resource_id)
+            typed_items.append(item)
+        script_path = self.project_dir / binding.script_file
+        self.script_paths.append(script_path)
+        self.episodes.append(
+            _EpisodeState(
+                episode=binding.episode,
+                script_file=binding.script_file,
+                script_path=script_path,
+                script=script,
+                items=tuple(typed_items),
+                id_field=id_field,
+                kind=kind,
+            )
+        )
+        self._record_formal_path(
+            ArtifactKey.episode_script(binding.episode),
+            observation.artifact_path,
+        )
 
     def _plan_assets(self) -> None:
         if "assets" in self._planned:

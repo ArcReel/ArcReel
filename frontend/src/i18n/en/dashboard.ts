@@ -1499,6 +1499,13 @@ export default {
   'tool_name_split_segment': 'Split shot',
   'tool_name_patch_project': 'Edit project assets',
   'tool_name_rename_asset': 'Rename asset',
+  'tool_name_retry_project_migration': 'Retry data upgrade',
+
+  // Failed data upgrade banner (top of StudioLayout)
+  'migration_repair_title': 'This project needs repair',
+  'migration_repair_body': 'The data upgrade did not finish, so generation is turned off for now. Existing scripts and visuals remain viewable. Click "Retry upgrade" to bring the repair request into the assistant conversation, then send it yourself.',
+  'migration_repair_action': 'Retry upgrade',
+  'migration_repair_prefill': "This project's data upgrade failed. Walk me through the failure details one by one — which episode, which file, what was violated — then repair them with the controlled editing tools and call retry_project_migration.",
   // Skill display names (single source of truth: user-invocable SKILL.md files
   // under agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py enforces parity)
   'skill_name_video_workflow': 'Video creation workflow',
@@ -1634,6 +1641,7 @@ export default {
   'lobby_now_editing_progress_label': 'Progress',
   'lobby_now_editing_episodes_label': 'Episodes',
   'lobby_now_editing_episodes_value': '{{completed}}/{{total}} episodes',
+  'lobby_card_needs_repair': 'NEEDS REPAIR',
   'lobby_card_stat_cast': 'CAST',
   'lobby_card_stat_scene': 'SCENE',
   'lobby_card_stat_prop': 'PROP',

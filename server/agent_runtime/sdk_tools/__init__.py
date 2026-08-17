@@ -11,12 +11,15 @@ different project via prompt injection.
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server
 
-from server.agent_runtime.sdk_tools._context import ToolContext
+from lib.project_migration_guard import project_migration_failure
+from server.agent_runtime.sdk_tools._context import ToolContext, migration_refusal_response
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
@@ -46,6 +49,7 @@ from server.agent_runtime.sdk_tools.patch_script import (
     split_segment_tool,
 )
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
+from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     confirm_script_review_tool,
     generate_episode_script_tool,
@@ -101,47 +105,103 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "split_segment",
     "patch_project",
     "rename_asset",
+    "retry_project_migration",
 )
+
+# Tools refused outright while the project's schema migration verdict is a failure.
+# Everything that generates output or writes formal content is closed; the read-only
+# tools stay open so the agent can still diagnose what needs repairing, and the
+# controlled script/project editors stay open because repairing is done through them.
+MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
+    {
+        "complete_asset_inventory",
+        "complete_step1_rebuild",
+        "generate_assets",
+        "generate_storyboards",
+        "edit_images",
+        "generate_grid",
+        "generate_video_episode",
+        "generate_video_scene",
+        "generate_video_all",
+        "generate_video_selected",
+        "generate_narration_audio",
+        "generate_episode_script",
+        "confirm_script_review",
+        "normalize_drama_script",
+        "split_reference_video_units",
+        "open_step1_for_edit",
+        "validate_and_promote_draft",
+        "split_narration_segments",
+        "plan_episodes",
+        "reset_episode_planning",
+    }
+)
+
+
+def _refuse_while_migration_failed(sdk_tool: Any, ctx: ToolContext) -> Any:
+    """Wrap one tool so it reports the migration verdict instead of running.
+
+    Applied at registration rather than inside each handler: the blocked set is
+    one list to keep honest, and no generation tool can forget the check.
+    """
+
+    inner = sdk_tool.handler
+
+    async def _guarded(args: Any) -> dict[str, Any]:
+        failure = await asyncio.to_thread(project_migration_failure, ctx.project_name, ctx.pm)
+        if failure is not None:
+            return migration_refusal_response(
+                failure,
+                text="❌ 项目数据升级未完成，生成与正式写入已全部关闭。请按明细修复后调用 retry_project_migration：",
+            )
+        return await inner(args)
+
+    return replace(sdk_tool, handler=_guarded)
 
 
 def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
     """Build the per-session in-process MCP server with all ArcReel tools."""
     ctx = ToolContext(project_name=project_name, projects_root=projects_root)
+    tools = [
+        complete_asset_inventory_tool(ctx),
+        complete_step1_rebuild_tool(ctx),
+        get_workflow_status_tool(ctx),
+        get_workflow_plan_tool(ctx),
+        list_pending_assets_tool(ctx),
+        generate_assets_tool(ctx),
+        generate_storyboards_tool(ctx),
+        edit_images_tool(ctx),
+        generate_grid_tool(ctx),
+        generate_video_episode_tool(ctx),
+        generate_video_scene_tool(ctx),
+        generate_video_all_tool(ctx),
+        generate_video_selected_tool(ctx),
+        generate_narration_audio_tool(ctx),
+        generate_episode_script_tool(ctx),
+        confirm_script_review_tool(ctx),
+        normalize_drama_script_tool(ctx),
+        split_reference_video_units_tool(ctx),
+        open_step1_for_edit_tool(ctx),
+        validate_and_promote_draft_tool(ctx),
+        split_narration_segments_tool(ctx),
+        get_video_capabilities_tool(ctx),
+        plan_episodes_tool(ctx),
+        reset_episode_planning_tool(ctx),
+        get_episode_script_revision_tool(ctx),
+        patch_episode_script_tool(ctx),
+        patch_episode_meta_tool(ctx),
+        insert_segment_tool(ctx),
+        remove_segment_tool(ctx),
+        split_segment_tool(ctx),
+        patch_project_tool(ctx),
+        rename_asset_tool(ctx),
+        retry_project_migration_tool(ctx),
+    ]
     return create_sdk_mcp_server(
         name="arcreel",
         version="1.0.0",
         tools=[
-            complete_asset_inventory_tool(ctx),
-            complete_step1_rebuild_tool(ctx),
-            get_workflow_status_tool(ctx),
-            get_workflow_plan_tool(ctx),
-            list_pending_assets_tool(ctx),
-            generate_assets_tool(ctx),
-            generate_storyboards_tool(ctx),
-            edit_images_tool(ctx),
-            generate_grid_tool(ctx),
-            generate_video_episode_tool(ctx),
-            generate_video_scene_tool(ctx),
-            generate_video_all_tool(ctx),
-            generate_video_selected_tool(ctx),
-            generate_narration_audio_tool(ctx),
-            generate_episode_script_tool(ctx),
-            confirm_script_review_tool(ctx),
-            normalize_drama_script_tool(ctx),
-            split_reference_video_units_tool(ctx),
-            open_step1_for_edit_tool(ctx),
-            validate_and_promote_draft_tool(ctx),
-            split_narration_segments_tool(ctx),
-            get_video_capabilities_tool(ctx),
-            plan_episodes_tool(ctx),
-            reset_episode_planning_tool(ctx),
-            get_episode_script_revision_tool(ctx),
-            patch_episode_script_tool(ctx),
-            patch_episode_meta_tool(ctx),
-            insert_segment_tool(ctx),
-            remove_segment_tool(ctx),
-            split_segment_tool(ctx),
-            patch_project_tool(ctx),
-            rename_asset_tool(ctx),
+            _refuse_while_migration_failed(sdk_tool, ctx) if sdk_tool.name in MIGRATION_BLOCKED_TOOL_IDS else sdk_tool
+            for sdk_tool in tools
         ],
     )

@@ -1498,6 +1498,13 @@ export default {
   'tool_name_split_segment': '拆分分镜',
   'tool_name_patch_project': '编辑项目资产',
   'tool_name_rename_asset': '重命名资产',
+  'tool_name_retry_project_migration': '重试数据升级',
+
+  // 数据升级失败条幅（StudioLayout 顶部）
+  'migration_repair_title': '本项目需要修复',
+  'migration_repair_body': '数据升级未完成，生成功能暂时关闭。已有的脚本与画面照常可以查看。点「重试升级」把修复请求带到智能体对话，确认后发送。',
+  'migration_repair_action': '重试升级',
+  'migration_repair_prefill': '这个项目的数据升级失败了，请按失败明细逐条说明是哪一集、哪个文件、违了什么约，用受控编辑工具修好后调用 retry_project_migration 重试升级。',
   // Skill display names (single source of truth: agent_runtime_profile/.claude/skills/*/SKILL.md
   // 中 user-invocable: true 的 skill；tests/test_frontend_skill_i18n.py 校验三语齐全)
   'skill_name_video_workflow': '视频创作工作流',
@@ -1633,6 +1640,7 @@ export default {
   'lobby_now_editing_progress_label': '完成进度',
   'lobby_now_editing_episodes_label': '剧集',
   'lobby_now_editing_episodes_value': '{{completed}}/{{total}} 集',
+  'lobby_card_needs_repair': '需要修复',
   'lobby_card_stat_cast': 'CAST',
   'lobby_card_stat_scene': 'SCENE',
   'lobby_card_stat_prop': 'PROP',

@@ -141,6 +141,43 @@ export function Poster({ project, styleLabel, large = false }: PosterProps) {
   );
 }
 
+// -- 需要修复标记 --------------------------------------------------------------
+
+/** 迁移未跑完的项目在列表上的标记。大厅两张卡（常规卡与「正在编辑」卡）共用一份。 */
+export function NeedsRepairPill() {
+  const { t } = useTranslation("dashboard");
+  return (
+    <span
+      className="inline-flex items-center rounded-full border px-2 py-[2px] font-mono text-[10px] font-semibold uppercase tracking-[0.06em]"
+      style={{
+        color: "var(--color-warm)",
+        borderColor: "var(--color-warm-ring)",
+        background: "var(--color-warm-soft)",
+      }}
+    >
+      {t("lobby_card_needs_repair")}
+    </span>
+  );
+}
+
+/**
+ * 失败原因直接显示，不塞 `title`：tooltip 在触摸设备上打不开，而这行是用户在列表上
+ * 判断该不该进项目修的唯一线索。完整原文在项目内的条幅上。
+ */
+export function RepairReasonLine({ reason }: { reason: string | null }) {
+  if (!reason) return null;
+  return (
+    <p className="mb-3 line-clamp-2 break-words font-mono text-[10.5px] leading-[1.45] text-text-3">
+      {reason}
+    </p>
+  );
+}
+
+/** 只有确实被阻断的项目才有原因可显示——健康项目上的残留原因不展示。 */
+export function repairReasonOf(status: ProjectStatus | null): string | null {
+  return status?.needs_repair ? (status.repair_reason ?? null) : null;
+}
+
 // -- PhasePill / EpisodeStrip -------------------------------------------------
 
 export function PhasePill({ phase, label }: { phase: Phase | null; label: string }) {
@@ -293,10 +330,15 @@ export function ProjectCard(props: ProjectCardProps) {
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
   const projectDisplayName = getProjectDisplayName(project.title, t("untitled_project"));
   // 演示卡的可读名里带上「只读」：视觉上有 eyebrow 说明，只听朗读的人否则会以为点进的是自己的项目
+  // 「需要修复」与原因也进可读名：视觉上是一枚 pill 加一行原因，只听朗读的人否则拿不到
+  // 这张卡为什么被阻断
+  const repairReason = repairReasonOf(status);
   const linkLabel = [
     projectDisplayName,
     styleLabel,
     phaseLabel,
+    status?.needs_repair ? t("lobby_card_needs_repair") : "",
+    repairReason ?? "",
     props.readOnly ? t("onboarding:demo_banner_title") : "",
   ]
     .filter(Boolean)
@@ -327,7 +369,10 @@ export function ProjectCard(props: ProjectCardProps) {
 
         <div className="mb-3 flex items-center gap-2">
           <PhasePill phase={phase} label={phaseLabel} />
+          {status?.needs_repair ? <NeedsRepairPill /> : null}
         </div>
+
+        <RepairReasonLine reason={repairReason} />
 
         <EpisodeStrip summary={episodes} />
 

@@ -41,6 +41,7 @@ from lib.path_safety import try_safe_join
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password, get_current_user
+from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.routers import (
     agent_chat,
@@ -572,12 +573,30 @@ app.include_router(props.router, prefix="/api/v1", dependencies=[Depends(get_cur
 app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["产品管理"])
 app.include_router(presentations.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["成片演示"])
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
-app.include_router(generate.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["生成"])
 app.include_router(
-    script_review.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["剧本审核 gate"]
+    generate.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["生成"],
 )
-app.include_router(shot_uploads.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["镜头上传"])
-app.include_router(end_frames.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["镜头尾帧"])
+app.include_router(
+    script_review.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["剧本审核 gate"],
+)
+app.include_router(
+    shot_uploads.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["镜头上传"],
+)
+app.include_router(
+    end_frames.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["镜头尾帧"],
+)
 app.include_router(versions.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用统计"])
 app.include_router(auth_router.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["认证"])
@@ -600,9 +619,17 @@ app.include_router(
 app.include_router(
     cost_estimation.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用估算"]
 )
-app.include_router(grids.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["宫格图"])
 app.include_router(
-    reference_videos.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["参考生视频"]
+    grids.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["宫格图"],
+)
+app.include_router(
+    reference_videos.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["参考生视频"],
 )
 app.include_router(assets.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["全局资产库"])
 app.include_router(onboarding.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["首次使用引导"])

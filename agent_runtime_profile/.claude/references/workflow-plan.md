@@ -39,6 +39,31 @@ mcp__arcreel__get_workflow_plan({
 
 `next_action.type == "none"` 或 `blockers` 非空时：向用户展示 blockers，**停止一切变更**。
 
+## 数据升级失败：修复 → 重试
+
+项目的数据升级（含产物补录）没跑完时，该项目整体阻断。此时计划只交回一件事：
+
+- `blockers[]` 里只有一条 `code == "project_migration_failed"`，`reason` 是升级失败的原文；
+- `problems[]` 里只有一条同码问题，`action == "retry_project_migration"`，
+  `params.details[]` 逐条给出 `episode` / `file` / `violation` —— 哪一集、哪个文件、违了什么约；
+- `next_action.type == "retry_project_migration"`，`args.details` 同上。
+
+所有生成工具与正式写入工具在这个状态下一律返回同一条问题、不做任何事，也不计费。项目本身
+仍可读：`Read` 脚本、看画布上已有的图和视频照常。
+
+处理顺序：
+
+1. 把 `details[]` 逐条讲给用户：哪一集的哪个文件、违了什么约，不要压成一句「升级失败」。
+2. 用既有的受控编辑工具（`mcp__arcreel__patch_episode_script`、`mcp__arcreel__patch_project`、
+   `mcp__arcreel__patch_episode_meta` 等）按明细修。**没有裸文件写入这条路**，也不要用 `Edit`
+   直接改正式脚本。
+3. 调用 `mcp__arcreel__retry_project_migration` 重跑升级链。它幂等，重复调用不会造成损失。
+4. 成功时工具返回新的制作计划，项目解除阻断，照常按 `next_action` 继续；失败时返回新的结构化
+   明细，回到第 1 步。修不动时如实告诉用户卡在哪里，不要反复空跑重试。
+
+用户在 Web 项目页点「重试迁移」时，请求文本会被填进对话输入框由用户自己发送——收到它就走上面
+这条路径。
+
 ## 受控动作表
 
 按 `next_action.type` 路由，把 `target.episode`、`next_action.args` 与 `requested_ids` 原样带入。
@@ -66,6 +91,7 @@ mcp__arcreel__get_workflow_plan({
 | `generate_videos` | 视频生成工具（见 `generate-video` skill） |
 | `wait_for_task` | 计划注入：有活动任务，不入队新任务；等待并复查计划 |
 | `export` | 引导用户在 Web 端导出 |
+| `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
 | `none` | 展示 `blockers` 并停止变更 |
 
 `next_action.args.preprocessor` 是权威的预处理 subagent 名，**不要自己按 `content_mode` ×

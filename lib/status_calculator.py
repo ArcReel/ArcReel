@@ -15,6 +15,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
 )
 from lib.path_safety import safe_exists
+from lib.project_migration_failure import load_migration_failure
 from lib.script_models import get_generated_assets, script_duration_total
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 
@@ -389,9 +390,17 @@ class StatusCalculator:
             completed_assets = chars_done + scenes_done + props_done
             phase_progress = completed_assets / total_assets if total_assets > 0 else 0.0
 
+        # A project whose schema migration failed is marked for repair wherever it is
+        # listed. The counts above still come from files on disk, so the card keeps
+        # showing what the user already has while telling them nothing more can be
+        # produced until the upgrade is repaired and retried.
+        failure = load_migration_failure(project_dir)
+
         return {
             "current_phase": phase,
             "phase_progress": phase_progress,
+            "needs_repair": failure is not None,
+            "repair_reason": failure.reason if failure is not None else None,
             "characters": {"total": chars_total, "completed": chars_done},
             "scenes": {"total": scenes_total, "completed": scenes_done},
             "props": {"total": props_total, "completed": props_done},
