@@ -37,7 +37,14 @@ def _load_project_and_unit(proj_dir: Path, unit_id: str) -> tuple[dict, dict]:
     return project, unit
 
 
-def _write_project(tmp_path: Path) -> Path:
+_TINY_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
+    b"\x08\x02\x00\x00\x00&\x93\t)\x00\x00\x00\x13IDATx\x9cc<\x91b\xc4\x00"
+    b"\x03Lp\x16^\x0e\x00E\xf6\x01f\xac\xf5\x15\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def _write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
     project = {
         "title": "T",
         "content_mode": "narration",
@@ -85,15 +92,28 @@ def _write_project(tmp_path: Path) -> Path:
     (proj_dir / "scripts").mkdir()
     (proj_dir / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
     (proj_dir / "characters").mkdir()
-    _TINY_PNG = (
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
-        b"\x08\x02\x00\x00\x00&\x93\t)\x00\x00\x00\x13IDATx\x9cc<\x91b\xc4\x00"
-        b"\x03Lp\x16^\x0e\x00E\xf6\x01f\xac\xf5\x15\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
     (proj_dir / "characters" / "张三.png").write_bytes(_TINY_PNG)
     (proj_dir / "scenes").mkdir()
     (proj_dir / "scenes" / "酒馆.png").write_bytes(_TINY_PNG)
+    _activate_project_manifest(proj_dir, register_script=register_script)
     return proj_dir
+
+
+def _register_asset_sheet(proj_dir: Path, asset_type: str, name: str, relative_path: str) -> None:
+    """把新增资产补成生产形态：sheet 文件在盘上，且在产物清单里登记。
+
+    调用前 project.json 必须已经写盘并带上该资产的 sheet 指针——清单登记的依据来自
+    project.json 的当前指针，只改内存里的 project 副本不构成一个可登记的资产。
+    """
+
+    from lib.artifact_activation import register_current_artifact
+    from lib.artifact_manifest import ArtifactKey
+
+    path = proj_dir / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_bytes(_TINY_PNG)
+    register_current_artifact(proj_dir, ArtifactKey.asset_sheet(asset_type, name))
 
 
 def _activate_project_manifest(proj_dir: Path, *, register_script: bool = True) -> None:
@@ -249,14 +269,19 @@ def test_product_references_expand_to_sheet_and_originals_then_clamp_sheets_firs
         (target_dir / filename).write_bytes(image)
     project["products"] = {
         "产品甲": {
+            "description": "x",
             "product_sheet": "products/甲-sheet.png",
             "reference_images": ["products/refs/甲-original.png"],
         },
         "产品乙": {
+            "description": "x",
             "product_sheet": "products/乙-sheet.png",
             "reference_images": ["products/refs/乙-original.png"],
         },
     }
+    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _register_asset_sheet(proj_dir, "product", "产品甲", "products/甲-sheet.png")
+    _register_asset_sheet(proj_dir, "product", "产品乙", "products/乙-sheet.png")
     entries = _resolve_unit_reference_entries(
         project,
         proj_dir,
@@ -348,7 +373,8 @@ def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(t
     proj_dir = _write_project(tmp_path)
     project, _ = _load_project_and_unit(proj_dir, "E1U1")
     project["characters"][name_nfd] = {"description": "x", "character_sheet": "characters/hieu.png"}
-    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _register_asset_sheet(proj_dir, "character", name_nfd, "characters/hieu.png")
 
     refs = [{"type": "character", "name": name_nfc}]
     resolved = _resolve_unit_references(project, proj_dir, refs)
@@ -380,7 +406,8 @@ def test_resolve_unit_references_dedupes_nfc_nfd_pair(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, _ = _load_project_and_unit(proj_dir, "E1U1")
     project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
-    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _register_asset_sheet(proj_dir, "character", name_nfc, "characters/hieu.png")
 
     refs = [{"type": "character", "name": name_nfc}, {"type": "character", "name": name_nfd}]
     resolved = _resolve_unit_references(project, proj_dir, refs)
@@ -1004,11 +1031,12 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
     project["characters"]["张三"]["reference_audio"] = "characters/refs_audio/张三.wav"
     project["characters"]["李四"] = {
         "description": "x",
-        "character_sheet": "characters/张三.png",
+        "character_sheet": "characters/李四.png",
         "voice_style": "清亮少女音",
         "reference_audio": "characters/refs_audio/李四.mp3",
     }
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _register_asset_sheet(proj_dir, "character", "李四", "characters/李四.png")
     refs_audio = proj_dir / "characters" / "refs_audio"
     refs_audio.mkdir(parents=True)
     (refs_audio / "张三.wav").write_bytes(b"RIFF")
@@ -1233,11 +1261,12 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
     project["characters"]["张三"]["reference_audio"] = "characters/refs_audio/张三.wav"
     project["characters"]["李四"] = {
         "description": "x",
-        "character_sheet": "characters/张三.png",
+        "character_sheet": "characters/李四.png",
         "voice_style": "清亮少女音",
         "reference_audio": "characters/refs_audio/李四.mp3",
     }
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _register_asset_sheet(proj_dir, "character", "李四", "characters/李四.png")
     refs_audio = proj_dir / "characters" / "refs_audio"
     refs_audio.mkdir(parents=True)
     (refs_audio / "张三.wav").write_bytes(b"RIFF")
@@ -1373,10 +1402,11 @@ async def test_execute_reference_video_task_surfaces_render_warnings(tmp_path: P
     project["characters"]["张三"]["reference_audio"] = "characters/refs_audio/张三.wav"
     project["characters"]["李四"] = {
         "description": "x",
-        "character_sheet": "characters/张三.png",
+        "character_sheet": "characters/李四.png",
         "reference_audio": "characters/refs_audio/李四.mp3",
     }
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _register_asset_sheet(proj_dir, "character", "李四", "characters/李四.png")
     refs_audio = proj_dir / "characters" / "refs_audio"
     refs_audio.mkdir(parents=True)
     (refs_audio / "张三.wav").write_bytes(b"RIFF")
@@ -1673,7 +1703,6 @@ async def test_execute_reference_video_task_rejects_unclaimed_formal_sheet_befor
     from server.services import reference_video_tasks as rvt
 
     proj_dir = _write_project(tmp_path)
-    _activate_project_manifest(proj_dir)
     ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.asset_sheet("character", "张三"))
 
     fake_pm = MagicMock()
@@ -1717,8 +1746,7 @@ async def test_execute_reference_video_task_rejects_unclaimed_bound_script_befor
 ):
     from server.services import reference_video_tasks as rvt
 
-    proj_dir = _write_project(tmp_path)
-    _activate_project_manifest(proj_dir, register_script=False)
+    proj_dir = _write_project(tmp_path, register_script=False)
 
     fake_pm = MagicMock()
     fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
@@ -1763,7 +1791,6 @@ async def test_execute_reference_video_task_rechecks_formal_sheet_claim_before_p
     from server.services import reference_video_tasks as rvt
 
     proj_dir = _write_project(tmp_path)
-    _activate_project_manifest(proj_dir)
 
     fake_pm = MagicMock()
     fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
@@ -1811,14 +1838,13 @@ async def test_execute_reference_video_task_rechecks_formal_sheet_claim_before_p
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_rechecks_legacy_selection_after_activation(
+async def test_execute_reference_video_task_blocks_an_unmigrated_project_before_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """A v7 selection cannot bypass a v8 Manifest created before provider submission."""
+    """产物清单是读取已生成产物的唯一口径：项目没迁到 v8 就在付费前阻断。"""
 
-    from lib.artifact_activation import activate_artifact_target_state
-    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from lib.project_migration_failure import ProjectMigrationError
     from server.services import reference_video_tasks as rvt
 
     proj_dir = _write_project(tmp_path)
@@ -1839,9 +1865,6 @@ async def test_execute_reference_video_task_rechecks_legacy_selection_after_acti
     provider_submissions: list[str] = []
 
     async def _fake_generate_video_async(**kwargs):
-        assert activate_artifact_target_state(proj_dir, bump_schema=True) is True
-        ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.asset_sheet("character", "张三"))
-        await kwargs["before_submit"](72)
         provider_submissions.append("submitted")
         raise AssertionError("provider submission must remain unreachable")
 
@@ -1859,13 +1882,13 @@ async def test_execute_reference_video_task_rechecks_legacy_selection_after_acti
     fake_queue.persist_execution_checkpoint = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
-    with pytest.raises(ValueError, match="no longer registered"):
+    with pytest.raises(ProjectMigrationError, match="did not reach v8"):
         await rvt.execute_reference_video_task(
             "demo",
             "E1U1",
             {"script_file": "scripts/episode_1.json"},
             user_id="u1",
-            task_id="task-reference-activation-race",
+            task_id="task-reference-unmigrated-project",
         )
 
     assert provider_submissions == []
@@ -1874,7 +1897,7 @@ async def test_execute_reference_video_task_rechecks_legacy_selection_after_acti
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_rejects_replaced_legacy_sheet_before_provider(
+async def test_execute_reference_video_task_rejects_a_replaced_sheet_before_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1883,8 +1906,6 @@ async def test_execute_reference_video_task_rejects_replaced_legacy_sheet_before
     proj_dir = _write_project(tmp_path)
     project_path = proj_dir / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))
-    project["schema_version"] = 7
-    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
 
     fake_pm = MagicMock()
     fake_pm.load_project.return_value = project
@@ -1932,27 +1953,24 @@ async def test_execute_reference_video_task_rejects_replaced_legacy_sheet_before
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_uses_episode_one_for_unresolved_legacy_script_identity(
+async def test_execute_reference_video_task_refuses_a_script_outside_the_episode_ledger(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """A legacy noncanonical script keeps the historical episode-one artifact identity."""
+    """产物身份只认 project.json 的 episodes 账本：没绑定的剧本在付费前被拒。"""
 
-    from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
     from server.services import reference_video_tasks as rvt
 
     proj_dir = _write_project(tmp_path)
     canonical_script = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(canonical_script.read_text(encoding="utf-8"))
-    script.pop("episode")
-    legacy_script = proj_dir / "scripts" / "legacy.json"
-    legacy_script.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-    canonical_script.unlink()
+    unbound_script = proj_dir / "scripts" / "unbound.json"
+    unbound_script.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     fake_pm = MagicMock()
     fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
     fake_pm.get_project_path.return_value = proj_dir
-    fake_pm.load_script.side_effect = lambda *_a: json.loads(legacy_script.read_text(encoding="utf-8"))
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(unbound_script.read_text(encoding="utf-8"))
     _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
@@ -1974,17 +1992,17 @@ async def test_execute_reference_video_task_uses_episode_one_for_unresolved_lega
     fake_queue.persist_execution_checkpoint = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
-    with pytest.raises(RuntimeError, match="stop after checkpoint"):
+    with pytest.raises(ValueError, match="is not bound to episode"):
         await rvt.execute_reference_video_task(
             "demo",
             "E1U1",
-            {"script_file": "scripts/legacy.json"},
+            {"script_file": "scripts/unbound.json"},
             user_id="u1",
-            task_id="task-legacy-episode",
+            task_id="task-unbound-script",
         )
 
-    checkpoint = ReferenceSubmissionCheckpoint.from_json(fake_queue.persist_execution_checkpoint.await_args.args[1])
-    assert checkpoint.artifact_episode == 1
+    fake_generator.generate_video_async.assert_not_awaited()
+    fake_queue.persist_execution_checkpoint.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -2254,6 +2272,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     project = json.loads(project_path.read_text(encoding="utf-8"))
     project["props"] = {"瓶子": {"description": "x", "prop_sheet": "props/瓶子.png"}}
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _register_asset_sheet(proj_dir, "prop", "瓶子", "props/瓶子.png")
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
@@ -2443,8 +2462,8 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
     project_path = proj_dir / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))
     project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
-    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _register_asset_sheet(proj_dir, "character", name_nfc, "characters/hieu.png")
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
@@ -3044,6 +3063,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
     from server.services import reference_video_tasks as rvt
 
@@ -3159,7 +3179,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     assert metadata["execution_visual_basis_digest"] == checkpoint.visual_basis_digest
     assert checkpoint.artifact_currency is not None
     assert metadata["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
-    assert not (proj_dir / ".arcreel_artifacts.json").exists()
+    assert ProjectArtifactManifestAdapter(proj_dir).get_entry(ArtifactKey.episode_video(1, "E1U1")) is None
     assert not (proj_dir / ".arcreel" / "tasks" / "task-submit" / "provider_media").exists()
 
     async def _cancel_after_staging(**_kwargs):

@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,16 @@ def _refused_problems(refused: list[Any]) -> dict[str, tuple[str, str]]:
     return {ticket.unit_id: (problem.code, problem.action.value) for ticket in refused for problem in ticket.problems}
 
 
+def _blocked_problems_of(result: GenerationBatchResult) -> dict[str, tuple[str, str]]:
+    """Map each problem-carrying unit of a finished result to its ``(code, action)`` pair."""
+
+    return {
+        item.unit_id: (item.problem.code, item.problem.action.value)
+        for item in result.items
+        if item.problem is not None
+    }
+
+
 def _blocked_problems(builder: GenerationResultBuilder) -> dict[str, tuple[str, str]]:
     """Map each blocked/failed unit ID to its ``(code, action)`` pair."""
 
@@ -112,17 +123,51 @@ def _generation_result(out: dict[str, Any]) -> GenerationBatchResult:
 # ---------------------------------------------------------------------------
 
 
+_CLAIMED_BASIS_DIGEST = "sha256-v1:" + "a" * 64
+
+
+def _activated_project(project_dir: Path, storyboard_ids: dict[str, str] | None = None) -> dict[str, Any]:
+    """构造一个已迁移到 v8 的项目，并把点名的分镜图登记进产物清单。
+
+    直接调用入队构造函数的用例不经 pm，项目形态得在这里补齐：清单是读取已生成产物的
+    唯一口径，没有登记的分镜图不能作为视频输入。
+    """
+
+    from lib.artifact_manifest import (
+        ArtifactKey,
+        ArtifactManifest,
+        ArtifactManifestEntry,
+        ProjectArtifactManifestAdapter,
+    )
+
+    project: dict[str, Any] = {
+        "schema_version": 8,
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+    }
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir))
+    for resource_id, artifact_path in (storyboard_ids or {}).items():
+        manifest.register_entry_transactionally(
+            ArtifactKey.episode_storyboard(1, resource_id),
+            ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=_CLAIMED_BASIS_DIGEST),
+        )
+    return project
+
+
 class _FakePM:
     def __init__(self, project_name: str, project_dir: Path):
         self._project_name = project_name
         self._project_dir = project_dir
         self.project_payload: dict[str, Any] = {
+            "schema_version": 8,
             "content_mode": "drama",
             "generation_mode": "storyboard",
             "source_kind": "novel",
             "source_language": "中文",
             "overview": {},
-            "episodes": [],
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             "characters": {"张三": {"description": "主角"}, "李四": {"description": ""}},
             "scenes": {"村口": {"description": "黄昏的村口"}},
             "props": {},
@@ -148,10 +193,113 @@ class _FakePM:
     def get_project_path(self, _name: str) -> Path:
         return self._project_dir
 
+    def _mirror(self, script_filename: str | None = None) -> None:
+        """把内存态落盘并重建产物清单：清单是读取已生成产物的唯一口径。
+
+        清单按当下的项目与剧本重新激活（生产的补录路径），随后补回那些夹具不重建来源凭据的
+        产物声明。用例故意构造的畸形条目激活不了，留空清单即可——工具侧本来就该按「产物不
+        可用」逐条拒收。
+        """
+
+        (self._project_dir / "project.json").write_text(
+            json.dumps(self.project_payload, ensure_ascii=False), encoding="utf-8"
+        )
+        filename = script_filename or self._canonical_script_filename()
+        if filename is not None:
+            scripts_dir = self._project_dir / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            (scripts_dir / Path(filename).name).write_text(
+                json.dumps(self.script_payload, ensure_ascii=False), encoding="utf-8"
+            )
+        from lib.artifact_activation import activate_artifact_target_state
+
+        try:
+            activate_artifact_target_state(self._project_dir, bump_schema=False)
+        except Exception:
+            pass
+        self._register_claims(filename)
+
+    def _canonical_script_filename(self) -> str | None:
+        episode = self.script_payload.get("episode")
+        return f"episode_{episode}.json" if isinstance(episode, bool) is False and isinstance(episode, int) else None
+
+    def _script_episode(self, script_filename: str | None) -> int | None:
+        """剧本身份取自身字段，缺字段时按规范文件名兜底——与生产的解析口径一致。"""
+
+        episode = self.script_payload.get("episode")
+        if isinstance(episode, int) and not isinstance(episode, bool) and episode >= 1:
+            return episode
+        match = re.fullmatch(r"episode_(\d+)\.json", Path(script_filename).name) if script_filename else None
+        return int(match.group(1)) if match else None
+
+    def _register_claims(self, script_filename: str | None = None) -> None:
+        """把剧本已登记的产物补进清单：生产里它们在产出那一刻就登记过。
+
+        激活能从来源凭据重建的条目以激活结果为准，这里只兜住夹具不重建凭据的那些
+        （付费媒体的版本记录、缺 image_prompt 的历史分镜）。
+        """
+
+        from lib.artifact_manifest import (
+            ArtifactKey,
+            ArtifactManifest,
+            ArtifactManifestEntry,
+            ProjectArtifactManifestAdapter,
+        )
+
+        adapter = ProjectArtifactManifestAdapter(self._project_dir)
+        manifest = ArtifactManifest(adapter)
+        recorded: dict[Any, str] = {}
+        episode = self._script_episode(script_filename)
+        if episode is not None:
+            items = next(
+                (
+                    self.script_payload[field]
+                    for field in ("segments", "scenes", "video_units")
+                    if field in self.script_payload
+                ),
+                [],
+            )
+            for item in items if isinstance(items, list) else []:
+                if not isinstance(item, dict) or item.get("needs_replan") is True:
+                    continue
+                resource_id = next(
+                    (
+                        str(item[field])
+                        for field in ("segment_id", "scene_id", "unit_id")
+                        if isinstance(item.get(field), str) and item.get(field)
+                    ),
+                    "",
+                )
+                assets = item.get("generated_assets")
+                if not resource_id or not isinstance(assets, dict):
+                    continue
+                for field, key_factory in (
+                    ("storyboard_image", ArtifactKey.episode_storyboard),
+                    ("narration_audio", ArtifactKey.episode_audio),
+                    ("video_clip", ArtifactKey.episode_video),
+                ):
+                    artifact_path = assets.get(field)
+                    if not isinstance(artifact_path, str) or not artifact_path:
+                        continue
+                    absolute = (self._project_dir / artifact_path).resolve()
+                    if not absolute.is_file() or not absolute.is_relative_to(self._project_dir.resolve()):
+                        continue
+                    recorded[key_factory(episode, resource_id)] = artifact_path
+        known = set(adapter.snapshot_entries())
+        for key, artifact_path in recorded.items():
+            if key in known:
+                continue
+            manifest.register_entry_transactionally(
+                key,
+                ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=_CLAIMED_BASIS_DIGEST),
+            )
+
     def load_project(self, _name: str) -> dict[str, Any]:
+        self._mirror()
         return self.project_payload
 
-    def load_script(self, _name: str, _filename: str) -> dict[str, Any]:
+    def load_script(self, _name: str, filename: str) -> dict[str, Any]:
+        self._mirror(filename)
         return self.script_payload
 
     def project_exists(self, _name: str) -> bool:
@@ -1155,6 +1303,8 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
     script = _narration_audio_script()
+    # 两段都缺配音：本用例的主题是无 ID 片段的可寻址性，不掺入已有配音的复用判定。
+    script["segments"][1]["generated_assets"] = {}
     script["segments"].append({"novel_text": "有文本但缺 id 的片段。", "video_prompt": {}, "generated_assets": {}})
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
     captured: list[Any] = []
@@ -1172,8 +1322,8 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
-    assert [s.resource_id for s in captured] == ["E1S01"]
-    assert _generation_result(out).requested == ["E1S01"]
+    assert [s.resource_id for s in captured] == ["E1S01", "E1S02"]
+    assert _generation_result(out).requested == ["E1S01", "E1S02"]
 
 
 @pytest.mark.unit
@@ -2903,7 +3053,11 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    """A schema-8 script may rely on its canonical filename for the episode identity."""
+    """剧集身份可由规范文件名解析，但不自带 episode 字段的剧本读不出产物状态。
+
+    身份解析按规范文件名兜底，这一批确实是按第 2 集构造的；而产物清单只认自带 episode
+    字段、与账本绑定一致的剧本，该集分镜图的状态因此不可读，整批停在建任务之前。
+    """
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
     from server.services import video_batch_admission as admission_mod
 
@@ -2921,7 +3075,7 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
 
     def _capture_episode(**kwargs):
         captured["episode"] = kwargs["episode"]
-        return build_video_specs(**{**kwargs, "project": {}})
+        return build_video_specs(**kwargs)
 
     async def _batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -2940,12 +3094,12 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
 
     monkeypatch.setattr(mod, "build_storyboard_video_specs", _capture_episode)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
-    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: None)
-
     out = await _call(generate_video_episode_tool(fake_ctx), {"script": "episode_2.json"})
 
-    assert out.get("is_error") is not True, out
     assert captured == {"episode": 2}
+    result = _generation_result(out)
+    assert result.blocked == ["E1S01"]
+    assert _blocked_problems_of(result) == {"E1S01": ("generation_unit_input_unusable", "generate_dependency")}
 
 
 @pytest.mark.integration
@@ -4274,6 +4428,7 @@ async def test_generate_video_scene_accepts_legacy_drama_dialogue(fake_ctx: Tool
     fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "drama",
+        "episode": 1,
         "scenes": [
             {
                 "scene_id": "E1S01",
@@ -4302,6 +4457,7 @@ async def test_generate_video_scene_accepts_speech_free_legacy_drama(fake_ctx: T
     fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "drama",
+        "episode": 1,
         "scenes": [
             {
                 "scene_id": "E1S01",
@@ -4328,6 +4484,7 @@ async def test_generate_video_scene_accepts_legacy_narration_string_prompt(fake_
     fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "narration",
+        "episode": 1,
         "segments": [
             {
                 "segment_id": "E1S01",
@@ -4606,6 +4763,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
 
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S01.png").write_bytes(b"png")
+    project = _activated_project(tmp_path, {"S01": "storyboards/scene_S01.png"})
     items = [
         {
             "segment_id": "S01",
@@ -4623,6 +4781,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
+        project=project,
     )
     assert len(specs) == 1
     assert specs[0].payload["duration_seconds"] == 7
@@ -4637,6 +4796,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
+        project=project,
     )
     assert "duration_seconds" not in specs2[0].payload
 
@@ -4659,6 +4819,7 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
 
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S02.png").write_bytes(b"png")
+    project = _activated_project(tmp_path, {"S02": "storyboards/scene_S02.png"})
     items = [
         {
             "segment_id": "S01",
@@ -4681,6 +4842,7 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
+        project=project,
     )
     assert [s.resource_id for s in specs] == ["S02"]
     assert _refused_problems(refused) == {"S01": ("generation_unit_input_unusable", "generate_dependency")}
@@ -4694,6 +4856,7 @@ def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batc
 
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S02.png").write_bytes(b"png")
+    project = _activated_project(tmp_path, {"S02": "storyboards/scene_S02.png"})
     items = [
         {
             "segment_id": "S01",
@@ -4716,6 +4879,7 @@ def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batc
         script_filename="episode_1.json",
         project_dir=tmp_path,
         skip_ids=None,
+        project=project,
     )
     assert [s.resource_id for s in specs] == ["S02"]
     assert _refused_problems(refused) == {"S01": ("generation_unit_input_unusable", "generate_dependency")}

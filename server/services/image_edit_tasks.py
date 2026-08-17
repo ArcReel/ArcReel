@@ -114,9 +114,9 @@ def resolve_current_image_rel(
 
     - 资产（character / scene / prop / product）：读 project.json 对应 bucket 的 sheet
       字段；资产不存在抛 ``KeyError``，sheet 未设置返回 ``None``。
-    - storyboard：读剧本条目的 ``generated_assets.storyboard_image``（旧宫格项目可能
-      指向 ``scene_{id}_first.png``）；Manifest 激活前缺失时回退 canonical 路径，
-      激活后不再按同名文件推断 current；条目不存在抛 ``KeyError``。
+    - storyboard：读剧本条目的 ``generated_assets.storyboard_image``（宫格项目可能
+      指向 ``scene_{id}_first.png``）；没有登记指针即没有产物，不按同名文件推断
+      current；条目不存在抛 ``KeyError``。
     """
     return _resolve_current_image_pointer(project, resource_type, resource_id, script)[1]
 

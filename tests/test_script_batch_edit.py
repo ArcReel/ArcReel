@@ -265,18 +265,25 @@ def test_ad_batch_edit_registers_shared_canonical_script_basis(tmp_path: Path) -
     assert entry.basis_digest == build_ad_episode_script_basis(1, project=pm.load_project("demo")).digest
 
 
-def test_schema7_batch_edit_does_not_activate_manifest(editor: tuple[ProjectManager, ScriptBatchEditor, Path]) -> None:
+def test_unmigrated_project_batch_edit_refuses_instead_of_activating(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    """产物清单是唯一读取口径：schema 未到 8 的项目既不隐性激活清单，也不放行写入。"""
     pm, service, project_dir = editor
     pm.update_project("demo", lambda project: project.update({"schema_version": 7}))
     (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
+    before = (project_dir / "scripts" / "episode_1.json").read_bytes()
 
     result = service.execute(
         "demo",
         _command(pm, [{"op": "update", "id": "E1S01", "fields": {"note": "legacy"}}]),
     )
 
-    assert result.success is True
+    assert result.success is False
+    assert result.problems[0].code == "commit_failed"
+    assert result.problems[0].reason == "durable_commit_failed"
     assert not (project_dir / ".arcreel_artifacts.json").exists()
+    assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
 
 
 @pytest.mark.parametrize("failure_index", [0, 1, 2])

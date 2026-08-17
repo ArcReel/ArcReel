@@ -1,6 +1,7 @@
 """image_edit executor 的编辑独有语义：底图即当前图且是唯一参考图、prompt 即指令、
 按资源类型写回、版本带编辑标记、失败不写回；image_size 解析迁移前后同源。"""
 
+import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from lib.artifact_activation import register_current_artifact_if_provable
 from lib.artifact_manifest import (
     ArtifactBasis,
     ArtifactBlocker,
@@ -22,6 +24,9 @@ from lib.artifact_manifest import (
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.db.base import Base
 from lib.project_manager import ProjectManager
+from lib.project_migration_failure import ProjectMigrationError
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.resource_paths import resource_relative_path
 from lib.version_manager import VersionManager
 from server.services import generation_context, generation_tasks, image_edit_tasks
 from server.services.generation_context import (
@@ -62,12 +67,19 @@ class _FakeGenerator:
         self.reference_bytes = []
         self.tracked = []
         self.versions = self
+        # 由 _patch_common 注入：真实 generator 会把新图落到 canonical 路径，
+        # 产物清单登记要求这张图确实在盘上。
+        self.project_path: Path | None = None
 
     async def generate_image_async(self, **kwargs):
         if self.fail:
             raise RuntimeError("backend boom")
         self.reference_bytes = [Path(reference).read_bytes() for reference in kwargs["reference_images"]]
         self.image_calls.append(kwargs)
+        if self.project_path is not None:
+            canonical = self.project_path / resource_relative_path(kwargs["resource_type"], kwargs["resource_id"])
+            canonical.parent.mkdir(parents=True, exist_ok=True)
+            canonical.write_bytes(b"edited")
         return Path(tempfile.gettempdir()) / "image.png", 2
 
     def ensure_current_tracked(self, resource_type, resource_id, current_file, prompt, **metadata):
@@ -81,31 +93,65 @@ class _FakeGenerator:
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
+        # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定。
         self.project = {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+            "generation_mode": "storyboard",
             "content_mode": "narration",
             "image_provider_i2i": "gemini-aistudio/gemini-image",
-            "characters": {"Alice": {"character_sheet": "characters/Alice.png", "image_prompt": "原始角色 prompt"}},
-            "scenes": {"祠堂": {"scene_sheet": ""}},
+            "characters": {
+                "Alice": {
+                    "character_sheet": "characters/Alice.png",
+                    "description": "少女剑客",
+                    "image_prompt": "原始角色 prompt",
+                }
+            },
+            "scenes": {"祠堂": {"scene_sheet": "", "description": "祠堂"}},
             "props": {},
             "products": {},
         }
         self.script = {
+            "episode": 1,
             "content_mode": "narration",
             "segments": [
-                {"segment_id": "E1S01", "generated_assets": {"storyboard_image": "storyboards/scene_E1S01_first.png"}},
+                {
+                    "segment_id": "E1S01",
+                    "image_prompt": {
+                        "scene": "山道",
+                        "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                    },
+                    "generated_assets": {"storyboard_image": "storyboards/scene_E1S01_first.png"},
+                },
                 {"segment_id": "E1S02", "generated_assets": {}},
             ],
         }
         self.sheet_updates = []
         self.scene_asset_updates = []
 
+    def sync_disk(self):
+        """把内存态项目与剧本落盘——产物清单按磁盘上的真实项目做比对。"""
+
+        (self.project_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (self.project_path / "project.json").write_text(json.dumps(self.project), encoding="utf-8")
+        (self.project_path / "scripts" / "episode_1.json").write_text(json.dumps(self.script), encoding="utf-8")
+
+    def register_artifacts(self):
+        """把已落盘的资产图与分镜图登记进产物清单——未登记的产物不被编辑准入。"""
+
+        self.sync_disk()
+        register_current_artifact_if_provable(self.project_path, ArtifactKey.asset_sheet("character", "Alice"))
+        register_current_artifact_if_provable(self.project_path, ArtifactKey.episode_storyboard(1, "E1S01"))
+
     def load_project(self, project_name):
+        self.sync_disk()
         return self.project
 
     def get_project_path(self, project_name):
         return self.project_path
 
     def load_script(self, project_name, script_file):
+        self.sync_disk()
         return self.script
 
     def update_scene_asset(self, **kwargs):
@@ -129,9 +175,16 @@ def _prepare_files(tmp_path: Path) -> Path:
     return project_path
 
 
-def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None):
+def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, register_artifacts=True):
     """替换项目管理器与 generation context 解析缝：ctx.generator 即 fake_generator，
     image lane 携带指定 resolution。断言编辑恒声明 i2i 槽（capability == "i2i"）。"""
+    if isinstance(fake_pm, _FakePM):
+        # 真实 ProjectManager 的用例自己造项目与登记，这里只服务假 PM。
+        if register_artifacts:
+            fake_pm.register_artifacts()
+        else:
+            fake_pm.sync_disk()
+        fake_generator.project_path = fake_pm.project_path
     monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: fake_pm)
 
     async def _fake_resolve(project_name, payload, *, project, image=None, **_kwargs):
@@ -167,7 +220,9 @@ class TestResolveCurrentImageRel:
         assert resolve_current_image_rel(project, "character", name_nfc) == "characters/legacy.png"
         assert resolve_current_image_rel(project, "character", name_nfd) == "characters/legacy.png"
 
-    def test_storyboard_pointer_and_canonical_fallback(self):
+    def test_storyboard_pointer_is_the_only_evidence_of_a_current_image(self):
+        """只认登记指针：没有指针就是没有产物，同名文件不构成这个分镜的归属证据。"""
+
         script = {
             "content_mode": "narration",
             "segments": [
@@ -176,8 +231,7 @@ class TestResolveCurrentImageRel:
             ],
         }
         assert resolve_current_image_rel({}, "storyboard", "E1S01", script) == "storyboards/scene_E1S01_first.png"
-        assert resolve_current_image_rel({}, "storyboard", "E1S02", script) == "storyboards/scene_E1S02.png"
-        assert resolve_current_image_rel({"schema_version": 8}, "storyboard", "E1S02", script) is None
+        assert resolve_current_image_rel({}, "storyboard", "E1S02", script) is None
         with pytest.raises(KeyError):
             resolve_current_image_rel({}, "storyboard", "E9S99", script)
 
@@ -248,11 +302,14 @@ class TestExecuteImageEditTask:
 
         assert provider_reached is False
 
-    async def test_legacy_asset_rechecks_manifest_admission_after_schema_activation(
+    async def test_unmigrated_project_blocks_the_edit_with_its_migration_verdict(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """未升级到当前数据版本的项目：编辑在触达供应商之前就被阻断并给出原因，
+        盘上确实躺着一张同名资产图也不改变判定。"""
+
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -260,23 +317,14 @@ class TestExecuteImageEditTask:
         project_path = pm.get_project_path("demo")
         current = project_path / "characters" / "Alice.png"
         current.parent.mkdir(parents=True, exist_ok=True)
-        current.write_bytes(b"legacy-sheet")
+        current.write_bytes(b"unmigrated-sheet")
         pm.update_project_character_sheet("demo", "Alice", "characters/Alice.png")
         pm.update_project("demo", lambda project: project.__setitem__("schema_version", 7))
-        submitted = False
 
-        class _Generator(_FakeGenerator):
-            async def generate_image_async(self, **kwargs):
-                nonlocal submitted
-                await kwargs["before_submit"]()
-                submitted = True
-                return await super().generate_image_async(**kwargs)
-
-        generator = _Generator()
+        generator = _FakeGenerator()
         monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
 
-        async def _activate_before_provider(*_args, **_kwargs):
-            pm.update_project("demo", lambda project: project.__setitem__("schema_version", 8))
+        async def _resolve(*_args, **_kwargs):
             lane = ImageLaneResult(
                 provider_model=ProviderModel("gemini-aistudio", "gemini-image"),
                 backend_name="gemini-aistudio",
@@ -285,16 +333,15 @@ class TestExecuteImageEditTask:
             )
             return GenerationContext(generator=generator, image_lane=lane)
 
-        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _activate_before_provider)
+        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _resolve)
 
-        with pytest.raises(ValueError, match="no longer available"):
+        with pytest.raises(ProjectMigrationError, match="did not reach v8"):
             await execute_image_edit_task(
                 "demo",
                 "Alice",
                 {"resource_type": "character", "prompt": "red hair"},
             )
 
-        assert submitted is False
         assert generator.image_calls == []
 
     async def test_registration_failure_never_exposes_an_edited_image(self, tmp_path, monkeypatch):
@@ -516,13 +563,12 @@ class TestExecuteImageEditTask:
         )
         assert adapter.get_entry(source_key).basis_digest == expected_basis.digest
 
-    async def test_active_storyboard_rejects_an_unbound_script_before_provider(self, tmp_path, monkeypatch):
+    async def test_storyboard_edit_rejects_an_unbound_script_before_provider(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project["schema_version"] = 8
-        fake_pm.script["episode"] = 1
+        fake_pm.project["episodes"] = []
         fake_generator = _FakeGenerator()
-        _patch_common(monkeypatch, fake_pm, fake_generator)
+        _patch_common(monkeypatch, fake_pm, fake_generator, register_artifacts=False)
 
         with pytest.raises(ValueError, match="not bound"):
             await execute_image_edit_task(

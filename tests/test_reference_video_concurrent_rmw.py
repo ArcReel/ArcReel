@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 
 pytestmark = pytest.mark.unit
 
@@ -25,6 +26,8 @@ def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -
         name,
         {
             "name": name,
+            # 生产项目一律处于当前 schema：剧本保存会把产物登记进清单。
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [],
             "metadata": {"created_at": "2025-01-01", "updated_at": "2025-01-01"},
         },

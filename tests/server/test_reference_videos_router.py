@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -29,6 +30,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     (proj_dir / "project.json").write_text(
         json.dumps(
             {
+                "schema_version": 7,
                 "title": "T",
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
@@ -62,6 +64,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         ),
         encoding="utf-8",
     )
+
+    migrate_v7_to_v8(proj_dir)
 
     # Patch project_manager 的根目录
     from lib.project_manager import ProjectManager
@@ -1357,6 +1361,48 @@ def test_script_preview_404_for_unknown_episode(client: TestClient, monkeypatch:
 BATCH_ENDPOINT = "/api/v1/projects/demo/reference-videos/episodes/1/units/generate-batch"
 
 
+def _record_finished_clip(unit_id: str) -> None:
+    """把一个 unit 的成片落成生产里的完整形态：落盘 + 剧本登记 + 清单登记冻结依据。"""
+
+    from lib.artifact_manifest import (
+        ArtifactKey,
+        ArtifactManifest,
+        ProjectArtifactManifestAdapter,
+        compose_video_artifact_basis,
+    )
+    from lib.project_manager import ProjectManager
+    from lib.reference_video.request_projection import resolve_reference_assets
+    from lib.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
+    from lib.speech_composition import admit_script_unit
+    from lib.visual_artifact_provenance import build_reference_video_artifact_visual_basis
+    from server.routers import reference_videos as router_mod
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    project_path = pm.get_project_path("demo")
+    clip_dir = project_path / "reference_videos"
+    clip_dir.mkdir(parents=True, exist_ok=True)
+    (clip_dir / f"{unit_id}.mp4").write_bytes(b"\x00")
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    target = next(unit for unit in script["video_units"] if unit["unit_id"] == unit_id)
+    target["generated_assets"] = {"video_clip": f"reference_videos/{unit_id}.mp4"}
+    pm.save_script("demo", script, "scripts/episode_1.json")
+
+    project = pm.load_project("demo")
+    visual = build_reference_video_artifact_visual_basis(
+        unit=target,
+        request_assets=resolve_reference_assets(project, project_path, target),
+        style=project.get("style"),
+        aspect_ratio="9:16",
+    )
+    speech = build_video_speech_basis(admit_script_unit("video_units", target).preparation)
+    duration = build_video_duration_basis(int(target["duration_seconds"]))
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_video(1, unit_id),
+        artifact_path=f"reference_videos/{unit_id}.mp4",
+        basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+    )
+
+
 def _seed_second_unit(client: TestClient) -> str:
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
@@ -1498,18 +1544,7 @@ def test_generate_batch_after_an_interruption_only_queues_what_never_reached_the
     assert [entry["unit_id"] for entry in interrupted["enqueue_failures"]] == [second]
 
     # 第一个 unit 的任务照常跑完并落盘，第二个从未创建任务、也从未计费。
-    from lib.project_manager import ProjectManager
-    from server.routers import reference_videos as router_mod
-
-    pm: ProjectManager = router_mod.get_project_manager()
-    script = pm.load_script("demo", "scripts/episode_1.json")
-    for unit in script["video_units"]:
-        if unit["unit_id"] == first:
-            unit["generated_assets"] = {"video_clip": f"reference_videos/{first}.mp4"}
-    pm.save_script("demo", script, "scripts/episode_1.json")
-    clip = pm.get_project_path("demo") / "reference_videos"
-    clip.mkdir(parents=True, exist_ok=True)
-    (clip / f"{first}.mp4").write_bytes(b"\x00")
+    _record_finished_clip(first)
 
     retried = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
     resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
@@ -1756,18 +1791,7 @@ def test_generate_batch_skips_units_that_already_have_a_clip(
     second = _seed_second_unit(client)
     enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
 
-    from lib.project_manager import ProjectManager
-    from server.routers import reference_videos as router_mod
-
-    pm: ProjectManager = router_mod.get_project_manager()
-    script = pm.load_script("demo", "scripts/episode_1.json")
-    for unit in script["video_units"]:
-        if unit["unit_id"] == first:
-            unit["generated_assets"] = {"video_clip": f"reference_videos/{first}.mp4"}
-    pm.save_script("demo", script, "scripts/episode_1.json")
-    clip = pm.get_project_path("demo") / "reference_videos"
-    clip.mkdir(parents=True, exist_ok=True)
-    (clip / f"{first}.mp4").write_bytes(b"\x00")
+    _record_finished_clip(first)
 
     resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
 

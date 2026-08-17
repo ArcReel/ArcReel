@@ -91,8 +91,14 @@ class TestCollectSheetReferences:
             sheet_path.write_bytes(b"fake-image")
             characters[name] = {"character_sheet": f"{name}.png"}
 
-        project = {"characters": characters, "scenes": {}, "props": {}}
+        project = {"schema_version": 8, "characters": characters, "scenes": {}, "props": {}}
         items = [{"characters_in_segment": char_names}]
+        for name in char_names:
+            _register_stale_visual_claim(
+                tmp_path,
+                ArtifactKey.asset_sheet("character", name),
+                f"{name}.png",
+            )
 
         refs, seen = _collect_sheet_references(
             project,
@@ -102,6 +108,7 @@ class TestCollectSheetReferences:
             scene_field="scenes",
             prop_field="props",
             max_count=6,
+            currency_resolver=_currency_resolver(tmp_path, project),
         )
 
         assert len(refs) == 6
@@ -296,9 +303,11 @@ def test_storyboard_visual_basis_tracks_only_referenced_character_voices(tmp_pat
 
 
 class _FakePM:
-    def __init__(self, project_path: Path):
+    def __init__(self, project_path: Path, *, register_script: bool = True):
         self.project_path = project_path
         self.project = {
+            "schema_version": 8,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             "content_mode": "narration",
             "style": "Anime",
             "style_description": "cinematic",
@@ -322,6 +331,7 @@ class _FakePM:
             },
         }
         self.script = {
+            "episode": 1,
             "content_mode": "narration",
             "segments": [
                 {
@@ -362,13 +372,15 @@ class _FakePM:
         }
         self.updated_assets = []
         self.project_path.mkdir(parents=True, exist_ok=True)
-        (self.project_path / "project.json").write_text('{"schema_version":7}', encoding="utf-8")
+        (self.project_path / "project.json").write_text(json.dumps(self.project, ensure_ascii=False), encoding="utf-8")
         scripts_dir = self.project_path / "scripts"
         scripts_dir.mkdir(exist_ok=True)
         (scripts_dir / "episode_1.json").write_text(
             json.dumps(self.script, ensure_ascii=False),
             encoding="utf-8",
         )
+        if register_script:
+            _register_episode_script_artifact(self.project_path)
 
     def load_project(self, project_name: str):
         return self.project
@@ -428,7 +440,9 @@ class _FakePM:
 
 
 class _FakeGenerator:
-    def __init__(self):
+    def __init__(self, project_path: Path | None = None):
+        # 传入项目目录时把产出落到产物的规范路径，让任务按生产口径登记清单
+        self.project_path = project_path
         self.image_calls = []
         self.image_reference_bytes = []
         self.video_calls = []
@@ -441,6 +455,7 @@ class _FakeGenerator:
 
     async def generate_image_async(self, **kwargs):
         self.image_calls.append(kwargs)
+        self._materialize_image(kwargs["resource_type"], kwargs["resource_id"])
         self.image_reference_bytes.append(
             [
                 (reference["image"] if isinstance(reference, dict) else reference).read_bytes()
@@ -449,6 +464,15 @@ class _FakeGenerator:
         )
         self.current_versions[(kwargs["resource_type"], kwargs["resource_id"])] = 1
         return Path("/tmp/image.png"), 1
+
+    def _materialize_image(self, resource_type: str, resource_id: str) -> None:
+        if self.project_path is None:
+            return
+        from lib.resource_paths import resource_relative_path
+
+        target = self.project_path / resource_relative_path(resource_type, resource_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"png")
 
     def generate_video(self, **kwargs):
         self.video_calls.append(kwargs)
@@ -491,8 +515,18 @@ def _prepare_files(tmp_path: Path):
     return project_path
 
 
+def _register_episode_script_artifact(project_path: Path) -> None:
+    """Register episode 1's bound script in the Manifest — the only ledger of generated artifacts."""
+
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_script(1),
+        artifact_path="scripts/episode_1.json",
+        basis=ArtifactBasis.build("test/episode-script", kind_version=1, inputs={}),
+    )
+
+
 def _persist_active_fake_project(fake_pm: _FakePM, *, register_script: bool = True) -> None:
-    """Persist the fake manager's state as one schema-8 project."""
+    """Persist the fake manager's mutated state back onto its schema-8 project on disk."""
 
     fake_pm.project.update(
         {
@@ -514,11 +548,55 @@ def _persist_active_fake_project(fake_pm: _FakePM, *, register_script: bool = Tr
         encoding="utf-8",
     )
     if register_script:
-        ArtifactManifest(ProjectArtifactManifestAdapter(fake_pm.project_path)).register(
-            ArtifactKey.episode_script(1),
-            artifact_path="scripts/episode_1.json",
-            basis=ArtifactBasis.build("test/episode-script", kind_version=1, inputs={}),
-        )
+        _register_episode_script_artifact(fake_pm.project_path)
+
+
+def _seed_current_storyboard(fake_pm: _FakePM, resource_id: str = "E1S01") -> None:
+    """Record one already-generated storyboard the way production does.
+
+    A video task consumes the storyboard through the script pointer plus the Manifest
+    claim; a file that merely sits under ``storyboards/`` is not a generated artifact.
+    """
+
+    artifact_path = f"storyboards/scene_{resource_id}.png"
+    items, id_field, _kind = generation_tasks.resolve_items(fake_pm.script)
+    item = next(candidate for candidate in items if str(candidate.get(id_field)) == resource_id)
+    item.setdefault("generated_assets", {})["storyboard_image"] = artifact_path
+    _register_stale_visual_claim(
+        fake_pm.project_path,
+        ArtifactKey.episode_storyboard(1, resource_id),
+        artifact_path,
+    )
+
+
+def _register_asset_sheet_claims(fake_pm: _FakePM) -> None:
+    """Register every asset sheet the fake project already has on disk.
+
+    A sheet is only injectable once the Manifest claims it, so a fixture that wants
+    references assembled has to record them the way a finished generation would.
+    """
+
+    from lib.asset_types import ASSET_SPECS
+
+    for asset_type, spec in ASSET_SPECS.items():
+        bucket = fake_pm.project.get(spec.bucket_key) or {}
+        for name, entry in bucket.items():
+            sheet = (entry or {}).get(spec.sheet_field)
+            if isinstance(sheet, str) and sheet and (fake_pm.project_path / sheet).is_file():
+                _register_stale_visual_claim(
+                    fake_pm.project_path,
+                    ArtifactKey.asset_sheet(asset_type, name),
+                    sheet,
+                )
+
+
+def _currency_resolver(project_path: Path, project: dict):
+    """Persist the project and build the resolver production hands the reference collectors."""
+
+    from lib.artifact_activation import active_artifact_currency_resolver
+
+    (project_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    return active_artifact_currency_resolver(project_path, project)
 
 
 def _register_stale_visual_claim(project_path: Path, key: ArtifactKey, artifact_path: str) -> None:
@@ -599,7 +677,9 @@ class TestGenerationTasks:
     async def test_execute_task_dispatch(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        _register_asset_sheet_claims(fake_pm)
+        _seed_current_storyboard(fake_pm)
+        fake_generator = _FakeGenerator(project_path)
         emitted_batches = []
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -784,7 +864,7 @@ class TestGenerationTasks:
     @pytest.mark.integration
     async def test_schema8_storyboard_rejects_an_unclaimed_bound_script_before_provider(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
+        fake_pm = _FakePM(project_path, register_script=False)
         _persist_active_fake_project(fake_pm, register_script=False)
         fake_generator = _FakeGenerator()
 
@@ -803,7 +883,7 @@ class TestGenerationTasks:
     @pytest.mark.integration
     async def test_schema8_video_rejects_an_unclaimed_bound_script_before_provider(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
+        fake_pm = _FakePM(project_path, register_script=False)
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
         _persist_active_fake_project(fake_pm, register_script=False)
         _register_stale_visual_claim(
@@ -997,6 +1077,7 @@ class TestGenerationTasks:
     async def test_legacy_storyboard_rejects_sheet_replaced_after_reference_freeze(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _register_asset_sheet_claims(fake_pm)
         provider_submissions: list[str] = []
 
         class _SubmittingGenerator(_FakeGenerator):
@@ -1005,7 +1086,7 @@ class TestGenerationTasks:
                 provider_submissions.append("submitted")
                 return await super().generate_image_async(**kwargs)
 
-        fake_generator = _SubmittingGenerator()
+        fake_generator = _SubmittingGenerator(project_path)
         resolve_context = _fake_resolve_ctx(fake_generator)
         character_path = project_path / "characters" / "Alice.png"
 
@@ -1634,7 +1715,7 @@ class TestGenerationTasks:
         完成后回写 product_sheet。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        fake_generator = _FakeGenerator(project_path)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -1661,7 +1742,7 @@ class TestGenerationTasks:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["products"]["保温杯"]["reference_images"] = []
-        fake_generator = _FakeGenerator()
+        fake_generator = _FakeGenerator(project_path)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -1708,6 +1789,7 @@ class TestGenerationTasks:
         """视频生成后应自动提取首帧缩略图"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         thumbnail_path = project_path / "thumbnails" / "scene_E1S01.jpg"
@@ -1744,13 +1826,14 @@ class TestGenerationTasks:
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         item = fake_pm.script["segments"][0]
         item["novel_text"] = "旁白正文"
         current_prompt = {"action": "current action", "camera_motion": "Static", "dialogue": []}
         item["video_prompt"] = current_prompt
         item["duration_seconds"] = 8
         manifest = project_path / ".arcreel_artifacts.json"
-        manifest.write_bytes(b'{"unchanged":true}')
+        manifest_before = manifest.read_bytes()
         submitted: dict[str, Mapping[str, object]] = {}
 
         class _CheckpointingGenerator(_FakeGenerator):
@@ -1809,7 +1892,7 @@ class TestGenerationTasks:
         assert submitted["metadata"]["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
         assert call["formal_output"] is True
         assert submitted["metadata"]["execution_request_digest"] == checkpoint.request_digest
-        assert manifest.read_bytes() == b'{"unchanged":true}'
+        assert manifest.read_bytes() == manifest_before
         assert not (project_path / ".arcreel" / "tasks" / "task-storyboard" / "provider_media").exists()
 
     @pytest.mark.integration
@@ -1817,6 +1900,7 @@ class TestGenerationTasks:
         """lane 归桶按项目路线求值，不再无条件 i2v——与提交入口口径同源。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
         seen_lanes: list[dict] = []
 
@@ -1845,6 +1929,7 @@ class TestGenerationTasks:
         """执行层在解析出 ProviderModel 后，对越界 duration 以明确错误拒绝。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -1869,6 +1954,7 @@ class TestGenerationTasks:
         """合法 duration 通过守卫，正常进入后端生成。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -1889,10 +1975,12 @@ class TestGenerationTasks:
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
 
     @pytest.mark.unit
-    async def test_execute_post_production_video_does_not_require_an_episode_number(self, monkeypatch, tmp_path):
+    async def test_execute_video_task_refuses_a_script_outside_the_episode_ledger(self, monkeypatch, tmp_path):
+        """剧本身份只认 project.json 的 episodes 账本：未绑定的剧本文件一律拒绝，不猜集号。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        (project_path / "scripts" / "legacy_script.json").write_text(
+        _seed_current_storyboard(fake_pm)
+        (project_path / "scripts" / "unbound_script.json").write_text(
             json.dumps(fake_pm.script, ensure_ascii=False),
             encoding="utf-8",
         )
@@ -1903,23 +1991,24 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 
-        result = await generation_tasks.execute_video_task(
-            "demo",
-            "E1S01",
-            {
-                "script_file": "legacy_script.json",
-                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
-                "duration_seconds": 8,
-            },
-        )
+        with pytest.raises(ValueError, match="is not bound to episode"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "unbound_script.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                    "duration_seconds": 8,
+                },
+            )
 
-        assert result["resource_type"] == "videos"
-        assert fake_generator.video_calls[0]["duration_seconds"] == 8
+        assert fake_generator.video_calls == []
 
     @pytest.mark.integration
     async def test_execute_video_task_reprojects_current_tts_and_rejects_changed_tier(self, monkeypatch, tmp_path):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
         current_tts_duration = 6.2
         seen_lane_requests: list[dict] = []
@@ -2008,12 +2097,14 @@ class TestGenerationTasks:
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
         fake_generator.versions = VersionManager(project_path)
         item = fake_pm.script["segments"][0]
         item["novel_text"] = "current narration"
         item["generated_assets"] = {
             "status": "completed",
+            "storyboard_image": "storyboards/scene_E1S01.png",
             "video_clip": "videos/scene_E1S01.mp4",
             "video_uri": "provider://existing",
         }
@@ -2148,15 +2239,20 @@ class TestGenerationTasks:
         assert current.read_bytes() == b"existing-paid-video"
 
     @pytest.mark.integration
-    async def test_execute_video_task_storyboard_image_legacy_grid_filename_resolves(self, monkeypatch, tmp_path):
-        """旧宫格项目 storyboard_image 指向 scene_{id}_first.png（非 canonical 文件名），只要落在
-        storyboards/ 目录内就正常解析——与 end_frame_image 不同，这里不要求文件名与 canonical
-        路径逐一比对。"""
+    async def test_execute_video_task_storyboard_image_grid_filename_resolves(self, monkeypatch, tmp_path):
+        """宫格项目 storyboard_image 指向 scene_{id}_first.png（非 canonical 文件名），只要登记在
+        产物清单里且落在 storyboards/ 目录内就正常解析——与 end_frame_image 不同，这里不要求
+        文件名与 canonical 路径逐一比对。"""
         project_path = _prepare_files(tmp_path)
         (project_path / "storyboards" / "scene_E1S01_first.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01_first.png"}
+        _register_stale_visual_claim(
+            project_path,
+            ArtifactKey.episode_storyboard(1, "E1S01"),
+            "storyboards/scene_E1S01_first.png",
+        )
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -2271,7 +2367,7 @@ class TestGenerationTasks:
         assert not (project_path / ".arcreel" / "tasks" / "task-storyboard-claim-race" / "provider_media").exists()
 
     @pytest.mark.integration
-    async def test_legacy_video_rejects_storyboard_replaced_after_staging_before_activation(
+    async def test_video_rejects_storyboard_replaced_after_staging_before_provider(
         self,
         monkeypatch,
         tmp_path,
@@ -2285,7 +2381,6 @@ class TestGenerationTasks:
         item["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
         fake_pm.project.update(
             {
-                "schema_version": 7,
                 "generation_mode": "storyboard",
                 "aspect_ratio": "9:16",
                 "target_duration": 30,
@@ -2298,6 +2393,7 @@ class TestGenerationTasks:
             encoding="utf-8",
         )
         fake_pm.load_script("demo", "episode_1.json")
+        assert activate_artifact_target_state(project_path, bump_schema=False) is True
         provider_submissions: list[str] = []
 
         class _SubmittingGenerator(_FakeGenerator):
@@ -2311,10 +2407,14 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
         original_stage = generation_tasks.stage_provider_media_for_task
 
-        async def _stage_then_replace_and_activate(project_dir, task_id, inputs):
+        async def _stage_then_replace_and_reactivate(project_dir, task_id, inputs):
             staged = await original_stage(project_dir, task_id, inputs)
             (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"replacement")
-            assert activate_artifact_target_state(project_path, bump_schema=True) is True
+            _register_stale_visual_claim(
+                project_path,
+                ArtifactKey.episode_storyboard(1, "E1S01"),
+                "storyboards/scene_E1S01.png",
+            )
             assert ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_script(1)) is not None
             assert (
                 ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_storyboard(1, "E1S01"))
@@ -2322,12 +2422,12 @@ class TestGenerationTasks:
             )
             return staged
 
-        monkeypatch.setattr(generation_tasks, "stage_provider_media_for_task", _stage_then_replace_and_activate)
+        monkeypatch.setattr(generation_tasks, "stage_provider_media_for_task", _stage_then_replace_and_reactivate)
         fake_queue = type("Queue", (), {})()
         fake_queue.persist_execution_checkpoint = AsyncMock()
         monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
 
-        with pytest.raises(ValueError, match="changed since it was selected"):
+        with pytest.raises(ValueError, match="changed while it was selected"):
             await generation_tasks.execute_video_task(
                 "demo",
                 "E1S01",
@@ -2340,9 +2440,11 @@ class TestGenerationTasks:
         assert not (project_path / ".arcreel" / "tasks" / "task-legacy-storyboard-race" / "provider_media").exists()
 
     @pytest.mark.integration
-    async def test_execute_video_task_generated_assets_non_dict_falls_back_to_default(self, monkeypatch, tmp_path):
-        """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「未设置」处理、
-        回退默认路径，不抛未捕获 AttributeError（`{"...": ...}.get()` 在非 dict 上不存在）。"""
+    async def test_execute_video_task_generated_assets_non_dict_is_refused(self, monkeypatch, tmp_path):
+        """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时读不出分镜指针，
+        按「无登记指针」拒绝——不猜同名文件，也不抛未捕获 AttributeError。"""
+        from lib.storyboard_sequence import StoryboardImageBindingRequired
+
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
@@ -2353,13 +2455,17 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 
-        await generation_tasks.execute_video_task(
-            "demo",
-            "E1S01",
-            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
-        )
+        with pytest.raises(StoryboardImageBindingRequired, match="storyboard binding missing"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
 
-        assert fake_generator.video_calls[0]["start_image"] == project_path / "storyboards" / "scene_E1S01.png"
+        assert fake_generator.video_calls == []
 
     @pytest.mark.parametrize(
         ("storyboard_value", "expected_message"),
@@ -2490,6 +2596,7 @@ class TestGenerationTasks:
         镜头持久字段拼接的项目内固定相对路径。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         end_frame_dir = project_path / "end_frames"
@@ -2519,6 +2626,7 @@ class TestGenerationTasks:
         （校验器对裸文件名会补目录重试）的值会在生成期无理由硬失败。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         end_frame_dir = project_path / "end_frames"
@@ -2545,6 +2653,7 @@ class TestGenerationTasks:
         """未设置尾帧的镜头行为不变：字段缺失或显式空字符串，end_image 均为 None。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
         if not missing:
             fake_pm.script["segments"][0]["end_frame_image"] = ""
@@ -2567,6 +2676,7 @@ class TestGenerationTasks:
         """尾帧字段指向的快照文件缺失时硬失败，不调用后端生成。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
@@ -2611,6 +2721,7 @@ class TestGenerationTasks:
         end_frame_dir.mkdir(parents=True, exist_ok=True)
         (end_frame_dir / "scene_E1S02.png").write_bytes(b"png")  # 别的镜头的快照，供跨镜头误引用例检查
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = end_frame_value
 
@@ -2639,6 +2750,7 @@ class TestGenerationTasks:
         (end_frame_dir / "scene_E1S02.png").write_bytes(b"png")
         (end_frame_dir / "scene_E1S01.png").symlink_to(end_frame_dir / "scene_E1S02.png")
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
@@ -2667,6 +2779,7 @@ class TestGenerationTasks:
         (real_dir / "scene_E1S01.png").write_bytes(b"png")
         (project_path / "end_frames").symlink_to(real_dir)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
@@ -2698,6 +2811,7 @@ class TestGenerationTasks:
         end_frames_dir.mkdir(parents=True, exist_ok=True)
         (end_frames_dir / "scene_E1S01.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
@@ -2725,6 +2839,7 @@ class TestGenerationTasks:
         gating。能力组合的各分支另见 tests/test_video_frame_slots.py。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         end_frame_dir = project_path / "end_frames"
@@ -2763,6 +2878,7 @@ class TestGenerationTasks:
         """视频重生成无需额外操作即自动沿用尾帧：字段是镜头持久属性，每次执行都从剧本重新加载。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         end_frame_dir = project_path / "end_frames"
@@ -2799,6 +2915,7 @@ class TestGenerationTasks:
 
         # 改用 drama 剧本：E1S01 携带有序 utterances（voiceover 在前、dialogue 在后）
         fake_pm.script = {
+            "episode": 1,
             "content_mode": "drama",
             "scenes": [
                 {
@@ -2817,6 +2934,7 @@ class TestGenerationTasks:
                 }
             ],
         }
+        _seed_current_storyboard(fake_pm)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -2842,6 +2960,7 @@ class TestGenerationTasks:
 
     def _drama_script(self):
         return {
+            "episode": 1,
             "content_mode": "drama",
             "scenes": [
                 {
@@ -2875,6 +2994,7 @@ class TestGenerationTasks:
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
         fake_generator = _FakeGenerator()
         fake_pm.script = self._drama_script()
+        _seed_current_storyboard(fake_pm)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
@@ -2907,6 +3027,7 @@ class TestGenerationTasks:
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
         fake_generator = _FakeGenerator()
         fake_pm.script = self._drama_script()
+        _seed_current_storyboard(fake_pm)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
@@ -2940,6 +3061,7 @@ class TestGenerationTasks:
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
         fake_generator = _FakeGenerator()
         fake_pm.script = self._drama_script()
+        _seed_current_storyboard(fake_pm)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
@@ -2973,6 +3095,7 @@ class TestGenerationTasks:
         C 类（真无声）门控。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -3008,6 +3131,7 @@ class TestGenerationTasks:
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
         fake_generator = _FakeGenerator()
         fake_pm.script = self._legacy_drama_script()
+        _seed_current_storyboard(fake_pm)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
@@ -3046,6 +3170,7 @@ class TestGenerationTasks:
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
         fake_generator = _FakeGenerator()
         fake_pm.script = self._legacy_drama_script()
+        _seed_current_storyboard(fake_pm)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
@@ -3089,6 +3214,7 @@ class TestGenerationTasks:
         fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
         fake_generator = _FakeGenerator()
         fake_pm.script = {
+            "episode": 1,
             # 顶层无 content_mode：存量 episode 省略该字段，真相源退到 project.json。
             "scenes": [
                 {
@@ -3106,6 +3232,7 @@ class TestGenerationTasks:
                 }
             ],
         }
+        _seed_current_storyboard(fake_pm)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
@@ -3134,6 +3261,7 @@ class TestGenerationTasks:
         """无显式 duration 时，默认值由 caps 收口（取 supported_durations[0]），且必然合法。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -3163,6 +3291,7 @@ class TestGenerationTasks:
         """
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -3193,6 +3322,7 @@ class TestGenerationTasks:
         resolution 仍取自 lane 已解析出的值，不因能力缺失被改写。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        _seed_current_storyboard(fake_pm)
         fake_generator = _FakeGenerator()
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -3248,7 +3378,9 @@ class TestGenerationTasks:
         视频任务只声明 video；带参考图时 image lane 请求 i2i 能力。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
+        _register_asset_sheet_claims(fake_pm)
+        _seed_current_storyboard(fake_pm)
+        fake_generator = _FakeGenerator(project_path)
         seen: list[dict] = []
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -3695,6 +3827,7 @@ def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
     if with_sheet:
         pm.project["products"]["保温杯"]["product_sheet"] = "products/保温杯.png"
     pm.script = {
+        "episode": 1,
         "content_mode": "ad",
         "shots": [
             {
@@ -3721,6 +3854,7 @@ def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
             },
         ],
     }
+    _register_asset_sheet_claims(pm)
     return pm
 
 
@@ -3734,6 +3868,7 @@ class TestAdProductFidelityStoryboard:
     def _patch(self, monkeypatch, pm, generator):
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(generator))
+        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_a, **_kw: True)
 
     @pytest.mark.unit
     async def test_product_shot_injects_sheet_then_originals_before_other_sheets(self, tmp_path, monkeypatch):
@@ -3834,17 +3969,33 @@ class TestAdProductFidelityStoryboard:
     def test_collect_shot_product_references_skips_non_list_products_in_shot(self, tmp_path):
         """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零产品参考（str 不得被逐字符迭代）。"""
         project_path = _prepare_files(tmp_path)
-        project = {"products": {"保温杯": {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+        project = {"schema_version": 8, "products": {"保温杯": {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+        resolver = _currency_resolver(project_path, project)
 
         for dirty in ("保温杯", {"保温杯": True}, 7):
             item = {"shot_id": "E1S02", "products_in_shot": dirty}
-            assert generation_tasks._collect_shot_product_references(project, project_path, item) == []
+            assert (
+                generation_tasks._collect_shot_product_references(
+                    project, project_path, item, currency_resolver=resolver
+                )
+                == []
+            )
 
         # 缺失 / None / 空列表是氛围镜头的正常表达，同样返回空列表
         for empty in (None, []):
             item = {"shot_id": "E1S01", "products_in_shot": empty}
-            assert generation_tasks._collect_shot_product_references(project, project_path, item) == []
-        assert generation_tasks._collect_shot_product_references(project, project_path, {"shot_id": "E1S01"}) == []
+            assert (
+                generation_tasks._collect_shot_product_references(
+                    project, project_path, item, currency_resolver=resolver
+                )
+                == []
+            )
+        assert (
+            generation_tasks._collect_shot_product_references(
+                project, project_path, {"shot_id": "E1S01"}, currency_resolver=resolver
+            )
+            == []
+        )
 
     @pytest.mark.integration
     def test_collect_product_references_resolves_nfd_registered_name_by_nfc_query(self, tmp_path):
@@ -3857,9 +4008,14 @@ class TestAdProductFidelityStoryboard:
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
         name_nfd = unicodedata.normalize("NFD", "Hiếu")
         assert name_nfc != name_nfd
-        project = {"products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+        project = {"schema_version": 8, "products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
 
-        refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc])
+        refs = generation_tasks.collect_product_references_for_names(
+            project,
+            project_path,
+            [name_nfc],
+            currency_resolver=_currency_resolver(project_path, project),
+        )
         assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
 
     @pytest.mark.integration
@@ -3873,15 +4029,21 @@ class TestAdProductFidelityStoryboard:
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
         name_nfd = unicodedata.normalize("NFD", "Hiếu")
         assert name_nfc != name_nfd
-        project = {"products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+        project = {"schema_version": 8, "products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
 
-        refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc, name_nfd])
+        refs = generation_tasks.collect_product_references_for_names(
+            project,
+            project_path,
+            [name_nfc, name_nfd],
+            currency_resolver=_currency_resolver(project_path, project),
+        )
         assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
 
 
 def _patch_video_path(monkeypatch, pm, generator):
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(generator))
+    monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_a, **_kw: True)
     monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
     monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 
@@ -3895,6 +4057,7 @@ class TestAdProductVideoRequest:
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
         (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
         pm = _ad_pm(project_path, with_sheet=True)
+        _seed_current_storyboard(pm, "E1S02")
         generator = _FakeGenerator()
         _patch_video_path(monkeypatch, pm, generator)
 

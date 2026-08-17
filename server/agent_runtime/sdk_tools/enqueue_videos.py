@@ -152,11 +152,7 @@ def _currency_reusable_ids(
     """
 
     done = set(already_done)
-    return [
-        unit_id
-        for unit_id, state in states.items()
-        if unit_id not in done and artifact_is_reusable(state)
-    ]
+    return [unit_id for unit_id, state in states.items() if unit_id not in done and artifact_is_reusable(state)]
 
 
 def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:

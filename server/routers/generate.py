@@ -265,9 +265,8 @@ async def generate_video(
         if is_reference_video_project(project):
             raise ConflictError("video_route_is_reference_video")
 
-        # 与 worker 一致：优先读取 generated_assets.storyboard_image；Manifest 激活前
-        # 保留默认路径兼容，激活后要求显式绑定。旧宫格项目指向 scene_{id}_first.png
-        # 时仍可正常解析。
+        # 与 worker 一致：分镜图只认 generated_assets.storyboard_image 的显式绑定，
+        # 不按同名文件推断。宫格项目指向 scene_{id}_first.png 时仍可正常解析。
         # 脚本缺失（FileNotFoundError）/ 脏脚本（分镜数组键损坏，ScriptEditError）均
         # fail-fast：不能 silently 降级走 default 路径——default 文件恰好存在时会让请求
         # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级

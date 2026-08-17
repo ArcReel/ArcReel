@@ -20,6 +20,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifact_activation import activate_artifact_target_state
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import fake_reference_request_projector
@@ -39,8 +40,8 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     projects_root.mkdir()
     proj_dir = projects_root / "demo"
     proj_dir.mkdir()
-    for sub in ("scripts", "characters", "scenes", "props"):
-        (proj_dir / sub).mkdir()
+    for sub in ("scripts", "characters", "scenes", "props", "source", "drafts/episode_1"):
+        (proj_dir / sub).mkdir(parents=True)
     (proj_dir / "characters" / "张三.png").write_bytes(_TINY_PNG)
     (proj_dir / "scenes" / "酒馆.png").write_bytes(_TINY_PNG)
     (proj_dir / "props" / "长剑.png").write_bytes(_TINY_PNG)
@@ -62,6 +63,7 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                     "长剑": {"description": "铁铸长剑", "prop_sheet": "props/长剑.png"},
                 },
                 "episodes": [{"episode": 1, "title": "江湖夜话", "script_file": "scripts/episode_1.json"}],
+                "schema_version": 7,
             },
             ensure_ascii=False,
         ),
@@ -83,6 +85,14 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         ),
         encoding="utf-8",
     )
+
+    # 生产项目一律处于当前 schema，剧本连同其取证链（分集原文 → step1）都已登记进产物清单。
+    (proj_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
+    (proj_dir / "drafts" / "episode_1" / "step1_reference_units.json").write_text(
+        json.dumps({"episode": 1, "video_units": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assert activate_artifact_target_state(proj_dir, bump_schema=True) is True
 
     from lib.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod

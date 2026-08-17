@@ -279,7 +279,7 @@ async def test_reference_tts_materialization_resolves_episode_from_script_filena
     options = ReferenceRequestOptions(narration_delivery=USE_TTS)
 
     result = await narration_delivery_tasks.prepare_current_reference_video_request_options(
-        project={},
+        project={"episodes": [{"episode": 7, "script_file": "scripts/episode_7.json"}]},
         script={"video_units": []},
         script_file="scripts/episode_7.json",
         unit={"unit_id": "E7U1"},
@@ -299,7 +299,10 @@ async def test_current_reference_task_narration_uses_video_units_when_ad_script_
 ) -> None:
     sentinel = MagicMock()
     pm = MagicMock()
-    pm.load_project.return_value = {"name": "demo"}
+    pm.load_project.return_value = {
+        "name": "demo",
+        "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+    }
     pm.get_project_path.return_value = tmp_path
     pm.load_script.return_value = {
         "episode": 1,

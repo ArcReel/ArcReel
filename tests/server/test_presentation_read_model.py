@@ -21,6 +21,7 @@ from lib.artifact_manifest import (
 )
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, canonical_narration_text
 from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.speech_artifact_provenance import (
     build_video_duration_basis,
     build_video_speech_basis,
@@ -56,6 +57,7 @@ def _setup_narrator_project(tmp_path: Path) -> tuple[ProjectManager, Path, TtsSy
         (project_path / subdir).mkdir(parents=True, exist_ok=True)
     project = {
         "title": "Demo",
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "content_mode": "narration",
         "generation_mode": "storyboard",
         "grid_storyboard": False,
@@ -248,10 +250,6 @@ async def test_current_tts_presentation_materializes_manifest_and_actual_media_b
 
 async def test_persisted_presentation_becomes_stale_when_the_live_transition_changes(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
-    project_file = project_path / "project.json"
-    project = json.loads(project_file.read_text(encoding="utf-8"))
-    project["schema_version"] = 8
-    _write_json(project_file, project)
 
     async def probe(path: Path) -> float | None:
         return 4.5 if path.suffix == ".wav" else 6.25

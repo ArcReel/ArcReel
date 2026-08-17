@@ -609,10 +609,13 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
 
 
 def test_formal_step1_transaction_holds_the_project_lock_through_the_write(tmp_path: Path) -> None:
+    from lib import artifact_activation
     from lib.formal_write import project_metadata_lock
     from lib.script_review import formal_step1_write_transaction
 
     project_dir, _project_data, _step1, _script = _project(tmp_path)
+    # 正式写事务要登记产物清单，只在已迁移到 v8 的项目上成立。
+    assert artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True) is True
     formal_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
     transaction_entered = Event()
     release_transaction = Event()

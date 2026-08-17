@@ -1,5 +1,6 @@
 """Reference request projection contract across public consumers."""
 
+import json
 from dataclasses import replace
 from typing import Any, cast
 from unittest.mock import AsyncMock
@@ -9,6 +10,7 @@ from fastapi import HTTPException
 
 from lib.config.resolver import ConfigResolver
 from lib.generation_queue import reference_projection_for_queued_task
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
 from server.agent_runtime.sdk_tools import enqueue_videos
 from server.agent_runtime.sdk_tools._context import ToolContext
@@ -76,9 +78,12 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
             "丙": {"character_sheet": "characters/missing.png"},
         },
         "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        # 生产项目一律处于当前 schema；产物清单按磁盘上的项目做比对。
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
     }
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters/a.png").write_bytes(b"a")
+    (tmp_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     (tmp_path / "characters/b.png").write_bytes(b"b")
     options = ReferenceRequestOptions(narration_delivery=USE_TTS)
 
@@ -268,9 +273,11 @@ async def test_malformed_references_block_all_public_consumers_without_queue_or_
         "generation_mode": "reference_video",
         "characters": {"甲": {"character_sheet": "characters/a.png"}},
         "episodes": [{"episode": 1, "script_file": "ep1.json"}],
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
     }
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters" / "a.png").write_bytes(b"a")
+    (tmp_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     project_current = fake_reference_request_projector(capabilities=capabilities)
 
     class _ProjectManager:

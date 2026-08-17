@@ -1860,8 +1860,7 @@ def active_artifact_currency_resolver(
 
     if not project_schema_is_current(project):
         raise ProjectMigrationError(
-            f"project schema v{parse_project_schema_version(project)} "
-            f"did not reach v{CURRENT_PROJECT_SCHEMA_VERSION}",
+            f"project schema v{parse_project_schema_version(project)} did not reach v{CURRENT_PROJECT_SCHEMA_VERSION}",
             file="project.json",
         )
     return ArtifactCurrencyResolver(project_dir)
@@ -2150,14 +2149,16 @@ def resolve_usable_storyboard_video_inputs(
     *,
     project_path: Path,
     project: Mapping[str, object],
-    episode: int | None,
+    episode: int,
     resource_id: str,
     item: dict[str, object],
     resolver: ArtifactCurrencyResolver | None = None,
     claims: list[ArtifactInputClaim] | None = None,
 ) -> tuple[Path, Path | None]:
-    """Resolve video inputs and retain active-Manifest recheck evidence."""
+    """Resolve video inputs and retain Manifest recheck evidence."""
 
+    if type(episode) is not int or episode < 1:
+        raise ValueError("script episode must be a positive integer")
     storyboard_file, end_frame = resolve_storyboard_video_inputs(
         project_path=project_path,
         resource_id=resource_id,
@@ -2166,16 +2167,13 @@ def resolve_usable_storyboard_video_inputs(
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_path, project)
     storyboard_rel = storyboard_file.relative_to(project_path).as_posix()
-    if type(episode) is int and episode >= 1:
-        if not artifact_input_is_usable(
-            resolver=resolver,
-            key=ArtifactKey.episode_storyboard(episode, resource_id),
-            artifact_path=storyboard_rel,
-            claims=claims,
-        ):
-            raise StoryboardImageUnavailable(f"storyboard is not registered: {storyboard_rel}")
-    elif resolver is not None:
-        raise ValueError("script episode must be a positive integer")
+    if not artifact_input_is_usable(
+        resolver=resolver,
+        key=ArtifactKey.episode_storyboard(episode, resource_id),
+        artifact_path=storyboard_rel,
+        claims=claims,
+    ):
+        raise StoryboardImageUnavailable(f"storyboard is not registered: {storyboard_rel}")
     return storyboard_file, end_frame
 
 

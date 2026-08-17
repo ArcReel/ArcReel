@@ -14,6 +14,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifact_manifest import (
+    ArtifactKey,
+    ProjectArtifactManifestAdapter,
+)
+from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import fake_reference_request_projector
@@ -42,6 +47,7 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
     (proj_dir / "project.json").write_text(
         json.dumps(
             {
+                "schema_version": 7,
                 "title": "T",
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
@@ -71,6 +77,17 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
         ),
         encoding="utf-8",
     )
+
+    # 剧本的取证链（分集原文 → step1）齐备，补录才登记得出剧本这条产物。
+    (proj_dir / "source").mkdir()
+    (proj_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
+    (proj_dir / "drafts" / "episode_1").mkdir(parents=True)
+    (proj_dir / "drafts" / "episode_1" / "step1_reference_units.json").write_text(
+        json.dumps({"episode": 1, "video_units": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    migrate_v7_to_v8(proj_dir)
+    assert ProjectArtifactManifestAdapter(proj_dir).get_entry(ArtifactKey.episode_script(1)) is not None
 
     from lib.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -117,6 +134,7 @@ async def test_end_to_end_generate_unit_to_executor(
     assert resp.status_code == 201, resp.text
     uid = resp.json()["unit"]["unit_id"]
 
+    print("MANIFEST", (proj_dir / ".arcreel_artifacts.json").read_text(encoding="utf-8"))
     # 2) Patch GenerationQueue.enqueue_task 直接返回 task dict（跳过 DB）
     captured_payload: dict = {}
 
