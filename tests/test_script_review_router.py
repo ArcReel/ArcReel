@@ -227,8 +227,8 @@ class TestReferenceVideoRouter:
     def test_quarantine_surfaced_with_recomputed_line_anchored_violations(self, tmp_path, monkeypatch):
         """隔离草稿在场时 GET 附带 ``quarantine`` 字段：违约按产出时那套校验器读时重算，
         不信任草稿里上一轮的快照（这里把快照消息故意写成 "stale" 来验证）。"""
-        from lib.reference_video.draft_validation import DraftViolation
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.reference_video.draft_validation import DraftViolation
         from server.agent_runtime.sdk_tools import text_generation as mod
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -268,8 +268,8 @@ class TestReferenceVideoRouter:
     def test_quarantine_schema_invalid_keeps_raw_content(self, tmp_path, monkeypatch):
         """草稿 units 被改成非数组：违约报 schema_invalid，``content`` 原样回传（不做收编），
         呈现层据此退回原始文本视图而非当作 units 列表遍历。"""
-        from lib.reference_video.draft_validation import DraftViolation
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.reference_video.draft_validation import DraftViolation
         from server.agent_runtime.sdk_tools import text_generation as mod
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -298,8 +298,8 @@ class TestReferenceVideoRouter:
     def test_quarantine_meta_broken_reports_recompute_failure_not_snapshot(self, tmp_path, monkeypatch):
         """``meta.source`` 缺失 → 无从重算：报「无法重算」本身，而不是退回草稿里那份上一轮
         快照——报告一律对现值负责。"""
-        from lib.reference_video.draft_validation import DraftViolation
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.reference_video.draft_validation import DraftViolation
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         write_quarantine(
@@ -527,8 +527,8 @@ class TestReferenceVideoRouter:
         """保存作用于正式草稿，隔离草稿是另一份文件——PUT 响应缺 ``quarantine`` 字段的话，
         面板 ``adopt()`` 会把它当成「无隔离草稿」而放行确认，即使这份隔离草稿在保存前后一直
         都在（这里用「保存时隔离草稿已存在」模拟，等价于「保存在途时才产出」的时序）。"""
-        from lib.reference_video.draft_validation import DraftViolation
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.reference_video.draft_validation import DraftViolation
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")

@@ -13,14 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from lib.reference_video.draft_validation import (
-    DraftViolation,
-    DraftViolations,
-    collect_violations,
-    render_violation_report,
-    violation_items,
-)
 from lib.draft_quarantine import (
+    QUARANTINE_KIND_DRAMA_STEP1,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     clear_quarantine,
@@ -30,6 +24,13 @@ from lib.draft_quarantine import (
     render_report,
     violation_entries,
     write_quarantine,
+)
+from lib.reference_video.draft_validation import (
+    DraftViolation,
+    DraftViolations,
+    collect_violations,
+    render_violation_report,
+    violation_items,
 )
 
 pytestmark = pytest.mark.unit
@@ -142,13 +143,32 @@ class TestReport:
         text = render_report(path, QUARANTINE_KIND_STEP1, [_violation()], episode=2)
         assert str(path) in text
         assert "content.units[i].text" in text
-        assert 'validate_and_promote_reference_draft({"episode": 2})' in text
+        assert 'validate_and_promote_draft({"episode": 2})' in text
         assert "无轮次上限" in text
 
     def test_report_numbers_each_violation_with_its_class(self):
         text = render_violation_report([_violation("unregistered_asset"), _violation("too_many_shots", "unit E1U02")])
         assert text.splitlines()[0].startswith("1. [unregistered_asset] ")
         assert text.splitlines()[1].startswith("2. [too_many_shots] ")
+
+    def test_drama_step1_report_points_at_scene_fields(self, tmp_path: Path):
+        """drama 草稿改的是场景内容表，不是参考路线的 units——指引里报错字段路径写错，
+        agent 会照着改一个不存在的字段再晋升，白跑一轮。"""
+        path = quarantine_path(tmp_path, 3, QUARANTINE_KIND_DRAMA_STEP1)
+        text = render_report(path, QUARANTINE_KIND_DRAMA_STEP1, [_violation()], episode=3)
+
+        assert path.name == "step1_normalized_script.invalid.json"
+        assert "content.scenes[i]" in text
+        assert "units[i]" not in text
+        assert 'validate_and_promote_draft({"episode": 3})' in text
+
+    def test_drama_and_reference_step1_drafts_are_separate_files(self, tmp_path: Path):
+        """两条路线的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让换过路线的项目上
+        残留的草稿被当成本路线的待处置件读进来。"""
+        assert (
+            quarantine_path(tmp_path, 1, QUARANTINE_KIND_DRAMA_STEP1).name
+            != quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1).name
+        )
 
     def test_step2_report_only_points_at_text(self, tmp_path: Path):
         """step2 的 unit 只有正文可改：时长与原文锚是 step1 已确认的内容契约，不在这一层修。"""

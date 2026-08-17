@@ -12,16 +12,17 @@ from pathlib import Path
 import pytest
 
 from lib import script_review
-from lib.json_io import atomic_write_json
-from lib.project_manager import ProjectManager
-from lib.reference_video.draft_validation import DraftViolation
 from lib.draft_quarantine import (
+    QUARANTINE_KIND_DRAMA_STEP1,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     clear_quarantine,
     quarantine_path,
     write_quarantine,
 )
+from lib.json_io import atomic_write_json
+from lib.project_manager import ProjectManager
+from lib.reference_video.draft_validation import DraftViolation
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 
@@ -229,6 +230,34 @@ class TestDramaGateFlow:
         assert script_review.gate_blocks_step2(project_path, project, 1) is False
 
     @pytest.mark.unit
+    async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
+        """drama 的隔离草稿同样独立阻塞：草稿在场期间确认被拒、step2 被阻塞，即使正式 step1
+        早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未看过的上一版内容。"""
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        project_path = pm.get_project_path("demo")
+        _write_step1(pm, "drama", _drama_step1())
+        await svc.confirm("demo", 1)
+        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
+
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_DRAMA_STEP1,
+            content={"title": "第一集", "scenes": []},
+            violations=[],
+        )
+
+        assert (await svc.get_state("demo", 1))["status"] == "pending_review"
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+        assert exc.value.code == "quarantined"
+
+        clear_quarantine(project_path, 1, QUARANTINE_KIND_DRAMA_STEP1)
+        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
+
+    @pytest.mark.unit
     async def test_editing_step1_after_confirm_repends(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
@@ -427,11 +456,43 @@ class TestReferenceVideoGateFlow:
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
     @pytest.mark.unit
-    def test_quarantine_not_applicable_to_non_reference_paths(self, tmp_path):
-        """drama / narration 无隔离草稿概念：路径解析返回 None，状态判定不受影响。"""
+    def test_quarantine_path_follows_the_project_variant(self, tmp_path):
+        """草稿按项目当前变体解析：两条路线各认自己的文件名，narration 尚无草稿通道返回 None。
+
+        共用一个文件名或不分变体地判，会让换过路线的项目上残留的另一条路线的草稿被当成本
+        路线的待处置件——那份文件没有写入方会来清理，该集会被永久卡在阻塞态。
+        """
+        drama_pm = _make_project(tmp_path / "drama", "drama")
+        rv_pm = _make_project(tmp_path / "rv", "drama", generation_mode="reference_video")
+        narration_pm = _make_project(tmp_path / "nr", "narration")
+
+        drama_path = script_review.step1_quarantine_path(
+            drama_pm.get_project_path("demo"), drama_pm.load_project("demo"), 1
+        )
+        rv_path = script_review.step1_quarantine_path(rv_pm.get_project_path("demo"), rv_pm.load_project("demo"), 1)
+
+        assert drama_path is not None and drama_path.name == "step1_normalized_script.invalid.json"
+        assert rv_path is not None and rv_path.name == "step1_reference_units.invalid.json"
+        assert (
+            script_review.step1_quarantine_path(
+                narration_pm.get_project_path("demo"), narration_pm.load_project("demo"), 1
+            )
+            is None
+        )
+
+    @pytest.mark.unit
+    def test_quarantine_of_another_variant_does_not_block(self, tmp_path):
+        """换过生成路线后残留的另一条路线的草稿不参与阻塞判定。"""
         pm = _make_project(tmp_path, "drama")
         project_path = pm.get_project_path("demo")
-        assert script_review.step1_quarantine_path(project_path, pm.load_project("demo"), 1) is None
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": []},
+            violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
+        )
+
         assert script_review.step1_quarantined(project_path, pm.load_project("demo"), 1) is False
 
     @pytest.mark.unit

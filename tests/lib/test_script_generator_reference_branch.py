@@ -8,13 +8,13 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from lib import script_review
-from lib.reference_video.draft_validation import DraftViolation
 from lib.draft_quarantine import (
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     quarantine_path,
     write_quarantine,
 )
+from lib.reference_video.draft_validation import DraftViolation
 from lib.script_generator import ScriptGenerator
 
 STEP1_UNITS_JSON = _json.dumps(
@@ -916,7 +916,7 @@ async def test_step2_violation_quarantines_instead_of_discarding(reference_proje
 
     report = str(excinfo.value)
     assert "unregistered_asset" in report
-    assert "validate_and_promote_reference_draft" in report
+    assert "validate_and_promote_draft" in report
     assert not _script_path(reference_project).exists()
 
     envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
@@ -1084,5 +1084,5 @@ async def test_step2_refuses_to_run_while_step1_quarantined(reference_project: P
         violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
     )
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT))
-    with pytest.raises(ValueError, match="有违约产物待处置"):
+    with pytest.raises(ValueError, match="有隔离草稿待处置"):
         await gen.generate(episode=1)

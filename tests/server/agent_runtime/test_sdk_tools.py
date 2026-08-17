@@ -20,18 +20,19 @@ import pytest
 
 from lib import script_review
 from lib.artifact_manifest import ArtifactStatus
+from lib.draft_quarantine import (
+    QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_STEP2,
+    quarantine_path,
+    write_quarantine,
+)
 from lib.generation_result import (
     GenerationBatchResult,
     GenerationResultBuilder,
 )
 from lib.project_manager import ProjectManager
 from lib.reference_video.draft_validation import DraftViolation
-from lib.draft_quarantine import (
-    QUARANTINE_KIND_STEP1,
-    QUARANTINE_KIND_STEP2,
-    quarantine_path,
-    write_quarantine,
-)
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
 from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
@@ -55,10 +56,10 @@ from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     get_video_capabilities_tool,
     normalize_drama_script_tool,
-    open_reference_step1_for_edit_tool,
+    open_step1_for_edit_tool,
     split_narration_segments_tool,
     split_reference_video_units_tool,
-    validate_and_promote_reference_draft_tool,
+    validate_and_promote_draft_tool,
 )
 from tests.fakes import fake_reference_caps_fetcher
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
@@ -7063,7 +7064,7 @@ async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
     if not (fake_ctx.project_path / "project.json").exists():
         _rv_project(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher(**caps_kwargs))
-    return await _call(validate_and_promote_reference_draft_tool(fake_ctx), {"episode": 1})
+    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
 
 
 #: 七类阻断违约的最小触发样例（违约类 → 扁平 unit），共 8 条：「``@[X]`` 未登记」一类按出现位置
@@ -7108,7 +7109,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert f"[{code}]" in report
     assert "unit E1U01" in report
     assert str(_rv_quarantine_path(fake_ctx)) in report
-    assert "validate_and_promote_reference_draft" in report
+    assert "validate_and_promote_draft" in report
 
 
 @pytest.mark.unit
@@ -7133,7 +7134,7 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
 
 
 @pytest.mark.unit
-async def test_validate_and_promote_reference_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_validate_and_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
     """agent 修好隔离草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
@@ -7155,9 +7156,7 @@ async def test_validate_and_promote_reference_draft_promotes_after_repair(fake_c
 
 
 @pytest.mark.unit
-async def test_validate_and_promote_reference_draft_reports_again_without_round_limit(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_validate_and_promote_draft_reports_again_without_round_limit(fake_ctx: ToolContext, monkeypatch) -> None:
     """再违约则再返回刷新后的报告、草稿留在原地，可反复晋升——无收敛轮次上限。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
@@ -7178,7 +7177,7 @@ async def test_validate_and_promote_reference_draft_reports_again_without_round_
 
 
 # ---------------------------------------------------------------------------
-# open_reference_step1_for_edit
+# open_step1_for_edit
 # ---------------------------------------------------------------------------
 
 
@@ -7203,11 +7202,11 @@ def _rv_saved_unit(shots: list[str], *, unit_id: str = "E1U01", duration: int = 
 async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
     if not (fake_ctx.project_path / "project.json").exists():
         _rv_project(fake_ctx)
-    return await _call(open_reference_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
+    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolContext) -> None:
+async def test_open_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolContext) -> None:
     """取回的草稿装扁平书写层，不装派生物：agent 改的是正文 / 锚 / 时长，
     unit_id / shots / references 由晋升时按正文重新派生，放进草稿等于给漂移开口子。"""
     _rv_source(fake_ctx)
@@ -7230,7 +7229,7 @@ async def test_open_reference_step1_for_edit_returns_flat_writing_layer(fake_ctx
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_leaves_official_file_untouched(fake_ctx: ToolContext) -> None:
+async def test_open_step1_for_edit_leaves_official_file_untouched(fake_ctx: ToolContext) -> None:
     """取回只是开编辑工位，正式文件一步不动——改动落回正式文件只发生在持锁的晋升侧。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
@@ -7242,7 +7241,7 @@ async def test_open_reference_step1_for_edit_leaves_official_file_untouched(fake
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
     """情况 B 的完整闭环：取回 → 改草稿 → 晋升。改动经晋升侧的持锁写盘落回正式文件，
     结构字段按新正文重新派生（references 跟着正文里的 @ 引用走）。"""
     _rv_source(fake_ctx)
@@ -7266,9 +7265,7 @@ async def test_open_reference_step1_for_edit_round_trips_through_promote(fake_ct
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_refuses_to_clobber_existing_draft(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_open_step1_for_edit_refuses_to_clobber_existing_draft(fake_ctx: ToolContext, monkeypatch) -> None:
     """已有隔离草稿在场时不覆盖：那份草稿可能已含 agent 未晋升的修改（或是待处置的违约产物），
     拿正式文件盖过去等于抹掉它手上的工作。"""
     _rv_source(fake_ctx)
@@ -7280,11 +7277,11 @@ async def test_open_reference_step1_for_edit_refuses_to_clobber_existing_draft(
 
     assert out.get("is_error") is True
     assert _rv_quarantine_path(fake_ctx).read_text(encoding="utf-8") == before
-    assert "validate_and_promote_reference_draft" in out["content"][0]["text"]
+    assert "validate_and_promote_draft" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_without_official_file(fake_ctx: ToolContext) -> None:
+async def test_open_step1_for_edit_without_official_file(fake_ctx: ToolContext) -> None:
     """没有正式 step1 时指回首次拆分工具，而不是开一份空草稿让 agent 手写整集。"""
     _rv_source(fake_ctx)
 
@@ -7296,7 +7293,7 @@ async def test_open_reference_step1_for_edit_without_official_file(fake_ctx: Too
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_keeps_malformed_duration_verbatim(fake_ctx: ToolContext) -> None:
+async def test_open_step1_for_edit_keeps_malformed_duration_verbatim(fake_ctx: ToolContext) -> None:
     """盘上 unit 的字段类型不符时原样带进草稿，不归一化成合法值：``8.0`` 被改写成 ``0``
     后，agent 从草稿里看到的是一个它没写过的时长，晋升报告说「时长不在档位内」也对不上
     盘上的原值。原样带过则由晋升侧 schema 逐条报告，agent 看得见错在哪。"""
@@ -7312,7 +7309,7 @@ async def test_open_reference_step1_for_edit_keeps_malformed_duration_verbatim(f
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_keeps_malformed_non_dict_unit_slot(fake_ctx: ToolContext) -> None:
+async def test_open_step1_for_edit_keeps_malformed_non_dict_unit_slot(fake_ctx: ToolContext) -> None:
     """盘上 units 混入非 dict 元素时不能直接丢弃：跳过会让草稿数组比正式文件短一个，若剩余
     unit 都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。留空占位在原数组
     位置，让晋升侧 schema 判它结构非法、逐条报出。"""
@@ -7331,7 +7328,7 @@ async def test_open_reference_step1_for_edit_keeps_malformed_non_dict_unit_slot(
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_blanks_shot_with_embedded_fake_header(fake_ctx: ToolContext) -> None:
+async def test_open_step1_for_edit_blanks_shot_with_embedded_fake_header(fake_ctx: ToolContext) -> None:
     """盘上 shot 自身文本里恰好有一行形如「镜头N：」（旧数据经 Web 端保存，字段不禁止这种
     文本）时，render 后重新解析会把这一个 shot 误判成两个——原样晋升也会带着错位的分镜覆盖
     正式文件。清空为占位交给 schema 判非法，而不是悄悄晋升一份分镜数对不上的内容。"""
@@ -7348,7 +7345,7 @@ async def test_open_reference_step1_for_edit_blanks_shot_with_embedded_fake_head
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_rejects_missing_source_without_side_effect(
+async def test_open_step1_for_edit_rejects_missing_source_without_side_effect(
     fake_ctx: ToolContext,
 ) -> None:
     """`source` 指向不存在的文件时不落盘草稿：草稿一旦创建就把这个坏路径记进 meta.source，
@@ -7364,7 +7361,7 @@ async def test_open_reference_step1_for_edit_rejects_missing_source_without_side
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_rejects_non_reference_episode(fake_ctx: ToolContext) -> None:
+async def test_open_step1_for_edit_rejects_non_reference_episode(fake_ctx: ToolContext) -> None:
     """切走参考路径的集不给编辑：盘上的 step1 与该集此刻的生成路径无关。与晋升工具同一判据。"""
     _rv_source(fake_ctx)
     _rv_project(fake_ctx, generation_mode="image_to_video")
@@ -7382,7 +7379,7 @@ async def test_open_reference_step1_for_edit_rejects_non_reference_episode(fake_
 
 
 @pytest.mark.unit
-async def test_open_reference_step1_for_edit_records_base_fingerprint(fake_ctx: ToolContext) -> None:
+async def test_open_step1_for_edit_records_base_fingerprint(fake_ctx: ToolContext) -> None:
     """取回时把正式文件此刻的内容指纹记进 meta.base_fingerprint，供晋升前基线比对。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
@@ -7505,7 +7502,7 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
     ],
     ids=["off_slot_duration", "duration_removed", "blank_source_text"],
 )
-async def test_validate_and_promote_reference_draft_rejects_schema_breach(
+async def test_validate_and_promote_draft_rejects_schema_breach(
     fake_ctx: ToolContext, monkeypatch, mutate, hint: str
 ) -> None:
     """草稿改坏 schema 层字段同样只回报告：晋升与产出走同一份 schema，正式文件不被污染。
@@ -7539,7 +7536,7 @@ async def test_validate_and_promote_reference_draft_rejects_schema_breach(
     ],
     ids=["units_removed", "units_not_a_list", "units_emptied"],
 )
-async def test_validate_and_promote_reference_draft_reports_broken_outer_shape(
+async def test_validate_and_promote_draft_reports_broken_outer_shape(
     fake_ctx: ToolContext, monkeypatch, mutate_content
 ) -> None:
     """外层形状被改坏同样刷新报告，而不是抛一句裸错误。
@@ -7569,9 +7566,7 @@ async def test_validate_and_promote_reference_draft_reports_broken_outer_shape(
 
 
 @pytest.mark.unit
-async def test_validate_and_promote_reference_draft_requires_source_provenance(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_validate_and_promote_draft_requires_source_provenance(fake_ctx: ToolContext, monkeypatch) -> None:
     """meta.source 被改掉后不晋升：按整个 source/ 重解析比产出时更松，别集的原文锚会恰好命中。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
@@ -7589,9 +7584,7 @@ async def test_validate_and_promote_reference_draft_requires_source_provenance(
 
 
 @pytest.mark.unit
-async def test_validate_and_promote_reference_draft_reports_promotion_not_split(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_validate_and_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, monkeypatch) -> None:
     """晋升成功的摘要要说「晋升」：说成「拆分」会让 agent 以为自己的修改被一次重抽覆盖了。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
@@ -7652,9 +7645,7 @@ async def test_promote_reference_step1_preserves_step2_draft_when_content_unchan
 
 
 @pytest.mark.unit
-async def test_validate_and_promote_reference_draft_step2_uses_async_factory(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_validate_and_promote_draft_step2_uses_async_factory(fake_ctx: ToolContext, monkeypatch) -> None:
     """step2 晋升走 ``ScriptGenerator.create``：晋升同样经 _add_metadata 落盘，裸构造会把
     metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -7687,9 +7678,7 @@ async def test_validate_and_promote_reference_draft_step2_uses_async_factory(
 
 
 @pytest.mark.unit
-async def test_validate_and_promote_reference_draft_refuses_after_mode_switch(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext, monkeypatch) -> None:
     """切走参考路径后不再晋升残留草稿：晋升会按参考路径的形状覆盖该集正式剧本。"""
     _rv_project(fake_ctx, generation_mode="storyboard")
     write_quarantine(
@@ -7706,9 +7695,7 @@ async def test_validate_and_promote_reference_draft_refuses_after_mode_switch(
 
 
 @pytest.mark.unit
-async def test_validate_and_promote_reference_draft_step2_blocked_by_review_gate(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx: ToolContext, monkeypatch) -> None:
     """step1 未经确认时 step2 草稿不晋升：常规生成路径在工具入口就被 gate 拦，两条路不该分叉。
 
     隔离期间用户在 Web 端改过 step1 会让确认指纹失效，该集回到 pending_review——此时晋升等于
@@ -7735,7 +7722,7 @@ async def test_validate_and_promote_reference_draft_step2_blocked_by_review_gate
 
 
 @pytest.mark.unit
-async def test_validate_and_promote_reference_draft_without_draft(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_validate_and_promote_draft_without_draft(fake_ctx: ToolContext, monkeypatch) -> None:
     out = await _promote(fake_ctx, monkeypatch)
     assert out.get("is_error") is True
     assert "没有待处置的隔离草稿" in out["content"][0]["text"]
@@ -7823,8 +7810,8 @@ async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolConte
 
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
-    assert "违约产物待处置" in out["content"][0]["text"]
-    assert "validate_and_promote_reference_draft" in out["content"][0]["text"]
+    assert "隔离草稿待处置" in out["content"][0]["text"]
+    assert "validate_and_promote_draft" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
@@ -7837,7 +7824,7 @@ async def test_generate_episode_script_quarantine_precedes_missing_step1(fake_ct
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "违约产物待处置" in text
+    assert "隔离草稿待处置" in text
     assert "未找到 Step 1 文件" not in text
 
 
@@ -7850,7 +7837,220 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
     # 卡在「缺 narration step1」这道常规校验上，而不是参考路径的隔离草稿
-    assert "违约产物待处置" not in out["content"][0]["text"]
+    assert "隔离草稿待处置" not in out["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# drama step1 的取回编辑与晋升闭环
+# ---------------------------------------------------------------------------
+
+
+_DRAMA_NOVEL = "三年后，阿离回到山门。"
+
+
+def _drama_project(fake_ctx: ToolContext) -> None:
+    """把项目声明成 drama + 分镜路线，并铺好源文——正式 step1 的写禁与草稿通道以此为前提。"""
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps({"content_mode": "drama", "generation_mode": "storyboard"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    fake_ctx.pm.project_payload["content_mode"] = "drama"  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # pyright: ignore[reportAttributeAccessIssue]
+    src = fake_ctx.project_path / "source"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "episode_1.txt").write_text(_DRAMA_NOVEL, encoding="utf-8")
+
+
+def _drama_scene(**overrides) -> dict:
+    scene = {
+        "scene_id": "E1S01",
+        "duration_seconds": 4,
+        "segment_break": False,
+        "characters_in_scene": ["阿离"],
+        "scenes": [],
+        "props": [],
+        "scene_description": "阿离站在山门前。",
+        "utterances": [{"kind": "dialogue", "speaker": "阿离", "text": "我回来了。"}],
+        "source_text": _DRAMA_NOVEL,
+    }
+    scene.update(overrides)
+    return scene
+
+
+def _drama_step1_path(fake_ctx: ToolContext) -> Path:
+    return fake_ctx.project_path / "drafts" / "episode_1" / "step1_normalized_script.json"
+
+
+def _drama_quarantine_path(fake_ctx: ToolContext) -> Path:
+    return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_DRAMA_STEP1)
+
+
+def _write_drama_step1(fake_ctx: ToolContext, scenes: list[dict]) -> None:
+    path = _drama_step1_path(fake_ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"title": "第一集", "scenes": scenes}, ensure_ascii=False), encoding="utf-8")
+
+
+def _read_drama_quarantine(fake_ctx: ToolContext) -> dict:
+    return json.loads(_drama_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
+
+
+async def _open_drama_for_edit(fake_ctx: ToolContext, **args) -> dict:
+    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
+
+
+async def _promote_drama(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)) -> dict:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def fake_caps(_project, _episode=None):
+        return durations[0], list(durations)
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
+
+
+@pytest.mark.unit
+async def test_open_step1_for_edit_returns_drama_scenes(fake_ctx: ToolContext) -> None:
+    """drama 取回的草稿装场景内容表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene(needs_replan=True)])
+    before = _drama_step1_path(fake_ctx).read_text(encoding="utf-8")
+
+    out = await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    assert out.get("is_error") is not True, out
+    envelope = _read_drama_quarantine(fake_ctx)
+    assert envelope["kind"] == QUARANTINE_KIND_DRAMA_STEP1
+    assert envelope["violations"] == []
+    assert envelope["meta"]["source"] == "source/episode_1.txt"
+    assert envelope["meta"]["base_fingerprint"]
+    scene = envelope["content"]["scenes"][0]
+    # needs_replan 按台词准入派生，取回时剥掉：留在草稿里 agent 会当成可手写字段去改，
+    # 而晋升侧无论如何都按现值重派生，两者不一致只会误导。
+    assert "needs_replan" not in scene
+    assert scene["scene_description"] == "阿离站在山门前。"
+    assert _drama_step1_path(fake_ctx).read_text(encoding="utf-8") == before
+
+
+@pytest.mark.unit
+async def test_open_step1_for_edit_drama_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
+    """完整闭环：取回 → 改草稿 → 晋升。改动经持锁写盘落回正式文件，派生字段按新内容重算。"""
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+
+    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = _read_drama_quarantine(fake_ctx)
+    envelope["content"]["scenes"][0]["scene_description"] = "阿离推开山门。"
+    _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote_drama(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is not True, out
+    assert not _drama_quarantine_path(fake_ctx).exists()
+    saved = json.loads(_drama_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["scenes"][0]["scene_description"] == "阿离推开山门。"
+
+
+@pytest.mark.unit
+async def test_promote_drama_step1_rederives_needs_replan(fake_ctx: ToolContext, monkeypatch) -> None:
+    """needs_replan 由晋升侧按台词准入重新派生，不取草稿里的值——它是机器判据，
+    手写值一旦被采信，后续重规划会漏掉真正需要重排的场景。"""
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+
+    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = _read_drama_quarantine(fake_ctx)
+    scene = envelope["content"]["scenes"][0]
+    scene["utterances"] = [
+        {"kind": "dialogue", "speaker": "阿离", "text": "我回来了。"},
+        {"kind": "voiceover", "speaker": None, "text": "三年后。"},
+    ]
+    scene["needs_replan"] = False
+    _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote_drama(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is not True, out
+    saved = json.loads(_drama_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["scenes"][0]["needs_replan"] is True
+
+
+@pytest.mark.unit
+async def test_promote_drama_step1_reports_schema_breach_without_writing(fake_ctx: ToolContext, monkeypatch) -> None:
+    """草稿被改坏时正式文件不写：草稿留在场、按 violations 继续改再晋升，不丢内容也不污染正式文件。"""
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+    before = _drama_step1_path(fake_ctx).read_text(encoding="utf-8")
+
+    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = _read_drama_quarantine(fake_ctx)
+    envelope["content"]["scenes"][0]["duration_seconds"] = 7  # 不在档位内
+    _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote_drama(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is True
+    assert _drama_step1_path(fake_ctx).read_text(encoding="utf-8") == before
+    assert _drama_quarantine_path(fake_ctx).exists()
+    assert "content.scenes[i]" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_promote_drama_step1_aborts_on_concurrent_write(fake_ctx: ToolContext, monkeypatch) -> None:
+    """取回与晋升之间正式文件被别的写入方改过 → 中止并报冲突，不静默覆盖对方的保存。"""
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+
+    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    _write_drama_step1(fake_ctx, [_drama_scene(scene_description="别处改过的描述。")])
+    concurrent = _drama_step1_path(fake_ctx).read_text(encoding="utf-8")
+
+    out = await _promote_drama(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is True
+    assert _drama_step1_path(fake_ctx).read_text(encoding="utf-8") == concurrent
+    assert _drama_quarantine_path(fake_ctx).exists()
+
+
+@pytest.mark.unit
+async def test_open_step1_for_edit_refuses_to_clobber_existing_drama_draft(fake_ctx: ToolContext) -> None:
+    """已有草稿在场时不覆盖：那份草稿可能已含未晋升的修改，出路是继续改它再晋升。"""
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = _read_drama_quarantine(fake_ctx)
+    envelope["content"]["scenes"][0]["scene_description"] = "未晋升的修改。"
+    _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    assert out.get("is_error") is True
+    assert "validate_and_promote_draft" in out["content"][0]["text"]
+    assert _read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "未晋升的修改。"
+
+
+@pytest.mark.unit
+async def test_open_step1_for_edit_rejects_variant_without_draft_channel(fake_ctx: ToolContext) -> None:
+    """narration 的 step1 没有草稿通道：报错要点名这一点，不能让 agent 以为工具坏了反复重试。"""
+    _rv_project(fake_ctx, generation_mode="storyboard")
+
+    out = await _open_for_edit(fake_ctx)
+
+    assert out.get("is_error") is True
+
+
+@pytest.mark.unit
+async def test_generate_episode_script_blocked_by_drama_quarantine(fake_ctx: ToolContext) -> None:
+    """drama 的 step2 与参考路线同口径：隔离草稿在场即拒绝生成，
+    否则会拿正式文件那份上一版内容静默顶替待处置的正文。"""
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+
+    assert out.get("is_error") is True
+    assert "隔离草稿待处置" in out["content"][0]["text"]
 
 
 # ---------------------------------------------------------------------------
