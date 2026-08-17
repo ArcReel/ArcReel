@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -308,3 +309,38 @@ def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path
     assert summary.phase == "production"
     assert summary.phase_progress < 1.0
     assert service.get_status("demo").state == "STORYBOARD"
+
+
+def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) -> None:
+    """剧集卡读的每集计数与工作台读的产物清单是同一份数字。
+
+    剧集卡拿 ``get_project_summary``、工作台拿 ``get_status``：同一个项目上两处必须给出
+    相同的可用数与 stale 数，否则用户在侧栏与画布之间会看到互相矛盾的进度。
+    """
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    _episode_with_media(pm, project_path, source_text)
+    service = WorkflowStateService(pm)
+
+    # 改写该镜的画面 prompt：分镜图还在盘上、仍可用，但已比当前内容旧。
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["segments"][0]["image_prompt"] = "改过的画面描述"
+    atomic_write_json(script_path, script)
+
+    episode = service.get_project_summary("demo").episodes[0]
+    status = service.get_status("demo", episode=1)
+
+    for label, count in (("storyboards", episode.storyboards), ("videos", episode.videos)):
+        workbench = status.artifacts[label]
+        assert count.stale == len(workbench["stale_ids"]), label
+        assert count.available == len(workbench["current_ids"]) + len(workbench["stale_ids"]), label
+        assert count.total == (
+            len(workbench["current_ids"]) + len(workbench["stale_ids"]) + len(workbench["missing_ids"])
+        ), label
+
+    # 夹具本身要有区分力：两侧全 0 相等不构成证据。
+    assert episode.storyboards.stale == 1
+    assert episode.storyboards.available == 1

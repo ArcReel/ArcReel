@@ -588,7 +588,6 @@ class TestScriptGenerator:
         payload = json.loads(output.read_text(encoding="utf-8"))
         assert output == project_path / "scripts" / "episode_1.json"
         assert payload["episode"] == 1
-        assert payload["duration_seconds"] == 4
         # 内容层（novel_text / 出场角色）由 step1 透传，视觉层由 step2 合并
         seg = payload["segments"][0]
         assert seg["novel_text"] == "原样保留的小说原文。"
@@ -1110,7 +1109,7 @@ class TestAddMetadataRewritesEpisodePrefix:
 class TestAddMetadataInjectsHiddenFields:
     """LLM schema 隐藏 content_mode / novel 之后,_add_metadata 必须保证持久化 JSON 仍带这些字段。
 
-    下游消费方(status_calculator / files router / jianying / compose-video)读 dict,不读 model,
+    下游消费方(项目摘要 / files router / jianying / compose-video)读 dict,不读 model,
     所以兜底必须落在 dict 层。
     """
 
@@ -1514,13 +1513,6 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         assert set(_KIND_PARSE_SCHEMA) == set(SKELETONS)
 
     @pytest.mark.unit
-    def test_metadata_count_key_covers_every_skeleton_kind(self):
-        from lib.script_generator import _METADATA_COUNT_KEY
-        from lib.script_skeleton import SKELETONS
-
-        assert set(_METADATA_COUNT_KEY) == set(SKELETONS)
-
-    @pytest.mark.unit
     def test_item_fallback_duration_covers_every_skeleton_kind(self):
         # 时长兜底表单点化到 script_models，四骨架全登记（含 shots/video_units→0）；
         # 第五种骨架加入 SKELETONS 而未登记即在 item_duration 查表 KeyError 报红。
@@ -1532,7 +1524,6 @@ class TestScriptGeneratorSkeletonExhaustiveness:
     @pytest.mark.unit
     @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
     def test_add_metadata_handles_every_skeleton_kind(self, kind: str, tmp_path: Path):
-        from lib.script_generator import _METADATA_COUNT_KEY
         from lib.script_skeleton import SKELETONS
 
         # 参数化遍历 SKELETONS 全键：新增第五种骨架而 _KIND_TO_MODES 未登记即 KeyError 报红。
@@ -1549,13 +1540,13 @@ class TestScriptGeneratorSkeletonExhaustiveness:
 
         # 数组键 + id 字段经查表：前缀改写为当前集号
         assert out[kind][0][id_field] == "E2S01"
-        # 计数键随 kind 显式落位
-        assert out["metadata"][_METADATA_COUNT_KEY[kind]] == 1
+        # 条目数与总时长不落盘：派生值由项目摘要读时计算
+        assert "duration_seconds" not in out
 
     @pytest.mark.unit
     def test_add_metadata_survives_dirty_degraded_items(self, tmp_path: Path):
         # 校验失败降级保存的原始 dict 里 segments 可能含非 dict / duration_seconds 非数字的脏条目；
-        # 前缀改写与时长求和都不得崩溃，时长按稳健口径逐条兜底。
+        # 前缀改写不得崩溃，脏条目原样保留。
         sg = _bare_generator(tmp_path, {"content_mode": "narration"})
 
         out = sg._add_metadata(
@@ -1576,20 +1567,16 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         assert out["segments"][1] == "junk_not_a_dict"
         assert out["segments"][2]["segment_id"] == "E2S02"
         assert out["segments"][4]["segment_id"] == "E2S04"
-        # 计数取列表长度（含脏条目），与既有口径一致
-        assert out["metadata"]["total_segments"] == 5
-        # 时长：5(有效) + 0(非 dict) + 4(缺失→兜底) + 4(None→兜底) + 4(非正数→兜底) = 17
-        assert out["duration_seconds"] == 17
 
     @pytest.mark.unit
     def test_add_metadata_survives_non_list_array(self, tmp_path: Path):
-        # 数组键为真值标量（LLM 误写）时 `... or []` 挡不住，isinstance 守卫避免迭代/求和崩溃。
+        # 数组键为真值标量（LLM 误写）时 `... or []` 挡不住，isinstance 守卫避免迭代崩溃。
         sg = _bare_generator(tmp_path, {"content_mode": "narration"})
 
         out = sg._add_metadata({"segments": 123}, episode=1)
 
-        assert out["metadata"]["total_segments"] == 0
-        assert out["duration_seconds"] == 0
+        assert out["segments"] == 123
+        assert out["episode"] == 1
 
     @pytest.mark.unit
     def test_quality_probe_survives_non_list_array(self, tmp_path: Path, caplog):
@@ -2129,7 +2116,7 @@ class TestAdScriptGeneration:
 
     @pytest.mark.unit
     async def test_generate_writes_ad_script_with_metadata(self, tmp_path):
-        """generate 写盘 ad 剧本：shots 骨架、content_mode=ad、total_shots 与总时长统计。"""
+        """generate 写盘 ad 剧本：shots 骨架、content_mode=ad。"""
         project_path = tmp_path / "demo"
         _write_ad_project(project_path)
 
@@ -2155,8 +2142,6 @@ class TestAdScriptGeneration:
         assert saved["episode"] == 1
         assert [s["shot_id"] for s in saved["shots"]] == ["E1S01", "E1S02"]
         assert saved["shots"][0]["voiceover_text"] == "还在等杯子干？"
-        assert saved["metadata"]["total_shots"] == 2
-        assert saved["duration_seconds"] == 10
 
     @pytest.mark.unit
     async def test_generate_ad_storyboard_passes_enum_schema(self, tmp_path):
@@ -2398,8 +2383,6 @@ class TestAdReferenceSkeletonUnity:
         assert "reference_units" not in saved
         assert [unit["unit_id"] for unit in saved["video_units"]] == ["E1U1", "E1U2"]
         assert saved["video_units"][0]["references"] == [{"type": "product", "name": "速干杯"}]
-        assert saved["metadata"]["total_units"] == 2
-        assert saved["duration_seconds"] == 12
 
     @pytest.mark.unit
     async def test_generate_ad_reference_preserves_mixed_speech_and_marks_replan(self, tmp_path):

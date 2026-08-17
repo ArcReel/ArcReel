@@ -132,15 +132,6 @@ _KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
     "video_units": ReferenceVideoScript,
 }
 
-# 骨架种类 → metadata 统计的计数键名。计数键名为业务附着（video_units→total_units 非
-# f"total_{kind}"），随 kind 显式保留、不进 SKELETONS 窄表。
-_METADATA_COUNT_KEY: dict[str, str] = {
-    "segments": "total_segments",
-    "scenes": "total_scenes",
-    "shots": "total_shots",
-    "video_units": "total_units",
-}
-
 
 def _file_content_digest(path: Path) -> str:
     """Hash one selected formal input without loading it all into memory."""
@@ -1593,7 +1584,7 @@ class ScriptGenerator:
         ep = int(episode)
         # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + SKELETONS 查 id 字段改写
         # （参考路线三种 content_mode 均映射到 video_units；不再手写 reference 分支）。self.content_mode
-        # 为项目级校验值，解析不会 fail-loud。kind 复用到下方 metadata 统计。
+        # 为项目级校验值，解析不会 fail-loud。
         kind = resolve_declared_kind(self.content_mode, gen_mode)
         id_field = SKELETONS[kind].id_field
         # 校验失败降级保存的原始 dict 里该数组可能为非列表脏值（LLM 误写标量），
@@ -1709,16 +1700,11 @@ class ScriptGenerator:
         if step1_revision is not None:
             script_data["metadata"][SCRIPT_STEP1_REVISION_FIELD] = step1_revision
 
-        # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）。
-        # 数组键经上方规范解析所得 kind 查表；计数键名为业务附着、随 kind 显式保留。
-        # 校验失败降级保存的原始 dict 里数组可能为 null / 含脏条目：len(items) 计入全部条目
-        # （既有口径），时长走 script_duration_total 单一真相源逐条兜底（脏值归一、不抛）。
-        raw_items = script_data.get(kind)
-        items = raw_items if isinstance(raw_items, list) else []
-        script_data["metadata"][_METADATA_COUNT_KEY[kind]] = len(items)
-        script_data["duration_seconds"] = script_duration_total(kind, items)
-
-        # 剥离废弃的 episode 级聚合字段（改为读时计算）
+        # 剥离废弃的 episode 级聚合字段：条目数、总时长与角色/场景/道具聚合都是从剧本正文
+        # 逐读即得的派生值，由项目摘要读时计算，落盘一份只会与正文漂移。
+        script_data["metadata"].pop("total_scenes", None)
+        script_data["metadata"].pop("estimated_duration_seconds", None)
+        script_data.pop("duration_seconds", None)
         script_data.pop("characters_in_episode", None)
         script_data.pop("clues_in_episode", None)
 

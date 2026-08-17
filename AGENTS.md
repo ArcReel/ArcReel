@@ -61,7 +61,7 @@ pnpm build       # 双 locale 构建，须先 pnpm sync-contributing
 |---------|---------|------|
 | 角色/场景/道具定义 | `project.json`（项目级）+ `assets` 表（全局库） | 单一真相源，剧本中仅引用名称；三类资产共用 `lib/asset_types.ASSET_SPECS` 抽象 |
 | 剧集元数据（episode/title/script_file） | `project.json` | 剧本保存时写时同步 |
-| 统计字段（scenes_count / status / progress） | 不存储 | `StatusCalculator` 读时计算注入 |
+| 每集派生字段（产物计数 / 状态 / 时长 / 脚本态） | 不存储 | 项目摘要（`lib/workflow_state.py`）按产物清单读时计算，详情接口并入 `episodes[]` |
 
 ### 实时通信
 

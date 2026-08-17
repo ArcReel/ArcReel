@@ -73,7 +73,6 @@ def test_reference_video_script_valid():
     script = ReferenceVideoScript(
         title="江湖夜话",
         content_mode="narration",
-        duration_seconds=8,
         novel=NovelInfo(title="江湖行", chapter="第一回"),
         video_units=[_make_unit()],
     )

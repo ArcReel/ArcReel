@@ -42,7 +42,6 @@ from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
 from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, script_revision
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
-from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import ProjectSummary, WorkflowRequestError, WorkflowStateService, WorkflowStatus
@@ -68,16 +67,6 @@ router = APIRouter()
 # 端点内 verify_download_token 校验短时效下载 token，注册时不挂 Bearer 依赖。
 self_auth_router = APIRouter()
 
-# episode 字段白名单：只允许持久化合法的 on-disk 字段。
-# StatusCalculator 注入的统计字段（scenes_count / status / storyboards / videos 等）
-# 是读时计算值，禁止写回 project.json。title 不在白名单：它以剧本顶层 title 为唯一真相源，
-# 经 _apply_episode_sync 单向同步进 episodes[].title，专用端点 PATCH /episodes/{episode} 写入。
-EPISODE_PERSIST_FIELDS = {"script_file"}
-
-
-def get_status_calculator() -> StatusCalculator:
-    return StatusCalculator(get_project_manager())
-
 
 def get_workflow_state_service() -> WorkflowStateService:
     return WorkflowStateService(get_project_manager())
@@ -92,6 +81,29 @@ def _project_status_payload(summary: ProjectSummary) -> dict[str, Any]:
     """
 
     return summary.model_dump(mode="json", exclude={"episodes"})
+
+
+def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -> dict[str, Any]:
+    """把项目摘要的每集明细并进 ``project["episodes"]``（读时计算，不写盘）。
+
+    每集的脚本进度、产物计数与时长只有项目摘要一个来源，口径是产物清单：可用 = current ∪
+    stale，stale 另计。剧集卡、剧集头与画布读到的数字因此与工作台同源。project.json 侧的
+    字段（title / script_file / hook / outline……）原样保留。
+    """
+
+    per_episode = {item.episode: item for item in summary.episodes}
+    episodes = []
+    for entry in project.get("episodes", []):
+        if not isinstance(entry, dict):
+            continue
+        merged = dict(entry)
+        number = entry.get("episode")
+        item = per_episode.get(number) if isinstance(number, int) else None
+        if item is not None:
+            merged.update(item.model_dump(mode="json", exclude={"episode"}))
+        episodes.append(merged)
+    project["episodes"] = episodes
+    return project
 
 
 def get_archive_service() -> ProjectArchiveService:
@@ -192,8 +204,9 @@ class CreateProjectRequest(BaseModel):
 class EpisodePatch(BaseModel):
     """PATCH body entry for a single episode.
 
-    Only whitelisted fields persist; computed fields (scenes_count, status,
-    storyboards, etc.) are silently dropped via extra='ignore'.
+    The declared fields are the writable set; derived fields the API serves on
+    episodes (scenes_count, status, storyboards, etc.) are not declared here and
+    are silently dropped via extra='ignore', so they can never be written back.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -739,24 +752,22 @@ async def get_project(
 
         def _sync():
             manager = get_project_manager()
-            calculator = get_status_calculator()
             if not manager.project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
 
             project = manager.load_project(name)
 
-            # 注入计算字段（不写入 JSON，仅用于 API 响应）
-            project = calculator.enrich_project(name, project)
-            project["status"] = _project_status_payload(get_workflow_state_service().get_project_summary(name))
+            # 阶段、产物计数与每集明细一律来自项目摘要投影（读时计算，不写入 JSON）
+            summary = get_workflow_state_service().get_project_summary(name)
+            project = _merge_episode_summaries(project, summary)
+            project["status"] = _project_status_payload(summary)
 
-            # 加载所有剧本并注入计算字段
             scripts = {}
             for ep in project.get("episodes", []):
                 script_file = ep.get("script_file", "")
                 if script_file:
                     try:
                         script = manager.load_script(name, script_file)
-                        script = calculator.enrich_script(script, generation_mode=project.get("generation_mode"))
                         key = (
                             script_file.replace("scripts/", "", 1)
                             if script_file.startswith("scripts/")
@@ -959,8 +970,10 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                 if "episodes" in req.model_fields_set and req.episodes is not None:
                     # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中显式提供的字段。
                     # 使用 model_fields_set（而非 exclude_none）判断字段是否显式出现，使得
-                    # 传 null 可用于清空对应字段。白名单同时拦截 StatusCalculator 注入的计算
-                    # 字段（scenes_count / status / storyboards / videos 等），防止写回 project.json。
+                    # 传 null 可用于清空对应字段。可写字段由 EpisodePatch 自身界定（extra="ignore"）：
+                    # 读时计算的每集统计字段不在模型上，请求里带了也进不来。title 同样不可写：
+                    # 它以剧本顶层 title 为唯一真相源，经 _apply_episode_sync 单向同步进
+                    # episodes[].title，专用端点 PATCH /episodes/{episode} 写入。
                     existing_list = project.get("episodes", [])
                     patch_map: dict[int, EpisodePatch] = {}
                     for ep in req.episodes:
@@ -974,9 +987,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                             new_episodes.append(existing_ep)
                             continue
                         updated = dict(existing_ep)
-                        for field_name in EPISODE_PERSIST_FIELDS:
-                            if field_name not in patch.model_fields_set:
-                                continue
+                        for field_name in patch.model_fields_set - {"episode"}:
                             value = getattr(patch, field_name)
                             if value is None:
                                 updated.pop(field_name, None)
@@ -1414,7 +1425,7 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
     以剧本 scripts/*.json 顶层 title 为唯一真相源：走 locked_episode_script 在
     「脚本锁 → 项目锁」临界区内改剧本 title，并内联 _apply_episode_sync 把镜像同步回
     project.json 的 episodes[].title，原子且无 TOCTOU。镜像由 PATCH /projects 改写的入口
-    已移除（title 不在 EPISODE_PERSIST_FIELDS），杜绝第二真相源。
+    已移除（title 不在 EpisodePatch 上），杜绝第二真相源。
     """
     title = req.title.strip()
     if not title:

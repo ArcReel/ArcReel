@@ -44,7 +44,7 @@ describe("demo project data", () => {
     const summary = data.status?.episodes_summary;
     const count = (status: string) =>
       data.episodes.filter((e) => e.status === status).length;
-    // scripted 统计的是"有生成剧本"的分集数（对齐 lib/status_calculator.py 的 script_status
+    // scripted 统计的是"有生成剧本"的分集数（对齐 lib/workflow_state.py 的 script_status
     // 口径），不是 status 字段字面等于 "scripted" 的分集数——没剧本的分集永远只能是 draft
     const scriptedCount = data.episodes.filter((e) => e.script_file !== "").length;
 
@@ -115,8 +115,8 @@ describe("demo project data", () => {
 
     expect(segments.length).toBe(episode.scenes_count);
     expect(segments.length).toBeGreaterThanOrEqual(6);
-    expect(withStoryboard.length).toBe(episode.storyboards?.completed);
-    expect(episode.videos?.completed).toBe(0);
+    expect(withStoryboard.length).toBe(episode.storyboards?.available);
+    expect(episode.videos?.available).toBe(0);
   });
 
   it("leaves video and narration unset — an SVG cannot stand in for them", () => {

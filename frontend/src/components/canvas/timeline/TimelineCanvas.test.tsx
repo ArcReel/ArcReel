@@ -47,7 +47,6 @@ function makeScript(): NarrationEpisodeScript {
     episode: 1,
     title: "EP1",
     content_mode: "narration",
-    duration_seconds: 4,
     novel: { title: "n", chapter: "1" },
     segments: [
       {

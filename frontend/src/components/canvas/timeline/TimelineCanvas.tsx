@@ -6,7 +6,7 @@ import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
-import { getScriptItemId } from "@/utils/script-shape";
+import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -189,9 +189,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     );
   }
 
-  const totalDuration =
-    episodeScript?.duration_seconds ??
-    segments.reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
+  const totalDuration = sumItemDuration(segments);
 
   const currentEpisodeMeta = projectData?.episodes?.find((e) => e.episode === episode);
   const epMeta =

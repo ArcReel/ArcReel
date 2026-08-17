@@ -193,5 +193,5 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ### 数据分层原则
 
 - 角色/场景/道具的完整定义**只存储在 project.json**，剧本中仅引用名称
-- `scenes_count`、`status`、`progress` 等统计字段由 StatusCalculator **读时计算**，不存储
+- `scenes_count`、`status`、产物计数等统计字段由项目摘要**读时计算**，不存储
 - 剧集元数据（episode/title/script_file）在剧本保存时**写时同步**

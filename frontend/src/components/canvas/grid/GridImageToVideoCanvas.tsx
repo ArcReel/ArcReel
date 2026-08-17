@@ -8,7 +8,7 @@ import { GridPreviewView } from "./GridPreviewView";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds, useHasActiveTaskForScriptFile } from "@/stores/tasks-store";
-import { getScriptItemId } from "@/utils/script-shape";
+import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   EpisodeScript,
@@ -182,14 +182,7 @@ export function GridImageToVideoCanvas({
     );
   }
 
-  const epDur = episodeScript?.duration_seconds;
-  const totalDuration =
-    typeof epDur === "number" && Number.isFinite(epDur)
-      ? epDur
-      : segments.reduce((sum, s) => {
-          const d = s.duration_seconds;
-          return sum + (typeof d === "number" && Number.isFinite(d) ? d : 0);
-        }, 0);
+  const totalDuration = sumItemDuration(segments);
 
   const currentEpisodeMeta = projectData?.episodes?.find((e) => e.episode === episode);
   const epMeta =

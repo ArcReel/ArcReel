@@ -22,7 +22,7 @@
 
     5. None —— 前端渲染占位 FolderOpen 图标。
 
-与 `lib/status_calculator.py` 同走"读时计算、不存冗余"的约定：不往 project.json
+与项目摘要投影同走"读时计算、不存冗余"的约定：不往 project.json
 里写 `cover_thumbnail` 字段，每次 list_projects 按当前磁盘真相重新解析。
 """
 

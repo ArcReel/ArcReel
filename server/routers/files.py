@@ -731,7 +731,7 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator):
 def _get_step_files(content_mode: str, generation_mode: str | None = None) -> dict:
     """根据 generation_mode / content_mode 获取步骤文件名映射
 
-    ad 不走结构化 step1（与 _resolve_step1_path / status_calculator._draft_candidates 同口径显式
+    ad 不走结构化 step1（与 _resolve_step1_path / script_review.step1_path 同口径显式
     排除），即便带 reference_video generation_mode 也无 step1，故先于 generation_mode 判断返回空
     映射，调用方据此给出「无此步骤」而非误落 drama / reference 文件名。reference_video 走
     split_reference_video_units 工具 → step1_reference_units.json；其他模式回落到 content_mode

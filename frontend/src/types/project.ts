@@ -3,7 +3,7 @@
  *
  * Maps to backend models in:
  * - lib/project_manager.py (ProjectOverview, project.json structure)
- * - lib/status_calculator.py (ProjectStatus, EpisodeMeta computed fields)
+ * - lib/workflow_state.py (ProjectStatus / EpisodeMeta read-time fields, from the project summary)
  * - server/routers/projects.py (ProjectSummary list response)
  */
 
@@ -61,11 +61,6 @@ export interface AspectRatio {
   video?: string;
 }
 
-export interface ProgressCategory {
-  total: number;
-  completed: number;
-}
-
 export interface EpisodesSummary {
   total: number;
   scripted: number;
@@ -113,20 +108,18 @@ export interface EpisodeMeta {
   source_range?: { source_file?: string; start?: number; end?: number };
   /** Written by episode_planner at split time (drama only) */
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
-  /** Injected by StatusCalculator at read time */
+  /**
+   * Per-episode fields below come from the project summary at read time, on the artifact
+   * manifest's terms — the same numbers the studio reads, never persisted to project.json.
+   * Optional because the fallback meta some canvases build has no summary behind it.
+   */
   scenes_count?: number;
-  /** Injected by StatusCalculator at read time */
+  /** Script progress derived from the step1 and final-script artifact states */
   script_status?: "none" | "segmented" | "generated";
-  /** Injected by StatusCalculator at read time */
   status?: "draft" | "scripted" | "in_production" | "completed" | "missing";
-  /** Injected by StatusCalculator at read time */
   duration_seconds?: number;
-  /** Injected by StatusCalculator at read time */
-  storyboards?: ProgressCategory;
-  /** Injected by StatusCalculator at read time */
-  videos?: ProgressCategory;
-  /** Injected by StatusCalculator at read time (reference_video route only) */
-  units_count?: number;
+  storyboards?: ArtifactCount;
+  videos?: ArtifactCount;
 }
 
 export interface ModelSettingEntry {
@@ -156,7 +149,7 @@ export interface ProjectData {
   props?: Record<string, Prop>;
   /** 产品资产（广告/短片项目使用，v1 单产品设定，字段形态为映射）。 */
   products?: Record<string, Product>;
-  /** Injected by StatusCalculator.enrich_project at read time */
+  /** Project summary projection, injected at read time */
   status?: ProjectStatus;
   video_backend?: string | null;
   /** 视频能力桶（docs/adr/0054）项目级覆盖；空值 = 回退 video_backend 与全局层 */

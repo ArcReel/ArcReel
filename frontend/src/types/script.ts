@@ -264,7 +264,6 @@ export interface NarrationEpisodeScript {
   episode: number;
   title: string;
   content_mode: "narration";
-  duration_seconds: number;
   schema_version?: number;
   novel: NovelInfo;
   segments: NarrationSegment[];
@@ -274,7 +273,6 @@ export interface DramaEpisodeScript {
   episode: number;
   title: string;
   content_mode: "drama";
-  duration_seconds: number;
   schema_version?: number;
   novel: NovelInfo;
   scenes: DramaScene[];
@@ -322,7 +320,6 @@ export interface AdEpisodeScript {
   episode: number;
   title: string;
   content_mode: "ad";
-  duration_seconds: number;
   schema_version?: number;
   novel: NovelInfo;
   shots: AdShot[];
