@@ -634,6 +634,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
           {t("dashboard:lobby_hero_eyebrow")} — {dateLine}
         </div>
         <div
+          data-testid="lobby-hero-stats"
           className="flex items-stretch overflow-hidden rounded-[10px] border border-hairline-soft"
           style={{ background: "oklch(0.16 0.010 265 / 0.4)" }}
         >

@@ -6,6 +6,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
+import type { Phase } from "@/types";
 
 vi.mock("@/components/pages/CreateProjectModal", () => ({
   CreateProjectModal: () => <div data-testid="create-project-modal">Create Project Modal</div>,
@@ -508,5 +509,42 @@ describe("ProjectsPage", () => {
     await waitFor(() => {
       expect(location.history?.at(-1)).toBe("/app/projects/demo-renamed");
     });
+  });
+
+  it("breaks the hero counts down over all four phases", async () => {
+    const project = (name: string, phase: Phase) => ({
+      name,
+      title: name,
+      style: "Anime",
+      thumbnail: null,
+      status: {
+        phase,
+        phase_progress: 0,
+        needs_repair: false,
+        repair_reason: null,
+        assets: {
+          character: { total: 0, available: 0, stale: 0 },
+          scene: { total: 0, available: 0, stale: 0 },
+          prop: { total: 0, available: 0, stale: 0 },
+        },
+        episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 },
+      },
+    });
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        project("prep-a", "preparation"),
+        project("prep-b", "preparation"),
+        project("scripted", "script"),
+        project("filming", "production"),
+        project("done", "completed"),
+      ],
+    });
+
+    renderPage();
+
+    // 每个阶段都要有自己的一格：新建项目落在「准备」，不能只汇进总数就消失。
+    const hero = await screen.findByTestId("lobby-hero-stats");
+    const cells = Array.from(hero.children).map((cell) => cell.textContent);
+    expect(cells).toEqual(["项目5", "准备2", "脚本1", "制作1", "完成1"]);
   });
 });
