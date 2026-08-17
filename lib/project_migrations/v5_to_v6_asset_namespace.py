@@ -23,6 +23,11 @@ from lib.asset_types import (
 )
 from lib.episode_paths import REFERENCE_VIDEO_STEP1_LEGACY_FILENAME, STEP1_LEGACY_FILENAMES
 from lib.json_io import atomic_write_json, load_json
+from lib.project_migrations.staged_swap import (
+    ensure_disk_headroom,
+    new_rollback_dir,
+    staging_dir_prefix,
+)
 from lib.reference_video.shot_parser import match_dialogue_line, rewrite_mentions, strip_shot_header
 
 logger = logging.getLogger(__name__)
@@ -581,7 +586,11 @@ def _migrate_staged_tree(project_dir: Path) -> None:
 
 
 def migrate_v5_to_v6(project_dir: Path) -> None:
-    """Make the multi-file v6 migration atomic by transforming a sibling staging tree then swapping it in."""
+    """Make the multi-file v6 migration atomic by transforming a sibling staging tree then swapping it in.
+
+    进程被硬杀在两次改名之间时，本函数的 ``finally`` 不会执行；项目目录缺失而 rollback 目录残留的
+    局面由启动期的 ``reclaim_interrupted_swaps`` 认领。
+    """
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
     if not project_file.is_file():
@@ -590,8 +599,9 @@ def migrate_v5_to_v6(project_dir: Path) -> None:
     if int(data.get("schema_version") or 0) >= 6:
         return
 
-    staging = Path(tempfile.mkdtemp(prefix=f".{project_dir.name}.v6-", dir=project_dir.parent))
-    rollback = project_dir.parent / f".{project_dir.name}.v6-rollback-{uuid.uuid4().hex}"
+    ensure_disk_headroom(project_dir)
+    staging = Path(tempfile.mkdtemp(prefix=staging_dir_prefix(project_dir.name), dir=project_dir.parent))
+    rollback = new_rollback_dir(project_dir)
     try:
         shutil.copytree(project_dir, staging, symlinks=True, dirs_exist_ok=True)
         _migrate_staged_tree(staging)

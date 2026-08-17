@@ -19,6 +19,10 @@ from lib.project_migration_failure import (
     clear_migration_failure,
     record_migration_failure,
 )
+from lib.project_migrations.staged_swap import (
+    cleanup_completed_swap_dirs,
+    reclaim_interrupted_swaps,
+)
 from lib.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
@@ -211,6 +215,11 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
     if not projects_root.exists():
         return summary
 
+    # 先认领上一次运行在目录交换窗口内被硬杀留下的原项目树，被改回的项目在本轮继续迁移。
+    reclaimed = reclaim_interrupted_swaps(projects_root)
+    if reclaimed:
+        logger.warning("已认领迁移交换窗口中断遗留的项目目录：%s", reclaimed)
+
     for child in sorted(projects_root.iterdir()):
         if not child.is_dir():
             continue
@@ -243,10 +252,11 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
 
 
 def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
-    """删除超过 max_age_days、且可归属到迁移输入的版本化备份。"""
+    """删除超过 max_age_days、且可归属到迁移输入的版本化备份与目录交换中间目录。"""
     if not projects_root.exists():
         return
     cutoff = time.time() - max_age_days * 86400
+    cleanup_completed_swap_dirs(projects_root, cutoff)
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
