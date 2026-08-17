@@ -47,13 +47,15 @@ export function isDemoProject(name: string | null | undefined): boolean {
 }
 
 const DEMO_STATUS: ProjectStatus = {
-  current_phase: "production",
+  phase: "production",
   phase_progress: 0.62,
   needs_repair: false,
   repair_reason: null,
-  characters: { completed: 3, total: 4 },
-  scenes: { completed: 3, total: 3 },
-  props: { completed: 2, total: 3 },
+  assets: {
+    character: { total: 4, available: 3, stale: 0 },
+    scene: { total: 3, available: 3, stale: 1 },
+    prop: { total: 3, available: 2, stale: 0 },
+  },
   episodes_summary: { total: 8, scripted: 1, in_production: 1, completed: 0 },
 };
 

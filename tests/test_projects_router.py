@@ -26,6 +26,7 @@ from lib.script_batch_edit import (
 )
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.speech_composition import admit_script_unit
+from lib.workflow_state import ArtifactCount, EpisodesSummary, EpisodeSummary, ProjectSummary
 
 
 class _OverviewProbe(BaseModel):
@@ -272,25 +273,8 @@ class _FakePM:
 
 
 class _FakeCalc:
-    def __init__(self):
-        # 记录 list_projects 是否把一次性加载的 script map 传到 calculate_project_status，
-        # 让针对 Task 4 的集成测试能断言两路共享预加载。
-        self.last_preloaded_scripts: dict | None = None
-
-    def calculate_project_status(self, name, project, *, preloaded_scripts=None):
-        self.last_preloaded_scripts = preloaded_scripts
-        return {
-            "current_phase": "production",
-            "phase_progress": 0.5,
-            "characters": {"total": 1, "completed": 0},
-            "clues": {"total": 1, "completed": 0},
-            "episodes_summary": {"total": 1, "scripted": 1, "in_production": 1, "completed": 0},
-        }
-
     def enrich_project(self, name, project):
-        project = dict(project)
-        project["status"] = self.calculate_project_status(name, project)
-        return project
+        return dict(project)
 
     def enrich_script(self, script, *, generation_mode=None):
         script = dict(script)
@@ -428,9 +412,39 @@ class _FakeBatchEditor:
         )
 
 
-def _client(monkeypatch, fake_pm, fake_calc):
+class _FakeSummaries:
+    """项目摘要投影替身：记录列表端点是否把一次性加载的剧本 map 交给它。"""
+
+    def __init__(self):
+        self.last_preloaded_scripts: dict | None = None
+
+    def get_project_summary(self, name, *, preloaded_scripts=None) -> ProjectSummary:
+        self.last_preloaded_scripts = preloaded_scripts
+        return ProjectSummary(
+            phase="production",
+            phase_progress=0.5,
+            needs_repair=False,
+            repair_reason=None,
+            assets={"character": ArtifactCount(total=1, available=0, stale=0)},
+            episodes_summary=EpisodesSummary(total=1, scripted=1, in_production=1, completed=0),
+            episodes=[
+                EpisodeSummary(
+                    episode=1,
+                    script_status="generated",
+                    status="in_production",
+                    scenes_count=1,
+                    duration_seconds=8,
+                    storyboards=ArtifactCount(total=1, available=1, stale=0),
+                    videos=ArtifactCount(total=1, available=0, stale=0),
+                )
+            ],
+        )
+
+
+def _client(monkeypatch, fake_pm, fake_calc, fake_summaries=None):
     monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(projects, "get_status_calculator", lambda: fake_calc)
+    monkeypatch.setattr(projects, "get_workflow_state_service", lambda: fake_summaries or _FakeSummaries())
     monkeypatch.setattr(projects, "get_script_batch_editor", lambda manager=None: _FakeBatchEditor(manager or fake_pm))
 
     app = FastAPI()
@@ -2175,7 +2189,7 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_list_projects_shares_script_preload_with_status(self, tmp_path, monkeypatch):
-        """list_projects 一次性加载 episode scripts，传给 StatusCalculator，去除 cover + status 双重 I/O。"""
+        """list_projects 一次性加载 episode scripts，传给项目摘要投影，去除 cover + status 双重 I/O。"""
         fake_pm = _FakePM(tmp_path)
         # 统计 load_script 调用次数：共享预加载后，ready 项目应只触发一次。
         orig_load_script = fake_pm.load_script
@@ -2187,8 +2201,8 @@ class TestProjectsRouter:
 
         fake_pm.load_script = _counting_load  # type: ignore[method-assign]
 
-        fake_calc = _FakeCalc()
-        client = _client(monkeypatch, fake_pm, fake_calc)
+        fake_summaries = _FakeSummaries()
+        client = _client(monkeypatch, fake_pm, _FakeCalc(), fake_summaries)
         with client:
             resp = client.get("/api/v1/projects")
             assert resp.status_code == 200
@@ -2198,9 +2212,37 @@ class TestProjectsRouter:
         ready_calls = [c for c in calls if c[0] == "ready"]
         assert len(ready_calls) == 1, f"expected 1 shared load, got {ready_calls}"
 
-        # 预加载 map 被传给 StatusCalculator
-        assert fake_calc.last_preloaded_scripts is not None
-        assert "scripts/episode_1.json" in fake_calc.last_preloaded_scripts
+        # 预加载 map 被传给项目摘要投影
+        assert fake_summaries.last_preloaded_scripts is not None
+        assert "scripts/episode_1.json" in fake_summaries.last_preloaded_scripts
+
+    @pytest.mark.unit
+    def test_list_projects_status_comes_from_the_project_summary(self, tmp_path, monkeypatch):
+        """列表页的阶段与计数一律来自项目摘要：四值阶段在，五值 current_phase 不在。"""
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.get("/api/v1/projects")
+
+        assert resp.status_code == 200
+        status = next(item for item in resp.json()["projects"] if item["name"] == "ready")["status"]
+        assert status["phase"] == "production"
+        assert "current_phase" not in status
+        assert status["assets"]["character"] == {"total": 1, "available": 0, "stale": 0}
+        # 每集明细归项目详情端点，不驮在 N 个项目的列表里
+        assert "episodes" not in status
+
+    @pytest.mark.unit
+    def test_get_project_status_comes_from_the_project_summary(self, tmp_path, monkeypatch):
+        """全局头读的项目级状态与列表同源。"""
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.get("/api/v1/projects/ready")
+
+        assert resp.status_code == 200
+        status = resp.json()["project"]["status"]
+        assert status["phase"] == "production"
+        assert status["needs_repair"] is False
+        assert "current_phase" not in status
 
     @pytest.mark.unit
     def test_list_projects_returns_style_image_field(self, tmp_path, monkeypatch):

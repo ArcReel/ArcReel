@@ -66,7 +66,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
 
-  const currentPhase = currentProjectData?.status?.current_phase;
+  const currentPhase = currentProjectData?.status?.phase;
   const runningCount = stats.running + stats.queued;
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
 

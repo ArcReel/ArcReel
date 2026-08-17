@@ -35,7 +35,7 @@ from lib.project_migration_failure import (
     MigrationFailureRecord,
     load_migration_verdict,
 )
-from lib.script_models import get_generated_assets
+from lib.script_models import get_generated_assets, script_duration_total
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 from lib.version_manager import VersionManager
@@ -164,6 +164,86 @@ class WorkflowStatus(BaseModel):
     next_action: WorkflowNextAction
 
 
+#: 11 值制作状态在广度视图（项目列表、卡片、全局头）上的归并显示。
+ProjectPhase = Literal["preparation", "script", "production", "completed"]
+
+#: 每集脚本的产物态派生值：正式脚本可用即 generated，只有 step1 即 segmented。
+EpisodeScriptStatus = Literal["none", "segmented", "generated"]
+
+#: 每集在广度视图上的粗粒度进度，由该集产物计数派生。
+EpisodeProductionStatus = Literal["draft", "scripted", "in_production", "completed"]
+
+
+class ArtifactCount(BaseModel):
+    """一组产物的计数：可用 = current ∪ stale，stale 另计。
+
+    stale 不从 available 里扣——比当前内容旧的产物仍然可用（见 ADR 0062），
+    它是「可以决定要不要重生」的提示，不是缺口。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    total: int
+    available: int
+    stale: int
+
+    @classmethod
+    def zero(cls) -> ArtifactCount:
+        return cls(total=0, available=0, stale=0)
+
+    @classmethod
+    def of(cls, collection: Mapping[str, Any], *, total: int) -> ArtifactCount:
+        stale = len(collection["stale_ids"])
+        return cls(total=total, available=len(collection["current_ids"]) + stale, stale=stale)
+
+
+class EpisodeSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    episode: int
+    script_status: EpisodeScriptStatus
+    status: EpisodeProductionStatus
+    scenes_count: int
+    duration_seconds: int
+    storyboards: ArtifactCount
+    videos: ArtifactCount
+
+
+class EpisodesSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total: int
+    scripted: int
+    in_production: int
+    completed: int
+
+
+class ProjectSummary(BaseModel):
+    """项目在广度视图上的投影：阶段、资产可用计数、分集汇总。
+
+    与 ``WorkflowStatus`` 同源不同粒度——后者回答「这个项目下一步做什么」，本模型回答
+    「几十个项目各自在哪一步、手上有多少可用产物」。因此它只读项目元数据、各集脚本与
+    产物清单：源文正文与源文修订号（sha256）不参与，否则列出 N 个项目就要读 N 份小说。
+
+    代价是两处判定不进入本投影，它们都只能由源文得出：资产清单是否跟得上源文改动，
+    以及源文是否已全部排布成集。因此本投影可能把「产物齐备但源文尚未排布完」的项目显示为
+    「完成」，而工作台按 11 值状态仍报 EPISODE_PLAN。产物口径本身两处一致：可用与 stale
+    都取自同一份产物清单。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = 1
+    phase: ProjectPhase
+    phase_progress: float
+    needs_repair: bool
+    repair_reason: str | None
+    #: 按 ``ASSET_SPECS`` 的资产类型键给出设计图计数，新增资产类型自动进入投影。
+    assets: dict[str, ArtifactCount]
+    episodes_summary: EpisodesSummary
+    episodes: list[EpisodeSummary]
+
+
 @dataclass(frozen=True)
 class _SharedWorkflowFacts:
     source: SourceRevisionResult | None
@@ -251,6 +331,47 @@ def _empty_collection() -> dict[str, list[str]]:
 
 def _not_applicable_collection() -> dict[str, Any]:
     return {"state": "not_applicable", **_empty_collection()}
+
+
+def _episode_production_status(
+    script_status: EpisodeScriptStatus,
+    storyboards: ArtifactCount,
+    videos: ArtifactCount,
+) -> EpisodeProductionStatus:
+    """分镜图与视频一起算：两者都是制作阶段的产物，缺任何一件该集都还没做完。
+
+    参考路线没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
+    """
+
+    if script_status != "generated":
+        return "draft"
+    available = storyboards.available + videos.available
+    total = storyboards.total + videos.total
+    if total > 0 and available >= total:
+        return "completed"
+    if available:
+        return "in_production"
+    return "scripted"
+
+
+def _sheet_bearing_counts(assets: Mapping[str, ArtifactCount]) -> list[ArtifactCount]:
+    """产品资产没有设计图产物：与 11 值状态的 ASSET_SHEETS 判据同口径地把它排除。"""
+
+    return [count for asset_type, count in assets.items() if asset_type != "product"]
+
+
+def _asset_bucket_total(project: Mapping[str, Any], bucket_key: str) -> int:
+    bucket = project.get(bucket_key)
+    return len(bucket) if isinstance(bucket, Mapping) else 0
+
+
+def _episodes_summary(episodes: list[EpisodeSummary]) -> EpisodesSummary:
+    return EpisodesSummary(
+        total=len(episodes),
+        scripted=sum(1 for episode in episodes if episode.script_status == "generated"),
+        in_production=sum(1 for episode in episodes if episode.status == "in_production"),
+        completed=sum(1 for episode in episodes if episode.status == "completed"),
+    )
 
 
 class WorkflowStateService:
@@ -713,6 +834,287 @@ class WorkflowStateService:
             return self._migration_blocked_status(project, failure)
         shared = self._shared_facts(project_path, project)
         return self._get_status(project_name, project, project_path, episode, shared)
+
+    def get_project_summary(
+        self,
+        project_name: str,
+        *,
+        preloaded_scripts: Mapping[str, dict[str, Any]] | None = None,
+    ) -> ProjectSummary:
+        """项目在广度视图上的投影（见 ``ProjectSummary``）。
+
+        ``preloaded_scripts`` 按 ``episodes[].script_file`` 原值作 key，命中即复用调用方
+        （项目列表把同一份剧本喂给封面解析）已经读过的那份，一次列表请求每集只读一次剧本。
+        """
+
+        project = self.pm.load_project_readonly(project_name)
+        project_path = self.pm.get_project_path(project_name)
+        episodes = self._episodes(project, [])
+        failure = load_migration_verdict(project_path)
+        if failure is not None:
+            return self._migration_blocked_summary(project, episodes, failure)
+        try:
+            currency: ArtifactCurrencyResolver | None = ArtifactCurrencyResolver(project_path)
+        except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError):
+            # 清单读不出来时不退回「文件存在即产物存在」：本投影一律按 0 件可用报告，
+            # 与工作台把它记成 artifact_currency_unavailable 阻断同一口径。
+            currency = None
+        assets = self._asset_counts(project_path, project, currency)
+        episode_summaries = [
+            self._episode_summary(
+                project_name,
+                project,
+                project_path,
+                number,
+                entry,
+                currency=currency,
+                preloaded_scripts=preloaded_scripts,
+            )
+            for number, entry in episodes
+        ]
+        phase = self._project_phase(project, assets, episode_summaries)
+        return ProjectSummary(
+            phase=phase,
+            phase_progress=self._phase_progress(phase, assets, episode_summaries),
+            needs_repair=False,
+            repair_reason=None,
+            assets=assets,
+            episodes_summary=_episodes_summary(episode_summaries),
+            episodes=episode_summaries,
+        )
+
+    def _asset_counts(
+        self,
+        project_path: Path,
+        project: dict[str, Any],
+        currency: ArtifactCurrencyResolver | None,
+    ) -> dict[str, ArtifactCount]:
+        sheets = self._asset_sheets(project_path, project, [], currency)
+        return {
+            asset_type: ArtifactCount.of(
+                sheets.get(asset_type, _empty_collection()),
+                total=_asset_bucket_total(project, spec.bucket_key),
+            )
+            for asset_type, spec in ASSET_SPECS.items()
+        }
+
+    def _episode_summary(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        project_path: Path,
+        number: int,
+        entry: dict[str, Any],
+        *,
+        currency: ArtifactCurrencyResolver | None,
+        preloaded_scripts: Mapping[str, dict[str, Any]] | None,
+    ) -> EpisodeSummary:
+        script_status = self._episode_script_status(project, project_path, number, entry, currency)
+        items: list[dict[str, Any]] = []
+        kind: str | None = None
+        if script_status == "generated":
+            script = self._summary_script(project_name, entry, preloaded_scripts)
+            if script is not None:
+                try:
+                    kind = ensure_route_skeleton(script, project.get("content_mode"), project.get("generation_mode"))
+                except ValueError:
+                    kind = None
+                if kind is not None:
+                    raw_items = script.get(kind)
+                    items = (
+                        [item for item in raw_items if isinstance(item, dict)] if isinstance(raw_items, list) else []
+                    )
+        storyboards = (
+            ArtifactCount.of(
+                self._media_collection(
+                    project_path,
+                    items,
+                    kind,
+                    "storyboard_image",
+                    episode=number,
+                    resolver=currency,
+                    blockers=[],
+                ),
+                total=len(items),
+            )
+            if project.get("generation_mode") == "storyboard"
+            else ArtifactCount.zero()
+        )
+        videos = ArtifactCount.of(
+            self._media_collection(
+                project_path,
+                items,
+                kind,
+                "video_clip",
+                episode=number,
+                resolver=currency,
+                blockers=[],
+                manual_video_versions=VersionManager(project_path) if currency is not None else None,
+                manual_video_resource_type=(
+                    "reference_videos" if project.get("generation_mode") == "reference_video" else "videos"
+                ),
+            ),
+            total=len(items),
+        )
+        return EpisodeSummary(
+            episode=number,
+            script_status=script_status,
+            status=_episode_production_status(script_status, storyboards, videos),
+            scenes_count=len(items),
+            duration_seconds=script_duration_total(kind, items) if kind is not None else 0,
+            storyboards=storyboards,
+            videos=videos,
+        )
+
+    def _summary_script(
+        self,
+        project_name: str,
+        entry: dict[str, Any],
+        preloaded_scripts: Mapping[str, dict[str, Any]] | None,
+    ) -> dict[str, Any] | None:
+        script_file = entry.get("script_file")
+        if not isinstance(script_file, str) or not script_file:
+            return None
+        if preloaded_scripts is not None and script_file in preloaded_scripts:
+            return preloaded_scripts[script_file]
+        try:
+            return self.pm.load_script_readonly(project_name, script_file)
+        except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+            # 列出项目不因一集剧本损坏而失败：该集按 0 件产物报告，损坏本身由工作台的
+            # 制作状态查询报成 invalid_script 阻断。
+            return None
+
+    def _episode_script_status(
+        self,
+        project: dict[str, Any],
+        project_path: Path,
+        number: int,
+        entry: dict[str, Any],
+        currency: ArtifactCurrencyResolver | None,
+    ) -> EpisodeScriptStatus:
+        """由 step1 与正式脚本的产物态派生该集的脚本进度。
+
+        账本标 stale 的集（重新规划后原文范围已失效）回到 none：它的下游要重做，
+        与 11 值状态把这类集打回 STEP1_CONTENT 同口径。
+        """
+
+        if entry.get("ledger_status") == "stale":
+            return "none"
+        script_file = entry.get("script_file")
+        if currency is not None and isinstance(script_file, str) and script_file:
+            state = self._artifact_state(currency, ArtifactKey.episode_script(number), script_file, [])
+            if state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}:
+                return "generated"
+        step1 = script_review.step1_path(project_path, project, number)
+        if step1 is None:
+            return "none"
+        if script_review.step1_quarantined(project_path, project, number):
+            # 隔离草稿在场即已分段：首轮拆分失败时正式文件从未写过，报 none 会把用户
+            # 路由回源文审阅页，见不到隔离态详情与修复入口。
+            return "segmented"
+        if currency is None:
+            return "none"
+        state = self._artifact_state(
+            currency, ArtifactKey.episode_step1(number), step1.relative_to(project_path).as_posix(), []
+        )
+        return "segmented" if state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value} else "none"
+
+    @staticmethod
+    def _project_phase(
+        project: dict[str, Any],
+        assets: Mapping[str, ArtifactCount],
+        episodes: list[EpisodeSummary],
+    ) -> ProjectPhase:
+        """把 11 值制作状态的归并显示投到项目粒度：取最不推进的一集所在阶段。
+
+        ``PROJECT_INPUT / SELLING_POINTS / ASSET_INVENTORY / EPISODE_PLAN`` → preparation，
+        ``STEP1_* / FINAL_SCRIPT`` → script，``ASSET_SHEETS / STORYBOARD / VIDEO`` → production，
+        ``EXPORT_READY`` → completed。
+        """
+
+        mode = project.get("content_mode")
+        if mode != "ad":
+            workflow = project.get("workflow")
+            marker = workflow.get("asset_inventory") if isinstance(workflow, Mapping) else None
+            if marker is None:
+                return "preparation"
+        if not episodes:
+            return "preparation"
+        if any(episode.script_status != "generated" for episode in episodes):
+            return "script"
+        sheets_complete = all(count.available >= count.total for count in _sheet_bearing_counts(assets))
+        if sheets_complete and all(episode.status == "completed" for episode in episodes):
+            return "completed"
+        return "production"
+
+    @staticmethod
+    def _phase_progress(
+        phase: ProjectPhase,
+        assets: Mapping[str, ArtifactCount],
+        episodes: list[EpisodeSummary],
+    ) -> float:
+        """脚本阶段按已生成脚本的集数算；制作阶段按可用产物占应有产物的比例算。
+
+        制作阶段的分母收全该阶段要交的三类产物——设计图、分镜图、视频——否则缺一类
+        产物的项目会停在 100%。
+        """
+
+        if phase == "preparation":
+            return 0.0
+        if phase == "completed":
+            return 1.0
+        if phase == "script":
+            if not episodes:
+                return 0.0
+            return sum(1 for episode in episodes if episode.script_status == "generated") / len(episodes)
+        counts = [*_sheet_bearing_counts(assets)]
+        counts.extend(episode.storyboards for episode in episodes)
+        counts.extend(episode.videos for episode in episodes)
+        total = sum(count.total for count in counts)
+        return sum(min(count.available, count.total) for count in counts) / total if total else 0.0
+
+    @classmethod
+    def _migration_blocked_summary(
+        cls,
+        project: dict[str, Any],
+        episodes: list[tuple[int, dict[str, Any]]],
+        failure: MigrationFailureRecord,
+    ) -> ProjectSummary:
+        """升级失败的项目照常列出，但一件产物都不报可用。
+
+        产物清单是唯一的产物口径，而它对未升级的数据不可读——报「有几件可用」就要
+        退回按文件是否存在计数，恰是本口径要退场的那一套。用户仍看到项目、集数与
+        待修复原因，只读入口照常打开。
+        """
+
+        summaries = [
+            EpisodeSummary(
+                episode=number,
+                script_status="none",
+                status="draft",
+                scenes_count=0,
+                duration_seconds=0,
+                storyboards=ArtifactCount.zero(),
+                videos=ArtifactCount.zero(),
+            )
+            for number, _entry in episodes
+        ]
+        return ProjectSummary(
+            phase="preparation",
+            phase_progress=0.0,
+            needs_repair=True,
+            repair_reason=failure.reason,
+            assets={
+                asset_type: ArtifactCount(
+                    total=_asset_bucket_total(project, spec.bucket_key),
+                    available=0,
+                    stale=0,
+                )
+                for asset_type, spec in ASSET_SPECS.items()
+            },
+            episodes_summary=_episodes_summary(summaries),
+            episodes=summaries,
+        )
 
     def _shared_facts(self, project_path: Path, project: dict[str, Any]) -> _SharedWorkflowFacts:
         mode = project.get("content_mode")
@@ -1253,6 +1655,11 @@ def migration_next_action(failure: MigrationFailureRecord) -> WorkflowNextAction
 
 
 __all__ = [
+    "ArtifactCount",
+    "EpisodeSummary",
+    "EpisodesSummary",
+    "ProjectPhase",
+    "ProjectSummary",
     "WorkflowActionType",
     "WorkflowBlocker",
     "WorkflowNextAction",

@@ -61,14 +61,14 @@ describe("demo project data", () => {
     const scenes = Object.values(data.scenes ?? {});
     const props = Object.values(data.props ?? {});
 
-    expect(characters).toHaveLength(status.characters.total);
+    expect(characters).toHaveLength(status.assets.character.total);
     expect(characters.filter((c) => c.character_sheet).length).toBe(
-      status.characters.completed,
+      status.assets.character.available,
     );
-    expect(props).toHaveLength(status.props.total);
-    expect(props.filter((p) => p.prop_sheet).length).toBe(status.props.completed);
-    expect(scenes).toHaveLength(status.scenes.total);
-    expect(scenes.filter((s) => s.scene_sheet).length).toBe(status.scenes.completed);
+    expect(props).toHaveLength(status.assets.prop.total);
+    expect(props.filter((p) => p.prop_sheet).length).toBe(status.assets.prop.available);
+    expect(scenes).toHaveLength(status.assets.scene.total);
+    expect(scenes.filter((s) => s.scene_sheet).length).toBe(status.assets.scene.available);
   });
 
   it("scripts only the first episode", () => {
