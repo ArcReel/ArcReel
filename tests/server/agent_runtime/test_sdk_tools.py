@@ -218,7 +218,7 @@ class _FakePM:
         except Exception:
             # 用例故意构造的畸形项目/剧本激活不了；此处吞掉异常让清单留空，
             # 被测工具随后按「产物不可用」逐条拒收，这正是这些用例要断言的路径。
-            ...
+            pass
         self._register_claims(filename)
 
     def _canonical_script_filename(self) -> str | None:

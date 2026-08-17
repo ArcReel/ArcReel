@@ -32,6 +32,7 @@ from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     RETRY_MIGRATION_ACTION,
     ProjectMigrationError,
+    load_migration_verdict,
 )
 from lib.reference_video import rederive_unit_references
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
@@ -192,6 +193,19 @@ class ScriptBatchEditor:
         self._manifest_adapter_factory = manifest_adapter_factory
 
     def execute(self, project_name: str, command: ScriptBatchEditCommand) -> ScriptBatchEditResult:
+        # 迁移裁决先于任何解析与写入：清单是读取已生成产物的唯一口径，未升级的项目没有
+        # 清单可写。放在入口而不是提交处，是因为提交前有几条早退（如剧本集号不成立就
+        # 不预备清单提交），逐条补闸会漏，入口一道闸对所有路径同时成立。
+        verdict = load_migration_verdict(self._pm.get_project_path(project_name))
+        if verdict is not None:
+            return self._failure(
+                script=self._pm.normalize_script_filename(command.script) if command.script is not None else "",
+                episode=command.episode,
+                revision=command.expected_revision,
+                code=MIGRATION_FAILURE_CODE,
+                reason=verdict.reason,
+                next_action=RETRY_MIGRATION_ACTION,
+            )
         expected_script_file = (
             self._pm.normalize_script_filename(command.expected_script_file)
             if command.expected_script_file is not None
