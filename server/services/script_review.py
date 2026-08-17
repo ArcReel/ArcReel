@@ -20,11 +20,11 @@ from pydantic import BaseModel, ValidationError
 
 from lib import script_review
 from lib.config.resolver import resolve_raw_supported_durations
+from lib.draft_quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violation_entries
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
-from lib.json_io import atomic_write_json, load_json_or_none
+from lib.json_io import load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.reference_video import rederive_unit_references
-from lib.draft_quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violation_entries
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
 from lib.speech_composition import SpeechAdmission, admit_script_unit
 from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers, resolve_video_caps
@@ -424,14 +424,14 @@ class ScriptReviewService:
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
                     script_review.write_step1_locked(project_path, episode, validated, expected_fingerprint=expected)
             else:
-                path.parent.mkdir(parents=True, exist_ok=True)
                 # 与 _read_step1_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
-                # 基线比对同 rv 走 assert_base_fingerprint，两者的冲突判据不分叉。
-                with self.pm.file_lock(path):
+                # 基线比对同 rv 走 assert_base_fingerprint，两者的冲突判据不分叉；比对先于
+                # 台词准入判定，让基线过期的保存拿到 conflict 而不是一条它改不动的准入意见。
+                # 比对既已在此做过，落盘出口不再重复比对（默认 UNCHECKED）。
+                with script_review.formal_step1_lock(project_path, episode, path):
                     script_review.assert_base_fingerprint(path, expected)
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
-                    with script_review.formal_step1_write_transaction(project_path, episode, path):
-                        atomic_write_json(path, validated)
+                    script_review.write_formal_step1_locked(project_path, episode, path, validated)
         except script_review.Step1WriteConflict as exc:
             raise ScriptReviewError("conflict", str(exc)) from exc
 

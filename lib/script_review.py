@@ -29,6 +29,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from lib.draft_quarantine import (
+    QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_STEP2,
+    clear_quarantine,
+    quarantine_path,
+)
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
     STEP1_FILENAMES,
@@ -40,12 +47,6 @@ from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.project_schema import project_schema_is_current
 from lib.reference_video.duration_migration import migrate_unit_durations
-from lib.draft_quarantine import (
-    QUARANTINE_KIND_STEP1,
-    QUARANTINE_KIND_STEP2,
-    clear_quarantine,
-    quarantine_path,
-)
 from lib.validation_messages import ValidationMessage
 
 if TYPE_CHECKING:
@@ -105,15 +106,30 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
     return episode_drafts_dir(project_path, episode) / filename
 
 
+#: step1 变体 → 该变体的隔离草稿来源。narration 尚未接入隔离草稿（其 step1 仍由 subagent
+#: 直接编辑），故不在表内——缺席即「该变体无隔离草稿位」，gate 与生成侧据此不阻塞。
+_STEP1_QUARANTINE_KIND: dict[str, str] = {
+    "reference_video": QUARANTINE_KIND_STEP1,
+    "drama": QUARANTINE_KIND_DRAMA_STEP1,
+}
+
+
+def step1_quarantine_kind(project: dict[str, Any]) -> str | None:
+    """该项目 step1 变体对应的隔离草稿来源；该变体无隔离草稿位时返回 None。"""
+    kind = step1_kind(project)
+    return _STEP1_QUARANTINE_KIND.get(kind) if kind is not None else None
+
+
 def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
-    """该集 step1 隔离草稿的路径（仅 reference_video 变体有隔离草稿）；不适用时返回 None。
+    """该集 step1 隔离草稿的路径；该变体无隔离草稿位时返回 None。
 
     只回路径、不判存在性——存在性判断在 ``step1_quarantined``，两者分开是为了让调用方在
     需要报错文案时能拿到路径。
     """
-    if step1_kind(project) != "reference_video":
+    quarantine_kind = step1_quarantine_kind(project)
+    if quarantine_kind is None:
         return None
-    return quarantine_path(project_path, episode, QUARANTINE_KIND_STEP1)
+    return quarantine_path(project_path, episode, quarantine_kind)
 
 
 def step1_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
@@ -256,18 +272,26 @@ def official_reference_step1_path(project_path: Path, episode: int) -> Path:
 
 
 @contextmanager
-def step1_write_lock(project_path: Path, episode: int) -> Iterator[Path]:
-    """参考生视频正式 step1 的写临界区：建目录 + per-path 排他锁，yield 正式文件路径。
+def formal_step1_lock(project_path: Path, episode: int, path: Path) -> Iterator[Path]:
+    """任一变体正式 step1 的写临界区：建目录 + per-path 排他锁，yield 该正式文件路径。
 
     与迁移读改写、Web 端保存、重拆分 / 晋升共用同一把 ``ProjectManager.file_lock``（per-path，
     进程间排他、不可重入）。凡要「读正式文件后据此写盘或写隔离草稿」的操作都应整段包在本
     临界区内——读与写拆开在锁外各做一次，就是并发覆盖窗口。
+
+    路径由调用方按变体传入（``step1_path`` / ``official_reference_step1_path``）：三个 step1
+    变体的正式文件名不同，锁的粒度是文件本身，不能按变体各自造一把。
     """
-    drafts_dir = episode_drafts_dir(project_path, episode)
-    drafts_dir.mkdir(parents=True, exist_ok=True)
-    path = official_reference_step1_path(project_path, episode)
+    path.parent.mkdir(parents=True, exist_ok=True)
     pm = ProjectManager(str(project_path.parent))
     with pm.file_lock(path):
+        yield path
+
+
+@contextmanager
+def step1_write_lock(project_path: Path, episode: int) -> Iterator[Path]:
+    """参考生视频正式 step1 的写临界区（``formal_step1_lock`` 绑定该变体路径的具名入口）。"""
+    with formal_step1_lock(project_path, episode, official_reference_step1_path(project_path, episode)) as path:
         yield path
 
 
@@ -345,6 +369,47 @@ def delete_step1_file(project_path: Path, episode: int, path: Path) -> bool:
     return True
 
 
+def write_formal_step1_locked(
+    project_path: Path,
+    episode: int,
+    path: Path,
+    content: dict[str, Any],
+    *,
+    expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
+    dependent_quarantine: str | None = None,
+    clear_dependent_quarantine: bool = True,
+    basis: ArtifactBasis | None = None,
+) -> bool:
+    """任一变体正式 step1 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
+    下游隔离草稿。返回内容是否发生变化。
+
+    调用方须已持有该文件的排他锁（``formal_step1_lock``，或同一路径的
+    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。各变体的
+    全部写路径（Web 端保存、重拆分 / 重规范化、晋升、迁移回写）汇入本函数，写盘语义只存在
+    这一处：正式 step1 之所以对 agent 写禁，正是因为「写盘只在持锁的这一处发生」。
+
+    ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
+    与盘上现值不一致时抛 ``Step1WriteConflict``、不落盘——后写方拿冲突报告去合并，先写方的
+    内容不被静默覆盖。传 ``UNCHECKED_FINGERPRINT`` 跳过比对：重拆分是刻意的整份重建，
+    同临界区读改写（迁移、确认）则读写之间本就无并发窗口。
+
+    ``dependent_quarantine`` 是以本文件为基底的下游隔离草稿来源（参考路线的 step2；drama
+    step1 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都按字节回滚，
+    不会留下「正式文件是旧的、草稿已被清掉」的半场。基底真的变了才作废它——迁移回写是机械
+    格式收编、不是内容编辑，调用方传 ``clear_dependent_quarantine=False`` 保留。
+    """
+    assert_base_fingerprint(path, expected_fingerprint)
+    previous = load_json_or_none(path)
+    changed = previous != content
+    quarantine = None if dependent_quarantine is None else quarantine_path(project_path, episode, dependent_quarantine)
+    paths = (path,) if quarantine is None else (path, quarantine)
+    with formal_step1_write_transaction(project_path, episode, *paths, basis=basis):
+        atomic_write_json(path, content)
+        if changed and clear_dependent_quarantine and dependent_quarantine is not None:
+            clear_quarantine(project_path, episode, dependent_quarantine)
+    return changed
+
+
 def write_step1_locked(
     project_path: Path,
     episode: int,
@@ -354,31 +419,18 @@ def write_step1_locked(
     clear_step2_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
 ) -> bool:
-    """参考生视频正式 step1 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清 step2
-    隔离草稿。返回内容是否发生变化。
-
-    调用方须已持有该文件的排他锁（``step1_write_lock``，或同一路径的 ``ProjectManager.file_lock``
-    ——锁不可重入，已在临界区内的调用方不能再套 ``step1_write_lock``）。四条写路径（Web 端
-    保存、重拆分、晋升、迁移回写）全部汇入本函数，写盘语义只存在这一处。
-
-    ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
-    与盘上现值不一致时抛 ``Step1WriteConflict``、不落盘——后写方拿冲突报告去合并，先写方的
-    内容不被静默覆盖。传 ``UNCHECKED_FINGERPRINT`` 跳过比对：重拆分是刻意的整份重建，
-    同临界区读改写（迁移、确认）则读写之间本就无并发窗口。
-
-    step2 隔离草稿的保结构 diff 以旧 step1 为基底，step1 真的变了才作废它；迁移回写是机械
-    格式收编、不是内容编辑，调用方传 ``clear_step2_quarantine=False`` 保留 step2 草稿。
-    """
-    path = official_reference_step1_path(project_path, episode)
-    assert_base_fingerprint(path, expected_fingerprint)
-    previous = load_json_or_none(path)
-    changed = previous != content
-    quarantine = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
-    with formal_step1_write_transaction(project_path, episode, path, quarantine, basis=basis):
-        atomic_write_json(path, content)
-        if changed and clear_step2_quarantine:
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
-    return changed
+    """参考生视频正式 step1 的写盘出口（``write_formal_step1_locked`` 绑定该变体路径与其
+    下游 step2 隔离草稿的具名入口）。"""
+    return write_formal_step1_locked(
+        project_path,
+        episode,
+        official_reference_step1_path(project_path, episode),
+        content,
+        expected_fingerprint=expected_fingerprint,
+        dependent_quarantine=QUARANTINE_KIND_STEP2,
+        clear_dependent_quarantine=clear_step2_quarantine,
+        basis=basis,
+    )
 
 
 def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:
