@@ -47,12 +47,18 @@ export function EpisodeCard({
   const statusLabel = t(STATUS_LABEL_KEY[status] ?? STATUS_LABEL_KEY.draft);
   const isActive = status === "in_production";
 
-  // 进度：优先用 storyboards/videos completed/total
-  const totalShots = ep.scenes_count ?? ep.storyboards?.total ?? ep.units_count ?? 0;
-  const completedShots = ep.videos?.completed ?? 0;
+  // 进度按视频产物的可用数算——可用 = current ∪ stale，与工作台同一份计数。
+  // 视频总数为 0（尚未成脚本）时退回剧本条目数，只用于显示"这集有几个镜头"。
+  const videoTotal = ep.videos?.total ?? 0;
+  const totalShots = videoTotal || (ep.scenes_count ?? 0);
+  const availableVideos = ep.videos?.available ?? 0;
   const progress =
-    totalShots > 0 ? Math.round((completedShots / totalShots) * 100) : 0;
-  const showProgress = totalShots > 0 && (active || progress > 0);
+    videoTotal > 0 ? Math.round((availableVideos / videoTotal) * 100) : 0;
+  const showProgress = videoTotal > 0 && (active || progress > 0);
+
+  // stale 是可用产物，不进缺口计数：单独报一个数说明有几件可以考虑重生。
+  // 汇总该集全部产物类型，与大厅卡片上那一行同口径。
+  const staleCount = (ep.storyboards?.stale ?? 0) + (ep.videos?.stale ?? 0);
 
   // 实际费用
   const episodeCost = useCostStore((s) => s.getEpisodeCost(ep.episode));
@@ -136,11 +142,30 @@ export function EpisodeCard({
                 className="h-px w-px rounded"
                 style={{ background: "var(--color-hairline)", width: 2, height: 2 }}
               />
-              <span className="num text-[10.5px]" style={{ color: "var(--color-text-4)" }}>
-                {totalShots}
+              <span
+                className="num text-[10.5px]"
+                style={{ color: "var(--color-text-4)" }}
+                title={
+                  videoTotal > 0
+                    ? t("episode_available_videos_hint", { count: availableVideos, total: videoTotal })
+                    : undefined
+                }
+              >
+                {videoTotal > 0 ? `${availableVideos}/${videoTotal}` : totalShots}
                 {durLabel ? ` · ${durLabel}` : ""}
               </span>
             </>
+          )}
+          {staleCount > 0 && (
+            <span className="num inline-flex items-center gap-1 text-[10.5px] text-warm-bright">
+              <span
+                aria-hidden
+                className="h-[5px] w-[5px] rounded-full"
+                style={{ background: "var(--color-warm-bright)" }}
+              />
+              <span aria-hidden>{staleCount}</span>
+              <span className="sr-only">{t("episode_stale_artifacts", { count: staleCount })}</span>
+            </span>
           )}
         </div>
         {showProgress && (

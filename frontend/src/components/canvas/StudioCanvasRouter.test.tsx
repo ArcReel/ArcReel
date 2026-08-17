@@ -337,7 +337,6 @@ function makeScript(): EpisodeScript {
     episode: 1,
     title: "EP1",
     content_mode: "narration",
-    duration_seconds: 4,
     novel: { title: "n", chapter: "1" },
     segments: [
       {
@@ -362,7 +361,6 @@ function makeAdScript(): EpisodeScript {
     episode: 1,
     title: "广告视频",
     content_mode: "ad",
-    duration_seconds: 30,
     novel: { title: "n", chapter: "1" },
     shots: [
       {
@@ -383,7 +381,6 @@ function makeDramaScript(): EpisodeScript {
     episode: 1,
     title: "EP1",
     content_mode: "drama",
-    duration_seconds: 6,
     novel: { title: "n", chapter: "1" },
     scenes: [
       {
@@ -753,10 +750,14 @@ describe("StudioCanvasRouter", () => {
     expect(capabilitiesSpy).not.toHaveBeenCalledWith(DEMO_PROJECT_NAME);
   });
 
-  it("shows EpisodeSourceReview instead of TimelineCanvas when an episode has no script and no draft", () => {
+  // script_status 的三个取值来自项目摘要（由 step1 与正式脚本的产物态派生），
+  // 路由据此决定该集去源文审阅页还是画布——三种情况各钉一条。
+  it("sends an episode with no step1 and no script to the source review", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({
+        episodes: [{ episode: 1, title: "EP1", script_file: "", script_status: "none" }],
+      }),
       currentScripts: {},
     });
 
@@ -781,6 +782,24 @@ describe("StudioCanvasRouter", () => {
 
     expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
     expect(screen.getByTestId("timeline-has-script")).toHaveTextContent("no");
+    expect(screen.queryByTestId("episode-source-review")).not.toBeInTheDocument();
+  });
+
+  it("opens the shot editor for an episode whose script is generated", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        ],
+      }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAt("/episodes/1");
+
+    expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
+    expect(screen.getByTestId("timeline-has-script")).toHaveTextContent("yes");
     expect(screen.queryByTestId("episode-source-review")).not.toBeInTheDocument();
   });
 

@@ -75,7 +75,6 @@ describe("useProjectEventsSSE", () => {
           episode: 1,
           title: "第一集",
           content_mode: "narration",
-          duration_seconds: 4,
           novel: { title: "", chapter: "" },
           segments: [],
         },

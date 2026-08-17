@@ -115,8 +115,8 @@ describe("demo project data", () => {
 
     expect(segments.length).toBe(episode.scenes_count);
     expect(segments.length).toBeGreaterThanOrEqual(6);
-    expect(withStoryboard.length).toBe(episode.storyboards?.completed);
-    expect(episode.videos?.completed).toBe(0);
+    expect(withStoryboard.length).toBe(episode.storyboards?.available);
+    expect(episode.videos?.available).toBe(0);
   });
 
   it("leaves video and narration unset — an SVG cannot stand in for them", () => {

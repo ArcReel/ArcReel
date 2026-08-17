@@ -182,14 +182,11 @@ export function GridImageToVideoCanvas({
     );
   }
 
-  const epDur = episodeScript?.duration_seconds;
-  const totalDuration =
-    typeof epDur === "number" && Number.isFinite(epDur)
-      ? epDur
-      : segments.reduce((sum, s) => {
-          const d = s.duration_seconds;
-          return sum + (typeof d === "number" && Number.isFinite(d) ? d : 0);
-        }, 0);
+  // 集总时长逐段求和：它是派生值，剧本不落盘一份（服务端由项目摘要读时计算同一口径）。
+  const totalDuration = segments.reduce((sum, s) => {
+    const d = s.duration_seconds;
+    return sum + (typeof d === "number" && Number.isFinite(d) ? d : 0);
+  }, 0);
 
   const currentEpisodeMeta = projectData?.episodes?.find((e) => e.episode === episode);
   const epMeta =
