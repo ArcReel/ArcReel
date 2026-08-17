@@ -284,9 +284,16 @@ def test_a_verdict_that_cannot_be_persisted_fails_loud(tmp_path: Path) -> None:
     with pytest.raises(OSError):
         migrate_project_with_verdict(project_dir)
 
-    # 启动期一个项目写不下裁决，不拖垮同一轮里其它项目。
+    # 启动期一个项目写不下裁决，不拖垮同一轮里其它项目：healthy 排在 demo 之后，
+    # 只有循环真的继续了它才会被迁移。
+    seed_root = tmp_path / "seed"
+    seed_root.mkdir()
+    healthy_dir, *_ = _project(seed_root)
+    healthy_dir.rename(projects_root / "healthy")
     summary = run_project_migrations(projects_root)
+
     assert "demo" in summary.failed
+    assert "healthy" in summary.migrated
 
 
 def _guarded_app() -> FastAPI:
