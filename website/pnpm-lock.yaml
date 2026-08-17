@@ -42,6 +42,12 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.8.1(jiti@1.21.7))
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.2.4
+        version: 19.2.4(@types/react@19.2.18)
       eslint:
         specifier: ^10.8.1
         version: 10.8.1(jiti@1.21.7)
@@ -1983,6 +1989,11 @@ packages:
 
   '@types/range-parser@1.2.7':
     resolution: {integrity: sha512-hKormJbkJqzQGhziax5PItDUTMAM9uE2XXQmM37dyd4hVM+5aVl7oVxMVUiVQn2oCQFN/LKCZdvSM0pFRqbSmQ==}
+
+  '@types/react-dom@19.2.4':
+    resolution: {integrity: sha512-Bsc+QHgp+P/F02XDzNCY9jnZNCUuLki36KT7VKrTXXLdHf+vHMNZnW1rVu5DNW/rCK+fya3DATySbLM4yhtKUw==}
+    peerDependencies:
+      '@types/react': ^19.2.0
 
   '@types/react-router-config@5.0.11':
     resolution: {integrity: sha512-WmSAg7WgqW7m4x8Mt4N6ZyKz0BubSj/2tVUMsAHp+Yd2AMwcSbeFq9WympT19p5heCFmF97R9eD5uUR/t4HEqw==}
@@ -9394,6 +9405,10 @@ snapshots:
   '@types/qs@6.15.1': {}
 
   '@types/range-parser@1.2.7': {}
+
+  '@types/react-dom@19.2.4(@types/react@19.2.18)':
+    dependencies:
+      '@types/react': 19.2.18
 
   '@types/react-router-config@5.0.11':
     dependencies:
