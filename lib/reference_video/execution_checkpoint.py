@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, Literal, Self, cast
 
 from lib.artifact_manifest import ArtifactBasisDescriptor
+from lib.content_digest import canonical_json, canonical_json_digest, sha256_file_with_size
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
@@ -58,22 +59,8 @@ class VideoResumeState(StrEnum):
     IDENTITY_UNRECOVERABLE = "identity_unrecoverable"
 
 
-def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
-
-
-def _sha256_file(path: Path) -> tuple[str, int]:
-    digest = hashlib.sha256()
-    size = 0
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-            size += len(block)
-    return digest.hexdigest(), size
 
 
 def _require_task_id(task_id: str) -> None:
@@ -278,7 +265,7 @@ def _media_plan(
         source_locator = source.relative_to(project_path.resolve()).as_posix()
         suffix = source.suffix.lower() or ".bin"
         filename = f"{index:03d}-{item.role}{suffix}"
-        digest, size = _sha256_file(source)
+        digest, size = sha256_file_with_size(source)
         planned.append(
             StagedProviderMedia(
                 index=index,
@@ -309,7 +296,7 @@ def _load_staging_manifest(path: Path) -> tuple[StagedProviderMedia, ...]:
 def _verify_staged_files(project_path: Path, records: tuple[StagedProviderMedia, ...]) -> None:
     for item in records:
         staged = safe_join(project_path, item.staged_locator, require_file=True)
-        digest, size = _sha256_file(staged)
+        digest, size = sha256_file_with_size(staged)
         if digest != item.sha256 or size != item.size_bytes:
             raise ValueError("immutable provider media staging bytes do not match the manifest")
 
@@ -347,7 +334,7 @@ def stage_provider_media(
             source = safe_join(project_path, item.source_locator, require_file=True)
             destination = temporary_dir / Path(item.staged_locator).name
             shutil.copyfile(source, destination)
-            digest, size = _sha256_file(destination)
+            digest, size = sha256_file_with_size(destination)
             if digest != item.sha256 or size != item.size_bytes:
                 raise OSError("provider media changed while staging")
         atomic_write_json(
@@ -708,7 +695,7 @@ class _VideoSubmissionCheckpoint:
             if self.reference_audio_targets is not None:
                 raise ValueError("storyboard checkpoint cannot have reference_audio_targets")
         _require_digest(self.request_digest, "request_digest")
-        if self.request_digest != _sha256_bytes(_canonical_json(self._request_digest_payload()).encode("utf-8")):
+        if self.request_digest != canonical_json_digest(self._request_digest_payload()):
             raise ValueError("request_digest does not match checkpoint request")
 
     def _request_payload(self) -> dict[str, object]:
@@ -764,7 +751,7 @@ class _VideoSubmissionCheckpoint:
         return {**self._request_payload(), "request_digest": self.request_digest}
 
     def to_json(self) -> str:
-        return _canonical_json(self.to_dict())
+        return canonical_json(self.to_dict())
 
     @classmethod
     def create(
@@ -822,7 +809,7 @@ class _VideoSubmissionCheckpoint:
             "reference_audio_targets": list(reference_audio_targets) if reference_audio_targets is not None else None,
         }
         digest_values = {key: value for key, value in values.items() if key != "api_call_id"}
-        request_digest = _sha256_bytes(_canonical_json(digest_values).encode("utf-8"))
+        request_digest = canonical_json_digest(digest_values)
         return cls(
             schema_version=_SCHEMA_VERSION,
             kind=cls.CHECKPOINT_KIND,

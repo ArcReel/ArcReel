@@ -23,29 +23,9 @@ from lib.profile_manifest import (
     enumerate_profile_files,
     load_manifest,
     save_manifest,
-    sha256_file,
 )
 
 pytestmark = pytest.mark.unit
-
-# ---------- sha256 ----------
-
-
-def test_sha256_file_streaming_64kib_chunks(tmp_path: Path) -> None:
-    """流式读避免大文件 OOM；结果应与标准 hashlib 一致。"""
-    import hashlib
-
-    big = tmp_path / "big.bin"
-    payload = b"abc" * (256 * 1024)  # ~750KB，超过单个 64KiB chunk
-    big.write_bytes(payload)
-    assert sha256_file(big) == hashlib.sha256(payload).hexdigest()
-
-
-def test_sha256_file_empty(tmp_path: Path) -> None:
-    empty = tmp_path / "empty.txt"
-    empty.touch()
-    # sha256("") = e3b0c4...
-    assert sha256_file(empty).startswith("e3b0c442")
 
 
 # ---------- enumerate ----------

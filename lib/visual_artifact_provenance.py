@@ -8,13 +8,13 @@ Artifact Manifest currency inputs.
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lib.artifact_manifest import ArtifactBasis
 from lib.asset_types import ASSET_TYPES, normalize_asset_name
+from lib.content_digest import sha256_file
 from lib.grid.prompt_builder import project_grid_image_prompt
 from lib.prompt_utils import normalize_style, project_storyboard_image_prompt
 from lib.reference_video.request_projection import ResolvedReferenceAsset
@@ -490,13 +490,7 @@ def _composite_evidence(composite_image: Path, source_composite_digest: str | No
 def visual_file_digest(path: Path) -> str:
     """Hash one visual input without loading the whole file into memory."""
 
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return sha256_file(path)
 
 
 def _require_sha256(field: str, value: object) -> str:

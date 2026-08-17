@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import base64
 import math
-import re
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.content_digest import PREFIXED_DIGEST_RE
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.speech_artifact_provenance import (
     RenditionVariant,
@@ -29,7 +29,6 @@ MICROSECONDS_PER_SECOND = 1_000_000
 MediaSelection = Literal["current", "history"]
 MediaCurrency = Literal["current", "stale"]
 PresentationProvenance = Literal["verified", "unavailable"]
-_CONTENT_DIGEST_PATTERN = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
 
 
 class PresentationBoundaryError(ValueError):
@@ -274,7 +273,7 @@ class RawPresentationMedia:
             raise ValueError("version must be a positive integer")
         if self.selection not in {"current", "history"}:
             raise ValueError("selection must be current or history")
-        if not isinstance(self.content_digest, str) or _CONTENT_DIGEST_PATTERN.fullmatch(self.content_digest) is None:
+        if not isinstance(self.content_digest, str) or PREFIXED_DIGEST_RE.fullmatch(self.content_digest) is None:
             raise ValueError("content_digest must be a canonical sha256-v1 digest")
         duration = self.actual_duration_seconds
         if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration):

@@ -38,6 +38,7 @@ from lib.config.resolver import (
     project_video_backend_ids,
     resolve_raw_supported_durations,
 )
+from lib.content_digest import sha256_file
 from lib.db import async_session_factory
 from lib.draft_quarantine import (
     PROMOTE_TOOL_NAME,
@@ -131,16 +132,6 @@ _KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
     "shots": AdEpisodeScript,
     "video_units": ReferenceVideoScript,
 }
-
-
-def _file_content_digest(path: Path) -> str:
-    """Hash one selected formal input without loading it all into memory."""
-
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _units_use_references(units: list[dict] | None) -> bool | None:
@@ -981,7 +972,7 @@ class ScriptGenerator:
             self._freeze_step1_input_claim(
                 episode,
                 step1_json,
-                content_digest=_file_content_digest(step1_json),
+                content_digest=sha256_file(step1_json),
             )
 
         # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、审阅确认随之失效。而 gate

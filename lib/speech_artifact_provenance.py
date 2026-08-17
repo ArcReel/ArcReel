@@ -7,9 +7,7 @@ own a second stale store beside :mod:`lib.artifact_manifest`.
 
 from __future__ import annotations
 
-import hashlib
 import math
-import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -18,11 +16,11 @@ from typing import Literal
 
 from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
 from lib.asset_types import asset_name_comparison_key, normalize_asset_bucket
+from lib.content_digest import PREFIXED_DIGEST_RE, prefixed_sha256_file
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.speech_composition import SpeechMode, SpeechOwner, SpeechPreparation
 
 RenditionVariant = Literal["post_production", "use_tts"]
-_DIGEST_RE = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
 _DEFAULT_SUBTITLE_TIMING_POLICY: Mapping[str, object] = {
     "kind": "mechanical-text-length",
     "version": 1,
@@ -74,7 +72,7 @@ class SelectedMediaEvidence:
     def __post_init__(self) -> None:
         if not isinstance(self.basis, ArtifactBasisDescriptor):
             raise TypeError("basis must be an ArtifactBasisDescriptor")
-        if not isinstance(self.content_digest, str) or _DIGEST_RE.fullmatch(self.content_digest) is None:
+        if not isinstance(self.content_digest, str) or PREFIXED_DIGEST_RE.fullmatch(self.content_digest) is None:
             raise ValueError("content_digest must be a canonical sha256-v1 digest")
         duration = self.actual_duration_seconds
         if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration):
@@ -393,13 +391,7 @@ def _canonical_text(value: object) -> str:
 def media_content_digest(path: Path) -> str:
     """Return the canonical content identity used by presentation media."""
 
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return f"sha256-v1:{digest.hexdigest()}"
+    return prefixed_sha256_file(path)
 
 
 __all__ = [

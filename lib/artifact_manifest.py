@@ -12,7 +12,6 @@ import hashlib
 import json
 import math
 import os
-import re
 import secrets
 import stat
 import tempfile
@@ -29,16 +28,21 @@ from typing import Protocol, Self, cast
 import portalocker
 
 from lib.asset_types import ASSET_TYPES, asset_name_comparison_key
+from lib.content_digest import (
+    CONTENT_DIGEST_RE,
+    HASH_ALGORITHM,
+    PREFIXED_DIGEST_RE,
+    canonical_json_bytes,
+    digest_stream,
+    prefixed,
+)
 
 _KEY_PREFIX = "artifact-key-v1:"
 MANIFEST_FILENAME = ".arcreel_artifacts.json"
 LOCK_FILENAME = ".artifact_manifest.lock"
 MANIFEST_SCHEMA_VERSION = 1
 ARCHIVE_MANIFEST_SCHEMA_VERSION = 2
-HASH_ALGORITHM = "sha256-v1"
 LOCK_TIMEOUT_SECONDS = 10.0
-_DIGEST_RE = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
-_CONTENT_DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
 _RESERVED_ARTIFACT_PATHS = frozenset({MANIFEST_FILENAME, LOCK_FILENAME})
 _WINDOWS_RESERVED_ARTIFACT_PATHS = frozenset(path.casefold() for path in _RESERVED_ARTIFACT_PATHS)
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
@@ -676,12 +680,10 @@ class ProjectArtifactManifestAdapter:
             os.read(fd, 1)
             return None, None, None
 
-        digest = hashlib.sha256()
-        chunks: list[bytes] | None = [] if include_content_bytes else None
-        for chunk in iter(lambda: os.read(fd, 1024 * 1024), b""):
-            digest.update(chunk)
-            if chunks is not None:
-                chunks.append(chunk)
+        hexdigest, _size, content = digest_stream(
+            lambda size: os.read(fd, size),
+            collect_content=include_content_bytes,
+        )
         completed_stat = os.fstat(fd)
         opened_version = (opened_stat.st_size, opened_stat.st_mtime_ns, opened_stat.st_ctime_ns)
         completed_version = (completed_stat.st_size, completed_stat.st_mtime_ns, completed_stat.st_ctime_ns)
@@ -695,7 +697,7 @@ class ProjectArtifactManifestAdapter:
                     f"artifact changed while its content digest was being read: {normalized}",
                 ),
             )
-        return digest.hexdigest(), b"".join(chunks) if chunks is not None else None, None
+        return hexdigest, content, None
 
     def _inspect_artifact_posix(
         self,
@@ -1460,17 +1462,11 @@ class ArtifactBasis:
             "kind": kind,
             "kind_version": kind_version,
         }
-        normalized = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
+        normalized = canonical_json_bytes(payload, allow_nan=False)
         object.__setattr__(self, "kind", kind)
         object.__setattr__(self, "kind_version", kind_version)
         object.__setattr__(self, "_normalized", normalized)
-        object.__setattr__(self, "digest", f"sha256-v1:{hashlib.sha256(normalized).hexdigest()}")
+        object.__setattr__(self, "digest", prefixed(hashlib.sha256(normalized).hexdigest()))
 
     @classmethod
     def build(cls, kind: str, *, kind_version: int, inputs: Mapping[str, object]) -> Self:
@@ -1518,7 +1514,7 @@ class ArtifactBasisDescriptor:
             raise ValueError("artifact basis descriptor kind must be a non-empty string")
         if type(self.kind_version) is not int or self.kind_version < 1:
             raise ValueError("artifact basis descriptor kind_version must be a positive integer")
-        if not isinstance(self.digest, str) or _DIGEST_RE.fullmatch(self.digest) is None:
+        if not isinstance(self.digest, str) or PREFIXED_DIGEST_RE.fullmatch(self.digest) is None:
             raise ValueError("artifact basis descriptor digest must be a canonical sha256-v1 digest")
 
     @classmethod
@@ -1859,7 +1855,7 @@ def _encode_target_entries(
         normalized_path = normalize_artifact_path(entry.artifact_path)
         if normalized_path != entry.artifact_path:
             raise ValueError("manifest target artifact path must be canonical")
-        if _DIGEST_RE.fullmatch(entry.basis_digest) is None:
+        if PREFIXED_DIGEST_RE.fullmatch(entry.basis_digest) is None:
             raise ValueError("manifest target basis digest must be a canonical sha256-v1 digest")
         encoded_key = key.encode()
         if encoded_key in encoded:
@@ -1931,7 +1927,7 @@ def encode_artifact_manifest_payload(
     for key, digest in snapshot.content_digests.items():
         if not isinstance(key, ArtifactKey):
             raise TypeError("archive artifact content digest keys must be ArtifactKey values")
-        if not isinstance(digest, str) or _CONTENT_DIGEST_RE.fullmatch(digest) is None:
+        if not isinstance(digest, str) or CONTENT_DIGEST_RE.fullmatch(digest) is None:
             raise ValueError("archive artifact content digest must be a lowercase SHA-256 digest")
         content_digests[key.encode()] = digest
     if set(content_digests) != set(encoded):
@@ -2004,9 +2000,9 @@ def decode_artifact_manifest_payload(payload: object) -> ArtifactManifestArchive
             raise ArtifactManifestError(f"archive artifact manifest entry has an invalid path: {encoded_key}") from exc
         if normalized_path != artifact_path:
             raise ArtifactManifestError(f"archive artifact manifest entry path is not canonical: {encoded_key}")
-        if not isinstance(basis_digest, str) or _DIGEST_RE.fullmatch(basis_digest) is None:
+        if not isinstance(basis_digest, str) or PREFIXED_DIGEST_RE.fullmatch(basis_digest) is None:
             raise ArtifactManifestError(f"archive artifact manifest entry has an invalid basis digest: {encoded_key}")
-        if not isinstance(content_digest, str) or _CONTENT_DIGEST_RE.fullmatch(content_digest) is None:
+        if not isinstance(content_digest, str) or CONTENT_DIGEST_RE.fullmatch(content_digest) is None:
             raise ArtifactManifestError(f"archive artifact manifest entry has an invalid content digest: {encoded_key}")
         entry = ArtifactManifestEntry(artifact_path=normalized_path, basis_digest=basis_digest)
         entries[key] = entry
@@ -2050,7 +2046,7 @@ def _parse_manifest(raw: bytes, *, validate_path_ownership: bool = True) -> dict
             raise ArtifactManifestError(f"artifact manifest entry has an invalid path: {encoded_key}") from exc
         if normalized_path != artifact_path:
             raise ArtifactManifestError(f"artifact manifest entry path is not canonical: {encoded_key}")
-        if not isinstance(basis_digest, str) or _DIGEST_RE.fullmatch(basis_digest) is None:
+        if not isinstance(basis_digest, str) or PREFIXED_DIGEST_RE.fullmatch(basis_digest) is None:
             raise ArtifactManifestError(f"artifact manifest entry has an invalid basis digest: {encoded_key}")
         entries[encoded_key] = ArtifactManifestEntry(
             artifact_path=normalized_path,

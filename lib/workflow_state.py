@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import unicodedata
 from collections.abc import Callable, Mapping
@@ -18,6 +17,7 @@ from lib import script_review
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.asset_types import ASSET_SPECS, asset_name_comparison_key
+from lib.content_digest import prefixed_canonical_json_digest
 from lib.data_validator import DataValidator
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
@@ -256,8 +256,7 @@ class _SharedWorkflowFacts:
 
 
 def _project_revision(project: Mapping[str, Any]) -> str:
-    encoded = json.dumps(dict(project), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return f"sha256-v1:{hashlib.sha256(encoded).hexdigest()}"
+    return prefixed_canonical_json_digest(dict(project))
 
 
 def _action(
