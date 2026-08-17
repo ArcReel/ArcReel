@@ -38,6 +38,7 @@ from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
+from lib.project_schema import project_schema_is_current
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
@@ -453,7 +454,7 @@ class ProjectArchiveService:
 
         snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
         artifact_manifest = None
-        if isinstance(snapshot_project, dict):
+        if isinstance(snapshot_project, dict) and project_schema_is_current(snapshot_project):
             if source_manifest_entries is None:
                 raise ArtifactManifestError("archive snapshot has no matching Artifact Manifest state")
             artifact_manifest = encode_artifact_manifest_payload(
@@ -680,8 +681,16 @@ class ProjectArchiveService:
         self,
         source_dir: Path,
     ) -> dict[ArtifactKey, ArtifactManifestEntry] | None:
+        """源项目的完整 claim 快照；尚未进入清单体系的项目返回 ``None``。
+
+        这道闸判的是「该项目有没有清单可保全」，不是产物读取口径，与写信封那处同判据。
+        未进入体系的项目清单必然为空，而空清单与「这个项目一件产物都没有」在信封里长得
+        一模一样：导入端见到信封就按保真路径原样落盘，项目里全部已生成产物会一次判
+        missing、要用户重新付费生成。这类项目的归档不带信封，导入侧照常迁移并自证补录。
+        """
+
         project = self._load_json_file(source_dir / self.project_manager.PROJECT_FILE)
-        if not isinstance(project, dict):
+        if not isinstance(project, dict) or not project_schema_is_current(project):
             return None
         return dict(ProjectArtifactManifestAdapter(source_dir).snapshot_entries())
 

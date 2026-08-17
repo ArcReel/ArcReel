@@ -73,6 +73,7 @@ class MigrationFailureRecord(BaseModel):
     schema_version: int
     """The version the project was stuck on when the attempt failed."""
     failed_at: str
+    """When the attempt failed; empty when the verdict rests on no attempt at all."""
     reason: str
     """The failure message exactly as raised — surfaced to the user unchanged."""
     details: list[MigrationFailureDetail] = Field(default_factory=list)
@@ -108,9 +109,11 @@ def pending_migration_record(schema_version: int) -> MigrationFailureRecord:
         f"project schema v{schema_version} has not been upgraded to "
         f"v{CURRENT_PROJECT_SCHEMA_VERSION}; produced artifacts cannot be read until it is"
     )
+    # 该项目没有失败过的尝试，``failed_at`` 就留空：这个字段会原样透给用户与智能体，
+    # 填一个当下时刻等于伪造一次从未发生的失败。
     return MigrationFailureRecord(
         schema_version=schema_version,
-        failed_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        failed_at="",
         reason=reason,
         details=[MigrationFailureDetail(file="project.json", violation=reason)],
     )

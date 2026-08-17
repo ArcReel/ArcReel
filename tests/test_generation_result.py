@@ -171,7 +171,7 @@ def test_missing_only_reselects_a_recorded_path_the_manifest_no_longer_claims(tm
 
 
 def test_missing_only_admits_an_override_leg_without_rechecking_the_filesystem(tmp_path: Path) -> None:
-    """另一条可复用的腿（如精确匹配的手动上传）独立成立，不再叠加一次文件存在性复核。"""
+    """另一条可复用的腿（如精确匹配的手动上传）独立成立，判定只看这条腿本身。"""
 
     resolver = _Resolver({"A": ArtifactStatus.MISSING})
 

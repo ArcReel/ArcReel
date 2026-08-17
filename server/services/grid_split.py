@@ -99,6 +99,21 @@ async def apply_grid_split(
     versions = VersionManager(project_path)
     script_file = grid.script_file
 
+    def _registered_grid_source() -> tuple[ArtifactKey, ArtifactManifestEntry, ArtifactStatus]:
+        """联合图的登记条目与时效；准入口径是产物清单登记，盘上有图不算。
+
+        预检与最终事务内各取一次：两次都要拿到同一条稳定的条目，才能据它派生落格产物的
+        basis。取完复读一次 entry 是为了排掉取值与比对之间被改写的条目。
+        """
+
+        key = ArtifactKey.episode_grid(grid.episode, grid.id)
+        adapter = ProjectArtifactManifestAdapter(project_path)
+        entry = adapter.get_entry(key)
+        comparison = ArtifactCurrencyResolver(project_path).compare(key, artifact_path=grid_image_path)
+        if entry is None or not comparison.usable or adapter.get_entry(key) != entry:
+            raise GridImageNotReadyError(f"grid {grid.id} has no registered grid image to split")
+        return key, entry, comparison.status
+
     def _split_and_assign() -> tuple[list[str], list[str]]:
         from lib.script_editor import resolve_items
 
@@ -106,16 +121,7 @@ async def apply_grid_split(
         source_key: ArtifactKey | None = None
         source_entry: ArtifactManifestEntry | None = None
         with pm.locked_project_script_snapshot(project_name, script_file) as (frozen_project, script):
-            source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
-            adapter = ProjectArtifactManifestAdapter(project_path)
-            source_entry = adapter.get_entry(source_key)
-            comparison = ArtifactCurrencyResolver(project_path).compare(
-                source_key,
-                artifact_path=grid_image_path,
-            )
-            if source_entry is None or not comparison.usable or adapter.get_entry(source_key) != source_entry:
-                raise GridImageNotReadyError(f"grid {grid.id} has no registered grid image to split")
-            source_status = comparison.status
+            source_key, source_entry, source_status = _registered_grid_source()
             project_snapshot = frozen_project
 
         # 比例取记录冻结值：项目 aspect_ratio 改过之后再切历史联合图，按新比例中心裁切
@@ -249,16 +255,7 @@ async def apply_grid_split(
                 """Refresh the registered grid source and derived bases inside the final transaction."""
 
                 nonlocal source_entry, source_key, source_status
-                source_key = ArtifactKey.episode_grid(grid.episode, grid.id)
-                adapter = ProjectArtifactManifestAdapter(project_path)
-                source_entry = adapter.get_entry(source_key)
-                comparison = ArtifactCurrencyResolver(project_path).compare(
-                    source_key,
-                    artifact_path=grid_image_path,
-                )
-                if source_entry is None or not comparison.usable or adapter.get_entry(source_key) != source_entry:
-                    raise GridImageNotReadyError(f"grid {grid.id} has no registered grid image to split")
-                source_status = comparison.status
+                source_key, source_entry, source_status = _registered_grid_source()
 
                 current_items, current_id_field, _kind = resolve_items(current_script)
                 item_by_id = {

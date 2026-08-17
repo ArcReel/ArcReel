@@ -898,7 +898,7 @@ class TestGenerateRouter:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
-        # 分镜图在盘上，但没有进产物清单——磁盘存在性不再是准入口径。
+        # 分镜图在盘上，但没有进产物清单——准入口径是产物清单登记。
         client = _client(monkeypatch, fake_pm, fake_queue, register_storyboards=False)
 
         with client:

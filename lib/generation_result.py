@@ -914,7 +914,7 @@ def render_generation_result(result: GenerationBatchResult, *, log: Iterable[str
                 line += "（供应商已提交，可恢复）"
         lines.append(line)
     for entry in result.skipped:
-        # 未激活 Manifest 时产物状态不可观测，此处就不假装知道它是 current 还是 stale。
+        # 入口自己声明不观测产物时效轴时该字段留空，此处就不假装知道它是 current 还是 stale。
         suffix = f"（{entry.artifact_status.value}）" if entry.artifact_status is not None else ""
         lines.append(f"  ↺ {entry.unit_id}: 复用现有产物{suffix}")
     return "\n".join(lines)
