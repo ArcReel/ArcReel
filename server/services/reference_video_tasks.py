@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,7 +30,6 @@ from lib.generation_queue import (
 from lib.narration_delivery import USE_TTS
 from lib.path_safety import safe_join
 from lib.reference_video.artifact_selection import CurrentReferenceAssets
-from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
@@ -217,68 +216,9 @@ def _clamp_resolved_reference_images(
     return clamped, [_reference_limit_warning(provider=provider, model=model, count=len(entries), max_refs=max_refs)]
 
 
-def _apply_provider_constraints(
-    *,
-    provider: str,
-    model: str | None,
-    max_refs: int | None,
-    supported_durations: Sequence[int],
-    references: list[Path],
-    duration_seconds: int,
-    registry_provider_id: str = "",
-    resolution: str | None = None,
-) -> tuple[list[Path], int, list[dict]]:
-    """按供应商能力取时长档位、裁剪 references；回传 warnings（i18n key + 参数）。
-
-    `max_refs` / `supported_durations` 由调用方从 GenerationContext 的 video lane 取得
-    （model 粒度，单一真相源）；`max_refs` 为 None 表示不裁参考图，`supported_durations`
-    为空表示能力不可解析、时长原样透传。
-
-    档位全集先按该请求的条件收窄再取档（见 :func:`effective_reference_durations`）：参考图
-    约束只在裁剪后**确实带图**时施加——单元可以声明空 references，而 backend 同样只在
-    ``reference_images`` 非空时施加该约束。收窄用的是规范 registry
-    provider id 而非 ``provider``（后者是 backend 族名，如 ark-agent-plan 族用 Ark backend，
-    不是 registry key），与 ``supported_durations`` 的查询身份保持一致。
-
-    时长按容量语义取档（见 :func:`resolve_duration_slot`）：申请能装下总时长的最小档位，
-    成片不裁剪。取档偏移了剧本编排时记 warning——入队前的用户确认按项目当前配置近似
-    判断，实际档位以此处执行时解析的 model 能力为准。
-    """
-    warnings: list[dict] = []
-
-    new_refs = list(references)
-    if max_refs is not None and len(references) > max_refs:
-        new_refs = references[:max_refs]
-        warnings.append(
-            _reference_limit_warning(provider=provider, model=model, count=len(references), max_refs=max_refs)
-        )
-
-    slot = resolve_duration_slot(
-        duration_seconds,
-        effective_reference_durations(
-            registry_provider_id,
-            model,
-            list(supported_durations),
-            resolution,
-            with_reference_images=bool(new_refs),
-        ),
-    )
-    new_duration = slot.seconds
-    slot_warning = slot.warning(model=model or provider)
-    if slot_warning is not None:
-        warnings.append(slot_warning)
-
-    return new_refs, new_duration, warnings
-
-
 #: unit 时长缺值时的兼容兜底秒数，也作为能力暂不可解析时的新建 unit 默认值。
 #: 可执行请求另由 request projection 对当前非空档位集 fail loud，不使用该兜底报价或生成。
 FALLBACK_UNIT_DURATION = 8
-
-
-def unit_script_duration(unit: dict) -> int:
-    """unit 的剧本编排时长（秒）。"""
-    return int(unit.get("duration_seconds") or FALLBACK_UNIT_DURATION)
 
 
 def effective_reference_durations(
@@ -354,32 +294,11 @@ async def resolve_project_duration_context(
     )
 
 
-def precheck_unit(ctx: ProjectDurationContext, unit: dict) -> DurationSlot:
-    """纯时长 helper，供 unit 默认值与兼容调用复用。
-
-    生成预检、报价、Agent 与 worker 不使用本函数；它们必须调用
-    ``ReferenceUnitRequestProjector``，由实际可用资产定桶并对缺失能力 fail loud。
-    """
-    with_reference_images = bool(unit.get("references"))
-    durations = (
-        effective_reference_durations(
-            ctx.provider_id,
-            ctx.model_name,
-            list(ctx.supported_durations),
-            ctx.resolution,
-            with_reference_images=with_reference_images,
-        )
-        if ctx.supported_durations
-        else []
-    )
-    return resolve_duration_slot(unit_script_duration(unit), durations)
-
-
 def default_unit_duration(ctx: ProjectDurationContext, project: dict, *, with_references: bool = False) -> int:
     """新建 unit 的默认时长（秒）：项目偏好 > 收窄后的最短档位 > 兜底。
 
     档位按执行层同一套约束收窄（``effective_reference_durations``），使新建单元拿到的秒数
-    落在它真正被生成时能申请到的档位内。``with_references`` 须与 ``precheck_unit`` 对同一
+    落在它真正被生成时能申请到的档位内。``with_references`` 须与执行期请求投影对同一
     unit 的判据同源（是否带参考图）。项目偏好不是当前模型的档位成员时（换模型后配置漂移）
     不采信，退到收窄后档位里的最短值（自定义供应商声明的档位可能不按升序排列）；档位不可
     解析时无从校验偏好是否可申请，直接退到 ``FALLBACK_UNIT_DURATION``，与执行层读不到

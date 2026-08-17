@@ -45,13 +45,12 @@ export function makeStep(overrides: Partial<WorkflowPlanStep> = {}): WorkflowPla
     problems: [],
     tasks: [],
     admission: null,
-    generation_result: null,
     contracts: {},
     ...overrides,
   };
 }
 
-export function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
+function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
   return {
     schema_version: 1,
     project_revision: "sha256-v1:project",

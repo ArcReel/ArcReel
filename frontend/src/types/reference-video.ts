@@ -24,14 +24,6 @@ export const SHEET_FIELD: Record<AssetKind, "product_sheet" | "character_sheet" 
   prop: "prop_sheet",
 };
 
-/** Project.json bucket for each asset kind. Mirrors lib/asset_types.py BUCKET_KEY. */
-export const BUCKET_FIELD: Record<AssetKind, "products" | "characters" | "scenes" | "props"> = {
-  product: "products",
-  character: "characters",
-  scene: "scenes",
-  prop: "props",
-};
-
 export interface Shot {
   /** Raw prompt text including @mentions — shots carry no duration; the unit does. */
   text: string;

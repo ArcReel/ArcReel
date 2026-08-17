@@ -88,14 +88,6 @@ export default {
   'checkpoint_provider_unknown': 'nhà cung cấp',
 
   // ---- Kết quả từng mục ----
-  'result_title': 'Yêu cầu {{requested}} · Thành công {{succeeded}} · Thất bại {{failed}} · Bị chặn {{blocked}}',
-  'result_skipped_one': '{{count}} đơn vị đã có kết quả nên được bỏ qua.',
-  'result_skipped_other': '{{count}} đơn vị đã có kết quả nên được bỏ qua.',
-  'item_state_succeeded': 'Thành công',
-  'item_state_failed': 'Thất bại',
-  'item_state_blocked': 'Bị chặn',
-  'item_task_state': 'Lần thử: {{state}}',
-  'item_artifact_status': 'Tệp: {{status}}',
 
   // ---- Xét duyệt hàng loạt ----
   'admission_blocked_intro': 'Lô này không tạo tác vụ nào và không phát sinh chi phí. Sửa các mục bên dưới rồi gửi lại.',
@@ -128,7 +120,6 @@ export default {
   'action_unknown': 'làm theo hướng dẫn của trợ lý',
   'action_none': 'chưa cần thao tác',
   'action_retry': 'thử lại sau ít phút',
-  'action_resume': 'tiếp tục đơn vị này',
   'action_fix_input': 'kiểm tra và sửa cấu hình tạo của đơn vị này',
   'action_generate_dependency': 'bổ sung hoặc thay tài nguyên tham chiếu còn thiếu',
   'action_generate_tts': 'tạo lời dẫn cho đơn vị này',

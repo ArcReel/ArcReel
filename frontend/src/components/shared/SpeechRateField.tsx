@@ -19,8 +19,8 @@ import { FieldLabel } from "@/components/ui/FieldLabel";
  * 硬区间（闭区间）：与后端 lib.speech_rate 的 is_valid_speech_rate 同一把尺。
  * 下界取值依据（下游时长换算的余量）见后端 MIN_SPEECH_RATE_UPS 的注释。
  */
-export const SPEECH_RATE_MIN = 0.001;
-export const SPEECH_RATE_MAX = 20;
+const SPEECH_RATE_MIN = 0.001;
+const SPEECH_RATE_MAX = 20;
 
 /** 该值是否可提交（null = 未填，合法）。 */
 export function isValidSpeechRate(value: number | null): boolean {
@@ -29,7 +29,7 @@ export function isValidSpeechRate(value: number | null): boolean {
 }
 
 /** 阅读单位名词的 i18n key：en / vi 计「词」、zh 计「字」，语言未定时用中性的「字或词」。 */
-export function readingUnitKey(sourceLanguage?: string | null): string {
+function readingUnitKey(sourceLanguage?: string | null): string {
   const code = (sourceLanguage ?? "").trim().toLowerCase();
   if (code === "en" || code === "vi") return "reading_unit_word";
   if (code === "zh") return "reading_unit_char";

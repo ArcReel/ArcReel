@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from lib.generation_result import GenerationAction, GenerationBatchResult, GenerationProblem, ProviderCheckpoint
+from lib.generation_result import GenerationAction, GenerationProblem, ProviderCheckpoint
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationDelivery
 from lib.workflow_rules import WorkflowStepRule, workflow_rule
 from lib.workflow_state import WorkflowActionType, WorkflowBlocker, WorkflowNextAction, WorkflowStatus
@@ -74,7 +74,6 @@ class WorkflowStepContracts(BaseModel):
 
     script_edit: Literal["script_batch_edit/v1"] | None = None
     batch_admission: Literal["video_batch_admission/v1"] | None = None
-    generation_result: Literal["generation_result/v1"] | None = None
 
 
 class WorkflowPlanStep(BaseModel):
@@ -91,7 +90,6 @@ class WorkflowPlanStep(BaseModel):
     problems: list[GenerationProblem] = Field(default_factory=list)
     tasks: list[WorkflowTaskObservation] = Field(default_factory=list)
     admission: dict[str, Any] | None = None
-    generation_result: GenerationBatchResult | None = None
     contracts: WorkflowStepContracts = Field(default_factory=WorkflowStepContracts)
 
 
@@ -223,7 +221,6 @@ def build_workflow_plan(
     script_revision: str | None = None,
     task_observations: list[WorkflowTaskObservation] | None = None,
     admission: dict[str, Any] | None = None,
-    generation_result: GenerationBatchResult | None = None,
 ) -> WorkflowPlan:
     """Project one immutable status snapshot and transient request observations."""
 
@@ -247,10 +244,7 @@ def build_workflow_plan(
             contracts=(
                 WorkflowStepContracts(script_edit="script_batch_edit/v1")
                 if step_rule.id == "script_structure"
-                else WorkflowStepContracts(
-                    batch_admission="video_batch_admission/v1",
-                    generation_result="generation_result/v1",
-                )
+                else WorkflowStepContracts(batch_admission="video_batch_admission/v1")
                 if step_rule.id == "video"
                 else WorkflowStepContracts()
             ),
@@ -295,7 +289,6 @@ def build_workflow_plan(
 
     video_step = by_id["video"]
     video_step.admission = admission
-    video_step.generation_result = generation_result
     video_step.problems = admission_problems
     if admission is not None and admission.get("decision") != "admitted" and not video_step.tasks:
         video_step.state = WorkflowStepState.BLOCKED

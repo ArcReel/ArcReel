@@ -1555,25 +1555,6 @@ def snapshot_preserved_artifact_manifest(
     return ArtifactManifestArchiveSnapshot(entries=rebased, content_digests=content_digests)
 
 
-def rebase_preserved_artifact_entries(
-    project_dir: Path,
-    preserved_entries: Mapping[ArtifactKey, ArtifactManifestEntry],
-) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
-    """Move frozen claims onto the formal paths proven by one current target plan.
-
-    Archive repair may normalize a pointer or materialize a selected version in
-    its private snapshot.  The generation digest remains immutable evidence;
-    only the formal path follows that repaired target state.  Missing target
-    keys fail loud so an official export cannot emit an envelope that its own
-    strict import boundary would reject.
-    """
-
-    plan = _plan_preserved_artifact_target_state(project_dir)
-    rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
-    _assert_preflight_unchanged(project_dir, plan)
-    return rebased
-
-
 def _plan_preserved_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:
     """Prove canonical paths while leaving preserved generation digests immutable."""
 
@@ -2630,7 +2611,6 @@ __all__ = [
     "forget_unbound_storyboard_artifacts",
     "plan_artifact_target_state",
     "prepare_episode_script_manifest_commit",
-    "rebase_preserved_artifact_entries",
     "register_current_artifact",
     "register_artifact_entries_atomically",
     "register_current_artifact_if_provable",

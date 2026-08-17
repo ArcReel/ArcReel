@@ -350,59 +350,6 @@ describe("WorkflowPanel 批量准入与逐项结果", () => {
     }
   });
 
-  it("执行后的部分成功逐项陈述任务与产物两条轴", async () => {
-    await renderExpanded(
-      makePlan({
-        steps: [
-          makeStep({
-            id: "video",
-            generation_result: {
-              schema_version: 1,
-              operation: "generate_videos",
-              selection: "explicit",
-              requested: ["E1U1", "E1U2", "E1U3"],
-              succeeded: ["E1U1"],
-              failed: ["E1U2"],
-              blocked: ["E1U3"],
-              skipped: [],
-              items: [
-                { unit_id: "E1U1", state: "succeeded", task_state: "succeeded", artifact_status: "current" },
-                {
-                  unit_id: "E1U2",
-                  state: "failed",
-                  task_state: "failed",
-                  // 尝试失败，但旧产物还在且照旧可用——两条轴分别陈述
-                  artifact_status: "stale",
-                  problem: { code: "generation_task_failed", detail: "provider 500", action: "retry", params: {} },
-                },
-                {
-                  unit_id: "E1U3",
-                  state: "blocked",
-                  task_state: "not_queued",
-                  artifact_status: "missing",
-                  problem: {
-                    code: "generation_unit_input_unusable",
-                    detail: "missing reference",
-                    action: "generate_dependency",
-                    params: {},
-                  },
-                },
-              ],
-            },
-          }),
-        ],
-      }),
-    );
-    const row = screen.getByTestId("workflow-step-video");
-    expect(
-      within(row).getByText(/申请 3 项 · 成功 1 · 失败 1 · 受阻 1/),
-    ).toBeInTheDocument();
-    expect(within(row).getByText("尝试：已失败")).toBeInTheDocument();
-    expect(within(row).getByText("产物：比当前内容旧")).toBeInTheDocument();
-    expect(within(row).getByText("产物：尚未生成")).toBeInTheDocument();
-    expect(within(row).getByText(/上一次尝试失败了/)).toBeInTheDocument();
-  });
-
   it("需确认档位时确认动作只带回档位并重新求解，不直接入队", async () => {
     const spy = mockPlan(
       makePlan({

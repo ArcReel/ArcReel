@@ -24,7 +24,11 @@ from lib.artifact_manifest import (
 )
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.generation_queue import CompensableGenerationResult
-from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, register_narration_audio
+from lib.narration_delivery import (
+    TtsSynthesisSettings,
+    build_narration_audio_basis,
+    register_narration_audio_transactionally,
+)
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script_editor import resolve_items
 from lib.speech_composition import admit_script_unit
@@ -544,7 +548,7 @@ class TestExecuteTtsTask:
         }
         items, _id_field, kind = resolve_items(pm.script)
         settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
-        register_narration_audio(
+        register_narration_audio_transactionally(
             project_path=pm.project_path,
             episode=1,
             preparation=admit_script_unit(kind, items[0]).preparation,
@@ -597,7 +601,7 @@ class TestExecuteTtsTask:
         }
         items, _id_field, kind = resolve_items(pm.script)
         initial_settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
-        register_narration_audio(
+        register_narration_audio_transactionally(
             project_path=pm.project_path,
             episode=1,
             preparation=admit_script_unit(kind, items[0]).preparation,
@@ -755,7 +759,7 @@ class TestExecuteTtsTask:
         pm.script["segments"][0].setdefault("generated_assets", {})["narration_audio"] = "audio/segment_E1S01.wav"
         items, _id_field, kind = resolve_items(pm.script)
         settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
-        old_basis = register_narration_audio(
+        old_basis = register_narration_audio_transactionally(
             project_path=pm.project_path,
             episode=1,
             preparation=admit_script_unit(kind, items[0]).preparation,
@@ -802,7 +806,7 @@ class TestExecuteTtsTask:
         items, _id_field, kind = resolve_items(pm.script)
         old_preparation = admit_script_unit(kind, items[0]).preparation
         settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
-        old_basis = register_narration_audio(
+        old_basis = register_narration_audio_transactionally(
             project_path=pm.project_path,
             episode=1,
             preparation=old_preparation,
@@ -840,7 +844,7 @@ class TestExecuteTtsTask:
         pm.script["segments"][0]["generated_assets"] = copy.deepcopy(prior_assets)
         items, _id_field, kind = resolve_items(pm.script)
         settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
-        old_basis = register_narration_audio(
+        old_basis = register_narration_audio_transactionally(
             project_path=pm.project_path,
             episode=1,
             preparation=admit_script_unit(kind, items[0]).preparation,

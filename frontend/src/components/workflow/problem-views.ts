@@ -63,7 +63,7 @@ function stringParam(params: Record<string, unknown> | undefined, key: string): 
 }
 
 /** 结构化问题里的定位信息藏在 params 里，按已知键提取，取不到就留空而不是瞎猜。 */
-export function problemUnitId(problem: GenerationProblem | AdmissionProblem): string | null {
+function problemUnitId(problem: GenerationProblem | AdmissionProblem): string | null {
   const direct = stringParam(problem.params, "unit_id");
   if (direct) return direct;
   const admission = problem.params?.["speech_admission"];
@@ -115,7 +115,7 @@ export function blockerViews(t: Translate, blockers: WorkflowBlocker[]): Problem
 }
 
 /** 批量准入里「自身没问题、随本批一起未提交」的标记。 */
-export const WITHHELD_CODE = "generation_batch_admission_withheld";
+const WITHHELD_CODE = "generation_batch_admission_withheld";
 
 export function isWithheld(unit: BatchAdmissionUnit): boolean {
   return unit.withheld === true || unit.problems.some((problem) => problem.code === WITHHELD_CODE);

@@ -20,11 +20,6 @@ export function isUtterance(value: unknown): value is Utterance {
   return speaker === null || speaker === undefined;
 }
 
-/** 守卫：整段 utterances 必须是数组且每条都是良构 utterance（缺省/非数组判否）。 */
-export function isUtteranceArray(value: unknown): value is Utterance[] {
-  return Array.isArray(value) && value.every(isUtterance);
-}
-
 /**
  * 严格守卫：完整 ImagePrompt 必须含 scene + composition.{shot_type, lighting, ambiance}。
  * 部分形态（仅 scene 或 composition 缺字段）会落到 string fallback，避免结构化编辑器渲染时
@@ -63,29 +58,4 @@ export function isStructuredVideoPrompt(value: unknown): value is VideoPrompt {
       typeof item.speaker === "string" &&
       typeof item.line === "string",
   );
-}
-
-/**
- * 浅合并 patch 进 base：嵌套对象（如 ImagePrompt.composition）做一层浅 merge，
- * 数组与基础值直接替换。
- */
-export function mergePromptPatch<T extends Record<string, unknown>>(
-  base: T,
-  patch: Record<string, unknown>,
-): T {
-  const merged: Record<string, unknown> = { ...base };
-  for (const [k, v] of Object.entries(patch)) {
-    const baseVal = base[k];
-    if (
-      isRecord(v) &&
-      isRecord(baseVal) &&
-      !Array.isArray(v) &&
-      !Array.isArray(baseVal)
-    ) {
-      merged[k] = { ...baseVal, ...v };
-    } else {
-      merged[k] = v;
-    }
-  }
-  return merged as T;
 }

@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import type { NarrationDelivery, WorkflowPlanStep } from "@/types/workflow";
 import { ArtifactMeter, artifactCounts } from "./ArtifactMeter";
 import { BatchAdmissionSummary } from "./BatchAdmissionSummary";
-import { GenerationResultSummary } from "./GenerationResultSummary";
 import { NarrationDeliveryChoice } from "./NarrationDeliveryChoice";
 import { ProblemList } from "./ProblemList";
 import { StaleArtifacts } from "./StaleArtifacts";
@@ -159,8 +158,6 @@ export function WorkflowStepRow({
                 )}
               </div>
             )}
-
-            {step.generation_result && <GenerationResultSummary result={step.generation_result} />}
 
             {step.action && step.action.type !== "none" && (
               <p className="text-[11.5px] leading-relaxed" style={{ color: "var(--color-text-3)" }}>

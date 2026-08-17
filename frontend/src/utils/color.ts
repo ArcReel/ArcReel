@@ -3,7 +3,7 @@
  * Used by AvatarStack and ClueStack for fallback thumbnails.
  */
 
-export const FALLBACK_COLORS = [
+const FALLBACK_COLORS = [
   "bg-rose-700",
   "bg-sky-700",
   "bg-emerald-700",

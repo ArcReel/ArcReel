@@ -99,7 +99,7 @@ export function splitScriptLines(text: string): string[] {
  * 序号用 `\p{Nd}` 而非 `\d`：Python 的 `\d` 是 Unicode-aware，`镜头１：`（全角数字）后端
  * 照样剥 header 并按台词派生；JS 的 `\d` 只认 ASCII，用它会让这行在前端留下说话人的参考图。
  */
-export const SHOT_HEADER_PREFIX_RE = /^\s*镜头\s*\p{Nd}+\s*[:：]\s*/u;
+const SHOT_HEADER_PREFIX_RE = /^\s*镜头\s*\p{Nd}+\s*[:：]\s*/u;
 
 /** 同上，但不吃行首空白——高亮分词按原样切 token，缩进须留在 text token 里才能拼回原文。 */
 export const SHOT_HEADER_RE = /^镜头\s*\p{Nd}+\s*[:：]\s*/u;

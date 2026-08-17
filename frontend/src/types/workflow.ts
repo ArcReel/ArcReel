@@ -23,17 +23,6 @@ export type ArtifactStatus = "current" | "stale" | "missing" | "blocked";
 /** 本次请求的旁白交付方式；不写回项目，只作用于这一次生成。 */
 export type NarrationDelivery = "post_production" | "use_tts";
 
-/** 逐项结果的判定。requested 被这三者穷尽划分。 */
-export type GenerationItemState = "succeeded" | "failed" | "blocked";
-
-/** 任务这一轴的下场，与产物时效独立。 */
-export type GenerationTaskState =
-  | "not_queued"
-  | "succeeded"
-  | "failed"
-  | "cancelled"
-  | "interrupted";
-
 /**
  * 后端给出的下一步动作标识的闭集，与 `lib/workflow_state.py` 的 `WorkflowActionType`
  * 一一对应，后端契约测试守住两侧同步。列成运行时数组而不只是类型，是为了让译文覆盖
@@ -59,7 +48,6 @@ export const WORKFLOW_ACTION_TYPES = [
   "patch_episode_script",
   "choose_narration_delivery",
   "retry",
-  "resume",
   "fix_input",
   "generate_dependency",
   "generate_tts",
@@ -116,38 +104,6 @@ export interface WorkflowTaskObservation {
   problem?: GenerationProblem | null;
 }
 
-export interface GenerationItemResult {
-  unit_id: string;
-  state: GenerationItemState;
-  artifact_key?: string | null;
-  artifact_path?: string | null;
-  task_id?: string | null;
-  task_state: GenerationTaskState;
-  artifact_status?: ArtifactStatus | null;
-  provider_checkpoint?: ProviderCheckpoint | null;
-  problem?: GenerationProblem | null;
-}
-
-export interface GenerationSkippedItem {
-  unit_id: string;
-  artifact_key?: string | null;
-  artifact_path?: string | null;
-  artifact_status?: ArtifactStatus | null;
-}
-
-/** 批量执行的逐项结果：requested 被 succeeded / failed / blocked 穷尽划分。 */
-export interface GenerationBatchResult {
-  schema_version: 1;
-  operation: string;
-  selection: "explicit" | "missing_only";
-  requested: string[];
-  succeeded: string[];
-  failed: string[];
-  blocked: string[];
-  skipped: GenerationSkippedItem[];
-  items: GenerationItemResult[];
-}
-
 /**
  * 计划里产物条目的状态词。比 {@link ArtifactStatus} 宽：产物时效之外还要表达
  * 「本模式不涉及」与「只覆盖了部分范围」（如资产盘点只盘了一部分源文）。
@@ -172,7 +128,6 @@ export interface WorkflowArtifactCollection {
 export interface WorkflowStepContracts {
   script_edit?: "script_batch_edit/v1" | null;
   batch_admission?: "video_batch_admission/v1" | null;
-  generation_result?: "generation_result/v1" | null;
 }
 
 export interface WorkflowPlanStep {
@@ -185,7 +140,6 @@ export interface WorkflowPlanStep {
   problems: GenerationProblem[];
   tasks: WorkflowTaskObservation[];
   admission?: WorkflowAdmission | null;
-  generation_result?: GenerationBatchResult | null;
   contracts: WorkflowStepContracts;
 }
 

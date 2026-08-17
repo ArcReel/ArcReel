@@ -17,7 +17,7 @@ read-modify-write 回写——迁移一次落盘、谁先跑谁定终局，二�
 
 - 落盘时刻已必然在档——``ScriptGenerator._add_metadata`` 按最终 references 逐 unit 取档，出档直接
   报错。偏移只可能来自事后改模型 / 改分辨率。
-- 偏移后也没有脏值能到供应商——预检（``precheck_unit``）与执行（``_apply_provider_constraints``）
+- 偏移后也没有脏值能到供应商——预检与执行共用请求投影（``ReferenceUnitRequestProjector``），
   都会重新取档并出 warning；只有真正提交 provider 的任务才把实际申请秒数写入
   专用 execution checkpoint 供 resume 读取，task payload 与脚本本身都不改写。
 - 回写会与全仓策略冲突：出档一律「fail-loud 或 warning + 引导重选」，从不静默改写用户编排真相；

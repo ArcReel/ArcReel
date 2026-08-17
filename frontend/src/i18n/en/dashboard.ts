@@ -1472,7 +1472,6 @@ export default {
   'tool_name_list_pending_assets': 'List pending assets',
   'tool_name_complete_asset_inventory': 'Complete asset inventory',
   'tool_name_complete_step1_rebuild': 'Complete step 1 rebuild',
-  'tool_name_get_workflow_status': 'Get workflow status',
   'tool_name_get_workflow_plan': 'Get complete workflow plan',
   'tool_name_get_episode_script_revision': 'Get script revision',
   'tool_name_generate_assets': 'Generate assets',

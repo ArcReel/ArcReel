@@ -86,14 +86,6 @@ export default {
   'checkpoint_provider_unknown': 'the provider',
 
   // ---- Per-item generation results ----
-  'result_title': '{{requested}} requested · {{succeeded}} succeeded · {{failed}} failed · {{blocked}} blocked',
-  'result_skipped_one': '{{count}} unit already had a result and was skipped.',
-  'result_skipped_other': '{{count}} units already had results and were skipped.',
-  'item_state_succeeded': 'Succeeded',
-  'item_state_failed': 'Failed',
-  'item_state_blocked': 'Blocked',
-  'item_task_state': 'Attempt: {{state}}',
-  'item_artifact_status': 'File: {{status}}',
 
   // ---- Batch admission ----
   'admission_blocked_intro': 'This batch created no tasks. Nothing was charged. Fix the items below and request it again.',
@@ -126,7 +118,6 @@ export default {
   'action_unknown': 'follow the guidance from the assistant',
   'action_none': 'nothing to do',
   'action_retry': 'try again shortly',
-  'action_resume': 'resume this unit',
   'action_fix_input': 'review and fix the generation setup for this unit',
   'action_generate_dependency': 'add or replace the missing reference assets',
   'action_generate_tts': 'generate the narration audio for this unit',

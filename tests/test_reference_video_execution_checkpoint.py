@@ -20,12 +20,10 @@ from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     ProviderMediaInput,
     ReferenceExecutionIdentityError,
-    ReferenceResumeState,
     ReferenceSubmissionCheckpoint,
     StoryboardSubmissionCheckpoint,
     VideoResumeState,
     checkpoint_version_metadata,
-    classify_reference_resume_state,
     classify_video_resume_state,
     cleanup_staged_provider_media,
     load_task_reference_checkpoint,
@@ -524,39 +522,6 @@ def test_checkpoint_rejects_noncanonical_staged_locator_and_wrong_identity(tmp_p
                 "execution_checkpoint_json": checkpoint.to_json(),
             }
         )
-
-
-def test_reference_resume_state_classifies_all_checkpoint_job_combinations(tmp_path: Path) -> None:
-    checkpoint = _checkpoint(tmp_path / "demo")
-    base = {
-        "task_id": checkpoint.task_id,
-        "project_name": checkpoint.project_name,
-        "resource_id": checkpoint.unit_id,
-        "script_file": checkpoint.script_file,
-    }
-
-    assert classify_reference_resume_state({**base, "provider_job_id": None}) == (
-        ReferenceResumeState.NO_CHECKPOINT_NO_JOB,
-        None,
-    )
-    assert (
-        classify_reference_resume_state(
-            {**base, "provider_job_id": None, "execution_checkpoint_json": checkpoint.to_json()}
-        )[0]
-        is ReferenceResumeState.CHECKPOINT_WITHOUT_JOB
-    )
-    state, restored = classify_reference_resume_state(
-        {**base, "provider_job_id": "job-1", "execution_checkpoint_json": checkpoint.to_json()}
-    )
-    assert state is ReferenceResumeState.READY
-    assert restored == checkpoint
-    assert classify_reference_resume_state({**base, "provider_job_id": "job-1"})[0] is (
-        ReferenceResumeState.IDENTITY_UNRECOVERABLE
-    )
-    assert (
-        classify_reference_resume_state({**base, "provider_job_id": "job-1", "execution_checkpoint_json": "{broken"})[0]
-        is ReferenceResumeState.IDENTITY_UNRECOVERABLE
-    )
 
 
 def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path) -> None:
