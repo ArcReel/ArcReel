@@ -111,7 +111,8 @@ mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_del
 `task_state`（队列任务）、`provider_checkpoint`（供应商是否已提交）、`artifact_status`（产物
 current / stale / missing / blocked）与 workflow 步骤状态互相独立，**分开陈述**：「任务成功」不等于
 「当前产物有效」。`provider_checkpoint.submitted` 为真表示供应商侧很可能已计费；任务
-`interrupted` 表示没有供应商裁决，按 `problem.action` 决定，`resume` 与 `retry` 不可互换。
+`interrupted` 表示没有供应商裁决，一律按 `problem.action` 决定；该情形通常交回
+`wait_for_task`（任务可能仍在跑并正常落地），不要自行改成 `retry`。
 
 stale 产物照常可预览、可导出、可参与成片，服务端会复用、不会自动重生；是否重做由用户明确决定。
 不自动删除、覆盖或重生任何已付费产物与历史版本。

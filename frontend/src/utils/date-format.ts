@@ -32,7 +32,6 @@ export function formatDate(
   return getFormatter(lang, options).format(date);
 }
 
-
 // 本地时刻 HH:mm，用于同一天内的对话流；解析失败返回 null 由调用方兜底
 export function formatClockTime(value: string | null | undefined): string | null {
   if (!value) return null;

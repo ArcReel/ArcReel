@@ -295,7 +295,7 @@ describe("WorkflowPanel 旁白交付", () => {
   });
 });
 
-describe("WorkflowPanel 批量准入与逐项结果", () => {
+describe("WorkflowPanel 批量准入", () => {
   it("准入受阻时一次列出全部问题并说明零任务", async () => {
     await renderExpanded(
       makePlan({

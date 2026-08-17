@@ -253,8 +253,7 @@ def effective_reference_durations(
 class ProjectDurationContext:
     """项目视频能力的一次性 IO 解析结果：档位全集（未按单个 unit 条件收窄）+ 分辨率 + provider/model 身份。
 
-    供新建 unit 默认值与存量纯时长 helper 复用；生成预检、报价与执行均使用
-    ``ReferenceUnitRequestProjector``。
+    供新建 unit 的默认时长复用；生成预检、报价与执行均使用 ``ReferenceUnitRequestProjector``。
     """
 
     supported_durations: tuple[int, ...]
