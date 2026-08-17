@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
-import json
 import logging
 import uuid
 from collections import Counter
@@ -18,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from lib import PROJECT_ROOT
+from lib.content_digest import canonical_json_bytes
 from lib.project_change_hints import (
     ProjectChangeBatch,
     ProjectChangeSource,
@@ -48,12 +48,8 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _stable_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
 def _fingerprint(value: Any) -> str:
-    return hashlib.sha1(_stable_json(value).encode("utf-8")).hexdigest()
+    return hashlib.sha1(canonical_json_bytes(value)).hexdigest()
 
 
 # 同一件事在发布方与快照差分两侧的 action 命名差异：参考视频任务完成时，发布方按 task_type

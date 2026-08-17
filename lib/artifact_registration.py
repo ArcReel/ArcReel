@@ -108,23 +108,23 @@ def artifact_key_for_resource(
     if not project_schema_is_current(planner.project):
         raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
     if resource_type == "grids":
-        grid = next((candidate for candidate in planner._load_grid_records() if candidate.id == resource_id), None)
+        grid = next((candidate for candidate in planner.load_grid_records() if candidate.id == resource_id), None)
         if grid is None:
             raise KeyError(resource_id)
-        planner._load_episode_bindings()
+        planner.load_episode_bindings()
         binding = next((candidate for candidate in planner.bindings if candidate.episode == grid.episode), None)
         if binding is None or binding.script_file != normalize_script_binding(grid.script_file):
             raise ValueError("formal grid no longer matches an episode script binding")
         return ArtifactKey.episode_grid(grid.episode, resource_id)
     if script_file is not None:
-        planner._load_episode_bindings()
+        planner.load_episode_bindings()
         normalized = normalize_script_binding(script_file)
         binding = next((candidate for candidate in planner.bindings if candidate.script_file == normalized), None)
         if binding is None:
             raise ValueError("formal resource no longer matches an episode script binding")
         episode_number = binding.episode
     elif resource_type == "storyboards":
-        planner._load_episodes()
+        planner.load_episodes()
         matches = [
             candidate
             for candidate in planner.episodes

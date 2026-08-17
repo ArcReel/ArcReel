@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
+from lib.content_digest import PREFIXED_DIGEST_RE
 from lib.project_manager import ProjectManager
 from lib.source_revision import SourceRevisionBlocker, SourceScope, compute_source_revision
 
@@ -58,10 +58,7 @@ def complete_asset_inventory(
 ) -> AssetInventoryCompletion:
     """Validate and atomically persist extracted assets plus their inventory fact."""
 
-    if (
-        not isinstance(expected_source_revision, str)
-        or re.fullmatch(r"sha256-v1:[0-9a-f]{64}", expected_source_revision) is None
-    ):
+    if not isinstance(expected_source_revision, str) or PREFIXED_DIGEST_RE.fullmatch(expected_source_revision) is None:
         raise AssetInventoryInvalidRequest("expected_source_revision must be a sha256-v1 revision")
 
     prepared = _prepare_entries(entries)

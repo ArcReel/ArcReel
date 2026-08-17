@@ -170,7 +170,7 @@ class TargetStatePlanner:
             # Parsing the existing sidecar is part of preflight.  A corrupt manifest
             # is a real migration error, not permission to overwrite unknown state.
             self.adapter.get_entry(ArtifactKey.episode_script(1))
-            self._load_episodes()
+            self.load_episodes()
             self._plan_assets()
             self._plan_structured_content()
             self._plan_grids()
@@ -217,29 +217,29 @@ class TargetStatePlanner:
         if kind == "asset-sheet":
             self._plan_assets()
         elif kind == "episode-step1":
-            self._load_episode_bindings()
+            self.load_episode_bindings()
             episode_number = cast(int, key.components[0])
             binding = next((candidate for candidate in self.bindings if candidate.episode == episode_number), None)
             if binding is not None:
                 self._plan_one_step1(binding)
         elif kind == "episode-script":
-            self._load_episodes()
+            self.load_episodes()
             self._plan_structured_content()
         elif kind == "episode-grid":
-            self._load_episodes()
+            self.load_episodes()
             self._plan_grids()
         elif kind == "episode-storyboard":
-            self._load_episodes()
+            self.load_episodes()
             self._plan_grids()
             self._plan_storyboards()
         elif kind in {"episode-video", "episode-audio"}:
-            self._load_episodes()
+            self.load_episodes()
             self._plan_typed_media()
         elif kind in {"episode-subtitle", "episode-presentation"}:
-            self._load_episodes()
+            self.load_episodes()
             self._plan_persisted_presentations()
 
-    def _load_episode_bindings(self) -> None:
+    def load_episode_bindings(self) -> None:
         if self._bindings_loaded:
             return
         raw_episodes = self.project.get("episodes")
@@ -264,10 +264,10 @@ class TargetStatePlanner:
             self.bindings.append(_EpisodeBinding(episode=episode, script_file=normalized))
         self._bindings_loaded = True
 
-    def _load_episodes(self) -> None:
+    def load_episodes(self) -> None:
         if self._episodes_loaded:
             return
-        self._load_episode_bindings()
+        self.load_episode_bindings()
         for binding in self.bindings:
             if self.episode_scope is not None and binding.episode != self.episode_scope:
                 continue
@@ -645,7 +645,7 @@ class TargetStatePlanner:
     def _plan_grids(self) -> None:
         if "grids" in self._planned:
             return
-        for grid in self._load_grid_records():
+        for grid in self.load_grid_records():
             episode = next(
                 (
                     candidate
@@ -690,7 +690,7 @@ class TargetStatePlanner:
         episode_number: int,
     ) -> dict[str, tuple[ArtifactKey, ArtifactBasis]]:
         result: dict[str, tuple[ArtifactKey, ArtifactBasis]] = {}
-        for grid in self._load_grid_records():
+        for grid in self.load_grid_records():
             if grid.episode != episode_number or not grid.split_at or not grid.grid_image_path:
                 continue
             episode = next(
@@ -795,7 +795,7 @@ class TargetStatePlanner:
                 return None
         return tuple(references)
 
-    def _load_grid_records(self) -> tuple[GridGeneration, ...]:
+    def load_grid_records(self) -> tuple[GridGeneration, ...]:
         cached = getattr(self, "_grids", None)
         if cached is not None:
             return cast(tuple[GridGeneration, ...], cached)
