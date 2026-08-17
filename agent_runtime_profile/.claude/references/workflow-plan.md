@@ -127,9 +127,8 @@ mcp__arcreel__get_workflow_plan({
 | `post_production` | 后期配音：视频照常生成，旁白留到剪映等后期工具里补 |
 | `use_tts` | 使用当前 TTS：把已生成的旁白音频作为本次请求的依据 |
 
-`generation_mode == "reference_video"` **只跳过分镜图**这一步（计划里 `storyboard` 步骤
-`required=false`），**不跳过 audio**：`narration_delivery` 步骤在两条路线上都适用。参考路线没有
-按段批量 TTS 的入口，但每个叙述旁白 unit 的交付选择照样要做。
+参考路线同样要做交付选择：两条路线跳过哪些步骤见
+[generation-modes.md](generation-modes.md)。
 
 计划给出 `next_action.type == "choose_narration_delivery"` 时：
 
@@ -179,19 +178,11 @@ mcp__arcreel__get_workflow_plan({
 
 ## 四条状态轴分开报告
 
-`workflow`（步骤进度）、`task`（队列任务）、`provider_checkpoint`（供应商是否已提交）、
-`artifact`（产物 `current_ids` / `stale_ids` / `missing_ids` 与集合级 `state`）互相独立，
-**分开陈述，不要互相翻译**：
-
-- 「任务成功」不等于「当前产物有效」。任务成功而产物 `stale`，说明依据变了、产物还在。
-- 「产物缺失」不等于「任务失败」。可能根本没入队（`blocked`，不计费）。
-- `provider_checkpoint.submitted == true` 表示供应商侧已提交、很可能已计费；任务状态
-  `interrupted` 表示没有供应商裁决，盲目重试可能重复计费——按 `problem.action` 决定，
-  `resume` 与 `retry` 不可互换。
-- 产物历史另成一轴：`current` 是当前选中的产物，`stale` 是依据已变但仍在的旧产物，
-  历史版本是此前付费产出的其它版本。
-
-用户问「做完了没有」时，回答要落在这四轴上，而不是压成一句「成功了」。
+计划里这四轴的字段分别是 `steps[].state`（步骤进度）、`steps[].tasks[].status`（队列任务）、
+`steps[].tasks[].provider_checkpoint`（供应商是否已提交）与 `steps[].artifacts`
+（`current_ids` / `stale_ids` / `missing_ids` 与集合级 `state`）。四轴互相独立、分开陈述、
+不要互相翻译——读法与逐轴含义见
+[generation-results.md](generation-results.md)。
 
 ## stale 与历史
 
