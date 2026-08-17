@@ -28,7 +28,12 @@ from lib.artifact_manifest import (
 from lib.data_validator import DataValidator
 from lib.episode_paths import episode_script_filename
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager
-from lib.project_schema import project_schema_is_current
+from lib.project_migration_failure import (
+    MIGRATION_FAILURE_CODE,
+    RETRY_MIGRATION_ACTION,
+    ProjectMigrationError,
+    load_migration_verdict,
+)
 from lib.reference_video import rederive_unit_references
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.script_review import content_fingerprint_of_data
@@ -188,6 +193,19 @@ class ScriptBatchEditor:
         self._manifest_adapter_factory = manifest_adapter_factory
 
     def execute(self, project_name: str, command: ScriptBatchEditCommand) -> ScriptBatchEditResult:
+        # 迁移裁决先于任何解析与写入：清单是读取已生成产物的唯一口径，未升级的项目没有
+        # 清单可写。放在入口而不是提交处，是因为提交前有几条早退（如剧本集号不成立就
+        # 不预备清单提交），逐条补闸会漏，入口一道闸对所有路径同时成立。
+        verdict = load_migration_verdict(self._pm.get_project_path(project_name))
+        if verdict is not None:
+            return self._failure(
+                script=self._pm.normalize_script_filename(command.script) if command.script is not None else "",
+                episode=command.episode,
+                revision=command.expected_revision,
+                code=MIGRATION_FAILURE_CODE,
+                reason=verdict.reason,
+                next_action=RETRY_MIGRATION_ACTION,
+            )
         expected_script_file = (
             self._pm.normalize_script_filename(command.expected_script_file)
             if command.expected_script_file is not None
@@ -406,6 +424,11 @@ class ScriptBatchEditor:
                         resource_ids=frozenset(final_ids),
                         removed_resource_ids=frozenset(affected_ids) - final_ids,
                     )
+                except ProjectMigrationError:
+                    # 项目未升级到当前数据版本，交给外层按迁移口径回执；它同时是
+                    # ArtifactManifestError 与 ValueError，不先接住就会被下面这条泛化成
+                    # 「清单不可用、请重试」。
+                    raise
                 except (ArtifactManifestError, OSError, UnicodeError, ValueError) as exc:
                     raise _AbortEdit(
                         self._failure(
@@ -429,6 +452,17 @@ class ScriptBatchEditor:
                 code="revision_conflict",
                 reason="script_binding_changed",
                 next_action="refresh_script",
+            )
+        except ProjectMigrationError as exc:
+            # 未升级到当前数据版本的项目在提交清单时被阻断。这条要带着迁移的原因与动作回去：
+            # 泛化成 commit_failed/retry 会让调用方原样重试，而重试永远不会让项目完成迁移。
+            return self._failure(
+                script=resolved_script,
+                episode=episode_number,
+                revision=before_revision,
+                code=MIGRATION_FAILURE_CODE,
+                reason=exc.violation,
+                next_action=RETRY_MIGRATION_ACTION,
             )
         except Exception:
             logger.exception("script batch edit commit failed")
@@ -461,8 +495,6 @@ class ScriptBatchEditor:
         resource_ids: frozenset[str],
         removed_resource_ids: frozenset[str],
     ) -> Callable[[], None] | None:
-        if not project_schema_is_current(project):
-            return None
         episode = script.get("episode")
         if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
             return None

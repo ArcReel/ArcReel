@@ -45,7 +45,6 @@ from lib.episode_paths import (
 from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
-from lib.project_schema import project_schema_is_current
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.validation_messages import ValidationMessage
 
@@ -321,27 +320,20 @@ def formal_step1_write_transaction(
         )
         from lib.artifact_manifest import ArtifactKey
 
-        project_file = project_path / "project.json"
-        try:
-            project = json.loads(project_file.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, ValueError) as exc:
-            logger.warning("cannot inspect project schema after formal step1 write: %s", exc)
-            project = None
-        if isinstance(project, dict) and project_schema_is_current(project):
-            # A successful no-op write can still repair a missing claim after a
-            # temporarily unavailable source made activation skip this target.
-            key = ArtifactKey.episode_step1(episode)
-            if basis is None:
-                register_current_artifact_if_provable(project_path, key)
-            else:
-                if not paths:
-                    raise ValueError("a frozen step1 basis requires its formal artifact path")
-                register_current_artifact(
-                    project_path,
-                    key,
-                    artifact_path=paths[0].relative_to(project_path).as_posix(),
-                    basis=basis,
-                )
+        # A successful no-op write can still repair a missing claim after a
+        # temporarily unavailable source made activation skip this target.
+        key = ArtifactKey.episode_step1(episode)
+        if basis is None:
+            register_current_artifact_if_provable(project_path, key)
+        else:
+            if not paths:
+                raise ValueError("a frozen step1 basis requires its formal artifact path")
+            register_current_artifact(
+                project_path,
+                key,
+                artifact_path=paths[0].relative_to(project_path).as_posix(),
+                basis=basis,
+            )
 
 
 def write_step1_json(

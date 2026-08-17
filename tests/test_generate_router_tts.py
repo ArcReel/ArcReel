@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -32,8 +33,14 @@ class _FakeQueue:
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        self.project: dict[str, Any] = {"content_mode": "narration"}
+        # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定。
+        self.project: dict[str, Any] = {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+            "content_mode": "narration",
+        }
         self.script = {
+            "episode": 1,
             "content_mode": "narration",
             "segments": [
                 {
@@ -70,7 +77,37 @@ class _FakePM:
         return self.script
 
 
-def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
+class _ScriptBackedResolver:
+    """产物清单替身：剧本里 narration_audio 指向的路径视为已登记，其余一律缺失。
+
+    产物清单是读取已生成旁白的唯一口径，路由只问清单。
+    """
+
+    def __init__(self, fake_pm):
+        self._fake_pm = fake_pm
+        self.observed_keys: list[ArtifactKey] = []
+
+    def _registered(self) -> set[str]:
+        paths: set[str] = set()
+        for container in ("segments", "shots", "scenes", "video_units"):
+            for item in self._fake_pm.script.get(container) or []:
+                assets = item.get("generated_assets")
+                if isinstance(assets, dict) and assets.get("narration_audio"):
+                    paths.add(assets["narration_audio"])
+        return paths
+
+    def compare(self, key, *, artifact_path):
+        self.observed_keys.append(key)
+        status = ArtifactStatus.CURRENT if artifact_path in self._registered() else ArtifactStatus.MISSING
+        return ArtifactComparison(status=status, artifact_path=artifact_path)
+
+
+def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True, currency=None):
+    monkeypatch.setattr(
+        generate,
+        "active_artifact_currency_resolver",
+        lambda *_args: currency if currency is not None else _ScriptBackedResolver(fake_pm),
+    )
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
 
@@ -94,10 +131,9 @@ def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
 
 
 class TestGenerateTtsSingle:
-    def test_active_manifest_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
+    def test_unbound_script_is_rejected_before_enqueue(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project["schema_version"] = 8
-        fake_pm.script["episode"] = 1
+        fake_pm.project["episodes"] = []
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
@@ -251,10 +287,9 @@ class TestGenerateTtsSingle:
 
 
 class TestGenerateTtsBatch:
-    def test_active_manifest_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
+    def test_unbound_script_is_rejected_before_enqueue(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project["schema_version"] = 8
-        fake_pm.script["episode"] = 1
+        fake_pm.project["episodes"] = []
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
@@ -268,25 +303,13 @@ class TestGenerateTtsBatch:
         assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
         assert fake_queue.calls == []
 
-    def test_active_manifest_resolves_episode_from_canonical_filename(self, tmp_path, monkeypatch):
+    def test_episode_is_resolved_from_the_canonical_filename(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project.update(
-            {
-                "schema_version": 8,
-                "episodes": [{"episode": 2, "script_file": "scripts/episode_2.json"}],
-            }
-        )
+        fake_pm.project["episodes"] = [{"episode": 2, "script_file": "scripts/episode_2.json"}]
         fake_pm.script.pop("episode", None)
         fake_queue = _FakeQueue()
-        observed_keys: list[ArtifactKey] = []
-
-        class _MissingResolver:
-            def compare(self, key, *, artifact_path):
-                observed_keys.append(key)
-                return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
-
-        monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _MissingResolver())
-        client = _client(monkeypatch, fake_pm, fake_queue)
+        currency = _ScriptBackedResolver(fake_pm)
+        client = _client(monkeypatch, fake_pm, fake_queue, currency=currency)
 
         with client:
             response = client.post(
@@ -295,8 +318,8 @@ class TestGenerateTtsBatch:
             )
 
         assert response.status_code == 200, response.text
-        assert observed_keys
-        assert all(key.components[0] == 2 for key in observed_keys)
+        assert currency.observed_keys
+        assert all(key.components[0] == 2 for key in currency.observed_keys)
 
     def test_enqueues_only_missing_segments(self, tmp_path, monkeypatch):
         """批量只补缺：已有旁白（E1S02）与无原文（E1S03）的段都跳过。"""
@@ -321,23 +344,17 @@ class TestGenerateTtsBatch:
             assert call["task_type"] == "tts"
             assert call["media_type"] == "audio"
 
-    def test_active_manifest_missing_entry_is_selected_even_with_legacy_path(self, tmp_path, monkeypatch):
+    def test_metadata_path_without_a_manifest_entry_is_reselected(self, tmp_path, monkeypatch):
+        """metadata 里留着旁白路径但清单没有认领 → 算缺失，重新入队。"""
+
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project.update(
-            {
-                "schema_version": 8,
-                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
-            }
-        )
-        fake_pm.script["episode"] = 1
         fake_queue = _FakeQueue()
 
         class _MissingResolver:
             def compare(self, _key, *, artifact_path):
                 return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
 
-        monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _MissingResolver())
-        client = _client(monkeypatch, fake_pm, fake_queue)
+        client = _client(monkeypatch, fake_pm, fake_queue, currency=_MissingResolver())
 
         with client:
             response = client.post(
@@ -348,15 +365,8 @@ class TestGenerateTtsBatch:
         assert response.status_code == 200, response.text
         assert [call["resource_id"] for call in fake_queue.calls] == ["E1S01", "E1S02"]
 
-    def test_active_manifest_stale_entry_remains_usable_for_batch_selection(self, tmp_path, monkeypatch):
+    def test_stale_entry_remains_usable_for_batch_selection(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        fake_pm.project.update(
-            {
-                "schema_version": 8,
-                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
-            }
-        )
-        fake_pm.script["episode"] = 1
         fake_queue = _FakeQueue()
         observed_keys: list[ArtifactKey] = []
 
@@ -365,8 +375,7 @@ class TestGenerateTtsBatch:
                 observed_keys.append(key)
                 return ArtifactComparison(status=ArtifactStatus.STALE, artifact_path=artifact_path)
 
-        monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _StaleResolver())
-        client = _client(monkeypatch, fake_pm, fake_queue)
+        client = _client(monkeypatch, fake_pm, fake_queue, currency=_StaleResolver())
 
         with client:
             response = client.post(

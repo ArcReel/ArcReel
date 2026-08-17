@@ -436,7 +436,7 @@ def _collect_sheet_references(
     prop_field: str,
     max_count: int = 0,
     visual_references: list[VisualReference] | None = None,
-    currency_resolver: ArtifactCurrencyResolver | None = None,
+    currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> tuple[list[dict], set[str]]:
     """Collect character_sheet, scene_sheet and prop_sheet references from scene/segment items.
@@ -532,7 +532,7 @@ def _collect_reference_images(
     previous_storyboard_id: str | None = None,
     visual_references: list[VisualReference] | None = None,
     artifact_episode: int | None = None,
-    currency_resolver: ArtifactCurrencyResolver | None = None,
+    currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[object] | None:
     sheet_refs, _ = _collect_sheet_references(
@@ -560,14 +560,10 @@ def _collect_reference_images(
     if previous_storyboard_path and previous_storyboard_path.exists():
         if not previous_storyboard_id:
             raise ValueError("previous_storyboard_id is required for storyboard basis evidence")
-        if currency_resolver is not None and artifact_episode is None:
-            raise ValueError("artifact_episode is required for active storyboard references")
+        if artifact_episode is None:
+            raise ValueError("artifact_episode is required for storyboard references")
         previous_artifact_path = previous_storyboard_path.relative_to(project_path).as_posix()
-        previous_key = (
-            ArtifactKey.episode_storyboard(artifact_episode, previous_storyboard_id)
-            if artifact_episode is not None
-            else ArtifactKey.episode_storyboard(1, previous_storyboard_id)
-        )
+        previous_key = ArtifactKey.episode_storyboard(artifact_episode, previous_storyboard_id)
         if not artifact_input_is_usable(
             resolver=currency_resolver,
             key=previous_key,
@@ -594,7 +590,7 @@ def _collect_shot_product_references(
     project_path: Path,
     item: dict,
     *,
-    currency_resolver: ArtifactCurrencyResolver | None = None,
+    currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
     """产品镜头（``products_in_shot`` 非空）的产品参考集，用于分镜图生成。
@@ -629,7 +625,7 @@ def collect_product_references_for_names(
     project_path: Path,
     names: Sequence[str],
     *,
-    currency_resolver: ArtifactCurrencyResolver | None = None,
+    currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
     """按产品名列表收集产品参考集（注入二元规则的装配核心，条目语义见
@@ -1387,7 +1383,7 @@ async def execute_storyboard_task(
         _target_item, _target_index = _resolved
         _semantic_prompt = _target_item.get("image_prompt")
 
-        _prev_path = resolve_previous_storyboard_path(_project_path, _project, _items, _id_field, resource_id)
+        _prev_path = resolve_previous_storyboard_path(_project_path, _items, _id_field, resource_id)
         _previous_id = (
             str(_items[_target_index - 1].get(_id_field) or "")
             if _prev_path is not None and _target_index > 0
@@ -2101,7 +2097,6 @@ async def execute_video_task(
             project=_project,
             script=_script,
             script_filename=script_file,
-            legacy_episode_fallback=1,
         )
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
@@ -2949,7 +2944,7 @@ def _collect_grid_reference_images(
     *,
     project: dict[str, Any] | None = None,
     script: dict[str, Any] | None = None,
-    currency_resolver: ArtifactCurrencyResolver | None = None,
+    currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
     visual_references: list[VisualReference] | None = None,
 ) -> tuple[list[object] | None, list[dict]]:
@@ -3123,7 +3118,6 @@ async def execute_grid_task(
         project=project,
         script=script,
         script_filename=grid.script_file,
-        legacy_episode_fallback=grid.episode,
     )
     artifact_episode = script_input.episode
     if artifact_episode != grid.episode:

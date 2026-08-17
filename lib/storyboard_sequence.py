@@ -4,12 +4,11 @@ Helpers for storyboard sequence ordering and dependency planning.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from lib.path_safety import safe_join, try_safe_join
-from lib.project_schema import project_schema_is_current
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script_editor import resolve_items
 from lib.script_models import get_generated_assets
@@ -123,21 +122,20 @@ def resolve_storyboard_image_ref(project_path: Path, storyboard_rel: object) -> 
 def resolve_storyboard_video_inputs(
     *,
     project_path: Path,
-    project: Mapping[str, object],
     resource_id: str,
     item: dict[str, object],
-    allow_legacy_same_name: bool | None = None,
 ) -> tuple[Path, Path | None]:
-    """Resolve the exact current storyboard and optional canonical end frame."""
+    """Resolve the exact current storyboard and optional canonical end frame.
+
+    The recorded binding is the only evidence of which image belongs to this
+    resource; a resource without one is refused rather than matched against a
+    same-named file that nothing claims.
+    """
 
     storyboard_rel = get_generated_assets(item).get("storyboard_image")
     storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
     if storyboard_file is None:
-        if allow_legacy_same_name is None:
-            allow_legacy_same_name = not project_schema_is_current(project)
-        if not allow_legacy_same_name:
-            raise StoryboardImageBindingRequired(f"storyboard binding missing: {resource_id}")
-        storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
+        raise StoryboardImageBindingRequired(f"storyboard binding missing: {resource_id}")
     if not storyboard_file.is_file():
         raise StoryboardImageUnavailable(f"storyboard not found: {storyboard_file.name}")
 
@@ -167,7 +165,6 @@ def resolve_storyboard_video_inputs(
 
 def resolve_previous_storyboard_path(
     project_path: Path,
-    project: Mapping[str, object],
     items: Sequence[dict],
     id_field: str,
     resource_id: str,
@@ -186,15 +183,10 @@ def resolve_previous_storyboard_path(
         return None
 
     previous_rel = get_generated_assets(previous_item).get("storyboard_image")
-    if previous_rel not in (None, ""):
-        previous_path = resolve_storyboard_image_ref(project_path, previous_rel)
-        return previous_path if previous_path is not None and previous_path.is_file() else None
-    if project_schema_is_current(project):
+    if previous_rel in (None, ""):
         return None
-    previous_path = project_path / "storyboards" / f"scene_{previous_id}.png"
-    if previous_path.exists():
-        return previous_path
-    return None
+    previous_path = resolve_storyboard_image_ref(project_path, previous_rel)
+    return previous_path if previous_path is not None and previous_path.is_file() else None
 
 
 def build_previous_storyboard_reference(path: Path) -> dict:

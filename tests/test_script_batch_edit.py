@@ -265,18 +265,54 @@ def test_ad_batch_edit_registers_shared_canonical_script_basis(tmp_path: Path) -
     assert entry.basis_digest == build_ad_episode_script_basis(1, project=pm.load_project("demo")).digest
 
 
-def test_schema7_batch_edit_does_not_activate_manifest(editor: tuple[ProjectManager, ScriptBatchEditor, Path]) -> None:
+def test_unmigrated_project_batch_edit_refuses_instead_of_activating(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    """产物清单是唯一读取口径：schema 未到 8 的项目既不隐性激活清单，也不放行写入。"""
     pm, service, project_dir = editor
     pm.update_project("demo", lambda project: project.update({"schema_version": 7}))
     (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
+    before = (project_dir / "scripts" / "episode_1.json").read_bytes()
 
     result = service.execute(
         "demo",
         _command(pm, [{"op": "update", "id": "E1S01", "fields": {"note": "legacy"}}]),
     )
 
-    assert result.success is True
+    assert result.success is False
+    assert result.problems[0].code == "project_migration_failed"
+    assert result.problems[0].next_action == "retry_project_migration"
     assert not (project_dir / ".arcreel_artifacts.json").exists()
+    assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
+
+
+def test_unmigrated_project_refuses_a_script_that_prepares_no_manifest_commit(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    """集号不成立的剧本不预备清单提交，未迁移项目的阻断因此不能只靠提交处抛错。"""
+    pm, service, project_dir = editor
+    script = _script()
+    script["episode"] = 0
+    pm.save_script("demo", script, "custom.json")
+    pm.update_project("demo", lambda project: project.update({"schema_version": 7}))
+    (project_dir / ".arcreel_artifacts.json").unlink(missing_ok=True)
+    before = (project_dir / "scripts" / "custom.json").read_bytes()
+
+    result = service.execute(
+        "demo",
+        ScriptBatchEditCommand.model_validate(
+            {
+                "script": "custom.json",
+                "expected_revision": script_revision(pm.load_script("demo", "custom.json")),
+                "operations": [{"op": "update", "id": "E1S01", "fields": {"novel_text": "改写后的原文。"}}],
+            }
+        ),
+    )
+
+    assert result.success is False
+    assert result.problems[0].code == "project_migration_failed"
+    assert result.problems[0].next_action == "retry_project_migration"
+    assert (project_dir / "scripts" / "custom.json").read_bytes() == before
 
 
 @pytest.mark.parametrize("failure_index", [0, 1, 2])

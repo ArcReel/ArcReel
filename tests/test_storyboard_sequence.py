@@ -19,14 +19,18 @@ class TestStoryboardSequence:
         previous_path.write_bytes(b"png")
 
         items = [
-            {"segment_id": "E1S01", "segment_break": False},
+            {
+                "segment_id": "E1S01",
+                "segment_break": False,
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+            },
             {"segment_id": "E1S02", "segment_break": False},
             {"segment_id": "E1S03", "segment_break": True},
         ]
 
-        assert resolve_previous_storyboard_path(project_path, {}, items, "segment_id", "E1S01") is None
-        assert resolve_previous_storyboard_path(project_path, {}, items, "segment_id", "E1S02") == previous_path
-        assert resolve_previous_storyboard_path(project_path, {}, items, "segment_id", "E1S03") is None
+        assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S01") is None
+        assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S02") == previous_path
+        assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S03") is None
 
     def test_resolve_previous_storyboard_path_does_not_backtrack(self, tmp_path: Path):
         project_path = tmp_path / "demo"
@@ -34,14 +38,23 @@ class TestStoryboardSequence:
         (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
 
         items = [
-            {"segment_id": "E1S01", "segment_break": False},
-            {"segment_id": "E1S02", "segment_break": False},
+            {
+                "segment_id": "E1S01",
+                "segment_break": False,
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+            },
+            {
+                "segment_id": "E1S02",
+                "segment_break": False,
+                "generated_assets": {"storyboard_image": "storyboards/scene_E1S02.png"},
+            },
             {"segment_id": "E1S03", "segment_break": False},
         ]
 
-        assert resolve_previous_storyboard_path(project_path, {}, items, "segment_id", "E1S03") is None
+        # E1S02 的登记指针指向尚未落盘的文件：E1S03 只看紧邻的前一项，不回溯到 E1S01。
+        assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S03") is None
 
-    def test_schema8_previous_storyboard_requires_an_explicit_binding(self, tmp_path: Path):
+    def test_previous_storyboard_requires_an_explicit_binding(self, tmp_path: Path):
         project_path = tmp_path / "demo"
         (project_path / "storyboards").mkdir(parents=True)
         previous_path = project_path / "storyboards" / "scene_E1S01.png"
@@ -51,28 +64,11 @@ class TestStoryboardSequence:
             {"segment_id": "E1S02", "generated_assets": {}},
         ]
 
-        assert (
-            resolve_previous_storyboard_path(
-                project_path,
-                {"schema_version": 8},
-                items,
-                "segment_id",
-                "E1S02",
-            )
-            is None
-        )
+        # 磁盘上有同名残留文件，但没有登记指针就不认。
+        assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S02") is None
 
         items[0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
-        assert (
-            resolve_previous_storyboard_path(
-                project_path,
-                {"schema_version": 8},
-                items,
-                "segment_id",
-                "E1S02",
-            )
-            == previous_path
-        )
+        assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S02") == previous_path
 
     def test_build_storyboard_dependency_plan_groups_contiguous_ranges(self):
         items = [

@@ -10,6 +10,7 @@ from lib.generation_queue_client import TaskSpec
 from lib.generation_result import GenerationSelectionMode
 from lib.narration_delivery import POST_PRODUCTION
 from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, WorkflowStepState
 from lib.workflow_state import (
     WorkflowActionType,
@@ -67,7 +68,11 @@ class _ProjectManager:
 
     def load_project_readonly(self, project_name: str) -> dict[str, Any]:
         assert project_name == "demo"
-        return {"content_mode": "narration", "generation_mode": "storyboard"}
+        return {
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+        }
 
     def load_script_readonly(self, project_name: str, script_file: str) -> dict[str, Any]:
         assert project_name == "demo"
@@ -77,6 +82,20 @@ class _ProjectManager:
     def get_project_path(self, project_name: str) -> Path:
         assert project_name == "demo"
         return self.project_path
+
+
+def _project_dir(tmp_path: Path) -> Path:
+    """真实的 v8 项目目录：计划按产物清单读取产物，纸面路径不成立。"""
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata(
+        "demo",
+        "Demo",
+        "",
+        "narration",
+        extras={"generation_mode": "storyboard", "grid_storyboard": False},
+    )
+    return pm.get_project_path("demo")
 
 
 def _script(*, mixed: bool = False) -> dict[str, Any]:
@@ -100,7 +119,7 @@ def _script(*, mixed: bool = False) -> dict[str, Any]:
 async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singleton(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pm = _ProjectManager(tmp_path, _script())
+    pm = _ProjectManager(_project_dir(tmp_path), _script())
     monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
     task_calls: list[str] = []
 
@@ -137,7 +156,7 @@ async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singl
 async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pm = _ProjectManager(tmp_path, _script())
+    pm = _ProjectManager(_project_dir(tmp_path), _script())
     monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
 
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
@@ -183,7 +202,7 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
 async def test_recovery_checkpoint_without_provider_job_remains_visible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pm = _ProjectManager(tmp_path, _script())
+    pm = _ProjectManager(_project_dir(tmp_path), _script())
     monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
 
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
@@ -226,7 +245,7 @@ async def test_recovery_checkpoint_without_provider_job_remains_visible(
 async def test_mixed_speech_blocks_before_storyboard_and_uses_atomic_script_edit_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pm = _ProjectManager(tmp_path, _script(mixed=True))
+    pm = _ProjectManager(_project_dir(tmp_path), _script(mixed=True))
     monkeypatch.setattr(
         workflow_planner.WorkflowStateService,
         "get_status",
@@ -287,7 +306,7 @@ async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
 ) -> None:
     """计划走的是提交侧同一条 spec 构造缝：分镜图不可用的条目在计划里就被逐 ID 拒绝。"""
 
-    pm = _ProjectManager(tmp_path, _script())
+    pm = _ProjectManager(_project_dir(tmp_path), _script())
     monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
 
     async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
@@ -316,7 +335,7 @@ async def test_planner_hands_the_submitted_visual_prompt_to_the_admission(
 ) -> None:
     """准入按真正会提交的视觉提示词判断已付费产物能否复用，计划不得把它留空。"""
 
-    pm = _ProjectManager(tmp_path, _script())
+    pm = _ProjectManager(_project_dir(tmp_path), _script())
     monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
 
     async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
@@ -360,7 +379,7 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
 ) -> None:
     """音频闸门与入队入口同一道：计划预告的准入结论包含它，用户不必提交后才撞见。"""
 
-    pm = _ProjectManager(tmp_path, _script())
+    pm = _ProjectManager(_project_dir(tmp_path), _script())
     monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
 
     async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:

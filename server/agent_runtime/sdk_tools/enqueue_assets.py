@@ -73,7 +73,7 @@ def asset_name_of(unit_id: str) -> str:
 def _asset_candidates(
     project: dict[str, Any],
     asset_type: str,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
 ) -> list[GenerationCandidate]:
     """Missing-only candidates for one asset type."""
 
@@ -84,11 +84,7 @@ def _asset_candidates(
         candidates.append(
             GenerationCandidate(
                 unit_id=asset_unit_id(asset_type, name),
-                artifact_key=(
-                    ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name))
-                    if resolver is not None
-                    else None
-                ),
+                artifact_key=ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name)),
                 artifact_path=sheet if isinstance(sheet, str) else None,
             )
         )
@@ -225,7 +221,6 @@ def generate_assets_tool(ctx: ToolContext):
                     candidates=_asset_candidates(project, t, resolver),
                     requested_ids=_requested_unit_ids(project, t, names),
                     resolver=resolver,
-                    project_dir=ctx.project_path,
                 )
                 builder.absorb(selection)
                 for state in selection.targets:

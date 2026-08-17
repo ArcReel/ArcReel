@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 
 pytestmark = pytest.mark.unit
 
@@ -28,6 +29,7 @@ def _seed(pm: ProjectManager, name: str) -> None:
         name,
         {
             "name": name,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "generation_mode": "reference_video",
             "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
             "metadata": {"created_at": "2025-01-01", "updated_at": "2025-01-01"},

@@ -8,6 +8,7 @@ from lib.artifact_activation import artifact_input_is_usable
 from lib.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
+    ArtifactComparison,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifest,
@@ -31,12 +32,24 @@ def test_archive_manifest_payload_wraps_serialization_recursion(monkeypatch) -> 
         decode_artifact_manifest_payload({})
 
 
-def test_legacy_formal_input_selection_retains_identity_for_later_activation() -> None:
+def test_formal_input_selection_retains_identity_for_the_provider_recheck() -> None:
+    """选中的产物连同 key 与登记路径一并留证，供应商提交前复核的就是同一条认领。"""
+
     key = ArtifactKey.episode_script(1)
     claims = []
 
+    class _Resolver:
+        def resolve_usable_entry(self, _key, *, artifact_path):
+            return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
+
+        def artifact_content_digest(self, _artifact_path):
+            return "0" * 64
+
+        def compare_frozen_entry(self, _key, entry):
+            return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=entry.artifact_path)
+
     assert artifact_input_is_usable(
-        resolver=None,
+        resolver=_Resolver(),  # type: ignore[arg-type]
         key=key,
         artifact_path="scripts/episode_1.json",
         claims=claims,

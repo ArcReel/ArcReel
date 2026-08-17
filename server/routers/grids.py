@@ -31,7 +31,6 @@ from lib.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_s
 from lib.json_io import domain_error_on_value_error
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
-from lib.project_schema import project_schema_is_current
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
@@ -81,7 +80,7 @@ def _load_admitted_grid_script(
             script=script,
             script_filename=script_file,
         )
-        if project_schema_is_current(project) and script_episode != episode:
+        if script_episode != episode:
             raise ValueError(f"script episode {script_episode!r} does not match requested episode {episode}")
     return script
 

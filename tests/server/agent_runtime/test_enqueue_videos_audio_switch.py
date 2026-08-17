@@ -7,6 +7,7 @@ WebUI 提交入口拒绝的配置（成片恒有声的模型 + 关闭音频）�
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -199,25 +200,82 @@ class TestReferenceRouteGate:
         assert not admission.admitted
 
 
-class _EpisodePM:
-    """整集工具够用的 pm 替身：一集一个 segment，分镜图有无由调用方决定。"""
+def _claim_existing_video(project_dir: Path, resource_id: str) -> None:
+    """落一段已产出的视频并在清单里登记它：清单是「这条已经做过」的唯一凭据。"""
 
-    def __init__(self, project_dir: Path, *, with_storyboard: bool) -> None:
+    from lib.artifact_manifest import (
+        ArtifactKey,
+        ArtifactManifest,
+        ArtifactManifestEntry,
+        ProjectArtifactManifestAdapter,
+    )
+    from lib.resource_paths import resource_relative_path
+
+    artifact_path = resource_relative_path("videos", resource_id)
+    absolute = project_dir / artifact_path
+    absolute.parent.mkdir(parents=True, exist_ok=True)
+    absolute.write_bytes(b"rendered-video")
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).register_entry_transactionally(
+        ArtifactKey.episode_video(1, resource_id),
+        ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="sha256-v1:" + "a" * 64),
+    )
+
+
+class _EpisodePM:
+    """整集工具够用的 pm 替身：一集一个 segment，分镜图有无由调用方决定。
+
+    项目按生产形态构造：schema v8、剧本在 episodes 账本里绑定，已落盘的分镜图在构造时
+    经清单激活登记——清单是读取已生成产物的唯一口径。构造之后用例会往内存剧本里塞畸形
+    条目验证工具侧的逐条拒收，那些条目不回写磁盘，清单保持这份干净基线。
+    """
+
+    def __init__(self, project_dir: Path, *, with_storyboard: bool, with_video: bool = False) -> None:
         self._project_dir = project_dir
         item: dict[str, Any] = {
             "segment_id": "E1S01",
             "novel_text": "镜头缓缓扫过原野。",
+            "image_prompt": "原野远景",
             "video_prompt": "镜头平移",
         }
+        assets: dict[str, Any] = {}
         if with_storyboard:
-            item["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+            assets["storyboard_image"] = "storyboards/scene_E1S01.png"
+        if with_video:
+            from lib.resource_paths import resource_relative_path
+
+            assets["video_clip"] = resource_relative_path("videos", "E1S01")
+        if assets:
+            item["generated_assets"] = assets
         self.script_payload: dict[str, Any] = {"content_mode": "narration", "episode": 1, "segments": [item]}
+        self.project_payload: dict[str, Any] = {
+            "schema_version": 8,
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+        self._mirror()
 
     def get_project_path(self, _name: str) -> Path:
         return self._project_dir
 
+    def _mirror(self) -> None:
+        """把基线项目落盘并激活产物清单，等价于生产的迁移补录。"""
+
+        from lib.artifact_activation import activate_artifact_target_state
+
+        self._project_dir.mkdir(parents=True, exist_ok=True)
+        (self._project_dir / "project.json").write_text(
+            json.dumps(self.project_payload, ensure_ascii=False), encoding="utf-8"
+        )
+        scripts_dir = self._project_dir / "scripts"
+        scripts_dir.mkdir(exist_ok=True)
+        (scripts_dir / "episode_1.json").write_text(
+            json.dumps(self.script_payload, ensure_ascii=False), encoding="utf-8"
+        )
+        activate_artifact_target_state(self._project_dir, bump_schema=False)
+
     def load_project(self, _name: str) -> dict[str, Any]:
-        return {"generation_mode": "storyboard"}
+        return self.project_payload
 
     def load_script(self, _name: str, _filename: str) -> dict[str, Any]:
         return self.script_payload
@@ -227,15 +285,18 @@ class _EpisodePM:
 class TestStoryboardGateSkipsEmptyBatches:
     """没有任务要入队时不触发闸门：存量的关闭音频配置不该把一次空转变成报错。"""
 
-    def _ctx_with(self, tmp_path: Path, *, with_storyboard: bool) -> ToolContext:
+    def _ctx_with(self, tmp_path: Path, *, with_storyboard: bool, with_video: bool = False) -> ToolContext:
         project_dir = tmp_path / "demo"
         (project_dir / "storyboards").mkdir(parents=True)
         (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
-        return ToolContext(
+        ctx = ToolContext(
             project_name="demo",
             projects_root=tmp_path,
-            pm=_EpisodePM(project_dir, with_storyboard=with_storyboard),  # type: ignore[arg-type]
+            pm=_EpisodePM(project_dir, with_storyboard=with_storyboard, with_video=with_video),  # type: ignore[arg-type]
         )
+        if with_video:
+            _claim_existing_video(project_dir, "E1S01")
+        return ctx
 
     async def _run_episode(self, ctx: ToolContext, monkeypatch, **args: Any) -> dict[str, Any]:
         rejected: list[str] = []
@@ -250,10 +311,8 @@ class TestStoryboardGateSkipsEmptyBatches:
         return {"out": out, "rejected": rejected}
 
     async def test_resume_with_everything_done_reports_completion(self, tmp_path, monkeypatch):
-        ctx = self._ctx_with(tmp_path, with_storyboard=True)
+        ctx = self._ctx_with(tmp_path, with_storyboard=True, with_video=True)
         videos_dir = tmp_path / "demo" / "videos"
-        videos_dir.mkdir(parents=True)
-        (videos_dir / "scene_E1S01.mp4").write_bytes(b"")
         mod._save_checkpoint_at(videos_dir / ".checkpoint_ep1.json", ["E1S01"], "2026-01-01T00:00:00+00:00", episode=1)
 
         result = await self._run_episode(ctx, monkeypatch, resume=True)

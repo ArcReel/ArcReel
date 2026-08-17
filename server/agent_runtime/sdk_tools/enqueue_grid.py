@@ -59,10 +59,10 @@ from server.services.grid_split import apply_grid_split
 _OPERATION = "generate_grid"
 
 
-def _scene_artifact_key(episode: int, scene_id: str, resolver: ArtifactCurrencyResolver | None) -> ArtifactKey | None:
+def _scene_artifact_key(episode: int, scene_id: str) -> ArtifactKey:
     """本工具的产物是各场景的分镜格；联合图只是共享的载体，不是被请求的 ID。"""
 
-    return ArtifactKey.episode_storyboard(episode, scene_id) if resolver is not None else None
+    return ArtifactKey.episode_storyboard(episode, scene_id)
 
 
 def _fail_scenes(
@@ -71,7 +71,7 @@ def _fail_scenes(
     *,
     problem: GenerationProblem,
     episode: int,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
     task_id: str | None = None,
     task_state: GenerationTaskState = GenerationTaskState.FAILED,
     provider_checkpoint: ProviderCheckpoint | None = None,
@@ -87,7 +87,7 @@ def _fail_scenes(
 
     for scene_id in scene_ids:
         artifact_path = (artifact_paths or {}).get(scene_id)
-        artifact_key = _scene_artifact_key(episode, scene_id, resolver)
+        artifact_key = _scene_artifact_key(episode, scene_id)
         artifact_status, _blocker = observe_artifact_status(
             resolver=resolver, key=artifact_key, artifact_path=artifact_path
         )
@@ -260,11 +260,7 @@ def generate_grid_tool(ctx: ToolContext):
                         candidates=[
                             GenerationCandidate(
                                 unit_id=str(item.get(id_field)),
-                                artifact_key=(
-                                    ArtifactKey.episode_storyboard(episode, str(item.get(id_field)))
-                                    if resolver is not None
-                                    else None
-                                ),
+                                artifact_key=ArtifactKey.episode_storyboard(episode, str(item.get(id_field))),
                                 artifact_path=get_generated_assets(item).get("storyboard_image"),
                             )
                             for item in group
@@ -272,7 +268,6 @@ def generate_grid_tool(ctx: ToolContext):
                         ],
                         requested_ids=None,
                         resolver=resolver,
-                        project_dir=ctx.project_path,
                     )
                     if selection.unavailable:
                         unavailable_ids = {state.unit_id for state in selection.unavailable}
@@ -500,7 +495,7 @@ def generate_grid_tool(ctx: ToolContext):
                     # （该分镜已不在剧本里）是这一个场景自己的失败，不牵连同组其他场景。
                     cut = set(split_result.updated_scene_ids)
                     for scene_id in report_ids:
-                        scene_key = _scene_artifact_key(episode, scene_id, resolver)
+                        scene_key = _scene_artifact_key(episode, scene_id)
                         if scene_id not in cut:
                             builder.fail(
                                 scene_id,

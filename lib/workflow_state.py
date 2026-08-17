@@ -28,15 +28,13 @@ from lib.episode_ledger import (
     normalize_source_text,
     parse_positive_episode_num,
 )
-from lib.path_safety import safe_exists
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MIGRATION_FAILURE_FILENAME,
     MigrationFailureRecord,
-    load_migration_failure,
+    load_migration_verdict,
 )
-from lib.project_schema import project_schema_is_current
 from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
@@ -428,10 +426,6 @@ class WorkflowStateService:
                         resource_id=name,
                         blockers=blockers,
                     )
-                elif project_schema_is_current(project):
-                    collection["missing_ids"].append(name)
-                elif isinstance(path, str) and safe_exists(project_path, path):
-                    collection["current_ids"].append(name)
                 else:
                     collection["missing_ids"].append(name)
             collections[asset_type] = collection
@@ -707,10 +701,6 @@ class WorkflowStateService:
                     blockers=blockers,
                     missing_fallback=missing_fallback,
                 )
-            elif resolver is not None:
-                collection["missing_ids"].append(resource_id)
-            elif isinstance(artifact_path, str) and safe_exists(project_path, artifact_path):
-                collection["current_ids"].append(resource_id)
             else:
                 collection["missing_ids"].append(resource_id)
         return collection
@@ -718,7 +708,7 @@ class WorkflowStateService:
     def get_status(self, project_name: str, episode: int | None = None) -> WorkflowStatus:
         project = self.pm.load_project_readonly(project_name)
         project_path = self.pm.get_project_path(project_name)
-        failure = load_migration_failure(project_path)
+        failure = load_migration_verdict(project_path)
         if failure is not None:
             return self._migration_blocked_status(project, failure)
         shared = self._shared_facts(project_path, project)
@@ -763,18 +753,20 @@ class WorkflowStateService:
                         reason="ad workflow does not support grid storyboards",
                     )
                 )
+        # ``get_status`` refuses an unmigrated project before reaching here, so the
+        # only way to arrive without a resolver is a damaged sidecar — a blocker,
+        # never permission to classify artifacts by filesystem existence instead.
         currency: ArtifactCurrencyResolver | None = None
-        if project_schema_is_current(project):
-            try:
-                currency = ArtifactCurrencyResolver(project_path)
-            except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
-                blockers.append(
-                    WorkflowBlocker(
-                        code="artifact_currency_unavailable",
-                        path=".arcreel_artifacts.json",
-                        reason=str(exc),
-                    )
+        try:
+            currency = ArtifactCurrencyResolver(project_path)
+        except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            blockers.append(
+                WorkflowBlocker(
+                    code="artifact_currency_unavailable",
+                    path=".arcreel_artifacts.json",
+                    reason=str(exc),
                 )
+            )
         asset_validation = DataValidator(str(self.pm.projects_root)).validate_asset_definitions(project)
         if not asset_validation.valid:
             blockers.append(

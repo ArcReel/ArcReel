@@ -456,7 +456,7 @@ class ProjectArchiveService:
         artifact_manifest = None
         if isinstance(snapshot_project, dict) and project_schema_is_current(snapshot_project):
             if source_manifest_entries is None:
-                raise ArtifactManifestError("schema-v8 archive snapshot has no matching Artifact Manifest state")
+                raise ArtifactManifestError("archive snapshot has no matching Artifact Manifest state")
             artifact_manifest = encode_artifact_manifest_payload(
                 snapshot_preserved_artifact_manifest(
                     snapshot_dir,
@@ -681,6 +681,14 @@ class ProjectArchiveService:
         self,
         source_dir: Path,
     ) -> dict[ArtifactKey, ArtifactManifestEntry] | None:
+        """源项目的完整 claim 快照；尚未进入清单体系的项目返回 ``None``。
+
+        这道闸判的是「该项目有没有清单可保全」，不是产物读取口径，与写信封那处同判据。
+        未进入体系的项目清单必然为空，而空清单与「这个项目一件产物都没有」在信封里长得
+        一模一样：导入端见到信封就按保真路径原样落盘，项目里全部已生成产物会一次判
+        missing、要用户重新付费生成。这类项目的归档不带信封，导入侧照常迁移并自证补录。
+        """
+
         project = self._load_json_file(source_dir / self.project_manager.PROJECT_FILE)
         if not isinstance(project, dict) or not project_schema_is_current(project):
             return None

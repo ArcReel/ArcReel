@@ -74,7 +74,7 @@ def _resolve_request_artifact_episode(
     project: dict,
     script: dict,
     script_file: str,
-) -> int | None:
+) -> int:
     """Validate the submitted script's live project binding before enqueue."""
 
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=script_file)):
@@ -265,9 +265,8 @@ async def generate_video(
         if is_reference_video_project(project):
             raise ConflictError("video_route_is_reference_video")
 
-        # 与 worker 一致：优先读取 generated_assets.storyboard_image；Manifest 激活前
-        # 保留默认路径兼容，激活后要求显式绑定。旧宫格项目指向 scene_{id}_first.png
-        # 时仍可正常解析。
+        # 与 worker 一致：分镜图只认 generated_assets.storyboard_image 的显式绑定，
+        # 不按同名文件推断。宫格项目指向 scene_{id}_first.png 时仍可正常解析。
         # 脚本缺失（FileNotFoundError）/ 脏脚本（分镜数组键损坏，ScriptEditError）均
         # fail-fast：不能 silently 降级走 default 路径——default 文件恰好存在时会让请求
         # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级
@@ -516,8 +515,6 @@ async def generate_tts_batch(
         items, id_field, kind = resolve_items(script)
         episode = _resolve_request_artifact_episode(_project, script, req.script_file)
         currency = active_artifact_currency_resolver(pm_local.get_project_path(project_name), _project)
-        if currency is not None and episode is None:
-            raise ValueError("script episode must be a positive integer")
         missing: list[str] = []
         for item in items:
             admission = admit_script_unit(kind, item)
@@ -528,9 +525,7 @@ async def generate_tts_batch(
             seg_id = item.get(id_field)
             if seg_id and not artifact_is_usable(
                 currency,
-                ArtifactKey.episode_audio(episode, str(seg_id))
-                if currency is not None and episode is not None
-                else None,
+                ArtifactKey.episode_audio(episode, str(seg_id)),
                 get_generated_assets(item).get("narration_audio"),
             ):
                 missing.append(str(seg_id))

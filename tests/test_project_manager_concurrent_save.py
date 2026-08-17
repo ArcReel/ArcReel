@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.project_archive import ProjectArchiveService
 
 pytestmark = pytest.mark.unit
@@ -27,6 +28,7 @@ def _seed_project(pm: ProjectManager, name: str) -> None:
         name,
         {
             "name": name,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [],
             "metadata": {"created_at": "2025-01-01", "updated_at": "2025-01-01"},
         },

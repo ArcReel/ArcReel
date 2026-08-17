@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 import lib.script_review as script_review
+from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
+from lib.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
 from lib.speech_composition import SpeechAdmissionError
@@ -19,6 +21,35 @@ def _write(path: Path, text: str):
 
 def _write_json(path: Path, payload: dict):
     _write(path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _write_project_json(project_path: Path, payload: dict) -> None:
+    """写一份生产形态的 project.json。
+
+    ProjectManager 建项目时恒写 schema_version 与 generation_mode，分集账本则在剧本落盘前
+    就已绑定；缺任一项的项目在生产里不存在，产物清单与类型化 basis 都会据此拒绝。
+    """
+    _write_json(
+        project_path / "project.json",
+        {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            **payload,
+        },
+    )
+
+
+def _activate_project_artifacts(project_path: Path, episode: int = 1) -> None:
+    """补齐该集的溯源输入后，对项目做一次全量产物激活。
+
+    产物清单是读取已生成产物的唯一口径：落盘本身不代表已登记，未登记的 step1 不能进入付费调用。
+    ``episode`` 只决定补写哪一集的 ``source/episode_{episode}.txt``；登记范围是整个项目。
+    """
+    source = project_path / "source" / f"episode_{episode}.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("原文", encoding="utf-8")
+    activate_artifact_target_state(project_path, bump_schema=False)
 
 
 def _valid_narration_response() -> dict:
@@ -57,8 +88,8 @@ def _valid_narration_response() -> dict:
 
 def _write_drama_ledger_project(project_path: Path, episodes: list[dict], characters: dict | None = None) -> None:
     """写一个带分集账本条目的最小 drama 项目 project.json。"""
-    _write_json(
-        project_path / "project.json",
+    _write_project_json(
+        project_path,
         {
             "title": "项目",
             "content_mode": "drama",
@@ -169,8 +200,8 @@ class TestScriptGenerator:
     async def test_build_prompt_uses_step1_content(self, tmp_path):
         """build_prompt 无需 client 即可使用（dry-run 模式）：narration 渲染结构化 step1。"""
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目",
                 "content_mode": "narration",
@@ -195,8 +226,8 @@ class TestScriptGenerator:
     async def test_build_prompt_appends_user_instructions(self, tmp_path):
         """instructions 以中性「用户意见」分节追加到 prompt 末尾；未传时无该分节。"""
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目",
                 "content_mode": "narration",
@@ -221,8 +252,8 @@ class TestScriptGenerator:
     async def test_narration_step2_build_prompt_uses_project_source_language(self, tmp_path):
         """narration step2（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目",
                 "content_mode": "narration",
@@ -247,8 +278,8 @@ class TestScriptGenerator:
     async def test_load_step1_drama_missing_raises_without_fallback(self, tmp_path):
         """drama 集缺 step1_normalized_script.json 时显式报错；不得降级改读 narration 的拆分表。"""
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目",
                 "content_mode": "drama",
@@ -272,6 +303,7 @@ class TestScriptGenerator:
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
         )
         _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", "[]")
+        _activate_project_artifacts(project_path)
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="顶层应为对象"):
             generator._load_drama_step1_content(1)
@@ -284,8 +316,9 @@ class TestScriptGenerator:
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
         )
-        _write_json(
-            project_path / "drafts" / "episode_1" / "step1_normalized_script.json",
+        _write_drama_step1_json(
+            project_path,
+            1,
             {"title": "第一集", "scenes": {}},
         )
         generator = ScriptGenerator(project_path)
@@ -300,8 +333,9 @@ class TestScriptGenerator:
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
         )
-        _write_json(
-            project_path / "drafts" / "episode_1" / "step1_normalized_script.json",
+        _write_drama_step1_json(
+            project_path,
+            1,
             {"title": "第一集", "scenes": []},
         )
         generator = ScriptGenerator(project_path)
@@ -316,8 +350,9 @@ class TestScriptGenerator:
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
         )
-        _write_json(
-            project_path / "drafts" / "episode_1" / "step1_normalized_script.json",
+        _write_drama_step1_json(
+            project_path,
+            1,
             {"title": "第一集", "scenes": [{"scene_id": "E1S01"}, 42]},
         )
         generator = ScriptGenerator(project_path)
@@ -332,8 +367,9 @@ class TestScriptGenerator:
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
         )
-        _write_json(
-            project_path / "drafts" / "episode_1" / "step1_normalized_script.json",
+        _write_drama_step1_json(
+            project_path,
+            1,
             {"title": "第一集", "scenes": [{"scene_id": ""}]},
         )
         generator = ScriptGenerator(project_path)
@@ -349,8 +385,9 @@ class TestScriptGenerator:
             project_path,
             [{"episode": 2, "title": "第二集", "script_file": "scripts/episode_2.json"}],
         )
-        _write_json(
-            project_path / "drafts" / "episode_2" / "step1_normalized_script.json",
+        _write_drama_step1_json(
+            project_path,
+            2,
             {"title": "第二集", "scenes": [{"scene_id": "E1S02_1"}, {"scene_id": "E2S02_1"}]},
         )
         generator = ScriptGenerator(project_path)
@@ -445,7 +482,7 @@ class TestScriptGenerator:
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
             characters={"姜月茴": {}},
         )
-        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
 
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
@@ -472,7 +509,7 @@ class TestScriptGenerator:
             ],
             characters={"姜月茴": {}},
         )
-        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
 
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
@@ -494,7 +531,7 @@ class TestScriptGenerator:
         payload = json.loads(project_json_path.read_text(encoding="utf-8"))
         payload["source_language"] = "English"
         _write_json(project_json_path, payload)
-        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
 
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
@@ -525,8 +562,8 @@ class TestScriptGenerator:
     @pytest.mark.unit
     async def test_generate_writes_script_and_metadata(self, tmp_path):
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目",
                 "content_mode": "narration",
@@ -606,7 +643,9 @@ class TestScriptGenerator:
 
         class _MutatingTextGenerator(_FakeTextGenerator):
             async def generate(self, request, project_name=None):
-                _write_step1_json(project_path, 1, [_step1_seg("E1S01", "等待供应商期间被改过。", duration=4)])
+                _write_step1_json(
+                    project_path, 1, [_step1_seg("E1S01", "等待供应商期间被改过。", duration=4)], register=False
+                )
                 return await super().generate(request, project_name)
 
         fake = _MutatingTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
@@ -627,8 +666,8 @@ class TestScriptGenerator:
     @pytest.mark.unit
     async def test_generate_rejects_an_unregistered_formal_step1_before_provider(self, tmp_path):
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "schema_version": 8,
                 "title": "项目",
@@ -645,7 +684,7 @@ class TestScriptGenerator:
                 "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
             },
         )
-        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "未登记的正式原文。", duration=4)])
+        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "未登记的正式原文。", duration=4)], register=False)
         fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
         generator._fetch_video_capabilities = _fixed_caps_468
@@ -656,36 +695,40 @@ class TestScriptGenerator:
         assert fake.backend.last_request is None
 
     @pytest.mark.unit
-    async def test_generate_rechecks_legacy_step1_if_manifest_activates_while_awaiting_capabilities(
+    async def test_generate_rechecks_step1_registration_while_awaiting_capabilities(
         self,
         tmp_path,
     ):
+        """选中 step1 与付费调用之间清单条目被撤销 → 调用前的复核 fail loud，不发出请求。"""
+        from lib.artifact_manifest import ArtifactKey, ArtifactManifest, ProjectArtifactManifestAdapter
+
         project_path = tmp_path / "demo"
-        project = {
-            "schema_version": 7,
-            "title": "项目",
-            "content_mode": "drama",
-            "generation_mode": "storyboard",
-            "source_kind": "novel",
-            "source_language": "中文",
-            "overview": {},
-            "characters": {},
-            "scenes": {},
-            "props": {},
-            "style": "古风",
-            "style_description": "cinematic",
-            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
-        }
-        _write_json(project_path / "project.json", project)
-        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "drama",
+                "source_kind": "novel",
+                "source_language": "中文",
+                "overview": {},
+                "characters": {},
+                "scenes": {},
+                "props": {},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _activate_without_claim():
-            _write_json(project_path / "project.json", {**project, "schema_version": 8})
+        async def _forget_step1_claim():
+            ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).forget_entry_transactionally(
+                ArtifactKey.episode_step1(1)
+            )
             return {"supported_durations": [4, 6, 8]}
 
-        generator._fetch_video_capabilities = _activate_without_claim
+        generator._fetch_video_capabilities = _forget_step1_claim
 
         with pytest.raises(ValueError, match="formal artifact input.*no longer registered"):
             await generator.generate(1)
@@ -693,28 +736,28 @@ class TestScriptGenerator:
         assert fake.backend.last_request is None
 
     @pytest.mark.unit
-    async def test_generate_rechecks_legacy_step1_content_while_awaiting_capabilities(self, tmp_path):
+    async def test_generate_rechecks_step1_content_while_awaiting_capabilities(self, tmp_path):
+        """选中 step1 与付费调用之间正式文件被并发改写 → 调用前的复核 fail loud，不落盘也不登记。"""
         from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 
         project_path = tmp_path / "demo"
-        project = {
-            "schema_version": 7,
-            "title": "项目",
-            "content_mode": "drama",
-            "generation_mode": "storyboard",
-            "source_kind": "novel",
-            "source_language": "中文",
-            "overview": {},
-            "characters": {},
-            "scenes": {},
-            "props": {},
-            "style": "古风",
-            "style_description": "cinematic",
-            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
-        }
-        _write_json(project_path / "project.json", project)
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "drama",
+                "source_kind": "novel",
+                "source_language": "中文",
+                "overview": {},
+                "characters": {},
+                "scenes": {},
+                "props": {},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
         step1_path = project_path / "drafts" / "episode_1" / "step1_normalized_script.json"
-        _write_json(step1_path, _drama_step1_content())
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
@@ -754,7 +797,7 @@ class TestScriptGenerator:
             ],
             characters={"姜月茴": {}},
         )
-        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
 
         # drama 两段式：step2 LLM 只出视觉层，后端按 scene_id 合并回 step1 内容
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
@@ -775,8 +818,8 @@ class TestScriptGenerator:
     async def test_generate_without_ledger_hook_leaves_fields_null(self, tmp_path):
         """旧式条目（账本无钩子/预告）：字段为 null，写盘校验仍通过。"""
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目",
                 "content_mode": "narration",
@@ -806,8 +849,8 @@ class TestScriptGenerator:
         兜底改写 segment_id 前缀——step1 误写 E1S01、生成第 10 集时应改为 E10S01。
         """
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目",
                 "content_mode": "narration",
@@ -816,6 +859,7 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
+                "episodes": [{"episode": 10, "title": "第十集", "script_file": "scripts/episode_10.json"}],
             },
         )
         # step1 误写集号前缀 E1（应为 E10）
@@ -843,7 +887,7 @@ class TestScriptGenerator:
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
             characters={"姜月茴": {}},
         )
-        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
@@ -867,7 +911,7 @@ class TestScriptGenerator:
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
             characters={"姜月茴": {}},
         )
-        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
@@ -887,7 +931,7 @@ class TestScriptGenerator:
         content = _drama_step1_content()
         content["scenes"][0]["utterances"].append({"kind": "voiceover", "speaker": None, "text": "庭院里只剩风声。"})
         content["scenes"][0]["needs_replan"] = True
-        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", content)
+        _write_drama_step1_json(project_path, 1, content)
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
@@ -913,7 +957,7 @@ class TestScriptGenerator:
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
             characters={"姜月茴": {}},
         )
-        _write_json(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", _drama_step1_content())
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
 
         # 空视觉响应 → 合并时 step1 场景缺视觉，fail-loud；但模型调用已发生，仍可断言请求参数
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
@@ -969,8 +1013,8 @@ class TestAddMetadataRewritesEpisodePrefix:
         tmp_path: Path, content_mode: str = "narration", generation_mode: str = "storyboard"
     ) -> ScriptGenerator:
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目",
                 "content_mode": content_mode,
@@ -1025,8 +1069,8 @@ class TestAddMetadataRewritesEpisodePrefix:
     @pytest.mark.unit
     def test_reference_video_rewrites_unit_ids(self, tmp_path: Path) -> None:
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目",
                 "content_mode": "narration",
@@ -1073,8 +1117,8 @@ class TestAddMetadataInjectsHiddenFields:
     @staticmethod
     def _make_generator(tmp_path: Path, content_mode: str = "drama") -> ScriptGenerator:
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "项目标题",
                 "content_mode": content_mode,
@@ -1435,7 +1479,13 @@ def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> Script
     sg = ScriptGenerator.__new__(ScriptGenerator)
     sg.generator = None
     sg.project_path = project_dir
-    sg.project_json = {"content_mode": "narration", "episodes": [], **(project_extra or {})}
+    sg.project_json = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "episodes": [{"episode": n, "title": f"第{n}集", "script_file": f"scripts/episode_{n}.json"} for n in (1, 2)],
+        **(project_extra or {}),
+    }
     sg.content_mode = sg.project_json.get("content_mode", "narration")
     (project_dir / "project.json").write_text(json.dumps(sg.project_json, ensure_ascii=False), encoding="utf-8")
     return sg
@@ -1585,10 +1635,19 @@ def _visual_seg(segment_id: str, *, scene: str = "画面", action: str = "动作
     }
 
 
-def _write_step1_json(project_path: Path, episode: int, segments: list[dict]) -> None:
-    """写 narration step1 结构化中间文件 step1_segments.json。"""
+def _write_step1_json(project_path: Path, episode: int, segments: list[dict], *, register: bool = True) -> None:
+    """写 narration step1 结构化中间文件 step1_segments.json，并按生产口径登记进产物清单。"""
     path = project_path / "drafts" / f"episode_{episode}" / "step1_segments.json"
     _write(path, json.dumps({"episode": episode, "segments": segments}, ensure_ascii=False))
+    if register:
+        _activate_project_artifacts(project_path, episode)
+
+
+def _write_drama_step1_json(project_path: Path, episode: int, content: dict, *, register: bool = True) -> None:
+    """写 drama step1 结构化中间文件 step1_normalized_script.json，并登记进产物清单。"""
+    _write_json(project_path / "drafts" / f"episode_{episode}" / "step1_normalized_script.json", content)
+    if register:
+        _activate_project_artifacts(project_path, episode)
 
 
 def _narration_visual_response(segment_ids: list[str], *, title: str = "第一集") -> dict:
@@ -1682,6 +1741,7 @@ class TestLoadNarrationStep1:
         path = self._step1_path(sg, episode)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        _activate_project_artifacts(sg.project_path, episode)
 
     @pytest.mark.unit
     def test_loads_structured_segments_verbatim(self, tmp_path):
@@ -1788,10 +1848,16 @@ class TestLoadReferenceStep1:
     def _step1_path(sg: ScriptGenerator, episode: int) -> Path:
         return sg.project_path / "drafts" / f"episode_{episode}" / "step1_reference_units.json"
 
+    @staticmethod
+    def _generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
+        """参考路线项目：step1 的规范位置随 generation_mode 变，登记也据此定位。"""
+        return _bare_generator(tmp_path, {"generation_mode": "reference_video", **(project_extra or {})})
+
     def _write(self, sg: ScriptGenerator, episode: int, payload: dict) -> None:
         path = self._step1_path(sg, episode)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        _activate_project_artifacts(sg.project_path, episode)
 
     @staticmethod
     def _unit(unit_id: str, *, duration: int = 6) -> dict:
@@ -1799,14 +1865,14 @@ class TestLoadReferenceStep1:
 
     @pytest.mark.unit
     def test_loads_structured_units_verbatim(self, tmp_path):
-        sg = _bare_generator(tmp_path)
+        sg = self._generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U02", duration=8)]})
         units = sg._load_reference_step1(1, [4, 6, 8])
         assert [u["unit_id"] for u in units] == ["E1U01", "E1U02"]
 
     @pytest.mark.unit
     def test_duplicate_unit_id_raises(self, tmp_path):
-        sg = _bare_generator(tmp_path)
+        sg = self._generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U01")]})
         with pytest.raises(ValueError, match="重复|E1U01"):
             sg._load_reference_step1(1, [4, 6, 8])
@@ -1819,14 +1885,14 @@ class TestLoadReferenceStep1:
         LLM 若在 step1 混用集号前缀，需在 step1 读取侧提前拦截，不能拖到最终脚本静默落盘
         （与 _load_narration_step1 / _load_drama_step1_content 同口径）。
         """
-        sg = _bare_generator(tmp_path)
+        sg = self._generator(tmp_path)
         self._write(sg, 2, {"units": [self._unit("E1U01"), self._unit("E2U01")]})
         with pytest.raises(ValueError, match="改写|E2U01"):
             sg._load_reference_step1(2, [4, 6, 8])
 
     @pytest.mark.unit
     def test_duration_outside_supported_raises(self, tmp_path):
-        sg = _bare_generator(tmp_path)
+        sg = self._generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01", duration=5)]})  # 5 ∉ [4,6,8]
         with pytest.raises(ValueError, match="时长非法"):
             sg._load_reference_step1(1, [4, 6, 8])
@@ -1834,7 +1900,7 @@ class TestLoadReferenceStep1:
     @pytest.mark.integration
     def test_migrates_legacy_per_shot_durations_and_persists(self, tmp_path):
         """存量草稿的 per-shot 时长求和收编为 unit 时长，就地回写；二次加载不再触发。"""
-        sg = _bare_generator(tmp_path)
+        sg = self._generator(tmp_path)
         self._write(
             sg,
             1,
@@ -1863,7 +1929,7 @@ class TestLoadReferenceStep1:
     @pytest.mark.integration
     def test_migration_clamps_sum_to_supported_slot(self, tmp_path, caplog):
         """求和落在档位之外 → 按容量语义取档后落盘（此处 4+3=7 → 8），并落盘 + 记 warning。"""
-        sg = _bare_generator(tmp_path)
+        sg = self._generator(tmp_path)
         self._write(
             sg,
             1,
@@ -1892,12 +1958,14 @@ class TestLoadReferenceStep1:
         即令放行依据失效，生成须中止。gate 判的是迁移前状态、改写发生在放行之后——不在此
         拦下，付费的 step2 就会按用户从未过目的秒数生成，落盘后才在下次加载被拦。
         """
-        sg = _bare_generator(
+        sg = self._generator(
             tmp_path,
-            {"generation_mode": "reference_video", "episodes": [{"episode": 1}]},
+            {"episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}]},
         )
         (sg.project_path / "scripts").mkdir(parents=True, exist_ok=True)
-        (sg.project_path / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
+        (sg.project_path / "scripts" / "episode_1.json").write_text(
+            json.dumps({"episode": 1, "video_units": []}, ensure_ascii=False), encoding="utf-8"
+        )
         self._write(
             sg,
             1,
@@ -1915,7 +1983,7 @@ class TestLoadReferenceStep1:
 
     @pytest.mark.unit
     def test_empty_units_raises(self, tmp_path):
-        sg = _bare_generator(tmp_path)
+        sg = self._generator(tmp_path)
         self._write(sg, 1, {"units": []})
         with pytest.raises(ValueError):
             sg._load_reference_step1(1, [4, 6, 8])
@@ -2033,8 +2101,8 @@ class TestAdScriptGeneration:
     async def test_build_prompt_tolerates_null_project_fields(self, tmp_path):
         """project.json 手工编辑后字段显式为 null：prompt 构建按空值归一化，不抛 AttributeError。"""
         project_path = tmp_path / "demo"
-        _write_json(
-            project_path / "project.json",
+        _write_project_json(
+            project_path,
             {
                 "title": "速干杯",
                 "content_mode": "ad",

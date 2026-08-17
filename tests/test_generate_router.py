@@ -6,7 +6,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifact_activation import ArtifactKey, register_current_artifact_if_provable
 from lib.i18n import _ as i18n_message
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -29,6 +31,11 @@ class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self.project = {
+            # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定——
+            # 产物清单是读取已生成产物的唯一口径，二者缺一都不是真实形态。
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+            "generation_mode": "storyboard",
             "style": "Anime",
             "style_description": "cinematic",
             "content_mode": "narration",
@@ -62,62 +69,99 @@ class _FakePM:
             },
         }
         self.script = {
+            "episode": 1,
             "content_mode": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
                     "duration_seconds": 4,
                     "novel_text": "风吹过旷野。",
+                    "image_prompt": {
+                        "scene": "旷野",
+                        "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                    },
                     "video_prompt": {},
                     "segment_break": False,
                     "characters_in_segment": [],
                     "scenes": [],
                     "props": [],
-                    "generated_assets": {},
+                    "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
                 },
                 {
                     "segment_id": "E1S02",
                     "duration_seconds": 4,
                     "novel_text": "风吹过旷野。",
+                    "image_prompt": {
+                        "scene": "旷野",
+                        "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                    },
                     "video_prompt": {},
                     "segment_break": False,
                     "characters_in_segment": ["Alice"],
                     "scenes": ["祠堂"],
                     "props": ["玉佩"],
-                    "generated_assets": {},
+                    "generated_assets": {"storyboard_image": "storyboards/scene_E1S02.png"},
                 },
                 {
                     "segment_id": "E1S03",
                     "duration_seconds": 4,
                     "novel_text": "风吹过旷野。",
+                    "image_prompt": {
+                        "scene": "旷野",
+                        "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                    },
                     "video_prompt": {},
                     "segment_break": True,
                     "characters_in_segment": ["Alice"],
                     "scenes": ["祠堂"],
                     "props": ["玉佩"],
-                    "generated_assets": {},
+                    "generated_assets": {"storyboard_image": "storyboards/scene_E1S03.png"},
                 },
             ],
         }
 
+    def sync_disk(self):
+        """把内存态项目与剧本落盘——产物清单按磁盘上的真实项目做比对。"""
+
+        (self.project_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (self.project_path / "project.json").write_text(json.dumps(self.project), encoding="utf-8")
+        (self.project_path / "scripts" / "episode_1.json").write_text(json.dumps(self.script), encoding="utf-8")
+
+    def register_storyboards(self) -> None:
+        """把已落盘的分镜图登记进产物清单——未登记的产物不被生产准入。"""
+
+        self.sync_disk()
+        for container in ("segments", "shots", "scenes", "units"):
+            for item in self.script.get(container) or []:
+                unit_id = item.get("segment_id") or item.get("shot_id") or item.get("scene_id") or item.get("unit_id")
+                if unit_id:
+                    register_current_artifact_if_provable(
+                        self.project_path,
+                        ArtifactKey.episode_storyboard(1, str(unit_id)),
+                    )
+
     def load_project(self, project_name):
+        self.sync_disk()
         return self.project
 
     def get_project_path(self, project_name):
         return self.project_path
 
     def load_script(self, project_name, script_file):
+        self.sync_disk()
         return self.script
 
 
 def _prepare_files(tmp_path: Path) -> Path:
     project_path = tmp_path / "projects" / "demo"
-    (project_path / "storyboards").mkdir(parents=True, exist_ok=True)
-    (project_path / "characters").mkdir(parents=True, exist_ok=True)
-    (project_path / "scenes").mkdir(parents=True, exist_ok=True)
-    (project_path / "props").mkdir(parents=True, exist_ok=True)
+    for folder in ("storyboards", "characters/refs", "scenes", "props", "products/refs", "source", "scripts"):
+        (project_path / folder).mkdir(parents=True, exist_ok=True)
 
-    (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
+    (project_path / "characters" / "refs" / "Alice_ref.png").write_bytes(b"png")
+    (project_path / "products" / "refs" / "保温杯_1.jpg").write_bytes(b"jpg")
+
+    for segment_id in ("E1S01", "E1S02", "E1S03"):
+        (project_path / "storyboards" / f"scene_{segment_id}.png").write_bytes(b"png")
     (project_path / "characters" / "Alice.png").write_bytes(b"png")
     (project_path / "scenes" / "祠堂.png").write_bytes(b"png")
     (project_path / "props" / "玉佩.png").write_bytes(b"png")
@@ -128,7 +172,11 @@ async def _noop_bucket_precheck(project, capability):
     return None
 
 
-def _client(monkeypatch, fake_pm, fake_queue):
+def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True):
+    if register_storyboards:
+        fake_pm.register_storyboards()
+    else:
+        fake_pm.sync_disk()
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr("lib.generation_queue.get_generation_queue", lambda: fake_queue)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
@@ -532,10 +580,15 @@ class TestGenerateRouter:
         fake_pm = _FakePM(project_path)
         fake_pm.project["content_mode"] = "drama"
         fake_pm.script = {
+            "episode": 1,
             "content_mode": "drama",
             "scenes": [
                 {
                     "scene_id": "E1S01",
+                    "image_prompt": {
+                        "scene": "旷野",
+                        "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                    },
                     "video_prompt": {
                         "action": "阿离转身",
                         "camera_motion": "Static",
@@ -543,7 +596,7 @@ class TestGenerateRouter:
                         "dialogue": [{"speaker": "Alice", "line": "跟紧我。"}],
                     },
                     "voiceover": [],
-                    "generated_assets": {},
+                    "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
                 }
             ],
         }
@@ -565,16 +618,21 @@ class TestGenerateRouter:
         fake_pm = _FakePM(project_path)
         fake_pm.project["content_mode"] = "drama"
         fake_pm.script = {
+            "episode": 1,
             "content_mode": "drama",
             "scenes": [
                 {
                     "scene_id": "E1S01",
+                    "image_prompt": {
+                        "scene": "旷野",
+                        "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                    },
                     "video_prompt": {
                         "action": "阿离转身",
                         "camera_motion": "Static",
                         "ambiance_audio": "风声",
                     },
-                    "generated_assets": {},
+                    "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
                 }
             ],
         }
@@ -622,13 +680,18 @@ class TestGenerateRouter:
         fake_pm = _FakePM(project_path)
         fake_pm.project["content_mode"] = content_mode
         fake_pm.script = {
+            "episode": 1,
             "content_mode": content_mode,
             root: [
                 {
                     id_field: "E1S01",
                     narrator_field: "风吹过旷野。",
+                    "image_prompt": {
+                        "scene": "旷野",
+                        "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                    },
                     "video_prompt": {},
-                    "generated_assets": {},
+                    "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
                 }
             ],
         }
@@ -739,8 +802,6 @@ class TestGenerateRouter:
     def test_video_enqueue_grid_mode_uses_first_frame(self, tmp_path, monkeypatch):
         """宫格模式：storyboard 写入 _first.png 并记录于 generated_assets，路由应识别该路径。"""
         project_path = _prepare_files(tmp_path)
-        # 只保留宫格模式产物，删除默认路径
-        (project_path / "storyboards" / "scene_E1S01.png").unlink()
         (project_path / "storyboards" / "scene_E1S02_first.png").write_bytes(b"png")
 
         fake_pm = _FakePM(project_path)
@@ -760,9 +821,9 @@ class TestGenerateRouter:
             assert video.json()["success"] is True
 
     @pytest.mark.integration
-    def test_video_generated_assets_non_dict_falls_back_to_default(self, tmp_path, monkeypatch):
-        """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「未设置」处理、
-        回退默认路径，不抛未捕获 AttributeError（脏数据非 dict 上没有 .get()）。"""
+    def test_video_generated_assets_non_dict_is_refused_without_attribute_error(self, tmp_path, monkeypatch):
+        """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「没有登记的分镜图」
+        拒绝，而不是抛未捕获 AttributeError（脏数据非 dict 上没有 .get()）。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["generated_assets"] = ["bad"]
@@ -774,20 +835,14 @@ class TestGenerateRouter:
                 "/api/v1/projects/demo/generate/video/E1S01",
                 json={"script_file": "episode_1.json", "prompt": "x"},
             )
-            assert video.status_code == 200, video.text
-            assert video.json()["success"] is True
+            assert video.status_code == 400, video.text
+            assert video.json()["detail"] == i18n_message("generate_storyboard_first", segment_id="E1S01")
+            assert fake_queue.calls == []
 
     @pytest.mark.integration
-    def test_schema8_video_does_not_infer_storyboard_from_same_name_file(self, tmp_path, monkeypatch):
+    def test_video_does_not_infer_storyboard_from_same_name_file(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project.update(
-            {
-                "schema_version": 8,
-                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
-            }
-        )
-        fake_pm.script["episode"] = 1
         fake_pm.script["segments"][0]["generated_assets"] = {}
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
@@ -803,11 +858,10 @@ class TestGenerateRouter:
         assert fake_queue.calls == []
 
     @pytest.mark.integration
-    def test_schema8_storyboard_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
+    def test_storyboard_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project["schema_version"] = 8
-        fake_pm.script["episode"] = 1
+        fake_pm.project["episodes"] = []
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
@@ -822,11 +876,10 @@ class TestGenerateRouter:
         assert fake_queue.calls == []
 
     @pytest.mark.integration
-    def test_schema8_video_reports_an_unbound_script_before_storyboard_validation(self, tmp_path, monkeypatch):
+    def test_video_reports_an_unbound_script_before_storyboard_validation(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project["schema_version"] = 8
-        fake_pm.script["episode"] = 1
+        fake_pm.project["episodes"] = []
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
 
@@ -841,24 +894,12 @@ class TestGenerateRouter:
         assert fake_queue.calls == []
 
     @pytest.mark.integration
-    def test_schema8_video_rejects_an_explicit_but_unregistered_storyboard(self, tmp_path, monkeypatch):
+    def test_video_rejects_an_explicit_but_unregistered_storyboard(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.project.update(
-            {
-                "schema_version": 8,
-                "generation_mode": "storyboard",
-                "aspect_ratio": "9:16",
-                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
-            }
-        )
-        fake_pm.script["episode"] = 1
-        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
-        (project_path / "scripts").mkdir()
-        (project_path / "project.json").write_text(json.dumps(fake_pm.project), encoding="utf-8")
-        (project_path / "scripts" / "episode_1.json").write_text(json.dumps(fake_pm.script), encoding="utf-8")
         fake_queue = _FakeQueue()
-        client = _client(monkeypatch, fake_pm, fake_queue)
+        # 分镜图在盘上，但没有进产物清单——准入口径是产物清单登记。
+        client = _client(monkeypatch, fake_pm, fake_queue, register_storyboards=False)
 
         with client:
             response = client.post(
@@ -1370,6 +1411,7 @@ class TestVideoRouteGate:
         fake_pm.project["generation_mode"] = "reference_video"
         if not storyboard_script:
             fake_pm.script = {
+                "episode": 1,
                 "content_mode": "narration",
                 "video_units": [{"unit_id": "E1U01", "prompt": "镜头1：奔跑"}],
             }
@@ -1443,6 +1485,7 @@ class TestAdStoryboardRegeneration:
         fake_pm = _FakePM(project_path)
         fake_pm.project["content_mode"] = "ad"
         fake_pm.script = {
+            "episode": 1,
             "content_mode": "ad",
             "shots": [
                 {
@@ -1454,7 +1497,11 @@ class TestAdStoryboardRegeneration:
                     "scenes": [],
                     "props": [],
                     "products_in_shot": ["保温杯"],
-                    "generated_assets": {},
+                    "image_prompt": {
+                        "scene": "旷野",
+                        "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                    },
+                    "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
                 },
             ],
         }

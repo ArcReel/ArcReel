@@ -7,9 +7,11 @@ The record lives beside ``project.json`` so the verdict survives restarts and is
 readable by any consumer without a database round trip — the startup runner is
 the only writer, plus the agent-facing retry tool.
 
-Absence of the record means "not blocked". A project that is merely older than
-the current schema and has never been offered to the runner is not reported as
-broken; only an actual failed attempt writes the record.
+Absence of the record does not mean "not blocked": a project short of the
+current schema has no backfilled artifact claims to read either way, so
+:func:`load_migration_verdict` reports it blocked on the schema discriminator
+alone. Only an actual failed attempt writes a record, and that record wins
+because it names the exact inputs to repair.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.artifact_manifest import ArtifactManifestError
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,7 @@ class MigrationFailureRecord(BaseModel):
     schema_version: int
     """The version the project was stuck on when the attempt failed."""
     failed_at: str
+    """When the attempt failed; empty when the verdict rests on no attempt at all."""
     reason: str
     """The failure message exactly as raised — surfaced to the user unchanged."""
     details: list[MigrationFailureDetail] = Field(default_factory=list)
@@ -77,6 +81,60 @@ class MigrationFailureRecord(BaseModel):
 
 def migration_failure_path(project_dir: Path) -> Path:
     return project_dir / MIGRATION_FAILURE_FILENAME
+
+
+def _readable_schema_version(project_dir: Path) -> int | None:
+    """Return the project's schema version, or ``None`` when it cannot be read.
+
+    A directory without a parseable ``project.json`` is not a project this guard
+    can rule on; whoever resolved the name owns that verdict.
+    """
+
+    try:
+        data = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        return parse_project_schema_version(data)
+    except ValueError:
+        return None
+
+
+def pending_migration_record(schema_version: int) -> MigrationFailureRecord:
+    """The verdict for a project the migration chain has not yet carried to v8."""
+
+    reason = (
+        f"project schema v{schema_version} has not been upgraded to "
+        f"v{CURRENT_PROJECT_SCHEMA_VERSION}; produced artifacts cannot be read until it is"
+    )
+    # 该项目没有失败过的尝试，``failed_at`` 就留空：这个字段会原样透给用户与智能体，
+    # 填一个当下时刻等于伪造一次从未发生的失败。
+    return MigrationFailureRecord(
+        schema_version=schema_version,
+        failed_at="",
+        reason=reason,
+        details=[MigrationFailureDetail(file="project.json", violation=reason)],
+    )
+
+
+def load_migration_verdict(project_dir: Path) -> MigrationFailureRecord | None:
+    """Return the blocking verdict for a project — recorded failure or still pending.
+
+    A recorded failure wins: it names the exact inputs the chain refused. Absent
+    one, a project short of the current schema is still blocked, because the
+    Artifact Manifest is the only rule for reading produced artifacts and an
+    unmigrated project has no claims in it.
+    """
+
+    recorded = load_migration_failure(project_dir)
+    if recorded is not None:
+        return recorded
+    version = _readable_schema_version(project_dir)
+    if version is None or version >= CURRENT_PROJECT_SCHEMA_VERSION:
+        return None
+    return pending_migration_record(version)
 
 
 def migration_failure_details(exc: BaseException) -> list[MigrationFailureDetail]:
@@ -185,8 +243,10 @@ __all__ = [
     "MigrationFailureRecord",
     "ProjectMigrationError",
     "clear_migration_failure",
+    "load_migration_verdict",
     "load_migration_failure",
     "migration_failure_details",
     "migration_failure_path",
+    "pending_migration_record",
     "record_migration_failure",
 ]

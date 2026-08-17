@@ -87,7 +87,7 @@ def video_target_states(
     id_field: str,
     *,
     episode: int,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
 ) -> dict[str, GenerationTargetState]:
     """Observe each unit's video artifact standing once, for the whole request.
 
@@ -104,7 +104,7 @@ def video_target_states(
         if not unit_id or unit_id in states:
             continue
         artifact_path = get_generated_assets(unit).get("video_clip")
-        key = ArtifactKey.episode_video(episode, unit_id) if resolver is not None else None
+        key = ArtifactKey.episode_video(episode, unit_id)
         status, blocker = observe_artifact_status(resolver=resolver, key=key, artifact_path=artifact_path)
         states[unit_id] = GenerationTargetState(
             candidate=GenerationCandidate(
@@ -263,11 +263,10 @@ def resolve_reference_batch_targets(
         candidates=[state.candidate for state in states.values()],
         requested_ids=requested_ids,
         resolver=resolver,
-        project_dir=project_path,
         reusable_override=lambda candidate: (
             artifact_is_usable(
                 resolver,
-                ArtifactKey.episode_video(episode, candidate.unit_id) if resolver is not None else None,
+                ArtifactKey.episode_video(episode, candidate.unit_id),
                 candidate.artifact_path,
             )
             or versions.selected_manual_upload_matches_current_file(
@@ -895,7 +894,6 @@ def build_storyboard_video_specs(
                 resource_id=str(item_id),
                 item=item,
                 resolver=resolver,
-                allow_legacy_same_name=False,
             )
         except (OSError, ValueError) as exc:
             # 分镜图本身不可用是最常见的一种，给出下一步该跑什么，而不是只报路径。

@@ -27,6 +27,7 @@ pytestmark = pytest.mark.unit
 def _narration_script(count: int = 4):
     """``count`` 个无 segment_break 的分段，凑成单组（默认 4 个，即 grid_4 恰好填满）。"""
     return {
+        "episode": 1,
         "content_mode": "narration",
         "segments": [
             {
@@ -54,6 +55,16 @@ def _narration_script(count: int = 4):
             for i in range(1, count + 1)
         ],
     }
+
+
+def _materialize_project(project_path, project: dict) -> None:
+    """把假 ProjectManager 声称的项目状态落到磁盘上。
+
+    产物清单的取证只读磁盘上的规范文件，路由的假替身不能替它作数。
+    """
+    (project_path / "scripts").mkdir(parents=True, exist_ok=True)
+    (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+    (project_path / "scripts" / "episode_1.json").write_text(json.dumps(_narration_script()), encoding="utf-8")
 
 
 class _FakeQueue:
@@ -358,6 +369,8 @@ class _FakePMGenerate:
             "style": "anime",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
+            "schema_version": 8,
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
         }
 
     def load_script(self, name, script_file):
@@ -369,18 +382,13 @@ class _FakePMGenerate:
 
 class _FakePMUnboundGrid(_FakePMGenerate):
     def load_project(self, name):
-        return {
-            **super().load_project(name),
-            "schema_version": 8,
-            "episodes": [],
-        }
+        return {**super().load_project(name), "episodes": []}
 
 
 class _FakePMMismatchedGrid(_FakePMGenerate):
     def load_project(self, name):
         return {
             **super().load_project(name),
-            "schema_version": 8,
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         }
 
@@ -648,6 +656,8 @@ class _FakePMRegenerate(_FakePMPath):
             "aspect_ratio": "9:16",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
+            "schema_version": 8,
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
         }
 
     def load_script(self, name, script_file):
@@ -656,11 +666,7 @@ class _FakePMRegenerate(_FakePMPath):
 
 class _FakePMRegenerateUnbound(_FakePMRegenerate):
     def load_project(self, name):
-        return {
-            **super().load_project(name),
-            "schema_version": 8,
-            "episodes": [],
-        }
+        return {**super().load_project(name), "episodes": []}
 
 
 def test_regenerate_grid_rejects_an_unbound_script_without_mutating_the_record(monkeypatch, tmp_path):
@@ -782,6 +788,7 @@ def test_regenerate_grid_backfills_missing_aspect_ratio(monkeypatch, tmp_path):
 
 
 def _make_completed_grid(tmp_path, *, with_image: bool = True) -> GridGeneration:
+    _materialize_project(tmp_path, _FakePMRegenerate(tmp_path).load_project("demo"))
     grid = GridGeneration.create(
         episode=1,
         script_file="episode_1.json",

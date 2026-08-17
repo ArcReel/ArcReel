@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from lib import script_review
+from lib.artifact_activation import activate_artifact_target_state
 from lib.draft_quarantine import (
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
@@ -51,6 +52,26 @@ def _fake_step2_generator(*texts: str) -> MagicMock:
 STEP2_UNIT_TEXT = "镜头1：中景，平视。@[主角] 推开 @[酒馆] 的门，侧身跨过门槛。"
 
 
+def _activate_project_artifacts(project_dir: Path, episode: int = 1) -> None:
+    """补齐该集的溯源输入后，对项目做一次全量产物激活。
+
+    产物清单是读取已生成产物的唯一口径：落盘本身不代表已登记，未登记的 step1 进不了付费调用。
+    ``episode`` 只决定补写哪一集的 ``source/episode_{episode}.txt``；登记范围是整个项目。
+    """
+    source = project_dir / "source" / f"episode_{episode}.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("原文", encoding="utf-8")
+    activate_artifact_target_state(project_dir, bump_schema=False)
+
+
+def _write_step1(project_dir: Path, payload: str, episode: int = 1) -> None:
+    """写正式 step1 并登记进产物清单。"""
+    path = project_dir / "drafts" / f"episode_{episode}" / "step1_reference_units.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(payload, encoding="utf-8")
+    _activate_project_artifacts(project_dir, episode)
+
+
 @pytest.fixture
 def reference_project(tmp_path: Path) -> Path:
     """造一个 reference_video 模式的最小项目。"""
@@ -58,6 +79,7 @@ def reference_project(tmp_path: Path) -> Path:
     project_dir.mkdir()
     (project_dir / "project.json").write_text(
         """{
+          "schema_version": 8,
           "title": "t",
           "content_mode": "narration",
           "generation_mode": "reference_video",
@@ -68,13 +90,14 @@ def reference_project(tmp_path: Path) -> Path:
           "characters": {"主角": {"description": "d"}},
           "scenes": {"酒馆": {"description": "d"}},
           "props": {},
-          "episodes": [{"episode": 1, "title": "t1", "generation_mode": "reference_video"}]
+          "episodes": [
+            {"episode": 1, "title": "t1", "script_file": "scripts/episode_1.json",
+             "generation_mode": "reference_video"}
+          ]
         }""",
         encoding="utf-8",
     )
-    drafts = project_dir / "drafts" / "episode_1"
-    drafts.mkdir(parents=True)
-    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
+    _write_step1(project_dir, STEP1_UNITS_JSON)
     return project_dir
 
 
@@ -402,6 +425,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
     project_dir.mkdir()
     (project_dir / "project.json").write_text(
         """{
+          "schema_version": 8,
           "title": "t",
           "content_mode": "drama",
           "generation_mode": "reference_video",
@@ -410,13 +434,14 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
           "style": "国漫", "style_description": "水墨",
           "characters": {"主角": {"description": "d"}},
           "scenes": {"酒馆": {"description": "d"}}, "props": {},
-          "episodes": [{"episode": 1, "title": "t1", "generation_mode": "reference_video"}]
+          "episodes": [
+            {"episode": 1, "title": "t1", "script_file": "scripts/episode_1.json",
+             "generation_mode": "reference_video"}
+          ]
         }""",
         encoding="utf-8",
     )
-    drafts = project_dir / "drafts" / "episode_1"
-    drafts.mkdir(parents=True)
-    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
+    _write_step1(project_dir, STEP1_UNITS_JSON)
 
     gen = ScriptGenerator(project_dir, generator=_fake_step2_generator("镜头1：中景。@[主角] 推门"))
     out = await gen.generate(episode=1)
@@ -572,6 +597,7 @@ async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
     (project_dir / "project.json").write_text(
         _j.dumps(
             {
+                "schema_version": 8,
                 "title": "t",
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
@@ -582,14 +608,12 @@ async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
                 "characters": {"A": {"description": "d"}},
                 "scenes": {},
                 "props": {},
-                "episodes": [{"episode": 1}],
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             }
         ),
         encoding="utf-8",
     )
-    drafts = project_dir / "drafts" / "episode_1"
-    drafts.mkdir(parents=True)
-    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
+    _write_step1(project_dir, STEP1_UNITS_JSON)
 
     gen = ScriptGenerator(project_dir)
     prompt = await gen.build_prompt(episode=1)

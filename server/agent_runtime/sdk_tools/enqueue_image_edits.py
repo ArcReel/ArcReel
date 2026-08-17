@@ -76,7 +76,7 @@ def _build_specs(
     script: dict[str, Any] | None,
     script_filename: str | None,
     artifact_episode: int | None,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
     warnings: list[str],
     builder: GenerationResultBuilder,
     states: dict[str, GenerationTargetState],

@@ -30,8 +30,6 @@ from lib.asset_types import ASSET_SPECS, resolve_asset_key
 from lib.async_thread import run_noninterruptible_sync
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_reference_snapshot import freeze_image_references
-from lib.path_safety import safe_exists
-from lib.project_schema import project_schema_is_current
 from lib.resource_paths import resource_relative_path
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
@@ -112,13 +110,13 @@ def resolve_current_image_rel(
     resource_id: str,
     script: dict[str, Any] | None = None,
 ) -> str | None:
-    """解析资源当前图的项目相对路径（不校验文件存在，交由调用方 ``safe_exists`` 判定）。
+    """解析资源当前图的项目相对路径（只解析登记指针，可用性由 Artifact Manifest 判定）。
 
     - 资产（character / scene / prop / product）：读 project.json 对应 bucket 的 sheet
       字段；资产不存在抛 ``KeyError``，sheet 未设置返回 ``None``。
-    - storyboard：读剧本条目的 ``generated_assets.storyboard_image``（旧宫格项目可能
-      指向 ``scene_{id}_first.png``）；Manifest 激活前缺失时回退 canonical 路径，
-      激活后不再按同名文件推断 current；条目不存在抛 ``KeyError``。
+    - storyboard：读剧本条目的 ``generated_assets.storyboard_image``（宫格项目可能
+      指向 ``scene_{id}_first.png``）；没有登记指针即没有产物，不按同名文件推断
+      current；条目不存在抛 ``KeyError``。
     """
     return _resolve_current_image_pointer(project, resource_type, resource_id, script)[1]
 
@@ -141,9 +139,8 @@ def _resolve_current_image_pointer(
         pointer = get_generated_assets(item).get("storyboard_image")
         if isinstance(pointer, str) and pointer:
             return resolved_id, pointer
-        if project_schema_is_current(project):
-            return resolved_id, None
-        return resolved_id, resource_relative_path("storyboards", resolved_id)
+        # 没有登记指针就是没有产物：同名文件不构成这个分镜的归属证据。
+        return resolved_id, None
 
     spec = ASSET_SPECS[resource_type]
     bucket = project.get(spec.bucket_key)
@@ -164,25 +161,19 @@ def resolve_usable_image_edit_source(
     resource_id: str,
     script: dict[str, Any] | None,
     artifact_episode: int | None,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
 ) -> _ImageEditSource | None:
     """Select one metadata-owned current image through the active Manifest boundary.
 
-    Before activation, file existence preserves the legacy admission rule. Once
-    active, the exact asset-sheet or episode-storyboard claim is authoritative;
-    missing claims are not selectable and blocked comparisons fail loud. The
-    returned claim is retained so the executor can recheck it after async provider
+    The exact asset-sheet or episode-storyboard claim is authoritative; missing
+    claims are not selectable and blocked comparisons fail loud. The returned
+    claim is retained so the executor can recheck it after async provider
     resolution and immediately before provider submission.
     """
 
     resolved_id, artifact_path = _resolve_current_image_pointer(project, resource_type, resource_id, script)
     if not artifact_path:
         return None
-    if resolver is None:
-        if not safe_exists(project_path, artifact_path):
-            return None
-        return _ImageEditSource(resource_id=resolved_id, artifact_path=artifact_path, formal_claims=())
-
     if resource_type == "storyboard":
         if type(artifact_episode) is not int or artifact_episode < 1:
             raise ValueError("artifact_episode is required for an active storyboard edit source")

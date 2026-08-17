@@ -25,6 +25,7 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
@@ -37,14 +38,56 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 pytestmark = pytest.mark.unit
 
 
+# 产物清单是读取已生成产物的唯一口径，还原路径要落到真实的 v8 项目目录才有意义。
+_MINIMAL_PROJECT = {
+    "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+    "title": "Demo",
+    "content_mode": "narration",
+    "generation_mode": "storyboard",
+    "grid_storyboard": False,
+    "style": "Anime",
+    "style_description": "",
+    "aspect_ratio": "9:16",
+    "episodes": [{"episode": 1, "title": "One", "script_file": "scripts/episode_1.json"}],
+    "characters": {},
+    "scenes": {},
+    "props": {},
+    "products": {},
+}
+
+_MINIMAL_SCRIPT = {
+    "episode": 1,
+    "content_mode": "narration",
+    "segments": [
+        {
+            "segment_id": "E1S01",
+            "novel_text": "旁白",
+            "image_prompt": "画面",
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+        }
+    ],
+}
+
+
+def _write_minimal_project(project_path: Path) -> None:
+    """落一个最小的 v8 项目：产物清单的取证要读到 project.json 与剧集绑定。"""
+    project_path.mkdir(parents=True, exist_ok=True)
+    project_path.joinpath("project.json").write_text(json.dumps(_MINIMAL_PROJECT, ensure_ascii=False), encoding="utf-8")
+    scripts_dir = project_path / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    scripts_dir.joinpath("episode_1.json").write_text(json.dumps(_MINIMAL_SCRIPT, ensure_ascii=False), encoding="utf-8")
+
+
 class _FakePM:
-    def __init__(self):
+    def __init__(self, project_root):
         self.updated = []
+        self.project_root = Path(project_root)
 
     def get_project_path(self, project_name):
-        from pathlib import Path
-
-        return Path("/tmp") / project_name
+        project_path = self.project_root / project_name
+        if not project_path.is_dir():
+            _write_minimal_project(project_path)
+        return project_path
 
     def _update_asset_sheet(self, asset_type, *args, on_commit=None):
         self.updated.append((asset_type, args))
@@ -128,10 +171,10 @@ def test_non_typed_storyboard_restore_enters_version_commit_from_metadata_transa
                 on_restore=on_restore,
             )
 
-    pm = _OrderedPM()
+    pm = _OrderedPM(tmp_path)
     monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
     monkeypatch.setattr(versions, "register_current_resource_artifact", lambda *_args, **_kwargs: False)
-    project_path = tmp_path / "demo"
+    project_path = pm.get_project_path("demo")
     current_file = project_path / "storyboards" / "scene_E1S01.png"
 
     result = versions._restore_non_typed_version(
@@ -156,12 +199,19 @@ class _GridPM:
     """
 
     def __init__(self, project_path, project=None):
-        self.project_path = project_path
+        self.project_path = Path(project_path)
+        if not self.project_path.joinpath("project.json").is_file():
+            _write_minimal_project(self.project_path)
         self.update_calls = []
         self.project = (
             project
             if project is not None
-            else {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
+            else {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "content_mode": "narration",
+                "generation_mode": "storyboard",
+                "grid_storyboard": True,
+            }
         )
 
     def get_project_path(self, project_name):
@@ -287,8 +337,8 @@ def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
     return pm, project_path, manager
 
 
-def _client(monkeypatch):
-    fake_pm = _FakePM()
+def _client(monkeypatch, tmp_path):
+    fake_pm = _FakePM(tmp_path)
     monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
@@ -670,8 +720,8 @@ class TestVersionsRouter:
         assert assets["storyboard_image"] == "storyboards/old.png"
         assert assets["video_clip"] == "videos/concurrent.mp4"
 
-    def test_get_versions_and_restore(self, monkeypatch):
-        client, fake_pm = _client(monkeypatch)
+    def test_get_versions_and_restore(self, monkeypatch, tmp_path):
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             get_resp = client.get("/api/v1/projects/demo/versions/characters/Alice")
             assert get_resp.status_code == 200
@@ -682,8 +732,8 @@ class TestVersionsRouter:
             assert restore_resp.json()["current_version"] == 1
             assert any(item[0] == "character" for item in fake_pm.updated)
 
-    def test_manual_video_is_presentable_without_claiming_it_is_restorable(self, monkeypatch):
-        client, _ = _client(monkeypatch)
+    def test_manual_video_is_presentable_without_claiming_it_is_restorable(self, monkeypatch, tmp_path):
+        client, _ = _client(monkeypatch, tmp_path)
 
         class _ManualVideoVM(_FakeVM):
             def get_versions(self, resource_type, resource_id):
@@ -707,8 +757,8 @@ class TestVersionsRouter:
         assert record["restorable"] is False
         assert record["presentation_available"] is True
 
-    def test_get_and_restore_scenes(self, monkeypatch):
-        client, fake_pm = _client(monkeypatch)
+    def test_get_and_restore_scenes(self, monkeypatch, tmp_path):
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             get_resp = client.get("/api/v1/projects/demo/versions/scenes/庙宇")
             assert get_resp.status_code == 200
@@ -718,8 +768,8 @@ class TestVersionsRouter:
             assert restore_resp.json()["file_path"] == "scenes/庙宇.png"
             assert any(item[0] == "scene" for item in fake_pm.updated)
 
-    def test_get_and_restore_props(self, monkeypatch):
-        client, fake_pm = _client(monkeypatch)
+    def test_get_and_restore_props(self, monkeypatch, tmp_path):
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             get_resp = client.get("/api/v1/projects/demo/versions/props/玉佩")
             assert get_resp.status_code == 200
@@ -729,8 +779,8 @@ class TestVersionsRouter:
             assert restore_resp.json()["file_path"] == "props/玉佩.png"
             assert any(item[0] == "prop" for item in fake_pm.updated)
 
-    def test_get_and_restore_products(self, monkeypatch):
-        client, fake_pm = _client(monkeypatch)
+    def test_get_and_restore_products(self, monkeypatch, tmp_path):
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             get_resp = client.get("/api/v1/projects/demo/versions/products/保温杯")
             assert get_resp.status_code == 200
@@ -852,8 +902,8 @@ class TestVersionsRouter:
         assert response.status_code == 409
         assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == before
 
-    def test_restore_error_mapping(self, monkeypatch):
-        client, _ = _client(monkeypatch)
+    def test_restore_error_mapping(self, monkeypatch, tmp_path):
+        client, _ = _client(monkeypatch, tmp_path)
         with client:
             bad_type = client.get("/api/v1/projects/demo/versions/bad/Alice")
             assert bad_type.status_code == 400
@@ -1048,9 +1098,9 @@ class TestVersionsRouter:
         assert saved is not None
         assert saved.split_at == "2026-01-01T00:00:00+00:00"
 
-    def test_non_grid_restore_unaffected_by_grid_gate(self, monkeypatch):
+    def test_non_grid_restore_unaffected_by_grid_gate(self, monkeypatch, tmp_path):
         """闸门只作用于 grids：其它资源类型的还原不因项目宫格配置被拦。"""
-        client, fake_pm = _client(monkeypatch)
+        client, fake_pm = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
         assert resp.status_code == 200
@@ -1288,54 +1338,90 @@ class TestVersionsRouter:
         expected = Path(os.path.realpath(project_path)) / "characters" / "Alice.png"
         assert current_file == expected
 
-    def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
-        from lib.project_manager import ProjectManager
-
-        pm = ProjectManager(tmp_path)
+    @staticmethod
+    def _restore_sync_project(pm, scripts: dict[str, dict]) -> Path:
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
         project = pm.load_project("demo")
-        project["schema_version"] = 7
         project["episodes"] = [
-            {"episode": episode, "script_file": f"scripts/episode_{episode}.json"} for episode in (1, 2, 3)
+            {"episode": payload["episode"], "script_file": f"scripts/{name}"} for name, payload in scripts.items()
         ]
         pm.save_project("demo", project)
-        project_path = pm.get_project_path("demo")
-        scripts_dir = project_path / "scripts"
-        scripts = {
-            "episode_1.json": {
-                "episode": 1,
-                "content_mode": "narration",
-                "segments": [{"segment_id": "OTHER", "generated_assets": {"storyboard_image": None}}],
-            },
-            "episode_2.json": {"episode": 2, "content_mode": "narration", "segments": None},
-            "episode_3.json": {
-                "episode": 3,
-                "content_mode": "narration",
-                "segments": [{"segment_id": "E1S01", "generated_assets": {"storyboard_image": None}}],
-            },
-        }
+        scripts_dir = pm.get_project_path("demo") / "scripts"
         for name, payload in scripts.items():
             (scripts_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+        return scripts_dir
 
+    @staticmethod
+    def _restore_client(monkeypatch, pm) -> TestClient:
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
-
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
-        with TestClient(app) as client:
+        return TestClient(app)
+
+    def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path)
+        scripts_dir = self._restore_sync_project(
+            pm,
+            {
+                "episode_1.json": {
+                    "episode": 1,
+                    "content_mode": "narration",
+                    "segments": [{"segment_id": "OTHER", "generated_assets": {"storyboard_image": None}}],
+                },
+                "episode_3.json": {
+                    "episode": 3,
+                    "content_mode": "narration",
+                    "segments": [{"segment_id": "E1S01", "generated_assets": {"storyboard_image": None}}],
+                },
+            },
+        )
+
+        with self._restore_client(monkeypatch, pm) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
             assert resp.status_code == 200
             assert resp.json()["file_path"] == "storyboards/scene_E1S01.png"
 
         untouched = json.loads((scripts_dir / "episode_1.json").read_text(encoding="utf-8"))
-        malformed = json.loads((scripts_dir / "episode_2.json").read_text(encoding="utf-8"))
         updated = pm.load_script("demo", "episode_3.json")
         assert untouched["segments"][0]["generated_assets"]["storyboard_image"] is None
-        assert malformed["segments"] is None
         assert updated["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
+
+    def test_storyboard_restore_refuses_while_a_sibling_script_is_dirty(self, tmp_path, monkeypatch):
+        """跨集同步会跳过脏 sibling，但产物清单认领要按全部剧集绑定取证：
+        脏 sibling 让认领无法解析，整个还原按 400 拒绝而不是静默放行。"""
+        from lib.project_manager import ProjectManager
+
+        pm = ProjectManager(tmp_path)
+        scripts_dir = self._restore_sync_project(
+            pm,
+            {
+                "episode_2.json": {"episode": 2, "content_mode": "narration", "segments": None},
+                "episode_3.json": {
+                    "episode": 3,
+                    "content_mode": "narration",
+                    "segments": [{"segment_id": "E1S01", "generated_assets": {"storyboard_image": None}}],
+                },
+            },
+        )
+
+        with self._restore_client(monkeypatch, pm) as client:
+            resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
+
+        assert resp.status_code == 400
+        dirty = json.loads((scripts_dir / "episode_2.json").read_text(encoding="utf-8"))
+        assert dirty["segments"] is None
+        assert (
+            ProjectArtifactManifestAdapter(pm.get_project_path("demo")).get_entry(
+                ArtifactKey.episode_storyboard(3, "E1S01")
+            )
+            is None
+        )
 
     def test_storyboard_restore_unexpected_error_surfaces_as_5xx(self, tmp_path, monkeypatch):
         """跨集同步遇未预期异常时不再被 except Exception 吞掉，让 router 层 5xx 暴露问题。"""
@@ -1470,7 +1556,6 @@ class TestVersionsRouter:
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
         project = pm.load_project("demo")
-        project["schema_version"] = 7
         project["episodes"] = [
             {"episode": episode, "script_file": f"scripts/episode_{episode}.json"} for episode in (1, 2)
         ]
@@ -1507,7 +1592,7 @@ class TestVersionsRouter:
 
     def test_restore_returns_asset_fingerprints(self, monkeypatch, tmp_path):
         """版本还原应返回受影响文件的 fingerprint"""
-        fake_pm = _FakePM()
+        fake_pm = _FakePM(tmp_path)
         fake_pm.get_project_path = lambda name: tmp_path
 
         (tmp_path / "storyboards").mkdir()
@@ -1528,8 +1613,8 @@ class TestVersionsRouter:
             assert "storyboards/scene_E1S01.png" in data["asset_fingerprints"]
             assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
-    def test_get_versions_unexpected_error_maps_to_500(self, monkeypatch):
-        fake_pm = _FakePM()
+    def test_get_versions_unexpected_error_maps_to_500(self, monkeypatch, tmp_path):
+        fake_pm = _FakePM(tmp_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
             versions,
@@ -1547,8 +1632,8 @@ class TestVersionsRouter:
             # 内部异常细节不得泄露给客户端，仅落服务端日志
             assert "boom" not in resp.text
 
-    def test_restore_version_unexpected_error_maps_to_500(self, monkeypatch):
-        fake_pm = _FakePM()
+    def test_restore_version_unexpected_error_maps_to_500(self, monkeypatch, tmp_path):
+        fake_pm = _FakePM(tmp_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
             versions,

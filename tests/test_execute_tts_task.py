@@ -25,6 +25,7 @@ from lib.artifact_manifest import (
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.generation_queue import CompensableGenerationResult
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, register_narration_audio
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script_editor import resolve_items
 from lib.speech_composition import admit_script_unit
 from lib.version_manager import PaidVersionCommit
@@ -262,6 +263,16 @@ def tts_env(monkeypatch, tmp_path):
         json.dumps(pm.script, ensure_ascii=False),
         encoding="utf-8",
     )
+    # 生产项目一律处于当前 schema，剧本连同其取证链（分集原文 → step1）都已登记进产物清单。
+    (pm.project_path / "source").mkdir()
+    (pm.project_path / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
+    (pm.project_path / "drafts" / "episode_1").mkdir(parents=True)
+    (pm.project_path / "drafts" / "episode_1" / "step1_segments.json").write_text(
+        json.dumps({"episode": 1, "segments": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assert activate_artifact_target_state(pm.project_path, bump_schema=True) is True
+    pm.project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
     gen = _FakeAudioGenerator(pm.project_path)
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen))
@@ -278,12 +289,18 @@ def tts_env(monkeypatch, tmp_path):
     return pm, gen
 
 
+def _forget_script_claim(project_path: Path) -> None:
+    """撤掉剧本的清单认领——清单没有认领即没有可读的产物。"""
+
+    adapter = ProjectArtifactManifestAdapter(project_path)
+    assert ArtifactManifest(adapter).forget_entry_transactionally(ArtifactKey.episode_script(1))
+    assert adapter.get_entry(ArtifactKey.episode_script(1)) is None
+
+
 class TestExecuteTtsTask:
-    async def test_active_manifest_without_script_claim_blocks_tts_before_provider(self, tts_env):
+    async def test_script_without_a_manifest_claim_blocks_tts_before_provider(self, tts_env):
         pm, gen = tts_env
-        assert activate_artifact_target_state(pm.project_path, bump_schema=True) is True
-        pm.project["schema_version"] = 8
-        assert ProjectArtifactManifestAdapter(pm.project_path).get_entry(ArtifactKey.episode_script(1)) is None
+        _forget_script_claim(pm.project_path)
 
         with pytest.raises(ValueError, match="episode script is not registered"):
             await generation_tasks.execute_tts_task(
@@ -294,23 +311,24 @@ class TestExecuteTtsTask:
 
         assert gen.audio_calls == []
 
-    async def test_activation_without_script_claim_blocks_tts_before_provider(self, tts_env, monkeypatch):
+    async def test_script_claim_withdrawn_before_provider_call_blocks_tts(self, tts_env, monkeypatch):
+        """认领在执行途中被撤掉：提交前那道复核挡住，不触达供应商。"""
+
         pm, gen = tts_env
         original_generate = gen.generate_audio_async
         provider_submissions: list[str] = []
 
-        async def _activate_before_submit(**kwargs):
+        async def _forget_before_submit(**kwargs):
             before_submit = kwargs["before_submit"]
 
-            async def _activate_then_admit() -> None:
-                assert activate_artifact_target_state(pm.project_path, bump_schema=True) is True
-                assert ProjectArtifactManifestAdapter(pm.project_path).get_entry(ArtifactKey.episode_script(1)) is None
+            async def _forget_then_admit() -> None:
+                _forget_script_claim(pm.project_path)
                 await before_submit()
                 provider_submissions.append("submitted")
 
-            return await original_generate(**{**kwargs, "before_submit": _activate_then_admit})
+            return await original_generate(**{**kwargs, "before_submit": _forget_then_admit})
 
-        monkeypatch.setattr(gen, "generate_audio_async", _activate_before_submit)
+        monkeypatch.setattr(gen, "generate_audio_async", _forget_before_submit)
 
         with pytest.raises(ValueError, match="no longer registered"):
             await generation_tasks.execute_tts_task(

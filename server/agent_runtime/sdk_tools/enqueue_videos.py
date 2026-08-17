@@ -114,7 +114,7 @@ _SELECTED_OPERATION = "generate_video_selected"
 
 def _batch_video_is_reusable(
     *,
-    currency: ArtifactCurrencyResolver | None,
+    currency: ArtifactCurrencyResolver,
     versions: VersionManager,
     episode: int,
     resource_type: str,
@@ -125,7 +125,7 @@ def _batch_video_is_reusable(
 
     return artifact_is_usable(
         currency,
-        ArtifactKey.episode_video(episode, resource_id) if currency is not None else None,
+        ArtifactKey.episode_video(episode, resource_id),
         artifact_path,
     ) or versions.selected_manual_upload_matches_current_file(
         resource_type,
@@ -141,9 +141,6 @@ def _state_for(states: dict[str, GenerationTargetState], unit_id: str) -> Genera
 def _currency_reusable_ids(
     states: dict[str, GenerationTargetState],
     already_done: list[str],
-    *,
-    manifest_active: bool,
-    project_dir: Path,
 ) -> list[str]:
     """Missing-only ids that active currency already reports current/stale.
 
@@ -155,11 +152,7 @@ def _currency_reusable_ids(
     """
 
     done = set(already_done)
-    return [
-        unit_id
-        for unit_id, state in states.items()
-        if unit_id not in done and artifact_is_reusable(state, manifest_active=manifest_active, project_dir=project_dir)
-    ]
+    return [unit_id for unit_id, state in states.items() if unit_id not in done and artifact_is_reusable(state)]
 
 
 def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
@@ -626,15 +619,14 @@ def _scan_completed_items(
     videos_dir: Path,
     *,
     episode: int,
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
 ) -> tuple[list[Path | None], list[str], list[str]]:
     """Reconcile checkpoint claims against canonical videos and active currency.
 
     Returns ``(ordered_paths, already_done, completed_filtered)``:
     - ``ordered_paths[i]`` is the existing mp4 path for items[i] iff the
-      checkpoint claimed it and it is reusable: legacy projects require the
-      file on disk, while active projects require its exact formal path to be
-      usable under the Manifest (which also rejects absent files); else ``None``.
+      checkpoint claimed it and its exact formal path is usable under the
+      Manifest (which also rejects absent files); else ``None``.
     - ``already_done`` is the subset of items the caller can skip enqueueing.
     - ``completed_filtered`` drops ids whose checkpoint output is missing or
       no longer admitted — caller should write this back instead of mutating
@@ -652,16 +644,11 @@ def _scan_completed_items(
             continue
         video_output = videos_dir / f"scene_{item_id}.mp4"
         artifact_path = video_output.relative_to(videos_dir.parent).as_posix()
-        reusable = (
-            video_output.exists()
-            if resolver is None
-            else artifact_is_usable(
-                resolver,
-                ArtifactKey.episode_video(episode, str(item_id)),
-                artifact_path,
-            )
-        )
-        if reusable:
+        if artifact_is_usable(
+            resolver,
+            ArtifactKey.episode_video(episode, str(item_id)),
+            artifact_path,
+        ):
             ordered_paths[idx] = video_output
             already_done.append(item_id)
         else:
@@ -719,7 +706,7 @@ async def _generate_reference_units(
     resume: bool,
     builder: GenerationResultBuilder,
     states: dict[str, GenerationTargetState],
-    resolver: ArtifactCurrencyResolver | None,
+    resolver: ArtifactCurrencyResolver,
     checkpoint_path: Path | None,
     build_specs: Callable[[list[Any], list[str]], tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]],
     project: dict[str, Any],
@@ -1100,13 +1087,10 @@ def generate_video_episode_tool(ctx: ToolContext):
             skeleton_kind = resolve_script_kind(script)
             items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=None)
             project = ctx.pm.load_project(ctx.project_name)
-            episode = (
-                resolve_artifact_episode(
-                    project=project,
-                    script=script,
-                    script_filename=script_filename,
-                )
-                or 1
+            episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=script_filename,
             )
             content_mode = resolve_content_mode(script, project)
             if not items and not screen_refused:
@@ -1141,9 +1125,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             # current/stale，就会把整集当作缺失重新生成一遍。
             already_done = [
                 *already_done,
-                *_currency_reusable_ids(
-                    states, already_done, manifest_active=currency is not None, project_dir=project_dir
-                ),
+                *_currency_reusable_ids(states, already_done),
             ]
             builder = GenerationResultBuilder(_EPISODE_OPERATION, GenerationSelectionMode.MISSING_ONLY)
             for done_id in already_done:
@@ -1301,13 +1283,10 @@ def generate_video_scene_tool(ctx: ToolContext):
                 )
                 return generation_result_response(builder.build(), log)
             project = ctx.pm.load_project(ctx.project_name)
-            episode = (
-                resolve_artifact_episode(
-                    project=project,
-                    script=script,
-                    script_filename=script_filename,
-                )
-                or 1
+            episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=script_filename,
             )
             currency = active_artifact_currency_resolver(project_dir, project)
             states = video_target_states([item], id_field, episode=episode, resolver=currency)
@@ -1418,20 +1397,16 @@ def generate_video_all_tool(ctx: ToolContext):
             content_mode = resolve_content_mode(script, project)
             currency = active_artifact_currency_resolver(project_dir, project)
             versions = VersionManager(project_dir)
-            episode = (
-                resolve_artifact_episode(
-                    project=project,
-                    script=script,
-                    script_filename=script_filename,
-                )
-                or 1
+            episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=script_filename,
             )
             states = video_target_states(items, id_field, episode=episode, resolver=currency)
             selection = select_generation_targets(
                 candidates=[state.candidate for state in states.values()],
                 requested_ids=None,
                 resolver=currency,
-                project_dir=project_dir,
                 # 一次精确匹配的手动上传与 Manifest 认定的 current/stale 同样可复用，
                 # 两条腿合起来才是「这个 ID 还缺不缺视频」。
                 reusable_override=lambda candidate: versions.selected_manual_upload_matches_current_file(
@@ -1576,13 +1551,10 @@ def generate_video_selected_tool(ctx: ToolContext):
             items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=set(scene_ids))
             project = ctx.pm.load_project(ctx.project_name)
             content_mode = resolve_content_mode(script, project)
-            episode = (
-                resolve_artifact_episode(
-                    project=project,
-                    script=script,
-                    script_filename=script_filename,
-                )
-                or 1
+            episode = resolve_artifact_episode(
+                project=project,
+                script=script,
+                script_filename=script_filename,
             )
 
             items_by_id: dict[str, dict[str, Any]] = {}

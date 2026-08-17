@@ -73,7 +73,7 @@ from lib.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
 from lib.project_change_hints import emit_project_change_hint
-from lib.project_schema import parse_project_schema_version, project_schema_is_current
+from lib.project_schema import parse_project_schema_version
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets, script_duration_total
@@ -2743,7 +2743,7 @@ class ProjectManager:
             manifest_path = project_dir / MANIFEST_FILENAME
             manifest_adapter = (
                 ProjectArtifactManifestAdapter(project_dir)
-                if project_schema_is_current(project) and (manifest_path.exists() or manifest_path.is_symlink())
+                if manifest_path.exists() or manifest_path.is_symlink()
                 else None
             )
 
@@ -2989,7 +2989,12 @@ class ProjectManager:
         return bucket[key]
 
     def _get_pending_assets(self, asset_type: str, project_name: str) -> list[dict]:
-        """Return assets without a usable formal sheet under the active schema."""
+        """Return assets without a usable formal sheet, per the Artifact Manifest.
+
+        Registration is the whole verdict: a sheet whose file was deleted is
+        pending again, and an unmigrated project is refused rather than served
+        from a second reading rule.
+        """
 
         from lib.artifact_activation import active_artifact_currency_resolver, artifact_is_usable
         from lib.artifact_manifest import ArtifactKey
@@ -3000,15 +3005,11 @@ class ProjectManager:
         resolver = active_artifact_currency_resolver(project_dir, project)
         pending = []
         for name, entry in (project.get(spec.bucket_key) or {}).items():
-            sheet = entry.get(spec.sheet_field)
-            if resolver is not None:
-                usable = artifact_is_usable(
-                    resolver,
-                    ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name)),
-                    sheet,
-                )
-            else:
-                usable = isinstance(sheet, str) and bool(sheet) and (project_dir / sheet).exists()
+            usable = artifact_is_usable(
+                resolver,
+                ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name)),
+                entry.get(spec.sheet_field),
+            )
             if not usable:
                 pending.append({"name": name, **entry})
         return pending
@@ -3224,7 +3225,7 @@ class ProjectManager:
         return self._get_asset("scene", project_name, name)
 
     def get_pending_project_scenes(self, project_name: str) -> list[dict]:
-        """无 scene_sheet 或文件不存在的场景。"""
+        """产物清单未登记可用 scene_sheet 的场景；项目未迁移时阻断。"""
         return self._get_pending_assets("scene", project_name)
 
     def get_scene_path(self, project_name: str, filename: str) -> Path:
@@ -3242,7 +3243,7 @@ class ProjectManager:
         return self._get_asset("prop", project_name, name)
 
     def get_pending_project_props(self, project_name: str) -> list[dict]:
-        """无 prop_sheet 或文件不存在的道具。"""
+        """产物清单未登记可用 prop_sheet 的道具；项目未迁移时阻断。"""
         return self._get_pending_assets("prop", project_name)
 
     def get_prop_path(self, project_name: str, filename: str) -> Path:
@@ -3250,7 +3251,7 @@ class ProjectManager:
         return self._get_asset_path("prop", project_name, filename)
 
     def get_pending_characters(self, project_name: str) -> list[dict]:
-        """获取待生成设计图的角色列表（无 character_sheet 或文件不存在）"""
+        """产物清单未登记可用 character_sheet 的角色；项目未迁移时阻断。"""
         return self._get_pending_assets("character", project_name)
 
     # ==================== 产品管理（product） ====================
@@ -3264,7 +3265,7 @@ class ProjectManager:
         return self._get_asset("product", project_name, name)
 
     def get_pending_project_products(self, project_name: str) -> list[dict]:
-        """无 product_sheet 或文件不存在的产品。"""
+        """产物清单未登记可用 product_sheet 的产品；项目未迁移时阻断。"""
         return self._get_pending_assets("product", project_name)
 
     def get_product_path(self, project_name: str, filename: str) -> Path:

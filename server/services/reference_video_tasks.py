@@ -476,7 +476,6 @@ async def execute_reference_video_task(
             project=project,
             script=script,
             script_filename=script_file,
-            legacy_episode_fallback=1,
         )
         units = script.get("video_units") or []
         unit = next((u for u in units if isinstance(u, dict) and u.get("unit_id") == resource_id), None)

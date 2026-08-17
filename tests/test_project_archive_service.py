@@ -856,6 +856,37 @@ class TestProjectArchiveService:
         )
 
     @pytest.mark.unit
+    def test_unmigrated_export_omits_the_envelope_so_import_backfills(self, tmp_path):
+        """未进入清单体系的项目导出成不带信封的归档，导入侧照常迁移并自证补录。
+
+        它的清单必然为空，而空信封在导入端与「这个项目一件产物都没有」不可区分：
+        照保真路径落一份空清单，全部已生成产物会一次判 missing。
+        """
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        (project_dir / MANIFEST_FILENAME).unlink(missing_ok=True)
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert "artifact_manifest" not in archive_manifest
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) is not None
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.CURRENT
+        )
+
+    @pytest.mark.unit
     def test_current_export_keeps_selected_typed_snapshot_for_import_activation(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)

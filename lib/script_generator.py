@@ -58,7 +58,6 @@ from lib.episode_paths import (
     episode_script_filename,
 )
 from lib.project_manager import ProjectManager
-from lib.project_schema import project_schema_is_current
 from lib.prompt_builders_ad import build_ad_prompt, build_ad_reference_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
@@ -871,16 +870,7 @@ class ScriptGenerator:
 
     def _freeze_step1_artifact_basis(self, step1_content: object) -> None:
         """Freeze the authoritative step1 basis before the provider call."""
-        try:
-            basis = build_episode_script_basis(step1_content, project=self.project_json)
-        except (TypeError, ValueError):
-            # Legacy projects and small unit-test fixtures can predate the typed
-            # artifact contract.  Schema 8 must remain strict because its
-            # Manifest is authoritative.
-            if project_schema_is_current(self.project_json):
-                raise
-            self._artifact_basis = None
-            return
+        basis = build_episode_script_basis(step1_content, project=self.project_json)
         self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
 
     def _freeze_step1_input_claim(self, episode: int, step1_path: Path, *, content_digest: str) -> None:
@@ -911,13 +901,7 @@ class ScriptGenerator:
 
     def _freeze_ad_artifact_basis(self, episode: int) -> None:
         """Freeze the ad-specific canonical basis before the provider call."""
-        try:
-            basis = build_ad_episode_script_basis(episode, project=self.project_json)
-        except (TypeError, ValueError):
-            if project_schema_is_current(self.project_json):
-                raise
-            self._artifact_basis = None
-            return
+        basis = build_ad_episode_script_basis(episode, project=self.project_json)
         self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
 
     def _load_step1(self, episode: int) -> str:
