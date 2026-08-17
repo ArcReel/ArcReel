@@ -268,7 +268,11 @@ _Avoid_: 把 style 理解为短标签（旧值 Photographic/Anime/3D 已废，�
 ArcReel 早期对「场景 + 道具」的统称（按 type 区分 location/prop）；现已拆为独立的 scene 与 prop 两类资产，clue 及其 `importance` 字段不再是当前数据模型的概念。
 _Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具——规范词是 scene 与 prop；仅在读历史 project.json、迁移代码与归档设计稿时会遇到 clue。
 
-### 剧本与分镜
+### 脚本与分镜
+
+**脚本（script）**：
+按骨架组织的正式生成产物（script JSON），是分镜、视频、旁白等下游产物的直接内容依据；每集一份，绑定在分集账本条目上。
+_Avoid_: 用「剧本」称呼它——「剧本」保留给用户上传的成品「剧本源（screenplay）」语境，两者并称时只会互相污染；把 step1 中间稿当脚本（前者是草稿，后者是正式产物）。
 
 **骨架（skeleton / 骨架种类 skeleton kind）**：
 剧本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考视频单元）。骨架由 content_mode 与生成路线两轴**派生**，本身不是第三条轴：分镜路线按内容模式分别使用前三种骨架，参考路线三种内容模式统一使用 `video_units`；`docs/adr/0033` 中“广告骨架恒为 shots”的决定仅继续适用于 ad + storyboard。路线一轴恒取项目字段，剧本自身不承载路线信息。对骨架有两种合法提问——**规范性**（按项目的 content_mode 与生成路线，这份剧本*应该*是什么骨架）与**取证性**（这份剧本数据*实际*是什么骨架）；两者在存量失配剧本（骨架与项目路线不符的历史集）上可能不一致，取证以数据形状优先。骨架知识收归零依赖叶子模块 `lib/script_skeleton.py`：以骨架种类为键的窄表 `SKELETONS`（键即条目数组键，行 `Skeleton(id_field, chars_field)`，`video_units` 无逐条角色名单故 `chars_field=None`）+ **规范解析** `resolve_declared_kind(content_mode, generation_mode)`（服务手持项目配置的消费方，未知/缺失 content_mode 抛 `ValueError`）+ **取证解析** `resolve_script_kind(script)`（服务手持剧本数据的消费方，保留数据形状优先的容忍阶梯）；两个解析器是全体消费方分派骨架的单一入口，设计依据见 `docs/adr/0045`。智能体的生成入队工具与数据校验另过**路线闸门** `ensure_route_skeleton(script, content_mode, generation_mode)`：剧本骨架与项目路线跨族（分镜族 ⟷ `video_units`）时抛 `SkeletonRouteMismatchError`，给结构结论与重拆指引，杜绝静默降档与悄悄换路径；族内形态差异与残留的另一族数组均放行。查看 / 编辑 / 项目归档导出不经闸门，失配剧本仍可读可改可归档；剪映草稿导出按剧本 content_mode 的规范骨架取片段，失配剧本取不到已完成片段。
@@ -322,7 +326,7 @@ _Avoid_: 把 source_text 当会被配音 / 朗读的内容；与 episode 级 `so
 **源文件性质（source_kind）/ 剧本源（screenplay source）**：
 project.json 顶层字段，取值 `novel`（小说，默认——现状行为）/ `screenplay`（用户上传的成品剧本）。标记源文件**已是作者写好的成品剧本**而非待改编的小说。`screenplay` 时整条 drama 链路从「创作」翻为「提取优先」：分集边界、场景、台词、集尾钩子按剧本**原样提取**（作者即权威），LLM 只补剧本未写的视觉生产层（image_prompt / video_prompt）。是与 content_mode（narration/drama/ad）/ generation_mode 都正交的第三条轴——「源文件性质」，不是内容类型也不是视频来源。
 **逐字保真只锚「可听见的内容」**——角色台词文字与画外音文字（`DramaScene.utterances` 内的发声条目，台词带说话人、画外音无说话人）不改写、不丢、不润色；排版/标签（`△`/`【画外音】`/markdown）、运镜与舞台提示（`（航拍，全景）`/`（压低声音）`）、视觉描述、泛指群演（`老人甲`/空镜）一律由 LLM 裁量转写或剥离，泛指 speaker 不进资产（见 `docs/adr/0036`）。
-_Avoid_: 用「剧本」同时指上传源与生成产物——上传源是「剧本源（screenplay）」、产物是「剧本（script JSON）」，两个概念；把 screenplay 当新 content_mode；对 screenplay 仍跑「改编式 step1」或「重规划式 plan_episodes」——那正是要消除的二次改写（台词丢失、作者分集被篡改）；把「逐字」理解为连排版/舞台提示/群演都原样照搬——逐字只约束「说出来的话」，不约束「看见的制作」与「纸面排版」。
+_Avoid_: 用「剧本」同时指上传源与生成产物——上传源是「剧本源（screenplay）」、产物是「脚本（script JSON）」，两个概念；把 screenplay 当新 content_mode；对 screenplay 仍跑「改编式 step1」或「重规划式 plan_episodes」——那正是要消除的二次改写（台词丢失、作者分集被篡改）；把「逐字」理解为连排版/舞台提示/群演都原样照搬——逐字只约束「说出来的话」，不约束「看见的制作」与「纸面排版」。
 
 **分集账本（episode ledger）**：
 project.json `episodes[]` 即分集单一真相源：条目在 episode/title/script_file 之外扩展 `source_range`（原文素材范围）、`hook`（集尾钩子）、`outline`（drama 分集大纲）与 `ledger_status`（消费状态）；物理 `source/episode_N.txt` 是派生物（见 `docs/adr/0031`）。账本字段全部可缺失——`source_range` 缺失即该集没有位置记录（旧拆分流程写入、或手动预拆分上传），消费链路继续使用现有物理文件，但规划无法续接：plan 一律拒绝并指引全量重置；部分重置只在这类条目落在保留段时拒绝，落在清除范围内的随重置正常清除。
