@@ -38,7 +38,11 @@ from lib.artifact_manifest import (
     ArtifactStatus,
     normalize_artifact_path,
 )
-from lib.project_migration_failure import MigrationFailureRecord
+from lib.project_migration_failure import (
+    MIGRATION_FAILURE_CODE,
+    RETRY_MIGRATION_ACTION,
+    MigrationFailureRecord,
+)
 from lib.task_failure import parse_failure
 
 if TYPE_CHECKING:  # 仅用于类型标注，避免这个纯契约模块在运行时拖进队列客户端。
@@ -82,7 +86,7 @@ class GenerationProblemCode(StrEnum):
     detects.
     """
 
-    PROJECT_MIGRATION_FAILED = "project_migration_failed"
+    PROJECT_MIGRATION_FAILED = MIGRATION_FAILURE_CODE
     """The project's schema migration (artifact backfill included) did not finish.
     Nothing on this project can be generated until it is repaired and retried."""
     UNIT_NOT_FOUND = "generation_unit_not_found"
@@ -120,7 +124,7 @@ class GenerationAction(StrEnum):
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
-    RETRY_PROJECT_MIGRATION = "retry_project_migration"
+    RETRY_PROJECT_MIGRATION = RETRY_MIGRATION_ACTION
     """Fix the reported inputs, then rerun the project's migration chain."""
     NONE = "none"
 

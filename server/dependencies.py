@@ -28,11 +28,16 @@ async def require_project_migration_ok(request: Request) -> None:
     keeps working while nothing new can be produced from inputs the migration
     itself refused. Enqueue-backed routes are also guarded inside the queue; this
     covers the entries that write or call a provider without queuing a task.
+
+    The project is taken from the route's own path parameter. A guarded route
+    that names its project some other way fails loud rather than slipping
+    through unchecked — a silent pass would reopen the entry this guard exists
+    to close, and only a mounting mistake can produce it.
     """
 
     if request.method in _READ_ONLY_METHODS:
         return
     name = request.path_params.get("project_name") or request.path_params.get("name")
     if not isinstance(name, str) or not name:
-        return
+        raise RuntimeError(f"require_project_migration_ok 挂在了没有项目路径参数的路由上：{request.url.path}")
     await asyncio.to_thread(assert_project_migration_ok, name)

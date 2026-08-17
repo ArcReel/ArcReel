@@ -12,16 +12,14 @@ different project via prompt injection.
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server
 
-from lib.generation_result import migration_problem
 from lib.project_migration_guard import project_migration_failure
-from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools._context import ToolContext, migration_refusal_response
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
@@ -152,19 +150,10 @@ def _refuse_while_migration_failed(sdk_tool: Any, ctx: ToolContext) -> Any:
     async def _guarded(args: Any) -> dict[str, Any]:
         failure = await asyncio.to_thread(project_migration_failure, ctx.project_name)
         if failure is not None:
-            problem = migration_problem(failure)
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "❌ 项目数据升级未完成，生成与正式写入已全部关闭。"
-                        "请按明细修复后调用 retry_project_migration：\n"
-                        + json.dumps(problem.model_dump(mode="json"), ensure_ascii=False, indent=2),
-                    }
-                ],
-                "is_error": True,
-                "problem": problem.model_dump(mode="json"),
-            }
+            return migration_refusal_response(
+                failure,
+                text="❌ 项目数据升级未完成，生成与正式写入已全部关闭。请按明细修复后调用 retry_project_migration：",
+            )
         return await inner(args)
 
     return replace(sdk_tool, handler=_guarded)

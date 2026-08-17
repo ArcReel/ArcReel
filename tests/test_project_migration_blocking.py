@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 from claude_agent_sdk import tool
+from fastapi import APIRouter, Depends, FastAPI
+from fastapi.testclient import TestClient
 
 from lib.api_errors import ConflictError
 from lib.generation_result import GenerationAction, GenerationProblemCode
@@ -25,6 +27,8 @@ from lib.project_migrations.runner import migrate_project_with_verdict, run_proj
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest
 from lib.workflow_state import WorkflowStateService
+from server.dependencies import require_project_migration_ok
+from server.error_handlers import register_error_handlers
 from server.services.workflow_planner import WorkflowPlanner
 from tests.test_project_migration_v7_v8 import _project
 
@@ -166,10 +170,11 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
 
     blocked = await handler({})
     assert blocked["is_error"] is True
-    payload = json.loads(blocked["content"][0]["text"].split("\n", 1)[1])
-    assert payload["error"] == MIGRATION_FAILURE_CODE
-    assert payload["details"][0]["episode"] == 1
-    assert payload["details"][0]["file"] == "scripts/episode_1.json"
+    # 与被拦截的生成工具同一个回执形状：一份 problem，不是第二套 error/reason 信封
+    assert blocked["problem"]["code"] == MIGRATION_FAILURE_CODE
+    assert blocked["problem"]["params"]["details"][0]["episode"] == 1
+    assert blocked["problem"]["params"]["details"][0]["file"] == "scripts/episode_1.json"
+    assert json.loads(blocked["content"][0]["text"].split("\n", 1)[1]) == blocked["problem"]
 
     _repair_episode_script(project_dir)
     unblocked = await handler({})
@@ -212,6 +217,72 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
     # The blocked set names real tools, and never the retry tool — it is the way out.
     assert sdk_tools.MIGRATION_BLOCKED_TOOL_IDS <= set(sdk_tools.ARCREEL_MCP_TOOL_IDS)
     assert "retry_project_migration" not in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
+
+
+def _guarded_app() -> FastAPI:
+    """一个只挂守卫的最小 app：断言的是依赖本身在真实 FastAPI 栈里的行为。"""
+
+    app = FastAPI()
+    register_error_handlers(app)
+    router = APIRouter(dependencies=[Depends(require_project_migration_ok)])
+
+    @router.post("/projects/{project_name}/generate/thing")
+    async def _generate(project_name: str) -> dict[str, str]:
+        return {"generated": project_name}
+
+    @router.get("/projects/{project_name}/thing")
+    async def _read(project_name: str) -> dict[str, str]:
+        return {"read": project_name}
+
+    @router.post("/no-project-param")
+    async def _unparametrized() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    app.include_router(router)
+    return app
+
+
+def test_rest_guard_refuses_writes_but_keeps_reads_open(tmp_path: Path, monkeypatch) -> None:
+    import lib.project_migration_guard as guard
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(projects_root)
+    _break_episode_script(project_dir)
+    assert migrate_project_with_verdict(project_dir) is not None
+    monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(projects_root)))
+
+    client = TestClient(_guarded_app())
+
+    refused = client.post("/projects/demo/generate/thing")
+    assert refused.status_code == 409
+    assert "demo" in refused.json()["detail"]
+
+    # 只读照常：被阻断的项目仍要能看脚本与画布上已有的产物
+    assert client.get("/projects/demo/thing").status_code == 200
+
+    _repair_episode_script(project_dir)
+    assert migrate_project_with_verdict(project_dir) is None
+    assert client.post("/projects/demo/generate/thing").status_code == 200
+
+
+def test_rest_guard_fails_loud_when_the_route_has_no_project_param() -> None:
+    client = TestClient(_guarded_app(), raise_server_exceptions=True)
+
+    with pytest.raises(RuntimeError, match="没有项目路径参数"):
+        client.post("/no-project-param")
+
+
+def test_every_guarded_router_route_can_name_its_project() -> None:
+    """守卫按路径参数取项目，所以挂了守卫的路由必须都带得出项目名——否则会 fail loud。"""
+
+    from server.app import app
+
+    for route in app.routes:
+        dependencies = getattr(getattr(route, "dependant", None), "dependencies", ())
+        if not any(dep.call is require_project_migration_ok for dep in dependencies):
+            continue
+        assert {"project_name", "name"} & set(getattr(route, "param_convertors", {})), route.path
 
 
 def test_a_repaired_project_is_idempotent_to_retry(tmp_path: Path) -> None:

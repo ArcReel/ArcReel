@@ -16,7 +16,11 @@ from lib.generation_result import (
 )
 from lib.narration_delivery import USE_TTS
 from lib.project_manager import ProjectManager, get_project_manager
-from lib.project_migration_failure import MIGRATION_FAILURE_CODE, load_migration_failure
+from lib.project_migration_failure import (
+    MIGRATION_FAILURE_CODE,
+    MigrationFailureRecord,
+    load_migration_failure,
+)
 from lib.reference_video.request_projection import ReferenceRequestOptions
 from lib.script_batch_edit import script_revision
 from lib.script_skeleton import SKELETONS, ensure_route_skeleton
@@ -27,7 +31,7 @@ from lib.workflow_plan import (
     WorkflowTaskObservation,
     build_workflow_plan,
 )
-from lib.workflow_state import WorkflowStateService, WorkflowStatus
+from lib.workflow_state import WorkflowBlocker, WorkflowStateService, WorkflowStatus
 from server.services.video_batch_admission import (
     active_task_problem,
     admit_reference_video_batch,
@@ -76,7 +80,7 @@ class WorkflowPlanner:
             return build_workflow_plan(
                 status,
                 narration_delivery=request.narration_delivery,
-                structure_problems=[await self._migration_problem(project_name)],
+                structure_problems=[await self._migration_problem(project_name, blocked)],
                 script_revision=None,
                 task_observations=[],
                 admission=None,
@@ -102,11 +106,19 @@ class WorkflowPlanner:
             admission=admission,
         )
 
-    async def _migration_problem(self, project_name: str) -> GenerationProblem:
+    async def _migration_problem(self, project_name: str, blocker: WorkflowBlocker) -> GenerationProblem:
+        """Re-read the verdict for the structured locations the blocker cannot carry.
+
+        The blocker already holds the code and the reason; only the record names
+        the offending episode and file. A verdict cleared between the two reads
+        means a concurrent retry succeeded — the plan still reports the blocker
+        it was built from, just without the per-location detail.
+        """
+
         project_path = self._pm.get_project_path(project_name)
         failure = await asyncio.to_thread(load_migration_failure, project_path)
-        if failure is None:  # pragma: no cover - the status was just built from it
-            raise RuntimeError(f"migration verdict vanished while planning {project_name!r}")
+        if failure is None:
+            failure = MigrationFailureRecord(schema_version=-1, failed_at="", reason=blocker.reason)
         return migration_problem(failure)
 
     async def _script_facts(self, project_name: str, status: WorkflowStatus) -> _ScriptFacts | None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -10,8 +11,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.resolver import ConfigResolver, VideoCapability, constrain_durations_for_project
 from lib.db import async_session_factory
-from lib.generation_result import GenerationBatchResult, render_generation_result
+from lib.generation_result import GenerationBatchResult, migration_problem, render_generation_result
 from lib.project_manager import ProjectManager
+from lib.project_migration_failure import MigrationFailureRecord
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,23 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
     msg = f"{name} 失败: {exc}"
     text = "\n".join([msg, *log]) if log else msg
     return {"content": [{"type": "text", "text": text}], "is_error": True}
+
+
+def migration_refusal_response(failure: MigrationFailureRecord, *, text: str) -> dict[str, Any]:
+    """Envelope the migration verdict as an SDK MCP tool refusal.
+
+    Every tool that reports the verdict — the blocked ones wrapped at
+    registration and the retry tool when the rerun fails again — returns this
+    one shape, so the agent reads a single ``problem`` payload carrying the
+    named episode / file / violation instead of two envelopes for one fact.
+    """
+    problem = migration_problem(failure)
+    payload = problem.model_dump(mode="json")
+    return {
+        "content": [{"type": "text", "text": text + "\n" + json.dumps(payload, ensure_ascii=False, indent=2)}],
+        "is_error": True,
+        "problem": payload,
+    }
 
 
 def generation_result_response(

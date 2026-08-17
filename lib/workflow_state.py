@@ -676,7 +676,7 @@ class WorkflowStateService:
         project_path = self.pm.get_project_path(project_name)
         failure = load_migration_failure(project_path)
         if failure is not None:
-            return _migration_blocked_status(project, failure)
+            return self._migration_blocked_status(project, failure)
         shared = self._shared_facts(project_path, project)
         return self._get_status(project_name, project, project_path, episode, shared)
 
@@ -1168,6 +1168,35 @@ class WorkflowStateService:
             next_action=next_action,
         )
 
+    @classmethod
+    def _migration_blocked_status(cls, project: Mapping[str, Any], failure: MigrationFailureRecord) -> WorkflowStatus:
+        """Report the failure instead of a state derived from unmigrated data.
+
+        Deriving the real state would mean walking the very inputs the migration
+        already refused, so a second failure would replace the explanation the
+        user needs with a 500. The project stays readable through the project
+        and script endpoints; only the production status short-circuits.
+        """
+
+        return cls._response(
+            dict(project),
+            None,
+            None,
+            "PROJECT_INPUT",
+            [migration_blocker(failure)],
+            {},
+            {
+                "asset_inventory": {},
+                "asset_sheets": {},
+                "step1": {"state": "missing"},
+                "script": {"state": "missing"},
+                "storyboards": _empty_collection(),
+                "videos": _empty_collection(),
+                "audio": _empty_collection(),
+            },
+            migration_next_action(failure),
+        )
+
 
 def migration_blocker(failure: MigrationFailureRecord) -> WorkflowBlocker:
     """The one blocker a project whose migration failed reports everywhere."""
@@ -1182,35 +1211,6 @@ def migration_next_action(failure: MigrationFailureRecord) -> WorkflowNextAction
         RETRY_MIGRATION_ACTION,
         failure.reason,
         args={"details": [detail.model_dump(mode="json") for detail in failure.details]},
-    )
-
-
-def _migration_blocked_status(project: Mapping[str, Any], failure: MigrationFailureRecord) -> WorkflowStatus:
-    """Report the failure instead of a state derived from unmigrated data.
-
-    Deriving the real state would mean walking the very inputs the migration
-    already refused, so a second failure would replace the explanation the user
-    needs with a 500. The project stays readable through the project and script
-    endpoints; only the production status short-circuits.
-    """
-
-    return WorkflowStateService._response(
-        dict(project),
-        None,
-        None,
-        "PROJECT_INPUT",
-        [migration_blocker(failure)],
-        {},
-        {
-            "asset_inventory": {},
-            "asset_sheets": {},
-            "step1": {"state": "missing"},
-            "script": {"state": "missing"},
-            "storyboards": _empty_collection(),
-            "videos": _empty_collection(),
-            "audio": _empty_collection(),
-        },
-        migration_next_action(failure),
     )
 
 

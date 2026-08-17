@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -11,7 +10,7 @@ from claude_agent_sdk import tool
 from lib.project_migration_failure import MigrationFailureRecord, load_migration_failure
 from lib.project_migrations import migrate_project_with_verdict
 from lib.workflow_plan import WorkflowPlanRequest
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
+from server.agent_runtime.sdk_tools._context import ToolContext, migration_refusal_response, tool_error
 from server.services import workflow_planner
 
 
@@ -58,22 +57,10 @@ def _residual_failure(ctx: ToolContext) -> MigrationFailureRecord | None:
 
 
 def _failure_response(failure: MigrationFailureRecord) -> dict[str, Any]:
-    payload = {
-        "error": "project_migration_failed",
-        "reason": failure.reason,
-        "schema_version": failure.schema_version,
-        "details": [detail.model_dump(mode="json") for detail in failure.details],
-    }
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": "❌ 数据升级仍未通过，项目继续阻断。修复下列位置后再重试：\n"
-                + json.dumps(payload, ensure_ascii=False, indent=2),
-            }
-        ],
-        "is_error": True,
-    }
+    return migration_refusal_response(
+        failure,
+        text="❌ 数据升级仍未通过，项目继续阻断。修复下列位置后再重试：",
+    )
 
 
 __all__ = ["retry_project_migration_tool"]
