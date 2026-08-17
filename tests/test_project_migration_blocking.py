@@ -271,20 +271,15 @@ def test_retry_keeps_the_project_blocked_when_the_chain_cannot_place_it(tmp_path
     assert load_migration_failure(project_dir) is not None
 
 
-def test_a_verdict_that_cannot_be_persisted_fails_loud(tmp_path: Path, monkeypatch) -> None:
+def test_a_verdict_that_cannot_be_persisted_fails_loud(tmp_path: Path) -> None:
     """裁决写不进磁盘时，任何守卫都读不到它——报成功等于放开一个该被阻断的项目。"""
-
-    import lib.project_migration_failure as failure_module
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
     project_dir, *_ = _project(projects_root)
     _break_episode_script(project_dir)
-
-    def _refuse(*_args: object, **_kwargs: object) -> None:
-        raise OSError("read-only file system")
-
-    monkeypatch.setattr(failure_module.os, "replace", _refuse)
+    # 记录位置被一个目录占住：落盘那一步必然失败，且不依赖平台的权限语义。
+    (project_dir / MIGRATION_FAILURE_FILENAME).mkdir()
 
     with pytest.raises(OSError):
         migrate_project_with_verdict(project_dir)
