@@ -26,7 +26,6 @@ from lib.batch_admission import (
     refused_ticket,
 )
 from lib.generation_queue_client import (
-    BatchEnqueueAborted,
     BatchTaskResult,
     TaskSpec,
     batch_enqueue_and_wait,
@@ -392,18 +391,6 @@ async def _admit_storyboard_specs(
     return admission
 
 
-def _enqueue_aborted_error(name: str, exc: BatchEnqueueAborted, log: list[str] | None = None) -> dict[str, Any]:
-    """回滚后的整批入队失败：明确说明哪些任务已撤销、哪些仍占用队列。"""
-
-    text = (
-        f"{name} 失败: {exc}；本次已回滚 {len(exc.rolled_back)} 个任务，"
-        f"未回滚 {len(exc.orphaned)} 个（{'、'.join(exc.orphaned) or '无'}）"
-    )
-    if log:
-        text = "\n".join([text, *log])
-    return {"content": [{"type": "text", "text": text}], "is_error": True}
-
-
 def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | None:
     """定生成路线并把守骨架闸门。
 
@@ -720,7 +707,7 @@ async def _submit_with_checkpoint(
         project_name=project_name,
         specs=specs,
         on_success=on_success,
-        atomic=True,
+        stop_on_failure=True,
     )
 
 
@@ -1238,8 +1225,6 @@ def generate_video_episode_tool(ctx: ToolContext):
             if not builder.has_failures:
                 _clear_checkpoint_at(ckpt_path)
             return generation_result_response(builder.build(), log)
-        except BatchEnqueueAborted as exc:
-            return _enqueue_aborted_error(_EPISODE_OPERATION, exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_EPISODE_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -1365,7 +1350,9 @@ def generate_video_scene_tool(ctx: ToolContext):
             if not admission.admitted:
                 return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
 
-            successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs, atomic=True)
+            successes, failures = await batch_enqueue_and_wait(
+                project_name=ctx.project_name, specs=specs, stop_on_failure=True
+            )
             record_batch_outcomes(
                 builder,
                 successes=successes,
@@ -1375,8 +1362,6 @@ def generate_video_scene_tool(ctx: ToolContext):
                 fallback_path=_scene_fallback_relpath,
             )
             return generation_result_response(builder.build(), log)
-        except BatchEnqueueAborted as exc:
-            return _enqueue_aborted_error(_SCENE_OPERATION, exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_SCENE_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -1505,7 +1490,9 @@ def generate_video_all_tool(ctx: ToolContext):
             if not admission.admitted:
                 return _batch_admission_response(BatchAdmissionRefused(admission), log, builder, states)
 
-            successes, failures = await batch_enqueue_and_wait(project_name=ctx.project_name, specs=specs, atomic=True)
+            successes, failures = await batch_enqueue_and_wait(
+                project_name=ctx.project_name, specs=specs, stop_on_failure=True
+            )
             record_batch_outcomes(
                 builder,
                 successes=successes,
@@ -1515,8 +1502,6 @@ def generate_video_all_tool(ctx: ToolContext):
                 fallback_path=_scene_fallback_relpath,
             )
             return generation_result_response(builder.build(), log)
-        except BatchEnqueueAborted as exc:
-            return _enqueue_aborted_error(_ALL_OPERATION, exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_ALL_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001
@@ -1726,8 +1711,6 @@ def generate_video_selected_tool(ctx: ToolContext):
             if not builder.has_failures:
                 _clear_checkpoint_at(ckpt_path)
             return generation_result_response(builder.build(), log)
-        except BatchEnqueueAborted as exc:
-            return _enqueue_aborted_error(_SELECTED_OPERATION, exc, log)
         except SpeechAdmissionError as exc:
             return _speech_admission_error(_SELECTED_OPERATION, exc, log)
         except Exception as exc:  # noqa: BLE001

@@ -86,7 +86,11 @@ MESSAGES = {
     "generation_unit_request_invalid": "Nội dung yêu cầu của đơn vị này không hợp lệ; hãy sửa rồi thử lại",
     "generation_artifact_state_unavailable": "Không đọc được trạng thái sản phẩm của đơn vị này; hãy sửa rồi thử lại",
     "ref_batch_empty_selection": "Tạo hàng loạt cần chọn ít nhất một đơn vị video",
-    "ref_batch_enqueue_aborted": 'Việc xếp hàng loạt dừng ở đơn vị "{unit_id}" và các tác vụ đã tạo được hoàn tác; vui lòng thử lại',
+    "generation_enqueue_failed": "Không tạo được tác vụ cho đơn vị này; vui lòng thử lại",
+    "generation_enqueue_interrupted": (
+        "Việc xếp hàng loạt bị gián đoạn trước khi đơn vị này có tác vụ; các tác vụ đã tạo vẫn chạy "
+        "bình thường, thử lại chỉ xếp hàng phần còn thiếu"
+    ),
     "video_supported_durations_missing": "Mô hình video đã chọn chưa khai báo các mức thời lượng được hỗ trợ",
     "video_prompt_must_be_string_or_action_object": "prompt phải là chuỗi hoặc đối tượng chứa action/camera_motion",
     "video_prompt_action_empty": "prompt.action không được để trống",

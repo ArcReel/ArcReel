@@ -1377,10 +1377,13 @@ def _patch_batch_admission(
     active_tasks: list[dict[str, object]] | None = None,
     active_tts: frozenset[str] = frozenset(),
     quote_amount: float | None = None,
+    fail_enqueue_after: int | None = None,
 ) -> list[dict[str, object]]:
     """把批量准入的当前状态查询接到进程内替身，返回入队记录。
 
     准入要读任务库、TTS 在途状态与报价；路由测试不带这些依赖，逐个注入替身。
+
+    ``fail_enqueue_after`` 让第 N 次之后的入队抛错，用来复现顺序入队中途中断。
     """
 
     from lib.reference_video.request_projection import ReferenceRequestOptions
@@ -1416,6 +1419,8 @@ def _patch_batch_admission(
     enqueued: list[dict[str, object]] = []
 
     async def _enqueue_task_only(**kwargs):
+        if fail_enqueue_after is not None and len(enqueued) >= fail_enqueue_after:
+            raise RuntimeError("queue unavailable")
         enqueued.append(kwargs)
         return {"task_id": f"task-{len(enqueued)}", "deduped": False}
 
@@ -1449,6 +1454,72 @@ def test_generate_batch_creates_the_whole_task_set_in_one_admission(
         "reference_request_options": {"narration_delivery": "post_production"},
     }
     assert enqueued[0]["source"] == "webui"
+
+
+@pytest.mark.integration
+def test_generate_batch_keeps_created_tasks_when_the_enqueue_is_interrupted(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """入队中断不撤销已创建的任务：它们是准入通过的完整付费单元，照常执行。
+
+    没轮到的 unit 逐 ID 报出来，界面据此只释放它自己的占用标记。
+    """
+
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9], fail_enqueue_after=1)
+
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "admitted"
+    assert [call["resource_id"] for call in enqueued] == [first]
+    assert body["task_ids"] == ["task-1"]
+    assert body["task_ids_by_unit"] == {first: "task-1"}
+    assert [entry["unit_id"] for entry in body["enqueue_failures"]] == [second]
+    problem = body["enqueue_failures"][0]["problem"]
+    assert problem["code"] == "generation_enqueue_interrupted"
+    assert problem["action"] == "retry"
+    assert problem["message"]
+
+
+@pytest.mark.integration
+def test_generate_batch_after_an_interruption_only_queues_what_never_reached_the_queue(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """下次「缺失即生成」只补没入队的那个：已建任务产出的成片是现行产物，不重复付费。"""
+
+    first = _seed_unit(client)
+    second = _seed_second_unit(client)
+    _patch_batch_admission(monkeypatch, durations=[3, 6, 9], fail_enqueue_after=1)
+
+    interrupted = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"}).json()
+    assert [entry["unit_id"] for entry in interrupted["enqueue_failures"]] == [second]
+
+    # 第一个 unit 的任务照常跑完并落盘，第二个从未创建任务、也从未计费。
+    from lib.project_manager import ProjectManager
+    from server.routers import reference_videos as router_mod
+
+    pm: ProjectManager = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    for unit in script["video_units"]:
+        if unit["unit_id"] == first:
+            unit["generated_assets"] = {"video_clip": f"reference_videos/{first}.mp4"}
+    pm.save_script("demo", script, "scripts/episode_1.json")
+    clip = pm.get_project_path("demo") / "reference_videos"
+    clip.mkdir(parents=True, exist_ok=True)
+    (clip / f"{first}.mp4").write_bytes(b"\x00")
+
+    retried = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+    resp = client.post(BATCH_ENDPOINT, json={"narration_delivery": "post_production"})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "admitted"
+    assert [item["unit_id"] for item in body["units"]] == [second]
+    assert [call["resource_id"] for call in retried] == [second]
+    assert body["enqueue_failures"] == []
 
 
 @pytest.mark.integration

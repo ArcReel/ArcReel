@@ -81,17 +81,16 @@ describe("API", () => {
     });
 
     it("keeps the backend message of a structured error envelope", async () => {
-      // 批量入队中途失败的信封带 code / rolled_back 等字段，只按字符串取字会把已翻译的
-      // 说明整段丢掉，用户只看到一句「请求失败」。
+      // 结构化错误信封带 code 等字段，只按字符串取字会把已翻译的说明整段丢掉，
+      // 用户只看到一句「请求失败」。
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({
           ok: false,
           jsonData: {
             detail: {
-              code: "ref_batch_enqueue_aborted",
-              message: "E1U2 入队失败，本次已创建的任务已撤销",
-              rolled_back: ["t1"],
-              orphaned: ["t0"],
+              code: "ref_batch_empty_selection",
+              message: "批量生成需要至少选择一个视频单元",
+              unit_ids: ["E1U2"],
             },
           },
           statusText: "Service Unavailable",
@@ -99,7 +98,7 @@ describe("API", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
 
-      await expect(API.request("/projects")).rejects.toThrow("E1U2 入队失败，本次已创建的任务已撤销");
+      await expect(API.request("/projects")).rejects.toThrow("批量生成需要至少选择一个视频单元");
     });
 
     it("falls back to statusText when error response is not JSON", async () => {

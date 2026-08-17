@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -453,6 +453,11 @@ class BatchTaskResult:
     ``task`` carries the finished task row so callers can report the provider
     submission checkpoint separately from the queue status; it is ``None`` only
     when the wait itself failed and no terminal row was ever read.
+
+    ``enqueue_interrupted`` marks a target that never reached the queue because
+    the sequential enqueue stopped earlier in the batch. It is reported apart
+    from an ordinary enqueue failure: nothing about this target itself was
+    refused, so the follow-up is simply to queue it again.
     """
 
     resource_id: str
@@ -461,6 +466,7 @@ class BatchTaskResult:
     result: dict[str, Any] | None = None
     error: str | None = None
     task: dict[str, Any] | None = None
+    enqueue_interrupted: bool = False
 
 
 def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: str) -> BatchTaskResult:
@@ -490,78 +496,6 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
     )
 
 
-class BatchEnqueueAborted(RuntimeError):
-    """An all-or-nothing batch could not be created, and was rolled back.
-
-    ``rolled_back`` are the tasks this call created and then cancelled;
-    ``orphaned`` are the ones whose cancellation itself failed and therefore
-    still occupy the queue — the caller must surface them rather than claim a
-    clean refusal.
-    """
-
-    def __init__(
-        self,
-        *,
-        resource_id: str,
-        error: str,
-        rolled_back: Sequence[str] = (),
-        orphaned: Sequence[str] = (),
-    ) -> None:
-        self.resource_id = resource_id
-        self.error = error
-        self.rolled_back = tuple(rolled_back)
-        self.orphaned = tuple(orphaned)
-        super().__init__(f"batch enqueue aborted at '{resource_id}': {error}")
-
-
-async def _rollback_enqueued(created: Mapping[str, str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Cancel tasks this call created. Returns ``(rolled_back, orphaned)``."""
-
-    queue = get_generation_queue()
-    rolled_back: list[str] = []
-    orphaned: list[str] = []
-    for task_id in created.values():
-        try:
-            outcome = await queue.cancel_task(task_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("批量入队回滚失败 task_id=%s: %s", task_id, exc)
-            orphaned.append(task_id)
-            continue
-        # 任务可能已经越过可取消窗口。撤不掉的照实归入 orphaned：把它算作已回滚，
-        # 调用方就会以为整批干净收场，而那个任务仍在跑、仍会计费。
-        if _cancel_took_effect(outcome, task_id):
-            rolled_back.append(task_id)
-        else:
-            logger.warning("批量入队回滚未生效 task_id=%s", task_id)
-            orphaned.append(task_id)
-    return tuple(rolled_back), tuple(orphaned)
-
-
-def _cancel_took_effect(outcome: object, task_id: str) -> bool:
-    """Decide whether *task_id* is among what this cancel call actually affected.
-
-    ``cancel_task`` reports the two transitions in different shapes: a task that
-    was still queued comes back under ``cancelled`` as its full row, while one
-    that was already running comes back under ``cancelling`` as a bare id.
-    比较原始条目与 id 会把队列中被撤销这一常态误报成 orphaned，所以取条目里的 task_id 比较。
-
-    只有终态的 ``cancelled`` 算回滚成功：``cancelling`` 是一个尚未落地的撤销请求，任务
-    可能已经提交给供应商、仍在跑、仍会计费，把它算作已回滚会让调用方以为整批干净收场。
-    """
-
-    if isinstance(outcome, Mapping):
-        entries = outcome.get("cancelled") or []
-        return task_id in {_cancelled_entry_id(entry) for entry in entries}
-    return bool(outcome)
-
-
-def _cancelled_entry_id(entry: object) -> str | None:
-    if isinstance(entry, Mapping):
-        raw = entry.get("task_id")
-        return raw if isinstance(raw, str) else None
-    return entry if isinstance(entry, str) else None
-
-
 @dataclass(frozen=True, slots=True)
 class EnqueuedTask:
     """One queued member of a batch, and whether this call is what created it."""
@@ -575,30 +509,29 @@ async def _enqueue_sequentially(
     *,
     project_name: str,
     specs: list[TaskSpec],
-    atomic: bool,
+    stop_on_failure: bool,
     user_id: str = DEFAULT_USER_ID,
 ) -> tuple[list[EnqueuedTask], list[BatchTaskResult]]:
     """Queue *specs* in order, resolving each dependency against its predecessor.
 
-    Without ``atomic``, one spec's enqueue failure must not abort the loop:
-    earlier members may already be queued (and billed) and later members still
-    need their own queue attempt — the promised per-ID result covers all of them
-    regardless. Each failure is captured as its own ``BatchTaskResult``
-    (``task_id=""`` marks "never queued", distinct from a queued task that later
-    failed) so every requested ID ends up accounted for.
+    One spec's enqueue failure never takes down what the loop already created:
+    a queued task is a fully admitted, billable unit and runs to completion. Each
+    target that did not reach the queue is captured as its own
+    ``BatchTaskResult`` (``task_id=""`` marks "never queued", distinct from a
+    queued task that later failed) so every requested ID ends up accounted for
+    and the next missing-only sweep re-creates exactly those.
 
-    With ``atomic``, the first failure cancels what this call created and raises
-    :class:`BatchEnqueueAborted` — a batch admitted as a whole never lands as a
-    half-submitted, half-billed set. Tasks the queue deduplicated onto an
-    already-active row are left alone: this call did not create them.
+    Without ``stop_on_failure`` every spec still gets its own queue attempt.
+    With it, the first failure ends the loop and the remaining specs are reported
+    as interrupted — a repeated systemic failure (queue or DB down) would
+    otherwise be retried once per remaining member.
     """
 
     enqueued: list[EnqueuedTask] = []
     task_ids: dict[str, str] = {}
-    created_task_ids: dict[str, str] = {}
     failures: list[BatchTaskResult] = []
     failed_resource_ids: set[str] = set()
-    for spec in specs:
+    for index, spec in enumerate(specs):
         if spec.dependency_resource_id and spec.dependency_resource_id in failed_resource_ids:
             failures.append(
                 BatchTaskResult(
@@ -628,54 +561,58 @@ async def _enqueue_sequentially(
                 dependency_index=spec.dependency_index,
                 user_id=user_id,
             )
-        except asyncio.CancelledError:
-            # 取消不是 Exception 的子类：不单独接住的话，已创建的前半批会留在队列里被执行
-            # 并计费，而后半批永远不会创建——这正是原子入队要杜绝的半成批。回滚本身要在
-            # shield 里跑完，否则取消会立刻穿透进撤销请求，然后原样上抛保持取消语义。
-            if atomic and created_task_ids:
-                await asyncio.shield(_rollback_enqueued(created_task_ids))
-            raise
         except Exception as exc:  # noqa: BLE001
-            if atomic:
-                # 撤销请求同样在 shield 里跑完：回滚过程中被取消的话，撤不掉的前半批会留在
-                # 队列里执行并计费，而调用方只看到一次取消。
-                rolled_back, orphaned = await asyncio.shield(_rollback_enqueued(created_task_ids))
-                raise BatchEnqueueAborted(
+            failures.append(
+                BatchTaskResult(
                     resource_id=spec.resource_id,
+                    task_id="",
+                    status="failed",
                     error=str(exc),
-                    rolled_back=rolled_back,
-                    orphaned=orphaned,
-                ) from exc
-            failures.append(BatchTaskResult(resource_id=spec.resource_id, task_id="", status="failed", error=str(exc)))
+                    enqueue_interrupted=stop_on_failure,
+                )
+            )
             failed_resource_ids.add(spec.resource_id)
+            if stop_on_failure:
+                failures.extend(
+                    BatchTaskResult(
+                        resource_id=pending.resource_id,
+                        task_id="",
+                        status="failed",
+                        # detail 与 ``enqueue_problem`` 的两个默认值同为英文：它是契约字段，
+                        # 面向智能体与排障，用户可读的那句由各端按问题码本地化。
+                        error=f"batch enqueue stopped at '{spec.resource_id}'; this target was never queued",
+                        enqueue_interrupted=True,
+                    )
+                    for pending in specs[index + 1 :]
+                )
+                break
             continue
         deduped = bool(enqueue_result.get("deduped"))
         task_ids[spec.resource_id] = enqueue_result["task_id"]
-        if not deduped:
-            created_task_ids[spec.resource_id] = enqueue_result["task_id"]
         enqueued.append(EnqueuedTask(resource_id=spec.resource_id, task_id=enqueue_result["task_id"], deduped=deduped))
     return enqueued, failures
 
 
-async def enqueue_batch_atomically(
+async def batch_enqueue_only(
     *,
     project_name: str,
     specs: list[TaskSpec],
     user_id: str = DEFAULT_USER_ID,
-) -> list[EnqueuedTask]:
-    """Create the whole task set or none of it, without waiting for results.
+) -> tuple[list[EnqueuedTask], list[BatchTaskResult]]:
+    """Create the batch's tasks without waiting for their results.
 
-    The entry that already admitted the batch as a whole uses this so a queue
-    error mid-way cannot leave the first half of an approved batch running.
+    The entry that already admitted the batch as a whole uses this. Tasks
+    created before an interruption keep running — they are complete, paid-for
+    units — and the targets that never reached the queue come back as failures
+    for the caller to report per ID.
     """
 
-    enqueued, _failures = await _enqueue_sequentially(
+    return await _enqueue_sequentially(
         project_name=project_name,
         specs=specs,
-        atomic=True,
+        stop_on_failure=True,
         user_id=user_id,
     )
-    return enqueued
 
 
 async def batch_enqueue_and_wait(
@@ -684,18 +621,16 @@ async def batch_enqueue_and_wait(
     specs: list[TaskSpec],
     on_success: Callable[[BatchTaskResult], None] | None = None,
     on_failure: Callable[[BatchTaskResult], None] | None = None,
-    atomic: bool = False,
+    stop_on_failure: bool = False,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Async: enqueue sequentially, then gather-wait all tasks.
 
     Runs entirely within a single event loop, so all asyncpg connections
     are bound to the same loop — no cross-loop errors.
 
-    ``atomic`` turns the sequential enqueue into all-or-nothing: the first spec
-    that cannot be queued cancels the tasks this call already created and raises
-    :class:`BatchEnqueueAborted`, so a batch admitted as a whole never lands as a
-    half-submitted, half-billed set. Tasks the queue deduplicated onto an
-    already-active row are left alone — this call did not create them.
+    ``stop_on_failure`` ends the sequential enqueue at the first spec that
+    cannot be queued. Whatever it already created keeps running; the targets
+    that never reached the queue come back among the failures as interrupted.
 
     Returns ``(successes, failures)`` — two lists of ``BatchTaskResult``.
     """
@@ -705,7 +640,7 @@ async def batch_enqueue_and_wait(
     enqueued, enqueue_failures = await _enqueue_sequentially(
         project_name=project_name,
         specs=specs,
-        atomic=atomic,
+        stop_on_failure=stop_on_failure,
     )
     task_ids = {item.resource_id: item.task_id for item in enqueued}
 

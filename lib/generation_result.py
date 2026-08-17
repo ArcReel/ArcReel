@@ -86,6 +86,11 @@ class GenerationProblemCode(StrEnum):
     UNIT_REQUEST_INVALID = "generation_unit_request_invalid"
     ARTIFACT_STATE_UNAVAILABLE = "generation_artifact_state_unavailable"
     ENQUEUE_FAILED = "generation_enqueue_failed"
+    ENQUEUE_INTERRUPTED = "generation_enqueue_interrupted"
+    """The sequential enqueue stopped before this target got its own task. The
+    tasks already created are complete, admitted, paid-for units and keep
+    running; only the targets carrying this code still need queueing, and a
+    missing-only sweep picks up exactly those."""
     ACTIVE_TASK_CONFLICT = "generation_active_task_conflict"
     BATCH_ADMISSION_WITHHELD = "generation_batch_admission_withheld"
     """This unit itself passed admission, but a sibling in the same batch did
@@ -568,6 +573,29 @@ def problem_from_task_failure(
     )
 
 
+def enqueue_problem(detail: str | None, *, interrupted: bool = False) -> GenerationProblem:
+    """Report a target that never reached the queue, for Web and Agent alike.
+
+    Nothing was created and nothing was billed, which is what separates this
+    from an executed task the provider failed: the follow-up is to queue the
+    target again, not to inspect a provider verdict. ``interrupted`` marks the
+    targets left behind when the sequential enqueue stopped mid-batch — the
+    tasks it already created keep running.
+    """
+
+    if interrupted:
+        return GenerationProblem(
+            code=GenerationProblemCode.ENQUEUE_INTERRUPTED,
+            detail=detail or "batch enqueue was interrupted before this target was queued",
+            action=GenerationAction.RETRY,
+        )
+    return GenerationProblem(
+        code=GenerationProblemCode.ENQUEUE_FAILED,
+        detail=detail or "enqueue failed",
+        action=GenerationAction.RETRY,
+    )
+
+
 def artifact_state_problem(state: GenerationTargetState) -> GenerationProblem:
     """Report an unreadable artifact claim as its own gap.
 
@@ -818,20 +846,16 @@ def record_batch_outcomes(
     for br in failures:
         unit_id = unit_id_of(br.resource_id) if unit_id_of else br.resource_id
         state = _state(unit_id)
-        # An empty ``task_id`` marks a spec whose enqueue itself raised — it never
-        # reached the queue, so ``NOT_QUEUED`` (not ``FAILED``) reflects that no
-        # money was spent and there is no task row to look up. The problem code
-        # follows the same split: a never-queued spec gets its own enqueue-failure
-        # code so downstream can tell "request never reached the queue" apart from
-        # "task executed and the provider failed it" — the two call for different
-        # follow-ups (retry the enqueue call vs. inspect the provider failure).
+        # An empty ``task_id`` marks a spec that never reached the queue, so
+        # ``NOT_QUEUED`` (not ``FAILED``) reflects that no money was spent and there
+        # is no task row to look up. The problem code follows the same split: a
+        # never-queued spec gets its own enqueue code so downstream can tell
+        # "request never reached the queue" apart from "task executed and the
+        # provider failed it" — the two call for different follow-ups (queue it
+        # again vs. inspect the provider failure).
         if not br.task_id:
             task_state = GenerationTaskState.NOT_QUEUED
-            problem = GenerationProblem(
-                code=GenerationProblemCode.ENQUEUE_FAILED,
-                detail=br.error or "enqueue failed",
-                action=GenerationAction.RETRY,
-            )
+            problem = enqueue_problem(br.error, interrupted=br.enqueue_interrupted)
         else:
             if br.status == "cancelled":
                 task_state = GenerationTaskState.CANCELLED
@@ -920,6 +944,7 @@ __all__ = [
     "ProviderCheckpoint",
     "artifact_is_reusable",
     "artifact_state_problem",
+    "enqueue_problem",
     "normalize_requested_ids",
     "observe_artifact_status",
     "problem_from_task_failure",

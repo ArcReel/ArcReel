@@ -21,15 +21,16 @@ from lib.batch_admission import BatchAdmission, BatchAdmissionDecision, refused_
 from lib.db import async_session_factory
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import (
-    BatchEnqueueAborted,
+    BatchTaskResult,
     TaskSpec,
     TaskSpecValidationError,
-    enqueue_batch_atomically,
+    batch_enqueue_only,
 )
 from lib.generation_result import (
     GenerationAction,
     GenerationProblemCode,
     GenerationSelectionMode,
+    enqueue_problem,
     normalize_requested_ids,
 )
 from lib.i18n import Translator
@@ -721,6 +722,22 @@ def _admission_payload(admission: BatchAdmission, _t: Translator) -> dict[str, A
     return payload
 
 
+def _enqueue_failure_payload(failure: BatchTaskResult, _t: Translator) -> dict[str, Any]:
+    """一个没能入队的目标，按共享契约的问题形状转述给浏览器。
+
+    问题码与下一步动作与智能体侧同源，只多一句本地化说明。原始异常文本（`detail`）来自数据库与
+    队列层，可能带出连接串或内部拓扑，因此只落服务端日志，不进浏览器响应体——与 `_admission_payload`
+    只转述受控问题码的姿态一致。
+    """
+
+    problem = enqueue_problem(failure.error, interrupted=failure.enqueue_interrupted)
+    logger.warning("reference batch enqueue failed for unit %s: %s", failure.resource_id, problem.detail)
+    return {
+        "unit_id": failure.resource_id,
+        "problem": {**problem.model_dump(mode="json", exclude={"detail"}), "message": _t(problem.code)},
+    }
+
+
 @router.post("/episodes/{episode}/units/generate-batch")
 async def generate_units_batch(
     project_name: str,
@@ -729,12 +746,14 @@ async def generate_units_batch(
     _t: Translator,
     req: GenerateUnitsBatchRequest,
 ) -> dict[str, Any]:
-    """Admit a whole batch of reference units, then create every task or none.
+    """Admit a whole batch of reference units, then create their tasks.
 
     The verdict is returned with HTTP 200 in all three outcomes: an evaluation
     that refuses the request is a successful evaluation, and collapsing it into a
     generic 4xx would hide every gap after the first one. Callers branch on
-    ``decision``.
+    ``decision``. An admitted batch whose enqueue is interrupted is likewise a
+    200: the tasks already created run on, and ``enqueue_failures`` names the
+    targets that never reached the queue.
     """
 
     project, script, script_file = _load_episode_script(project_name, episode, _t)
@@ -791,6 +810,7 @@ async def generate_units_batch(
     if admission.decision is not BatchAdmissionDecision.ADMITTED:
         payload["task_ids"] = []
         payload["task_ids_by_unit"] = {}
+        payload["enqueue_failures"] = []
         payload["deduped"] = False
         return payload
 
@@ -808,18 +828,10 @@ async def generate_units_batch(
             **(spec.payload or {}),
             "reference_request_options": options.to_payload(),
         }
-    try:
-        enqueued = await enqueue_batch_atomically(project_name=project_name, specs=specs, user_id=user.id)
-    except BatchEnqueueAborted as exc:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "ref_batch_enqueue_aborted",
-                "message": _t("ref_batch_enqueue_aborted", unit_id=exc.resource_id),
-                "rolled_back": list(exc.rolled_back),
-                "orphaned": list(exc.orphaned),
-            },
-        ) from exc
+    enqueued, enqueue_failures = await batch_enqueue_only(project_name=project_name, specs=specs, user_id=user.id)
+    # 入队中断不撤销已创建的任务：它们是准入通过的完整付费单元，照常执行。没轮到的目标
+    # 逐 ID 报出来，界面据此释放乐观占用标记，下次「缺失即生成」只补这些。
+    payload["enqueue_failures"] = [_enqueue_failure_payload(failure, _t) for failure in enqueue_failures]
     payload["task_ids"] = [item.task_id for item in enqueued]
     # 逐 unit 给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每个 unit
     # 都等到全批落库为止。

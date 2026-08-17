@@ -336,9 +336,24 @@ export async function enqueueReferenceVideoBatch(
   if (res.decision === "admitted") {
     notifyEnqueued(
       res.deduped,
-      i18n.t("dashboard:reference_batch_queued", { count: res.task_ids.length }),
+      // 首个目标就没入队时一个任务也没建，「已提交 0 个」只会和下面那句中断提示打架。
+      res.task_ids.length > 0
+        ? i18n.t("dashboard:reference_batch_queued", { count: res.task_ids.length })
+        : null,
       "info",
     );
+    // 入队中断不撤销已建的任务，所以「建了几个」与「哪些没建」要一起说：只报成功数
+    // 会让用户以为整批都在跑，回头发现少了几条却不知道为什么。
+    if (res.enqueue_failures.length > 0) {
+      useAppStore
+        .getState()
+        .pushToast(
+          i18n.t("dashboard:reference_batch_enqueue_interrupted", {
+            count: res.enqueue_failures.length,
+          }),
+          "error",
+        );
+    }
   }
   return res;
 }

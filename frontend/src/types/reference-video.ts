@@ -189,12 +189,23 @@ export type ReferenceBatchUnitOutcome = BatchAdmissionUnit;
  */
 export type ReferenceBatchConfirmationTier = BatchAdmissionTier;
 
+/**
+ * 一个没能入队的目标。已创建的任务不因此被撤销，它们照常执行；这里列出的 unit
+ * 本次没有任务、也没有计费，下次「缺失即生成」会正好补上它们。
+ */
+export interface ReferenceBatchEnqueueFailure {
+  unit_id: string;
+  problem: AdmissionProblem;
+}
+
 export interface ReferenceBatchAdmission extends WorkflowAdmission {
   skipped_unit_ids: string[];
   /** 仅 admitted 时非空 */
   task_ids: string[];
   /** 逐 unit 的任务行，供调用方各自兑现自己的乐观占用标记。 */
   task_ids_by_unit: Record<string, string>;
+  /** 入队中断时没轮到的 unit；整批入队成功时为空数组。 */
+  enqueue_failures: ReferenceBatchEnqueueFailure[];
   deduped: boolean;
 }
 

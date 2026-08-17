@@ -162,6 +162,7 @@ export default {
   'problem_generation_unit_request_invalid': 'Yêu cầu của đơn vị này không hợp lệ.',
   'problem_generation_artifact_state_unavailable': 'Không đọc được tệp sẵn có của đơn vị này.',
   'problem_generation_enqueue_failed': 'Không xếp hàng được đơn vị này.',
+  'problem_generation_enqueue_interrupted': 'Việc xếp hàng dừng trước khi đơn vị này có tác vụ; các tác vụ đã xếp vẫn chạy.',
   'problem_generation_active_task_conflict': 'Đơn vị này đã có một lần thử đang chạy.',
   'problem_generation_batch_admission_withheld': 'Bị giữ lại vì một đơn vị khác trong lô không qua được xét duyệt.',
   'problem_generation_task_failed': 'Lần thử gần nhất đã thất bại.',

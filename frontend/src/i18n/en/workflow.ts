@@ -160,6 +160,7 @@ export default {
   'problem_generation_unit_request_invalid': 'The request for this unit is not valid.',
   'problem_generation_artifact_state_unavailable': "This unit's existing file cannot be read.",
   'problem_generation_enqueue_failed': 'This unit could not be queued.',
+  'problem_generation_enqueue_interrupted': 'Enqueue stopped before this unit got a task; the ones already queued keep running.',
   'problem_generation_active_task_conflict': 'This unit already has an attempt running.',
   'problem_generation_batch_admission_withheld': 'Held back because another unit in the batch did not pass.',
   'problem_generation_task_failed': 'The last attempt failed.',

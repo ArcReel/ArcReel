@@ -1105,6 +1105,8 @@ export default {
   'reference_duration_batch_summary': '{{count}} đơn vị sẽ dùng mức thời lượng video khác:',
   'reference_duration_precheck_failed_one': 'Không kiểm tra được thời lượng của {{count}} đơn vị, chưa đưa vào hàng đợi. Vui lòng thử lại.',
   'reference_duration_precheck_failed_other': 'Không kiểm tra được thời lượng của {{count}} đơn vị, chưa đưa vào hàng đợi. Vui lòng thử lại.',
+  'reference_batch_enqueue_interrupted_one': 'Việc xếp hàng bị gián đoạn: {{count}} đơn vị chưa có tác vụ lần này. Các tác vụ đã gửi vẫn chạy bình thường, thử lại sẽ bổ sung phần còn thiếu.',
+  'reference_batch_enqueue_interrupted_other': 'Việc xếp hàng bị gián đoạn: {{count}} đơn vị chưa có tác vụ lần này. Các tác vụ đã gửi vẫn chạy bình thường, thử lại sẽ bổ sung phần còn thiếu.',
   'reference_batch_queued_one': 'Đã gửi {{count}} tác vụ tạo video',
   'reference_batch_queued_other': 'Đã gửi {{count}} tác vụ tạo video',
   'reference_batch_confirm_title': 'Xác nhận mức thời lượng cho loạt này',
