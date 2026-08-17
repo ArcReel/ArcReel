@@ -961,8 +961,8 @@ class ScriptGenerator:
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP1)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集 step1 有违约产物待处置（{quarantine}），step2 生成已中止；"
-                f"请先修复该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 step1"
+                f"第 {episode} 集 step1 有隔离草稿待处置（{quarantine}），step2 生成已中止；"
+                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 step1"
             )
         if not step1_json.exists():
             legacy_md = drafts_path / REFERENCE_VIDEO_STEP1_LEGACY_FILENAME

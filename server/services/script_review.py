@@ -438,7 +438,7 @@ class ScriptReviewService:
     async def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
         """把该集审核状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
 
-        无 step1 / 不适用 / 集条目缺失 / step1 内容结构非法 / 有违约产物待处置（隔离草稿在场）时
+        无 step1 / 不适用 / 集条目缺失 / step1 内容结构非法 / 有隔离草稿待处置时
         抛 ScriptReviewError，由 router 映射 4xx。
 
         档位表先于加锁解析（同 ``get_state``）：确认路径同样要对存量草稿做一次读时收编，收编
@@ -467,7 +467,7 @@ class ScriptReviewService:
         # 口径与生成侧同一把尺——晋升工具用的正是产出时那套校验器，这里只判「是否还在隔离」。
         quarantine = script_review.step1_quarantine_path(project_path, project, episode)
         if quarantine is not None and quarantine.exists():
-            raise ScriptReviewError("quarantined", f"step1 违约产物待处置: {quarantine}")
+            raise ScriptReviewError("quarantined", f"step1 隔离草稿待处置: {quarantine}")
         # 存量草稿先做时长收编再校验：agent / 直连调用可能不经 get_state 就确认。同一把
         # per-path 锁覆盖读改写全程（含下方 reference_video 分支自己的落盘），避免中途被
         # save_content 或迁移的写入插队——_read_step1_migrated 要求调用方已持锁。

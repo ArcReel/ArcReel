@@ -133,11 +133,14 @@ def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: 
 
 
 def step1_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """该集 step1 是否有违约产物被隔离——gate 与 step2 的阻塞判据。
+    """该集 step1 是否有隔离草稿在场——gate 与 step2 的阻塞判据。
 
-    隔离态与「正式 step1 的内容指纹」是两件事：重新拆分违约时正式文件原封不动，指纹照旧
-    等于已确认值，只看指纹会把该集判成 confirmed 并放行 step2——用户看到的是上一版内容，
-    而 agent 手里那份刚产出的正文还躺在隔离草稿里没人处置。故隔离态独立阻塞。
+    隔离态与「正式 step1 的内容指纹」是两件事：产出违约或 agent 取回编辑时正式文件都原封
+    不动，指纹照旧等于已确认值，只看指纹会把该集判成 confirmed 并放行 step2——用户看到的是
+    上一版内容，而待处置的正文还躺在隔离草稿里。故隔离态独立阻塞。
+
+    草稿按项目当前变体解析（见 ``step1_quarantine_path``）：换过生成路线的项目上残留的另一条
+    路线的草稿不参与判定，否则该集会被一份没有写入方会清理的文件永久卡死。
     """
     path = step1_quarantine_path(project_path, project, episode)
     return path is not None and path.exists()
