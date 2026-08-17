@@ -108,10 +108,10 @@ def reclaim_interrupted_swaps(projects_root: Path) -> list[str]:
     for _mtime, rollback, name in sorted(candidates, key=lambda item: item[0], reverse=True):
         if name in attempted:
             continue
+        attempted.add(name)
         project_dir = projects_root / name
         if project_dir.exists():
             continue
-        attempted.add(name)
         try:
             os.replace(rollback, project_dir)
         except OSError:

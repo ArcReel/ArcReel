@@ -606,8 +606,9 @@ def migrate_v5_to_v6(project_dir: Path) -> None:
             raise
         shutil.rmtree(rollback, ignore_errors=True)
     finally:
-        if staging.exists():
-            shutil.rmtree(staging)
+        # ignore_errors：staging 清理失败（占用/权限）不得中断本块，否则下面的原树恢复检查
+        # 会被跳过，项目目录处于缺失状态直到下次启动扫描才被 reclaim_interrupted_swaps 认领。
+        shutil.rmtree(staging, ignore_errors=True)
         if rollback.exists() and not project_dir.exists():
             os.replace(rollback, project_dir)
 
