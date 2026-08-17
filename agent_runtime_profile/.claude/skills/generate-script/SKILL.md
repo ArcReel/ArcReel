@@ -64,10 +64,11 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 - `episode` / `content_mode` / `novel`（含 title、chapter）：由后端 `_add_metadata` 注入，不依赖 LLM 输出
 - narration 模式：`segments[]`（每个片段含 novel_text、duration_seconds、segment_break、出场角色 / 场景 / 道具 —— 由 step1 透传；image_prompt、video_prompt —— 由 step2 生成）
 - drama 模式：`scenes[]`（每个场景含 image_prompt、video_prompt、duration_seconds，以及 step1 透传的 utterances、source_text、characters_in_scene 等）
-- ad 模式：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等），`metadata.total_shots`；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
-- reference_video 模式：`video_units[]`（每个 unit 含 `shots[]`、`references[]`、`duration_seconds` 等），`metadata.total_units`
-- `metadata`：total_segments / total_scenes、created_at、generator
-- `duration_seconds`：全集总时长（秒），由后端按各分镜时长求和重算
+- ad 模式：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等）；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
+- reference_video 模式：`video_units[]`（每个 unit 含 `shots[]`、`references[]`、`duration_seconds` 等）
+- `metadata`：created_at、updated_at、generator
+
+条目数与全集总时长不落盘：它们逐读剧本即得，由项目摘要读时计算，落一份只会与正文漂移。
 
 ## `--dry-run` 输出
 
