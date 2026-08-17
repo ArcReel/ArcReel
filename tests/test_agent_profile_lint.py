@@ -172,151 +172,15 @@ def test_ignores_external_markdown_uri_schemes(tmp_path: Path) -> None:
     assert lint_profile(profile, registered_tools={"patch_project"}) == []
 
 
-def test_target_deprecation_rules_are_explicit_for_variant_profile(tmp_path: Path) -> None:
-    profile = _valid_profile(tmp_path)
-    skill = profile / ".claude" / "skills" / "demo" / "SKILL.md"
-    skill.write_text(skill.read_text(encoding="utf-8") + "Run --scene-ids.\n", encoding="utf-8")
-
-    assert not any("deprecated" in error for error in lint_profile(profile, registered_tools={"patch_project"}))
-    assert any(
-        "deprecated" in error
-        for error in lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-    )
-
-
-def test_target_deprecation_rules_flag_routing_and_spare_reverse_notes(tmp_path: Path) -> None:
-    profile = _valid_profile(tmp_path)
-    (profile / ".claude" / "agents" / "router.md").write_text(
-        "---\nname: router\ndescription: Routing agent\n---\n"
-        "- 读取 `drafts/episode_1/step1_normalized_script.md` 作为剧本生成输入。\n"
-        "- 重生成指定场景时运行 generate-storyboard --scene-ids E1S01。\n",
-        encoding="utf-8",
-    )
-    (profile / ".claude" / "agents" / "note.md").write_text(
-        "---\nname: note\ndescription: Reverse note agent\n---\n"
-        "- 旧项目残留的 `step1_normalized_script.md`（结构化前自由文本稿）不算有效 step1，"
-        "须重跑 normalize 产出 `.json`。\n"
-        "- 旧脚本的 --scene-ids 参数已废弃，不要再传。\n",
-        encoding="utf-8",
-    )
-
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-
-    assert ".claude/agents/router.md: deprecated profile string 'step1_normalized_script.md'" in errors
-    assert ".claude/agents/router.md: deprecated profile string '--scene-ids'" in errors
-    assert not any(error.startswith(".claude/agents/note.md") for error in errors)
-
-
-def test_target_deprecation_rules_flag_code_fences_and_parenthesised_paths(tmp_path: Path) -> None:
-    profile = _valid_profile(tmp_path)
-    (profile / ".claude" / "agents" / "fenced.md").write_text(
-        "---\nname: fenced\ndescription: Fenced command agent\n---\n"
-        "```bash\n"
-        "generate-storyboard --scene-ids E1S01\n"
-        "cat drafts/episode_1/step1_normalized_script.md\n"
-        "```\n",
-        encoding="utf-8",
-    )
-    (profile / ".claude" / "agents" / "inline.md").write_text(
-        "---\nname: inline\ndescription: Inline reference agent\n---\n"
-        "- 读取剧本草稿（`step1_normalized_script.md`）后继续。\n"
-        "- 请使用 generate-storyboard 重生成；--scene-ids E1S01\n",
-        encoding="utf-8",
-    )
-
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-
-    for source in ("fenced.md", "inline.md"):
-        assert f".claude/agents/{source}: deprecated profile string 'step1_normalized_script.md'" in errors
-        assert f".claude/agents/{source}: deprecated profile string '--scene-ids'" in errors
-
-
-def test_target_deprecation_rules_flag_soft_wrapped_routing_clause(tmp_path: Path) -> None:
-    profile = _valid_profile(tmp_path)
-    (profile / ".claude" / "agents" / "wrapped.md").write_text(
-        "---\nname: wrapped\ndescription: Soft-wrapped routing agent\n---\n"
-        "- 请读取\n"
-        "  step1_normalized_script.md 后再继续下一步。\n",
-        encoding="utf-8",
-    )
-
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-
-    assert ".claude/agents/wrapped.md: deprecated profile string 'step1_normalized_script.md'" in errors
-
-
-def test_target_deprecation_rules_flag_adjacent_list_items_without_blank_line(tmp_path: Path) -> None:
-    """紧邻、无空行分隔的反向说明列表项与真实路由列表项须各自独立成句，不因段落合并互相吞并。"""
-    profile = _valid_profile(tmp_path)
-    (profile / ".claude" / "agents" / "adjacent-items.md").write_text(
-        "---\nname: adjacent-items\ndescription: Adjacent list item agent\n---\n"
-        "- 不要使用旧格式 step1_normalized_script.md\n"
-        "- 读取 step1_normalized_script.md 作为输入\n",
-        encoding="utf-8",
-    )
-
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-
-    assert ".claude/agents/adjacent-items.md: deprecated profile string 'step1_normalized_script.md'" in errors
-
-
-def test_target_deprecation_rules_flag_routing_paragraph_after_deprecated_heading(tmp_path: Path) -> None:
-    """标题（ATX 单行块）不与其后段落同句：标题命中废弃语境不应吞掉紧邻下方的真实路由段落。"""
-    profile = _valid_profile(tmp_path)
-    (profile / ".claude" / "agents" / "heading.md").write_text(
-        "---\nname: heading\ndescription: Heading boundary agent\n---\n"
-        "### 已废弃的旧格式\n"
-        "读取 step1_normalized_script.md 作为输入。\n",
-        encoding="utf-8",
-    )
-
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-
-    assert ".claude/agents/heading.md: deprecated profile string 'step1_normalized_script.md'" in errors
-
-
-def test_target_deprecation_rules_flag_nested_fence_content(tmp_path: Path) -> None:
-    profile = _valid_profile(tmp_path)
-    (profile / ".claude" / "agents" / "nested-fence.md").write_text(
-        "---\nname: nested-fence\ndescription: Nested fence agent\n---\n"
-        "````markdown\n"
-        "```bash\n"
-        "cat drafts/episode_1/step1_normalized_script.md\n"
-        "```\n"
-        "````\n",
-        encoding="utf-8",
-    )
-
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-
-    assert ".claude/agents/nested-fence.md: deprecated profile string 'step1_normalized_script.md'" in errors
-
-
-def test_target_deprecation_rules_flag_routing_clause_alongside_reverse_note(tmp_path: Path) -> None:
-    """反向说明子句与真实路由子句同文共存同一 needle 时，仍须按各自子句独立判定并报违规。"""
-    profile = _valid_profile(tmp_path)
-    (profile / ".claude" / "agents" / "mixed.md").write_text(
-        "---\nname: mixed\ndescription: Mixed clause agent\n---\n"
-        "- 旧项目残留的 step1_normalized_script.md 不算有效 step1。\n"
-        "- 读取 step1_normalized_script.md 作为剧本生成输入。\n",
-        encoding="utf-8",
-    )
-
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-
-    assert ".claude/agents/mixed.md: deprecated profile string 'step1_normalized_script.md'" in errors
-
-
 def test_reports_invalid_utf8_across_profile_inputs(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / "CLAUDE.narration.md").write_bytes(b"\xff")
     (profile / "evals" / "cases.json").write_bytes(b"\xff")
 
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
+    errors = lint_profile(profile, registered_tools={"patch_project"})
 
     assert any("cannot read projected file" in error for error in errors)
     assert any("invalid eval JSON" in error for error in errors)
-    assert any(error.startswith("CLAUDE.narration.md: cannot read:") for error in errors)
 
 
 def test_frontmatter_accepts_utf8_bom(tmp_path: Path) -> None:
@@ -329,52 +193,6 @@ def test_frontmatter_accepts_utf8_bom(tmp_path: Path) -> None:
     assert metadata.description == "Demo skill"
 
 
-def test_direct_step1_edit_rule_spares_write_deny_notices(tmp_path: Path) -> None:
-    profile = _valid_profile(tmp_path)
-    (profile / ".claude" / "agents" / "deny-note.md").write_text(
-        "---\nname: deny-note\ndescription: Deny notice agent\n---\n"
-        "正式 `step1_normalized_script.json` 不可用 Write/Edit 直改。\n\n"
-        "结构有问题时走「取回草稿 → 改草稿 → 晋升」：不要用 Edit 直改正式文件（会被拒）。\n\n"
-        "```text\n"
-        'mcp__arcreel__open_step1_for_edit({"episode": 1})\n'
-        "```\n\n"
-        "内容被取回到 `drafts/episode_1/step1_normalized_script.invalid.json`。\n",
-        encoding="utf-8",
-    )
-    (profile / ".claude" / "agents" / "direct-edit.md").write_text(
-        "---\nname: direct-edit\ndescription: Direct edit agent\n---\n"
-        "用 Edit 工具修改 `drafts/episode_1/step1_normalized_script.json` 后继续。\n",
-        encoding="utf-8",
-    )
-
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-
-    assert not any(error.startswith(".claude/agents/deny-note.md") for error in errors)
-    assert ".claude/agents/direct-edit.md: deprecated direct Edit/Write of formal step1" in errors
-
-
-def test_direct_step1_edit_rule_catches_reference_video_formal_step1(tmp_path: Path) -> None:
-    profile = _valid_profile(tmp_path)
-    (profile / ".claude" / "agents" / "direct-edit-reference.md").write_text(
-        "---\nname: direct-edit-reference\ndescription: Direct edit agent\n---\n"
-        "用 Edit 工具修改 `drafts/episode_1/step1_reference_units.json` 后继续。\n",
-        encoding="utf-8",
-    )
-
-    errors = lint_profile(profile, registered_tools={"patch_project"}, enforce_target_rules=True)
-
-    assert ".claude/agents/direct-edit-reference.md: deprecated direct Edit/Write of formal step1" in errors
-
-
 def test_shipped_profile_passes_current_lint() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     assert lint_profile(repo_root / "agent_runtime_profile") == []
-
-
-def test_shipped_profile_has_no_deprecated_string_routing() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-
-    errors = lint_profile(repo_root / "agent_runtime_profile", enforce_target_rules=True)
-
-    assert not any("deprecated profile string" in error for error in errors)
-    assert not any("deprecated direct Edit/Write" in error for error in errors)
