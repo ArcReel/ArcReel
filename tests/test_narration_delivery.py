@@ -29,7 +29,6 @@ from lib.narration_delivery import (
     prepare_narrated_video_duration,
     prepare_narrated_video_output,
     prepare_narration_delivery,
-    register_narration_audio,
     register_narration_audio_transactionally,
     resolve_tts_synthesis_settings,
 )
@@ -114,7 +113,7 @@ def test_registration_failure_restores_the_previous_current_basis(tmp_path: Path
     artifact.write_bytes(b"formal-audio")
     old_preparation = _narrator_preparation("E1U1", "旧旁白")
     new_preparation = _narrator_preparation("E1U1", "新旁白")
-    old_basis = register_narration_audio(
+    old_basis = register_narration_audio_transactionally(
         project_path=tmp_path,
         episode=1,
         preparation=old_preparation,
@@ -381,7 +380,7 @@ async def test_current_state_adapter_registers_and_reads_exact_unit_basis(tmp_pa
     preparation = _narrator_preparation("E1U1", "正文")
     settings = _settings(speed=1.1)
 
-    registered = register_narration_audio(
+    registered = register_narration_audio_transactionally(
         project_path=project_path,
         episode=1,
         preparation=preparation,
@@ -420,7 +419,7 @@ async def test_current_state_adapter_treats_concurrently_deleted_current_audio_a
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"RIFF-current")
     preparation = _narrator_preparation("E1U1", "正文")
-    register_narration_audio(
+    register_narration_audio_transactionally(
         project_path=project_path,
         episode=1,
         preparation=preparation,
@@ -487,7 +486,7 @@ async def test_current_tts_is_blocked_while_an_explicit_regeneration_runs(tmp_pa
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"RIFF-current")
     preparation = _narrator_preparation("E1U1", "正文")
-    register_narration_audio(
+    register_narration_audio_transactionally(
         project_path=project_path,
         episode=1,
         preparation=preparation,

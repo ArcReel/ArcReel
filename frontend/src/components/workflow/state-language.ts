@@ -29,7 +29,7 @@ export const INLINE_ACTION_CLS =
   "focus-ring rounded text-[11.5px] underline underline-offset-2 hover:opacity-80 disabled:opacity-50 disabled:hover:opacity-50";
 
 /** 未登记状态词的落点：说不出程度就不着色，绝不在查表上崩掉整个面板。 */
-export const NEUTRAL_TONE: ToneTokens = {
+const NEUTRAL_TONE: ToneTokens = {
   color: "var(--color-text-3)",
   soft: "transparent",
   ring: "var(--color-hairline-strong)",

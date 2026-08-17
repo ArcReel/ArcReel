@@ -79,23 +79,8 @@ export default {
   'task_status_failed': '已失败',
   'task_status_cancelled': '已取消',
   'task_status_interrupted': '已中断',
-  'task_state_not_queued': '未入队',
-  'task_state_succeeded': '已完成',
-  'task_state_failed': '已失败',
-  'task_state_cancelled': '已取消',
-  'task_state_interrupted': '已中断',
   'checkpoint_submitted': '已提交给 {{provider}}，重试可能再次计费。',
   'checkpoint_provider_unknown': '供应商',
-
-  // ---- 逐项生成结果 ----
-  'result_title': '申请 {{requested}} 项 · 成功 {{succeeded}} · 失败 {{failed}} · 受阻 {{blocked}}',
-  'result_skipped_one': '{{count}} 个单元已有产物，本次跳过。',
-  'result_skipped_other': '{{count}} 个单元已有产物，本次跳过。',
-  'item_state_succeeded': '成功',
-  'item_state_failed': '失败',
-  'item_state_blocked': '受阻',
-  'item_task_state': '尝试：{{state}}',
-  'item_artifact_status': '产物：{{status}}',
 
   // ---- 批量准入 ----
   'admission_blocked_intro': '这一批一个任务也没有创建，没有产生费用。修好下面这些再发一次即可。',
@@ -128,7 +113,6 @@ export default {
   'action_unknown': '按助手给出的指引继续',
   'action_none': '暂时无需操作',
   'action_retry': '稍后重试',
-  'action_resume': '续传这个单元',
   'action_fix_input': '检查并修正这个单元的生成配置',
   'action_generate_dependency': '补上或更换缺失的参考素材',
   'action_generate_tts': '为这个单元生成旁白配音',

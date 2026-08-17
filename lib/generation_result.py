@@ -112,7 +112,6 @@ class GenerationAction(StrEnum):
     """Closed next actions a consumer can dispatch without reading prose."""
 
     RETRY = "retry"
-    RESUME = "resume"
     FIX_INPUT = "fix_input"
     GENERATE_DEPENDENCY = "generate_dependency"
     GENERATE_TTS = "generate_tts"

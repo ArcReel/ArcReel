@@ -87,7 +87,7 @@ export type UtteranceKind = "dialogue" | "voiceover";
 /**
  * Drama 场景级有序发声条目，判别式联合（discriminated union）按 kind 收窄，把 kind ⇄ speaker
  * 约束编码进类型：dialogue 必带非空 speaker、voiceover 不得带 speaker。非法组合（dialogue 缺
- * speaker、voiceover 带 speaker）编译期即被拒，与运行时 isUtterance 守卫及后端 Utterance 契约一致。
+ * speaker、voiceover 带 speaker）编译期即被拒，与后端 Utterance 契约一致。
  * 取代旧 video_prompt.dialogue + 场景 voiceover 双字段（见 ADR 0040）。
  * 富审阅 / 编辑 UI 后续提供；本阶段仅类型 / 形状守卫。
  */

@@ -248,8 +248,9 @@ export function ReferenceVideoCanvas({
     ? (durationDrafts[selectedDurationKey] ?? String(selected?.duration_seconds ?? ""))
     : "";
 
-  // 参考图约束按 unit 而非按集生效（同 lib.reference_video.precheck_unit 的
-  // bool(unit.references) 判据）：不带 references 的 unit 用不叠加该约束的档位，
+  // 参考图约束按 unit 而非按集生效（同 lib.reference_video.request_projection 的
+  // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：不带 references 的
+  // unit 用不叠加该约束的档位，
   // 否则同集内其它 unit 带图会连带把它的可选档位收窄到一个它本不受限的子集。
   const effectiveDurationOptions =
     selected && selected.references.length === 0 ? durationOptionsNoReference : durationOptions;

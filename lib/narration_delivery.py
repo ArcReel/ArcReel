@@ -773,25 +773,6 @@ async def prepare_current_narrated_video_duration(
     )
 
 
-def register_narration_audio(
-    *,
-    project_path: Path,
-    episode: int,
-    preparation: SpeechPreparation,
-    settings: TtsSynthesisSettings,
-) -> ArtifactBasis:
-    """Register a successfully promoted formal TTS artifact for one unit."""
-
-    artifact_path = resource_relative_path("audio", preparation.unit_id)
-    basis = build_narration_audio_basis(preparation, settings)
-    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
-        ArtifactKey.episode_audio(episode, preparation.unit_id),
-        artifact_path=artifact_path,
-        basis=basis,
-    )
-    return basis
-
-
 def register_narration_audio_transactionally(
     *,
     project_path: Path,
@@ -846,7 +827,6 @@ __all__ = [
     "prepare_narrated_video_duration",
     "prepare_narrated_video_output",
     "prepare_narration_delivery",
-    "register_narration_audio",
     "register_narration_audio_transactionally",
     "resolve_tts_synthesis_settings",
 ]

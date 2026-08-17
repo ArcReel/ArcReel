@@ -25,7 +25,7 @@ export interface WizardStep1Value {
 }
 
 /** 广告/短片目标总时长的 UI 档位（数据层不硬枚举，任意正整数秒合法）。 */
-export const AD_TARGET_DURATION_TIERS = [15, 30, 60, 90] as const;
+const AD_TARGET_DURATION_TIERS = [15, 30, 60, 90] as const;
 
 export interface WizardStep1BasicsProps {
   value: WizardStep1Value;

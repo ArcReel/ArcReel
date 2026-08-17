@@ -494,7 +494,6 @@ class InMemoryArtifactManifestAdapter:
         self._lock = threading.RLock()
         self._entries: dict[str, ArtifactManifestEntry] = {}
         self._artifacts = {normalize_artifact_path(path) for path in artifacts or set()}
-        self._blockers: dict[str, ArtifactBlocker] = {}
 
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
         try:
@@ -503,12 +502,7 @@ class InMemoryArtifactManifestAdapter:
             blocker = ArtifactBlocker(code="artifact_path_invalid", path=str(artifact_path), detail=str(exc))
             return ArtifactObservation(artifact_path=str(artifact_path), present=False, blocker=blocker)
         with self._lock:
-            blocker = self._blockers.get(normalized)
-            return ArtifactObservation(
-                artifact_path=normalized,
-                present=normalized in self._artifacts and blocker is None,
-                blocker=blocker,
-            )
+            return ArtifactObservation(artifact_path=normalized, present=normalized in self._artifacts)
 
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
         with self._lock:
@@ -581,18 +575,6 @@ class InMemoryArtifactManifestAdapter:
                 return False
             self._entries = encoded
             return True
-
-    def remove_artifact(self, artifact_path: str) -> None:
-        normalized = normalize_artifact_path(artifact_path)
-        with self._lock:
-            self._artifacts.discard(normalized)
-            self._blockers.pop(normalized, None)
-
-    def block_artifact(self, artifact_path: str, *, code: str, detail: str) -> None:
-        normalized = normalize_artifact_path(artifact_path)
-        with self._lock:
-            self._artifacts.discard(normalized)
-            self._blockers[normalized] = ArtifactBlocker(code=code, path=normalized, detail=detail)
 
 
 class ProjectArtifactManifestAdapter:

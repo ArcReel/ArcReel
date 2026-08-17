@@ -129,21 +129,11 @@ def test_manifest_compares_registered_basis_without_mutating_the_artifact() -> N
 
     current = manifest.compare(key, artifact_path=path, basis=original_basis)
     stale = manifest.compare(key, artifact_path=path, basis=changed_basis)
-    adapter.remove_artifact(path)
-    missing = manifest.compare(key, artifact_path=path, basis=original_basis)
-    adapter.block_artifact(path, code="artifact_symlink", detail="artifact path is a symlink")
-    blocked = manifest.compare(key, artifact_path=path, basis=original_basis)
 
     assert current.status is ArtifactStatus.CURRENT
     assert current.usable
     assert stale.status is ArtifactStatus.STALE
     assert stale.usable
-    assert missing.status is ArtifactStatus.MISSING
-    assert not missing.usable
-    assert blocked.status is ArtifactStatus.BLOCKED
-    assert blocked.blocker is not None
-    assert blocked.blocker.code == "artifact_symlink"
-    assert not blocked.usable
 
 
 def test_manifest_compares_a_resolved_target_entry_without_reconstructing_basis() -> None:

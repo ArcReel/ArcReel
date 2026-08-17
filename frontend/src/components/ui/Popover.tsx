@@ -22,7 +22,7 @@ import type { RefObject, ReactNode, CSSProperties } from "react";
 // 上下文，统一 flip/shift/外部点击/Esc 处理，保持 z-index 和背景不透明。
 
 /** 面板默认背景色（Darkroom oklch panel tone，与 bg-bg-grad-a 同源） */
-export const POPOVER_BG = "oklch(0.182 0.011 270)";
+const POPOVER_BG = "oklch(0.182 0.011 270)";
 
 type PopoverAlign = "start" | "center" | "end";
 type PopoverLayer = keyof typeof UI_LAYERS;

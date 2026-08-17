@@ -55,8 +55,8 @@ workflow 步骤状态（`plan.steps[].state`）、`task_state`（队列任务）
 - 任务成功 ≠ 产物匹配当前依据
 - 产物缺失 ≠ 任务失败：可能根本没入队（`blocked`，不计费）
 - `provider_checkpoint.submitted` 为真表示供应商侧已提交、很可能已计费；`task_state` 为
-  `interrupted` 表示没有供应商裁决，盲目重试可能重复计费——按 `problem.action` 决定，
-  `resume` 与 `retry` 不可互换
+  `interrupted` 表示没有供应商裁决，盲目重试可能重复计费——一律按 `problem.action` 决定，
+  该情形通常交回 `wait_for_task`（任务可能仍在跑并正常落地），不要自行改成 `retry`
 - 产物落盘失败时该 ID 记为 `failed`，旧的付费产物原样保留，绝不在文件真正落定前标成就位
 
 产物历史另成一轴：`current` 是当前选中的产物，`stale` 是依据已变但仍在的旧产物，历史版本是此前

@@ -1471,7 +1471,6 @@ export default {
   'tool_name_list_pending_assets': '查询待生成资产',
   'tool_name_complete_asset_inventory': '完成资产清单分析',
   'tool_name_complete_step1_rebuild': '完成第一阶段重建',
-  'tool_name_get_workflow_status': '查询工作流状态',
   'tool_name_get_workflow_plan': '查询完整工作流计划',
   'tool_name_get_episode_script_revision': '读取剧本版本',
   'tool_name_generate_assets': '生成资产',

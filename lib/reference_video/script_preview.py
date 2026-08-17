@@ -229,7 +229,7 @@ def build_script_preview(
     参考图严格等长，见 ``_render_unit_prompt`` docstring）。预览若按未裁剪的全量 references
     判定 ``character_image_names``，纯画外降级会在裁剪线之外才生效——超限角色的图被裁掉后，
     预览仍显示音频已绑定，执行时才补发 warning。``None`` 表示不裁（能力不可解析时的降级口径，
-    与 ``_apply_provider_constraints`` 的 ``max_refs=None`` 一致）。
+    与请求投影在能力不可解析时不裁参考图的口径一致）。
     """
     shots, mentions = parse_prompt(text)
     references, missing = resolve_references(mentions, project)

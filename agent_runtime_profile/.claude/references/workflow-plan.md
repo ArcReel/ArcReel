@@ -113,9 +113,8 @@ mcp__arcreel__get_workflow_plan({
 | `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |
 | `repair_artifact_state` | 产物状态读不出来：报为独立缺口，绝不当作缺失去重生 |
 | `retry` | 可安全重发同一请求 |
-| `resume` | 供应商侧已提交：接回原请求，**不得改用 `retry`**，否则重复计费 |
 
-`retry` / `resume` / `configure_provider` 三者都不入队新批次之前，先把动作原因说给用户；
+`retry` 与 `configure_provider` 在不入队新批次之前，先把动作原因说给用户；
 凡是会产生新费用的动作，取得用户明确同意再执行。
 
 ## 旁白交付
@@ -191,6 +190,6 @@ mcp__arcreel__get_workflow_plan({
   「看起来旧」就点名重做——点名即强制重做且必然产生费用。
 - 产物状态读不出来（`blocked`）的单元报为独立缺口，绝不当作缺失去重新生成：那会把一次损坏
   变成一次重复计费。
-- 恢复中断的任务走 `resume` 语义，不重新提交已在供应商侧落定的请求。
+- 恢复中断的任务由服务端接回原请求，不重新提交已在供应商侧落定的请求。
 
 逐 ID 结果结构、选择语义与问题码清单见 [generation-results.md](generation-results.md)。

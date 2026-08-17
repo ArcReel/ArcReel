@@ -125,7 +125,6 @@ class WorkflowActionType(StrEnum):
 
     # ``GenerationAction`` 闭集；批量准入与任务失败把它原样交回成 next_action
     RETRY = "retry"
-    RESUME = "resume"
     FIX_INPUT = "fix_input"
     GENERATE_DEPENDENCY = "generate_dependency"
     GENERATE_TTS = "generate_tts"

@@ -2,16 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from lib.artifact_manifest import ArtifactStatus
 from lib.batch_admission import BatchAdmission, UnitAdmissionTicket
 from lib.generation_result import (
     GenerationAction,
-    GenerationBatchResult,
-    GenerationItemResult,
-    GenerationItemState,
     GenerationProblem,
     GenerationSelectionMode,
-    GenerationTaskState,
     ProviderCheckpoint,
 )
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationDelivery
@@ -339,58 +334,6 @@ def test_artifact_task_and_checkpoint_axes_remain_distinct() -> None:
     assert video.tasks[0].provider_checkpoint.submitted is True
     assert "is_ready" not in video.model_dump()
     assert plan.next_action.type == GenerationAction.WAIT_FOR_TASK.value
-
-
-def test_partial_execution_result_does_not_reinterpret_admission_or_artifact_status() -> None:
-    admission = BatchAdmission(
-        operation="generate_videos",
-        selection=GenerationSelectionMode.MISSING_ONLY,
-        narration_delivery=POST_PRODUCTION,
-        tickets=(UnitAdmissionTicket("E1S01"), UnitAdmissionTicket("E1S02")),
-    )
-    failed_problem = GenerationProblem(
-        code="provider_failed",
-        detail="provider rejected one unit",
-        action=GenerationAction.RETRY,
-    )
-    result = GenerationBatchResult(
-        operation="generate_videos",
-        selection=GenerationSelectionMode.MISSING_ONLY,
-        requested=["E1S01", "E1S02"],
-        succeeded=["E1S01"],
-        failed=["E1S02"],
-        blocked=[],
-        items=[
-            GenerationItemResult(
-                unit_id="E1S01",
-                state=GenerationItemState.SUCCEEDED,
-                task_state=GenerationTaskState.SUCCEEDED,
-                artifact_status=ArtifactStatus.STALE,
-            ),
-            GenerationItemResult(
-                unit_id="E1S02",
-                state=GenerationItemState.FAILED,
-                task_state=GenerationTaskState.FAILED,
-                artifact_status=ArtifactStatus.MISSING,
-                problem=failed_problem,
-            ),
-        ],
-    )
-
-    plan = build_workflow_plan(
-        _status(requested_ids=["E1S01", "E1S02"]),
-        narration_delivery=POST_PRODUCTION,
-        admission=admission.to_payload(),
-        generation_result=result,
-    )
-
-    video = _step(plan, "video")
-    assert video.admission["decision"] == "admitted"
-    assert video.generation_result == result
-    assert video.generation_result.succeeded == ["E1S01"]
-    assert video.generation_result.failed == ["E1S02"]
-    assert video.generation_result.items[0].artifact_status is ArtifactStatus.STALE
-    assert video.generation_result.items[1].artifact_status is ArtifactStatus.MISSING
 
 
 def test_stale_video_remains_exportable_without_an_implicit_regeneration_step() -> None:

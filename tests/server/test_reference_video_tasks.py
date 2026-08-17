@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import tempfile
 import threading
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
@@ -19,14 +18,12 @@ from lib.script_models import ReferenceResource
 from server.services.reference_video_tasks import (
     FALLBACK_UNIT_DURATION,
     ProjectDurationContext,
-    _apply_provider_constraints,
     _clamp_resolved_reference_images,
     _render_unit_prompt,
     _resolve_unit_reference_entries,
     _resolve_unit_references,
     default_unit_duration,
     effective_reference_durations,
-    precheck_unit,
 )
 
 
@@ -395,7 +392,7 @@ def test_resolve_unit_references_strips_reference_name(tmp_path: Path):
 @pytest.mark.integration
 def test_resolve_unit_references_dedupes_nfc_nfd_pair(tmp_path: Path):
     """unit.references 携带同一角色的 NFC/NFD 两条记录（PATCH 不做数组内去重）：解析须按
-    类型+归一名去重为一条，否则 _apply_provider_constraints 把同一张图计入两个参考名额，
+    类型+归一名去重为一条，否则裁剪参考图时会把同一张图计入两个参考名额，
     挤掉后面一条真正不同的参考、且给 provider 发送重复图片。"""
     import unicodedata
 
@@ -502,41 +499,6 @@ def test_render_unit_prompt_preserves_shot_boundaries_when_shots_lack_headers():
 
 
 @pytest.mark.unit
-def test_apply_provider_constraints_over_largest_slot_requests_largest_and_clamps_refs():
-    # caps 由调用方从 GenerationContext 的 video lane 取得；
-    # 这里直接提供 model 级档位集模拟已 resolve 的结果。
-    refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
-    new_refs, new_duration, warnings = _apply_provider_constraints(
-        provider="gemini",
-        model="veo-3.1-generate-preview",
-        max_refs=3,
-        supported_durations=[4, 6, 8],
-        references=refs,
-        duration_seconds=12,
-    )
-    assert len(new_refs) == 3
-    assert new_duration == 8
-    assert any("ref_duration_exceeded" in w["key"] for w in warnings)
-    assert any("ref_too_many_images" in w["key"] for w in warnings)
-
-
-@pytest.mark.unit
-def test_apply_provider_constraints_between_slots_rounds_up():
-    """区间内的非成员总时长按容量语义向上取档，不再抛 VideoCapabilityError。"""
-    refs = [Path("/tmp/ref0.png")]
-    _, new_duration, warnings = _apply_provider_constraints(
-        provider="gemini",
-        model="veo-3.1-generate-preview",
-        max_refs=3,
-        supported_durations=[4, 8, 12],
-        references=refs,
-        duration_seconds=5,
-    )
-    assert new_duration == 8
-    assert [w["key"] for w in warnings] == ["ref_duration_rounded_up"]
-
-
-@pytest.mark.unit
 def test_effective_reference_durations_applies_reference_constraint_only_when_images_sent():
     """参考图约束只在确实带图时施加：backend 同样只在 reference_images 非空时施加它。"""
     narrow = partial(effective_reference_durations, "gemini-aistudio", "veo-3.1-generate-preview", [4, 6, 8], "720p")
@@ -572,7 +534,7 @@ async def test_project_video_resolution_falls_back_like_executor(monkeypatch: py
 
 @pytest.mark.unit
 async def test_resolve_project_duration_context_resolves_caps_and_resolution_once(monkeypatch: pytest.MonkeyPatch):
-    """项目能力与分辨率各只解析一次：批量预检把这次结果复用给每个 unit（见 precheck_unit）。"""
+    """项目能力与分辨率各只解析一次：批量预检把这次结果复用给每个 unit。"""
     from server.services import reference_video_tasks as rvt
 
     caps_calls = 0
@@ -629,40 +591,9 @@ async def test_resolve_project_duration_context_skips_resolution_when_no_duratio
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    ("total_seconds", "with_references", "expected_seconds", "expected_adjustment"),
-    [
-        (8, True, 8, "exact"),
-        (5, True, 8, "up"),
-        (20, True, 8, "down"),
-        (5, False, 6, "up"),
-    ],
-)
-def test_precheck_unit_is_pure_and_matches_slot_semantics(
-    total_seconds, with_references, expected_seconds, expected_adjustment
-):
-    """precheck_unit 不触 DB，按 ctx 里已解析好的档位/分辨率为单个 unit 取档；带图/不带图
-    条件档位求交（Veo 3.1 720p 带图仅 8 秒、不带图仍是全集）与容量语义（exact/up/down）
-    行为与重构前一致。"""
-    ctx = ProjectDurationContext(
-        supported_durations=(4, 6, 8),
-        resolution="720p",
-        provider_id="gemini-aistudio",
-        model_name="veo-3.1-generate-preview",
-    )
-    unit = {
-        "duration_seconds": total_seconds,
-        "references": [{"type": "character", "name": "张三"}] if with_references else [],
-    }
-    slot = precheck_unit(ctx, unit)
-    assert slot.seconds == expected_seconds
-    assert slot.adjustment == expected_adjustment
-
-
-@pytest.mark.unit
-def test_default_unit_duration_narrows_by_references_like_precheck_unit():
+def test_default_unit_duration_narrows_by_references():
     """新建 unit 若已带 references，默认时长要按参考图约束收窄——否则会给出一个立刻被
-    precheck_unit 打回、要求用户确认的默认值——两处判据须保持一致。"""
+    请求投影打回、要求用户确认的默认值——两处判据须保持一致。"""
     ctx = ProjectDurationContext(
         supported_durations=(4, 6, 8),
         resolution="720p",
@@ -701,113 +632,6 @@ def test_default_unit_duration_takes_min_of_unordered_custom_tiers():
         model_name="veo-3.1-via-relay",  # 未登记型号：不施加约束，原样传递声明顺序
     )
     assert default_unit_duration(ctx, {}, with_references=False) == 4
-
-
-@pytest.mark.unit
-def test_precheck_unit_unconstrained_when_context_has_no_durations():
-    """存量纯 helper 保留空档位的 unconstrained 兼容语义；可执行请求不走此分支。"""
-    ctx = ProjectDurationContext(supported_durations=(), resolution=None, provider_id="", model_name=None)
-    unit = {"duration_seconds": 7, "references": []}
-    slot = precheck_unit(ctx, unit)
-    assert slot.seconds == 7
-    assert slot.adjustment == "unconstrained"
-    assert slot.needs_confirmation is False
-
-
-@pytest.mark.unit
-def test_apply_provider_constraints_narrows_by_call_conditions():
-    """执行层取档前按调用条件收窄：带图 5 秒取 8（而非执行期必被拒的 6），无图仍取 6。"""
-    ref = Path(tempfile.gettempdir()) / "ref0.png"
-    _, with_images, _ = _apply_provider_constraints(
-        provider="gemini",
-        model="veo-3.1-generate-preview",
-        max_refs=3,
-        supported_durations=[4, 6, 8],
-        references=[ref],
-        duration_seconds=5,
-        registry_provider_id="gemini-aistudio",
-        resolution="720p",
-    )
-    assert with_images == 8
-    _, without_images, _ = _apply_provider_constraints(
-        provider="gemini",
-        model="veo-3.1-generate-preview",
-        max_refs=3,
-        supported_durations=[4, 6, 8],
-        references=[],
-        duration_seconds=5,
-        registry_provider_id="gemini-aistudio",
-        resolution="720p",
-    )
-    assert without_images == 6
-
-
-@pytest.mark.unit
-def test_apply_provider_constraints_sora_single_ref():
-    refs = [Path(f"/tmp/ref{i}.png") for i in range(3)]
-    new_refs, _, warnings = _apply_provider_constraints(
-        provider="openai",
-        model="sora-2",
-        max_refs=1,
-        supported_durations=[4, 8, 12],
-        references=refs,
-        duration_seconds=8,
-    )
-    assert len(new_refs) == 1
-    assert any("ref_sora_single_ref" in w["key"] for w in warnings)
-
-
-@pytest.mark.unit
-def test_apply_provider_constraints_ark_keeps_nine():
-    refs = [Path(f"/tmp/ref{i}.png") for i in range(9)]
-    new_refs, new_duration, warnings = _apply_provider_constraints(
-        provider="ark",
-        model="doubao-seedance-2-0-260128",
-        max_refs=9,
-        supported_durations=list(range(1, 16)),
-        references=refs,
-        duration_seconds=12,
-    )
-    assert len(new_refs) == 9
-    assert new_duration == 12
-    assert warnings == []
-
-
-@pytest.mark.unit
-def test_apply_provider_constraints_none_caps_skip_clamp():
-    """当 ConfigResolver 解析失败（例如无 DB 的 CI 环境），调用方传 None / 空档位集 →
-    不裁剪任何维度、时长原样透传，把决策推到 backend 自己去报错。"""
-    refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
-    new_refs, new_duration, warnings = _apply_provider_constraints(
-        provider="grok",
-        model="grok-imagine-video",
-        max_refs=None,
-        supported_durations=[],
-        references=refs,
-        duration_seconds=30,
-    )
-    assert new_refs == refs
-    assert new_duration == 30
-    assert warnings == []
-
-
-@pytest.mark.unit
-def test_apply_provider_constraints_custom_provider_model_granular():
-    """Custom provider 场景：档位集由自定义 model.supported_durations 决定，
-    无需 PROVIDER_MAX_DURATION 常量查表。传入 duration=18 超过最大档位 → 按 10 申请。"""
-    refs = [Path(f"/tmp/ref{i}.png") for i in range(2)]
-    new_refs, new_duration, warnings = _apply_provider_constraints(
-        provider="custom-openai",
-        model="my-custom-video",
-        max_refs=9,
-        supported_durations=[4, 8, 10],
-        references=refs,
-        duration_seconds=18,
-    )
-    assert new_refs == refs
-    assert new_duration == 10
-    assert any(w["key"] == "ref_duration_exceeded" for w in warnings)
-    assert not any(w["key"] == "ref_too_many_images" for w in warnings)
 
 
 @pytest.mark.unit

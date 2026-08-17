@@ -23,7 +23,7 @@ const ALL_ENTITIES_REVISION_KEY = "__all__";
 export const ASSISTANT_PANEL_DEFAULT_WIDTH = 505;
 export const ASSISTANT_PANEL_MIN_WIDTH = 360;
 export const ASSISTANT_PANEL_MAX_WIDTH = 720;
-export const ASSISTANT_PANEL_WIDTH_STORAGE_KEY = "arcreel_assistant_panel_width";
+const ASSISTANT_PANEL_WIDTH_STORAGE_KEY = "arcreel_assistant_panel_width";
 
 export function clampAssistantPanelWidth(value: number): number {
   if (!Number.isFinite(value)) return ASSISTANT_PANEL_DEFAULT_WIDTH;

@@ -58,10 +58,6 @@ class VideoResumeState(StrEnum):
     IDENTITY_UNRECOVERABLE = "identity_unrecoverable"
 
 
-# Compatibility name for callers that predate storyboard checkpoints.
-ReferenceResumeState = VideoResumeState
-
-
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -1053,20 +1049,10 @@ def classify_video_resume_state(
     return VideoResumeState.READY, checkpoint
 
 
-def classify_reference_resume_state(
-    task: dict[str, Any],
-) -> tuple[ReferenceResumeState, ReferenceSubmissionCheckpoint | None]:
-    state, checkpoint = classify_video_resume_state(task)
-    if checkpoint is not None and not isinstance(checkpoint, ReferenceSubmissionCheckpoint):
-        return ReferenceResumeState.IDENTITY_UNRECOVERABLE, None
-    return state, checkpoint
-
-
 __all__ = [
     "NarrationExecutionFacts",
     "ProviderMediaInput",
     "ReferenceExecutionIdentityError",
-    "ReferenceResumeState",
     "ReferenceSubmissionCheckpoint",
     "StoryboardSubmissionCheckpoint",
     "VideoResumeState",
@@ -1074,7 +1060,6 @@ __all__ = [
     "StagedProviderMedia",
     "cleanup_staged_provider_media",
     "checkpoint_version_metadata",
-    "classify_reference_resume_state",
     "classify_video_resume_state",
     "load_task_video_checkpoint",
     "load_task_reference_checkpoint",
