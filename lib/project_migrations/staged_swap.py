@@ -20,6 +20,7 @@ _ROLLBACK_INFIX = ".v6-rollback-"
 _STAGING_INFIX = ".v6-"
 # 两类目录名的后缀都取自 uuid4().hex，反解端据此判定一个隐藏目录是否属于本约定。
 _SUFFIX_CHARS = "0123456789abcdef"
+_SUFFIX_LENGTH = 32  # uuid4().hex 定长；仅校验字符集会把「恰好以十六进制字符结尾的自定义目录」误判为本约定产物
 
 # staging 树是原项目目录的整树副本，交换窗口内父目录上同时存在原树与副本。
 # 预留 10% 余量（下限 32 MiB）覆盖 copytree 期间的元数据开销与并发写入。
@@ -53,7 +54,7 @@ def _project_name_from_swap_dir(dir_name: str, infix: str) -> str | None:
     if not dir_name.startswith("."):
         return None
     head, separator, suffix = dir_name.rpartition(infix)
-    if not separator or not suffix or not all(char in _SUFFIX_CHARS for char in suffix):
+    if not separator or len(suffix) != _SUFFIX_LENGTH or not all(char in _SUFFIX_CHARS for char in suffix):
         return None
     name = head[1:]
     if not name or name in {".", ".."} or "/" in name or "\\" in name or os.sep in name:
