@@ -268,7 +268,7 @@ export interface ReferenceStep1FlatDraft {
 }
 
 /**
- * 隔离草稿违约条目。Mirrors lib/reference_video/quarantine.py::violation_entries。
+ * 隔离草稿违约条目。Mirrors lib/draft_quarantine.py::violation_entries。
  * `label` 形如 `"unit E1U02"`——数组下标 = 派生 unit 序号 - 1，可据此定位到 `content.units[i]`。
  * `line` 是该 unit 正文内 0-based 原始行号（与 `useShotPromptHighlight.ts` 的 `sourceLine` 同
  * 坐标系），仅语法类违约才有；unit 级违约（无自然行归属）为 null，呈现层落卡内聚合区。

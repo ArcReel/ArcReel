@@ -599,11 +599,14 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 else:
                     scene["needs_replan"] = True
 
-            drafts_dir = episode_drafts_dir(project_path, episode)
-            drafts_dir.mkdir(parents=True, exist_ok=True)
-            step1_path = drafts_dir / STEP1_FILENAMES["drama"]
-            # 结构化 step1 的所有 Python 正式写共用锁、原子替换与 Manifest 登记边界。
-            script_review.write_step1_json(project_path, episode, step1_path, content, basis=step1_basis)
+            step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
+            # 重新规范化是刻意的整份重建，无基线可比对；写盘经与晋升同一个持锁出口。上一轮
+            # 隔离草稿的清除与写盘同一临界区（与参考路线的重拆分同口径）：正式文件已是这一份
+            # 产物，旧草稿留着只会让审阅 gate 与 step2 继续阻塞在一份已被取代的内容上，而它
+            # 记下的基线指纹此刻也已对不上，晋升只会反复报冲突。
+            with script_review.formal_step1_lock(project_path, episode, step1_path):
+                script_review.write_formal_step1_locked(project_path, episode, step1_path, content, basis=step1_basis)
+                clear_quarantine(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
 
             scenes = raw_scenes
             return {

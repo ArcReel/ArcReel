@@ -8037,6 +8037,7 @@ async def test_open_step1_for_edit_rejects_variant_without_draft_channel(fake_ct
     out = await _open_for_edit(fake_ctx)
 
     assert out.get("is_error") is True
+    assert "没有隔离草稿编辑通道" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
@@ -8051,6 +8052,44 @@ async def test_generate_episode_script_blocked_by_drama_quarantine(fake_ctx: Too
 
     assert out.get("is_error") is True
     assert "隔离草稿待处置" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx: ToolContext, monkeypatch) -> None:
+    """重新规范化是刻意的整份重建，与参考路线的重拆分同口径：正式文件换成新产物的同一临界区内
+    清掉上一轮草稿。留着它会让审阅门与 step2 一直阻塞在一份已被取代的内容上，而草稿记下的基线
+    指纹此刻也对不上，晋升只会反复报冲突——agent 没有第二条出路。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _drama_project(fake_ctx)
+    _write_drama_step1(fake_ctx, [_drama_scene()])
+    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    assert _drama_quarantine_path(fake_ctx).exists()
+
+    regenerated = {"title": "第一集", "scenes": [_drama_scene(scene_description="重新规范化后的描述。")]}
+
+    class _Generator:
+        async def generate(self, _request, project_name=None):
+            class _R:
+                text = json.dumps(regenerated, ensure_ascii=False)
+
+            return _R()
+
+    async def fake_caps(_p, _episode=None):
+        return 4, [4, 6, 8]
+
+    async def fake_create(_task_type, project_name=None):
+        return _Generator()
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    out = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+
+    assert out.get("is_error") is not True, out
+    assert not _drama_quarantine_path(fake_ctx).exists()
+    saved = json.loads(_drama_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["scenes"][0]["scene_description"] == "重新规范化后的描述。"
 
 
 # ---------------------------------------------------------------------------
