@@ -187,6 +187,15 @@ class ArtifactCount(BaseModel):
     available: int
     stale: int
 
+    @classmethod
+    def zero(cls) -> ArtifactCount:
+        return cls(total=0, available=0, stale=0)
+
+    @classmethod
+    def of(cls, collection: Mapping[str, Any], *, total: int) -> ArtifactCount:
+        stale = len(collection["stale_ids"])
+        return cls(total=total, available=len(collection["current_ids"]) + stale, stale=stale)
+
 
 class EpisodeSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -329,13 +338,31 @@ def _episode_production_status(
     storyboards: ArtifactCount,
     videos: ArtifactCount,
 ) -> EpisodeProductionStatus:
+    """分镜图与视频一起算：两者都是制作阶段的产物，缺任何一件该集都还没做完。
+
+    参考路线没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
+    """
+
     if script_status != "generated":
         return "draft"
-    if videos.total > 0 and videos.available >= videos.total:
+    available = storyboards.available + videos.available
+    total = storyboards.total + videos.total
+    if total > 0 and available >= total:
         return "completed"
-    if storyboards.available or videos.available:
+    if available:
         return "in_production"
     return "scripted"
+
+
+def _sheet_bearing_counts(assets: Mapping[str, ArtifactCount]) -> list[ArtifactCount]:
+    """产品资产没有设计图产物：与 11 值状态的 ASSET_SHEETS 判据同口径地把它排除。"""
+
+    return [count for asset_type, count in assets.items() if asset_type != "product"]
+
+
+def _asset_bucket_total(project: Mapping[str, Any], bucket_key: str) -> int:
+    bucket = project.get(bucket_key)
+    return len(bucket) if isinstance(bucket, Mapping) else 0
 
 
 def _episodes_summary(episodes: list[EpisodeSummary]) -> EpisodesSummary:
@@ -848,7 +875,7 @@ class WorkflowStateService:
         phase = self._project_phase(project, assets, episode_summaries)
         return ProjectSummary(
             phase=phase,
-            phase_progress=self._phase_progress(phase, episode_summaries),
+            phase_progress=self._phase_progress(phase, assets, episode_summaries),
             needs_repair=False,
             repair_reason=None,
             assets=assets,
@@ -863,17 +890,13 @@ class WorkflowStateService:
         currency: ArtifactCurrencyResolver | None,
     ) -> dict[str, ArtifactCount]:
         sheets = self._asset_sheets(project_path, project, [], currency)
-        counts: dict[str, ArtifactCount] = {}
-        for asset_type, spec in ASSET_SPECS.items():
-            bucket = project.get(spec.bucket_key)
-            collection = sheets.get(asset_type, _empty_collection())
-            stale = len(collection["stale_ids"])
-            counts[asset_type] = ArtifactCount(
-                total=len(bucket) if isinstance(bucket, Mapping) else 0,
-                available=len(collection["current_ids"]) + stale,
-                stale=stale,
+        return {
+            asset_type: ArtifactCount.of(
+                sheets.get(asset_type, _empty_collection()),
+                total=_asset_bucket_total(project, spec.bucket_key),
             )
-        return counts
+            for asset_type, spec in ASSET_SPECS.items()
+        }
 
     def _episode_summary(
         self,
@@ -902,7 +925,7 @@ class WorkflowStateService:
                         [item for item in raw_items if isinstance(item, dict)] if isinstance(raw_items, list) else []
                     )
         storyboards = (
-            self._artifact_count(
+            ArtifactCount.of(
                 self._media_collection(
                     project_path,
                     items,
@@ -915,9 +938,9 @@ class WorkflowStateService:
                 total=len(items),
             )
             if project.get("generation_mode") == "storyboard"
-            else ArtifactCount(total=0, available=0, stale=0)
+            else ArtifactCount.zero()
         )
-        videos = self._artifact_count(
+        videos = ArtifactCount.of(
             self._media_collection(
                 project_path,
                 items,
@@ -942,11 +965,6 @@ class WorkflowStateService:
             storyboards=storyboards,
             videos=videos,
         )
-
-    @staticmethod
-    def _artifact_count(collection: dict[str, Any], *, total: int) -> ArtifactCount:
-        stale = len(collection["stale_ids"])
-        return ArtifactCount(total=total, available=len(collection["current_ids"]) + stale, stale=stale)
 
     def _summary_script(
         self,
@@ -1024,15 +1042,23 @@ class WorkflowStateService:
             return "preparation"
         if any(episode.script_status != "generated" for episode in episodes):
             return "script"
-        sheets_complete = all(
-            count.available >= count.total for asset_type, count in assets.items() if asset_type != "product"
-        )
+        sheets_complete = all(count.available >= count.total for count in _sheet_bearing_counts(assets))
         if sheets_complete and all(episode.status == "completed" for episode in episodes):
             return "completed"
         return "production"
 
     @staticmethod
-    def _phase_progress(phase: ProjectPhase, episodes: list[EpisodeSummary]) -> float:
+    def _phase_progress(
+        phase: ProjectPhase,
+        assets: Mapping[str, ArtifactCount],
+        episodes: list[EpisodeSummary],
+    ) -> float:
+        """脚本阶段按已生成脚本的集数算；制作阶段按可用产物占应有产物的比例算。
+
+        制作阶段的分母收全该阶段要交的三类产物——设计图、分镜图、视频——否则缺一类
+        产物的项目会停在 100%。
+        """
+
         if phase == "preparation":
             return 0.0
         if phase == "completed":
@@ -1041,8 +1067,11 @@ class WorkflowStateService:
             if not episodes:
                 return 0.0
             return sum(1 for episode in episodes if episode.script_status == "generated") / len(episodes)
-        total = sum(episode.videos.total for episode in episodes)
-        return sum(episode.videos.available for episode in episodes) / total if total else 0.0
+        counts = [*_sheet_bearing_counts(assets)]
+        counts.extend(episode.storyboards for episode in episodes)
+        counts.extend(episode.videos for episode in episodes)
+        total = sum(count.total for count in counts)
+        return sum(min(count.available, count.total) for count in counts) / total if total else 0.0
 
     @classmethod
     def _migration_blocked_summary(
@@ -1065,8 +1094,8 @@ class WorkflowStateService:
                 status="draft",
                 scenes_count=0,
                 duration_seconds=0,
-                storyboards=ArtifactCount(total=0, available=0, stale=0),
-                videos=ArtifactCount(total=0, available=0, stale=0),
+                storyboards=ArtifactCount.zero(),
+                videos=ArtifactCount.zero(),
             )
             for number, _entry in episodes
         ]
@@ -1077,7 +1106,7 @@ class WorkflowStateService:
             repair_reason=failure.reason,
             assets={
                 asset_type: ArtifactCount(
-                    total=len(bucket) if isinstance(bucket := project.get(spec.bucket_key), Mapping) else 0,
+                    total=_asset_bucket_total(project, spec.bucket_key),
                     available=0,
                     stale=0,
                 )

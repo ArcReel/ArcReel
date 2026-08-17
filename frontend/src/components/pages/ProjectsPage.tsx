@@ -40,6 +40,7 @@ import {
   assetCount,
   gradientProgressStyles,
   repairReasonOf,
+  staleAssetTotal,
   usePhaseLabels,
 } from "./ProjectCard";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
@@ -209,7 +210,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
           </div>
         </div>
 
-        <StaleAssetsLine count={characters.stale + scenes.stale + propsStat.stale} />
+        <StaleAssetsLine count={staleAssetTotal(status)} />
 
         <div
           className="relative grid overflow-hidden rounded-[8px]"

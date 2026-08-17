@@ -49,7 +49,7 @@ def resolve_project_cover(
     """按偏好顺序挑第一个可用的封面路径，返回 `/api/v1/files/...` URL；全无则 None。
 
     ``preloaded_scripts`` 允许调用方（如 list_projects）一次性加载剧本后同时喂给
-    ``calculate_project_status``，避免两路重复 JSON I/O。key 为 ``episode['script_file']``
+    项目摘要投影，避免两路重复 JSON I/O。key 为 ``episode['script_file']``
     原值，value 为剧本 JSON dict；缺失集 (key 不在 map) 回退到 ``manager.load_script``。
     """
 

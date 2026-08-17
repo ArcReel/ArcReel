@@ -86,8 +86,9 @@ def get_workflow_state_service() -> WorkflowStateService:
 def _project_status_payload(summary: ProjectSummary) -> dict[str, Any]:
     """项目级状态负载：项目摘要去掉每集明细。
 
-    列表页与全局头只看项目粒度；每集明细经项目详情端点交付，不让 N 个项目的列表
-    驮上 N×集数 的对象。
+    列表与详情的 ``status`` 都只给项目粒度——阶段、进度、资产计数、分集汇总。摘要里的
+    每集明细留在服务层，不让 N 个项目的列表驮上 N×集数 的对象；剧集粒度的消费方另经
+    剧集接口取。
     """
 
     return summary.model_dump(mode="json", exclude={"episodes"})

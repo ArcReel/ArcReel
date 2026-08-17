@@ -287,3 +287,24 @@ def test_migration_blocked_project_is_listed_as_needing_repair(tmp_path: Path) -
     # 产物清单对未升级的数据不可读，一件产物都不报可用；集数照常列出，项目不从列表里消失。
     assert summary.episodes_summary.total == len(summary.episodes)
     assert all(episode.videos.available == 0 for episode in summary.episodes)
+
+
+def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path) -> None:
+    """分镜图也是制作阶段的产物：删掉一张，大厅与工作台一起退回「制作」。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    _episode_with_media(pm, project_path, source_text)
+    service = WorkflowStateService(pm)
+    assert service.get_project_summary("demo").phase == "completed"
+
+    (project_path / resource_relative_path("storyboards", "E1S01")).unlink()
+
+    summary = service.get_project_summary("demo")
+    episode = summary.episodes[0]
+    assert (episode.storyboards.total, episode.storyboards.available) == (1, 0)
+    assert episode.status == "in_production"
+    assert summary.phase == "production"
+    assert summary.phase_progress < 1.0
+    assert service.get_status("demo").state == "STORYBOARD"

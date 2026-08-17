@@ -149,6 +149,8 @@ describe("ProjectsPage", () => {
               character: { total: 3, available: 3, stale: 2 },
               scene: { total: 1, available: 1, stale: 0 },
               prop: { total: 0, available: 0, stale: 0 },
+              // 卡片的计数格只列举三类，这一行仍要把其余资产类型的 stale 算进去
+              product: { total: 1, available: 1, stale: 1 },
             },
             episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
           },
@@ -158,7 +160,7 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("2 张设计图比当前内容旧")).toBeInTheDocument();
+    expect(await screen.findByText("3 张设计图比当前内容旧")).toBeInTheDocument();
     // stale 仍是可用产物：计数格照报 3 / 3，不从可用里扣
     expect(screen.getAllByText("3 / 3").length).toBeGreaterThan(0);
   });

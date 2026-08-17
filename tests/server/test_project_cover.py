@@ -150,7 +150,7 @@ def test_episode_without_script_file_is_skipped():
 def test_preloaded_scripts_skips_manager_load():
     """传入 preloaded_scripts 且覆盖所有 episode 时，不应再调用 manager.load_script。
 
-    这是 list_projects 的 hot-path 合同：与 calculate_project_status 共用一份剧本加载，
+    这是 list_projects 的 hot-path 合同：与项目摘要投影共用一份剧本加载，
     避免 cover + status 两次 JSON 解析。"""
     project = {
         "episodes": [

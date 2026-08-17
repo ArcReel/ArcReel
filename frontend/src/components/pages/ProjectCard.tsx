@@ -300,6 +300,11 @@ export function assetCount(status: ProjectStatus | null, assetType: string): Art
   return status?.assets?.[assetType] ?? EMPTY_COUNT;
 }
 
+/** 全部资产类型的 stale 张数之和——卡片上只列举三类计数，这一行不漏掉其余类型。 */
+export function staleAssetTotal(status: ProjectStatus | null): number {
+  return Object.values(status?.assets ?? {}).reduce((sum, count) => sum + count.stale, 0);
+}
+
 interface ProjectCardBaseProps {
   project: ProjectSummary;
   styleLabel: string;
@@ -348,7 +353,7 @@ export function ProjectCard(props: ProjectCardProps) {
   const characters = assetCount(status, "character");
   const scenes = assetCount(status, "scene");
   const propsStat = assetCount(status, "prop");
-  const staleAssets = characters.stale + scenes.stale + propsStat.stale;
+  const staleAssets = staleAssetTotal(status);
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
   const projectDisplayName = getProjectDisplayName(project.title, t("untitled_project"));
