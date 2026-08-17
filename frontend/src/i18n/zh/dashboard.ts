@@ -415,7 +415,7 @@ export default {
   'presentation_selection_current': '当前版本',
   'presentation_selection_history': '历史版本',
   'presentation_provenance_unavailable': '来源不可用',
-  'presentation_currency_current': '与当前配置一致',
+  'presentation_currency_current': '与当前内容一致',
   'presentation_currency_stale': '比当前内容旧',
   'presentation_mechanical_timing': '机械计时',
   'presentation_post_production': '原音成片',
