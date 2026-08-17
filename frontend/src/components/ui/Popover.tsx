@@ -119,9 +119,10 @@ export function Popover({
   return (
     <FloatingPortal>
       <div
-        // `refs.setFloating` is floating-ui 的 stable 回调 ref；react-hooks/refs
-        // 规则误认为是读取 ref.current，这里安全。
-        // eslint-disable-next-line react-hooks/refs
+        // `refs.setFloating` is floating-ui 的 stable 回调 ref：react-hooks/refs
+        // 误认为是读取 ref.current；unbound-method 误认为是需要绑定 this 的原型方法，
+        // 而它是 useCallback 造的属性型函数、不访问 this。两条均安全。
+        // eslint-disable-next-line react-hooks/refs, @typescript-eslint/unbound-method
         ref={refs.setFloating}
         {...getFloatingProps()}
         className={`isolate ${width} ${UI_LAYERS[layer]} ${className}`}
