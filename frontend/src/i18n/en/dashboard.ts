@@ -1353,7 +1353,7 @@ export default {
   'reference_step1_fix_request_prefill_header':
     'Episode {{episode}}’s reference-video step1 split draft has {{count}} violation(s) to fix — please edit the quarantined draft directly to correct them:',
   'reference_step1_fix_request_promote_prefill':
-    'Episode {{episode}}’s reference-video step1 split draft now revalidates with no violations but is still quarantined — please call validate_and_promote_reference_draft to promote it.',
+    'Episode {{episode}}’s reference-video step1 split draft now revalidates with no violations but is still quarantined — please call validate_and_promote_draft to promote it.',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 
@@ -1484,8 +1484,8 @@ export default {
   'tool_name_confirm_script_review': 'Confirm step 1 review',
   'tool_name_normalize_drama_script': 'Normalize drama script',
   'tool_name_split_reference_video_units': 'Split reference video units',
-  'tool_name_open_reference_step1_for_edit': 'Open reference split for editing',
-  'tool_name_validate_and_promote_reference_draft': 'Validate and promote reference draft',
+  'tool_name_open_step1_for_edit': 'Open formal step1 for editing',
+  'tool_name_validate_and_promote_draft': 'Validate and promote quarantined draft',
   'tool_name_split_narration_segments': 'Split narration segments',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
   'tool_name_plan_episodes': 'Plan episodes',

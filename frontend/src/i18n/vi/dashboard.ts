@@ -1326,7 +1326,7 @@ export default {
   'reference_step1_fix_request_prefill_header':
     'Bản nháp chia step1 video tham chiếu của tập {{episode}} có {{count}} vi phạm cần sửa, hãy chỉnh sửa trực tiếp bản nháp bị cách ly để khắc phục:',
   'reference_step1_fix_request_promote_prefill':
-    'Bản nháp chia step1 video tham chiếu của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn đang bị cách ly — hãy gọi validate_and_promote_reference_draft để thăng cấp nó.',
+    'Bản nháp chia step1 video tham chiếu của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn đang bị cách ly — hãy gọi validate_and_promote_draft để thăng cấp nó.',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 
@@ -1606,8 +1606,8 @@ export default {
   'tool_name_confirm_script_review': 'Xác nhận duyệt Step 1',
   'tool_name_normalize_drama_script': 'Chuẩn hóa kịch bản',
   'tool_name_split_reference_video_units': 'Tách đơn vị video tham chiếu',
-  'tool_name_open_reference_step1_for_edit': 'Mở bản tách tham chiếu để chỉnh sửa',
-  'tool_name_validate_and_promote_reference_draft': 'Kiểm tra và thăng cấp bản nháp tham chiếu',
+  'tool_name_open_step1_for_edit': 'Mở step1 chính thức để chỉnh sửa',
+  'tool_name_validate_and_promote_draft': 'Kiểm tra và thăng cấp bản nháp cách ly',
   'tool_name_split_narration_segments': 'Tách phân đoạn thuyết minh',
   'tool_name_get_video_capabilities': 'Truy vấn năng lực mô hình video',
   'tool_name_plan_episodes': 'Lập kế hoạch chia tập',

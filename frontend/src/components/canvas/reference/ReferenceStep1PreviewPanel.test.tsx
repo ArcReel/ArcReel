@@ -452,7 +452,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "让助手修复" }));
 
     const input = useAssistantStore.getState().input;
-    expect(input).toContain("validate_and_promote_reference_draft");
+    expect(input).toContain("validate_and_promote_draft");
     expect(input).not.toContain("1. ");
     // 禁用判据是隔离草稿文件是否在场，不是重算后的违约数量——违约为空但仍隔离时确认依旧禁用。
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
