@@ -288,10 +288,7 @@ def test_parse_single_shot_no_header():
 
 
 def test_parse_multi_shot():
-    text = (
-        "Shot 1 (3s): 中远景，主角推门进酒馆。\n"
-        "Shot 2 (5s): 近景，对面的张三抬眼。\n"
-    )
+    text = "Shot 1 (3s): 中远景，主角推门进酒馆。\nShot 2 (5s): 近景，对面的张三抬眼。\n"
     shots, refs, override = parse_prompt(text)
     assert len(shots) == 2
     assert shots[0].duration == 3
@@ -832,24 +829,33 @@ def test_effective_mode_reads_project_level():
 
 
 def test_effective_mode_episode_overrides_project():
-    assert effective_mode(
-        project={"generation_mode": "grid"},
-        episode={"generation_mode": "reference_video"},
-    ) == "reference_video"
+    assert (
+        effective_mode(
+            project={"generation_mode": "grid"},
+            episode={"generation_mode": "reference_video"},
+        )
+        == "reference_video"
+    )
 
 
 def test_effective_mode_episode_none_falls_back():
-    assert effective_mode(
-        project={"generation_mode": "grid"},
-        episode={"generation_mode": None},
-    ) == "grid"
+    assert (
+        effective_mode(
+            project={"generation_mode": "grid"},
+            episode={"generation_mode": None},
+        )
+        == "grid"
+    )
 
 
 def test_effective_mode_empty_episode_string_falls_back():
-    assert effective_mode(
-        project={"generation_mode": "grid"},
-        episode={"generation_mode": ""},
-    ) == "grid"
+    assert (
+        effective_mode(
+            project={"generation_mode": "grid"},
+            episode={"generation_mode": ""},
+        )
+        == "grid"
+    )
 
 
 def test_effective_mode_rejects_unknown_value_fallback():

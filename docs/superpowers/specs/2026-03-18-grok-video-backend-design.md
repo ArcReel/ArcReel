@@ -68,6 +68,7 @@ PROVIDER_GROK = "grok"
 
 ```python
 from lib.video_backends.grok import GrokVideoBackend
+
 register_backend(PROVIDER_GROK, GrokVideoBackend)
 ```
 
@@ -97,6 +98,7 @@ elif provider_name == PROVIDER_GROK:
 GROK_VIDEO_COST = {
     "grok-imagine-video": 0.050,  # USD/秒，不区分分辨率（官方来源入口见 docs/api-docs/providers/grok.md）
 }
+
 
 def calculate_grok_video_cost(self, duration_seconds: int, model: str) -> float:
     per_second = GROK_VIDEO_COST.get(model, 0.050)

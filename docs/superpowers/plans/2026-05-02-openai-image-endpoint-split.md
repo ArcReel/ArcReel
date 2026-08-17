@@ -155,6 +155,7 @@ def test_existing_image_endpoints_have_full_capabilities():
     assert endpoint_to_image_capabilities("openai-images") == full
 
     import pytest
+
     with pytest.raises(ValueError):
         endpoint_to_image_capabilities("openai-chat")
 ```
@@ -339,7 +340,7 @@ from typing import Literal
 
 from lib.image_backends.base import (
     ImageCapability,
-    ImageCapabilityError,           # 新增
+    ImageCapabilityError,  # 新增
     ImageGenerationRequest,
     ImageGenerationResult,
     save_image_from_response_item,
@@ -481,12 +482,8 @@ def test_split_endpoints_have_single_capability():
     from lib.custom_provider.endpoints import endpoint_to_image_capabilities
     from lib.image_backends.base import ImageCapability
 
-    assert endpoint_to_image_capabilities("openai-images-generations") == frozenset(
-        {ImageCapability.TEXT_TO_IMAGE}
-    )
-    assert endpoint_to_image_capabilities("openai-images-edits") == frozenset(
-        {ImageCapability.IMAGE_TO_IMAGE}
-    )
+    assert endpoint_to_image_capabilities("openai-images-generations") == frozenset({ImageCapability.TEXT_TO_IMAGE})
+    assert endpoint_to_image_capabilities("openai-images-edits") == frozenset({ImageCapability.IMAGE_TO_IMAGE})
 ```
 
 `tests/test_custom_provider_factory.py`（追加测试，参考已有的 `test_openai_images`）：
@@ -497,12 +494,15 @@ def test_openai_images_generations_factory(self, mock_cls=None):
     from lib.custom_provider.factory import create_custom_backend
     from lib.db.models.custom_provider import CustomProvider
 
-    provider = CustomProvider(id=1, display_name="x", discovery_format="openai", base_url="https://api.example.com", api_key="k")
+    provider = CustomProvider(
+        id=1, display_name="x", discovery_format="openai", base_url="https://api.example.com", api_key="k"
+    )
     with patch("lib.image_backends.openai.create_openai_client"):
         wrapper = create_custom_backend(provider=provider, model_id="dall-e-3", endpoint="openai-images-generations")
     delegate = wrapper._delegate
     assert delegate._mode == "generations_only"
     from lib.image_backends.base import ImageCapability
+
     assert delegate.capabilities == {ImageCapability.TEXT_TO_IMAGE}
 
 
@@ -511,12 +511,15 @@ def test_openai_images_edits_factory(self):
     from lib.custom_provider.factory import create_custom_backend
     from lib.db.models.custom_provider import CustomProvider
 
-    provider = CustomProvider(id=1, display_name="x", discovery_format="openai", base_url="https://api.example.com", api_key="k")
+    provider = CustomProvider(
+        id=1, display_name="x", discovery_format="openai", base_url="https://api.example.com", api_key="k"
+    )
     with patch("lib.image_backends.openai.create_openai_client"):
         wrapper = create_custom_backend(provider=provider, model_id="dall-e-3", endpoint="openai-images-edits")
     delegate = wrapper._delegate
     assert delegate._mode == "edits_only"
     from lib.image_backends.base import ImageCapability
+
     assert delegate.capabilities == {ImageCapability.IMAGE_TO_IMAGE}
 ```
 
@@ -897,7 +900,9 @@ async def test_t2i_call_with_i2i_only_backend_raises(tmp_path):
     )
     with pytest.raises(ImageCapabilityError) as excinfo:
         await g.generate_image_async(
-            prompt="x", resource_type="characters", resource_id="A",
+            prompt="x",
+            resource_type="characters",
+            resource_id="A",
             reference_images=None,
         )
     assert excinfo.value.code == "image_capability_missing_t2i"
@@ -916,7 +921,9 @@ async def test_i2i_call_with_t2i_only_backend_raises(tmp_path):
     )
     with pytest.raises(ImageCapabilityError) as excinfo:
         await g.generate_image_async(
-            prompt="x", resource_type="characters", resource_id="A",
+            prompt="x",
+            resource_type="characters",
+            resource_id="A",
             reference_images=[tmp_path / "ref.png"],
         )
     assert excinfo.value.code == "image_capability_missing_i2i"
@@ -938,23 +945,17 @@ uv run pytest tests/test_media_generator_image_capability.py -v
 `lib/media_generator.py` 的 `generate_image_async` 函数体里，紧跟在 `if self._image_backend is None:` 之后插入：
 
 ```python
-        # Capability gating：上层 resolver 应当已经选到对的 backend，
-        # 这里是兜底（防御调用方手工拼 backend 或配置漂移）。
-        from lib.image_backends.base import ImageCapability, ImageCapabilityError
+# Capability gating：上层 resolver 应当已经选到对的 backend，
+# 这里是兜底（防御调用方手工拼 backend 或配置漂移）。
+from lib.image_backends.base import ImageCapability, ImageCapabilityError
 
-        needed = (
-            ImageCapability.IMAGE_TO_IMAGE
-            if reference_images
-            else ImageCapability.TEXT_TO_IMAGE
-        )
-        if needed not in self._image_backend.capabilities:
-            raise ImageCapabilityError(
-                "image_capability_missing_i2i"
-                if needed == ImageCapability.IMAGE_TO_IMAGE
-                else "image_capability_missing_t2i",
-                provider=self._image_backend.name,
-                model=self._image_backend.model,
-            )
+needed = ImageCapability.IMAGE_TO_IMAGE if reference_images else ImageCapability.TEXT_TO_IMAGE
+if needed not in self._image_backend.capabilities:
+    raise ImageCapabilityError(
+        "image_capability_missing_i2i" if needed == ImageCapability.IMAGE_TO_IMAGE else "image_capability_missing_t2i",
+        provider=self._image_backend.name,
+        model=self._image_backend.model,
+    )
 ```
 
 - [ ] **Step 4: 跑测试看通过**
@@ -1077,22 +1078,24 @@ uv run pytest tests/test_config_resolver.py -k default_image_backend_t2i -v
 替换 `get_default_image_backend`：
 
 ```python
-    async def get_default_image_backend_t2i(self) -> tuple[str, str]:
-        raw = await self._setting_repo.get(
-            "default_image_backend_t2i",
-            await self._setting_repo.get("default_image_backend", _DEFAULT_IMAGE_BACKEND),
-        )
-        return self._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
+async def get_default_image_backend_t2i(self) -> tuple[str, str]:
+    raw = await self._setting_repo.get(
+        "default_image_backend_t2i",
+        await self._setting_repo.get("default_image_backend", _DEFAULT_IMAGE_BACKEND),
+    )
+    return self._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
 
-    async def get_default_image_backend_i2i(self) -> tuple[str, str]:
-        raw = await self._setting_repo.get(
-            "default_image_backend_i2i",
-            await self._setting_repo.get("default_image_backend", _DEFAULT_IMAGE_BACKEND),
-        )
-        return self._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
 
-    # 删除旧 get_default_image_backend；
-    # 调用方已在 Task 11/12/13 切换为 t2i/i2i 变体
+async def get_default_image_backend_i2i(self) -> tuple[str, str]:
+    raw = await self._setting_repo.get(
+        "default_image_backend_i2i",
+        await self._setting_repo.get("default_image_backend", _DEFAULT_IMAGE_BACKEND),
+    )
+    return self._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
+
+
+# 删除旧 get_default_image_backend；
+# 调用方已在 Task 11/12/13 切换为 t2i/i2i 变体
 ```
 
 - [ ] **Step 4: 改 `lib/config/resolver.py`**
@@ -1100,26 +1103,28 @@ uv run pytest tests/test_config_resolver.py -k default_image_backend_t2i -v
 替换 `default_image_backend` 与 `_resolve_default_image_backend`：
 
 ```python
-    async def default_image_backend_t2i(self) -> tuple[str, str]:
-        async with self._open_session() as (session, svc):
-            return await self._resolve_default_image_backend(svc, session, "t2i")
+async def default_image_backend_t2i(self) -> tuple[str, str]:
+    async with self._open_session() as (session, svc):
+        return await self._resolve_default_image_backend(svc, session, "t2i")
 
-    async def default_image_backend_i2i(self) -> tuple[str, str]:
-        async with self._open_session() as (session, svc):
-            return await self._resolve_default_image_backend(svc, session, "i2i")
 
-    async def _resolve_default_image_backend(
-        self, svc: ConfigService, session: AsyncSession, capability: str
-    ) -> tuple[str, str]:
-        assert capability in ("t2i", "i2i")
-        key = f"default_image_backend_{capability}"
-        raw = await svc.get_setting(key, "")
-        if not raw:
-            # 旧 key 兼容：老安装可能还没迁
-            raw = await svc.get_setting("default_image_backend", "")
-        if raw and "/" in raw:
-            return ConfigService._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
-        return await self._auto_resolve_backend(svc, session, "image")
+async def default_image_backend_i2i(self) -> tuple[str, str]:
+    async with self._open_session() as (session, svc):
+        return await self._resolve_default_image_backend(svc, session, "i2i")
+
+
+async def _resolve_default_image_backend(
+    self, svc: ConfigService, session: AsyncSession, capability: str
+) -> tuple[str, str]:
+    assert capability in ("t2i", "i2i")
+    key = f"default_image_backend_{capability}"
+    raw = await svc.get_setting(key, "")
+    if not raw:
+        # 旧 key 兼容：老安装可能还没迁
+        raw = await svc.get_setting("default_image_backend", "")
+    if raw and "/" in raw:
+        return ConfigService._parse_backend(raw, _DEFAULT_IMAGE_BACKEND)
+    return await self._auto_resolve_backend(svc, session, "image")
 ```
 
 > 删除旧 `default_image_backend()` 方法；后续 task 12/13 调用方迁到新方法。
@@ -1167,22 +1172,29 @@ async def test_migration_copies_legacy_setting_to_two_new_keys(async_engine):
     """前置：写入旧 default_image_backend；执行迁移；验证两条新 key 同值。"""
     # 这里用 async_engine fixture（若不存在，按现有测试套路如 test_alembic_*.py 风格构造）
     async with async_engine.begin() as conn:
-        await conn.execute(text(
-            "INSERT INTO system_setting (key, value) VALUES ('default_image_backend', 'openai/gpt-image-1') "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
-        ))
+        await conn.execute(
+            text(
+                "INSERT INTO system_setting (key, value) VALUES ('default_image_backend', 'openai/gpt-image-1') "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+            )
+        )
 
     # 跑迁移（按现有测试 helper 风格）
     from alembic import command
     from alembic.config import Config
+
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
 
     async with async_engine.begin() as conn:
-        rows = (await conn.execute(text(
-            "SELECT key, value FROM system_setting WHERE key IN "
-            "('default_image_backend', 'default_image_backend_t2i', 'default_image_backend_i2i')"
-        ))).fetchall()
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT key, value FROM system_setting WHERE key IN "
+                    "('default_image_backend', 'default_image_backend_t2i', 'default_image_backend_i2i')"
+                )
+            )
+        ).fetchall()
     settings = {r.key: r.value for r in rows}
     assert settings.get("default_image_backend_t2i") == "openai/gpt-image-1"
     assert settings.get("default_image_backend_i2i") == "openai/gpt-image-1"
@@ -1245,24 +1257,17 @@ def upgrade() -> None:
     legacy_value = legacy_row[0]
 
     for new_key in ("default_image_backend_t2i", "default_image_backend_i2i"):
-        existing = bind.execute(
-            sa.text("SELECT 1 FROM system_setting WHERE key = :k").bindparams(k=new_key)
-        ).fetchone()
+        existing = bind.execute(sa.text("SELECT 1 FROM system_setting WHERE key = :k").bindparams(k=new_key)).fetchone()
         if existing:
             continue
         bind.execute(
-            sa.text("INSERT INTO system_setting (key, value) VALUES (:k, :v)").bindparams(
-                k=new_key, v=legacy_value
-            )
+            sa.text("INSERT INTO system_setting (key, value) VALUES (:k, :v)").bindparams(k=new_key, v=legacy_value)
         )
 
 
 def downgrade() -> None:
     """回滚仅删除新 key；旧 key 始终保留。"""
-    op.execute(
-        "DELETE FROM system_setting WHERE key IN "
-        "('default_image_backend_t2i', 'default_image_backend_i2i')"
-    )
+    op.execute("DELETE FROM system_setting WHERE key IN ('default_image_backend_t2i', 'default_image_backend_i2i')")
 ```
 
 > `system_setting` 表名按当前 schema 实际名称调整；可通过 `grep -n 'class.*Setting\|__tablename__' lib/db/models/*.py` 确认。
@@ -1320,10 +1325,14 @@ def test_load_legacy_project_lazy_upgrades(tmp_path):
     proj_root.mkdir()
     (proj_root / "demo").mkdir()
     project_json = proj_root / "demo" / "project.json"
-    project_json.write_text(json.dumps({
-        "title": "demo",
-        "image_provider": "openai/gpt-image-1",
-    }))
+    project_json.write_text(
+        json.dumps(
+            {
+                "title": "demo",
+                "image_provider": "openai/gpt-image-1",
+            }
+        )
+    )
 
     pm = ProjectManager(root=proj_root)
     data = pm.load_project("demo")
@@ -1338,11 +1347,15 @@ def test_load_project_with_split_fields_no_change(tmp_path):
     proj_root.mkdir()
     (proj_root / "demo").mkdir()
     project_json = proj_root / "demo" / "project.json"
-    project_json.write_text(json.dumps({
-        "title": "demo",
-        "image_provider_t2i": "openai/gpt-image-1",
-        "image_provider_i2i": "openai/gpt-image-1-edit",
-    }))
+    project_json.write_text(
+        json.dumps(
+            {
+                "title": "demo",
+                "image_provider_t2i": "openai/gpt-image-1",
+                "image_provider_i2i": "openai/gpt-image-1-edit",
+            }
+        )
+    )
 
     pm = ProjectManager(root=proj_root)
     data = pm.load_project("demo")
@@ -1526,6 +1539,7 @@ async def _resolve_effective_image_backend(
         return setting_method()
 
     from lib.config.resolver import get_resolver
+
     r = get_resolver()
     t2i = pick("image_provider_t2i", "image_provider_t2i", lambda: None)
     i2i = pick("image_provider_i2i", "image_provider_i2i", lambda: None)
@@ -1555,7 +1569,8 @@ pair = i2i_pair if reference_images else t2i_pair
 if pair is None:
     raise ImageCapabilityError(
         "image_capability_missing_i2i" if reference_images else "image_capability_missing_t2i",
-        provider="<unconfigured>", model="<unconfigured>",
+        provider="<unconfigured>",
+        model="<unconfigured>",
     )
 image_provider_id, image_model_id = pair
 ```

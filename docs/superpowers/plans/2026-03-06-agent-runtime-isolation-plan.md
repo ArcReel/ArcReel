@@ -215,6 +215,7 @@ def create_project(self, name: str) -> Path:
 
     return project_dir
 
+
 def _create_claude_symlink(self, project_dir: Path) -> None:
     """Create .claude symlink pointing to agent_runtime_profile/.claude."""
     # Resolve profile relative to projects_root parent (project_root)
@@ -277,7 +278,9 @@ class TestAllowedToolsAndConstants:
         """Verify allowed tools align with SDK documentation."""
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
         tools = manager.DEFAULT_ALLOWED_TOOLS
         # SDK tools that must be present
@@ -295,7 +298,9 @@ class TestAllowedToolsAndConstants:
         """LS should not be in _PATH_TOOLS."""
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
         assert "LS" not in manager._PATH_TOOLS
         await engine.dispose()
@@ -305,7 +310,9 @@ class TestAllowedToolsAndConstants:
         """agent_runtime_profile should be in readonly dirs."""
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
         assert "agent_runtime_profile" in manager._READONLY_DIRS
         assert ".claude/skills" not in manager._READONLY_DIRS
@@ -326,8 +333,15 @@ Expected: FAIL
 
 ```python
 DEFAULT_ALLOWED_TOOLS = [
-    "Skill", "Task", "Read", "Write", "Edit",
-    "Bash", "Grep", "Glob", "AskUserQuestion",
+    "Skill",
+    "Task",
+    "Read",
+    "Write",
+    "Edit",
+    "Bash",
+    "Grep",
+    "Glob",
+    "AskUserQuestion",
 ]
 
 _PATH_TOOLS: dict[str, str] = {
@@ -339,7 +353,9 @@ _PATH_TOOLS: dict[str, str] = {
 }
 _WRITE_TOOLS = {"Write", "Edit"}
 _READONLY_DIRS = [
-    "docs", "lib", "agent_runtime_profile",
+    "docs",
+    "lib",
+    "agent_runtime_profile",
     "scripts",
 ]
 _READONLY_FILES: list[str] = []
@@ -388,7 +404,9 @@ class TestAgentProfileSystemPrompt:
 
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
 
         prompt = manager._build_system_prompt("demo")
@@ -403,7 +421,9 @@ class TestAgentProfileSystemPrompt:
 
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
 
         prompt = manager._build_system_prompt("demo")
@@ -428,7 +448,9 @@ class TestAgentProfileSystemPrompt:
 
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
 
         prompt = manager._build_system_prompt("demo")
@@ -450,14 +472,14 @@ Expected: FAIL（当前从环境变量加载，不从文件加载）
 修改 `server/agent_runtime/session_manager.py`：
 
 ```python
-FALLBACK_SYSTEM_PROMPT = (
-    "你是视频项目协作助手。优先复用项目中的 Skills 与现有文件结构，避免擅自改写数据格式。"
-)
+FALLBACK_SYSTEM_PROMPT = "你是视频项目协作助手。优先复用项目中的 Skills 与现有文件结构，避免擅自改写数据格式。"
+
 
 def _load_config(self) -> None:
     """Load configuration from environment."""
     max_turns_env = os.environ.get("ASSISTANT_MAX_TURNS", "").strip()
     self.max_turns = int(max_turns_env) if max_turns_env else None
+
 
 def _load_base_prompt(self) -> str:
     """Load base system prompt from agent_runtime_profile/CLAUDE.md."""
@@ -467,6 +489,7 @@ def _load_base_prompt(self) -> str:
     except (FileNotFoundError, OSError) as exc:
         logger.warning("Failed to load agent profile prompt: %s", exc)
         return self.FALLBACK_SYSTEM_PROMPT
+
 
 def _build_system_prompt(self, project_name: str) -> str:
     """Build system prompt with project context injected."""
@@ -516,13 +539,13 @@ class TestAgentDefinitions:
         """Should load agents from agent_runtime_profile/.claude/agents/."""
         agents_dir = tmp_path / "agent_runtime_profile" / ".claude" / "agents"
         agents_dir.mkdir(parents=True)
-        (agents_dir / "test-agent.md").write_text(
-            "You are a test agent. Help the user with testing."
-        )
+        (agents_dir / "test-agent.md").write_text("You are a test agent. Help the user with testing.")
 
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
 
         agents = manager._load_agent_definitions()
@@ -534,7 +557,9 @@ class TestAgentDefinitions:
         """Should return empty dict when agents dir doesn't exist."""
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
 
         agents = manager._load_agent_definitions()
@@ -552,7 +577,9 @@ class TestAgentDefinitions:
 
         store, engine = await _make_store()
         manager = SessionManager(
-            project_root=tmp_path, data_dir=tmp_path, meta_store=store,
+            project_root=tmp_path,
+            data_dir=tmp_path,
+            meta_store=store,
         )
 
         with patch("server.agent_runtime.session_manager.SDK_AVAILABLE", True):
@@ -659,21 +686,18 @@ class TestListAvailableSkills:
         # Create agent_runtime_profile skill
         skill_dir = tmp_path / "agent_runtime_profile" / ".claude" / "skills" / "test-skill"
         skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
-            "---\nname: test-skill\ndescription: A test skill\n---\n"
-        )
+        (skill_dir / "SKILL.md").write_text("---\nname: test-skill\ndescription: A test skill\n---\n")
 
         # Create a dev-only skill in .claude/skills/ (should NOT appear)
         dev_skill = tmp_path / ".claude" / "skills" / "dev-tool"
         dev_skill.mkdir(parents=True)
-        (dev_skill / "SKILL.md").write_text(
-            "---\nname: dev-tool\ndescription: Dev only\n---\n"
-        )
+        (dev_skill / "SKILL.md").write_text("---\nname: dev-tool\ndescription: Dev only\n---\n")
 
-        with patch.object(AssistantService, '__init__', lambda self, *a, **kw: None):
+        with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
             service.project_root = tmp_path
             from lib.project_manager import ProjectManager
+
             service.pm = ProjectManager(tmp_path / "projects")
 
         skills = service.list_available_skills()
@@ -723,12 +747,14 @@ def list_available_skills(self, project_name: Optional[str] = None) -> list[dict
         except OSError:
             continue
 
-        skills.append({
-            "name": metadata["name"],
-            "description": metadata["description"],
-            "scope": "agent",
-            "path": str(skill_file),
-        })
+        skills.append(
+            {
+                "name": metadata["name"],
+                "description": metadata["description"],
+                "scope": "agent",
+                "path": str(skill_file),
+            }
+        )
 
     return skills
 ```

@@ -25,11 +25,7 @@
 
 ```python
 @with_retry(max_attempts=3, backoff_seconds=(2, 4, 8))
-def analyze_style_image(
-    self,
-    image: Union[str, Path, Image.Image],
-    model: str = "gemini-2.5-flash"
-) -> str:
+def analyze_style_image(self, image: Union[str, Path, Image.Image], model: str = "gemini-2.5-flash") -> str:
     """
     分析图片的视觉风格
 
@@ -57,10 +53,7 @@ def analyze_style_image(
     )
 
     # 调用 API
-    response = self.client.models.generate_content(
-        model=model,
-        contents=[img, prompt]
-    )
+    response = self.client.models.generate_content(model=model, contents=[img, prompt])
 
     return response.text.strip()
 ```
@@ -104,16 +97,16 @@ def build_style_prompt(project_data: dict) -> str:
     parts = []
 
     # 基础风格标签
-    style = project_data.get('style', '')
+    style = project_data.get("style", "")
     if style:
         parts.append(f"Style: {style}")
 
     # AI 分析的风格描述
-    style_description = project_data.get('style_description', '')
+    style_description = project_data.get("style_description", "")
     if style_description:
         parts.append(f"Visual style: {style_description}")
 
-    return '\n'.join(parts)
+    return "\n".join(parts)
 ```
 
 **Step 2: 验证函数可导入**
@@ -150,11 +143,9 @@ from lib.gemini_client import GeminiClient
 ```python
 # ==================== 风格参考图管理 ====================
 
+
 @router.post("/projects/{project_name}/style-image")
-async def upload_style_image(
-    project_name: str,
-    file: UploadFile = File(...)
-):
+async def upload_style_image(project_name: str, file: UploadFile = File(...)):
     """
     上传风格参考图并分析风格
 
@@ -165,10 +156,7 @@ async def upload_style_image(
     # 检查文件类型
     ext = Path(file.filename).suffix.lower()
     if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"不支持的文件类型 {ext}，允许的类型: .png, .jpg, .jpeg, .webp"
-        )
+        raise HTTPException(status_code=400, detail=f"不支持的文件类型 {ext}，允许的类型: .png, .jpg, .jpeg, .webp")
 
     try:
         project_dir = pm.get_project_path(project_name)
@@ -198,7 +186,7 @@ async def upload_style_image(
             "success": True,
             "style_image": "style_reference.png",
             "style_description": style_description,
-            "url": f"/api/v1/files/{project_name}/style_reference.png"
+            "url": f"/api/v1/files/{project_name}/style_reference.png",
         }
 
     except FileNotFoundError:
@@ -235,10 +223,7 @@ async def delete_style_image(project_name: str):
 
 
 @router.patch("/projects/{project_name}/style-description")
-async def update_style_description(
-    project_name: str,
-    style_description: str = Body(..., embed=True)
-):
+async def update_style_description(project_name: str, style_description: str = Body(..., embed=True)):
     """
     更新风格描述（手动编辑）
     """
@@ -737,14 +722,14 @@ def build_direct_scene_prompt(
     clues: dict = None,
     style: str = "",
     style_description: str = "",  # 新增参数
-    id_field: str = 'segment_id',
-    char_field: str = 'characters_in_segment',
-    clue_field: str = 'clues_in_segment'
+    id_field: str = "segment_id",
+    char_field: str = "characters_in_segment",
+    clue_field: str = "clues_in_segment",
 ) -> str:
     """
     构建直接生成场景图的 prompt（narration 模式，无多宫格参考）
     """
-    image_prompt = segment.get('image_prompt', '')
+    image_prompt = segment.get("image_prompt", "")
     if not image_prompt:
         raise ValueError(f"片段 {segment[id_field]} 缺少 image_prompt 字段")
 
@@ -754,7 +739,7 @@ def build_direct_scene_prompt(
         style_parts.append(f"Style: {style}")
     if style_description:
         style_parts.append(f"Visual style: {style_description}")
-    style_prefix = '\n'.join(style_parts) + '\n\n' if style_parts else ''
+    style_prefix = "\n".join(style_parts) + "\n\n" if style_parts else ""
 
     # 检测是否为结构化格式
     if is_structured_image_prompt(image_prompt):
@@ -770,12 +755,11 @@ def build_direct_scene_prompt(
 
 ```python
 # 获取风格描述
-style_description = project_data.get('style_description', '') if project_data else ''
+style_description = project_data.get("style_description", "") if project_data else ""
 
 # 构建 prompt（直接生成，无需参考多宫格）
 prompt = build_direct_scene_prompt(
-    segment, characters, clues, style, style_description,
-    id_field, char_field, clue_field
+    segment, characters, clues, style, style_description, id_field, char_field, clue_field
 )
 ```
 
@@ -804,10 +788,10 @@ git commit -m "feat(storyboard): 使用风格描述生成分镜图"
 
 ```python
 # 获取风格描述
-style_description = project_data.get('style_description', '')
+style_description = project_data.get("style_description", "")
 
 # 构建风格前缀
-style_prefix = ''
+style_prefix = ""
 if style:
     style_prefix += f"Style: {style}\n"
 if style_description:

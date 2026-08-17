@@ -126,13 +126,13 @@ class ModelInfo:
 
 AI Studio 视频模型（3 个）:
 ```python
-supported_durations=[4, 6, 8],
-duration_resolution_constraints={"1080p": [8]},
+supported_durations = ([4, 6, 8],)
+duration_resolution_constraints = ({"1080p": [8]},)
 ```
 
 Vertex 视频模型（2 个）:
 ```python
-supported_durations=[4, 6, 8],
+supported_durations = ([4, 6, 8],)
 ```
 
 Ark 视频模型:
@@ -142,12 +142,12 @@ Ark 视频模型:
 
 Grok 视频模型:
 ```python
-supported_durations=list(range(1, 16)),  # 1-15
+supported_durations = (list(range(1, 16)),)  # 1-15
 ```
 
 OpenAI 视频模型（sora-2, sora-2-pro）:
 ```python
-supported_durations=[4, 8, 12],
+supported_durations = ([4, 8, 12],)
 ```
 
 - [ ] **Step 4: 运行测试确认通过**
@@ -211,6 +211,7 @@ def _model_to_response(m) -> ModelResponse:
     durations = None
     if m.supported_durations:
         import json
+
         durations = json.loads(m.supported_durations)
     return ModelResponse(
         ...,  # 现有字段保持不变
@@ -220,7 +221,7 @@ def _model_to_response(m) -> ModelResponse:
 
 在保存自定义模型的地方，将 `list[int]` 序列化为 JSON 字符串存入 DB。搜索 `CustomProviderModel(` 构造和批量替换逻辑，新增：
 ```python
-supported_durations=json.dumps(model_input.supported_durations) if model_input.supported_durations else None,
+supported_durations = (json.dumps(model_input.supported_durations) if model_input.supported_durations else None,)
 ```
 
 - [ ] **Step 6: 更新 providers API 的 ModelInfoResponse**
@@ -277,6 +278,7 @@ def test_duration_accepts_any_positive_int_within_range(self):
     )
     assert segment.duration_seconds == 10
 
+
 def test_duration_rejects_out_of_range(self):
     """duration_seconds 拒绝范围外的值。"""
     with pytest.raises(ValidationError):
@@ -305,6 +307,7 @@ def test_duration_rejects_out_of_range(self):
             ),
             video_prompt=VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声"),
         )
+
 
 def test_drama_scene_default_duration_is_8(self):
     """DramaScene 的默认 duration_seconds 仍为 8。"""
@@ -583,6 +586,7 @@ def test_build_narration_prompt_contains_dynamic_durations(self):
     assert "4, 6, 8" in prompt
     assert "默认使用 4 秒" in prompt
 
+
 def test_build_narration_prompt_auto_duration(self):
     prompt = build_narration_prompt(
         project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
@@ -597,6 +601,7 @@ def test_build_narration_prompt_auto_duration(self):
     )
     assert "5, 10" in prompt
     assert "根据内容节奏自行决定" in prompt
+
 
 def test_build_drama_prompt_uses_dynamic_aspect_ratio(self):
     prompt = build_drama_prompt(
@@ -613,6 +618,7 @@ def test_build_drama_prompt_uses_dynamic_aspect_ratio(self):
     # 传入竖屏时不应出现 "16:9 横屏构图"
     assert "16:9 横屏构图" not in prompt
     assert "竖屏构图" in prompt
+
 
 def test_build_drama_prompt_landscape(self):
     prompt = build_drama_prompt(
@@ -726,9 +732,9 @@ def build_drama_prompt(
 在 `lib/script_generator.py` 中，`generate` 和 `build_prompt` 方法里两处调用 `build_narration_prompt` / `build_drama_prompt` 的地方，都新增三个参数：
 
 ```python
-supported_durations=self.project_json.get("_supported_durations"),
-default_duration=self.project_json.get("default_duration"),
-aspect_ratio=self._resolve_aspect_ratio(),
+supported_durations = (self.project_json.get("_supported_durations"),)
+default_duration = (self.project_json.get("default_duration"),)
+aspect_ratio = (self._resolve_aspect_ratio(),)
 ```
 
 新增辅助方法：

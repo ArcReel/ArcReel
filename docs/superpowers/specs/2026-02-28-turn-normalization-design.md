@@ -40,21 +40,21 @@ Normalization 散落在 4 处，各自只解决部分问题：
 ```python
 Turn = {
     "type": "user" | "assistant" | "system" | "result",
-    "content": list[ContentBlock],   # 始终为 array，永不为 string
+    "content": list[ContentBlock],  # 始终为 array，永不为 string
     "uuid": str | None,
     "timestamp": str | None,
 }
 
 ContentBlock = {
-    "type": str,                     # 始终存在
-    "text": str,                     # Optional, type=text/skill_content
-    "thinking": str,                 # Optional, type=thinking
-    "id": str | None,                # Optional, type=tool_use（流式初期可为 None）
-    "name": str,                     # Optional, type=tool_use（流式初期可为 ""）
-    "input": dict,                   # Optional, type=tool_use（始终为 dict）
-    "result": str,                   # Optional, type=tool_use（已完成的工具调用）
-    "is_error": bool,                # Optional, type=tool_use
-    "skill_content": str,            # Optional, type=tool_use 且 name=Skill
+    "type": str,  # 始终存在
+    "text": str,  # Optional, type=text/skill_content
+    "thinking": str,  # Optional, type=thinking
+    "id": str | None,  # Optional, type=tool_use（流式初期可为 None）
+    "name": str,  # Optional, type=tool_use（流式初期可为 ""）
+    "input": dict,  # Optional, type=tool_use（始终为 dict）
+    "result": str,  # Optional, type=tool_use（已完成的工具调用）
+    "is_error": bool,  # Optional, type=tool_use
+    "skill_content": str,  # Optional, type=tool_use 且 name=Skill
 }
 ```
 
@@ -66,14 +66,18 @@ ContentBlock = {
 def infer_block_type(block: dict) -> str:
     """推断缺失的 block type。"""
 
+
 def normalize_block(block: dict) -> dict:
     """统一的 block 规范化。"""
+
 
 def normalize_content(content: Any) -> list[dict]:
     """content 始终转为 list[dict]。"""
 
+
 def normalize_turn(turn: dict) -> dict:
     """确保 Turn 满足 contract。"""
+
 
 def normalize_turns(turns: list[dict]) -> list[dict]:
     """批量规范化。"""

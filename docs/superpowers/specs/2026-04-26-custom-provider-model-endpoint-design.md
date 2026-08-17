@@ -65,20 +65,20 @@ ArcReel 的自定义供应商当前以 `CustomProvider.api_format ∈ {openai, g
 ```python
 @dataclass(frozen=True)
 class EndpointSpec:
-    key: str                  # "openai-chat"
-    media_type: str           # "text" | "image" | "video"
-    family: str               # "openai" | "google" | "newapi"
-    display_name_key: str     # i18n key（dashboard ns）
+    key: str  # "openai-chat"
+    media_type: str  # "text" | "image" | "video"
+    family: str  # "openai" | "google" | "newapi"
+    display_name_key: str  # i18n key（dashboard ns）
     build_backend: Callable[[CustomProvider, str], CustomTextBackend | CustomImageBackend | CustomVideoBackend]
 
 
 ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
-    "openai-chat":     EndpointSpec(...),
+    "openai-chat": EndpointSpec(...),
     "gemini-generate": EndpointSpec(...),
-    "openai-images":   EndpointSpec(...),
-    "gemini-image":    EndpointSpec(...),
-    "openai-video":    EndpointSpec(...),
-    "newapi-video":    EndpointSpec(...),
+    "openai-images": EndpointSpec(...),
+    "gemini-image": EndpointSpec(...),
+    "openai-video": EndpointSpec(...),
+    "newapi-video": EndpointSpec(...),
 }
 ```
 

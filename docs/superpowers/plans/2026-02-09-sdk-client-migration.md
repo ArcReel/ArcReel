@@ -64,6 +64,7 @@ SessionStatus = Literal["idle", "running", "completed", "error", "interrupted"]
 
 class SessionMeta(BaseModel):
     """Session metadata stored in SQLite."""
+
     id: str
     sdk_session_id: Optional[str] = None
     project_name: str
@@ -354,6 +355,7 @@ except ImportError:
 @dataclass
 class ManagedSession:
     """A managed ClaudeSDKClient session."""
+
     session_id: str
     client: Any  # ClaudeSDKClient
     sdk_session_id: Optional[str] = None
@@ -383,8 +385,15 @@ class SessionManager:
     """Manages all active ClaudeSDKClient instances."""
 
     DEFAULT_ALLOWED_TOOLS = [
-        "Skill", "Read", "Write", "Edit", "MultiEdit",
-        "Bash", "Grep", "Glob", "LS",
+        "Skill",
+        "Read",
+        "Write",
+        "Edit",
+        "MultiEdit",
+        "Bash",
+        "Grep",
+        "Glob",
+        "LS",
     ]
     DEFAULT_SETTING_SOURCES = ["user", "project"]
 
@@ -405,7 +414,7 @@ class SessionManager:
         """Load configuration from environment."""
         self.system_prompt = os.environ.get(
             "ASSISTANT_SYSTEM_PROMPT",
-            "你是视频项目协作助手。优先复用项目中的 Skills 与现有文件结构，避免擅自改写数据格式。"
+            "你是视频项目协作助手。优先复用项目中的 Skills 与现有文件结构，避免擅自改写数据格式。",
         ).strip()
         self.max_turns = int(os.environ.get("ASSISTANT_MAX_TURNS", "8"))
         self.cli_path = os.environ.get("ASSISTANT_CLAUDE_CLI_PATH", "").strip() or None
@@ -472,9 +481,7 @@ class SessionManager:
 
         # Start consumer task if not running
         if managed.consumer_task is None or managed.consumer_task.done():
-            managed.consumer_task = asyncio.create_task(
-                self._consume_messages(managed)
-            )
+            managed.consumer_task = asyncio.create_task(self._consume_messages(managed))
 
     async def _consume_messages(self, managed: ManagedSession) -> None:
         """Consume messages from client and distribute to subscribers."""
@@ -616,9 +623,7 @@ class AssistantService:
             data_dir=self.data_dir,
             meta_store=self.meta_store,
         )
-        self.stream_heartbeat_seconds = int(
-            os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20")
-        )
+        self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
     # ==================== Session CRUD ====================
 
@@ -636,9 +641,7 @@ class AssistantService:
         offset: int = 0,
     ) -> list[SessionMeta]:
         """List sessions."""
-        return self.meta_store.list(
-            project_name=project_name, status=status, limit=limit, offset=offset
-        )
+        return self.meta_store.list(project_name=project_name, status=status, limit=limit, offset=offset)
 
     def get_session(self, session_id: str) -> Optional[SessionMeta]:
         """Get session by ID."""
@@ -646,9 +649,7 @@ class AssistantService:
         if meta and session_id in self.session_manager.sessions:
             # Update status from live session
             managed = self.session_manager.sessions[session_id]
-            meta = SessionMeta(
-                **{**meta.model_dump(), "status": managed.status}
-            )
+            meta = SessionMeta(**{**meta.model_dump(), "status": managed.status})
         return meta
 
     def update_session_title(self, session_id: str, title: str) -> Optional[SessionMeta]:
@@ -715,10 +716,7 @@ class AssistantService:
         try:
             while True:
                 try:
-                    message = await asyncio.wait_for(
-                        queue.get(),
-                        timeout=self.stream_heartbeat_seconds
-                    )
+                    message = await asyncio.wait_for(queue.get(), timeout=self.stream_heartbeat_seconds)
                     yield self._sse_event("message", message)
 
                     # Check for completion
@@ -783,12 +781,14 @@ class AssistantService:
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
-                skills.append({
-                    "name": metadata["name"],
-                    "description": metadata["description"],
-                    "scope": scope,
-                    "path": str(skill_file),
-                })
+                skills.append(
+                    {
+                        "name": metadata["name"],
+                        "description": metadata["description"],
+                        "scope": scope,
+                        "path": str(skill_file),
+                    }
+                )
 
         return skills
 
@@ -837,6 +837,7 @@ class AssistantService:
             return
         try:
             from dotenv import load_dotenv
+
             load_dotenv(env_path, override=False)
         except ImportError:
             pass
@@ -910,9 +911,7 @@ async def list_sessions(
     offset: int = Query(default=0, ge=0),
 ):
     try:
-        sessions = assistant_service.list_sessions(
-            project_name=project_name, status=status, limit=limit, offset=offset
-        )
+        sessions = assistant_service.list_sessions(project_name=project_name, status=status, limit=limit, offset=offset)
         return {"sessions": [s.model_dump() for s in sessions]}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

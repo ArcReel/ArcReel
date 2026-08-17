@@ -50,9 +50,9 @@ if final_status not in ("idle", "running"):
 #### ManagedSession 字段
 
 ```python
-idle_since: float | None = None                        # monotonic 时间戳，进入 idle 时记录
-last_activity: float | None = None                     # 每次发送/接收消息时更新
-_cleanup_task: asyncio.Task | None = None              # 当前清理定时器
+idle_since: float | None = None  # monotonic 时间戳，进入 idle 时记录
+last_activity: float | None = None  # 每次发送/接收消息时更新
+_cleanup_task: asyncio.Task | None = None  # 当前清理定时器
 ```
 
 #### 触发点：`_finalize_turn()` 和 `_mark_session_terminal()`
@@ -101,10 +101,7 @@ async def _ensure_capacity(self) -> None:
         return
 
     # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
-    evictable = sorted(
-        [s for s in active if s.status != "running"],
-        key=lambda s: s.last_activity or 0
-    )
+    evictable = sorted([s for s in active if s.status != "running"], key=lambda s: s.last_activity or 0)
 
     if evictable:
         victim = evictable[0]
@@ -112,9 +109,7 @@ async def _ensure_capacity(self) -> None:
         return
 
     # 所有会话都在 running → 拒绝
-    raise SessionCapacityError(
-        f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试"
-    )
+    raise SessionCapacityError(f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试")
 ```
 
 #### API 层错误处理
@@ -134,6 +129,7 @@ HTTP 503
 
 ```python
 _PATROL_INTERVAL = 300  # 5 分钟，类常量
+
 
 async def _patrol_once(self) -> None:
     """单次巡检：清理所有超时的非 running 会话。"""
@@ -165,6 +161,7 @@ async def _get_cleanup_delay(self) -> int:
         val = await svc.get_setting("agent_session_cleanup_delay_seconds", "300")
     return max(int(val), 10)
 
+
 async def _get_max_concurrent(self) -> int:
     """返回最大并发会话数，默认 5。"""
     async with async_session_factory() as session:
@@ -184,8 +181,8 @@ idle 与终态会话共用同一个延迟（`agent_session_cleanup_delay_seconds
 #### `SystemConfigPatchRequest` 新增字段
 
 ```python
-agent_session_cleanup_delay_seconds: Optional[int] = None   # 范围 10-3600
-agent_max_concurrent_sessions: Optional[int] = None          # 范围 1-20
+agent_session_cleanup_delay_seconds: Optional[int] = None  # 范围 10-3600
+agent_max_concurrent_sessions: Optional[int] = None  # 范围 1-20
 ```
 
 #### PATCH 处理

@@ -31,23 +31,29 @@ from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
+
 class TimestampMixin:
     """统一的创建/更新时间戳。"""
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utc_now
-    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
     )
 
+
 class UserOwnedMixin:
     """用户归属标记。"""
+
     user_id: Mapped[str] = mapped_column(
-        String, ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False, server_default="default", index=True,
+        String,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        server_default="default",
+        index=True,
     )
 ```
 
@@ -61,6 +67,7 @@ from sqlalchemy import String, Boolean, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from lib.db.base import Base, _utc_now
 
+
 class User(Base):
     __tablename__ = "users"
 
@@ -68,9 +75,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, server_default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="1")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utc_now
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
     )
@@ -261,6 +266,7 @@ from sqlalchemy import select
 from lib.db.repositories.base import BaseRepository
 from lib.db.models import Task
 
+
 class TestBaseRepository:
     def test_scope_query_noop(self):
         """_scope_query 默认返回原始 stmt 不做修改。"""
@@ -271,6 +277,7 @@ class TestBaseRepository:
 
     def test_scope_query_overridable(self):
         """子类可以覆盖 _scope_query 添加过滤条件。"""
+
         class ScopedRepo(BaseRepository):
             def _scope_query(self, stmt, model):
                 return stmt.where(model.user_id == "test-user")
@@ -331,7 +338,7 @@ async def enqueue(
 
 修改方法签名，在所有现有参数之后添加：
 ```python
-    user_id: str = "default",
+user_id: str = ("default",)
 ```
 
 在创建 ApiCall 实例时，传入 `user_id=user_id`。
@@ -389,13 +396,16 @@ git commit -m "refactor: add user_id parameter to repository write methods"
 from pydantic import BaseModel, ConfigDict
 from typing import Annotated
 
+
 class CurrentUserInfo(BaseModel):
     """当前登录用户信息。"""
+
     id: str
     sub: str
     role: str = "admin"
 
     model_config = ConfigDict(frozen=True)
+
 
 # 类型别名，供路由使用
 CurrentUser = Annotated[CurrentUserInfo, Depends(get_current_user)]

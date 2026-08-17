@@ -32,7 +32,7 @@ uv run python scripts/verify_reference_video_sdks.py --provider <p> --refs N --d
 `lib/reference_video/limits.py` 是 prompt 构建阶段（`lib/script_generator.py:_resolve_max_refs()`）与 executor 强制阶段（`server/services/reference_video_tasks.py:_PROVIDER_LIMITS`）共享的 **single source of truth**：
 
 ```python
-PROVIDER_MAX_REFS:     {"gemini": 3, "openai": 1, "grok": 7, "ark": 9}
+PROVIDER_MAX_REFS: {"gemini": 3, "openai": 1, "grok": 7, "ark": 9}
 PROVIDER_MAX_DURATION: {"gemini": 8, "openai": 12, "grok": 15, "ark": 15}
 DEFAULT_MAX_REFS = 9
 ```

@@ -63,6 +63,7 @@ T15 决策拍板 4 项 写入 spec §11
 ```python
 # ── mention 前缀边界（issue #346） ────────────────────────────────────────
 
+
 def test_mention_ignores_email_like_prefix():
     """email 左侧是 \\w，不应被当成 mention。"""
     from lib.reference_video.shot_parser import _extract_mentions
@@ -282,6 +283,7 @@ git commit -m "fix(reference-video): 前端 MENTION_RE 与后端同步加前缀�
 ```python
 # ── video_generate_audio fallback（PR7 决策） ────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_video_generate_audio_default_is_true(tmp_path, monkeypatch):
     """无任何配置时 video_generate_audio 默认开启，与 storyboard 路径一致。"""
@@ -313,9 +315,7 @@ Expected：FAIL（当前默认 False）。
 同步编辑 `lib/media_generator.py:384-386`（`_config` 为 `None` 的后备也改 `True`，与新默认一致）：
 
 ```python
-        configured_generate_audio = (
-            await self._config.video_generate_audio(self.project_name) if self._config else True
-        )
+configured_generate_audio = await self._config.video_generate_audio(self.project_name) if self._config else True
 ```
 
 - [ ] **Step 3.4：验证通过 + 全量相关测试**
@@ -1346,6 +1346,7 @@ mkdir -p tests/integration
   6. mp4 + thumbnail 落盘
   7. generated_assets.status / video_clip / video_thumbnail 写回
 """
+
 from __future__ import annotations
 
 import json
@@ -1393,9 +1394,7 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 "props": {
                     "长剑": {"description": "铁铸长剑", "prop_sheet": "props/长剑.png"},
                 },
-                "episodes": [
-                    {"episode": 1, "title": "江湖夜话", "script_file": "scripts/episode_1.json"}
-                ],
+                "episodes": [{"episode": 1, "title": "江湖夜话", "script_file": "scripts/episode_1.json"}],
             },
             ensure_ascii=False,
         ),
@@ -1431,9 +1430,7 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     app = FastAPI()
     app.include_router(router_mod.router, prefix="/api/v1")
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
-        id="u1", sub="test", role="admin"
-    )
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="test", role="admin")
     return TestClient(app), proj_dir, monkeypatch
 
 
@@ -1442,10 +1439,7 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
     client, proj_dir, monkeypatch = three_bucket_client
 
     # 1) 新建 unit：混合 3 bucket mention + 多 shot
-    prompt = (
-        "Shot 1 (3s): @张三 推门进 @酒馆\n"
-        "Shot 2 (4s): 近景 @张三 握紧 @长剑\n"
-    )
+    prompt = "Shot 1 (3s): @张三 推门进 @酒馆\nShot 2 (4s): 近景 @张三 握紧 @长剑\n"
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={
@@ -1501,9 +1495,7 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
 
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
-    fake_generator.versions.get_versions.return_value = {
-        "versions": [{"created_at": "2026-04-20T12:00:00"}]
-    }
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-20T12:00:00"}]}
     fake_video_backend = MagicMock()
     fake_video_backend.name = "ark"
     fake_video_backend.model = "doubao-seedance-2-0-260128"

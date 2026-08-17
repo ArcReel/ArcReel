@@ -258,6 +258,7 @@ class TestGrokVideoBackend:
 
 # --- Test helpers ---
 
+
 async def _async_iter(items):
     for item in items:
         yield item
@@ -328,10 +329,7 @@ class GrokVideoBackend:
         model: Optional[str] = None,
     ):
         if not api_key:
-            raise ValueError(
-                "XAI_API_KEY 未设置\n"
-                "请在系统配置页中配置 xAI API Key"
-            )
+            raise ValueError("XAI_API_KEY 未设置\n请在系统配置页中配置 xAI API Key")
 
         self._client = xai_sdk.AsyncClient(api_key=api_key)
         self._model = model or self.DEFAULT_MODEL
@@ -443,6 +441,7 @@ from lib.video_backends.base import (
 ```python
 # Grok: xai-sdk
 from lib.video_backends.grok import GrokVideoBackend
+
 register_backend(PROVIDER_GROK, GrokVideoBackend)
 ```
 
@@ -537,26 +536,24 @@ Expected: FAIL（`AttributeError: 'CostCalculator' object has no attribute 'calc
 2. 在 `calculate_seedance_video_cost` 方法之后添加：
 
 ```python
-    def calculate_grok_video_cost(
-        self,
-        duration_seconds: int,
-        model: str | None = None,
-    ) -> float:
-        """
-        计算 Grok 视频生成费用。
+def calculate_grok_video_cost(
+    self,
+    duration_seconds: int,
+    model: str | None = None,
+) -> float:
+    """
+    计算 Grok 视频生成费用。
 
-        Args:
-            duration_seconds: 视频时长（秒）
-            model: 模型名称
+    Args:
+        duration_seconds: 视频时长（秒）
+        model: 模型名称
 
-        Returns:
-            费用（美元）
-        """
-        model = model or self.DEFAULT_GROK_MODEL
-        per_second = self.GROK_VIDEO_COST.get(
-            model, self.GROK_VIDEO_COST[self.DEFAULT_GROK_MODEL]
-        )
-        return duration_seconds * per_second
+    Returns:
+        费用（美元）
+    """
+    model = model or self.DEFAULT_GROK_MODEL
+    per_second = self.GROK_VIDEO_COST.get(model, self.GROK_VIDEO_COST[self.DEFAULT_GROK_MODEL])
+    return duration_seconds * per_second
 ```
 
 - [ ] **Step 4: 运行全部计费测试确认通过**
@@ -651,7 +648,7 @@ git commit -m "feat: UsageRepository 新增 Grok 视频计费分支"
 在 `"FILE_SERVICE_BASE_URL",` 之后添加：
 
 ```python
-        "XAI_API_KEY",
+("XAI_API_KEY",)
 ```
 
 - [ ] **Step 2: 在 _apply_to_env 中添加映射**
@@ -722,19 +719,23 @@ from lib.video_backends.base import PROVIDER_GEMINI, PROVIDER_GROK, PROVIDER_SEE
 在 `execute_video_task()` 中，在调用 `generator.generate_video_async()` 之前，从 `video_model_settings` 读取分辨率：
 
 ```python
-    # 模型级分辨率：从 video_model_settings.{model}.resolution 读取
-    # 默认值：Gemini 1080p, Seedance 720p, Grok 720p
-    _DEFAULT_RESOLUTION = {
-        PROVIDER_GEMINI: "1080p",
-        PROVIDER_SEEDANCE: "720p",
-        PROVIDER_GROK: "720p",
-    }
-    provider_name = payload.get("video_provider") or project.get("video_provider") or os.environ.get("DEFAULT_VIDEO_PROVIDER", PROVIDER_GEMINI)
-    provider_settings = payload.get("video_provider_settings", {})
-    model_name = provider_settings.get("model") or (generator._video_backend.model if generator._video_backend else None)
-    video_model_settings = project.get("video_model_settings", {})
-    model_settings = video_model_settings.get(model_name, {}) if model_name else {}
-    resolution = model_settings.get("resolution") or _DEFAULT_RESOLUTION.get(provider_name, "1080p")
+# 模型级分辨率：从 video_model_settings.{model}.resolution 读取
+# 默认值：Gemini 1080p, Seedance 720p, Grok 720p
+_DEFAULT_RESOLUTION = {
+    PROVIDER_GEMINI: "1080p",
+    PROVIDER_SEEDANCE: "720p",
+    PROVIDER_GROK: "720p",
+}
+provider_name = (
+    payload.get("video_provider")
+    or project.get("video_provider")
+    or os.environ.get("DEFAULT_VIDEO_PROVIDER", PROVIDER_GEMINI)
+)
+provider_settings = payload.get("video_provider_settings", {})
+model_name = provider_settings.get("model") or (generator._video_backend.model if generator._video_backend else None)
+video_model_settings = project.get("video_model_settings", {})
+model_settings = video_model_settings.get(model_name, {}) if model_name else {}
+resolution = model_settings.get("resolution") or _DEFAULT_RESOLUTION.get(provider_name, "1080p")
 ```
 
 然后在 `generate_video_async()` 调用中传入 `resolution=resolution`：

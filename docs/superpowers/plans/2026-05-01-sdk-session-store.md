@@ -74,6 +74,7 @@ server/app.py                 # lifespan 加 migrate_local_transcripts_to_store
 ```python
 # lib/agent_session_store/models.py
 """SessionStore ORM models — SDK transcript mirror tables."""
+
 from __future__ import annotations
 
 from sqlalchemy import BigInteger, Index, JSON, PrimaryKeyConstraint, String, text
@@ -98,14 +99,19 @@ class AgentSessionEntry(TimestampMixin, UserOwnedMixin, Base):
         PrimaryKeyConstraint("project_key", "session_id", "subpath", "seq"),
         Index(
             "uq_agent_entries_uuid",
-            "project_key", "session_id", "subpath", "uuid",
+            "project_key",
+            "session_id",
+            "subpath",
+            "uuid",
             unique=True,
             postgresql_where=text("uuid IS NOT NULL"),
             sqlite_where=text("uuid IS NOT NULL"),
         ),
         Index(
             "idx_agent_entries_listing",
-            "project_key", "session_id", "mtime_ms",
+            "project_key",
+            "session_id",
+            "mtime_ms",
         ),
     )
 
@@ -124,6 +130,7 @@ class AgentSessionSummary(TimestampMixin, UserOwnedMixin, Base):
 ```python
 # lib/agent_session_store/__init__.py
 """Agent SessionStore — SDK transcript mirror to project DB."""
+
 from lib.agent_session_store.models import AgentSessionEntry, AgentSessionSummary
 
 __all__ = ["AgentSessionEntry", "AgentSessionSummary"]
@@ -197,6 +204,7 @@ git commit -m "feat(session-store): add agent_session_entries / summaries tables
 ```python
 # tests/agent_session_store/conftest.py
 """Fixtures for agent_session_store tests."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -227,6 +235,7 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 ```python
 # tests/agent_session_store/test_models.py
 """ORM smoke tests for AgentSessionEntry / AgentSessionSummary."""
+
 from __future__ import annotations
 
 import pytest
@@ -272,6 +281,7 @@ async def test_summary_pk_dedup(session_factory):
 
         # 同 PK 二次插入：必须报 IntegrityError
         from sqlalchemy.exc import IntegrityError
+
         s2 = AgentSessionSummary(
             project_key="proj-A",
             session_id="sess-1",
@@ -309,6 +319,7 @@ git commit -m "test(session-store): ORM round-trip + summary PK dedup"
 ```python
 # tests/agent_session_store/test_make_project_key.py
 """make_project_key must agree with SDK live mirror's project_key derivation."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -341,6 +352,7 @@ Expected: FAIL — `ImportError: cannot import name 'make_project_key'`
 ```python
 # lib/agent_session_store/__init__.py
 """Agent SessionStore — SDK transcript mirror to project DB."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -392,6 +404,7 @@ git commit -m "feat(session-store): make_project_key delegates to SDK"
 ```python
 # tests/agent_session_store/test_store_append.py
 """DbSessionStore.append basic semantics."""
+
 from __future__ import annotations
 
 import pytest
@@ -406,15 +419,16 @@ KEY = {"project_key": "proj", "session_id": "sess"}
 @pytest.mark.asyncio
 async def test_append_writes_rows_in_call_order(session_factory):
     store = DbSessionStore(session_factory, user_id="u1")
-    await store.append(KEY, [
-        {"type": "user", "uuid": "u-1", "timestamp": "2026-05-01T00:00:00Z"},
-        {"type": "assistant", "uuid": "u-2", "timestamp": "2026-05-01T00:00:01Z"},
-    ])
+    await store.append(
+        KEY,
+        [
+            {"type": "user", "uuid": "u-1", "timestamp": "2026-05-01T00:00:00Z"},
+            {"type": "assistant", "uuid": "u-2", "timestamp": "2026-05-01T00:00:01Z"},
+        ],
+    )
 
     async with session_factory() as session:
-        rows = (await session.execute(
-            select(AgentSessionEntry).order_by(AgentSessionEntry.seq)
-        )).scalars().all()
+        rows = (await session.execute(select(AgentSessionEntry).order_by(AgentSessionEntry.seq))).scalars().all()
     assert [r.seq for r in rows] == [0, 1]
     assert [r.uuid for r in rows] == ["u-1", "u-2"]
     assert all(r.user_id == "u1" for r in rows)
@@ -460,6 +474,7 @@ async def test_append_empty_is_noop(session_factory):
 ```python
 # tests/agent_session_store/test_store_load.py
 """DbSessionStore.load basic semantics."""
+
 from __future__ import annotations
 
 import pytest
@@ -508,6 +523,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'lib.agent_session_stor
 ```python
 # lib/agent_session_store/store.py
 """DbSessionStore — SQLAlchemy-backed SDK SessionStore implementation."""
+
 from __future__ import annotations
 
 import logging
@@ -598,7 +614,10 @@ class DbSessionStore:
 
         logger.info(
             "append: session=%s subpath=%s entries=%d seq_start=%d",
-            session_id, subpath or "<main>", len(entries), seq_start,
+            session_id,
+            subpath or "<main>",
+            len(entries),
+            seq_start,
         )
 
     async def _insert_entries(self, session, rows: list[dict]) -> None:
@@ -608,14 +627,10 @@ class DbSessionStore:
 
         if dialect == "postgresql":
             stmt = pg_insert(AgentSessionEntry).values(rows)
-            stmt = stmt.on_conflict_do_nothing(
-                index_elements=["project_key", "session_id", "subpath", "uuid"]
-            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=["project_key", "session_id", "subpath", "uuid"])
         else:
             stmt = sqlite_insert(AgentSessionEntry).values(rows)
-            stmt = stmt.on_conflict_do_nothing(
-                index_elements=["project_key", "session_id", "subpath", "uuid"]
-            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=["project_key", "session_id", "subpath", "uuid"])
         await session.execute(stmt)
 
     async def load(self, key: dict) -> list[dict] | None:
@@ -661,6 +676,7 @@ git commit -m "feat(session-store): DbSessionStore append + load with uuid dedup
 ```python
 # tests/agent_session_store/test_store_concurrency.py
 """Concurrent appends to the same session must serialize cleanly."""
+
 from __future__ import annotations
 
 import asyncio
@@ -683,9 +699,7 @@ async def test_concurrent_append_no_seq_collision(session_factory):
     await asyncio.gather(*(push(i) for i in range(20)))
 
     async with session_factory() as session:
-        rows = (await session.execute(
-            select(AgentSessionEntry).order_by(AgentSessionEntry.seq)
-        )).scalars().all()
+        rows = (await session.execute(select(AgentSessionEntry).order_by(AgentSessionEntry.seq))).scalars().all()
 
     assert len(rows) == 20
     assert [r.seq for r in rows] == list(range(20))
@@ -709,6 +723,7 @@ from sqlalchemy.exc import IntegrityError
 
 _MAX_APPEND_RETRY = 5
 
+
 # 重写 append 方法
 async def append(self, key: dict, entries: list[dict]) -> None:
     if not entries:
@@ -718,9 +733,7 @@ async def append(self, key: dict, entries: list[dict]) -> None:
 
     for attempt in range(_MAX_APPEND_RETRY):
         try:
-            await self._append_once(
-                project_key, session_id, subpath, entries, now_ms
-            )
+            await self._append_once(project_key, session_id, subpath, entries, now_ms)
             return
         except IntegrityError as exc:
             # PK conflict on (project_key, session_id, subpath, seq) means
@@ -728,13 +741,17 @@ async def append(self, key: dict, entries: list[dict]) -> None:
             if attempt == _MAX_APPEND_RETRY - 1:
                 logger.error(
                     "append: PK conflict after %d retries session=%s",
-                    _MAX_APPEND_RETRY, session_id,
+                    _MAX_APPEND_RETRY,
+                    session_id,
                 )
                 raise
             logger.warning(
                 "append: seq race retry=%d session=%s err=%s",
-                attempt + 1, session_id, exc,
+                attempt + 1,
+                session_id,
+                exc,
             )
+
 
 async def _append_once(
     self,
@@ -777,7 +794,10 @@ async def _append_once(
 
     logger.info(
         "append: session=%s subpath=%s entries=%d seq_start=%d",
-        session_id, subpath or "<main>", len(entries), seq_start,
+        session_id,
+        subpath or "<main>",
+        len(entries),
+        seq_start,
     )
 ```
 
@@ -811,6 +831,7 @@ git commit -m "feat(session-store): retry append on seq PK race"
 ```python
 # tests/agent_session_store/test_store_summary.py
 """append() must maintain agent_session_summaries via fold_session_summary."""
+
 from __future__ import annotations
 
 import pytest
@@ -884,6 +905,7 @@ from claude_agent_sdk import fold_session_summary
 # 修改 _append_once：在 await session.commit() 之前 / 之后均可，
 # 推荐放进同一事务避免 commit 半截。把 commit 后移：
 
+
 async def _append_once(
     self,
     project_key: str,
@@ -925,15 +947,16 @@ async def _append_once(
         # Maintain per-session summary for list_session_summaries fast path.
         # Per SDK protocol: skip for subagent transcripts (subpath != "").
         if subpath == "":
-            await self._fold_summary_locked(
-                session, project_key, session_id, entries, now_ms, now_dt
-            )
+            await self._fold_summary_locked(session, project_key, session_id, entries, now_ms, now_dt)
 
         await session.commit()
 
     logger.info(
         "append: session=%s subpath=%s entries=%d seq_start=%d",
-        session_id, subpath or "<main>", len(entries), seq_start,
+        session_id,
+        subpath or "<main>",
+        len(entries),
+        seq_start,
     )
 
 
@@ -1024,6 +1047,7 @@ git commit -m "feat(session-store): maintain per-session summary via fold_sessio
 ```python
 # tests/agent_session_store/test_store_optional.py
 """Optional SessionStore methods: list_sessions / list_session_summaries / delete / list_subkeys."""
+
 from __future__ import annotations
 
 import pytest
@@ -1128,81 +1152,83 @@ Expected: 6 errors — `AttributeError: 'DbSessionStore' object has no attribute
 在 `lib/agent_session_store/store.py` 末尾追加：
 
 ```python
-    # --- optional: list_sessions / list_session_summaries -------------------
+# --- optional: list_sessions / list_session_summaries -------------------
 
-    async def list_sessions(self, project_key: str) -> list[dict]:
-        async with self._session_factory() as session:
-            stmt = (
-                select(
-                    AgentSessionEntry.session_id,
-                    func.max(AgentSessionEntry.mtime_ms).label("mtime"),
-                )
-                .where(
-                    AgentSessionEntry.project_key == project_key,
-                    AgentSessionEntry.subpath == "",
-                )
-                .group_by(AgentSessionEntry.session_id)
+
+async def list_sessions(self, project_key: str) -> list[dict]:
+    async with self._session_factory() as session:
+        stmt = (
+            select(
+                AgentSessionEntry.session_id,
+                func.max(AgentSessionEntry.mtime_ms).label("mtime"),
             )
-            result = await session.execute(stmt)
-            return [
-                {"session_id": r.session_id, "mtime": int(r.mtime)}
-                for r in result.all()
-            ]
-
-    async def list_session_summaries(self, project_key: str) -> list[dict]:
-        async with self._session_factory() as session:
-            stmt = select(AgentSessionSummary).where(
-                AgentSessionSummary.project_key == project_key,
+            .where(
+                AgentSessionEntry.project_key == project_key,
+                AgentSessionEntry.subpath == "",
             )
-            result = await session.execute(stmt)
-            return [
-                {"session_id": r.session_id, "mtime": int(r.mtime_ms), "data": r.data}
-                for r in result.scalars().all()
-            ]
+            .group_by(AgentSessionEntry.session_id)
+        )
+        result = await session.execute(stmt)
+        return [{"session_id": r.session_id, "mtime": int(r.mtime)} for r in result.all()]
 
-    # --- optional: delete + list_subkeys -----------------------------------
 
-    async def delete(self, key: dict) -> None:
-        project_key, session_id, subpath = _normalize_key(key)
-        async with self._session_factory() as session:
-            entry_stmt = sa_delete(AgentSessionEntry).where(
+async def list_session_summaries(self, project_key: str) -> list[dict]:
+    async with self._session_factory() as session:
+        stmt = select(AgentSessionSummary).where(
+            AgentSessionSummary.project_key == project_key,
+        )
+        result = await session.execute(stmt)
+        return [{"session_id": r.session_id, "mtime": int(r.mtime_ms), "data": r.data} for r in result.scalars().all()]
+
+
+# --- optional: delete + list_subkeys -----------------------------------
+
+
+async def delete(self, key: dict) -> None:
+    project_key, session_id, subpath = _normalize_key(key)
+    async with self._session_factory() as session:
+        entry_stmt = sa_delete(AgentSessionEntry).where(
+            AgentSessionEntry.project_key == project_key,
+            AgentSessionEntry.session_id == session_id,
+        )
+        if "subpath" in key and key["subpath"] != "":
+            entry_stmt = entry_stmt.where(AgentSessionEntry.subpath == subpath)
+        entry_result = await session.execute(entry_stmt)
+
+        sum_rows = 0
+        if subpath == "" and "subpath" not in key:
+            # main delete cascades to summary
+            sum_result = await session.execute(
+                sa_delete(AgentSessionSummary).where(
+                    AgentSessionSummary.project_key == project_key,
+                    AgentSessionSummary.session_id == session_id,
+                )
+            )
+            sum_rows = sum_result.rowcount or 0
+
+        await session.commit()
+    logger.info(
+        "delete: session=%s subpath=%s entries=%d summaries=%d",
+        session_id,
+        subpath or "<main>",
+        entry_result.rowcount or 0,
+        sum_rows,
+    )
+
+
+async def list_subkeys(self, key: dict) -> list[str]:
+    project_key, session_id, _subpath = _normalize_key(key)
+    async with self._session_factory() as session:
+        result = await session.execute(
+            select(AgentSessionEntry.subpath)
+            .where(
                 AgentSessionEntry.project_key == project_key,
                 AgentSessionEntry.session_id == session_id,
+                AgentSessionEntry.subpath != "",
             )
-            if "subpath" in key and key["subpath"] != "":
-                entry_stmt = entry_stmt.where(AgentSessionEntry.subpath == subpath)
-            entry_result = await session.execute(entry_stmt)
-
-            sum_rows = 0
-            if subpath == "" and "subpath" not in key:
-                # main delete cascades to summary
-                sum_result = await session.execute(
-                    sa_delete(AgentSessionSummary).where(
-                        AgentSessionSummary.project_key == project_key,
-                        AgentSessionSummary.session_id == session_id,
-                    )
-                )
-                sum_rows = sum_result.rowcount or 0
-
-            await session.commit()
-        logger.info(
-            "delete: session=%s subpath=%s entries=%d summaries=%d",
-            session_id, subpath or "<main>", entry_result.rowcount or 0, sum_rows,
+            .distinct()
         )
-
-    async def list_subkeys(self, key: dict) -> list[str]:
-        project_key, session_id, _subpath = _normalize_key(key)
-        async with self._session_factory() as session:
-            result = await session.execute(
-                select(AgentSessionEntry.subpath)
-                .where(
-                    AgentSessionEntry.project_key == project_key,
-                    AgentSessionEntry.session_id == session_id,
-                    AgentSessionEntry.subpath != "",
-                )
-                .distinct()
-            )
-            return [row[0] for row in result.all()]
+        return [row[0] for row in result.all()]
 ```
 
 - [ ] **Step 4: 跑测试**
@@ -1234,6 +1260,7 @@ git commit -m "feat(session-store): list_sessions / list_session_summaries / del
 ```python
 # tests/agent_session_store/test_conformance.py
 """Run the SDK's official 14-contract SessionStore conformance suite."""
+
 from __future__ import annotations
 
 import pytest
@@ -1288,6 +1315,7 @@ git commit -m "test(session-store): pass SDK official conformance suite"
 ```python
 # tests/agent_session_store/test_import_local.py
 """Startup hook: migrate local SDK jsonl transcripts into store."""
+
 from __future__ import annotations
 
 import json
@@ -1309,10 +1337,18 @@ def _write_fake_local_transcript(project_cwd: Path, session_id: str, sdk_root: P
         "\n".join(
             json.dumps(e)
             for e in [
-                {"type": "user", "uuid": f"{session_id}-u1", "timestamp": "2026-05-01T00:00:00Z",
-                 "message": {"content": "hi"}},
-                {"type": "assistant", "uuid": f"{session_id}-u2", "timestamp": "2026-05-01T00:00:01Z",
-                 "message": {"content": "hello"}},
+                {
+                    "type": "user",
+                    "uuid": f"{session_id}-u1",
+                    "timestamp": "2026-05-01T00:00:00Z",
+                    "message": {"content": "hi"},
+                },
+                {
+                    "type": "assistant",
+                    "uuid": f"{session_id}-u2",
+                    "timestamp": "2026-05-01T00:00:01Z",
+                    "message": {"content": "hello"},
+                },
             ]
         )
         + "\n",
@@ -1342,18 +1378,14 @@ async def test_migrate_imports_local_jsonl(tmp_path, fake_sdk_home, session_fact
     data_dir = tmp_path / "data"
     data_dir.mkdir()
 
-    stats = await migrate_local_transcripts_to_store(
-        store, projects_root=projects_root, data_dir=data_dir
-    )
+    stats = await migrate_local_transcripts_to_store(store, projects_root=projects_root, data_dir=data_dir)
 
     assert stats["imported"] == 1
     assert stats["skipped"] == 0
     assert stats["failed"] == 0
 
     # Verify the entries actually landed in the store
-    loaded = await store.load(
-        {"project_key": project_key_for_directory(str(proj)), "session_id": sid}
-    )
+    loaded = await store.load({"project_key": project_key_for_directory(str(proj)), "session_id": sid})
     assert loaded is not None and len(loaded) == 2
     assert (data_dir / ".session_store_migration_done").exists()
 
@@ -1381,7 +1413,9 @@ async def test_migrate_is_idempotent_via_marker(tmp_path, fake_sdk_home, session
 
 @pytest.mark.asyncio
 async def test_migrate_skips_already_in_store_when_marker_missing(
-    tmp_path, fake_sdk_home, session_factory,
+    tmp_path,
+    fake_sdk_home,
+    session_factory,
 ):
     """Marker误删后重启应通过 store.load 探测跳过已迁会话。"""
     from lib.agent_session_store.import_local import migrate_local_transcripts_to_store
@@ -1415,9 +1449,7 @@ async def test_migrate_zero_data_user(tmp_path, fake_sdk_home, session_factory):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
 
-    stats = await migrate_local_transcripts_to_store(
-        store, projects_root=projects_root, data_dir=data_dir
-    )
+    stats = await migrate_local_transcripts_to_store(store, projects_root=projects_root, data_dir=data_dir)
     assert stats == {"imported": 0, "skipped": 0, "failed": 0}
     assert (data_dir / ".session_store_migration_done").exists()
 ```
@@ -1441,6 +1473,7 @@ Uses only SDK public APIs:
 so docker / CLAUDE_CONFIG_DIR / git-worktree path resolution is delegated
 to the SDK and stays correct as SDK evolves.
 """
+
 from __future__ import annotations
 
 import json
@@ -1504,20 +1537,21 @@ async def migrate_local_transcripts_to_store(
                     if await store.load(key) is not None:
                         skipped += 1
                         continue
-                    await import_session_to_store(
-                        info.session_id, store, directory=str(project_cwd)
-                    )
+                    await import_session_to_store(info.session_id, store, directory=str(project_cwd))
                     imported += 1
                 except Exception:
                     logger.exception(
                         "failed to migrate session=%s cwd=%s",
-                        info.session_id, project_cwd,
+                        info.session_id,
+                        project_cwd,
                     )
                     failed += 1
 
     logger.info(
         "transcript migration: imported=%d skipped=%d failed=%d",
-        imported, skipped, failed,
+        imported,
+        skipped,
+        failed,
     )
 
     # Always write marker — even with zero data — so we don't rescan next boot.
@@ -1559,6 +1593,7 @@ git commit -m "feat(session-store): startup migration via SDK public APIs"
 ```python
 # tests/agent_runtime/test_session_manager_store_injection.py
 """SessionManager._build_session_store reads ARCREEL_SDK_SESSION_STORE."""
+
 from __future__ import annotations
 
 import os
@@ -1573,7 +1608,7 @@ from server.agent_runtime.session_manager import SessionManager
 async def test_store_enabled_by_default(monkeypatch, session_factory, tmp_path):
     monkeypatch.delenv("ARCREEL_SDK_SESSION_STORE", raising=False)
     sm = SessionManager(data_dir=tmp_path, projects_root=tmp_path)
-    sm._session_factory = session_factory   # test seam
+    sm._session_factory = session_factory  # test seam
     store = sm._build_session_store()
     assert isinstance(store, DbSessionStore)
 
@@ -1608,6 +1643,7 @@ from lib.agent_session_store.store import DbSessionStore
 from lib.db.engine import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 
+
 # in SessionManager class
 def _build_session_store(self):
     """Create a per-user DbSessionStore, or None if store mode is disabled."""
@@ -1638,7 +1674,7 @@ return ClaudeAgentOptions(
     resume=resume_id,
     can_use_tool=can_use_tool,
     hooks=hooks,
-    session_store=session_store,   # NEW
+    session_store=session_store,  # NEW
 )
 ```
 
@@ -1673,6 +1709,7 @@ Run: `cat tests/test_sdk_transcript_adapter.py`
 ```python
 # server/agent_runtime/sdk_transcript_adapter.py
 """SDK-based transcript adapter using public SessionStore helpers."""
+
 from __future__ import annotations
 
 import logging
@@ -1714,16 +1751,17 @@ class SdkTranscriptAdapter:
 
         try:
             import asyncio
+
             key = {
                 "project_key": make_project_key(self._project_cwd),
                 "session_id": sdk_session_id,
             }
-            messages = asyncio.get_event_loop().run_until_complete(
-                get_session_messages_from_store(self._store, key)
-            )
+            messages = asyncio.get_event_loop().run_until_complete(get_session_messages_from_store(self._store, key))
         except Exception:
             logger.warning(
-                "Failed to read SDK session %s via store", sdk_session_id, exc_info=True,
+                "Failed to read SDK session %s via store",
+                sdk_session_id,
+                exc_info=True,
             )
             return []
 
@@ -1756,6 +1794,7 @@ class SdkTranscriptAdapter:
     def _read_via_local_jsonl(self, sdk_session_id: str) -> list[dict[str, Any]]:
         """Use SDK public get_session_messages (filesystem) as fallback."""
         from claude_agent_sdk import get_session_messages
+
         try:
             messages = get_session_messages(sdk_session_id)
         except Exception:
@@ -1767,6 +1806,7 @@ class SdkTranscriptAdapter:
         if not sdk_session_id:
             return False
         from claude_agent_sdk import get_session_messages
+
         try:
             return len(get_session_messages(sdk_session_id, limit=1)) > 0
         except Exception:
@@ -1878,6 +1918,7 @@ git commit -m "refactor(agent-runtime): service layer uses *_via_store helpers"
 ```python
 # tests/agent_runtime/test_stream_projector_mirror_error.py
 """stream_projector should surface SystemMessage(subtype='mirror_error') to UI."""
+
 from __future__ import annotations
 
 from server.agent_runtime.stream_projector import is_mirror_error_event
@@ -1962,6 +2003,7 @@ git commit -m "feat(agent-runtime): surface SDK SessionStore mirror_error to UI"
 ```python
 # tests/test_session_store_startup_migration.py
 """Lifespan should invoke session-store transcript migration once."""
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -1973,11 +2015,10 @@ import pytest
 async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
     # Arrange: stub out everything the lifespan touches except our hook.
     monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
-    with patch(
-        "server.app.migrate_local_transcripts_to_store"
-    ) as migrate_mock:
+    with patch("server.app.migrate_local_transcripts_to_store") as migrate_mock:
         migrate_mock.return_value = {"imported": 0, "skipped": 0, "failed": 0}
         from server.app import app, lifespan
+
         async with lifespan(app):
             pass
     migrate_mock.assert_called_once()
@@ -2052,6 +2093,7 @@ git commit -m "feat(app): wire session-store transcript migration into lifespan"
 ```python
 # tests/agent_runtime/test_session_store_e2e.py
 """End-to-end smoke: append → list → load via SDK helpers, then resume."""
+
 from __future__ import annotations
 
 import pytest
@@ -2071,10 +2113,8 @@ async def test_append_then_list_then_load_via_sdk_helpers(session_factory):
     key = {"project_key": project_key, "session_id": sid}
 
     entries = [
-        {"type": "user", "uuid": "1", "timestamp": "2026-05-01T00:00:00Z",
-         "message": {"content": "hello"}},
-        {"type": "assistant", "uuid": "2", "timestamp": "2026-05-01T00:00:01Z",
-         "message": {"content": "world"}},
+        {"type": "user", "uuid": "1", "timestamp": "2026-05-01T00:00:00Z", "message": {"content": "hello"}},
+        {"type": "assistant", "uuid": "2", "timestamp": "2026-05-01T00:00:01Z", "message": {"content": "world"}},
     ]
     await store.append(key, entries)
 

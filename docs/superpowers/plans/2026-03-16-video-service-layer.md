@@ -157,6 +157,7 @@ from typing import Optional, Protocol, Set
 
 class VideoCapability(str, Enum):
     """视频后端支持的能力枚举。"""
+
     TEXT_TO_VIDEO = "text_to_video"
     IMAGE_TO_VIDEO = "image_to_video"
     GENERATE_AUDIO = "generate_audio"
@@ -169,6 +170,7 @@ class VideoCapability(str, Enum):
 @dataclass
 class VideoGenerationRequest:
     """通用视频生成请求。各 Backend 忽略不支持的字段。"""
+
     prompt: str
     output_path: Path
     aspect_ratio: str = "9:16"
@@ -188,6 +190,7 @@ class VideoGenerationRequest:
 @dataclass
 class VideoGenerationResult:
     """通用视频生成结果。"""
+
     video_path: Path
     provider: str
     model: str
@@ -466,42 +469,41 @@ Expected: FAIL — `AttributeError: 'CostCalculator' object has no attribute 'ca
 在 `lib/cost_calculator.py` 的 `CostCalculator` 类中新增：
 
 ```python
-    # Seedance 视频费用（元/百万 token），按 (service_tier, generate_audio) 查表
-    SEEDANCE_VIDEO_COST = {
-        "doubao-seedance-1-5-pro-251215": {
-            ("default", True): 16.00,
-            ("default", False): 8.00,
-            ("flex", True): 8.00,
-            ("flex", False): 4.00,
-        },
-    }
+# Seedance 视频费用（元/百万 token），按 (service_tier, generate_audio) 查表
+SEEDANCE_VIDEO_COST = {
+    "doubao-seedance-1-5-pro-251215": {
+        ("default", True): 16.00,
+        ("default", False): 8.00,
+        ("flex", True): 8.00,
+        ("flex", False): 4.00,
+    },
+}
 
-    DEFAULT_SEEDANCE_MODEL = "doubao-seedance-1-5-pro-251215"
+DEFAULT_SEEDANCE_MODEL = "doubao-seedance-1-5-pro-251215"
 
-    def calculate_seedance_video_cost(
-        self,
-        usage_tokens: int,
-        service_tier: str = "default",
-        generate_audio: bool = True,
-        model: str | None = None,
-    ) -> tuple[float, str]:
-        """
-        计算 Seedance 视频生成费用。
 
-        Returns:
-            (amount, currency) — 金额和币种 (CNY)
-        """
-        model = model or self.DEFAULT_SEEDANCE_MODEL
-        model_costs = self.SEEDANCE_VIDEO_COST.get(
-            model, self.SEEDANCE_VIDEO_COST[self.DEFAULT_SEEDANCE_MODEL]
-        )
-        key = (service_tier, generate_audio)
-        price_per_million = model_costs.get(
-            key,
-            model_costs.get(("default", True), 16.00),
-        )
-        amount = usage_tokens / 1_000_000 * price_per_million
-        return amount, "CNY"
+def calculate_seedance_video_cost(
+    self,
+    usage_tokens: int,
+    service_tier: str = "default",
+    generate_audio: bool = True,
+    model: str | None = None,
+) -> tuple[float, str]:
+    """
+    计算 Seedance 视频生成费用。
+
+    Returns:
+        (amount, currency) — 金额和币种 (CNY)
+    """
+    model = model or self.DEFAULT_SEEDANCE_MODEL
+    model_costs = self.SEEDANCE_VIDEO_COST.get(model, self.SEEDANCE_VIDEO_COST[self.DEFAULT_SEEDANCE_MODEL])
+    key = (service_tier, generate_audio)
+    price_per_million = model_costs.get(
+        key,
+        model_costs.get(("default", True), 16.00),
+    )
+    amount = usage_tokens / 1_000_000 * price_per_million
+    return amount, "CNY"
 ```
 
 - [ ] **Step 4: 运行测试确认通过**
@@ -650,17 +652,24 @@ class TestMultiProviderUsage:
 
         # Gemini call
         c1 = await repo.start_call(
-            project_name="demo", call_type="video",
-            model="veo-3.1-generate-001", duration_seconds=8,
-            resolution="1080p", generate_audio=True,
+            project_name="demo",
+            call_type="video",
+            model="veo-3.1-generate-001",
+            duration_seconds=8,
+            resolution="1080p",
+            generate_audio=True,
         )
         await repo.finish_call(c1, status="success")
 
         # Seedance call
         c2 = await repo.start_call(
-            project_name="demo", call_type="video",
-            model="doubao-seedance-1-5-pro-251215", duration_seconds=5,
-            resolution="1080p", generate_audio=True, provider="seedance",
+            project_name="demo",
+            call_type="video",
+            model="doubao-seedance-1-5-pro-251215",
+            duration_seconds=5,
+            resolution="1080p",
+            generate_audio=True,
+            provider="seedance",
         )
         await repo.finish_call(c2, status="success", usage_tokens=246840, provider="seedance", service_tier="default")
 
@@ -895,9 +904,7 @@ async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResu
     source = self._types.GenerateVideosSource(prompt=request.prompt, image=image_param)
 
     # 5. 调用 API + 异步轮询
-    operation = await self._client.aio.models.generate_videos(
-        model=self._video_model, source=source, config=config
-    )
+    operation = await self._client.aio.models.generate_videos(model=self._video_model, source=source, config=config)
     operation = await self._poll_until_done(operation)
 
     # 6. 提取结果 + 下载
@@ -1015,9 +1022,7 @@ class TestSeedanceGenerate:
         get_result_done.usage = MagicMock()
         get_result_done.usage.completion_tokens = 246840
 
-        backend._client.content_generation.tasks.get = MagicMock(
-            side_effect=[get_result_running, get_result_done]
-        )
+        backend._client.content_generation.tasks.get = MagicMock(side_effect=[get_result_running, get_result_done])
 
         # Mock 视频下载
         with patch("lib.video_backends.seedance.httpx") as mock_httpx:

@@ -60,20 +60,25 @@ class User(Base):
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
+
 class TimestampMixin:
     """统一的创建/更新时间戳。"""
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utc_now
-    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
     )
 
+
 class UserOwnedMixin:
     """用户归属标记。开源版固定为 "default"，商业版通过 _scope_query 过滤。"""
+
     user_id: Mapped[str] = mapped_column(
-        String, ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False, server_default="default", index=True,
+        String,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        server_default="default",
+        index=True,
     )
 ```
 
@@ -105,6 +110,7 @@ class UserOwnedMixin:
 
 ```python
 from sqlalchemy import Select
+
 
 class BaseRepository:
     def __init__(self, session: AsyncSession):

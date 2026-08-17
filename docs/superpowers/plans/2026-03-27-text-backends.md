@@ -148,6 +148,7 @@ Each file that imports from `lib.gemini_client` (except those importing `GeminiC
 ```python
 # Before:
 from lib.gemini_client import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
+
 # After:
 from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, with_retry_async
 ```
@@ -162,6 +163,7 @@ from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limite
 ```python
 # Before:
 from lib.gemini_client import get_shared_rate_limiter
+
 # After:
 from lib.gemini_shared import get_shared_rate_limiter
 ```
@@ -170,6 +172,7 @@ from lib.gemini_shared import get_shared_rate_limiter
 ```python
 # Before:
 from lib.gemini_client import VERTEX_SCOPES
+
 # After:
 from lib.gemini_shared import VERTEX_SCOPES
 ```
@@ -178,6 +181,7 @@ from lib.gemini_shared import VERTEX_SCOPES
 ```python
 # Before:
 from lib.gemini_client import RateLimiter
+
 # After:
 from lib.gemini_shared import RateLimiter
 ```
@@ -214,6 +218,7 @@ touch tests/test_text_backends/__init__.py
 `tests/test_text_backends/test_base.py`:
 ```python
 """TextBackend Protocol + data classes tests."""
+
 from pathlib import Path
 
 from lib.text_backends.base import (
@@ -284,8 +289,11 @@ class TestTextGenerationResult:
 
     def test_with_tokens(self):
         result = TextGenerationResult(
-            text="output", provider="ark", model="seed",
-            input_tokens=100, output_tokens=50,
+            text="output",
+            provider="ark",
+            model="seed",
+            input_tokens=100,
+            output_tokens=50,
         )
         assert result.input_tokens == 100
         assert result.output_tokens == 50
@@ -329,6 +337,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'lib.text_backends'`
 `lib/text_backends/base.py`:
 ```python
 """文本生成服务层核心接口定义。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -339,6 +348,7 @@ from typing import Protocol, Set
 
 class TextCapability(str, Enum):
     """文本后端支持的能力枚举。"""
+
     TEXT_GENERATION = "text_generation"
     STRUCTURED_OUTPUT = "structured_output"
     VISION = "vision"
@@ -346,6 +356,7 @@ class TextCapability(str, Enum):
 
 class TextTaskType(str, Enum):
     """文本生成任务类型。"""
+
     SCRIPT = "script"
     OVERVIEW = "overview"
     STYLE_ANALYSIS = "style"
@@ -354,6 +365,7 @@ class TextTaskType(str, Enum):
 @dataclass
 class ImageInput:
     """图片输入（用于 vision）。"""
+
     path: Path | None = None
     url: str | None = None
 
@@ -361,6 +373,7 @@ class ImageInput:
 @dataclass
 class TextGenerationRequest:
     """通用文本生成请求。各 Backend 忽略不支持的字段。"""
+
     prompt: str
     response_schema: dict | None = None
     images: list[ImageInput] | None = None
@@ -370,6 +383,7 @@ class TextGenerationRequest:
 @dataclass
 class TextGenerationResult:
     """通用文本生成结果。"""
+
     text: str
     provider: str
     model: str
@@ -421,6 +435,7 @@ git commit -m "feat: add TextBackend Protocol and data classes"
 `tests/test_text_backends/test_registry.py`:
 ```python
 """Text backend registry tests."""
+
 import pytest
 
 from lib.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
@@ -494,6 +509,7 @@ Expected: FAIL with `ImportError`
 `lib/text_backends/registry.py`:
 ```python
 """文本后端注册与工厂。"""
+
 from __future__ import annotations
 
 from typing import Any, Callable
@@ -547,6 +563,7 @@ This is a cross-cutting change: replaces `media_types` and `capabilities` flat f
 `tests/test_config_registry_models.py`:
 ```python
 """Test ProviderMeta with ModelInfo structure."""
+
 from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
 
 
@@ -590,7 +607,9 @@ class TestProviderMeta:
 
     def test_empty_models(self):
         meta = ProviderMeta(
-            display_name="T", description="T", required_keys=[],
+            display_name="T",
+            description="T",
+            required_keys=[],
         )
         assert meta.media_types == []
         assert meta.capabilities == []
@@ -601,28 +620,19 @@ class TestProviderRegistry:
 
     def test_all_providers_have_text_models(self):
         for provider_id, meta in PROVIDER_REGISTRY.items():
-            text_models = [
-                mid for mid, m in meta.models.items()
-                if m.media_type == "text"
-            ]
+            text_models = [mid for mid, m in meta.models.items() if m.media_type == "text"]
             assert len(text_models) > 0, f"{provider_id} has no text models"
 
     def test_all_providers_have_image_models(self):
         for provider_id in ("gemini-aistudio", "gemini-vertex", "ark", "grok"):
             meta = PROVIDER_REGISTRY[provider_id]
-            image_models = [
-                mid for mid, m in meta.models.items()
-                if m.media_type == "image"
-            ]
+            image_models = [mid for mid, m in meta.models.items() if m.media_type == "image"]
             assert len(image_models) > 0, f"{provider_id} has no image models"
 
     def test_all_providers_have_video_models(self):
         for provider_id in ("gemini-aistudio", "gemini-vertex", "ark", "grok"):
             meta = PROVIDER_REGISTRY[provider_id]
-            video_models = [
-                mid for mid, m in meta.models.items()
-                if m.media_type == "video"
-            ]
+            video_models = [mid for mid, m in meta.models.items() if m.media_type == "video"]
             assert len(video_models) > 0, f"{provider_id} has no video models"
 
     def test_each_media_type_has_default(self):
@@ -632,9 +642,7 @@ class TestProviderRegistry:
                 by_type.setdefault(m.media_type, []).append(m)
             for mt, models in by_type.items():
                 defaults = [m for m in models if m.default]
-                assert len(defaults) == 1, (
-                    f"{provider_id} has {len(defaults)} default {mt} models, expected 1"
-                )
+                assert len(defaults) == 1, f"{provider_id} has {len(defaults)} default {mt} models, expected 1"
 
     def test_media_types_property_includes_text(self):
         for provider_id, meta in PROVIDER_REGISTRY.items():
@@ -663,7 +671,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class ModelInfo:
     display_name: str
-    media_type: str                # "text" | "image" | "video"
+    media_type: str  # "text" | "image" | "video"
     capabilities: list[str]
     default: bool = False
 
@@ -695,22 +703,26 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             "gemini-3-flash-preview": ModelInfo(
-                "Gemini 3 Flash", "text",
+                "Gemini 3 Flash",
+                "text",
                 ["text_generation", "structured_output", "vision"],
                 default=True,
             ),
             "gemini-3.1-flash-image-preview": ModelInfo(
-                "Gemini 3.1 Flash Image", "image",
+                "Gemini 3.1 Flash Image",
+                "image",
                 ["text_to_image", "image_to_image"],
                 default=True,
             ),
             "veo-3.1-fast-generate-preview": ModelInfo(
-                "Veo 3.1 Fast", "video",
+                "Veo 3.1 Fast",
+                "video",
                 ["text_to_video", "image_to_video", "negative_prompt", "video_extend"],
                 default=True,
             ),
             "veo-3.1-generate-preview": ModelInfo(
-                "Veo 3.1", "video",
+                "Veo 3.1",
+                "video",
                 ["text_to_video", "image_to_video", "negative_prompt", "video_extend"],
             ),
         },
@@ -723,22 +735,26 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=[],
         models={
             "gemini-3-flash-preview": ModelInfo(
-                "Gemini 3 Flash", "text",
+                "Gemini 3 Flash",
+                "text",
                 ["text_generation", "structured_output", "vision"],
                 default=True,
             ),
             "gemini-3.1-flash-image-preview": ModelInfo(
-                "Gemini 3.1 Flash Image", "image",
+                "Gemini 3.1 Flash Image",
+                "image",
                 ["text_to_image", "image_to_image"],
                 default=True,
             ),
             "veo-3.1-fast-generate-001": ModelInfo(
-                "Veo 3.1 Fast", "video",
+                "Veo 3.1 Fast",
+                "video",
                 ["text_to_video", "image_to_video", "generate_audio", "negative_prompt", "video_extend"],
                 default=True,
             ),
             "veo-3.1-generate-001": ModelInfo(
-                "Veo 3.1", "video",
+                "Veo 3.1",
+                "video",
                 ["text_to_video", "image_to_video", "generate_audio", "negative_prompt", "video_extend"],
             ),
         },
@@ -751,29 +767,35 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             "doubao-seed-2-0-lite-260215": ModelInfo(
-                "豆包 Seed 2.0 Lite", "text",
+                "豆包 Seed 2.0 Lite",
+                "text",
                 ["text_generation", "structured_output", "vision"],
                 default=True,
             ),
             "doubao-seedream-5-0-lite-260128": ModelInfo(
-                "Seedream 5.0 Lite", "image",
+                "Seedream 5.0 Lite",
+                "image",
                 ["text_to_image", "image_to_image"],
                 default=True,
             ),
             "doubao-seedream-5-0-260128": ModelInfo(
-                "Seedream 5.0", "image",
+                "Seedream 5.0",
+                "image",
                 ["text_to_image", "image_to_image"],
             ),
             "doubao-seedream-4-5-251128": ModelInfo(
-                "Seedream 4.5", "image",
+                "Seedream 4.5",
+                "image",
                 ["text_to_image", "image_to_image"],
             ),
             "doubao-seedream-4-0-250828": ModelInfo(
-                "Seedream 4.0", "image",
+                "Seedream 4.0",
+                "image",
                 ["text_to_image", "image_to_image"],
             ),
             "doubao-seedance-1-5-pro-251215": ModelInfo(
-                "Seedance 1.5 Pro", "video",
+                "Seedance 1.5 Pro",
+                "video",
                 ["text_to_video", "image_to_video", "generate_audio", "seed_control", "flex_tier"],
                 default=True,
             ),
@@ -787,21 +809,25 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             "grok-4-1-fast-reasoning": ModelInfo(
-                "Grok 4.1 Fast Reasoning", "text",
+                "Grok 4.1 Fast Reasoning",
+                "text",
                 ["text_generation", "structured_output", "vision"],
                 default=True,
             ),
             "grok-imagine-image": ModelInfo(
-                "Grok Imagine Image", "image",
+                "Grok Imagine Image",
+                "image",
                 ["text_to_image", "image_to_image"],
                 default=True,
             ),
             "grok-imagine-image-pro": ModelInfo(
-                "Grok Imagine Image Pro", "image",
+                "Grok Imagine Image Pro",
+                "image",
                 ["text_to_image", "image_to_image"],
             ),
             "grok-imagine-video": ModelInfo(
-                "Grok Imagine Video", "video",
+                "Grok Imagine Video",
+                "video",
                 ["text_to_video", "image_to_video"],
                 default=True,
             ),
@@ -856,6 +882,7 @@ STYLE_ANALYSIS_PROMPT = (
 `tests/test_text_backends/test_gemini.py`:
 ```python
 """GeminiTextBackend tests."""
+
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -930,9 +957,7 @@ class TestGeminiTextGeneration:
         backend._mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
         schema = {"type": "object", "properties": {"key": {"type": "string"}}}
-        result = await backend.generate(
-            TextGenerationRequest(prompt="generate json", response_schema=schema)
-        )
+        result = await backend.generate(TextGenerationRequest(prompt="generate json", response_schema=schema))
 
         assert result.text == '{"key": "value"}'
         # Verify config included response_json_schema
@@ -952,6 +977,7 @@ Expected: FAIL with `ModuleNotFoundError`
 `lib/text_backends/gemini.py`:
 ```python
 """GeminiTextBackend — Google Gemini 文本生成后端。"""
+
 from __future__ import annotations
 
 import logging
@@ -1011,10 +1037,14 @@ class GeminiTextBackend:
                 raise ValueError(f"凭证文件 {credentials_file} 中未找到 project_id")
 
             credentials = service_account.Credentials.from_service_account_file(
-                str(credentials_file), scopes=VERTEX_SCOPES,
+                str(credentials_file),
+                scopes=VERTEX_SCOPES,
             )
             self._client = genai.Client(
-                vertexai=True, project=project_id, location="global", credentials=credentials,
+                vertexai=True,
+                project=project_id,
+                location="global",
+                credentials=credentials,
             )
             logger.info("GeminiTextBackend: Vertex AI (凭证: %s)", credentials_file.name)
         else:
@@ -1058,6 +1088,7 @@ class GeminiTextBackend:
         # Images (for vision)
         if request.images:
             from PIL import Image as PILImage
+
             for img_input in request.images:
                 if img_input.path:
                     with PILImage.open(img_input.path) as img:
@@ -1114,6 +1145,7 @@ git commit -m "feat: implement GeminiTextBackend"
 `tests/test_text_backends/test_ark.py`:
 ```python
 """ArkTextBackend tests."""
+
 import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -1157,9 +1189,11 @@ class TestArkTextGeneration:
 
     async def test_plain_text(self, backend):
         mock_response = SimpleNamespace(
-            choices=[SimpleNamespace(
-                message=SimpleNamespace(content="ark output"),
-            )],
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content="ark output"),
+                )
+            ],
             usage=SimpleNamespace(prompt_tokens=15, completion_tokens=8),
         )
         backend._mock_client.chat.completions.create = MagicMock(return_value=mock_response)
@@ -1174,21 +1208,21 @@ class TestArkTextGeneration:
 
     async def test_structured_output(self, backend):
         mock_response = SimpleNamespace(
-            choices=[SimpleNamespace(
-                message=SimpleNamespace(
-                    parsed=None,
-                    content='{"key": "value"}',
-                ),
-            )],
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        parsed=None,
+                        content='{"key": "value"}',
+                    ),
+                )
+            ],
             usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
         )
         backend._mock_client.beta.chat.completions.parse = MagicMock(return_value=mock_response)
 
         schema = {"type": "object", "properties": {"key": {"type": "string"}}}
         with patch("asyncio.to_thread", side_effect=lambda fn, **kw: fn(**kw)):
-            result = await backend.generate(
-                TextGenerationRequest(prompt="generate json", response_schema=schema)
-            )
+            result = await backend.generate(TextGenerationRequest(prompt="generate json", response_schema=schema))
 
         assert result.text == '{"key": "value"}'
 ```
@@ -1203,6 +1237,7 @@ Expected: FAIL
 `lib/text_backends/ark.py`:
 ```python
 """ArkTextBackend — 火山方舟文本生成后端。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -1280,10 +1315,13 @@ class ArkTextBackend:
             self._client.chat.completions.create,
             model=self._model,
             messages=messages,
-            response_format={"type": "json_schema", "json_schema": {
-                "name": "response",
-                "schema": request.response_schema,
-            }},
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": request.response_schema,
+                },
+            },
         )
         return self._parse_chat_response(response)
 
@@ -1293,6 +1331,7 @@ class ArkTextBackend:
             if img.path:
                 import base64
                 from lib.image_backends.base import image_to_base64_data_uri
+
                 data_uri = image_to_base64_data_uri(img.path)
                 content.append({"type": "input_image", "image_url": data_uri})
             elif img.url:
@@ -1368,6 +1407,7 @@ git commit -m "feat: implement ArkTextBackend"
 `tests/test_text_backends/test_grok.py`:
 ```python
 """GrokTextBackend tests."""
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -1430,6 +1470,7 @@ Expected: FAIL
 `lib/text_backends/grok.py`:
 ```python
 """GrokTextBackend — xAI Grok 文本生成后端。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -1492,6 +1533,7 @@ class GrokTextBackend:
             for img_input in request.images:
                 if img_input.path:
                     from lib.image_backends.base import image_to_base64_data_uri
+
                     data_uri = image_to_base64_data_uri(img_input.path)
                     user_parts.append(image(image_url=data_uri))
                 elif img_input.url:
@@ -1502,6 +1544,7 @@ class GrokTextBackend:
         # Structured output or plain
         if request.response_schema:
             from pydantic import create_model
+
             # Build a simple Pydantic model from schema for .parse()
             DynamicModel = _schema_to_pydantic(request.response_schema)
             response, parsed = await asyncio.to_thread(chat.parse, DynamicModel)
@@ -1585,14 +1628,17 @@ __all__ = [
 # Backend auto-registration
 from lib.providers import PROVIDER_GEMINI
 from lib.text_backends.gemini import GeminiTextBackend
+
 register_backend(PROVIDER_GEMINI, GeminiTextBackend)
 
 from lib.providers import PROVIDER_ARK
 from lib.text_backends.ark import ArkTextBackend
+
 register_backend(PROVIDER_ARK, ArkTextBackend)
 
 from lib.providers import PROVIDER_GROK
 from lib.text_backends.grok import GrokTextBackend
+
 register_backend(PROVIDER_GROK, GrokTextBackend)
 ```
 
@@ -1667,20 +1713,27 @@ _TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {
 Add to `ConfigResolver`:
 ```python
 async def text_backend_for_task(
-    self, task_type: TextTaskType, project_name: str | None = None,
+    self,
+    task_type: TextTaskType,
+    project_name: str | None = None,
 ) -> tuple[str, str]:
     """解析文本 backend。优先级：项目级任务配置 → 全局任务配置 → 全局默认 → 自动推断"""
     async with self._session_factory() as session:
         svc = ConfigService(session)
         return await self._resolve_text_backend(svc, task_type, project_name)
 
+
 async def default_text_backend(self) -> tuple[str, str]:
     async with self._session_factory() as session:
         svc = ConfigService(session)
         return await svc.get_default_text_backend()
 
+
 async def _resolve_text_backend(
-    self, svc: ConfigService, task_type: TextTaskType, project_name: str | None,
+    self,
+    svc: ConfigService,
+    task_type: TextTaskType,
+    project_name: str | None,
 ) -> tuple[str, str]:
     setting_key = _TEXT_TASK_SETTING_KEYS[task_type]
 
@@ -1704,8 +1757,11 @@ async def _resolve_text_backend(
     # 4. Auto-resolve
     return await self._auto_resolve_backend(svc, "text")
 
+
 async def _auto_resolve_backend(
-    self, svc: ConfigService, media_type: str,
+    self,
+    svc: ConfigService,
+    media_type: str,
 ) -> tuple[str, str]:
     """遍历 PROVIDER_REGISTRY，找到第一个 ready 且支持该 media_type 的供应商。"""
     statuses = await svc.get_all_providers_status()
@@ -1718,10 +1774,7 @@ async def _auto_resolve_backend(
             if model_info.media_type == media_type and model_info.default:
                 return provider_id, model_id
 
-    raise ValueError(
-        f"未找到可用的 {media_type} 供应商。"
-        "请在「全局设置 → 供应商」页面配置至少一个供应商。"
-    )
+    raise ValueError(f"未找到可用的 {media_type} 供应商。请在「全局设置 → 供应商」页面配置至少一个供应商。")
 ```
 
 - [ ] **Step 3: Run tests**
@@ -1748,6 +1801,7 @@ git commit -m "feat: add text backend config resolution with auto-resolve"
 `tests/test_text_backends/test_factory.py`:
 ```python
 """Text backend factory tests."""
+
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
@@ -1762,15 +1816,19 @@ async def test_creates_backend_from_config():
     mock_resolver.text_backend_for_task = AsyncMock(return_value=("gemini-aistudio", "gemini-3-flash-preview"))
     mock_resolver.provider_config = AsyncMock(return_value={"api_key": "test-key"})
 
-    with patch("lib.text_backends.factory.ConfigResolver", return_value=mock_resolver), \
-         patch("lib.text_backends.factory.create_backend") as mock_create:
+    with (
+        patch("lib.text_backends.factory.ConfigResolver", return_value=mock_resolver),
+        patch("lib.text_backends.factory.create_backend") as mock_create,
+    ):
         mock_backend = MagicMock()
         mock_create.return_value = mock_backend
 
         result = await create_text_backend_for_task(TextTaskType.SCRIPT)
 
         mock_create.assert_called_once_with(
-            "gemini", api_key="test-key", model="gemini-3-flash-preview",
+            "gemini",
+            api_key="test-key",
+            model="gemini-3-flash-preview",
         )
         assert result is mock_backend
 ```
@@ -1785,6 +1843,7 @@ Expected: FAIL
 `lib/text_backends/factory.py`:
 ```python
 """文本 backend 工厂。"""
+
 from __future__ import annotations
 
 from lib.config.resolver import ConfigResolver
@@ -1850,6 +1909,7 @@ Replace `GeminiClient` dependency with `TextBackend`:
 # Before:
 from lib.gemini_client import GeminiClient
 
+
 class ScriptGenerator:
     MODEL = "gemini-3-flash-preview"
 
@@ -1859,16 +1919,21 @@ class ScriptGenerator:
     @classmethod
     async def create(cls, project_path):
         from lib.text_client import create_text_client
+
         client = await create_text_client()
         return cls(project_path, client)
 
     async def generate(self, episode, output_path=None):
         response_text = await self.client.generate_text_async(
-            prompt=prompt, model=self.MODEL, response_schema=schema,
+            prompt=prompt,
+            model=self.MODEL,
+            response_schema=schema,
         )
+
 
 # After:
 from lib.text_backends.base import TextBackend, TextGenerationRequest, TextTaskType
+
 
 class ScriptGenerator:
     def __init__(self, project_path, backend: Optional[TextBackend] = None):
@@ -1877,6 +1942,7 @@ class ScriptGenerator:
     @classmethod
     async def create(cls, project_path):
         from lib.text_backends.factory import create_text_backend_for_task
+
         project_name = Path(project_path).name
         backend = await create_text_backend_for_task(TextTaskType.SCRIPT, project_name)
         return cls(project_path, backend)
@@ -1884,9 +1950,7 @@ class ScriptGenerator:
     async def generate(self, episode, output_path=None):
         if self.backend is None:
             raise RuntimeError("TextBackend 未初始化，请使用 ScriptGenerator.create() 工厂方法")
-        result = await self.backend.generate(
-            TextGenerationRequest(prompt=prompt, response_schema=schema)
-        )
+        result = await self.backend.generate(TextGenerationRequest(prompt=prompt, response_schema=schema))
         response_text = result.text
 ```
 
@@ -1918,12 +1982,14 @@ git commit -m "refactor: ScriptGenerator uses TextBackend"
 ```python
 # Before:
 from .text_client import create_text_client
+
 client = await create_text_client()
 response_text = await client.generate_text_async(prompt=prompt, model="gemini-3-flash-preview", response_schema=schema)
 
 # After:
 from .text_backends.factory import create_text_backend_for_task
 from .text_backends.base import TextGenerationRequest, TextTaskType
+
 backend = await create_text_backend_for_task(TextTaskType.OVERVIEW)
 result = await backend.generate(TextGenerationRequest(prompt=prompt, response_schema=schema))
 response_text = result.text
@@ -1935,6 +2001,7 @@ In `server/routers/files.py`:
 ```python
 # Before:
 from lib.text_client import create_text_client
+
 client = await create_text_client()
 style_description = client.analyze_style_image(output_path)
 
@@ -1981,6 +2048,7 @@ In `normalize_drama_script.py`:
 ```python
 # Before:
 from lib.text_client import create_text_client_sync
+
 client = create_text_client_sync()
 response = client.generate_text(prompt=prompt, model=MODEL)
 
@@ -2055,6 +2123,7 @@ ARK_TEXT_COST = {
 GROK_TEXT_COST = {
     "grok-4-1-fast-reasoning": {"input": 2.00, "output": 10.00},
 }
+
 
 def calculate_text_cost(
     self,
@@ -2179,6 +2248,7 @@ class ModelInfoResponse(BaseModel):
     media_type: str
     capabilities: list[str]
     default: bool
+
 
 class ProviderSummary(BaseModel):
     # ... existing fields ...

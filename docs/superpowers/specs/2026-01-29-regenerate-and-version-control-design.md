@@ -329,18 +329,15 @@ class VersionManager:
         """获取资源的所有版本信息"""
         pass
 
-    def add_version(self, resource_type: str, resource_id: str,
-                    file_path: str, prompt: str, **metadata) -> int:
+    def add_version(self, resource_type: str, resource_id: str, file_path: str, prompt: str, **metadata) -> int:
         """添加新版本记录，返回版本号"""
         pass
 
-    def backup_current(self, resource_type: str, resource_id: str,
-                       current_file: Path, prompt: str) -> None:
+    def backup_current(self, resource_type: str, resource_id: str, current_file: Path, prompt: str) -> None:
         """将当前文件备份到版本目录"""
         pass
 
-    def restore_version(self, resource_type: str, resource_id: str,
-                        version: int) -> dict:
+    def restore_version(self, resource_type: str, resource_id: str, version: int) -> dict:
         """还原到指定版本，返回还原信息"""
         pass
 

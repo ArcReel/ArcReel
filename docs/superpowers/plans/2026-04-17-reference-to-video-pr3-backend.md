@@ -403,59 +403,60 @@ Expected：FAIL（方法不存在）。
 编辑 `lib/cost_calculator.py`，在 `_calculate_custom_cost` 静态方法之前（类体内，单例实例之前）插入：
 
 ```python
-    # Ark 生成视频的 token/s 近似常量（用于参考模式成本估算，实际 token 由生成回调覆盖）
-    _ARK_TOKENS_PER_SECOND_ESTIMATE = 60_000
+# Ark 生成视频的 token/s 近似常量（用于参考模式成本估算，实际 token 由生成回调覆盖）
+_ARK_TOKENS_PER_SECOND_ESTIMATE = 60_000
 
-    def estimate_reference_video_cost(
-        self,
-        *,
-        unit_durations_seconds: list[int],
-        provider: str,
-        model: str | None = None,
-        resolution: str | None = None,
-        generate_audio: bool = True,
-        service_tier: str = "default",
-    ) -> tuple[float, str]:
-        """聚合参考模式一集的视频费用：sum over units of (duration × 单价)。
 
-        - Grok/OpenAI/Gemini：按 duration_seconds 累加后一次性计费
-        - Ark：token-based 计费，按 duration × _ARK_TOKENS_PER_SECOND_ESTIMATE 近似
-        """
-        if not unit_durations_seconds:
-            if provider == PROVIDER_ARK:
-                return 0.0, "CNY"
-            return 0.0, "USD"
+def estimate_reference_video_cost(
+    self,
+    *,
+    unit_durations_seconds: list[int],
+    provider: str,
+    model: str | None = None,
+    resolution: str | None = None,
+    generate_audio: bool = True,
+    service_tier: str = "default",
+) -> tuple[float, str]:
+    """聚合参考模式一集的视频费用：sum over units of (duration × 单价)。
 
-        total_duration = sum(max(0, int(d)) for d in unit_durations_seconds)
+    - Grok/OpenAI/Gemini：按 duration_seconds 累加后一次性计费
+    - Ark：token-based 计费，按 duration × _ARK_TOKENS_PER_SECOND_ESTIMATE 近似
+    """
+    if not unit_durations_seconds:
         if provider == PROVIDER_ARK:
-            usage_tokens = total_duration * self._ARK_TOKENS_PER_SECOND_ESTIMATE
-            return self.calculate_ark_video_cost(
-                usage_tokens=usage_tokens,
-                service_tier=service_tier,
-                generate_audio=generate_audio,
-                model=model,
-            )
-        if provider == PROVIDER_GROK:
-            return self.calculate_grok_video_cost(
-                duration_seconds=total_duration,
-                model=model,
-            )
-        if provider == PROVIDER_OPENAI:
-            return self.calculate_openai_video_cost(
-                duration_seconds=total_duration,
-                model=model,
-                resolution=resolution,
-            )
-        # Gemini/Veo 默认
-        return (
-            self.calculate_video_cost(
-                duration_seconds=total_duration,
-                resolution=resolution or "1080p",
-                generate_audio=generate_audio,
-                model=model,
-            ),
-            "USD",
+            return 0.0, "CNY"
+        return 0.0, "USD"
+
+    total_duration = sum(max(0, int(d)) for d in unit_durations_seconds)
+    if provider == PROVIDER_ARK:
+        usage_tokens = total_duration * self._ARK_TOKENS_PER_SECOND_ESTIMATE
+        return self.calculate_ark_video_cost(
+            usage_tokens=usage_tokens,
+            service_tier=service_tier,
+            generate_audio=generate_audio,
+            model=model,
         )
+    if provider == PROVIDER_GROK:
+        return self.calculate_grok_video_cost(
+            duration_seconds=total_duration,
+            model=model,
+        )
+    if provider == PROVIDER_OPENAI:
+        return self.calculate_openai_video_cost(
+            duration_seconds=total_duration,
+            model=model,
+            resolution=resolution,
+        )
+    # Gemini/Veo 默认
+    return (
+        self.calculate_video_cost(
+            duration_seconds=total_duration,
+            resolution=resolution or "1080p",
+            generate_audio=generate_audio,
+            model=model,
+        ),
+        "USD",
+    )
 ```
 
 - [ ] **Step 4：运行测试确认通过**
@@ -666,9 +667,7 @@ def _load_unit_context(
     """读取 project.json + 指定 episode 剧本 + 目标 unit。"""
     project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
     script_rel = script_file.removeprefix("scripts/")
-    script = json.loads(
-        (project_path / "scripts" / script_rel).read_text(encoding="utf-8")
-    )
+    script = json.loads((project_path / "scripts" / script_rel).read_text(encoding="utf-8"))
     units = script.get("video_units") or []
     unit = next((u for u in units if u.get("unit_id") == unit_id), None)
     if unit is None:
@@ -918,10 +917,7 @@ def _render_unit_prompt(unit: dict) -> str:
     """拼接 unit.shots[*].text 为单一 prompt，再用 shot_parser 把 @X 替成 [图N]。"""
     shots = unit.get("shots") or []
     raw = "\n".join(str(s.get("text", "")) for s in shots)
-    references = [
-        ReferenceResource(type=r["type"], name=r["name"])
-        for r in (unit.get("references") or [])
-    ]
+    references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
     return render_prompt_for_backend(raw, references)
 
 
@@ -1084,9 +1080,7 @@ async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_payload_too_large_retries(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+async def test_execute_reference_video_task_payload_too_large_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     proj_dir = _write_project(tmp_path)
 
     from server.services import reference_video_tasks as rvt
@@ -1213,9 +1207,7 @@ async def execute_reference_video_task(
     rendered_prompt = _render_unit_prompt(unit)
 
     # 6. 压缩到临时文件（2048px/q=85）→ 首次调用
-    tmp_refs: list[Path] = await asyncio.to_thread(
-        _compress_references_to_tempfiles, constrained_refs
-    )
+    tmp_refs: list[Path] = await asyncio.to_thread(_compress_references_to_tempfiles, constrained_refs)
     output_path: Path | None = None
     version = 0
     video_uri: str | None = None
@@ -1778,10 +1770,12 @@ def test_patch_unit_references_only(client: TestClient):
     uid = _seed_unit(client)
     resp = client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={"references": [
-            {"type": "character", "name": "张三"},
-            {"type": "scene", "name": "酒馆"},
-        ]},
+        json={
+            "references": [
+                {"type": "character", "name": "张三"},
+                {"type": "scene", "name": "酒馆"},
+            ]
+        },
     )
     assert resp.status_code == 200, resp.text
     assert len(resp.json()["unit"]["references"]) == 2
@@ -1971,9 +1965,7 @@ def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.Mon
 
     monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
 
-    resp = client.post(
-        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate"
-    )
+    resp = client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
     assert resp.status_code == 202, resp.text
     assert resp.json()["task_id"] == "task-xyz"
     assert enqueued[0]["task_type"] == "reference_video"
@@ -1982,9 +1974,7 @@ def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.Mon
 
 
 def test_generate_unit_missing_returns_404(client: TestClient):
-    resp = client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9/generate"
-    )
+    resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9/generate")
     assert resp.status_code == 404
 ```
 
@@ -2300,9 +2290,7 @@ async def test_end_to_end_generate_unit_to_executor(
     fake_queue.enqueue_task = AsyncMock(side_effect=_fake_enqueue)
     monkeypatch.setattr(router_mod, "get_generation_queue", lambda: fake_queue)
 
-    resp = client.post(
-        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate"
-    )
+    resp = client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
     assert resp.status_code == 202
     assert captured_payload["task_type"] == "reference_video"
     assert captured_payload["resource_id"] == uid

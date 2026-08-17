@@ -36,7 +36,7 @@ def save_checkpoint(
     current_scene_index: int,
     completed_segments: list,
     started_at: str,
-    video_uri: Optional[str] = None  # 新增：视频 URI 用于恢复
+    video_uri: Optional[str] = None,  # 新增：视频 URI 用于恢复
 ):
     """保存 checkpoint，包含视频引用 URI"""
     checkpoint_path = get_checkpoint_path(project_dir, episode)
@@ -50,10 +50,10 @@ def save_checkpoint(
         "started_at": started_at,
         "updated_at": datetime.now().isoformat(),
         "video_uri": video_uri,  # 新增：保存视频 URI
-        "video_uri_expires_at": (datetime.now() + timedelta(days=2)).isoformat() if video_uri else None
+        "video_uri_expires_at": (datetime.now() + timedelta(days=2)).isoformat() if video_uri else None,
     }
 
-    with open(checkpoint_path, 'w', encoding='utf-8') as f:
+    with open(checkpoint_path, "w", encoding="utf-8") as f:
         json.dump(checkpoint, f, ensure_ascii=False, indent=2)
 ```
 
@@ -284,14 +284,14 @@ try:
 if resume:
     checkpoint = load_checkpoint(project_dir, episode)
     if checkpoint:
-        start_segment = checkpoint.get('current_segment', 0)
-        completed_segments = checkpoint.get('completed_segments', [])
-        started_at = checkpoint.get('started_at', started_at)
+        start_segment = checkpoint.get("current_segment", 0)
+        completed_segments = checkpoint.get("completed_segments", [])
+        started_at = checkpoint.get("started_at", started_at)
 
         # 恢复视频引用
-        saved_uri = checkpoint.get('video_uri')
+        saved_uri = checkpoint.get("video_uri")
         if saved_uri:
-            expires_at = checkpoint.get('video_uri_expires_at')
+            expires_at = checkpoint.get("video_uri_expires_at")
             if expires_at:
                 expires = datetime.fromisoformat(expires_at)
                 if datetime.now() < expires:

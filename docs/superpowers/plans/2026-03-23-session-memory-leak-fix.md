@@ -74,6 +74,7 @@ git commit -m "feat: ManagedSession 新增 idle_since/last_activity/_cleanup_tas
 ```python
 class SessionCapacityError(Exception):
     """所有并发槽位已被 running 会话占满，无法创建新连接。"""
+
     pass
 ```
 
@@ -97,6 +98,7 @@ git commit -m "feat: 添加 SessionCapacityError 自定义异常"
 ```python
 # tests/test_session_lifecycle.py
 """Tests for SessionManager idle TTL, LRU eviction, and patrol loop."""
+
 import asyncio
 import time
 from pathlib import Path
@@ -257,33 +259,34 @@ Expected: FAIL
 在 `SessionManager` 类中，`_disconnect_session` 之后添加：
 
 ```python
-    async def _get_idle_ttl(self) -> int:
-        """返回 idle TTL 秒数，默认 600（10 分钟）。"""
-        try:
-            from lib.db import async_session_factory
-            from lib.config.service import ConfigService
+async def _get_idle_ttl(self) -> int:
+    """返回 idle TTL 秒数，默认 600（10 分钟）。"""
+    try:
+        from lib.db import async_session_factory
+        from lib.config.service import ConfigService
 
-            async with async_session_factory() as session:
-                svc = ConfigService(session)
-                val = await svc.get_setting("agent_session_idle_ttl_minutes", "10")
-            return max(int(val), 1) * 60
-        except Exception:
-            logger.warning("读取 idle TTL 配置失败，使用默认值", exc_info=True)
-            return 600
+        async with async_session_factory() as session:
+            svc = ConfigService(session)
+            val = await svc.get_setting("agent_session_idle_ttl_minutes", "10")
+        return max(int(val), 1) * 60
+    except Exception:
+        logger.warning("读取 idle TTL 配置失败，使用默认值", exc_info=True)
+        return 600
 
-    async def _get_max_concurrent(self) -> int:
-        """返回最大并发会话数，默认 5。"""
-        try:
-            from lib.db import async_session_factory
-            from lib.config.service import ConfigService
 
-            async with async_session_factory() as session:
-                svc = ConfigService(session)
-                val = await svc.get_setting("agent_max_concurrent_sessions", "5")
-            return max(int(val), 1)
-        except Exception:
-            logger.warning("读取 max_concurrent 配置失败，使用默认值", exc_info=True)
-            return 5
+async def _get_max_concurrent(self) -> int:
+    """返回最大并发会话数，默认 5。"""
+    try:
+        from lib.db import async_session_factory
+        from lib.config.service import ConfigService
+
+        async with async_session_factory() as session:
+            svc = ConfigService(session)
+            val = await svc.get_setting("agent_max_concurrent_sessions", "5")
+        return max(int(val), 1)
+    except Exception:
+        logger.warning("读取 max_concurrent 配置失败，使用默认值", exc_info=True)
+        return 5
 ```
 
 - [ ] **Step 4: 运行测试确认通过**
@@ -520,34 +523,32 @@ Expected: FAIL
 在 `SessionManager` 类中，`_schedule_cleanup` 之后添加：
 
 ```python
-    async def _ensure_capacity(self) -> None:
-        """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
-        max_concurrent = await self._get_max_concurrent()
-        active = [s for s in self.sessions.values() if s.client is not None]
+async def _ensure_capacity(self) -> None:
+    """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
+    max_concurrent = await self._get_max_concurrent()
+    active = [s for s in self.sessions.values() if s.client is not None]
 
-        if len(active) < max_concurrent:
-            return
+    if len(active) < max_concurrent:
+        return
 
-        # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
-        evictable = sorted(
-            [s for s in active if s.status != "running"],
-            key=lambda s: s.last_activity or 0,
+    # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
+    evictable = sorted(
+        [s for s in active if s.status != "running"],
+        key=lambda s: s.last_activity or 0,
+    )
+
+    if evictable:
+        victim = evictable[0]
+        logger.info(
+            "并发上限，淘汰 session_id=%s (status=%s)",
+            victim.session_id,
+            victim.status,
         )
+        await self._disconnect_session(victim.session_id)
+        return
 
-        if evictable:
-            victim = evictable[0]
-            logger.info(
-                "并发上限，淘汰 session_id=%s (status=%s)",
-                victim.session_id,
-                victim.status,
-            )
-            await self._disconnect_session(victim.session_id)
-            return
-
-        # 所有会话都在 running → 拒绝
-        raise SessionCapacityError(
-            f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试"
-        )
+    # 所有会话都在 running → 拒绝
+    raise SessionCapacityError(f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试")
 ```
 
 - [ ] **Step 4: 在 `send_new_session` 中调用 `_ensure_capacity`**
@@ -639,30 +640,33 @@ Expected: FAIL
 在 `SessionManager` 类中添加：
 
 ```python
-    _PATROL_INTERVAL = 300  # 5 分钟
+_PATROL_INTERVAL = 300  # 5 分钟
 
-    async def _patrol_once(self) -> None:
-        """单次巡检：清理所有超时的 idle 会话。"""
-        ttl = await self._get_idle_ttl()
-        now = time.monotonic()
-        for sid, managed in list(self.sessions.items()):
-            if managed.status == "idle" and managed.idle_since:
-                if now - managed.idle_since > ttl:
-                    logger.info("巡检清理超时 idle 会话 session_id=%s", sid)
-                    await self._disconnect_session(sid)
 
-    async def _patrol_loop(self) -> None:
-        """后台定期巡检循环。"""
-        while True:
-            await asyncio.sleep(self._PATROL_INTERVAL)
-            try:
-                await self._patrol_once()
-            except Exception:
-                logger.warning("巡检循环异常", exc_info=True)
+async def _patrol_once(self) -> None:
+    """单次巡检：清理所有超时的 idle 会话。"""
+    ttl = await self._get_idle_ttl()
+    now = time.monotonic()
+    for sid, managed in list(self.sessions.items()):
+        if managed.status == "idle" and managed.idle_since:
+            if now - managed.idle_since > ttl:
+                logger.info("巡检清理超时 idle 会话 session_id=%s", sid)
+                await self._disconnect_session(sid)
 
-    def start_patrol(self) -> None:
-        """启动巡检后台任务（应在应用 startup 时调用）。"""
-        self._patrol_task = asyncio.create_task(self._patrol_loop())
+
+async def _patrol_loop(self) -> None:
+    """后台定期巡检循环。"""
+    while True:
+        await asyncio.sleep(self._PATROL_INTERVAL)
+        try:
+            await self._patrol_once()
+        except Exception:
+            logger.warning("巡检循环异常", exc_info=True)
+
+
+def start_patrol(self) -> None:
+    """启动巡检后台任务（应在应用 startup 时调用）。"""
+    self._patrol_task = asyncio.create_task(self._patrol_loop())
 ```
 
 - [ ] **Step 4: 修改 `shutdown_gracefully` 取消巡检任务**

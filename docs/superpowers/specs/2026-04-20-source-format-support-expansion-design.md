@@ -180,15 +180,15 @@ ConflictModal: "novel.txt 已存在"
 ```python
 def decode_txt(raw: bytes) -> tuple[str, str]:
     # 1. BOM 优先（UTF-8-SIG / UTF-16 LE/BE）
-    if raw.startswith(b'\xef\xbb\xbf'):
-        return raw[3:].decode('utf-8'), 'utf-8-sig'
-    if raw.startswith(b'\xff\xfe'):
-        return raw[2:].decode('utf-16-le'), 'utf-16-le'
-    if raw.startswith(b'\xfe\xff'):
-        return raw[2:].decode('utf-16-be'), 'utf-16-be'
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw[3:].decode("utf-8"), "utf-8-sig"
+    if raw.startswith(b"\xff\xfe"):
+        return raw[2:].decode("utf-16-le"), "utf-16-le"
+    if raw.startswith(b"\xfe\xff"):
+        return raw[2:].decode("utf-16-be"), "utf-16-be"
     # 2. 严格 UTF-8
     try:
-        return raw.decode('utf-8'), 'utf-8'
+        return raw.decode("utf-8"), "utf-8"
     except UnicodeDecodeError:
         pass
     # 3. charset-normalizer 概率检测（仅接受 chaos < 0.5）
@@ -199,13 +199,13 @@ def decode_txt(raw: bytes) -> tuple[str, str]:
         except UnicodeDecodeError:
             pass
     # 4. 兜底 gb18030 + errors='replace'
-    decoded = raw.decode('gb18030', errors='replace')
-    replace_count = decoded.count('\ufffd')
+    decoded = raw.decode("gb18030", errors="replace")
+    replace_count = decoded.count("\ufffd")
     if len(decoded) and replace_count / len(decoded) > 0.05:  # >5% 乱码 → 判定失败
-        raise SourceDecodeError(tried=['utf-8', best.encoding if best else None, 'gb18030'])
+        raise SourceDecodeError(tried=["utf-8", best.encoding if best else None, "gb18030"])
     if replace_count:
         logger.warning("gb18030 fallback with %d replacements", replace_count)
-    return decoded, 'gb18030-lossy'
+    return decoded, "gb18030-lossy"
 ```
 
 ### 6.2 DOCX

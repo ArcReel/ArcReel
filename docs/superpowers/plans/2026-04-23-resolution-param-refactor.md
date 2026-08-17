@@ -298,10 +298,7 @@ def test_returns_none_when_nothing_configured():
 
 
 def test_returns_custom_default_when_only_custom():
-    assert (
-        resolve_resolution({}, "custom-1", "my-model", custom_default="720p")
-        == "720p"
-    )
+    assert resolve_resolution({}, "custom-1", "my-model", custom_default="720p") == "720p"
 
 
 def test_returns_legacy_when_only_legacy():
@@ -319,18 +316,12 @@ def test_project_model_settings_overrides_legacy():
 
 def test_project_override_wins_over_custom_default():
     project = {"model_settings": {"custom-1/m": {"resolution": "2K"}}}
-    assert (
-        resolve_resolution(project, "custom-1", "m", custom_default="1K")
-        == "2K"
-    )
+    assert resolve_resolution(project, "custom-1", "m", custom_default="1K") == "2K"
 
 
 def test_legacy_wins_over_custom_default_when_no_project_model_settings():
     project = {"video_model_settings": {"m": {"resolution": "1080p"}}}
-    assert (
-        resolve_resolution(project, "custom-1", "m", custom_default="720p")
-        == "1080p"
-    )
+    assert resolve_resolution(project, "custom-1", "m", custom_default="720p") == "1080p"
 
 
 def test_empty_string_project_override_treated_as_unset():
@@ -648,8 +639,11 @@ async def test_resolution_none_not_in_config(tmp_path):
 
     backend._client.aio.models.generate_videos = _fake_create
     req = VideoGenerationRequest(
-        prompt="x", output_path=tmp_path / "o.mp4",
-        aspect_ratio="9:16", duration_seconds=8, resolution=None,
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="9:16",
+        duration_seconds=8,
+        resolution=None,
     )
     with pytest.raises(RuntimeError):
         await backend.generate(req)
@@ -662,13 +656,18 @@ async def test_resolution_none_not_in_config(tmp_path):
 @pytest.mark.asyncio
 async def test_resolution_string_passed_through(tmp_path):
     backend = _make_backend()
+
     async def _fake_create(**kwargs):
         raise RuntimeError("stop")
+
     backend._client.aio.models.generate_videos = _fake_create
 
     req = VideoGenerationRequest(
-        prompt="x", output_path=tmp_path / "o.mp4",
-        aspect_ratio="9:16", duration_seconds=8, resolution="1080p",
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="9:16",
+        duration_seconds=8,
+        resolution="1080p",
     )
     with pytest.raises(RuntimeError):
         await backend.generate(req)
@@ -759,8 +758,11 @@ async def test_resolution_none_not_in_create_params(tmp_path, monkeypatch):
     backend._client.content_generation.tasks.create = fake_create
 
     req = VideoGenerationRequest(
-        prompt="x", output_path=tmp_path / "o.mp4",
-        aspect_ratio="9:16", duration_seconds=5, resolution=None,
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="9:16",
+        duration_seconds=5,
+        resolution=None,
     )
     with pytest.raises(RuntimeError):
         # _create_task 内部 to_thread 调用 create；直接调用内部函数避免 asyncio.to_thread 带来的复杂 mock
@@ -781,8 +783,11 @@ async def test_resolution_passed_when_set(tmp_path):
     backend._client.content_generation.tasks.create = fake_create
 
     req = VideoGenerationRequest(
-        prompt="x", output_path=tmp_path / "o.mp4",
-        aspect_ratio="9:16", duration_seconds=5, resolution="720p",
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="9:16",
+        duration_seconds=5,
+        resolution="720p",
     )
     with pytest.raises(RuntimeError):
         await backend._create_task(req, content=[])
@@ -876,8 +881,10 @@ async def test_image_size_none_not_in_kwargs(tmp_path):
 
     backend._client.image.sample = fake_sample
     req = ImageGenerationRequest(
-        prompt="hi", output_path=tmp_path / "o.png",
-        aspect_ratio="9:16", image_size=None,
+        prompt="hi",
+        output_path=tmp_path / "o.png",
+        aspect_ratio="9:16",
+        image_size=None,
     )
     with pytest.raises(RuntimeError):
         await backend.generate(req)
@@ -897,8 +904,10 @@ async def test_image_size_passed_through_as_is(tmp_path):
 
     backend._client.image.sample = fake_sample
     req = ImageGenerationRequest(
-        prompt="hi", output_path=tmp_path / "o.png",
-        aspect_ratio="9:16", image_size="2K",
+        prompt="hi",
+        output_path=tmp_path / "o.png",
+        aspect_ratio="9:16",
+        image_size="2K",
     )
     with pytest.raises(RuntimeError):
         await backend.generate(req)
@@ -986,8 +995,11 @@ async def test_resolution_none_not_in_generate_kwargs(tmp_path):
 
     backend._client.video.sample = fake_sample
     req = VideoGenerationRequest(
-        prompt="x", output_path=tmp_path / "o.mp4",
-        aspect_ratio="9:16", duration_seconds=5, resolution=None,
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="9:16",
+        duration_seconds=5,
+        resolution=None,
     )
     with pytest.raises(RuntimeError):
         await backend.generate(req)
@@ -1006,8 +1018,11 @@ async def test_resolution_passed_when_set(tmp_path):
 
     backend._client.video.sample = fake_sample
     req = VideoGenerationRequest(
-        prompt="x", output_path=tmp_path / "o.mp4",
-        aspect_ratio="9:16", duration_seconds=5, resolution="720p",
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="9:16",
+        duration_seconds=5,
+        resolution="720p",
     )
     with pytest.raises(RuntimeError):
         await backend.generate(req)
@@ -1098,13 +1113,16 @@ async def test_image_size_none_omits_size_and_quality(tmp_path):
 
         class FakeResp:
             data = [type("D", (), {"b64_json": "aGk="})()]
+
         return FakeResp()
 
     backend._client.images.generate = fake_generate
 
     req = ImageGenerationRequest(
-        prompt="hi", output_path=tmp_path / "o.png",
-        aspect_ratio="9:16", image_size=None,
+        prompt="hi",
+        output_path=tmp_path / "o.png",
+        aspect_ratio="9:16",
+        image_size=None,
     )
     await backend.generate(req)
 
@@ -1122,13 +1140,16 @@ async def test_image_size_token_maps_to_size(tmp_path):
 
         class FakeResp:
             data = [type("D", (), {"b64_json": "aGk="})()]
+
         return FakeResp()
 
     backend._client.images.generate = fake_generate
 
     req = ImageGenerationRequest(
-        prompt="hi", output_path=tmp_path / "o.png",
-        aspect_ratio="9:16", image_size="1K",
+        prompt="hi",
+        output_path=tmp_path / "o.png",
+        aspect_ratio="9:16",
+        image_size="1K",
     )
     await backend.generate(req)
 
@@ -1146,13 +1167,16 @@ async def test_unknown_image_size_passthrough_with_warning(tmp_path, caplog):
 
         class FakeResp:
             data = [type("D", (), {"b64_json": "aGk="})()]
+
         return FakeResp()
 
     backend._client.images.generate = fake_generate
 
     req = ImageGenerationRequest(
-        prompt="hi", output_path=tmp_path / "o.png",
-        aspect_ratio="9:16", image_size="1024x1024",
+        prompt="hi",
+        output_path=tmp_path / "o.png",
+        aspect_ratio="9:16",
+        image_size="1024x1024",
     )
     await backend.generate(req)
 
@@ -1217,7 +1241,8 @@ def _resolve_openai_params(
 
     logger.warning(
         "OpenAI image: 未知 image_size=%r (aspect=%r)，原样作为 size 透传",
-        image_size, aspect_ratio,
+        image_size,
+        aspect_ratio,
     )
     return {"size": image_size}
 ```
@@ -1307,8 +1332,11 @@ async def test_resolution_none_omits_size(tmp_path):
     backend._client.videos.create_and_poll = fake_create
 
     req = VideoGenerationRequest(
-        prompt="x", output_path=tmp_path / "o.mp4",
-        aspect_ratio="9:16", duration_seconds=4, resolution=None,
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="9:16",
+        duration_seconds=4,
+        resolution=None,
     )
     with pytest.raises(RuntimeError):
         await backend.generate(req)
@@ -1328,8 +1356,11 @@ async def test_resolution_token_maps_to_size(tmp_path):
     backend._client.videos.create_and_poll = fake_create
 
     req = VideoGenerationRequest(
-        prompt="x", output_path=tmp_path / "o.mp4",
-        aspect_ratio="9:16", duration_seconds=4, resolution="720p",
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        aspect_ratio="9:16",
+        duration_seconds=4,
+        resolution="720p",
     )
     with pytest.raises(RuntimeError):
         await backend.generate(req)
@@ -1446,7 +1477,7 @@ git commit -m "refactor(media-generator): image_size/resolution 改为 Optional"
 删除文件顶部（约 49-54 行）：
 
 ```python
-DEFAULT_VIDEO_RESOLUTION: dict[str, str] = { ... }
+DEFAULT_VIDEO_RESOLUTION: dict[str, str] = {...}
 ```
 
 - [ ] **Step 2: Add helper `_get_custom_resolution_default` for custom providers**
@@ -1566,11 +1597,15 @@ from server.services.generation_tasks import _get_custom_resolution_default
 
 custom_default = await _get_custom_resolution_default(provider_name, model_name)
 resolution = resolve_resolution(
-    project, provider_name, model_name or "", custom_default=custom_default,
+    project,
+    provider_name,
+    model_name or "",
+    custom_default=custom_default,
 )
 # 若 grok_imagine_video 等必传，fallback 到该模型注册表 resolutions[0]（保底）
 if resolution is None:
     from lib.config.registry import PROVIDER_REGISTRY
+
     meta = PROVIDER_REGISTRY.get(provider_name)
     if meta and model_name and meta.models.get(model_name):
         model_info = meta.models[model_name]
@@ -1620,9 +1655,13 @@ from lib.project_manager import ProjectManager
 @pytest.fixture
 def pm_tmp(tmp_path):
     (tmp_path / "demo").mkdir()
-    (tmp_path / "demo" / "project.json").write_text(json.dumps({
-        "video_model_settings": {"veo-3.1": {"resolution": "1080p"}},
-    }))
+    (tmp_path / "demo" / "project.json").write_text(
+        json.dumps(
+            {
+                "video_model_settings": {"veo-3.1": {"resolution": "1080p"}},
+            }
+        )
+    )
     return ProjectManager(tmp_path), tmp_path
 
 
@@ -1803,15 +1842,26 @@ grep -n "class Model\|supported_durations\|BaseModel" server/routers/custom_prov
 ```python
 def test_custom_provider_model_crud_with_resolution(client, auth_headers):
     # 创建
-    resp = client.post("/api/v1/custom-providers", json={
-        "display_name": "X", "api_format": "openai",
-        "base_url": "https://api.example.com", "api_key": "k",
-        "models": [{
-            "model_id": "m1", "display_name": "M1",
-            "media_type": "video", "is_default": True, "is_enabled": True,
-            "resolution": "720p",
-        }],
-    }, headers=auth_headers)
+    resp = client.post(
+        "/api/v1/custom-providers",
+        json={
+            "display_name": "X",
+            "api_format": "openai",
+            "base_url": "https://api.example.com",
+            "api_key": "k",
+            "models": [
+                {
+                    "model_id": "m1",
+                    "display_name": "M1",
+                    "media_type": "video",
+                    "is_default": True,
+                    "is_enabled": True,
+                    "resolution": "720p",
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
     assert resp.status_code == 200
     pid = resp.json()["id"]
 
@@ -1823,7 +1873,8 @@ def test_custom_provider_model_crud_with_resolution(client, auth_headers):
     # 更新 resolution 为 null
     resp = client.patch(
         f"/api/v1/custom-providers/{pid}/models/{models[0]['id']}",
-        json={"resolution": None}, headers=auth_headers,
+        json={"resolution": None},
+        headers=auth_headers,
     )
     assert resp.status_code == 200
     assert resp.json()["resolution"] is None
@@ -1893,13 +1944,17 @@ git commit -m "feat(custom-providers-api): DTO 新增 resolution 字段"
 
 ```python
 def test_create_project_with_model_settings(client, auth_headers):
-    resp = client.post("/api/v1/projects", json={
-        "name": "demo-res",
-        "title": "T",
-        "model_settings": {
-            "gemini-aistudio/veo-3.1-lite-generate-preview": {"resolution": "720p"},
+    resp = client.post(
+        "/api/v1/projects",
+        json={
+            "name": "demo-res",
+            "title": "T",
+            "model_settings": {
+                "gemini-aistudio/veo-3.1-lite-generate-preview": {"resolution": "720p"},
+            },
         },
-    }, headers=auth_headers)
+        headers=auth_headers,
+    )
     assert resp.status_code == 200
 
     # 读回

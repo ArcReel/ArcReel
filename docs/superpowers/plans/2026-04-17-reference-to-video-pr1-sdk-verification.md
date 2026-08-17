@@ -175,12 +175,17 @@ def test_parse_args_defaults():
 
 
 def test_parse_args_override():
-    args = parse_args([
-        "--provider", "grok",
-        "--refs", "7",
-        "--duration", "10",
-        "--multi-shot",
-    ])
+    args = parse_args(
+        [
+            "--provider",
+            "grok",
+            "--refs",
+            "7",
+            "--duration",
+            "10",
+            "--multi-shot",
+        ]
+    )
     assert args.refs == 7
     assert args.duration == 10
     assert args.multi_shot is True
@@ -405,10 +410,12 @@ def render_report(results: list[RunResult], *, generated_at: datetime | None = N
         lines.append("_no results_")
         return "\n".join(lines) + "\n"
 
-    lines.extend([
-        "| Provider | Model | Refs | Duration | Multi-shot | Result | Elapsed | Bytes | Note |",
-        "|---|---|---|---|---|---|---|---|---|",
-    ])
+    lines.extend(
+        [
+            "| Provider | Model | Refs | Duration | Multi-shot | Result | Elapsed | Bytes | Note |",
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+    )
     for r in results:
         outcome = "PASS" if r.success else f"FAIL: {r.error or ''}".strip()
         lines.append(
@@ -559,8 +566,7 @@ from scripts.fixtures.reference_video.generate_fixtures import generate_color_re
 
 DEFAULT_PROMPT_SINGLE = "A cinematic establishing shot of [图1]."
 DEFAULT_PROMPT_MULTI = (
-    "Shot 1 (3s): medium shot of [图1] walking into the room.\n"
-    "Shot 2 (5s): close-up of [图1] reacting to [图2]."
+    "Shot 1 (3s): medium shot of [图1] walking into the room.\nShot 2 (5s): close-up of [图1] reacting to [图2]."
 )
 
 
@@ -737,21 +743,25 @@ def _lazy_register_factories() -> None:
     """按需 import 各家后端，避免一个家配置缺失就整个脚本启不来。"""
     try:
         from lib.video_backends.ark import ArkVideoBackend
+
         _register_factory(Provider.ARK, lambda: ArkVideoBackend.from_env())
     except Exception:  # noqa: BLE001
         pass
     try:
         from lib.video_backends.grok import GrokVideoBackend
+
         _register_factory(Provider.GROK, lambda: GrokVideoBackend.from_env())
     except Exception:
         pass
     try:
         from lib.video_backends.gemini import GeminiVideoBackend
+
         _register_factory(Provider.VEO, lambda: GeminiVideoBackend.from_env())
     except Exception:
         pass
     try:
         from lib.video_backends.openai import OpenAIVideoBackend
+
         _register_factory(Provider.SORA, lambda: OpenAIVideoBackend.from_env())
     except Exception:
         pass
@@ -765,6 +775,7 @@ def _lazy_register_factories() -> None:
 def test_lazy_register_factories_smoke():
     # 每家 try/except 容错；至少不应抛出异常
     from scripts.verify_reference_video_sdks import _lazy_register_factories
+
     _lazy_register_factories()
 ```
 
@@ -888,14 +899,16 @@ async def run_with_backend(
 def main() -> int:
     args = parse_args()
     work_dir = Path(".verify_work") / args.provider
-    return asyncio.run(run_with_backend(
-        provider=args.provider,
-        refs=args.refs,
-        duration=args.duration,
-        multi_shot=args.multi_shot,
-        report_dir=args.report_dir,
-        work_dir=work_dir,
-    ))
+    return asyncio.run(
+        run_with_backend(
+            provider=args.provider,
+            refs=args.refs,
+            duration=args.duration,
+            multi_shot=args.multi_shot,
+            report_dir=args.report_dir,
+            work_dir=work_dir,
+        )
+    )
 ```
 
 并删除旧的占位 `main`（原 Step 2 写的那个）。

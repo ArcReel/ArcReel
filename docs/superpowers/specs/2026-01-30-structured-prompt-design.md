@@ -178,6 +178,7 @@ Dialogue:
 ```python
 import yaml
 
+
 def image_prompt_to_yaml(image_prompt: dict, project_style: str) -> str:
     """
     将 imagePrompt 结构转换为 YAML 格式字符串
@@ -200,10 +201,7 @@ def image_prompt_to_yaml(image_prompt: dict, project_style: str) -> str:
 
 def video_prompt_to_yaml(video_prompt: dict) -> str:
     """将 videoPrompt 结构转换为 YAML 格式字符串"""
-    dialogue = [
-        {"Speaker": d["speaker"], "Line": d["line"]}
-        for d in video_prompt.get("dialogue", [])
-    ]
+    dialogue = [{"Speaker": d["speaker"], "Line": d["line"]} for d in video_prompt.get("dialogue", [])]
 
     ordered = {
         "Action": video_prompt["action"],

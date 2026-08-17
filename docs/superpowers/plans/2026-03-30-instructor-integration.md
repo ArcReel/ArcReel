@@ -92,6 +92,7 @@ git commit -m "chore: 添加 instructor 依赖，修正豆包模型 structured_o
 
 ```python
 """instructor_support 模块测试。"""
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -208,6 +209,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'lib.text_backends.inst
 
 ```python
 """Instructor 降级支持 — 为不支持原生结构化输出的模型提供 prompt 注入 + 解析 + 重试。"""
+
 from __future__ import annotations
 
 import instructor
@@ -327,15 +329,11 @@ class TestCapabilityAwareStructured:
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
             usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
         )
-        backend_with_structured._test_client.chat.completions.create = MagicMock(
-            return_value=mock_resp
-        )
+        backend_with_structured._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
 
         schema = {"type": "object", "properties": {"key": {"type": "string"}}}
         with patch("asyncio.to_thread", side_effect=lambda fn, **kw: fn(**kw)):
-            result = await backend_with_structured.generate(
-                TextGenerationRequest(prompt="gen", response_schema=schema)
-            )
+            result = await backend_with_structured.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert result.text == '{"key": "value"}'
         call_args = backend_with_structured._test_client.chat.completions.create.call_args
@@ -360,6 +358,7 @@ Expected: FAIL — `AttributeError: 'ArkTextBackend' object has no attribute '_s
 
 ```python
 """ArkTextBackend — 火山方舟文本生成后端。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -452,10 +451,13 @@ class ArkTextBackend:
                 self._client.chat.completions.create,
                 model=self._model,
                 messages=messages,
-                response_format={"type": "json_schema", "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                }},
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "response",
+                        "schema": schema,
+                    },
+                },
             )
             return self._parse_chat_response(response)
         else:

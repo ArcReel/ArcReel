@@ -61,6 +61,8 @@ ArcReel 现有 `lib/custom_provider/` 支持两种 `api_format`：`openai` 和 `
 ```python
 class CustomProvider:
     discovery_format: Mapped[str]  # "openai" | "google"
+
+
 class CustomProviderModel:
     endpoint: Mapped[str]  # ENDPOINT_REGISTRY key，如 "newapi-video"
 ```

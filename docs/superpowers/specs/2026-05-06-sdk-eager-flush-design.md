@@ -131,7 +131,12 @@ SSE reconnect (前端 reload)
 
 ```python
 def _is_buffer_duplicate(
-    self, msg, msg_type, transcript_uuids, tail_fps, history_messages,
+    self,
+    msg,
+    msg_type,
+    transcript_uuids,
+    tail_fps,
+    history_messages,
 ):
     # 1. UUID dedup
     uuid = msg.get("uuid")
@@ -148,8 +153,13 @@ def _is_buffer_duplicate(
 
 ```python
 def _is_buffer_duplicate(
-    self, msg, msg_type, transcript_uuids, tail_fps, history_messages,
-    buffer_real_user_texts: set[str],   # NEW
+    self,
+    msg,
+    msg_type,
+    transcript_uuids,
+    tail_fps,
+    history_messages,
+    buffer_real_user_texts: set[str],  # NEW
 ):
     # 1. UUID dedup（不变）
     uuid = msg.get("uuid")
@@ -162,7 +172,7 @@ def _is_buffer_duplicate(
             return True
         echo_text = self._extract_plain_user_content(msg)
         if echo_text and echo_text in buffer_real_user_texts:
-            return True   # NEW: echo 撞 buffer 内同文真实 user
+            return True  # NEW: echo 撞 buffer 内同文真实 user
 
     # 3. Content fingerprint dedup（不变）
     ...
@@ -231,6 +241,7 @@ import os
 logger = logging.getLogger("arcreel.session_store")
 
 _VALID_FLUSH_MODES = {"eager", "batched"}
+
 
 def session_store_flush_mode() -> str:
     """SDK ClaudeAgentOptions.session_store_flush 取值。"""

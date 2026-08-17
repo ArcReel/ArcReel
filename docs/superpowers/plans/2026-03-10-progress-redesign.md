@@ -85,22 +85,22 @@ python -m pytest tests/test_status_calculator.py::TestStatusCalculator::test_cal
 将 `lib/status_calculator.py:40-79` 中的返回值从：
 ```python
 return {
-    'scenes_count': total,
-    'status': status,
-    'duration_seconds': ...,
-    'storyboards_completed': storyboard_done,
-    'videos_completed': video_done
+    "scenes_count": total,
+    "status": status,
+    "duration_seconds": ...,
+    "storyboards_completed": storyboard_done,
+    "videos_completed": video_done,
 }
 ```
 
 改为：
 ```python
 return {
-    'scenes_count': total,
-    'status': status,
-    'duration_seconds': sum(i.get('duration_seconds', default_duration) for i in items),
-    'storyboards': {'total': total, 'completed': storyboard_done},
-    'videos': {'total': total, 'completed': video_done},
+    "scenes_count": total,
+    "status": status,
+    "duration_seconds": sum(i.get("duration_seconds", default_duration) for i in items),
+    "storyboards": {"total": total, "completed": storyboard_done},
+    "videos": {"total": total, "completed": video_done},
 }
 ```
 
@@ -109,11 +109,11 @@ return {
 ```python
 # 计算状态（不含 scripted，由 enrich_project 覆盖）
 if video_done == total and total > 0:
-    status = 'completed'
+    status = "completed"
 elif storyboard_done > 0 or video_done > 0:
-    status = 'in_production'
+    status = "in_production"
 else:
-    status = 'draft'
+    status = "draft"
 ```
 
 **Step 4: 运行确认通过**
@@ -174,10 +174,12 @@ def test_get_episode_script_status(self, tmp_path):
     calc3 = StatusCalculator(_FakePM(project_root, {}, {}))
     assert calc3._get_episode_script_status("demo", 3, "scripts/episode_3.json") == "none"
 
+
 def test_calculate_current_phase_setup(self, tmp_path):
     calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
     project_no_overview = {}
     assert calc.calculate_current_phase(project_no_overview, []) == "setup"
+
 
 def test_calculate_current_phase_worldbuilding(self, tmp_path):
     calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -188,6 +190,7 @@ def test_calculate_current_phase_worldbuilding(self, tmp_path):
     # 无集 → worldbuilding
     assert calc.calculate_current_phase(project, []) == "worldbuilding"
 
+
 def test_calculate_current_phase_scripting(self, tmp_path):
     calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
     project = {"overview": {"synopsis": "test"}}
@@ -197,6 +200,7 @@ def test_calculate_current_phase_scripting(self, tmp_path):
         {"script_status": "none"},
     ]
     assert calc.calculate_current_phase(project, episodes_stats) == "scripting"
+
 
 def test_calculate_current_phase_production_and_completed(self, tmp_path):
     calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -212,6 +216,7 @@ def test_calculate_current_phase_production_and_completed(self, tmp_path):
         {"script_status": "generated", "status": "completed"},
     ]
     assert calc.calculate_current_phase(project, episodes_stats_done) == "completed"
+
 
 def test_calculate_project_status(self, tmp_path):
     project_root = tmp_path / "projects"
@@ -247,9 +252,7 @@ def test_calculate_project_status(self, tmp_path):
     assert status["phase_progress"] == 1.0
     assert status["characters"] == {"total": 2, "completed": 1}
     assert status["clues"] == {"total": 1, "completed": 1}
-    assert status["episodes_summary"] == {
-        "total": 1, "scripted": 1, "in_production": 0, "completed": 1
-    }
+    assert status["episodes_summary"] == {"total": 1, "scripted": 1, "in_production": 0, "completed": 1}
 ```
 
 **Step 2: 运行确认失败**
@@ -269,52 +272,55 @@ def _get_episode_script_status(self, project_name: str, episode_num: int, script
     """判断单集剧本状态: 'generated' | 'segmented' | 'none'"""
     try:
         self.pm.load_script(project_name, script_file)
-        return 'generated'
+        return "generated"
     except FileNotFoundError:
         project_dir = self.pm.get_project_path(project_name)
-        draft_file = project_dir / f'drafts/episode_{episode_num}/step1_segments.md'
-        return 'segmented' if draft_file.exists() else 'none'
+        draft_file = project_dir / f"drafts/episode_{episode_num}/step1_segments.md"
+        return "segmented" if draft_file.exists() else "none"
+
 
 def calculate_current_phase(self, project: Dict, episodes_stats: List[Dict]) -> str:
     """根据项目和集状态推断当前阶段"""
-    if not project.get('overview'):
-        return 'setup'
+    if not project.get("overview"):
+        return "setup"
     if not episodes_stats:
-        return 'worldbuilding'
-    any_generated = any(s['script_status'] == 'generated' for s in episodes_stats)
-    all_generated = all(s['script_status'] == 'generated' for s in episodes_stats)
+        return "worldbuilding"
+    any_generated = any(s["script_status"] == "generated" for s in episodes_stats)
+    all_generated = all(s["script_status"] == "generated" for s in episodes_stats)
     if not any_generated:
-        return 'worldbuilding'
+        return "worldbuilding"
     if not all_generated:
-        return 'scripting'
-    all_completed = all(s['status'] == 'completed' for s in episodes_stats)
-    return 'completed' if all_completed else 'production'
+        return "scripting"
+    all_completed = all(s["status"] == "completed" for s in episodes_stats)
+    return "completed" if all_completed else "production"
+
 
 def _calculate_phase_progress(self, project: Dict, phase: str, episodes_stats: List[Dict]) -> float:
     """计算当前阶段完成率 0.0–1.0"""
-    if phase == 'setup':
+    if phase == "setup":
         # 有源文件 → 0.5；否则 0.0（概述完成才切换阶段，不会到 1.0）
-        project_dir = self.pm.get_project_path('_placeholder')  # 不用实际路径
+        project_dir = self.pm.get_project_path("_placeholder")  # 不用实际路径
         return 0.0  # setup 阶段不关注源文件，简化处理
-    if phase == 'worldbuilding':
-        chars = project.get('characters', {})
-        clues_major = [c for c in project.get('clues', {}).values() if c.get('importance') == 'major']
+    if phase == "worldbuilding":
+        chars = project.get("characters", {})
+        clues_major = [c for c in project.get("clues", {}).values() if c.get("importance") == "major"]
         total = len(chars) + len(clues_major)
         if total == 0:
             return 0.0
         # 需要文件系统检查，此处通过 episodes_stats 无法得到，返回 0.0 作为保守值
         return 0.0
-    if phase == 'scripting':
+    if phase == "scripting":
         total = len(episodes_stats)
         if total == 0:
             return 0.0
-        done = sum(1 for s in episodes_stats if s['script_status'] == 'generated')
+        done = sum(1 for s in episodes_stats if s["script_status"] == "generated")
         return done / total
-    if phase == 'production':
-        total_videos = sum(s.get('videos', {}).get('total', 0) for s in episodes_stats)
-        done_videos = sum(s.get('videos', {}).get('completed', 0) for s in episodes_stats)
+    if phase == "production":
+        total_videos = sum(s.get("videos", {}).get("total", 0) for s in episodes_stats)
+        done_videos = sum(s.get("videos", {}).get("completed", 0) for s in episodes_stats)
         return done_videos / total_videos if total_videos > 0 else 0.0
     return 1.0  # completed
+
 
 def calculate_project_status(self, project_name: str, project: Dict) -> Dict:
     """
@@ -326,61 +332,69 @@ def calculate_project_status(self, project_name: str, project: Dict) -> Dict:
     project_dir = self.pm.get_project_path(project_name)
 
     # 角色统计
-    chars = project.get('characters', {})
+    chars = project.get("characters", {})
     chars_total = len(chars)
     chars_done = sum(
-        1 for c in chars.values()
-        if c.get('character_sheet') and (project_dir / c['character_sheet']).exists()
+        1 for c in chars.values() if c.get("character_sheet") and (project_dir / c["character_sheet"]).exists()
     )
 
     # 线索统计（所有线索，不限 major）
-    clues = project.get('clues', {})
+    clues = project.get("clues", {})
     clues_total = len(clues)
-    clues_done = sum(
-        1 for c in clues.values()
-        if c.get('clue_sheet') and (project_dir / c['clue_sheet']).exists()
-    )
+    clues_done = sum(1 for c in clues.values() if c.get("clue_sheet") and (project_dir / c["clue_sheet"]).exists())
 
     # 每集状态
     episodes_stats = []
-    for ep in project.get('episodes', []):
-        script_file = ep.get('script_file', '')
-        episode_num = ep.get('episode', 0)
-        script_status = self._get_episode_script_status(project_name, episode_num, script_file) if script_file else 'none'
+    for ep in project.get("episodes", []):
+        script_file = ep.get("script_file", "")
+        episode_num = ep.get("episode", 0)
+        script_status = (
+            self._get_episode_script_status(project_name, episode_num, script_file) if script_file else "none"
+        )
 
-        if script_status == 'generated':
+        if script_status == "generated":
             try:
                 script = self.pm.load_script(project_name, script_file)
                 ep_stats = self.calculate_episode_stats(project_name, script)
                 # script 能加载说明是 generated，状态由 calculate_episode_stats 决定
                 # 但若无任何资源，状态应为 scripted（不是 draft）
-                if ep_stats['status'] == 'draft':
-                    ep_stats['status'] = 'scripted'
-                ep_stats['script_status'] = 'generated'
+                if ep_stats["status"] == "draft":
+                    ep_stats["status"] = "scripted"
+                ep_stats["script_status"] = "generated"
             except FileNotFoundError:
-                ep_stats = {'script_status': 'none', 'storyboards': {'total': 0, 'completed': 0},
-                            'videos': {'total': 0, 'completed': 0}, 'status': 'draft',
-                            'scenes_count': 0, 'duration_seconds': 0}
+                ep_stats = {
+                    "script_status": "none",
+                    "storyboards": {"total": 0, "completed": 0},
+                    "videos": {"total": 0, "completed": 0},
+                    "status": "draft",
+                    "scenes_count": 0,
+                    "duration_seconds": 0,
+                }
         else:
-            ep_stats = {'script_status': script_status, 'storyboards': {'total': 0, 'completed': 0},
-                        'videos': {'total': 0, 'completed': 0}, 'status': 'draft',
-                        'scenes_count': 0, 'duration_seconds': 0}
+            ep_stats = {
+                "script_status": script_status,
+                "storyboards": {"total": 0, "completed": 0},
+                "videos": {"total": 0, "completed": 0},
+                "status": "draft",
+                "scenes_count": 0,
+                "duration_seconds": 0,
+            }
         episodes_stats.append(ep_stats)
 
     phase = self.calculate_current_phase(project, episodes_stats)
     phase_progress = self._calculate_phase_progress(project, phase, episodes_stats)
 
     return {
-        'current_phase': phase,
-        'phase_progress': phase_progress,
-        'characters': {'total': chars_total, 'completed': chars_done},
-        'clues': {'total': clues_total, 'completed': clues_done},
-        'episodes_summary': {
-            'total': len(episodes_stats),
-            'scripted': sum(1 for s in episodes_stats if s['script_status'] == 'generated'),
-            'in_production': sum(1 for s in episodes_stats if s['status'] == 'in_production'),
-            'completed': sum(1 for s in episodes_stats if s['status'] == 'completed'),
-        }
+        "current_phase": phase,
+        "phase_progress": phase_progress,
+        "characters": {"total": chars_total, "completed": chars_done},
+        "clues": {"total": clues_total, "completed": clues_done},
+        "episodes_summary": {
+            "total": len(episodes_stats),
+            "scripted": sum(1 for s in episodes_stats if s["script_status"] == "generated"),
+            "in_production": sum(1 for s in episodes_stats if s["status"] == "in_production"),
+            "completed": sum(1 for s in episodes_stats if s["status"] == "completed"),
+        },
     }
 ```
 
@@ -436,34 +450,44 @@ def enrich_project(self, project_name: str, project: Dict) -> Dict:
     """
     # 计算每集明细（注入到 episode 对象）
     episodes_stats = []
-    for ep in project.get('episodes', []):
-        script_file = ep.get('script_file', '')
-        episode_num = ep.get('episode', 0)
-        script_status = self._get_episode_script_status(project_name, episode_num, script_file) if script_file else 'none'
+    for ep in project.get("episodes", []):
+        script_file = ep.get("script_file", "")
+        episode_num = ep.get("episode", 0)
+        script_status = (
+            self._get_episode_script_status(project_name, episode_num, script_file) if script_file else "none"
+        )
 
-        if script_status == 'generated':
+        if script_status == "generated":
             try:
                 script = self.pm.load_script(project_name, script_file)
                 ep_stats = self.calculate_episode_stats(project_name, script)
-                if ep_stats['status'] == 'draft':
-                    ep_stats['status'] = 'scripted'
-                ep_stats['script_status'] = 'generated'
+                if ep_stats["status"] == "draft":
+                    ep_stats["status"] = "scripted"
+                ep_stats["script_status"] = "generated"
             except FileNotFoundError:
-                ep_stats = {'script_status': 'none', 'status': 'missing',
-                            'storyboards': {'total': 0, 'completed': 0},
-                            'videos': {'total': 0, 'completed': 0},
-                            'scenes_count': 0, 'duration_seconds': 0}
+                ep_stats = {
+                    "script_status": "none",
+                    "status": "missing",
+                    "storyboards": {"total": 0, "completed": 0},
+                    "videos": {"total": 0, "completed": 0},
+                    "scenes_count": 0,
+                    "duration_seconds": 0,
+                }
         else:
-            ep_stats = {'script_status': script_status, 'status': 'draft',
-                        'storyboards': {'total': 0, 'completed': 0},
-                        'videos': {'total': 0, 'completed': 0},
-                        'scenes_count': 0, 'duration_seconds': 0}
+            ep_stats = {
+                "script_status": script_status,
+                "status": "draft",
+                "storyboards": {"total": 0, "completed": 0},
+                "videos": {"total": 0, "completed": 0},
+                "scenes_count": 0,
+                "duration_seconds": 0,
+            }
 
         ep.update(ep_stats)
         episodes_stats.append(ep_stats)
 
     # 计算项目状态
-    project['status'] = self.calculate_project_status(project_name, project)
+    project["status"] = self.calculate_project_status(project_name, project)
     return project
 ```
 
@@ -504,10 +528,16 @@ def test_enrich_project(self, tmp_path):
     }
     calc = StatusCalculator(_FakePM(project_root, project, {"episode_1.json": script}))
 
-    enriched = calc.enrich_project("demo", {**project, "episodes": [
-        {"episode": 1, "script_file": "scripts/episode_1.json"},
-        {"episode": 2, "script_file": "scripts/missing.json"},
-    ]})
+    enriched = calc.enrich_project(
+        "demo",
+        {
+            **project,
+            "episodes": [
+                {"episode": 1, "script_file": "scripts/episode_1.json"},
+                {"episode": 2, "script_file": "scripts/missing.json"},
+            ],
+        },
+    )
 
     assert "status" in enriched
     assert enriched["status"]["current_phase"] == "scripting"
@@ -560,14 +590,16 @@ git commit -m "refactor(status): rewrite enrich_project and remove calculate_pro
 progress = calculator.calculate_project_progress(name)
 current_phase = calculator.calculate_current_phase(progress)
 
-projects.append({
-    "name": name,
-    "title": project.get("title", name),
-    "style": project.get("style", ""),
-    "thumbnail": thumbnail,
-    "progress": progress,
-    "current_phase": current_phase
-})
+projects.append(
+    {
+        "name": name,
+        "title": project.get("title", name),
+        "style": project.get("style", ""),
+        "thumbnail": thumbnail,
+        "progress": progress,
+        "current_phase": current_phase,
+    }
+)
 ```
 
 改为：
@@ -575,13 +607,15 @@ projects.append({
 ```python
 status = calculator.calculate_project_status(name, project)
 
-projects.append({
-    "name": name,
-    "title": project.get("title", name),
-    "style": project.get("style", ""),
-    "thumbnail": thumbnail,
-    "status": status,
-})
+projects.append(
+    {
+        "name": name,
+        "title": project.get("title", name),
+        "style": project.get("style", ""),
+        "thumbnail": thumbnail,
+        "status": status,
+    }
+)
 ```
 
 同时更新没有 `project.json` 的降级情况（约 line 218-226）：
@@ -607,14 +641,7 @@ projects.append({
 以及 error 情况（约 line 230-238）：
 
 ```python
-projects.append({
-    "name": name,
-    "title": name,
-    "style": "",
-    "thumbnail": None,
-    "status": {},
-    "error": str(e)
-})
+projects.append({"name": name, "title": name, "style": "", "thumbnail": None, "status": {}, "error": str(e)})
 ```
 
 **Step 2: 运行全量测试**

@@ -266,9 +266,7 @@ class TestOpenAITextBackend:
 
     async def test_generate_plain_text(self):
         mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_make_mock_response("Test output", 15, 8)
-        )
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("Test output", 15, 8))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.text_backends.openai import OpenAITextBackend
@@ -291,9 +289,7 @@ class TestOpenAITextBackend:
 
     async def test_generate_with_system_prompt(self):
         mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_make_mock_response("Response")
-        )
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("Response"))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.text_backends.openai import OpenAITextBackend
@@ -312,9 +308,7 @@ class TestOpenAITextBackend:
 
     async def test_generate_with_vision(self, tmp_path):
         mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_make_mock_response("I see a cat")
-        )
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("I see a cat"))
 
         # 创建假图片文件
         img_path = tmp_path / "test.png"
@@ -342,9 +336,7 @@ class TestOpenAITextBackend:
     async def test_generate_structured_output(self):
         schema_response = json.dumps({"name": "Alice", "age": 30})
         mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_make_mock_response(schema_response)
-        )
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.text_backends.openai import OpenAITextBackend
@@ -352,7 +344,10 @@ class TestOpenAITextBackend:
             backend = OpenAITextBackend(api_key="test-key")
             request = TextGenerationRequest(
                 prompt="Extract info",
-                response_schema={"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}},
+                response_schema={
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+                },
             )
             result = await backend.generate(request)
 
@@ -623,9 +618,7 @@ class TestOpenAIImageBackend:
         """T2I 路径应调用 images.generate()。"""
         b64_data = base64.b64encode(b"fake-png-data").decode()
         mock_client = AsyncMock()
-        mock_client.images.generate = AsyncMock(
-            return_value=_make_mock_image_response(b64_data)
-        )
+        mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
@@ -649,16 +642,14 @@ class TestOpenAIImageBackend:
         call_kwargs = mock_client.images.generate.call_args[1]
         assert call_kwargs["model"] == "gpt-image-1.5"
         assert call_kwargs["size"] == "1024x1792"  # 9:16
-        assert call_kwargs["quality"] == "medium"   # 1K
+        assert call_kwargs["quality"] == "medium"  # 1K
         assert call_kwargs["response_format"] == "b64_json"
 
     async def test_image_to_image(self, tmp_path: Path):
         """I2I 路径应调用 images.edit()。"""
         b64_data = base64.b64encode(b"edited-image").decode()
         mock_client = AsyncMock()
-        mock_client.images.edit = AsyncMock(
-            return_value=_make_mock_image_response(b64_data)
-        )
+        mock_client.images.edit = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         # 创建参考图
         ref_path = tmp_path / "ref.png"
@@ -685,9 +676,7 @@ class TestOpenAIImageBackend:
         """验证 aspect_ratio → size 映射。"""
         b64_data = base64.b64encode(b"img").decode()
         mock_client = AsyncMock()
-        mock_client.images.generate = AsyncMock(
-            return_value=_make_mock_image_response(b64_data)
-        )
+        mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
@@ -697,7 +686,9 @@ class TestOpenAIImageBackend:
             for aspect, expected_size in [("16:9", "1792x1024"), ("1:1", "1024x1024"), ("9:16", "1024x1792")]:
                 output_path = tmp_path / f"output_{aspect.replace(':', '_')}.png"
                 request = ImageGenerationRequest(
-                    prompt="test", output_path=output_path, aspect_ratio=aspect,
+                    prompt="test",
+                    output_path=output_path,
+                    aspect_ratio=aspect,
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.images.generate.call_args[1]
@@ -707,9 +698,7 @@ class TestOpenAIImageBackend:
         """验证 image_size → quality 映射。"""
         b64_data = base64.b64encode(b"img").decode()
         mock_client = AsyncMock()
-        mock_client.images.generate = AsyncMock(
-            return_value=_make_mock_image_response(b64_data)
-        )
+        mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
@@ -719,7 +708,9 @@ class TestOpenAIImageBackend:
             for img_size, expected_quality in [("512PX", "low"), ("1K", "medium"), ("2K", "high"), ("4K", "high")]:
                 output_path = tmp_path / f"output_{img_size}.png"
                 request = ImageGenerationRequest(
-                    prompt="test", output_path=output_path, image_size=img_size,
+                    prompt="test",
+                    output_path=output_path,
+                    image_size=img_size,
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.images.generate.call_args[1]
@@ -955,12 +946,8 @@ class TestOpenAIVideoBackend:
     async def test_text_to_video(self, tmp_path: Path):
         video_data = b"mp4-video-content"
         mock_client = AsyncMock()
-        mock_client.videos.create_and_poll = AsyncMock(
-            return_value=_make_mock_video(seconds="8")
-        )
-        mock_client.videos.download_content = AsyncMock(
-            return_value=_make_mock_content(video_data)
-        )
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="8"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(video_data))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -994,12 +981,8 @@ class TestOpenAIVideoBackend:
         start_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
         mock_client = AsyncMock()
-        mock_client.videos.create_and_poll = AsyncMock(
-            return_value=_make_mock_video(seconds="4")
-        )
-        mock_client.videos.download_content = AsyncMock(
-            return_value=_make_mock_content(b"video")
-        )
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="4"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"video"))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -1044,12 +1027,8 @@ class TestOpenAIVideoBackend:
     async def test_duration_mapping(self, tmp_path: Path):
         """验证 duration_seconds → VideoSeconds 映射。"""
         mock_client = AsyncMock()
-        mock_client.videos.create_and_poll = AsyncMock(
-            return_value=_make_mock_video(seconds="4")
-        )
-        mock_client.videos.download_content = AsyncMock(
-            return_value=_make_mock_content(b"v")
-        )
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="4"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -1059,7 +1038,9 @@ class TestOpenAIVideoBackend:
             for seconds, expected in [(3, "4"), (4, "4"), (5, "8"), (8, "8"), (10, "12"), (15, "12")]:
                 output_path = tmp_path / f"output_{seconds}.mp4"
                 request = VideoGenerationRequest(
-                    prompt="test", output_path=output_path, duration_seconds=seconds,
+                    prompt="test",
+                    output_path=output_path,
+                    duration_seconds=seconds,
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.videos.create_and_poll.call_args[1]
@@ -1068,12 +1049,8 @@ class TestOpenAIVideoBackend:
     async def test_size_mapping(self, tmp_path: Path):
         """验证 aspect_ratio → VideoSize 映射。"""
         mock_client = AsyncMock()
-        mock_client.videos.create_and_poll = AsyncMock(
-            return_value=_make_mock_video(seconds="4")
-        )
-        mock_client.videos.download_content = AsyncMock(
-            return_value=_make_mock_content(b"v")
-        )
+        mock_client.videos.create_and_poll = AsyncMock(return_value=_make_mock_video(seconds="4"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
 
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -1083,7 +1060,9 @@ class TestOpenAIVideoBackend:
             for aspect, expected_size in [("9:16", "720x1280"), ("16:9", "1280x720")]:
                 output_path = tmp_path / f"output_{aspect.replace(':', '_')}.mp4"
                 request = VideoGenerationRequest(
-                    prompt="test", output_path=output_path, aspect_ratio=aspect,
+                    prompt="test",
+                    output_path=output_path,
+                    aspect_ratio=aspect,
                 )
                 await backend.generate(request)
                 call_kwargs = mock_client.videos.create_and_poll.call_args[1]
@@ -1319,19 +1298,28 @@ class TestOpenAICost:
         calculator = CostCalculator()
         # 文本
         amount, currency = calculator.calculate_cost(
-            "openai", "text", input_tokens=500_000, output_tokens=100_000,
+            "openai",
+            "text",
+            input_tokens=500_000,
+            output_tokens=100_000,
         )
         assert amount == pytest.approx(0.375 + 0.45)
 
         # 图片
         amount, currency = calculator.calculate_cost(
-            "openai", "image", model="gpt-image-1.5", quality="high",
+            "openai",
+            "image",
+            model="gpt-image-1.5",
+            quality="high",
         )
         assert amount == pytest.approx(0.133)
 
         # 视频
         amount, currency = calculator.calculate_cost(
-            "openai", "video", duration_seconds=12, model="sora-2",
+            "openai",
+            "video",
+            duration_seconds=12,
+            model="sora-2",
         )
         assert amount == pytest.approx(1.20)
 ```
@@ -1372,38 +1360,39 @@ Expected: FAIL — `AttributeError: 'CostCalculator' object has no attribute 'ca
 添加计算方法（在 `calculate_grok_video_cost` 之后）：
 
 ```python
-    def calculate_openai_image_cost(
-        self,
-        model: str | None = None,
-        quality: str = "medium",
-    ) -> tuple[float, str]:
-        """
-        计算 OpenAI 图片生成费用。
+def calculate_openai_image_cost(
+    self,
+    model: str | None = None,
+    quality: str = "medium",
+) -> tuple[float, str]:
+    """
+    计算 OpenAI 图片生成费用。
 
-        Returns:
-            (amount, currency) — 金额和币种 (USD)
-        """
-        model = model or self.DEFAULT_OPENAI_IMAGE_MODEL
-        model_costs = self.OPENAI_IMAGE_COST.get(model, self.OPENAI_IMAGE_COST[self.DEFAULT_OPENAI_IMAGE_MODEL])
-        per_image = model_costs.get(quality, model_costs.get("medium", 0.034))
-        return per_image, "USD"
+    Returns:
+        (amount, currency) — 金额和币种 (USD)
+    """
+    model = model or self.DEFAULT_OPENAI_IMAGE_MODEL
+    model_costs = self.OPENAI_IMAGE_COST.get(model, self.OPENAI_IMAGE_COST[self.DEFAULT_OPENAI_IMAGE_MODEL])
+    per_image = model_costs.get(quality, model_costs.get("medium", 0.034))
+    return per_image, "USD"
 
-    def calculate_openai_video_cost(
-        self,
-        duration_seconds: int,
-        model: str | None = None,
-        resolution: str = "720p",
-    ) -> tuple[float, str]:
-        """
-        计算 OpenAI 视频生成费用。
 
-        Returns:
-            (amount, currency) — 金额和币种 (USD)
-        """
-        model = model or self.DEFAULT_OPENAI_VIDEO_MODEL
-        model_costs = self.OPENAI_VIDEO_COST.get(model, self.OPENAI_VIDEO_COST[self.DEFAULT_OPENAI_VIDEO_MODEL])
-        per_second = model_costs.get(resolution.lower(), next(iter(model_costs.values())))
-        return duration_seconds * per_second, "USD"
+def calculate_openai_video_cost(
+    self,
+    duration_seconds: int,
+    model: str | None = None,
+    resolution: str = "720p",
+) -> tuple[float, str]:
+    """
+    计算 OpenAI 视频生成费用。
+
+    Returns:
+        (amount, currency) — 金额和币种 (USD)
+    """
+    model = model or self.DEFAULT_OPENAI_VIDEO_MODEL
+    model_costs = self.OPENAI_VIDEO_COST.get(model, self.OPENAI_VIDEO_COST[self.DEFAULT_OPENAI_VIDEO_MODEL])
+    per_second = model_costs.get(resolution.lower(), next(iter(model_costs.values())))
+    return duration_seconds * per_second, "USD"
 ```
 
 更新 `_TEXT_COST_TABLES` 添加 OpenAI 入口：

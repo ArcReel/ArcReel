@@ -62,7 +62,7 @@
 ```python
 STYLE_TEMPLATES: dict[str, dict] = {
     "live_premium_drama": {
-        "category": "live",    # "live" | "anim"
+        "category": "live",  # "live" | "anim"
         "prompt": "画风：真人电视剧风格，精品短剧画风，大师级构图",
     },
     # ... 共 36 条
@@ -73,6 +73,7 @@ LEGACY_STYLE_MAP = {
     "Anime": "anim_kyoto",
     "3D Animation": "anim_3d_cg",
 }
+
 
 def resolve_template_prompt(template_id: str) -> str:
     """查表取 prompt，未知 id 抛 KeyError（交给调用方转成 HTTPException）。"""

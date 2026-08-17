@@ -76,12 +76,7 @@ projects/.agent_data/
 ### ClaudeAgentOptions 配置
 
 ```python
-options = ClaudeAgentOptions(
-    cwd=project_path,
-    extra_args={
-        "--transcript-dir": str(AGENT_DATA_DIR / "transcripts")
-    }
-)
+options = ClaudeAgentOptions(cwd=project_path, extra_args={"--transcript-dir": str(AGENT_DATA_DIR / "transcripts")})
 ```
 
 ### SessionMetaStore 表结构
@@ -209,7 +204,7 @@ class TranscriptReader:
 ```python
 # POST /sessions/send
 # 省略 session_id 创建新会话；传入则向既有会话追加
-Request:  {"content": "用户输入", "images": [], "session_id": null}
+Request: {"content": "用户输入", "images": [], "session_id": null}
 Response: {"status": "accepted", "session_id": "uuid"}  # 立即返回，消息通过 SSE 推送
 
 # GET /sessions/{id}/stream
@@ -298,16 +293,14 @@ const connectStream = useCallback((sessionId) => {
 async def shutdown():
     await session_manager.shutdown_gracefully()
 
+
 class SessionManager:
     async def shutdown_gracefully(self):
         for session_id, managed in self.sessions.items():
             if managed.status == "running":
                 # 1. 等待当前 turn 完成（最多 30 秒）
                 try:
-                    await asyncio.wait_for(
-                        managed.current_turn_task,
-                        timeout=30
-                    )
+                    await asyncio.wait_for(managed.current_turn_task, timeout=30)
                 except asyncio.TimeoutError:
                     # 2. 超时则中断
                     await managed.client.interrupt()

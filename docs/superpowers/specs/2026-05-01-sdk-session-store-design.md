@@ -95,16 +95,17 @@ from lib.db.base import Base, TimestampMixin, UserOwnedMixin
 
 class AgentSessionEntry(TimestampMixin, UserOwnedMixin, Base):
     """SDK transcript 镜像，一行一条 SessionStoreEntry。"""
+
     __tablename__ = "agent_session_entries"
 
-    project_key: Mapped[str]      = mapped_column(String, nullable=False)
-    session_id:  Mapped[str]      = mapped_column(String, nullable=False)
-    subpath:     Mapped[str]      = mapped_column(String, nullable=False, server_default="")
-    seq:         Mapped[int]      = mapped_column(BigInteger, nullable=False)
-    uuid:        Mapped[str|None] = mapped_column(String, nullable=True)
-    entry_type:  Mapped[str]      = mapped_column(String, nullable=False)
-    payload:     Mapped[dict]     = mapped_column(JSON, nullable=False)
-    mtime_ms:    Mapped[int]      = mapped_column(BigInteger, nullable=False)  # 与 summaries.mtime_ms 同源
+    project_key: Mapped[str] = mapped_column(String, nullable=False)
+    session_id: Mapped[str] = mapped_column(String, nullable=False)
+    subpath: Mapped[str] = mapped_column(String, nullable=False, server_default="")
+    seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    uuid: Mapped[str | None] = mapped_column(String, nullable=True)
+    entry_type: Mapped[str] = mapped_column(String, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    mtime_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)  # 与 summaries.mtime_ms 同源
     # created_at / updated_at  ← TimestampMixin（调试可读时间）
     # user_id                  ← UserOwnedMixin (FK users.id ON DELETE CASCADE)
 
@@ -113,7 +114,10 @@ class AgentSessionEntry(TimestampMixin, UserOwnedMixin, Base):
         # 幂等键：SDK 协议规定 uuid 唯一时按 uuid upsert。NULL 不参与去重。
         Index(
             "uq_agent_entries_uuid",
-            "project_key", "session_id", "subpath", "uuid",
+            "project_key",
+            "session_id",
+            "subpath",
+            "uuid",
             unique=True,
             postgresql_where=text("uuid IS NOT NULL"),
             sqlite_where=text("uuid IS NOT NULL"),
@@ -124,12 +128,13 @@ class AgentSessionEntry(TimestampMixin, UserOwnedMixin, Base):
 
 class AgentSessionSummary(TimestampMixin, UserOwnedMixin, Base):
     """SDK fold_session_summary() 维护的快路径摘要。"""
+
     __tablename__ = "agent_session_summaries"
 
-    project_key: Mapped[str]  = mapped_column(String, primary_key=True)
-    session_id:  Mapped[str]  = mapped_column(String, primary_key=True)
-    mtime_ms:    Mapped[int]  = mapped_column(BigInteger, nullable=False)
-    data:        Mapped[dict] = mapped_column(JSON, nullable=False)  # 不透明，verbatim
+    project_key: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String, primary_key=True)
+    mtime_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    data: Mapped[dict] = mapped_column(JSON, nullable=False)  # 不透明，verbatim
     # created_at / updated_at / user_id  ← mixins
 ```
 
@@ -268,7 +273,8 @@ list_subkeys(key)
 helper 会查不到 SDK 写入的数据。
 
 ```python
-from claude_agent_sdk import project_key_for_directory   # 公开 API
+from claude_agent_sdk import project_key_for_directory  # 公开 API
+
 
 def make_project_key(project_cwd: Path | str) -> str:
     return project_key_for_directory(str(project_cwd))
@@ -362,7 +368,7 @@ class SdkTranscriptAdapter:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_schema()
-    await migrate_local_transcripts_to_store()   # 新增
+    await migrate_local_transcripts_to_store()  # 新增
     await start_generation_worker()
     yield
     ...
@@ -474,6 +480,7 @@ SDK 把 mirror 失败包成 `SystemMessage(subtype="mirror_error")` 注入消息
 def _is_mirror_error(event: dict) -> bool:
     return event.get("type") == "system" and event.get("subtype") == "mirror_error"
 
+
 # 处理：渲染为前端可见的告警 turn（不是 fatal，会话仍能继续）
 ```
 
@@ -547,6 +554,7 @@ INFO  migrate: imported=<i> skipped=<s> failed=<f>
 @pytest.fixture
 async def session_store(async_session_factory):
     return DbSessionStore(async_session_factory, user_id="test-user")
+
 
 @pytest.fixture
 async def fake_local_jsonl(tmp_path):

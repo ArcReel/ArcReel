@@ -236,6 +236,7 @@ _TASK_MESSAGE_SUBTYPES = {
     "TaskNotificationMessage": "task_notification",
 }
 
+
 def _message_to_dict(self, message):
     msg_dict = self._serialize_value(message)
     if isinstance(msg_dict, dict) and "type" not in msg_dict:
@@ -260,9 +261,9 @@ task_progress_block = {
     "task_id": msg.get("task_id"),
     "status": msg.get("subtype"),  # task_started | task_progress | task_notification
     "description": msg.get("description", ""),
-    "summary": msg.get("summary"),       # TaskNotificationMessage
-    "task_status": msg.get("status"),     # completed | failed | stopped
-    "usage": msg.get("usage"),            # TaskUsage dict
+    "summary": msg.get("summary"),  # TaskNotificationMessage
+    "task_status": msg.get("status"),  # completed | failed | stopped
+    "usage": msg.get("usage"),  # TaskUsage dict
 }
 ```
 

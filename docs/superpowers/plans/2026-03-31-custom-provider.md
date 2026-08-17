@@ -118,14 +118,13 @@ async def generate(self, request: TextGenerationRequest) -> TextGenerationResult
 def _is_schema_error(exc: Exception) -> bool:
     """判断异常是否为 schema 不兼容错误（应尝试 Instructor 降级）。"""
     from openai import BadRequestError
+
     if isinstance(exc, BadRequestError):
         return True
     return False
 
 
-async def _instructor_fallback(
-    client, model: str, request: TextGenerationRequest
-) -> TextGenerationResult:
+async def _instructor_fallback(client, model: str, request: TextGenerationRequest) -> TextGenerationResult:
     """使用 Instructor 库解析结构化输出。"""
     import instructor
 
@@ -320,14 +319,18 @@ from lib.video_backends.openai import _resolve_size
 def test_sora2_720p_9_16():
     assert _resolve_size("720p", "9:16") == "720x1280"
 
+
 def test_sora2_720p_16_9():
     assert _resolve_size("720p", "16:9") == "1280x720"
+
 
 def test_sora2pro_1080p_9_16():
     assert _resolve_size("1080p", "9:16") == "1080x1920"
 
+
 def test_sora2pro_1080p_16_9():
     assert _resolve_size("1080p", "16:9") == "1920x1080"
+
 
 def test_default_fallback():
     assert _resolve_size("unknown", "unknown") == "720x1280"
@@ -637,7 +640,10 @@ async def test_list_providers(repo, session):
 
 async def test_delete_provider_cascades_models(repo, session):
     provider = await repo.create_provider(
-        "Test", "openai", "https://test.com", "sk-test",
+        "Test",
+        "openai",
+        "https://test.com",
+        "sk-test",
         models=[{"model_id": "m1", "display_name": "M1", "media_type": "text", "is_default": True}],
     )
     await session.flush()
@@ -649,7 +655,10 @@ async def test_delete_provider_cascades_models(repo, session):
 
 async def test_update_model_price(repo, session):
     provider = await repo.create_provider(
-        "Test", "openai", "https://test.com", "sk-test",
+        "Test",
+        "openai",
+        "https://test.com",
+        "sk-test",
         models=[{"model_id": "m1", "display_name": "M1", "media_type": "text", "is_default": True}],
     )
     await session.flush()
@@ -663,7 +672,10 @@ async def test_update_model_price(repo, session):
 
 async def test_get_enabled_models_by_media_type(repo, session):
     provider = await repo.create_provider(
-        "Test", "openai", "https://test.com", "sk-test",
+        "Test",
+        "openai",
+        "https://test.com",
+        "sk-test",
         models=[
             {"model_id": "t1", "display_name": "T1", "media_type": "text", "is_default": True},
             {"model_id": "v1", "display_name": "V1", "media_type": "video", "is_default": True},
@@ -754,12 +766,8 @@ class CustomProviderRepository:
                 setattr(provider, key, value)
 
     async def delete_provider(self, provider_id: int) -> None:
-        await self.session.execute(
-            delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id)
-        )
-        await self.session.execute(
-            delete(CustomProvider).where(CustomProvider.id == provider_id)
-        )
+        await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id))
+        await self.session.execute(delete(CustomProvider).where(CustomProvider.id == provider_id))
 
     async def list_models(self, provider_id: int) -> list[CustomProviderModel]:
         stmt = (
@@ -771,9 +779,7 @@ class CustomProviderRepository:
         return list(result.scalars())
 
     async def replace_models(self, provider_id: int, models: list[dict]) -> list[CustomProviderModel]:
-        await self.session.execute(
-            delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id)
-        )
+        await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id))
         result = []
         for m in models:
             model = CustomProviderModel(
@@ -802,9 +808,7 @@ class CustomProviderRepository:
                 setattr(model, key, value)
 
     async def delete_model(self, model_id: int) -> None:
-        await self.session.execute(
-            delete(CustomProviderModel).where(CustomProviderModel.id == model_id)
-        )
+        await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.id == model_id))
 
     async def list_enabled_models_by_media_type(self, media_type: str) -> list[CustomProviderModel]:
         stmt = (
@@ -1256,13 +1260,15 @@ async def _discover_openai(base_url: str, api_key: str) -> list[dict]:
         is_default = media_type not in defaults_set
         if is_default:
             defaults_set.add(media_type)
-        result.append({
-            "model_id": m.id,
-            "display_name": m.id,
-            "media_type": media_type,
-            "is_default": is_default,
-            "is_enabled": True,
-        })
+        result.append(
+            {
+                "model_id": m.id,
+                "display_name": m.id,
+                "media_type": media_type,
+                "is_default": is_default,
+                "is_enabled": True,
+            }
+        )
     return result
 
 
@@ -1283,13 +1289,15 @@ async def _discover_google(base_url: str, api_key: str) -> list[dict]:
         is_default = media_type not in defaults_set
         if is_default:
             defaults_set.add(media_type)
-        result.append({
-            "model_id": model_id,
-            "display_name": getattr(m, "display_name", model_id),
-            "media_type": media_type,
-            "is_default": is_default,
-            "is_enabled": True,
-        })
+        result.append(
+            {
+                "model_id": model_id,
+                "display_name": getattr(m, "display_name", model_id),
+                "media_type": media_type,
+                "is_default": is_default,
+                "is_enabled": True,
+            }
+        )
     return result
 
 
@@ -1348,8 +1356,11 @@ def test_custom_text_cost():
 
     with patch.object(calc, "_get_custom_model_price", return_value=mock_model):
         amount, currency = calc.calculate_cost(
-            "custom-3", "text", model="deepseek-v3",
-            input_tokens=1000, output_tokens=500,
+            "custom-3",
+            "text",
+            model="deepseek-v3",
+            input_tokens=1000,
+            output_tokens=500,
         )
     assert currency == "USD"
     assert abs(amount - (1000 * 1.0 + 500 * 2.0) / 1_000_000) < 0.0001
@@ -1363,7 +1374,9 @@ def test_custom_video_cost():
 
     with patch.object(calc, "_get_custom_model_price", return_value=mock_model):
         amount, currency = calc.calculate_cost(
-            "custom-3", "video", model="kling-v3",
+            "custom-3",
+            "video",
+            model="kling-v3",
             duration_seconds=10,
         )
     assert currency == "CNY"
@@ -1374,8 +1387,11 @@ def test_custom_cost_null_price_returns_zero():
     calc = CostCalculator()
     with patch.object(calc, "_get_custom_model_price", return_value=None):
         amount, currency = calc.calculate_cost(
-            "custom-3", "text", model="llama3",
-            input_tokens=1000, output_tokens=500,
+            "custom-3",
+            "text",
+            model="llama3",
+            input_tokens=1000,
+            output_tokens=500,
         )
     assert amount == 0.0
 ```
@@ -1399,6 +1415,7 @@ def _get_custom_model_price(self, provider: str, model: str):
     async def _query():
         async with safe_session_factory() as session:
             from sqlalchemy import select
+
             provider_db_id = int(provider.removeprefix("custom-"))
             stmt = select(CustomProviderModel).where(
                 CustomProviderModel.provider_id == provider_db_id,
@@ -1414,6 +1431,7 @@ def _get_custom_model_price(self, provider: str, model: str):
 
     if loop and loop.is_running():
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(asyncio.run, _query()).result()
     return asyncio.run(_query())
@@ -1424,8 +1442,11 @@ def _get_custom_model_price(self, provider: str, model: str):
 ```python
 if provider.startswith("custom-"):
     return self._calculate_custom_cost(
-        provider, call_type, model=model,
-        input_tokens=input_tokens, output_tokens=output_tokens,
+        provider,
+        call_type,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         duration_seconds=duration_seconds,
     )
 
@@ -1436,7 +1457,10 @@ return 0.0, "USD"
 
 ```python
 def _calculate_custom_cost(
-    self, provider: str, call_type: str, *,
+    self,
+    provider: str,
+    call_type: str,
+    *,
     model: str | None = None,
     input_tokens: int | None = None,
     output_tokens: int | None = None,
@@ -1470,6 +1494,7 @@ async def _auto_resolve_backend(self, svc, media_type):
 
     # 查询自定义供应商
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
     async with self._session_factory() as session:
         repo = CustomProviderRepository(session)
         models = await repo.list_enabled_models_by_media_type(media_type)
@@ -1488,12 +1513,13 @@ async def _auto_resolve_backend(self, svc, media_type):
 async def create_text_backend_for_task(task_type, project_name=None):
     resolver = ConfigResolver(async_session_factory)
     provider_id, model_id = await resolver.text_backend_for_task(task_type, project_name)
-    
+
     # 自定义供应商走独立路径
     if provider_id.startswith("custom-"):
         from lib.custom_provider.factory import create_custom_backend
         from lib.db import async_session_factory as sf
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
         async with sf() as session:
             repo = CustomProviderRepository(session)
             db_id = int(provider_id.removeprefix("custom-"))
@@ -1561,9 +1587,11 @@ async def app_with_db():
 
     # Override DB dependency
     from lib.db import get_async_session
+
     async def override_session():
         async with factory() as session:
             yield session
+
     app.dependency_overrides[get_async_session] = override_session
 
     yield app, factory
@@ -1679,6 +1707,7 @@ async def test_build_options_includes_custom_models(session):
     await session.flush()
 
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
     repo = CustomProviderRepository(session)
     text_models = await repo.list_enabled_models_by_media_type("text")
     assert len(text_models) == 1
@@ -1696,6 +1725,7 @@ async def _build_options(svc: ConfigService) -> dict[str, list[str]]:
     # 追加自定义供应商的模型
     from lib.db import async_session_factory
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
     async with async_session_factory() as session:
         repo = CustomProviderRepository(session)
         providers = await repo.list_providers()

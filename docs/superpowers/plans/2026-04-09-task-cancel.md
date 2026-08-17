@@ -147,6 +147,7 @@ async def test_cancel_task_cascades_to_dependents(self, db_session):
     assert dep_task["status"] == "cancelled"
     assert dep_task["cancelled_by"] == "cascade"
 
+
 async def test_cancel_running_task_rejected(self, db_session):
     repo = TaskRepository(db_session)
 
@@ -162,6 +163,7 @@ async def test_cancel_running_task_rejected(self, db_session):
 
     with pytest.raises(ValueError, match="只有排队中的任务可以取消"):
         await repo.cancel_task(task["task_id"])
+
 
 async def test_cancel_preview(self, db_session):
     repo = TaskRepository(db_session)
@@ -188,6 +190,7 @@ async def test_cancel_preview(self, db_session):
     assert preview["task"]["task_id"] == first["task_id"]
     assert len(preview["cascaded"]) == 1
     assert preview["cascaded"][0]["task_id"] == second["task_id"]
+
 
 async def test_cancel_all_queued(self, db_session):
     repo = TaskRepository(db_session)
@@ -217,6 +220,7 @@ async def test_cancel_all_queued(self, db_session):
 
     task = await repo.get(t2["task_id"])
     assert task["status"] == "cancelled"
+
 
 async def test_get_stats_includes_cancelled(self, db_session):
     repo = TaskRepository(db_session)
@@ -263,6 +267,7 @@ async def get_cancel_preview(self, task_id: str) -> dict[str, Any]:
 
     cascaded = await self._collect_queued_dependents(task_id)
     return {"task": task_summary, "cascaded": cascaded}
+
 
 async def _collect_queued_dependents(self, task_id: str) -> list[dict[str, Any]]:
     """递归收集依赖于 task_id 的所有 queued 任务摘要。"""
@@ -319,6 +324,7 @@ async def cancel_task(self, task_id: str) -> dict[str, Any]:
     await self.session.commit()
     return {"cancelled": cancelled, "skipped_running": skipped_running}
 
+
 async def _mark_cancelled(self, task_id: str, *, cancelled_by: str) -> dict[str, Any] | None:
     """将一个 queued 任务标记为 cancelled。仅当状态仍为 queued 时生效。"""
     now = utc_now()
@@ -349,6 +355,7 @@ async def _mark_cancelled(self, task_id: str, *, cancelled_by: str) -> dict[str,
     )
     return task_data
 
+
 async def _cascade_cancel_dependents(
     self,
     task_id: str,
@@ -357,9 +364,7 @@ async def _cascade_cancel_dependents(
 ) -> None:
     """递归取消依赖于 task_id 的所有 queued 任务。"""
     result = await self.session.execute(
-        select(Task.task_id, Task.status)
-        .where(Task.dependency_task_id == task_id)
-        .order_by(Task.queued_at.asc())
+        select(Task.task_id, Task.status).where(Task.dependency_task_id == task_id).order_by(Task.queued_at.asc())
     )
     for row in result.all():
         dep_id, dep_status = row[0], row[1]
@@ -388,11 +393,10 @@ async def _cascade_cancel_dependents(
 async def get_cancel_all_preview(self, project_name: str) -> int:
     """返回项目中当前 queued 状态的任务数量。"""
     result = await self.session.execute(
-        select(func.count())
-        .select_from(Task)
-        .where(Task.project_name == project_name, Task.status == "queued")
+        select(func.count()).select_from(Task).where(Task.project_name == project_name, Task.status == "queued")
     )
     return result.scalar_one()
+
 
 async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
     """取消项目中所有 queued 任务。
@@ -401,16 +405,13 @@ async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
     """
     # 先统计 running 数量（用于计算 skipped）
     running_result = await self.session.execute(
-        select(func.count())
-        .select_from(Task)
-        .where(Task.project_name == project_name, Task.status == "running")
+        select(func.count()).select_from(Task).where(Task.project_name == project_name, Task.status == "running")
     )
     running_count = running_result.scalar_one()
 
     # 收集要取消的任务 ID 列表（用于写事件）
     queued_result = await self.session.execute(
-        select(Task)
-        .where(Task.project_name == project_name, Task.status == "queued")
+        select(Task).where(Task.project_name == project_name, Task.status == "queued")
     )
     queued_tasks = list(queued_result.scalars().all())
 
@@ -498,16 +499,25 @@ async def test_cancel_task(session_factory):
     assert len(cancel_result["cancelled"]) == 1
     assert cancel_result["cancelled"][0]["status"] == "cancelled"
 
+
 async def test_cancel_all_queued(session_factory):
     queue = GenerationQueue(session_factory=session_factory)
 
     await queue.enqueue_task(
-        project_name="demo", task_type="storyboard", media_type="image",
-        resource_id="E1S01", payload={}, script_file="ep1.json",
+        project_name="demo",
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01",
+        payload={},
+        script_file="ep1.json",
     )
     await queue.enqueue_task(
-        project_name="demo", task_type="video", media_type="video",
-        resource_id="E1S02", payload={}, script_file="ep1.json",
+        project_name="demo",
+        task_type="video",
+        media_type="video",
+        resource_id="E1S02",
+        payload={},
+        script_file="ep1.json",
     )
 
     result = await queue.cancel_all_queued("demo")
@@ -545,10 +555,12 @@ async def cancel_task(self, task_id: str) -> dict[str, Any]:
         logger.info("任务取消 task_id=%s 共取消 %d 个", task_id, cancelled_count)
     return result
 
+
 async def get_cancel_preview(self, task_id: str) -> dict[str, Any]:
     async with self._session_factory() as session:
         repo = TaskRepository(session)
         return await repo.get_cancel_preview(task_id)
+
 
 async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
     async with self._session_factory() as session:
@@ -557,6 +569,7 @@ async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
     if result["cancelled_count"] > 0:
         logger.info("批量取消 project=%s 共取消 %d 个", project_name, result["cancelled_count"])
     return result
+
 
 async def get_cancel_all_preview(self, project_name: str) -> int:
     async with self._session_factory() as session:
@@ -593,8 +606,12 @@ async def test_wait_for_task_cancelled(session_factory, worker_lease):
     """wait_for_task 检测到 cancelled 状态时返回任务（不抛异常）。"""
     queue = GenerationQueue(session_factory=session_factory)
     result = await queue.enqueue_task(
-        project_name="demo", task_type="storyboard", media_type="image",
-        resource_id="E1S01", payload={}, script_file="ep1.json",
+        project_name="demo",
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01",
+        payload={},
+        script_file="ep1.json",
     )
 
     await queue.cancel_task(result["task_id"])
@@ -602,14 +619,19 @@ async def test_wait_for_task_cancelled(session_factory, worker_lease):
     task = await wait_for_task(result["task_id"], poll_interval=0.05, timeout_seconds=2)
     assert task["status"] == "cancelled"
 
+
 async def test_enqueue_and_wait_cancelled(session_factory, worker_lease):
     """enqueue_and_wait 在任务被取消时抛出 TaskCancelledError。"""
     queue = GenerationQueue(session_factory=session_factory)
 
     # 先入队
     enqueue_result = await enqueue_task_only(
-        project_name="demo", task_type="storyboard", media_type="image",
-        resource_id="E1S01", payload={}, script_file="ep1.json",
+        project_name="demo",
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01",
+        payload={},
+        script_file="ep1.json",
     )
 
     # 取消
@@ -618,8 +640,12 @@ async def test_enqueue_and_wait_cancelled(session_factory, worker_lease):
     # wait 应该抛出 TaskCancelledError
     with pytest.raises(TaskCancelledError):
         await enqueue_and_wait(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
             wait_timeout_seconds=2,
         )
 ```
@@ -755,9 +781,11 @@ from server.routers.tasks import get_task_queue
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def queue(db_session_factory):
     return GenerationQueue(session_factory=db_session_factory)
+
 
 @pytest.fixture
 def app(queue):
@@ -774,16 +802,22 @@ def app(queue):
 
     return app
 
+
 @pytest.fixture
 async def client(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
 
+
 class TestCancelPreview:
     async def test_cancel_preview_queued_task(self, client, queue):
         result = await queue.enqueue_task(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
 
         resp = await client.get(f"/api/v1/tasks/{result['task_id']}/cancel-preview")
@@ -794,19 +828,28 @@ class TestCancelPreview:
 
     async def test_cancel_preview_running_task_400(self, client, queue):
         result = await queue.enqueue_task(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
         await queue.claim_next_task("image")
 
         resp = await client.get(f"/api/v1/tasks/{result['task_id']}/cancel-preview")
         assert resp.status_code == 400
 
+
 class TestCancelTask:
     async def test_cancel_queued_task(self, client, queue):
         result = await queue.enqueue_task(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
 
         resp = await client.post(f"/api/v1/tasks/{result['task_id']}/cancel")
@@ -818,15 +861,24 @@ class TestCancelTask:
         resp = await client.post("/api/v1/tasks/nonexistent/cancel")
         assert resp.status_code == 400
 
+
 class TestCancelAllQueued:
     async def test_cancel_all_preview(self, client, queue):
         await queue.enqueue_task(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
         await queue.enqueue_task(
-            project_name="demo", task_type="video", media_type="video",
-            resource_id="E1S02", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S02",
+            payload={},
+            script_file="ep1.json",
         )
 
         resp = await client.get("/api/v1/projects/demo/tasks/cancel-all-preview")
@@ -835,8 +887,12 @@ class TestCancelAllQueued:
 
     async def test_cancel_all(self, client, queue):
         await queue.enqueue_task(
-            project_name="demo", task_type="storyboard", media_type="image",
-            resource_id="E1S01", payload={}, script_file="ep1.json",
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
         )
 
         resp = await client.post("/api/v1/projects/demo/tasks/cancel-all")

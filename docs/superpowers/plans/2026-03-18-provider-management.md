@@ -54,9 +54,7 @@ async def test_provider_config_crud(session: AsyncSession):
     session.add(row)
     await session.flush()
 
-    result = await session.execute(
-        select(ProviderConfig).where(ProviderConfig.provider == "gemini-aistudio")
-    )
+    result = await session.execute(select(ProviderConfig).where(ProviderConfig.provider == "gemini-aistudio"))
     found = result.scalar_one()
     assert found.key == "api_key"
     assert found.value == "AIza-test"
@@ -79,9 +77,7 @@ async def test_system_setting_crud(session: AsyncSession):
     session.add(row)
     await session.flush()
 
-    result = await session.execute(
-        select(SystemSetting).where(SystemSetting.key == "default_video_backend")
-    )
+    result = await session.execute(select(SystemSetting).where(SystemSetting.key == "default_video_backend"))
     found = result.scalar_one()
     assert found.value == "gemini-vertex/veo-3.1-fast-generate-001"
 ```
@@ -121,9 +117,7 @@ class ProviderConfig(Base):
     key: Mapped[str] = mapped_column(String(64), nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     is_secret: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=_utc_now, onupdate=_utc_now
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utc_now, onupdate=_utc_now)
 
 
 class SystemSetting(Base):
@@ -132,9 +126,7 @@ class SystemSetting(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=_utc_now, onupdate=_utc_now
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utc_now, onupdate=_utc_now)
 ```
 
 - [ ] **Step 4: 更新模型导出**
@@ -179,9 +171,7 @@ from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta
 
 
 def test_all_providers_registered():
-    assert set(PROVIDER_REGISTRY.keys()) == {
-        "gemini-aistudio", "gemini-vertex", "seedance", "grok"
-    }
+    assert set(PROVIDER_REGISTRY.keys()) == {"gemini-aistudio", "gemini-vertex", "seedance", "grok"}
 
 
 def test_provider_meta_fields():
@@ -257,7 +247,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         required_keys=["credentials_path"],
         optional_keys=["gcs_bucket", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
         secret_keys=[],
-        capabilities=["text_to_video", "image_to_video", "text_to_image", "generate_audio", "negative_prompt", "video_extend"],
+        capabilities=[
+            "text_to_video",
+            "image_to_video",
+            "text_to_image",
+            "generate_audio",
+            "negative_prompt",
+            "video_extend",
+        ],
     ),
     "seedance": ProviderMeta(
         display_name="Seedance",
@@ -323,6 +320,7 @@ async def session():
 
 # --- ProviderConfigRepository ---
 
+
 async def test_set_and_get(session: AsyncSession):
     repo = ProviderConfigRepository(session)
     await repo.set("gemini-aistudio", "api_key", "AIza-test", is_secret=True)
@@ -365,6 +363,7 @@ async def test_get_configured_keys(session: AsyncSession):
 
 
 # --- SystemSettingRepository ---
+
 
 async def test_setting_set_and_get(session: AsyncSession):
     repo = SystemSettingRepository(session)
@@ -417,12 +416,8 @@ class ProviderConfigRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def set(
-        self, provider: str, key: str, value: str, *, is_secret: bool = False
-    ) -> None:
-        stmt = select(ProviderConfig).where(
-            ProviderConfig.provider == provider, ProviderConfig.key == key
-        )
+    async def set(self, provider: str, key: str, value: str, *, is_secret: bool = False) -> None:
+        stmt = select(ProviderConfig).where(ProviderConfig.provider == provider, ProviderConfig.key == key)
         result = await self.session.execute(stmt)
         row = result.scalar_one_or_none()
         if row:
@@ -430,17 +425,11 @@ class ProviderConfigRepository:
             row.is_secret = is_secret
             row.updated_at = datetime.now(timezone.utc)
         else:
-            self.session.add(
-                ProviderConfig(
-                    provider=provider, key=key, value=value, is_secret=is_secret
-                )
-            )
+            self.session.add(ProviderConfig(provider=provider, key=key, value=value, is_secret=is_secret))
         await self.session.flush()
 
     async def delete(self, provider: str, key: str) -> None:
-        stmt = delete(ProviderConfig).where(
-            ProviderConfig.provider == provider, ProviderConfig.key == key
-        )
+        stmt = delete(ProviderConfig).where(ProviderConfig.provider == provider, ProviderConfig.key == key)
         await self.session.execute(stmt)
         await self.session.flush()
 
@@ -656,9 +645,7 @@ class ConfigService:
         for name, meta in PROVIDER_REGISTRY.items():
             configured = await self._provider_repo.get_configured_keys(name)
             missing = [k for k in meta.required_keys if k not in configured]
-            status: Literal["ready", "unconfigured", "error"] = (
-                "ready" if not missing else "unconfigured"
-            )
+            status: Literal["ready", "unconfigured", "error"] = "ready" if not missing else "unconfigured"
             statuses.append(
                 ProviderStatus(
                     name=name,
@@ -820,9 +807,7 @@ async def test_migrate_renames_file(session: AsyncSession, json_file: Path):
     assert json_file.with_suffix(".json.bak").exists()
 
 
-async def test_migrate_max_workers_to_all_configured_providers(
-    session: AsyncSession, json_file: Path
-):
+async def test_migrate_max_workers_to_all_configured_providers(session: AsyncSession, json_file: Path):
     await migrate_json_to_db(session, json_file)
     repo = ProviderConfigRepository(session)
 
@@ -888,12 +873,23 @@ _SYSTEM_SETTING_KEYS: list[str] = [
 
 # Keys handled specially (not passed through to system_setting)
 _HANDLED_KEYS = {
-    "gemini_api_key", "gemini_base_url", "vertex_gcs_bucket",
-    "ark_api_key", "file_service_base_url", "xai_api_key",
-    "gemini_image_rpm", "gemini_video_rpm", "gemini_request_gap",
-    "image_max_workers", "video_max_workers",
-    "image_backend", "video_backend", "video_model", "image_model",
-    "version", "updated_at",
+    "gemini_api_key",
+    "gemini_base_url",
+    "vertex_gcs_bucket",
+    "ark_api_key",
+    "file_service_base_url",
+    "xai_api_key",
+    "gemini_image_rpm",
+    "gemini_video_rpm",
+    "gemini_request_gap",
+    "image_max_workers",
+    "video_max_workers",
+    "image_backend",
+    "video_backend",
+    "video_model",
+    "image_model",
+    "version",
+    "updated_at",
 } | set(_SYSTEM_SETTING_KEYS)
 
 
@@ -925,15 +921,11 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
     # 3. Combined backend fields: image_backend + image_model → default_image_backend
     image_backend = overrides.get("image_backend", "aistudio")
     image_model = overrides.get("image_model", "gemini-3.1-flash-image-preview")
-    await setting_repo.set(
-        "default_image_backend", f"gemini-{image_backend}/{image_model}"
-    )
+    await setting_repo.set("default_image_backend", f"gemini-{image_backend}/{image_model}")
 
     video_backend = overrides.get("video_backend", "aistudio")
     video_model = overrides.get("video_model", "veo-3.1-generate-001")
-    await setting_repo.set(
-        "default_video_backend", f"gemini-{video_backend}/{video_model}"
-    )
+    await setting_repo.set("default_video_backend", f"gemini-{video_backend}/{video_model}")
 
     # 4. System setting keys
     for key in _SYSTEM_SETTING_KEYS:
@@ -1091,6 +1083,7 @@ Expected: ImportError 或 404
 
 ```python
 from server.routers.providers import router as providers_router
+
 app.include_router(providers_router)
 ```
 
@@ -1251,6 +1244,7 @@ self._video_inflight: dict[str, asyncio.Task] = {}
 ```python
 # 每个 provider 独立的 inflight 池
 self._provider_pools: dict[str, ProviderPool] = {}
+
 
 @dataclass
 class ProviderPool:

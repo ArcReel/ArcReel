@@ -109,8 +109,11 @@ class JianyingDraftService:
 if content_mode == "narration":
     script.add_track(draft.TrackType.text, "字幕")
     text_style = draft.TextStyle(
-        size=8.0, color=(1.0, 1.0, 1.0), align=1,
-        bold=True, auto_wrapping=True,  # 导出为 subtitle 类型
+        size=8.0,
+        color=(1.0, 1.0, 1.0),
+        align=1,
+        bold=True,
+        auto_wrapping=True,  # 导出为 subtitle 类型
     )
     for clip in clips:
         if clip.get("novel_text"):
@@ -210,6 +213,7 @@ data = json.loads(json_path.read_text(encoding="utf-8"))
 tmp_prefix = str(tmp_assets_dir)
 target_prefix = f"{draft_path}/{draft_name}/assets"
 
+
 def replace_paths(obj):
     """递归遍历 JSON，替换所有包含临时路径的字符串值"""
     if isinstance(obj, str) and tmp_prefix in obj:
@@ -219,6 +223,7 @@ def replace_paths(obj):
     if isinstance(obj, list):
         return [replace_paths(v) for v in obj]
     return obj
+
 
 data = replace_paths(data)
 json_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")

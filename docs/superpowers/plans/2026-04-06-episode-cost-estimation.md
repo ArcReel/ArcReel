@@ -89,32 +89,33 @@ git commit -m "feat: ApiCall 新增 segment_id 字段"
 在 `tests/test_usage_tracker.py` 添加：
 
 ```python
-    async def test_start_call_with_segment_id(self, tracker):
-        call_id = await tracker.start_call(
-            project_name="demo",
-            call_type="image",
-            model="gemini-3.1-flash-image-preview",
-            resolution="1K",
-            segment_id="E1S001",
-        )
-        await tracker.finish_call(call_id, status="success", output_path="a.png")
+async def test_start_call_with_segment_id(self, tracker):
+    call_id = await tracker.start_call(
+        project_name="demo",
+        call_type="image",
+        model="gemini-3.1-flash-image-preview",
+        resolution="1K",
+        segment_id="E1S001",
+    )
+    await tracker.finish_call(call_id, status="success", output_path="a.png")
 
-        result = await tracker.get_calls(project_name="demo")
-        item = result["items"][0]
-        assert item["segment_id"] == "E1S001"
+    result = await tracker.get_calls(project_name="demo")
+    item = result["items"][0]
+    assert item["segment_id"] == "E1S001"
 
-    async def test_start_call_without_segment_id(self, tracker):
-        call_id = await tracker.start_call(
-            project_name="demo",
-            call_type="image",
-            model="gemini-3.1-flash-image-preview",
-            resolution="1K",
-        )
-        await tracker.finish_call(call_id, status="success", output_path="a.png")
 
-        result = await tracker.get_calls(project_name="demo")
-        item = result["items"][0]
-        assert item["segment_id"] is None
+async def test_start_call_without_segment_id(self, tracker):
+    call_id = await tracker.start_call(
+        project_name="demo",
+        call_type="image",
+        model="gemini-3.1-flash-image-preview",
+        resolution="1K",
+    )
+    await tracker.finish_call(call_id, status="success", output_path="a.png")
+
+    result = await tracker.get_calls(project_name="demo")
+    item = result["items"][0]
+    assert item["segment_id"] is None
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -275,21 +276,31 @@ git commit -m "feat: MediaGenerator 将 resource_id 作为 segment_id 传入 Usa
 class TestActualCostsBySegment:
     async def test_aggregates_costs_by_segment_and_type(self, tracker):
         # E1S001: image 两次成功（累计）
-        c1 = await tracker.start_call("proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001")
+        c1 = await tracker.start_call(
+            "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001"
+        )
         await tracker.finish_call(c1, status="success", output_path="a.png")
-        c2 = await tracker.start_call("proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001")
+        c2 = await tracker.start_call(
+            "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001"
+        )
         await tracker.finish_call(c2, status="success", output_path="b.png")
 
         # E1S001: video 一次成功
-        c3 = await tracker.start_call("proj", "video", "veo-3.1-generate-001", resolution="1080p", duration_seconds=6, segment_id="E1S001")
+        c3 = await tracker.start_call(
+            "proj", "video", "veo-3.1-generate-001", resolution="1080p", duration_seconds=6, segment_id="E1S001"
+        )
         await tracker.finish_call(c3, status="success", output_path="v.mp4")
 
         # E1S002: image 一次成功
-        c4 = await tracker.start_call("proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S002")
+        c4 = await tracker.start_call(
+            "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S002"
+        )
         await tracker.finish_call(c4, status="success", output_path="c.png")
 
         # 失败的不计入
-        c5 = await tracker.start_call("proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001")
+        c5 = await tracker.start_call(
+            "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001"
+        )
         await tracker.finish_call(c5, status="failed", error_message="err")
 
         result = await tracker.get_actual_costs_by_segment("proj")
@@ -427,7 +438,10 @@ def _make_script(episode: int, segment_ids: list[str], durations: list[int]) -> 
                 "novel_text": "text",
                 "characters_in_segment": [],
                 "clues_in_segment": [],
-                "image_prompt": {"scene": "s", "composition": {"shot_type": "medium", "lighting": "l", "ambiance": "a"}},
+                "image_prompt": {
+                    "scene": "s",
+                    "composition": {"shot_type": "medium", "lighting": "l", "ambiance": "a"},
+                },
                 "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "aa"},
                 "transition_to_next": "cut",
                 "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
@@ -470,7 +484,9 @@ class TestCostEstimationService:
         service = CostEstimationService(resolver, tracker)
 
         # Record actual cost
-        cid = await tracker.start_call("proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001")
+        cid = await tracker.start_call(
+            "proj", "image", "gemini-3.1-flash-image-preview", resolution="1K", segment_id="E1S001"
+        )
         await tracker.finish_call(cid, status="success", output_path="a.png")
 
         project_data = {
@@ -490,7 +506,9 @@ class TestCostEstimationService:
         tracker = UsageTracker(session_factory=db_factory)
         service = CostEstimationService(resolver, tracker)
 
-        result = await service.compute({"title": "T", "content_mode": "narration", "episodes": []}, {}, project_name="p")
+        result = await service.compute(
+            {"title": "T", "content_mode": "narration", "episodes": []}, {}, project_name="p"
+        )
 
         assert result["episodes"] == []
         assert result["project_totals"]["estimate"] == {}
@@ -640,12 +658,14 @@ class CostEstimationService:
                 act_image: CostBreakdown = seg_actual.get("image", {})
                 act_video: CostBreakdown = seg_actual.get("video", {})
 
-                segments_result.append({
-                    "segment_id": seg_id,
-                    "duration_seconds": duration,
-                    "estimate": {"image": est_image, "video": est_video},
-                    "actual": {"image": act_image, "video": act_video},
-                })
+                segments_result.append(
+                    {
+                        "segment_id": seg_id,
+                        "duration_seconds": duration,
+                        "estimate": {"image": est_image, "video": est_video},
+                        "actual": {"image": act_image, "video": act_video},
+                    }
+                )
 
                 # 累加到集合计
                 for cost_type in ("image", "video"):
@@ -658,12 +678,14 @@ class CostEstimationService:
                         {"image": act_image, "video": act_video}[cost_type],
                     )
 
-            episodes_result.append({
-                "episode": ep_meta.get("episode"),
-                "title": ep_meta.get("title", ""),
-                "segments": segments_result,
-                "totals": {"estimate": ep_est, "actual": ep_act},
-            })
+            episodes_result.append(
+                {
+                    "episode": ep_meta.get("episode"),
+                    "title": ep_meta.get("title", ""),
+                    "segments": segments_result,
+                    "totals": {"estimate": ep_est, "actual": ep_act},
+                }
+            )
 
             # 累加到项目总计
             for cost_type in ("image", "video"):
@@ -810,6 +832,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client():
     from server.app import app
+
     with TestClient(app) as c:
         yield c
 

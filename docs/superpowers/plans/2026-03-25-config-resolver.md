@@ -239,13 +239,16 @@ class ConfigResolver:
     # ── 内部解析方法（可独立测试，接收已创建的 svc） ──
 
     async def _resolve_video_generate_audio(
-        self, svc: ConfigService, project_name: str | None,
+        self,
+        svc: ConfigService,
+        project_name: str | None,
     ) -> bool:
         raw = await svc.get_setting("video_generate_audio", "")
         value = _parse_bool(raw) if raw else self._DEFAULT_VIDEO_GENERATE_AUDIO
 
         if project_name:
             from lib.project_manager import get_project_manager
+
             project = get_project_manager().load_project(project_name)
             override = project.get("video_generate_audio")
             if override is not None:
@@ -311,6 +314,7 @@ git commit -m "feat: add ConfigResolver with unified defaults and priority resol
 # 在文件顶部 import 之后添加
 class _FakeConfigResolver:
     """Fake ConfigResolver，返回可控的配置值。"""
+
     def __init__(self, video_generate_audio: bool = False):
         self._video_generate_audio = video_generate_audio
 
@@ -356,9 +360,7 @@ if self._video_backend:
 else:
     ...
     configured_generate_audio = self._resolve_video_generate_audio()
-    effective_generate_audio = (
-        configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
-    )
+    effective_generate_audio = configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
 ```
 
 替换为：
@@ -366,18 +368,16 @@ else:
 ```python
 if self._video_backend:
     ...
-    configured_generate_audio = self._sync(
-        self._config.video_generate_audio(self.project_name)
-    ) if self._config else False
+    configured_generate_audio = (
+        self._sync(self._config.video_generate_audio(self.project_name)) if self._config else False
+    )
     effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 else:
     ...
-    configured_generate_audio = self._sync(
-        self._config.video_generate_audio(self.project_name)
-    ) if self._config else False
-    effective_generate_audio = (
-        configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
+    configured_generate_audio = (
+        self._sync(self._config.video_generate_audio(self.project_name)) if self._config else False
     )
+    effective_generate_audio = configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
 ```
 
 - [ ] **Step 5: 改造异步 `generate_video_async()` 中的 audio 解析逻辑**
@@ -392,9 +392,7 @@ if self._video_backend:
 else:
     ...
     configured_generate_audio = await self._config.video_generate_audio(self.project_name) if self._config else False
-    effective_generate_audio = (
-        configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
-    )
+    effective_generate_audio = configured_generate_audio if self._gemini_video_backend_type == "vertex" else True
 ```
 
 - [ ] **Step 6: 运行测试确认通过**
@@ -456,7 +454,8 @@ async def _get_or_create_video_backend(
 
 ```python
 def _resolve_image_backend(
-    bulk: _BulkConfig, payload: dict | None,
+    bulk: _BulkConfig,
+    payload: dict | None,
 ) -> tuple[str, str, str]:
     image_provider_id, image_model = bulk.default_image_backend
 ```
@@ -465,7 +464,8 @@ def _resolve_image_backend(
 
 ```python
 async def _resolve_image_backend(
-    resolver: "ConfigResolver", payload: dict | None,
+    resolver: "ConfigResolver",
+    payload: dict | None,
 ) -> tuple[str, str, str]:
     image_provider_id, image_model = await resolver.default_image_backend()
 ```
@@ -478,7 +478,9 @@ async def _resolve_image_backend(
 
 ```python
 def _resolve_video_backend(
-    project_name: str, bulk: _BulkConfig, payload: dict | None,
+    project_name: str,
+    bulk: _BulkConfig,
+    payload: dict | None,
 ) -> tuple[Any | None, str, str]:
     default_video_provider_id, video_model = bulk.default_video_backend
 ```
@@ -487,7 +489,9 @@ def _resolve_video_backend(
 
 ```python
 async def _resolve_video_backend(
-    project_name: str, resolver: "ConfigResolver", payload: dict | None,
+    project_name: str,
+    resolver: "ConfigResolver",
+    payload: dict | None,
 ) -> tuple[Any | None, str, str]:
     default_video_provider_id, video_model = await resolver.default_video_backend()
 ```
@@ -499,7 +503,9 @@ async def _resolve_video_backend(
 将第 214-248 行改为：
 
 ```python
-async def get_media_generator(project_name: str, payload: dict | None = None, *, user_id: str = DEFAULT_USER_ID) -> MediaGenerator:
+async def get_media_generator(
+    project_name: str, payload: dict | None = None, *, user_id: str = DEFAULT_USER_ID
+) -> MediaGenerator:
     """创建 MediaGenerator。仅当 payload 包含视频配置时才初始化视频后端。"""
     from lib.config.resolver import ConfigResolver
     from lib.db import async_session_factory
@@ -540,6 +546,7 @@ default_provider_id, _ = bulk.default_video_backend
 ```python
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
+
 resolver = ConfigResolver(async_session_factory)
 default_provider_id, _ = await resolver.default_video_backend()
 ```
@@ -622,10 +629,13 @@ async def test_video_generate_audio_from_config_resolver(self, tmp_path):
     gen._config = _FakeConfigResolver(video_generate_audio=False)
 
     await gen.generate_video_async(
-        prompt="p", resource_type="videos", resource_id="E1S03",
+        prompt="p",
+        resource_type="videos",
+        resource_id="E1S03",
     )
     # aistudio 后端强制 audio=True，即使 config 返回 False
     assert gen.usage_tracker.started[-1]["generate_audio"] is True
+
 
 @pytest.mark.asyncio
 async def test_video_generate_audio_vertex_respects_config(self, tmp_path):
@@ -635,7 +645,9 @@ async def test_video_generate_audio_vertex_respects_config(self, tmp_path):
     gen._config = _FakeConfigResolver(video_generate_audio=False)
 
     await gen.generate_video_async(
-        prompt="p", resource_type="videos", resource_id="E1S04",
+        prompt="p",
+        resource_type="videos",
+        resource_id="E1S04",
     )
     assert gen.usage_tracker.started[-1]["generate_audio"] is False
 ```

@@ -53,12 +53,12 @@ ArcReel 当前项目之间互相隔离，同一用户反复创作相似世界观
 ```python
 class Asset(Base):
     __tablename__ = "assets"
-    id: Mapped[str]            # uuid4 字符串主键
-    type: Mapped[str]          # 'character' | 'scene' | 'prop'
-    name: Mapped[str]          # type 内唯一（UniqueConstraint(type, name)）
-    description: Mapped[str]   # 可空
-    voice_style: Mapped[str]   # 仅 character 使用，其它 type 留空串
-    image_path: Mapped[str]    # 相对路径：'_global_assets/<type>/<uuid>.<ext>'；可空
+    id: Mapped[str]  # uuid4 字符串主键
+    type: Mapped[str]  # 'character' | 'scene' | 'prop'
+    name: Mapped[str]  # type 内唯一（UniqueConstraint(type, name)）
+    description: Mapped[str]  # 可空
+    voice_style: Mapped[str]  # 仅 character 使用，其它 type 留空串
+    image_path: Mapped[str]  # 相对路径：'_global_assets/<type>/<uuid>.<ext>'；可空
     source_project: Mapped[str | None]  # 入库来源项目名；手动新增为 None
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]

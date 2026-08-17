@@ -72,34 +72,32 @@ Expected: FAIL — `_load_episode_script() got an unexpected keyword argument 'c
 在 `lib/status_calculator.py` 中修改 `_load_episode_script` 方法签名和内部逻辑：
 
 ```python
-    def _load_episode_script(
-        self, project_name: str, episode_num: int, script_file: str, *, content_mode: str = "narration"
-    ) -> tuple:
-        """加载单集剧本，返回 (script_status, script|None)，避免重复读取文件。
-        script_status: 'generated' | 'segmented' | 'none'
-        """
+def _load_episode_script(
+    self, project_name: str, episode_num: int, script_file: str, *, content_mode: str = "narration"
+) -> tuple:
+    """加载单集剧本，返回 (script_status, script|None)，避免重复读取文件。
+    script_status: 'generated' | 'segmented' | 'none'
+    """
+    try:
+        script = self.pm.load_script(project_name, script_file)
+        return "generated", script
+    except FileNotFoundError:
+        project_dir = self.pm.get_project_path(project_name)
         try:
-            script = self.pm.load_script(project_name, script_file)
-            return "generated", script
-        except FileNotFoundError:
-            project_dir = self.pm.get_project_path(project_name)
-            try:
-                safe_num = int(episode_num)
-            except (ValueError, TypeError):
-                return "none", None
-            draft_filename = (
-                "step1_segments.md" if content_mode == "narration" else "step1_normalized_script.md"
-            )
-            draft_file = project_dir / f"drafts/episode_{safe_num}/{draft_filename}"
-            return ("segmented" if draft_file.exists() else "none"), None
-        except ValueError as e:
-            logger.warning(
-                "剧本 JSON 损坏或路径无效，跳过状态计算 project=%s file=%s: %s",
-                project_name,
-                script_file,
-                e,
-            )
-            return "generated", None
+            safe_num = int(episode_num)
+        except (ValueError, TypeError):
+            return "none", None
+        draft_filename = "step1_segments.md" if content_mode == "narration" else "step1_normalized_script.md"
+        draft_file = project_dir / f"drafts/episode_{safe_num}/{draft_filename}"
+        return ("segmented" if draft_file.exists() else "none"), None
+    except ValueError as e:
+        logger.warning(
+            "剧本 JSON 损坏或路径无效，跳过状态计算 project=%s file=%s: %s",
+            project_name,
+            script_file,
+            e,
+        )
+        return "generated", None
 ```
 
 - [ ] **Step 4: 更新调用方 — 传递 content_mode**
@@ -113,9 +111,7 @@ Expected: FAIL — `_load_episode_script() got an unexpected keyword argument 'c
 
 然后修改调用处（~第171行）：
 ```python
-                script_status, script = self._load_episode_script(
-                    project_name, episode_num, script_file, content_mode=content_mode
-                )
+script_status, script = self._load_episode_script(project_name, episode_num, script_file, content_mode=content_mode)
 ```
 
 在 `enrich_project()` 中同样处理（~第217行起）：

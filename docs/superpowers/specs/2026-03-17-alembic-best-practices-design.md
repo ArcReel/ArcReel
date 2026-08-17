@@ -135,9 +135,7 @@ queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=Fa
 
 TaskEvent 新增外键：
 ```python
-task_id: Mapped[str] = mapped_column(
-    String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False
-)
+task_id: Mapped[str] = mapped_column(String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False)
 ```
 
 ### 4. Repository 层改动（3 个文件）

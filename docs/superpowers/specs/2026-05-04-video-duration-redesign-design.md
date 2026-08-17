@@ -78,43 +78,30 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     (re.compile(r"^sora-2(-pro)?(-\d{4}-\d{2}-\d{2})?$", re.I), [4, 8, 12]),
     # 第三方聚合 Sora-2 变体（常见 6/10/12/16/20）
     (re.compile(r"sora.*pro", re.I), [6, 10, 12, 16, 20]),
-
     # Google Veo 系列（Vertex / Gemini API）
     (re.compile(r"veo-?\d", re.I), [4, 6, 8]),
-
     # Kling 全系（v1 / v2 / v2.5 / v2.6 / v3.0 / o1 / turbo / pro / omni / standard）
     (re.compile(r"kling[-.]?(o1|v?[123](\.\d+)?)", re.I), [5, 10]),
-
     # Runway Gen 系列
     (re.compile(r"^(runway[-.]?)?gen-?\d", re.I), [5, 8, 10]),
-
     # Luma Ray / Dream Machine
     (re.compile(r"\bray-?\d", re.I), [5, 10]),
-
     # ByteDance Dreamina / Seedance（4-15 任意）
     (re.compile(r"dreamina|seedance", re.I), list(range(4, 16))),
-
     # 字节即梦
     (re.compile(r"jimeng", re.I), list(range(4, 16))),
-
     # Alibaba HappyHorse（3-15 任意）
     (re.compile(r"happyhorse", re.I), list(range(3, 16))),
-
     # xAI Grok Imagine（1-15 任意）
     (re.compile(r"grok[-.]?imagine", re.I), list(range(1, 16))),
-
     # Vidu Q 系列（1-16 任意）
     (re.compile(r"vidu", re.I), list(range(1, 17))),
-
     # PixVerse V5/V5.5/V5.6/V6（1-15 任意）
     (re.compile(r"pixverse|^v[56](\.\d+)?$", re.I), list(range(1, 16))),
-
     # MiniMax Hailuo（固定 6）
     (re.compile(r"hailuo|minimax", re.I), [6]),
-
     # 阿里 Wan
     (re.compile(r"wan-?\d", re.I), [4, 5]),
-
     # Pika
     (re.compile(r"pika", re.I), [3, 5, 10]),
 ]

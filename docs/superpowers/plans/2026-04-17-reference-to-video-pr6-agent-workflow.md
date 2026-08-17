@@ -172,7 +172,9 @@ from __future__ import annotations
 def _format_asset_names(assets: dict | None) -> str:
     if not assets:
         return "（无）"
-    return "\n".join(f"- {name}: {meta.get('description', '') if isinstance(meta, dict) else ''}" for name, meta in assets.items())
+    return "\n".join(
+        f"- {name}: {meta.get('description', '') if isinstance(meta, dict) else ''}" for name, meta in assets.items()
+    )
 
 
 def build_reference_video_prompt(
@@ -437,7 +439,9 @@ def __init__(self, project_path: str | Path, generator: TextGenerator | None = N
     self.content_mode = self.project_json.get("content_mode", "narration")
     # Spec §4.6：effective_mode 优先 episode → project → 默认 storyboard
     project_gen_mode = self.project_json.get("generation_mode")
-    self.generation_mode = project_gen_mode if project_gen_mode in {"storyboard", "grid", "reference_video"} else "storyboard"
+    self.generation_mode = (
+        project_gen_mode if project_gen_mode in {"storyboard", "grid", "reference_video"} else "storyboard"
+    )
 ```
 
 > 说明：`ScriptGenerator` 只在项目级判断 `generation_mode` 是否是 reference；集级差异由 CLI 脚本层处理（Task 4）。
@@ -817,7 +821,10 @@ import pytest
 import sys
 from importlib import util as _iu
 
-SCRIPT_PATH = Path(__file__).resolve().parents[2] / "agent_runtime_profile/.claude/skills/generate-video/scripts/generate_video.py"
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "agent_runtime_profile/.claude/skills/generate-video/scripts/generate_video.py"
+)
 spec = _iu.spec_from_file_location("_gvtest_generate_video", SCRIPT_PATH)
 gv = _iu.module_from_spec(spec)
 assert spec.loader is not None
@@ -839,7 +846,9 @@ def _make_reference_project(tmp_path: Path) -> tuple[Path, str]:
                 "characters": {"主角": {"character_sheet": "characters/zhujue.png"}},
                 "scenes": {"酒馆": {"scene_sheet": "scenes/jiuguan.png"}},
                 "props": {},
-                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json", "generation_mode": "reference_video"}],
+                "episodes": [
+                    {"episode": 1, "script_file": "scripts/episode_1.json", "generation_mode": "reference_video"}
+                ],
             }
         ),
         encoding="utf-8",

@@ -108,15 +108,23 @@ class TestCalculateGridLayout:
     def test_4_scenes_horizontal(self):
         result = calculate_grid_layout(num_scenes=4, aspect_ratio="16:9")
         assert result == GridLayout(
-            grid_size="grid_4", rows=2, cols=2,
-            grid_aspect_ratio="16:9", cell_count=4, placeholder_count=0,
+            grid_size="grid_4",
+            rows=2,
+            cols=2,
+            grid_aspect_ratio="16:9",
+            cell_count=4,
+            placeholder_count=0,
         )
 
     def test_4_scenes_vertical(self):
         result = calculate_grid_layout(num_scenes=4, aspect_ratio="9:16")
         assert result == GridLayout(
-            grid_size="grid_4", rows=2, cols=2,
-            grid_aspect_ratio="9:16", cell_count=4, placeholder_count=0,
+            grid_size="grid_4",
+            rows=2,
+            cols=2,
+            grid_aspect_ratio="9:16",
+            cell_count=4,
+            placeholder_count=0,
         )
 
     def test_5_scenes_uses_grid_6(self):
@@ -502,24 +510,36 @@ def build_frame_chain(
         col = idx % cols
 
         if idx == 0 and n > 0:
-            cells.append(FrameCell(
-                index=idx, row=row, col=col,
-                frame_type="first",
-                prev_scene_id=None,
-                next_scene_id=scene_ids[0],
-            ))
+            cells.append(
+                FrameCell(
+                    index=idx,
+                    row=row,
+                    col=col,
+                    frame_type="first",
+                    prev_scene_id=None,
+                    next_scene_id=scene_ids[0],
+                )
+            )
         elif idx < n:
-            cells.append(FrameCell(
-                index=idx, row=row, col=col,
-                frame_type="transition",
-                prev_scene_id=scene_ids[idx - 1],
-                next_scene_id=scene_ids[idx],
-            ))
+            cells.append(
+                FrameCell(
+                    index=idx,
+                    row=row,
+                    col=col,
+                    frame_type="transition",
+                    prev_scene_id=scene_ids[idx - 1],
+                    next_scene_id=scene_ids[idx],
+                )
+            )
         else:
-            cells.append(FrameCell(
-                index=idx, row=row, col=col,
-                frame_type="placeholder",
-            ))
+            cells.append(
+                FrameCell(
+                    index=idx,
+                    row=row,
+                    col=col,
+                    frame_type="placeholder",
+                )
+            )
 
     return cells
 ```
@@ -635,6 +655,7 @@ class TestSplitGridImage:
         black = Image.new("RGB", (100, 100), color=(10, 10, 10))
         gray = Image.new("RGB", (100, 100), color=(128, 128, 128))
         from lib.grid.splitter import is_placeholder_cell
+
         assert is_placeholder_cell(black) is True
         assert is_placeholder_cell(gray) is True
         # Colorful image should not be placeholder
@@ -757,7 +778,10 @@ class TestBuildGridPrompt:
     def _make_scene(self, scene_id: str, image_scene: str, action: str):
         return {
             "scene_id": scene_id,
-            "image_prompt": {"scene": image_scene, "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"}},
+            "image_prompt": {
+                "scene": image_scene,
+                "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+            },
             "video_prompt": {"action": action, "camera_motion": "static", "ambiance_audio": "quiet", "dialogue": []},
         }
 
@@ -796,12 +820,20 @@ class TestBuildGridPrompt:
         assert "空占位" in prompt
 
     def test_reference_image_mapping(self):
-        scenes = [self._make_scene("S1", "a", "b"), self._make_scene("S2", "c", "d"),
-                   self._make_scene("S3", "e", "f"), self._make_scene("S4", "g", "h")]
+        scenes = [
+            self._make_scene("S1", "a", "b"),
+            self._make_scene("S2", "c", "d"),
+            self._make_scene("S3", "e", "f"),
+            self._make_scene("S4", "g", "h"),
+        ]
         refs = {"图片1": "角色A设计图", "图片2": "场景X参考"}
         prompt = build_grid_prompt(
-            scenes=scenes, id_field="scene_id", rows=2, cols=2,
-            style="anime", reference_image_mapping=refs,
+            scenes=scenes,
+            id_field="scene_id",
+            rows=2,
+            cols=2,
+            style="anime",
+            reference_image_mapping=refs,
         )
         assert "图片1" in prompt
         assert "角色A设计图" in prompt
@@ -870,10 +902,7 @@ def build_grid_prompt(
     total = rows * cols
     lines: list[str] = []
 
-    lines.append(
-        f"你是一位专业的分镜画师。请严格按照 {rows}×{cols} 宫格布局"
-        f"生成一张包含 {total} 个等大画格的联合图。"
-    )
+    lines.append(f"你是一位专业的分镜画师。请严格按照 {rows}×{cols} 宫格布局生成一张包含 {total} 个等大画格的联合图。")
 
     lines.append("")
     lines.append("【布局要求】")
@@ -993,6 +1022,7 @@ class TestVideoGenerationRequestEndImage:
 
     def test_end_image_set(self):
         from pathlib import Path
+
         req = VideoGenerationRequest(
             prompt="test",
             output_path=Path("/tmp/out.mp4"),
@@ -1003,6 +1033,7 @@ class TestVideoGenerationRequestEndImage:
 
     def test_reference_images_set(self):
         from pathlib import Path
+
         req = VideoGenerationRequest(
             prompt="test",
             output_path=Path("/tmp/out.mp4"),
@@ -1024,6 +1055,7 @@ In `lib/video_backends/base.py`, add:
 @dataclass
 class VideoCapabilities:
     """Declares what a video backend supports."""
+
     first_frame: bool = True
     last_frame: bool = False
     reference_images: bool = False
@@ -1040,7 +1072,7 @@ class VideoGenerationRequest:
     duration_seconds: int = 5
     resolution: str = "1080p"
     start_image: Path | None = None
-    end_image: Path | None = None              # NEW
+    end_image: Path | None = None  # NEW
     reference_images: list[Path] | None = None  # NEW
     generate_audio: bool = True
     negative_prompt: str | None = None
@@ -1073,6 +1105,7 @@ In each backend (`gemini.py`, `ark.py`, `grok.py`, `openai.py`), add:
 def video_capabilities(self) -> VideoCapabilities:
     return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=3)
 
+
 # ark.py — Seedance 2.0 supports first_last; 1.5 does not
 @property
 def video_capabilities(self) -> VideoCapabilities:
@@ -1080,10 +1113,12 @@ def video_capabilities(self) -> VideoCapabilities:
         return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
     return VideoCapabilities()
 
+
 # grok.py — reference images only
 @property
 def video_capabilities(self) -> VideoCapabilities:
     return VideoCapabilities(reference_images=True, max_reference_images=5)
+
 
 # openai.py — reference images only
 @property
@@ -1157,10 +1192,14 @@ class TestGridManager:
     def test_save_and_load(self, tmp_path: Path):
         gm = GridManager(tmp_path)
         grid = GridGeneration.create(
-            episode=1, script_file="ep1.json",
+            episode=1,
+            script_file="ep1.json",
             scene_ids=["S1", "S2", "S3", "S4"],
-            rows=2, cols=2, grid_size="grid_4",
-            provider="test", model="test-model",
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="test",
+            model="test-model",
         )
         gm.save(grid)
 
@@ -1174,10 +1213,14 @@ class TestGridManager:
         gm = GridManager(tmp_path)
         for i in range(3):
             grid = GridGeneration.create(
-                episode=1, script_file="ep1.json",
+                episode=1,
+                script_file="ep1.json",
                 scene_ids=[f"S{j}" for j in range(4)],
-                rows=2, cols=2, grid_size="grid_4",
-                provider="test", model="m",
+                rows=2,
+                cols=2,
+                grid_size="grid_4",
+                provider="test",
+                model="m",
             )
             gm.save(grid)
 
@@ -1187,10 +1230,14 @@ class TestGridManager:
     def test_update_status(self, tmp_path: Path):
         gm = GridManager(tmp_path)
         grid = GridGeneration.create(
-            episode=1, script_file="ep1.json",
+            episode=1,
+            script_file="ep1.json",
             scene_ids=["S1", "S2", "S3", "S4"],
-            rows=2, cols=2, grid_size="grid_4",
-            provider="test", model="m",
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="test",
+            model="m",
         )
         gm.save(grid)
         grid.status = "completed"
@@ -1296,30 +1343,53 @@ def project_path(tmp_path):
         (p / d).mkdir(parents=True)
     # Write minimal project.json
     import json
-    (p / "project.json").write_text(json.dumps({
-        "name": "test-project",
-        "title": "Test",
-        "content_mode": "narration",
-        "style": "realistic",
-        "generation_mode": "grid",
-        "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
-        "characters": {},
-        "clues": {},
-    }))
+
+    (p / "project.json").write_text(
+        json.dumps(
+            {
+                "name": "test-project",
+                "title": "Test",
+                "content_mode": "narration",
+                "style": "realistic",
+                "generation_mode": "grid",
+                "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+                "characters": {},
+                "clues": {},
+            }
+        )
+    )
     # Write minimal script
-    (p / "scripts" / "episode_1.json").write_text(json.dumps({
-        "content_mode": "narration",
-        "segments": [
-            {"segment_id": f"E1S0{i}", "episode": 1, "segment_break": i == 1,
-             "duration_seconds": 4, "novel_text": "text",
-             "characters_in_segment": [], "clues_in_segment": [],
-             "image_prompt": {"scene": f"scene{i}", "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"}},
-             "video_prompt": {"action": f"action{i}", "camera_motion": "static", "ambiance_audio": "quiet", "dialogue": []},
-             "transition_to_next": "cut",
-             "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"}}
-            for i in range(1, 5)
-        ],
-    }))
+    (p / "scripts" / "episode_1.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": f"E1S0{i}",
+                        "episode": 1,
+                        "segment_break": i == 1,
+                        "duration_seconds": 4,
+                        "novel_text": "text",
+                        "characters_in_segment": [],
+                        "clues_in_segment": [],
+                        "image_prompt": {
+                            "scene": f"scene{i}",
+                            "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                        },
+                        "video_prompt": {
+                            "action": f"action{i}",
+                            "camera_motion": "static",
+                            "ambiance_audio": "quiet",
+                            "dialogue": [],
+                        },
+                        "transition_to_next": "cut",
+                        "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
+                    }
+                    for i in range(1, 5)
+                ],
+            }
+        )
+    )
     return p
 
 
@@ -1347,9 +1417,7 @@ Expected: ImportError
 Add to `server/services/generation_tasks.py`:
 
 ```python
-def _group_scenes_by_segment_break(
-    items: list[dict], id_field: str
-) -> list[list[dict]]:
+def _group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:
     """Group consecutive scenes, breaking at segment_break=True."""
     groups: list[list[dict]] = []
     current: list[dict] = []
@@ -1418,6 +1486,7 @@ async def execute_grid_task(
     gm.save(grid)
 
     from PIL import Image as PILImage
+
     grid_img = PILImage.open(image_result[0])
     video_ar = payload.get("video_aspect_ratio", "16:9")
     cells = split_grid_image(grid_img, grid.rows, grid.cols, video_ar)
@@ -1514,6 +1583,7 @@ class TestGridRouterEndpoints:
     def client(self):
         from server.main import app
         from httpx import AsyncClient, ASGITransport
+
         return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
     async def test_generate_grid_endpoint_exists(self, client):
@@ -1585,9 +1655,7 @@ async def generate_grid(
     return await _generate_grid_for_episode(project_name, episode, req)
 
 
-async def _generate_grid_for_episode(
-    project_name: str, episode: int, req: GenerateGridRequest
-) -> dict:
+async def _generate_grid_for_episode(project_name: str, episode: int, req: GenerateGridRequest) -> dict:
     pm = ProjectManager()
     project = pm.load_project(project_name)
     script = pm.load_script(project_name, req.script_file)
@@ -1598,6 +1666,7 @@ async def _generate_grid_for_episode(
     style = project.get("style", "")
 
     from server.services.generation_tasks import _group_scenes_by_segment_break
+
     groups = _group_scenes_by_segment_break(items, id_field)
 
     # Filter groups by scene_ids if provided
@@ -1733,6 +1802,7 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
 In `server/main.py`, add:
 ```python
 from server.routers.grids import router as grids_router
+
 app.include_router(grids_router, prefix="/api/v1")
 ```
 
@@ -1761,6 +1831,7 @@ git commit -m "feat: grid API router (generate, list, get, regenerate)"
 
 ```python
 # Append to tests/test_grid_executor.py
+
 
 class TestVideoTaskFirstLastFallback:
     """execute_video_task should detect storyboard_last_image and use first_last mode."""

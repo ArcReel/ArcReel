@@ -402,12 +402,32 @@ async def test_list_enabled_models_by_media_type_uses_endpoint(session):
         base_url="https://x",
         api_key="k",
         models=[
-            {"model_id": "gpt-4o", "display_name": "gpt-4o", "endpoint": "openai-chat",
-             "is_default": False, "is_enabled": True, "price_unit": None, "price_input": None,
-             "price_output": None, "currency": None, "supported_durations": None, "resolution": None},
-            {"model_id": "kling-2", "display_name": "kling-2", "endpoint": "newapi-video",
-             "is_default": False, "is_enabled": True, "price_unit": None, "price_input": None,
-             "price_output": None, "currency": None, "supported_durations": None, "resolution": None},
+            {
+                "model_id": "gpt-4o",
+                "display_name": "gpt-4o",
+                "endpoint": "openai-chat",
+                "is_default": False,
+                "is_enabled": True,
+                "price_unit": None,
+                "price_input": None,
+                "price_output": None,
+                "currency": None,
+                "supported_durations": None,
+                "resolution": None,
+            },
+            {
+                "model_id": "kling-2",
+                "display_name": "kling-2",
+                "endpoint": "newapi-video",
+                "is_default": False,
+                "is_enabled": True,
+                "price_unit": None,
+                "price_input": None,
+                "price_output": None,
+                "currency": None,
+                "supported_durations": None,
+                "resolution": None,
+            },
         ],
     )
     await session.commit()
@@ -670,11 +690,13 @@ def test_discover_openai_returns_endpoints(monkeypatch):
     fake_client.models.list.return_value = fake_models
     monkeypatch.setattr(discovery, "OpenAI", lambda **kw: fake_client)
 
-    result = asyncio.run(discovery.discover_models(
-        discovery_format="openai",
-        base_url="https://x",
-        api_key="k",
-    ))
+    result = asyncio.run(
+        discovery.discover_models(
+            discovery_format="openai",
+            base_url="https://x",
+            api_key="k",
+        )
+    )
     by_id = {m["model_id"]: m for m in result}
     assert by_id["gpt-4o"]["endpoint"] == "openai-chat"
     assert by_id["kling-v2"]["endpoint"] == "newapi-video"
@@ -849,9 +871,7 @@ if is_custom_provider(provider_id):
         try:
             parsed = json.loads(raw_durations)
         except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"invalid supported_durations JSON on custom model {provider_id}/{model_id}"
-            ) from exc
+            raise ValueError(f"invalid supported_durations JSON on custom model {provider_id}/{model_id}") from exc
         if isinstance(parsed, list):
             supported_durations = [int(d) for d in parsed]
 ```
@@ -974,13 +994,15 @@ async def test_create_provider_with_unknown_endpoint_returns_422(client):
         "discovery_format": "openai",
         "base_url": "https://x",
         "api_key": "k",
-        "models": [{
-            "model_id": "claude-4",
-            "display_name": "Claude 4",
-            "endpoint": "anthropic-messages",  # 非法
-            "is_default": False,
-            "is_enabled": True,
-        }],
+        "models": [
+            {
+                "model_id": "claude-4",
+                "display_name": "Claude 4",
+                "endpoint": "anthropic-messages",  # 非法
+                "is_default": False,
+                "is_enabled": True,
+            }
+        ],
     }
     resp = await client.post("/api/v1/custom-providers", json=payload)
     assert resp.status_code == 422
@@ -1004,12 +1026,25 @@ async def test_create_provider_unknown_discovery_format_returns_422(client):
 async def test_default_conflict_grouped_by_endpoint_media(client):
     """两条 endpoint 不同但推算 media_type 相同的模型不能同时 is_default。"""
     payload = {
-        "display_name": "X", "discovery_format": "openai", "base_url": "https://x", "api_key": "k",
+        "display_name": "X",
+        "discovery_format": "openai",
+        "base_url": "https://x",
+        "api_key": "k",
         "models": [
-            {"model_id": "gpt-4o", "display_name": "a", "endpoint": "openai-chat",
-             "is_default": True, "is_enabled": True},
-            {"model_id": "gemini-2.5", "display_name": "b", "endpoint": "gemini-generate",
-             "is_default": True, "is_enabled": True},  # 都是 text → 冲突
+            {
+                "model_id": "gpt-4o",
+                "display_name": "a",
+                "endpoint": "openai-chat",
+                "is_default": True,
+                "is_enabled": True,
+            },
+            {
+                "model_id": "gemini-2.5",
+                "display_name": "b",
+                "endpoint": "gemini-generate",
+                "is_default": True,
+                "is_enabled": True,
+            },  # 都是 text → 冲突
         ],
     }
     resp = await client.post("/api/v1/custom-providers", json=payload)
@@ -1159,6 +1194,7 @@ def _provider_to_response(provider, models) -> ProviderResponse:
 # 把 body.api_format → body.discovery_format
 # repo.create_provider(api_format=...) → repo.create_provider(discovery_format=...)
 
+
 @router.post("/discover")
 async def discover_models_endpoint(body: ProviderConnectionRequest, _user: CurrentUser, _t: Translator):
     from lib.custom_provider.discovery import discover_models
@@ -1293,9 +1329,7 @@ def upgrade() -> None:
     for row in rows:
         new_val = _UPGRADE_DISCOVERY_MAP.get(row.api_format)
         if new_val is None:
-            raise RuntimeError(
-                f"custom_provider.id={row.id} api_format={row.api_format!r} 不在迁移映射中"
-            )
+            raise RuntimeError(f"custom_provider.id={row.id} api_format={row.api_format!r} 不在迁移映射中")
         bind.execute(
             sa.text("UPDATE custom_provider SET discovery_format = :val WHERE id = :id"),
             {"val": new_val, "id": row.id},
@@ -1353,8 +1387,7 @@ def upgrade() -> None:
         ep = _UPGRADE_ENDPOINT_MAP.get((row.api_format, row.media_type))
         if ep is None:
             raise RuntimeError(
-                f"model id={row.mid} (api_format={row.api_format!r}, media_type={row.media_type!r}) "
-                f"不在迁移映射中"
+                f"model id={row.mid} (api_format={row.api_format!r}, media_type={row.media_type!r}) 不在迁移映射中"
             )
         bind.execute(
             sa.text("UPDATE custom_provider_model SET endpoint = :v WHERE id = :id"),
@@ -1474,9 +1507,15 @@ def test_upgrade_maps_all_nine_combos(alembic_cfg):
     engine = sa.create_engine(f"sqlite:///{db_path}")
 
     combos = [
-        ("openai", "text"), ("openai", "image"), ("openai", "video"),
-        ("google", "text"), ("google", "image"), ("google", "video"),
-        ("newapi", "text"), ("newapi", "image"), ("newapi", "video"),
+        ("openai", "text"),
+        ("openai", "image"),
+        ("openai", "video"),
+        ("google", "text"),
+        ("google", "image"),
+        ("google", "video"),
+        ("newapi", "text"),
+        ("newapi", "image"),
+        ("newapi", "video"),
     ]
     _seed_pre_endpoint_state(engine, combos)
 
@@ -1484,13 +1523,17 @@ def test_upgrade_maps_all_nine_combos(alembic_cfg):
     command.upgrade(cfg, "0426endpointrefactor")
 
     expected_endpoints = [
-        "openai-chat", "openai-images", "openai-video",
-        "gemini-generate", "gemini-image", "newapi-video",
-        "openai-chat", "openai-images", "newapi-video",
+        "openai-chat",
+        "openai-images",
+        "openai-video",
+        "gemini-generate",
+        "gemini-image",
+        "newapi-video",
+        "openai-chat",
+        "openai-images",
+        "newapi-video",
     ]
-    expected_discovery = ["openai", "openai", "openai",
-                          "google", "google", "google",
-                          "openai", "openai", "openai"]
+    expected_discovery = ["openai", "openai", "openai", "google", "google", "google", "openai", "openai", "openai"]
 
     with engine.connect() as conn:
         for i, ep in enumerate(expected_endpoints, start=1):
@@ -1498,12 +1541,10 @@ def test_upgrade_maps_all_nine_combos(alembic_cfg):
                 sa.text("SELECT endpoint FROM custom_provider_model WHERE provider_id=:i"),
                 {"i": i},
             ).fetchone()
-            assert row.endpoint == ep, f"combo {combos[i-1]} → expected {ep}, got {row.endpoint}"
+            assert row.endpoint == ep, f"combo {combos[i - 1]} → expected {ep}, got {row.endpoint}"
 
         for i, df in enumerate(expected_discovery, start=1):
-            row = conn.execute(
-                sa.text("SELECT discovery_format FROM custom_provider WHERE id=:i"), {"i": i}
-            ).fetchone()
+            row = conn.execute(sa.text("SELECT discovery_format FROM custom_provider WHERE id=:i"), {"i": i}).fetchone()
             assert row.discovery_format == df
 
 
@@ -1535,9 +1576,7 @@ def test_downgrade_restores_columns(alembic_cfg):
     with engine.connect() as conn:
         row = conn.execute(sa.text("SELECT api_format FROM custom_provider WHERE id=1")).fetchone()
         assert row.api_format == "openai"
-        row = conn.execute(
-            sa.text("SELECT media_type FROM custom_provider_model WHERE provider_id=1")
-        ).fetchone()
+        row = conn.execute(sa.text("SELECT media_type FROM custom_provider_model WHERE provider_id=1")).fetchone()
         assert row.media_type == "video"
 ```
 

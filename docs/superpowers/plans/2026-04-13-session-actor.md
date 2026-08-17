@@ -361,8 +361,10 @@ git commit -m "refactor(session-actor): 升级 FakeSDKClient 支持 async with �
 ```python
 def _collect(messages: list, managed_on_message):
     """辅助：on_message 把消息追加到外部列表。"""
+
     def _on(msg: dict) -> None:
         messages.append(msg)
+
     return _on
 
 
@@ -423,60 +425,64 @@ Expected: FAIL with `AttributeError: 'SessionActor' object has no attribute 'sta
 追加到 `server/agent_runtime/session_actor.py` 的 `SessionActor` 类（放在 `__init__` 之后）：
 
 ```python
-    async def start(self) -> None:
-        """启动 actor task；等到 connect 成功或 fail-fast 才返回。"""
-        self._task = asyncio.create_task(self._run(), name="session-actor")
-        started_task = asyncio.create_task(self._started.wait())
-        try:
-            await asyncio.wait(
-                {started_task, self._task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-        finally:
-            if not started_task.done():
-                started_task.cancel()
-        if self._fatal is not None:
-            raise self._fatal
+async def start(self) -> None:
+    """启动 actor task；等到 connect 成功或 fail-fast 才返回。"""
+    self._task = asyncio.create_task(self._run(), name="session-actor")
+    started_task = asyncio.create_task(self._started.wait())
+    try:
+        await asyncio.wait(
+            {started_task, self._task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    finally:
+        if not started_task.done():
+            started_task.cancel()
+    if self._fatal is not None:
+        raise self._fatal
 
-    async def _run(self) -> None:
-        try:
-            async with self._client_factory() as client:
-                self._started.set()
-                await self._command_loop(client)
-        except BaseException as exc:
-            self._fatal = exc
-            raise
-        finally:
-            # 正常 / 异常退出都 drain 残留命令，避免调用方挂死
-            self._drain_pending_commands(self._fatal or _ActorClosed())
 
-    async def _command_loop(self, client: Any) -> None:
-        """初版：只处理 disconnect；query / interrupt 在后续任务扩展。"""
-        while True:
-            cmd = await self._cmd_queue.get()
-            if cmd.type == "disconnect":
-                cmd.done.set()
-                return
-            # 其他命令暂未实现
-            cmd.error = NotImplementedError(f"command {cmd.type!r} not yet supported")
-            cmd.done.set()
+async def _run(self) -> None:
+    try:
+        async with self._client_factory() as client:
+            self._started.set()
+            await self._command_loop(client)
+    except BaseException as exc:
+        self._fatal = exc
+        raise
+    finally:
+        # 正常 / 异常退出都 drain 残留命令，避免调用方挂死
+        self._drain_pending_commands(self._fatal or _ActorClosed())
 
-    async def enqueue(self, cmd: SessionCommand) -> None:
-        if self._fatal is not None or (self._task is not None and self._task.done()):
-            cmd.error = self._fatal or _ActorClosed()
+
+async def _command_loop(self, client: Any) -> None:
+    """初版：只处理 disconnect；query / interrupt 在后续任务扩展。"""
+    while True:
+        cmd = await self._cmd_queue.get()
+        if cmd.type == "disconnect":
             cmd.done.set()
             return
-        await self._cmd_queue.put(cmd)
+        # 其他命令暂未实现
+        cmd.error = NotImplementedError(f"command {cmd.type!r} not yet supported")
+        cmd.done.set()
 
-    def _drain_pending_commands(self, exc: BaseException) -> None:
-        while not self._cmd_queue.empty():
-            try:
-                cmd = self._cmd_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-            if not cmd.done.is_set():
-                cmd.error = exc
-                cmd.done.set()
+
+async def enqueue(self, cmd: SessionCommand) -> None:
+    if self._fatal is not None or (self._task is not None and self._task.done()):
+        cmd.error = self._fatal or _ActorClosed()
+        cmd.done.set()
+        return
+    await self._cmd_queue.put(cmd)
+
+
+def _drain_pending_commands(self, exc: BaseException) -> None:
+    while not self._cmd_queue.empty():
+        try:
+            cmd = self._cmd_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+        if not cmd.done.is_set():
+            cmd.error = exc
+            cmd.done.set()
 ```
 
 - [ ] **Step 3.4: 运行测试，确认通过**
@@ -603,14 +609,12 @@ Expected: FAIL（`_command_loop` 遇到 `query` 走 `NotImplementedError` 分支
 在类中新增 `_drive_query`（最小版，先不处理命令交织）：
 
 ```python
-    async def _drive_query(
-        self, client: Any, query_cmd: SessionCommand
-    ) -> SessionCommand | None:
-        """消费 receive_response 直到 StopAsyncIteration。初版不处理中途命令。"""
-        async for msg in client.receive_response():
-            self._on_message(msg)
-        query_cmd.done.set()
-        return None
+async def _drive_query(self, client: Any, query_cmd: SessionCommand) -> SessionCommand | None:
+    """消费 receive_response 直到 StopAsyncIteration。初版不处理中途命令。"""
+    async for msg in client.receive_response():
+        self._on_message(msg)
+    query_cmd.done.set()
+    return None
 ```
 
 - [ ] **Step 4.4: 运行测试，确认部分通过**
@@ -759,52 +763,48 @@ Expected: FAIL（interrupt 永远等不到 —— 当前 `_drive_query` 在 `asy
 完全替换 `session_actor.py` 中 `_drive_query` 方法体：
 
 ```python
-    async def _drive_query(
-        self, client: Any, query_cmd: SessionCommand
-    ) -> SessionCommand | None:
-        """在同一 task 内交织消费 receive_response 与新命令。
-        返回：从队列取出但本轮未消化的命令（交给 _command_loop 下一轮）。
-        """
-        msg_iter = client.receive_response().__aiter__()
-        msg_task = asyncio.create_task(msg_iter.__anext__(), name="actor-recv")
-        cmd_task = asyncio.create_task(self._cmd_queue.get(), name="actor-cmd")
-        try:
-            while True:
-                done, _ = await asyncio.wait(
-                    {msg_task, cmd_task}, return_when=asyncio.FIRST_COMPLETED
-                )
+async def _drive_query(self, client: Any, query_cmd: SessionCommand) -> SessionCommand | None:
+    """在同一 task 内交织消费 receive_response 与新命令。
+    返回：从队列取出但本轮未消化的命令（交给 _command_loop 下一轮）。
+    """
+    msg_iter = client.receive_response().__aiter__()
+    msg_task = asyncio.create_task(msg_iter.__anext__(), name="actor-recv")
+    cmd_task = asyncio.create_task(self._cmd_queue.get(), name="actor-cmd")
+    try:
+        while True:
+            done, _ = await asyncio.wait({msg_task, cmd_task}, return_when=asyncio.FIRST_COMPLETED)
 
-                if msg_task in done:
-                    try:
-                        self._on_message(msg_task.result())
-                        msg_task = asyncio.create_task(msg_iter.__anext__())
-                    except StopAsyncIteration:
-                        query_cmd.done.set()
-                        if cmd_task.done():
-                            return cmd_task.result()
-                        cmd_task.cancel()
-                        return None
+            if msg_task in done:
+                try:
+                    self._on_message(msg_task.result())
+                    msg_task = asyncio.create_task(msg_iter.__anext__())
+                except StopAsyncIteration:
+                    query_cmd.done.set()
+                    if cmd_task.done():
+                        return cmd_task.result()
+                    cmd_task.cancel()
+                    return None
 
-                if cmd_task in done:
-                    next_cmd = cmd_task.result()
-                    if next_cmd.type == "interrupt":
-                        await client.interrupt()
-                        next_cmd.done.set()
-                        cmd_task = asyncio.create_task(self._cmd_queue.get())
-                    elif next_cmd.type == "disconnect":
-                        # drive_query 内部遇到 disconnect：先 interrupt 让消息流收尾，
-                        # 然后把 disconnect 命令携带回 _command_loop 处理
-                        await client.interrupt()
-                        return next_cmd
-                    elif next_cmd.type == "query":
-                        # 违反 "drain before new query"；携带给下一轮，
-                        # 由 ManagedSession 层保证不会在 running 状态重复 query
-                        return next_cmd
-        finally:
-            if not msg_task.done():
-                msg_task.cancel()
-            if not cmd_task.done():
-                cmd_task.cancel()
+            if cmd_task in done:
+                next_cmd = cmd_task.result()
+                if next_cmd.type == "interrupt":
+                    await client.interrupt()
+                    next_cmd.done.set()
+                    cmd_task = asyncio.create_task(self._cmd_queue.get())
+                elif next_cmd.type == "disconnect":
+                    # drive_query 内部遇到 disconnect：先 interrupt 让消息流收尾，
+                    # 然后把 disconnect 命令携带回 _command_loop 处理
+                    await client.interrupt()
+                    return next_cmd
+                elif next_cmd.type == "query":
+                    # 违反 "drain before new query"；携带给下一轮，
+                    # 由 ManagedSession 层保证不会在 running 状态重复 query
+                    return next_cmd
+    finally:
+        if not msg_task.done():
+            msg_task.cancel()
+        if not cmd_task.done():
+            cmd_task.cancel()
 ```
 
 - [ ] **Step 5.4: 运行所有测试，确认全部通过**
@@ -998,7 +998,7 @@ from server.agent_runtime.session_actor import SessionActor, SessionCommand, _Ac
 @dataclass
 class ManagedSession:
     session_id: str
-    actor: "SessionActor"                # ← 原来是 client: Any
+    actor: "SessionActor"  # ← 原来是 client: Any
     status: SessionStatus
     project_name: str
     # 保留以下字段（如原本存在，保持原样）：
@@ -1081,9 +1081,11 @@ git commit -m "refactor(session-actor): ManagedSession.client → actor 字段�
 ```python
 # --- ManagedSession 状态机（Session Actor 重构）-----------------------------
 
+
 def _make_managed_for_state_test():
     """构造一个 ManagedSession 用于状态机测试，actor 字段用 None 占位。"""
     from server.agent_runtime.session_manager import ManagedSession
+
     return ManagedSession(
         session_id="test",
         actor=None,  # 状态机测试不触及 actor
@@ -1186,6 +1188,7 @@ git commit -m "refactor(session-actor): ManagedSession._on_actor_message 回调�
 ```python
 # --- ManagedSession 对 actor 的代理 -----------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_send_query_sets_running_and_awaits_done():
     from server.agent_runtime.session_actor import SessionActor, SessionCommand
@@ -1217,12 +1220,21 @@ async def test_send_query_raises_on_cmd_error():
     from server.agent_runtime.session_manager import ManagedSession
 
     class _Explode:
-        async def __aenter__(self): return self
-        async def __aexit__(self, *e): return False
-        async def query(self, *a, **k): raise RuntimeError("boom")
-        async def interrupt(self): pass
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *e):
+            return False
+
+        async def query(self, *a, **k):
+            raise RuntimeError("boom")
+
+        async def interrupt(self):
+            pass
+
         async def receive_response(self):
-            if False: yield {}
+            if False:
+                yield {}
 
     actor = SessionActor(client_factory=lambda: _Explode(), on_message=lambda m: None)
     managed = ManagedSession(session_id="t", actor=actor, status="idle", project_name="p")
@@ -1249,6 +1261,7 @@ async def test_send_interrupt_is_idempotent_via_flag():
 
     # 发一个 query 让 receive_response 开始
     from server.agent_runtime.session_actor import SessionCommand
+
     q = SessionCommand(type="query", prompt="x")
     await actor.enqueue(q)
     await asyncio.sleep(0.05)
@@ -1288,39 +1301,40 @@ Expected: FAIL（方法不存在）
 在 `ManagedSession` 类内（紧邻 `_on_actor_message` 之后），追加：
 
 ```python
-    async def send_query(
-        self, prompt: str | AsyncIterable[dict], sdk_session_id: str = "default"
-    ) -> None:
-        # 等 prompt 送入 SDK 即返回（整轮 receive_response 由 actor 后台 drain），
-        # 保持 HTTP 路径 "立即 accepted + SSE 异步消费" 语义。
-        self.status = "running"
-        cmd = SessionCommand(type="query", prompt=prompt, session_id=sdk_session_id)
-        await self.actor.enqueue(cmd)
-        await cmd.sent.wait()
-        if cmd.error is not None:
-            self.status = "error"
-            raise cmd.error
+async def send_query(self, prompt: str | AsyncIterable[dict], sdk_session_id: str = "default") -> None:
+    # 等 prompt 送入 SDK 即返回（整轮 receive_response 由 actor 后台 drain），
+    # 保持 HTTP 路径 "立即 accepted + SSE 异步消费" 语义。
+    self.status = "running"
+    cmd = SessionCommand(type="query", prompt=prompt, session_id=sdk_session_id)
+    await self.actor.enqueue(cmd)
+    await cmd.sent.wait()
+    if cmd.error is not None:
+        self.status = "error"
+        raise cmd.error
 
-    async def send_interrupt(self) -> None:
-        if self._interrupting:
-            return
-        self._interrupting = True
-        try:
-            cmd = SessionCommand(type="interrupt")
-            await self.actor.enqueue(cmd)
-            await cmd.done.wait()
-        finally:
-            self._interrupting = False
 
-    async def send_disconnect(self) -> None:
-        cmd = SessionCommand(type="disconnect")
+async def send_interrupt(self) -> None:
+    if self._interrupting:
+        return
+    self._interrupting = True
+    try:
+        cmd = SessionCommand(type="interrupt")
         await self.actor.enqueue(cmd)
         await cmd.done.wait()
-        if self.actor._task is not None:
-            import contextlib
-            with contextlib.suppress(BaseException):
-                await self.actor._task
-        self.status = "closed"
+    finally:
+        self._interrupting = False
+
+
+async def send_disconnect(self) -> None:
+    cmd = SessionCommand(type="disconnect")
+    await self.actor.enqueue(cmd)
+    await cmd.done.wait()
+    if self.actor._task is not None:
+        import contextlib
+
+        with contextlib.suppress(BaseException):
+            await self.actor._task
+    self.status = "closed"
 ```
 
 (若文件已 `import contextlib`，不要重复；把 `import contextlib` 提到文件顶部并删掉方法内 import。)
@@ -1355,123 +1369,123 @@ Run: `sed -n '829,920p' server/agent_runtime/session_manager.py | head -100`
 替换 `send_new_session` 整个方法体为：
 
 ```python
-    async def send_new_session(
-        self,
-        project_name: str,
-        prompt: str | AsyncIterable[dict],
-        *,
-        echo_text: str | None = None,
-        echo_content: list[dict[str, Any]] | None = None,
-        locale: str = "zh",
-    ) -> str:
-        """Create a new session via send-first: start actor, send message, wait for sdk_session_id."""
-        if not SDK_AVAILABLE or ClaudeSDKClient is None:
-            raise RuntimeError("claude_agent_sdk is not installed")
+async def send_new_session(
+    self,
+    project_name: str,
+    prompt: str | AsyncIterable[dict],
+    *,
+    echo_text: str | None = None,
+    echo_content: list[dict[str, Any]] | None = None,
+    locale: str = "zh",
+) -> str:
+    """Create a new session via send-first: start actor, send message, wait for sdk_session_id."""
+    if not SDK_AVAILABLE or ClaudeSDKClient is None:
+        raise RuntimeError("claude_agent_sdk is not installed")
 
-        await self._ensure_capacity()
-        temp_id = uuid4().hex
-        managed_ref: list[ManagedSession | None] = [None]
+    await self._ensure_capacity()
+    temp_id = uuid4().hex
+    managed_ref: list[ManagedSession | None] = [None]
 
-        options = self._build_options(
-            project_name,
-            resume_id=None,
-            can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
-            locale=locale,
-        )
+    options = self._build_options(
+        project_name,
+        resume_id=None,
+        can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
+        locale=locale,
+    )
 
-        def _on_actor_message(msg: dict[str, Any]) -> None:
-            """同步回调：只做状态机 + buffer + broadcast，异步业务交给 _process_inbox。"""
-            managed = managed_ref[0]
-            if managed is None:
-                return
-            managed._on_actor_message(msg)     # 同步：状态机 + add_message
-            managed._inbox.put_nowait(msg)     # 异步业务入队（_process_inbox 消费）
+    def _on_actor_message(msg: dict[str, Any]) -> None:
+        """同步回调：只做状态机 + buffer + broadcast，异步业务交给 _process_inbox。"""
+        managed = managed_ref[0]
+        if managed is None:
+            return
+        managed._on_actor_message(msg)  # 同步：状态机 + add_message
+        managed._inbox.put_nowait(msg)  # 异步业务入队（_process_inbox 消费）
 
-        actor = SessionActor(
-            client_factory=lambda: ClaudeSDKClient(options=options),
-            on_message=_on_actor_message,
-        )
-        managed = ManagedSession(
-            session_id=temp_id,
-            actor=actor,
-            status="running",
-            project_name=project_name,
-        )
-        managed_ref[0] = managed
-        managed.last_activity = time.monotonic()
-        self.sessions[temp_id] = managed
+    actor = SessionActor(
+        client_factory=lambda: ClaudeSDKClient(options=options),
+        on_message=_on_actor_message,
+    )
+    managed = ManagedSession(
+        session_id=temp_id,
+        actor=actor,
+        status="running",
+        project_name=project_name,
+    )
+    managed_ref[0] = managed
+    managed.last_activity = time.monotonic()
+    self.sessions[temp_id] = managed
 
-        # actor 异常结束时，把 session 切 error 并通知订阅者；
-        # 同时在 _inbox 塞 sentinel，让 _process_inbox 自然退出
-        def _on_actor_done(task: asyncio.Task) -> None:
-            try:
-                managed._inbox.put_nowait(None)
-            except Exception:
-                pass
-            if task.cancelled():
-                return
-            exc = task.exception()
-            if exc is None:
-                return
-            managed.status = "error"
-            try:
-                status_msg = self._build_runtime_status_message(managed, "error", str(exc))
-                managed.add_message(status_msg)
-            except Exception:
-                logger.exception("构造 runtime_status 消息失败")
-
+    # actor 异常结束时，把 session 切 error 并通知订阅者；
+    # 同时在 _inbox 塞 sentinel，让 _process_inbox 自然退出
+    def _on_actor_done(task: asyncio.Task) -> None:
         try:
-            await actor.start()
+            managed._inbox.put_nowait(None)
         except Exception:
-            logger.exception("SessionActor 启动失败")
-            self.sessions.pop(temp_id, None)
-            raise
-
-        # 启动异步消息处理器（从 _inbox 消费，执行 _handle_special_message 等 await 业务）
-        managed._process_task = asyncio.create_task(self._process_inbox(managed))
-
-        if actor._task is not None:
-            actor._task.add_done_callback(_on_actor_done)
-
-        # Echo user message
-        display_text = echo_text or (prompt if isinstance(prompt, str) else "")
-        dedup_key = display_text or (self._IMAGE_ONLY_SENTINEL if echo_content else "")
-        if dedup_key:
-            managed.pending_user_echoes.append(dedup_key)
-        managed.add_message(self._build_user_echo_message(display_text, echo_content))
-
-        # 发首条 query（actor 内部会消费 receive_response）
+            pass
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        managed.status = "error"
         try:
-            await managed.send_query(prompt)
+            status_msg = self._build_runtime_status_message(managed, "error", str(exc))
+            managed.add_message(status_msg)
         except Exception:
-            logger.exception("新会话消息发送失败")
-            self.sessions.pop(temp_id, None)
-            await managed.send_disconnect()
-            raise
+            logger.exception("构造 runtime_status 消息失败")
 
-        # 等待 sdk_session_id 就位
-        event_task = asyncio.create_task(managed.sdk_id_event.wait())
-        try:
-            await asyncio.wait(
-                {event_task, actor._task} if actor._task else {event_task},
-                timeout=self._SDK_ID_TIMEOUT,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-        finally:
-            if not event_task.done():
-                event_task.cancel()
+    try:
+        await actor.start()
+    except Exception:
+        logger.exception("SessionActor 启动失败")
+        self.sessions.pop(temp_id, None)
+        raise
 
-        if not managed.sdk_id_event.is_set():
-            logger.error("等待 sdk_session_id 超时或 actor 提前退出 temp_id=%s", temp_id)
-            managed.cancel_pending_questions("session creation timed out")
-            self.sessions.pop(temp_id, None)
-            await managed.send_disconnect()
-            raise TimeoutError("SDK 会话创建超时")
+    # 启动异步消息处理器（从 _inbox 消费，执行 _handle_special_message 等 await 业务）
+    managed._process_task = asyncio.create_task(self._process_inbox(managed))
 
-        sdk_id = managed.resolved_sdk_id
-        assert sdk_id is not None
-        assert managed.session_id == sdk_id
-        return sdk_id
+    if actor._task is not None:
+        actor._task.add_done_callback(_on_actor_done)
+
+    # Echo user message
+    display_text = echo_text or (prompt if isinstance(prompt, str) else "")
+    dedup_key = display_text or (self._IMAGE_ONLY_SENTINEL if echo_content else "")
+    if dedup_key:
+        managed.pending_user_echoes.append(dedup_key)
+    managed.add_message(self._build_user_echo_message(display_text, echo_content))
+
+    # 发首条 query（actor 内部会消费 receive_response）
+    try:
+        await managed.send_query(prompt)
+    except Exception:
+        logger.exception("新会话消息发送失败")
+        self.sessions.pop(temp_id, None)
+        await managed.send_disconnect()
+        raise
+
+    # 等待 sdk_session_id 就位
+    event_task = asyncio.create_task(managed.sdk_id_event.wait())
+    try:
+        await asyncio.wait(
+            {event_task, actor._task} if actor._task else {event_task},
+            timeout=self._SDK_ID_TIMEOUT,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    finally:
+        if not event_task.done():
+            event_task.cancel()
+
+    if not managed.sdk_id_event.is_set():
+        logger.error("等待 sdk_session_id 超时或 actor 提前退出 temp_id=%s", temp_id)
+        managed.cancel_pending_questions("session creation timed out")
+        self.sessions.pop(temp_id, None)
+        await managed.send_disconnect()
+        raise TimeoutError("SDK 会话创建超时")
+
+    sdk_id = managed.resolved_sdk_id
+    assert sdk_id is not None
+    assert managed.session_id == sdk_id
+    return sdk_id
 ```
 
 - [ ] **Step 11.3: 新增 _process_inbox 方法（替换原 _consume_messages）**
@@ -1553,67 +1567,67 @@ git commit -m "refactor(session-actor): send_new_session 走 actor + _process_in
 替换 `get_or_connect`（`session_manager.py:921` 起）整个方法体为：
 
 ```python
-    async def get_or_connect(self, session_id: str, *, meta: Optional["SessionMeta"] = None) -> ManagedSession:
-        """Get existing managed session or spin up an actor for resumed session."""
+async def get_or_connect(self, session_id: str, *, meta: Optional["SessionMeta"] = None) -> ManagedSession:
+    """Get existing managed session or spin up an actor for resumed session."""
+    if session_id in self.sessions and session_id not in self._disconnecting:
+        return self.sessions[session_id]
+
+    if session_id not in self._connect_locks:
+        self._connect_locks[session_id] = asyncio.Lock()
+
+    async with self._connect_locks[session_id]:
         if session_id in self.sessions and session_id not in self._disconnecting:
             return self.sessions[session_id]
 
-        if session_id not in self._connect_locks:
-            self._connect_locks[session_id] = asyncio.Lock()
+        await self._ensure_capacity()
+        project_name = meta.project_name if meta else ""
+        managed_ref: list[ManagedSession | None] = [None]
 
-        async with self._connect_locks[session_id]:
-            if session_id in self.sessions and session_id not in self._disconnecting:
-                return self.sessions[session_id]
+        options = self._build_options(
+            project_name,
+            resume_id=session_id,
+            can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
+            locale=(meta.locale if meta and getattr(meta, "locale", None) else "zh"),
+        )
 
-            await self._ensure_capacity()
-            project_name = meta.project_name if meta else ""
-            managed_ref: list[ManagedSession | None] = [None]
+        def _on_actor_message(msg: dict[str, Any]) -> None:
+            managed = managed_ref[0]
+            if managed is None:
+                return
+            managed._on_actor_message(msg)  # 同步：状态机 + add_message
+            managed._inbox.put_nowait(msg)  # 异步业务入队
 
-            options = self._build_options(
-                project_name,
-                resume_id=session_id,
-                can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
-                locale=(meta.locale if meta and getattr(meta, "locale", None) else "zh"),
-            )
+        actor = SessionActor(
+            client_factory=lambda: ClaudeSDKClient(options=options),
+            on_message=_on_actor_message,
+        )
+        managed = ManagedSession(
+            session_id=session_id,
+            actor=actor,
+            status="idle",
+            project_name=project_name,
+        )
+        managed_ref[0] = managed
+        managed.last_activity = time.monotonic()
+        self.sessions[session_id] = managed
 
-            def _on_actor_message(msg: dict[str, Any]) -> None:
-                managed = managed_ref[0]
-                if managed is None:
-                    return
-                managed._on_actor_message(msg)     # 同步：状态机 + add_message
-                managed._inbox.put_nowait(msg)     # 异步业务入队
-
-            actor = SessionActor(
-                client_factory=lambda: ClaudeSDKClient(options=options),
-                on_message=_on_actor_message,
-            )
-            managed = ManagedSession(
-                session_id=session_id,
-                actor=actor,
-                status="idle",
-                project_name=project_name,
-            )
-            managed_ref[0] = managed
-            managed.last_activity = time.monotonic()
-            self.sessions[session_id] = managed
-
-            def _on_actor_done(task: asyncio.Task) -> None:
-                try:
-                    managed._inbox.put_nowait(None)
-                except Exception:
-                    pass
-
+        def _on_actor_done(task: asyncio.Task) -> None:
             try:
-                await actor.start()
+                managed._inbox.put_nowait(None)
             except Exception:
-                logger.exception("恢复会话 actor 启动失败 session_id=%s", session_id)
-                self.sessions.pop(session_id, None)
-                raise
+                pass
 
-            managed._process_task = asyncio.create_task(self._process_inbox(managed))
-            if actor._task is not None:
-                actor._task.add_done_callback(_on_actor_done)
-            return managed
+        try:
+            await actor.start()
+        except Exception:
+            logger.exception("恢复会话 actor 启动失败 session_id=%s", session_id)
+            self.sessions.pop(session_id, None)
+            raise
+
+        managed._process_task = asyncio.create_task(self._process_inbox(managed))
+        if actor._task is not None:
+            actor._task.add_done_callback(_on_actor_done)
+        return managed
 ```
 
 - [ ] **Step 12.2: 重写 send_message**
@@ -1767,15 +1781,23 @@ async def test_evict_timeout_falls_back_to_cancel():
     from server.agent_runtime.session_manager import ManagedSession, SessionManager
 
     class _StuckClient:
-        async def __aenter__(self): return self
+        async def __aenter__(self):
+            return self
+
         async def __aexit__(self, *e):
             # 模拟 CLI 僵死：disconnect 阶段永远不返回
             await asyncio.sleep(3600)
-        async def query(self, *a, **k): pass
-        async def interrupt(self): pass
+
+        async def query(self, *a, **k):
+            pass
+
+        async def interrupt(self):
+            pass
+
         async def receive_response(self):
             await asyncio.sleep(3600)
-            if False: yield {}
+            if False:
+                yield {}
 
     actor = SessionActor(client_factory=lambda: _StuckClient(), on_message=lambda m: None)
     managed = ManagedSession(session_id="stuck", actor=actor, status="idle", project_name="p")
@@ -1808,50 +1830,48 @@ Expected: FAIL（`SessionManager` 无 `_evict_one` 方法 / `_session_actor_shut
 在 `SessionManager` 类内（`_disconnect_session_inner` 附近，约 `session_manager.py:1430` 行）新增方法：
 
 ```python
-    async def _evict_one(self, managed: ManagedSession) -> None:
-        """Gracefully disconnect an actor, cancel as fallback, and remove from registry."""
-        session_id = managed.session_id
-        self._disconnecting.add(session_id)
+async def _evict_one(self, managed: ManagedSession) -> None:
+    """Gracefully disconnect an actor, cancel as fallback, and remove from registry."""
+    session_id = managed.session_id
+    self._disconnecting.add(session_id)
+    try:
         try:
-            try:
-                await asyncio.wait_for(
-                    managed.send_disconnect(),
-                    timeout=self._session_actor_shutdown_timeout,
-                )
-            except asyncio.TimeoutError:
-                logger.warning("actor disconnect 超时，走 cancel 兜底 session_id=%s", session_id)
-                task = managed.actor._task if managed.actor else None
-                if task is not None and not task.done():
-                    task.cancel()
-                    with contextlib.suppress(BaseException):
-                        await task
-                managed.status = "closed"
-            except Exception:
-                logger.exception("actor 关停异常 session_id=%s", session_id)
-                managed.status = "error"
-            finally:
-                # cleanup timer
-                if managed._cleanup_task is not None and not managed._cleanup_task.done():
-                    managed._cleanup_task.cancel()
-                # 通知 _process_inbox 退出，并等它 drain 完
-                try:
-                    managed._inbox.put_nowait(None)
-                except Exception:
-                    pass
-                if managed._process_task is not None and not managed._process_task.done():
-                    try:
-                        await asyncio.wait_for(managed._process_task, timeout=5.0)
-                    except asyncio.TimeoutError:
-                        managed._process_task.cancel()
-                        with contextlib.suppress(BaseException):
-                            await managed._process_task
-                    except BaseException:
-                        logger.exception(
-                            "_process_inbox 退出异常 session_id=%s", session_id
-                        )
+            await asyncio.wait_for(
+                managed.send_disconnect(),
+                timeout=self._session_actor_shutdown_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("actor disconnect 超时，走 cancel 兜底 session_id=%s", session_id)
+            task = managed.actor._task if managed.actor else None
+            if task is not None and not task.done():
+                task.cancel()
+                with contextlib.suppress(BaseException):
+                    await task
+            managed.status = "closed"
+        except Exception:
+            logger.exception("actor 关停异常 session_id=%s", session_id)
+            managed.status = "error"
         finally:
-            self.sessions.pop(session_id, None)
-            self._disconnecting.discard(session_id)
+            # cleanup timer
+            if managed._cleanup_task is not None and not managed._cleanup_task.done():
+                managed._cleanup_task.cancel()
+            # 通知 _process_inbox 退出，并等它 drain 完
+            try:
+                managed._inbox.put_nowait(None)
+            except Exception:
+                pass
+            if managed._process_task is not None and not managed._process_task.done():
+                try:
+                    await asyncio.wait_for(managed._process_task, timeout=5.0)
+                except asyncio.TimeoutError:
+                    managed._process_task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await managed._process_task
+                except BaseException:
+                    logger.exception("_process_inbox 退出异常 session_id=%s", session_id)
+    finally:
+        self.sessions.pop(session_id, None)
+        self._disconnecting.discard(session_id)
 ```
 
 （若文件顶部未 `import contextlib`，补上。）
@@ -1896,23 +1916,24 @@ git commit -m "refactor(session-actor): 新增 _evict_one，带超时 + cancel �
 替换 `_schedule_cleanup`（`session_manager.py:1147`）整个方法体为：
 
 ```python
-    def _schedule_cleanup(self, session_id: str) -> None:
-        managed = self.sessions.get(session_id)
-        if managed is None:
-            return
-        if managed._cleanup_task is not None and not managed._cleanup_task.done():
-            managed._cleanup_task.cancel()
-        managed._cleanup_task = asyncio.create_task(self._cleanup_idle(session_id))
+def _schedule_cleanup(self, session_id: str) -> None:
+    managed = self.sessions.get(session_id)
+    if managed is None:
+        return
+    if managed._cleanup_task is not None and not managed._cleanup_task.done():
+        managed._cleanup_task.cancel()
+    managed._cleanup_task = asyncio.create_task(self._cleanup_idle(session_id))
 
-    async def _cleanup_idle(self, session_id: str) -> None:
-        try:
-            delay = await self._get_cleanup_delay()
-            await asyncio.sleep(delay)
-        except asyncio.CancelledError:
-            return
-        managed = self.sessions.get(session_id)
-        if managed and managed.status in ("idle", "interrupted", "error"):
-            await self._evict_one(managed)
+
+async def _cleanup_idle(self, session_id: str) -> None:
+    try:
+        delay = await self._get_cleanup_delay()
+        await asyncio.sleep(delay)
+    except asyncio.CancelledError:
+        return
+    managed = self.sessions.get(session_id)
+    if managed and managed.status in ("idle", "interrupted", "error"):
+        await self._evict_one(managed)
 ```
 
 - [ ] **Step 16.3: 重写 _ensure_capacity（淘汰分支）**

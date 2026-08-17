@@ -262,8 +262,7 @@ def resolve_profile_files_for_mode(
     if collisions:
         sample = sorted(collisions)[0]
         raise ProfileMisconfiguredError(
-            f"profile has both common and variant for {sample!r}; "
-            f"remove one. all collisions: {sorted(collisions)}"
+            f"profile has both common and variant for {sample!r}; remove one. all collisions: {sorted(collisions)}"
         )
 
     # 校验 2：变体配对完整
@@ -942,14 +941,10 @@ def test_create_project_with_drama_mode_materializes_drama_variant(
     pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
     project_dir = pm.create_project("demo", content_mode="drama")
     assert (project_dir / "CLAUDE.md").read_text() == "drama top"
-    assert (
-        project_dir / ".claude" / "skills" / "manga-workflow" / "SKILL.md"
-    ).read_text() == "dra skill"
+    assert (project_dir / ".claude" / "skills" / "manga-workflow" / "SKILL.md").read_text() == "dra skill"
 
 
-def test_create_project_default_is_narration(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_create_project_default_is_narration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """老 caller 不传 content_mode → 默认 narration（与产品默认一致）。"""
     pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
     project_dir = pm.create_project("demo")
@@ -982,9 +977,7 @@ def test_sync_agent_profile_missing_mode_fallback_narration(
     assert (project_dir / "CLAUDE.md").read_text() == "narration top"
 
 
-def test_sync_agent_profile_invalid_mode_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_sync_agent_profile_invalid_mode_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
     project_dir = pm.create_project("demo", content_mode="narration")
     pj_path = project_dir / "project.json"
@@ -993,9 +986,7 @@ def test_sync_agent_profile_invalid_mode_raises(
         pm.sync_agent_profile(project_dir)
 
 
-def test_sync_all_agent_profiles_per_project_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_sync_all_agent_profiles_per_project_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
     pm.create_project("a", content_mode="narration")
     pm.create_project("b", content_mode="drama")
@@ -1053,61 +1044,61 @@ Expected: FAIL（缺 content_mode 参数 / 行为未实现）。
 `lib/project_manager.py:188` 处替换为：
 
 ```python
-    def sync_agent_profile(
-        self,
-        project_dir: Path,
-        *,
-        content_mode: str | None = None,
-    ) -> dict:
-        """同步 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
+def sync_agent_profile(
+    self,
+    project_dir: Path,
+    *,
+    content_mode: str | None = None,
+) -> dict:
+    """同步 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
 
-        ``content_mode=None`` 时从 ``project_dir/project.json`` 读取；
-        project.json 缺失或 ``content_mode`` 字段缺失 → 回退到 ``"narration"`` + log info。
-        ``content_mode`` 显式非法值 → 抛 ``ValueError``。
-        """
-        if content_mode is None:
-            content_mode = self._resolve_content_mode(project_dir)
-        profile_dir = agent_profile_dir()
-        return sync_profile_to_project(profile_dir, project_dir, content_mode)
+    ``content_mode=None`` 时从 ``project_dir/project.json`` 读取；
+    project.json 缺失或 ``content_mode`` 字段缺失 → 回退到 ``"narration"`` + log info。
+    ``content_mode`` 显式非法值 → 抛 ``ValueError``。
+    """
+    if content_mode is None:
+        content_mode = self._resolve_content_mode(project_dir)
+    profile_dir = agent_profile_dir()
+    return sync_profile_to_project(profile_dir, project_dir, content_mode)
 
-    def force_resync_profile(
-        self,
-        project_dir: Path,
-        *,
-        paths: list[str] | None = None,
-        content_mode: str | None = None,
-    ) -> dict:
-        """强制按 profile 覆盖项目内对应文件并刷新 manifest。"""
-        if content_mode is None:
-            content_mode = self._resolve_content_mode(project_dir)
-        profile_dir = agent_profile_dir()
-        return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
 
-    def _resolve_content_mode(self, project_dir: Path) -> str:
-        """从 project_dir/project.json 读 content_mode；缺失回退 narration。
+def force_resync_profile(
+    self,
+    project_dir: Path,
+    *,
+    paths: list[str] | None = None,
+    content_mode: str | None = None,
+) -> dict:
+    """强制按 profile 覆盖项目内对应文件并刷新 manifest。"""
+    if content_mode is None:
+        content_mode = self._resolve_content_mode(project_dir)
+    profile_dir = agent_profile_dir()
+    return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
 
-        project.json 不存在或缺 content_mode 字段 → 回退 narration（兼容老项目）。
-        文件存在但读取/解析失败 → raise，让上层 sync_all_agent_profiles 走
-        failed_projects 分支；静默回退会导致 drama 项目 manifest mode 不匹配
-        触发破坏性 reset，把 profile 错切回说书变体。
-        """
-        pj_path = project_dir / self.PROJECT_FILE
-        try:
-            data = json.loads(pj_path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            logger.info("project.json missing under %s, defaulting content_mode=narration", project_dir)
-            return "narration"
-        # 注意：OSError / JSONDecodeError 不在这里 catch，自然抛出让 sync_all_agent_profiles
-        # 走 failed_projects 分支，避免静默回退到 narration 后触发 destructive reset。
-        mode = data.get("content_mode")
-        if mode is None:
-            logger.info("project.json missing content_mode under %s, defaulting narration", project_dir)
-            return "narration"
-        if not isinstance(mode, str) or mode not in {"narration", "drama"}:
-            raise ValueError(
-                f"project {project_dir.name}: invalid content_mode={mode!r} (must be narration or drama)"
-            )
-        return mode
+
+def _resolve_content_mode(self, project_dir: Path) -> str:
+    """从 project_dir/project.json 读 content_mode；缺失回退 narration。
+
+    project.json 不存在或缺 content_mode 字段 → 回退 narration（兼容老项目）。
+    文件存在但读取/解析失败 → raise，让上层 sync_all_agent_profiles 走
+    failed_projects 分支；静默回退会导致 drama 项目 manifest mode 不匹配
+    触发破坏性 reset，把 profile 错切回说书变体。
+    """
+    pj_path = project_dir / self.PROJECT_FILE
+    try:
+        data = json.loads(pj_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        logger.info("project.json missing under %s, defaulting content_mode=narration", project_dir)
+        return "narration"
+    # 注意：OSError / JSONDecodeError 不在这里 catch，自然抛出让 sync_all_agent_profiles
+    # 走 failed_projects 分支，避免静默回退到 narration 后触发 destructive reset。
+    mode = data.get("content_mode")
+    if mode is None:
+        logger.info("project.json missing content_mode under %s, defaulting narration", project_dir)
+        return "narration"
+    if not isinstance(mode, str) or mode not in {"narration", "drama"}:
+        raise ValueError(f"project {project_dir.name}: invalid content_mode={mode!r} (must be narration or drama)")
+    return mode
 ```
 
 - [ ] **Step 5: 改 `sync_all_agent_profiles` 失败模式**

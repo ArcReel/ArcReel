@@ -99,9 +99,7 @@ class TestNewAPIVideoBackend:
     def test_name_and_model(self):
         from lib.video_backends.newapi import NewAPIVideoBackend
 
-        backend = NewAPIVideoBackend(
-            api_key="sk-test", base_url="https://example.com/v1", model="kling-v1"
-        )
+        backend = NewAPIVideoBackend(api_key="sk-test", base_url="https://example.com/v1", model="kling-v1")
         assert backend.name == PROVIDER_NEWAPI
         assert backend.model == "kling-v1"
 
@@ -140,9 +138,7 @@ class TestNewAPIVideoBackend:
         with patch("httpx.AsyncClient", return_value=mock_client):
             from lib.video_backends.newapi import NewAPIVideoBackend
 
-            backend = NewAPIVideoBackend(
-                api_key="sk-test", base_url="https://example.com/v1", model="kling-v1"
-            )
+            backend = NewAPIVideoBackend(api_key="sk-test", base_url="https://example.com/v1", model="kling-v1")
             request = VideoGenerationRequest(
                 prompt="A cat running",
                 output_path=tmp_path / "out.mp4",
@@ -358,9 +354,7 @@ class NewAPIVideoBackend:
             raise RuntimeError(f"NewAPI 创建任务返回体缺少 task_id: {body}")
         return task_id
 
-    async def _poll_until_done(
-        self, client: httpx.AsyncClient, *, task_id: str, max_wait: float
-    ) -> dict:
+    async def _poll_until_done(self, client: httpx.AsyncClient, *, task_id: str, max_wait: float) -> dict:
         elapsed = 0.0
         while True:
             if elapsed >= max_wait:
@@ -504,67 +498,28 @@ git commit -m "test(newapi-video): cover image-to-video base64 encoding"
 - [ ] **Step 1: 追加失败态 + 轮询 in_progress 两轮成功的测试**
 
 ```python
-    async def test_failed_status_raises(self, tmp_path: Path):
-        create_resp = _make_response(200, {"task_id": "t2", "status": "queued"})
-        poll_resp = _make_response(
-            200,
-            {
-                "task_id": "t2",
-                "status": "failed",
-                "error": {"code": 500, "message": "upstream down"},
-            },
-        )
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(return_value=poll_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+async def test_failed_status_raises(self, tmp_path: Path):
+    create_resp = _make_response(200, {"task_id": "t2", "status": "queued"})
+    poll_resp = _make_response(
+        200,
+        {
+            "task_id": "t2",
+            "status": "failed",
+            "error": {"code": 500, "message": "upstream down"},
+        },
+    )
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=create_resp)
+    mock_client.get = AsyncMock(return_value=poll_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            from lib.video_backends.newapi import NewAPIVideoBackend
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        from lib.video_backends.newapi import NewAPIVideoBackend
 
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            with pytest.raises(RuntimeError, match="upstream down"):
-                await backend.generate(
-                    VideoGenerationRequest(
-                        prompt="p",
-                        output_path=tmp_path / "o.mp4",
-                        resolution="720p",
-                        aspect_ratio="9:16",
-                        duration_seconds=5,
-                    )
-                )
-
-    async def test_polls_through_in_progress(self, tmp_path: Path):
-        """多轮 in_progress 后再 completed，最终成功返回。"""
-        create_resp = _make_response(200, {"task_id": "t3", "status": "queued"})
-        in_progress = _make_response(200, {"task_id": "t3", "status": "in_progress"})
-        completed = _make_response(
-            200,
-            {
-                "task_id": "t3",
-                "status": "completed",
-                "url": "https://cdn/v.mp4",
-                "metadata": {"duration": 5},
-            },
-        )
-        download_resp = MagicMock()
-        download_resp.status_code = 200
-        download_resp.content = b"v"
-        download_resp.raise_for_status = MagicMock()
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(side_effect=[in_progress, in_progress, completed, download_resp])
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        with patch("httpx.AsyncClient", return_value=mock_client), \
-             patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.generate(
+        backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+        with pytest.raises(RuntimeError, match="upstream down"):
+            await backend.generate(
                 VideoGenerationRequest(
                     prompt="p",
                     output_path=tmp_path / "o.mp4",
@@ -574,9 +529,51 @@ git commit -m "test(newapi-video): cover image-to-video base64 encoding"
                 )
             )
 
-        assert result.task_id == "t3"
-        # 3 次 poll + 1 次 download = 4 次 GET
-        assert mock_client.get.call_count == 4
+
+async def test_polls_through_in_progress(self, tmp_path: Path):
+    """多轮 in_progress 后再 completed，最终成功返回。"""
+    create_resp = _make_response(200, {"task_id": "t3", "status": "queued"})
+    in_progress = _make_response(200, {"task_id": "t3", "status": "in_progress"})
+    completed = _make_response(
+        200,
+        {
+            "task_id": "t3",
+            "status": "completed",
+            "url": "https://cdn/v.mp4",
+            "metadata": {"duration": 5},
+        },
+    )
+    download_resp = MagicMock()
+    download_resp.status_code = 200
+    download_resp.content = b"v"
+    download_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=create_resp)
+    mock_client.get = AsyncMock(side_effect=[in_progress, in_progress, completed, download_resp])
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("httpx.AsyncClient", return_value=mock_client),
+        patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
+    ):
+        from lib.video_backends.newapi import NewAPIVideoBackend
+
+        backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
+        result = await backend.generate(
+            VideoGenerationRequest(
+                prompt="p",
+                output_path=tmp_path / "o.mp4",
+                resolution="720p",
+                aspect_ratio="9:16",
+                duration_seconds=5,
+            )
+        )
+
+    assert result.task_id == "t3"
+    # 3 次 poll + 1 次 download = 4 次 GET
+    assert mock_client.get.call_count == 4
 ```
 
 - [ ] **Step 2: 运行测试**
@@ -615,7 +612,7 @@ register_backend(PROVIDER_NEWAPI, NewAPIVideoBackend)
 把 `PROVIDER_NEWAPI` 加入 `__all__` 列表（保持字母顺序即可）。在现有 `"PROVIDER_OPENAI",` 之后添加：
 
 ```python
-    "PROVIDER_NEWAPI",
+("PROVIDER_NEWAPI",)
 ```
 
 同时更新顶部 `from lib.providers import ...` 合并导入（避免末尾再次导入）。最终顶部 import 如下：
@@ -813,9 +810,7 @@ class TestDiscoverNewAPI:
 
             from lib.custom_provider.discovery import discover_models
 
-            result = await discover_models(
-                api_format="newapi", base_url="https://x/v1", api_key="sk"
-            )
+            result = await discover_models(api_format="newapi", base_url="https://x/v1", api_key="sk")
 
         ids = [m["model_id"] for m in result]
         assert "gpt-4o" in ids

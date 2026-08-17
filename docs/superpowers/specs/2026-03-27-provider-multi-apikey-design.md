@@ -35,16 +35,14 @@
 ```python
 class ProviderCredential(TimestampMixin, Base):
     __tablename__ = "provider_credential"
-    __table_args__ = (
-        Index("ix_provider_credential_provider", "provider"),
-    )
+    __table_args__ = (Index("ix_provider_credential_provider", "provider"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    provider: Mapped[str] = mapped_column(String(32), nullable=False)          # "gemini-aistudio"
-    name: Mapped[str] = mapped_column(String(128), nullable=False)             # 用户自定义名称
-    api_key: Mapped[str | None] = mapped_column(Text, nullable=True)           # api_key 类供应商
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)  # "gemini-aistudio"
+    name: Mapped[str] = mapped_column(String(128), nullable=False)  # 用户自定义名称
+    api_key: Mapped[str | None] = mapped_column(Text, nullable=True)  # api_key 类供应商
     credentials_path: Mapped[str | None] = mapped_column(Text, nullable=True)  # Vertex JSON 路径
-    base_url: Mapped[str | None] = mapped_column(Text, nullable=True)          # 自定义 URL
+    base_url: Mapped[str | None] = mapped_column(Text, nullable=True)  # 自定义 URL
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # created_at, updated_at 由 TimestampMixin 提供
 ```

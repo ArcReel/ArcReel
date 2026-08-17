@@ -121,7 +121,7 @@ manifest 的 entry key 始终是逻辑路径（如 `CLAUDE.md`），不暴露变
 class Manifest:
     schema_version: int
     profile_id: str
-    content_mode: str | None        # 新增；None 表示"待迁移"
+    content_mode: str | None  # 新增；None 表示"待迁移"
     entries: dict[str, dict]
 ```
 

@@ -82,6 +82,7 @@
 ```python
 # lib/project_manager.py
 
+
 def sync_episode_from_script(self, project_name: str, script_filename: str) -> Dict:
     """
     从剧本文件同步集数信息到 project.json
@@ -98,24 +99,24 @@ def sync_episode_from_script(self, project_name: str, script_filename: str) -> D
     script = self.load_script(project_name, script_filename)
     project = self.load_project(project_name)
 
-    episode_num = script.get('episode', 1)
-    episode_title = script.get('title', '')
+    episode_num = script.get("episode", 1)
+    episode_title = script.get("title", "")
     script_file = f"scripts/{script_filename}"
 
     # 查找或创建 episode 条目
-    episodes = project.setdefault('episodes', [])
-    episode_entry = next((ep for ep in episodes if ep['episode'] == episode_num), None)
+    episodes = project.setdefault("episodes", [])
+    episode_entry = next((ep for ep in episodes if ep["episode"] == episode_num), None)
 
     if episode_entry is None:
-        episode_entry = {'episode': episode_num}
+        episode_entry = {"episode": episode_num}
         episodes.append(episode_entry)
 
     # 同步核心元数据（不包含统计字段）
-    episode_entry['title'] = episode_title
-    episode_entry['script_file'] = script_file
+    episode_entry["title"] = episode_title
+    episode_entry["script_file"] = script_file
 
     # 排序并保存
-    episodes.sort(key=lambda x: x['episode'])
+    episodes.sort(key=lambda x: x["episode"])
     self.save_project(project_name, project)
 
     print(f"✅ 已同步剧集信息: Episode {episode_num} - {episode_title}")
@@ -126,6 +127,7 @@ def sync_episode_from_script(self, project_name: str, script_filename: str) -> D
 
 ```python
 # lib/project_manager.py
+
 
 def save_script(self, project_name: str, script: Dict, filename: str) -> Path:
     # ... 现有保存逻辑 ...
@@ -156,34 +158,28 @@ class StatusCalculator:
 
     def calculate_episode_stats(self, project_name: str, script: Dict) -> Dict:
         """计算单个剧集的统计信息"""
-        content_mode = script.get('content_mode', 'narration')
-        items = script.get('segments' if content_mode == 'narration' else 'scenes', [])
+        content_mode = script.get("content_mode", "narration")
+        items = script.get("segments" if content_mode == "narration" else "scenes", [])
 
         # 统计资源完成情况
-        storyboard_done = sum(
-            1 for i in items
-            if i.get('generated_assets', {}).get('storyboard_image')
-        )
-        video_done = sum(
-            1 for i in items
-            if i.get('generated_assets', {}).get('video_clip')
-        )
+        storyboard_done = sum(1 for i in items if i.get("generated_assets", {}).get("storyboard_image"))
+        video_done = sum(1 for i in items if i.get("generated_assets", {}).get("video_clip"))
         total = len(items)
 
         # 计算状态
         if video_done == total and total > 0:
-            status = 'completed'
+            status = "completed"
         elif storyboard_done > 0 or video_done > 0:
-            status = 'in_production'
+            status = "in_production"
         else:
-            status = 'draft'
+            status = "draft"
 
         return {
-            'scenes_count': total,
-            'status': status,
-            'duration_seconds': sum(i.get('duration_seconds', 4) for i in items),
-            'storyboards_completed': storyboard_done,
-            'videos_completed': video_done
+            "scenes_count": total,
+            "status": status,
+            "duration_seconds": sum(i.get("duration_seconds", 4) for i in items),
+            "storyboards_completed": storyboard_done,
+            "videos_completed": video_done,
         }
 
     def calculate_project_progress(self, project_name: str) -> Dict:
@@ -192,73 +188,68 @@ class StatusCalculator:
         project_dir = self.pm.get_project_path(project_name)
 
         # 角色统计
-        chars = project.get('characters', {})
+        chars = project.get("characters", {})
         chars_total = len(chars)
         chars_done = sum(
-            1 for c in chars.values()
-            if c.get('character_sheet') and (project_dir / c['character_sheet']).exists()
+            1 for c in chars.values() if c.get("character_sheet") and (project_dir / c["character_sheet"]).exists()
         )
 
         # 场景统计
-        scenes = project.get('scenes', {})
+        scenes = project.get("scenes", {})
         scenes_total = len(scenes)
         scenes_done = sum(
-            1 for s in scenes.values()
-            if s.get('scene_sheet') and (project_dir / s['scene_sheet']).exists()
+            1 for s in scenes.values() if s.get("scene_sheet") and (project_dir / s["scene_sheet"]).exists()
         )
 
         # 道具统计
-        props = project.get('props', {})
+        props = project.get("props", {})
         props_total = len(props)
-        props_done = sum(
-            1 for p in props.values()
-            if p.get('prop_sheet') and (project_dir / p['prop_sheet']).exists()
-        )
+        props_done = sum(1 for p in props.values() if p.get("prop_sheet") and (project_dir / p["prop_sheet"]).exists())
 
         # 分镜/视频统计（遍历所有剧本）
         sb_total, sb_done, vid_total, vid_done = 0, 0, 0, 0
 
-        for ep in project.get('episodes', []):
-            script_file = ep.get('script_file', '').replace('scripts/', '')
+        for ep in project.get("episodes", []):
+            script_file = ep.get("script_file", "").replace("scripts/", "")
             if script_file:
                 try:
                     script = self.pm.load_script(project_name, script_file)
                     stats = self.calculate_episode_stats(project_name, script)
-                    sb_total += stats['scenes_count']
-                    vid_total += stats['scenes_count']
-                    sb_done += stats['storyboards_completed']
-                    vid_done += stats['videos_completed']
+                    sb_total += stats["scenes_count"]
+                    vid_total += stats["scenes_count"]
+                    sb_done += stats["storyboards_completed"]
+                    vid_done += stats["videos_completed"]
                 except FileNotFoundError:
                     pass
 
         return {
-            'characters': {'total': chars_total, 'completed': chars_done},
-            'scenes': {'total': scenes_total, 'completed': scenes_done},
-            'props': {'total': props_total, 'completed': props_done},
-            'storyboards': {'total': sb_total, 'completed': sb_done},
-            'videos': {'total': vid_total, 'completed': vid_done}
+            "characters": {"total": chars_total, "completed": chars_done},
+            "scenes": {"total": scenes_total, "completed": scenes_done},
+            "props": {"total": props_total, "completed": props_done},
+            "storyboards": {"total": sb_total, "completed": sb_done},
+            "videos": {"total": vid_total, "completed": vid_done},
         }
 
     def calculate_current_phase(self, progress: Dict) -> str:
         """根据进度推断当前阶段"""
-        vid = progress.get('videos', {})
-        sb = progress.get('storyboards', {})
+        vid = progress.get("videos", {})
+        sb = progress.get("storyboards", {})
         # 角色/场景/道具三类资产合并计入资产完成度
         assets_completed = (
-            progress.get('characters', {}).get('completed', 0)
-            + progress.get('scenes', {}).get('completed', 0)
-            + progress.get('props', {}).get('completed', 0)
+            progress.get("characters", {}).get("completed", 0)
+            + progress.get("scenes", {}).get("completed", 0)
+            + progress.get("props", {}).get("completed", 0)
         )
 
-        if vid.get('completed', 0) == vid.get('total', 0) and vid.get('total', 0) > 0:
-            return 'compose'
-        elif vid.get('completed', 0) > 0:
-            return 'video'
-        elif sb.get('completed', 0) > 0:
-            return 'storyboard'
+        if vid.get("completed", 0) == vid.get("total", 0) and vid.get("total", 0) > 0:
+            return "compose"
+        elif vid.get("completed", 0) > 0:
+            return "video"
+        elif sb.get("completed", 0) > 0:
+            return "storyboard"
         elif assets_completed > 0:
-            return 'storyboard'
-        return 'characters'
+            return "storyboard"
+        return "characters"
 
     def enrich_project(self, project_name: str, project: Dict) -> Dict:
         """
@@ -276,25 +267,22 @@ class StatusCalculator:
         current_phase = self.calculate_current_phase(progress)
 
         # 注入 status
-        project['status'] = {
-            'progress': progress,
-            'current_phase': current_phase
-        }
+        project["status"] = {"progress": progress, "current_phase": current_phase}
 
         # 为每个 episode 注入计算字段
-        for ep in project.get('episodes', []):
-            script_file = ep.get('script_file', '').replace('scripts/', '')
+        for ep in project.get("episodes", []):
+            script_file = ep.get("script_file", "").replace("scripts/", "")
             if script_file:
                 try:
                     script = self.pm.load_script(project_name, script_file)
                     stats = self.calculate_episode_stats(project_name, script)
-                    ep['scenes_count'] = stats['scenes_count']
-                    ep['status'] = stats['status']
-                    ep['duration_seconds'] = stats['duration_seconds']
+                    ep["scenes_count"] = stats["scenes_count"]
+                    ep["status"] = stats["status"]
+                    ep["duration_seconds"] = stats["duration_seconds"]
                 except FileNotFoundError:
-                    ep['scenes_count'] = 0
-                    ep['status'] = 'missing'
-                    ep['duration_seconds'] = 0
+                    ep["scenes_count"] = 0
+                    ep["status"] = "missing"
+                    ep["duration_seconds"] = 0
 
         return project
 
@@ -308,27 +296,27 @@ class StatusCalculator:
         Returns:
             注入计算字段后的剧本数据
         """
-        content_mode = script.get('content_mode', 'narration')
-        items = script.get('segments' if content_mode == 'narration' else 'scenes', [])
+        content_mode = script.get("content_mode", "narration")
+        items = script.get("segments" if content_mode == "narration" else "scenes", [])
 
-        total_duration = sum(i.get('duration_seconds', 4) for i in items)
+        total_duration = sum(i.get("duration_seconds", 4) for i in items)
 
         # 注入 metadata 计算字段
-        if 'metadata' not in script:
-            script['metadata'] = {}
+        if "metadata" not in script:
+            script["metadata"] = {}
 
-        script['metadata']['total_scenes'] = len(items)
-        script['metadata']['estimated_duration_seconds'] = total_duration
+        script["metadata"]["total_scenes"] = len(items)
+        script["metadata"]["estimated_duration_seconds"] = total_duration
 
         # 聚合 characters_in_episode（仅用于 API 响应，不存储）
         chars_set = set()
 
-        char_field = 'characters_in_segment' if content_mode == 'narration' else 'characters_in_scene'
+        char_field = "characters_in_segment" if content_mode == "narration" else "characters_in_scene"
 
         for item in items:
             chars_set.update(item.get(char_field, []))
 
-        script['characters_in_episode'] = sorted(chars_set)
+        script["characters_in_episode"] = sorted(chars_set)
 
         return script
 ```
@@ -343,6 +331,7 @@ from lib.status_calculator import StatusCalculator
 # 初始化
 pm = ProjectManager(project_root / "projects")
 calc = StatusCalculator(pm)
+
 
 @router.get("/projects/{name}")
 async def get_project(name: str):
@@ -368,10 +357,7 @@ async def get_project(name: str):
                 except FileNotFoundError:
                     pass
 
-        return {
-            "project": project,
-            "scripts": scripts
-        }
+        return {"project": project, "scripts": scripts}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"项目 '{name}' 不存在")
     except Exception as e:
@@ -383,34 +369,30 @@ async def get_project(name: str):
 ```python
 # lib/data_validator.py - 修改验证逻辑
 
+
 def validate_episode(self, project_name: str, episode_file: str) -> ValidationResult:
     # ... 现有代码 ...
 
     # 删除剧集级聚合字段（characters_in_episode 等）验证
     # 改为直接验证 scene/segment 级别引用
 
-    project_characters = set(project.get('characters', {}).keys())
-    project_scenes = set(project.get('scenes', {}).keys())
-    project_props = set(project.get('props', {}).keys())
+    project_characters = set(project.get("characters", {}).keys())
+    project_scenes = set(project.get("scenes", {}).keys())
+    project_props = set(project.get("props", {}).keys())
 
     # 验证 segments 或 scenes
-    if content_mode == 'narration':
+    if content_mode == "narration":
         self._validate_segments(
-            episode.get('segments', []),
+            episode.get("segments", []),
             project_characters,  # 直接使用 project 级别
             project_scenes,
             project_props,
             errors,
-            warnings
+            warnings,
         )
     else:
         self._validate_scenes(
-            episode.get('scenes', []),
-            project_characters,
-            project_scenes,
-            project_props,
-            errors,
-            warnings
+            episode.get("scenes", []), project_characters, project_scenes, project_props, errors, warnings
         )
 ```
 
@@ -525,46 +507,48 @@ pm.sync_episode_from_script('{project_name}', 'episode_{n}.json')
 import json
 from pathlib import Path
 
+
 def migrate_project(project_dir: Path):
     # 清理 project.json
     project_file = project_dir / "project.json"
     if project_file.exists():
-        with open(project_file, 'r', encoding='utf-8') as f:
+        with open(project_file, "r", encoding="utf-8") as f:
             project = json.load(f)
 
         # 移除 status 对象
-        project.pop('status', None)
+        project.pop("status", None)
 
         # 移除 episodes 中的计算字段
-        for ep in project.get('episodes', []):
-            ep.pop('scenes_count', None)
-            ep.pop('status', None)
+        for ep in project.get("episodes", []):
+            ep.pop("scenes_count", None)
+            ep.pop("status", None)
 
-        with open(project_file, 'w', encoding='utf-8') as f:
+        with open(project_file, "w", encoding="utf-8") as f:
             json.dump(project, f, ensure_ascii=False, indent=2)
 
     # 清理 scripts/*.json
     scripts_dir = project_dir / "scripts"
     if scripts_dir.exists():
         for script_file in scripts_dir.glob("*.json"):
-            with open(script_file, 'r', encoding='utf-8') as f:
+            with open(script_file, "r", encoding="utf-8") as f:
                 script = json.load(f)
 
             # 移除冗余字段
-            script.pop('characters_in_episode', None)
-            script.pop('duration_seconds', None)
+            script.pop("characters_in_episode", None)
+            script.pop("duration_seconds", None)
 
-            if 'metadata' in script:
-                script['metadata'].pop('total_scenes', None)
-                script['metadata'].pop('estimated_duration_seconds', None)
+            if "metadata" in script:
+                script["metadata"].pop("total_scenes", None)
+                script["metadata"].pop("estimated_duration_seconds", None)
 
-            with open(script_file, 'w', encoding='utf-8') as f:
+            with open(script_file, "w", encoding="utf-8") as f:
                 json.dump(script, f, ensure_ascii=False, indent=2)
+
 
 if __name__ == "__main__":
     projects_root = Path("projects")
     for project_dir in projects_root.iterdir():
-        if project_dir.is_dir() and not project_dir.name.startswith('.'):
+        if project_dir.is_dir() and not project_dir.name.startswith("."):
             print(f"迁移项目: {project_dir.name}")
             migrate_project(project_dir)
     print("迁移完成")

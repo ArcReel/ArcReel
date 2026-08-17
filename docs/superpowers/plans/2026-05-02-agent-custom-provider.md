@@ -237,10 +237,7 @@ async def discover_models(
     elif discovery_format == "anthropic":
         return await _discover_anthropic(base_url, api_key)
     else:
-        raise ValueError(
-            f"不支持的 discovery_format: {discovery_format!r}，"
-            f"支持: 'openai', 'google', 'anthropic'"
-        )
+        raise ValueError(f"不支持的 discovery_format: {discovery_format!r}，支持: 'openai', 'google', 'anthropic'")
 ```
 
 在 `_discover_google` 后追加 `_discover_anthropic`：
@@ -359,6 +356,7 @@ class TestDiscoverAnthropic:
         ]
         with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
             from server.routers.custom_providers import DiscoverResponse
+
             mock_run.return_value = DiscoverResponse(models=mock_models)
 
             resp = client.post(
@@ -390,6 +388,7 @@ class TestDiscoverAnthropic:
 
         with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
             from server.routers.custom_providers import DiscoverResponse
+
             mock_run.return_value = DiscoverResponse(models=[])
 
             resp = client.post("/api/v1/custom-providers/discover-anthropic", json={})

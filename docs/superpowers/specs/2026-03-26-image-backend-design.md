@@ -34,10 +34,12 @@ class ImageCapability(str, Enum):  # 继承 str 以支持字符串比较，与 V
     TEXT_TO_IMAGE = "text_to_image"
     IMAGE_TO_IMAGE = "image_to_image"
 
+
 @dataclass
 class ReferenceImage:
-    path: str              # 本地文件路径
-    label: str = ""        # 可选标签（如 "角色参考"）
+    path: str  # 本地文件路径
+    label: str = ""  # 可选标签（如 "角色参考"）
+
 
 @dataclass
 class ImageGenerationRequest:
@@ -45,16 +47,17 @@ class ImageGenerationRequest:
     output_path: Path
     reference_images: list[ReferenceImage] = field(default_factory=list)
     aspect_ratio: str = "9:16"
-    image_size: str = "1K"       # "1K", "2K"；各 Backend 忽略不支持的字段
+    image_size: str = "1K"  # "1K", "2K"；各 Backend 忽略不支持的字段
     project_name: str | None = None
     seed: int | None = None
+
 
 @dataclass
 class ImageGenerationResult:
     image_path: Path
-    provider: str            # "gemini-aistudio", "gemini-vertex", "ark", "grok"
+    provider: str  # "gemini-aistudio", "gemini-vertex", "ark", "grok"
     model: str
-    image_uri: str | None = None   # 远端 URL（如有）
+    image_uri: str | None = None  # 远端 URL（如有）
     seed: int | None = None
     usage_tokens: int | None = None
 ```
@@ -221,8 +224,12 @@ _PROVIDER_MODELS = {
     },
     "ark": {
         "video": ["doubao-seedance-1-5-pro-251215"],
-        "image": ["doubao-seedream-5-0-260128", "doubao-seedream-5-0-lite-260128",
-                   "doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828"],
+        "image": [
+            "doubao-seedream-5-0-260128",
+            "doubao-seedream-5-0-lite-260128",
+            "doubao-seedream-4-5-251128",
+            "doubao-seedream-4-0-250828",
+        ],
     },
     "grok": {
         "video": ["grok-imagine-video"],
@@ -239,6 +246,7 @@ _PROVIDER_MODELS = {
 def calculate_ark_image_cost(self, model: str | None = None, n: int = 1) -> tuple[float, str]:
     """Ark 图片按张计费，返回 (cost, 'CNY')"""
     # doubao-seedream-5-0: 0.22, 4-5: 0.25, 4-0: 0.20, 5-0-lite: 0.22
+
 
 def calculate_grok_image_cost(self, model: str | None = None, n: int = 1) -> float:
     """Grok 图片按张计费，返回 USD"""

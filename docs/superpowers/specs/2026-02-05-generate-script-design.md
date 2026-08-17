@@ -67,31 +67,41 @@ step1（片段/场景拆分）+ step2（资产表）+ project.json
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 
+
 class Dialogue(BaseModel):
     """对话条目"""
+
     speaker: str = Field(description="说话人名称")
     line: str = Field(description="对话内容")
 
+
 class Composition(BaseModel):
     """构图信息"""
+
     shot_type: str = Field(description="镜头类型，如 Medium Shot, Close-up, Long Shot")
     lighting: str = Field(description="光线描述，包含光源、方向和氛围")
     ambiance: str = Field(description="整体氛围，与情绪基调匹配")
 
+
 class ImagePrompt(BaseModel):
     """分镜图生成 Prompt"""
+
     scene: str = Field(description="场景描述：角色位置、表情、动作、环境细节")
     composition: Composition = Field(description="构图信息")
 
+
 class VideoPrompt(BaseModel):
     """视频生成 Prompt"""
+
     action: str = Field(description="动作描述：角色在该片段内的具体动作")
     camera_motion: str = Field(description="镜头运动：Static, Pan Left/Right, Zoom In/Out, Tracking Shot 等")
     ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
     dialogue: List[Dialogue] = Field(default_factory=list, description="对话列表，仅当原文有引号对话时填写")
 
+
 class GeneratedAssets(BaseModel):
     """生成资源状态（初始化为空）"""
+
     storyboard_image: Optional[str] = Field(default=None, description="分镜图路径")
     video_clip: Optional[str] = Field(default=None, description="视频片段路径")
     video_uri: Optional[str] = Field(default=None, description="视频 URI")
@@ -103,6 +113,7 @@ class GeneratedAssets(BaseModel):
 ```python
 class NarrationSegment(BaseModel):
     """说书模式的片段"""
+
     segment_id: str = Field(description="片段 ID，格式 E{集}S{序号}")
     episode: int = Field(description="所属剧集")
     duration_seconds: Literal[4, 6, 8] = Field(description="片段时长（秒）")
@@ -116,8 +127,10 @@ class NarrationSegment(BaseModel):
     transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
     generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
 
+
 class NarrationEpisodeScript(BaseModel):
     """说书模式剧集脚本"""
+
     episode: int = Field(description="剧集编号")
     title: str = Field(description="剧集标题")
     content_mode: Literal["narration"] = Field(default="narration", description="内容模式")
@@ -132,6 +145,7 @@ class NarrationEpisodeScript(BaseModel):
 ```python
 class DramaScene(BaseModel):
     """剧集动画模式的场景"""
+
     scene_id: str = Field(description="场景 ID，格式 E{集}S{序号}")
     duration_seconds: Literal[4, 6, 8] = Field(default=8, description="场景时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
@@ -144,8 +158,10 @@ class DramaScene(BaseModel):
     transition_to_next: Literal["cut", "fade", "dissolve"] = Field(default="cut", description="转场类型")
     generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
 
+
 class DramaEpisodeScript(BaseModel):
     """剧集动画模式剧集脚本"""
+
     episode: int = Field(description="剧集编号")
     title: str = Field(description="剧集标题")
     content_mode: Literal["drama"] = Field(default="drama", description="内容模式")
@@ -178,7 +194,7 @@ def build_narration_prompt(
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
-    
+
     prompt = f"""
 你的任务是为短视频生成分镜剧本。请仔细遵循以下指示：
 
@@ -189,11 +205,11 @@ def build_narration_prompt(
    - video_prompt：动作和音效的视频生成提示词
 
 <overview>
-{project_overview.get('synopsis', '')}
+{project_overview.get("synopsis", "")}
 
-题材类型：{project_overview.get('genre', '')}
-核心主题：{project_overview.get('theme', '')}
-世界观设定：{project_overview.get('world_setting', '')}
+题材类型：{project_overview.get("genre", "")}
+核心主题：{project_overview.get("theme", "")}
+世界观设定：{project_overview.get("world_setting", "")}
 </overview>
 
 <style>
@@ -229,12 +245,12 @@ segments 为片段拆分表，每行是一个片段，包含：
 a. **novel_text**：原样复制小说原文，不做任何修改。
 
 b. **characters_in_segment**：列出本片段中出场的角色名称。
-   - 可选值：[{', '.join(character_names)}]
+   - 可选值：[{", ".join(character_names)}]
    - 仅包含明确提及或明显暗示的角色
 
 c. **scenes** / **props**：列出本片段画面中实际出现的场景 / 道具名称。
-   - 候选 scenes：[{', '.join(scene_names)}]
-   - 候选 props：[{', '.join(prop_names)}]
+   - 候选 scenes：[{", ".join(scene_names)}]
+   - 候选 props：[{", ".join(prop_names)}]
    - 仅包含明确提及或明显暗示的资产
 
 d. **image_prompt**：生成包含以下字段的对象：
@@ -278,7 +294,7 @@ def build_drama_prompt(
     character_names = list(characters.keys())
     scene_names = list(scenes.keys())
     prop_names = list(props.keys())
-    
+
     prompt = f"""
 你的任务是为剧集动画生成分镜剧本。请仔细遵循以下指示：
 
@@ -289,11 +305,11 @@ def build_drama_prompt(
    - video_prompt：动作和音效的视频生成提示词
 
 <overview>
-{project_overview.get('synopsis', '')}
+{project_overview.get("synopsis", "")}
 
-题材类型：{project_overview.get('genre', '')}
-核心主题：{project_overview.get('theme', '')}
-世界观设定：{project_overview.get('world_setting', '')}
+题材类型：{project_overview.get("genre", "")}
+核心主题：{project_overview.get("theme", "")}
+世界观设定：{project_overview.get("world_setting", "")}
 </overview>
 
 <style>
@@ -327,12 +343,12 @@ scenes 为场景拆分表，每行是一个场景，包含：
 3. 为每个场景生成时，遵循以下规则：
 
 a. **characters_in_scene**：列出本场景中出场的角色名称。
-   - 可选值：[{', '.join(character_names)}]
+   - 可选值：[{", ".join(character_names)}]
    - 仅包含明确提及或明显暗示的角色
 
 b. **scenes** / **props**：列出本场景画面中实际出现的场景 / 道具名称。
-   - 候选 scenes：[{', '.join(scene_names)}]
-   - 候选 props：[{', '.join(prop_names)}]
+   - 候选 scenes：[{", ".join(scene_names)}]
+   - 候选 props：[{", ".join(prop_names)}]
    - 仅包含明确提及或明显暗示的资产
 
 c. **image_prompt**：生成包含以下字段的对象：
@@ -371,14 +387,14 @@ h. **transition_to_next**：默认为 "cut"。
 class ScriptGenerator:
     """
     剧本生成器
-    
+
     读取 Step 1/2 的中间文件，调用项目配置的文本模型生成最终 JSON 剧本
     """
-    
+
     def __init__(self, project_path: Union[str, Path], generator: Optional["TextGenerator"] = None):
         """
         初始化生成器
-        
+
         Args:
             project_path: 项目目录路径
             generator: TextGenerator 实例（可选）。建议用 ScriptGenerator.create() 异步工厂，
@@ -387,48 +403,48 @@ class ScriptGenerator:
         self.project_path = Path(project_path)
         self.generator = generator
         self.project_json = self._load_project_json()
-        self.content_mode = self.project_json.get('content_mode', 'narration')
-    
+        self.content_mode = self.project_json.get("content_mode", "narration")
+
     def generate(self, episode: int, output_path: Optional[Path] = None) -> Path:
         """
         生成剧集剧本
-        
+
         Args:
             episode: 剧集编号
             output_path: 输出路径，默认为 scripts/episode_{episode}.json
-            
+
         Returns:
             生成的 JSON 文件路径
         """
         # 1. 加载中间文件
         step1_md = self._load_step1(episode)
         step2_md = self._load_step2(episode)
-        
+
         # 2. 提取角色 / 场景 / 道具
-        characters = self.project_json.get('characters', {})
-        scenes = self.project_json.get('scenes', {})
-        props = self.project_json.get('props', {})
-        
+        characters = self.project_json.get("characters", {})
+        scenes = self.project_json.get("scenes", {})
+        props = self.project_json.get("props", {})
+
         # 3. 构建 Prompt
-        if self.content_mode == 'narration':
+        if self.content_mode == "narration":
             prompt = build_narration_prompt(...)
             schema = NarrationEpisodeScript.model_json_schema()
         else:
             prompt = build_drama_prompt(...)
             schema = DramaEpisodeScript.model_json_schema()
-        
+
         # 4. 调用文本模型（TextGenerator / text_backends，模型由项目配置决定）
         response_text = self.generator.generate(
             prompt=prompt,
             response_schema=schema,
         )
-        
+
         # 5. 解析并验证响应
         script_data = self._parse_response(response_text, episode)
-        
+
         # 6. 补充元数据
         script_data = self._add_metadata(script_data, episode)
-        
+
         # 7. 保存文件
         # ...
 ```

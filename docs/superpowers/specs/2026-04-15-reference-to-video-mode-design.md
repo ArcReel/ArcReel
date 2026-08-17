@@ -101,9 +101,11 @@ class Shot(BaseModel):
     duration: int = Field(ge=1, le=15, description="该镜头时长（秒）")
     text: str = Field(description="镜头描述，可包含 @角色/@场景/@道具 引用")
 
+
 class ReferenceResource(BaseModel):
     type: Literal["character", "scene", "prop"] = Field(description="引用的资源类型")
     name: str = Field(description="角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
+
 
 class ReferenceVideoUnit(BaseModel):
     unit_id: str = Field(description="格式 E{集}U{序号}")
@@ -117,6 +119,7 @@ class ReferenceVideoUnit(BaseModel):
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(default_factory=GeneratedAssets)
 
     # @model_validator: duration_override=False 时校验 duration_seconds == sum(shot.duration)
+
 
 class ReferenceVideoScript(BaseModel):
     # 无 episode 字段——集号由 CLI 真相源通过 _add_metadata 写入

@@ -398,10 +398,7 @@ def split_grid(grid_image, rows, cols, video_aspect_ratio):
     for r in range(rows):
         for c in range(cols):
             # 1. 均匀切割
-            cell = grid_image.crop(
-                c * cell_w, r * cell_h,
-                (c+1) * cell_w, (r+1) * cell_h
-            )
+            cell = grid_image.crop(c * cell_w, r * cell_h, (c + 1) * cell_w, (r + 1) * cell_h)
             # 2. 边缘裁剪（各边 2%，消除格线残留）
             cell = crop_edge_margin(cell, margin=0.02)
             # 3. 居中裁切到视频比例
