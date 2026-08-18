@@ -2,6 +2,11 @@
 项目管理路由
 
 处理项目的 CRUD 操作，复用 lib/project_manager.py
+
+本模块多数处理器以 ``except Exception`` 兜底为 500。领域异常（``ApiError`` 及其子类）
+可以在被兜底覆盖的写盘闭包内抛出（如 backend 字段校验、脚本结构校验），因此各处理器的
+透传子句写成 ``except (HTTPException, ApiError)``——只列 ``HTTPException`` 会把这些
+4xx 静默降级成 500。
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-from lib.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.asset_types import asset_name_comparison_key
 from lib.config.registry import default_model_for_provider
@@ -354,7 +359,7 @@ async def create_export_token(
             "expires_in": 300,
             "diagnostics": diagnostics,
         }
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -396,7 +401,7 @@ async def export_project_archive(
         )
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -619,7 +624,7 @@ async def create_project(
             for field_name in _PROJECT_BACKEND_FIELDS:
                 value = getattr(req, field_name)
                 if value:
-                    validate_backend_value(value, field_name, _t)
+                    validate_backend_value(value, field_name)
 
             # 口播语速估算：可选，未填则不落盘（缺省即回退 lib.speech_rate 的语言默认）。
             # 在 create_project 之前判，越界请求不留下半成品项目目录。
@@ -663,7 +668,7 @@ async def create_project(
         # 项目名 / source_kind / duration / brief 等配置校验失败，str(e) 只进日志
         logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
         raise BadRequestError("project_config_invalid") from e
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -790,7 +795,7 @@ async def get_project(
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -880,7 +885,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     if field in req.model_fields_set:
                         value = getattr(req, field)
                         if value:
-                            validate_backend_value(value, field, _t)
+                            validate_backend_value(value, field)
                             project[field] = value
                         else:
                             project.pop(field, None)
@@ -1009,7 +1014,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -1028,7 +1033,7 @@ async def delete_project(name: str, _t: Translator):
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -1043,7 +1048,7 @@ async def get_script(name: str, script_file: str, _t: Translator):
         return {"script": script, "revision": script_revision(script)}
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=script_file) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -1150,11 +1155,8 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
-        raise HTTPException(
-            status_code=422,
-            detail=_t("script_validation_failed", details=str(exc)),
-        )
-    except HTTPException:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -1253,11 +1255,8 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
-        raise HTTPException(
-            status_code=422,
-            detail=_t("script_validation_failed", details=str(exc)),
-        )
-    except HTTPException:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -1309,11 +1308,8 @@ async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=_t("script_validation_failed", details=str(exc)),
-        )
-    except HTTPException:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -1407,11 +1403,8 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
-        raise HTTPException(
-            status_code=422,
-            detail=_t("script_validation_failed", details=str(exc)),
-        )
-    except HTTPException:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -1561,7 +1554,7 @@ async def set_project_source(
                 )
 
         return result
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -1657,7 +1650,7 @@ async def update_overview(name: str, req: UpdateOverviewRequest, _t: Translator)
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")

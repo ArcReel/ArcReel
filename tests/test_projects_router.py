@@ -1250,7 +1250,10 @@ class TestProjectsRouter:
                 json={"script_file": "narration.json", "duration_seconds": 7},
             )
             assert resp.status_code == 422
-            assert "不一致" in resp.json()["detail"]
+            body = resp.json()
+            # 摘要走产品语言，异常原文只进独立诊断字段
+            assert body["detail"] == "脚本结构校验失败，请检查后重试"
+            assert "不一致" in body["diagnostic"]
 
     @pytest.mark.unit
     def test_update_scene_supports_character_and_clue_refs(self, tmp_path, monkeypatch):
@@ -1791,6 +1794,8 @@ class TestProjectsRouter:
 
             rejected = client.patch("/api/v1/projects/ready", json={"default_image_backend": "no-slash"})
             assert rejected.status_code == 400
+            # 校验在写盘闭包内抛出，若 router 的兜底分支不透传领域异常会退化成 500
+            assert rejected.json()["diagnostic"] == "field: default_image_backend"
 
             wrong_media = client.patch(
                 "/api/v1/projects/ready",

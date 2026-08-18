@@ -97,7 +97,7 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         bucket_key="products",
         sheet_field="product_sheet",
         subdir="products",
-        label_zh="产品",
+        label_zh="商品",
         namespace_priority=3,
         reference_list_fields=("products_in_shot",),
         # brand 是用户填写的品牌要素自由文本；reference_images 是用户上传的多张产品

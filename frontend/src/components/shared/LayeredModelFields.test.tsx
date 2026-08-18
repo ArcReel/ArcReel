@@ -12,7 +12,7 @@ function subField(overrides: Partial<LayeredSubField> = {}): LayeredSubField {
   return {
     key: "i2v",
     label: "图生视频",
-    caption: "覆盖由分镜图或宫格图驱动的视频生成。",
+    caption: "覆盖由分镜图或多宫格分镜图驱动的视频生成。",
     value: "",
     options: ["gemini/veo-3"],
     onChange: () => {},

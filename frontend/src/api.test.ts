@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgentFailureError,
   API,
+  ApiRequestError,
   ConflictError,
   ReferenceProjectionError,
   ScriptEditCommandError,
@@ -78,6 +79,43 @@ describe("API", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(API.request("/projects")).rejects.toThrow("boom");
+    });
+
+    it("surfaces the product-language summary and keeps technical detail in a separate diagnostic", async () => {
+      // 校验失败的错误反馈：使用者读到的是产品语言摘要，字段名 / schema 只挂在
+      // diagnostic 上，不拼进 message——拼进去就等于把技术细节推给使用者。
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          jsonData: {
+            detail: "脚本结构校验失败，请检查后重试",
+            diagnostic: "scenes[0].shots must be a list",
+          },
+          statusText: "Unprocessable Content",
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const error = await API.request("/projects/demo/shots/E1S01").catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ApiRequestError);
+      expect((error as ApiRequestError).message).toBe("脚本结构校验失败，请检查后重试");
+      expect((error as ApiRequestError).diagnostic).toBe("scenes[0].shots must be a list");
+    });
+
+    it("leaves diagnostic undefined when the backend does not attach one", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          jsonData: { detail: "项目不存在" },
+          statusText: "Not Found",
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const error = await API.request("/projects/missing").catch((e: unknown) => e);
+
+      expect((error as ApiRequestError).diagnostic).toBeUndefined();
     });
 
     it("keeps the backend message of a structured error envelope", async () => {

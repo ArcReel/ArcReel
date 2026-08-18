@@ -264,7 +264,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
           {dirty && (
             <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
               <Save className="h-3.5 w-3.5" />
-              {saving ? t("common:saving") : t("common:save")}
+              {saving ? t("common:saving") : t("dashboard:review_save_action")}
             </button>
           )}
           <button

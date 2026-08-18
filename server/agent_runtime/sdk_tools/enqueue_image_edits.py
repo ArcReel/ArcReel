@@ -50,7 +50,7 @@ _LABEL_ZH: dict[str, str] = {
     "character": "角色",
     "scene": "场景",
     "prop": "道具",
-    "product": "产品",
+    "product": "商品",
     "storyboard": "分镜图",
 }
 

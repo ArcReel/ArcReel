@@ -1,5 +1,5 @@
 MESSAGES = {
-    "project_migration_failed": "Project '{name}' has not finished its data upgrade, so generation is unavailable. Reason: {reason}. Repair it in the assistant conversation, then retry the upgrade",
+    "project_migration_failed": "Project '{name}' has not finished its data upgrade, so generation is unavailable. Reason: {reason}. Repair it in the agent conversation, then retry the upgrade",
     "project_not_found": "Project '{name}' does not exist or is not initialized",
     "resource_not_found": "The requested resource does not exist",
     "overview_ai_response_invalid": "The AI response could not be parsed into a project overview. Please retry or switch to a different model/provider",
@@ -20,7 +20,7 @@ MESSAGES = {
     "scene_not_found": "Scene '{id}' does not exist",
     "segment_not_found": "Segment '{id}' does not exist",
     "script_missing": "Script does not exist",
-    "script_validation_failed": "Script structure validation failed: {details}",
+    "script_validation_failed": "Script structure validation failed; please check and retry",
     "script_data_corrupted": "Script data is corrupted: {reason}",
     "script_edit_error": "Segment edit validation failed",
     "script_edit_items_not_list": "{kind} must be a list, but got {type_name}",
@@ -97,7 +97,7 @@ MESSAGES = {
     "video_prompt_action_empty": "prompt.action cannot be empty",
     "video_prompt_dialogue_array": "prompt.dialogue must be an array",
     "video_task_submitted": "Video generation task for '{segment_id}' submitted",
-    "grid_task_submitted": "Submitted {count} grid generation tasks",
+    "grid_task_submitted": "Submitted {count} multi-grid storyboard generation tasks",
     "tts_prompt_must_be_string_or_null": "tts task prompt must be a non-empty string or omitted",
     "tts_task_submitted": "Narration audio task for '{segment_id}' submitted",
     "tts_batch_submitted": "Submitted {count} narration audio tasks",
@@ -125,7 +125,7 @@ MESSAGES = {
     "voice_sample_file_missing": "The voice sample file no longer exists; please regenerate it",
     "scene_task_submitted": "Scene design generation task for '{name}' submitted",
     "prop_task_submitted": "Prop design generation task for '{name}' submitted",
-    "product_task_submitted": "Product reference sheet generation task for '{name}' submitted",
+    "product_task_submitted": "Merchandise reference image generation task for '{name}' submitted",
     # Files
     "file_not_found": "File does not exist: {path}",
     "forbidden_access": "Access to files outside the project directory is forbidden",
@@ -141,23 +141,26 @@ MESSAGES = {
     "audio_duration_out_of_range": "Audio duration must be between {min_seconds} and {max_seconds} seconds",
     "vision_model_required": "Text model {provider}/{model} does not support image input (vision) and cannot perform the {task} task; please select a vision-capable text model for the simple tier or default model in settings",
     "internal_server_error": "Internal server error, please try again later",
+    "asset_field_must_be_string": "this field must be a text value",
+    "asset_field_must_be_string_list": "this field must be a list of text values",
+    "asset_field_invalid_value": "this field has an invalid value",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",
     "invalid_step_num": "Invalid step number: {step_num}",
     "draft_file_not_found": "Draft file does not exist",
-    "draft_invalid_json": "Step 1 draft must be a valid JSON object with a non-empty scenes array, where each scene is an object with a non-empty scene_id",
-    "script_review_not_applicable": "Step 1 review does not apply to this episode (this mode has no structured Step 1 intermediate)",
-    "script_review_no_step1": "No Step 1 structured draft to confirm yet; please finish preprocessing first",
+    "draft_invalid_json": "The content organization draft has an invalid structure; please check and retry",
+    "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no content organization result to confirm)",
+    "script_review_no_step1": "No content organization result to confirm yet; please finish content organization first",
     "script_review_quarantined": (
-        "This episode has a quarantined Step 1 draft awaiting repair; let the agent fix and promote it before confirming"
+        "This episode has a draft needing fixes; let the agent fix and promote it before confirming"
     ),
     "script_review_conflict": (
-        "The Step 1 draft was modified by another editor while you were editing; your save was not applied. "
+        "The content organization draft was modified by another editor while you were editing; your save was not applied. "
         "Refresh to see the latest content, merge your changes, then save again"
     ),
-    "script_review_invalid_content": "Step 1 draft structure validation failed: {details}",
+    "script_review_invalid_content": "Content confirmation draft structure validation failed; please check and retry",
     "script_review_quarantine_unreadable": (
-        "The quarantined draft file is corrupted or malformed and can't be read; ask the agent to re-split this episode"
+        "The draft needing fixes is corrupted or malformed and can't be read; ask the agent to re-split this episode"
     ),
     "draft_event_label": "Episode {episode} {label_prefix}",
     "normalized_script": "Normalized Script",
@@ -232,8 +235,8 @@ MESSAGES = {
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
     "ad_no_default_duration": "Ad/short-video projects do not support a default duration; shot lengths are planned against the target duration",
-    "ad_grid_not_supported": "Ad/short-video projects do not support Grid Storyboard to Video",
-    "grid_storyboard_not_enabled": "Grid Storyboard is not enabled for this project",
+    "ad_grid_not_supported": "Ad/short-video projects do not support Multi-grid Storyboard to Video",
+    "grid_storyboard_not_enabled": "Multi-grid Storyboard is not enabled for this project",
     "ad_target_duration_required": "Ad/short-video projects require a target duration (positive integer seconds)",
     "project_id_not_editable": "content_mode cannot be modified after project creation",
     "source_kind_not_editable": "source_kind cannot be modified after project creation",
@@ -249,12 +252,12 @@ MESSAGES = {
     "prop_already_exists": "Prop '{name}' already exists",
     "prop_not_found": "Prop '{name}' not found",
     "prop_deleted": "Prop '{name}' deleted",
-    "product_already_exists": "Product '{name}' already exists",
-    "product_not_found": "Product '{name}' not found",
-    "product_deleted": "Product '{name}' deleted",
+    "product_already_exists": "Merchandise '{name}' already exists",
+    "product_not_found": "Merchandise '{name}' not found",
+    "product_deleted": "Merchandise '{name}' deleted",
     "project_asset_name_conflict": (
         "{requested_type} name '{name}' is already used by {existing_type} '{existing_name}'. "
-        "Characters, scenes, props, and products in one project must have unique names"
+        "Characters, scenes, props, and merchandise in one project must have unique names"
     ),
     # API Keys
     "jwt_auth_required": "API Key is not authorized to perform this action, please use JWT authentication",
@@ -265,8 +268,8 @@ MESSAGES = {
     # Cost Estimation
     "cost_estimation_failed": "Cost estimation failed, please try again later",
     # Validators
-    "invalid_backend_format": "{field_name} format should be provider/model",
-    "backend_media_type_mismatch": "{field_name} expects a {expected} model, but {provider}/{model} is a {actual} model",
+    "invalid_backend_format": "Model selection format is invalid; use provider/model",
+    "backend_media_type_mismatch": "Model type mismatch: this setting needs a {expected} model, but {provider}/{model} is a {actual} model",
     "deprecated_image_backend": "The image_backend field is deprecated; use image_provider_t2i and image_provider_i2i instead",
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
@@ -298,7 +301,7 @@ MESSAGES = {
     "ref_ad_reference_skipped": "'{name}' ({type}) has no usable reference image and was skipped for this generation",
     # Shot-script parse preview: degradation visibility
     "ref_warn_unregistered_mention": (
-        "@[{name}] is not registered as a product, character, scene, or prop: no reference image will be "
+        "@[{name}] is not registered as merchandise, a character, scene, or prop: no reference image will be "
         "attached. Check the name or create the asset first"
     ),
     "ref_warn_unclosed_brace": (
@@ -388,12 +391,12 @@ MESSAGES = {
     "agent_no_fields_to_update": "No fields to update",
     "agent_credential_not_found": "Credential not found",
     "agent_cannot_delete_active": "Cannot delete the active credential; activate another first",
-    "agent_test_validation_error": "Test connection failed: {error}",
+    "agent_test_validation_error": "Test connection failed; please check the configuration and retry",
     "invalid_project_name": "Invalid project name '{name}'",
     "invalid_script_file": "Invalid script file '{name}'",
-    "grid_not_found": "Grid '{grid_id}' does not exist",
-    "grid_image_not_ready": "Grid '{grid_id}' has no combined image yet; generate or upload one before splitting",
-    "grid_generation_in_progress": "Grid '{grid_id}' is being generated; wait for it to finish first",
+    "grid_not_found": "Multi-grid storyboard '{grid_id}' does not exist",
+    "grid_image_not_ready": "Multi-grid storyboard '{grid_id}' has no combined image yet; generate or upload one before splitting",
+    "grid_generation_in_progress": "Multi-grid storyboard '{grid_id}' is being generated; wait for it to finish first",
     "version_not_found": "Version {version} does not exist",
     "version_resource_not_found": "Resource '{resource_type}/{resource_id}' does not exist",
     "session_busy": "The session is busy; wait for the current reply to finish before sending",

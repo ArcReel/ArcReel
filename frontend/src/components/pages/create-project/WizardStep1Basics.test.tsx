@@ -14,7 +14,7 @@ const baseValue = {
   speechRate: null,
 };
 
-const GRID_BAR_NAME = /分镜板（宫格）生视频/;
+const GRID_BAR_NAME = /多宫格分镜生视频/;
 
 describe("WizardStep1Basics", () => {
   it("disables Next button when title is empty", () => {
@@ -79,8 +79,7 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    // click drama option (剧集模式)
-    fireEvent.click(screen.getByText(/剧集模式|Drama Mode/));
+    fireEvent.click(screen.getByText(/剧情演绎|Drama/));
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ contentMode: "drama" }),
     );
@@ -369,5 +368,44 @@ describe("WizardStep1Basics", () => {
       />,
     );
     expect(screen.queryByRole("switch", { name: GRID_BAR_NAME })).not.toBeInTheDocument();
+  });
+
+  it("renders content mode labels with product language", () => {
+    render(
+      <WizardStep1Basics
+        value={baseValue}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByText(/旁白\/解说/)).toBeInTheDocument();
+    expect(screen.getByText(/剧情演绎/)).toBeInTheDocument();
+    expect(screen.getByText(/广告\/短片/)).toBeInTheDocument();
+  });
+
+  it("renders generation route labels with product language", () => {
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, generationRoute: null }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: /分镜图生视频/ })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /参考生视频/ })).toBeInTheDocument();
+  });
+
+  it("renders the multi-grid storyboard toggle with product language", () => {
+    render(
+      <WizardStep1Basics
+        value={baseValue}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByRole("switch", { name: /多宫格分镜生视频/ })).toBeInTheDocument();
   });
 });

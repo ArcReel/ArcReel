@@ -1031,7 +1031,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-product"));
     await waitFor(() => {
       expect(generateSpy).toHaveBeenCalledWith("demo", "Phone", "sleek phone");
-      expect(useAppStore.getState().toast?.text).toContain("标准参考图生成任务已提交");
+      expect(useAppStore.getState().toast?.text).toContain("设计图生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
       const { tasks, optimisticActive } = useTasksStore.getState();
       expect(selectActiveResourceIds(tasks, "product", "demo", optimisticActive).has("Phone")).toBe(true);
@@ -1071,7 +1071,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("update-product"));
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("更新产品失败");
+      expect(useAppStore.getState().toast?.text).toContain("更新商品失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });
 
@@ -1791,7 +1791,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(await screen.findByText("generate-grid"));
     await waitFor(() => {
       expect(API.generateGrid).toHaveBeenCalledWith("demo", 1, "episode_1.json", undefined);
-      expect(useAppStore.getState().toast?.text).toContain("宫格生成失败");
+      expect(useAppStore.getState().toast?.text).toContain("多宫格分镜生成失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });
   });
@@ -1898,7 +1898,7 @@ describe("StudioCanvasRouter", () => {
       grid_ids: [],
       task_ids: [],
       deduped: false,
-      message: "已提交 0 个宫格生成任务",
+      message: "已提交 0 个多宫格分镜生成任务",
     });
 
     renderAt("/episodes/1");
@@ -1906,7 +1906,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(await screen.findByText("generate-grid"));
     await waitFor(() => {
       expect(API.generateGrid).toHaveBeenCalledWith("demo", 1, "episode_1.json", undefined);
-      expect(useAppStore.getState().toast?.text).toBe("已提交 0 个宫格生成任务");
+      expect(useAppStore.getState().toast?.text).toBe("已提交 0 个多宫格分镜生成任务");
     });
 
     const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();

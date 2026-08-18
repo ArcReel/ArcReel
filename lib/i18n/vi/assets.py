@@ -16,7 +16,7 @@ MESSAGES = {
     "asset_type_character": "nhân vật",
     "asset_type_scene": "cảnh",
     "asset_type_prop": "đạo cụ",
-    "asset_type_product": "sản phẩm",
+    "asset_type_product": "hàng hóa",
     "voice_label_dashscope_cherry": "Cherry — Giọng nữ trẻ tự nhiên, ấm áp và tích cực",
     "voice_label_dashscope_serena": "Serena — Giọng nữ trẻ dịu dàng",
     "voice_label_dashscope_ethan": "Ethan — Giọng nam trẻ ấm áp, tươi sáng, phổ thông chuẩn",

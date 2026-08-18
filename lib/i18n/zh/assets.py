@@ -16,7 +16,7 @@ MESSAGES = {
     "asset_type_character": "角色",
     "asset_type_scene": "场景",
     "asset_type_prop": "道具",
-    "asset_type_product": "产品",
+    "asset_type_product": "商品",
     # DashScope 音色目录展示文案，出处见 lib/audio_backends/dashscope.py 顶部注释。
     "voice_label_dashscope_cherry": "芊悦 · 阳光正向的自然年轻女声",
     "voice_label_dashscope_serena": "苏瑶 · 温柔的年轻女声",

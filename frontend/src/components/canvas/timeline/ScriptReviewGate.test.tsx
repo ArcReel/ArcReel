@@ -105,7 +105,7 @@ describe("ScriptReviewGate", () => {
 
     fireEvent.change(screen.getByDisplayValue("你终于回来了。"), { target: { value: "你怎么才回来。" } });
     // 编辑后出现保存按钮
-    const saveBtn = await screen.findByText("保存");
+    const saveBtn = await screen.findByText("修复后保存");
     fireEvent.click(saveBtn);
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
@@ -160,7 +160,7 @@ describe("ScriptReviewGate", () => {
 
     // 用户本地编辑，尚未保存
     fireEvent.change(screen.getByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
-    await screen.findByText("保存");
+    await screen.findByText("修复后保存");
 
     // 外部刷新到来（agent 改 step1 → revision 变）→ 应保留用户草稿、不被服务端内容覆盖
     act(() => {

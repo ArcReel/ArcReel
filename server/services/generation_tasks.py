@@ -1450,8 +1450,8 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 # video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
 # ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
-    "grid": ("grid", "grid_ready", "宫格「{}」", True),
-    "grid_split": ("grid", "grid_split_done", "宫格「{}」切分", True),
+    "grid": ("grid", "grid_ready", "多宫格分镜「{}」", True),
+    "grid_split": ("grid", "grid_split_done", "多宫格分镜「{}」切分", True),
     "voice_sample": ("character", "voice_sample_ready", "「{}」试听样本", False),
     **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
 }

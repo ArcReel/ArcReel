@@ -1050,7 +1050,7 @@ class TestVersionsRouter:
             ({"content_mode": "ad", "generation_mode": "storyboard", "grid_storyboard": True}, "广告/短片项目"),
             (
                 {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": False},
-                "项目未启用分镜板",
+                "项目未启用多宫格分镜",
             ),
         ],
     )

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset, list_presets
+from lib.api_errors import UnprocessableError
 from lib.config.anthropic_probe import DiagnosisCode, run_test
 from lib.config.anthropic_probe import ProbeResult as ProbeResultDC
 from lib.config.anthropic_probe import TestConnectionResponse as TestConnectionResponseDC
@@ -325,7 +326,7 @@ async def _run_and_serialize(
     try:
         result = await run_test(preset_id=preset_id, base_url=base_url, api_key=api_key, model=model)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=_t("agent_test_validation_error", error=str(exc))) from exc
+        raise UnprocessableError("agent_test_validation_error").with_diagnostic(str(exc)) from exc
     return _serialize_test_response(result)
 
 

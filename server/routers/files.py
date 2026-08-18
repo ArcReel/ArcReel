@@ -20,7 +20,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib import script_review
-from lib.api_errors import NotFoundError
+from lib.api_errors import BadRequestError, NotFoundError
 from lib.artifact_activation import register_current_resource_artifact
 from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.audio_utils import (
@@ -853,7 +853,7 @@ async def update_draft_content(
             try:
                 parsed = json.loads(content)
             except json.JSONDecodeError as exc:
-                raise HTTPException(status_code=400, detail=_t("script_review_invalid_content", details=str(exc)))
+                raise BadRequestError("script_review_invalid_content").with_diagnostic(str(exc)) from exc
             # 存在性探测同其余同步文件 I/O 卸到线程：本函数由请求协程直接 await，
             # 裸 exists() 会跑在事件循环上阻塞并发请求。
             is_new = not await asyncio.to_thread(draft_path.exists)
@@ -910,8 +910,8 @@ def _write_plain_draft(
     if draft_path.name == STEP1_FILENAMES["drama"]:
         try:
             parsed = json.loads(content)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+        except json.JSONDecodeError as exc:
+            raise BadRequestError("draft_invalid_json").with_diagnostic(str(exc)) from exc
         scenes = parsed.get("scenes") if isinstance(parsed, dict) else None
         if (
             not isinstance(parsed, dict)
@@ -920,7 +920,9 @@ def _write_plain_draft(
             or any(not isinstance(scene, dict) for scene in scenes)
             or any(not isinstance(scene.get("scene_id"), str) or not scene.get("scene_id") for scene in scenes)
         ):
-            raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+            raise BadRequestError("draft_invalid_json").with_diagnostic(
+                "expected a JSON object with a non-empty 'scenes' array of objects, each with a non-empty 'scene_id'"
+            )
 
     # 与 ScriptGenerator / ScriptReviewService 共享同一把 per-path 锁：
     # 草稿文件的迁移读改写与 Web 端保存相互串行化。
