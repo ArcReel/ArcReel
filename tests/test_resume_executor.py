@@ -663,7 +663,7 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
         "script_file": "scripts/frozen.json",
         "provider_id": "stale-provider",
         "provider_job_id": "job-1",
-        "provider_endpoint": "stale-endpoint-column",
+        "provider_endpoint": "stale-protocol-id",
         "submitted_base_url": "https://submitted.example/v1",
         "execution_checkpoint_json": _reference_checkpoint(
             fake_pm.project_path,
@@ -917,13 +917,18 @@ async def test_resume_proceeds_for_builtin_provider_without_endpoint(monkeypatch
 
 @pytest.mark.asyncio
 async def test_resume_replays_submitted_base_url_for_builtin(monkeypatch, fake_pm, video_task):
-    """内置供应商：持久化的提交域名透传给 backend，改配置后续跑仍轮原主机。"""
+    """内置供应商重启续跑：持久化的提交域名透传给 backend，改配置后仍轮原主机。"""
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
     _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
 
-    task = {**video_task, "provider_id": "dashscope", "provider_endpoint": "https://maas-a.example.com/ws-1/api/v1"}
+    task = {
+        **video_task,
+        "provider_id": "dashscope",
+        "provider_endpoint": None,
+        "submitted_base_url": "https://maas-a.example.com/ws-1/api/v1",
+    }
     await execute_resume_video_task(task, job_id="dashscope-job-1")
 
     assert fake_gen.resume_calls[0]["submitted_base_url"] == "https://maas-a.example.com/ws-1/api/v1"
@@ -937,30 +942,15 @@ async def test_resume_replays_submitted_base_url_with_uppercase_scheme(monkeypat
     fake_gen = _FakeGenerator()
     _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
 
-    task = {**video_task, "provider_id": "dashscope", "provider_endpoint": "HTTPS://maas-a.example.com/ws-1/api/v1"}
+    task = {**video_task, "provider_id": "dashscope", "submitted_base_url": "HTTPS://maas-a.example.com/ws-1/api/v1"}
     await execute_resume_video_task(task, job_id="dashscope-job-1")
 
     assert fake_gen.resume_calls[0]["submitted_base_url"] == "HTTPS://maas-a.example.com/ws-1/api/v1"
 
 
 @pytest.mark.asyncio
-async def test_resume_does_not_replay_endpoint_id_for_custom(monkeypatch, fake_pm, video_task):
-    """自定义供应商：列里是 endpoint 标识、归比对闸消费，不当域名回放。"""
-    from server.services.resume_executor import execute_resume_video_task
-
-    fake_gen = _FakeGenerator()
-    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="openai-video", provider_id="custom-7")
-
-    task = _with_storyboard_identity(video_task, provider_id="custom-7", endpoint_guard="openai-video")
-    task["provider_endpoint"] = "openai-video"
-    await execute_resume_video_task(task, job_id="custom-job-1")
-
-    assert fake_gen.resume_calls[0]["submitted_base_url"] is None
-
-
-@pytest.mark.asyncio
 async def test_resume_replays_submitted_base_url_for_custom(monkeypatch, fake_pm, video_task):
-    """自定义供应商：域名落在专列，在途改 base_url 后续跑仍按提交时的域名轮询。"""
+    """自定义供应商重启续跑：协议标识与域名各在其列，在途改 base_url 后仍按提交时的域名轮询。"""
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -987,17 +977,36 @@ async def test_resume_replays_submitted_base_url_for_custom(monkeypatch, fake_pm
 
 
 @pytest.mark.asyncio
+async def test_resume_does_not_read_domain_from_endpoint_column(monkeypatch, fake_pm, video_task):
+    """协议标识列不参与域名回放：未记域名的任务回退到按当下配置的域名轮询。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="openai-video", provider_id="custom-7")
+
+    task = _with_storyboard_identity(video_task, provider_id="custom-7", endpoint_guard="openai-video")
+    task["provider_endpoint"] = "openai-video"
+    task["submitted_base_url"] = None
+    await execute_resume_video_task(task, job_id="custom-job-1")
+
+    assert fake_gen.resume_calls[0]["submitted_base_url"] is None
+
+
+@pytest.mark.asyncio
 async def test_resume_fails_when_custom_endpoint_changed_even_with_base_url(monkeypatch, fake_pm, video_task):
     """协议标识不一致仍显式失败——域名回放不为换协议的续跑开口子。"""
     from lib.video_backends.base import ResumeEndpointChangedError
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
-    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="minimax-video")
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="minimax-video", provider_id="custom-7")
 
     task = {
-        **video_task,
-        "provider_id": "custom-7",
+        **_with_storyboard_identity(
+            video_task,
+            provider_id="custom-7",
+            endpoint_guard="dashscope-async-video",
+        ),
         "provider_endpoint": "dashscope-async-video",
         "submitted_base_url": "https://custom-a.example.com/api/v1",
     }
@@ -1008,50 +1017,38 @@ async def test_resume_fails_when_custom_endpoint_changed_even_with_base_url(monk
 
 
 @pytest.mark.asyncio
-async def test_resume_ignores_endpoint_id_left_by_provider_switch(monkeypatch, fake_pm, video_task):
-    """任务由自定义供应商提交、模型行在途被改成内置供应商：列里的标识不当域名用。
+async def test_resume_does_not_replay_domain_across_provider_kind_switch(monkeypatch, fake_pm, video_task):
+    """任务由自定义供应商提交、模型行在途被改成内置供应商：比对闸先拦下，域名无从回放。
 
-    拿 endpoint 标识拼 URL 只会把可归因的 404 换成更难归因的连接错误。
+    落库域名属于提交时那套凭据，拿它配另一类供应商的凭据轮询只会把可归因的 404 换成认证或
+    连接错误；比对闸对内置/自定义跨类切换逐字判不等，回放分支根本到不了。
     """
+    from lib.video_backends.base import ResumeEndpointChangedError
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
-    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
-
-    task = {**video_task, "provider_id": "dashscope", "provider_endpoint": "openai-video"}
-    await execute_resume_video_task(task, job_id="dashscope-job-1")
-
-    assert fake_gen.resume_calls[0]["submitted_base_url"] is None
-
-
-@pytest.mark.asyncio
-async def test_resume_ignores_custom_domain_left_by_provider_switch(monkeypatch, fake_pm, video_task):
-    """同一跨类切换下专列里的自定义域名同样不回放：当下是内置供应商，只认 ``provider_endpoint``。
-
-    拿另一个供应商的域名配内置凭据轮询，只会把可归因的 404 换成认证或连接错误。
-    """
-    from server.services.resume_executor import execute_resume_video_task
-
-    fake_gen = _FakeGenerator()
-    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None, provider_id="custom-7")
 
     task = {
-        **video_task,
-        "provider_id": "dashscope",
+        **_with_storyboard_identity(
+            video_task,
+            provider_id="custom-7",
+            endpoint_guard="dashscope-async-video",
+        ),
         "provider_endpoint": "dashscope-async-video",
         "submitted_base_url": "https://custom-a.example.com/api/v1",
     }
-    await execute_resume_video_task(task, job_id="dashscope-job-1")
+    with pytest.raises(ResumeEndpointChangedError):
+        await execute_resume_video_task(task, job_id="dashscope-job-1")
 
-    assert fake_gen.resume_calls[0]["submitted_base_url"] is None
+    assert fake_gen.resume_calls == []
 
 
 @pytest.mark.asyncio
 async def test_resume_fails_when_builtin_task_switched_to_custom_provider(monkeypatch, fake_pm, video_task):
-    """任务由内置供应商提交（列里是域名）、模型行在途被改成自定义供应商：比对闸拦下。
+    """任务由内置供应商提交（无协议标识）、模型行在途被改成自定义供应商：比对闸拦下。
 
-    域名与 endpoint 标识必然不等，闸门据此判定协议已被换掉。内置任务的该列有值后这条路径
-    才可达，语义上也确实换了协议——宁可显式失败，也不拿新协议 backend 轮旧 job。
+    宁可显式失败，也不拿新协议 backend 轮旧的供应商任务。
     """
     from lib.video_backends.base import ResumeEndpointChangedError
     from server.services.resume_executor import execute_resume_video_task
@@ -1059,7 +1056,12 @@ async def test_resume_fails_when_builtin_task_switched_to_custom_provider(monkey
     fake_gen = _FakeGenerator()
     _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="dashscope-async-video")
 
-    task = {**video_task, "provider_id": "dashscope", "provider_endpoint": "https://maas-a.example.com/ws-1/api/v1"}
+    task = {
+        **video_task,
+        "provider_id": "dashscope",
+        "provider_endpoint": None,
+        "submitted_base_url": "https://maas-a.example.com/ws-1/api/v1",
+    }
     with pytest.raises(ResumeEndpointChangedError):
         await execute_resume_video_task(task, job_id="dashscope-job-1")
 

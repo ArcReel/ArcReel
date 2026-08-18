@@ -730,12 +730,10 @@ class TaskRepository(BaseRepository):
     ) -> None:
         """单独事务持久化 provider_job_id；不带 WHERE 状态守卫（worker 内调用，确定是 running）。
 
-        ``endpoint`` 是提交本 job 时实际使用的执行端点，按供应商类型有两种取值：自定义供应商
-        传模型行的 endpoint 标识，提交域名随用户配置变化的内置供应商传实际请求域名。
-        ``base_url`` 只由自定义供应商传——它的 ``endpoint`` 位已被协议标识占用，实际请求域名
-        另落 ``submitted_base_url`` 列。两者都与 job_id 同一次 UPDATE 落地：必须同时可见，否则
-        续跑会拿到 job_id 却判不出协议是否已被换掉、也无从回放原域名。None 时不写对应列——保留
-        既有值比清空更安全（清空等于放弃比对 / 放弃回放）。
+        端点信息按维度分列：``endpoint`` 是协议标识（只有自定义供应商有），落 ``provider_endpoint``；
+        ``base_url`` 是本次实际请求的域名（两类供应商通用），落 ``submitted_base_url``。两者都与
+        job_id 同一次 UPDATE 落地：必须同时可见，否则续跑会拿到 job_id 却判不出协议是否已被换掉、
+        也无从回放原域名。None 时不写对应列——保留既有值比清空更安全（清空等于放弃比对 / 放弃回放）。
 
         失败抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast：未持久化的
         submit 视为整笔失败，避免「幽灵任务」继续在 provider 端跑而 DB 已忘）。

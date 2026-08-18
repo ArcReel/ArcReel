@@ -71,31 +71,17 @@ def _validate_resolved_checkpoint_identity(checkpoint: VideoSubmissionCheckpoint
         )
 
 
-def _is_request_domain(value: Any) -> bool:
-    """落库值是否为请求域名形态——两列都可能躺着 endpoint 标识，只有 http(s) 前缀的才是域名。"""
-    return isinstance(value, str) and value.lower().startswith(("http://", "https://"))
+def _submitted_base_url(task: dict[str, Any]) -> str | None:
+    """提交本供应商任务时的请求域名，供 backend 回放轮询；未记录时 None。
 
-
-def _submitted_base_url(task: dict[str, Any], current_endpoint: str | None) -> str | None:
-    """提交本 job 时的请求域名，供 backend 回放轮询；无从判定时 None。
-
-    域名按供应商类型分落两列，读取时按当下的供应商类型选列——``current_endpoint`` 非空即当下
-    是自定义供应商，取专列 ``submitted_base_url``（该类供应商的 ``provider_endpoint`` 位被协议
-    标识占用，归比对闸消费）；为空即当下是内置供应商，无协议维度，域名就在 ``provider_endpoint``。
-    空值统一取 falsy，否则空串会让两条分支都不生效。
-
-    按当下类型选列而非先读专列，是为了拦住跨类切换：任务由自定义供应商提交、模型行在途被改成
-    内置供应商时，专列里躺着的是另一个供应商的域名，拿它配内置凭据轮询只会把 404（可归因为任务
-    过期）换成更难归因的认证或连接错误；反向切换同理，域名形态确认拦住把 endpoint 标识当域名用。
-    选中的列没有域名（未落此值的存量任务、非 dashscope 协议的自定义供应商、跨类切换）时回退
-    None，backend 按当下配置的域名轮询。
+    域名不分供应商类型，一律落 ``submitted_base_url``（``provider_endpoint`` 只承载协议标识）。
+    调用点在 ``_ensure_checkpoint_endpoint_unchanged`` 之后：协议标识与内置/自定义的归属已经与
+    提交时逐字相等，落库的域名必定属于当下这套凭据，可直接回放。列为空（未落此值的存量任务、
+    提交域名不随配置变化的供应商）时回退 None，backend 按当下配置的域名轮询。
     """
-    if current_endpoint:
-        submitted = task.get("submitted_base_url")
-        return str(submitted) if _is_request_domain(submitted) else None
-    endpoint_column = task.get("provider_endpoint")
-    if _is_request_domain(endpoint_column):
-        return str(endpoint_column)
+    submitted = task.get("submitted_base_url")
+    if isinstance(submitted, str) and submitted.lower().startswith(("http://", "https://")):
+        return submitted
     return None
 
 
@@ -184,7 +170,7 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
                 resolution=resolution,
                 task_id=task_id,
                 api_call_id=api_call_id,
-                submitted_base_url=_submitted_base_url(task, ctx.video.endpoint),
+                submitted_base_url=_submitted_base_url(task),
                 seed=seed,
                 service_tier=service_tier,
                 before_formal_commit=artifact_committer.prepare_selection,

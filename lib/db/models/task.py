@@ -33,13 +33,11 @@ class Task(UserOwnedMixin, Base):
     cancelled_by: Mapped[str | None] = mapped_column(String)
     provider_id: Mapped[str | None] = mapped_column(String)
     provider_job_id: Mapped[str | None] = mapped_column(String)
-    # 提交该 job 时实际使用的执行端点，与 provider_job_id 同一次写入落地：自定义供应商记模型行
-    # 的 endpoint 标识（续跑据此判定协议是否已被换掉），提交域名随用户配置变化的内置供应商记实际
-    # 请求域名（续跑据此回放原域名轮询）。常态下两类取值各由对应续跑分支消费；内置供应商提交
-    # 后在途改成自定义供应商时，比对闸会拿落库的域名与当下 endpoint 标识比较并拒绝接续。
+    # 提交该供应商任务时所用的协议标识（协议维度），只有自定义供应商有这个维度，内置供应商恒 NULL。
+    # 与 provider_job_id 同一次写入落地，供续跑判定协议是否已被换掉。不存请求域名。
     provider_endpoint: Mapped[str | None] = mapped_column(String)
-    # 自定义供应商提交该 job 时实际请求的域名（连接维度），与 provider_job_id 同一次写入落地，
-    # 供续跑回放原域名轮询——该类供应商的 provider_endpoint 已被协议标识占用，域名另存于此。
+    # 提交该供应商任务时实际请求的域名（连接维度），两类供应商通用，与 provider_job_id 同一次
+    # 写入落地。域名随用户配置变化，续跑据此回放原域名轮询，避免按新域名轮旧任务查无。
     submitted_base_url: Mapped[str | None] = mapped_column(String)
     # 参考视频首次提交前冻结的严格执行事实。独立列避免与可变 enqueue payload 混合，且让
     # checkpoint/job 组合在重启时可无歧义分流；只由 worker 内部消费，不属于 tasks API 契约。
