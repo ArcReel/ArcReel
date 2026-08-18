@@ -41,7 +41,7 @@ from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_
 from lib.project_schema import project_schema_is_current
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
-from lib.script_skeleton import SKELETONS, resolve_declared_kind
+from lib.script_skeleton import SKELETONS, resolve_declared_kind, resolve_kind_items
 from lib.source_loader.migration import migrate_project_source_encoding
 from lib.validation_messages import MessageRef, ValidationMessage, ValidationResult
 
@@ -1035,12 +1035,11 @@ class ProjectArchiveService:
 
         # storyboard 骨架（segments/scenes/shots，含 ad 的 shots）逐条补全字段与资产回填。
         items_key = kind
-        id_field = SKELETONS[kind].id_field
+        raw_items, id_field, _kind = resolve_kind_items(script_payload, kind=kind)
         chars_field = SKELETONS[kind].chars_field
         # storyboard 骨架必有 chars_field；video_units 已在上分支返回。
         assert chars_field is not None
 
-        raw_items = script_payload.get(items_key)
         if not isinstance(raw_items, list):
             return script_changed, project_changed
 

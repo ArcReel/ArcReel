@@ -6,9 +6,10 @@
 统一入口的 `_write_script_unlocked`（「不更坏」+ Pydantic 模型）兜底，本模块只负责数组手术、
 id 分配与资产作废。MCP 工具与测试都复用它。
 
-三种内容/生成模式（narration/drama/reference_video）的分镜数组与 id 字段判别集中在
-`resolve_items`，与 `script_structure_validator._select_model`、写盘统一入口的 metadata 重算共用
-同一判别，避免三处漂移。
+三种内容/生成模式（narration/drama/reference_video）的分镜数组与 id 字段判别委托给
+`script_skeleton.resolve_kind_items`（骨架条目访问的唯一入口），`resolve_items` 在其上叠加
+编辑核心特有的 fail-loud 校验策略；与 `script_structure_validator._select_model`、写盘统一
+入口的 metadata 重算共用同一取证解析，避免多处漂移。
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import logging
 from copy import deepcopy
 from typing import Any
 
-from lib.script_skeleton import SKELETONS, resolve_script_kind
+from lib.script_skeleton import resolve_kind_items
 
 logger = logging.getLogger(__name__)
 
@@ -37,29 +38,29 @@ class ScriptEditError(ValueError):
         self.params = params
 
 
-def resolve_items(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
+def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[list[dict[str, Any]], str, str]:
     """按内容/生成模式选出当前剧本的分镜数组、其 id 字段名与种类。
 
-    返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "shots", "video_units"}，
-    由 `script_skeleton.resolve_script_kind`（取证解析）判别，id 字段查 `SKELETONS`。**键缺失**
-    视为空数组；**键存在但类型非 list（含值为 null）**时 fail-loud 抛 `ScriptEditError`（不静默降级
-    为 []，避免把数据损坏掩盖成「未找到 id」——`"segments": null` 这类损坏会暴露而非被当成空草稿）。
+    返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "shots", "video_units"}。
+    键与 id 字段的查法委托给 `script_skeleton.resolve_kind_items`（骨架条目访问的唯一入口，
+    取证解析同源）；``kind`` 由调用方显式给定（如任务开工时已定死的生成路线）时跳过取证解析，
+    直接按该种类取值。本函数在原样返回值上加编辑核心特有的校验策略：**键缺失**视为空数组；
+    **键存在但类型非 list（含值为 null）**时 fail-loud 抛 `ScriptEditError`（不静默降级为 []，
+    避免把数据损坏掩盖成「未找到 id」——`"segments": null` 这类损坏会暴露而非被当成空草稿）。
     返回的 list 在键存在时即 script 内的实际引用（就地编辑生效）。
     """
-    kind = resolve_script_kind(script)
-    id_field = SKELETONS[kind].id_field
+    raw_items, id_field, kind = resolve_kind_items(script, kind=kind)
     if kind not in script:
         return [], id_field, kind
-    items = script[kind]
-    if not isinstance(items, list):
-        type_name = type(items).__name__
+    if not isinstance(raw_items, list):
+        type_name = type(raw_items).__name__
         raise ScriptEditError(
             f"{kind} 必须是列表，当前为 {type_name}",
             key="script_edit_items_not_list",
             kind=kind,
             type_name=type_name,
         )
-    return items, id_field, kind
+    return raw_items, id_field, kind
 
 
 def _find_index(items: list[dict[str, Any]], id_field: str, item_id: str) -> int:

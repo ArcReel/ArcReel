@@ -32,7 +32,7 @@ from lib.script_skeleton import (
     SKELETON_ENTITY_TYPES,
     SKELETON_ITEM_NOUNS,
     SKELETONS,
-    resolve_script_kind,
+    resolve_kind_items,
 )
 from server.sse_channel import IDLE, DropSubscriber, SseChannel
 
@@ -745,13 +745,14 @@ class ProjectEventService:
 
     def _normalize_script_snapshot(self, script: dict[str, Any]) -> dict[str, Any]:
         # 取证解析：由剧本数据形状判别骨架种类（narration/drama 走 reference 时 content_mode 仍是
-        # narration/drama，二值兜底会把 ad 的 shots 与 reference 的 video_units 全部漏读——差分恒空、
-        # 分镜级事件从不发出，正是本次修复的 bug 根因）。键即条目数组键。
+        # narration/drama，按 content_mode 二值兜底会把 ad 的 shots 与 reference 的 video_units
+        # 全部漏读，差分恒空、分镜级事件从不发出）。键即条目数组键。
         content_mode = str(script.get("content_mode") or "narration")
-        kind = resolve_script_kind(script)
-        skeleton = SKELETONS[kind]
-        raw_items = script.get(kind, [])
-        if not isinstance(raw_items, list):
+        raw_items, id_field, kind = resolve_kind_items(script)
+        chars_field = SKELETONS[kind].chars_field
+        if kind not in script:
+            raw_items = []
+        elif not isinstance(raw_items, list):
             logger.warning(
                 "剧本条目字段非列表，按空快照处理 kind=%s type=%s",
                 kind,
@@ -763,11 +764,11 @@ class ProjectEventService:
         for item in raw_items:
             if not isinstance(item, dict):
                 continue
-            item_id = str(item.get(skeleton.id_field) or "")
+            item_id = str(item.get(id_field) or "")
             if not item_id:
                 continue
             assets = get_generated_assets(item)
-            characters, scenes, props, products = self._item_entities(item, skeleton.chars_field)
+            characters, scenes, props, products = self._item_entities(item, chars_field)
             items[item_id] = {
                 "duration_seconds": item.get("duration_seconds"),
                 "needs_replan": bool(item.get("needs_replan")),
@@ -778,7 +779,7 @@ class ProjectEventService:
                 "props": props,
                 "products": products,
                 "shots": self._item_member_shots(item.get("shots")),
-                "references": self._item_references(item.get("references")) if skeleton.chars_field is None else [],
+                "references": self._item_references(item.get("references")) if chars_field is None else [],
                 "image_prompt": item.get("image_prompt"),
                 "video_prompt": item.get("video_prompt"),
                 "generated_assets": {

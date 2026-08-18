@@ -168,6 +168,23 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
     return "segments"
 
 
+def resolve_kind_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[Any, str, str]:
+    """按骨架种类取条目数组与其 id 字段的唯一入口：返回 ``(items, id_field, kind)``。
+
+    ``kind`` 缺省时经 ``resolve_script_kind``（取证解析）由剧本数据形状判别；调用方已持有
+    项目声明或路线闸门算出的种类（``resolve_declared_kind`` / ``ensure_route_skeleton`` 的
+    返回值）可显式传入，跳过重复判别。
+
+    返回的条目值是 ``script.get(kind)`` 原样——**不做类型校验、不把非 list 兜底为空数组**：
+    键缺失时为 ``None``，键存在但非 list（含 ``null``）时原样返回该非法值。本函数只统一
+    「查哪个键、哪个 id 字段」这一份结构事实；脏值该 fail-loud 还是降级、空数组算不算合法，
+    是各消费路径自己的策略，归调用方，不在此收口。条目内的角色引用字段（``chars_field``）
+    不属于条目访问，仍直查 ``SKELETONS``。
+    """
+    resolved_kind = kind if kind is not None else resolve_script_kind(script)
+    return script.get(resolved_kind), SKELETONS[resolved_kind].id_field, resolved_kind
+
+
 # 路线要求的骨架族：参考生视频路线要 ``video_units``，其余路线要分镜族骨架
 # （``segments`` / ``scenes`` / ``shots``）。族内差异（如 narration 数据落 ``scenes`` 键的历史
 # 形态）不构成失配，只有跨族才是——跨族意味着生成侧要读的数组根本不在剧本里。

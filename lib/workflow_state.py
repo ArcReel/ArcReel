@@ -36,7 +36,7 @@ from lib.project_migration_failure import (
     load_migration_verdict,
 )
 from lib.script_models import get_generated_assets, script_duration_total
-from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton
+from lib.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton, resolve_kind_items
 from lib.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 from lib.version_manager import VersionManager
 from lib.workflow_rules import workflow_rule
@@ -688,7 +688,7 @@ class WorkflowStateService:
         except ValueError as exc:
             blockers.append(WorkflowBlocker(code="invalid_project_mode", path="content_mode", reason=str(exc)))
             return {"state": "blocked", "path": path}, [], None, script
-        raw_items = script.get(kind)
+        raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
         if not isinstance(raw_items, list) or not raw_items or not all(isinstance(item, dict) for item in raw_items):
             blockers.append(
                 WorkflowBlocker(
@@ -698,7 +698,6 @@ class WorkflowStateService:
                 )
             )
             return {"state": "blocked", "path": path}, [], kind, script
-        id_field = SKELETONS[kind].id_field
         seen_ids: set[str] = set()
         for index, item in enumerate(raw_items):
             resource_id = item.get(id_field)

@@ -1723,7 +1723,8 @@ def _resolve_tts_task_items(
 
     if not reference_video_route:
         return resolve_items(script)
-    return resolve_items({"video_units": script.get("video_units", [])})
+    # 参考路线的骨架种类由任务开工时定死的路线给出，直接指定；取证解析只服务于路线未知的调用方。
+    return resolve_items(script, kind="video_units")
 
 
 async def execute_tts_task(
