@@ -202,7 +202,9 @@ class EpisodeSummary(BaseModel):
     episode: int
     script_status: EpisodeScriptStatus
     status: EpisodeProductionStatus
-    scenes_count: int
+    # 该集的内容规模：分镜图生视频路线报分镜数、参考生视频路线报视频单元数，
+    # 三种创作类型同一口径。读时按脚本条目数算，不落盘。
+    item_count: int
     duration_seconds: int
     storyboards: ArtifactCount
     videos: ArtifactCount
@@ -917,7 +919,7 @@ class WorkflowStateService:
                 except ValueError:
                     kind = None
                 if kind is not None:
-                    raw_items = script.get(kind)
+                    raw_items, _id_field, _kind = resolve_kind_items(script, kind=kind)
                     items = (
                         [item for item in raw_items if isinstance(item, dict)] if isinstance(raw_items, list) else []
                     )
@@ -957,7 +959,7 @@ class WorkflowStateService:
             episode=number,
             script_status=script_status,
             status=_episode_production_status(script_status, storyboards, videos),
-            scenes_count=len(items),
+            item_count=len(items),
             duration_seconds=script_duration_total(kind, items) if kind is not None else 0,
             storyboards=storyboards,
             videos=videos,
@@ -1089,7 +1091,7 @@ class WorkflowStateService:
                 episode=number,
                 script_status="none",
                 status="draft",
-                scenes_count=0,
+                item_count=0,
                 duration_seconds=0,
                 storyboards=ArtifactCount.zero(),
                 videos=ArtifactCount.zero(),

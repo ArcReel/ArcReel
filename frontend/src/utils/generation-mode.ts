@@ -30,3 +30,17 @@ export function gridStoryboardEnabled(
   if (!project) return false;
   return normalizeRoute(project.generation_mode) === "storyboard" && project.grid_storyboard === true;
 }
+
+/**
+ * 条目数的文案 key — 名词按生成路线定，与创作类型无关：分镜路线报「分镜数」、
+ * 参考路线报「视频单元数」。所有展示条目数的位置读同一份映射，不各自写三元判断。
+ *
+ * `withStatus` 取带状态后缀的那条（「N 分镜 · 制作中」），否则取裸计数那条。
+ */
+export function itemCountKey(
+  route: GenerationRoute,
+  { withStatus = false }: { withStatus?: boolean } = {},
+): string {
+  const noun = route === "reference_video" ? "video_unit_count" : "storyboard_count";
+  return withStatus ? `${noun}_and_status` : noun;
+}

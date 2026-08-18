@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { EpisodeCard } from "./EpisodeCard";
 import type { EpisodeMeta } from "@/types/project";
+import type { GenerationRoute } from "@/utils/generation-mode";
 
 /**
  * 剧集卡上的两个数字都来自项目摘要，口径是产物清单：可用 = current ∪ stale，
@@ -15,7 +16,7 @@ function makeEpisode(overrides: Partial<EpisodeMeta> = {}): EpisodeMeta {
     script_file: "scripts/episode_1.json",
     script_status: "generated",
     status: "in_production",
-    scenes_count: 4,
+    item_count: 4,
     duration_seconds: 96,
     storyboards: { total: 4, available: 4, stale: 0 },
     videos: { total: 4, available: 3, stale: 0 },
@@ -23,14 +24,16 @@ function makeEpisode(overrides: Partial<EpisodeMeta> = {}): EpisodeMeta {
   };
 }
 
-function renderCard(ep: EpisodeMeta) {
-  return render(<EpisodeCard ep={ep} active={false} onClick={() => {}} />);
+function renderCard(ep: EpisodeMeta, route: GenerationRoute = "storyboard") {
+  return render(
+    <EpisodeCard ep={ep} active={false} onClick={() => {}} route={route} />,
+  );
 }
 
 describe("EpisodeCard", () => {
   it("reports available videos against the total, not the script item count", () => {
-    // scenes_count 与 videos.total 刻意取不同值：读错字段的实现会显示 4/4 或裸 4。
-    renderCard(makeEpisode({ scenes_count: 9 }));
+    // item_count 与 videos.total 刻意取不同值：读错字段的实现会显示 4/4 或裸 4。
+    renderCard(makeEpisode({ item_count: 9 }));
 
     expect(screen.getByText(/3\/4/)).toBeInTheDocument();
   });
@@ -55,15 +58,30 @@ describe("EpisodeCard", () => {
   });
 
   it("falls back to the script item count for an episode with no videos planned yet", () => {
-    renderCard(
-      makeEpisode({
-        status: "scripted",
-        storyboards: { total: 0, available: 0, stale: 0 },
-        videos: { total: 0, available: 0, stale: 0 },
-      }),
-    );
+    renderCard(unplannedEpisode());
 
     expect(screen.getByText(/^4/)).toBeInTheDocument();
     expect(screen.queryByText(/0\/0/)).not.toBeInTheDocument();
   });
+
+  it("names the fallback count 分镜数 on the storyboard route", () => {
+    renderCard(unplannedEpisode(), "storyboard");
+
+    expect(screen.getByTitle("4 分镜")).toBeInTheDocument();
+  });
+
+  it("names the fallback count 视频单元数 on the reference route", () => {
+    renderCard(unplannedEpisode(), "reference_video");
+
+    expect(screen.getByTitle("4 视频单元")).toBeInTheDocument();
+  });
 });
+
+/** 一集只有脚本、还没排视频产物：卡片只能显示条目数本身。 */
+function unplannedEpisode(): EpisodeMeta {
+  return makeEpisode({
+    status: "scripted",
+    storyboards: { total: 0, available: 0, stale: 0 },
+    videos: { total: 0, available: 0, stale: 0 },
+  });
+}

@@ -31,7 +31,6 @@ export default {
   'content_mode_ad_desc': 'Single video — shots are planned against a target duration, each carrying voiceover copy. Best for product ads and creative shorts.',
   'target_duration_label': 'Target Duration',
   'ad_video_section_title': 'Video',
-  'shots_and_status': '{{count}} shots · {{status}}',
   'content_mode_narration_desc': 'Narration-driven — a single voiceover guides the visuals across the episode. Best for storytelling, documentary, or explainer shorts.',
   'content_mode_drama_desc': 'Content-driven — character dialogue and plot propel the visuals. Best for drama episodes and fiction adaptations.',
   'source_kind': 'Source type',
@@ -713,7 +712,10 @@ export default {
   'cost_estimate_failed': 'Cost estimation failed: {{message}}',
   'episodes_title': 'Episodes',
   'no_episodes_ai_hint': 'No episodes yet. Use the AI assistant to generate scripts.',
-  'segments_and_status': '{{count}} segments · {{status}}',
+  'storyboard_count_and_status': '{{count}} shots · {{status}}',
+  'video_unit_count_and_status': '{{count}} video units · {{status}}',
+  'storyboard_count': '{{count}} shots',
+  'video_unit_count': '{{count}} video units',
 
   // ProjectSettingsPage
   'project_settings': 'Project Settings',

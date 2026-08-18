@@ -2352,7 +2352,7 @@ class ProjectManager:
         """
         [已废弃] 同步项目状态
 
-        此方法已废弃。status、progress、scenes_count 等统计字段
+        此方法已废弃。status、progress、item_count 等统计字段
         现在由项目摘要读时计算，不再存储在 JSON 文件中。
 
         保留此方法仅为向后兼容，实际不执行任何写入操作。

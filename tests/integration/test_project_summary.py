@@ -25,7 +25,9 @@ from tests.integration.test_workflow_state import (
     _count_source_reads,
     _make_project,
     _register_produced_artifacts,
+    _valid_ad_shot,
     _valid_narration_segment,
+    _valid_video_unit,
     _write_artifact,
     _write_episode_source,
     _write_registered_script,
@@ -134,10 +136,63 @@ def test_script_without_media_is_in_production(tmp_path: Path) -> None:
     episode = summary.episodes[0]
     assert episode.script_status == "generated"
     assert episode.status == "scripted"
-    assert episode.scenes_count == 1
+    assert episode.item_count == 1
     assert episode.duration_seconds == 4
     assert (episode.storyboards.total, episode.storyboards.available) == (1, 0)
     assert (episode.videos.total, episode.videos.available) == (1, 0)
+
+
+def test_item_count_reports_the_storyboard_count_on_the_storyboard_route(tmp_path: Path) -> None:
+    """分镜图生视频路线报分镜数——广告/短片的 shots 与旁白/解说的 segments 同一口径。"""
+
+    pm, project_path = _make_project(tmp_path, "ad")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    _plan_one_episode(pm, project_path, source_text)
+    _write_registered_script(
+        project_path,
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "ad",
+            "shots": [_valid_ad_shot(), _valid_ad_shot(shot_id="E1S02")],
+        },
+    )
+    _register_produced_artifacts(project_path)
+
+    episode = WorkflowStateService(pm).get_project_summary("demo").episodes[0]
+
+    assert episode.item_count == 2
+    assert episode.storyboards.total == 2
+
+
+def test_item_count_reports_the_video_unit_count_on_the_reference_route(tmp_path: Path) -> None:
+    """参考生视频路线报视频单元数，且该路线没有分镜图这一档产物。"""
+
+    pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+    _plan_one_episode(pm, project_path, source_text)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    _write_episode_source(project_path, 1)
+    atomic_write_json(draft_dir / "step1_reference_units.json", {"units": []})
+    _write_registered_script(
+        project_path,
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "drama",
+            "video_units": [_valid_video_unit(), _valid_video_unit(unit_id="E1U02")],
+        },
+    )
+    _register_produced_artifacts(project_path)
+
+    episode = WorkflowStateService(pm).get_project_summary("demo").episodes[0]
+
+    assert episode.item_count == 2
+    assert episode.storyboards.total == 0
+    assert episode.videos.total == 2
 
 
 def test_all_artifacts_usable_reports_completed(tmp_path: Path) -> None:

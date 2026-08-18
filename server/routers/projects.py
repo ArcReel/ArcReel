@@ -205,7 +205,7 @@ class EpisodePatch(BaseModel):
     """PATCH body entry for a single episode.
 
     The declared fields are the writable set; derived fields the API serves on
-    episodes (scenes_count, status, storyboards, etc.) are not declared here and
+    episodes (item_count, status, storyboards, etc.) are not declared here and
     are silently dropped via extra='ignore', so they can never be written back.
     """
 

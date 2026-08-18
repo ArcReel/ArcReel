@@ -191,7 +191,7 @@ export function GridImageToVideoCanvas({
       episode,
       title: episodeTitle ?? episodeScript?.title ?? "",
       script_file: scriptFile ?? "",
-      scenes_count: segments.length,
+      item_count: segments.length,
       duration_seconds: totalDuration,
       status: hasScript ? "in_production" : "draft",
     } as const);
