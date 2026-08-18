@@ -79,7 +79,7 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    fireEvent.click(screen.getByText(/剧情演绎|Drama Mode/));
+    fireEvent.click(screen.getByText(/剧情演绎|Drama/));
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ contentMode: "drama" }),
     );

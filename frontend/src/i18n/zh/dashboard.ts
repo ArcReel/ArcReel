@@ -133,7 +133,7 @@ export default {
   'opus_model': 'Opus 模型',
   'opus_desc': '复杂任务（长文创作、深度分析）',
   'subagent_model': '子任务模型',
-  'subagent_desc': 'Subagent 并行执行时使用的模型',
+  'subagent_desc': '子任务并行执行时使用的模型',
   'advanced_session_settings': '高级会话设置',
   'session_control_desc': '控制智能体运行时的资源占用与会话生命周期。',
   'session_cleanup_delay': '闲置会话清除延迟',
