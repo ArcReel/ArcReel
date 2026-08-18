@@ -93,7 +93,7 @@ _DEFAULT_GENERATION_MODE = "storyboard"
 
 # 源文件性质（source_kind）：与 content_mode / generation_mode 正交的第三轴，project.json
 # 顶层字段，创建时确定、之后不可变。novel（默认，现状改编链路）/ screenplay（成品剧本，
-# drama 链路翻为提取优先）。详见 docs/adr/0036 与 CONTEXT.md「剧本源」词条。
+# drama 链路翻为提取优先）。详见 docs/adr/0036 与 CONTEXT.md「源文件类型」词条。
 SourceKind = Literal["novel", "screenplay"]
 VALID_SOURCE_KINDS: frozenset[str] = frozenset({"novel", "screenplay"})
 DEFAULT_SOURCE_KIND: SourceKind = "novel"

@@ -18,6 +18,6 @@ drama / narration 剧本走两段式：step1（normalize）把源文整理为 ma
 - step1 产出一律由服务端工具（normalize / split）经文本管道生成并落盘（模型来源按 `docs/adr/0051` 的档位解析），subagent 仅编排调用，不在自身上下文里生成内容。
 - reference_video 的 step2 prompt（`lib/prompt_builders_reference.py`）以结构化 unit 数据为基底组装，不解析自由文本；web 端 step1 预览与编辑按结构渲染。
 - step2（generate-script）prompt / 流程以 step1 确认的结构化数据为唯一基底——完整保留 step1 已定的场景 / 片段边界与 `characters_in_scene` / `scenes` / `props`、`utterances` / `source_text` / `novel_text` 等非视觉字段，仅生成 / 覆盖视觉层（`image_prompt` / `video_prompt`）；移除按 source_kind 重新提取口播的分支。
-- step2 透传以工程手段保真、不靠 prompt 自觉：step2 的 LLM 输出 schema 只含 `scene_id`（对齐锚）+ 视觉字段（`image_prompt` / `video_prompt`），后端按 `scene_id`（非列表顺序）把视觉层合并回 step1 已确认结构、并校验 `scene_id` 唯一与全覆盖；`utterances` / `source_text` 等非视觉字段不进 LLM 输出——从工程上杜绝非视觉字段经 Structured Outputs 漂移，而非靠 prompt 自觉。reference_video 路径同一原则、另一种落法：其 step2 输出是与 step1 等长同序的书写层正文列表，没有 id 可漂移，对齐靠「unit 数一致 + 逐位配对」，台词规范行则以逐字 diff 拦改写（见 `CONTEXT.md` 的「书写层文稿」条目）。
+- step2 透传以工程手段保真、不靠 prompt 自觉：step2 的 LLM 输出 schema 只含 `scene_id`（对齐锚）+ 视觉字段（`image_prompt` / `video_prompt`），后端按 `scene_id`（非列表顺序）把视觉层合并回 step1 已确认结构、并校验 `scene_id` 唯一与全覆盖；`utterances` / `source_text` 等非视觉字段不进 LLM 输出——从工程上杜绝非视觉字段经 Structured Outputs 漂移，而非靠 prompt 自觉。reference_video 路径同一原则、另一种落法：其 step2 输出是与 step1 等长同序的书写层正文列表，没有 id 可漂移，对齐靠「unit 数一致 + 逐位配对」，台词规范行则以逐字 diff 拦改写（书写层正文的语法真相源是 `lib/reference_video/writing_syntax.py`）。
 - 新增 step1→step2 之间的 web 审核状态与确认动作（service / router + 前端）；step2 由用户确认触发。
 - drama 的 `utterances` / `source_text` 数据模型见 ADR 0040；novel 画外音克制放开同见 0040（其内容在 step1 产出、step2 透传）。

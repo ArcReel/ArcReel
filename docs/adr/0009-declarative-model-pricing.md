@@ -6,7 +6,7 @@ status: proposed
 
 ArcReel 的 `CostCalculator`（`lib/cost_calculator.py`）当前把每个供应商各模态的费率写成**散落的类属性 dict**（`IMAGE_COST` / `VIDEO_COST` / `ARK_VIDEO_COST` / `GROK_TEXT_COST` / `OPENAI_IMAGE_TOKEN_COST` 等十余张），`calculate_cost` 用一长串 `if provider == X` 手工路由到对应的 per-shape 计算函数，币种 USD/CNY 混在各函数里。新增一个内置供应商时，若不为它加显式分支，视频会**静默回落到 Veo 费率表**按错误单价计费。同期的三家供应商接入调研（`docs/research/arcreel-vendor-integration-research.md` §7 Caveats 1）提出"价格随促销波动，费率字段应配置化，不写死"。
 
-评估时确认了一个关键事实：**ArcReel 的成本是快照的**（见 `CONTEXT.md`「成本快照」）。`finish_call` 仅在调用完成那一刻调一次 `calculate_cost`，把结果冻结进 `ApiCall.cost_amount`；所有用量/费用聚合读冻结值，不重算。因此"为历史计费保留下线模型费率"这一诉求并不成立——过往记录不依赖费率表。我们也对照了 LiteLLM 的做法：它用单一数据表按 model 名建索引，每个 model 条目内同时承载元数据、上下文窗口与定价（`input_cost_per_token` / 每图 / 每秒等），按 `mode` 派发计算，定价与模型元数据**不分家**。
+评估时确认了一个关键事实：**ArcReel 的生成费用是快照的**。`finish_call` 仅在调用完成那一刻调一次 `calculate_cost`，把结果冻结进 `ApiCall.cost_amount`；所有用量/费用聚合读冻结值，不重算。因此"为历史计费保留下线模型费率"这一诉求并不成立——过往记录不依赖费率表。我们也对照了 LiteLLM 的做法：它用单一数据表按 model 名建索引，每个 model 条目内同时承载元数据、上下文窗口与定价（`input_cost_per_token` / 每图 / 每秒等），按 `mode` 派发计算，定价与模型元数据**不分家**。
 
 我们决定把计费改为**代码级声明式**，而**不**做运行时 DB+UI 改价。具体：① 定价数据作为 `ModelInfo.pricing` 字段**并进 `PROVIDER_REGISTRY` 的每个模型条目**（每模型单一真相源，与 LiteLLM 对齐）；② `Pricing` 的类型定义与按 `kind` 标签（`per_token` / `per_image_flat` / `per_image_by_resolution` / `per_image_openai_token` / `per_second_matrix` / `per_token_video` / …）选择的计算**策略放独立 `lib/pricing` 模块**，把"计算关注点"从模型声明里分离；③ `calculate_cost` 改成**按 `pricing.kind` 派发**而非 `if provider == X`；④ 模型下线用 `ModelInfo.hidden` 标记（从 UI 下拉剔除、保留条目供"入队后、finish 前被下线"这一边角仍能算价），不建独立的历史费率仓库；⑤ **全量迁移**现存全部内置供应商（Gemini/Ark/Grok/OpenAI/Vidu）到新系统，纯重构、行为零变化，以全量 pytest 对拍旧值兜底。运行时改价（促销时不重部署即可改）如真有需要，是未来另一个独立 epic，本 ADR 不预设。
 

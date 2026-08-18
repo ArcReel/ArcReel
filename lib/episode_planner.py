@@ -487,7 +487,8 @@ class EpisodePlanner:
         draft_model: type[BaseModel] = DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
         language = _language_of(project)
         # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
-        # 无指令路径的 prompt 必须逐字保持不变（CONTEXT.md 对该路径有逐字一致的承诺）。
+        # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无意见路径行为可复现，
+        # 注入全局进度会改写 prompt，因此只在有 instructions 时才计算并注入。
         progress: _PlanningProgress | None = None
         if planning_instructions:
             progress = _PlanningProgress(
