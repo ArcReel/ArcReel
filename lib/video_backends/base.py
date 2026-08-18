@@ -57,10 +57,10 @@ async def persist_provider_job_id(
 ) -> None:
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
-    Caller 显式传 task_id；``endpoint`` 是协议标识（协议维度，只有自定义供应商有，续跑据此判定
-    协议是否已被换掉），``base_url`` 是本次实际请求的域名（连接维度，两类供应商通用，续跑据此
-    回放原域名轮询）。两者与 job_id 同一次写入落地供续跑消费。DB 瞬态错误最多重试 3 次，业务
-    异常立即抛。重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
+    Caller 显式传 task_id；``endpoint`` 是协议标识（协议维度，只有自定义供应商有，记录本笔供应商
+    任务按哪套协议提交），``base_url`` 是本次实际请求的域名（连接维度，两类供应商通用，续跑据此
+    回放原域名轮询）。两者与 job_id 同一次写入落地。DB 瞬态错误最多重试 3 次，业务异常立即抛。
+    重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
     """
     try:
         await _persist_with_retry(task_id, job_id, endpoint, base_url)
@@ -678,8 +678,9 @@ class VideoGenerationRequest:
     # call whose failure cannot prove that the provider rejected the request before accepting a paid job.
     on_provider_resubmit_unsafe: Callable[[], None] | None = None
 
-    # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的协议标识，
-    # 与 job_id 一并持久化到 `tasks.provider_endpoint` 供续跑比对。内置供应商无此维度，保持 None。
+    # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的协议标识，与 job_id
+    # 一并持久化到 `tasks.provider_endpoint`，记录本笔供应商任务的协议归属。内置供应商无此维度，
+    # 保持 None。续跑比对协议读的是 checkpoint 的 endpoint_guard，不读该列。
     execution_endpoint: str | None = None
 
     # 续跑路径专用：提交本 job 时实际使用的请求域名，由 resume_executor 从 `tasks.submitted_base_url` 回放。

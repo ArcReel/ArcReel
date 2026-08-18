@@ -78,6 +78,9 @@ def _submitted_base_url(task: dict[str, Any]) -> str | None:
     调用点在 ``_ensure_checkpoint_endpoint_unchanged`` 之后：协议标识与内置/自定义的归属已经与
     提交时逐字相等，落库的域名必定属于当下这套凭据，可直接回放。列为空（未落此值的存量任务、
     提交域名不随配置变化的供应商）时回退 None，backend 按当下配置的域名轮询。
+
+    http(s) 形态判别是对落库值的兜底断言：写入侧只往该列放请求域名，读到别的形态说明这行来路
+    不明（人工改库、迁移前两列都有值的畸形行），宁可回退到当下配置的域名，也不拿它拼轮询 URL。
     """
     submitted = task.get("submitted_base_url")
     if isinstance(submitted, str) and submitted.lower().startswith(("http://", "https://")):

@@ -732,8 +732,9 @@ class TaskRepository(BaseRepository):
 
         端点信息按维度分列：``endpoint`` 是协议标识（只有自定义供应商有），落 ``provider_endpoint``；
         ``base_url`` 是本次实际请求的域名（两类供应商通用），落 ``submitted_base_url``。两者都与
-        job_id 同一次 UPDATE 落地：必须同时可见，否则续跑会拿到 job_id 却判不出协议是否已被换掉、
-        也无从回放原域名。None 时不写对应列——保留既有值比清空更安全（清空等于放弃比对 / 放弃回放）。
+        job_id 同一次 UPDATE 落地：域名必须与 job_id 同时可见，否则续跑拿到 job_id 却无从回放原
+        域名；协议标识同批落地，这笔供应商任务的协议归属才可查。None 时不写对应列——保留既有值比
+        清空更安全（清空等于丢掉协议归属 / 放弃回放）。
 
         失败抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast：未持久化的
         submit 视为整笔失败，避免「幽灵任务」继续在 provider 端跑而 DB 已忘）。

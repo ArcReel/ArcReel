@@ -122,6 +122,20 @@ def test_downgrade_restores_builtin_domains(alembic_cfg):
     assert rows["T-custom"] == ("dashscope-async-video", "https://custom-a.example.com/api/v1")
 
 
+def test_upgrade_fails_loud_when_a_scheme_survives_the_backfill(alembic_cfg):
+    """校验判据独立于回填判据：回填够不着的 scheme 形态会让升级显式失败，而不是静默留下。"""
+    cfg, db_path = alembic_cfg
+    command.upgrade(cfg, DOWN_REVISION)
+
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        _insert_task(conn, "T-odd-scheme", "ftp://legacy.example.com/api/v1", None)
+    engine.dispose()
+
+    with pytest.raises(Exception, match="仍存放请求域名"):
+        command.upgrade(cfg, REVISION)
+
+
 def test_migration_keeps_dedupe_index(alembic_cfg):
     """纯数据迁移不重建表，表达式型 partial 唯一索引双向都在。"""
     cfg, db_path = alembic_cfg

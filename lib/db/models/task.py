@@ -34,7 +34,8 @@ class Task(UserOwnedMixin, Base):
     provider_id: Mapped[str | None] = mapped_column(String)
     provider_job_id: Mapped[str | None] = mapped_column(String)
     # 提交该供应商任务时所用的协议标识（协议维度），只有自定义供应商有这个维度，内置供应商恒 NULL。
-    # 与 provider_job_id 同一次写入落地，供续跑判定协议是否已被换掉。不存请求域名。
+    # 与 provider_job_id 同一次写入落地，记录这笔供应商任务按哪套协议提交，供排障时归因。不存请求
+    # 域名。续跑的协议比对不读这一列——那道闸的权威是 execution_checkpoint_json 里的 endpoint_guard。
     provider_endpoint: Mapped[str | None] = mapped_column(String)
     # 提交该供应商任务时实际请求的域名（连接维度），两类供应商通用，与 provider_job_id 同一次
     # 写入落地。域名随用户配置变化，续跑据此回放原域名轮询，避免按新域名轮旧任务查无。

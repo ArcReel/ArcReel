@@ -993,6 +993,20 @@ async def test_resume_does_not_read_domain_from_endpoint_column(monkeypatch, fak
 
 
 @pytest.mark.asyncio
+async def test_resume_ignores_non_domain_value_in_base_url_column(monkeypatch, fake_pm, video_task):
+    """专列里躺着非域名形态的值（人工改库等来路不明的行）：不回放，退回按当下配置轮询。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
+
+    task = {**video_task, "provider_id": "dashscope", "submitted_base_url": "dashscope-async-video"}
+    await execute_resume_video_task(task, job_id="dashscope-job-1")
+
+    assert fake_gen.resume_calls[0]["submitted_base_url"] is None
+
+
+@pytest.mark.asyncio
 async def test_resume_fails_when_custom_endpoint_changed_even_with_base_url(monkeypatch, fake_pm, video_task):
     """协议标识不一致仍显式失败——域名回放不为换协议的续跑开口子。"""
     from lib.video_backends.base import ResumeEndpointChangedError
