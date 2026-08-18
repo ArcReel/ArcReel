@@ -171,7 +171,7 @@ def build_asset_router(
                 # PATCH 的等值校验写入远未来时间戳，永久压制存量过渡横幅。真实用户可能
                 # 触发（如把已有角色的序列化结果整体复制进创建请求体），与 PATCH 侧的
                 # 同名校验一样须走翻译。
-                raise HTTPException(status_code=422, detail=_t("asset_voice_notice_dismissed_at_stale"))
+                raise UnprocessableError("asset_voice_notice_dismissed_at_stale")
         _require_string_list_fields(extras, spec.extra_list_fields)
         try:
 
@@ -255,8 +255,10 @@ def build_asset_router(
             # 客户端主动构造非法请求即可触发——横幅渲染后声音被再次更新、用户随后才点击
             # 关闭即会触发，是真实用户可能看到的错误，须走翻译。
             if exc.field == "voice_notice_dismissed_at":
-                raise HTTPException(status_code=422, detail=_t("asset_voice_notice_dismissed_at_stale"))
-            raise HTTPException(status_code=422, detail=f"field '{exc.field}' has an invalid value")
+                raise UnprocessableError("asset_voice_notice_dismissed_at_stale")
+            raise UnprocessableError("asset_field_invalid_value").with_diagnostic(
+                f"field '{exc.field}' has an invalid value"
+            )
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:

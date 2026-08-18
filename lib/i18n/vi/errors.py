@@ -143,6 +143,7 @@ MESSAGES = {
     "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
     "asset_field_must_be_string": "giá trị trường này phải là văn bản",
     "asset_field_must_be_string_list": "giá trị trường này phải là danh sách văn bản",
+    "asset_field_invalid_value": "giá trị trường này không hợp lệ",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
     "invalid_step_num": "Số bước không hợp lệ: {step_num}",

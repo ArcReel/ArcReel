@@ -138,6 +138,7 @@ MESSAGES = {
     "internal_server_error": "服务器内部错误，请稍后重试",
     "asset_field_must_be_string": "该字段的值必须是文本",
     "asset_field_must_be_string_list": "该字段的值必须是文本列表",
+    "asset_field_invalid_value": "该字段的值不合法",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",
     "invalid_step_num": "无效的步骤编号: {step_num}",
