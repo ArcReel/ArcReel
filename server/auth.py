@@ -3,6 +3,12 @@
 
 提供密码生成、JWT token 创建/验证、凭据校验等功能。
 同时支持 API Key 认证（`arc-` 前缀的 Bearer token）。
+
+浏览器发起请求的认证模式：
+- SSE 端点同时接受 Authorization header 和 ``?token=`` query param JWT
+- 导出端点使用短时效下载 token（``purpose=download``）作为 query param 唯一认证方式
+- 静态媒体文件不要求认证
+新端点须按用途选用对应模式。
 """
 
 import hashlib

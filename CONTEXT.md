@@ -57,8 +57,8 @@ _Avoid_: api_format、把它当模型调用协议开关。
 同一供应商下配置多套凭证时当前生效的那一套，由用户在 UI 手动切换、全局生效，每个供应商至多一条活跃凭证。
 _Avoid_: default credential、把切换理解为自动轮换或负载均衡。
 
-**Agent 凭证（agent credential）**：
-供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的 agent 凭证表，与自定义 provider 凭证互不相通（见 `docs/adr/0017`）。
+**智能体凭证（agent_credential）**：
+供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的智能体凭证表，与自定义 provider 凭证互不相通（见 `docs/adr/0017`）。
 _Avoid_: 把它当成一个自定义 provider。
 
 **分层依赖方向（import layering）**：
@@ -230,7 +230,7 @@ _Avoid_: 旁白配音、参考音频。
 _Avoid_: 旁白配音、生成有声视频。
 
 **声音一致性档位（voice_consistency）**：
-视频模型在跨片段保持人物音色上的三级标识：`native`（参考路线直传参考音频）/ `soft`（有音轨但只能靠文字描述引导音色）/ `none`（无声），由「模型有无音轨」×「项目生成路线」二维派生。
+视频模型在跨片段保持角色音色上的三级标识：`native`（参考生视频直传角色原声）/ `soft`（有音轨但只能靠文字描述引导音色）/ `none`（无声），由「模型有无音轨」×「项目生成模式」二维派生。
 _Avoid_: 用 `generate_audio` 的真假直接代指有无音轨。
 
 ### 项目与资产
@@ -248,7 +248,7 @@ _Avoid_: 用剧集同时指一集和整个系列。
 _Avoid_: 设计图、设定图、参考设计图。
 
 **角色（character）**：
-在项目内容中出现、可被多个分镜或视频单元复用的人物资产。
+在项目内容中以特定身份出现、可被多个分镜或视频单元复用的资产。
 _Avoid_: 人物、人物资产。
 
 **场景（scene）**：
@@ -275,7 +275,7 @@ _Avoid_: 产品、产品资产、商品角色。
 _Avoid_: 用「新名 upsert + 删旧名」拼装改名。
 
 **风格模版（style_template）**：
-预置的整段画风 prompt 文本（真人 / 动画两类），选定时把展开后的 prompt 写入 `style` 字段作快照（见 `docs/adr/0023`）。
+预置的整段画风提示词文本（真人 / 动画两类），选定时把展开后的提示词写入 `style` 字段作快照（见 `docs/adr/0023`）。
 _Avoid_: 把 style 理解为短标签、与风格参考图叠加——二者互斥。
 
 **线索（clue）— legacy 资产术语**：
@@ -301,7 +301,7 @@ _Avoid_: 剧集动画、drama 模式。
 _Avoid_: 广告模式、短片模式、把它限定为带货视频。
 
 **骨架（skeleton）**：
-脚本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考视频单元），由 content_mode 与生成路线两轴派生（见 `docs/adr/0045`）。
+脚本条目数组的结构种类，四值：`segments`（旁白/解说）/ `scenes`（剧情演绎）/ `shots`（广告/短片）/ `video_units`（参考生视频），由创作类型与生成模式两轴派生（见 `docs/adr/0045`）。
 _Avoid_: 把骨架当 content_mode 的同义词、对未知模式做二值兜底。
 
 **生成模式（generation_mode）**：
@@ -333,7 +333,7 @@ _Avoid_: 分镜、资产图、多宫格分镜。
 _Avoid_: 场景、分镜、把视频单元与其内部镜头混为一谈。
 
 **脚本（script）**：
-ArcReel 根据小说、剧本或创作要求整理出的结构化创作内容，用于后续生成分镜或视频单元。
+ArcReel 根据小说、剧本或指令整理出的结构化创作内容，用于后续生成分镜或视频单元。
 _Avoid_: 用剧本指代 ArcReel 的结构化产物。
 
 **小说（novel）**：
@@ -357,11 +357,11 @@ _Avoid_: 把台词与画外音当两个独立无序字段、把 utterance 与说
 _Avoid_: 把对应原文当作旁白文本。
 
 **尾帧（end_frame_image）**：
-用户为单个镜头指定的、视频生成收束到的目标画面，是镜头条目的用户意图持久属性，不是生成产出。
+用户为单个分镜指定的、视频生成收束到的目标画面，是分镜条目的用户意图持久属性，不是生成产出。
 _Avoid_: 把它与宫格产出字段混为一谈。
 
 **内容整理（step1）**：
-ArcReel 把源文件或创作要求整理为可供创作者检查的脚本内容的制作步骤名。
+ArcReel 把源文件或指令整理为可供创作者检查的脚本内容的制作步骤名。
 _Avoid_: 预处理、内容层。
 
 **内容确认（review gate）**：
@@ -415,7 +415,7 @@ _Avoid_: 与成本归属的「回填」混淆、把补录后的产物标 stale�
 _Avoid_: 把它当一次性通知、用它阻断只读查看。
 
 **制作状态（workflow status）**：
-以清单口径对项目一个目标集的权威判定：所在步、阻断项、门禁、各类产物的四态明细、下一步动作；它是唯一状态口径。
+以清单口径对项目一个目标集的权威判定：所在步、阻断项、内容确认、各类产物的四态明细、下一步动作；它是唯一状态口径。
 _Avoid_: 并存另一套按文件存在性统计的阶段/进度。
 
 **制作计划（workflow plan）**：
@@ -440,16 +440,16 @@ _Avoid_: 子智能体、子时间线。
 每个 Claude 会话一个专属 asyncio task，串行化该会话对 `ClaudeSDKClient` 的所有协议调用（见 `docs/adr/0028`）。
 _Avoid_: 与 ManagedSession 混为一谈。
 
-**Agent 启动失败（agent startup failure）**：
-Agent 尚未建立可用运行环境时发生的系统故障，位于任何对话轮次之前。
-_Avoid_: 与 Agent 轮次失败混为一谈。
+**智能体启动失败（agent_startup_failure）**：
+智能体尚未建立可用运行环境时发生的系统故障，位于任何对话轮次之前。
+_Avoid_: 与智能体轮次失败混为一谈。
 
-**Agent 轮次失败（agent turn failure）**：
-Agent 已成功启动后，某一轮未完成的故障终态；它是系统故障事件，不是助手回答。
-_Avoid_: 把 SDK 合成的错误消息作为普通助手回答。
+**智能体轮次失败（agent_turn_failure）**：
+智能体已成功启动后，某一轮未完成的故障终态；它是系统故障事件，不是智能体回答。
+_Avoid_: 把 SDK 合成的错误消息作为普通智能体回答。
 
-**故障观测（failure observation）**：
-ArcReel 在一次 Agent 故障中实际获得的上下文与原始故障事实；它是排障证据，不是根因结论。
+**故障观测（failure_observation）**：
+ArcReel 在一次智能体故障中实际获得的上下文与原始故障事实；它是排障证据，不是根因结论。
 _Avoid_: 把未识别事实归一成"未知错误"。
 
 **SDK transcript（agent 记忆）**：
@@ -476,20 +476,20 @@ _Avoid_: 与 SDK 原生 `fork_session` 混为一谈。
 同一会话内由 parent_tool_use_id 归组的 subagent 消息序列，主时间线上只呈现单一可折叠的子任务卡片。
 _Avoid_: 把 subagent 消息平铺进主时间线。
 
-**agent 运行 profile（agent runtime profile）**：
+**智能体运行 profile（agent_runtime_profile）**：
 智能体专属的运行态配置树（`agent_runtime_profile/`），与开发者本地 `.claude/` 物理分离，运行时按 manifest 物化进各项目目录。
 _Avoid_: 用「.claude」笼统指代、称为 agent config。
 
 **profile 物化（materialization）**：
-把 agent profile 按 manifest + sha256 复制进每个项目目录的过程，按项目 content_mode 选变体落盘为单一 `CLAUDE.md`。
+把智能体 profile 按 manifest + sha256 复制进每个项目目录的过程，按项目 content_mode 选变体落盘为单一 `CLAUDE.md`。
 _Avoid_: 用「同步 / 复制」泛指。
 
-**agent 沙箱（agent sandbox）**：
-Agent 工具调用外围的内核级隔离层（macOS Seatbelt / Linux bwrap），约束沙箱内所有子进程的文件读写与网络（见 `docs/adr/0025`、`docs/adr/0026`）。
+**智能体沙箱（agent_sandbox）**：
+智能体工具调用外围的内核级隔离层（macOS Seatbelt / Linux bwrap），约束沙箱内所有子进程的文件读写与网络（见 `docs/adr/0025`、`docs/adr/0026`）。
 _Avoid_: 用「沙箱」泛指应用层路径围栏 hook。
 
-**AgentAccessPolicy（agent 访问规则）**：
-「agent 能碰什么」的单一规则真相源，以进程级根路径纯构造，同一份规则为内核沙箱和应用层 hook 做两种投影（见 `docs/adr/0046`）。
+**AgentAccessPolicy（智能体访问规则）**：
+「智能体能碰什么」的单一规则真相源，以进程级根路径纯构造，同一份规则为内核沙箱和应用层 hook 做两种投影（见 `docs/adr/0046`）。
 _Avoid_: SandboxPolicy。
 
 ### 认证与凭证
