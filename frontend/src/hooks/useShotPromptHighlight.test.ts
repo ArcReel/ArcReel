@@ -79,11 +79,29 @@ describe("tokenizePrompt", () => {
     expect(mention).toMatchObject({ assetKind: "character", name: "主角", text: "@[ 主角 ]" });
   });
 
-  it("treats curly-brace wrapped text as plain text", () => {
+  it("does not read curly-brace wrapping as a mention", () => {
+    // `@{名称}` 不是引用语法；花括号照书写层规则读成画外音记号，与后端 split_speech_line 同判。
     const t = tokenizePrompt("镜头1：@{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions.map((x) => (x.kind === "mention" ? x.name : ""))).toEqual(["角色甲（成年）"]);
-    expect(t.some((x) => x.kind === "text" && x.text.includes("@{载具甲}"))).toBe(true);
+    expect(t.filter((x) => x.kind === "speech").map((x) => (x.kind === "speech" ? x.spoken : ""))).toEqual([
+      "载具甲",
+    ]);
+  });
+
+  it("tokenizes an inline speech mark and still concatenates back to the source", () => {
+    const text = "镜头1：@[角色甲（成年）] 推门。@[角色甲（成年）]{我来了}";
+    const t = tokenizePrompt(text, LOOKUP);
+    expect(t.map((x) => x.text).join("")).toBe(text);
+    expect(t.filter((x) => x.kind === "speech")).toEqual([
+      {
+        kind: "speech",
+        text: "@[角色甲（成年）]{我来了}",
+        speaker: "角色甲（成年）",
+        speakerKind: "character",
+        spoken: "我来了",
+      },
+    ]);
   });
 
   it("handles multi-line with multiple shot headers", () => {
@@ -198,7 +216,7 @@ describe("toScriptLines shot attribution", () => {
 
 describe("unicode line boundaries", () => {
   // 后端用 Python str.splitlines() 切行，它认 U+2028/U+2029/\x85 等；前端只按 \n 切会
-  // 把这些分隔符后的规范台词行与上一行粘住，说话人就被算进参考图，两条派生路径分叉。
+  // 把这些分隔符后的台词记号与上一行粘住，说话人就被算进参考图，两条派生路径分叉。
   const LS = "\u2028";
 
   it("splits on the same boundaries the backend does", () => {

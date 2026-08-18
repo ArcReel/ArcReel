@@ -18,7 +18,7 @@ from lib.content_digest import sha256_file
 from lib.grid.prompt_builder import project_grid_image_prompt
 from lib.prompt_utils import normalize_style, project_storyboard_image_prompt
 from lib.reference_video.request_projection import ResolvedReferenceAsset
-from lib.reference_video.shot_parser import match_dialogue_line, match_voiceover_line, strip_shot_header
+from lib.reference_video.shot_parser import strip_shot_header, strip_speech_marks
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,14 +410,16 @@ def build_reference_video_artifact_visual_basis(
 
 
 def _reference_visual_lines(text: str) -> list[str]:
+    """产物依据只取画面描述：剥掉 ``镜头N：`` header 与全部发声记号后剩下的文本。
+
+    台词改一个字不该让已生成的视频判过期——画面依据里不能含台词，而记号可写在行内任意
+    位置，故按记号逐段剔除而非整行跳过，同一行里的画面描述照常留下。
+    """
     lines: list[str] = []
     for raw_line in text.splitlines():
-        line = strip_shot_header(raw_line).strip()
-        if not line:
-            continue
-        if match_dialogue_line(line) is not None or match_voiceover_line(line) is not None:
-            continue
-        lines.append(line)
+        line = strip_speech_marks(strip_shot_header(raw_line)).strip()
+        if line:
+            lines.append(line)
     return lines
 
 

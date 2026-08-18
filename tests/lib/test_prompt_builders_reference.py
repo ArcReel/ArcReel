@@ -93,7 +93,7 @@ def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
 
 
 def test_build_reference_video_prompt_states_structure_preserving_contract():
-    """step2 的职责是视觉展开：unit 数、台词行、镜头数三项保结构要求必须写进 prompt。"""
+    """step2 的职责是视觉展开：unit 数、台词、镜头数三项保结构要求必须写进 prompt。"""
     prompt = _step2_prompt()
     assert "等长、同序" in prompt
     assert "逐字保留" in prompt
@@ -217,11 +217,11 @@ def test_build_reference_units_split_prompt_states_both_tiers_without_containmen
 
 
 def test_build_reference_units_split_prompt_excludes_dialogue_speaker_from_reference_rule():
-    """联动约束按镜头描述行判定，台词行 `@[角色]：{台词}` 的说话人不计入。
+    """联动约束按画面描述判定，台词记号 `@[角色]{台词}` 的说话人不计入。
 
-    ``extract_mentions`` 派生 references 时整行剔除规范台词行的说话人（画外说话不生成参考图，
-    见 shot_parser 同函数 docstring）；prompt 若只说「正文里有没有 `@`」，模型会把只在台词行
-    出现说话人的 unit 误判为「带引用」、选进更窄的档位——落盘派生时 references 却是空，
+    ``extract_mentions`` 派生 references 时剔除发声记号里的说话人（画外说话不生成参考图，
+    见 shot_parser 同函数 docstring）；prompt 若只说「正文里有没有 `@`」，模型会把只在台词
+    记号里出现说话人的 unit 误判为「带引用」、选进更窄的档位——落盘派生时 references 却是空，
     与模型的选择依据不一致。
     """
     prompt = _split_prompt(
@@ -230,7 +230,7 @@ def test_build_reference_units_split_prompt_excludes_dialogue_speaker_from_refer
         text_supported_durations=[4, 6, 8],
         default_duration=None,
     )
-    assert "台词行 `@[角色]：{台词}` 的说话人不计入" in prompt
+    assert "台词记号 `@[角色]{台词}` 的说话人不计入" in prompt
 
 
 def test_build_reference_units_split_prompt_scopes_default_to_its_tier():

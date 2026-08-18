@@ -2,14 +2,24 @@ import { describe, it, expect } from "vitest";
 import {
   buildMentionLookup,
   extractMentions,
-  matchDialogueLine,
-  matchVoiceoverLine,
+  lineSpeechMarks,
   normalizeAssetName,
   resolveMentionType,
   mergeReferences,
   splitScriptLines,
+  splitSpeechLine,
 } from "./reference-mentions";
 import type { ProjectData } from "@/types";
+
+/** 记号断言的短写法：`[speaker, text]`，speaker 为空串即画外音。 */
+function marks(line: string): [string, string][] {
+  return lineSpeechMarks(line).map((mark) => [mark.speaker, mark.text]);
+}
+
+/** 判定路径的输入来自已归一的 `splitScriptLines`；直测原语时补同一道归一。 */
+function normalize(text: string): string {
+  return splitScriptLines(text)[0] ?? "";
+}
 import type { ReferenceResource } from "@/types/reference-video";
 
 function mkProject(): Pick<ProjectData, "characters" | "scenes" | "props" | "products"> {
@@ -88,16 +98,13 @@ describe("parser output is normalized", () => {
     expect(extractMentions(`${BOM}@[张三] 抬眼`)).toEqual(["张三"]);
   });
 
-  it("reads a line as a normative dialogue line despite BOM and NFD", () => {
-    expect(matchDialogueLine(`${BOM}@[张${BOM}三]：{我${BOM}来了}`)).toEqual({
-      speaker: "张三",
-      text: "我来了",
-    });
-    expect(matchDialogueLine(`@[${nameNfd}]：{我来了}`)).toEqual({ speaker: nameNfc, text: "我来了" });
+  it("reads a dialogue mark despite BOM and NFD", () => {
+    expect(marks(normalize(`${BOM}@[张${BOM}三]：{我${BOM}来了}`))).toEqual([["张三", "我来了"]]);
+    expect(marks(normalize(`@[${nameNfd}]：{我来了}`))).toEqual([[nameNfc, "我来了"]]);
   });
 
-  it("reads a bare braces line as voiceover despite BOM", () => {
-    expect(matchVoiceoverLine(`${BOM}{那年冬天}`)).toBe("那年冬天");
+  it("reads bare braces as voiceover despite BOM", () => {
+    expect(marks(normalize(`${BOM}{那年冬天}`))).toEqual([["", "那年冬天"]]);
   });
 
   it("keeps a BOM-laced speaker slot out of mention extraction", () => {
@@ -305,26 +312,39 @@ describe("MENTION_RE prefix boundary", () => {
   });
 });
 
-describe("normative dialogue lines", () => {
-  it("matches `@[角色]：{台词}` with either colon, wrapped or bare", () => {
-    expect(matchDialogueLine("@[张三]：{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
-    expect(matchDialogueLine("@张三:{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
-    expect(matchDialogueLine("  @[角色甲（成年）] ： {我来了} ")).toEqual({
-      speaker: "角色甲（成年）",
-      text: "我来了",
-    });
-    expect(matchDialogueLine("@[ 张三 ]：{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
+describe("inline speech marks", () => {
+  it("matches `@[角色]{台词}` with either colon, wrapped or bare, and no separator", () => {
+    expect(marks("@[张三]：{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(marks("@张三:{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(marks("  @[角色甲（成年）] ： {我来了} ")).toEqual([["角色甲（成年）", "我来了"]]);
+    expect(marks("@[ 张三 ]：{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(marks("@[张三]{我来了}")).toEqual([["张三", "我来了"]]);
   });
 
-  it("rejects dialogue mixed into a description line", () => {
-    expect(matchDialogueLine("中景，@[张三]：{我来了} 说完转身")).toBeNull();
-    expect(matchDialogueLine("他说 @[张三]：{我来了}")).toBeNull();
-    expect(matchDialogueLine("@[张三]：{我来了")).toBeNull();
+  it("reads speech written inline after a description", () => {
+    expect(marks("中景，@[张三] 笑着，@[张三]{我来了} 说完转身")).toEqual([["张三", "我来了"]]);
+    expect(marks("@[张三]{你来了}@[李四]{我来了}")).toEqual([
+      ["张三", "你来了"],
+      ["李四", "我来了"],
+    ]);
   });
 
-  it("reads a bare braces line as voiceover", () => {
-    expect(matchVoiceoverLine("  {那年冬天格外冷}  ")).toBe("那年冬天格外冷");
-    expect(matchVoiceoverLine("旁白：{那年冬天}")).toBeNull();
+  it("does not guess a speaker from a mention that is not adjacent to the braces", () => {
+    expect(marks("他说 @[张三] 转身，屋里传出 {我来了}")).toEqual([["", "我来了"]]);
+    expect(marks("@[张三]：{我来了")).toEqual([]);
+  });
+
+  it("reads bare braces as voiceover anywhere in the line", () => {
+    expect(marks("  {那年冬天格外冷}  ")).toEqual([["", "那年冬天格外冷"]]);
+    expect(marks("旁白：{那年冬天}")).toEqual([["", "那年冬天"]]);
+  });
+
+  it("splits a line losslessly", () => {
+    const line = "@[张三] 推门。@[张三]{我来了}屋里安静。";
+    const joined = splitSpeechLine(line)
+      .map((part) => (typeof part === "string" ? part : part.raw))
+      .join("");
+    expect(joined).toBe(line);
   });
 
   it("keeps speaker slots out of mention extraction", () => {
@@ -350,17 +370,27 @@ describe("normative dialogue lines", () => {
     expect(extractMentions("镜头１：@酒馆 内景。")).toEqual(["酒馆"]);
   });
 
-  it("does not treat a blank speaker slot as a normative line", () => {
-    // 同后端 match_dialogue_line：speaker 位全为空白不算规范行，否则会派生出非法 utterance
-    expect(matchDialogueLine("@[ ]：{我来了}")).toBeNull();
+  it("does not treat a blank speaker slot as a speech mark", () => {
+    // 同后端 split_speech_line：speaker 位全为空白不成记号，否则会派生出非法 utterance
+    expect(marks("@[ ]：{我来了}")).toEqual([]);
     expect(extractMentions("@[ ]：{我来了}")).toEqual([""]);
+  });
+
+  it("does not fall back to voiceover when the speaker slot is malformed", () => {
+    // 作者写的是「某人说」，静默改判画外音比不识别更难发现
+    expect(marks("@[]：{我来了}")).toEqual([]);
   });
 
   it("does not treat blank braces as an utterance", () => {
     // 同后端：utterance 的 text 必须非空，空台词不派生
-    expect(matchVoiceoverLine("{}")).toBeNull();
-    expect(matchVoiceoverLine("{   }")).toBeNull();
-    expect(matchDialogueLine("@[张三]：{}")).toBeNull();
+    expect(marks("{}")).toEqual([]);
+    expect(marks("{   }")).toEqual([]);
+    expect(marks("@[张三]：{}")).toEqual([]);
+  });
+
+  it("keeps mentions written outside the marks in the reference derivation", () => {
+    expect(extractMentions("镜头1：@[酒馆] 内景。@[张三]{我来了}")).toEqual(["酒馆"]);
+    expect(extractMentions("镜头1：@[张三] 推门。@[张三]{我来了}")).toEqual(["张三"]);
   });
 
   it("keeps speaker-only characters out of merged references", () => {

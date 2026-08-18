@@ -86,7 +86,7 @@ function structuredDisplayUnits(draft: ReferenceStep1Draft): DisplayUnit[] {
  */
 function deriveDisplayReferences(text: string, lookup: MentionLookup): ReferenceResource[] {
   const out: ReferenceResource[] = [];
-  // extractMentions（非 tokenizePrompt）：规范台词行里的说话人不产参考图，与后端
+  // extractMentions（非 tokenizePrompt）：台词记号里的说话人不产参考图，与后端
   // extract_mentions 同口径——tokenizePrompt 是给高亮用的，不做这条跳过。
   for (const name of extractMentions(text)) {
     const assetKind = lookup[name];

@@ -273,8 +273,9 @@ MESSAGES = {
     # 分镜文稿解析预览的降级可见性提示
     "ref_warn_unregistered_mention": "@[{name}] 未在产品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
     "ref_warn_unclosed_brace": "镜头{shot}：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",
-    "ref_warn_dialogue_inline": (
-        "镜头{shot}：台词与描述写在同一行，未识别为台词；如需声音参考请将台词单独成行（@[角色]：{{台词}}）"
+    "ref_warn_braces_not_speech": (
+        "镜头{shot}：花括号未被识别为台词，将原样发送；台词写成 @[角色]{{台词}}，画外音写成 {{台词}}，"
+        "说话人须非空、花括号须成对且不嵌套"
     ),
     "ref_warn_unregistered_speaker": "@[{name}] 未在角色中登记：无法确认说话人，该行按原文发送",
     "ref_warn_speaker_without_audio": "角色「{name}」未设置参考音频：台词声音将由模型自行决定",

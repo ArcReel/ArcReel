@@ -48,7 +48,7 @@ def _fake_step2_generator(*texts: str) -> MagicMock:
     return generator
 
 
-#: 与 ``STEP1_UNITS_JSON`` 单 unit 对应的合法视觉展开：镜头数不变、无台词行可改。
+#: 与 ``STEP1_UNITS_JSON`` 单 unit 对应的合法视觉展开：镜头数不变、无台词可改。
 STEP2_UNIT_TEXT = "镜头1：中景，平视。@[主角] 推开 @[酒馆] 的门，侧身跨过门槛。"
 
 
@@ -374,7 +374,7 @@ async def test_script_generator_rejects_step2_dialogue_rewrite(reference_project
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_script_generator_accepts_step2_expansion_keeping_dialogue(reference_project: Path):
-    """描述行自由展开、台词行逐字保留 → 放行，并把台词说话人排除在参考图之外。"""
+    """画面描述自由展开、台词逐字保留 → 放行，并把台词说话人排除在参考图之外。"""
     drafts = reference_project / "drafts" / "episode_1"
     (drafts / "step1_reference_units.json").write_text(
         _json.dumps(

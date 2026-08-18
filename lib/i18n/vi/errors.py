@@ -305,9 +305,10 @@ MESSAGES = {
         "Cảnh {shot}: dấu ngoặc nhọn của lời thoại chưa đóng nên không được nhận là lời thoại, "
         "dòng này sẽ được gửi nguyên văn: {excerpt}…"
     ),
-    "ref_warn_dialogue_inline": (
-        "Cảnh {shot}: lời thoại và mô tả nằm cùng một dòng nên không được nhận là lời thoại; "
-        "nếu cần tham chiếu giọng nói, hãy để lời thoại thành dòng riêng (@[nhân vật]: {{lời thoại}})"
+    "ref_warn_braces_not_speech": (
+        "Cảnh {shot}: dấu ngoặc nhọn không được nhận là lời phát ngôn nên sẽ được gửi nguyên văn. "
+        "Viết lời thoại là @[nhân vật]{{lời thoại}} và lời dẫn là {{lời thoại}}; người nói phải khác "
+        "rỗng, dấu ngoặc nhọn phải theo cặp và không lồng nhau"
     ),
     "ref_warn_unregistered_speaker": (
         "@[{name}] chưa được đăng ký trong nhân vật: không xác định được người nói, dòng này sẽ được gửi nguyên văn"

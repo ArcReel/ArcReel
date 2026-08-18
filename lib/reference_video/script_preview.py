@@ -3,12 +3,13 @@
 分镜文稿是唯一真相，utterances 机械派生、不落盘（同 ``references`` 从 ``@mention`` 派生的
 先例）：存量文稿没有台词符号，派生结果自然为空，无迁移。
 
-台词语法（与 :mod:`lib.reference_video.shot_parser` 的行匹配原语同源）：
+台词语法（与 :mod:`lib.reference_video.shot_parser` 的行内切分原语同源）：
 
-- 规范台词行 ``@[角色]：{台词}`` 独立成行（中英冒号均可）→ ``dialogue`` utterance
-- 裸 ``{台词}`` 行 → ``voiceover`` utterance
-- 台词混写在描述行时不派生、原样保留，只出 warning——不做「行内最近 mention 猜 speaker」
-  启发式，推断错误会把台词静默绑到错误角色的参考音频上
+- ``@[角色]{台词}``（mention 与花括号之间允许空白或中英冒号）→ ``dialogue`` utterance
+- 裸 ``{台词}`` → ``voiceover`` utterance
+- 两者都可出现在行内任意位置，一行可有多条；花括号没被识别成发声记号时不派生、原样保留，
+  只出 warning——不做「行内最近 mention 猜 speaker」启发式，推断错误会把台词静默绑到
+  错误角色的参考音频上
 
 warning 是 locale-neutral 的 ``{"key", "params"}`` 条目（同 ``result.warnings`` 既有形态），
 由 router / 任务列表按请求语言渲染。
@@ -22,10 +23,9 @@ from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.reference_video.shot_parser import (
-    match_dialogue_line,
-    match_voiceover_line,
     parse_prompt,
     resolve_references,
+    split_speech_line,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_models import ReferenceResource, Shot, Utterance
@@ -35,7 +35,7 @@ _EXCERPT_LEN = 30
 
 WARN_UNREGISTERED_MENTION = "ref_warn_unregistered_mention"
 WARN_UNCLOSED_BRACE = "ref_warn_unclosed_brace"
-WARN_DIALOGUE_INLINE = "ref_warn_dialogue_inline"
+WARN_BRACES_NOT_SPEECH = "ref_warn_braces_not_speech"
 WARN_UNREGISTERED_SPEAKER = "ref_warn_unregistered_speaker"
 WARN_SPEAKER_WITHOUT_AUDIO = "ref_warn_speaker_without_audio"
 WARN_SPEAKER_AUDIO_UNAVAILABLE = "ref_warn_speaker_audio_unavailable"
@@ -71,7 +71,10 @@ def _warning(key: str, **params: Any) -> dict[str, Any]:
 
 
 def derive_utterances(shots: list[Shot]) -> tuple[list[ShotUtterance], list[dict[str, Any]]]:
-    """逐镜逐行派生 utterances，并收集语法层 warning（未闭合花括号 / 台词混写描述行）。
+    """逐镜逐行派生 utterances，并收集语法层 warning（未闭合花括号 / 未识别的花括号）。
+
+    发声记号可出现在行内任意位置，一行可派生多条 utterance，顺序即行内出现顺序。warning
+    只看**记号之外**的残余描述：行内已识别的记号不该因为同行还写着别的花括号而被吞掉。
 
     纯语法层：不认识项目资产表，speaker 是否登记由 :func:`build_script_preview` 另行判定。
     """
@@ -79,20 +82,21 @@ def derive_utterances(shots: list[Shot]) -> tuple[list[ShotUtterance], list[dict
     warnings: list[dict[str, Any]] = []
     for index, shot in enumerate(shots, start=1):
         for line in shot.text.splitlines():
-            if line.count("{") != line.count("}"):
+            residue: list[str] = []
+            for part in split_speech_line(line):
+                if isinstance(part, str):
+                    residue.append(part)
+                elif part.speaker:
+                    utterances.append(
+                        ShotUtterance(index, Utterance(kind="dialogue", speaker=part.speaker, text=part.text))
+                    )
+                else:
+                    utterances.append(ShotUtterance(index, Utterance(kind="voiceover", text=part.text)))
+            rest = "".join(residue)
+            if rest.count("{") != rest.count("}"):
                 warnings.append(_warning(WARN_UNCLOSED_BRACE, shot=index, excerpt=line.strip()[:_EXCERPT_LEN]))
-                continue
-            dialogue = match_dialogue_line(line)
-            if dialogue is not None:
-                speaker, text = dialogue
-                utterances.append(ShotUtterance(index, Utterance(kind="dialogue", speaker=speaker, text=text)))
-                continue
-            voiceover = match_voiceover_line(line)
-            if voiceover is not None:
-                utterances.append(ShotUtterance(index, Utterance(kind="voiceover", text=voiceover)))
-                continue
-            if "{" in line:
-                warnings.append(_warning(WARN_DIALOGUE_INLINE, shot=index))
+            elif "{" in rest or "}" in rest:
+                warnings.append(_warning(WARN_BRACES_NOT_SPEECH, shot=index))
     return utterances, warnings
 
 

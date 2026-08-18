@@ -7055,7 +7055,7 @@ async def test_split_reference_video_units_numbers_unit_ids_by_order(fake_ctx: T
 async def test_split_reference_video_units_derives_dialogue_without_reference_image(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """规范台词行的说话人位不进参考图（画外说话的角色附参考图会诱导入画）。"""
+    """台词记号的说话人位不进参考图（画外说话的角色附参考图会诱导入画）。"""
     _rv_source(fake_ctx)
     units = [_rv_unit("镜头1：门开了\n@[张三]：{我来了。}")]
     out = await _run_rv_split(fake_ctx, monkeypatch, units)
@@ -7186,9 +7186,9 @@ async def test_split_reference_video_units_rejects_dialogue_overload(fake_ctx: T
 
 @pytest.mark.unit
 async def test_split_reference_video_units_rejects_braces_in_description(fake_ctx: ToolContext, monkeypatch) -> None:
-    """描述行误用花括号保留语法 → 阻断（写在描述行里的台词不会被识别，须响亮失败）。"""
+    """画面描述误用花括号保留语法 → 阻断（没被识别成发声记号的花括号须响亮失败）。"""
     _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 说 {我来了}，转身离开")])
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 推门，音量 {}，转身离开")])
     assert out.get("is_error") is True
     assert "花括号" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
@@ -7234,7 +7234,7 @@ async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
 
 
 #: 七类阻断违约的最小触发样例（违约类 → 扁平 unit），共 8 条：「``@[X]`` 未登记」一类按出现位置
-#: 拆成描述位（unregistered_asset）与台词行 speaker 位（unregistered_speaker）两条，两处走不同入口，
+#: 拆成描述位（unregistered_asset）与台词记号 speaker 位（unregistered_speaker）两条，两处走不同入口，
 #: 合测会漏掉其中一处。逐类断言「落隔离草稿 + 正式文件干净 + 报告按类定位」，而不是只验其中
 #: 一两类——各类共用同一次遍历，漏测哪一类都可能在该类上退回「丢弃重抽」。
 #: ``duration_off_tier``（时长不在该 unit 引用状态的生效档位内）需要另一套 caps 才触发，
@@ -7244,7 +7244,7 @@ _RV_VIOLATION_CASES = [
     ("dialogue_line_syntax", _rv_unit("镜头1：门开了\n@[张三]：我来了。")),
     ("unregistered_asset", _rv_unit("镜头1：@[不存在的人] 出场")),
     ("unregistered_speaker", _rv_unit("镜头1：门开了\n@[无名氏]：{我来了。}")),
-    ("braces_in_description", _rv_unit("镜头1：@[张三] 说 {我来了}，转身离开")),
+    ("braces_in_description", _rv_unit("镜头1：@[张三] 推门，音量 {}，转身离开")),
     ("source_text_not_verbatim", _rv_unit("镜头1：@[张三] 起身", source_text="张三在城里等人")),
     ("too_many_shots", _rv_unit("\n".join(f"镜头{i}：@[张三] 动作 {i}" for i in range(1, 6)))),
     ("dialogue_overload", _rv_unit("镜头1：@[张三] 起身\n@[张三]：{" + "这是一段非常长的台词" * 6 + "}", duration=4)),
@@ -7287,7 +7287,7 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     units = [
         _rv_unit("镜头1：@[张三] 起身"),
         _rv_unit("镜头1：@[不存在的人] 出场"),
-        _rv_unit("镜头1：@[张三] 说 {我来了}"),
+        _rv_unit("镜头1：@[张三] 推门，音量 {}"),
     ]
     out = await _run_rv_split(fake_ctx, monkeypatch, units)
 
@@ -7336,7 +7336,7 @@ async def test_validate_and_promote_draft_reports_again_without_round_limit(fake
 
     # 改成另一类违约后报告随之刷新，不是上一轮的陈旧快照
     envelope = _read_rv_quarantine(fake_ctx)
-    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 说 {我来了}"
+    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 推门，音量 {}"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
     await _promote(fake_ctx, monkeypatch)
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["braces_in_description"]

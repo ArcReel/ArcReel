@@ -309,7 +309,7 @@ describe("ReferenceVideoCanvas", () => {
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const ta = await screen.findByRole("combobox");
 
-    // 未保存的文本编辑：张三改为仅作说话人（规范台词行），派生规则下不应再进 references。
+    // 未保存的文本编辑：张三改为仅作说话人（台词记号），派生规则下不应再进 references。
     fireEvent.change(ta, {
       target: { value: "@[李四] 和 @[王五] 在场。\n@[张三]：{你好}" },
     });

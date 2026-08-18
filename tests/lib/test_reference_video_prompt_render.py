@@ -165,7 +165,7 @@ def test_first_segment_binds_images_in_reference_order():
 
 
 def test_speaker_position_never_produces_a_reference_image():
-    """李四只在规范台词行的 speaker 位出现：无参考图绑定，但音色声明与台词渲染照常。"""
+    """李四只在台词记号的 speaker 位出现：无参考图绑定，但音色声明与台词渲染照常。"""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),

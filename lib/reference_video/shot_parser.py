@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Collection, Iterator, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
@@ -19,8 +20,8 @@ _SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：](.*)$""")
 
 
 #: BOM / ZWNBSP。前端按 JS 的 ``\s`` 判行首空白，U+FEFF 属之；Python 的 ``str.strip()``
-#: 不认它（``"﻿".isspace()`` 为 False）。不归一会让带 BOM 的行在前端算规范台词行、
-#: 在后端算描述行——说话人是否进参考图两侧结论相反，而 references 落盘取决于哪侧先跑。
+#: 不认它（``"﻿".isspace()`` 为 False）。不归一会让带 BOM 的记号在前端认、
+#: 在后端不认——说话人是否进参考图两侧结论相反，而 references 落盘取决于哪侧先跑。
 #: BOM 在正文里没有语义，解析入口一次性去掉，两条派生路径回到同一口径。
 _BOM = "﻿"
 
@@ -34,8 +35,8 @@ def _normalize_source(text: str) -> str:
     ``@[名称]`` 引用都要与资产表的 key 判等，正文以 NFD 落盘、资产表以 NFC 登记时两者
     肉眼同字却判不相等。
 
-    归一落在四个行级原语（``strip_shot_header`` / ``match_dialogue_line`` /
-    ``match_voiceover_line`` / ``leading_mention_before_colon``）与 ``find_malformed_mention``
+    归一落在三个行级原语（``strip_shot_header`` / ``split_speech_line`` /
+    ``leading_mention_before_colon``）与 ``find_malformed_mention``
     上——它们各自与前端同名函数互为镜像，单独调用时也须同判；``parse_prompt`` 另做一次整体
     归一，让派生出的 shot 文本本身已归一（它会进预览显示、后端渲染与落盘）。名字提取出口再
     经比对 helper 去除两端空白；因此说话人名与 mention 名一律已 strip + NFC，台词文本已是 NFC。
@@ -117,40 +118,116 @@ def strip_shot_header(line: str) -> str:
     return m.group(1).lstrip() if m else normalized
 
 
-def match_dialogue_line(line: str) -> tuple[str, str] | None:
-    """规范台词行 ``@[角色]：{台词}``（中英冒号均可）→ ``(speaker, text)``；不匹配返回 ``None``。
+@dataclass(frozen=True)
+class SpeechMark:
+    """行内一段发声记号的解析结果。
 
-    整行仅此结构才算规范行：台词与描述混写在同一行时不匹配（由调用侧出 warning），
-    杜绝「行内最近 mention 猜 speaker」式启发式——推断错误会把台词静默绑到错误角色的
-    参考音频上。speaker 位复用 :func:`_iter_mentions`，与 mention 语法同一份真相。
+    ``speaker`` 为空串即画外音（``{台词}``），非空即该角色说这句话（``@[角色]{台词}``）；
+    名称已归一到资产名比对坐标系。``text`` 是花括号内的逐字台词。
 
-    speaker 位全为空白（``@[ ]：{台词}``）不算规范行：``Utterance`` 要求 dialogue 带非空
-    speaker，放行会让只读派生抛校验错；判为非规范后走既有「台词混写描述行」warning 路径。
+    ``raw`` 是该记号在归一后原行里占据的整段原文（含说话人 mention 与其后的空白 / 冒号）：
+    「从不删字」的渲染路径（未登记说话人）据此原样回填，无须再回原行按偏移取。
     """
-    stripped = _normalize_source(line).strip()
-    if not stripped.startswith("@"):
-        return None
-    first = next(_iter_mentions(stripped), None)
-    if first is None or first[0] != 0:
-        return None
-    rest = stripped[first[1] :].lstrip()
-    if not rest or rest[0] not in "：:":
-        return None
-    spoken = _unwrap_braces(rest[1:])
-    speaker = asset_name_comparison_key(first[2])
-    if spoken is None or not speaker:
-        return None
-    return speaker, spoken
+
+    speaker: str
+    text: str
+    raw: str
+
+
+def split_speech_line(line: str) -> list[str | SpeechMark]:
+    """把一行拆成「画面描述片段」与「发声记号」的有序序列（记号可出现在行内任意位置）。
+
+    发声记号有两种，语言无关：``{台词}`` 是画外音；紧接在 ``@[角色]`` 之后（中间允许空白
+    或一个中英冒号）的 ``{台词}`` 是该角色说这句话。旧写法 ``@[角色]：{台词}`` 整行只有
+    这个结构，是本语法的一个特例，原样合法。
+
+    说话人只认「紧贴花括号之前的那个 mention」，不做「行内最近 mention 猜 speaker」式
+    启发式——推断错误会把台词静默绑到错误角色的参考音频上。以下三种一律不成记号，花括号
+    留在描述片段里，由调用侧按各自严格度出 warning 或判违约：
+
+    - 空台词（``{}`` / ``{   }``）：``Utterance`` 要求 text 非空，放行会派生出没有内容的发声。
+    - 说话人位为空白（``@[ ]{台词}``）：dialogue 要求非空 speaker。
+    - 说话人位写坏（``@[]{台词}``、``@[李明{台词}``）：花括号前是 ``]`` 却没有可用 mention 时
+      不降级成画外音——作者写的是「某人说」，静默改成画外音比不识别更难发现。
+
+    拼接结果（描述片段 + 各记号的 ``raw``）逐字等于归一后的原行，故 ``strip_speech_marks``
+    是无损切分的另一半，不会吞字。
+    """
+    text = _normalize_source(line)
+    mentions = list(_iter_mentions(text))
+    parts: list[str | SpeechMark] = []
+    cursor = 0
+    scan = 0
+    while True:
+        open_index = text.find("{", scan)
+        if open_index < 0:
+            break
+        close_index = text.find("}", open_index + 1)
+        if close_index < 0:
+            break
+        inner = text[open_index + 1 : close_index]
+        if "{" in inner:
+            # 嵌套 / 漏闭合：外层 ``{`` 不成记号，从内层重新扫描。
+            scan = open_index + 1
+            continue
+        if not inner.strip():
+            scan = close_index + 1
+            continue
+
+        head = open_index
+        while head > cursor and text[head - 1].isspace():
+            head -= 1
+        if head > cursor and text[head - 1] in "：:":
+            head -= 1
+            while head > cursor and text[head - 1].isspace():
+                head -= 1
+
+        speaker = ""
+        start = open_index
+        mention = next((m for m in mentions if m[1] == head and m[0] >= cursor), None)
+        if mention is not None:
+            speaker = asset_name_comparison_key(mention[2])
+            if not speaker:
+                scan = close_index + 1
+                continue
+            start = mention[0]
+        elif head > cursor and text[head - 1] == "]":
+            scan = close_index + 1
+            continue
+
+        if start > cursor:
+            parts.append(text[cursor:start])
+        parts.append(SpeechMark(speaker=speaker, text=inner, raw=text[start : close_index + 1]))
+        cursor = close_index + 1
+        scan = cursor
+
+    if cursor < len(text):
+        parts.append(text[cursor:])
+    return parts
+
+
+def line_speech_marks(line: str) -> list[SpeechMark]:
+    """一行里按出现顺序排列的发声记号。"""
+    return [part for part in split_speech_line(line) if isinstance(part, SpeechMark)]
+
+
+def strip_speech_marks(line: str) -> str:
+    """去掉全部发声记号后剩下的画面描述文本（归一形）。
+
+    参考图派生与产物依据都按此文本判定：只在花括号前出现的角色只绑声音、不进画面参考，
+    而同一行里写在记号之外的 ``@[名称]`` 照常进参考图。
+    """
+    return "".join(part for part in split_speech_line(line) if isinstance(part, str))
 
 
 def leading_mention_before_colon(line: str) -> str | None:
     """行首为 ``@[名称]：`` 形态时返回该名称，否则返回 ``None``（只看名称与冒号，不判花括号）。
 
-    ``match_dialogue_line`` 是「整行合规才算台词」的严判，两者之差即「本想写台词但写坏了」：
-    漏花括号、花括号不整体包裹、说话人位空白。机器产物校验据此把这类行判违约，而不是让它
-    以画面描述的身份放行（说话人会被派生成参考图、台词则整句消失）。返回名称而不是布尔，
-    是因为这一形态还要看名称是不是角色——场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
-    是合法的画面描述写法，不能与漏花括号的台词混为一谈。
+    与「这行首是不是一个发声记号」的严判之差即「本想写台词但写坏了」：漏花括号、花括号不
+    成对、说话人位空白。机器产物校验据此把这类行判违约，而不是让它以画面描述的身份放行
+    （说话人会被派生成参考图、台词则整句消失）。返回名称而不是布尔，是因为这一形态还要看
+    名称是不是角色——场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）是合法的画面描述写法，
+    不能与漏花括号的台词混为一谈。
     """
     stripped = _normalize_source(line).strip()
     if not stripped.startswith("@"):
@@ -186,27 +263,6 @@ def find_malformed_mention(line: str) -> str | None:
             continue
         return text[index : index + 20]
     return None
-
-
-def match_voiceover_line(line: str) -> str | None:
-    """裸 ``{台词}`` 行 = 画外音 → 台词正文；不匹配返回 ``None``。"""
-    return _unwrap_braces(_normalize_source(line))
-
-
-def _unwrap_braces(text: str) -> str | None:
-    """``{…}`` 整体包裹判定：去空白后须以 ``{`` 开头、``}`` 结尾且内部无花括号。
-
-    空台词（``{}`` / ``{   }``）不算：``Utterance`` 与 ``DataValidator._validate_utterances``
-    都要求 text 非空，派生出空台词会既进不了校验、又在预览里凭空多出一条没有内容的发声。
-    判为非规范后走既有 warning 路径，作者能看见这行没被认成台词。
-    """
-    body = text.strip()
-    if len(body) < 2 or body[0] != "{" or body[-1] != "}":
-        return None
-    inner = body[1:-1]
-    if "{" in inner or "}" in inner or not inner.strip():
-        return None
-    return inner
 
 
 def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
@@ -257,7 +313,7 @@ def render_shots_text(shots: list[Any]) -> str:
 
     落盘的 step1 / 剧本只存切分后的 shots，而 step2 的 prompt 输入、保结构 diff 的比对项
     都是书写层正文；缺这个逆向，``assemble_shots_text`` 的裸拼接会丢掉 header，再解析回来
-    整个 unit 塌成一个镜头。镜头正文可跨多行（台词行在描述行之下），故 header 只加在首行。
+    整个 unit 塌成一个镜头。镜头正文可跨多行（台词可另起一行写在描述之下），故 header 只加在首行。
     """
     blocks: list[str] = []
     for index, shot in enumerate(shots, start=1):
@@ -274,20 +330,19 @@ def extract_mentions(text: str) -> list[str]:
     与 ``parse_prompt`` 的 mention 口径同源；参考生视频 step1 拆分工具据此从
     shot 文本机械派生 unit 的 references 列表（顺序即参考图编号）。
 
-    **规范台词行整行不计入**：给画外说话的角色附参考图会诱导模型把他画进画面，故
-    ``@[角色]：{台词}`` 行的 speaker 位只驱动音色声明与 utterance 派生，不进参考图。
-    纯画外角色因此没有参考图条目，但台词与音色声明照常。
+    **发声记号内的说话人位不计入**：给画外说话的角色附参考图会诱导模型把他画进画面，故
+    ``@[角色]{台词}`` 的 speaker 位只驱动音色声明与 utterance 派生，不进参考图。只在记号前
+    出现过的角色因此没有参考图条目，但台词与音色声明照常；同一行写在记号之外的 ``@[名称]``
+    照常进参考图。
 
-    规范行判定在剥掉 ``镜头N：`` header 之后进行：``parse_prompt`` 切分镜头时会把 header
-    去掉，写在 header 同一行的台词在 shot 文本里就是规范行、照常派生 utterance——此处若按
-    原始行判定，同一行会既派生 utterance 又留下参考图，两处口径分叉。
+    判定在剥掉 ``镜头N：`` header 之后进行：``parse_prompt`` 切分镜头时会把 header 去掉，
+    写在 header 同一行的台词在 shot 文本里照常派生 utterance——此处若按原始行判定，同一行
+    会既派生 utterance 又留下参考图，两处口径分叉。
     """
     seen: set[str] = set()
     result: list[str] = []
     for raw_line in text.splitlines():
-        line = _normalize_source(raw_line)
-        if match_dialogue_line(strip_shot_header(line)) is not None:
-            continue
+        line = strip_speech_marks(strip_shot_header(raw_line))
         for _start, _end, raw_name in _iter_mentions(line):
             name = asset_name_comparison_key(raw_name)
             if name not in seen:
@@ -330,7 +385,7 @@ def derive_references_from_text(text: str, project: dict) -> tuple[list[Referenc
     经 ``rederive_unit_references``）。两者的**严格度**按「产物来源是否有作者意图可保护」分流
     ——机器产物对 ``missing`` 与能力上限一律拒，人写产物只静默丢 ``missing``、不判上限——但
     **派生本身**必须同一套：分成两处各自 ``extract_mentions`` + ``resolve_references`` 时，任一
-    侧的口径调整（如规范台词行不计入参考图）都会让同一份正文在编辑器与生成侧派生出不同的
+    侧的口径调整（如台词记号的说话人位不计入参考图）都会让同一份正文在编辑器与生成侧派生出不同的
     ``[图N]`` 编号。
     """
     return resolve_references(extract_mentions(text), project)

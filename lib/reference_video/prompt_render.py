@@ -8,7 +8,7 @@
 - **第一段**：``<X>@图片N`` 简式绑定（图片编号 = 随请求发出的参考图顺序）+ 声音声明集中
   声明区（``<X>的台词音色参考 @音频N，声音特征：…``）。听得到声音的 A/B 类均注入声音特征，
   两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入
-- **第二段**：镜头分镜段 + 台词行（``<X>说 {台词}`` / ``画外音说 {台词}``）
+- **第二段**：镜头分镜段 + 发声记号（``<X>说 {台词}`` / ``画外音说 {台词}``）
 - **第三段**：风格锚定 + 画质/稳定/字幕/水印约束包（本路径的反向约束全部由它承担，不另加
   尾词）；两个及以上角色参考图时补双胞胎兜底
 
@@ -36,11 +36,10 @@ from lib.reference_video.script_preview import (
 from lib.reference_video.shot_parser import (
     assemble_shots_text,
     assemble_shots_text_for_render,
-    match_dialogue_line,
-    match_voiceover_line,
     parse_prompt,
     render_mentions_as_subjects,
     resolve_references,
+    split_speech_line,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_models import ReferenceResource
@@ -107,7 +106,7 @@ def render_unit_prompt(
 
     ``references`` 是**实际随请求发出**的参考图列表（已按能力上限裁剪），其顺序即
     ``图片N`` 编号——与 ``reference_images`` 严格等长同序，被裁掉的名字退化为原文不产生
-    悬空绑定。文稿派生出的参考图顺序（``@mention`` 首现、规范台词行的 speaker 位不计入）
+    悬空绑定。文稿派生出的参考图顺序（``@mention`` 首现、台词记号的 speaker 位不计入）
     由上游持久化，本函数只消费不重算。
 
     ``settings`` 是渲染所用的声音输入档（见 :class:`~lib.reference_video.voice_settings
@@ -209,7 +208,7 @@ def _render_voice_declarations(
     dialogue speaker」，与主体绑定行解耦，可整段复用。
 
     两条无声路径（``settings.is_silent``：模型不产音的 C 类、本集关闭音频）都不注入声音声明；
-    听得到声音的 A/B 类均注入声音特征——官方建议音色还原不佳时补描述。台词行不受影响，
+    听得到声音的 A/B 类均注入声音特征——官方建议音色还原不佳时补描述。台词渲染不受影响，
     照常进第二段（见 :func:`_render_segment_two`）。
 
     角色记录非 dict（外部编辑写坏的 project.json）按无声音特征处理，不索引脏值，保持
@@ -257,7 +256,7 @@ def _render_segment_one(
     """主体绑定 + 声音声明。
 
     官方三段论第一段即参考来源声明区（人脸 / 运镜 / 音色参考同位），故音色参考与声音特征
-    集中于此，台词行只留统一句式。声明遍历「有台词的已登记角色」而非参考图列表：纯画外角色
+    集中于此，台词只留统一句式。声明遍历「有台词的已登记角色」而非参考图列表：纯画外角色
     没有参考图（speaker 位不计入参考图派生），但音色声明照常。
 
     ``labels`` 是 mention 派生的主体记号文本，逐项对应随请求发出的参考图。图号按位置
@@ -273,29 +272,32 @@ def _render_segment_one(
 
 
 def _render_segment_two(shots: list[Any], subjects: Collection[str], characters: dict) -> str:
-    """镜头分镜段：描述行做 mention 替换，规范台词行重组为官方句式。
+    """镜头分镜段：画面描述做 mention 替换，发声记号就地重组为官方句式。
 
     ``subjects`` 是已登记的 mention 名（未经能力上限裁剪）——主体记号 ``<X>`` 表达「画面里的
     这个人 / 物」，不指向图号，故与参考图编号解耦：裁掉图的名字照样是主体，只有未登记的
     mention 才留编辑器原文（配 ``ref_warn_unregistered_mention``）。
 
-    台词行的说话人按**资产表**判定而非参考图列表：纯画外角色无参考图，台词行照常重组。
-    未登记的说话人按原文发送（warning 已由 :func:`derive_voice_bindings` 发出），
-    未闭合花括号行同样原样发送——不做剥除，作者能在成片里看见自己写坏的那一行。
+    记号可写在行内任意位置，重组按位置就地替换、描述部分留在原处，一行的行文顺序因此原样
+    传达给供应商。说话人按**资产表**判定而非参考图列表：纯画外角色无参考图，台词照常重组。
+    未登记的说话人按原文发送（warning 已由 :func:`derive_voice_bindings` 发出），未被识别成
+    记号的花括号同样原样发送——不做剥除，作者能在成片里看见自己写坏的那一段。
     """
     blocks: list[str] = []
     for index, shot in enumerate(shots, start=1):
         body: list[str] = []
         for line in shot.text.splitlines():
-            dialogue = match_dialogue_line(line)
-            if dialogue is not None and dialogue[0] in characters:
-                body.append(f"<{dialogue[0]}>说 {{{dialogue[1]}}}")
-                continue
-            voiceover = match_voiceover_line(line)
-            if voiceover is not None:
-                body.append(f"画外音说 {{{voiceover}}}")
-                continue
-            body.append(render_mentions_as_subjects(line, subjects))
+            pieces: list[str] = []
+            for part in split_speech_line(line):
+                if isinstance(part, str):
+                    pieces.append(render_mentions_as_subjects(part, subjects))
+                elif not part.speaker:
+                    pieces.append(f"画外音说 {{{part.text}}}")
+                elif part.speaker in characters:
+                    pieces.append(f"<{part.speaker}>说 {{{part.text}}}")
+                else:
+                    pieces.append(render_mentions_as_subjects(part.raw, subjects))
+            body.append("".join(pieces))
         text = "\n".join(ln for ln in body if ln.strip())
         blocks.append(f"镜头{index}：\n{text}" if text else f"镜头{index}：")
     return "\n\n".join(blocks)

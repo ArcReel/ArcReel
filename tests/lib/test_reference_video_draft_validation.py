@@ -97,7 +97,7 @@ class TestUnitText:
         ]
 
     def test_dialogue_speaker_not_a_reference_image(self):
-        """规范台词行的说话人位只驱动音色声明，不进参考图（画外说话的角色不该被画进来）。"""
+        """台词记号的说话人位只驱动音色声明，不进参考图（画外说话的角色不该被画进来）。"""
         _shots, refs = validate_unit_text(
             "unit E1U01", "镜头1：门在风里晃动\n@[李明]：{我来了。}", PROJECT, max_refs=None
         )
@@ -122,9 +122,17 @@ class TestUnitText:
             validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：｛我来了。｝", PROJECT, max_refs=None)
         assert exc_info.value.line == 1
 
-    def test_brace_in_description_line_rejected(self):
-        with pytest.raises(DraftViolation, match="画面描述行里使用了花括号"):
-            validate_unit_text("unit E1U01", "镜头1：@[李明] 说 {我来了}，转身", PROJECT, max_refs=None)
+    def test_brace_in_description_rejected(self):
+        """没被识别成发声记号的花括号仍判违约：空台词会派生出没有内容的发声。"""
+        with pytest.raises(DraftViolation, match="画面描述里使用了花括号"):
+            validate_unit_text("unit E1U01", "镜头1：@[李明] 推门，音量 {}", PROJECT, max_refs=None)
+
+    def test_inline_speech_marks_are_accepted(self):
+        """台词与画外音写在同一行的画面描述之后照常放行；说话人位不进参考图。"""
+        _shots, refs = validate_unit_text(
+            "unit E1U01", "镜头1：@[李明] 推开 @[酒馆] 木门。@[李明]{我来了}", PROJECT, max_refs=None
+        )
+        assert [r.name for r in refs] == ["李明", "酒馆"]
 
     def test_unregistered_mention_rejected(self):
         with pytest.raises(DraftViolation, match="未登记的资产名"):
@@ -139,7 +147,7 @@ class TestUnitText:
     def test_combining_char_name_passes_in_every_encoding_pairing(self, registered: str, written: str):
         """组合字符角色名的四种 NFC/NFD 配对判定一致：肉眼同字，不该有任一组合被判未登记。
 
-        描述行 mention 与台词行说话人同时出现——两者走不同的比对点（引用派生 / 说话人登记），
+        画面描述 mention 与台词记号说话人同时出现——两者走不同的比对点（引用派生 / 说话人登记），
         任一处漏归一都会在这里以不同的违约 code 冒出来。
         """
         project = {"characters": {registered: {}}, "scenes": {}, "props": {}}
@@ -161,18 +169,21 @@ class TestUnitText:
             validate_unit_text("unit E1U01", "镜头1：@[李明] 与 @[王五] 在 @[酒馆]", PROJECT, max_refs=2)
 
     def test_fullwidth_braces_rejected(self):
-        """全角花括号不被台词行语法识别，放行会让台词静默降级成描述、说话人反被派生成参考图。"""
+        """全角花括号不被发声记号语法识别，放行会让台词静默降级成描述、说话人反被派生成参考图。"""
         with pytest.raises(DraftViolation, match="全角花括号"):
             validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：｛我来了。｝", PROJECT, max_refs=None)
 
     def test_dialogue_without_braces_rejected(self):
-        """漏花括号的台词行会被当成画面描述：台词整句消失、说话人反被派生成参考图。"""
-        with pytest.raises(DraftViolation, match="台词行写法不合法"):
+        """漏花括号的台词会被当成画面描述：台词整句消失、说话人反被派生成参考图。"""
+        with pytest.raises(DraftViolation, match="台词写法不合法"):
             validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：我来了。", PROJECT, max_refs=None)
 
-    def test_dialogue_with_partial_brace_wrapping_rejected(self):
-        with pytest.raises(DraftViolation, match="台词行写法不合法"):
-            validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：{我来了}，然后转身", PROJECT, max_refs=None)
+    def test_dialogue_followed_by_description_is_accepted(self):
+        """行首台词后接描述不再判违约：记号可写在行内任意位置，其余是画面描述。"""
+        _shots, refs = validate_unit_text(
+            "unit E1U01", "镜头1：门开了\n@[李明]：{我来了}，然后转身", PROJECT, max_refs=None
+        )
+        assert [r.name for r in refs] == []
 
     def test_non_character_mention_with_colon_is_a_description(self):
         """场景 / 道具做小标题是合法的画面描述写法，不能按「@[名称]：」形态一概判成写坏的台词。"""
@@ -201,7 +212,7 @@ class TestUnitText:
             validate_unit_text("unit E1U01", "镜头1：@[李明] 推门\n镜头2：", PROJECT, max_refs=None)
 
     def test_dialogue_only_shot_rejected(self):
-        """只有台词行的镜头同样没有可生成的画面：画面是 unit 要产出的东西，不能只有声音。"""
+        """只有台词的镜头同样没有可生成的画面：画面是 unit 要产出的东西，不能只有声音。"""
         with pytest.raises(DraftViolation, match="没有画面描述"):
             validate_unit_text("unit E1U01", "镜头1：\n@[李明]：{我来了。}", PROJECT, max_refs=None)
 
@@ -290,11 +301,11 @@ class TestDialoguePreserved:
             assert_dialogue_preserved("unit E1U01", self.STEP1, "镜头1：@[李明] 推门\n@[王五]：{我来了。}")
 
     def test_added_dialogue_rejected(self):
-        with pytest.raises(DraftViolation, match="台词行数被改动"):
+        with pytest.raises(DraftViolation, match="台词条数被改动"):
             assert_dialogue_preserved(
                 "unit E1U01", self.STEP1, "镜头1：@[李明] 推门\n@[李明]：{我来了。}\n{夜色深沉。}"
             )
 
     def test_dropped_dialogue_rejected(self):
-        with pytest.raises(DraftViolation, match="台词行数被改动"):
+        with pytest.raises(DraftViolation, match="台词条数被改动"):
             assert_dialogue_preserved("unit E1U01", self.STEP1, "镜头1：@[李明] 推门")

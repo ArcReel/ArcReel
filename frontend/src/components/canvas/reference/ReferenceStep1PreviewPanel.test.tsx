@@ -307,7 +307,7 @@ describe("ReferenceStep1PreviewPanel", () => {
   });
 
   it("excludes a dialogue-only speaker from the quarantined preview's reference pills", async () => {
-    // 阿离只出现在规范台词行（`@[阿离]：{...}`）里——同后端 extract_mentions，说话人不产参考图；
+    // 阿离只出现在台词记号（`@[阿离]{...}`）里——同后端 extract_mentions，说话人不产参考图；
     // 长街出现在镜头描述行里，正常产出参考图 pill。
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       ...quarantinedState(),

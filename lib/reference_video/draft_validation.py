@@ -21,13 +21,15 @@ from typing import Any
 
 from lib.asset_types import BUCKET_KEY, normalize_asset_bucket
 from lib.reference_video.shot_parser import (
+    SpeechMark,
     derive_references_from_text,
     find_malformed_mention,
     leading_mention_before_colon,
-    match_dialogue_line,
-    match_voiceover_line,
+    line_speech_marks,
     parse_prompt,
+    split_speech_line,
     strip_shot_header,
+    strip_speech_marks,
 )
 from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import ReferenceResource, Shot
@@ -163,13 +165,13 @@ def _content_lines(text: str) -> list[str]:
 
 
 #: 全角花括号。语法只认半角，但中文输入法下模型很容易写出全角形；行里出现全角花括号时
-#: ``match_dialogue_line`` 不匹配，该行会被当成画面描述放行——台词静默降级成描述、说话人
-#: 反而被派生成参考图。故在语法判定处显式识别并拒绝，不静默、也不代模型改写。
+#: 该段不成发声记号，会被当成画面描述放行——台词静默降级成描述、说话人反而被派生成参考图。
+#: 故在语法判定处显式识别并拒绝，不静默、也不代模型改写。
 _FULLWIDTH_BRACES = "｛｝"
 
 
 def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> None:
-    """逐行判书写层语法：花括号用法、写坏的 ``@[`` 引用、缺花括号的台词行。
+    """逐行判书写层语法：花括号用法、写坏的 ``@[`` 引用、缺花括号的台词。
 
     三类共性是「解析器不报错、但派生结果与作者意图相反」：台词降级成画面描述、说话人反被
     派生成参考图、坏 token 原样进供应商请求。机器产物没有作者意图可保护，一律在语法判定处
@@ -179,7 +181,7 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
         if any(ch in line for ch in _FULLWIDTH_BRACES):
             raise DraftViolation(
                 f"{label} 使用了全角花括号：{line.strip()[:40]!r}；"
-                "台词与画外音的花括号必须是半角 `{}`，全角形不会被识别为台词行",
+                "台词与画外音的花括号必须是半角 `{}`，全角形不会被识别为台词",
                 code="fullwidth_braces",
                 label=label,
                 line=idx,
@@ -194,28 +196,30 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
                 label=label,
                 line=idx,
             )
-        is_dialogue = match_dialogue_line(line) is not None
+        parts = split_speech_line(line)
+        leads_with_speech = bool(parts) and isinstance(parts[0], SpeechMark) and bool(parts[0].speaker)
         # 只有登记角色 + 冒号才判成写坏的台词：场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
         # 是合法的画面描述写法，按同一形态一概判违约会把正常的 step1 产出拒掉。
-        if not is_dialogue and (leading_mention_before_colon(line) or "") in characters:
+        if not leads_with_speech and (leading_mention_before_colon(line) or "") in characters:
             raise DraftViolation(
-                f"{label} 的台词行写法不合法：{line.strip()[:40]!r}；"
-                "台词须写成 `@[角色]：{台词}`——说话人非空、台词由半角花括号整体包裹，"
-                "否则这行会被当成画面描述、台词整句丢失",
+                f"{label} 的台词写法不合法：{line.strip()[:40]!r}；"
+                "台词须写成 `@[角色]{台词}`——说话人非空、台词由半角花括号成对包裹，"
+                "否则这段会被当成画面描述、台词整句丢失",
                 code="dialogue_line_syntax",
                 label=label,
                 line=idx,
             )
-        if "{" not in line and "}" not in line:
-            continue
-        if is_dialogue or match_voiceover_line(line) is not None:
+        # 只判记号之外的残余：一行里已识别的台词不因同行另有花括号被连坐。
+        rest = "".join(part for part in parts if isinstance(part, str))
+        if "{" not in rest and "}" not in rest:
             continue
         excerpt = line.strip()[:40]
-        if line.count("{") != line.count("}"):
+        if rest.count("{") != rest.count("}"):
             raise DraftViolation(f"{label} 有未闭合的花括号：{excerpt!r}", code="unclosed_brace", label=label, line=idx)
         raise DraftViolation(
-            f"{label} 在画面描述行里使用了花括号：{excerpt!r}；"
-            "花括号是台词保留语法，台词须独立成行写作 `@[角色]：{台词}` 或 `{画外音}`",
+            f"{label} 在画面描述里使用了花括号：{excerpt!r}；"
+            "花括号是发声保留语法，台词写作 `@[角色]{台词}`、画外音写作 `{画外音}`，"
+            "说话人须非空、花括号不得嵌套",
             code="braces_in_description",
             label=label,
             line=idx,
@@ -223,39 +227,31 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
 
 
 def _has_description_line(shot_text: str) -> bool:
-    """该镜头是否有画面描述行：非空、且既不是规范台词行也不是画外音行。"""
-    for line in _content_lines(shot_text):
-        if not line.strip():
-            continue
-        if match_dialogue_line(line) is None and match_voiceover_line(line) is None:
-            return True
-    return False
+    """该镜头是否有画面描述：某一行剥掉全部发声记号后仍有非空文本。"""
+    return any(strip_speech_marks(line).strip() for line in _content_lines(shot_text))
 
 
 def dialogue_speakers(text: str) -> list[str]:
-    """按出现顺序取出规范台词行的说话人（去重）——登记校验据此判说话人是否为登记角色。
+    """按出现顺序取出台词记号的说话人（去重）——登记校验据此判说话人是否为登记角色。
 
-    说话人取自 ``match_dialogue_line``，已在解析器入口归一到资产名比对坐标系
+    说话人取自 ``split_speech_line``，已在解析器入口归一到资产名比对坐标系
     （``lib.reference_video.shot_parser`` 的 ``_normalize_source``），与资产表归一后的 key
     同形，本函数直接使用该结果，不再额外归一。
     """
     seen: set[str] = set()
     speakers: list[str] = []
     for line in _content_lines(text):
-        matched = match_dialogue_line(line)
-        if matched is None:
-            continue
-        speaker = matched[0]
-        if speaker not in seen:
-            seen.add(speaker)
-            speakers.append(speaker)
+        for mark in line_speech_marks(line):
+            if mark.speaker and mark.speaker not in seen:
+                seen.add(mark.speaker)
+                speakers.append(mark.speaker)
     return speakers
 
 
 def normative_lines(text: str) -> list[tuple[str, str, str]]:
-    """按出现顺序取出全部规范发声行：``(kind, speaker, 台词)``，``kind`` 为 dialogue / voiceover。
+    """按出现顺序取出全部发声记号：``(kind, speaker, 台词)``，``kind`` 为 dialogue / voiceover。
 
-    step2 的保结构 diff 以此为比对项：画面描述可自由展开，发声行必须逐字不变。
+    step2 的保结构 diff 以此为比对项：画面描述可自由展开，发声记号必须逐字不变。
 
     台词与说话人已在解析器入口归一到 NFC（``lib.reference_video.shot_parser`` 的
     ``_normalize_source``）：源文可能以 NFD 落盘而模型回写 NFC，两种形式肉眼同字、逐字比对
@@ -264,13 +260,8 @@ def normative_lines(text: str) -> list[tuple[str, str, str]]:
     """
     result: list[tuple[str, str, str]] = []
     for line in _content_lines(text):
-        dialogue = match_dialogue_line(line)
-        if dialogue is not None:
-            result.append(("dialogue", dialogue[0], dialogue[1]))
-            continue
-        voiceover = match_voiceover_line(line)
-        if voiceover is not None:
-            result.append(("voiceover", "", voiceover))
+        for mark in line_speech_marks(line):
+            result.append(("dialogue" if mark.speaker else "voiceover", mark.speaker, mark.text))
     return result
 
 
@@ -285,7 +276,7 @@ def validate_unit_text(
     """校验一个 unit 的正文并机械派生 ``(shots, references)``。
 
     覆盖四类阻断违约：正文为空 / 单镜头正文为空 / 镜头行数超上限、书写层语法误用（花括号、
-    写坏的引用、缺花括号的台词行）、``@[名称]`` 未登记（含台词行的说话人位）、references
+    写坏的引用、缺花括号的台词）、``@[名称]`` 未登记（含台词记号的说话人位）、references
     超模型上限。派生结果即落盘值——校验与派生同一次遍历，杜绝「校验看到的文本」与「落盘的
     references」出自两套解析。
     """
@@ -297,14 +288,14 @@ def validate_unit_text(
     _assert_line_syntax(label, text, characters)
 
     shots, _mentions = parse_prompt(text)
-    # 镜头缺画面描述（``镜头1：`` 后无正文，或该镜头只有台词行 / 画外音行）：整段非空时上面的
+    # 镜头缺画面描述（``镜头1：`` 后无正文，或该镜头除发声记号外没有别的文字）：整段非空时上面的
     # 空正文检查放不住它，而画面正是 unit 要生成的东西。单镜头 unit 因此落盘后进不了队（视频
     # prompt 为空），多镜头 unit 则让 step2 对着空白镜头自行编内容。
     blank_shots = [index for index, shot in enumerate(shots, start=1) if not _has_description_line(shot.text)]
     if blank_shots:
         raise DraftViolation(
             f"{label} 的镜头 {blank_shots} 没有画面描述；"
-            "每个 `镜头N：` 都要写该镜头拍什么，只有台词行 / 画外音行的镜头没有可生成的画面",
+            "每个 `镜头N：` 都要写该镜头拍什么，只有台词与画外音的镜头没有可生成的画面",
             code="blank_shot",
             label=label,
         )
@@ -329,7 +320,7 @@ def validate_unit_text(
     bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in characters})
     if bad_speakers:
         raise DraftViolation(
-            f"{label} 的台词行说话人未登记为角色资产: {bad_speakers}；说话人决定该句台词绑哪段参考音频，必须是登记角色",
+            f"{label} 的台词说话人未登记为角色资产: {bad_speakers}；说话人决定该句台词绑哪段参考音频，必须是登记角色",
             code="unregistered_speaker",
             label=label,
         )
@@ -406,7 +397,7 @@ def validate_dialogue_load(
 
 
 def assert_dialogue_preserved(label: str, step1_text: str, step2_text: str) -> None:
-    """step2 保结构 diff：规范发声行的序列必须与 step1 逐字一致。
+    """step2 保结构 diff：发声记号的序列必须与 step1 逐字一致。
 
     step2 的职责是视觉展开，台词属于 step1 已与用户在 gate 上确认过的内容契约。改词、增删、
     重排一律响亮失败，不静默接受——台词不配画面时正确的出路是报错回到 step1，而不是让 step2
@@ -418,8 +409,8 @@ def assert_dialogue_preserved(label: str, step1_text: str, step2_text: str) -> N
         return
     if len(before) != len(after):
         raise DraftViolation(
-            f"{label} 的台词行数被改动（step1 有 {len(before)} 行，step2 产出 {len(after)} 行）；"
-            "step2 只做视觉展开，台词行须逐字保留",
+            f"{label} 的台词条数被改动（step1 有 {len(before)} 条，step2 产出 {len(after)} 条）；"
+            "step2 只做视觉展开，台词须逐字保留",
             code="dialogue_line_count_changed",
             label=label,
         )
@@ -427,7 +418,7 @@ def assert_dialogue_preserved(label: str, step1_text: str, step2_text: str) -> N
         if old != new:
             raise DraftViolation(
                 f"{label} 第 {index} 条台词被改写（原：{old[1] or '画外音'}「{old[2]}」，"
-                f"现：{new[1] or '画外音'}「{new[2]}」）；step2 只做视觉展开，台词行须逐字保留",
+                f"现：{new[1] or '画外音'}「{new[2]}」）；step2 只做视觉展开，台词须逐字保留",
                 code="dialogue_rewritten",
                 label=label,
             )

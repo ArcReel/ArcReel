@@ -44,9 +44,8 @@ import { useCostStore } from "@/stores/cost-store";
 import { errMsg } from "@/utils/async";
 import {
   buildMentionLookup,
+  lineSpeechMarks,
   mergeReferences,
-  matchDialogueLine,
-  matchVoiceoverLine,
   normalizeAssetName,
   splitScriptLines,
 } from "@/utils/reference-mentions";
@@ -140,12 +139,13 @@ function unitNarrationText(unit: ReferenceVideoUnit | null): string {
   let hasCharacterSpeech = false;
   for (const shot of unit.shots) {
     for (const line of splitScriptLines(shot.text)) {
-      if (matchDialogueLine(line)) {
-        hasCharacterSpeech = true;
-        continue;
+      for (const mark of lineSpeechMarks(line)) {
+        if (mark.speaker) {
+          hasCharacterSpeech = true;
+        } else {
+          narration.push(mark.text.trim());
+        }
       }
-      const voiceover = matchVoiceoverLine(line);
-      if (voiceover) narration.push(voiceover.trim());
     }
   }
   return hasCharacterSpeech ? "" : narration.join("\n");
