@@ -23,7 +23,7 @@ from lib.project_migration_failure import (
 )
 from lib.reference_video.request_projection import ReferenceRequestOptions
 from lib.script_batch_edit import script_revision
-from lib.script_skeleton import SKELETONS, ensure_route_skeleton
+from lib.script_skeleton import ensure_route_skeleton, resolve_kind_items
 from lib.speech_composition import admit_script_unit
 from lib.workflow_plan import (
     WorkflowPlan,
@@ -53,6 +53,7 @@ class _ScriptFacts:
     script: dict[str, Any]
     script_file: str
     kind: str
+    id_field: str
     items: tuple[dict[str, Any], ...]
     revision: str
 
@@ -135,7 +136,7 @@ class WorkflowPlanner:
                 status.project.content_mode,
                 status.project.generation_mode,
             )
-            raw_items = script.get(kind)
+            raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
             if not isinstance(raw_items, list) or not all(isinstance(item, dict) for item in raw_items):
                 raise ValueError(f"{kind} must be an array of objects")
             return _ScriptFacts(
@@ -144,6 +145,7 @@ class WorkflowPlanner:
                 script=script,
                 script_file=target.script_filename,
                 kind=kind,
+                id_field=id_field,
                 items=tuple(raw_items),
                 revision=script_revision(script),
             )
@@ -169,7 +171,7 @@ class WorkflowPlanner:
     ) -> list[WorkflowTaskObservation]:
         if facts is None:
             return []
-        id_field = SKELETONS[facts.kind].id_field
+        id_field = facts.id_field
         unit_ids = [
             str(item[id_field]) for item in facts.items if isinstance(item.get(id_field), str) and str(item[id_field])
         ]
@@ -250,7 +252,7 @@ class WorkflowPlanner:
         # 与投影缺口折在同一批票里）。自行挑目标并把视觉提示词留空，会让计划按另一套
         # 视觉基准判断已付费产物能否复用，与真正提交时的结论分叉。
         requested = set(status.next_action.requested_ids)
-        id_field = SKELETONS[facts.kind].id_field
+        id_field = facts.id_field
         items = [
             item for item in facts.items if isinstance(item.get(id_field), str) and str(item[id_field]) in requested
         ]

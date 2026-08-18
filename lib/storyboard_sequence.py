@@ -62,12 +62,11 @@ def get_storyboard_items(script: dict) -> tuple[list[dict], str, str | None, str
     异常上冒，避免脏数据被静默吞成 ``TypeError: 'NoneType' is not iterable``。
     """
     items, id_field, kind = resolve_items(script)
-    if kind == "video_units":
-        unit = SKELETONS["video_units"]
-        return ([], unit.id_field, unit.chars_field, "scenes", "props")
-
-    # 角色引用字段名改查 SKELETONS 单一真相源（video_units→None 强制显式决策）。
+    # 角色引用字段名改查 SKELETONS 单一真相源（video_units→None 强制显式决策）。id_field 已由
+    # resolve_items 按同一 kind 查出，video_units 分支不再重复查表取值。
     char_field = SKELETONS[kind].chars_field
+    if kind == "video_units":
+        return ([], id_field, char_field, "scenes", "props")
     return (items, id_field, char_field, "scenes", "props")
 
 

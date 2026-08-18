@@ -100,7 +100,7 @@ from lib.script_review import (
     gate_blocks_step2,
     migrate_step1_draft_in_place,
 )
-from lib.script_skeleton import SKELETONS, resolve_declared_kind
+from lib.script_skeleton import resolve_declared_kind, resolve_kind_items
 from lib.speech_composition import admit_script_unit, require_script_unit_admitted, video_unit_replan_problems
 from lib.speech_rate import project_speech_rate_override
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
@@ -1573,14 +1573,13 @@ class ScriptGenerator:
         # 兜底改写 segment/scene/unit ID 中的 E\d+ 前缀，避免 LLM 写错集号导致文件
         # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
         ep = int(episode)
-        # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + SKELETONS 查 id 字段改写
-        # （参考路线三种 content_mode 均映射到 video_units；不再手写 reference 分支）。self.content_mode
-        # 为项目级校验值，解析不会 fail-loud。
+        # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + resolve_kind_items 查条目数组
+        # 与 id 字段改写（参考路线三种 content_mode 均映射到 video_units；不再手写 reference
+        # 分支）。self.content_mode 为项目级校验值，解析不会 fail-loud。
         kind = resolve_declared_kind(self.content_mode, gen_mode)
-        id_field = SKELETONS[kind].id_field
+        raw_rewrite_items, id_field, _kind = resolve_kind_items(script_data, kind=kind)
         # 校验失败降级保存的原始 dict 里该数组可能为非列表脏值（LLM 误写标量），
         # `... or []` 只挡 falsy、挡不住真值标量，isinstance 守卫避免 `for` 迭代崩溃。
-        raw_rewrite_items = script_data.get(kind)
         rewritten_output_ids: list[str] = []
         for s in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
             if isinstance(s, dict) and id_field in s:
@@ -1713,14 +1712,14 @@ class ScriptGenerator:
         try:
             short_ids: list[str] = []
 
-            # 骨架经规范解析统一判别、id 字段查 SKELETONS（同 _add_metadata id 改写处置）。
-            # video_units 的过短样本落在 unit 内嵌 shots.text，与 narration/drama/ad 平铺条目的
-            # image_prompt/video_prompt 探针数据形状不同——结构分支按 kind 显式区分、非骨架分派。
+            # 骨架经规范解析统一判别、条目数组与 id 字段查 resolve_kind_items（同 _add_metadata
+            # id 改写处置）。video_units 的过短样本落在 unit 内嵌 shots.text，与 narration/drama/ad
+            # 平铺条目的 image_prompt/video_prompt 探针数据形状不同——结构分支按 kind 显式区分、
+            # 非骨架分派。
             kind = resolve_declared_kind(self.content_mode, self.generation_mode)
-            id_key = SKELETONS[kind].id_field
+            raw_items, id_key, _kind = resolve_kind_items(script_data, kind=kind)
             # 降级保存的原始 dict 里数组可能为非列表脏值；`... or []` 挡不住真值标量，
             # isinstance 守卫避免 `for` 迭代崩溃（外层 try/except 会吞异常但会误跳过整段探针）。
-            raw_items = script_data.get(kind)
             items = raw_items if isinstance(raw_items, list) else []
             if kind == "video_units":
                 for u in items:
