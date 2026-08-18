@@ -422,7 +422,7 @@ class _FakeSummaries:
                     episode=1,
                     script_status="generated",
                     status="in_production",
-                    scenes_count=1,
+                    item_count=1,
                     duration_seconds=8,
                     storyboards=ArtifactCount(total=1, available=1, stale=0),
                     videos=ArtifactCount(total=1, available=0, stale=0),
@@ -2251,7 +2251,9 @@ class TestProjectsRouter:
         # 摘要侧字段按产物清单口径注入：可用 = current ∪ stale，stale 另计
         assert episode["script_status"] == "generated"
         assert episode["status"] == "in_production"
-        assert episode["scenes_count"] == 1
+        assert episode["item_count"] == 1
+        # 旧的场景数字段已退场，响应里不再出现
+        assert "scenes_count" not in episode
         assert episode["duration_seconds"] == 8
         assert episode["storyboards"] == {"total": 1, "available": 1, "stale": 0}
         assert episode["videos"] == {"total": 1, "available": 0, "stale": 0}
@@ -2447,7 +2449,8 @@ class TestProjectsRouter:
                             "script_file": "scripts/ep1_v2.json",  # 合法白名单字段
                             "title": "新标题",  # title 不再可经 PATCH /projects 写入
                             # 以下为项目摘要读时注入的统计字段，不应写入磁盘
-                            "scenes_count": 999,
+                            "item_count": 999,
+                            "scenes_count": 999,  # 已退场的旧字段，同样不得落盘
                             "status": "completed",
                             "storyboards": {"total": 5, "available": 3, "stale": 0},
                             "videos": {"total": 5, "available": 5, "stale": 1},
@@ -2464,6 +2467,7 @@ class TestProjectsRouter:
             # title 不可经此端点改写，保持原值（改名走 PATCH /episodes/{episode}）
             assert ep1["title"] == "原标题"
             # 计算字段不得写入
+            assert "item_count" not in ep1
             assert "scenes_count" not in ep1
             assert "status" not in ep1
             assert "storyboards" not in ep1

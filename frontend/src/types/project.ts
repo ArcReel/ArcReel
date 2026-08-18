@@ -112,8 +112,11 @@ export interface EpisodeMeta {
    * Per-episode fields below come from the project summary at read time, on the artifact
    * manifest's terms — the same numbers the studio reads, never persisted to project.json.
    * Optional because the fallback meta some canvases build has no summary behind it.
+   *
+   * item_count 是该集的内容规模：分镜图生视频路线是分镜数，参考生视频路线是视频单元数。
+   * 计数口径由项目的 generation_mode 决定，三种创作类型一致。
    */
-  scenes_count?: number;
+  item_count?: number;
   /** Script progress derived from the step1 and final-script artifact states */
   script_status?: "none" | "segmented" | "generated";
   status?: "draft" | "scripted" | "in_production" | "completed" | "missing";

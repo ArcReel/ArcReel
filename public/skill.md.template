@@ -42,8 +42,14 @@ curl {{BASE_URL}}/api/v1/projects \
     {
       "name": "my-novel",
       "title": "我的小说",
-      "scenes_count": 12,
-      "status": "ready"
+      "style": "国漫写实",
+      "thumbnail": "projects/my-novel/videos/E1S01.jpg",
+      "status": {
+        "phase": "production",
+        "phase_progress": 0.6,
+        "needs_repair": false,
+        "episodes_summary": { "total": 3, "scripted": 1, "in_production": 1, "completed": 1 }
+      }
     }
   ]
 }

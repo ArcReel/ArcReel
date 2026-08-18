@@ -9,6 +9,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { costEntries, formatCost, totalBreakdown } from "@/utils/cost-format";
 import { errMsg } from "@/utils/async";
+import { itemCountKey, normalizeRoute } from "@/utils/generation-mode";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
 import { AdInitCanvas } from "./AdInitCanvas";
@@ -52,6 +53,8 @@ export function OverviewCanvas({
   tRef.current = t;
   // 广告/短片项目恒单集：界面隐藏「集」语义，区块按单视频呈现
   const isAd = projectData?.content_mode === "ad";
+  // 内容规模的口径按生成路线定，与创作类型无关：分镜路线报分镜数、参考路线报视频单元数。
+  const route = normalizeRoute(projectData?.generation_mode);
   const projectTotals = useCostStore((s) => s.costData?.project_totals);
   const getEpisodeCost = useCostStore((s) => s.getEpisodeCost);
   const costLoading = useCostStore((s) => s.loading);
@@ -782,8 +785,8 @@ export function OverviewCanvas({
                           {ep.title || (isAd ? projectData.title : "")}
                         </span>
                         <span style={{ color: "var(--color-text-4)" }}>
-                          {t(isAd ? "shots_and_status" : "segments_and_status", {
-                            count: ep.scenes_count ?? "?",
+                          {t(itemCountKey(route, { withStatus: true }), {
+                            count: ep.item_count ?? "?",
                             status: t(`episode_status_label_${ep.status ?? "draft"}`),
                           })}
                         </span>

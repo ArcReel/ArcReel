@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Clapperboard } from "lucide-react";
 import type { EpisodeMeta } from "@/types";
+import { itemCountKey, type GenerationRoute } from "@/utils/generation-mode";
 import { useCostStore } from "@/stores/cost-store";
 import { totalBreakdown } from "@/utils/cost-format";
 
@@ -12,6 +13,8 @@ interface EpisodeCardProps {
   showEpisodeBadge?: boolean;
   /** ep.title 为空时的兜底显示文本（ad 项目用项目标题）。 */
   fallbackTitle?: string;
+  /** 项目生成路线：决定条目数报「分镜数」还是「视频单元数」。必填，漏接线时类型报错而不是静默显示错名词。 */
+  route: GenerationRoute;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -40,6 +43,7 @@ export function EpisodeCard({
   onClick,
   showEpisodeBadge = true,
   fallbackTitle,
+  route,
 }: EpisodeCardProps) {
   const { t } = useTranslation(["dashboard"]);
   const status = ep.status ?? "draft";
@@ -48,9 +52,11 @@ export function EpisodeCard({
   const isActive = status === "in_production";
 
   // 进度按视频产物的可用数算——可用 = current ∪ stale，与工作台同一份计数。
-  // 视频总数为 0（尚未成脚本）时退回剧本条目数，只用于显示"这集有几个镜头"。
+  // 视频总数为 0（尚未成脚本）时退回剧本条目数，只用于显示"这集有几件内容"。
   const videoTotal = ep.videos?.total ?? 0;
-  const totalShots = videoTotal || (ep.scenes_count ?? 0);
+  const itemCount = ep.item_count ?? 0;
+  const totalShots = videoTotal || itemCount;
+  const itemCountLabel = t(itemCountKey(route), { count: itemCount });
   const availableVideos = ep.videos?.available ?? 0;
   const progress =
     videoTotal > 0 ? Math.round((availableVideos / videoTotal) * 100) : 0;
@@ -151,7 +157,7 @@ export function EpisodeCard({
                     : undefined
                 }
               >
-                {videoTotal > 0 ? `${availableVideos}/${videoTotal}` : totalShots}
+                {videoTotal > 0 ? `${availableVideos}/${videoTotal}` : itemCountLabel}
                 {durLabel ? ` · ${durLabel}` : ""}
               </span>
             </>

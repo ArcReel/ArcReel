@@ -32,7 +32,6 @@ export default {
   'content_mode_ad_desc': '单条成片——按目标总时长规划镜头脚本，每个镜头携带口播文案，适合带货短视频与创意短片。',
   'target_duration_label': '目标总时长',
   'ad_video_section_title': '视频',
-  'shots_and_status': '{{count}} 镜头 · {{status}}',
   'content_mode_narration_desc': '旁白驱动——一条旁白贯穿整集叙事，画面配合旁白推进，适合说书、纪实、知识类短片。',
   'content_mode_drama_desc': '内容驱动——角色对话与剧情推动画面，适合剧集动画、小说改编等故事型内容。',
   'source_kind': '源文件性质',
@@ -712,7 +711,10 @@ export default {
   'cost_estimate_failed': '费用估算失败: {{message}}',
   'episodes_title': '剧集',
   'no_episodes_ai_hint': '暂无剧集。使用 AI 助手生成脚本。',
-  'segments_and_status': '{{count}} 片段 · {{status}}',
+  'storyboard_count_and_status': '{{count}} 分镜 · {{status}}',
+  'video_unit_count_and_status': '{{count}} 视频单元 · {{status}}',
+  'storyboard_count': '{{count}} 分镜',
+  'video_unit_count': '{{count}} 视频单元',
 
   // ProjectSettingsPage
   'project_settings': '项目设置',

@@ -367,5 +367,5 @@ revision 重试。改完后按上面的请求选择语义点名重做这些 ID�
 ## 数据分层
 
 - 角色 / 场景 / 道具完整定义**只存 project.json**，剧本中仅引用名称
-- 统计字段（scenes_count、status、progress）**读时计算**，不存储
-- 剧集元数据在剧本保存时**写时同步**
+- 统计字段（item_count、status、progress）**读时计算**，不存储
+- 剧集元数据（episode/title/script_file）在剧本保存时**写时同步**

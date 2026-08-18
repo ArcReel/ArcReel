@@ -211,7 +211,7 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
       ...(isScripted
         ? {
             script_status: "generated" as const,
-            scenes_count: segmentCount,
+            item_count: segmentCount,
             duration_seconds: SEGMENT_SKELETONS.reduce((sum, s) => sum + s.duration, 0),
             storyboards: {
               total: segmentCount,

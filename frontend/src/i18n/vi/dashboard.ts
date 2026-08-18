@@ -32,7 +32,6 @@ export default {
   'content_mode_ad_desc': 'Một video duy nhất — các cảnh quay được lên kế hoạch theo tổng thời lượng mục tiêu, mỗi cảnh kèm lời thoại quảng cáo. Phù hợp cho video bán hàng và video sáng tạo ngắn.',
   'target_duration_label': 'Tổng thời lượng mục tiêu',
   'ad_video_section_title': 'Video',
-  'shots_and_status': '{{count}} cảnh quay · {{status}}',
   'content_mode_narration_desc': 'Dẫn dắt bởi thuyết minh — một giọng đọc duy nhất dẫn dắt hình ảnh xuyên suốt tập. Phù hợp cho kể chuyện, phim tài liệu hoặc video giải thích ngắn.',
   'content_mode_drama_desc': 'Dẫn dắt bởi nội dung — đối thoại nhân vật và cốt truyện thúc đẩy hình ảnh. Phù hợp cho phim truyện và chuyển thể tiểu thuyết.',
   'source_kind': 'Loại tệp nguồn',
@@ -693,7 +692,10 @@ export default {
   'cost_estimate_failed': 'Ước tính chi phí thất bại: {{message}}',
   'episodes_title': 'Tập',
   'no_episodes_ai_hint': 'Chưa có tập nào. Dùng trợ lý AI để tạo kịch bản.',
-  'segments_and_status': '{{count}} đoạn · {{status}}',
+  'storyboard_count_and_status': '{{count}} cảnh quay · {{status}}',
+  'video_unit_count_and_status': '{{count}} đơn vị video · {{status}}',
+  'storyboard_count': '{{count}} cảnh quay',
+  'video_unit_count': '{{count}} đơn vị video',
 
   // ProjectSettingsPage
   'project_settings': 'Cài đặt dự án',
