@@ -1180,19 +1180,18 @@ class TestValidateBackendValueCustomPrefix:
     def test_custom_prefix_accepted(self):
         from server.routers._validators import validate_backend_value
 
-        _t = lambda key, **kw: key  # noqa: E731
         # 不应抛异常
-        validate_backend_value("custom-3/gpt-4o", "default_text_backend", _t)
+        validate_backend_value("custom-3/gpt-4o", "default_text_backend")
 
     def test_unknown_provider_rejected(self):
-        from fastapi import HTTPException
-
+        from lib.api_errors import BadRequestError
         from server.routers._validators import validate_backend_value
 
-        _t = lambda key, **kw: key  # noqa: E731
-        with pytest.raises(HTTPException) as exc_info:
-            validate_backend_value("nonexistent/model", "default_text_backend", _t)
+        with pytest.raises(BadRequestError) as exc_info:
+            validate_backend_value("nonexistent/model", "default_text_backend")
         assert exc_info.value.status_code == 400
+        # 字段名只进诊断信息，不进面向使用者的摘要
+        assert exc_info.value.diagnostic == "field: default_text_backend"
 
 
 class TestDuplicateDefaultRejected:

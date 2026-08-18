@@ -422,7 +422,7 @@ class TestReferenceVideoRouter:
             body = client.get(base, headers={"Accept-Language": "en"}).json()
             message = body["quarantine"]["violations"][0]["message"]
             assert message == (
-                "The quarantined draft file is corrupted or malformed and can't be read; "
+                "The draft needing fixes is corrupted or malformed and can't be read; "
                 "ask the agent to re-split this episode"
             )
 

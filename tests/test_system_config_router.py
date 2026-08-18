@@ -19,6 +19,7 @@ from lib.db import get_async_session
 from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
+from server.error_handlers import register_error_handlers
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
@@ -322,6 +323,7 @@ class TestPatchSystemConfig:
 
         app.dependency_overrides[get_async_session] = _override_session
         app.include_router(system_config_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
         return app
 
     @pytest.mark.unit

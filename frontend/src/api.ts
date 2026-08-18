@@ -144,6 +144,8 @@ export interface LoginResponse {
 
 /** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
+  /** 技术诊断信息（字段名、schema、异常原文）。仅在后端附加时出现，永不并进 detail 摘要。 */
+  diagnostic?: string;
   detail:
     | string
     | { msg?: string }[]
@@ -231,6 +233,17 @@ export class SpeechAdmissionError extends Error {
 }
 
 /** Preserves reference request blockers so the UI can show a repair action. */
+/**
+ * 请求失败的通用错误：`message` 是后端给出的产品语言摘要，可直接展示给使用者；
+ * `diagnostic` 是可选的技术细节（字段名、schema、异常原文），只用于诊断展示，不拼进 `message`。
+ */
+export class ApiRequestError extends Error {
+  constructor(message: string, public readonly diagnostic?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 export class ReferenceProjectionError extends Error {
   readonly code = "reference_request_projection_blocked" as const;
 
@@ -498,7 +511,7 @@ async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<vo
     if (isSpeechAdmission(detail)) {
       throw new SpeechAdmissionError(detail);
     }
-    throw new Error(messageFromDetail(detail, fallbackMsg));
+    throw new ApiRequestError(messageFromDetail(detail, fallbackMsg), error.diagnostic);
   }
 }
 
@@ -812,7 +825,7 @@ class API {
       if (isSpeechAdmission(error.detail)) {
         throw new SpeechAdmissionError(error.detail);
       }
-      throw new Error(messageFromDetail(error.detail, "请求失败"));
+      throw new ApiRequestError(messageFromDetail(error.detail, "请求失败"), error.diagnostic);
     }
 
     if (response.status === 204) {

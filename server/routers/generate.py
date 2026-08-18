@@ -339,7 +339,7 @@ async def generate_video(
                 confirmed_request_duration_seconds=req.confirmed_request_duration_seconds,
             )
         except ProjectionResolutionError as exc:
-            raise BadRequestError(exc.code, **exc.params) from exc  # pyright: ignore[reportArgumentType]
+            raise BadRequestError(exc.code, **exc.params) from exc
         delivery_payload = await _localized_narrated_video_payload(delivery_projection, _t)
         if not delivery_payload["allowed"]:
             raise HTTPException(

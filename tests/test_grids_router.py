@@ -451,7 +451,7 @@ def test_generate_grid_success(monkeypatch, tmp_path):
         assert len(body["task_ids"]) == 1
         assert body["deduped"] is False
         # message 走 i18n（默认中文），不再硬编码
-        assert body["message"] == "已提交 1 个宫格生成任务"
+        assert body["message"] == "已提交 1 个多宫格分镜生成任务"
     assert len(fake_queue.calls) == 1
     saved = json.loads((tmp_path / "grids" / f"{body['grid_ids'][0]}.json").read_text(encoding="utf-8"))
     assert saved["scene_ids"] == ["E1S01", "E1S02", "E1S03", "E1S04"]
@@ -473,7 +473,7 @@ def test_generate_grid_success_message_localized_en(monkeypatch, tmp_path):
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["message"] == "Submitted 1 grid generation tasks"
+        assert body["message"] == "Submitted 1 multi-grid storyboard generation tasks"
 
 
 class _FakePMScenes(_FakePMGenerate):

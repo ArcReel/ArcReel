@@ -326,7 +326,7 @@ async def _run_and_serialize(
     try:
         result = await run_test(preset_id=preset_id, base_url=base_url, api_key=api_key, model=model)
     except ValueError as exc:
-        raise UnprocessableError("agent_test_validation_error", diagnostic=str(exc)) from exc
+        raise UnprocessableError("agent_test_validation_error").with_diagnostic(str(exc)) from exc
     return _serialize_test_response(result)
 
 

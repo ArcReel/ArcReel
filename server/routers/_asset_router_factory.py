@@ -14,14 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from lib.api_errors import BadRequestError, NotFoundError
+from lib.api_errors import NotFoundError, UnprocessableError
 from lib.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
@@ -67,6 +67,20 @@ _I18N_KEYS: dict[str, dict[str, str]] = {
 
 def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _not_a_string(field: str) -> UnprocessableError:
+    return UnprocessableError("asset_field_must_be_string").with_diagnostic(f"field '{field}' must be a string")
+
+
+def _require_string_list_fields(values: Mapping[str, Any], fields: Iterable[str]) -> None:
+    """列表字段须是字符串列表；缺省与 None 视同未提供，交由调用方各自的默认值处理。"""
+    for field in fields:
+        value = values.get(field)
+        if value is not None and not _is_string_list(value):
+            raise UnprocessableError("asset_field_must_be_string_list").with_diagnostic(
+                f"field '{field}' must be a list of strings"
+            )
 
 
 class _InvalidFieldValue(Exception):
@@ -150,10 +164,7 @@ def build_asset_router(
                 # 「必为字符串」的持久化契约。
                 extras.pop(field, None)
             elif not isinstance(value, str):
-                raise BadRequestError(
-                    "asset_field_must_be_string",
-                    diagnostic=f"field '{field}' must be a string",
-                )
+                raise _not_a_string(field)
             elif field == "voice_notice_dismissed_at":
                 # 新建角色尚无 voice_updated_at，PATCH 侧「必须等于当前 voice_updated_at」的
                 # 校验在此处恒不成立（值不存在）；直接拒绝创建时携带该字段，防止绕过
@@ -161,13 +172,7 @@ def build_asset_router(
                 # 触发（如把已有角色的序列化结果整体复制进创建请求体），与 PATCH 侧的
                 # 同名校验一样须走翻译。
                 raise HTTPException(status_code=422, detail=_t("asset_voice_notice_dismissed_at_stale"))
-        for field in spec.extra_list_fields:
-            value = extras.get(field)
-            if value is not None and not _is_string_list(value):
-                raise BadRequestError(
-                    "asset_field_must_be_string_list",
-                    diagnostic=f"field '{field}' must be a list of strings",
-                )
+        _require_string_list_fields(extras, spec.extra_list_fields)
         try:
 
             def _sync():
@@ -213,17 +218,8 @@ def build_asset_router(
         for field in update_fields:
             value = req.get(field)
             if value is not None and not isinstance(value, str):
-                raise BadRequestError(
-                    "asset_field_must_be_string",
-                    diagnostic=f"field '{field}' must be a string",
-                )
-        for field in update_list_fields:
-            value = req.get(field)
-            if value is not None and not _is_string_list(value):
-                raise BadRequestError(
-                    "asset_field_must_be_string_list",
-                    diagnostic=f"field '{field}' must be a list of strings",
-                )
+                raise _not_a_string(field)
+        _require_string_list_fields(req, update_list_fields)
 
         try:
 

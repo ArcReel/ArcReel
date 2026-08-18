@@ -1,5 +1,5 @@
 MESSAGES = {
-    "project_migration_failed": "Dự án '{name}' chưa hoàn tất nâng cấp dữ liệu nên không thể tạo nội dung. Lý do: {reason}. Hãy sửa trong cuộc trò chuyện với trợ lý rồi thử nâng cấp lại",
+    "project_migration_failed": "Dự án '{name}' chưa hoàn tất nâng cấp dữ liệu nên không thể tạo nội dung. Lý do: {reason}. Hãy sửa trong cuộc trò chuyện với tác nhân AI rồi thử nâng cấp lại",
     "project_not_found": "Dự án '{name}' không tồn tại hoặc chưa được khởi tạo",
     "resource_not_found": "Tài nguyên được yêu cầu không tồn tại",
     "overview_ai_response_invalid": "Không thể phân tích phản hồi của AI thành tổng quan dự án, vui lòng thử lại hoặc đổi mô hình/nhà cung cấp",
@@ -147,19 +147,17 @@ MESSAGES = {
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
     "invalid_step_num": "Số bước không hợp lệ: {step_num}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
-    "draft_invalid_json": "Bản nháp Step 1 phải là một đối tượng JSON hợp lệ với mảng scenes không rỗng, trong đó mỗi scene là một đối tượng có scene_id không rỗng",
-    "script_review_not_applicable": "Tập này không áp dụng xác nhận Step 1 (chế độ này không có bản trung gian Step 1 có cấu trúc)",
-    "script_review_no_step1": "Chưa có bản nháp có cấu trúc Step 1 để xác nhận; vui lòng hoàn tất tiền xử lý trước",
-    "script_review_quarantined": (
-        "Tập này có bản nháp Step 1 cách ly đang chờ xử lý; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"
-    ),
+    "draft_invalid_json": "Bản nháp tổ chức nội dung có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
+    "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả tổ chức nội dung để xác nhận)",
+    "script_review_no_step1": "Chưa có kết quả tổ chức nội dung để xác nhận; vui lòng hoàn tất tổ chức nội dung trước",
+    "script_review_quarantined": ("Tập này có bản nháp cần sửa; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"),
     "script_review_conflict": (
-        "Bản nháp Step 1 đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
+        "Bản nháp tổ chức nội dung đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
         "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
     ),
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp xác nhận nội dung thất bại; vui lòng kiểm tra và thử lại",
     "script_review_quarantine_unreadable": (
-        "Tệp bản nháp bị cách ly đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"
+        "Tệp bản nháp cần sửa đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"
     ),
     "draft_event_label": "Tập {episode} {label_prefix}",
     "normalized_script": "Kịch bản đã chuẩn hóa",
@@ -268,7 +266,7 @@ MESSAGES = {
     "cost_estimation_failed": "Ước tính chi phí thất bại, vui lòng thử lại sau",
     # Validators
     "invalid_backend_format": "Định dạng lựa chọn mô hình không hợp lệ; sử dụng provider/model",
-    "backend_media_type_mismatch": "{field_name} yêu cầu mô hình loại {expected}, nhưng {provider}/{model} là mô hình loại {actual}",
+    "backend_media_type_mismatch": "Loại mô hình không khớp: mục này cần mô hình {expected}, nhưng {provider}/{model} là mô hình {actual}",
     "deprecated_image_backend": "Trường image_backend đã ngừng dùng; hãy dùng image_provider_t2i và image_provider_i2i",
     # Versions
     "unsupported_resource_type": "Loại tài nguyên không hỗ trợ: {resource_type}",

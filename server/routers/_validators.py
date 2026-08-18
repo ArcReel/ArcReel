@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
-from fastapi import HTTPException
-
 from lib.api_errors import BadRequestError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoCapability
-from lib.i18n import _ as _default_translate
 
 
 async def require_video_bucket_capability(project: dict, capability: VideoCapability) -> None:
@@ -25,7 +20,7 @@ async def require_video_bucket_capability(project: dict, capability: VideoCapabi
     try:
         await ConfigResolver(async_session_factory).resolve_video_backend(project, None, capability=capability)
     except VideoBucketCapabilityError as exc:
-        raise BadRequestError(exc.code, **exc.params) from exc  # pyright: ignore[reportArgumentType]
+        raise BadRequestError(exc.code, **exc.params) from exc
     except ValueError:
         # 未配置任何供应商等其余解析失败：放行入队，由 worker 在任务面板暴露（与图片 / 视频
         # 生成入口的既有行为一致，不把非能力类失败升级为提交期拒绝）
@@ -75,7 +70,7 @@ _FIELD_MEDIA_TYPES: dict[str, str] = {
 }
 
 
-def validate_backend_value(value: str, field_name: str, _t: Callable[..., str] = _default_translate) -> None:
+def validate_backend_value(value: str, field_name: str) -> None:
     """校验 ``provider/model`` 格式的 backend 字段值。
 
     只接受规范 provider id（``PROVIDER_REGISTRY`` 的 key 或 ``custom-`` 前缀）。legacy provider 名
@@ -87,33 +82,25 @@ def validate_backend_value(value: str, field_name: str, _t: Callable[..., str] =
     （自定义供应商等）无逐模型能力事实，放行交由供应商 API 把关，不做猜测。
 
     Raises:
-        HTTPException(400): 格式不合法、provider 不在注册表中、为 legacy 名、或 media_type 不匹配。
+        BadRequestError: 格式不合法、provider 不在注册表中、为 legacy 名、或 media_type 不匹配。
+            字段名只进诊断信息，不进面向使用者的摘要。
     """
     if "/" not in value:
         if value in PROVIDER_REGISTRY:
             return  # 裸 registry id（无 model），下游按全局默认补全
-        raise BadRequestError("invalid_backend_format", diagnostic=f"field: {field_name}")
+        raise BadRequestError("invalid_backend_format").with_diagnostic(f"field: {field_name}")
     provider_id, model_id = value.split("/", 1)
     provider_meta = PROVIDER_REGISTRY.get(provider_id)
     if provider_meta is None and not provider_id.startswith("custom-"):
-        detail = _t("unknown_provider", provider_id=provider_id)
-        raise HTTPException(
-            status_code=400,
-            detail=detail,
-        )
+        raise BadRequestError("unknown_provider", provider_id=provider_id).with_diagnostic(f"field: {field_name}")
     expected_media_type = _FIELD_MEDIA_TYPES.get(field_name)
     if expected_media_type is not None and provider_meta is not None:
         model_info = provider_meta.models.get(model_id)
         if model_info is not None and model_info.media_type != expected_media_type:
-            detail = _t(
+            raise BadRequestError(
                 "backend_media_type_mismatch",
-                field_name=field_name,
                 provider=provider_id,
                 model=model_id,
                 expected=expected_media_type,
                 actual=model_info.media_type,
-            )
-            raise HTTPException(
-                status_code=400,
-                detail=detail,
-            )
+            ).with_diagnostic(f"field: {field_name}")

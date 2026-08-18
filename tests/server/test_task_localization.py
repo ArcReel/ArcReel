@@ -83,10 +83,9 @@ class TestWarningRendering:
         en = _localize_task(task, _translator("en"))["result"]["warnings"][0]
         vi = _localize_task(task, _translator("vi"))["result"]["warnings"][0]
 
-        assert "产品" in zh and "product" not in zh
-        # en 显示名与内部标识同形，只能断言整句渲染结果，不能靠 "product" 是否出现区分
-        assert en == translate_message("ref_ad_reference_skipped", locale="en", name="小美", type="product")
-        assert "sản phẩm" in vi
+        assert "商品" in zh and "merchandise" not in zh
+        assert "merchandise" in en and "product" not in en
+        assert "hàng hóa" in vi
 
     @pytest.mark.parametrize("asset_type", sorted(ASSET_SPECS))
     @pytest.mark.parametrize("locale", ["zh", "en", "vi"])

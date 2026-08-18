@@ -1,5 +1,5 @@
 MESSAGES = {
-    "project_migration_failed": "Project '{name}' has not finished its data upgrade, so generation is unavailable. Reason: {reason}. Repair it in the assistant conversation, then retry the upgrade",
+    "project_migration_failed": "Project '{name}' has not finished its data upgrade, so generation is unavailable. Reason: {reason}. Repair it in the agent conversation, then retry the upgrade",
     "project_not_found": "Project '{name}' does not exist or is not initialized",
     "resource_not_found": "The requested resource does not exist",
     "overview_ai_response_invalid": "The AI response could not be parsed into a project overview. Please retry or switch to a different model/provider",
@@ -147,19 +147,19 @@ MESSAGES = {
     "invalid_asset_filename": "filename must not contain path separators or ..",
     "invalid_step_num": "Invalid step number: {step_num}",
     "draft_file_not_found": "Draft file does not exist",
-    "draft_invalid_json": "Step 1 draft must be a valid JSON object with a non-empty scenes array, where each scene is an object with a non-empty scene_id",
-    "script_review_not_applicable": "Step 1 review does not apply to this episode (this mode has no structured Step 1 intermediate)",
-    "script_review_no_step1": "No Step 1 structured draft to confirm yet; please finish preprocessing first",
+    "draft_invalid_json": "The content organization draft has an invalid structure; please check and retry",
+    "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no content organization result to confirm)",
+    "script_review_no_step1": "No content organization result to confirm yet; please finish content organization first",
     "script_review_quarantined": (
-        "This episode has a quarantined Step 1 draft awaiting repair; let the agent fix and promote it before confirming"
+        "This episode has a draft needing fixes; let the agent fix and promote it before confirming"
     ),
     "script_review_conflict": (
-        "The Step 1 draft was modified by another editor while you were editing; your save was not applied. "
+        "The content organization draft was modified by another editor while you were editing; your save was not applied. "
         "Refresh to see the latest content, merge your changes, then save again"
     ),
     "script_review_invalid_content": "Content confirmation draft structure validation failed; please check and retry",
     "script_review_quarantine_unreadable": (
-        "The quarantined draft file is corrupted or malformed and can't be read; ask the agent to re-split this episode"
+        "The draft needing fixes is corrupted or malformed and can't be read; ask the agent to re-split this episode"
     ),
     "draft_event_label": "Episode {episode} {label_prefix}",
     "normalized_script": "Normalized Script",
@@ -268,7 +268,7 @@ MESSAGES = {
     "cost_estimation_failed": "Cost estimation failed, please try again later",
     # Validators
     "invalid_backend_format": "Model selection format is invalid; use provider/model",
-    "backend_media_type_mismatch": "{field_name} expects a {expected} model, but {provider}/{model} is a {actual} model",
+    "backend_media_type_mismatch": "Model type mismatch: this setting needs a {expected} model, but {provider}/{model} is a {actual} model",
     "deprecated_image_backend": "The image_backend field is deprecated; use image_provider_t2i and image_provider_i2i instead",
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
