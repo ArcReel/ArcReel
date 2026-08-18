@@ -697,8 +697,8 @@ class TestProviderJobIdPersistenceMixin:
             "local-task-1", "job-1", provider="ark", endpoint="openai-video", base_url=None
         )
 
-    async def test_worker_path_persists_backend_endpoint_when_builtin(self):
-        """内置供应商由 backend 传入实际请求域名 → 落库供续跑回放。"""
+    async def test_worker_path_persists_backend_domain_when_builtin(self):
+        """内置供应商由 backend 传入实际请求域名 → 落域名列供续跑回放，协议标识位保持空。"""
         with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
             await self._backend()._persist_provider_job_id(
                 self._request(task_id="local-task-1"),
@@ -707,11 +707,11 @@ class TestProviderJobIdPersistenceMixin:
                 endpoint="https://maas.example.com/api/v1",
             )
         persist.assert_awaited_once_with(
-            "local-task-1", "job-1", provider="dashscope", endpoint="https://maas.example.com/api/v1", base_url=None
+            "local-task-1", "job-1", provider="dashscope", endpoint=None, base_url="https://maas.example.com/api/v1"
         )
 
     async def test_execution_endpoint_and_backend_domain_land_in_separate_columns(self):
-        """自定义供应商：endpoint 位落协议标识供比对，域名另落 base_url 位供回放，互不覆盖。"""
+        """自定义供应商：协议标识走 endpoint 位供比对，域名走 base_url 位供回放，互不覆盖。"""
         request = self._request(task_id="local-task-1")
         request.execution_endpoint = "dashscope-async-video"
         with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:

@@ -57,12 +57,10 @@ async def persist_provider_job_id(
 ) -> None:
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
-    Caller 显式传 task_id；``endpoint`` 记提交该 job 实际使用的执行端点，与 job_id 同一次写入
-    落地供续跑消费，按供应商类型有两种取值：自定义供应商记 endpoint 标识（协议维度，续跑据
-    此判定协议是否已被换掉），内置供应商记实际请求域名（连接维度，续跑据此回放原域名轮询）。
-    ``base_url`` 是自定义供应商那半边的请求域名，其 ``endpoint`` 位已被协议标识占用，域名另落
-    一列，同样供续跑回放。DB 瞬态错误最多重试 3 次，业务异常立即抛。重试用尽抛异常，由 worker
-    finally 兜底 mark_failed（fail-fast）。
+    Caller 显式传 task_id；``endpoint`` 是协议标识（协议维度，只有自定义供应商有，记录本笔供应商
+    任务按哪套协议提交），``base_url`` 是本次实际请求的域名（连接维度，两类供应商通用，续跑据此
+    回放原域名轮询）。两者与 job_id 同一次写入落地。DB 瞬态错误最多重试 3 次，业务异常立即抛。
+    重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
     """
     try:
         await _persist_with_retry(task_id, job_id, endpoint, base_url)
@@ -101,21 +99,20 @@ class ProviderJobIdPersistenceMixin:
     ) -> None:
         """submit 成功后立即调：worker 路径写回 job_id，非 worker 路径（task_id=None）跳过。
 
-        同时写回该 job 执行所用的端点，两个维度各占一列：``request.execution_endpoint`` 由自定义
-        供应商的包装层在转发前注入，是续跑比对协议的依据；``endpoint`` 由提交域名随用户配置变化的
-        backend（只有 dashscope 协议这一条线）传入实际请求域名，供续跑回放。自定义供应商两者兼有——
-        协议标识占 endpoint 位、域名走 base_url 位，互不覆盖；内置供应商只有域名，仍落 endpoint 位。
-        持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id`` 内重试 3 次），由 worker finally
-        兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
+        同时按维度分列写回本次提交所用的端点信息：协议标识取 ``request.execution_endpoint``（由
+        自定义供应商的包装层在转发前注入，内置供应商无此维度、恒 None），实际请求域名取参数
+        ``endpoint``（由提交域名随用户配置变化的 backend 传入，只有 dashscope 协议这一条线）。
+        两类供应商共用同一套写法，域名一律落 ``submitted_base_url``。持久化失败抛出（DB 瞬态错误
+        已在 ``persist_provider_job_id`` 内重试 3 次），由 worker finally 兜底 mark_failed ——
+        保持现有 fail-fast 语义（ADR 0007）。
         """
         if request.task_id is not None:
-            execution_endpoint = request.execution_endpoint
             await persist_provider_job_id(
                 request.task_id,
                 job_id,
                 provider=provider,
-                endpoint=execution_endpoint or endpoint,
-                base_url=endpoint if execution_endpoint else None,
+                endpoint=request.execution_endpoint,
+                base_url=endpoint,
             )
         if request.on_provider_resubmit_unsafe is not None:
             request.on_provider_resubmit_unsafe()
@@ -681,11 +678,12 @@ class VideoGenerationRequest:
     # call whose failure cannot prove that the provider rejected the request before accepting a paid job.
     on_provider_resubmit_unsafe: Callable[[], None] | None = None
 
-    # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的 endpoint，
-    # 与 job_id 一并持久化供续跑比对。内置供应商无 endpoint 维度，保持 None。
+    # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的协议标识，与 job_id
+    # 一并持久化到 `tasks.provider_endpoint`，记录本笔供应商任务的协议归属。内置供应商无此维度，
+    # 保持 None。续跑比对协议读的是 checkpoint 的 endpoint_guard，不读该列。
     execution_endpoint: str | None = None
 
-    # 续跑路径专用：提交本 job 时实际使用的请求域名，由 resume_executor 从持久化列回放。
+    # 续跑路径专用：提交本 job 时实际使用的请求域名，由 resume_executor 从 `tasks.submitted_base_url` 回放。
     # backend 轮询时优先用它而非当下配置解析出的域名——域名是连接维度而非协议维度，
     # 用户在途改配置后按新域名轮旧 job 会查无（404）而被误判成过期。提交路径恒 None。
     submitted_base_url: str | None = None

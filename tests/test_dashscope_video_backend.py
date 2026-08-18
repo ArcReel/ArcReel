@@ -1193,7 +1193,8 @@ class TestWan3:
                 )
             )
 
-        assert persist.call_args.kwargs["endpoint"] == "https://maas-a.example.com/ws-1/api/v1"
+        assert persist.call_args.kwargs["base_url"] == "https://maas-a.example.com/ws-1/api/v1"
+        assert persist.call_args.kwargs["endpoint"] is None
 
     @pytest.mark.unit
     async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path: Path):
