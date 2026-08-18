@@ -7,9 +7,9 @@
 id 分配与资产作废。MCP 工具与测试都复用它。
 
 三种内容/生成模式（narration/drama/reference_video）的分镜数组与 id 字段判别委托给
-`script_skeleton.resolve_kind_items`（骨架模块的唯一条目访问入口），`resolve_items` 在其上
-叠加编辑核心特有的 fail-loud 校验策略；与 `script_structure_validator._select_model`、写盘
-统一入口的 metadata 重算共用同一取证解析，避免多处漂移。
+`script_skeleton.resolve_kind_items`（骨架条目访问的唯一入口），`resolve_items` 在其上叠加
+编辑核心特有的 fail-loud 校验策略；与 `script_structure_validator._select_model`、写盘统一
+入口的 metadata 重算共用同一取证解析，避免多处漂移。
 """
 
 from __future__ import annotations
@@ -38,17 +38,18 @@ class ScriptEditError(ValueError):
         self.params = params
 
 
-def resolve_items(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
+def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[list[dict[str, Any]], str, str]:
     """按内容/生成模式选出当前剧本的分镜数组、其 id 字段名与种类。
 
     返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "shots", "video_units"}。
-    键与 id 字段的查法委托给 `script_skeleton.resolve_kind_items`（骨架模块的唯一条目访问入口，
-    取证解析同源）；本函数在其原样返回值上加编辑核心特有的校验策略：**键缺失**视为空数组；
+    键与 id 字段的查法委托给 `script_skeleton.resolve_kind_items`（骨架条目访问的唯一入口，
+    取证解析同源）；``kind`` 由调用方显式给定（如任务开工时已定死的生成路线）时跳过取证解析，
+    直接按该种类取值。本函数在原样返回值上加编辑核心特有的校验策略：**键缺失**视为空数组；
     **键存在但类型非 list（含值为 null）**时 fail-loud 抛 `ScriptEditError`（不静默降级为 []，
     避免把数据损坏掩盖成「未找到 id」——`"segments": null` 这类损坏会暴露而非被当成空草稿）。
     返回的 list 在键存在时即 script 内的实际引用（就地编辑生效）。
     """
-    raw_items, id_field, kind = resolve_kind_items(script)
+    raw_items, id_field, kind = resolve_kind_items(script, kind=kind)
     if kind not in script:
         return [], id_field, kind
     if not isinstance(raw_items, list):

@@ -19,6 +19,7 @@ from lib.script_skeleton import (
     SkeletonRouteMismatchError,
     ensure_route_skeleton,
     resolve_declared_kind,
+    resolve_kind_items,
     resolve_script_kind,
 )
 
@@ -229,3 +230,51 @@ class TestRouteSkeletonGate:
     def test_unknown_content_mode_still_fails_loud(self):
         with pytest.raises(ValueError):
             ensure_route_skeleton({"segments": []}, None, "storyboard")
+
+
+@pytest.mark.unit
+class TestKindItemsAccessor:
+    """条目访问唯一入口：种类判别的两条来路 × 条目值原样返回。"""
+
+    def test_forensic_kind_when_not_given(self):
+        # kind 缺省 → 走取证解析，与 resolve_script_kind 同一判别。
+        script = {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]}
+        items, id_field, kind = resolve_kind_items(script)
+        assert kind == "scenes"
+        assert id_field == SKELETONS["scenes"].id_field
+        assert items == [{"scene_id": "E1S01"}]
+
+    def test_explicit_kind_skips_forensics(self):
+        # 显式 kind 覆盖数据形状：取证解析会判 segments，指定 video_units 则按后者取值。
+        script = {"content_mode": "narration", "segments": [], "video_units": [{"unit_id": "E1U01"}]}
+        items, id_field, kind = resolve_kind_items(script, kind="video_units")
+        assert (kind, id_field) == ("video_units", SKELETONS["video_units"].id_field)
+        assert items == [{"unit_id": "E1U01"}]
+
+    def test_id_field_per_kind(self):
+        # 四骨架各自的条目身份不被通用化。
+        for kind, expected in (
+            ("segments", "segment_id"),
+            ("scenes", "scene_id"),
+            ("shots", "shot_id"),
+            ("video_units", "unit_id"),
+        ):
+            assert resolve_kind_items({}, kind=kind)[1] == expected
+
+    def test_items_returned_by_reference(self):
+        # 返回的是 script 内实际引用，就地编辑对调用方生效。
+        items_in_script: list[dict[str, object]] = []
+        script = {"content_mode": "narration", "segments": items_in_script}
+        items, _id_field, _kind = resolve_kind_items(script)
+        assert items is items_in_script
+
+    def test_missing_key_yields_none_not_empty_list(self):
+        # 不把缺失兜底成空数组——「键缺失」与「键在场但空」由调用方各自定策略。
+        items, id_field, kind = resolve_kind_items({"content_mode": "narration"})
+        assert (items, kind) == (None, "segments")
+        assert id_field == "segment_id"
+
+    def test_non_list_value_returned_as_is(self):
+        # 脏值原样上交，不在此 fail-loud、也不静默降级。
+        assert resolve_kind_items({"content_mode": "narration", "segments": None})[0] is None
+        assert resolve_kind_items({"content_mode": "drama", "scenes": "E1S01"})[0] == "E1S01"

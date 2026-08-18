@@ -1574,8 +1574,8 @@ class ScriptGenerator:
         # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
         ep = int(episode)
         # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + resolve_kind_items 查条目数组
-        # 与 id 字段改写（参考路线三种 content_mode 均映射到 video_units；不再手写 reference
-        # 分支）。self.content_mode 为项目级校验值，解析不会 fail-loud。
+        # 与 id 字段改写（参考路线三种 content_mode 均映射到 video_units，无需按路线分支）。
+        # self.content_mode 为项目级校验值，解析不会 fail-loud。
         kind = resolve_declared_kind(self.content_mode, gen_mode)
         raw_rewrite_items, id_field, _kind = resolve_kind_items(script_data, kind=kind)
         # 校验失败降级保存的原始 dict 里该数组可能为非列表脏值（LLM 误写标量），

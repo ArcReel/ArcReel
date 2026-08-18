@@ -169,18 +169,17 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
 
 
 def resolve_kind_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[Any, str, str]:
-    """按骨架种类取条目的唯一入口：返回 ``(items, id_field, kind)``。
+    """按骨架种类取条目数组与其 id 字段的唯一入口：返回 ``(items, id_field, kind)``。
 
     ``kind`` 缺省时经 ``resolve_script_kind``（取证解析）由剧本数据形状判别；调用方已持有
     项目声明或路线闸门算出的种类（``resolve_declared_kind`` / ``ensure_route_skeleton`` 的
     返回值）可显式传入，跳过重复判别。
 
     返回的条目值是 ``script.get(kind)`` 原样——**不做类型校验、不把非 list 兜底为空数组**：
-    键缺失时为 ``None``，键存在但非 list（含 ``null``）时原样返回该非法值。校验策略（是否
-    fail-loud、是否降级为空数组并记录、是否要求非空且逐项为 dict）由各调用方决定——既有调用方
-    对此分歧不小（``script_editor.resolve_items`` 抛异常、快照差分降级为空并 warning、工作流
-    状态机要求非空 list），收口校验会引入行为变化，本函数只统一「查哪个键、哪个 id 字段」这
-    一份结构事实，不越界统一校验。
+    键缺失时为 ``None``，键存在但非 list（含 ``null``）时原样返回该非法值。本函数只统一
+    「查哪个键、哪个 id 字段」这一份结构事实；脏值该 fail-loud 还是降级、空数组算不算合法，
+    是各消费路径自己的策略，归调用方，不在此收口。条目内的角色引用字段（``chars_field``）
+    不属于条目访问，仍直查 ``SKELETONS``。
     """
     resolved_kind = kind if kind is not None else resolve_script_kind(script)
     return script.get(resolved_kind), SKELETONS[resolved_kind].id_field, resolved_kind
