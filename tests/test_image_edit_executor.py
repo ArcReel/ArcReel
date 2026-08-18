@@ -745,7 +745,7 @@ class TestExecuteImageEditTask:
             return _Currency(statuses.pop(0))
 
         monkeypatch.setattr(image_edit_tasks, "active_artifact_currency_resolver", _resolver, raising=False)
-        monkeypatch.setattr("lib.artifact_activation.active_artifact_currency_resolver", _resolver)
+        monkeypatch.setattr("lib.artifact_input_claims.active_artifact_currency_resolver", _resolver)
         payload = {
             "resource_type": resource_type,
             "prompt": "局部调整",

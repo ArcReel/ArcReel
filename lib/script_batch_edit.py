@@ -25,6 +25,7 @@ from lib.artifact_manifest import (
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
 )
+from lib.content_digest import prefixed
 from lib.data_validator import DataValidator
 from lib.episode_paths import episode_script_filename
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager
@@ -177,7 +178,7 @@ class _OperationApplyError(ScriptEditError):
 def script_revision(script: object) -> str:
     """Return the canonical JSON optimistic-concurrency token for a script aggregate."""
 
-    return f"sha256-v1:{content_fingerprint_of_data(script)}"
+    return prefixed(content_fingerprint_of_data(script))
 
 
 class ScriptBatchEditor:

@@ -465,17 +465,17 @@ def test_schema8_archive_activation_rejects_tampered_presentation_evidence(tmp_p
 def test_runtime_resolver_plans_storyboards_only_once_per_snapshot(tmp_path: Path, monkeypatch) -> None:
     project_dir, _project_data, _step1, _script = _project(tmp_path)
     migrate_v7_to_v8(project_dir)
-    from lib import artifact_activation
+    from lib import artifact_planner
 
     calls = 0
-    original = artifact_activation.build_storyboard_image_visual_basis
+    original = artifact_planner.build_storyboard_image_visual_basis
 
     def _counted(*args, **kwargs):
         nonlocal calls
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(artifact_activation, "build_storyboard_image_visual_basis", _counted)
+    monkeypatch.setattr(artifact_planner, "build_storyboard_image_visual_basis", _counted)
     resolver = ArtifactCurrencyResolver(project_dir)
     key = ArtifactKey.episode_storyboard(1, "E1S01")
 

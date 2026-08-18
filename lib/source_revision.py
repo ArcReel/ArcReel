@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import stat
 import unicodedata
@@ -13,6 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from lib.content_digest import prefixed_canonical_json_digest
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 
 _DERIVED_EPISODE_RE = re.compile(r"episode_[0-9]+\.txt")
@@ -243,8 +243,7 @@ def compute_source_revision(
         "source_kind": project.get("source_kind", "novel"),
         "source_language": project.get("source_language"),
     }
-    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    revision = f"sha256-v1:{hashlib.sha256(serialized).hexdigest()}"
+    revision = prefixed_canonical_json_digest(payload)
     canonical_scope = (
         parsed_scope if parsed_scope.kind == "all" else SourceScope(kind="files", files=[rel for rel, _path in paths])
     )

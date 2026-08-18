@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -29,6 +28,7 @@ from lib.artifact_manifest import (
 )
 from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
+from lib.content_digest import digest_stream, sha256_file
 from lib.data_validator import DataValidator
 from lib.episode_ledger import parse_positive_episode_num
 from lib.formal_write import project_metadata_lock
@@ -701,9 +701,7 @@ class ProjectArchiveService:
                 signature.append((f"{relative_dir.as_posix()}/", "directory"))
             for filename in filenames:
                 path = current_path / filename
-                with path.open("rb") as handle:
-                    digest = hashlib.file_digest(handle, "sha256").hexdigest()
-                signature.append(((relative_dir / filename).as_posix(), digest))
+                signature.append(((relative_dir / filename).as_posix(), sha256_file(path)))
         return tuple(signature)
 
     def _iter_visible_tree(self, root: Path) -> Iterator[tuple[Path, Path, tuple[str, ...]]]:
@@ -741,13 +739,16 @@ class ProjectArchiveService:
                 source_path = current_path / filename
                 destination_path = destination_dir / filename
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
-                digest = hashlib.sha256()
                 with source_path.open("rb") as source, destination_path.open("wb") as destination:
-                    while chunk := source.read(1024 * 1024):
-                        digest.update(chunk)
+
+                    def _copy_chunk(size: int, source=source, destination=destination) -> bytes:
+                        chunk = source.read(size)
                         destination.write(chunk)
+                        return chunk
+
+                    hexdigest, _size, _content = digest_stream(_copy_chunk)
                 shutil.copystat(source_path, destination_path, follow_symlinks=False)
-                copied.append(((relative_dir / filename).as_posix(), digest.hexdigest()))
+                copied.append(((relative_dir / filename).as_posix(), hexdigest))
         return tuple(copied)
 
     def _repair_project_tree(self, project_dir: Path) -> ArchiveDiagnostics:

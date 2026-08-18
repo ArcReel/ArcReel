@@ -15,7 +15,6 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import errno
-import hashlib
 import json
 import logging
 import os
@@ -29,6 +28,7 @@ from typing import Literal, cast
 
 import portalocker
 
+from lib.content_digest import sha256_file
 from lib.path_safety import PathTraversalError, safe_join
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,6 @@ MANIFEST_FILENAME = ".arcreel_profile_manifest.json"
 LOCK_FILENAME = ".profile_sync.lock"
 MANIFEST_SCHEMA_VERSION = 1
 EXPECTED_PROFILE_ID = "arcreel/builtin"
-SHA256_CHUNK_BYTES = 64 * 1024
 LOCK_TIMEOUT_SECONDS = 10
 
 # profile 端要同步的两个根：``.claude/**`` 目录树 + 顶层 ``CLAUDE.md``
@@ -62,15 +61,6 @@ VALID_CONTENT_MODES: frozenset[str] = frozenset({"narration", "drama", "ad"})
 
 
 # ---------- 基础工具 ----------
-
-
-def sha256_file(path: Path) -> str:
-    """64KiB chunk 流式 sha256，避免大文件 OOM。"""
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        while chunk := f.read(SHA256_CHUNK_BYTES):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _is_skippable_dest(rel: str) -> bool:

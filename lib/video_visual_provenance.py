@@ -8,12 +8,12 @@ contract lives in :mod:`lib.visual_artifact_provenance`.
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
 from lib.artifact_manifest import ArtifactBasis
+from lib.content_digest import sha256_file
 from lib.prompt_utils import (
     build_drama_video_prompt,
     build_drama_video_prompt_from_legacy_dialogue,
@@ -33,16 +33,6 @@ def resolve_video_aspect_ratio(project: Mapping[str, object], resource_type: str
     return "9:16" if project.get("content_mode", "narration") in {"narration", "ad"} else "16:9"
 
 
-def _file_digest(path: Path) -> str:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _build_video_visual_basis(
     kind: str,
     *,
@@ -54,7 +44,7 @@ def _build_video_visual_basis(
         kind_version=1,
         inputs={
             "semantics": semantics,
-            "files": [{"role": role, "sha256": _file_digest(path)} for role, path in files],
+            "files": [{"role": role, "sha256": sha256_file(path)} for role, path in files],
         },
     )
 

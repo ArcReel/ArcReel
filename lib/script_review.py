@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from lib.content_digest import canonical_json_digest
 from lib.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_STEP1,
     QUARANTINE_KIND_STEP1,
@@ -152,8 +153,7 @@ def content_fingerprint_of_data(data: object) -> str:
     对应调用方手里这份内容本身。与 ``content_fingerprint`` 的 JSON 分支同一套规范化逻辑，
     仅入参从路径换成已解析对象，故对同一份内容两者取值相同。
     """
-    canonical = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return canonical_json_digest(data)
 
 
 def content_fingerprint(path: Path) -> str | None:

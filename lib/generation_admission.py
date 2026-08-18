@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -12,17 +10,13 @@ from pathlib import Path
 import portalocker
 
 from lib.app_data_dir import app_data_dir
+from lib.content_digest import canonical_json_digest
 
 _POLL_SECONDS = 0.05
 
 
 def _lock_path(*, project_name: str, resource_id: str) -> Path:
-    identity = json.dumps(
-        [project_name, resource_id],
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    digest = hashlib.sha256(identity).hexdigest()
+    digest = canonical_json_digest([project_name, resource_id])
     root = app_data_dir() / ".generation-admission-locks"
     root.mkdir(parents=True, exist_ok=True)
     return root / f"{digest}.lock"

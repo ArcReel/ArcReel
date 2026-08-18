@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Self, cast
 
 from lib.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
 from lib.asset_types import asset_name_comparison_key
+from lib.content_digest import CONTENT_DIGEST_RE, PREFIXED_DIGEST_RE, prefixed_canonical_json_digest
 from lib.speech_artifact_provenance import build_video_duration_basis
 
 _SCHEMA_VERSION = 1
@@ -18,13 +16,7 @@ _STORYBOARD_VISUAL_KIND = "artifact-visual/video-storyboard"
 _REFERENCE_VISUAL_KIND = "artifact-visual/video-reference"
 _SPEECH_KIND = "artifact-speech/video"
 _VIDEO_KIND = "artifact-components/video"
-_HEX_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
-_BASIS_DIGEST = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
 VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD = "artifact_video_restore_blocker"
-
-
-def _canonical_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +130,7 @@ class VideoArtifactCurrencyFacts:
     @property
     def currency_digest(self) -> str:
         payload = self._payload()
-        return f"sha256-v1:{hashlib.sha256(_canonical_json(payload).encode('utf-8')).hexdigest()}"
+        return prefixed_canonical_json_digest(payload, allow_nan=False)
 
     def _payload(self) -> dict[str, object]:
         return {
@@ -230,7 +222,7 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
                 isinstance(frame, Mapping)
                 and set(frame) == {"role", "sha256"}
                 and isinstance(frame["sha256"], str)
-                and _HEX_DIGEST.fullmatch(frame["sha256"]) is not None
+                and CONTENT_DIGEST_RE.fullmatch(frame["sha256"]) is not None
                 for frame in frames
             )
         )
@@ -274,7 +266,7 @@ def _reference_evidence_is_valid(value: object) -> bool:
         and {"role", "sha256", "logical_identity"} <= set(value)
         and value["role"] == "reference_image"
         and isinstance(value["sha256"], str)
-        and _HEX_DIGEST.fullmatch(value["sha256"]) is not None
+        and CONTENT_DIGEST_RE.fullmatch(value["sha256"]) is not None
         and isinstance(identity, Mapping)
         and set(identity) == {"type", "id"}
         and _nonempty(identity["type"])
@@ -317,6 +309,6 @@ def _validate_speech_inputs(basis: ArtifactBasis) -> None:
             or set(voice) != {"speaker", "voice_style", "reference_audio_digest"}
             or voice["speaker"] != speaker
             or not isinstance(voice["voice_style"], str)
-            or (digest is not None and (not isinstance(digest, str) or _BASIS_DIGEST.fullmatch(digest) is None))
+            or (digest is not None and (not isinstance(digest, str) or PREFIXED_DIGEST_RE.fullmatch(digest) is None))
         ):
             raise ValueError("character video speech voice evidence is not canonical")
