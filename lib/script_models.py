@@ -959,7 +959,7 @@ class ReferenceStep1FlatUnit(BaseModel):
         description="该单元时长（秒）",
     )
     source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
-    text: str = Field(min_length=1, description="该单元的书写层正文：镜头行 / 台词行 / 画外音行")
+    text: str = Field(min_length=1, description="该单元的书写层正文：镜头行 + 行内的台词 / 画外音记号")
 
 
 class ReferenceStep1FlatDraft(BaseModel):
@@ -979,7 +979,7 @@ class ReferenceStep2FlatUnit(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    text: str = Field(min_length=1, description="视觉展开后的书写层正文：镜头行 / 台词行 / 画外音行")
+    text: str = Field(min_length=1, description="视觉展开后的书写层正文：镜头行 + 行内的台词 / 画外音记号")
 
 
 class ReferenceStep2FlatScript(BaseModel):
@@ -1001,7 +1001,7 @@ class AdReferenceFlatUnit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元的编排时长（秒），不按供应商档位量化",
     )
-    text: str = Field(min_length=1, description="书写层正文：镜头行 / 台词行 / 画外音行")
+    text: str = Field(min_length=1, description="书写层正文：镜头行 + 行内的台词 / 画外音记号")
 
 
 class AdReferenceFlatScript(BaseModel):

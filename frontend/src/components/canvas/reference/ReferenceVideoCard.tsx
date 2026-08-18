@@ -29,6 +29,7 @@ function renderHighlightedTokens(
   tokens: Token[],
   caretOffset: number | null,
   setAnchorEl: (el: HTMLSpanElement | null) => void,
+  voiceoverLabel: string,
 ): ReactNode {
   const out: ReactNode[] = [];
   let acc = 0;
@@ -50,6 +51,20 @@ function renderHighlightedTokens(
       const palette = assetColor(tk.assetKind);
       return (
         <span key={key} className={`${MENTION_SPAN_CLASS} ${palette.textClass} ${palette.bgClass}`}>
+          {sliceText}
+        </span>
+      );
+    }
+    if (tk.kind === "speech") {
+      // 与预览的 `ScriptHighlight` 同一套着色：底色标出「这段被认成台词了」，说话人配色跟
+      // 资产档位走（画外音无说话人，恒是 unknown 档）。原文逐字保留，只加颜色与 title。
+      const palette = assetColor(tk.speakerKind);
+      return (
+        <span
+          key={key}
+          className={`${MENTION_SPAN_CLASS} bg-[oklch(1_0_0_/_0.06)] ${tk.speaker ? palette.textClass : ""}`}
+          title={tk.speaker || voiceoverLabel}
+        >
           {sliceText}
         </span>
       );
@@ -129,12 +144,14 @@ export function ReferenceVideoCard({
 
   const tokens = useShotPromptHighlight(currentText, lookup);
 
+  const voiceoverLabel = t("script_highlight_voiceover");
+
   // pickerOpen=false 是绝对多数路径（打字时 picker 只在 @ 触发短暂打开）。
   // tokens 已被 useShotPromptHighlight memo 化，这里再把 tokens→ReactNode 列表缓存一层，
   // 父组件或其他 state 引起的 re-render 就不会重新跑 renderHighlightedTokens 的 forEach。
   const staticHighlightedNodes = useMemo(
-    () => renderHighlightedTokens(tokens, null, () => {}),
-    [tokens],
+    () => renderHighlightedTokens(tokens, null, () => {}, voiceoverLabel),
+    [tokens, voiceoverLabel],
   );
 
   const unknownMentions = useMemo(() => {
@@ -304,7 +321,7 @@ export function ReferenceVideoCard({
           className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 font-mono text-sm leading-6"
         >
           {pickerOpen
-            ? renderHighlightedTokens(tokens, atStart, setAnchorEl)
+            ? renderHighlightedTokens(tokens, atStart, setAnchorEl, voiceoverLabel)
             : staticHighlightedNodes}
           {currentText.endsWith("\n") ? "\u200b" : null}
         </pre>

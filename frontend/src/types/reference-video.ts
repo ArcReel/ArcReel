@@ -228,7 +228,7 @@ export interface ScriptPreviewWarning {
 
 export interface ScriptPreview {
   shots: { index: number; text: string }[];
-  /** 顺序即参考图编号；规范台词行的 speaker 位不计入 */
+  /** 顺序即参考图编号；台词记号的 speaker 位不计入 */
   references: ReferenceResource[];
   utterances: ScriptPreviewUtterance[];
   warnings: ScriptPreviewWarning[];

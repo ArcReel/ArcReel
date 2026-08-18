@@ -1,4 +1,4 @@
-"""分镜文稿台词规范行的派生与降级可见性 warning。"""
+"""分镜文稿发声记号的派生与降级可见性 warning。"""
 
 import unicodedata
 
@@ -6,7 +6,7 @@ import pytest
 
 from lib.i18n import MESSAGES, _
 from lib.reference_video.script_preview import (
-    WARN_DIALOGUE_INLINE,
+    WARN_BRACES_NOT_SPEECH,
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_EPISODE,
     WARN_SILENT_MODEL,
@@ -22,8 +22,7 @@ from lib.reference_video.script_preview import (
 )
 from lib.reference_video.shot_parser import (
     extract_mentions,
-    match_dialogue_line,
-    match_voiceover_line,
+    line_speech_marks,
     parse_prompt,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
@@ -53,57 +52,71 @@ def keys(preview) -> list[str]:
     return [w["key"] for w in preview.warnings]
 
 
-# ---------- 规范行匹配原语 ----------
+# ---------- 行内记号匹配原语 ----------
 
 
-@pytest.mark.parametrize(
-    "line",
-    ["@[张三]：{我来了}", "@[张三]:{我来了}", "  @[张三] ： {我来了}  ", "@张三：{我来了}"],
-)
-def test_dialogue_line_accepts_wrapped_bare_and_both_colons(line: str):
-    assert match_dialogue_line(line) == ("张三", "我来了")
+def marks(line: str) -> list[tuple[str, str]]:
+    return [(mark.speaker, mark.text) for mark in line_speech_marks(line)]
 
 
 @pytest.mark.parametrize(
     "line",
     [
-        "中景，@[张三]：{我来了} 说完转身",  # 台词混写描述行
+        "@[张三]：{我来了}",
+        "@[张三]:{我来了}",
+        "  @[张三] ： {我来了}  ",
+        "@张三：{我来了}",
+        "@[张三]{我来了}",
+        "中景，@[张三] 笑着，@[张三]{我来了} 说完转身",
+    ],
+)
+def test_dialogue_mark_accepts_wrapped_bare_both_colons_and_inline(line: str):
+    assert marks(line) == [("张三", "我来了")]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
         "@[张三]：我来了",  # 无花括号
         "@[张三]：{我来了",  # 未闭合
-        "他说 @[张三]：{我来了}",  # 行首不是 mention
-        "@[张三]{我来了}",  # 缺冒号
         "@[ ]：{我来了}",  # speaker 位全为空白
         "@[张三]：{}",  # 空台词
         "@[张三]：{   }",  # 台词只有空白
     ],
 )
-def test_dialogue_line_rejects_non_normative(line: str):
-    assert match_dialogue_line(line) is None
+def test_line_without_valid_mark_derives_nothing(line: str):
+    assert marks(line) == []
+
+
+def test_speaker_must_be_adjacent_to_the_braces():
+    """隔着描述文字的 mention 不是说话人——不做「行内最近 mention 猜 speaker」。"""
+    assert marks("他说 @[张三] 转身，屋里传出 {我来了}") == [("", "我来了")]
 
 
 def test_blank_speaker_degrades_to_warning_instead_of_raising():
     """speaker 位空白不得构造非法 Utterance——只读派生要出 warning，不能抛校验错。"""
     preview = build_script_preview("镜头1：中景。\n@[ ]：{我来了}", PROJECT, _SOFT)
     assert preview.utterances == []
-    # 非规范行 → 台词混写 warning；空白名同时作为未登记 mention 被点名。
-    assert keys(preview) == [WARN_UNREGISTERED_MENTION, WARN_DIALOGUE_INLINE]
+    # 未成记号 → 花括号未识别 warning；空白名同时作为未登记 mention 被点名。
+    assert keys(preview) == [WARN_UNREGISTERED_MENTION, WARN_BRACES_NOT_SPEECH]
 
 
-def test_voiceover_line_is_bare_braces():
-    assert match_voiceover_line("  {那年冬天格外冷}  ") == "那年冬天格外冷"
-    assert match_voiceover_line("旁白：{那年冬天}") is None
+def test_voiceover_mark_is_bare_braces_anywhere():
+    assert marks("  {那年冬天格外冷}  ") == [("", "那年冬天格外冷")]
+    assert marks("旁白：{那年冬天}") == [("", "那年冬天")]
+    assert marks("镜头切到窗外。{那年冬天}") == [("", "那年冬天")]
 
 
 @pytest.mark.parametrize("line", ["{}", "{   }"])
 def test_blank_braces_are_not_utterances(line: str):
     """空台词不派生：``Utterance`` 与 DataValidator 都要求 text 非空。"""
-    assert match_voiceover_line(line) is None
+    assert marks(line) == []
 
 
 def test_blank_braces_degrade_to_warning():
     preview = build_script_preview("镜头1：中景。\n@[张三]：{}\n{   }", PROJECT, _SOFT)
     assert preview.utterances == []
-    assert keys(preview) == [WARN_DIALOGUE_INLINE, WARN_DIALOGUE_INLINE]
+    assert keys(preview) == [WARN_BRACES_NOT_SPEECH, WARN_BRACES_NOT_SPEECH]
 
 
 # ---------- 派生 ----------
@@ -119,10 +132,20 @@ def test_normative_lines_derive_dialogue_and_voiceover():
     ]
 
 
-def test_inline_dialogue_is_not_derived_and_warns():
-    preview = build_script_preview("镜头1：中景，@[张三] 笑着说 {我来了}。", PROJECT, _SOFT)
-    assert preview.utterances == []
-    assert WARN_DIALOGUE_INLINE in keys(preview)
+def test_inline_dialogue_is_derived_alongside_the_description():
+    """台词跟在同一行画面描述之后照常派生；说话人只绑声音，描述里的资产照常进参考图。"""
+    preview = build_script_preview("镜头1：@[酒馆] 内景，@[张三] 推门。@[张三]{我来了}", PROJECT, _SOFT)
+    assert [(u.shot_index, u.utterance.kind, u.utterance.speaker, u.utterance.text) for u in preview.utterances] == [
+        (1, "dialogue", "张三", "我来了")
+    ]
+    assert preview.warnings == []
+    assert [r.name for r in preview.references] == ["酒馆", "张三"]
+
+
+def test_marks_recognized_on_a_line_do_not_suppress_residual_brace_warning():
+    preview = build_script_preview("镜头1：中景。@[张三]{我来了} 然后 {坏", PROJECT, _SOFT)
+    assert [u.utterance.text for u in preview.utterances] == ["我来了"]
+    assert keys(preview) == [WARN_UNCLOSED_BRACE]
 
 
 def test_script_without_dialogue_symbols_derives_nothing():
@@ -186,9 +209,10 @@ def test_warn_unclosed_brace():
     assert preview.warnings[0]["params"]["shot"] == 1
 
 
-def test_warn_dialogue_inline():
-    preview = build_script_preview("镜头1：@[张三] 说 {我来了}。", PROJECT, _SOFT)
-    assert keys(preview) == [WARN_DIALOGUE_INLINE]
+def test_warn_braces_not_speech():
+    """说话人位写坏时不静默降级成画外音，出 warning 让作者看见这段没被认成台词。"""
+    preview = build_script_preview("镜头1：@[]：{我来了}。", PROJECT, _SOFT)
+    assert keys(preview) == [WARN_BRACES_NOT_SPEECH]
 
 
 def test_warn_unregistered_speaker():
@@ -281,7 +305,7 @@ def test_derive_voice_bindings_degrades_on_malformed_character_entry():
 
 
 def test_warn_speaker_audio_needs_image_when_backend_requires_per_image_attachment():
-    """纯画外 speaker（台词行 speaker 位不产生参考图）遇到要求逐图挂载音频的 backend
+    """纯画外 speaker（台词记号的 speaker 位不产生参考图）遇到要求逐图挂载音频的 backend
     （如 wan2.7-r2v）时须与执行层同一份判定：预览不能显示已绑定，执行时才降级。"""
     text = "@[张三]：{我来了}"
     preview = build_script_preview(
@@ -395,7 +419,7 @@ def test_silent_episode_keeps_utterances_for_lip_sync():
 WARNING_KEYS = [
     WARN_UNREGISTERED_MENTION,
     WARN_UNCLOSED_BRACE,
-    WARN_DIALOGUE_INLINE,
+    WARN_BRACES_NOT_SPEECH,
     WARN_UNREGISTERED_SPEAKER,
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_REFERENCE_AUDIO_OVERFLOW,
@@ -407,7 +431,7 @@ WARNING_KEYS = [
 WARNING_PARAMS = {
     WARN_UNREGISTERED_MENTION: {"name": "王五"},
     WARN_UNCLOSED_BRACE: {"shot": 1, "excerpt": "他说 {我来了。"},
-    WARN_DIALOGUE_INLINE: {"shot": 2},
+    WARN_BRACES_NOT_SPEECH: {"shot": 2},
     WARN_UNREGISTERED_SPEAKER: {"name": "王五"},
     WARN_SPEAKER_WITHOUT_AUDIO: {"name": "李四"},
     WARN_REFERENCE_AUDIO_OVERFLOW: {"limit": 3, "name": "李四"},
@@ -428,6 +452,6 @@ def test_warning_messages_render_in_all_locales(locale: str, key: str):
         assert f"{{{param}}}" not in text
 
 
-def test_zh_inline_warning_shows_literal_syntax_example():
-    text = _(WARN_DIALOGUE_INLINE, locale="zh", shot=2)
-    assert "@[角色]：{台词}" in text
+def test_zh_braces_warning_shows_literal_syntax_example():
+    text = _(WARN_BRACES_NOT_SPEECH, locale="zh", shot=2)
+    assert "@[角色]{台词}" in text

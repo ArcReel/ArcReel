@@ -304,9 +304,10 @@ MESSAGES = {
     "ref_warn_unclosed_brace": (
         "Shot {shot}: unclosed dialogue braces, not recognized as dialogue. The line is sent verbatim: {excerpt}…"
     ),
-    "ref_warn_dialogue_inline": (
-        "Shot {shot}: dialogue and description are on the same line, so it is not recognized as "
-        "dialogue. For voice reference, put the dialogue on its own line (@[character]: {{dialogue}})"
+    "ref_warn_braces_not_speech": (
+        "Shot {shot}: braces were not recognized as speech and are sent verbatim. Write dialogue as "
+        "@[character]{{dialogue}} and voice-over as {{dialogue}}; the speaker must be non-empty and "
+        "braces must be paired and not nested"
     ),
     "ref_warn_unregistered_speaker": (
         "@[{name}] is not registered as a character: the speaker cannot be confirmed, so the line is sent verbatim"

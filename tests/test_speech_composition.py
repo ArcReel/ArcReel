@@ -484,6 +484,51 @@ def test_reference_video_adapter_preserves_cross_shot_utterance_order() -> None:
     ]
 
 
+def test_reference_video_adapter_binds_inline_speech_the_same_as_a_whole_line() -> None:
+    """内联写法与整行写法产生同一组发声准入：说话人、归属、文本、发声模式逐项相同。
+
+    音频绑定走的是这条路径（说话人决定绑哪段参考音频），故等价性要在这里钉住，
+    而不只在解析器单测里。只有 location 的行号按物理行不同——它是行粒度坐标，与绑定无关。
+    """
+    legacy = SpeechComposition.prepare(
+        adapt_video_unit(
+            {
+                "unit_id": "E1U10",
+                "shots": [{"text": "@[阿离] 推门。\n@[阿离]：{有人吗？}\n@[守卫]：{站住。}"}],
+            }
+        )
+    )
+    inline = SpeechComposition.prepare(
+        adapt_video_unit(
+            {
+                "unit_id": "E1U10",
+                "shots": [{"text": "@[阿离] 推门。@[阿离]{有人吗？}守卫抬头。@[守卫]{站住。}"}],
+            }
+        )
+    )
+
+    assert inline.mode is legacy.mode
+    assert [(entry.owner, entry.speaker, entry.text) for entry in inline.utterances] == [
+        (entry.owner, entry.speaker, entry.text) for entry in legacy.utterances
+    ]
+    assert inline.problems == legacy.problems == ()
+
+
+def test_reference_video_adapter_keeps_a_recognized_mark_when_the_same_line_has_stray_braces() -> None:
+    """同一行另有花括号残余时，已识别的台词照常准入，残余单独报解析问题——不连坐。"""
+    snapshot = adapt_video_unit(
+        {
+            "unit_id": "E1U11",
+            "shots": [{"text": "@[阿离]{我来了。}门后是 {未闭合"}],
+        }
+    )
+
+    result = SpeechComposition.prepare(snapshot)
+
+    assert [entry.text for entry in result.utterances] == ["我来了。"]
+    assert [problem.code for problem in result.problems] == [SpeechProblemCode.PARSE_FAILED]
+
+
 def test_reference_video_adapter_allows_asset_headings_without_guessing_their_type() -> None:
     snapshot = adapt_video_unit(
         {

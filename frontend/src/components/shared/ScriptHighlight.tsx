@@ -37,8 +37,27 @@ export interface ScriptHighlightProps {
   renderAfterLine?: (sourceLine: number) => ReactNode;
 }
 
+function SpeechToken({ token }: { token: Extract<Token, { kind: "speech" }> }) {
+  const { t } = useTranslation("dashboard");
+  // 画外音没有说话人，`speakerKind` 恒为 unknown，配色因此与未登记说话人同档。
+  const palette = assetColor(token.speakerKind);
+  // 记号原文逐字保留（含 `@[名称]` 与冒号），只加底色与说话人标签：预览要和作者写的
+  // 那一行对得上，改写会让「这段被认成台词了吗」难以核对。
+  return (
+    <span
+      className={`rounded-sm bg-[oklch(1_0_0_/_0.06)] ${token.speaker ? palette.textClass : "text-[var(--color-text)]"}`}
+      title={token.speaker || t("script_highlight_voiceover")}
+    >
+      {token.text}
+    </span>
+  );
+}
+
 function renderTokens(tokens: Token[], keyPrefix: string) {
   return tokens.map((tk, i) => {
+    if (tk.kind === "speech") {
+      return <SpeechToken key={`${keyPrefix}-${i}`} token={tk} />;
+    }
     if (tk.kind === "mention") {
       const palette = assetColor(tk.assetKind);
       return (

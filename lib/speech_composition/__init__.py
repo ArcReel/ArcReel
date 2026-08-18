@@ -11,8 +11,8 @@ from lib.asset_types import normalize_asset_name
 from lib.reference_video.shot_parser import (
     find_malformed_mention,
     leading_mention_before_colon,
-    match_dialogue_line,
-    match_voiceover_line,
+    speech_line_description,
+    split_speech_line,
 )
 
 
@@ -212,6 +212,8 @@ class SpeechComposition:
         return SpeechPreparation(snapshot.unit_id, mode, tuple(utterances), tuple(problems))
 
 
+#: 说话人位为空的台词（``@[ ]：{台词}``）。发声记号的说话人位必须非空，这一形态因此不成记号、
+#: 整段留在描述残余里；在此单独识别，让准入报「没指定说话人」而不是笼统的解析失败。
 _EMPTY_SPEAKER_LINE = re.compile(r"^\s*@\[\s*\]\s*[:：]\s*\{([^{}]+)\}\s*$")
 _MISSING = object()
 
@@ -484,30 +486,20 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
                 continue
             for line_index, line in enumerate(text.splitlines()):
                 location = SpeechFieldLocation(("shots", shot_index, "text"), line_index)
-                dialogue = match_dialogue_line(line)
-                if dialogue is not None:
-                    speaker, spoken = dialogue
+                parts = split_speech_line(line)
+                for part in parts:
+                    if isinstance(part, str):
+                        continue
                     entries.append(
                         SpeechInputUtterance(
-                            speaker=speaker,
-                            speaker_required=True,
-                            text=spoken,
+                            speaker=part.speaker or None,
+                            speaker_required=bool(part.speaker),
+                            text=part.text,
                             location=location,
                         )
                     )
-                    continue
-                voiceover = match_voiceover_line(line)
-                if voiceover is not None:
-                    entries.append(
-                        SpeechInputUtterance(
-                            speaker=None,
-                            speaker_required=False,
-                            text=voiceover,
-                            location=location,
-                        )
-                    )
-                    continue
-                empty_speaker = _EMPTY_SPEAKER_LINE.match(line.replace("\ufeff", ""))
+                rest = speech_line_description(parts)
+                empty_speaker = _EMPTY_SPEAKER_LINE.match(rest.replace("\ufeff", ""))
                 if empty_speaker is not None:
                     spoken = empty_speaker.group(1)
                     if not spoken.strip():
@@ -522,17 +514,17 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
                         )
                     )
                     continue
-                leading_name = leading_mention_before_colon(line)
+                leading_name = leading_mention_before_colon(rest)
                 if (
-                    "{" in line
-                    or "}" in line
-                    or "｛" in line
-                    or "｝" in line
+                    "{" in rest
+                    or "}" in rest
+                    or "｛" in rest
+                    or "｝" in rest
                     or (
                         leading_name is not None
                         and normalize_asset_name(leading_name.strip()) not in non_character_names
                     )
-                    or find_malformed_mention(line) is not None
+                    or find_malformed_mention(rest) is not None
                 ):
                     problems.append(_parse_problem(normalized_unit_id, location))
     else:

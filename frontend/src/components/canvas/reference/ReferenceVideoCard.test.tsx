@@ -101,6 +101,18 @@ describe("ReferenceVideoCard", () => {
     expect(ta.value).toBe("plain text with no header");
   });
 
+  it("highlights inline speech marks in the editor overlay", () => {
+    // 高亮层与预览（ScriptHighlight）同口径：记号原文逐字保留，只加底色与说话人 title。
+    const unit = mkUnit({ shots: [{ text: "门开了。@[张三]：{我来了}" }], duration_seconds: 3 });
+    const { container } = render(<ControlledCard unit={unit} />);
+    const dialogue = container.querySelector('[title="张三"]');
+    expect(dialogue?.textContent).toBe("@[张三]：{我来了}");
+
+    render(<ControlledCard unit={mkUnit({ shots: [{ text: "夜色渐深。{很久以前……}" }] })} />);
+    const voiceover = document.querySelector('[title="画外音"]');
+    expect(voiceover?.textContent).toBe("{很久以前……}");
+  });
+
   it("fires onChange with the new prompt text on every edit", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();

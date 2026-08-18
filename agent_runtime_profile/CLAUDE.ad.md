@@ -75,7 +75,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 ### 参考直出（reference_video）的自包含单元
 
 - 剧本生成会单阶段直接产出 `video_units[]`，不创建 step1 审阅中间态，也不从 `shots` 派生或重新派生分组；每个 unit 对应一次生成调用与 `reference_videos/{unit_id}.mp4`
-- unit 正文使用统一书写层：镜头行描述画面，`@[角色]：{台词}` 表达人物发声，其余独立口播行表达无归属旁白；产品、角色、场景、道具均用 `@[名称]` mention。references 由系统从正文机械派生，同名按 product → character → scene → prop 解析
+- unit 正文使用统一书写层：`镜头N：` 行描述画面，`@[角色]{台词}` 表达人物发声，`{台词}` 表达无归属旁白，两者可写在行内任意位置；产品、角色、场景、道具均用 `@[名称]` mention。references 由系统从正文机械派生，同名按 product → character → scene → prop 解析
 - 一个 unit 只能承载人物发声、无归属旁白或无人声中的一种；需要切换发声归属时在规划阶段拆成相邻 unit。标记 `needs_replan` 的存量问题单元须先重新规划，生成入口会拒绝入队
 - unit 参考集按正文首次 mention 排序，但产品绝对优先（有 sheet 时 sheet + 原图，无 sheet 时原图直注，自动附高保真指令），其后是角色/场景/道具 sheet
 - **时长约束**：每个 unit 的 `duration_seconds` 是符合剧本模型结构约束的正整数编排时长，所有 unit 之和应贴近 `target_duration`；供应商档位由生成预检处理，不在剧本规划时量化

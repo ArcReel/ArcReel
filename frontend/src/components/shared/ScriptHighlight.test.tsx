@@ -21,7 +21,7 @@ describe("ScriptHighlight", () => {
     expect(classFor("王五")).toContain("red");
   });
 
-  it("renders a normative dialogue line as speaker + spoken text, not raw syntax", () => {
+  it("renders a lone dialogue mark as speaker + spoken text, not raw syntax", () => {
     renderScript("镜头1：中景。\n@[张三]：{我来了}");
     expect(screen.getByText("张三")).toBeTruthy();
     expect(screen.getByText("我来了")).toBeTruthy();
@@ -45,7 +45,7 @@ describe("ScriptHighlight", () => {
   });
 
   it("parses a dialogue written on the shot header line, keeping the header its own row", () => {
-    // 后端切分镜头时剥掉 header，这行在 shot 文本里就是规范台词行；预览若按描述行渲染，
+    // 后端切分镜头时剥掉 header，这行在 shot 文本里就是一条台词；预览若按描述行渲染，
     // 会与同屏的服务端派生台词列表自相矛盾。
     const container = renderScript("镜头1：@[张三]：{我来了}");
     expect(screen.getByText("张三")).toBeTruthy();
@@ -62,7 +62,7 @@ describe("ScriptHighlight", () => {
   });
 
   it("leaves a blank speaker slot as plain text instead of a dialogue row", () => {
-    // speaker 位空白不构成规范行（同后端：dialogue utterance 必须带非空 speaker）
+    // speaker 位空白不成记号（同后端：dialogue utterance 必须带非空 speaker）
     renderScript("镜头1：中景。\n@[ ]：{我来了}");
     expect(screen.getByText(/\{我来了\}/)).toBeTruthy();
   });
@@ -73,9 +73,18 @@ describe("ScriptHighlight", () => {
     expect(screen.queryByText("画外音")).toBeNull();
   });
 
-  it("leaves a line mixing dialogue into description as plain text", () => {
-    renderScript("镜头1：@张三 笑着说 {我来了}。");
-    expect(screen.getByText(/\{我来了\}/)).toBeTruthy();
+  it("highlights an inline speech mark in place, keeping the line's own wording", () => {
+    // 记号与描述混写的行按描述行渲染，记号在行内就地着色——预览要与作者写的那一行对得上。
+    const container = renderScript("镜头1：@张三 推门。@[张三]{我来了}");
+    const mark = [...container.querySelectorAll("span")].find((el) => el.textContent === "@[张三]{我来了}");
+    expect(mark).toBeTruthy();
+    expect(mark?.getAttribute("title")).toBe("张三");
+  });
+
+  it("highlights an inline voiceover mark with the voiceover label as its title", () => {
+    const container = renderScript("镜头1：门开了。{那年冬天格外冷}");
+    const mark = [...container.querySelectorAll("span")].find((el) => el.textContent === "{那年冬天格外冷}");
+    expect(mark?.getAttribute("title")).toBe("画外音");
   });
 
   it("calls renderAfterLine once per source line, after the last ScriptLine sharing it", () => {

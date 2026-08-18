@@ -4,11 +4,11 @@ import {
   LINE_BREAK_RE,
   MENTION_RE,
   SHOT_HEADER_RE,
-  matchDialogueLine,
-  matchVoiceoverLine,
+  isSpeechMark,
   mentionNameFromMatch,
   normalizeAssetName,
   splitScriptLines,
+  splitSpeechLine,
   type MentionLookup,
 } from "@/utils/reference-mentions";
 
@@ -35,10 +35,16 @@ import {
  */
 export type { MentionLookup } from "@/utils/reference-mentions";
 
+/**
+ * `speech` 是解析器认出的发声记号（`@[角色]{台词}` / `{台词}`）。`text` 恒为它在原文里
+ * 占据的整段原文（含 `@[名称]` 与花括号），token 序列因此仍能逐字拼回原文；`speaker`
+ * 为空串即画外音。台词正文不单列一个字段——渲染层要的是原文整段，拆出来无人消费。
+ */
 export type Token =
   | { kind: "text"; text: string }
   | { kind: "shot_header"; text: string }
-  | { kind: "mention"; text: string; name: string; assetKind: MentionKind };
+  | { kind: "mention"; text: string; name: string; assetKind: MentionKind }
+  | { kind: "speech"; text: string; speaker: string; speakerKind: MentionKind };
 
 export function tokenizePrompt(text: string, lookup: MentionLookup): Token[] {
   if (text.length === 0) return [];
@@ -66,14 +72,38 @@ export function tokenizePrompt(text: string, lookup: MentionLookup): Token[] {
       tokens.push({ kind: "shot_header", text: header });
       const rest = line.slice(header.length);
       if (rest.length > 0) {
-        pushMentionTokens(tokens, rest, lookup);
+        pushLineTokens(tokens, rest, lookup);
       }
     } else {
-      pushMentionTokens(tokens, piece, lookup);
+      pushLineTokens(tokens, piece, lookup);
     }
   }
 
   return tokens;
+}
+
+/**
+ * 一行（或行内一段）的分词：先按发声记号切开，记号成一个 token，其余部分再按 mention 切。
+ * 记号整体着色而不再逐个 mention 上色——说话人位不进参考图，与描述里的引用是两回事。
+ */
+function pushLineTokens(out: Token[], text: string, lookup: MentionLookup): void {
+  for (const part of splitSpeechLine(text)) {
+    if (!isSpeechMark(part)) {
+      pushMentionTokens(out, part, lookup);
+      continue;
+    }
+    out.push({
+      kind: "speech",
+      text: part.raw,
+      speaker: part.speaker,
+      speakerKind: speakerKindOf(part.speaker, lookup),
+    });
+  }
+}
+
+/** 说话人只有登记角色才算解析成功——场景 / 道具名占说话人位在后端同样出 warning。 */
+function speakerKindOf(speaker: string, lookup: MentionLookup): MentionKind {
+  return Object.hasOwn(lookup, speaker) && lookup[speaker] === "character" ? "character" : "unknown";
 }
 
 function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): void {
@@ -121,10 +151,14 @@ export function useShotPromptHighlight(text: string, lookup: MentionLookup): Tok
  * the first `镜头N：` header into shot 1 rather than opening a shot of its own, so
  * those lines carry index 1 here too and the first header does not advance past it.
  *
+ * 整行除空白外只有一个发声记号时才独占一条 `dialogue` / `voiceover`；记号与描述混写的行
+ * 归 `text`，记号作为 `speech` token 在行内就地着色。缩进与行尾空白不影响这一判定——
+ * 后端 `_content_lines` 同样先 strip 再判，缩进写的台词两侧都是台词。
+ *
  * `sourceLine` is the 0-based raw line index (`splitScriptLines` order — one entry per
  * physical line), the same coordinate system as the backend's `DraftViolation.line`
  * (`lib/reference_video/draft_validation.py::_content_lines`). A header line written with
- * dialogue on the same physical line yields two `ScriptLine`s sharing one `sourceLine` —
+ * a lone dialogue on the same physical line yields two `ScriptLine`s sharing one `sourceLine` —
  * callers anchoring a violation to a line should match on `sourceLine`, not array index.
  */
 export type ScriptLine =
@@ -148,45 +182,47 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
     } else if (shotIndex === 0) {
       shotIndex = 1;
     }
-    // 先剥 header 再判规范行：`parse_prompt` 切分镜头时也丢掉 header，故
-    // `镜头1：@[张三]：{我来了}` 在后端是台词行。不剥就会把它渲染成描述行，
+    // 先剥 header 再切记号：`parse_prompt` 切分镜头时也丢掉 header，故
+    // `镜头1：@[张三]{我来了}` 在后端是一条台词。不剥就会把它渲染成描述行，
     // 与同屏的服务端派生台词列表自相矛盾。
     const afterHeader = headerMatch ? trimmed.slice(headerMatch[0].length) : null;
-    const body = afterHeader ?? raw;
-    const dialogue = matchDialogueLine(body);
-    const voiceover = dialogue ? null : matchVoiceoverLine(body);
-    const isUtterance = dialogue !== null || voiceover !== null;
+    const body = afterHeader ?? trimmed;
+    const parts = splitSpeechLine(body);
+    // 整行只有一个记号时单独成行，说话人与台词分栏显示；记号与描述混写的行按普通
+    // 描述行渲染，记号在行内就地着色，行文顺序因此与作者所写一致。
+    // 记号两侧的空白不算「描述」：`  @[张三]：{我来了}  ` 与顶格写的是同一条台词。
+    const marks = parts.filter(isSpeechMark);
+    const only =
+      marks.length === 1 && parts.every((part) => isSpeechMark(part) || part.trim() === "") ? marks[0] : null;
 
     if (headerMatch) {
-      // 台词写在 header 行时，header 单独占一行（正文归入下面的 utterance 行），
+      // 整行台词写在 header 行时，header 单独占一行（台词归入下面的 utterance 行），
       // 镜头结构在预览里仍然顶格可见。
       const tokens: Token[] = [];
-      if (!isUtterance && afterHeader && afterHeader.length > 0) {
-        pushMentionTokens(tokens, afterHeader, lookup);
+      if (!only && afterHeader && afterHeader.length > 0) {
+        pushLineTokens(tokens, afterHeader, lookup);
       }
       lines.push({ kind: "shot_header", shotIndex, sourceLine, header: headerMatch[0].trim(), tokens });
-      if (!isUtterance) continue;
+      if (!only) continue;
     }
 
-    if (dialogue) {
-      lines.push({
-        kind: "dialogue",
-        shotIndex,
-        sourceLine,
-        speaker: dialogue.speaker,
-        // Only a registered character can be a speaker — a scene or prop name in the
-        // speaker slot reads as unresolved here, matching the backend's warning.
-        speakerKind: lookup[dialogue.speaker] === "character" ? "character" : "unknown",
-        text: dialogue.text,
-      });
-      continue;
-    }
-    if (voiceover !== null) {
-      lines.push({ kind: "voiceover", shotIndex, sourceLine, text: voiceover });
+    if (only) {
+      if (only.speaker) {
+        lines.push({
+          kind: "dialogue",
+          shotIndex,
+          sourceLine,
+          speaker: only.speaker,
+          speakerKind: speakerKindOf(only.speaker, lookup),
+          text: only.text,
+        });
+      } else {
+        lines.push({ kind: "voiceover", shotIndex, sourceLine, text: only.text });
+      }
       continue;
     }
     const tokens: Token[] = [];
-    pushMentionTokens(tokens, raw, lookup);
+    pushLineTokens(tokens, raw, lookup);
     lines.push({ kind: "text", shotIndex, sourceLine, tokens });
   }
   return lines;

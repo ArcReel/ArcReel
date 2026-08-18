@@ -106,21 +106,22 @@ def test_extract_mentions_rejects_curly_wrapped_form():
 
 
 def test_bom_prefixed_dialogue_line_is_normative():
-    """BOM 开头的规范台词行两侧同判：说话人不进参考图。
+    """BOM 开头的台词记号两侧同判：说话人不进参考图。
 
-    JS 的 ``\\s`` 认 U+FEFF、Python 的 ``str.strip()`` 不认；不归一时前端判规范行、
-    后端判描述行，说话人是否落进 references 取决于哪侧先跑。
+    JS 的 ``\\s`` 认 U+FEFF、Python 的 ``str.strip()`` 不认；不归一时前端判台词、
+    后端判描述，说话人是否落进 references 取决于哪侧先跑。
     """
-    from lib.reference_video.shot_parser import extract_mentions, match_dialogue_line
+    from lib.reference_video.shot_parser import extract_mentions, line_speech_marks
 
-    assert match_dialogue_line("﻿@[张三]：{我来了}") == ("张三", "我来了")
+    assert _marks("﻿@[张三]：{我来了}") == [("张三", "我来了")]
+    assert line_speech_marks("﻿@[张三]：{我来了}")[0].raw == "@[张三]：{我来了}"
     assert extract_mentions("﻿@[张三]：{我来了}") == []
 
 
 def test_dialogue_speaker_is_stripped_to_asset_comparison_key():
-    from lib.reference_video.shot_parser import leading_mention_before_colon, match_dialogue_line
+    from lib.reference_video.shot_parser import leading_mention_before_colon
 
-    assert match_dialogue_line("@[ 张三 ]：{我来了}") == ("张三", "我来了")
+    assert _marks("@[ 张三 ]：{我来了}") == [("张三", "我来了")]
     assert leading_mention_before_colon("@[ 张三 ]：我来了") == "张三"
 
 
@@ -314,3 +315,119 @@ def test_render_shots_text_round_trips_parse_prompt():
 def test_render_shots_text_normalizes_dirty_entries():
     """Agent 可裸写 JSON：非 dict 条目 / 缺失 text 按空正文渲染，不注入 "None" 字面量。"""
     assert render_shots_text([{"text": None}, "x", {}]) == "镜头1：\n镜头2：\n镜头3："
+
+
+def _marks(line: str) -> list[tuple[str, str]]:
+    from lib.reference_video.shot_parser import line_speech_marks
+
+    return [(mark.speaker, mark.text) for mark in line_speech_marks(line)]
+
+
+def test_inline_dialogue_after_description_is_a_speech_mark():
+    """台词跟在同一行的画面描述之后照常识别——记号不要求独立成行。"""
+    assert _marks("@[张三] 推开门。@[张三]{我来了}") == [("张三", "我来了")]
+
+
+def test_mention_and_brace_separator_forms_are_equivalent():
+    """mention 与 `{` 之间的空白 / 冒号可选，三种写法产出同一条台词。"""
+    assert _marks("@[张三]{我来了}") == _marks("@[张三] {我来了}") == _marks("@[张三]：{我来了}")
+    assert _marks("@[张三]:{我来了}") == [("张三", "我来了")]
+
+
+def test_bare_braces_are_voiceover_anywhere_in_the_line():
+    assert _marks("镜头切到窗外。{他知道，今晚不会太平。}") == [("", "他知道，今晚不会太平。")]
+
+
+def test_multiple_marks_on_one_line_keep_source_order():
+    assert _marks("@[张三]{你来了}@[李四]{我来了}{夜色渐深}") == [
+        ("张三", "你来了"),
+        ("李四", "我来了"),
+        ("", "夜色渐深"),
+    ]
+
+
+def test_mention_not_adjacent_to_braces_stays_description():
+    """中间隔着描述文字的 mention 不是说话人——不做「行内最近 mention 猜 speaker」。"""
+    from lib.reference_video.shot_parser import extract_mentions
+
+    assert _marks("@[张三] 推开门，屋里传出声音 {谁啊？}") == [("", "谁啊？")]
+    assert extract_mentions("@[张三] 推开门，屋里传出声音 {谁啊？}") == ["张三"]
+
+
+def test_speaker_only_before_braces_is_excluded_from_references():
+    """只在花括号前出现的角色只绑声音；同一行记号之外的引用照常进参考图。"""
+    from lib.reference_video.shot_parser import extract_mentions
+
+    assert extract_mentions("镜头1：@[酒馆] 内景。@[张三]{我来了}") == ["酒馆"]
+    assert extract_mentions("镜头1：@[张三] 推门。@[张三]{我来了}") == ["张三"]
+
+
+def test_empty_speech_text_is_not_a_mark():
+    assert _marks("@[张三]：{}") == []
+    assert _marks("{   }") == []
+
+
+def test_blank_speaker_slot_is_not_a_mark():
+    """``@[ ]{台词}`` 说话人位为空：dialogue 要求非空 speaker，不降级成画外音。"""
+    assert _marks("@[ ]：{我来了}") == []
+
+
+def test_malformed_speaker_slot_does_not_fall_back_to_voiceover():
+    """``@[]：{台词}`` 作者写的是「某人说」，静默改判画外音比不识别更难发现。"""
+    assert _marks("@[]：{我来了}") == []
+
+
+def test_repeated_separator_colon_does_not_fall_back_to_voiceover():
+    """``@[张三]：：{台词}`` 只吞一个分隔冒号，剩下的冒号说明这不是台词形态。"""
+    from lib.reference_video.shot_parser import strip_speech_marks
+
+    assert _marks("@[张三]：：{我来了}") == []
+    assert strip_speech_marks("@[张三]：：{我来了}") == "@[张三]：：{我来了}"
+    assert _marks("门开了。@[张三]:: {我来了}") == []
+
+
+def test_single_separator_colon_still_binds_the_speaker():
+    assert _marks("@[张三]：{我来了}") == [("张三", "我来了")]
+    assert _marks("@[张三] : {我来了}") == [("张三", "我来了")]
+
+
+def test_unit_separator_counts_as_inline_whitespace():
+    """U+001F 是 Python 的空白但不是 JS 的 ``\\s``——两侧空白集合须逐字符相同。"""
+    assert _marks("@[张三]\x1f{我来了}") == [("张三", "我来了")]
+
+
+def test_nested_braces_are_not_marks():
+    assert _marks("{外层 {内层}}") == [("", "内层")]
+
+
+def test_unclosed_brace_leaves_residue_in_description():
+    from lib.reference_video.shot_parser import strip_speech_marks
+
+    assert _marks("@[张三]{我来了") == []
+    assert strip_speech_marks("@[张三]{我来了") == "@[张三]{我来了"
+
+
+def test_strip_speech_marks_is_the_other_half_of_a_lossless_split():
+    from lib.reference_video.shot_parser import split_speech_line
+
+    line = "@[张三] 推门。@[张三]{我来了}屋里安静。"
+    parts = split_speech_line(line)
+    joined = "".join(part if isinstance(part, str) else part.raw for part in parts)
+    assert joined == line
+
+
+def test_speech_marks_normalize_to_nfc():
+    """NFD 落盘的说话人与 NFC 登记的资产名须判等，台词文本同样归一。"""
+    import unicodedata
+
+    line = unicodedata.normalize("NFD", "@[Nguyễn]{Chào}")
+    assert _marks(line) == [("Nguyễn", "Chào")]
+
+
+def test_legacy_bare_mention_can_be_a_speaker():
+    assert _marks("@张三{我来了}") == [("张三", "我来了")]
+
+
+def test_email_like_prefix_is_not_a_speaker():
+    """左侧是 ASCII 词字符时按邮箱 / id 片段跳过，与 mention 扫描同口径。"""
+    assert _marks("a@b{我来了}") == [("", "我来了")]

@@ -79,11 +79,26 @@ describe("tokenizePrompt", () => {
     expect(mention).toMatchObject({ assetKind: "character", name: "主角", text: "@[ 主角 ]" });
   });
 
-  it("treats curly-brace wrapped text as plain text", () => {
+  it("does not read curly-brace wrapping as a mention", () => {
+    // `@{名称}` 不是引用语法；花括号照书写层规则读成画外音记号，与后端 split_speech_line 同判。
     const t = tokenizePrompt("镜头1：@{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions.map((x) => (x.kind === "mention" ? x.name : ""))).toEqual(["角色甲（成年）"]);
-    expect(t.some((x) => x.kind === "text" && x.text.includes("@{载具甲}"))).toBe(true);
+    expect(t.filter((x) => x.kind === "speech").map((x) => x.text)).toEqual(["{载具甲}"]);
+  });
+
+  it("tokenizes an inline speech mark and still concatenates back to the source", () => {
+    const text = "镜头1：@[角色甲（成年）] 推门。@[角色甲（成年）]{我来了}";
+    const t = tokenizePrompt(text, LOOKUP);
+    expect(t.map((x) => x.text).join("")).toBe(text);
+    expect(t.filter((x) => x.kind === "speech")).toEqual([
+      {
+        kind: "speech",
+        text: "@[角色甲（成年）]{我来了}",
+        speaker: "角色甲（成年）",
+        speakerKind: "character",
+      },
+    ]);
   });
 
   it("handles multi-line with multiple shot headers", () => {
@@ -187,6 +202,23 @@ describe("toScriptLines shot attribution", () => {
     ]);
   });
 
+  // 后端 `_content_lines` 先 strip 再判，缩进 / 行尾空白的整行台词照样是台词；
+  // 预览若因两侧空白把它降级成描述行，就与同屏的服务端派生台词列表对不上。
+  it("keeps a whole-line utterance padded with whitespace on its own line", () => {
+    expect(toScriptLines("  @[张三]：{我来了}  ", LOOKUP)).toEqual([
+      { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: "张三", speakerKind: "character", text: "我来了" },
+    ]);
+    expect(toScriptLines("\t{风吹过旷野} ", LOOKUP)).toEqual([
+      { kind: "voiceover", shotIndex: 1, sourceLine: 0, text: "风吹过旷野" },
+    ]);
+  });
+
+  // 记号与描述混写才归 `text` 行——这条与上一条共同钉住「空白不算描述」的边界。
+  it("keeps a line that mixes description and a speech mark as a text line", () => {
+    const lines = toScriptLines("@[张三] 推门。@[张三]{我来了}", LOOKUP);
+    expect(lines.map((l) => l.kind)).toEqual(["text"]);
+  });
+
   it("resolves a BOM-laced speaker and renders the name without it", () => {
     // 与后端 shot_parser 同口径：BOM 在解析入口去掉，说话人名与 lookup key 同坐标系
     const lines = toScriptLines(`@[张${"\uFEFF"}三]：{我来了}`, LOOKUP);
@@ -198,7 +230,7 @@ describe("toScriptLines shot attribution", () => {
 
 describe("unicode line boundaries", () => {
   // 后端用 Python str.splitlines() 切行，它认 U+2028/U+2029/\x85 等；前端只按 \n 切会
-  // 把这些分隔符后的规范台词行与上一行粘住，说话人就被算进参考图，两条派生路径分叉。
+  // 把这些分隔符后的台词记号与上一行粘住，说话人就被算进参考图，两条派生路径分叉。
   const LS = "\u2028";
 
   it("splits on the same boundaries the backend does", () => {
