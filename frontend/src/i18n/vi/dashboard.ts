@@ -356,8 +356,6 @@ export default {
   'mode_badge_narration': 'Thuyết minh 9:16',
   'jianying_export_started': 'Đã bắt đầu xuất bản nháp Jianying. Hãy giải nén ZIP đã tải vào thư mục bản nháp Jianying.',
   'jianying_export_failed': 'Xuất bản nháp Jianying thất bại: {{message}}',
-  'jianying_stale_units_hint_one': '{{count}} nhóm có video cũ hơn nội dung hiện tại — bản xuất vẫn dùng chúng; hãy tạo lại trước nếu muốn cập nhật',
-  'jianying_stale_units_hint_other': '{{count}} nhóm có video cũ hơn nội dung hiện tại — bản xuất vẫn dùng chúng; hãy tạo lại trước nếu muốn cập nhật',
   'project_zip_download_started_with_diagnostics': 'Đã bắt đầu tải ZIP dự án, gói xuất chứa {{count}} mục chẩn đoán',
   'project_zip_download_started': 'Đã bắt đầu tải ZIP dự án',
   'export_failed': 'Xuất thất bại: {{message}}',
