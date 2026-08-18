@@ -25,6 +25,10 @@ _SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：](.*)$""")
 #: BOM 在正文里没有语义，解析入口一次性去掉，两条派生路径回到同一口径。
 _BOM = "﻿"
 
+#: 说话人 mention 与 ``{`` 之间允许出现的分隔冒号（中英各一）。只允许一个：写了第二个
+#: 就说明这不是「``@[角色]：{台词}``」的形态，此时宁可不成记号，也不静默降级成画外音。
+_SPEAKER_SEPARATORS = "：:"
+
 
 def _normalize_source(text: str) -> str:
     """书写层文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。
@@ -147,8 +151,9 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
 
     - 空台词（``{}`` / ``{   }``）：``Utterance`` 要求 text 非空，放行会派生出没有内容的发声。
     - 说话人位为空白（``@[ ]{台词}``）：dialogue 要求非空 speaker。
-    - 说话人位写坏（``@[]{台词}``、``@[李明{台词}``）：花括号前是 ``]`` 却没有可用 mention 时
-      不降级成画外音——作者写的是「某人说」，静默改成画外音比不识别更难发现。
+    - 说话人位写坏（``@[]{台词}``、``@[李明{台词}``、``@[张三]：：{台词}``）：花括号前是 ``]``
+      或又一个分隔冒号、却没有可用 mention 时不降级成画外音——作者写的是「某人说」，静默改成
+      画外音比不识别更难发现。
 
     拼接结果（描述片段 + 各记号的 ``raw``）逐字等于归一后的原行，故 ``strip_speech_marks``
     是无损切分的另一半，不会吞字。
@@ -177,8 +182,10 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
         head = open_index
         while head > cursor and text[head - 1].isspace():
             head -= 1
-        if head > cursor and text[head - 1] in "：:":
+        separator_colon = False
+        if head > cursor and text[head - 1] in _SPEAKER_SEPARATORS:
             head -= 1
+            separator_colon = True
             while head > cursor and text[head - 1].isspace():
                 head -= 1
 
@@ -191,7 +198,7 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
                 scan = close_index + 1
                 continue
             start = mention[0]
-        elif head > cursor and text[head - 1] == "]":
+        elif head > cursor and (text[head - 1] == "]" or (separator_colon and text[head - 1] in _SPEAKER_SEPARATORS)):
             scan = close_index + 1
             continue
 

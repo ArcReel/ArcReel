@@ -8,6 +8,7 @@ import {
   mergeReferences,
   splitScriptLines,
   splitSpeechLine,
+  stripSpeechMarks,
 } from "./reference-mentions";
 import type { ProjectData } from "@/types";
 
@@ -379,6 +380,25 @@ describe("inline speech marks", () => {
   it("does not fall back to voiceover when the speaker slot is malformed", () => {
     // 作者写的是「某人说」，静默改判画外音比不识别更难发现
     expect(marks("@[]：{我来了}")).toEqual([]);
+  });
+
+  it("does not fall back to voiceover when the separator colon is repeated", () => {
+    // 同后端 split_speech_line：只吞一个分隔冒号，剩下的冒号说明这不是台词形态
+    expect(marks("@[张三]：：{我来了}")).toEqual([]);
+    expect(stripSpeechMarks("@[张三]：：{我来了}")).toBe("@[张三]：：{我来了}");
+    expect(marks("门开了。@[张三]:: {我来了}")).toEqual([]);
+  });
+
+  it("still binds the speaker across a single separator colon", () => {
+    expect(marks("@[张三]：{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(marks("@[张三] : {我来了}")).toEqual([["张三", "我来了"]]);
+  });
+
+  it("counts the unit separator as inline whitespace like Python", () => {
+    // JS 的 `\s` 不含 U+001F 而 Python 的 str.isspace() 含：少这一个字符，
+    // 说话人会在后端绑定、在前端派生成参考图
+    expect(marks("@[张三]\u001f{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(extractMentions("@[张三]\u001f{我来了}")).toEqual([]);
   });
 
   it("does not read nested braces as one mark", () => {

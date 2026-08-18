@@ -377,6 +377,25 @@ def test_malformed_speaker_slot_does_not_fall_back_to_voiceover():
     assert _marks("@[]：{我来了}") == []
 
 
+def test_repeated_separator_colon_does_not_fall_back_to_voiceover():
+    """``@[张三]：：{台词}`` 只吞一个分隔冒号，剩下的冒号说明这不是台词形态。"""
+    from lib.reference_video.shot_parser import strip_speech_marks
+
+    assert _marks("@[张三]：：{我来了}") == []
+    assert strip_speech_marks("@[张三]：：{我来了}") == "@[张三]：：{我来了}"
+    assert _marks("门开了。@[张三]:: {我来了}") == []
+
+
+def test_single_separator_colon_still_binds_the_speaker():
+    assert _marks("@[张三]：{我来了}") == [("张三", "我来了")]
+    assert _marks("@[张三] : {我来了}") == [("张三", "我来了")]
+
+
+def test_unit_separator_counts_as_inline_whitespace():
+    """U+001F 是 Python 的空白但不是 JS 的 ``\\s``——两侧空白集合须逐字符相同。"""
+    assert _marks("@[张三]\x1f{我来了}") == [("张三", "我来了")]
+
+
 def test_nested_braces_are_not_marks():
     assert _marks("{外层 {内层}}") == [("", "内层")]
 

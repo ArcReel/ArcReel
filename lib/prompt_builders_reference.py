@@ -156,8 +156,11 @@ def build_reference_units_split_prompt(
         if default_duration is not None
         else "按叙事需要从档位中取值，不强制默认值"
     )
+    # 上限按机械派生的 references 计数，故这里与 `reference_rule` 同口径点明说话人不计入：
+    # 少这句会让模型把只出现在台词记号里的角色也算进配额，凭空压掉真正要进画面的资产。
     max_refs_rule = (
-        f"\n- **references 上限**：一个 unit 内 `@` 引用的资产名（去重后）不超过 {max_reference_images} 个；"
+        f"\n- **references 上限**：一个 unit 的**画面描述里** `@` 引用的资产名（去重后）不超过 "
+        f"{max_reference_images} 个（台词记号 `@[角色]{{台词}}` 的说话人不计入——它不生成参考图）；"
         "超出时把次要角色融入背景描述（不用 `@` 引用），不要压缩主体资产。"
         if max_reference_images is not None
         else ""
@@ -283,7 +286,8 @@ def build_reference_video_prompt(
         max_refs: 当前视频模型支持的最大参考图数；为 None 时不写入硬性数量约束。
     """
     max_refs_line = (
-        f"\n- 单个 unit 内 `@` 引用的资产名（去重后）不超过 {max_refs} 个（模型上限）；"
+        f"\n- 单个 unit 的**画面描述里** `@` 引用的资产名（去重后）不超过 {max_refs} 个（模型上限）；"
+        "台词记号 `@[角色]{台词}` 的说话人不计入——它不生成参考图，只驱动音色声明。"
         "超出时把次要角色合并到背景描述，不用 `@` 引用。"
         if max_refs is not None
         else ""

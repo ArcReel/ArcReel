@@ -63,6 +63,16 @@ export interface SpeechMark {
   raw: string;
 }
 
+/**
+ * mention 与 `{` 之间允许的行内空白。JS 的 `\s` 不含 U+001F 而 Python 的 `str.isspace()` 含，
+ * 少这一个字符会让 `@[张三]<U+001F>{我来了}` 在后端绑说话人、在前端派生成参考图。
+ */
+// eslint-disable-next-line no-control-regex
+const INLINE_SPACE_RE = /[\s\x1f]/u;
+
+/** 说话人 mention 与 `{` 之间允许出现的分隔冒号（中英各一），只允许一个。 */
+const SPEAKER_SEPARATORS = "：:";
+
 /** `splitSpeechLine` 的一段：字符串是画面描述，对象是发声记号。 */
 export type SpeechPart = string | SpeechMark;
 
@@ -76,16 +86,16 @@ export function isSpeechMark(part: SpeechPart): part is SpeechMark {
  * 改一侧必须同步改另一侧。
  *
  * 记号可出现在行内任意位置：`{台词}` 是画外音；紧接在 `@[角色]` 之后（中间允许空白或一个
- * 中英冒号）的 `{台词}` 是该角色说这句话。空台词、说话人位为空白、说话人位写坏（`@[]{…}`）
- * 三种一律不成记号，花括号留在描述片段里由调用侧出 warning。
+ * 中英冒号）的 `{台词}` 是该角色说这句话。空台词、说话人位为空白、说话人位写坏
+ * （`@[]{…}`、`@[张三]：：{…}`）三种一律不成记号，花括号留在描述片段里由调用侧出 warning。
  *
  * 与后端的一处刻意差异：本函数**不归一源文本**，只归一取出的说话人名。高亮分词器要逐字
  * 拼回原文覆盖在 textarea 上，归一会让 token 拼不回去；判定路径（`extractMentions` /
  * `toScriptLines`）的输入来自已归一的 `splitScriptLines`，故两侧结论仍一致。
  *
- * mention 与 `{` 之间的空白按 JS 的 `\s` 判，后端按 Python 的 `str.isspace()`。两个集合在正文
- * 里只差 U+001F：更粗的 U+001C–U+001E / U+0085 由 `LINE_BREAK_RE` 当换行切走、根本不在行内，
- * U+FEFF 则被后端入口归一去掉、在此由 `\s` 命中，结论同样一致。
+ * mention 与 `{` 之间的空白按 `INLINE_SPACE_RE` 判——JS 的 `\s` 比 Python 的 `str.isspace()`
+ * 少一个 U+001F（更粗的 U+001C–U+001E / U+0085 由 `LINE_BREAK_RE` 当换行切走、根本不在行内，
+ * U+FEFF 则被后端入口归一去掉、在此由 `\s` 命中），补进字符类后两侧空白集合逐字符相同。
  */
 export function splitSpeechLine(line: string): SpeechPart[] {
   const mentions = [...line.matchAll(MENTION_RE)].map((m) => ({
@@ -113,10 +123,12 @@ export function splitSpeechLine(line: string): SpeechPart[] {
     }
 
     let head = open;
-    while (head > cursor && /\s/u.test(line[head - 1])) head -= 1;
-    if (head > cursor && (line[head - 1] === ":" || line[head - 1] === "：")) {
+    while (head > cursor && INLINE_SPACE_RE.test(line[head - 1])) head -= 1;
+    let separatorColon = false;
+    if (head > cursor && SPEAKER_SEPARATORS.includes(line[head - 1])) {
       head -= 1;
-      while (head > cursor && /\s/u.test(line[head - 1])) head -= 1;
+      separatorColon = true;
+      while (head > cursor && INLINE_SPACE_RE.test(line[head - 1])) head -= 1;
     }
 
     let speaker = "";
@@ -129,8 +141,11 @@ export function splitSpeechLine(line: string): SpeechPart[] {
       }
       speaker = mention.name;
       start = mention.start;
-    } else if (head > cursor && line[head - 1] === "]") {
-      // 写坏的说话人位（`@[]{…}`）：不静默降级成画外音。
+    } else if (
+      head > cursor &&
+      (line[head - 1] === "]" || (separatorColon && SPEAKER_SEPARATORS.includes(line[head - 1])))
+    ) {
+      // 写坏的说话人位（`@[]{…}`、`@[张三]：：{…}`）：不静默降级成画外音。
       scan = close + 1;
       continue;
     }
