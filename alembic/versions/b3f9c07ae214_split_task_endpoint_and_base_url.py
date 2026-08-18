@@ -1,7 +1,8 @@
 """split task provider_endpoint (protocol id) from submitted_base_url (request domain)
 
-`tasks.provider_endpoint` 收窄为只承载自定义供应商的协议标识；内置供应商此前落在该列的
-请求域名迁入 `tasks.submitted_base_url`。存量行按真实语义回填：值是 http(s) 形态的即域名。
+`tasks.provider_endpoint` 只承载自定义供应商的协议标识，请求域名一律落
+`tasks.submitted_base_url`。存量行按真实语义回填：`provider_endpoint` 中 http(s) 形态的值是
+域名，搬去 `submitted_base_url`。
 
 Revision ID: b3f9c07ae214
 Revises: f6a41746c0de

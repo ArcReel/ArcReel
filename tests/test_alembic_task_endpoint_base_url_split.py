@@ -132,7 +132,7 @@ def test_upgrade_fails_loud_when_a_scheme_survives_the_backfill(alembic_cfg):
         _insert_task(conn, "T-odd-scheme", "ftp://legacy.example.com/api/v1", None)
     engine.dispose()
 
-    with pytest.raises(Exception, match="仍存放请求域名"):
+    with pytest.raises(RuntimeError, match="仍存放请求域名"):
         command.upgrade(cfg, REVISION)
 
 
