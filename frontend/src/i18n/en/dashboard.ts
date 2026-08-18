@@ -353,8 +353,6 @@ export default {
   'mode_badge_narration': 'Narration 9:16',
   'jianying_export_started': 'Jianying draft export started. Please extract the downloaded ZIP into your Jianying drafts directory.',
   'jianying_export_failed': 'Jianying draft export failed: {{message}}',
-  'jianying_stale_units_hint_one': '{{count}} unit has a clip older than the current content — the export still uses it. Regenerate it first if you want the update.',
-  'jianying_stale_units_hint_other': '{{count}} units have clips older than the current content — the export still uses them. Regenerate them first if you want the update.',
   'project_zip_download_started_with_diagnostics': 'Project ZIP download started, export contains {{count}} diagnostics',
   'project_zip_download_started': 'Project ZIP download started',
   'export_failed': 'Export failed: {{message}}',

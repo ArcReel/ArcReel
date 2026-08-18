@@ -243,11 +243,6 @@ describe("GlobalHeader", () => {
       expect(anchorClick).toHaveBeenCalled();
     });
     expect(listUnits).not.toHaveBeenCalled();
-    expect(
-      useAppStore
-        .getState()
-        .workspaceNotifications.some((n) => n.text.includes("剧本已变更")),
-    ).toBe(false);
   });
 
   it("ad 参考路线导出不受 unit 查询故障影响", async () => {
