@@ -82,6 +82,10 @@ export function isSpeechMark(part: SpeechPart): part is SpeechMark {
  * 与后端的一处刻意差异：本函数**不归一源文本**，只归一取出的说话人名。高亮分词器要逐字
  * 拼回原文覆盖在 textarea 上，归一会让 token 拼不回去；判定路径（`extractMentions` /
  * `toScriptLines`）的输入来自已归一的 `splitScriptLines`，故两侧结论仍一致。
+ *
+ * mention 与 `{` 之间的空白按 JS 的 `\s` 判，后端按 Python 的 `str.isspace()`。两个集合在正文
+ * 里只差 U+001F：更粗的 U+001C–U+001E / U+0085 由 `LINE_BREAK_RE` 当换行切走、根本不在行内，
+ * U+FEFF 则被后端入口归一去掉、在此由 `\s` 命中，结论同样一致。
  */
 export function splitSpeechLine(line: string): SpeechPart[] {
   const mentions = [...line.matchAll(MENTION_RE)].map((m) => ({

@@ -39,7 +39,8 @@ export interface ScriptHighlightProps {
 
 function SpeechToken({ token }: { token: Extract<Token, { kind: "speech" }> }) {
   const { t } = useTranslation("dashboard");
-  const palette = assetColor(token.speaker ? token.speakerKind : "unknown");
+  // 画外音没有说话人，`speakerKind` 恒为 unknown，配色因此与未登记说话人同档。
+  const palette = assetColor(token.speakerKind);
   // 记号原文逐字保留（含 `@[名称]` 与冒号），只加底色与说话人标签：预览要和作者写的
   // 那一行对得上，改写会让「这段被认成台词了吗」难以核对。
   return (

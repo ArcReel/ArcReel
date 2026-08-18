@@ -37,13 +37,14 @@ export type { MentionLookup } from "@/utils/reference-mentions";
 
 /**
  * `speech` 是解析器认出的发声记号（`@[角色]{台词}` / `{台词}`）。`text` 恒为它在原文里
- * 占据的整段原文，token 序列因此仍能逐字拼回原文；`speaker` 为空串即画外音。
+ * 占据的整段原文（含 `@[名称]` 与花括号），token 序列因此仍能逐字拼回原文；`speaker`
+ * 为空串即画外音。台词正文不单列一个字段——渲染层要的是原文整段，拆出来无人消费。
  */
 export type Token =
   | { kind: "text"; text: string }
   | { kind: "shot_header"; text: string }
   | { kind: "mention"; text: string; name: string; assetKind: MentionKind }
-  | { kind: "speech"; text: string; speaker: string; speakerKind: MentionKind; spoken: string };
+  | { kind: "speech"; text: string; speaker: string; speakerKind: MentionKind };
 
 export function tokenizePrompt(text: string, lookup: MentionLookup): Token[] {
   if (text.length === 0) return [];
@@ -96,7 +97,6 @@ function pushLineTokens(out: Token[], text: string, lookup: MentionLookup): void
       text: part.raw,
       speaker: part.speaker,
       speakerKind: speakerKindOf(part.speaker, lookup),
-      spoken: part.text,
     });
   }
 }
@@ -151,8 +151,9 @@ export function useShotPromptHighlight(text: string, lookup: MentionLookup): Tok
  * the first `镜头N：` header into shot 1 rather than opening a shot of its own, so
  * those lines carry index 1 here too and the first header does not advance past it.
  *
- * 整行只有一个发声记号时才独占一条 `dialogue` / `voiceover`；记号与描述混写的行归 `text`，
- * 记号作为 `speech` token 在行内就地着色。
+ * 整行除空白外只有一个发声记号时才独占一条 `dialogue` / `voiceover`；记号与描述混写的行
+ * 归 `text`，记号作为 `speech` token 在行内就地着色。缩进与行尾空白不影响这一判定——
+ * 后端 `_content_lines` 同样先 strip 再判，缩进写的台词两侧都是台词。
  *
  * `sourceLine` is the 0-based raw line index (`splitScriptLines` order — one entry per
  * physical line), the same coordinate system as the backend's `DraftViolation.line`
@@ -185,11 +186,14 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
     // `镜头1：@[张三]{我来了}` 在后端是一条台词。不剥就会把它渲染成描述行，
     // 与同屏的服务端派生台词列表自相矛盾。
     const afterHeader = headerMatch ? trimmed.slice(headerMatch[0].length) : null;
-    const body = afterHeader ?? raw;
+    const body = afterHeader ?? trimmed;
     const parts = splitSpeechLine(body);
     // 整行只有一个记号时单独成行，说话人与台词分栏显示；记号与描述混写的行按普通
     // 描述行渲染，记号在行内就地着色，行文顺序因此与作者所写一致。
-    const only = parts.length === 1 && isSpeechMark(parts[0]) ? parts[0] : null;
+    // 记号两侧的空白不算「描述」：`  @[张三]：{我来了}  ` 与顶格写的是同一条台词。
+    const marks = parts.filter(isSpeechMark);
+    const only =
+      marks.length === 1 && parts.every((part) => isSpeechMark(part) || part.trim() === "") ? marks[0] : null;
 
     if (headerMatch) {
       // 整行台词写在 header 行时，header 单独占一行（台词归入下面的 utterance 行），

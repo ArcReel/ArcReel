@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Collection, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -138,8 +138,8 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
     """把一行拆成「画面描述片段」与「发声记号」的有序序列（记号可出现在行内任意位置）。
 
     发声记号有两种，语言无关：``{台词}`` 是画外音；紧接在 ``@[角色]`` 之后（中间允许空白
-    或一个中英冒号）的 ``{台词}`` 是该角色说这句话。旧写法 ``@[角色]：{台词}`` 整行只有
-    这个结构，是本语法的一个特例，原样合法。
+    或一个中英冒号）的 ``{台词}`` 是该角色说这句话。``@[角色]：{台词}`` 独占一行是后者的
+    一个特例，同样合法。
 
     说话人只认「紧贴花括号之前的那个 mention」，不做「行内最近 mention 猜 speaker」式
     启发式——推断错误会把台词静默绑到错误角色的参考音频上。以下三种一律不成记号，花括号
@@ -211,13 +211,22 @@ def line_speech_marks(line: str) -> list[SpeechMark]:
     return [part for part in split_speech_line(line) if isinstance(part, SpeechMark)]
 
 
+def speech_line_description(parts: Iterable[str | SpeechMark]) -> str:
+    """``split_speech_line`` 结果里记号之外的残余文本，即这一行的画面描述。
+
+    收在此处而不是各调用侧就地 join：同时要记号与残余的调用方（预览派生、发声准入、草稿
+    校验）只能切一次再各取一半，否则「什么算描述」会在三处各写一遍、日后随记号语法一起漂移。
+    """
+    return "".join(part for part in parts if isinstance(part, str))
+
+
 def strip_speech_marks(line: str) -> str:
     """去掉全部发声记号后剩下的画面描述文本（归一形）。
 
     参考图派生与产物依据都按此文本判定：只在花括号前出现的角色只绑声音、不进画面参考，
     而同一行里写在记号之外的 ``@[名称]`` 照常进参考图。
     """
-    return "".join(part for part in split_speech_line(line) if isinstance(part, str))
+    return speech_line_description(split_speech_line(line))
 
 
 def leading_mention_before_colon(line: str) -> str | None:

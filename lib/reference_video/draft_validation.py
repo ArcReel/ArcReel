@@ -27,6 +27,7 @@ from lib.reference_video.shot_parser import (
     leading_mention_before_colon,
     line_speech_marks,
     parse_prompt,
+    speech_line_description,
     split_speech_line,
     strip_shot_header,
     strip_speech_marks,
@@ -210,7 +211,7 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
                 line=idx,
             )
         # 只判记号之外的残余：一行里已识别的台词不因同行另有花括号被连坐。
-        rest = "".join(part for part in parts if isinstance(part, str))
+        rest = speech_line_description(parts)
         if "{" not in rest and "}" not in rest:
             continue
         excerpt = line.strip()[:40]

@@ -232,6 +232,38 @@ def test_voiceover_line_renders_as_offscreen_speech():
     assert "画外音说 {多年以后他仍记得这句话。}" in rendered.prompt
 
 
+def test_inline_speech_renders_the_same_official_phrasing_as_the_whole_line_form():
+    """内联记号与整行写法渲染出同一段官方句式，只是行文位置随作者所写。"""
+    legacy = render_unit_prompt(
+        "镜头1：@[张三] 推门而入。\n@[张三]：{今晚的酒，我请。}",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    inline = render_unit_prompt(
+        "镜头1：@[张三] 推门而入。@[张三]{今晚的酒，我请。}",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+
+    assert "<张三>说 {今晚的酒，我请。}" in legacy.prompt
+    assert "<张三> 推门而入。<张三>说 {今晚的酒，我请。}" in inline.prompt
+    assert inline.warnings == legacy.warnings
+    assert inline.audio_speakers == legacy.audio_speakers
+
+
+def test_inline_speech_keeps_the_description_around_it_in_place():
+    """记号就地重组，两侧描述留在原处——一行的行文顺序原样传给供应商。"""
+    rendered = render_unit_prompt(
+        "镜头1：@[张三] 推门，{夜风灌进来}，他按住 @[长剑]。",
+        _project(),
+        _refs(("character", "张三"), ("prop", "长剑")),
+        _SOFT,
+    )
+    assert "<张三> 推门，画外音说 {夜风灌进来}，他按住 <长剑>。" in rendered.prompt
+
+
 def test_unregistered_speaker_line_is_sent_verbatim_with_warning():
     rendered = render_unit_prompt("镜头1：黑场。\n@[路人]：{你好。}", _project(), [], _SOFT)
     assert "@[路人]：{你好。}" in rendered.prompt

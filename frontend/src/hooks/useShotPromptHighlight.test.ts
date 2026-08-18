@@ -84,9 +84,7 @@ describe("tokenizePrompt", () => {
     const t = tokenizePrompt("镜头1：@{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions.map((x) => (x.kind === "mention" ? x.name : ""))).toEqual(["角色甲（成年）"]);
-    expect(t.filter((x) => x.kind === "speech").map((x) => (x.kind === "speech" ? x.spoken : ""))).toEqual([
-      "载具甲",
-    ]);
+    expect(t.filter((x) => x.kind === "speech").map((x) => x.text)).toEqual(["{载具甲}"]);
   });
 
   it("tokenizes an inline speech mark and still concatenates back to the source", () => {
@@ -99,7 +97,6 @@ describe("tokenizePrompt", () => {
         text: "@[角色甲（成年）]{我来了}",
         speaker: "角色甲（成年）",
         speakerKind: "character",
-        spoken: "我来了",
       },
     ]);
   });
@@ -203,6 +200,23 @@ describe("toScriptLines shot attribution", () => {
     expect(lines).toEqual([
       { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: nameNfc, speakerKind: "character", text: "我来了" },
     ]);
+  });
+
+  // 后端 `_content_lines` 先 strip 再判，缩进 / 行尾空白的整行台词照样是台词；
+  // 预览若因两侧空白把它降级成描述行，就与同屏的服务端派生台词列表对不上。
+  it("keeps a whole-line utterance padded with whitespace on its own line", () => {
+    expect(toScriptLines("  @[张三]：{我来了}  ", LOOKUP)).toEqual([
+      { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: "张三", speakerKind: "character", text: "我来了" },
+    ]);
+    expect(toScriptLines("\t{风吹过旷野} ", LOOKUP)).toEqual([
+      { kind: "voiceover", shotIndex: 1, sourceLine: 0, text: "风吹过旷野" },
+    ]);
+  });
+
+  // 记号与描述混写才归 `text` 行——这条与上一条共同钉住「空白不算描述」的边界。
+  it("keeps a line that mixes description and a speech mark as a text line", () => {
+    const lines = toScriptLines("@[张三] 推门。@[张三]{我来了}", LOOKUP);
+    expect(lines.map((l) => l.kind)).toEqual(["text"]);
   });
 
   it("resolves a BOM-laced speaker and renders the name without it", () => {

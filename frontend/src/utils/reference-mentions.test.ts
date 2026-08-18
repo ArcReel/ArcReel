@@ -381,6 +381,11 @@ describe("inline speech marks", () => {
     expect(marks("@[]：{我来了}")).toEqual([]);
   });
 
+  it("does not read nested braces as one mark", () => {
+    // 同后端 split_speech_line：外层 `{` 不成记号，从内层重新扫描
+    expect(marks("{外层 {内层}}")).toEqual([["", "内层"]]);
+  });
+
   it("does not treat blank braces as an utterance", () => {
     // 同后端：utterance 的 text 必须非空，空台词不派生
     expect(marks("{}")).toEqual([]);

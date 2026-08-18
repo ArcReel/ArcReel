@@ -25,6 +25,7 @@ from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_ass
 from lib.reference_video.shot_parser import (
     parse_prompt,
     resolve_references,
+    speech_line_description,
     split_speech_line,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
@@ -82,17 +83,17 @@ def derive_utterances(shots: list[Shot]) -> tuple[list[ShotUtterance], list[dict
     warnings: list[dict[str, Any]] = []
     for index, shot in enumerate(shots, start=1):
         for line in shot.text.splitlines():
-            residue: list[str] = []
-            for part in split_speech_line(line):
+            parts = split_speech_line(line)
+            for part in parts:
                 if isinstance(part, str):
-                    residue.append(part)
-                elif part.speaker:
+                    continue
+                if part.speaker:
                     utterances.append(
                         ShotUtterance(index, Utterance(kind="dialogue", speaker=part.speaker, text=part.text))
                     )
                 else:
                     utterances.append(ShotUtterance(index, Utterance(kind="voiceover", text=part.text)))
-            rest = "".join(residue)
+            rest = speech_line_description(parts)
             if rest.count("{") != rest.count("}"):
                 warnings.append(_warning(WARN_UNCLOSED_BRACE, shot=index, excerpt=line.strip()[:_EXCERPT_LEN]))
             elif "{" in rest or "}" in rest:

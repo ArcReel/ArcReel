@@ -11,6 +11,7 @@ from lib.asset_types import normalize_asset_name
 from lib.reference_video.shot_parser import (
     find_malformed_mention,
     leading_mention_before_colon,
+    speech_line_description,
     split_speech_line,
 )
 
@@ -485,10 +486,9 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
                 continue
             for line_index, line in enumerate(text.splitlines()):
                 location = SpeechFieldLocation(("shots", shot_index, "text"), line_index)
-                residue: list[str] = []
-                for part in split_speech_line(line):
+                parts = split_speech_line(line)
+                for part in parts:
                     if isinstance(part, str):
-                        residue.append(part)
                         continue
                     entries.append(
                         SpeechInputUtterance(
@@ -498,7 +498,7 @@ def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
                             location=location,
                         )
                     )
-                rest = "".join(residue)
+                rest = speech_line_description(parts)
                 empty_speaker = _EMPTY_SPEAKER_LINE.match(rest.replace("\ufeff", ""))
                 if empty_speaker is not None:
                     spoken = empty_speaker.group(1)
