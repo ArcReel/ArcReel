@@ -1,4 +1,4 @@
-"""产品管理路由（CRUD 由 _asset_router_factory 统一生成）。"""
+"""商品管理路由（CRUD 由 _asset_router_factory 统一生成）。"""
 
 from lib.project_manager import get_project_manager
 from server.routers._asset_router_factory import build_asset_router

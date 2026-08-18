@@ -271,13 +271,13 @@ describe("enqueueGrid", () => {
       grid_ids: ["g1"],
       task_ids: ["t1"],
       deduped: false,
-      message: "已入队 1 个宫格",
+      message: "已入队 1 个多宫格分镜",
     });
 
     const res = await enqueueGrid("demo", 1, "episode_1.json");
 
     expect(scriptFileOccupied("demo", "grid", "episode_1.json")).toBe(true);
-    expect(useAppStore.getState().toast?.text).toBe("已入队 1 个宫格");
+    expect(useAppStore.getState().toast?.text).toBe("已入队 1 个多宫格分镜");
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
   });
 

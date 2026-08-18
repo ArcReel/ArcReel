@@ -180,15 +180,15 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(screen.getByText("unit E1U01 使用了全角花括号")).toBeInTheDocument();
     expect(screen.getByText("unit E1U01 的台词念不完")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "让助手修复" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "让智能体修复" })).toBeInTheDocument();
   });
 
   it("prefills a structured fix-request report on 'ask the assistant to fix it', without sending", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "让助手修复" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "让助手修复" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "让智能体修复" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "让智能体修复" }));
 
     const input = useAssistantStore.getState().input;
     expect(input).toContain("第 1 集");
@@ -449,7 +449,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "让助手修复" }));
+    fireEvent.click(await screen.findByRole("button", { name: "让智能体修复" }));
 
     const input = useAssistantStore.getState().input;
     expect(input).toContain("validate_and_promote_draft");

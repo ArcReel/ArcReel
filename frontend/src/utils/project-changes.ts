@@ -28,7 +28,7 @@ const ENTITY_LABELS: Record<ProjectChange["entity_type"], string> = {
   episode: "剧集",
   overview: "项目概览",
   draft: "预处理",
-  grid: "宫格",
+  grid: "多宫格分镜",
   // 任务终态是刷新信号（important=false），不进通知文案；此项只为满足映射完整性。
   task: "任务",
 };
@@ -78,7 +78,7 @@ function getEntityLabel(group: GroupedProjectChange): string {
     return "视频";
   }
   if (group.action === "grid_ready" || group.action === "grid_split_done") {
-    return "宫格";
+    return "多宫格分镜";
   }
   if (group.action === "tts_ready") {
     return "旁白";

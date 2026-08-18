@@ -56,7 +56,7 @@ MESSAGES = {
         "Ad/short-film projects do not carry default_duration "
         "(shot durations are budgeted per shot against target_duration)"
     ),
-    "val_ad_no_grid_storyboard": "Ad/short-film projects do not support grid storyboards (grid_storyboard)",
+    "val_ad_no_grid_storyboard": "Ad/short-film projects do not support multi-grid storyboards (grid_storyboard)",
     "val_ad_episodes_single": "Ad/short-film projects must always have exactly one episode entry (episode 1)",
     "val_ad_shots_missing": "The ad script is missing the shots array, or it is empty",
     "val_ad_duration_drift": (

@@ -20,7 +20,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib import script_review
-from lib.api_errors import NotFoundError
+from lib.api_errors import BadRequestError, NotFoundError
 from lib.artifact_activation import register_current_resource_artifact
 from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.audio_utils import (
@@ -853,7 +853,7 @@ async def update_draft_content(
             try:
                 parsed = json.loads(content)
             except json.JSONDecodeError as exc:
-                raise HTTPException(status_code=400, detail=_t("script_review_invalid_content", details=str(exc)))
+                raise BadRequestError("script_review_invalid_content", diagnostic=str(exc)) from exc
             # 存在性探测同其余同步文件 I/O 卸到线程：本函数由请求协程直接 await，
             # 裸 exists() 会跑在事件循环上阻塞并发请求。
             is_new = not await asyncio.to_thread(draft_path.exists)

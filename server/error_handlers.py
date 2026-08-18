@@ -90,7 +90,10 @@ def register_error_handlers(
     @app.exception_handler(ApiError)
     async def _handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
         _t = get_translator(request)
-        return JSONResponse(status_code=exc.status_code, content={"detail": _t(exc.key, **exc.params)})
+        content: dict[str, object] = {"detail": _t(exc.key, **exc.params)}
+        if exc.diagnostic is not None:
+            content["diagnostic"] = exc.diagnostic
+        return JSONResponse(status_code=exc.status_code, content=content)
 
     @app.exception_handler(RequestValidationError)
     async def _handle_request_validation(request: Request, exc: RequestValidationError) -> JSONResponse:

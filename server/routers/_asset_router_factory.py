@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from lib.api_errors import NotFoundError
+from lib.api_errors import BadRequestError, NotFoundError
 from lib.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
@@ -150,7 +150,10 @@ def build_asset_router(
                 # 「必为字符串」的持久化契约。
                 extras.pop(field, None)
             elif not isinstance(value, str):
-                raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
+                raise BadRequestError(
+                    "asset_field_must_be_string",
+                    diagnostic=f"field '{field}' must be a string",
+                )
             elif field == "voice_notice_dismissed_at":
                 # 新建角色尚无 voice_updated_at，PATCH 侧「必须等于当前 voice_updated_at」的
                 # 校验在此处恒不成立（值不存在）；直接拒绝创建时携带该字段，防止绕过
@@ -161,7 +164,10 @@ def build_asset_router(
         for field in spec.extra_list_fields:
             value = extras.get(field)
             if value is not None and not _is_string_list(value):
-                raise HTTPException(status_code=422, detail=f"field '{field}' must be a list of strings")
+                raise BadRequestError(
+                    "asset_field_must_be_string_list",
+                    diagnostic=f"field '{field}' must be a list of strings",
+                )
         try:
 
             def _sync():
@@ -207,11 +213,17 @@ def build_asset_router(
         for field in update_fields:
             value = req.get(field)
             if value is not None and not isinstance(value, str):
-                raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
+                raise BadRequestError(
+                    "asset_field_must_be_string",
+                    diagnostic=f"field '{field}' must be a string",
+                )
         for field in update_list_fields:
             value = req.get(field)
             if value is not None and not _is_string_list(value):
-                raise HTTPException(status_code=422, detail=f"field '{field}' must be a list of strings")
+                raise BadRequestError(
+                    "asset_field_must_be_string_list",
+                    diagnostic=f"field '{field}' must be a list of strings",
+                )
 
         try:
 

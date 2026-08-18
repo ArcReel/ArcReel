@@ -101,7 +101,7 @@ export default {
   bucket_i2i_label: "图生图",
   bucket_i2i_caption: "覆盖带参考图的画面生成与图片编辑。",
   bucket_i2v_label: "图生视频",
-  bucket_i2v_caption: "覆盖由分镜图或宫格图驱动的视频生成。",
+  bucket_i2v_caption: "覆盖由分镜图或多宫格分镜图驱动的视频生成。",
   bucket_r2v_label: "参考生视频",
   bucket_r2v_caption: "覆盖参考生视频路径，含其中没有参考图的镜头。",
   text_tier_default_label: "默认模型",

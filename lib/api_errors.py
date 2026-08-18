@@ -11,38 +11,50 @@ from __future__ import annotations
 
 
 class ApiError(Exception):
-    """领域异常基类：由 app 级 exception handler 统一翻译为 ``{"detail": ...}`` 响应。"""
+    """领域异常基类：由 app 级 exception handler 统一翻译为 ``{"detail": ..., "diagnostic": ...}`` 响应。
 
-    def __init__(self, key: str, *, status_code: int, **params: object) -> None:
+    ``detail`` 为产品语言摘要（经 i18n 翻译），``diagnostic`` 为可选的技术诊断信息
+    （字段名、schema、函数标识等），仅供开发者调试。
+    """
+
+    def __init__(self, key: str, *, status_code: int, diagnostic: str | None = None, **params: object) -> None:
         super().__init__(key)
         self.key = key
         self.status_code = status_code
         self.params = params
+        self.diagnostic = diagnostic
 
 
 class BadRequestError(ApiError):
     """客户端请求错误（HTTP 400）。"""
 
-    def __init__(self, key: str, **params: object) -> None:
-        super().__init__(key, status_code=400, **params)
+    def __init__(self, key: str, *, diagnostic: str | None = None, **params: object) -> None:
+        super().__init__(key, status_code=400, diagnostic=diagnostic, **params)
+
+
+class UnprocessableError(ApiError):
+    """请求格式或内容不可处理（HTTP 422）。"""
+
+    def __init__(self, key: str, *, diagnostic: str | None = None, **params: object) -> None:
+        super().__init__(key, status_code=422, diagnostic=diagnostic, **params)
 
 
 class NotFoundError(ApiError):
     """请求的资源不存在（HTTP 404）。"""
 
-    def __init__(self, key: str, **params: object) -> None:
-        super().__init__(key, status_code=404, **params)
+    def __init__(self, key: str, *, diagnostic: str | None = None, **params: object) -> None:
+        super().__init__(key, status_code=404, diagnostic=diagnostic, **params)
 
 
 class ConflictError(ApiError):
     """与资源当前状态冲突（HTTP 409）。"""
 
-    def __init__(self, key: str, **params: object) -> None:
-        super().__init__(key, status_code=409, **params)
+    def __init__(self, key: str, *, diagnostic: str | None = None, **params: object) -> None:
+        super().__init__(key, status_code=409, diagnostic=diagnostic, **params)
 
 
 class ServiceUnavailableError(ApiError):
     """服务暂时不可用（HTTP 503）。"""
 
-    def __init__(self, key: str, **params: object) -> None:
-        super().__init__(key, status_code=503, **params)
+    def __init__(self, key: str, *, diagnostic: str | None = None, **params: object) -> None:
+        super().__init__(key, status_code=503, diagnostic=diagnostic, **params)

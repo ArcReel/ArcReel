@@ -25,7 +25,7 @@ async def require_video_bucket_capability(project: dict, capability: VideoCapabi
     try:
         await ConfigResolver(async_session_factory).resolve_video_backend(project, None, capability=capability)
     except VideoBucketCapabilityError as exc:
-        raise BadRequestError(exc.code, **exc.params) from exc
+        raise BadRequestError(exc.code, **exc.params) from exc  # pyright: ignore[reportArgumentType]
     except ValueError:
         # 未配置任何供应商等其余解析失败：放行入队，由 worker 在任务面板暴露（与图片 / 视频
         # 生成入口的既有行为一致，不把非能力类失败升级为提交期拒绝）
@@ -92,11 +92,7 @@ def validate_backend_value(value: str, field_name: str, _t: Callable[..., str] =
     if "/" not in value:
         if value in PROVIDER_REGISTRY:
             return  # 裸 registry id（无 model），下游按全局默认补全
-        detail = _t("invalid_backend_format", field_name=field_name)
-        raise HTTPException(
-            status_code=400,
-            detail=detail,
-        )
+        raise BadRequestError("invalid_backend_format", diagnostic=f"field: {field_name}")
     provider_id, model_id = value.split("/", 1)
     provider_meta = PROVIDER_REGISTRY.get(provider_id)
     if provider_meta is None and not provider_id.startswith("custom-"):

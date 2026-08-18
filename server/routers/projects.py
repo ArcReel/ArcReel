@@ -29,7 +29,7 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-from lib.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.asset_types import asset_name_comparison_key
 from lib.config.registry import default_model_for_provider
@@ -705,7 +705,7 @@ async def get_video_capabilities(
     except VideoBucketCapabilityError as exc:
         # 能力桶解析闸的报错自带 errors 目录 key 与渲染参数，转成结构化 400 让用户看到修复指引，
         # 不被下面的通用 422 文案吞掉（ValueError 子类，须先于其捕获）
-        raise BadRequestError(exc.code, **exc.params) from exc
+        raise BadRequestError(exc.code, **exc.params) from exc  # pyright: ignore[reportArgumentType]
     except ValueError as exc:
         # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
         logger.warning("项目 '%s' 视频模型能力解析失败: %s", name, exc)
@@ -1150,10 +1150,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
-        raise HTTPException(
-            status_code=422,
-            detail=_t("script_validation_failed", details=str(exc)),
-        )
+        raise UnprocessableError("script_validation_failed", diagnostic=str(exc)) from exc
     except HTTPException:
         raise
     except Exception:
@@ -1253,10 +1250,7 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
-        raise HTTPException(
-            status_code=422,
-            detail=_t("script_validation_failed", details=str(exc)),
-        )
+        raise UnprocessableError("script_validation_failed", diagnostic=str(exc)) from exc
     except HTTPException:
         raise
     except Exception:
@@ -1309,10 +1303,7 @@ async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=_t("script_validation_failed", details=str(exc)),
-        )
+        raise UnprocessableError("script_validation_failed", diagnostic=str(exc)) from exc
     except HTTPException:
         raise
     except Exception:
@@ -1407,10 +1398,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
-        raise HTTPException(
-            status_code=422,
-            detail=_t("script_validation_failed", details=str(exc)),
-        )
+        raise UnprocessableError("script_validation_failed", diagnostic=str(exc)) from exc
     except HTTPException:
         raise
     except Exception:

@@ -20,7 +20,7 @@ MESSAGES = {
     "scene_not_found": "Cảnh '{id}' không tồn tại",
     "segment_not_found": "Đoạn '{id}' không tồn tại",
     "script_missing": "Kịch bản không tồn tại",
-    "script_validation_failed": "Xác thực cấu trúc kịch bản thất bại: {details}",
+    "script_validation_failed": "Xác thực cấu trúc kịch bản thất bại; vui lòng kiểm tra và thử lại",
     "script_data_corrupted": "Dữ liệu kịch bản bị hỏng: {reason}",
     "script_edit_error": "Xác thực chỉnh sửa kịch bản thất bại",
     "script_edit_items_not_list": "{kind} phải là một danh sách, nhưng nhận được {type_name}",
@@ -97,7 +97,7 @@ MESSAGES = {
     "video_prompt_action_empty": "prompt.action không được để trống",
     "video_prompt_dialogue_array": "prompt.dialogue phải là mảng",
     "video_task_submitted": "Đã gửi tác vụ tạo video cho '{segment_id}'",
-    "grid_task_submitted": "Đã gửi {count} tác vụ tạo lưới",
+    "grid_task_submitted": "Đã gửi {count} tác vụ tạo phân cảnh đa lưới",
     "tts_prompt_must_be_string_or_null": "prompt của tác vụ tts phải là chuỗi không rỗng hoặc để trống",
     "tts_task_submitted": "Đã gửi tác vụ tạo thuyết minh cho '{segment_id}'",
     "tts_batch_submitted": "Đã gửi {count} tác vụ tạo thuyết minh",
@@ -125,7 +125,7 @@ MESSAGES = {
     "voice_sample_file_missing": "Tệp mẫu giọng đọc thử không còn tồn tại, vui lòng tạo lại",
     "scene_task_submitted": "Đã gửi tác vụ tạo thiết kế cảnh cho '{name}'",
     "prop_task_submitted": "Đã gửi tác vụ tạo thiết kế đạo cụ cho '{name}'",
-    "product_task_submitted": "Đã gửi tác vụ tạo ảnh tham chiếu chuẩn cho sản phẩm '{name}'",
+    "product_task_submitted": "Đã gửi tác vụ tạo ảnh tham chiếu chuẩn cho hàng hóa '{name}'",
     # Files
     "file_not_found": "Tệp không tồn tại: {path}",
     "forbidden_access": "Cấm truy cập tệp ngoài thư mục dự án",
@@ -141,6 +141,8 @@ MESSAGES = {
     "audio_duration_out_of_range": "Thời lượng âm thanh phải từ {min_seconds} đến {max_seconds} giây",
     "vision_model_required": "Mô hình văn bản {provider}/{model} không hỗ trợ đầu vào hình ảnh (vision) nên không thể thực hiện tác vụ {task}; vui lòng chọn mô hình văn bản hỗ trợ vision cho cấp đơn giản hoặc mô hình mặc định trong cài đặt",
     "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
+    "asset_field_must_be_string": "giá trị trường này phải là văn bản",
+    "asset_field_must_be_string_list": "giá trị trường này phải là danh sách văn bản",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
     "invalid_step_num": "Số bước không hợp lệ: {step_num}",
@@ -155,7 +157,7 @@ MESSAGES = {
         "Bản nháp Step 1 đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
         "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
     ),
-    "script_review_invalid_content": "Xác thực cấu trúc bản nháp Step 1 thất bại: {details}",
+    "script_review_invalid_content": "Xác thực cấu trúc bản nháp xác nhận nội dung thất bại; vui lòng kiểm tra và thử lại",
     "script_review_quarantine_unreadable": (
         "Tệp bản nháp bị cách ly đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"
     ),
@@ -232,8 +234,8 @@ MESSAGES = {
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",
     "ad_no_default_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mặc định; thời lượng cảnh quay được lên kế hoạch theo tổng thời lượng mục tiêu",
-    "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ bảng phân cảnh dạng lưới",
-    "grid_storyboard_not_enabled": "Dự án chưa bật bảng phân cảnh dạng lưới",
+    "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ phân cảnh đa lưới",
+    "grid_storyboard_not_enabled": "Dự án chưa bật phân cảnh đa lưới",
     "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
     "project_id_not_editable": "content_mode không thể chỉnh sửa sau khi tạo dự án",
     "source_kind_not_editable": "source_kind không thể chỉnh sửa sau khi tạo dự án",
@@ -249,12 +251,12 @@ MESSAGES = {
     "prop_already_exists": "Đạo cụ '{name}' đã tồn tại",
     "prop_not_found": "Không tìm thấy đạo cụ '{name}'",
     "prop_deleted": "Đã xóa đạo cụ '{name}'",
-    "product_already_exists": "Sản phẩm '{name}' đã tồn tại",
-    "product_not_found": "Không tìm thấy sản phẩm '{name}'",
-    "product_deleted": "Đã xóa sản phẩm '{name}'",
+    "product_already_exists": "Hàng hóa '{name}' đã tồn tại",
+    "product_not_found": "Không tìm thấy hàng hóa '{name}'",
+    "product_deleted": "Đã xóa hàng hóa '{name}'",
     "project_asset_name_conflict": (
         "Tên {requested_type} '{name}' đã được {existing_type} '{existing_name}' sử dụng. "
-        "Nhân vật, cảnh, đạo cụ và sản phẩm trong cùng dự án phải có tên duy nhất"
+        "Nhân vật, cảnh, đạo cụ và hàng hóa trong cùng dự án phải có tên duy nhất"
     ),
     # API Keys
     "jwt_auth_required": "API Key không được phép thực hiện thao tác này, vui lòng dùng xác thực JWT",
@@ -265,7 +267,7 @@ MESSAGES = {
     # Cost Estimation
     "cost_estimation_failed": "Ước tính chi phí thất bại, vui lòng thử lại sau",
     # Validators
-    "invalid_backend_format": "Định dạng {field_name} phải là provider/model",
+    "invalid_backend_format": "Định dạng lựa chọn mô hình không hợp lệ; sử dụng provider/model",
     "backend_media_type_mismatch": "{field_name} yêu cầu mô hình loại {expected}, nhưng {provider}/{model} là mô hình loại {actual}",
     "deprecated_image_backend": "Trường image_backend đã ngừng dùng; hãy dùng image_provider_t2i và image_provider_i2i",
     # Versions
@@ -298,7 +300,7 @@ MESSAGES = {
     "ref_ad_reference_skipped": "'{name}' ({type}) không có ảnh tham chiếu khả dụng, đã bỏ qua tham chiếu này trong lần tạo này",
     # Xem trước phân tích kịch bản phân cảnh: hiển thị các trường hợp giảm cấp
     "ref_warn_unregistered_mention": (
-        "@[{name}] chưa được đăng ký trong sản phẩm/nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "
+        "@[{name}] chưa được đăng ký trong hàng hóa/nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "
         "hãy kiểm tra tên hoặc tạo tài sản trước"
     ),
     "ref_warn_unclosed_brace": (
@@ -390,12 +392,12 @@ MESSAGES = {
     "agent_no_fields_to_update": "Không có trường nào để cập nhật",
     "agent_credential_not_found": "Không tìm thấy xác thực",
     "agent_cannot_delete_active": "Không thể xóa xác thực đang hoạt động; hãy kích hoạt xác thực khác trước",
-    "agent_test_validation_error": "Kiểm tra kết nối thất bại: {error}",
+    "agent_test_validation_error": "Kiểm tra kết nối thất bại; vui lòng kiểm tra cấu hình và thử lại",
     "invalid_project_name": "Tên dự án '{name}' không hợp lệ",
     "invalid_script_file": "Tên tệp kịch bản '{name}' không hợp lệ",
-    "grid_not_found": "Lưới '{grid_id}' không tồn tại",
-    "grid_image_not_ready": "Lưới '{grid_id}' chưa có ảnh ghép; hãy tạo hoặc tải lên trước khi tách",
-    "grid_generation_in_progress": "Lưới '{grid_id}' đang được tạo; vui lòng đợi hoàn tất trước khi thao tác",
+    "grid_not_found": "Phân cảnh đa lưới '{grid_id}' không tồn tại",
+    "grid_image_not_ready": "Phân cảnh đa lưới '{grid_id}' chưa có ảnh ghép; hãy tạo hoặc tải lên trước khi tách",
+    "grid_generation_in_progress": "Phân cảnh đa lưới '{grid_id}' đang được tạo; vui lòng đợi hoàn tất trước khi thao tác",
     "version_not_found": "Phiên bản {version} không tồn tại",
     "version_resource_not_found": "Tài nguyên '{resource_type}/{resource_id}' không tồn tại",
     "session_busy": "Phiên đang xử lý; vui lòng đợi phản hồi hiện tại hoàn tất trước khi gửi",

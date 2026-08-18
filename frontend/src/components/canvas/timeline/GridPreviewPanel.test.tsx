@@ -146,7 +146,7 @@ describe("GridPreviewPanel occupancy", () => {
     fireEvent.click(regenBtn);
 
     await waitFor(() => {
-      expect(pushToast).toHaveBeenCalledWith("该宫格正在生成中，请稍后再试", "error");
+      expect(pushToast).toHaveBeenCalledWith("该多宫格分镜正在生成中，请稍后再试", "error");
     });
     expect(regenerateSpy).not.toHaveBeenCalled();
     // 拒绝提示不得替换面板内容：宫格图与重新生成按钮仍在

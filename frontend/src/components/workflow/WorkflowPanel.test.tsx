@@ -190,7 +190,7 @@ describe("WorkflowPanel 结构化问题与阻断", () => {
     );
     const alert = screen.getByRole("alert");
     expect(within(alert).getByText("scripts/episode_1.json")).toBeInTheDocument();
-    expect(within(alert).getByText(/请助手修复损坏的项目文件/)).toBeInTheDocument();
+    expect(within(alert).getByText(/请智能体修复损坏的项目文件/)).toBeInTheDocument();
     expect(within(alert).getByText("JSONDecodeError line 3")).toBeInTheDocument();
     expect(within(alert).getByText("技术细节")).toBeInTheDocument();
   });
@@ -475,5 +475,61 @@ describe("WorkflowPanel 刷新纪律", () => {
     await advanceDebounce(1);
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("WorkflowPanel 产品语言", () => {
+  it("步骤使用新产品语言名称", async () => {
+    await renderExpanded(
+      makePlan({
+        steps: [
+          makeStep({ id: "step1_content", state: "pending" }),
+          makeStep({ id: "step1_review", state: "pending" }),
+          makeStep({ id: "asset_sheets", state: "pending" }),
+        ],
+      }),
+    );
+    const step1Row = screen.getByTestId("workflow-step-step1_content");
+    expect(within(step1Row).getByText("内容整理")).toBeInTheDocument();
+    const reviewRow = screen.getByTestId("workflow-step-step1_review");
+    expect(within(reviewRow).getByText("内容确认")).toBeInTheDocument();
+    const sheetsRow = screen.getByTestId("workflow-step-asset_sheets");
+    expect(within(sheetsRow).getByText("资产图")).toBeInTheDocument();
+  });
+
+  it("任务类型标签使用新产品语言", async () => {
+    await renderExpanded(
+      makePlan({
+        steps: [
+          makeStep({
+            id: "storyboard",
+            state: "active",
+            tasks: [{ unit_id: "G01", task_id: "t1", task_type: "grid", status: "running" }],
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByText(/多宫格分镜/)).toBeInTheDocument();
+  });
+
+  it("动作短语中使用智能体而非助手", async () => {
+    await renderExpanded(
+      makePlan({
+        steps: [
+          makeStep({
+            id: "final_script",
+            state: "blocked",
+            problems: [{
+              code: "repair_project_data",
+              detail: "corrupted",
+              action: "repair_project_data",
+              params: {},
+            }],
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByText(/请智能体修复/)).toBeInTheDocument();
+    expect(screen.queryByText(/请助手修复/)).not.toBeInTheDocument();
   });
 });

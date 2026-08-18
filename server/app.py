@@ -570,7 +570,7 @@ app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_
 app.include_router(characters.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["角色管理"])
 app.include_router(scenes.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["场景管理"])
 app.include_router(props.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["道具管理"])
-app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["产品管理"])
+app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["商品管理"])
 app.include_router(presentations.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["成片演示"])
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
 app.include_router(
@@ -604,7 +604,7 @@ app.include_router(
     assistant.router,
     prefix="/api/v1/projects/{project_name}/assistant",
     dependencies=[Depends(get_current_user)],
-    tags=["助手会话"],
+    tags=["智能体会话"],
 )
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
 app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
@@ -623,7 +623,7 @@ app.include_router(
     grids.router,
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
-    tags=["宫格图"],
+    tags=["多宫格分镜图"],
 )
 app.include_router(
     reference_videos.router,
@@ -643,7 +643,7 @@ app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 app.include_router(
     assistant.self_auth_router,
     prefix="/api/v1/projects/{project_name}/assistant",
-    tags=["助手会话"],
+    tags=["智能体会话"],
 )
 app.include_router(project_events.self_auth_router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
