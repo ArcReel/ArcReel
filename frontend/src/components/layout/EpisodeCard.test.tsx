@@ -60,20 +60,21 @@ describe("EpisodeCard", () => {
   it("falls back to the script item count for an episode with no videos planned yet", () => {
     renderCard(unplannedEpisode());
 
-    expect(screen.getByText(/^4/)).toBeInTheDocument();
+    expect(screen.getByText(/^4 /)).toBeInTheDocument();
     expect(screen.queryByText(/0\/0/)).not.toBeInTheDocument();
   });
 
   it("names the fallback count 分镜数 on the storyboard route", () => {
     renderCard(unplannedEpisode(), "storyboard");
 
-    expect(screen.getByTitle("4 分镜")).toBeInTheDocument();
+    // 名词进正文而不是 title：触屏没有悬停，读屏也不必依赖 tooltip
+    expect(screen.getByText(/^4 分镜/)).toBeInTheDocument();
   });
 
   it("names the fallback count 视频单元数 on the reference route", () => {
     renderCard(unplannedEpisode(), "reference_video");
 
-    expect(screen.getByTitle("4 视频单元")).toBeInTheDocument();
+    expect(screen.getByText(/^4 视频单元/)).toBeInTheDocument();
   });
 });
 

@@ -154,10 +154,10 @@ export function EpisodeCard({
                 title={
                   videoTotal > 0
                     ? t("episode_available_videos_hint", { count: availableVideos, total: videoTotal })
-                    : itemCountLabel
+                    : undefined
                 }
               >
-                {videoTotal > 0 ? `${availableVideos}/${videoTotal}` : totalShots}
+                {videoTotal > 0 ? `${availableVideos}/${videoTotal}` : itemCountLabel}
                 {durLabel ? ` · ${durLabel}` : ""}
               </span>
             </>

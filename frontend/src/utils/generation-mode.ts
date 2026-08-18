@@ -37,10 +37,15 @@ export function gridStoryboardEnabled(
  *
  * `withStatus` 取带状态后缀的那条（「N 分镜 · 制作中」），否则取裸计数那条。
  */
+const ITEM_COUNT_NOUNS: Record<GenerationRoute, string> = {
+  storyboard: "storyboard_count",
+  reference_video: "video_unit_count",
+};
+
 export function itemCountKey(
   route: GenerationRoute,
   { withStatus = false }: { withStatus?: boolean } = {},
 ): string {
-  const noun = route === "reference_video" ? "video_unit_count" : "storyboard_count";
+  const noun = ITEM_COUNT_NOUNS[route];
   return withStatus ? `${noun}_and_status` : noun;
 }
