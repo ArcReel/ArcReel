@@ -17,4 +17,4 @@ status: accepted
 - **边界不动**：解析仍只在执行层发生（`docs/adr/0001`）；resolver 优先级 payload > project > 全局默认不变；`_backend_cache` 仍是 server 执行层关切（`docs/adr/0039`「缓存留在调用方”），随本模块迁移并保留失效入口供供应商配置变更路由调用。
 - **测试面收口**：消费方测试改为替换 `resolve_generation_context` 单点、以 frozen dataclass 直接拼装假 context；模块自身测试用真实测试 DB + tmp_path + fake backend 走接口断言，不断言私有属性。原先跨多个测试文件拼装 resolve/backend 组合 monkeypatch 的模式作废。
 - **cost_estimation 不是消费方**：费用预估只解析不构造 backend，改为直接调用 `ConfigResolver.resolve_image_backend / resolve_video_backend` 消除其手工重演优先级的解析副本，保留解析失败降级 unknown 的展示语义。
-- **术语已落盘**：`GenerationContext` 及 image / video / audio lane 结果类型已收入 `CONTEXT.md` 术语表（项目惯例：术语表只记录概念此刻是什么）。
+- **术语已落盘**：`GenerationContext` 及 image / video / audio lane 结果类型的语义由 `server/services/generation_context.py` 的模块与类文档字符串承载（术语表只收产品概念，不收内部类型）。

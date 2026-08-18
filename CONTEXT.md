@@ -10,7 +10,7 @@ AI 视频创作平台：将小说、剧本或创作构想转化为短视频。�
 向 ArcReel 提供文本、图片、视频或语音生成能力的外部服务方。
 _Avoid_: vendor、channel。
 
-**backend（后端）**：
+**backend**：
 按某个 provider + model 构造出来的、真正调用其 API 的客户端对象；一个 provider 可派生出多个 backend。
 _Avoid_: client、adapter。
 
@@ -23,34 +23,33 @@ ArcReel 访问某个供应商所需的认证信息。
 _Avoid_: 模型、供应商、连接。
 
 **内置 provider（built-in provider）**：
-ArcReel 启动时在 `PROVIDER_REGISTRY` 静态注册的供应商（如 `gemini-aistudio` / `gemini-vertex` / `ark` / `openai` / `grok` / `vidu`），用户填凭证并选 model 即可使用。
+ArcReel 随版本内置、开箱可用的供应商，用户填好凭证并选定 model 即可使用。
 _Avoid_: preset、official。
 
 **自定义 provider（custom provider）**：
-用户运行时通过 UI 创建的供应商，`provider_id` 形如 `custom-{id}`，挂接一个 endpoint 决定协议形态；凭证固定为 `api_key` + `base_url`。
+用户在运行时自行创建的供应商，挂接一个 endpoint 决定协议形态，凭证只有 api_key 与 base_url 两项。
 _Avoid_: 内置 provider。
 
-**endpoint（协议端口）**：
-自定义 provider 可挂接的一种协议形态——HTTP URL 模板 + 鉴权约定 + 字段语义构成的"协议槽位"，登记在 `ENDPOINT_REGISTRY`。
+**endpoint**：
+自定义 provider 可挂接的一种协议形态——URL 模板、鉴权约定与字段语义构成的「协议槽位」。
 _Avoid_: protocol、format、端口、接口格式。
 
 **规范 provider id（canonical provider id）**：
-`PROVIDER_REGISTRY` 的 key 形式，是 provider 身份的唯一真相源与全系统唯一接受的写入形式。
-_Avoid_: legacy provider 名。
+provider 身份的规范写法，是全系统唯一接受的写入形式。
 
 **legacy provider 名**：
-旧版本写入 `project.json` 的非规范别名（如 `gemini`、`aistudio`、`vertex`、`seedance`），属于待清除的历史数据，经一次性迁移转为规范 id 后即不再被接受（见 `docs/adr/0001`）。
+旧版本留下的非规范 provider 别名，属于待清除的历史数据，迁移为规范 provider id 后不再被接受（见 `docs/adr/0001`）。
 
-**registry 键 ↔ API 模型名（api_model_name）**：
-registry 键是模型的内部唯一标识，兼 UI / 持久化 / 计费 / 能力查表键；`api_model_name` 是实际发给供应商 API 的模型名，仅当需要与键名不同（两栖模型）时才填（见 `docs/adr/0038`）。
-_Avoid_: 把 registry 键直接等同于发给供应商的模型名。
+**API 模型名（api_model_name）**：
+实际发送给供应商 API 的模型名，仅当它与 ArcReel 内部的模型标识不同时才单独声明（见 `docs/adr/0038`）。
+_Avoid_: 把内部模型标识直接当作发给供应商的模型名。
 
 **两栖模型（amphibious model）**：
-同一个供应商 API 模型名同时承载图像与视频两种 media_type 的模型，因 registry 键单值而拆成两条 registry 条目，其中一种用别名键 + `api_model_name` 回指真实 API 名（见 `docs/adr/0038`）。
+同一个供应商 API 模型名同时承载图像与视频两种 media_type 的模型，在 ArcReel 内拆成两条模型条目分别登记（见 `docs/adr/0038`）。
 _Avoid_: 把别名键当成真实模型名。
 
 **discovery_format**：
-自定义 provider 的 provider 级字段（取值 `openai` / `google`），只决定「模型发现」与「连通测试」去查哪套列表 API，不决定任何模型的调用协议。
+自定义 provider 上决定「模型发现」与「连通测试」按哪套列表接口进行的声明，不决定任何模型的调用协议。
 _Avoid_: api_format、把它当模型调用协议开关。
 
 **活跃凭证（active credential）**：
@@ -60,10 +59,6 @@ _Avoid_: default credential、把切换理解为自动轮换或负载均衡。
 **智能体凭证（agent_credential）**：
 供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的智能体凭证表，与自定义 provider 凭证互不相通（见 `docs/adr/0017`）。
 _Avoid_: 把它当成一个自定义 provider。
-
-**分层依赖方向（import layering）**：
-`lib.config` → `lib.*_backends` → `lib.custom_provider` 三层的 import 方向约束，上层可 import 下层，反向禁止，由 `pyproject.toml` 的 `[tool.importlinter]` 在 CI 强制。
-_Avoid_: 把函数体内延迟导入当作绕过手段。
 
 ### 任务与取消
 
@@ -76,7 +71,7 @@ ArcReel 在执行生成任务时向外部生成服务发起的一次 API 请求�
 _Avoid_: 供应商任务、生成任务。
 
 **供应商任务（provider_job）**：
-提交-轮询型 video backend 在供应商侧创建的远端异步操作，由 `provider_job_id` 标识；其状态由供应商写入、只决定轮询何时终止，与本地 task 状态机同名不同物（见 `lib/video_backends/base.py::ProviderJobStatus`）。
+供应商侧为一次提交-轮询型生成创建的远端异步操作；它的状态由供应商写入，与 ArcReel 本地的生成任务状态同名不同物。
 _Avoid_: 与本地 task 状态混为一谈、生成任务。
 
 **批量准入（batch_admission）**：
@@ -87,20 +82,20 @@ _Avoid_: 把整批拒绝说成「批量失败」。
 视频任务首次向 provider 提交前冻结的单次付费请求身份与实际输入事实，只证明「这次提交如何发生」，不是入队快照或产物标记。
 _Avoid_: request snapshot、resume payload、current marker。
 
-**cancelling（取消中）**：
-中间状态，表示 cancel 信号已发出但 worker 内 asyncio task 尚未走完 finally 收尾；cancel API 把 DB 从 `running` 改成 `cancelling` 后立即返回。
+**cancelling**：
+生成任务的中间状态，表示取消信号已发出、但该任务尚未走完收尾。
 
-**slot（执行槽）**：
-GenerationWorker 内并发执行 task 的容量单位，维度是 provider × media_type，容量上限来自 provider config，占用在 worker 内存中记账。
+**slot**：
+并发执行生成任务的容量单位，按 provider × media_type 划分。
 _Avoid_: concurrency limit。
 
-**worker（GenerationWorker）**：
-始终与 server 主进程捆绑在同一个 uvicorn 进程内的 background asyncio task，不是独立进程。
+**worker**：
+在 server 主进程内异步认领并执行生成任务的后台执行体，与 server 始终捆绑在同一进程，不是独立进程。
 
 **孤儿任务（orphan task）**：
-DB 中状态为 `running` 但 worker 内存里没有对应 asyncio.Task 的任务，唯一现实成因是服务重启；处理原则是不重新触发生成以避免重复扣费。
+记录为执行中、但已没有任何 worker 在跑的生成任务，现实成因是服务重启（见 `docs/adr/0007`）。
 
-**cancel（取消）**：
+**cancel**：
 用户主动停止一个 task 的日常路径，要求秒级响应——真正中断 worker 内对应的 asyncio task 并立即释放 slot，对 `queued` 和 `running` 都开放。
 _Avoid_: abort、stop。
 
@@ -121,13 +116,13 @@ _Avoid_: ResolvedBackend、BackendSelection。
 文本生成调用点的粗粒度分级，取值简单 / 复杂；用户配置的是「每档用哪个文本 backend」，另有一个「默认模型」作为各档未设置时的回退（见 `docs/adr/0051`）。
 _Avoid_: 为单个调用点开专属模型设置项、把 Agent 对话模型当作某个档位。
 
-**模型能力（capability）**：
+**模型能力（capabilities）**：
 一个模型支持的生成输入、输出和控制方式，例如是否接受参考图、是否生成有声视频或是否支持尾帧。
-_Avoid_: 能力桶、把模型能力与用户选择哪个模型混为一谈。
+_Avoid_: 把模型能力与用户选择哪个模型混为一谈。
 
 **模型选择（model_selection）**：
 为不同生成用途指定所用模型的设置；未单独指定时使用默认模型。
-_Avoid_: 生成模型、能力桶、模型能力。
+_Avoid_: 生成模型。
 
 **capability（t2i / i2i / i2v / r2v）**：
 媒体任务按请求形态的能力分类——图片 t2i（文生图）/ i2i（图生图），视频 i2v（图生视频，首帧驱动）/ r2v（参考生视频，参考图槽位驱动）；图片的 t2i/i2i 只有执行时才能确定（见 `docs/adr/0001`）。
@@ -148,7 +143,7 @@ _Avoid_: 重新生成、局部重绘、把编辑指令当作图片提示词保�
 ### 尺寸与比例
 
 **比例（aspect_ratio）**：
-输出的宽高比（如 `9:16` / `16:9` / `1:1`），项目级设定，是输出比例的唯一真相源、永远优先。
+输出的宽高比（如 `9:16` / `16:9` / `1:1`），项目级设定。
 _Avoid_: 把比例混进分辨率或尺寸字段。
 
 **分辨率（resolution）**：
@@ -160,12 +155,12 @@ _Avoid_: 用 resolution 指代 provider 解析。
 _Avoid_: 把 size 当比例或清晰度的同义词。
 
 **supported_durations**：
-某视频模型允许的离散时长集合（秒），是该模型时长的单一真相源（见 `docs/adr/0018`）。
+某视频模型允许的离散时长集合（秒）（见 `docs/adr/0018`）。
 _Avoid_: 全局时长白名单。
 
 **时长联动约束（duration_resolution_constraints / reference_image_durations）**：
-在 `supported_durations` 全集之上按分辨率或参考图上下文收窄的两个 per-model 声明，各自独立触发、可同时生效取交集，收窄入口收口在 `lib/config/resolver.constrain_durations`。
-_Avoid_: 在 backend 里另写一份与 registry 平行的约束表。
+在 `supported_durations` 全集之上，按分辨率或参考图上下文进一步收窄可选时长的两条逐模型声明。
+_Avoid_: 全局时长约束表。
 
 **default_duration**：
 项目级偏好时长（int）；为 null 或缺失时是有语义的「auto」档——由 AI 按内容节奏在 supported_durations 内自行决定。
@@ -173,7 +168,7 @@ _Avoid_: 把 null 读成「未配置」而擅自补默认值。
 
 ### 参考图与压缩
 
-**原图（reference_image 字段）**：
+**原图（reference_image）**：
 用户上传的、用于表达主体真实外观或创作意图的源图片；原图可以在后续生成中作为参考图，但不会因此变成资产图。
 _Avoid_: 资产图、把所有上传图片都叫参考图。
 
@@ -201,12 +196,12 @@ _Avoid_: 成本快照、费用归属。
 贯穿全系统的媒体维度，取值 `image` / `video` / `text` / `audio`，provider 解析、后端家族、用量与计费都按 media_type 扇出。
 _Avoid_: modality、media kind。
 
-**audio（媒体类型）**：
-第 4 个 media_type，承载文本转语音（TTS），经 GenerationQueue/Worker 调度（像 image/video，不像同步内联的 text 生成），但 backend 调用本身是同步一次性（见 `docs/adr/0010`）。
+**audio**：
+承载文本转语音（TTS）的媒体类型，与 image / video 一样经生成队列调度（见 `docs/adr/0010`）。
 _Avoid_: tts、voice、speech。
 
-**text_to_speech（capability）**：
-audio 媒体类型的能力标识，表示"把文本合成为语音"，在 audio 模型的 `ModelInfo.capabilities` 里声明。
+**text_to_speech**：
+audio 媒体类型的能力标识，表示「把文本合成为语音」。
 _Avoid_: tts、voice_synthesis。
 
 **旁白配音（narration_audio）**：
@@ -218,7 +213,7 @@ _Avoid_: 生成旁白、视频声音、TTS 音频。
 _Avoid_: 生成音频、旁白配音、视频音频。
 
 **音色（voice）**：
-TTS 供应商内置的一组预设发音人，合成请求以 `voice` 参数携带其 id；各 audio backend 以 `list_voices()` 交付自己的音色目录。
+供应商内置的一位预设发音人，决定合成出来的语音听上去是谁在念。
 _Avoid_: 用 voice 指代 audio 媒体类型本身、把音色与声音复刻混为一谈。
 
 **音色试听（voice_sample）**：
@@ -267,18 +262,15 @@ _Avoid_: 项目资产、以为库内资产与项目资产会自动同步。
 广告/短片中需要准确呈现和推广的商品资产，以用户上传的商品原图作为外观真实性依据。
 _Avoid_: 产品、产品资产、商品角色。
 
-**资产名坐标系（asset name normalization）**：
-项目资产名的判等坐标系是 strip + Unicode NFC、大小写敏感，`character / scene / prop / product` 共用一个项目级名称空间，任何两项不得同名。
-
 **资产重命名（asset rename）**：
-以 name 为身份的资产改换名称的原子级联事务：资产桶 key、全部脚本中的名称引用、按名命名的关联文件一次改齐。
+以名称为身份的资产改换名称的原子级联事务，该名称的全部引用一次改齐（见 `docs/adr/0057`）。
 _Avoid_: 用「新名 upsert + 删旧名」拼装改名。
 
 **风格模版（style_template）**：
-预置的整段画风提示词文本（真人 / 动画两类），选定时把展开后的提示词写入 `style` 字段作快照（见 `docs/adr/0023`）。
+预置的整段画风提示词文本（真人 / 动画两类），选定时把展开后的提示词作为快照写入项目风格（见 `docs/adr/0023`）。
 _Avoid_: 把 style 理解为短标签、与风格参考图叠加——二者互斥。
 
-**线索（clue）— legacy 资产术语**：
+**线索（clue）**：
 ArcReel 早期对「场景 + 道具」的统称，现已拆为独立的 scene 与 prop 两类资产。
 _Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具。
 
@@ -330,7 +322,7 @@ _Avoid_: 分镜、资产图、多宫格分镜。
 
 **视频单元（video_unit）**：
 参考生视频时，一段自由文本加编排时长构成的最小生成、计费和成片归属单位；视频单元的数量即参考生视频项目的内容规模度量。
-_Avoid_: 场景、分镜、把视频单元与其内部镜头混为一谈。
+_Avoid_: 场景、分镜。
 
 **脚本（script）**：
 ArcReel 根据小说、剧本或指令整理出的结构化创作内容，用于后续生成分镜或视频单元。
@@ -350,7 +342,7 @@ _Avoid_: 与创作类型或生成模式混为一谈。
 
 **发声条目（utterance）**：
 drama 场景里「说出来的话」的统一单元——每条要么是角色台词（有说话人），要么是画外音 / 旁白（无说话人），插入顺序即幕内先后。
-_Avoid_: 把台词与画外音当两个独立无序字段、把 utterance 与说书 `novel_text` 混为一谈。
+_Avoid_: 把台词与画外音当两个独立无序字段。
 
 **对应原文（source_text）**：
 一个分镜或视频单元所依据的小说或剧本文本，用于创作者对照来源，不会作为独立内容被朗读或生成。
@@ -373,11 +365,11 @@ _Avoid_: 审核 gate、门禁、pending。
 _Avoid_: 违约产物、quarantine。
 
 **分集账本（episode ledger）**：
-`project.json` 的 `episodes[]` 数组即分集单一真相源，条目扩展 `source_range`（原文素材范围）等字段；物理 `source/episode_N.txt` 是派生物（见 `docs/adr/0031`）。
+记录每一集的身份与其原文素材范围的账本，是分集的唯一真相源；磁盘上的分集文件是它的派生物（见 `docs/adr/0031`）。
 _Avoid_: 以物理集文件的存在性推断分集状态或集数。
 
-**ledger_status（消费状态）**：
-账本条目的三态生命周期：`planned`（已规划未消费）/ `consumed`（已有下游产物）/ `stale`（该集号重新规划前已有下游产物）；位置真相在 `source_range`，不在状态。
+**ledger_status**：
+账本条目的三态生命周期：`planned`（已规划未消费）/ `consumed`（已有下游产物）/ `stale`（该集号重新规划前已有下游产物）。
 _Avoid_: 与产物时效的 stale 混为一谈。
 
 **指令（instructions）**：
@@ -385,11 +377,11 @@ _Avoid_: 与产物时效的 stale 混为一谈。
 _Avoid_: 创作要求、prompt。
 
 **分集规划（plan）**：
-从 planning_cursor 起读源文窗口、调文本模型规划窗口内所有剧情弧完整的集（标题/钩子/范围）的服务端能力（见 `docs/adr/0032`）。
+由服务端读取一段源文、一次规划出其中所有剧情弧完整的集（标题、钩子、原文范围）的能力（见 `docs/adr/0032`）。
 _Avoid_: 让主 agent 自行读原文选切分点。
 
 **重置分集规划（reset_episode_planning）**：
-把分集账本退回未规划状态的调整入口，全量重置清空整本账本，部分重置保留指定集号之前的条目（见 `docs/adr/0032`）。
+把分集账本退回未规划状态的调整入口，分全量重置与保留指定集号之前条目的部分重置两种（见 `docs/adr/0032`）。
 _Avoid_: 把重置当删除。
 
 ### 产物与制作状态
@@ -434,10 +426,10 @@ _Avoid_: 助手、创作助手、Copilot。
 
 **子任务（subagent）**：
 智能体为完成一个聚焦目标而拆出的工作，主对话只展示其目标、状态和结果。
-_Avoid_: 子智能体、子时间线。
+_Avoid_: 子智能体。
 
 **SessionActor**：
-每个 Claude 会话一个专属 asyncio task，串行化该会话对 `ClaudeSDKClient` 的所有协议调用（见 `docs/adr/0028`）。
+每个智能体会话专属的执行体，串行化该会话对 SDK 的所有调用（见 `docs/adr/0028`）。
 _Avoid_: 与 ManagedSession 混为一谈。
 
 **智能体启动失败（agent_startup_failure）**：
@@ -452,16 +444,16 @@ _Avoid_: 把 SDK 合成的错误消息作为普通智能体回答。
 ArcReel 在一次智能体故障中实际获得的上下文与原始故障事实；它是排障证据，不是根因结论。
 _Avoid_: 把未识别事实归一成"未知错误"。
 
-**SDK transcript（agent 记忆）**：
-SDK 按自身协议写入的会话记录，唯一职责是供 SDK resume 重建 agent 上下文，ArcReel 无权改造、不得混入 UI 专有条目。
+**SDK transcript**：
+SDK 按自身协议写入的会话记录，唯一职责是供 SDK 重建智能体上下文。
 _Avoid_: 把 transcript 当 UI 对话时间线的数据源。
 
 **会话事件日志（session event log）**：
-UI 对话时间线的唯一读源：每会话一条单调递增序号的事件序列，条目在写入点定型，定位是 transcript 的物化视图。
+对话时间线的唯一读源：每个会话一条有序事件序列，是 SDK transcript 的物化视图。
 _Avoid_: 把它当第二真相源与 transcript 对账。
 
 **流式预览态（draft）**：
-正在流式生成、尚未完成的 assistant 消息在服务端内存中的唯一预览表示，消息完成时被日志权威条目精确替换；不入日志、不落盘。
+正在流式生成、尚未完成的智能体消息的临时预览表示，消息完成后被会话事件日志里的权威条目替换。
 _Avoid_: 把 draft 做成日志条目的 pending 状态。
 
 **消息改写（message rewrite）**：
@@ -473,23 +465,23 @@ _Avoid_: 与图片编辑的「编辑」混称。
 _Avoid_: 与 SDK 原生 `fork_session` 混为一谈。
 
 **子时间线（subagent timeline）**：
-同一会话内由 parent_tool_use_id 归组的 subagent 消息序列，主时间线上只呈现单一可折叠的子任务卡片。
+同一会话内属于同一个子任务的消息序列，主时间线上只呈现一张可折叠的子任务卡片。
 _Avoid_: 把 subagent 消息平铺进主时间线。
 
 **智能体运行 profile（agent_runtime_profile）**：
-智能体专属的运行态配置树（`agent_runtime_profile/`），与开发者本地 `.claude/` 物理分离，运行时按 manifest 物化进各项目目录。
+智能体专属的运行态配置树，与开发者本地的编辑器配置物理分离，运行时物化进各项目目录。
 _Avoid_: 用「.claude」笼统指代、称为 agent config。
 
 **profile 物化（materialization）**：
-把智能体 profile 按 manifest + sha256 复制进每个项目目录的过程，按项目 content_mode 选变体落盘为单一 `CLAUDE.md`。
+把智能体运行 profile 落盘进某个项目目录的过程，按该项目的创作类型选定变体。
 _Avoid_: 用「同步 / 复制」泛指。
 
 **智能体沙箱（agent_sandbox）**：
-智能体工具调用外围的内核级隔离层（macOS Seatbelt / Linux bwrap），约束沙箱内所有子进程的文件读写与网络（见 `docs/adr/0025`、`docs/adr/0026`）。
+智能体工具调用外围的内核级隔离层，约束沙箱内所有子进程的文件读写与网络（见 `docs/adr/0025`、`docs/adr/0026`）。
 _Avoid_: 用「沙箱」泛指应用层路径围栏 hook。
 
-**AgentAccessPolicy（智能体访问规则）**：
-「智能体能碰什么」的单一规则真相源，以进程级根路径纯构造，同一份规则为内核沙箱和应用层 hook 做两种投影（见 `docs/adr/0046`）。
+**AgentAccessPolicy**：
+「智能体能碰什么」的单一规则来源，同一份规则为内核沙箱与应用层围栏各做一种投影（见 `docs/adr/0046`）。
 _Avoid_: SandboxPolicy。
 
 ### 认证与凭证
@@ -503,15 +495,5 @@ _Avoid_: 把所有 bearer token 都叫 API Key。
 _Avoid_: 与会话 JWT 完全等同、scoped token。
 
 **下载 token（download token）**：
-为项目导出签发的短时效 JWT（`purpose=download`），作为导出端点的 query param 唯一认证方式（见 `docs/adr/0059`）。
+为项目导出签发的短时效凭证，只对导出端点有效（见 `docs/adr/0059`）。
 _Avoid_: 把它称为一次性或低权限凭证。
-
-## 示例对话
-
-> **Dev**：worker 认领一个图片任务时，怎么知道用哪个 provider 限流？
-> **Expert**：它做 provider 解析，但只到"选身份"为止——拿 provider 不拿 backend，更不真正生成。
-> **Dev**：那 project.json 里要是写着 `seedance` 呢？
-> **Expert**：那是 legacy provider 名，迁移后不该再出现。系统只认规范 id `ark`。
->
-> **Dev**：旁白配音的 TTS 后端是同步一次性 POST，跟 text 生成一样不异步——那它也像 text 那样不入队、直接调？
-> **Expert**：不。是否入队看**生成基数**，不看 backend 同不同步。text 每集生成一次，同步内联就够；旁白音频每 segment 一段、每集 N 段、要批量，基数和 image/video 一样，所以走队列。
