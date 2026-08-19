@@ -57,11 +57,7 @@ def _create_ad_reference_project(
             {
                 "unit_id": "E1U1",
                 "duration_seconds": 4,
-                "shots": [{"text": "镜头1：@[主播] 展示 @[速干杯]"}],
-                "references": [
-                    {"type": "product", "name": "速干杯"},
-                    {"type": "character", "name": "主播"},
-                ],
+                "text": "镜头1：@[主播] 展示 @[速干杯]",
             }
         ]
     episode = {
@@ -105,8 +101,7 @@ class TestProjectArchiveAdReference:
             {
                 "unit_id": "E1U1",
                 "duration_seconds": 4,
-                "shots": [{"text": "镜头1：产品特写"}],
-                "references": [],
+                "text": "镜头1：产品特写",
                 "generated_assets": {
                     "video_clip": "reference_videos/E1U1.mp4",
                     "status": "completed",

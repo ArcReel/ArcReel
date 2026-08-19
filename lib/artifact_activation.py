@@ -53,7 +53,7 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifact_planner import (
-    TARGET_SCHEMA_VERSION,
+    ARTIFACT_MANIFEST_SCHEMA_VERSION,
     ArtifactTargetStatePlan,
     TargetStatePlanner,
     episode_scope_for_key,
@@ -95,10 +95,10 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
 
     plan = plan_artifact_target_state(project_dir)
     current_schema = plan.project.get("schema_version")
-    if bump_schema and current_schema != TARGET_SCHEMA_VERSION - 1:
+    if bump_schema and current_schema != ARTIFACT_MANIFEST_SCHEMA_VERSION - 1:
         raise ValueError("schema bump requires a v7 project")
-    if not bump_schema and current_schema != TARGET_SCHEMA_VERSION:
-        raise ValueError("schema-preserving activation requires a v8 project")
+    if not bump_schema and not project_schema_is_current(plan.project):
+        raise ValueError("schema-preserving activation requires a current-schema project")
 
     _assert_preflight_unchanged(project_dir, plan)
     adapter = ProjectArtifactManifestAdapter(project_dir)
@@ -153,7 +153,7 @@ def ensure_imported_artifact_target_state(
     except (UnicodeDecodeError, ValueError) as exc:
         raise ValueError("project.json is not valid UTF-8 JSON") from exc
     if not isinstance(project, Mapping) or not project_schema_is_current(project):
-        raise ValueError("archive activation requires a schema-v8 project")
+        raise ValueError("archive activation requires a current-schema project")
     if preserved_manifest is not None:
         preserved_entries = dict(preserved_manifest.entries)
         preserved_content_digests = dict(preserved_manifest.content_digests)
@@ -442,7 +442,7 @@ def _ensure_activation_backup(source: Path, *, stamp: int) -> None:
 
 def _commit_schema_version(project_dir: Path, project: Mapping[str, Any]) -> None:
     updated = dict(project)
-    updated["schema_version"] = TARGET_SCHEMA_VERSION
+    updated["schema_version"] = ARTIFACT_MANIFEST_SCHEMA_VERSION
     atomic_write_json(project_dir / "project.json", updated)
 
 
@@ -452,7 +452,7 @@ __all__ = [
     "ArtifactRegistrationReceipt",
     "ArtifactTargetStatePlan",
     "EpisodeScriptInput",
-    "TARGET_SCHEMA_VERSION",
+    "ARTIFACT_MANIFEST_SCHEMA_VERSION",
     "activate_artifact_target_state",
     "active_artifact_currency_resolver",
     "artifact_input_is_usable",

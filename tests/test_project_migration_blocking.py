@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from lib.api_errors import ConflictError
+from lib.artifact_planner import ARTIFACT_MANIFEST_SCHEMA_VERSION
 from lib.generation_result import GenerationAction, GenerationProblemCode
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import (
@@ -58,7 +59,8 @@ def test_failed_migration_records_the_offending_episode_and_file(tmp_path: Path)
     failure = migrate_project_with_verdict(project_dir)
 
     assert failure is not None
-    assert failure.schema_version == CURRENT_PROJECT_SCHEMA_VERSION - 1
+    # 项目卡在清单激活这一步的起点版本上，不是迁移链的末端。
+    assert failure.schema_version == ARTIFACT_MANIFEST_SCHEMA_VERSION - 1
     assert failure.reason
     assert [(d.episode, d.file) for d in failure.details] == [(1, "scripts/episode_1.json")]
     assert "identity" in failure.details[0].violation

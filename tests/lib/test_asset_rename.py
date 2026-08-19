@@ -131,11 +131,7 @@ def _reference_script(episode: int = 1) -> dict[str, Any]:
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"text": "@[角色A] 走进 @[场景A]"}],
-                "references": [
-                    {"type": "character", "name": "角色A"},
-                    {"type": "scene", "name": "场景A"},
-                ],
+                "text": "@[角色A] 走进 @[场景A]",
                 "duration_seconds": 8,
             }
         ],
@@ -179,19 +175,17 @@ class TestRewritePayloadReferences:
         assert scene["utterances"][1]["speaker"] is None
         assert count == 2
 
-    def test_padded_typed_references_share_the_asset_comparison_key(self) -> None:
+    def test_padded_names_share_the_asset_comparison_key(self) -> None:
         payload = _drama_script()
         scene = payload["scenes"][0]
         scene["characters_in_scene"] = [" 角色A "]
         scene["utterances"][0]["speaker"] = " 角色A "
-        scene["references"] = [{"type": "character", "name": " 角色A "}]
 
         count = rewrite_payload_references(payload, "character", "角色A", "新角色")
 
         assert scene["characters_in_scene"] == ["新角色"]
         assert scene["utterances"][0]["speaker"] == "新角色"
-        assert scene["references"] == [{"type": "character", "name": "新角色"}]
-        assert count == 3
+        assert count == 2
 
     def test_ad_dialogue_speaker_and_products(self) -> None:
         payload = _ad_script()
@@ -216,30 +210,24 @@ class TestRewritePayloadReferences:
         assert dialogue[1]["speaker"] == "路人"
         assert count == 2  # characters_in_segment + dialogue speaker
 
-    def test_ad_reference_unit_product_reference(self) -> None:
+    def test_ad_reference_unit_mention(self) -> None:
         payload = _ad_script()
-        payload["reference_units"] = [
+        payload["video_units"] = [
             {
                 "unit_id": "E1U1",
-                "shots": [{"text": "@[产品A] 特写"}],
-                "references": [{"type": "product", "name": "产品A"}],
+                "text": "@[产品A] 特写",
                 "duration_seconds": 5,
             }
         ]
         count = rewrite_payload_references(payload, "product", "产品A", "新产品")
-        unit = payload["reference_units"][0]
-        assert unit["references"][0] == {"type": "product", "name": "新产品"}
-        assert unit["shots"][0]["text"] == "@[新产品] 特写"
-        assert count == 3  # products_in_shot + reference + mention
+        assert payload["video_units"][0]["text"] == "@[新产品] 特写"
+        assert count == 2  # products_in_shot + mention
 
     def test_reference_units_and_mentions(self) -> None:
         payload = _reference_script()
         count = rewrite_payload_references(payload, "character", "角色A", "新角色")
-        unit = payload["video_units"][0]
-        assert unit["shots"][0]["text"] == "@[新角色] 走进 @[场景A]"
-        assert unit["references"][0] == {"type": "character", "name": "新角色"}
-        assert unit["references"][1] == {"type": "scene", "name": "场景A"}
-        assert count == 2
+        assert payload["video_units"][0]["text"] == "@[新角色] 走进 @[场景A]"
+        assert count == 1
 
     def test_nfd_text_forms_matched(self) -> None:
         nfd = unicodedata.normalize("NFD", "café")
@@ -304,7 +292,7 @@ class TestRenameAssetCascade:
         report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.episodes == 2
-        assert report.references == 3  # 分段引用数组 + 参考单元 references + mention
+        assert report.references == 2  # 分段引用数组 + 单元正文 mention
         assert report.files == 2
 
         project = pm.load_project("demo")
@@ -318,8 +306,7 @@ class TestRenameAssetCascade:
 
         assert _load_script(pm)["segments"][0]["characters_in_segment"] == ["主角甲"]
         unit = pm.load_script("demo", "episode_2.json")["video_units"][0]
-        assert unit["shots"][0]["text"] == "@[主角甲] 走进 @[场景A]"
-        assert unit["references"][0]["name"] == "主角甲"
+        assert unit["text"] == "@[主角甲] 走进 @[场景A]"
 
     def test_rename_keeps_reference_integrity(self, pm: ProjectManager) -> None:
         from lib.data_validator import DataValidator
@@ -339,9 +326,8 @@ class TestRenameAssetCascade:
             "units": [
                 {
                     "unit_id": "E1U1",
-                    "shots": [{"text": "@[角色A] 在河边"}],
+                    "text": "@[角色A] 在河边",
                     "duration_seconds": 8,
-                    "references": [{"type": "character", "name": "角色A"}],
                 }
             ]
         }
@@ -350,10 +336,9 @@ class TestRenameAssetCascade:
         report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.episodes == 1
-        assert report.references == 2
+        assert report.references == 1
         saved = json.loads((draft_dir / "step1_reference_units.json").read_text(encoding="utf-8"))
-        assert saved["units"][0]["shots"][0]["text"] == "@[主角甲] 在河边"
-        assert saved["units"][0]["references"][0]["name"] == "主角甲"
+        assert saved["units"][0]["text"] == "@[主角甲] 在河边"
 
     def test_sibling_with_numeric_suffix_untouched(self, pm: ProjectManager) -> None:
         """``旧名_2`` 是合法资产名：兄弟资产的设计图不得被序号形态的 stem 匹配卷走。"""

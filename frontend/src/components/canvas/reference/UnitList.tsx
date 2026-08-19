@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Scissors, Search } from "lucide-react";
-import { assetColor } from "./asset-colors";
+import { Plus, Search } from "lucide-react";
 import { StatusBadge, resolveUnitStatus } from "./unit-status";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
 
@@ -17,10 +16,6 @@ export interface UnitListProps {
   statusMap?: Record<string, UnitStatus>;
 }
 
-function promptPreview(unit: ReferenceVideoUnit): string {
-  return unit.shots.map((s) => s.text).join(" · ");
-}
-
 export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusMap }: UnitListProps) {
   const { t } = useTranslation("dashboard");
   const [query, setQuery] = useState("");
@@ -29,9 +24,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
     const q = query.trim().toLowerCase();
     if (!q) return units;
     return units.filter(
-      (u) =>
-        u.unit_id.toLowerCase().includes(q) ||
-        u.shots.some((s) => s.text.toLowerCase().includes(q)),
+      (u) => u.unit_id.toLowerCase().includes(q) || u.text.toLowerCase().includes(q),
     );
   }, [units, query]);
 
@@ -143,39 +136,8 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
                     selected ? "text-[var(--color-text-2)]" : "text-[var(--color-text-3)]"
                   }`}
                 >
-                  {promptPreview(u)}
+                  {u.text}
                 </p>
-                {u.references.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-0.5">
-                    {u.references.slice(0, 5).map((r) => {
-                      const palette = assetColor(r.type);
-                      return (
-                        <span
-                          key={`${r.type}:${r.name}`}
-                          className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] ${palette.textClass} ${palette.bgClass}`}
-                          translate="no"
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`h-[3px] w-[3px] rounded-full ${palette.dotClass}`}
-                          />
-                          {r.name}
-                        </span>
-                      );
-                    })}
-                    {u.references.length > 5 && (
-                      <span className="font-mono text-[10px] text-[var(--color-text-4)]">
-                        +{u.references.length - 5}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {u.shots.length > 1 && (
-                  <div className="mt-1.5 flex items-center gap-1 text-[10px] text-[var(--color-text-4)]">
-                    <Scissors className="h-3 w-3" aria-hidden="true" />
-                    <span>{t("reference_unit_shots_count", { count: u.shots.length })}</span>
-                  </div>
-                )}
               </li>
             );
           })}

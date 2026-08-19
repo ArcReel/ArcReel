@@ -135,8 +135,7 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
         units.append(
             {
                 "unit_id": unit_id,
-                "shots": [{"text": "t"}],
-                "references": [],
+                "text": "t",
                 "duration_seconds": duration,
                 "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
@@ -1515,10 +1514,10 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unenqueueable_units(self, db_factory):
-        """没有 shots 或拼接文本为空的 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
-        对没有 shots 的 unit 直接拒绝，``TaskSpec.from_request`` 对空提示词同样拒绝），这类 unit
+        """正文为空或只有空白的 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
+        对空正文直接拒绝，``TaskSpec.from_request`` 对空提示词同样拒绝），这类 unit
         不产生新预估——但 unit 整条仍要保留在结果里、纳入汇总：不可入队只影响能否产生新预估，
-        不影响该 unit 是否曾经成功生成过。已有实付的 unit（曾成功生成、之后被编辑成空 shots）
+        不影响该 unit 是否曾经成功生成过。已有实付的 unit（曾成功生成、之后被编辑成空正文）
         其历史支出不能因此从合计里消失。
         """
         resolver = ConfigResolver(db_factory)
@@ -1536,8 +1535,8 @@ class TestCostEstimationService:
         script["video_units"].append(
             {
                 "unit_id": "E1U2",
-                "shots": [],
-                "references": [],
+                "text": "",
+                "needs_replan": True,
                 "duration_seconds": 5,
                 "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
@@ -1546,8 +1545,7 @@ class TestCostEstimationService:
         script["video_units"].append(
             {
                 "unit_id": "E1U3",
-                "shots": [{"text": "   "}],
-                "references": [],
+                "text": "   ",
                 "duration_seconds": 5,
                 "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
@@ -1635,10 +1633,10 @@ class TestCostEstimationService:
         assert segments[2]["estimate"]["video"]
 
     @pytest.mark.integration
-    async def test_narration_reference_video_estimate_skips_unit_with_non_list_shots(self, db_factory):
-        """agent/外部编辑过的剧本可能把 ``shots`` 裸写成非 list 的 truthy 值（如 ``true``/``1``）。
-        ``assemble_shots_text`` 对非 list 输入遍历会抛 ``TypeError``，该异常发生在时长解析
-        之前，必须在拼接前先做类型检查，否则同样会让整个项目估算 500。
+    async def test_narration_reference_video_estimate_skips_unit_with_non_string_text(self, db_factory):
+        """agent/外部编辑过的剧本可能把 ``text`` 裸写成非字符串的 truthy 值（如 ``true``/``1``）。
+        该值参与提示词拼接会抛 ``TypeError``，必须先做类型检查，否则单条脏数据会让整个项目
+        估算 500。
         """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1652,9 +1650,9 @@ class TestCostEstimationService:
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         script = _make_reference_video_script(1, "narration", [("E1U1", 6), ("E1U2", 8)])
-        script["video_units"][0]["shots"] = True
+        script["video_units"][0]["text"] = True
 
-        result = await service.compute(project_data, {"ep1.json": script}, project_name="narration-non-list-shots")
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="narration-non-string-text")
 
         segments = result["episodes"][0]["segments"]
         assert [seg["segment_id"] for seg in segments] == ["E1U1", "E1U2"]
@@ -1963,10 +1961,11 @@ class TestCostEstimationService:
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
             "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+            "characters": {"A": {"name": "A"}},
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
-        scripts["ep1.json"]["video_units"][0]["references"] = [{"type": "character", "name": "A"}]
+        scripts["ep1.json"]["video_units"][0]["text"] = "@[A] 走进房间"
 
         await service.compute(project_data, scripts, project_name="r2v-duration-slots")
 
@@ -2054,11 +2053,11 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        ("references", "expected_model"),
-        [([{"type": "character", "name": "A"}], "kling-v3-omni"), ([], "kling-v3")],
+        ("text", "expected_model"),
+        [("@[A] 走进房间", "kling-v3-omni"), ("空镜头", "kling-v3")],
     )
     async def test_ad_reference_route_prices_by_unit_reference_bucket(
-        self, db_factory, monkeypatch, references, expected_model
+        self, db_factory, monkeypatch, text, expected_model
     ):
         """ad 参考路线按 unit 当前实际可用参考图分桶算价：有图 → r2v，无图 → i2v。
 
@@ -2083,10 +2082,11 @@ class TestCostEstimationService:
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
             "video_provider_r2v": "kling/kling-v3-omni",
+            "characters": {"A": {"name": "A"}},
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         script = _make_reference_video_script(1, "ad", [("E1U1", 6)])
-        script["video_units"][0]["references"] = references
+        script["video_units"][0]["text"] = text
         scripts = {"ep1.json": script}
 
         await service.compute(project_data, scripts, project_name="ad-reference-route-bucket")

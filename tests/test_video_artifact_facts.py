@@ -105,7 +105,7 @@ def test_video_artifact_currency_accepts_unlimited_reference_projection_but_reje
         kind_version=1,
         inputs={
             "unit_id": "E1U1",
-            "visual_shots": [],
+            "visual_lines": [],
             "style": "",
             "canvas": {"aspect_ratio": "9:16"},
             "request_references": [],

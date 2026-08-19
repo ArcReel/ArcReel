@@ -2,7 +2,7 @@
 
 import pytest
 
-from lib.reference_video.units import find_reference_unit, reference_unit_video_bucket, reference_video_bucket
+from lib.reference_video.units import find_reference_unit, reference_video_bucket
 
 pytestmark = pytest.mark.unit
 
@@ -10,19 +10,6 @@ pytestmark = pytest.mark.unit
 def test_reference_video_bucket_splits_by_references():
     assert reference_video_bucket(with_references=True) == "r2v"
     assert reference_video_bucket(with_references=False) == "i2v"
-
-
-@pytest.mark.parametrize(
-    ("unit", "expected"),
-    [
-        ({"references": [{"type": "character", "name": "A"}]}, "r2v"),
-        ({"references": []}, "i2v"),
-        ({}, "i2v"),
-        (None, "i2v"),
-    ],
-)
-def test_reference_unit_video_bucket_by_declared_references(unit, expected):
-    assert reference_unit_video_bucket(unit) == expected
 
 
 def test_find_reference_unit_always_reads_video_units():

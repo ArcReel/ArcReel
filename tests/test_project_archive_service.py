@@ -24,7 +24,9 @@ from lib.grid.models import GridGeneration
 from lib.i18n import _
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
 from lib.project_manager import ProjectManager
+from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.version_manager import VersionManager
 from server.services import project_archive as project_archive_module
 from server.services.project_archive import (
@@ -32,6 +34,16 @@ from server.services.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
 )
+
+
+def _activate_artifact_manifest(project_dir: Path) -> None:
+    """跑 Artifact Manifest 引入那一步的迁移，再把项目补到当前 schema。
+
+    manifest 由 v7→v8 生成，而按 manifest 判定产物新旧的入口要求项目已在当前 schema 上，
+    故两步必须成对——只跑前者会让项目停在中途版本、解析器直接拒绝服务。
+    """
+    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -361,7 +373,7 @@ class TestProjectArchiveService:
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
         (project_dir / MANIFEST_FILENAME).unlink(missing_ok=True)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
         startup_manifest = json.loads((project_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))
         service = ProjectArchiveService(pm)
 
@@ -389,7 +401,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
 
         service = ProjectArchiveService(pm)
         archive_path, _ = service.export_project("demo")
@@ -422,7 +434,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
 
         key = ArtifactKey.asset_sheet("character", "Hero")
         before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
@@ -461,7 +473,7 @@ class TestProjectArchiveService:
         _write_text(project_dir / "source" / "episode_1.txt", "原文")
         step1_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
         _write_json(step1_path, {"segments": [{"segment_id": "E1S01", "text": "原文"}]})
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
 
         key = ArtifactKey.episode_script(1)
         before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
@@ -518,7 +530,7 @@ class TestProjectArchiveService:
         grid.grid_image_path = f"grids/{grid.id}.png"
         _write_json(project_dir / "grids" / f"{grid.id}.json", grid.to_dict())
         _write_bytes(project_dir / "grids" / f"{grid.id}.png", b"grid-image")
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
         key = ArtifactKey.episode_grid(1, grid.id)
         before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
         assert before is not None
@@ -544,7 +556,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
 
         key = ArtifactKey.asset_sheet("character", "Hero")
         artifact_path = project_dir / "characters" / "Hero.png"
@@ -589,7 +601,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
 
         key = ArtifactKey.asset_sheet("character", "Hero")
         artifact_path = project_dir / "characters" / "Hero.png"
@@ -729,7 +741,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
 
         key = ArtifactKey.asset_sheet("character", "Hero")
         adapter = ProjectArtifactManifestAdapter(project_dir)
@@ -780,7 +792,7 @@ class TestProjectArchiveService:
         project["characters"][" Hero "] = project["characters"].pop("Hero")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
         key = ArtifactKey.asset_sheet("character", "Hero")
         assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is not None
 
@@ -803,7 +815,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
         project_file = project_dir / "project.json"
         key = ArtifactKey.asset_sheet("character", "Hero")
         before_project = project_file.read_bytes()
@@ -832,7 +844,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
 
         adapter = ProjectArtifactManifestAdapter(project_dir)
         for key in tuple(adapter.snapshot_entries()):
@@ -925,7 +937,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
         key = ArtifactKey.episode_audio(1, "E1S01").encode()
         startup_manifest = json.loads((project_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))
         assert key in startup_manifest["entries"]
@@ -972,7 +984,7 @@ class TestProjectArchiveService:
         project = pm.load_project("demo")
         project["schema_version"] = 7
         _write_json(project_dir / "project.json", project)
-        migrate_v7_to_v8(project_dir)
+        _activate_artifact_manifest(project_dir)
         key = ArtifactKey.episode_audio(1, "E1S01")
         frozen = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
         assert frozen is not None
@@ -1052,42 +1064,6 @@ class TestProjectArchiveService:
         assert (pm.get_project_path(result.project_name) / "project.json").exists()
 
     @pytest.mark.unit
-    def test_import_rejects_reference_unit_with_more_than_four_shots(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        project_dir = _create_project(pm)
-        service = ProjectArchiveService(pm)
-
-        project = pm.load_project("demo")
-        project["content_mode"] = "ad"
-        project["generation_mode"] = "reference_video"
-        pm.save_project("demo", project)
-        _write_json(
-            project_dir / "scripts" / "episode_1.json",
-            {
-                "episode": 1,
-                "title": "第一集",
-                "content_mode": "ad",
-                "video_units": [
-                    {
-                        "unit_id": "E1U1",
-                        "shots": [{"text": f"镜头{i}"} for i in range(1, 6)],
-                        "references": [],
-                        "duration_seconds": 7,
-                        "generated_assets": {"status": "pending"},
-                    }
-                ],
-            },
-        )
-        archive_path = tmp_path / "too-many-unit-shots.zip"
-        _make_manual_zip(project_dir, archive_path)
-        shutil.rmtree(project_dir)
-
-        with pytest.raises(ProjectArchiveValidationError) as exc_info:
-            service.import_project_archive(archive_path, uploaded_filename="too-many-unit-shots.zip")
-
-        assert any("shots 含 5 个条目，最多允许 4 个" in error for error in exc_info.value.render_errors())
-
-    @pytest.mark.unit
     def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
         """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口走完整迁移链。"""
         import json as _json
@@ -1145,7 +1121,7 @@ class TestProjectArchiveService:
         installed_dir = pm.get_project_path(result.project_name)
         installed = json.loads((installed_dir / "project.json").read_text(encoding="utf-8"))
         migrated_script = json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        assert installed["schema_version"] == 8
+        assert installed["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
         assert list(installed["characters"]) == ["Hero"]
         assert list(installed["scenes"]) == ["Hero_scene"]
         assert migrated_script["segments"][0]["scenes"] == ["Hero_scene"]

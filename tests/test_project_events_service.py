@@ -1169,7 +1169,7 @@ class TestProjectEventService:
 
     @pytest.mark.unit
     def test_diff_snapshots_reports_reference_video_unit_lifecycle_events(self, tmp_path):
-        """reference_video(video_units) 项目的分镜级事件全周期，且 characters 从 references 派生。"""
+        """reference_video(video_units) 项目的分镜级事件全周期，且正文进快照、实体名单恒空。"""
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("ref-demo")
         pm.create_project_metadata("ref-demo", "Ref", "Anime", "narration")
@@ -1186,11 +1186,7 @@ class TestProjectEventService:
                         {
                             "unit_id": "E1U01",
                             "duration_seconds": 8,
-                            "shots": [{"text": "@[Hero] 登场"}],
-                            "references": [
-                                {"type": "character", "name": "Hero"},
-                                {"type": "scene", "name": "街道"},
-                            ],
+                            "text": "@[Hero] 登场，街道尽头灯火通明。",
                             "generated_assets": _pending_assets(),
                         }
                     ],
@@ -1203,18 +1199,18 @@ class TestProjectEventService:
         previous = service._build_snapshot("ref-demo")
         prev_meta = previous["scripts"]["episode_1.json"]
         assert prev_meta["kind"] == "video_units"
-        # characters 只取 references 中 type==character 的条目，不含 scene。
-        assert prev_meta["items"]["E1U01"]["characters"] == ["Hero"]
+        # 引用写在正文里、执行期才解析，逐条实体名单对 video_units 恒空。
+        assert prev_meta["items"]["E1U01"]["characters"] == []
+        assert prev_meta["items"]["E1U01"]["text"] == "@[Hero] 登场，街道尽头灯火通明。"
 
         script = pm.load_script("ref-demo", "episode_1.json")
         script["video_units"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1U01.png"
-        script["video_units"][0]["references"].append({"type": "character", "name": "Villain"})
+        script["video_units"][0]["text"] = "@[Hero] 与 @[Villain] 对峙。"
         script["video_units"].append(
             {
                 "unit_id": "E1U02",
                 "duration_seconds": 6,
-                "shots": [{"text": "空镜"}],
-                "references": [],
+                "text": "空镜",
                 "generated_assets": _pending_assets(),
             }
         )
@@ -1222,8 +1218,7 @@ class TestProjectEventService:
             pm.save_script("ref-demo", script, "episode_1.json", validate=False)
 
         mid = service._build_snapshot("ref-demo")
-        # 新增的 reference 角色反映进 characters。
-        assert mid["scripts"]["episode_1.json"]["items"]["E1U01"]["characters"] == ["Hero", "Villain"]
+        assert mid["scripts"]["episode_1.json"]["items"]["E1U01"]["text"] == "@[Hero] 与 @[Villain] 对峙。"
         changes = service._diff_snapshots(previous, mid)
         assert any(c["action"] == "created" and c["entity_id"] == "E1U02" for c in changes)
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1U01" for c in changes)
@@ -1231,7 +1226,7 @@ class TestProjectEventService:
         unit_changes = [c for c in changes if c["entity_type"] == "reference_unit"]
         assert unit_changes and all(c["label"].startswith("视频单元") for c in unit_changes)
         # 参考生视频单元走参考画布：可导航事件（created/updated）的锚点类型为 reference_unit，
-        # 前端据此切到 units tab 并选中对应单元——本 issue 的核心修复。
+        # 前端据此切到 units tab 并选中对应单元。
         navigable = [c for c in unit_changes if c["action"] in ("created", "updated")]
         assert navigable and all(c["focus"]["anchor_type"] == "reference_unit" for c in navigable)
 
@@ -1245,10 +1240,10 @@ class TestProjectEventService:
 
     @pytest.mark.unit
     def test_diff_snapshots_reports_reference_video_content_edits(self, tmp_path):
-        """reference_video 单元的内容体编辑（成员镜头文本 / 场景引用）触发 updated 事件——
+        """reference_video 单元的内容体编辑触发 updated 事件。
 
-        角色引用之外的内容改动此前不发 updated：快照只捕获 characters 与 duration，未纳成员镜头
-        文本与非角色引用，单元内容真实变更却在差分里恒等。
+        正文是单元的唯一内容真相（参考图执行期才从 ``@[名称]`` 解析），快照据此捕获正文本身：
+        改一个字就是内容变更，须发 updated；规划标记的清除同样要通知其它会话解除生成阻断。
         """
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("ref-edit")
@@ -1266,8 +1261,7 @@ class TestProjectEventService:
                         {
                             "unit_id": "E1U01",
                             "duration_seconds": 8,
-                            "shots": [{"text": "@[Hero] 登场"}],
-                            "references": [{"type": "character", "name": "Hero"}],
+                            "text": "@[Hero] 登场",
                             "generated_assets": _pending_assets(),
                         }
                     ],
@@ -1279,74 +1273,37 @@ class TestProjectEventService:
         service = ProjectEventService(tmp_path)
         previous = service._build_snapshot("ref-edit")
 
-        # 仅改成员镜头文本，不动角色 / 时长 / 资产。
+        # 仅改正文，不动时长 / 资产。
         script = pm.load_script("ref-edit", "episode_1.json")
-        script["video_units"][0]["shots"][0]["text"] = "@[Hero] 转身离去"
+        script["video_units"][0]["text"] = "@[Hero] 转身离去"
         with project_change_source("filesystem"):
             pm.save_script("ref-edit", script, "episode_1.json", validate=False)
         after_text = service._build_snapshot("ref-edit")
-        assert after_text["scripts"]["episode_1.json"]["items"]["E1U01"]["shots"] == [{"text": "@[Hero] 转身离去"}]
+        assert after_text["scripts"]["episode_1.json"]["items"]["E1U01"]["text"] == "@[Hero] 转身离去"
         text_changes = service._diff_snapshots(previous, after_text)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in text_changes)
 
-        # 追加场景引用（非角色）：触发 updated 且派生进 scenes（不误入 characters）。
+        # 正文里追加一处引用：正文变更即内容变更，同样发 updated。
         script = pm.load_script("ref-edit", "episode_1.json")
-        script["video_units"][0]["references"].append({"type": "scene", "name": "码头"})
+        script["video_units"][0]["text"] = "@[Hero] 转身离去，@[码头] 的雾散开。"
         with project_change_source("filesystem"):
             pm.save_script("ref-edit", script, "episode_1.json", validate=False)
-        after_scene = service._build_snapshot("ref-edit")
-        scene_item = after_scene["scripts"]["episode_1.json"]["items"]["E1U01"]
-        assert scene_item["scenes"] == ["码头"]
-        assert scene_item["characters"] == ["Hero"]
-        scene_changes = service._diff_snapshots(after_text, after_scene)
-        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in scene_changes)
+        after_mention = service._build_snapshot("ref-edit")
+        mention_item = after_mention["scripts"]["episode_1.json"]["items"]["E1U01"]
+        # 引用是执行期派生物，不进快照的实体名单。
+        assert mention_item["scenes"] == []
+        assert mention_item["characters"] == []
+        mention_changes = service._diff_snapshots(after_text, after_mention)
+        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in mention_changes)
 
-        # 同类型引用仅交换顺序：派生实体集合不变，但参考图编号与稳定裁剪优先级已变，仍须发 updated。
-        script = pm.load_script("ref-edit", "episode_1.json")
-        script["video_units"][0]["references"].extend(
-            [
-                {"type": "product", "name": "产品甲"},
-                {"type": "product", "name": "产品乙"},
-            ]
-        )
-        with project_change_source("filesystem"):
-            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
-        before_reorder = service._build_snapshot("ref-edit")
-
-        script = pm.load_script("ref-edit", "episode_1.json")
-        references = script["video_units"][0]["references"]
-        references[-2:] = reversed(references[-2:])
-        with project_change_source("filesystem"):
-            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
-        after_reorder = service._build_snapshot("ref-edit")
-        reordered_item = after_reorder["scripts"]["episode_1.json"]["items"]["E1U01"]
-        assert [ref["name"] for ref in reordered_item["references"][-2:]] == ["产品乙", "产品甲"]
-        reorder_changes = service._diff_snapshots(before_reorder, after_reorder)
-        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in reorder_changes)
-
-        # 内容修复先清除迁移来源标记，但独立的规划问题仍存在：即使 needs_replan 不变也须发 updated。
         script = pm.load_script("ref-edit", "episode_1.json")
         script["video_units"][0]["needs_replan"] = True
-        script["video_units"][0]["migration_requires_content_replan"] = True
-        with project_change_source("filesystem"):
-            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
-        before_migration_repair = service._build_snapshot("ref-edit")
-        before_migration_repair_item = before_migration_repair["scripts"]["episode_1.json"]["items"]["E1U01"]
-        assert before_migration_repair_item["needs_replan"] is True
-        assert before_migration_repair_item["migration_requires_content_replan"] is True
-
-        script = pm.load_script("ref-edit", "episode_1.json")
-        script["video_units"][0]["migration_requires_content_replan"] = False
         with project_change_source("filesystem"):
             pm.save_script("ref-edit", script, "episode_1.json", validate=False)
         before_repair = service._build_snapshot("ref-edit")
-        before_repair_item = before_repair["scripts"]["episode_1.json"]["items"]["E1U01"]
-        assert before_repair_item["needs_replan"] is True
-        assert before_repair_item["migration_requires_content_replan"] is False
-        migration_repair_changes = service._diff_snapshots(before_migration_repair, before_repair)
-        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in migration_repair_changes)
+        assert before_repair["scripts"]["episode_1.json"]["items"]["E1U01"]["needs_replan"] is True
 
-        # 同值时长确认再清除规划标记，正文/时长/引用均不变；仍须通知其它会话解除生成阻断。
+        # 同值时长确认再清除规划标记，正文与时长均不变；仍须通知其它会话解除生成阻断。
         script = pm.load_script("ref-edit", "episode_1.json")
         script["video_units"][0]["needs_replan"] = False
         with project_change_source("filesystem"):
@@ -1374,14 +1331,19 @@ class TestProjectEventService:
         if skeleton.chars_field is not None:
             item[skeleton.chars_field] = ["Hero"]
         else:
-            item["references"] = [{"type": "character", "name": "Hero"}]
+            item["text"] = "@[Hero] 登场"
         script = {"content_mode": content_mode, kind: [item]}
 
         service = ProjectEventService(tmp_path)
         normalized = service._normalize_script_snapshot(script)
         assert normalized["kind"] == kind
         assert "X1" in normalized["items"]
-        assert normalized["items"]["X1"]["characters"] == ["Hero"]
+        if skeleton.chars_field is not None:
+            assert normalized["items"]["X1"]["characters"] == ["Hero"]
+        else:
+            # 逐条实体字段的显式缺位：引用写在正文里，正文本身进快照。
+            assert normalized["items"]["X1"]["characters"] == []
+            assert normalized["items"]["X1"]["text"] == "@[Hero] 登场"
         label = service._build_script_item_label("X1", normalized)
         assert label.endswith("「X1」") and not label.startswith("「")
 
@@ -1415,7 +1377,7 @@ class TestProjectEventService:
         if skeleton.chars_field is not None:
             item[skeleton.chars_field] = ["Hero"]
         else:
-            item["references"] = [{"type": "character", "name": "Hero"}]
+            item["text"] = "@[Hero] 登场"
         script: dict = {"episode": 1, "content_mode": content_mode, kind: [item]}
         if generation_mode is not None:
             script["generation_mode"] = generation_mode
@@ -1453,8 +1415,7 @@ class TestProjectEventService:
                         {
                             "unit_id": "E1U01",
                             "duration_seconds": 4,
-                            "shots": [{"text": "镜头1：产品特写"}],
-                            "references": [],
+                            "text": "镜头1：产品特写",
                             "generated_assets": _pending_assets(),
                         }
                     ],
@@ -1470,11 +1431,12 @@ class TestProjectEventService:
         assert prev_meta["items"]["E1U01"]["generated_assets"]["video_clip"] == ""
 
         script = pm.load_script("ad-ref", "episode_1.json")
-        script["video_units"][0]["references"].append({"type": "product", "name": "咖啡"})
+        script["video_units"][0]["text"] = "镜头1：@[咖啡] 特写"
         with project_change_source("filesystem"):
             pm.save_script("ad-ref", script, "episode_1.json", validate=False)
         after_product = service._build_snapshot("ad-ref")
-        assert after_product["scripts"]["episode_1.json"]["items"]["E1U01"]["products"] == ["咖啡"]
+        # 产品引用同样只写在正文里，逐条实体名单恒空。
+        assert after_product["scripts"]["episode_1.json"]["items"]["E1U01"]["products"] == []
         product_changes = service._diff_snapshots(previous, after_product)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in product_changes)
 

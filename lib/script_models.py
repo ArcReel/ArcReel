@@ -792,20 +792,12 @@ def script_duration_total(kind: str, items: object) -> int:
     return sum(item_duration(kind, item) for item in items)
 
 
-class Shot(BaseModel):
-    """参考视频单元内的一个镜头。
-
-    镜头不承载时长：时长是 unit 级的单一真相（见 ``ReferenceVideoUnit.duration_seconds``），
-    unit 是一次生成调用的单元，shot 只是同一段 clip 内的时间编排。
-    """
-
-    model_config = _STRICT_CONFIG
-
-    text: str = Field(description="镜头描述，可包含 @[产品]/@[角色]/@[场景]/@[道具] 引用")
-
-
 class ReferenceResource(BaseModel):
-    """参考图引用——只存名称 + 类型，具体路径从 project.json 对应 bucket 读时解析。"""
+    """参考图引用——只存名称 + 类型，具体路径从 project.json 对应 bucket 读时解析。
+
+    执行期派生物，不落盘：视频单元只持久化正文，参考图由正文的 ``@[名称]`` 在渲染与请求
+    投影时解析（见 :func:`lib.reference_video.text_parser.derive_references_from_text`）。
+    """
 
     model_config = _STRICT_CONFIG
 
@@ -816,19 +808,15 @@ class ReferenceResource(BaseModel):
 class ReferenceVideoUnit(BaseModel):
     """参考视频单元——一个视频文件的最小生成粒度。
 
-    unit 是一次生成调用的单元，一个 unit 一个编排时长：``duration_seconds`` 是剧本时长的
-    唯一真相。执行前预检再把它投影到供应商申请档位；成员 shot 只承载画面编排文本、不承载
-    时长，故不存在由 shots 求和的派生与一致性校验。
+    ``text`` 是这个单元的唯一持久化内容真相：一段自由书写的正文，参考图与发声归属都从它
+    读时或执行期派生，不另存结构（见 ADR 0064）。unit 是一次生成调用的单元，一个 unit 一个
+    编排时长：``duration_seconds`` 是剧本时长的唯一真相，执行前预检再把它投影到供应商申请档位。
     """
 
     model_config = _STRICT_CONFIG
 
     unit_id: str = Field(description="格式 E{集}U{序号}")
-    shots: list[Shot] = Field(max_length=4, description="正常单元 1-4 个 shot；迁移问题壳可为空")
-    references: list[ReferenceResource] = Field(
-        default_factory=list,
-        description="逻辑资产引用；执行时展开为按顺序编号的请求图片",
-    )
+    text: str = Field(description="单元正文，可包含 @[商品]/@[角色]/@[场景]/@[道具] 引用；迁移问题壳可为空")
     duration_seconds: int = Field(
         ge=0,
         le=REFERENCE_UNIT_DURATION_RANGE[1],
@@ -841,17 +829,11 @@ class ReferenceVideoUnit(BaseModel):
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
-    migration_requires_content_replan: SkipJsonSchema[bool] = Field(
-        default=False,
-        description="迁移留下的成员归属或折叠内容尚未通过正文重写复核",
-    )
 
     @model_validator(mode="after")
     def _validate_replan_shell(self) -> "ReferenceVideoUnit":
         """全悬空迁移壳可为空且为 0 秒；其余单元仍须可执行。"""
-        if self.migration_requires_content_replan and not self.needs_replan:
-            raise ValueError("迁移内容待复核的 video unit 必须标记 needs_replan=true")
-        if not self.shots:
+        if not self.text.strip():
             if not self.needs_replan or self.duration_seconds != 0:
                 raise ValueError("空 video unit 仅允许 needs_replan=true 且 duration_seconds=0")
         elif self.duration_seconds < REFERENCE_UNIT_DURATION_RANGE[0]:
@@ -894,32 +876,27 @@ def resolve_content_mode(script: dict[str, Any], project: dict[str, Any]) -> str
 # ============ 参考生视频 step1 结构化中间态 ============
 #
 # 两段式职责切分（与 narration / drama 同机制，见 ADR 0041）：step1（video_unit 拆分）产出
-# 内容层（unit 边界 + 各 shot 叙事文本与时长 + references 列表），step2（generate-script）
-# 以此为唯一基底生成 ReferenceVideoScript 的视觉编排（景别 / 构图 / 运镜扩写）。
+# 内容层（unit 边界 + 正文与时长），step2（generate-script）以此为唯一基底生成
+# ReferenceVideoScript 的视觉编排（景别 / 构图 / 运镜扩写）。
 
 
 class ReferenceStep1Unit(BaseModel):
     """参考生视频 step1（video_unit 拆分）产出的结构化单元：内容层。
 
-    ``references`` 由拆分工具从各 shot 文本的 ``@[名称]`` 引用机械派生（并集、首现顺序，
-    顺序决定 [图N] 编号），不经 LLM 输出——对 LLM 隐藏（SkipJsonSchema），从工程上杜绝
-    references 与正文引用不一致；读取校验照常生效。``duration_seconds`` 的档位枚举依赖
-    运行时视频能力值，由 ``build_reference_units_step1_model`` 动态收紧；references 上限
-    同样依赖运行时能力值，由拆分工具后校验，不进本模型。
+    ``text`` 是正文唯一真相，参考图不在此落盘（见 :class:`ReferenceVideoUnit`）。
+    ``duration_seconds`` 的档位枚举依赖运行时视频能力值，由
+    ``build_reference_units_step1_model`` 动态收紧；参考图数上限同样依赖运行时能力值，
+    由拆分工具按正文派生结果后校验，不进本模型。
     """
 
     model_config = _STRICT_CONFIG
 
     unit_id: str = Field(min_length=1, description="格式 E{集}U{序号}")
-    shots: list[Shot] = Field(min_length=1, max_length=4, description="1-4 个 shot，text 用 @[名称] 引用已注册资产")
+    text: str = Field(min_length=1, description="单元正文，用 @[名称] 引用已注册资产")
     duration_seconds: int = Field(
         ge=REFERENCE_UNIT_DURATION_RANGE[0],
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
-    )
-    references: SkipJsonSchema[list[ReferenceResource]] = Field(
-        default_factory=list,
-        description="参考图引用，从 shots 文本的 @ 引用派生（首现顺序，决定 [图N] 编号）",
     )
     # 逐字原文锚：拆分工具校验其为源文子串后原样落盘，供 gate 对照与失真定位。
     # 默认空串：不带该字段的存量草稿照常通过校验。
@@ -942,8 +919,8 @@ class ReferenceStep1Draft(BaseModel):
 # ---------------------------------------------------------------------------
 #
 # step1 / step2 的 LLM 产出与人在编辑器里写的是同一种格式（见 lib/reference_video/
-# writing_syntax.py），故 schema 退化为一层扁平：正文是一段文本，unit_id / shots /
-# references / utterances / 音频编号一律机器派生，不让 LLM 写。schema 只承担「枚举与
+# writing_syntax.py），故 schema 退化为一层扁平：正文是一段文本，unit_id / 参考图 /
+# utterances / 音频编号一律机器派生，不让 LLM 写。schema 只承担「枚举与
 # 外层结构」这一层约束（backend 的约束解码重试也只保得住这一层），文本内的语法交
 # parser 后校验（lib/reference_video/draft_validation.py）。
 
@@ -959,7 +936,7 @@ class ReferenceStep1FlatUnit(BaseModel):
         description="该单元时长（秒）",
     )
     source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
-    text: str = Field(min_length=1, description="该单元的书写层正文：镜头行 + 行内的台词 / 画外音记号")
+    text: str = Field(min_length=1, description="该单元的书写层正文：画面描述 + 行内的台词 / 画外音记号")
 
 
 class ReferenceStep1FlatDraft(BaseModel):
@@ -979,7 +956,7 @@ class ReferenceStep2FlatUnit(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    text: str = Field(min_length=1, description="视觉展开后的书写层正文：镜头行 + 行内的台词 / 画外音记号")
+    text: str = Field(min_length=1, description="视觉展开后的书写层正文：画面描述 + 行内的台词 / 画外音记号")
 
 
 class ReferenceStep2FlatScript(BaseModel):
@@ -1001,11 +978,11 @@ class AdReferenceFlatUnit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元的编排时长（秒），不按供应商档位量化",
     )
-    text: str = Field(min_length=1, description="书写层正文：镜头行 + 行内的台词 / 画外音记号")
+    text: str = Field(min_length=1, description="书写层正文：画面描述 + 行内的台词 / 画外音记号")
 
 
 class AdReferenceFlatScript(BaseModel):
-    """广告参考路线的单阶段 LLM 输出；ID、references 与状态均由机器派生。"""
+    """广告参考路线的单阶段 LLM 输出；ID 与状态均由机器派生。"""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -1122,7 +1099,7 @@ def build_reference_units_step1_model(supported_durations: list[int]) -> type[Ba
     unit 是一次生成调用的单元，拆分阶段决定的就是发给供应商的那个秒数，故枚举约束加在
     ``ReferenceStep1FlatUnit.duration_seconds`` 上（response_schema 渲染为 enum / const，LLM
     生成层即被卡死），与 step2 同口径衔接：step2 沿用 step1 的 unit 时长，只做视觉展开。
-    references 上限与文本内语法依赖运行时能力值 / 项目登记表，不进 schema，由拆分工具后校验。
+    参考图数上限与文本内语法依赖运行时能力值 / 项目登记表，不进 schema，由拆分工具后校验。
 
     step2 无对应工厂：它不产出时长，没有需要按能力收窄的枚举字段，直接用静态
     ``ReferenceStep2FlatScript``。

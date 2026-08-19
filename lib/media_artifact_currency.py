@@ -27,10 +27,10 @@ from lib.reference_video.duration_slots import resolve_duration_slot
 from lib.reference_video.prompt_render import resolve_reference_audio_paths
 from lib.reference_video.request_projection import (
     FilesystemReferenceAssets,
-    canonicalize_references,
     clamp_reference_assets,
     hydrate_reference_assets,
     resolve_reference_assets,
+    unit_reference_declarations,
 )
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
@@ -150,7 +150,7 @@ def build_current_video_artifact_basis(
         )
     elif resource_type == "reference_videos":
         limit = artifact_currency.reference_image_limit
-        declared = canonicalize_references(item.get("references"))
+        declared = unit_reference_declarations(project, item)
         resolved = resolve_reference_assets(project, project_path, item)
         hydration = hydrate_reference_assets(declared, resolved, FilesystemReferenceAssets(project_path))
         if hydration.missing:

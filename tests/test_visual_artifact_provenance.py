@@ -516,15 +516,7 @@ def test_reference_video_visual_basis_uses_unit_visual_text_and_actual_request_a
     clamped.write_bytes(b"unused")
     unit = {
         "unit_id": "E1U01",
-        "shots": [
-            {"text": "镜头1：中景，@[阿黎]站在屋檐下\n@[阿黎]：{快走。}"},
-            {"text": "特写，雨滴划过窗面\n{夜色吞没街道。}"},
-        ],
-        "references": [
-            {"type": "character", "name": "阿黎"},
-            {"type": "scene", "name": "雨巷"},
-            {"type": "prop", "name": "被裁掉的伞"},
-        ],
+        "text": "中景，@[阿黎]站在屋檐下\n@[阿黎]：{快走。}\n特写，雨滴划过窗面\n{夜色吞没街道。}",
         "shot_ids": ["legacy-shot"],
         "source_signature": "legacy-source",
         "derived_group": "legacy-group",
@@ -554,10 +546,7 @@ def test_reference_video_visual_basis_uses_unit_visual_text_and_actual_request_a
     changed_speech_and_legacy = build(
         current_unit={
             **unit,
-            "shots": [
-                {"text": "镜头1：中景，@[阿黎]站在屋檐下\n@[阿黎]：{别走。}"},
-                {"text": "特写，雨滴划过窗面\n{另一句画外音。}"},
-            ],
+            "text": "中景，@[阿黎]站在屋檐下\n@[阿黎]：{别走。}\n特写，雨滴划过窗面\n{另一句画外音。}",
             "shot_ids": ["other-legacy-shot"],
             "source_signature": "other-source",
             "derived_group": "other-group",
@@ -565,27 +554,23 @@ def test_reference_video_visual_basis_uses_unit_visual_text_and_actual_request_a
             "utterances": [{"kind": "dialogue", "text": "另一声音事实"}],
         }
     )
-    with_speech_only_shot = build(
+    with_speech_only_line = build(
         current_unit={
             **unit,
-            "shots": [
-                unit["shots"][0],
-                {"text": "@[阿黎]：{新插入的台词。}\n{新插入的画外音。}"},
-                unit["shots"][1],
-            ],
+            "text": (
+                "中景，@[阿黎]站在屋檐下\n@[阿黎]：{快走。}\n@[阿黎]：{新插入的台词。}\n"
+                "{新插入的画外音。}\n特写，雨滴划过窗面\n{夜色吞没街道。}"
+            ),
         }
     )
 
     assert changed_speech_and_legacy.digest == baseline.digest
-    assert with_speech_only_shot.digest == baseline.digest
+    assert with_speech_only_line.digest == baseline.digest
     assert (
         build(
             current_unit={
                 **unit,
-                "shots": [
-                    {"text": "镜头1：近景，@[阿黎]跑出屋檐\n@[阿黎]：{快走。}"},
-                    unit["shots"][1],
-                ],
+                "text": "近景，@[阿黎]跑出屋檐\n@[阿黎]：{快走。}\n特写，雨滴划过窗面\n{夜色吞没街道。}",
             }
         ).digest
         != baseline.digest
@@ -604,7 +589,7 @@ def test_reference_video_visual_basis_tracks_request_asset_identity_order_and_by
     second = tmp_path / "second.png"
     first.write_bytes(b"first")
     second.write_bytes(b"second")
-    unit = {"unit_id": "E1U01", "shots": [{"text": "阿黎走入雨巷"}]}
+    unit = {"unit_id": "E1U01", "text": "阿黎走入雨巷"}
     assets = (
         _request_asset(first, asset_type="character", name="阿黎"),
         _request_asset(second, asset_type="scene", name="雨巷"),
@@ -633,9 +618,9 @@ def test_reference_video_visual_basis_tracks_request_asset_identity_order_and_by
 @pytest.mark.parametrize(
     "unit",
     [
-        {"unit_id": "", "shots": [{"text": "visual"}]},
-        {"shots": [{"text": "visual"}]},
-        {"unit_id": "E1U01", "shots": "not-an-array"},
+        {"unit_id": "", "text": "visual"},
+        {"text": "visual"},
+        {"unit_id": "E1U01", "text": ["not-a-string"]},
     ],
 )
 def test_reference_video_visual_basis_requires_canonical_video_unit(unit: dict[str, object]) -> None:

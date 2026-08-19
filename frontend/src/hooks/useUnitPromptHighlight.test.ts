@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tokenizePrompt, toScriptLines, type MentionLookup, type Token } from "./useShotPromptHighlight";
+import { tokenizePrompt, toScriptLines, type MentionLookup, type Token } from "./useUnitPromptHighlight";
 import { extractMentions } from "@/utils/reference-mentions";
 
 const LOOKUP: MentionLookup = {
@@ -18,20 +18,9 @@ function kinds(tokens: Token[]): string[] {
 }
 
 describe("tokenizePrompt", () => {
-  it("splits a shot header and plain text", () => {
-    const t = tokenizePrompt("镜头1：hello world", LOOKUP);
-    expect(kinds(t)).toEqual(["shot_header", "text"]);
-    expect(t[0].text).toBe("镜头1：");
-    expect(t[1].text).toBe("hello world");
-  });
-
   it("resolves mentions against lookup (three types)", () => {
-    const t = tokenizePrompt(
-      "镜头1：@主角 in @酒馆 with @长剑",
-      LOOKUP,
-    );
+    const t = tokenizePrompt("@主角 in @酒馆 with @长剑", LOOKUP);
     expect(kinds(t)).toEqual([
-      "shot_header",
       "mention:character",
       "text",
       "mention:scene",
@@ -41,21 +30,21 @@ describe("tokenizePrompt", () => {
   });
 
   it("marks unknown names as 'unknown'", () => {
-    const t = tokenizePrompt("镜头1：talk to @路人", LOOKUP);
+    const t = tokenizePrompt("talk to @路人", LOOKUP);
     const mention = t.find((x) => x.kind === "mention");
     expect(mention?.assetKind).toBe("unknown");
     expect(mention?.text).toBe("@路人");
   });
 
   it("keeps product ownership out of generic reference-video highlighting", () => {
-    const t = tokenizePrompt("镜头1：@水杯 特写", { ...LOOKUP, 水杯: "product" });
+    const t = tokenizePrompt("@水杯 特写", { ...LOOKUP, 水杯: "product" });
     const mention = t.find((x) => x.kind === "mention");
     expect(mention?.assetKind).toBe("unknown");
   });
 
   it("resolves wrapped mentions with punctuation", () => {
     const t = tokenizePrompt(
-      "镜头1：@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，移动到@[地点甲·版本A]",
+      "@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，移动到@[地点甲·版本A]",
       LOOKUP,
     );
     const mentions = t.filter((x) => x.kind === "mention");
@@ -74,21 +63,21 @@ describe("tokenizePrompt", () => {
   });
 
   it("normalizes padded wrapped names before lookup and token output", () => {
-    const t = tokenizePrompt("镜头1：@[ 主角 ] 入场", LOOKUP);
+    const t = tokenizePrompt("@[ 主角 ] 入场", LOOKUP);
     const mention = t.find((x) => x.kind === "mention");
     expect(mention).toMatchObject({ assetKind: "character", name: "主角", text: "@[ 主角 ]" });
   });
 
   it("does not read curly-brace wrapping as a mention", () => {
     // `@{名称}` 不是引用语法；花括号照书写层规则读成画外音记号，与后端 split_speech_line 同判。
-    const t = tokenizePrompt("镜头1：@{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
+    const t = tokenizePrompt("@{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions.map((x) => (x.kind === "mention" ? x.name : ""))).toEqual(["角色甲（成年）"]);
     expect(t.filter((x) => x.kind === "speech").map((x) => x.text)).toEqual(["{载具甲}"]);
   });
 
   it("tokenizes an inline speech mark and still concatenates back to the source", () => {
-    const text = "镜头1：@[角色甲（成年）] 推门。@[角色甲（成年）]{我来了}";
+    const text = "@[角色甲（成年）] 推门。@[角色甲（成年）]{我来了}";
     const t = tokenizePrompt(text, LOOKUP);
     expect(t.map((x) => x.text).join("")).toBe(text);
     expect(t.filter((x) => x.kind === "speech")).toEqual([
@@ -101,35 +90,13 @@ describe("tokenizePrompt", () => {
     ]);
   });
 
-  it("handles multi-line with multiple shot headers", () => {
-    const t = tokenizePrompt(
-      "镜头1：line1\n镜头2：line2 @主角",
-      LOOKUP,
-    );
-    const shotHeaders = t.filter((x) => x.kind === "shot_header");
-    expect(shotHeaders).toHaveLength(2);
-    expect(shotHeaders[0].text.startsWith("镜头1")).toBe(true);
-    expect(shotHeaders[1].text.startsWith("镜头2")).toBe(true);
-  });
-
-  // 时长收编到 unit 级后旧 header 退出解析：`Shot N (Xs):` 不再高亮为 header，按普通描述行处理
-  it("no longer treats the legacy `Shot N (Xs):` header as a header", () => {
-    const t = tokenizePrompt("Shot 1 (3s): hello world", LOOKUP);
-    expect(t.some((x) => x.kind === "shot_header")).toBe(false);
-  });
-
-  // 后端 `\d` 是 Unicode-aware，全角数字的 header 照样成立；高亮不认会导致同一行两侧判定不同
-  it("highlights a shot header written with non-ASCII digits", () => {
-    const t = tokenizePrompt("镜头１：line1", LOOKUP);
-    expect(t.filter((x) => x.kind === "shot_header")).toHaveLength(1);
-  });
-
-  // 后端 `_strip_shot_header` 先 strip 再匹配，缩进的 header 照样成立
-  it("highlights an indented shot header and still round-trips to the source text", () => {
-    const src = "  镜头１：内景 @主角";
-    const t = tokenizePrompt(src, LOOKUP);
-    expect(t.filter((x) => x.kind === "shot_header")).toHaveLength(1);
-    expect(t.map((x) => x.text).join("")).toBe(src);
+  // 正文里没有段落前缀语法：`镜头1：` 与 `Shot 1 (3s):` 都只是普通描述文字。
+  it("treats prefix-shaped text as plain description", () => {
+    for (const src of ["镜头1：hello world", "Shot 1 (3s): hello world", "  镜头１：内景 @主角"]) {
+      const t = tokenizePrompt(src, LOOKUP);
+      expect(kinds(t).every((kind) => kind === "text" || kind.startsWith("mention:"))).toBe(true);
+      expect(t.map((x) => x.text).join("")).toBe(src);
+    }
   });
 
   // 未登记的 `toString` 走原型链会取到 Object.prototype.toString，被当成已解析的类型
@@ -140,7 +107,7 @@ describe("tokenizePrompt", () => {
     expect(mention && "assetKind" in mention && mention.assetKind).toBe("unknown");
   });
 
-  it("no shot header → entire text becomes text + mention tokens", () => {
+  it("splits plain text into text + mention tokens", () => {
     const t = tokenizePrompt("hello @主角 world", LOOKUP);
     expect(kinds(t)).toEqual(["text", "mention:character", "text"]);
   });
@@ -173,22 +140,11 @@ describe("tokenizePrompt", () => {
   });
 });
 
-describe("toScriptLines shot attribution", () => {
-  // parse_prompt 把首个 `镜头N：` 之前的引子折进第一个镜头，不另开一镜。
-  // 预览若把引子记成「第 0 镜」，就与服务端派生台词列表里的 shot_index 对不上。
-  it("attributes a lead-in written before the first header to shot 1", () => {
-    const lines = toScriptLines("@[张三]：{先说}\n镜头1：中景\n镜头2：近景", LOOKUP);
-    expect(lines.map((l) => l.shotIndex)).toEqual([1, 1, 2]);
-  });
-
-  it("starts at shot 1 when the script opens with a header", () => {
-    const lines = toScriptLines("镜头1：中景\n镜头2：近景", LOOKUP);
-    expect(lines.map((l) => l.shotIndex)).toEqual([1, 2]);
-  });
-
-  it("treats a headerless script as a single shot", () => {
-    const lines = toScriptLines("@[张三]：{我来了}", LOOKUP);
-    expect(lines.map((l) => l.shotIndex)).toEqual([1]);
+describe("toScriptLines", () => {
+  it("emits one line per physical source line", () => {
+    const lines = toScriptLines("@[张三] 推门。\n@[张三]：{我来了}\n{风声}", LOOKUP);
+    expect(lines.map((l) => l.kind)).toEqual(["text", "dialogue", "voiceover"]);
+    expect(lines.map((l) => l.sourceLine)).toEqual([0, 1, 2]);
   });
 
   it("emits a dialogue speaker typed in NFD as NFC and resolves it against the lookup", () => {
@@ -198,7 +154,7 @@ describe("toScriptLines shot attribution", () => {
     const lookup: MentionLookup = { [nameNfc]: "character" };
     const lines = toScriptLines(`@[${nameNfd}]：{我来了}`, lookup);
     expect(lines).toEqual([
-      { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: nameNfc, speakerKind: "character", text: "我来了" },
+      { kind: "dialogue", sourceLine: 0, speaker: nameNfc, speakerKind: "character", text: "我来了" },
     ]);
   });
 
@@ -206,10 +162,10 @@ describe("toScriptLines shot attribution", () => {
   // 预览若因两侧空白把它降级成描述行，就与同屏的服务端派生台词列表对不上。
   it("keeps a whole-line utterance padded with whitespace on its own line", () => {
     expect(toScriptLines("  @[张三]：{我来了}  ", LOOKUP)).toEqual([
-      { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: "张三", speakerKind: "character", text: "我来了" },
+      { kind: "dialogue", sourceLine: 0, speaker: "张三", speakerKind: "character", text: "我来了" },
     ]);
     expect(toScriptLines("\t{风吹过旷野} ", LOOKUP)).toEqual([
-      { kind: "voiceover", shotIndex: 1, sourceLine: 0, text: "风吹过旷野" },
+      { kind: "voiceover", sourceLine: 0, text: "风吹过旷野" },
     ]);
   });
 
@@ -220,10 +176,10 @@ describe("toScriptLines shot attribution", () => {
   });
 
   it("resolves a BOM-laced speaker and renders the name without it", () => {
-    // 与后端 shot_parser 同口径：BOM 在解析入口去掉，说话人名与 lookup key 同坐标系
+    // 与后端 text_parser 同口径：BOM 在解析入口去掉，说话人名与 lookup key 同坐标系
     const lines = toScriptLines(`@[张${"\uFEFF"}三]：{我来了}`, LOOKUP);
     expect(lines).toEqual([
-      { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: "张三", speakerKind: "character", text: "我来了" },
+      { kind: "dialogue", sourceLine: 0, speaker: "张三", speakerKind: "character", text: "我来了" },
     ]);
   });
 });
@@ -234,23 +190,23 @@ describe("unicode line boundaries", () => {
   const LS = "\u2028";
 
   it("splits on the same boundaries the backend does", () => {
-    expect(extractMentions(`镜头1：@酒馆 内景。${LS}@[张三]：{我来了}`)).toEqual(["酒馆"]);
-    expect(extractMentions("镜头1：@酒馆 内景。\u2029@[张三]：{我来了}")).toEqual(["酒馆"]);
-    expect(extractMentions("镜头1：@酒馆 内景。\x85@[张三]：{我来了}")).toEqual(["酒馆"]);
+    expect(extractMentions(`@酒馆 内景。${LS}@[张三]：{我来了}`)).toEqual(["酒馆"]);
+    expect(extractMentions("@酒馆 内景。\u2029@[张三]：{我来了}")).toEqual(["酒馆"]);
+    expect(extractMentions("@酒馆 内景。\x85@[张三]：{我来了}")).toEqual(["酒馆"]);
   });
 
   it("treats CRLF as one boundary rather than two", () => {
-    const lines = toScriptLines("镜头1：中景\r\n镜头2：近景", LOOKUP);
-    expect(lines.map((l) => l.shotIndex)).toEqual([1, 2]);
+    const lines = toScriptLines("中景\r\n近景", LOOKUP);
+    expect(lines.map((l) => l.sourceLine)).toEqual([0, 1]);
   });
 
   it("keeps tokenizePrompt output concatenable back to the source text", () => {
-    const text = `镜头1：@主角 在场。${LS}@[张三]：{我来了}\r\n结束`;
+    const text = `@主角 在场。${LS}@[张三]：{我来了}\r\n结束`;
     expect(tokenizePrompt(text, LOOKUP).map((t) => t.text).join("")).toBe(text);
   });
 
-  it("recognizes a shot header that follows a unicode separator", () => {
-    const lines = toScriptLines(`镜头1：中景${LS}镜头2：近景`, LOOKUP);
-    expect(lines.map((l) => l.shotIndex)).toEqual([1, 2]);
+  it("splits a line that follows a unicode separator", () => {
+    const lines = toScriptLines(`@[张三]：{我来了}${LS}近景`, LOOKUP);
+    expect(lines.map((l) => l.kind)).toEqual(["dialogue", "text"]);
   });
 });

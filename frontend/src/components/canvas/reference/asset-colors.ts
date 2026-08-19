@@ -2,7 +2,7 @@
  * Shared color palette for asset-kind visual cues.
  *
  * Used by:
- * - prompt editor mention highlights (useShotPromptHighlight)
+ * - prompt editor mention highlights (useUnitPromptHighlight)
  * - MentionPicker group headers + option accents
  * - ReferencePanel pill borders/fills
  *

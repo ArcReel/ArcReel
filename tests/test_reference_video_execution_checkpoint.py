@@ -41,7 +41,7 @@ def _reference_visual_basis(unit_id: str) -> ArtifactBasis:
         kind_version=1,
         inputs={
             "unit_id": unit_id,
-            "visual_shots": [{"shot_index": 0, "lines": ["Alice crosses the room."]}],
+            "visual_lines": ["Alice crosses the room."],
             "style": "cinematic",
             "canvas": {"aspect_ratio": "9:16"},
             "request_references": [],

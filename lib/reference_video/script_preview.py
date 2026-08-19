@@ -1,9 +1,8 @@
-"""分镜文稿的读时派生：utterances + 降级可见性 warning。
+"""视频单元正文的读时派生：utterances + 降级可见性 warning。
 
-分镜文稿是唯一真相，utterances 机械派生、不落盘（同 ``references`` 从 ``@mention`` 派生的
-先例）：存量文稿没有台词符号，派生结果自然为空，无迁移。
+正文是唯一真相，utterances 与参考图一样机械派生、不落盘（见 ADR 0064）。
 
-台词语法（与 :mod:`lib.reference_video.shot_parser` 的行内切分原语同源）：
+台词语法（与 :mod:`lib.reference_video.text_parser` 的行内切分原语同源）：
 
 - ``@[角色]{台词}``（mention 与花括号之间允许空白或中英冒号）→ ``dialogue`` utterance
 - 裸 ``{台词}`` → ``voiceover`` utterance
@@ -22,14 +21,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
-from lib.reference_video.shot_parser import (
-    parse_prompt,
-    resolve_references,
+from lib.reference_video.text_parser import (
+    derive_references_from_text,
     speech_line_description,
     split_speech_line,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
-from lib.script_models import ReferenceResource, Shot, Utterance
+from lib.script_models import Utterance
 
 #: 未闭合花括号 warning 里回显的原行片段长度上限。
 _EXCERPT_LEN = 30
@@ -47,23 +45,10 @@ WARN_SPEAKER_AUDIO_NEEDS_IMAGE = "ref_warn_speaker_audio_needs_image"
 
 
 @dataclass(frozen=True)
-class ShotUtterance:
-    """镜头级发声条目：``shot_index`` 是 1-based 镜头序号，``utterance`` 复用 drama 的类型。
-
-    归属镜头级而非 unit 级：台词与镜头的时序对位由归属天然给出，渲染层无需另存位置。
-    """
-
-    shot_index: int
-    utterance: Utterance
-
-
-@dataclass(frozen=True)
 class ScriptPreview:
-    """一份分镜文稿的读时派生结果，即编辑器「解析预览面板」的内容源。"""
+    """一份视频单元正文的读时派生结果，即编辑器「解析预览面板」的内容源。"""
 
-    shots: list[Shot]
-    references: list[ReferenceResource]
-    utterances: list[ShotUtterance]
+    utterances: list[Utterance]
     warnings: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -71,33 +56,31 @@ def _warning(key: str, **params: Any) -> dict[str, Any]:
     return {"key": key, "params": params}
 
 
-def derive_utterances(shots: list[Shot]) -> tuple[list[ShotUtterance], list[dict[str, Any]]]:
-    """逐镜逐行派生 utterances，并收集语法层 warning（未闭合花括号 / 未识别的花括号）。
+def derive_utterances(text: str) -> tuple[list[Utterance], list[dict[str, Any]]]:
+    """逐行派生 utterances，并收集语法层 warning（未闭合花括号 / 未识别的花括号）。
 
-    发声记号可出现在行内任意位置，一行可派生多条 utterance，顺序即行内出现顺序。warning
-    只看**记号之外**的残余描述：行内已识别的记号不该因为同行还写着别的花括号而被吞掉。
+    发声记号可出现在行内任意位置，一行可派生多条 utterance，顺序即正文出现顺序。warning
+    只看**记号之外**的残余描述：行内已识别的记号不该因为同行还写着别的花括号而被吞掉；
+    ``line`` 参数是 1-based 行号，让呈现层把 warning 锚回正文的具体一行。
 
     纯语法层：不认识项目资产表，speaker 是否登记由 :func:`build_script_preview` 另行判定。
     """
-    utterances: list[ShotUtterance] = []
+    utterances: list[Utterance] = []
     warnings: list[dict[str, Any]] = []
-    for index, shot in enumerate(shots, start=1):
-        for line in shot.text.splitlines():
-            parts = split_speech_line(line)
-            for part in parts:
-                if isinstance(part, str):
-                    continue
-                if part.speaker:
-                    utterances.append(
-                        ShotUtterance(index, Utterance(kind="dialogue", speaker=part.speaker, text=part.text))
-                    )
-                else:
-                    utterances.append(ShotUtterance(index, Utterance(kind="voiceover", text=part.text)))
-            rest = speech_line_description(parts)
-            if rest.count("{") != rest.count("}"):
-                warnings.append(_warning(WARN_UNCLOSED_BRACE, shot=index, excerpt=line.strip()[:_EXCERPT_LEN]))
-            elif "{" in rest or "}" in rest:
-                warnings.append(_warning(WARN_BRACES_NOT_SPEECH, shot=index))
+    for index, line in enumerate(text.splitlines(), start=1):
+        parts = split_speech_line(line)
+        for part in parts:
+            if isinstance(part, str):
+                continue
+            if part.speaker:
+                utterances.append(Utterance(kind="dialogue", speaker=part.speaker, text=part.text))
+            else:
+                utterances.append(Utterance(kind="voiceover", text=part.text))
+        rest = speech_line_description(parts)
+        if rest.count("{") != rest.count("}"):
+            warnings.append(_warning(WARN_UNCLOSED_BRACE, line=index, excerpt=line.strip()[:_EXCERPT_LEN]))
+        elif "{" in rest or "}" in rest:
+            warnings.append(_warning(WARN_BRACES_NOT_SPEECH, line=index))
     return utterances, warnings
 
 
@@ -116,7 +99,7 @@ class VoiceBindings:
 
 
 def derive_voice_bindings(
-    utterances: list[ShotUtterance],
+    utterances: list[Utterance],
     characters: dict,
     settings: VoiceRenderSettings,
     *,
@@ -165,7 +148,7 @@ def derive_voice_bindings(
 
     seen: list[str] = []
     for entry in utterances:
-        speaker = asset_name_comparison_key(entry.utterance.speaker or "")
+        speaker = asset_name_comparison_key(entry.speaker or "")
         if speaker and speaker not in seen:
             seen.append(speaker)
 
@@ -221,7 +204,7 @@ def build_script_preview(
     *,
     max_reference_images: int | None = None,
 ) -> ScriptPreview:
-    """把书写文稿派生成 shots / references / utterances + 降级可见性 warning。
+    """把视频单元正文派生成 utterances + 降级可见性 warning。
 
     ``settings`` 必填无兜底（同 ``render_unit_prompt``），须与执行层拿到的同一份声音输入档同步，
     否则预览会显示音频已绑定、实际请求却不带音频段。其中 ``requires_reference_image``（目标 backend 是否
@@ -230,21 +213,22 @@ def build_script_preview(
     预览不解析文件，按角色资产的 ``reference_audio`` 字段非空判定。
 
     ``max_reference_images`` 须同步执行层的能力上限（``VideoLaneResult.max_reference_images``）：
-    执行期会把 ``unit.references`` 先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的
-    参考图严格等长，见 ``_render_unit_prompt`` docstring）。预览若按未裁剪的全量 references
-    判定 ``character_image_names``，纯画外降级会在裁剪线之外才生效——超限角色的图被裁掉后，
-    预览仍显示音频已绑定，执行时才补发 warning。``None`` 表示不裁（能力不可解析时的降级口径，
-    与请求投影在能力不可解析时不裁参考图的口径一致）。
+    执行期会把正文派生的参考图先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的参考图
+    严格等长，见 ``render_unit_prompt`` docstring）。预览若按未裁剪的全量派生结果判定
+    ``character_image_names``，纯画外降级会在裁剪线之外才生效——超限角色的图被裁掉后，预览仍
+    显示音频已绑定，执行时才补发 warning。``None`` 表示不裁（能力不可解析时的降级口径，与请求
+    投影在能力不可解析时不裁参考图的口径一致）。
+
+    未登记的 ``@[名称]`` 只发 warning、不阻断：正文是作者写的，预览没有可保护的机器契约。
     """
-    shots, mentions = parse_prompt(text)
-    references, missing = resolve_references(mentions, project)
+    references, missing = derive_references_from_text(text, project)
 
     warnings = [_warning(WARN_UNREGISTERED_MENTION, name=name) for name in missing]
-    utterances, syntax_warnings = derive_utterances(shots)
+    utterances, syntax_warnings = derive_utterances(text)
     warnings.extend(syntax_warnings)
 
     # 音频只能对齐到 character 参考图。同时按能力上限裁剪后再判定，
-    # 与执行层「先裁 references 再渲染」的口径对齐。
+    # 与执行层「先裁参考图再渲染」的口径对齐。
     clipped_references = references[:max_reference_images] if max_reference_images is not None else references
     character_image_names = {ref.name for ref in clipped_references if ref.type == "character"}
 
@@ -256,4 +240,4 @@ def build_script_preview(
     )
     warnings.extend(bindings.warnings)
 
-    return ScriptPreview(shots=shots, references=references, utterances=utterances, warnings=warnings)
+    return ScriptPreview(utterances=utterances, warnings=warnings)

@@ -65,7 +65,6 @@ REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
         "reference_asset_missing",
         "reference_capability_changed",
         "reference_capability_unavailable",
-        "reference_declaration_invalid",
         "reference_duration_confirmation_required",
         "reference_supported_durations_incompatible",
         "reference_supported_durations_invalid",

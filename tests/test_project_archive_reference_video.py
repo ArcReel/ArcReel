@@ -16,7 +16,7 @@ import pytest
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.project_manager import ProjectManager
 from lib.resource_paths import resource_relative_path
-from server.services.project_archive import ProjectArchiveService, ProjectArchiveValidationError
+from server.services.project_archive import ProjectArchiveService
 
 REMOTE_VIDEO_URI = "https://cdn.example.com/v/E1U1.mp4"
 
@@ -49,7 +49,7 @@ def _build_unit(
     *,
     video_clip: str | None,
     generated_assets: dict | None | object = _DEFAULT_ASSETS,
-    references: list[dict] | None = None,
+    text: str = "镜头一",
 ) -> dict:
     if generated_assets is _DEFAULT_ASSETS:
         generated_assets = {
@@ -64,8 +64,7 @@ def _build_unit(
         }
     unit: dict = {
         "unit_id": "E1U1",
-        "shots": [{"text": "镜头一"}],
-        "references": references if references is not None else [],
+        "text": text,
         "duration_seconds": 4,
         "transition_to_next": "cut",
     }
@@ -155,7 +154,8 @@ class TestProjectArchiveReferenceVideo:
     def test_import_migrates_legacy_per_shot_duration_before_validation(self, tmp_path):
         """存量归档的 unit 仍是收编前形状（时长挂在 shots 上、无 unit 级 duration_seconds）：
         结构校验要求 duration_seconds 落在合理区间内，早于迁移执行的话会把这类归档直接拒绝，
-        永远走不到能修复它的迁移器。修复须先于校验跑一次迁移。
+        永远走不到能修复它的迁移器。修复须先于校验跑一次迁移，镜头正文随后由 schema 迁移
+        链拼回单元正文。
         """
         pm = ProjectManager(tmp_path / "projects")
         legacy_unit = {
@@ -175,6 +175,11 @@ class TestProjectArchiveReferenceVideo:
             },
         }
         project_dir = _create_reference_video_project(pm, unit=legacy_unit)
+        # 收编前形状的归档必然早于当前 schema 版本：去掉版本戳，导入时补跑完整迁移链。
+        project_file = project_dir / "project.json"
+        payload = json.loads(project_file.read_text(encoding="utf-8"))
+        payload.pop("schema_version", None)
+        project_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         service = ProjectArchiveService(pm)
 
         archive_path = tmp_path / "legacy-duration.zip"
@@ -188,7 +193,8 @@ class TestProjectArchiveReferenceVideo:
         )
         unit = imported["video_units"][0]
         assert unit["duration_seconds"] == 4
-        assert "duration" not in unit["shots"][0]
+        assert "shots" not in unit
+        assert unit["text"] == "镜头一"
 
     @pytest.mark.integration
     def test_import_resolves_tiers_for_legacy_provider_alias(self, tmp_path):
@@ -355,12 +361,12 @@ class TestProjectArchiveReferenceVideo:
         assert on_disk["video_units"][0]["generated_assets"] == "corrupted-value"
 
     @pytest.mark.unit
-    def test_import_adds_placeholder_for_missing_character_reference(self, tmp_path):
-        # 与 narration/drama 对齐：references 引用了 project.json 缺失的角色 → 自动补占位定义
+    def test_import_adds_placeholder_for_missing_character_speaker(self, tmp_path):
+        # 说话人位在语法上就断定是角色：缺定义时与 narration/drama 对齐，自动补占位定义。
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(
             video_clip="reference_videos/E1U1.mp4",
-            references=[{"type": "character", "name": "幽灵"}],
+            text="@[幽灵] 立在门口。\n@[幽灵]{谁在那儿？}",
         )
         project_dir = _create_reference_video_project(pm, unit=unit)
         service = ProjectArchiveService(pm)
@@ -373,11 +379,40 @@ class TestProjectArchiveReferenceVideo:
 
         imported_project = pm.load_project(result.project_name)
         assert "幽灵" in imported_project["characters"]
-        assert result.diagnostics["auto_fixed"]
+        assert any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
+
+    @pytest.mark.unit
+    def test_import_warns_without_blocking_on_unresolved_mention(self, tmp_path):
+        # 正文里的 @[名称] 是执行期才解析的派生来源：未登记只意味着这一处不出参考图，
+        # 导入照常完成，只留一条非阻断 warning。
+        pm = ProjectManager(tmp_path / "projects")
+        unit = _build_unit(
+            video_clip="reference_videos/E1U1.mp4",
+            text="雨夜的 @[缺失场景] 里，@[缺失道具] 摆在桌上。",
+        )
+        project_dir = _create_reference_video_project(pm, unit=unit)
+        service = ProjectArchiveService(pm)
+
+        archive_path = tmp_path / "unresolved-mention.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="unresolved-mention.zip")
+
+        warnings = [item for item in result.diagnostics["warnings"] if item["code"] == "unresolved_mention"]
+        assert len(warnings) == 1
+        assert "缺失场景" in warnings[0]["message"] and "缺失道具" in warnings[0]["message"]
+        imported = json.loads(
+            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+        )
+        assert imported["video_units"][0]["text"] == unit["text"]
+        # 未解析的提及不补占位定义——只有说话人位才断定资产类型。
+        imported_project = pm.load_project(result.project_name)
+        assert "缺失场景" not in imported_project["characters"]
 
     @pytest.mark.integration
-    def test_import_resolves_nfc_reference_against_nfd_registered_character(self, tmp_path):
-        # references 已归一到 NFC（见 lib.asset_types.normalize_asset_name），登记侧的角色
+    def test_import_resolves_nfc_speaker_against_nfd_registered_character(self, tmp_path):
+        # 说话人名已归一到 NFC（见 lib.asset_types.normalize_asset_name），登记侧的角色
         # key 仍可能是落盘的 NFD 原形；自愈逻辑须把两者判等，而非把已登记角色误判缺失、
         # 补出一份重复的占位定义。
         import unicodedata
@@ -389,7 +424,7 @@ class TestProjectArchiveReferenceVideo:
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(
             video_clip="reference_videos/E1U1.mp4",
-            references=[{"type": "character", "name": name_nfc}],
+            text=f"@[{name_nfc}] 走进门。\n@[{name_nfc}]{{我回来了。}}",
         )
         project_dir = _create_reference_video_project(pm, unit=unit)
         project = pm.load_project("refdemo")
@@ -406,40 +441,4 @@ class TestProjectArchiveReferenceVideo:
         imported_project = pm.load_project(result.project_name)
         assert imported_project["characters"].keys() == {name_nfd}
         assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
-
-    @pytest.mark.unit
-    def test_import_blocks_missing_scene_reference(self, tmp_path):
-        # 与 narration/drama 对齐：references 引用了缺失的场景 → 阻断导入
-        pm = ProjectManager(tmp_path / "projects")
-        unit = _build_unit(
-            video_clip="reference_videos/E1U1.mp4",
-            references=[{"type": "scene", "name": "缺失场景"}],
-        )
-        project_dir = _create_reference_video_project(pm, unit=unit)
-        service = ProjectArchiveService(pm)
-
-        archive_path = tmp_path / "missing-scene.zip"
-        _make_manual_zip(project_dir, archive_path)
-
-        with pytest.raises(ProjectArchiveValidationError) as exc_info:
-            service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
-
-        assert exc_info.value.diagnostics_payload()["blocking"]
-
-    @pytest.mark.unit
-    def test_import_blocks_missing_prop_reference(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        unit = _build_unit(
-            video_clip="reference_videos/E1U1.mp4",
-            references=[{"type": "prop", "name": "缺失道具"}],
-        )
-        project_dir = _create_reference_video_project(pm, unit=unit)
-        service = ProjectArchiveService(pm)
-
-        archive_path = tmp_path / "missing-prop.zip"
-        _make_manual_zip(project_dir, archive_path)
-
-        with pytest.raises(ProjectArchiveValidationError) as exc_info:
-            service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip")
-
-        assert exc_info.value.diagnostics_payload()["blocking"]
+        assert not any(item["code"] == "unresolved_mention" for item in result.diagnostics["warnings"])

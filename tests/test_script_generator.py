@@ -614,7 +614,7 @@ class TestScriptGenerator:
 
         project_path = tmp_path / "demo"
         project = {
-            "schema_version": 8,
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "title": "项目",
             "content_mode": "narration",
             "generation_mode": "storyboard",
@@ -668,7 +668,7 @@ class TestScriptGenerator:
         _write_project_json(
             project_path,
             {
-                "schema_version": 8,
+                "schema_version": CURRENT_SCHEMA_VERSION,
                 "title": "项目",
                 "content_mode": "narration",
                 "generation_mode": "storyboard",
@@ -1416,10 +1416,10 @@ def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tm
 def test_units_use_references_distinguishes_none_from_no_refs():
     """None（非参考视频路径）与「确定不带引用」区分开，前者交由下游按模式近似判定。"""
     assert _units_use_references(None) is None
-    assert _units_use_references([{"unit_id": "E1U01", "references": []}]) is False
+    assert _units_use_references([{"unit_id": "E1U01", "text": "空镜：海面翻涌。"}]) is False
     assert (
         _units_use_references(
-            [{"unit_id": "E1U01", "references": []}, {"unit_id": "E1U02", "references": [{"name": "甲"}]}]
+            [{"unit_id": "E1U01", "text": "空镜：海面翻涌。"}, {"unit_id": "E1U02", "text": "@[甲] 推门而入。"}]
         )
         is True
     )
@@ -1848,7 +1848,7 @@ class TestLoadReferenceStep1:
 
     @staticmethod
     def _unit(unit_id: str, *, duration: int = 6) -> dict:
-        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子"}], "duration_seconds": duration}
+        return {"unit_id": unit_id, "text": "甲走进屋子", "duration_seconds": duration}
 
     @pytest.mark.unit
     def test_loads_structured_units_verbatim(self, tmp_path):
@@ -1885,8 +1885,8 @@ class TestLoadReferenceStep1:
             sg._load_reference_step1(1, [4, 6, 8])
 
     @pytest.mark.integration
-    def test_migrates_legacy_per_shot_durations_and_persists(self, tmp_path):
-        """存量草稿的 per-shot 时长求和收编为 unit 时长，就地回写；二次加载不再触发。"""
+    def test_strips_retired_duration_override_marker_and_persists(self, tmp_path):
+        """存量草稿的退役 ``duration_override`` 标记被剥掉并就地回写；二次加载不再触发。"""
         sg = self._generator(tmp_path)
         self._write(
             sg,
@@ -1895,18 +1895,20 @@ class TestLoadReferenceStep1:
                 "units": [
                     {
                         "unit_id": "E1U01",
-                        "shots": [{"duration": 2, "text": "甲起身"}, {"duration": 2, "text": "甲出门"}],
+                        "text": "甲起身\n甲出门",
+                        "duration_seconds": 4,
+                        "duration_override": True,
                     }
                 ]
             },
         )
         units = sg._load_reference_step1(1, [4, 6, 8])
         assert units[0]["duration_seconds"] == 4
-        assert units[0]["shots"] == [{"text": "甲起身"}, {"text": "甲出门"}]
+        assert units[0]["text"] == "甲起身\n甲出门"
 
         on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
         assert on_disk["units"][0]["duration_seconds"] == 4
-        assert "duration" not in on_disk["units"][0]["shots"][0]
+        assert "duration_override" not in on_disk["units"][0]
 
         # 幂等：二次加载不再改写落盘内容。
         before_second_load = self._step1_path(sg, 1).read_bytes()
@@ -1915,7 +1917,7 @@ class TestLoadReferenceStep1:
 
     @pytest.mark.integration
     def test_migration_clamps_sum_to_supported_slot(self, tmp_path, caplog):
-        """求和落在档位之外 → 按容量语义取档后落盘（此处 4+3=7 → 8），并落盘 + 记 warning。"""
+        """既有时长落在档位之外 → 按容量语义取档后落盘（此处 7 → 8），并落盘 + 记 warning。"""
         sg = self._generator(tmp_path)
         self._write(
             sg,
@@ -1924,7 +1926,9 @@ class TestLoadReferenceStep1:
                 "units": [
                     {
                         "unit_id": "E1U01",
-                        "shots": [{"duration": 4, "text": "甲起身"}, {"duration": 3, "text": "甲出门"}],
+                        "text": "甲起身\n甲出门",
+                        "duration_seconds": 7,
+                        "duration_override": True,
                     }
                 ]
             },
@@ -1936,8 +1940,7 @@ class TestLoadReferenceStep1:
 
         on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
         assert on_disk["units"][0]["duration_seconds"] == 8
-        assert "duration" not in on_disk["units"][0]["shots"][0]
-        assert "duration" not in on_disk["units"][0]["shots"][1]
+        assert "duration_override" not in on_disk["units"][0]
 
     @pytest.mark.integration
     def test_clamping_migration_aborts_generation_that_gate_already_let_through(self, tmp_path):
@@ -1960,7 +1963,9 @@ class TestLoadReferenceStep1:
                 "units": [
                     {
                         "unit_id": "E1U01",
-                        "shots": [{"duration": 4, "text": "甲起身"}, {"duration": 3, "text": "甲出门"}],
+                        "text": "甲起身\n甲出门",
+                        "duration_seconds": 7,
+                        "duration_override": True,
                     }
                 ]
             },
@@ -2382,7 +2387,9 @@ class TestAdReferenceSkeletonUnity:
         assert "shots" not in saved
         assert "reference_units" not in saved
         assert [unit["unit_id"] for unit in saved["video_units"]] == ["E1U1", "E1U2"]
-        assert saved["video_units"][0]["references"] == [{"type": "product", "name": "速干杯"}]
+        # 引用不落盘：正文是唯一真相，`@[名称]` 由读侧派生。
+        assert "references" not in saved["video_units"][0]
+        assert "@[速干杯]" in saved["video_units"][0]["text"]
 
     @pytest.mark.unit
     async def test_generate_ad_reference_preserves_mixed_speech_and_marks_replan(self, tmp_path):
@@ -2398,5 +2405,5 @@ class TestAdReferenceSkeletonUnity:
         unit = json.loads(output_path.read_text(encoding="utf-8"))["video_units"][0]
 
         assert unit["needs_replan"] is True
-        assert "@[小美]：{试试这一杯。}" in unit["shots"][0]["text"]
-        assert "{旁白补充卖点。}" in unit["shots"][0]["text"]
+        assert "@[小美]：{试试这一杯。}" in unit["text"]
+        assert "{旁白补充卖点。}" in unit["text"]

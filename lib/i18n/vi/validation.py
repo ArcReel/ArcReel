@@ -14,6 +14,7 @@ MESSAGES = {
     "val_field_must_be_string_typed": "{field} phải là chuỗi, hiện là {actual}",
     "val_field_must_be_array": "{field} phải là mảng",
     "val_field_must_be_nonempty_array": "{field} phải là mảng không rỗng",
+    "val_field_must_be_nonempty_string": "{field} phải là chuỗi không rỗng",
     "val_field_must_be_object": "{field} phải là đối tượng",
     "val_field_invalid": "{field} không hợp lệ: {detail}",
     "val_ledger_source_file_not_relative": "source_file phải là đường dẫn POSIX tương đối trong dự án",
@@ -110,16 +111,6 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
-    "val_unit_shots_too_many": "{prefix}: shots có {count} mục; chỉ cho phép tối đa {max}",
-    "val_migration_content_replan_requires_needs_replan": (
-        "{prefix}: migration_requires_content_replan=true yêu cầu needs_replan=true"
-    ),
-    "val_reference_entry_must_be_object": "{prefix}: mỗi mục reference phải là đối tượng",
-    "val_reference_type_invalid": "{prefix}: reference.type không hợp lệ: {value}",
-    "val_reference_name_invalid": "{prefix}: reference.name phải là chuỗi không rỗng: {value}",
-    "val_reference_not_in_bucket": (
-        "{prefix}: {asset_type} '{name}' được tham chiếu không nằm trong nhóm tương ứng của project.json"
-    ),
     "val_ref_type_invalid": "{prefix}: type không hợp lệ: {value}",
     "val_ref_name_invalid": "{prefix}: name phải là chuỗi không rỗng: {value}",
     # ---- khung xương và tuyến sinh video ----
@@ -181,8 +172,9 @@ MESSAGES = {
     "arch_missing_asset_definition": (
         "{items_key}[{index}]: {field} tham chiếu {asset_type} không có trong project.json: {names}"
     ),
-    "arch_unit_missing_asset_definition": (
-        "video_units[{index}]: references tham chiếu {asset_type} không có trong project.json: {names}"
+    "arch_unit_unresolved_mentions": (
+        "video_units[{index}]: nội dung tham chiếu tên tài sản không có trong project.json: {names}; "
+        "chúng sẽ không tạo ảnh tham chiếu"
     ),
     "arch_generated_assets_defaults": "{label}[{index}].generated_assets: đã bổ sung các trường mặc định {fields}",
     "arch_missing_generated_assets": "{label}[{index}]: đã bổ sung trường còn thiếu generated_assets",

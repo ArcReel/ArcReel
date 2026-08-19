@@ -72,8 +72,8 @@ class TestUnitText:
                 "message": str(problem),
                 "line": None,
                 "locations": [
-                    {"path": ["shots", 0, "text"], "line": 1},
-                    {"path": ["shots", 0, "text"], "line": 2},
+                    {"path": ["text"], "line": 1},
+                    {"path": ["text"], "line": 2},
                 ],
                 "reason": "character_and_narrator_mixed",
                 "action": "replan_unit",
@@ -82,14 +82,13 @@ class TestUnitText:
         assert "character_and_narrator_mixed" in str(problem)
         assert "replan_unit" in str(problem)
 
-    def test_derives_shots_and_references(self):
-        shots, refs = validate_unit_text(
+    def test_derives_references_in_first_mention_order(self):
+        refs = validate_unit_text(
             "unit E1U01",
-            "镜头1：@[李明] 推开 @[酒馆] 的门\n镜头2：@[李明] 放下 @[长剑]",
+            "@[李明] 推开 @[酒馆] 的门\n@[李明] 放下 @[长剑]",
             PROJECT,
             max_refs=None,
         )
-        assert [s.text for s in shots] == ["@[李明] 推开 @[酒馆] 的门", "@[李明] 放下 @[长剑]"]
         assert [(r.type, r.name) for r in refs] == [
             ("character", "李明"),
             ("scene", "酒馆"),
@@ -98,19 +97,12 @@ class TestUnitText:
 
     def test_dialogue_speaker_not_a_reference_image(self):
         """台词记号的说话人位只驱动音色声明，不进参考图（画外说话的角色不该被画进来）。"""
-        _shots, refs = validate_unit_text(
-            "unit E1U01", "镜头1：门在风里晃动\n@[李明]：{我来了。}", PROJECT, max_refs=None
-        )
+        refs = validate_unit_text("unit E1U01", "镜头1：门在风里晃动\n@[李明]：{我来了。}", PROJECT, max_refs=None)
         assert refs == []
 
     def test_blank_text_rejected(self):
         with pytest.raises(DraftViolation, match="正文为空"):
             validate_unit_text("unit E1U01", "   \n  ", PROJECT, max_refs=None)
-
-    def test_more_than_four_shots_rejected(self):
-        text = "\n".join(f"镜头{i}：@[李明] 动作 {i}" for i in range(1, 6))
-        with pytest.raises(DraftViolation, match="超过单 unit 上限"):
-            validate_unit_text("unit E1U01", text, PROJECT, max_refs=None)
 
     def test_unclosed_brace_rejected(self):
         with pytest.raises(DraftViolation, match="未闭合的花括号") as exc_info:
@@ -129,7 +121,7 @@ class TestUnitText:
 
     def test_inline_speech_marks_are_accepted(self):
         """台词与画外音写在同一行的画面描述之后照常放行；说话人位不进参考图。"""
-        _shots, refs = validate_unit_text(
+        refs = validate_unit_text(
             "unit E1U01", "镜头1：@[李明] 推开 @[酒馆] 木门。@[李明]{我来了}", PROJECT, max_refs=None
         )
         assert [r.name for r in refs] == ["李明", "酒馆"]
@@ -153,7 +145,7 @@ class TestUnitText:
         project = {"characters": {registered: {}}, "scenes": {}, "props": {}}
         text = f"镜头1：@[{written}] 推门而入\n@[{written}]：{{Tôi đến rồi.}}"
 
-        _shots, refs = validate_unit_text("unit E1U01", text, project, max_refs=None)
+        refs = validate_unit_text("unit E1U01", text, project, max_refs=None)
 
         # 派生出的引用一律是归一形式：下游拿它回查资产表、在正文里替换成主体记号，须与此处同形
         assert [(r.type, r.name) for r in refs] == [("character", _NAME_NFC)]
@@ -180,16 +172,12 @@ class TestUnitText:
 
     def test_dialogue_followed_by_description_is_accepted(self):
         """行首台词后接描述不再判违约：记号可写在行内任意位置，其余是画面描述。"""
-        _shots, refs = validate_unit_text(
-            "unit E1U01", "镜头1：门开了\n@[李明]：{我来了}，然后转身", PROJECT, max_refs=None
-        )
+        refs = validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：{我来了}，然后转身", PROJECT, max_refs=None)
         assert [r.name for r in refs] == []
 
     def test_non_character_mention_with_colon_is_a_description(self):
         """场景 / 道具做小标题是合法的画面描述写法，不能按「@[名称]：」形态一概判成写坏的台词。"""
-        _shots, refs = validate_unit_text(
-            "unit E1U01", "镜头1：@[酒馆]：木门被风吹开，灯笼摇晃", PROJECT, max_refs=None
-        )
+        refs = validate_unit_text("unit E1U01", "镜头1：@[酒馆]：木门被风吹开，灯笼摇晃", PROJECT, max_refs=None)
         assert [(r.type, r.name) for r in refs] == [("scene", "酒馆")]
 
     def test_fullwidth_mention_delimiters_rejected(self):
@@ -206,21 +194,14 @@ class TestUnitText:
         with pytest.raises(DraftViolation, match="写坏的资产引用"):
             validate_unit_text("unit E1U01", "镜头1：@[] 推开门", PROJECT, max_refs=None)
 
-    def test_blank_shot_body_rejected(self):
-        """空镜头正文进不了队（视频 prompt 为空），多镜头时还会让 step2 对着空白自行编内容。"""
+    def test_dialogue_only_text_rejected(self):
+        """只有台词的正文没有可生成的画面：画面是 unit 要产出的东西，不能只有声音。"""
         with pytest.raises(DraftViolation, match="没有画面描述"):
-            validate_unit_text("unit E1U01", "镜头1：@[李明] 推门\n镜头2：", PROJECT, max_refs=None)
-
-    def test_dialogue_only_shot_rejected(self):
-        """只有台词的镜头同样没有可生成的画面：画面是 unit 要产出的东西，不能只有声音。"""
-        with pytest.raises(DraftViolation, match="没有画面描述"):
-            validate_unit_text("unit E1U01", "镜头1：\n@[李明]：{我来了。}", PROJECT, max_refs=None)
+            validate_unit_text("unit E1U01", "@[李明]：{我来了。}\n{风吹过。}", PROJECT, max_refs=None)
 
     def test_dialogue_written_on_shot_header_line_is_normative(self):
         """写在 ``镜头N：`` 同一行的台词在切分后就是规范行，判定须在剥 header 之后。"""
-        _shots, refs = validate_unit_text(
-            "unit E1U01", "镜头1：@[李明]：{我来了。}\n门在风里晃动", PROJECT, max_refs=None
-        )
+        refs = validate_unit_text("unit E1U01", "镜头1：@[李明]：{我来了。}\n门在风里晃动", PROJECT, max_refs=None)
         assert refs == []
 
 

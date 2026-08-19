@@ -52,7 +52,7 @@ def test_speech_admission_serializes_stable_problem_codes_and_locations() -> Non
         "video_units",
         {
             "unit_id": "E2U03",
-            "shots": [{"text": "@[阿离]：{快走。}\n{风吹过旷野。}"}],
+            "text": "@[阿离]：{快走。}\n{风吹过旷野。}",
         },
     )
 
@@ -65,8 +65,8 @@ def test_speech_admission_serializes_stable_problem_codes_and_locations() -> Non
                 "code": "mixed_speech",
                 "unit_id": "E2U03",
                 "locations": [
-                    {"path": ["shots", 0, "text"], "line": 0},
-                    {"path": ["shots", 0, "text"], "line": 1},
+                    {"path": ["text"], "line": 0},
+                    {"path": ["text"], "line": 1},
                 ],
                 "reason": "character_and_narrator_mixed",
                 "action": "replan_unit",
@@ -175,7 +175,7 @@ def test_legacy_drama_dialogue_is_admitted_from_its_persisted_field() -> None:
             },
         ),
         (adapt_ad_shot, {"shot_id": "E1S01", "voiceover_text": "风吹过旷野。", "video_prompt": {}}),
-        (adapt_video_unit, {"unit_id": "E1S01", "shots": [{"text": "{风吹过旷野。}"}]}),
+        (adapt_video_unit, {"unit_id": "E1S01", "text": "{风吹过旷野。}"}),
     ],
 )
 def test_narrator_voiceover_has_the_same_result_through_every_skeleton(adapter, source) -> None:
@@ -218,7 +218,7 @@ def test_narrator_voiceover_has_the_same_result_through_every_skeleton(adapter, 
             adapt_video_unit,
             {
                 "unit_id": "E2S03",
-                "shots": [{"text": "@[阿离]：{跟紧我。}\n@[阿离]：{不能让他看出害怕。}"}],
+                "text": "@[阿离]：{跟紧我。}\n@[阿离]：{不能让他看出害怕。}",
             },
         ),
     ],
@@ -265,10 +265,10 @@ def test_character_speech_keeps_the_same_ownership_and_order_through_applicable_
         ),
         (
             adapt_video_unit,
-            {"unit_id": "E1S04", "shots": [{"text": "@[阿离]：{快走。}\n{大门在她身后合拢。}"}]},
+            {"unit_id": "E1S04", "text": "@[阿离]：{快走。}\n{大门在她身后合拢。}"},
             (
-                SpeechFieldLocation(("shots", 0, "text"), line=0),
-                SpeechFieldLocation(("shots", 0, "text"), line=1),
+                SpeechFieldLocation(("text",), line=0),
+                SpeechFieldLocation(("text",), line=1),
             ),
         ),
     ],
@@ -317,12 +317,12 @@ def test_mixed_speech_returns_a_closed_located_problem_without_rewriting_content
             SpeechFieldLocation(("video_prompt", "dialogue", 0, "speaker")),
         ),
         (
-            adapt_video_unit({"unit_id": "E1S02", "shots": [{"text": "空镜。\n@[ ]：{快走。}"}]}),
-            SpeechFieldLocation(("shots", 0, "text"), line=1),
+            adapt_video_unit({"unit_id": "E1S02", "text": "空镜。\n@[ ]：{快走。}"}),
+            SpeechFieldLocation(("text",), line=1),
         ),
         (
-            adapt_video_unit({"unit_id": "E1S02", "shots": [{"text": "空镜。\n\ufeff@[ ]：{快走。}"}]}),
-            SpeechFieldLocation(("shots", 0, "text"), line=1),
+            adapt_video_unit({"unit_id": "E1S02", "text": "空镜。\n\ufeff@[ ]：{快走。}"}),
+            SpeechFieldLocation(("text",), line=1),
         ),
     ],
 )
@@ -360,8 +360,8 @@ def test_empty_character_speaker_is_a_structured_blocker(snapshot, expected_loca
             SpeechFieldLocation(("video_prompt", "dialogue")),
         ),
         (
-            adapt_video_unit({"unit_id": "E1S03", "shots": [{"text": "空镜。\n@[阿离]：{快走。"}]}),
-            SpeechFieldLocation(("shots", 0, "text"), line=1),
+            adapt_video_unit({"unit_id": "E1S03", "text": "空镜。\n@[阿离]：{快走。"}),
+            SpeechFieldLocation(("text",), line=1),
         ),
     ],
 )
@@ -383,7 +383,7 @@ def test_needs_replan_is_a_closed_problem_even_when_speech_is_otherwise_valid() 
         {
             "unit_id": "E1U04",
             "needs_replan": True,
-            "shots": [{"text": "门缓缓打开。\n{多年以后，他仍记得这一幕。}"}],
+            "text": "门缓缓打开。\n{多年以后，他仍记得这一幕。}",
         }
     )
 
@@ -404,7 +404,7 @@ def test_persisted_speech_mode_cannot_override_mechanical_derivation() -> None:
         {
             "unit_id": "E1U05",
             "speech_mode": "silent",
-            "shots": [{"text": "@[阿离] 站在门边。\n@[阿离]：{我回来了。}"}],
+            "text": "@[阿离] 站在门边。\n@[阿离]：{我回来了。}",
         }
     )
 
@@ -419,7 +419,7 @@ def test_persisted_speech_mode_cannot_override_mechanical_derivation() -> None:
     [
         adapt_drama_scene({"scene_id": "E1S06", "utterances": []}),
         adapt_ad_shot({"shot_id": "E1S06", "voiceover_text": "", "video_prompt": {"dialogue": []}}),
-        adapt_video_unit({"unit_id": "E1S06", "shots": [{"text": "空镜，风吹过树梢。"}, {"text": "门缓缓合上。"}]}),
+        adapt_video_unit({"unit_id": "E1S06", "text": "空镜，风吹过树梢。\n门缓缓合上。"}),
     ],
 )
 def test_units_without_spoken_content_are_silent(snapshot) -> None:
@@ -463,14 +463,11 @@ def test_drama_voiceover_with_blank_speaker_is_narrator_voiceover(blank_speaker)
     assert result.problems == ()
 
 
-def test_reference_video_adapter_preserves_cross_shot_utterance_order() -> None:
+def test_reference_video_adapter_preserves_utterance_order_across_lines() -> None:
     snapshot = adapt_video_unit(
         {
             "unit_id": "E1U07",
-            "shots": [
-                {"text": "@[阿离] 推门。\n@[阿离]：{有人吗？}\n@[阿离]：{我进来了。}"},
-                {"text": "@[守卫] 抬头。\n@[守卫]：{站住。}"},
-            ],
+            "text": "@[阿离] 推门。\n@[阿离]：{有人吗？}\n@[阿离]：{我进来了。}\n@[守卫] 抬头。\n@[守卫]：{站住。}",
         }
     )
 
@@ -478,9 +475,9 @@ def test_reference_video_adapter_preserves_cross_shot_utterance_order() -> None:
 
     assert [entry.text for entry in result.utterances] == ["有人吗？", "我进来了。", "站住。"]
     assert [entry.location for entry in result.utterances] == [
-        SpeechFieldLocation(("shots", 0, "text"), line=1),
-        SpeechFieldLocation(("shots", 0, "text"), line=2),
-        SpeechFieldLocation(("shots", 1, "text"), line=1),
+        SpeechFieldLocation(("text",), line=1),
+        SpeechFieldLocation(("text",), line=2),
+        SpeechFieldLocation(("text",), line=4),
     ]
 
 
@@ -494,7 +491,7 @@ def test_reference_video_adapter_binds_inline_speech_the_same_as_a_whole_line() 
         adapt_video_unit(
             {
                 "unit_id": "E1U10",
-                "shots": [{"text": "@[阿离] 推门。\n@[阿离]：{有人吗？}\n@[守卫]：{站住。}"}],
+                "text": "@[阿离] 推门。\n@[阿离]：{有人吗？}\n@[守卫]：{站住。}",
             }
         )
     )
@@ -502,7 +499,7 @@ def test_reference_video_adapter_binds_inline_speech_the_same_as_a_whole_line() 
         adapt_video_unit(
             {
                 "unit_id": "E1U10",
-                "shots": [{"text": "@[阿离] 推门。@[阿离]{有人吗？}守卫抬头。@[守卫]{站住。}"}],
+                "text": "@[阿离] 推门。@[阿离]{有人吗？}守卫抬头。@[守卫]{站住。}",
             }
         )
     )
@@ -519,7 +516,7 @@ def test_reference_video_adapter_keeps_a_recognized_mark_when_the_same_line_has_
     snapshot = adapt_video_unit(
         {
             "unit_id": "E1U11",
-            "shots": [{"text": "@[阿离]{我来了。}门后是 {未闭合"}],
+            "text": "@[阿离]{我来了。}门后是 {未闭合",
         }
     )
 
@@ -533,54 +530,7 @@ def test_reference_video_adapter_allows_asset_headings_without_guessing_their_ty
     snapshot = adapt_video_unit(
         {
             "unit_id": "E1U08",
-            "shots": [{"text": "@[酒馆]：木门被风吹开。"}],
-            "references": [{"type": "scene", "name": "酒馆"}],
-        }
-    )
-
-    result = SpeechComposition.prepare(snapshot)
-
-    assert result.mode is SpeechMode.SILENT
-    assert result.problems == ()
-
-
-@pytest.mark.parametrize(
-    "source",
-    [
-        {
-            "unit_id": "E1U09",
-            "shots": [{"text": "@[阿离]：快走。"}],
-            "references": [{"type": "character", "name": "阿离"}],
-        },
-        {
-            "unit_id": "E1U09",
-            "shots": [{"text": "@[阿离]：快走。"}],
-            "references": [],
-        },
-        {
-            "unit_id": "E1U09",
-            "shots": [{"text": "@[ ]：快走。"}],
-            "references": [],
-        },
-    ],
-)
-def test_reference_video_adapter_rejects_malformed_dialogue(source) -> None:
-    snapshot = adapt_video_unit(source)
-
-    result = SpeechComposition.prepare(snapshot)
-
-    assert result.mode is None
-    assert [(problem.code, problem.locations) for problem in result.problems] == [
-        (SpeechProblemCode.PARSE_FAILED, (SpeechFieldLocation(("shots", 0, "text"), line=0),))
-    ]
-
-
-def test_reference_video_adapter_normalizes_asset_headings_before_matching() -> None:
-    snapshot = adapt_video_unit(
-        {
-            "unit_id": "E1U10",
-            "shots": [{"text": "@[Caf\u00e9]：木门被风吹开。"}],
-            "references": [{"type": "scene", "name": "Cafe\u0301"}],
+            "text": "@[酒馆]：木门被风吹开。",
         }
     )
 
@@ -591,12 +541,12 @@ def test_reference_video_adapter_normalizes_asset_headings_before_matching() -> 
 
 
 def test_damaged_unit_identity_and_container_are_reported_together() -> None:
-    result = SpeechComposition.prepare(adapt_video_unit({"unit_id": " ", "shots": "not-a-list"}))
+    result = SpeechComposition.prepare(adapt_video_unit({"unit_id": " ", "text": ["not-a-string"]}))
 
     assert result.mode is None
     assert [(problem.code, problem.locations) for problem in result.problems] == [
         (SpeechProblemCode.PARSE_FAILED, (SpeechFieldLocation(("unit_id",)),)),
-        (SpeechProblemCode.PARSE_FAILED, (SpeechFieldLocation(("shots",)),)),
+        (SpeechProblemCode.PARSE_FAILED, (SpeechFieldLocation(("text",)),)),
     ]
 
 
@@ -613,12 +563,12 @@ def test_damaged_unit_identity_and_container_are_reported_together() -> None:
             SpeechFieldLocation(("utterances", 0, "speaker")),
         ),
         (
-            adapt_video_unit({"unit_id": "E1U08", "shots": []}),
-            SpeechFieldLocation(("shots",)),
+            adapt_video_unit({"unit_id": "E1U08"}),
+            SpeechFieldLocation(("text",)),
         ),
         (
-            adapt_video_unit({"unit_id": "E1U08", "shots": [7]}),
-            SpeechFieldLocation(("shots", 0)),
+            adapt_video_unit({"unit_id": "E1U08", "text": 7}),
+            SpeechFieldLocation(("text",)),
         ),
     ],
 )
@@ -663,8 +613,8 @@ def test_unusable_speech_shapes_never_degrade_to_a_valid_mode(snapshot, expected
             SpeechFieldLocation(("voiceover_text",)),
         ),
         (
-            adapt_video_unit({"unit_id": "E1U09", "shots": [{"text": "@[ ]：{   }"}]}),
-            SpeechFieldLocation(("shots", 0, "text"), line=0),
+            adapt_video_unit({"unit_id": "E1U09", "text": "@[ ]：{   }"}),
+            SpeechFieldLocation(("text",), line=0),
         ),
     ],
 )

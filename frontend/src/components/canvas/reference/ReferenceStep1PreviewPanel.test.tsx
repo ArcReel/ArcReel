@@ -1,11 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { ReferenceStep1PreviewPanel } from "./ReferenceStep1PreviewPanel";
-import type { MentionLookup } from "@/hooks/useShotPromptHighlight";
+import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import type { ReferenceStep1Draft, ScriptReviewState } from "@/types";
 
 const LOOKUP: MentionLookup = { 阿离: "character", 长街: "scene" };
@@ -24,12 +24,8 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
       units: [
         {
           unit_id: "E1U01",
-          shots: [{ text: "@[阿离] 撑伞走过 @[长街]" }],
+          text: "@[阿离] 撑伞走过 @[长街]",
           duration_seconds: 8,
-          references: [
-            { type: "character", name: "阿离" },
-            { type: "scene", name: "长街" },
-          ],
           source_text: "阿离撑伞走过长街。",
         },
       ],
@@ -54,7 +50,7 @@ function quarantinedState(): ScriptReviewState {
           {
             duration_seconds: 8,
             source_text: "阿离撑伞走过长街。",
-            text: "镜头1：门开了\n@[阿离]：｛我来了。｝",
+            text: "门开了\n@[阿离]：｛我来了。｝",
           },
         ],
       },
@@ -76,14 +72,16 @@ describe("ReferenceStep1PreviewPanel", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it("renders the clean pending state with highlighted script and reference pills", async () => {
+  // 正文之外不再有参考资产清单：`@[名称]` 在正文里高亮，参考图执行期才解析。
+  it("renders the clean pending state with the highlighted body and no reference list", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
     expect(screen.getByText("阿离撑伞走过长街。")).toBeInTheDocument();
-    expect(screen.getAllByText("阿离").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("长街").length).toBeGreaterThan(0);
+    expect(screen.getByText("@[阿离]")).toBeInTheDocument();
+    expect(screen.getByText("@[长街]")).toBeInTheDocument();
+    expect(screen.queryByText("参考图")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).not.toBeDisabled();
   });
 
@@ -95,8 +93,8 @@ describe("ReferenceStep1PreviewPanel", () => {
       message: "raw agent message",
       line: null,
       locations: [
-        { path: ["shots", 0, "text"], line: 1 },
-        { path: ["shots", 0, "text"], line: 2 },
+        { path: ["text"], line: 1 },
+        { path: ["text"], line: 2 },
       ],
       reason: "character_and_narrator_mixed",
       action: "replan_unit",
@@ -105,7 +103,7 @@ describe("ReferenceStep1PreviewPanel", () => {
 
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    expect(await screen.findByText(/视频单元 E1U01.*同时包含角色台词和旁白/)).toHaveTextContent("shots.0.text:2");
+    expect(await screen.findByText(/视频单元 E1U01.*同时包含角色台词和旁白/)).toHaveTextContent("text:2");
     expect(screen.queryByText("raw agent message")).not.toBeInTheDocument();
   });
 
@@ -213,7 +211,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     await waitFor(() => expect(screen.getByText("暂无预处理内容")).toBeInTheDocument());
   });
 
-  it("edits a shot in the non-quarantined state and persists the units draft", async () => {
+  it("edits the unit body in the non-quarantined state and persists the units draft", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
 
@@ -230,31 +228,29 @@ describe("ReferenceStep1PreviewPanel", () => {
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     const [, , savedContent, baseFingerprint] = save.mock.calls[0];
     expect(savedContent).toMatchObject({
-      units: [{ unit_id: "E1U01", shots: [{ text: "@[阿离] 缓步走过 @[长街]" }] }],
+      units: [{ unit_id: "E1U01", text: "@[阿离] 缓步走过 @[长街]" }],
     });
     // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
     expect(baseFingerprint).toBe("fp1");
   });
 
-  it("renders shot / spoken-line counts in the unit header", async () => {
+  it("renders the spoken-line count in the unit header", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    // 草稿正文一个镜头行 + 一行全角花括号「台词」：统计与正文高亮同一套切分口径，全角花括号
+    // 草稿正文一行描述 + 一行全角花括号「台词」：统计与正文高亮同一套切分口径，全角花括号
     // 不被解析器认作台词（这正是该草稿的 fullwidth_braces 违约），故台词数为 0。
-    await waitFor(() => expect(screen.getByText("1 镜头 · 0 台词")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("0 句台词")).toBeInTheDocument());
   });
 
   it("counts a well-formed dialogue line as a spoken line", async () => {
     const withDialogue = pendingState();
-    (withDialogue.content as ReferenceStep1Draft).units[0].shots = [
-      { text: "@[阿离] 撑伞走过 @[长街]" },
-      { text: "@[阿离]：{我来了。}" },
-    ];
+    (withDialogue.content as ReferenceStep1Draft).units[0].text =
+      "@[阿离] 撑伞走过 @[长街]\n@[阿离]：{我来了。}";
     vi.spyOn(API, "getScriptReview").mockResolvedValue(withDialogue);
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    await waitFor(() => expect(screen.getByText("2 镜头 · 1 台词")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("1 句台词")).toBeInTheDocument());
   });
 
   it("picks a duration from the supported tiers and saves it on the unit", async () => {
@@ -306,62 +302,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });
 
-  it("excludes a dialogue-only speaker from the quarantined preview's reference pills", async () => {
-    // 阿离只出现在台词记号（`@[阿离]{...}`）里——同后端 extract_mentions，说话人不产参考图；
-    // 长街出现在镜头描述行里，正常产出参考图 pill。
-    vi.spyOn(API, "getScriptReview").mockResolvedValue({
-      ...quarantinedState(),
-      quarantine: {
-        content: {
-          units: [
-            {
-              duration_seconds: 8,
-              source_text: "阿离撑伞走过长街。",
-              text: "镜头1：门开了\n@[阿离]：{我来了。}\n镜头2：@[长街] 空无一人。",
-            },
-          ],
-        },
-        violations: [],
-      },
-    });
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-
-    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
-    const referencesRow = screen.getByText("参考图").closest("div") as HTMLElement;
-    expect(within(referencesRow).getByText("长街")).toBeInTheDocument();
-    expect(within(referencesRow).queryByText("阿离")).not.toBeInTheDocument();
-  });
-
-  it("dedupes a reference pill when the same asset is mentioned once in NFC and once in NFD", async () => {
-    // extractMentions 输出规范形并按规范形去重，同一资产的两种编码收敛成一条；否则预览会重复
-    // 渲染同一资产的 pill / 图号，与后端落盘的单条引用不一致。
-    const nameNfc = "Hiếu".normalize("NFC");
-    const nameNfd = "Hiếu".normalize("NFD");
-    expect(nameNfc).not.toBe(nameNfd);
-    const lookup: MentionLookup = { [nameNfc]: "character" };
-    vi.spyOn(API, "getScriptReview").mockResolvedValue({
-      ...quarantinedState(),
-      quarantine: {
-        content: {
-          units: [
-            {
-              duration_seconds: 8,
-              source_text: "x",
-              text: `镜头1：@[${nameNfc}] 登场\n镜头2：@[${nameNfd}] 转身`,
-            },
-          ],
-        },
-        violations: [],
-      },
-    });
-    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={lookup} />);
-
-    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
-    const referencesRow = screen.getByText("参考图").closest("div") as HTMLElement;
-    expect(within(referencesRow).getAllByText(nameNfc)).toHaveLength(1);
-  });
-
-  it("disables the duration select and shot textarea while a save is in flight", async () => {
+  it("disables the duration select and body textarea while a save is in flight", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     let resolveSave: (value: ScriptReviewState) => void = () => {};
     vi.spyOn(API, "saveScriptReviewContent").mockReturnValue(
@@ -415,15 +356,14 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });
 
-  it("recomputes the tier choice from live-edited text rather than the stale saved references", async () => {
+  it("recomputes the tier choice from the live-edited body", async () => {
     const withoutReferences = pendingState({
       supported_durations: [4, 6, 8],
       // 8 秒是两套档位共有的值，保证初始展示不触发「越档补首值」分支，让第二次断言干净地
       // 反映档位切换本身，而不是与该兜底行为的展示叠在一起。
       duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
     });
-    (withoutReferences.content as ReferenceStep1Draft).units[0].shots = [{ text: "门开了" }];
-    (withoutReferences.content as ReferenceStep1Draft).units[0].references = [];
+    (withoutReferences.content as ReferenceStep1Draft).units[0].text = "门开了";
     (withoutReferences.content as ReferenceStep1Draft).units[0].duration_seconds = 8;
     vi.spyOn(API, "getScriptReview").mockResolvedValue(withoutReferences);
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
@@ -432,8 +372,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     let select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
     expect([...select.options].map((o) => o.value).sort()).toEqual(["4", "6", "8"]);
 
-    // 编辑正文新增 @[阿离] 引用（尚未保存，unit.references 仍是旧的空数组）：档位应立即按
-    // with_references 收窄到仅 8 秒，而不是继续沿用编辑前的 references 判定。
+    // 编辑正文新增 @[阿离] 引用（尚未保存）：档位应立即按 with_references 收窄到仅 8 秒。
     fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
     const textarea = await screen.findByDisplayValue("门开了");
     fireEvent.change(textarea, { target: { value: "@[ 阿离 ] 推门而入。" } });
@@ -464,8 +403,8 @@ describe("ReferenceStep1PreviewPanel", () => {
       quarantine: {
         content: {
           units: [
-            { duration_seconds: 8, source_text: "阿离撑伞走过长街。", text: "镜头1：门开了\n@[阿离]：｛我来了。｝" },
-            { duration_seconds: 4, source_text: "长街空无一人。", text: "镜头1：门开了\n@[长街]：｛静悄悄。｝" },
+            { duration_seconds: 8, source_text: "阿离撑伞走过长街。", text: "门开了\n@[阿离]：｛我来了。｝" },
+            { duration_seconds: 4, source_text: "长街空无一人。", text: "门开了\n@[长街]：｛静悄悄。｝" },
           ],
         },
         violations: [

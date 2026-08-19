@@ -30,6 +30,10 @@ class AssetSpec:
     ``agent_editable_extra_fields``（agent 不该覆写用户上传的路径，更新走专用 API，
     与 sheet_field 同性质）。
 
+    ``original_image_fields`` 列出该类型登记用户原图的字段（单值或列表均可）。参考生视频
+    执行期按「有资产图用资产图，否则用全部原图」展开参考图，该顺序即字段声明顺序；未登记
+    原图字段的类型（场景 / 道具）没有资产图时就不产生参考图候选。
+
     ``in_global_library`` 控制该类型是否进入跨项目全局资产库（assets 表）：库的
     单图列模型只兼容「一资产一图」的类型，多图列表型资产（product）暂不进入。
 
@@ -44,6 +48,7 @@ class AssetSpec:
     label_zh: str
     namespace_priority: int
     reference_list_fields: tuple[str, ...]
+    original_image_fields: tuple[str, ...] = ()
     extra_string_fields: tuple[str, ...] = ()
     extra_list_fields: tuple[str, ...] = ()
     agent_editable_extra_fields: tuple[str, ...] = ()
@@ -59,6 +64,7 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         label_zh="角色",
         namespace_priority=0,
         reference_list_fields=("characters_in_segment", "characters_in_scene", "characters_in_shot"),
+        original_image_fields=("reference_image",),
         extra_string_fields=("voice_style", "reference_image", "reference_audio", "voice_notice_dismissed_at"),
         # voice_style 是 LLM 生成的角色配音风格，agent 可改；reference_image / reference_audio
         # 是用户上传的文件路径（系统级），不进 agent 白名单——更新分别走
@@ -100,6 +106,7 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         label_zh="商品",
         namespace_priority=3,
         reference_list_fields=("products_in_shot",),
+        original_image_fields=("reference_images",),
         # brand 是用户填写的品牌要素自由文本；reference_images 是用户上传的多张产品
         # 原图路径（系统级，保真验收锚点），selling_points 是卖点列表（agent 起草、
         # 用户可改）。
@@ -339,7 +346,7 @@ def validate_asset_name(name: object) -> str:
     并在创建入口拒绝。
 
     ``]`` 一并拒绝：正文里的引用写作 ``@[名称]``，解析以首个 ``]`` 收尾
-    （见 :func:`lib.reference_video.shot_parser._iter_mentions`），名字含 ``]`` 时写出的
+    （见 :func:`lib.reference_video.text_parser._iter_mentions`），名字含 ``]`` 时写出的
     引用会在中途截断。``[`` 不致坏——名为 ``[甲`` 时 ``@[[甲]`` 仍解析回完整的 ``[甲``——不拦。
     """
     if not isinstance(name, str):

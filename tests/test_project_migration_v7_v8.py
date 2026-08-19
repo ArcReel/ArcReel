@@ -31,8 +31,10 @@ from lib.grid.layout import grid_aspect_ratio_for
 from lib.grid.models import GridGeneration, build_frame_chain
 from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
 from lib.project_manager import ProjectManager
+from lib.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.project_migrations.runner import cleanup_stale_backups, migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from lib.speech_artifact_provenance import (
     RenditionVariant,
     SelectedMediaEvidence,
@@ -258,7 +260,7 @@ def _reference_video_facts(resource_id: str, *, episode: int = 1) -> VideoArtifa
         kind_version=1,
         inputs={
             "unit_id": resource_id,
-            "visual_shots": [{"shot_index": 0, "lines": ["产品掠过画面"]}],
+            "visual_lines": ["产品掠过画面"],
             "style": "写实",
             "canvas": {"aspect_ratio": "9:16"},
             "request_references": [],
@@ -368,7 +370,7 @@ def test_v7_activation_replaces_partial_manifest_from_canonical_target_state(tmp
             ).digest,
         ),
     }
-    assert _read_json(project_dir / "project.json")["schema_version"] == 8
+    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_SCHEMA_VERSION
     assert _stored_entries(project_dir) == {
         key.encode(): {
             "artifact_path": entry.artifact_path,
@@ -386,7 +388,7 @@ def test_v7_activation_preserves_verified_presentation_claims_in_the_complete_ta
         project_dir
     )
 
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
 
     adapter = ProjectArtifactManifestAdapter(project_dir)
     assert adapter.get_entry(subtitle_key) == subtitle_entry
@@ -428,7 +430,7 @@ def test_schema8_archive_activation_reconstructs_only_self_proving_presentation_
     subtitle_key, subtitle_entry, presentation_key, presentation_entry = _write_verified_presentation_claims(
         project_dir
     )
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
     subtitle_file = project_dir / subtitle_entry.artifact_path
     presentation_file = project_dir / presentation_entry.artifact_path
     before_artifacts = (subtitle_file.read_bytes(), presentation_file.read_bytes())
@@ -449,7 +451,7 @@ def test_schema8_archive_activation_rejects_tampered_presentation_evidence(tmp_p
     subtitle_key, _subtitle_entry, presentation_key, presentation_entry = _write_verified_presentation_claims(
         project_dir
     )
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
     presentation_file = project_dir / presentation_entry.artifact_path
     tampered = _read_json(presentation_file)
     tampered["video"]["content_digest"] = f"sha256-v1:{'0' * 64}"
@@ -464,7 +466,7 @@ def test_schema8_archive_activation_rejects_tampered_presentation_evidence(tmp_p
 
 def test_runtime_resolver_plans_storyboards_only_once_per_snapshot(tmp_path: Path, monkeypatch) -> None:
     project_dir, _project_data, _step1, _script = _project(tmp_path)
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
     from lib import artifact_planner
 
     calls = 0
@@ -486,7 +488,7 @@ def test_runtime_resolver_plans_storyboards_only_once_per_snapshot(tmp_path: Pat
 
 def test_runtime_single_episode_resolution_ignores_a_malformed_sibling_script(tmp_path: Path) -> None:
     project_dir, project, _step1, _script = _project(tmp_path)
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
     project = _read_json(project_dir / "project.json")
     project["episodes"].append(
         {
@@ -515,7 +517,7 @@ def test_runtime_single_episode_resolution_ignores_a_malformed_sibling_script(tm
 
 def test_formal_script_registration_failure_restores_script_and_project(tmp_path: Path, monkeypatch) -> None:
     project_dir, _project_data, _step1, script = _project(tmp_path)
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
     pm = ProjectManager(tmp_path)
     script_path = project_dir / "scripts" / "episode_1.json"
     project_path = project_dir / "project.json"
@@ -569,6 +571,9 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
         activation_ready.set()
         assert release_activation.wait(timeout=5)
         original_commit_schema(project_dir_arg, project)
+        # 清单激活是迁移链的中间一步，它落的版本不是当前版本；后续步骤在同一个临界区内走完，
+        # 等锁的写入方因此只会看到迁移前后两个完整状态，与启动扫描先迁完再对外服务同口径。
+        migrate_v8_to_v9(project_dir_arg)
 
     monkeypatch.setattr(artifact_activation, "_commit_schema_version", _pause_before_schema)
 
@@ -600,6 +605,7 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
     assert not writer_thread.is_alive()
     assert failures == []
     assert _read_json(formal_path) == replacement
+    migrate_project_dir(project_dir)
     comparison = ArtifactCurrencyResolver(project_dir).compare(
         ArtifactKey.episode_step1(1),
         artifact_path="drafts/episode_1/step1_segments.json",
@@ -616,6 +622,7 @@ def test_formal_step1_transaction_holds_the_project_lock_through_the_write(tmp_p
     project_dir, _project_data, _step1, _script = _project(tmp_path)
     # 正式写事务要登记产物清单，只在已迁移到 v8 的项目上成立。
     assert artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True) is True
+    migrate_project_dir(project_dir)
     formal_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
     transaction_entered = Event()
     release_transaction = Event()
@@ -755,7 +762,7 @@ def test_v7_activation_replaces_an_interrupted_backup_on_retry(tmp_path: Path) -
 
 def test_task_registration_receipt_restores_only_its_own_current_claim(tmp_path: Path) -> None:
     project_dir, _project_data, _step1, script = _project(tmp_path)
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
     key = ArtifactKey.episode_storyboard(1, "E1S01")
     adapter = ProjectArtifactManifestAdapter(project_dir)
     previous = adapter.get_entry(key)
@@ -987,7 +994,7 @@ def test_script_save_rechecks_manifest_activation_inside_the_project_lock(
     writer.start()
     assert commit_reached.wait(timeout=2)
     try:
-        migrate_v7_to_v8(project_dir)
+        migrate_project_dir(project_dir)
         assert (
             ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_storyboard(1, "E1S01"))
             is not None
@@ -998,7 +1005,7 @@ def test_script_save_rechecks_manifest_activation_inside_the_project_lock(
     writer.join(timeout=2)
     assert not writer.is_alive()
     assert save_errors == []
-    assert _read_json(project_dir / "project.json")["schema_version"] == 8
+    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_SCHEMA_VERSION
     assert _read_json(project_dir / "scripts" / "episode_1.json")["segments"][0]["segment_id"] == "E1S02"
     assert ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_storyboard(1, "E1S01")) is None
 
@@ -1172,7 +1179,7 @@ def test_workflow_uses_the_activation_asset_identity_for_legacy_whitespace(tmp_p
     project["characters"] = {raw_name: project["characters"]["阿离"]}
     _write_json(project_dir / "project.json", project)
 
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
 
     status = WorkflowStateService(ProjectManager(tmp_path)).get_status("demo")
     characters = status.artifacts["asset_sheets"]["character"]
@@ -1208,8 +1215,7 @@ def test_v7_activation_uses_only_selected_complete_typed_media_facts(tmp_path: P
                 {
                     "unit_id": "E1U1",
                     "duration_seconds": 8,
-                    "shots": [{"text": "产品掠过画面"}],
-                    "references": [],
+                    "text": "产品掠过画面",
                     "generated_assets": {
                         "video_clip": "reference_videos/E1U1.mp4",
                         "source_signature": "legacy-must-not-be-read",
@@ -1218,30 +1224,26 @@ def test_v7_activation_uses_only_selected_complete_typed_media_facts(tmp_path: P
                 {
                     "unit_id": "E1U2",
                     "duration_seconds": 8,
-                    "shots": [{"text": "旧视频"}],
-                    "references": [],
+                    "text": "旧视频",
                     "needs_replan": True,
                     "generated_assets": {"video_clip": "reference_videos/E1U2.mp4"},
                 },
                 {
                     "unit_id": "E1U3",
                     "duration_seconds": 8,
-                    "shots": [{"text": "旧旁白"}],
-                    "references": [],
+                    "text": "旧旁白",
                     "generated_assets": {"narration_audio": "audio/segment_E1U3.wav"},
                 },
                 {
                     "unit_id": "E1U4",
                     "duration_seconds": 8,
-                    "shots": [{"text": "{新旁白}"}],
-                    "references": [],
+                    "text": "{新旁白}",
                     "generated_assets": {"narration_audio": "audio/segment_E1U4.wav"},
                 },
                 {
                     "unit_id": "E1U5",
                     "duration_seconds": 8,
-                    "shots": [{"text": "{伪造快照旁白}"}],
-                    "references": [],
+                    "text": "{伪造快照旁白}",
                     "generated_assets": {"narration_audio": "audio/segment_E1U5.wav"},
                 },
             ],
@@ -1315,7 +1317,7 @@ def test_v7_activation_uses_only_selected_complete_typed_media_facts(tmp_path: P
     versions_payload["audio"]["E1U5"]["versions"][0]["file"] = "audio/segment_E1U5.wav"
     _write_json(versions.versions_file, versions_payload)
 
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
 
     entries = _stored_entries(project_dir)
     assert (
@@ -1351,8 +1353,8 @@ def test_v7_activation_uses_only_selected_complete_typed_media_facts(tmp_path: P
     )
 
     changed_script = _read_json(project_dir / "scripts" / "episode_1.json")
-    changed_script["video_units"][0]["shots"] = [{"text": "新品掠过画面"}]
-    changed_script["video_units"][3]["shots"] = [{"text": "{修改旁白}"}]
+    changed_script["video_units"][0]["text"] = "新品掠过画面"
+    changed_script["video_units"][3]["text"] = "{修改旁白}"
     _write_json(project_dir / "scripts" / "episode_1.json", changed_script)
     resolver = ArtifactCurrencyResolver(project_dir)
     assert (
@@ -1477,8 +1479,7 @@ def test_schema8_workflow_keeps_a_stale_typed_video_usable(tmp_path: Path) -> No
             {
                 "unit_id": "E1U1",
                 "duration_seconds": 8,
-                "shots": [{"text": "产品掠过画面"}],
-                "references": [],
+                "text": "产品掠过画面",
                 "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"},
             }
         ],
@@ -1500,14 +1501,14 @@ def test_schema8_workflow_keeps_a_stale_typed_video_usable(tmp_path: Path) -> No
         execution_provider_media=[],
         artifact_video_currency=_reference_video_facts("E1U1").to_dict(),
     )
-    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
     workflow = WorkflowStateService(ProjectManager(tmp_path))
 
     ready = workflow.get_status("ad")
     assert ready.state == "EXPORT_READY"
     assert ready.artifacts["videos"]["current_ids"] == ["E1U1"]
 
-    script["video_units"][0]["shots"] = [{"text": "产品换成蓝色后掠过画面"}]
+    script["video_units"][0]["text"] = "产品换成蓝色后掠过画面"
     _write_json(project_dir / "scripts" / "episode_1.json", script)
     stale = workflow.get_status("ad")
     assert stale.state == "EXPORT_READY"

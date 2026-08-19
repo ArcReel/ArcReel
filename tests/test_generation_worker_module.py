@@ -45,7 +45,7 @@ def _worker_reference_checkpoint(task_id: str, *, provider_id: str = "ark") -> s
         kind_version=1,
         inputs={
             "unit_id": "E1U1",
-            "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+            "visual_lines": ["Run."],
             "style": "cinematic",
             "canvas": {"aspect_ratio": "9:16"},
             "request_references": [],
@@ -359,11 +359,11 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
-        ("references", "expected_provider"),
-        [([{"type": "character", "name": "A"}], "minimax"), ([], "ark")],
+        ("text", "expected_provider"),
+        [("@[A] 走进房间", "minimax"), ("空镜头", "ark")],
     )
     async def test_reference_video_routes_by_hydrated_reference_bucket(
-        self, tmp_path, monkeypatch, references, expected_provider
+        self, tmp_path, monkeypatch, text, expected_provider
     ):
         """reference_video 投影按 unit 当前实际可用参考图分桶：有图 → r2v 桶 provider，
         无参考图退化镜头 → i2v 桶 provider，与执行层降级定桶同口径。"""
@@ -375,7 +375,7 @@ class TestExtractProvider:
         }
         (tmp_path / "characters").mkdir()
         (tmp_path / "characters" / "A.png").write_bytes(b"image")
-        script = {"video_units": [{"unit_id": "E1U1", "references": references, "shots": [{"text": "t"}]}]}
+        script = {"video_units": [{"unit_id": "E1U1", "text": text}]}
         pm_cls = type(
             "PM",
             (),
@@ -405,16 +405,8 @@ class TestExtractProvider:
         (tmp_path / "characters").mkdir()
         (tmp_path / "characters" / "A.png").write_bytes(b"image")
         scripts = {
-            "stale.json": {"video_units": [{"unit_id": "E1U1", "references": [], "shots": [{"text": "t"}]}]},
-            "frozen.json": {
-                "video_units": [
-                    {
-                        "unit_id": "E1U1",
-                        "references": [{"type": "character", "name": "A"}],
-                        "shots": [{"text": "t"}],
-                    }
-                ]
-            },
+            "stale.json": {"video_units": [{"unit_id": "E1U1", "text": "空镜头"}]},
+            "frozen.json": {"video_units": [{"unit_id": "E1U1", "text": "@[A] 走进房间"}]},
         }
         pm_cls = type(
             "PM",
@@ -466,9 +458,7 @@ class TestExtractProvider:
         from lib.generation_queue import GenerationQueue, reference_projection_for_queued_task
 
         holder = {"model": "ark/doubao-seedance-1-5-pro-251215"}
-        script = {
-            "video_units": [{"unit_id": "E1U1", "references": [], "shots": [{"text": "空镜"}], "duration_seconds": 5}]
-        }
+        script = {"video_units": [{"unit_id": "E1U1", "text": "空镜", "duration_seconds": 5}]}
 
         class _PM:
             def load_project(self, _name):

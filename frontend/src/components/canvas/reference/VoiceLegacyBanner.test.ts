@@ -20,8 +20,7 @@ function ga(overrides: Partial<UnitGeneratedAssets>): UnitGeneratedAssets {
 function unit(id: string, characterName: string, generatedAssets: UnitGeneratedAssets): ReferenceVideoUnit {
   return {
     unit_id: id,
-    shots: [{ text: "" }],
-    references: [{ type: "character", name: characterName }],
+    text: `@[${characterName}] 出场`,
     duration_seconds: 5,
     transition_to_next: "cut",
     note: null,
@@ -44,7 +43,7 @@ describe("computeVoiceLegacyNotice", () => {
     expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
   });
 
-  it("resolves a reference across NFC/NFD encoding mismatch and reports the registered key", () => {
+  it("resolves a mention across NFC/NFD encoding mismatch and reports the registered key", () => {
     const nameNfc = "Hiếu".normalize("NFC");
     const nameNfd = "Hiếu".normalize("NFD");
     expect(nameNfc).not.toBe(nameNfd);
@@ -87,9 +86,9 @@ describe("computeVoiceLegacyNotice", () => {
     expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
   });
 
-  it("dedupes unit count when multiple referenced characters are both stale", () => {
+  it("dedupes unit count when multiple mentioned characters are both stale", () => {
     const u = unit("E1U1", "王", ga({ video_generated_at: null }));
-    u.references.push({ type: "character", name: "李" });
+    u.text += "，@[李] 跟上";
     const characters = {
       王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }),
       李: character({ voice_updated_at: "2026-01-02T00:00:00Z" }),
@@ -99,19 +98,23 @@ describe("computeVoiceLegacyNotice", () => {
     expect(result.characterNames.sort()).toEqual(["李", "王"]);
   });
 
-  it("ignores non-character references", () => {
-    const u = unit("E1U1", "王", ga({ video_generated_at: null }));
-    u.references = [{ type: "scene", name: "王" }];
+  it("ignores names that are not registered characters", () => {
+    const u = unit("E1U1", "路人", ga({ video_generated_at: null }));
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
     expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });
   });
 
-  it("does not throw when a unit has no references field (校验层允许的合法缺省状态)", () => {
+  // 说话人位不进参考图，同 extract_mentions：只在花括号前出现的角色只提供声音、不入画。
+  it("ignores a character that only occupies a speaker slot", () => {
     const u = unit("E1U1", "王", ga({ video_generated_at: null }));
-    // 模拟外部编辑/导入的存量数据缺失 references 字段——校验层视为合法缺省状态，
-    // 但 ReferenceVideoUnit 类型本身仍要求该字段必填，故此处需要类型断言绕过。
-    // @ts-expect-error 有意构造类型不允许但校验层放行的运行时缺省状态
-    u.references = undefined;
+    u.text = "@[王]{我来了}";
+    const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
+    expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });
+  });
+
+  it("does not throw when a unit body is empty (迁移问题壳的合法缺省状态)", () => {
+    const u = unit("E1U1", "王", ga({ video_generated_at: null }));
+    u.text = "";
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
     expect(() => computeVoiceLegacyNotice([u], characters)).not.toThrow();
     expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });

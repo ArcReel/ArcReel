@@ -1,7 +1,9 @@
 /**
  * Reference-to-video unit types — mirrors lib/script_models.py Pydantic models.
  *
- * One "unit" produces one rendered video clip. Each unit may contain 1-4 shots.
+ * One "unit" produces one rendered video clip. Its body (`text`) is the single
+ * source of truth: reference images are resolved from the `@[名称]` mentions at
+ * execution time and never persisted or transported.
  */
 
 import type { TransitionType } from "./script";
@@ -23,17 +25,6 @@ export const SHEET_FIELD: Record<AssetKind, "product_sheet" | "character_sheet" 
   scene: "scene_sheet",
   prop: "prop_sheet",
 };
-
-export interface Shot {
-  /** Raw prompt text including @mentions — shots carry no duration; the unit does. */
-  text: string;
-}
-
-export interface ReferenceResource {
-  type: AssetKind;
-  /** Must already exist in the matching project.json asset bucket. */
-  name: string;
-}
 
 /**
  * Raw persisted status value returned by the backend in `generated_assets.status`.
@@ -70,9 +61,8 @@ export interface UnitGeneratedAssets {
 export interface ReferenceVideoUnit {
   /** Format: "E{episode}U{index}" */
   unit_id: string;
-  shots: Shot[];
-  /** Ordered — position defines [图N] index in the final prompt */
-  references: ReferenceResource[];
+  /** Unit body — free-form text carrying `@[名称]` mentions; the only persisted content truth. */
+  text: string;
   /** Planning duration in seconds — provider request duration is resolved during precheck. */
   duration_seconds: number;
   transition_to_next: TransitionType;
@@ -80,8 +70,6 @@ export interface ReferenceVideoUnit {
   generated_assets: UnitGeneratedAssets;
   /** Problem shell or mixed-speech marker; generation is blocked until repaired. */
   needs_replan?: boolean;
-  /** Migration membership/over-capacity evidence that only a body rewrite may clear. */
-  migration_requires_content_replan?: boolean;
 }
 
 export interface ReferenceRequestOptions {
@@ -211,15 +199,15 @@ export interface ReferenceBatchGenerateRequest {
 }
 
 /**
- * 分镜文稿的读时派生结果——编辑器解析预览面板的内容源。
+ * 视频单元正文的读时派生结果——编辑器解析预览面板的内容源。
  *
- * 文稿是唯一真相：shots / references / utterances 都是机械派生物，不落盘。
+ * 正文是唯一真相：utterances 与参考图都是机械派生物，不落盘。
  * `warnings` 已按请求语言渲染成文本（`key` 保留供测试与埋点定位）。
  */
-/** 1-based 镜头序号；台词归属镜头级，时序对位由归属给出。 */
+/** `index` 是 1-based 的 utterance 序号，按正文出现顺序编号。 */
 export type ScriptPreviewUtterance =
-  | { shot_index: number; kind: "dialogue"; speaker: string; text: string }
-  | { shot_index: number; kind: "voiceover"; speaker: null; text: string };
+  | { index: number; kind: "dialogue"; speaker: string; text: string }
+  | { index: number; kind: "voiceover"; speaker: null; text: string };
 
 export interface ScriptPreviewWarning {
   key: string;
@@ -227,9 +215,6 @@ export interface ScriptPreviewWarning {
 }
 
 export interface ScriptPreview {
-  shots: { index: number; text: string }[];
-  /** 顺序即参考图编号；台词记号的 speaker 位不计入 */
-  references: ReferenceResource[];
   utterances: ScriptPreviewUtterance[];
   warnings: ScriptPreviewWarning[];
 }
@@ -237,14 +222,12 @@ export interface ScriptPreview {
 /**
  * reference_video step1 结构化中间态（审核 gate 的可审 / 可改对象）。映射后端
  * lib/script_models.py 的 ReferenceStep1Unit / ReferenceStep1Draft：step1 定内容层
- * （unit 边界 + unit 时长 + 各 shot 叙事文本 + 派生 references），step2 视觉编排由用户确认后才触发。
- * references 为服务端从 shot 文本 @ 引用机械派生（首现顺序决定 [图N] 编号），编辑正文保存时重派生，
- * 故审阅界面只读展示。
+ * （unit 边界 + unit 时长 + 单元正文），step2 视觉编排由用户确认后才触发。
  */
 export interface ReferenceStep1Unit {
   unit_id: string;
-  shots: Shot[];
-  references: ReferenceResource[];
+  /** 单元正文，用 `@[名称]` 引用已登记资产。 */
+  text: string;
   /** Unit duration in seconds — one generation call, one duration. */
   duration_seconds: number;
   /** 逐字原文摘录（追溯锚）；存量草稿可能为空串。 */
@@ -257,8 +240,8 @@ export interface ReferenceStep1Draft {
 
 /**
  * step1 的书写层扁平形状（隔离草稿装的是这个，不是落盘的 `ReferenceStep1Draft`）：
- * `unit_id` / `shots` / `references` 一律机器派生，落盘前才有——隔离期间只有时长 + 原文锚 +
- * 一段书写层正文。Mirrors lib/script_models.py ReferenceStep1FlatUnit / ReferenceStep1FlatDraft。
+ * `unit_id` 机器派生，落盘前才有——隔离期间只有时长 + 原文锚 + 一段书写层正文。
+ * Mirrors lib/script_models.py ReferenceStep1FlatUnit / ReferenceStep1FlatDraft。
  */
 export interface ReferenceStep1FlatUnit {
   duration_seconds: number;
@@ -273,7 +256,7 @@ export interface ReferenceStep1FlatDraft {
 /**
  * 隔离草稿违约条目。Mirrors lib/draft_quarantine.py::violation_entries。
  * `label` 形如 `"unit E1U02"`——数组下标 = 派生 unit 序号 - 1，可据此定位到 `content.units[i]`。
- * `line` 是该 unit 正文内 0-based 原始行号（与 `useShotPromptHighlight.ts` 的 `sourceLine` 同
+ * `line` 是该 unit 正文内 0-based 原始行号（与 `useUnitPromptHighlight.ts` 的 `sourceLine` 同
  * 坐标系），仅语法类违约才有；unit 级违约（无自然行归属）为 null，呈现层落卡内聚合区。
  */
 export interface ScriptReviewViolation {

@@ -15,6 +15,7 @@ from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.i18n import _ as i18n_message
 from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import grids
@@ -369,7 +370,7 @@ class _FakePMGenerate:
             "style": "anime",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
         }
 
@@ -656,7 +657,7 @@ class _FakePMRegenerate(_FakePMPath):
             "aspect_ratio": "9:16",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
         }
 

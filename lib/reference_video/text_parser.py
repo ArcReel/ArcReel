@@ -1,27 +1,21 @@
-"""参考视频 prompt 解析器：prompt ↔ Shot[]/references 双向转换。"""
+"""参考生视频正文解析器：书写层记号（``@[名称]`` 引用、台词与画外音）的识别原语。
+
+视频单元只持久化正文，参考图与发声归属都由本模块从正文读时派生（见 ADR 0064）：解析结果
+不落盘，改正文即改一切派生物。"""
 
 from __future__ import annotations
 
-import re
 import unicodedata
-from collections.abc import Collection, Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
-from lib.script_models import ReferenceResource, Shot
-
-#: 镜头行 header：``镜头N：``（中英冒号均可）。时长已收编到 unit 级，header 不带秒数——
-#: 旧格式 ``Shot N (Xs):`` / ``镜头N (Xs)：`` 不再解析，按普通描述行处理（不留容忍：
-#: 存量落盘由加载时的一次性迁移改写，解析器只认新格式）。
-#: 冒号后是裸捕获，首部空白由调用侧 ``lstrip()`` 去除：写成 ``\s*(.*)$`` 会让 ``\s`` 与
-#: ``.`` 字符类重叠，对不可信输入（prompt 由用户输入）产生多项式级回溯。
-_SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：](.*)$""")
-
+from lib.script_models import ReferenceResource
 
 #: BOM / ZWNBSP。前端按 JS 的 ``\s`` 判行首空白，U+FEFF 属之；Python 的 ``str.strip()``
 #: 不认它（``"﻿".isspace()`` 为 False）。不归一会让带 BOM 的记号在前端认、
-#: 在后端不认——说话人是否进参考图两侧结论相反，而 references 落盘取决于哪侧先跑。
+#: 在后端不认——同一份正文在编辑器与执行期派生出不同的参考图。
 #: BOM 在正文里没有语义，解析入口一次性去掉，两条派生路径回到同一口径。
 _BOM = "﻿"
 
@@ -39,11 +33,10 @@ def _normalize_source(text: str) -> str:
     ``@[名称]`` 引用都要与资产表的 key 判等，正文以 NFD 落盘、资产表以 NFC 登记时两者
     肉眼同字却判不相等。
 
-    归一落在三个行级原语（``strip_shot_header`` / ``split_speech_line`` /
-    ``leading_mention_before_colon``）与 ``find_malformed_mention``
-    上——它们各自与前端同名函数互为镜像，单独调用时也须同判；``parse_prompt`` 另做一次整体
-    归一，让派生出的 shot 文本本身已归一（它会进预览显示、后端渲染与落盘）。名字提取出口再
-    经比对 helper 去除两端空白；因此说话人名与 mention 名一律已 strip + NFC，台词文本已是 NFC。
+    归一落在三个行级原语（``split_speech_line`` / ``leading_mention_before_colon`` /
+    ``find_malformed_mention``）上——它们各自与前端同名函数互为镜像，单独调用时也须同判。
+    名字提取出口再经比对 helper 去除两端空白；因此说话人名与 mention 名一律已 strip + NFC，
+    台词文本已是 NFC。
     """
     stripped = text.replace(_BOM, "") if _BOM in text else text
     return unicodedata.normalize("NFC", stripped)
@@ -108,18 +101,6 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
             i = j
             continue
         i += 1
-
-
-def strip_shot_header(line: str) -> str:
-    """去掉行首的 ``镜头N：`` header，返回 header 之后的正文；无 header 时返回归一后的整行。
-
-    两条分支都经 :func:`_normalize_source`：本函数是 ``_content_lines`` 逐行取正文的入口，
-    无 header 分支若原样返回，描述行就绕过了归一，行内 ``@[名称]`` 与资产表的比对又回到
-    两种坐标系。
-    """
-    normalized = _normalize_source(line)
-    m = _SHOT_HEADER_RE.match(normalized.strip())
-    return m.group(1).lstrip() if m else normalized
 
 
 @dataclass(frozen=True)
@@ -281,84 +262,20 @@ def find_malformed_mention(line: str) -> str | None:
     return None
 
 
-def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
-    """把用户书写的 prompt 文本拆为 (shots, mention_names)。
-
-    返回的第二项是 prompt 中出现的名字列表（保持首次出现的顺序、去重），
-    由 caller 结合 project.json 分派成 ReferenceResource（本函数不区分 type）。
-
-    - 有 `镜头N：` header → 按 header 切分
-    - 无 header → 整段视为单镜头
-
-    时长不从文本解析：它是 unit 级字段，由 caller 从请求 / 剧本读取（见
-    ``ReferenceVideoUnit.duration_seconds``）。
-    """
-    text = _normalize_source(text)
-    lines = text.splitlines()
-    segments: list[str] = []
-    started = False
-    current_buf: list[str] = []
-
-    for line in lines:
-        m = _SHOT_HEADER_RE.match(line.strip())
-        if m:
-            header_rest = m.group(1).lstrip()
-            if started:
-                segments.append("\n".join(current_buf).strip())
-                current_buf = [header_rest]
-            else:
-                # 首个 header 之前的非空文本保留，前置到首镜头 text
-                pre_header = "\n".join(current_buf).strip()
-                current_buf = [pre_header, header_rest] if pre_header else [header_rest]
-                started = True
-        else:
-            current_buf.append(line)
-
-    if started:
-        segments.append("\n".join(current_buf).strip())
-
-    if not segments:
-        # 无 header → 单镜头
-        return [Shot(text=text.strip())], extract_mentions(text)
-
-    return [Shot(text=t) for t in segments], extract_mentions(text)
-
-
-def render_shots_text(shots: list[Any]) -> str:
-    """``parse_prompt`` 的逆向：把 shots 还原为带 ``镜头N：`` header 的书写层正文。
-
-    落盘的 step1 / 剧本只存切分后的 shots，而 step2 的 prompt 输入、保结构 diff 的比对项
-    都是书写层正文；缺这个逆向，``assemble_shots_text`` 的裸拼接会丢掉 header，再解析回来
-    整个 unit 塌成一个镜头。镜头正文可跨多行（台词可另起一行写在描述之下），故 header 只加在首行。
-    """
-    blocks: list[str] = []
-    for index, shot in enumerate(shots, start=1):
-        text = shot.get("text") if isinstance(shot, dict) else getattr(shot, "text", None)
-        body = text if isinstance(text, str) else ""
-        head, _, rest = body.partition("\n")
-        blocks.append(f"镜头{index}：{head}" + (f"\n{rest}" if rest else ""))
-    return "\n".join(blocks)
-
-
 def extract_mentions(text: str) -> list[str]:
-    """提取文本中的 @ 引用名（保持首次出现顺序、去重）。
+    """提取正文中的 ``@`` 引用名（保持首次出现顺序、去重）。
 
-    与 ``parse_prompt`` 的 mention 口径同源；参考生视频 step1 拆分工具据此从
-    shot 文本机械派生 unit 的 references 列表（顺序即参考图编号）。
+    顺序即执行期参考图的编号顺序：正文是唯一真相，没有另一份可以与它分叉的引用列表。
 
     **发声记号内的说话人位不计入**：给画外说话的角色附参考图会诱导模型把他画进画面，故
     ``@[角色]{台词}`` 的 speaker 位只驱动音色声明与 utterance 派生，不进参考图。只在记号前
-    出现过的角色因此没有参考图条目，但台词与音色声明照常；同一行写在记号之外的 ``@[名称]``
+    出现过的角色因此没有参考图，但台词与音色声明照常；同一行写在记号之外的 ``@[名称]``
     照常进参考图。
-
-    判定在剥掉 ``镜头N：`` header 之后进行：``parse_prompt`` 切分镜头时会把 header 去掉，
-    写在 header 同一行的台词在 shot 文本里照常派生 utterance——此处若按原始行判定，同一行
-    会既派生 utterance 又留下参考图，两处口径分叉。
     """
     seen: set[str] = set()
     result: list[str] = []
     for raw_line in text.splitlines():
-        line = strip_speech_marks(strip_shot_header(raw_line))
+        line = strip_speech_marks(raw_line)
         for _start, _end, raw_name in _iter_mentions(line):
             name = asset_name_comparison_key(raw_name)
             if name not in seen:
@@ -396,34 +313,14 @@ def rewrite_mentions(text: str, old_name: str, new_name: str) -> tuple[str, int]
 def derive_references_from_text(text: str, project: dict) -> tuple[list[ReferenceResource], list[str]]:
     """书写层正文 → ``(references, missing)`` 的唯一派生入口。
 
-    references 是机械派生物，两条来源共用本函数：机器产物（拆分工具 / step2 合并，经
-    ``lib.reference_video.draft_validation.validate_unit_text``）与人写产物（编辑器审阅回写，
-    经 ``rederive_unit_references``）。两者的**严格度**按「产物来源是否有作者意图可保护」分流
-    ——机器产物对 ``missing`` 与能力上限一律拒，人写产物只静默丢 ``missing``、不判上限——但
-    **派生本身**必须同一套：分成两处各自 ``extract_mentions`` + ``resolve_references`` 时，任一
-    侧的口径调整（如台词记号的说话人位不计入参考图）都会让同一份正文在编辑器与生成侧派生出不同的
-    ``[图N]`` 编号。
+    参考图是纯派生物、不落盘：机器产物校验（``lib.reference_video.draft_validation
+    .validate_unit_text``）、编辑器预览与执行期请求投影都经本函数从同一份正文派生。三者的
+    **严格度**按「产物来源是否有作者意图可保护」分流——机器产物对 ``missing`` 与能力上限一律拒，
+    人写产物只警告、照常生成——但**派生本身**必须同一套：分成多处各自 ``extract_mentions`` +
+    ``resolve_references`` 时，任一侧的口径调整（如台词记号的说话人位不计入参考图）都会让同一份
+    正文在编辑器与生成侧派生出不同的 ``图N`` 编号。
     """
     return resolve_references(extract_mentions(text), project)
-
-
-def rederive_unit_references(units: list[Any], project: dict) -> None:
-    """就地按各 unit 的 shot 文本 ``@[名称]`` 引用机械重派生 references（并集、首现顺序，
-    顺序即参考图编号）。
-
-    web 审阅编辑 shot 文本后回写时调用：references 是从正文机械派生的字段（拆分工具产出时即如此），
-    若不随编辑重派生，正文改了引用而 references 停留旧值，step2 会以陈旧的参考图映射生成——正是
-    结构化 step1 要从工程上消除的不一致类。只做机械派生，不校验能力上限 / 引用完整性（未登记的
-    名称静默落入 missing、不进 references，正文 @mention 渲染时原样保留）——与 web 审阅对 drama /
-    narration 只做结构校验、把越限留待 step2 读回 / 供应商侧同口径。
-    """
-    for unit in units:
-        if not isinstance(unit, dict):
-            continue
-        shots = unit.get("shots") or []
-        text = "\n".join(str(s.get("text") or "") for s in shots if isinstance(s, dict))
-        refs, _missing = derive_references_from_text(text, project)
-        unit["references"] = [r.model_dump() for r in refs]
 
 
 def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
@@ -449,49 +346,6 @@ def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
 
     parts.append(text[last:])
     return "".join(parts)
-
-
-def assemble_shots_text(shots: list[Any]) -> str:
-    """把 unit.shots[*].text 拼接为单一原始 prompt（三段论渲染之前的书写层文本）。
-
-    供入队守卫点对参考生视频做空提示词结构校验：三段论渲染恒产出非空的机器段（第一/三段），
-    渲染后已无从判别书写层是否为空，故空检查落在本函数的拼接结果上——`@mention` 替换从不
-    删字，「拼接文本去空白后为空」等价于「书写层为空」。
-
-    对畸形数据做防御性归一化（Agent 可裸写 script JSON，绕过 ProjectManager 校验）：
-    非 dict 的 shot 元素跳过；``text`` 缺失或非字符串（含显式 ``null``）按空串处理——
-    否则 ``str(None)`` 会得到 truthy 的 "None" 既绕过空校验又把字面量注入 backend。
-    """
-    parts: list[str] = []
-    for s in shots:
-        if not isinstance(s, dict):
-            continue
-        text = s.get("text")
-        parts.append(text if isinstance(text, str) else "")
-    return "\n".join(parts)
-
-
-def assemble_shots_text_for_render(shots: list[Any]) -> str:
-    """把 ``unit.shots[*].text`` 拼接为供 :func:`render_unit_prompt` 二次解析的书写层文本。
-
-    与 :func:`assemble_shots_text` 的区别：本函数按数组位置重新注入规范 ``镜头N：`` header
-    （先剥掉每个 shot 首行可能残留的旧 header，避免重复）。``parse_prompt`` 只认文本里的
-    header 切分镜头，而 ``shots[*].text`` 本身在多条路径下并不带 header——``parse_prompt``
-    构造 ``Shot`` 时就会把 header 剥掉，经解析预览面板编辑回写的 unit 因此普遍不带 header；
-    不重新注入的话，两个以上镜头拼接后会因为找不到任何 header 被重新解析成一个镜头，
-    第二段的分镜结构丢失。空提示词的结构校验用 :func:`assemble_shots_text`（不注入 header，
-    保留「空 shots 拼接结果为空」的判定），本函数不作此用途。
-    """
-    parts: list[str] = []
-    for i, s in enumerate(shots, start=1):
-        if not isinstance(s, dict):
-            continue
-        text = s.get("text")
-        text = text if isinstance(text, str) else ""
-        lines = text.split("\n") if text else [""]
-        lines[0] = strip_shot_header(lines[0])
-        parts.append(f"镜头{i}：" + "\n".join(lines))
-    return "\n".join(parts)
 
 
 def resolve_references(
@@ -531,22 +385,3 @@ def resolve_references(
         else:
             missing.append(name)
     return refs, missing
-
-
-def missing_registered_references(references: object, project: dict) -> list[str]:
-    """Return declared ``type:name`` references absent from the matching project asset bucket."""
-
-    missing: list[str] = []
-    if not isinstance(references, list):
-        return missing
-    for reference in references:
-        if not isinstance(reference, Mapping):
-            continue
-        reference_type = reference.get("type")
-        name = reference.get("name")
-        if not isinstance(reference_type, str) or reference_type not in BUCKET_KEY or not isinstance(name, str):
-            continue
-        bucket = normalize_asset_bucket(project.get(BUCKET_KEY[reference_type]))
-        if asset_name_comparison_key(name) not in bucket:
-            missing.append(f"{reference_type}:{name}")
-    return missing

@@ -18,6 +18,7 @@ MESSAGES = {
     "val_field_must_be_string_typed": "{field} 必须是字符串，当前为 {actual}",
     "val_field_must_be_array": "{field} 必须是数组",
     "val_field_must_be_nonempty_array": "{field} 必须是非空数组",
+    "val_field_must_be_nonempty_string": "{field} 必须是非空字符串",
     "val_field_must_be_object": "{field} 必须是对象",
     "val_field_invalid": "{field} 不合法: {detail}",
     "val_ledger_source_file_not_relative": "source_file 必须是项目内相对 POSIX 路径",
@@ -101,14 +102,6 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
     "val_video_units_missing": "reference_video 脚本缺少 video_units 数组或为空",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数",
-    "val_unit_shots_too_many": "{prefix}: shots 含 {count} 个条目，最多允许 {max} 个",
-    "val_migration_content_replan_requires_needs_replan": (
-        "{prefix}: migration_requires_content_replan=true 时 needs_replan 必须为 true"
-    ),
-    "val_reference_entry_must_be_object": "{prefix}: reference 条目必须是对象",
-    "val_reference_type_invalid": "{prefix}: reference.type 无效: {value}",
-    "val_reference_name_invalid": "{prefix}: reference.name 必须是非空字符串: {value}",
-    "val_reference_not_in_bucket": "{prefix}: 引用的{asset_type} '{name}' 不在 project.json 对应 bucket 中",
     "val_ref_type_invalid": "{prefix}: type 无效: {value}",
     "val_ref_name_invalid": "{prefix}: name 必须是非空字符串: {value}",
     # ---- 骨架与路线失配 ----
@@ -156,8 +149,8 @@ MESSAGES = {
     "arch_missing_asset_definition": (
         "{items_key}[{index}]: {field} 引用了不存在于 project.json 的{asset_type}: {names}"
     ),
-    "arch_unit_missing_asset_definition": (
-        "video_units[{index}]: references 引用了不存在于 project.json 的{asset_type}: {names}"
+    "arch_unit_unresolved_mentions": (
+        "video_units[{index}]: 正文引用了不存在于 project.json 的资产名: {names}；这些引用不会生成参考图"
     ),
     "arch_generated_assets_defaults": "{label}[{index}].generated_assets: 补全默认字段 {fields}",
     "arch_missing_generated_assets": "{label}[{index}]: 补全缺失字段 generated_assets",

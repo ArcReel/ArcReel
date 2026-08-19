@@ -1,4 +1,9 @@
-"""v6→v7：把广告参考路线迁移为自包含 ``video_units``。"""
+"""v6→v7：把广告参考路线迁移为自包含 ``video_units``。
+
+产出的是当前的单元形状（一段 ``text`` + 编排时长，见 ADR 0064）：旧 shot 的画面文本按顺序
+拼进同一段正文，参考图与发声归属改由正文的记号读时派生，不另存数组。后续 v8→v9 对这批
+单元因此是空操作。
+"""
 
 from __future__ import annotations
 
@@ -13,7 +18,6 @@ from typing import Any
 from lib.asset_types import asset_name_comparison_key
 from lib.json_io import atomic_write_json, load_json
 from lib.path_safety import safe_join
-from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import REFERENCE_UNIT_DURATION_RANGE, ReferenceVideoScript
 from lib.speech_composition import SpeechComposition, SpeechProblemCode, adapt_video_unit
 
@@ -44,26 +48,6 @@ def _strings(value: object) -> Iterable[str]:
     if isinstance(value, list):
         for item in value:
             yield from _strings(item)
-
-
-def _shot_references(shots: list[dict[str, Any]]) -> list[dict[str, str]]:
-    references: list[dict[str, str]] = []
-    seen_names: set[str] = set()
-    # 产品绝对优先；其余类型依照统一解析优先级。每类内部保持镜头与字段原顺序。
-    for asset_type, field in _REFERENCE_TYPES:
-        for shot in shots:
-            names = shot.get(field)
-            if not isinstance(names, list):
-                continue
-            for raw_name in names:
-                if not isinstance(raw_name, str) or not raw_name.strip():
-                    continue
-                name = asset_name_comparison_key(raw_name)
-                if name in seen_names:
-                    continue
-                seen_names.add(name)
-                references.append({"type": asset_type, "name": name})
-    return references
 
 
 def _shot_text(shot: dict[str, Any]) -> str:
@@ -133,23 +117,18 @@ def _unit_from_shots(
     requires_replan: bool,
     note: str | None = None,
 ) -> dict[str, Any]:
-    shot_texts = [_shot_text(shot) for shot in shots]
-    over_capacity = len(shot_texts) > MAX_SHOTS_PER_UNIT
-    if over_capacity:
-        # 旧 unit 的边界与付费产物身份不可拆；折叠画面文本可同时保住全部内容与新模型上限。
-        shot_texts = ["\n".join(shot_texts)]
-    migrated_shots = [{"text": text} for text in shot_texts]
+    # 旧 unit 的边界与付费产物身份不可拆：成员镜头的画面文本按顺序拼进同一段正文。
+    text = "\n".join(_shot_text(shot) for shot in shots)
     duration = sum(_positive_seconds(shot.get("duration_seconds")) for shot in shots)
     min_duration, max_duration = REFERENCE_UNIT_DURATION_RANGE
-    invalid_duration = bool(migrated_shots) and not min_duration <= duration <= max_duration
+    invalid_duration = bool(text.strip()) and not min_duration <= duration <= max_duration
     if invalid_duration:
         # marker 会阻止生成；夹到结构区间只为让问题 unit 保持可读、可编辑且不丢正文。
         duration = min(max(duration, min_duration), max_duration)
 
     unit: dict[str, Any] = {
         "unit_id": unit_id,
-        "shots": migrated_shots,
-        "references": _shot_references(shots),
+        "text": text,
         "duration_seconds": duration,
         "transition_to_next": _unit_transition(shots),
         "note": note,
@@ -159,7 +138,6 @@ def _unit_from_shots(
     preparation = SpeechComposition.prepare(adapt_video_unit(unit))
     needs_replan = (
         requires_replan
-        or over_capacity
         or invalid_duration
         or any(
             problem.code
@@ -173,10 +151,6 @@ def _unit_from_shots(
     )
     if needs_replan:
         unit["needs_replan"] = True
-    if requires_replan or over_capacity:
-        # 成员缺失/重叠/未索引与超量折叠在新结构里不一定仍表现为校验问题，单独保留
-        # provenance；只有正文实际重写才能解除，纯时长修复不得误放行。
-        unit["migration_requires_content_replan"] = True
     return unit
 
 

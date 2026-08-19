@@ -24,7 +24,6 @@ from lib.draft_quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violati
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.json_io import load_json_or_none
 from lib.project_manager import ProjectManager
-from lib.reference_video import rederive_unit_references
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
 from lib.speech_composition import SpeechAdmission, admit_script_unit
 from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers, resolve_video_caps
@@ -34,7 +33,7 @@ logger = logging.getLogger(__name__)
 #: 结构化 step1 中间态的校验模型（按 step1 变体 ``script_review.step1_kind``）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
 #: narration 为 NarrationStep1Draft（结构化 novel_text 片段），reference_video 为 ReferenceStep1Draft
-#: （units → shots + 派生 references）。
+#: （units → 正文 + 编排时长）。
 _STEP1_CONTENT_MODEL: dict[str, type[BaseModel]] = {
     "drama": DramaNormalizedScript,
     "narration": NarrationStep1Draft,
@@ -58,7 +57,7 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: obj
     if kind == "drama":
         root, skeleton, id_field, speech_fields = "scenes", "scenes", "scene_id", ("utterances",)
     elif kind == "reference_video":
-        root, skeleton, id_field, speech_fields = "units", "video_units", "unit_id", ("shots",)
+        root, skeleton, id_field, speech_fields = "units", "video_units", "unit_id", ("text",)
     else:
         return
     if not isinstance(candidate, dict) or not isinstance(candidate.get(root), list):
@@ -94,7 +93,7 @@ class ScriptReviewService:
         """该集 step1 变体 + 结构校验模型；不适用 gate（无结构化 step1）时抛 not_applicable。
 
         变体判定单一真相源在 ``script_review.step1_kind``（reference_video 按项目生成路线优先，
-        跨 content_mode）；本层据此选 Pydantic 模型。返回变体名供 rv 保存时的 references 重派生分支。
+        跨 content_mode）；本层据此选 Pydantic 模型。返回变体名供调用方按变体分流。
         """
         kind = script_review.step1_kind(project)
         if kind is None:
@@ -185,8 +184,8 @@ class ScriptReviewService:
         """读结构化 step1，并对参考生视频草稿做一次性时长收编迁移；返回 ``(内容, 最新 project)``。
 
         草稿是 gate 的三个入口（读状态 / 保存 / 确认）唯一的内容来源，而收编后的
-        ``ReferenceStep1Unit`` 要求 unit 级 ``duration_seconds``、``Shot`` 不接受多余字段：
-        存量草稿若不在读时迁移，保存与确认都会撞结构校验，用户在 gate 里既改不了也确认不了。
+        ``ReferenceStep1Unit`` 要求 unit 级 ``duration_seconds`` 且不接受多余字段：存量草稿若不在
+        读时迁移，保存与确认都会撞结构校验，用户在 gate 里既改不了也确认不了。
         剧集脚本的迁移在 ``ProjectManager.load_script``，草稿的在这里，两处共用同一迁移器。
 
         ``supported_durations`` 由调用方经 ``_resolve_supported_durations`` 解析后传入（本函数
@@ -394,7 +393,7 @@ class ScriptReviewService:
     def _save_content_sync(
         self, project_name: str, episode: int, content: object, base_fingerprint: str | None
     ) -> None:
-        """``save_content`` 的同步主体：结构校验、references 重派生、基线比对、落盘。"""
+        """``save_content`` 的同步主体：结构校验、基线比对、落盘。"""
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
         path = script_review.step1_path(project_path, project, episode)
@@ -416,9 +415,6 @@ class ScriptReviewService:
         expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
         try:
             if kind == "reference_video":
-                # references 是从 shot 文本机械派生的字段：编辑正文后随之重派生，避免正文与 references
-                # 漂移（step2 会用陈旧 [图N] 映射生成）。机械变换、不校验能力上限（同 drama / narration 只结构校验）。
-                rederive_unit_references(validated["units"], project)
                 # 写盘经单一出口：锁、基线比对、step2 隔离草稿清理都在 write_step1_locked 一处。
                 with script_review.step1_write_lock(project_path, episode):
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
@@ -498,18 +494,15 @@ class ScriptReviewService:
                     raise ScriptReviewError("speech_admission", admission=admission)
 
             if kind == "reference_video":
-                # references 是从 shot 正文机械派生的字段（同 save_content）：agent / 人工可能绕过
-                # save_content 直改 step1 正文后直接确认，故确认前重派生并落盘。指纹按刚写盘的
-                # 这份对象直接算，确认记录与实际写入内容一致。
+                # 指纹按刚写盘的这份对象直接算，确认记录与实际写入内容一致。
                 dumped = validated.model_dump()
-                rederive_unit_references(dumped["units"], project)
                 for unit in dumped["units"]:
                     admission = admit_script_unit("video_units", unit)
                     if not admission.allowed:
                         raise ScriptReviewError("speech_admission", admission=admission)
                 # 单一写盘出口（已持同一把 per-path 锁，不再套 step1_write_lock）；同临界区
-                # 读改写无并发窗口，不做基线比对。重派生真的改了内容时，step2 隔离草稿的基底
-                # 随之失效，由出口按变更清理。
+                # 读改写无并发窗口，不做基线比对。内容真的变了时，step2 隔离草稿的基底随之
+                # 失效，由出口按变更清理。
                 script_review.write_step1_locked(project_path, episode, dumped)
                 fingerprint = script_review.content_fingerprint_of_data(dumped)
             else:

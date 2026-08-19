@@ -11,6 +11,7 @@ from PIL import Image
 from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
+from lib.project_migrations.runner import migrate_project_dir
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -113,6 +114,8 @@ def _prepare_files(tmp_path: Path) -> Path:
         json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
     )
     activate_artifact_target_state(project_path, bump_schema=True)
+    # 清单激活只落到清单版本，后续迁移把项目补到当前 schema，产物读路径才准入
+    migrate_project_dir(project_path)
     return project_path
 
 

@@ -52,7 +52,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 本项目为**广告/短片模式**（ad），产出**单个**约 `target_duration` 秒的短视频，而非多集系列：
 
 - storyboard 路径的剧本是平铺 `shots[]`，`shot_id` 格式 `E1S{n}`；每个镜头携带 `section`（带货框架段落标签，如 hook/pain_point/product_reveal/selling_point/demo/trust/price_promo/cta）与一等口播文案 `voiceover_text`
-- reference_video 路径的剧本是自包含 `video_units[]`；每个 unit 持有书写层正文、编排时长、机械派生参考集与产物，不持久化 `section`、逐镜头时长、`voiceover_text` 或 `speech_mode`
+- reference_video 路径的剧本是自包含 `video_units[]`；每个 unit 持有书写层正文、编排时长与产物，不持久化 `section`、`voiceover_text` 或 `speech_mode`；参考图不落盘，执行期从正文派生
 - 项目**恒单集**：`episodes` 恒为第 1 集单条，剧本即 `scripts/episode_1.json`；**不存在分集概念**，不要做分集规划或拆分
 - 创作输入为 `project.json` 顶层的 `brief`（创作诉求短文本）与 `target_duration`（目标总时长，秒）；不走小说源文件导入流程
 - 剧本总时长应贴近 `target_duration`，偏差过大时提醒用户而非拒绝保存
@@ -74,8 +74,8 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ### 参考直出（reference_video）的自包含单元
 
-- 剧本生成会单阶段直接产出 `video_units[]`，不创建 step1 审阅中间态，也不从 `shots` 派生或重新派生分组；每个 unit 对应一次生成调用与 `reference_videos/{unit_id}.mp4`
-- unit 正文使用统一书写层：`镜头N：` 行描述画面，`@[角色]{台词}` 表达人物发声，`{台词}` 表达无归属旁白，两者可写在行内任意位置；产品、角色、场景、道具均用 `@[名称]` mention。references 由系统从正文机械派生，同名按 product → character → scene → prop 解析
+- 剧本生成会单阶段直接产出 `video_units[]`，不创建 step1 审阅中间态；每个 unit 对应一次生成调用与 `reference_videos/{unit_id}.mp4`
+- unit 正文是一段自由文本，使用统一书写层：`@[角色]{台词}` 表达人物发声，`{台词}` 表达无归属旁白，两者可写在行内任意位置；产品、角色、场景、道具均用 `@[名称]` mention。参考图由系统在执行期按首次提及顺序从正文解析，同名按 product → character → scene → prop 归属
 - 一个 unit 只能承载人物发声、无归属旁白或无人声中的一种；需要切换发声归属时在规划阶段拆成相邻 unit。标记 `needs_replan` 的存量问题单元须先重新规划，生成入口会拒绝入队
 - unit 参考集按正文首次 mention 排序，但产品绝对优先（有 sheet 时 sheet + 原图，无 sheet 时原图直注，自动附高保真指令），其后是角色/场景/道具 sheet
 - **时长约束**：每个 unit 的 `duration_seconds` 是符合剧本模型结构约束的正整数编排时长，所有 unit 之和应贴近 `target_duration`；供应商档位由生成预检处理，不在剧本规划时量化

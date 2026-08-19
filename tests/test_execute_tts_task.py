@@ -253,7 +253,7 @@ def tts_env(monkeypatch, tmp_path):
     pm.project_path.mkdir(parents=True)
     pm.project.update(
         {
-            "schema_version": 7,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "generation_mode": "storyboard",
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         }
@@ -275,8 +275,7 @@ def tts_env(monkeypatch, tmp_path):
         json.dumps({"episode": 1, "segments": []}, ensure_ascii=False),
         encoding="utf-8",
     )
-    assert activate_artifact_target_state(pm.project_path, bump_schema=True) is True
-    pm.project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
+    assert activate_artifact_target_state(pm.project_path, bump_schema=False) is True
     gen = _FakeAudioGenerator(pm.project_path)
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen))
@@ -652,7 +651,7 @@ class TestExecuteTtsTask:
             "video_units": [
                 {
                     "unit_id": "E1U2",
-                    "shots": [{"text": "镜头缓缓推进。\n{只属于第二单元的旁白。}"}],
+                    "text": "镜头缓缓推进。\n{只属于第二单元的旁白。}",
                 }
             ],
         }
@@ -682,7 +681,7 @@ class TestExecuteTtsTask:
             "video_units": [
                 {
                     "unit_id": "E1U2",
-                    "shots": [{"text": "镜头缓缓推进。\n{参考视频单元旁白。}"}],
+                    "text": "镜头缓缓推进。\n{参考视频单元旁白。}",
                     "generated_assets": copy.deepcopy(prior_assets),
                 }
             ],

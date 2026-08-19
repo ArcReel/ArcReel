@@ -806,8 +806,7 @@ def test_unrelated_video_unit_edit_does_not_reject_unmarked_legacy_mixed_speech(
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"text": "@[角色A]：{快走。}\n{风吹过旷野。}"}],
-                "references": [{"type": "character", "name": "角色A"}],
+                "text": "@[角色A]：{快走。}\n{风吹过旷野。}",
                 "duration_seconds": 8,
                 "generated_assets": {"video_clip": "videos/E1U1.mp4", "status": "completed"},
             }
@@ -831,7 +830,7 @@ def test_unrelated_video_unit_edit_does_not_reject_unmarked_legacy_mixed_speech(
     }
 
 
-def test_malformed_video_unit_shots_returns_structured_failure_without_writes(tmp_path: Path) -> None:
+def test_malformed_video_unit_text_returns_structured_failure_without_writes(tmp_path: Path) -> None:
     pm = ProjectManager(str(tmp_path))
     pm.create_project("demo", content_mode="narration")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -845,8 +844,7 @@ def test_malformed_video_unit_shots_returns_structured_failure_without_writes(tm
             "video_units": [
                 {
                     "unit_id": "E1U1",
-                    "shots": [{"text": "{风吹过旷野。}"}],
-                    "references": [],
+                    "text": "{风吹过旷野。}",
                     "duration_seconds": 8,
                     "generated_assets": {},
                 }
@@ -860,7 +858,7 @@ def test_malformed_video_unit_shots_returns_structured_failure_without_writes(tm
 
     result = service.execute(
         "demo",
-        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"shots": 123}}]),
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"text": 123}}]),
     )
 
     assert result.success is False
@@ -868,7 +866,7 @@ def test_malformed_video_unit_shots_returns_structured_failure_without_writes(tm
     assert problem.code == "parse_failed"
     assert problem.operation_index == 0
     assert problem.unit_id == "E1U1"
-    assert problem.locations[0].path == ("shots",)
+    assert problem.locations[0].path == ("text",)
     assert script_path.read_bytes() == before
 
 

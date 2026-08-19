@@ -2,7 +2,7 @@ import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from
 import { useTranslation } from "react-i18next";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
-import { useShotPromptHighlight, type Token } from "@/hooks/useShotPromptHighlight";
+import { useUnitPromptHighlight, type Token } from "@/hooks/useUnitPromptHighlight";
 import { buildMentionLookup, MENTION_RE } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
@@ -44,9 +44,6 @@ function renderHighlightedTokens(
 
   const renderPiece = (tk: Token, sliceText: string, key: string): ReactNode => {
     if (sliceText.length === 0) return null;
-    if (tk.kind === "shot_header") {
-      return <span key={key} className="font-semibold text-indigo-300">{sliceText}</span>;
-    }
     if (tk.kind === "mention") {
       const palette = assetColor(tk.assetKind);
       return (
@@ -102,22 +99,6 @@ export interface ReferenceVideoCardProps {
   onChange: (next: string) => void;
 }
 
-/**
- * Reconstruct the textarea-visible prompt for a unit from persisted shots.
- *
- * Backend `parse_prompt` strips `镜头N：` headers when persisting `shots[].text`,
- * so editing the raw stored text would re-parse as a header-less single shot and
- * collapse multi-shot units. We re-synthesize the headers; a single-shot unit needs
- * none (its header carries no information). Mirrors
- * lib/reference_video/shot_parser.py:render_shots_prompt.
- */
-export function unitPromptText(unit: ReferenceVideoUnit): string {
-  if (unit.shots.length <= 1) {
-    return unit.shots[0]?.text ?? "";
-  }
-  return unit.shots.map((s, i) => `镜头${i + 1}：${s.text}`).join("\n");
-}
-
 export function ReferenceVideoCard({
   unit,
   projectName,
@@ -142,12 +123,12 @@ export function ReferenceVideoCard({
 
   const lookup = useMemo(() => buildMentionLookup(project), [project]);
 
-  const tokens = useShotPromptHighlight(currentText, lookup);
+  const tokens = useUnitPromptHighlight(currentText, lookup);
 
   const voiceoverLabel = t("script_highlight_voiceover");
 
   // pickerOpen=false 是绝对多数路径（打字时 picker 只在 @ 触发短暂打开）。
-  // tokens 已被 useShotPromptHighlight memo 化，这里再把 tokens→ReactNode 列表缓存一层，
+  // tokens 已被 useUnitPromptHighlight memo 化，这里再把 tokens→ReactNode 列表缓存一层，
   // 父组件或其他 state 引起的 re-render 就不会重新跑 renderHighlightedTokens 的 forEach。
   const staticHighlightedNodes = useMemo(
     () => renderHighlightedTokens(tokens, null, () => {}, voiceoverLabel),
@@ -307,10 +288,7 @@ export function ReferenceVideoCard({
           {unit.unit_id}
         </span>
         <span className="tabular-nums text-gray-500">
-          {t("reference_editor_unit_meta", {
-            duration: unit.duration_seconds,
-            count: unit.shots.length,
-          })}
+          {t("reference_editor_unit_meta", { duration: unit.duration_seconds })}
         </span>
       </div>
 

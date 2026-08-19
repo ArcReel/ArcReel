@@ -14,6 +14,7 @@ from lib.reference_video.request_projection import (
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
     resolve_reference_assets,
+    unit_reference_declarations,
 )
 from lib.script_models import ReferenceResource
 from lib.speech_composition import admit_script_unit
@@ -118,24 +119,24 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
     capabilities = _FakeCapabilities()
     missing_scene = Path("/fake/scene.png")
     projector = ReferenceUnitRequestProjector(capabilities, _FakeAssets({missing_scene}))
-    project = {"generation_mode": "reference_video"}
+    project = {
+        "generation_mode": "reference_video",
+        "products": {"手袋": {}},
+        "scenes": {"大厅": {}},
+        "characters": {"阿离": {}},
+        "props": {"长剑": {}},
+    }
     unit = {
         "unit_id": "E1U1",
-        "shots": [{"text": "镜头1：@[手袋] 放在 @[大厅]，@[阿离] 走入画面。"}],
-        "references": [
-            {"type": "scene", "name": "大厅"},
-            {"type": "product", "name": "手袋"},
-            {"type": "character", "name": "阿离"},
-            {"type": "product", "name": "手袋"},
-        ],
+        "text": "@[手袋] 放在 @[大厅]，@[阿离] 握着 @[长剑] 走入画面。",
         "duration_seconds": 6,
     }
     script = {"video_units": [unit]}
     assets = [
-        _asset("character", "阿离", "/fake/character.png"),
-        _asset("product", "手袋", "/fake/product-original.png", image_kind="original"),
-        _asset("scene", "大厅", str(missing_scene)),
         _asset("product", "手袋", "/fake/product-sheet.png", image_kind="sheet"),
+        _asset("scene", "大厅", str(missing_scene)),
+        _asset("character", "阿离", "/fake/character.png"),
+        _asset("prop", "长剑", "/fake/prop.png"),
     ]
 
     first = await projector.project_current(
@@ -146,12 +147,14 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
         options=ReferenceRequestOptions(narration_delivery=POST_PRODUCTION),
     )
 
+    # 引用顺序即正文首次提及顺序，商品不再排最前。
     assert [(ref.type, ref.name) for ref in first.declared_references] == [
         ("product", "手袋"),
-        ("character", "阿离"),
         ("scene", "大厅"),
+        ("character", "阿离"),
+        ("prop", "长剑"),
     ]
-    assert [asset.path.name for asset in first.request_assets] == ["product-sheet.png", "product-original.png"]
+    assert [asset.path.name for asset in first.request_assets] == ["product-sheet.png", "character.png"]
     assert first.declared_capability == "r2v"
     assert first.hydrated_capability == "r2v"
     assert first.request_duration.seconds == 8
@@ -165,7 +168,7 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
         "reference_duration_confirmation_required",
     ]
 
-    edited_unit = {**unit, "references": [], "duration_seconds": 12}
+    edited_unit = {**unit, "text": "空镜：海面翻涌。", "duration_seconds": 12}
     edited_script = {"video_units": [edited_unit]}
     second = await projector.project_current(
         project=project,
@@ -190,7 +193,7 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
 async def test_projection_uses_tts_floor_only_for_tts_delivery() -> None:
     capabilities = _FakeCapabilities()
     projector = ReferenceUnitRequestProjector(capabilities, _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "references": [], "duration_seconds": 6}
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 6}
     script = {"video_units": [unit]}
 
     tts = await projector.project_current(
@@ -217,7 +220,7 @@ async def test_projection_uses_tts_floor_only_for_tts_delivery() -> None:
 @pytest.mark.asyncio
 async def test_projection_requires_confirmation_for_the_current_cross_tier_only() -> None:
     projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "references": [], "duration_seconds": 6}
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 6}
 
     missing = await projector.project_current(
         project={},
@@ -248,7 +251,7 @@ async def test_projection_requires_confirmation_for_the_current_cross_tier_only(
 @pytest.mark.asyncio
 async def test_projection_requires_exact_confirmation_when_fresh_tts_lands_on_a_larger_existing_tier() -> None:
     projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "references": [], "duration_seconds": 4}
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 4}
 
     missing = await projector.project_current(
         project={},
@@ -280,8 +283,8 @@ async def test_projection_requires_exact_confirmation_when_fresh_tts_lands_on_a_
 @pytest.mark.asyncio
 async def test_projection_compares_the_request_tier_to_the_selected_visual_not_the_planning_duration() -> None:
     projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
-    planned_four = {"unit_id": "E1U1", "references": [], "duration_seconds": 4}
-    planned_eight = {"unit_id": "E1U2", "references": [], "duration_seconds": 8}
+    planned_four = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 4}
+    planned_eight = {"unit_id": "E1U2", "text": "空镜：海面翻涌。", "duration_seconds": 8}
 
     reusable = await projector.project_current(
         project={},
@@ -315,7 +318,7 @@ async def test_projection_compares_the_request_tier_to_the_selected_visual_not_t
 @pytest.mark.asyncio
 async def test_projection_rejects_duration_above_maximum_as_needs_replan() -> None:
     projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "references": [], "duration_seconds": 18}
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 18}
 
     result = await projector.project_current(
         project={},
@@ -340,8 +343,7 @@ async def test_projection_carries_shared_narration_delivery_blockers() -> None:
     projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
     unit = {
         "unit_id": "E1U1",
-        "shots": [{"text": "镜头1：海面。\n{旁白内容。}"}],
-        "references": [],
+        "text": "海面。\n{旁白内容。}",
         "duration_seconds": 8,
     }
     preparation = admit_script_unit("video_units", unit).preparation
@@ -383,14 +385,10 @@ async def test_projection_exposes_declared_to_hydrated_bucket_change() -> None:
     capabilities = _FakeCapabilities()
     missing = Path("/fake/missing.png")
     projector = ReferenceUnitRequestProjector(capabilities, _FakeAssets({missing}))
-    unit = {
-        "unit_id": "E1U1",
-        "references": [{"type": "character", "name": "阿离"}],
-        "duration_seconds": 8,
-    }
+    unit = {"unit_id": "E1U1", "text": "@[阿离] 抬头。", "duration_seconds": 8}
 
     result = await projector.project_current(
-        project={},
+        project={"characters": {"阿离": {}}},
         script={"video_units": [unit]},
         unit=unit,
         resolved_assets=[_asset("character", "阿离", str(missing))],
@@ -407,54 +405,6 @@ async def test_projection_exposes_declared_to_hydrated_bucket_change() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("references", "expected_names", "expected_capability", "invalid_count"),
-    [
-        ({"type": "character", "name": "阿离"}, [], "i2v", 1),
-        ("character: 阿离", [], "i2v", 1),
-        (
-            [
-                {"type": "character", "name": "阿离"},
-                "bad-entry",
-                {"type": "unknown", "name": "未登记类型"},
-                {"type": "scene", "name": ""},
-            ],
-            ["阿离"],
-            "r2v",
-            3,
-        ),
-    ],
-)
-async def test_projection_blocks_malformed_references_without_discarding_valid_entries(
-    references: object,
-    expected_names: list[str],
-    expected_capability: str,
-    invalid_count: int,
-) -> None:
-    capabilities = _FakeCapabilities()
-    projector = ReferenceUnitRequestProjector(capabilities, _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "references": references, "duration_seconds": 8}
-    resolved_assets = [_asset("character", "阿离", "/fake/character.png")] if isinstance(references, list) else []
-
-    result = await projector.project_current(
-        project={},
-        script={"video_units": [unit]},
-        unit=unit,
-        resolved_assets=resolved_assets,
-    )
-
-    assert [reference.name for reference in result.declared_references] == expected_names
-    assert result.hydrated_capability == expected_capability
-    assert result.blocking_problems
-    problem = result.problems[0]
-    assert (problem.code, problem.blocking, problem.parameters()) == (
-        "reference_declaration_invalid",
-        True,
-        {"count": invalid_count},
-    )
-
-
-@pytest.mark.asyncio
 async def test_projection_blocks_empty_duration_metadata_without_cost_facts() -> None:
     base = await _FakeCapabilities().resolve_candidate({}, "i2v")
 
@@ -464,7 +414,7 @@ async def test_projection_blocks_empty_duration_metadata_without_cost_facts() ->
             return replace(base, supported_durations=())
 
     projector = ReferenceUnitRequestProjector(_MissingDurations(), _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "references": [], "duration_seconds": 8}
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
     result = await projector.project_current(project={}, script={"video_units": [unit]}, unit=unit, resolved_assets=[])
 
     assert result.request_duration is None
@@ -482,7 +432,7 @@ async def test_projection_sanitizes_unexpected_capability_failures() -> None:
             raise RuntimeError("database password leaked by driver")
 
     projector = ReferenceUnitRequestProjector(_BrokenCapabilities(), _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "references": [], "duration_seconds": 8}
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
 
     result = await projector.project_current(project={}, script={"video_units": [unit]}, unit=unit, resolved_assets=[])
 
@@ -507,13 +457,13 @@ async def test_projection_owns_audio_switch_conflict() -> None:
             )
 
     projector = ReferenceUnitRequestProjector(_AlwaysAudible(), _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "references": [], "duration_seconds": 8}
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
     result = await projector.project_current(project={}, script={"video_units": [unit]}, unit=unit, resolved_assets=[])
 
     assert any(problem.code == "video_audio_switch_not_supported" for problem in result.blocking_problems)
 
 
-def test_asset_adapter_expands_products_and_preserves_missing_candidates(tmp_path: Path) -> None:
+def test_asset_adapter_prefers_sheets_and_preserves_missing_candidates(tmp_path: Path) -> None:
     for rel in ("products/bag-sheet.png", "products/bag-original.png", "characters/a.png"):
         target = tmp_path / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -528,24 +478,55 @@ def test_asset_adapter_expands_products_and_preserves_missing_candidates(tmp_pat
         "characters": {"阿离": {"character_sheet": "characters/a.png"}},
         "scenes": {"大厅": {"scene_sheet": "scenes/missing.png"}},
     }
-    unit = {
-        "references": [
-            {"type": "scene", "name": "大厅"},
-            {"type": "product", "name": "手袋"},
-            {"type": "character", "name": "阿离"},
-        ]
-    }
+    unit = {"text": "@[大厅] 里，@[手袋] 摆在台面上，@[阿离] 走近。"}
 
     assets = resolve_reference_assets(project, tmp_path, unit)
 
+    # 候选顺序即正文首次提及顺序；有资产图的资产只出资产图，原图不再额外注入。
     assert [(item.reference.type, item.kind, item.path.name) for item in assets] == [
+        ("scene", "sheet", "missing.png"),
         ("product", "sheet", "bag-sheet.png"),
-        ("product", "original", "bag-original.png"),
-        ("character", "asset", "a.png"),
-        ("scene", "asset", "missing.png"),
+        ("character", "sheet", "a.png"),
     ]
     availability = FilesystemReferenceAssets(tmp_path)
-    assert [availability.is_available(item) for item in assets] == [True, True, True, False]
+    assert [availability.is_available(item) for item in assets] == [False, True, True]
+
+
+def test_asset_adapter_falls_back_to_all_original_images_without_a_sheet(tmp_path: Path) -> None:
+    """没有资产图时退到该资产登记的全部原图，按声明顺序。"""
+    for rel in ("products/bag-1.png", "products/bag-2.png"):
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"image")
+    project = {"products": {"手袋": {"reference_images": ["products/bag-1.png", "products/bag-2.png"]}}}
+
+    assets = resolve_reference_assets(project, tmp_path, {"text": "@[手袋] 特写。"})
+
+    assert [(item.kind, item.path.name) for item in assets] == [
+        ("original", "bag-1.png"),
+        ("original", "bag-2.png"),
+    ]
+
+
+def test_unit_reference_declarations_follow_first_mention_order(tmp_path: Path) -> None:
+    """重复提及去重、保留首现顺序——顺序即执行期参考图编号。"""
+    del tmp_path
+    project = {"products": {"手袋": {}}, "scenes": {"大厅": {}}, "characters": {"阿离": {}}}
+    unit = {"text": "@[大厅] 内，@[阿离] 拿起 @[手袋]。\n@[阿离] 再看一眼 @[大厅]。"}
+
+    assert [(ref.type, ref.name) for ref in unit_reference_declarations(project, unit)] == [
+        ("scene", "大厅"),
+        ("character", "阿离"),
+        ("product", "手袋"),
+    ]
+
+
+def test_unit_reference_declarations_skip_unregistered_and_speaker_positions() -> None:
+    """未登记的名字不产生引用；只出现在台词记号说话人位的角色也不进参考图。"""
+    project = {"characters": {"阿离": {}}}
+    unit = {"text": "@[未登记] 出现。\n@[阿离]{我来了}"}
+
+    assert unit_reference_declarations(project, unit) == ()
 
 
 @pytest.mark.asyncio

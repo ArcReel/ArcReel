@@ -76,7 +76,7 @@ from lib.reference_video.draft_validation import (
     violation_items,
 )
 from lib.reference_video.duration_slots import resolve_duration_slot
-from lib.reference_video.shot_parser import derive_references_from_text, parse_prompt, render_shots_text
+from lib.reference_video.text_parser import extract_mentions
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     AdEpisodeScript,
@@ -135,7 +135,7 @@ _KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
 
 
 def _units_use_references(units: list[dict] | None) -> bool | None:
-    """本集 step1 是否存在带引用的 unit；``units`` 为 None（非参考视频路径）时返回 None。
+    """本集 step1 是否存在带 ``@[名称]`` 提及的 unit；``units`` 为 None（非参考视频路径）时返回 None。
 
     None 的语义是「交给下游按生成模式近似判定」，与「确定不带参考图」的 False 区分开。
     参考视频路径允许通用 unit 不带任何引用，执行层与 backend 都只在实际带图时施加
@@ -143,7 +143,7 @@ def _units_use_references(units: list[dict] | None) -> bool | None:
     """
     if units is None:
         return None
-    return any(u.get("references") for u in units if isinstance(u, dict))
+    return any(extract_mentions(str(u.get("text") or "")) for u in units if isinstance(u, dict))
 
 
 def _rewrite_episode_prefix(rid: object, ep: int) -> object:
@@ -310,7 +310,7 @@ class ScriptGenerator:
                 episode=episode,
                 target_language=self.project_json.get("source_language") or "中文",
             )
-            # step2 只产书写层正文：unit_id / 时长 / references 全部机械沿用 step1 或从正文派生，
+            # step2 只产书写层正文：unit_id / 时长机械沿用 step1，参考图执行期从正文派生，
             # 不进 LLM 输出——没让模型写的字段就没有漂移可校验，故此处无需按能力收窄的动态 schema。
             schema: type = ReferenceStep2FlatScript
         else:
@@ -339,8 +339,8 @@ class ScriptGenerator:
         # 合法档位间自由改写——按 unit_id 机械传回 step1 确认值，杜绝该字段被 step2 静默漂移。
         #
         # 这里只传未取档的原始确认值：取档按哪套档位算取决于「这个 unit 最终是否带参考图」，
-        # 而 references 由 LLM 在 step2 输出时决定、可能与 step1 机械派生的不同。取档统一放在
-        # _add_metadata，按落地后的最终 references 逐 unit 重算。
+        # 而正文里的 `@[名称]` 由 LLM 在 step2 输出时决定、可能与 step1 的不同。取档统一放在
+        # _add_metadata，按落地后的最终正文逐 unit 重算。
         prompt = append_user_instructions(prompt, instructions)
 
         reference_unit_durations = None
@@ -504,7 +504,7 @@ class ScriptGenerator:
         step1 已定结构（novel_text 等透传）；``reference_step1`` 非 None 时走参考路径的保结构
         合并（LLM 只出书写层正文，见 ``_merge_reference_visual``）；两者皆 None 时走单段解析
         （drama/ad）。``reference_unit_durations`` 非 None 时（reference_video 路径）按 unit_id
-        机械覆盖 ``duration_seconds``（取档用最终输出的 references 状态重算，见 ``_add_metadata``）；
+        机械覆盖 ``duration_seconds``（取档用最终输出正文的提及状态重算，见 ``_add_metadata``）；
         ``caps`` 可一并传入，为 None 时 ``_add_metadata`` 仍按 caps → registry 两级回退解析每个
         unit 的生效档位，不会因此跳过取档校验。
         """
@@ -541,7 +541,7 @@ class ScriptGenerator:
                 else self._parse_response(response_text, episode)
             )
 
-        # 补充元数据。reference 路径同样纳入隔离：_add_metadata 按落地后的最终 references 重算
+        # 补充元数据。reference 路径同样纳入隔离：_add_metadata 按落地后的最终正文重算
         # 生效档位，一个新增 / 去掉了 `@` 引用的 unit 要到合并之后才判出档——不接住的话，这份
         # 已付费产出只存在于内存里，错误却让调用方重新生成。
         try:
@@ -749,8 +749,8 @@ class ScriptGenerator:
     ) -> list[int] | None:
         """时长在带图与不带图两种档位下都出局时返回带图档位，任一合法则返回 None。
 
-        step2 可以给 unit 增删 references，只在其中一种状态下出局的时长仍可能落地合法——
-        提前判死会拦掉本会成功的生成。两种状态都出局才是与 references 无关的必然失败
+        step2 可以给 unit 增删 `@[名称]` 提及，只在其中一种状态下出局的时长仍可能落地合法——
+        提前判死会拦掉本会成功的生成。两种状态都出局才是与参考图无关的必然失败
         （模型或分辨率配置变化所致），可以在付费调用前拦下。
         """
         for has_references in (True, False):
@@ -911,7 +911,7 @@ class ScriptGenerator:
     def _load_reference_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
         """加载并校验 reference_video step1 结构化中间文件 ``step1_reference_units.json``。
 
-        返回 unit dict 列表（unit_id / shots / references），供 step2 prompt 渲染
+        返回 unit dict 列表（unit_id / text / duration_seconds），供 step2 prompt 渲染
         （``render_reference_units_for_step2``）作唯一基底——step2 不解析自由文本。
         校验：结构合法（``ReferenceStep1Draft``）、units 非空、unit_id 唯一、
         unit ``duration_seconds`` ∈ ``supported_durations``（与拆分工具的 response_schema 同口径，
@@ -1158,8 +1158,8 @@ class ScriptGenerator:
         """按机器产物的严格口径预判 step1 各 unit 正文，违约时把定位与出路指回 step1。
 
         与 ``_merge_reference_visual`` 用的是同一个 ``validate_unit_text``：同一把尺量两处，
-        避免「step1 放行、step2 必拒」的死角。此处只判、不取派生结果——落盘的 shots /
-        references 仍由 step2 展开后的正文派生。
+        避免「step1 放行、step2 必拒」的死角。此处只判、不取派生结果——参考图是执行期从正文
+        派生的，落盘物只有正文本身。
 
         台词口播时长同样在此复判：拆分工具只在产出当时判过一次，审阅 gate 上改短 unit 时长或
         补写台词都能绕开它，而 step2 逐字保留台词、之后再无口播量校验——不复判就会让念不完的
@@ -1169,26 +1169,15 @@ class ScriptGenerator:
         speech_rate_override = project_speech_rate_override(self.project_json)
         for unit in step1_units:
             label = f"step1 的 unit {unit['unit_id']}"
-            stored_shots = unit.get("shots") or []
-            text = render_shots_text(stored_shots)
+            text = str(unit.get("text") or "")
             try:
-                parsed_shots, _refs = validate_unit_text(
+                validate_unit_text(
                     label,
                     text,
                     self.project_json,
                     unit_id=str(unit["unit_id"]),
                     max_refs=max_refs,
                 )
-                if len(parsed_shots) != len(stored_shots):
-                    # 落盘的单个 shot 正文里又嵌了 `镜头N：`（Agent 可裸写剧本 JSON）：渲染回书写层
-                    # 再解析会多切出镜头，step2 按多出来的镜头数展开，而合并时比对的是落盘的 shots
-                    # 数——不在这里拦，这一定是「付完钱才失败」。
-                    raise DraftViolation(
-                        f"{label} 落盘的 {len(stored_shots)} 个镜头在书写层解析回 {len(parsed_shots)} 个；"
-                        "镜头正文里不能再嵌 `镜头N：` 行，请把它拆成独立镜头",
-                        code="shot_count_changed",
-                        label=label,
-                    )
                 validate_dialogue_load(
                     label, text, int(unit["duration_seconds"]), source_language, speech_rate_override
                 )
@@ -1220,15 +1209,15 @@ class ScriptGenerator:
     ) -> dict:
         """参考路径 step2 合并：LLM 只出书写层正文，其余字段机械沿用 step1 / 从正文派生。
 
-        保结构 diff 在此落地——unit 数与顺序、台词规范行逐字、每 unit 的镜头数都由 step1 定稿，
+        保结构 diff 在此落地——unit 数与顺序、台词规范行逐字都由 step1 定稿，
         step2 只允许把画面描述写详细。任一项被改动即 fail-loud（``DraftViolation``），不静默
         接受：台词配不上画面时正确的出路是回到 step1 重拆，而不是让 step2 自行改词。
 
         逐 unit 的违约收齐后一次抛出（``DraftViolations``），供调用方把整份产出连同报告落到
         隔离草稿——单条抛出会让 agent 每修一个 unit 就要重跑一次付费的展开。
 
-        ``unit_id`` / ``duration_seconds`` 直接取 step1 的值，``shots`` / ``references`` 由展开后
-        的正文机械派生——LLM 没写这些字段，也就没有对不上的可能。
+        ``unit_id`` / ``duration_seconds`` 直接取 step1 的值，参考图不落盘、执行期再从正文
+        派生——LLM 没写这些字段，也就没有对不上的可能。
         """
         text = strip_json_code_fences(response_text)
         try:
@@ -1257,31 +1246,19 @@ class ScriptGenerator:
         violations: list[DraftViolation] = []
         for step1_unit, flat_unit in zip(step1_units, flat.units, strict=True):
             label = f"unit {step1_unit['unit_id']}"
-            step1_text = render_shots_text(step1_unit.get("shots") or [])
+            step1_text = str(step1_unit.get("text") or "")
             # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，agent 一轮就能看全要改什么。
-            # 一个 unit 内部仍是首个违约即停——正文解析不出时，保结构 diff 与镜头数对账的结论
-            # 都建立在同一个问题上，报出来只是它的三种说法。
+            # 一个 unit 内部仍是首个违约即停——正文解析不出时，后续判定都建立在同一个问题上。
             try:
-                shots, refs = validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
+                validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
                 assert_dialogue_preserved(label, step1_text, flat_unit.text)
             except DraftViolation as exc:
                 violations.extend(violation_items(exc))
                 continue
-            if len(shots) != len(step1_unit.get("shots") or []):
-                violations.append(
-                    DraftViolation(
-                        f"{label} 的镜头数被改动（step1 有 {len(step1_unit.get('shots') or [])} 个，"
-                        f"step2 产出 {len(shots)} 个）；step2 只做视觉展开，镜头数须保持不变",
-                        code="shot_count_changed",
-                        label=label,
-                    )
-                )
-                continue
             video_units.append(
                 {
                     "unit_id": step1_unit["unit_id"],
-                    "shots": [s.model_dump() for s in shots],
-                    "references": [r.model_dump() for r in refs],
+                    "text": flat_unit.text,
                     "duration_seconds": step1_unit["duration_seconds"],
                 }
             )
@@ -1348,7 +1325,7 @@ class ScriptGenerator:
             script_data = self._merge_reference_visual(
                 step1_units, json.dumps(draft.content), episode, max_refs=max_refs
             )
-            # _add_metadata 一并纳入：它按落地后的最终 references 重算生效档位，草稿里新增 /
+            # _add_metadata 一并纳入：它按落地后的最终正文重算生效档位，草稿里新增 /
             # 去掉一个 `@` 引用就会在合并之后才判出档，留在 try 之外会让晋升在这一类上退回
             # 「报错但草稿不刷新」。
             script_data = self._add_metadata(
@@ -1457,7 +1434,7 @@ class ScriptGenerator:
         for ordinal, source in enumerate(flat.units, start=1):
             unit_id = f"E{episode}U{ordinal}"
             try:
-                shots, references = validate_unit_text(
+                validate_unit_text(
                     f"unit {unit_id}",
                     source.text,
                     self.project_json,
@@ -1468,12 +1445,9 @@ class ScriptGenerator:
                     item.code not in {"mixed_speech", "empty_speaker", "parse_failed"} for item in exc.items
                 ):
                     raise
-                shots, _mentions = parse_prompt(source.text)
-                references, _missing = derive_references_from_text(source.text, self.project_json)
             unit: dict = {
                 "unit_id": unit_id,
-                "shots": [shot.model_dump() for shot in shots],
-                "references": [reference.model_dump() for reference in references],
+                "text": source.text,
                 "duration_seconds": source.duration_seconds,
                 "transition_to_next": "cut",
                 "note": None,
@@ -1614,12 +1588,14 @@ class ScriptGenerator:
                 if not (isinstance(s, dict) and id_field in s):
                     continue
                 target_duration = reference_unit_durations[s[id_field]]
-                # 取档按这个 unit 最终落地的 references 状态算，不是 step1 拆分时的状态：
-                # references 由 LLM 在 step2 输出时决定，可能与 step1 机械派生的不同（见
-                # generate() 内的构造处注释）。caps 为 None 也不短路——
-                # _resolve_supported_durations 自带 caps → registry 两级回退。
+                # 取档按这个 unit 最终落地的正文算，不是 step1 拆分时的状态：正文里的
+                # `@[名称]` 由 LLM 在 step2 输出时决定，可能与 step1 的不同。caps 为 None
+                # 也不短路——_resolve_supported_durations 自带 caps → registry 两级回退。
                 unit_tiers = self._unit_duration_off_tier(
-                    target_duration, has_references=bool(s.get("references")), caps=caps, gen_mode=gen_mode
+                    target_duration,
+                    has_references=bool(extract_mentions(str(s.get("text") or ""))),
+                    caps=caps,
+                    gen_mode=gen_mode,
                 )
                 if unit_tiers is not None:
                     # 生效档位收窄到已确认值之外：不静默取档改写——用户审阅通过的时长/费用不被
@@ -1713,9 +1689,8 @@ class ScriptGenerator:
             short_ids: list[str] = []
 
             # 骨架经规范解析统一判别、条目数组与 id 字段查 resolve_kind_items（同 _add_metadata
-            # id 改写处置）。video_units 的过短样本落在 unit 内嵌 shots.text，与 narration/drama/ad
-            # 平铺条目的 image_prompt/video_prompt 探针数据形状不同——结构分支按 kind 显式区分、
-            # 非骨架分派。
+            # id 改写处置）。video_units 的过短样本落在 unit 正文，与 narration/drama/ad 平铺条目的
+            # image_prompt/video_prompt 探针数据形状不同——结构分支按 kind 显式区分、非骨架分派。
             kind = resolve_declared_kind(self.content_mode, self.generation_mode)
             raw_items, id_key, _kind = resolve_kind_items(script_data, kind=kind)
             # 降级保存的原始 dict 里数组可能为非列表脏值；`... or []` 挡不住真值标量，
@@ -1726,13 +1701,8 @@ class ScriptGenerator:
                     if not isinstance(u, dict):
                         continue
                     uid = str(u.get(id_key) or "?")
-                    raw_shots = u.get("shots")
-                    for shot in raw_shots if isinstance(raw_shots, list) else []:
-                        if not isinstance(shot, dict):
-                            continue
-                        text = str(shot.get("text") or "")
-                        if len(text) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
-                            short_ids.append(uid)
+                    if len(str(u.get("text") or "")) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
+                        short_ids.append(uid)
             else:
                 for item in items:
                     if not isinstance(item, dict):

@@ -734,7 +734,10 @@ class WorkflowStateService:
             duration = item.get("duration_seconds")
             duration_max = 300 if kind == "video_units" else 60
             replan_shell = (
-                kind == "video_units" and item.get("needs_replan") is True and item.get("shots") == [] and duration == 0
+                kind == "video_units"
+                and item.get("needs_replan") is True
+                and not str(item.get("text") or "").strip()
+                and duration == 0
             )
             if (
                 duration is not None

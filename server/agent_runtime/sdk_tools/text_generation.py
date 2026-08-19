@@ -69,7 +69,7 @@ from lib.reference_video.script_preview import (
     derive_utterances,
     derive_voice_bindings,
 )
-from lib.reference_video.shot_parser import parse_prompt, render_shots_text
+from lib.reference_video.text_parser import extract_mentions
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
@@ -209,7 +209,7 @@ async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[
     参考路径的 unit 时长就是发给供应商的那个值，手工改 step1 时照全集取值会写出执行期申请不到
     的秒数——故把服务端拆分工具用的同两套档位一并返回，让改写方与生成方对同一份数字。
 
-    ad 例外：该路径的 unit 是从 ``shots[]`` 派生的轻量索引、镜头时长不受档位枚举管辖，返回这
+    ad 例外：该路径的 unit 是从广告分镜派生的轻量索引、时长不受档位枚举管辖，返回这
     两套档位只会诱导按剧集路径的口径去改 ad 镜头。
     """
     if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
@@ -261,7 +261,7 @@ def get_video_capabilities_tool(ctx: ToolContext):
 def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
     """项目是否产出参考视频 unit——隔离草稿只在这条路径上有意义。
 
-    ad 的 unit 是 shots 的派生索引、无 step1 拆分，即使走参考路线也不在此列。
+    ad 的 unit 是广告分镜的派生索引、无 step1 拆分，即使走参考路线也不在此列。
     """
     if project_data.get("content_mode", "narration") == "ad":
         return False
@@ -633,7 +633,7 @@ class ReferenceSplitCaps(NamedTuple):
 
     ``reference_durations`` / ``text_durations`` 是带 / 不带 ``@`` 引用的 unit 各自的生效档位，
     ``durations`` 是二者的并集——schema 枚举与 prompt 候选集合取并集，因为落在任一套内的时长都
-    可能合法；归属哪一套要等正文派生出 references 才知道。三者相等即该型号在当前分辨率下未声明
+    可能合法；归属哪一套要等正文里的 `@[名称]` 提及确定后才知道。三者相等即该型号在当前分辨率下未声明
     生效的「参考图↔时长」联动约束，多数型号如此。
 
     ``voice`` 是同一次能力解析派生出的声音输入档，供声音相关的容忍 warning 消费——与时长档位同源
@@ -669,8 +669,8 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
 
     收窄逐 unit 分两套（``reference_unit_duration_tiers``）：「参考图↔时长」约束只对真的带参考图
     的请求生效，整集一律按带图收窄会把无引用 unit 本可申请的短档也收掉。schema 枚举与 prompt
-    候选取两套的并集——落在任一套内的时长都可能合法，具体归属由该 unit 的 references 决定，
-    在正文派生出 references 之后逐 unit 判（见 ``_build_reference_units_from_flat``）。
+    候选取两套的并集——落在任一套内的时长都可能合法，具体归属由该 unit 正文里的 `@[名称]`
+    提及决定，在正文解析之后逐 unit 判（见 ``_collect_reference_flat_violations``）。
     ``max_duration`` 随之是并集的最大值。
     ``default_duration`` 非并集成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
     """
@@ -754,8 +754,8 @@ def _collect_reference_flat_violations(
     台词量念得完。收齐而非首个即抛：报告要能一次列全所有坏 unit，否则 agent 每修一处就要再跑
     一轮才知道下一处。
 
-    时长档位与正文合并为一个入口：适用哪套档位取决于该 unit 有没有 references，而 references
-    正是从正文机械派生的——正文解析不出时无从判档位，此时报出的也只会是同一个问题的另一种说法。
+    时长档位与正文合并为一个入口：适用哪套档位取决于该 unit 正文里有没有 `@[名称]` 提及——
+    正文解析不出时无从判档位，此时报出的也只会是同一个问题的另一种说法。
     """
     # 台词口播量的语速与 prompt 侧同源：项目级覆盖优先，否则按语言默认。
     speech_rate_override = project_speech_rate_override(project)
@@ -767,7 +767,7 @@ def _collect_reference_flat_violations(
         text = flat["text"]
 
         def _check_text_and_tier(la: str = label, tx: str = text, d: int = duration) -> None:
-            _shots, refs = validate_unit_text(la, tx, project, max_refs=caps.max_refs)
+            refs = validate_unit_text(la, tx, project, max_refs=caps.max_refs)
             _validate_unit_duration_tier(la, d, has_references=bool(refs), caps=caps)
 
         violations.extend(
@@ -793,22 +793,20 @@ def _build_reference_units_from_flat(
 ) -> list[dict]:
     """把已校验通过的扁平产出派生为落盘的结构化 unit 表。
 
-    LLM 只写内容，机器写结构：``unit_id`` 按数组序号编号、``shots`` 由 ``镜头N：`` 切分、
-    ``references`` 由 ``@[名称]`` 派生（首现顺序即参考图编号），三者都没有让模型写错的余地。
-    调用方须先经 ``_collect_reference_flat_violations`` 确认无违约——本函数直接复用同一个
-    ``validate_unit_text`` 取派生结果，校验与派生因此同一次解析，不会「校验看到的文本」与
-    「落盘的 references」出自两套口径。
+    LLM 只写内容，机器写结构：``unit_id`` 按数组序号编号，正文原样落盘。参考图不落盘——
+    执行期再按正文 ``@[名称]`` 的首现顺序解析。调用方须先经
+    ``_collect_reference_flat_violations`` 确认无违约；此处仍复判一次正文，让「校验看到的
+    文本」与「落盘的正文」出自同一次解析。
     """
     units: list[dict] = []
     for index, flat in enumerate(flat_units, start=1):
         unit_id = f"E{episode}U{index:02d}"
-        shots, refs = validate_unit_text(f"unit {unit_id}", flat["text"], project, max_refs=max_refs)
+        validate_unit_text(f"unit {unit_id}", flat["text"], project, max_refs=max_refs)
         units.append(
             {
                 "unit_id": unit_id,
-                "shots": [s.model_dump() for s in shots],
+                "text": flat["text"],
                 "duration_seconds": flat["duration_seconds"],
-                "references": [r.model_dump() for r in refs],
                 "source_text": flat["source_text"],
             }
         )
@@ -844,8 +842,7 @@ def _reference_voice_warning_lines(
     seen: set[tuple[str, str]] = set()
     lines: list[str] = []
     for text in unit_texts:
-        shots, _mentions = parse_prompt(text)
-        utterances, _syntax_warnings = derive_utterances(shots)
+        utterances, _syntax_warnings = derive_utterances(text)
         bindings = derive_voice_bindings(utterances, characters, settings)
         for warning in bindings.warnings:
             key = str(warning["key"])
@@ -868,13 +865,12 @@ def _reference_result_text(step1_path: Path, units: list[dict], warning_lines: l
     warning 不阻断落盘，但必须随产物呈现——「角色没配参考音频」这类降级只在生成后才听得出来，
     不在产出当时说，agent 与用户都不会知道声音一致性已经打了折。
     """
-    shot_count = sum(len(u.get("shots") or []) for u in units)
     total_seconds = sum(int(u.get("duration_seconds") or 0) for u in units)
-    max_unit_refs = max(len(u.get("references") or []) for u in units)
+    max_unit_refs = max(len(extract_mentions(str(u.get("text") or ""))) for u in units)
     text = (
         f"✅ 参考视频单元{action}（结构化 step1）已保存: {step1_path}\n"
-        f"📊 生成统计: {len(units)} 个 unit / {shot_count} 个 shot，"
-        f"总时长 {total_seconds} 秒；单 unit references 最多 {max_unit_refs} 个"
+        f"📊 生成统计: {len(units)} 个 unit，总时长 {total_seconds} 秒；"
+        f"单 unit `@` 提及最多 {max_unit_refs} 个"
     )
     if warning_lines:
         text += "\n⚠️ 声音降级提示（不阻断，产物已落盘）:\n" + "\n".join(f"- {line}" for line in warning_lines)
@@ -1089,11 +1085,8 @@ def _render_step1_conflict_report(
 def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
     """正式 step1 的结构化 unit 表 → 隔离草稿装的扁平书写层（``_build_reference_units_from_flat`` 的逆向）。
 
-    ``unit_id`` / ``shots`` / ``references`` 不进草稿：它们是机器派生物，草稿是给 agent 改的那
-    一层，带上派生字段等于给漂移开口子（改了 references、晋升时又按正文重新派生覆盖）。
-
-    ``text`` 经 ``render_shots_text`` 还原 ``镜头N：`` header——落盘的 ``shots[*].text`` 不带
-    header，裸拼接后晋升时 ``parse_prompt`` 找不到 header，整个 unit 会塌成一个镜头。
+    ``unit_id`` 不进草稿：它是按数组序号机械编号的派生物，草稿是给 agent 改的那一层，带上
+    派生字段等于给漂移开口子。
 
     盘上 unit 不合形状时不 fail-loud：字段缺失或类型不符时**原样带过**（缺失填 None / 空串），
     交由晋升侧的 schema 重判逐条报告给 agent。原样带过而非归一化成合法值：``8.0`` 被改写成
@@ -1101,28 +1094,18 @@ def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
     上的原值——保留原值，让它自己看见错在哪。非 dict 的 unit 同样不丢弃：填空占位保留在数组
     对应位置，让晋升侧 schema 判它「结构非法」逐条报出——直接跳过会让数组变短，若剩余 unit
     恰好都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。
-
-    render 后用 ``parse_prompt`` 重新解析校验分镜数不变：某个 shot 自身内容里若恰好有一行
-    形如「镜头N：」（旧数据经 Web 端保存，字段本身不禁止这种文本），加了 header 的首行会跟
-    这行撞在一起，解析回去时会被误判成新的镜头边界，一个 shot 悄悄拆成两个——agent 明明没
-    编辑这个 unit，原样晋升也会带着错位的分镜覆盖正式文件。分镜数对不上时同样清空为占位，
-    交给 schema 判非法。
     """
     flat: list[dict[str, Any]] = []
     for unit in units:
         if not isinstance(unit, dict):
             flat.append({"duration_seconds": None, "source_text": "", "text": ""})
             continue
-        shots = unit.get("shots")
-        shots_list = shots if isinstance(shots, list) else []
-        text = render_shots_text(shots_list)
-        if len(parse_prompt(text)[0]) != len(shots_list):
-            text = ""
+        text = unit.get("text")
         flat.append(
             {
                 "duration_seconds": unit.get("duration_seconds"),
                 "source_text": unit.get("source_text", ""),
-                "text": text,
+                "text": text if isinstance(text, str) else "",
             }
         )
     return flat
@@ -1477,7 +1460,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
                             f"✅ 第 {episode} 集 step1 已取回可编辑草稿：{draft_path}\n"
                             f"📊 {len(raw_units)} 个 unit（正式文件 {step1_path} 保持原样，未改动）\n\n"
                             "编辑口径：改 content.units[i] 的 text / source_text / duration_seconds；"
-                            "unit_id / shots / references 是派生物，不在草稿里、也不要手写。"
+                            "unit_id 是派生物，不在草稿里、也不要手写。"
                             "增删 unit 即增删数组元素，unit_id 按新顺序重编。\n"
                             f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
                             "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
@@ -1497,7 +1480,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
         "split_reference_video_units",
         "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + 原文锚 + 书写层正文），"
         "保存到 drafts/episode_N/step1_reference_units.json，供 generate_episode_script"
-        "（reference_video 模式）消费。unit_id / shots / references 由工具从正文机械派生，"
+        "（reference_video 模式）消费。unit_id 由工具按序号机械派生，"
         "并校验原文锚、正文语法、资产引用与台词量。dry_run=true 时仅返回 prompt。",
         {
             "type": "object",
@@ -1577,7 +1560,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 }
 
             # 结构化输出：response_schema 按 supported_durations 卡死 unit 时长枚举，产出扁平
-            # unit → 时长 + 原文锚 + 书写层正文；unit_id / shots / references 不进 LLM 输出、
+            # unit → 时长 + 原文锚 + 书写层正文；unit_id 不进 LLM 输出、
             # 由下方机械派生（正文内的语法则由 parser 后校验兜底，schema 管不到）。
             schema = build_reference_units_step1_model(split_caps.durations)
             generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=ctx.project_name)
@@ -1877,7 +1860,7 @@ def split_narration_segments_tool(ctx: ToolContext):
             scenes = cast(dict[str, Any], prompt_inputs["scenes"])
             props = cast(dict[str, Any], prompt_inputs["props"])
 
-            # narration 仅需 (default_duration, supported_durations)：无 unit 总时长 / references 概念，
+            # narration 仅需 (default_duration, supported_durations)：无 unit 总时长 / 参考图概念，
             # 复用与 drama normalize 同口径的 best-effort 能力查询（resolver 故障软回退 [4,6,8]）。
             default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
             prompt = build_narration_split_prompt(

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from lib.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
+from lib.reference_video.text_parser import extract_mentions
 from lib.script_models import ReferenceVideoScript
 
 pytestmark = pytest.mark.integration
@@ -117,13 +118,9 @@ def test_existing_index_preserves_identity_boundaries_assets_and_content(tmp_pat
     unit = migrated["video_units"][0]
     assert unit["duration_seconds"] == 8
     assert unit["generated_assets"] == assets
-    assert unit["references"][:4] == [
-        {"type": "product", "name": "咖啡"},
-        {"type": "character", "name": "演员"},
-        {"type": "scene", "name": "厨房"},
-        {"type": "prop", "name": "杯子"},
-    ]
-    text = "\n".join(shot["text"] for shot in unit["shots"])
+    # 引用不再落盘：正文里的 `@[名称]` 记号按旧字段顺序写入，读时派生。
+    text = unit["text"]
+    assert extract_mentions(text)[:4] == ["咖啡", "演员", "厨房", "杯子"]
     assert text.index("缓慢转动") < text.index("醒来的第一口")
     assert "@[咖啡]" in text
     assert "{醒来的第一口}" in text
@@ -155,7 +152,8 @@ def test_missing_index_creates_one_unit_per_shot_in_order(tmp_path: Path, missin
     units = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
     assert [unit["unit_id"] for unit in units] == ["E1U1", "E1U2"]
     assert [unit["duration_seconds"] for unit in units] == [4, 4]
-    assert all(len(unit["shots"]) == 1 for unit in units)
+    assert "{醒来的第一口}" in units[0]["text"]
+    assert "{醒来的第一口}" not in units[1]["text"]
 
 
 def test_empty_index_creates_one_unit_per_shot_without_data_loss(tmp_path: Path) -> None:
@@ -166,7 +164,7 @@ def test_empty_index_creates_one_unit_per_shot_without_data_loss(tmp_path: Path)
 
     migrated = _read_json(project_dir / "scripts/episode_1.json")
     assert [unit["unit_id"] for unit in migrated["video_units"]] == ["E1U1", "E1U2"]
-    assert sum(len(unit["shots"]) for unit in migrated["video_units"]) == 2
+    assert all(unit["text"].strip() for unit in migrated["video_units"])
 
 
 def test_partial_index_preserves_uncovered_shots_as_replan_units(tmp_path: Path) -> None:
@@ -181,8 +179,7 @@ def test_partial_index_preserves_uncovered_shots_as_replan_units(tmp_path: Path)
     assert existing["unit_id"] == "E1U1"
     assert recovered["unit_id"] == "E1U2"
     assert recovered["needs_replan"] is True
-    assert recovered["migration_requires_content_replan"] is True
-    assert "未索引镜头仍须保留" in recovered["shots"][0]["text"]
+    assert "未索引镜头仍须保留" in recovered["text"]
 
 
 def test_existing_index_preserves_final_member_transition(tmp_path: Path) -> None:
@@ -197,7 +194,8 @@ def test_existing_index_preserves_final_member_transition(tmp_path: Path) -> Non
     assert unit["transition_to_next"] == "dissolve"
 
 
-def test_oversized_legacy_unit_keeps_all_text_in_readable_replan_unit(tmp_path: Path) -> None:
+def test_many_member_legacy_unit_keeps_all_text_in_one_body(tmp_path: Path) -> None:
+    """成员数不再有上限：多成员旧 unit 的全部画面文本拼进同一段正文，不因数量判问题壳。"""
     project_dir = _project(tmp_path)
     script = _script()
     for ordinal in range(3, 6):
@@ -217,10 +215,8 @@ def test_oversized_legacy_unit_keeps_all_text_in_readable_replan_unit(tmp_path: 
 
     migrated = _read_json(project_dir / "scripts/episode_1.json")
     unit = migrated["video_units"][0]
-    assert len(unit["shots"]) == 1
-    assert all(f"保留镜头{ordinal}" in unit["shots"][0]["text"] for ordinal in range(1, 6))
-    assert unit["needs_replan"] is True
-    assert unit["migration_requires_content_replan"] is True
+    assert all(f"保留镜头{ordinal}" in unit["text"] for ordinal in range(1, 6))
+    assert "needs_replan" not in unit
     assert unit["generated_assets"] == {"video_uri": "provider://paid-job"}
     ReferenceVideoScript.model_validate(migrated)
 
@@ -238,8 +234,8 @@ def test_nonempty_zero_duration_unit_remains_readable_and_requires_replan(tmp_pa
     unit = migrated["video_units"][0]
     assert unit["duration_seconds"] == 1
     assert unit["needs_replan"] is True
-    assert "migration_requires_content_replan" not in unit
-    assert len(unit["shots"]) == 2
+    # 两个成员镜头的画面文本都留在同一段正文里。
+    assert unit["text"].count("演员端起咖啡") == 2
     ReferenceVideoScript.model_validate(migrated)
 
 
@@ -267,17 +263,16 @@ def test_dangling_and_mixed_speech_preserve_unit_as_replan_shell(tmp_path: Path)
     migrate_v6_to_v7(project_dir)
 
     first, second = _read_json(project_dir / "scripts/episode_1.json")["video_units"][:2]
-    assert (first["unit_id"], first["shots"], first["duration_seconds"], first["needs_replan"]) == (
+    assert (first["unit_id"], first["text"], first["duration_seconds"], first["needs_replan"]) == (
         "E1U7",
-        [],
+        "",
         0,
         True,
     )
     assert first["generated_assets"]["video_clip"].endswith("E1U7.mp4")
-    assert first["migration_requires_content_replan"] is True
     assert json.loads(first["note"]) == {"unresolved_legacy_shot_ids": ["E1S404"]}
     assert second["needs_replan"] is True
-    text = second["shots"][0]["text"]
+    text = second["text"]
     assert "@[演员]：{试试这一杯}" in text
     assert "{醒来的第一口}" in text
 
@@ -300,8 +295,7 @@ def test_mixed_valid_and_dangling_members_keep_content_and_missing_id_history(tm
     migrated = _read_json(project_dir / "scripts/episode_1.json")
     unit = migrated["video_units"][0]
     assert unit["unit_id"] == "E1U7"
-    assert len(unit["shots"]) == 1
-    assert "醒来的第一口" in unit["shots"][0]["text"]
+    assert "醒来的第一口" in unit["text"]
     assert unit["generated_assets"] == {"video_uri": "provider://paid-job"}
     assert unit["needs_replan"] is True
     assert json.loads(unit["note"]) == {"unresolved_legacy_shot_ids": ["E1S404"]}
@@ -324,8 +318,6 @@ def test_overlapping_legacy_members_mark_every_affected_unit_for_replanning(tmp_
     first, second = migrated["video_units"]
     assert first["needs_replan"] is True
     assert second["needs_replan"] is True
-    assert first["migration_requires_content_replan"] is True
-    assert second["migration_requires_content_replan"] is True
     assert json.loads(first["note"]) == {"overlapping_legacy_shot_ids": ["E1S1"]}
     assert json.loads(second["note"]) == {"overlapping_legacy_shot_ids": ["E1S1"]}
     ReferenceVideoScript.model_validate(migrated)
@@ -366,10 +358,11 @@ def test_empty_legacy_members_become_replan_shell_and_same_name_uses_product_pri
     migrate_v6_to_v7(project_dir)
 
     empty, collision = _read_json(project_dir / "scripts/episode_1.json")["video_units"][:2]
-    assert (empty["shots"], empty["duration_seconds"], empty["needs_replan"]) == ([], 0, True)
+    assert (empty["text"], empty["duration_seconds"], empty["needs_replan"]) == ("", 0, True)
     assert empty["generated_assets"] == {"video_uri": "provider://job"}
-    assert collision["references"][0] == {"type": "product", "name": "同名"}
-    assert {"type": "character", "name": "同名"} not in collision["references"]
+    # 同名的商品与角色只写一个 `@[同名]` 记号，类型归属交读时派生（商品优先）。
+    assert collision["text"].count("@[同名]") == 1
+    assert extract_mentions(collision["text"])[0] == "同名"
 
 
 def test_duration_sums_only_positive_integer_member_durations(tmp_path: Path) -> None:

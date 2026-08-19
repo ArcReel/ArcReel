@@ -66,7 +66,6 @@ MESSAGES = {
     "invalid_storyboard_image_path": "Đoạn '{segment_id}' có tham chiếu ảnh phân cảnh không hợp lệ, vui lòng tạo lại phân cảnh",
     "invalid_end_frame_image_path": "Đoạn '{segment_id}' có tham chiếu ảnh khung hình cuối không hợp lệ, vui lòng chụp lại khung hình cuối",
     "video_audio_switch_not_supported": "{provider}/{model} luôn tạo ra âm thanh và không thể tắt tiếng; hãy bật lại công tắc âm thanh trong cài đặt rồi thử lại",
-    "reference_declaration_invalid": "Khai báo tài nguyên tham chiếu không hợp lệ ({count} mục); hãy sửa references rồi thử lại",
     "reference_asset_missing": "Tài nguyên tham chiếu bị thiếu hoặc không khả dụng: {missing_text}",
     "reference_capability_changed": "Khả năng đã khai báo là {declared}, nhưng tài nguyên thực tế yêu cầu {hydrated}; hãy sửa tài nguyên rồi thử lại",
     "reference_images_clamped": "Số lượng {count} ảnh tham chiếu vượt giới hạn {max_count} của {provider}/{model}; yêu cầu sẽ dùng {max_count} ảnh đầu tiên",
@@ -303,11 +302,11 @@ MESSAGES = {
         "hãy kiểm tra tên hoặc tạo tài sản trước"
     ),
     "ref_warn_unclosed_brace": (
-        "Cảnh {shot}: dấu ngoặc nhọn của lời thoại chưa đóng nên không được nhận là lời thoại, "
+        "Dòng {line}: dấu ngoặc nhọn của lời thoại chưa đóng nên không được nhận là lời thoại, "
         "dòng này sẽ được gửi nguyên văn: {excerpt}…"
     ),
     "ref_warn_braces_not_speech": (
-        "Cảnh {shot}: dấu ngoặc nhọn không được nhận là lời phát ngôn nên sẽ được gửi nguyên văn. "
+        "Dòng {line}: dấu ngoặc nhọn không được nhận là lời phát ngôn nên sẽ được gửi nguyên văn. "
         "Viết lời thoại là @[nhân vật]{{lời thoại}} và lời dẫn là {{lời thoại}}; người nói phải khác "
         "rỗng, dấu ngoặc nhọn phải theo cặp và không lồng nhau"
     ),

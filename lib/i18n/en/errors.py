@@ -66,7 +66,6 @@ MESSAGES = {
     "invalid_storyboard_image_path": "Segment '{segment_id}' has an invalid storyboard image reference; please regenerate the storyboard",
     "invalid_end_frame_image_path": "Segment '{segment_id}' has an invalid end-frame image reference; please capture the end frame again",
     "video_audio_switch_not_supported": "{provider}/{model} always produces audio and cannot be muted; turn the audio switch back on in settings and try again",
-    "reference_declaration_invalid": "The reference declaration is malformed ({count} item(s)); repair references and try again",
     "reference_asset_missing": "Reference assets are missing or unavailable: {missing_text}",
     "reference_capability_changed": "The declared capability is {declared}, but hydrated assets require {hydrated}; repair the assets and try again",
     "reference_images_clamped": "The {count} reference images exceed the {max_count} image limit for {provider}/{model}; the request will use the first {max_count}",
@@ -305,10 +304,10 @@ MESSAGES = {
         "attached. Check the name or create the asset first"
     ),
     "ref_warn_unclosed_brace": (
-        "Shot {shot}: unclosed dialogue braces, not recognized as dialogue. The line is sent verbatim: {excerpt}…"
+        "Line {line}: unclosed dialogue braces, not recognized as dialogue. The line is sent verbatim: {excerpt}…"
     ),
     "ref_warn_braces_not_speech": (
-        "Shot {shot}: braces were not recognized as speech and are sent verbatim. Write dialogue as "
+        "Line {line}: braces were not recognized as speech and are sent verbatim. Write dialogue as "
         "@[character]{{dialogue}} and voice-over as {{dialogue}}; the speaker must be non-empty and "
         "braces must be paired and not nested"
     ),

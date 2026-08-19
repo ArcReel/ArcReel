@@ -26,7 +26,7 @@ from lib.artifact_manifest import (
     decode_artifact_manifest_payload,
     encode_artifact_manifest_payload,
 )
-from lib.asset_types import normalize_asset_name
+from lib.asset_types import asset_name_comparison_key, normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
 from lib.content_digest import digest_stream, sha256_file
 from lib.data_validator import DataValidator
@@ -39,7 +39,9 @@ from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
 from lib.project_schema import project_schema_is_current
+from lib.reference_video.draft_validation import dialogue_speakers
 from lib.reference_video.duration_migration import migrate_unit_durations
+from lib.reference_video.text_parser import extract_mentions
 from lib.resource_paths import resource_extension, resource_relative_path
 from lib.script_skeleton import SKELETONS, resolve_declared_kind, resolve_kind_items
 from lib.source_loader.migration import migrate_project_source_encoding
@@ -1305,7 +1307,7 @@ class ProjectArchiveService:
             if assets_changed:
                 changed = True
 
-            if self._repair_unit_references(
+            if self._repair_unit_mentions(
                 unit,
                 project_payload=project_payload,
                 project_characters=project_characters,
@@ -1348,7 +1350,7 @@ class ProjectArchiveService:
 
         return changed, project_changed
 
-    def _repair_unit_references(
+    def _repair_unit_mentions(
         self,
         unit: dict[str, Any],
         *,
@@ -1361,50 +1363,50 @@ class ProjectArchiveService:
         location_prefix: str,
         diagnostics: ArchiveDiagnostics,
     ) -> bool:
-        """自愈 video_unit.references：缺失角色补占位，缺失场景/道具报阻断。
+        """自愈 video_unit 正文里的 ``@[名称]``：说话人缺定义补占位，其余未解析的只警告。
 
-        与 narration/drama 的 characters/scenes/props 处理对齐——只是引用结构是
-        list[{type, name}]。返回是否补过占位角色（即 project_payload 是否改动）。
+        正文是单元的唯一真相，参考图执行期才解析，未解析的提及只是「这一处不出参考图」，
+        不阻断导入。说话人是例外：``@[角色]{台词}`` 的位置在语法上就断定它是角色，缺定义会
+        让这句台词丢掉声音绑定，故与 narration/drama 同口径补占位角色。
 
-        引用名与 registered 集合的 key 可以是 NFC/NFD 中的任一形态，成员判定一律经
+        名字与 registered 集合的 key 可以是 NFC/NFD 中的任一形态，成员判定一律经
         :func:`_resolve_existing_asset`，与 narration/drama 分支同口径。
+
+        返回是否补过占位角色（即 ``project_payload`` 是否改动）。
         """
-        references = unit.get("references")
-        if not isinstance(references, list):
+        text = unit.get("text")
+        if not isinstance(text, str) or not text.strip():
             return False
 
         project_changed = False
-        missing_by_type: dict[str, set[str]] = {"product": set(), "scene": set(), "prop": set()}
-        for ref in references:
-            if not isinstance(ref, dict):
+        # 说话人先补：``extract_mentions`` 按设计剔除了发声记号内的 speaker 位（说话人不进参考图），
+        # 只出现在 ``{}`` 前的角色因此不在提及列表里，补占位必须另取一遍说话人。
+        for speaker in dialogue_speakers(text):
+            name = asset_name_comparison_key(speaker)
+            if _resolve_existing_asset(name, project_characters) in project_characters:
                 continue
-            ref_name = ref.get("name")
-            if not isinstance(ref_name, str) or not ref_name:
-                continue
-            ref_type = ref.get("type")
-            if ref_type == "character":
-                if self._add_placeholder_character(project_payload, project_characters, ref_name, diagnostics):
-                    project_changed = True
-            elif ref_type in missing_by_type:
-                pool = {"product": project_products, "scene": project_scenes, "prop": project_props}[ref_type]
-                if _resolve_existing_asset(ref_name, pool) not in pool:
-                    missing_by_type[ref_type].add(ref_name)
+            if self._add_placeholder_character(project_payload, project_characters, name, diagnostics):
+                project_changed = True
 
-        for asset_type, missing in missing_by_type.items():
-            if missing:
-                diagnostics.add(
-                    "blocking",
-                    f"missing_{asset_type}_definition",
-                    ValidationMessage(
-                        "arch_unit_missing_asset_definition",
-                        {
-                            "index": index,
-                            "asset_type": MessageRef(f"asset_type_{asset_type}"),
-                            "names": ", ".join(sorted(missing)),
-                        },
-                    ),
-                    location=f"{location_prefix}.references",
-                )
+        unresolved: list[str] = []
+        for name in extract_mentions(text):
+            if any(
+                _resolve_existing_asset(name, pool) in pool
+                for pool in (project_characters, project_scenes, project_props, project_products)
+            ):
+                continue
+            unresolved.append(name)
+
+        if unresolved:
+            diagnostics.add(
+                "warnings",
+                "unresolved_mention",
+                ValidationMessage(
+                    "arch_unit_unresolved_mentions",
+                    {"index": index, "names": ", ".join(sorted(unresolved))},
+                ),
+                location=f"{location_prefix}.text",
+            )
         return project_changed
 
     def _repair_path_to_canonical(

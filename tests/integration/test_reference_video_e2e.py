@@ -4,8 +4,8 @@
   1. 路由 POST /reference-videos/episodes/{ep}/units → unit 创建
   2. POST .../generate → GenerationQueue enqueue（mock）
   3. dispatch 到 execute_reference_video_task
-  4. executor 解析 3 bucket 的 references（character + scene + prop）
-  5. shot_parser 多 shot 解析 + `@mention` → `[图N]` 渲染正确性
+  4. executor 从正文派生 3 bucket 的参考图（character + scene + prop）
+  5. 正文多行解析 + `@mention` → 主体记号渲染正确性
   6. mp4 + thumbnail 落盘
   7. generated_assets.status / video_clip / video_thumbnail 写回
 """
@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.artifact_activation import activate_artifact_target_state
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import fake_reference_request_projector
@@ -93,6 +94,9 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         encoding="utf-8",
     )
     assert activate_artifact_target_state(proj_dir, bump_schema=True) is True
+    activated = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    activated["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
+    (proj_dir / "project.json").write_text(json.dumps(activated, ensure_ascii=False), encoding="utf-8")
 
     from lib.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -117,34 +121,22 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.asyncio
-async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
+async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_client):
     client, proj_dir, monkeypatch = three_bucket_client
 
-    # 1) 新建 unit：混合 3 bucket mention + 多 shot
+    # 1) 新建 unit：正文混合 3 bucket mention、跨多行
     prompt = "镜头1：@张三 推门进 @酒馆\n镜头2：近景 @张三 握紧 @长剑\n"
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={
-            "prompt": prompt,
-            "duration_seconds": 7,
-            "references": [
-                {"type": "character", "name": "张三"},
-                {"type": "scene", "name": "酒馆"},
-                {"type": "prop", "name": "长剑"},
-            ],
-        },
+        json={"prompt": prompt, "duration_seconds": 7},
     )
     assert resp.status_code == 201, resp.text
     unit = resp.json()["unit"]
     uid = unit["unit_id"]
 
-    # shot_parser 落地 shots[]
-    assert len(unit["shots"]) == 2
+    # 正文原样落盘，参考图按正文读时派生
+    assert unit["text"] == prompt
     assert unit["duration_seconds"] == 7
-    ref_names = {r["name"] for r in unit["references"]}
-    assert ref_names == {"张三", "酒馆", "长剑"}
-    ref_types = {(r["type"], r["name"]) for r in unit["references"]}
-    assert ref_types == {("character", "张三"), ("scene", "酒馆"), ("prop", "长剑")}
 
     # 2) generate 入队（mock queue）
     captured: dict = {}
@@ -164,7 +156,7 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
     assert captured["task_type"] == "reference_video"
     assert captured["resource_id"] == uid
 
-    # 3) mock backend：校验 prompt 里 @ 已替换为 [图N]，references 顺序决定编号
+    # 3) mock backend：校验 prompt 里 @ 已替换为主体记号，正文提及顺序决定编号
     captured_backend_kwargs: dict = {}
 
     async def _fake_generate_video_async(**kwargs):
@@ -220,7 +212,7 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
         }
     )
 
-    # 5) 断言三段论渲染：第一段按 references 顺序绑定，正文 @mention 全部替成 <X>
+    # 5) 断言三段论渲染：第一段按正文提及顺序绑定，正文 @mention 全部替成 <X>
     rendered = captured_backend_kwargs["prompt"]
     assert rendered.startswith("<张三>@图片1、<酒馆>@图片2、<长剑>@图片3。")
     assert "@张三" not in rendered  # 所有 @ 已替换
@@ -253,14 +245,7 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
 
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={
-            "prompt": "Shot 1 (3s): @张三 进 @酒馆",
-            "duration_seconds": 3,
-            "references": [
-                {"type": "character", "name": "张三"},
-                {"type": "scene", "name": "酒馆"},
-            ],
-        },
+        json={"prompt": "@张三 进 @酒馆", "duration_seconds": 3},
     )
     uid = resp.json()["unit"]["unit_id"]
 

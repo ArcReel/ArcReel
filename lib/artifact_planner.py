@@ -61,7 +61,16 @@ from lib.visual_artifact_provenance import (
     visual_file_digest,
 )
 
-TARGET_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
+#: 清单激活把项目提升到的版本。它是 v7→v8 这一步的落点，与「项目是否为当前版本」是两件事：
+#: 后者随 ``CURRENT_PROJECT_SCHEMA_VERSION`` 走，把两者绑成一个常量会让每次 schema 升版都
+#: 悄悄改掉迁移链中间那一步的前置条件，存量 v7 项目从此迁不动。
+ARTIFACT_MANIFEST_SCHEMA_VERSION = 8
+
+#: 允许跑清单激活的版本：迁移途中的 v7（此后由激活提升到 v8），以及已经走完迁移链的当前版本
+#: 区间（归档导入在 ``migrate_project_dir`` 之后才激活，看到的是当前版本）。
+_ACTIVATION_SCHEMA_VERSIONS = frozenset(
+    {ARTIFACT_MANIFEST_SCHEMA_VERSION - 1, *range(ARTIFACT_MANIFEST_SCHEMA_VERSION, CURRENT_PROJECT_SCHEMA_VERSION + 1)}
+)
 
 
 _GRID_RECORD_RE = re.compile(r"grid_[0-9a-f]{12}\.json\Z")
@@ -162,8 +171,10 @@ class TargetStatePlanner:
 
     def plan(self) -> ArtifactTargetStatePlan:
         schema = parse_project_schema_version(self.project)
-        if schema not in {TARGET_SCHEMA_VERSION - 1, TARGET_SCHEMA_VERSION}:
-            raise ValueError(f"artifact activation requires schema 7 or 8, got {schema!r}")
+        if schema not in _ACTIVATION_SCHEMA_VERSIONS:
+            raise ValueError(
+                f"artifact activation requires schema in {sorted(_ACTIVATION_SCHEMA_VERSIONS)}, got {schema!r}"
+            )
 
         self._activation_mode = True
         try:

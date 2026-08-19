@@ -8,12 +8,11 @@
 - **第一段**：``<X>@图片N`` 简式绑定（图片编号 = 随请求发出的参考图顺序）+ 声音声明集中
   声明区（``<X>的台词音色参考 @音频N，声音特征：…``）。听得到声音的 A/B 类均注入声音特征，
   两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入
-- **第二段**：镜头分镜段 + 发声记号（``<X>说 {台词}`` / ``画外音说 {台词}``）
+- **第二段**：单元正文 + 发声记号（``<X>说 {台词}`` / ``画外音说 {台词}``）
 - **第三段**：风格锚定 + 画质/稳定/字幕/水印约束包（本路径的反向约束全部由它承担，不另加
   尾词）；两个及以上角色参考图时补双胞胎兜底
 
-所有内容模式的输入均是 unit 书写层自由文本，书写层只写第二段
-（``镜头N：`` 分镜段，首个 header 之前的开场定调折进镜头 1），主体绑定经
+所有内容模式的输入均是 unit 正文这一段自由文本，正文只写第二段；主体绑定与参考图顺序都经
 ``@[X]`` mention 解析派生（:func:`render_unit_prompt`）。文本不含绝对秒数，时长走请求字段。
 """
 
@@ -33,10 +32,9 @@ from lib.reference_video.script_preview import (
     derive_utterances,
     derive_voice_bindings,
 )
-from lib.reference_video.shot_parser import (
-    assemble_shots_text,
-    assemble_shots_text_for_render,
-    parse_prompt,
+from lib.reference_video.text_parser import (
+    derive_references_from_text,
+    extract_mentions,
     render_mentions_as_subjects,
     resolve_references,
     split_speech_line,
@@ -106,8 +104,8 @@ def render_unit_prompt(
 
     ``references`` 是**实际随请求发出**的参考图列表（已按能力上限裁剪），其顺序即
     ``图片N`` 编号——与 ``reference_images`` 严格等长同序，被裁掉的名字退化为原文不产生
-    悬空绑定。文稿派生出的参考图顺序（``@mention`` 首现、台词记号的 speaker 位不计入）
-    由上游持久化，本函数只消费不重算。
+    悬空绑定。参考图顺序由调用方从同一份正文派生（``@mention`` 首现、台词记号的 speaker 位
+    不计入），本函数只消费不重算。
 
     ``settings`` 是渲染所用的声音输入档（见 :class:`~lib.reference_video.voice_settings
     .VoiceRenderSettings`），必填无兜底：这一档决定这一集听不听得到声音，缺省成任何一个方向都是
@@ -123,8 +121,8 @@ def render_unit_prompt(
 
     warning 与解析预览面板同一批 ``{key, params}`` 条目，由调用方并入任务 ``result.warnings``。
     """
-    shots, mentions = parse_prompt(text)
-    utterances, warnings = derive_utterances(shots)
+    mentions = extract_mentions(text)
+    utterances, warnings = derive_utterances(text)
 
     # ``references`` 是入参（上游持久化的派生结果），其名字以哪种编码形式落盘不可控；正文一侧
     # 出自解析器、已归一。两侧同形，主体记号与图号才对得上——不归一时该角色的绑定行会缺位、
@@ -153,7 +151,7 @@ def render_unit_prompt(
 
     segments = [
         _render_segment_one([ref.name for ref in references], bindings.speakers, audio_no, characters, settings),
-        _render_segment_two(shots, subjects, characters),
+        _render_segment_two(text, subjects, characters),
         _render_segment_three(sum(1 for ref in references if ref.type == "character"), style),
     ]
     prompt = "\n\n".join(seg for seg in segments if seg)
@@ -174,16 +172,15 @@ def render_video_unit_prompt(
 ) -> RenderedUnitPrompt:
     """Render the exact reference-video prompt from one current projected unit."""
 
-    shots = unit.get("shots") or []
-    if not assemble_shots_text(shots).strip():
-        raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
+    raw_text = unit.get("text")
+    text = raw_text if isinstance(raw_text, str) else ""
+    if not text.strip():
+        raise ValueError("reference video unit prompt is empty: text is blank")
     references = request_references
     if references is None:
-        references = [
-            ReferenceResource(type=item["type"], name=item["name"]) for item in (unit.get("references") or [])
-        ]
+        references, _missing = derive_references_from_text(text, project)
     rendered = render_unit_prompt(
-        assemble_shots_text_for_render(shots),
+        text,
         project,
         references,
         settings,
@@ -271,36 +268,33 @@ def _render_segment_one(
     return "\n".join(lines)
 
 
-def _render_segment_two(shots: list[Any], subjects: Collection[str], characters: dict) -> str:
-    """镜头分镜段：画面描述做 mention 替换，发声记号就地重组为官方句式。
+def _render_segment_two(text: str, subjects: Collection[str], characters: dict) -> str:
+    """单元正文段：画面描述做 mention 替换，发声记号就地重组为官方句式。
 
     ``subjects`` 是已登记的 mention 名（未经能力上限裁剪）——主体记号 ``<X>`` 表达「画面里的
     这个人 / 物」，不指向图号，故与参考图编号解耦：裁掉图的名字照样是主体，只有未登记的
     mention 才留编辑器原文（配 ``ref_warn_unregistered_mention``）。
 
-    记号可写在行内任意位置，重组按位置就地替换、描述部分留在原处，一行的行文顺序因此原样
-    传达给供应商。说话人按**资产表**判定而非参考图列表：纯画外角色无参考图，台词照常重组。
-    未登记的说话人按原文发送（warning 已由 :func:`derive_voice_bindings` 发出），未被识别成
-    记号的花括号同样原样发送——不做剥除，作者能在成片里看见自己写坏的那一段。
+    正文逐行原样渲染，不再重排或加分段前缀：正文是作者写下的唯一真相，行文顺序即传达顺序。
+    记号可写在行内任意位置，重组按位置就地替换、描述部分留在原处。说话人按**资产表**判定
+    而非参考图列表：纯画外角色无参考图，台词照常重组。未登记的说话人按原文发送（warning 已由
+    :func:`derive_voice_bindings` 发出），未被识别成记号的花括号同样原样发送——不做剥除，
+    作者能在成片里看见自己写坏的那一段。
     """
-    blocks: list[str] = []
-    for index, shot in enumerate(shots, start=1):
-        body: list[str] = []
-        for line in shot.text.splitlines():
-            pieces: list[str] = []
-            for part in split_speech_line(line):
-                if isinstance(part, str):
-                    pieces.append(render_mentions_as_subjects(part, subjects))
-                elif not part.speaker:
-                    pieces.append(f"画外音说 {{{part.text}}}")
-                elif part.speaker in characters:
-                    pieces.append(f"<{part.speaker}>说 {{{part.text}}}")
-                else:
-                    pieces.append(render_mentions_as_subjects(part.raw, subjects))
-            body.append("".join(pieces))
-        text = "\n".join(ln for ln in body if ln.strip())
-        blocks.append(f"镜头{index}：\n{text}" if text else f"镜头{index}：")
-    return "\n\n".join(blocks)
+    lines: list[str] = []
+    for line in text.splitlines():
+        pieces: list[str] = []
+        for part in split_speech_line(line):
+            if isinstance(part, str):
+                pieces.append(render_mentions_as_subjects(part, subjects))
+            elif not part.speaker:
+                pieces.append(f"画外音说 {{{part.text}}}")
+            elif part.speaker in characters:
+                pieces.append(f"<{part.speaker}>说 {{{part.text}}}")
+            else:
+                pieces.append(render_mentions_as_subjects(part.raw, subjects))
+        lines.append("".join(pieces))
+    return "\n".join(line for line in lines if line.strip())
 
 
 def _render_segment_three(character_reference_count: int, style: str | None) -> str:

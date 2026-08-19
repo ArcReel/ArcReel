@@ -235,7 +235,7 @@ def insert_segment_tool(ctx: ToolContext):
         "insert_segment",
         "在指定分镜 id 之后插入一个新分镜（segment/scene/unit）。新分镜由你提供完整内容，"
         "其 id 由系统分配（派生自锚点 id 的稳定后缀，不重排其余分镜），资产为空待生成。"
-        "reference 模式插入的是 video_unit（含 shots）。",
+        "reference 模式插入的是 video_unit（正文写在 text 字段）。",
         {
             "type": "object",
             "properties": {
@@ -315,7 +315,7 @@ def split_segment_tool(ctx: ToolContext):
         "（锚点延续,与 insert_segment 资产保留语义对齐）;其余分配稳定的派生 id 且 generated_assets "
         "清空,需重新生成。只想微调原分镜内容请用 patch_episode_script——split 适合"
         "「这一镜信息量太大,拆成 N 镜分别表达」这类身份变化的场景。reference 模式下 unit 的 "
-        "duration_seconds 是独立字段（不由 shots 派生），拆分后每份都要给出符合模型档位的值。",
+        "duration_seconds 是独立字段（不由正文长度派生），拆分后每份都要给出符合模型档位的值。",
         {
             "type": "object",
             "properties": {

@@ -30,7 +30,6 @@ from lib.generation_queue import (
 from lib.narration_delivery import USE_TTS
 from lib.path_safety import safe_join
 from lib.reference_video.artifact_selection import CurrentReferenceAssets
-from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     ProviderMediaInput,
@@ -52,12 +51,12 @@ from lib.reference_video.request_projection import (
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
-    canonicalize_references,
     clamp_reference_assets,
     hydrate_reference_assets,
     reference_audio_model_facts,
     resolve_reference_assets,
     strict_reference_durations,
+    unit_reference_declarations,
 )
 from lib.reference_video.units import reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
@@ -90,17 +89,6 @@ from server.services.video_caps import project_video_caps
 logger = logging.getLogger(__name__)
 
 
-def _dedupe_typed_references(references: list[dict]) -> list[dict]:
-    """按 (type, 归一名) 去重 reference 字典，保留首次出现顺序。
-
-    PATCH 接口只校验每条 reference 已登记，不校验数组内互相去重：同一资产可能以 NFC/NFD
-    两条等价记录同时留在 unit.references 里。参考图解析（``_resolve_unit_references``）与
-    prompt 渲染前的裁剪必须共用同一份去重结果——否则图片列表与逻辑引用列表长度不一致，
-    ``@图片N`` 的编号会与实际图片错位、按图号绑定的参考音频也会挂到错的图上。
-    """
-    return [reference.model_dump() for reference in canonicalize_references(references)]
-
-
 ResolvedReferenceImage = ResolvedReferenceAsset
 
 
@@ -112,46 +100,6 @@ async def _stage_provider_media_for_task(
     """Bind the shared cancellation-safe staging operation to this module's patchable sync seam."""
 
     return await stage_provider_media_for_task(project_path, task_id, inputs, stage=stage_provider_media)
-
-
-def _resolve_unit_reference_entries(
-    project: dict,
-    project_path: Path,
-    references: list[dict],
-) -> list[ResolvedReferenceImage]:
-    """把逻辑引用展开成请求图片条目；产品使用 sheet + 原图保真注入规则。
-
-    逻辑引用先按 product → character → scene → prop 稳定排序并按类型+归一名去重。产品
-    sheet 与原图均不可用、或其它资产缺少可用 sheet 时统一 fail loud：``video_units`` 的
-    references 是自包含的显式执行契约，不应静默把有参考的单元降成纯文本生成。
-    """
-    unit = {"references": references}
-    declared = canonicalize_references(references)
-    candidates = resolve_reference_assets(project, project_path, unit)
-    availability = CurrentReferenceAssets(project_path, project)
-    entries = [entry for entry in candidates if availability.is_available(entry)]
-    available_keys = {(entry.reference.type, entry.reference.name) for entry in entries}
-    missing: list[tuple[str, str | None]] = [
-        (reference.type, reference.name)
-        for reference in declared
-        if (reference.type, reference.name) not in available_keys
-    ]
-    if missing:
-        raise MissingReferenceError(missing=missing)
-    return entries
-
-
-def _resolve_unit_references(
-    project: dict,
-    project_path: Path,
-    references: list[dict],
-) -> list[Path]:
-    """兼容路径列表调用方；产品逻辑引用会展开成 sheet + 原图。
-
-    Raises:
-        MissingReferenceError: 任一 reference 没有可用参考图片。
-    """
-    return [entry.path for entry in _resolve_unit_reference_entries(project, project_path, references)]
 
 
 def _render_unit_prompt(
@@ -173,11 +121,6 @@ def _render_unit_prompt(
     机器生成的第一/三段撑成非空文本绕过 backend 的空值保护、白白消耗付费配额。检查落在
     *书写层文本*而非渲染结果上——三段论渲染恒产出非空第三段，渲染后已无从判别。
 
-    空检查用 ``assemble_shots_text``（不注入 header，空 shots 拼接结果仍为空）；渲染用
-    ``assemble_shots_text_for_render``（按数组位置重新注入规范 header），因为
-    ``parse_prompt`` 只认文本里的 header 切分镜头，而经解析预览面板编辑回写的 unit，
-    其 ``shots[*].text`` 普遍已不带 header——两个以上镜头裸拼接后会被重新解析成一个镜头，
-    丢失第二段的分镜结构。
     """
     return render_video_unit_prompt(
         unit,
@@ -235,7 +178,7 @@ def effective_reference_durations(
     执行期必然被拒的秒数（如 Veo 3.1 带参考图只接受 8 秒，5 秒剧本按全集取档得 6 秒），
     取档预览也会向用户展示这个申请不到的秒数，因此要先收窄再取档。
 
-    ``with_reference_images`` 为 false 时不施加参考图约束：单元可以声明空 references，
+    ``with_reference_images`` 为 false 时不施加参考图约束：单元正文可以不提及任何资产，
     backend 同样只在 ``reference_images`` 非空时施加该约束——无图单元
     套用它会把 720p 下本可申请的 4 秒错误抬到 8 秒。
 
@@ -405,7 +348,7 @@ async def execute_reference_video_task(
 
     project, project_path, script, unit, script_input = await asyncio.to_thread(_load)
 
-    declared_references = canonicalize_references(unit.get("references"))
+    declared_references = unit_reference_declarations(project, unit)
     resolved_assets = resolve_reference_assets(project, project_path, unit)
     asset_availability = CurrentReferenceAssets(project_path, project)
     hydration = hydrate_reference_assets(declared_references, resolved_assets, asset_availability)

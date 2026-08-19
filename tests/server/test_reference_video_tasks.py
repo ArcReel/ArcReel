@@ -12,7 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from lib.reference_video.errors import MissingReferenceError
+from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
+from lib.reference_video.request_projection import resolve_reference_assets
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_models import ReferenceResource
 from server.services.reference_video_tasks import (
@@ -20,8 +21,6 @@ from server.services.reference_video_tasks import (
     ProjectDurationContext,
     _clamp_resolved_reference_images,
     _render_unit_prompt,
-    _resolve_unit_reference_entries,
-    _resolve_unit_references,
     default_unit_duration,
     effective_reference_durations,
 )
@@ -63,11 +62,7 @@ def _write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"text": "@张三 推门"}],
-                "references": [
-                    {"type": "character", "name": "张三"},
-                    {"type": "scene", "name": "酒馆"},
-                ],
+                "text": "@张三 推门，走进 @酒馆",
                 "duration_seconds": 3,
                 "transition_to_next": "cut",
                 "note": None,
@@ -114,7 +109,7 @@ def _register_asset_sheet(proj_dir: Path, asset_type: str, name: str, relative_p
 
 
 def _activate_project_manifest(proj_dir: Path, *, register_script: bool = True) -> None:
-    """Activate the fixture through the production v7 -> v8 boundary."""
+    """Activate the fixture through the production v7 -> v8 boundary, then finish the chain."""
 
     from lib.artifact_activation import activate_artifact_target_state
     from lib.artifact_manifest import (
@@ -129,6 +124,8 @@ def _activate_project_manifest(proj_dir: Path, *, register_script: bool = True) 
     project["schema_version"] = 7
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     assert activate_artifact_target_state(proj_dir, bump_schema=True) is True
+    # 清单激活只落到 v8；产物读写要求当前 schema，故补齐剩余迁移。
+    migrate_v8_to_v9(proj_dir)
     if register_script:
         ArtifactManifest(ProjectArtifactManifestAdapter(proj_dir)).register(
             ArtifactKey.episode_script(1),
@@ -244,24 +241,27 @@ def _wire_locked_script(fake_pm: MagicMock) -> None:
     fake_pm.locked_script.side_effect = _locked
 
 
+def _resolved_names(project: dict, proj_dir: Path, text: str) -> list[str]:
+    return [asset.path.name for asset in resolve_reference_assets(project, proj_dir, {"text": text})]
+
+
 @pytest.mark.unit
-def test_resolve_unit_references_maps_sheets(tmp_path: Path):
+def test_resolve_reference_assets_maps_sheets(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, unit = _load_project_and_unit(proj_dir, "E1U1")
-    resolved = _resolve_unit_references(project, proj_dir, unit["references"])
-    assert [p.name for p in resolved] == ["张三.png", "酒馆.png"]
+    assert _resolved_names(project, proj_dir, unit["text"]) == ["张三.png", "酒馆.png"]
 
 
 @pytest.mark.unit
-def test_product_references_expand_to_sheet_and_originals_then_clamp_sheets_first(tmp_path: Path):
-    """产品是一条逻辑引用、多张请求图片；超限时各产品 sheet 跨产品优先存活。"""
+def test_product_reference_uses_its_sheet_without_type_priority(tmp_path: Path):
+    """商品与其它资产同一条规则：有资产图就只用资产图，且不排到提及顺序之前。"""
     proj_dir = _write_project(tmp_path)
     project, _unit = _load_project_and_unit(proj_dir, "E1U1")
     products_dir = proj_dir / "products"
     refs_dir = products_dir / "refs"
     refs_dir.mkdir(parents=True)
     image = (proj_dir / "characters" / "张三.png").read_bytes()
-    for filename in ("甲-sheet.png", "甲-original.png", "乙-sheet.png", "乙-original.png"):
+    for filename in ("甲-sheet.png", "甲-original.png"):
         target_dir = refs_dir if "original" in filename else products_dir
         (target_dir / filename).write_bytes(image)
     project["products"] = {
@@ -270,43 +270,39 @@ def test_product_references_expand_to_sheet_and_originals_then_clamp_sheets_firs
             "product_sheet": "products/甲-sheet.png",
             "reference_images": ["products/refs/甲-original.png"],
         },
-        "产品乙": {
-            "description": "x",
-            "product_sheet": "products/乙-sheet.png",
-            "reference_images": ["products/refs/乙-original.png"],
-        },
     }
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     _register_asset_sheet(proj_dir, "product", "产品甲", "products/甲-sheet.png")
-    _register_asset_sheet(proj_dir, "product", "产品乙", "products/乙-sheet.png")
-    entries = _resolve_unit_reference_entries(
-        project,
-        proj_dir,
-        [
-            {"type": "character", "name": "张三"},
-            {"type": "product", "name": "产品甲"},
-            {"type": "product", "name": "产品乙"},
-        ],
-    )
 
-    assert [entry.path.name for entry in entries] == [
-        "甲-sheet.png",
-        "甲-original.png",
-        "乙-sheet.png",
-        "乙-original.png",
-        "张三.png",
-    ]
+    assert _resolved_names(project, proj_dir, "@[张三] 拿起 @[产品甲]") == ["张三.png", "甲-sheet.png"]
+
+
+@pytest.mark.unit
+def test_clamp_keeps_the_first_mentions_without_type_priority(tmp_path: Path):
+    """超上限时按正文提及顺序截断，并附一条超限 warning。"""
+    proj_dir = _write_project(tmp_path)
+    project, _unit = _load_project_and_unit(proj_dir, "E1U1")
+    products_dir = proj_dir / "products"
+    products_dir.mkdir(exist_ok=True)
+    image = (proj_dir / "characters" / "张三.png").read_bytes()
+    (products_dir / "甲-sheet.png").write_bytes(image)
+    project["products"] = {"产品甲": {"description": "x", "product_sheet": "products/甲-sheet.png"}}
+    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _register_asset_sheet(proj_dir, "product", "产品甲", "products/甲-sheet.png")
+
+    entries = list(resolve_reference_assets(project, proj_dir, {"text": "@[张三] 在 @[酒馆] 拿起 @[产品甲]"}))
     clamped, warnings = _clamp_resolved_reference_images(
         entries,
         2,
         provider="custom-openai",
         model="video-model",
     )
-    assert [entry.path.name for entry in clamped] == ["甲-sheet.png", "乙-sheet.png"]
+
+    assert [entry.path.name for entry in clamped] == ["张三.png", "酒馆.png"]
     assert warnings == [
         {
             "key": "ref_too_many_images",
-            "params": {"count": 5, "model": "video-model", "max_count": 2},
+            "params": {"count": 3, "model": "video-model", "max_count": 2},
         }
     ]
 
@@ -326,41 +322,23 @@ def test_product_reference_with_original_only_is_executable(tmp_path: Path):
         }
     }
 
-    entries = _resolve_unit_reference_entries(
-        project,
-        proj_dir,
-        [{"type": "product", "name": "产品甲"}],
-    )
+    entries = resolve_reference_assets(project, proj_dir, {"text": "@[产品甲] 出现"})
 
     assert [entry.path.name for entry in entries] == ["original.png"]
     assert entries[0].kind == "original"
 
 
 @pytest.mark.unit
-def test_resolve_unit_references_missing_sheet_raises(tmp_path: Path):
-    proj_dir = _write_project(tmp_path)
-    project, unit = _load_project_and_unit(proj_dir, "E1U1")
-    # 删掉 character sheet，模拟未生成的情况
-    (proj_dir / "characters" / "张三.png").unlink()
-    with pytest.raises(MissingReferenceError) as excinfo:
-        _resolve_unit_references(project, proj_dir, unit["references"])
-    assert ("character", "张三") in excinfo.value.missing
-
-
-@pytest.mark.unit
-def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
+def test_resolve_reference_assets_ignores_an_unregistered_mention(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, _ = _load_project_and_unit(proj_dir, "E1U1")
-    bad_refs = [{"type": "prop", "name": "不存在的道具"}]
-    with pytest.raises(MissingReferenceError) as excinfo:
-        _resolve_unit_references(project, proj_dir, bad_refs)
-    assert ("prop", "不存在的道具") in excinfo.value.missing
+
+    assert _resolved_names(project, proj_dir, "@[不存在的道具] 掉在地上") == []
 
 
 @pytest.mark.integration
-def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(tmp_path: Path):
-    """资产以 NFD key 登记、unit.references 存的是解析器归一后的 NFC name：解析必须仍能命中，
-    否则 draft 校验放行（判「已登记」）而执行层查不到，会晚至生成时才响 MissingReferenceError。"""
+def test_resolve_reference_assets_resolves_nfd_registered_name_by_nfc_mention(tmp_path: Path):
+    """资产以 NFD key 登记、正文写的是解析器归一后的 NFC 名字：解析须仍能命中。"""
     import unicodedata
 
     name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -373,27 +351,12 @@ def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(t
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     _register_asset_sheet(proj_dir, "character", name_nfd, "characters/hieu.png")
 
-    refs = [{"type": "character", "name": name_nfc}]
-    resolved = _resolve_unit_references(project, proj_dir, refs)
-    assert [p.name for p in resolved] == ["hieu.png"]
+    assert _resolved_names(project, proj_dir, f"@[{name_nfc}] 推门") == ["hieu.png"]
 
 
 @pytest.mark.integration
-def test_resolve_unit_references_strips_reference_name(tmp_path: Path):
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
-
-    refs = [{"type": "character", "name": " 张三 "}]
-    resolved = _resolve_unit_references(project, proj_dir, refs)
-
-    assert [p.name for p in resolved] == ["张三.png"]
-
-
-@pytest.mark.integration
-def test_resolve_unit_references_dedupes_nfc_nfd_pair(tmp_path: Path):
-    """unit.references 携带同一角色的 NFC/NFD 两条记录（PATCH 不做数组内去重）：解析须按
-    类型+归一名去重为一条，否则裁剪参考图时会把同一张图计入两个参考名额，
-    挤掉后面一条真正不同的参考、且给 provider 发送重复图片。"""
+def test_resolve_reference_assets_dedupes_a_repeated_mention(tmp_path: Path):
+    """同一资产在正文里被提及两次只占一个参考图名额，不给 provider 发重复图片。"""
     import unicodedata
 
     name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -406,43 +369,25 @@ def test_resolve_unit_references_dedupes_nfc_nfd_pair(tmp_path: Path):
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     _register_asset_sheet(proj_dir, "character", name_nfc, "characters/hieu.png")
 
-    refs = [{"type": "character", "name": name_nfc}, {"type": "character", "name": name_nfd}]
-    resolved = _resolve_unit_references(project, proj_dir, refs)
-    assert [p.name for p in resolved] == ["hieu.png"]
+    assert _resolved_names(project, proj_dir, f"@[{name_nfc}] 推门，@[{name_nfd}] 回头") == ["hieu.png"]
 
 
 @pytest.mark.unit
-def test_render_unit_prompt_rejects_empty_shots():
+def test_render_unit_prompt_rejects_empty_text():
     """执行层保留一道防御性空检查：提示词源是可变 script、执行期重读，结构校验上移到
     入队守卫点后仍需挡住「入队后被改空 / 在途遗留任务」漏过的空提示词，避免尾词追加后
     被当成有效 prompt 提交给付费 backend。"""
-    unit = {
-        "shots": [
-            {"text": ""},
-            {"text": "   "},
-        ],
-        "references": [{"type": "character", "name": "张三"}],
-    }
     with pytest.raises(ValueError, match="empty"):
         _render_unit_prompt(
-            unit,
+            {"text": "   \n  "},
             {},
             VoiceRenderSettings(model_id="m", audio_ready=set()),
         )
 
 
 @pytest.mark.unit
-def test_render_unit_prompt_binds_subjects_in_reference_order():
-    unit = {
-        "shots": [
-            {"text": "镜头1：@张三 推门"},
-            {"text": "镜头2：对面的 @张三 抬眼，背景是 @酒馆"},
-        ],
-        "references": [
-            {"type": "character", "name": "张三"},
-            {"type": "scene", "name": "酒馆"},
-        ],
-    }
+def test_render_unit_prompt_binds_subjects_in_first_mention_order():
+    unit = {"text": "镜头1：@张三 推门\n镜头2：对面的 @张三 抬眼，背景是 @酒馆"}
     project = {"characters": {"张三": {}}, "scenes": {"酒馆": {}}}
     rendered = _render_unit_prompt(
         unit,
@@ -451,18 +396,13 @@ def test_render_unit_prompt_binds_subjects_in_reference_order():
     )
     assert "<张三>@图片1、<酒馆>@图片2。" in rendered.prompt
     assert "@张三" not in rendered.prompt
-    # [图N] 对照表已废除
     assert "[图1]" not in rendered.prompt
 
 
 @pytest.mark.unit
 def test_render_unit_prompt_binds_all_product_images_and_adds_fidelity_guard():
-    unit = {
-        "shots": [{"text": "镜头1：@[产品甲] 出现在画面中央"}],
-        "references": [{"type": "product", "name": "产品甲"}],
-    }
     rendered = _render_unit_prompt(
-        unit,
+        {"text": "镜头1：@[产品甲] 出现在画面中央"},
         {"products": {"产品甲": {}}},
         VoiceRenderSettings(model_id="m", audio_ready=set()),
         request_references=[
@@ -473,29 +413,6 @@ def test_render_unit_prompt_binds_all_product_images_and_adds_fidelity_guard():
 
     assert "<产品甲>@图片1、<产品甲>@图片2。" in rendered.prompt
     assert "产品高保真还原（最高优先级" in rendered.prompt
-
-
-@pytest.mark.unit
-def test_render_unit_prompt_preserves_shot_boundaries_when_shots_lack_headers():
-    """经解析预览面板编辑回写的 unit，``shots[*].text`` 不带 ``镜头N：`` header——
-    渲染仍须按数组结构切成对应数量的镜头，不能因裸拼接后找不到 header 被折叠成一镜头。"""
-    unit = {
-        "shots": [
-            {"text": "@张三 推门而入。"},
-            {"text": "他环顾四周。"},
-            {"text": "他坐下。"},
-        ],
-        "references": [{"type": "character", "name": "张三"}],
-    }
-    project = {"characters": {"张三": {}}}
-    rendered = _render_unit_prompt(
-        unit,
-        project,
-        VoiceRenderSettings(model_id="m", audio_ready=set()),
-    )
-    assert "镜头1：\n<张三> 推门而入。" in rendered.prompt
-    assert "镜头2：\n他环顾四周。" in rendered.prompt
-    assert "镜头3：\n他坐下。" in rendered.prompt
 
 
 @pytest.mark.unit
@@ -728,7 +645,7 @@ async def test_execute_reference_video_task_rejects_changed_claim_provider_befor
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_blocks_malformed_references_before_submission(
+async def test_execute_reference_video_task_blocks_a_dirty_text_before_submission(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     from server.services import reference_video_tasks as rvt
@@ -736,7 +653,7 @@ async def test_execute_reference_video_task_blocks_malformed_references_before_s
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["references"].append("bad-entry")
+    script["video_units"][0]["text"] = 42
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     fake_pm = MagicMock()
@@ -757,7 +674,7 @@ async def test_execute_reference_video_task_blocks_malformed_references_before_s
         backend_model="doubao-seedance-2-0-260128",
     )
 
-    with pytest.raises(ValueError, match="reference_declaration_invalid"):
+    with pytest.raises(ValueError, match="needs replanning"):
         await rvt.execute_reference_video_task(
             "demo",
             "E1U1",
@@ -770,9 +687,9 @@ async def test_execute_reference_video_task_blocks_malformed_references_before_s
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("strip_references", "expected_capability"), [(False, "r2v"), (True, "i2v")])
+@pytest.mark.parametrize(("strip_mentions", "expected_capability"), [(False, "r2v"), (True, "i2v")])
 async def test_execute_reference_video_task_bucket_follows_resolved_references(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, strip_references: bool, expected_capability: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, strip_mentions: bool, expected_capability: str
 ):
     """执行侧按解析后的实际参考图分流定桶：有参考图 → r2v，无参考图退化镜头 → i2v。
 
@@ -780,11 +697,10 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
     退化镜头——若恒声明 r2v，这类镜头执行期必以 video_reference_images_required 失败。
     """
     proj_dir = _write_project(tmp_path)
-    if strip_references:
+    if strip_mentions:
         script_path = proj_dir / "scripts" / "episode_1.json"
         script = json.loads(script_path.read_text(encoding="utf-8"))
-        script["video_units"][0]["references"] = []
-        script["video_units"][0]["shots"] = [{"text": "空镜头，推门而入"}]
+        script["video_units"][0]["text"] = "空镜头，推门而入"
         script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services import reference_video_tasks as rvt
@@ -868,10 +784,7 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [
-        {"text": "@[张三] 推门而入。\n@[李四]：{你终于来了。}\n@[张三]：{今晚的酒，我请。}"}
-    ]
-    script["video_units"][0]["references"] = [{"type": "character", "name": "张三"}]
+    script["video_units"][0]["text"] = "@[张三] 推门而入。\n@[李四]：{你终于来了。}\n@[张三]：{今晚的酒，我请。}"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services import reference_video_tasks as rvt
@@ -969,8 +882,7 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [{"text": "@[张三] 推门而入。\n@[张三]：{今晚的酒，我请。}"}]
-    script["video_units"][0]["references"] = [{"type": "character", "name": "张三"}]
+    script["video_units"][0]["text"] = "@[张三] 推门而入。\n@[张三]：{今晚的酒，我请。}"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services import reference_video_tasks as rvt
@@ -1098,15 +1010,11 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [
-        {"text": "@[张三] 推门而入。\n@[李四]：{你终于来了。}\n@[张三]：{今晚的酒，我请。}"}
-    ]
-    # 场景排在张三之前：references[0]=酒馆（下标0），references[1]=张三（下标1）——
+    # 场景先于张三被提及：图片顺序是酒馆（下标0）、张三（下标1）——
     # 音频顺序（李四先开口→张三）与图片顺序不同序，位置对齐会把音频错挂到酒馆图上。
-    script["video_units"][0]["references"] = [
-        {"type": "scene", "name": "酒馆"},
-        {"type": "character", "name": "张三"},
-    ]
+    script["video_units"][0]["text"] = (
+        "@[酒馆] 内景。@[张三] 推门而入。\n@[李四]：{你终于来了。}\n@[张三]：{今晚的酒，我请。}"
+    )
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services import reference_video_tasks as rvt
@@ -1150,8 +1058,8 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
 
     # 李四没有参考图（纯画外），降级不绑定：只剩张三一段音频
     assert [p.name for p in captured["reference_audio_files"]] == ["张三.wav"]
-    # 统一引用顺序按产品→角色→场景→道具排列，张三因此位于 0-based 下标 0。
-    assert captured["reference_audio_targets"] == [0]
+    # 引用顺序即正文首次提及顺序：酒馆在下标 0、张三在下标 1，音频按名字挂到张三那张图上。
+    assert captured["reference_audio_targets"] == [1]
 
 
 @pytest.mark.unit
@@ -1171,8 +1079,7 @@ async def test_execute_reference_video_task_omits_audio_field_for_soft_tier(
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [{"text": "@[张三] 推门。\n@[张三]：{我回来了。}"}]
-    script["video_units"][0]["references"] = [{"type": "character", "name": "张三"}]
+    script["video_units"][0]["text"] = "@[张三] 推门。\n@[张三]：{我回来了。}"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services import reference_video_tasks as rvt
@@ -1238,8 +1145,7 @@ async def test_execute_reference_video_task_surfaces_render_warnings(tmp_path: P
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [{"text": "@[张三] 推门。\n@[张三]：{我回来了。}\n@[李四]：{你好。}"}]
-    script["video_units"][0]["references"] = [{"type": "character", "name": "张三"}]
+    script["video_units"][0]["text"] = "@[张三] 推门。\n@[张三]：{我回来了。}\n@[李四]：{你好。}"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services import reference_video_tasks as rvt
@@ -1706,7 +1612,7 @@ async def test_execute_reference_video_task_blocks_an_unmigrated_project_before_
     fake_queue.persist_execution_checkpoint = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
-    with pytest.raises(ProjectMigrationError, match="did not reach v8"):
+    with pytest.raises(ProjectMigrationError, match="did not reach v9"):
         await rvt.execute_reference_video_task(
             "demo",
             "E1U1",
@@ -2097,13 +2003,8 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     # 时长取 sora supported_durations 成员（4），避免触发执行层 duration 能力守卫；本测试聚焦 refs 裁剪。
-    script["video_units"][0]["shots"] = [{"text": "Shot 1 (4s): @张三 在 @酒馆 拿起 @瓶子"}]
+    script["video_units"][0]["text"] = "Shot 1 (4s): @张三 在 @酒馆 拿起 @瓶子"
     script["video_units"][0]["duration_seconds"] = 4
-    script["video_units"][0]["references"] = [
-        {"type": "character", "name": "张三"},
-        {"type": "scene", "name": "酒馆"},
-        {"type": "prop", "name": "瓶子"},
-    ]
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services import reference_video_tasks as rvt
@@ -2211,8 +2112,7 @@ def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Pa
         "voice_style": "清亮女声",
         "reference_audio": "characters/refs_audio/李四.wav",
     }
-    unit["shots"] = [{"text": "@[张三]：{出发。}"}]
-    unit["references"] = [{"type": "character", "name": "张三"}]
+    unit["text"] = "@[张三] 站在门口。\n@[张三]：{出发。}"
     audio_dir = proj_dir / "characters" / "refs_audio"
     audio_dir.mkdir(parents=True)
     used_audio = audio_dir / "张三.wav"
@@ -2287,13 +2187,8 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [{"text": f"Shot 1 (4s): @{name_nfc} 与 @酒馆"}]
+    script["video_units"][0]["text"] = f"Shot 1 (4s): @[{name_nfc}] 与 @[{name_nfd}] 在 @酒馆"
     script["video_units"][0]["duration_seconds"] = 4
-    script["video_units"][0]["references"] = [
-        {"type": "character", "name": name_nfc},
-        {"type": "character", "name": name_nfd},
-        {"type": "scene", "name": "酒馆"},
-    ]
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services import reference_video_tasks as rvt
@@ -2360,7 +2255,7 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     # 5 不是 [4,8,12] 成员 → 按 8 秒申请
-    script["video_units"][0]["shots"] = [{"text": "镜头1：海面\n{旁白正文。}"}]
+    script["video_units"][0]["text"] = "镜头1：海面\n{旁白正文。}"
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -2526,7 +2421,7 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     unit = script["video_units"][0]
-    unit["shots"] = [{"text": "镜头1：海面\n{旁白正文。}"}]
+    unit["text"] = "镜头1：海面\n{旁白正文。}"
     unit["duration_seconds"] = 5
     unit["generated_assets"].update(
         {
@@ -2546,8 +2441,9 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     has_audio_track, audio_switch_controllable = reference_audio_model_facts(
         "openai", "sora-2", voice_consistency="soft"
     )
+    # 正文没有 @ 提及 → 无参考图，执行侧按 i2v 桶分流。
     candidate = ProviderProjectionCandidate(
-        capability="r2v",
+        capability="i2v",
         provider_id="openai",
         model_id="sora-2",
         supported_durations=(4, 8, 12),
@@ -2557,6 +2453,7 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         requested_generate_audio=True,
         has_audio_track=has_audio_track,
         audio_switch_controllable=audio_switch_controllable,
+        voice_consistency="soft",
     )
     request_assets = resolve_reference_assets(project, proj_dir, unit)
     visual_basis_digest = reference_video_visual_basis_digest(
@@ -2696,7 +2593,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [{"text": "@张三 推门"}]
+    script["video_units"][0]["text"] = "@张三 推门"
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 

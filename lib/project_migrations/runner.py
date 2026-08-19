@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lib.artifact_planner import ARTIFACT_MANIFEST_SCHEMA_VERSION
 from lib.path_safety import try_safe_join
 from lib.project_migration_failure import (
     MigrationFailureRecord,
@@ -32,14 +33,18 @@ from lib.project_migrations.v4_to_v5_generation_route import migrate_v4_to_v5
 from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 from lib.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
 
 CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 
+#: 清单激活的输入备份命名所用的版本号（``*.bak.v7-*``）：它是那一步的**起点**版本。
+_ACTIVATION_BACKUP_VERSION = ARTIFACT_MANIFEST_SCHEMA_VERSION - 1
+
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
-_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7})
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8})
 
 # 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
@@ -265,14 +270,20 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
-        retain_v7_recovery = _load_schema_version(project_dir) < CURRENT_SCHEMA_VERSION
+        # 清单激活的恢复备份留到那一步的版本提升坐实为止，之后才可回收；它锚在
+        # 「激活落点」而非「当前版本」上，否则每次 schema 升版都会把回收目标错位到别的迁移。
+        retain_activation_recovery = _load_schema_version(project_dir) < ARTIFACT_MANIFEST_SCHEMA_VERSION
         project_backup_versions = tuple(
             version
             for version in range(CURRENT_SCHEMA_VERSION)
-            if not (retain_v7_recovery and version == CURRENT_SCHEMA_VERSION - 1)
+            if not (retain_activation_recovery and version == _ACTIVATION_BACKUP_VERSION)
         )
-        activation_backup_versions = () if retain_v7_recovery else (CURRENT_SCHEMA_VERSION - 1,)
-        script_backup_versions = (6,) if retain_v7_recovery else (6, CURRENT_SCHEMA_VERSION - 1)
+        activation_backup_versions = () if retain_activation_recovery else (_ACTIVATION_BACKUP_VERSION,)
+        script_backup_versions = (
+            (6, ARTIFACT_MANIFEST_SCHEMA_VERSION)
+            if retain_activation_recovery
+            else (6, _ACTIVATION_BACKUP_VERSION, ARTIFACT_MANIFEST_SCHEMA_VERSION)
+        )
         sources = (
             (project_dir / "project.json", project_backup_versions),
             (project_dir / ".arcreel_artifacts.json", activation_backup_versions),
@@ -306,3 +317,4 @@ MIGRATORS[4] = migrate_v4_to_v5
 MIGRATORS[5] = migrate_v5_to_v6
 MIGRATORS[6] = migrate_v6_to_v7
 MIGRATORS[7] = migrate_v7_to_v8
+MIGRATORS[8] = migrate_v8_to_v9

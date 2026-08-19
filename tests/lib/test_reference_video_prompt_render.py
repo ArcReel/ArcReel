@@ -129,11 +129,11 @@ def test_silent_episode_injects_no_voice_style_same_as_silent_model():
         pytest.param({"voice_consistency": "none"}, id="silent_model"),
     ],
 )
-def test_silent_paths_keep_every_dialogue_shot_identical_to_audible_path(silencing: dict):
+def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencing: dict):
     """第二段与有声路径逐字同形——只有第一段的音色参考行消失。
 
-    整段（含两个镜头块）比对而非只比首个镜头：音频编号从第二个说话人起才可能出现分叉，
-    只比镜头1 会漏掉后续绑定位上的差异。两条无声路径各比一次。
+    整段正文比对而非只比第一句：音频编号从第二个说话人起才可能出现分叉，只比开头会漏掉
+    后续绑定位上的差异。两条无声路径各比一次。
     """
     settings = VoiceRenderSettings(
         voice_consistency="native",
@@ -145,13 +145,13 @@ def test_silent_paths_keep_every_dialogue_shot_identical_to_audible_path(silenci
     audible = render_unit_prompt(_TEXT, _project(), refs, settings, style="写实电影感")
     silent = render_unit_prompt(_TEXT, _project(), refs, replace(settings, **silencing), style="写实电影感")
 
-    def _shot_segments(prompt: str) -> list[str]:
-        return [seg for seg in prompt.split("\n\n") if seg.startswith("镜头")]
+    def _body(prompt: str) -> str:
+        return prompt.split("\n\n")[1]
 
     # 有声侧确实绑定了两段音频，比对才有区分度（否则两侧本就无音频，断言恒真）
     assert audible.audio_speakers == ["张三", "李四"]
-    assert len(_shot_segments(audible.prompt)) == 2
-    assert _shot_segments(silent.prompt) == _shot_segments(audible.prompt)
+    assert "你终于来了。" in _body(audible.prompt)
+    assert _body(silent.prompt) == _body(audible.prompt)
 
 
 def test_first_segment_binds_images_in_reference_order():
@@ -324,8 +324,11 @@ def test_twin_guard_only_when_two_or_more_character_images():
     assert "双胞胎" in both.prompt
 
 
-def test_legacy_script_without_dialogue_still_renders_three_segments():
-    """存量文稿（无台词符号）走新管线：绑定 + 分镜 + 约束包齐备，语义不回退。"""
+def test_script_without_dialogue_still_renders_three_segments():
+    """无台词记号的正文照样出三段：绑定 + 正文 + 约束包齐备，语义不回退。
+
+    正文里的 `镜头N：` 只是普通文字，逐字进提示词，不被识别为结构。
+    """
     rendered = render_unit_prompt(
         "镜头1：@[张三] 走进 @[酒馆]。\n镜头2：他坐下。",
         _project(),
@@ -335,8 +338,7 @@ def test_legacy_script_without_dialogue_still_renders_three_segments():
     assert rendered.audio_speakers == []
     assert rendered.warnings == []
     assert "<张三>@图片1、<酒馆>@图片2。" in rendered.prompt
-    assert "镜头1：\n<张三> 走进 <酒馆>。" in rendered.prompt
-    assert "镜头2：\n他坐下。" in rendered.prompt
+    assert "镜头1：<张三> 走进 <酒馆>。\n镜头2：他坐下。" in rendered.prompt
 
 
 def test_audio_ready_overrides_field_presence(tmp_path):

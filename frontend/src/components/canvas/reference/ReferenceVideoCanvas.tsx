@@ -12,10 +12,9 @@ import {
 import { UnitList } from "./UnitList";
 import { UnitRail } from "./UnitRail";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
-import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
+import { ReferenceVideoCard } from "./ReferenceVideoCard";
 import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
 import { deriveUnitStatus } from "./unit-status";
-import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
@@ -44,15 +43,13 @@ import { useCostStore } from "@/stores/cost-store";
 import { errMsg } from "@/utils/async";
 import {
   buildMentionLookup,
+  extractMentions,
   lineSpeechMarks,
-  mergeReferences,
-  normalizeAssetName,
   splitScriptLines,
 } from "@/utils/reference-mentions";
 import type {
   ReferenceBatchAdmission,
   ReferenceRequestOptions,
-  ReferenceResource,
   ReferenceVideoUnit,
   UnitStatus,
 } from "@/types";
@@ -70,13 +67,14 @@ export interface ReferenceVideoCanvasProps {
   /** unit 时长为自由正整数，不用供应商档位作为编排限制。 */
   freeDuration?: boolean;
   /**
-   * unit 时长下拉的档位，来自模型能力声明（已按参考图约束与分辨率收窄）。供带 references
-   * 的 unit 使用；能力不可解析时为 undefined——此时不渲染下拉，只读展示当前秒数，不编造档位。
+   * unit 时长下拉的档位，来自模型能力声明（已按参考图约束与分辨率收窄）。供正文里带
+   * `@[名称]` 引用的 unit 使用；能力不可解析时为 undefined——此时不渲染下拉，只读展示当前
+   * 秒数，不编造档位。
    */
   durationOptions?: number[];
   /**
-   * 同一模型能力下、不叠加参考图约束的档位（仍按分辨率收窄）。供不带 references 的 unit
-   * 使用——参考图约束按 unit 生效，不能因同集内其它 unit 带图就收窄这类 unit 的可选档位。
+   * 同一模型能力下、不叠加参考图约束的档位（仍按分辨率收窄）。供正文里没有可解析引用的
+   * unit 使用——参考图约束按 unit 生效，不能因同集内其它 unit 带图就收窄这类 unit 的可选档位。
    */
   durationOptionsNoReference?: number[];
   /** 上游旁白工作流给出的请求事实；不在画布内探测或推断 TTS 状态。 */
@@ -137,14 +135,12 @@ function unitNarrationText(unit: ReferenceVideoUnit | null): string {
   if (!unit) return "";
   const narration: string[] = [];
   let hasCharacterSpeech = false;
-  for (const shot of unit.shots) {
-    for (const line of splitScriptLines(shot.text)) {
-      for (const mark of lineSpeechMarks(line)) {
-        if (mark.speaker) {
-          hasCharacterSpeech = true;
-        } else {
-          narration.push(mark.text.trim());
-        }
+  for (const line of splitScriptLines(unit.text)) {
+    for (const mark of lineSpeechMarks(line)) {
+      if (mark.speaker) {
+        hasCharacterSpeech = true;
+      } else {
+        narration.push(mark.text.trim());
       }
     }
   }
@@ -188,6 +184,8 @@ export function ReferenceVideoCanvas({
   const error = useReferenceVideoStore((s) => s.error);
   const loading = useReferenceVideoStore((s) => s.loading);
   const project = useProjectsStore((s) => s.currentProjectData);
+  // schema v6 起各 bucket 共用名称空间，每个名字只会声明一次。
+  const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
 
   const voiceLegacyNotice = useMemo(
     () => computeVoiceLegacyNotice(units, project?.characters ?? {}),
@@ -249,11 +247,20 @@ export function ReferenceVideoCanvas({
     : "";
 
   // 参考图约束按 unit 而非按集生效（同 lib.reference_video.request_projection 的
-  // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：不带 references 的
-  // unit 用不叠加该约束的档位，
-  // 否则同集内其它 unit 带图会连带把它的可选档位收窄到一个它本不受限的子集。
-  const effectiveDurationOptions =
-    selected && selected.references.length === 0 ? durationOptionsNoReference : durationOptions;
+  // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：正文里解析不出已登记
+  // 引用的 unit 用不叠加该约束的档位，否则同集内其它 unit 带图会连带把它的可选档位收窄到
+  // 一个它本不受限的子集。
+  const selectedHasReference = useMemo(
+    () =>
+      selected
+        ? extractMentions(selected.text).some((name) => {
+            const kind = mentionLookup[name];
+            return Boolean(kind && kind !== "product");
+          })
+        : false,
+    [selected, mentionLookup],
+  );
+  const effectiveDurationOptions = selectedHasReference ? durationOptions : durationOptionsNoReference;
 
   // selectedUnitId is a global singleton; validate against current episode's units.
   useEffect(() => {
@@ -321,14 +328,14 @@ export function ReferenceVideoCanvas({
     const map: Record<string, boolean> = {};
     for (const u of units) {
       const v = drafts[draftKey(projectName, episode, u.unit_id)];
-      if (v !== undefined && v !== unitPromptText(u)) map[u.unit_id] = true;
+      if (v !== undefined && v !== u.text) map[u.unit_id] = true;
     }
     return map;
   }, [units, drafts, projectName, episode]);
 
   const handleAdd = useCallback(async () => {
     try {
-      await addUnit(projectName, episode, { prompt: "", references: [] });
+      await addUnit(projectName, episode, { prompt: "" });
     } catch (e) {
       toastError(e);
     }
@@ -666,9 +673,7 @@ export function ReferenceVideoCanvas({
         .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find(
           (unit) => unit.unit_id === unitId,
         );
-      const confirmsDurationMarker = Boolean(
-        fresh?.needs_replan && !fresh.migration_requires_content_replan,
-      );
+      const confirmsDurationMarker = Boolean(fresh?.needs_replan);
       if (
         !Number.isInteger(seconds) ||
         seconds < 1 ||
@@ -691,7 +696,7 @@ export function ReferenceVideoCanvas({
     (next: string) => {
       if (!selected) return;
       const key = draftKey(projectName, episode, selected.unit_id);
-      const baseText = unitPromptText(selected);
+      const baseText = selected.text;
       setDrafts((d) => {
         if (next === baseText) {
           if (!(key in d)) return d;
@@ -707,8 +712,7 @@ export function ReferenceVideoCanvas({
 
   const currentText = useMemo(() => {
     if (!selected) return "";
-    const base = unitPromptText(selected);
-    return drafts[draftKey(projectName, episode, selected.unit_id)] ?? base;
+    return drafts[draftKey(projectName, episode, selected.unit_id)] ?? selected.text;
   }, [selected, drafts, projectName, episode]);
 
   const isDirty = !!(selected && dirtyMap[selected.unit_id]);
@@ -716,8 +720,6 @@ export function ReferenceVideoCanvas({
   // 编辑器列内的两种视图：写文稿 / 看解析结果。解析预览是只读派生视图，与正文同一份
   // 文本，故共用编辑器列的空间而非再占一栏（右栏留给成片预览）。
   const [editorView, setEditorView] = useState<"script" | "parse">("script");
-  // schema v6 起各 bucket 共用名称空间，每个名字只会声明一次。
-  const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
 
   const hasAnyDurationDraft = units.some((unit) => {
     const raw = durationDrafts[draftKey(projectName, episode, unit.unit_id)];
@@ -728,7 +730,7 @@ export function ReferenceVideoCanvas({
       seconds < 1 ||
       seconds > 300 ||
       seconds !== unit.duration_seconds ||
-      (Boolean(unit.needs_replan) && !unit.migration_requires_content_replan)
+      Boolean(unit.needs_replan)
     );
   });
   const hasAnyDraft = Object.keys(drafts).length > 0 || hasAnyDurationDraft;
@@ -749,86 +751,17 @@ export function ReferenceVideoCanvas({
     const unitId = selected.unit_id;
     const key = draftKey(projectName, episode, unitId);
     const draftText = drafts[key];
-    if (draftText === undefined || draftText === unitPromptText(selected)) return;
-    const nextRefs = mergeReferences(draftText, selected.references, project ?? null);
+    if (draftText === undefined || draftText === selected.text) return;
     setSaving(true);
     try {
-      await patchUnit(projectName, episode, unitId, {
-        prompt: draftText,
-        references: nextRefs,
-      });
+      await patchUnit(projectName, episode, unitId, { prompt: draftText });
       clearFlushedDraft(key, draftText);
     } catch (e) {
       toastError(e);
     } finally {
       setSaving(false);
     }
-  }, [selected, drafts, project, patchUnit, projectName, episode, clearFlushedDraft]);
-
-  // Reference reorder/add/remove flushes immediately, carrying any pending prompt draft.
-  const patchReferencesAtomic = useCallback(
-    (unitId: string, nextRefs: ReferenceResource[]) => {
-      const key = draftKey(projectName, episode, unitId);
-      const draftText = drafts[key];
-      const unit = units.find((u) => u.unit_id === unitId);
-      const hasDraft =
-        draftText !== undefined && unit !== undefined && draftText !== unitPromptText(unit);
-      // draftText 未落盘时，chip 操作请求的 nextRefs 仍基于旧 prompt 状态；按新 draftText
-      // 重新派生，同时把 nextRefs 作为 mergeReferences 的 existing 基准——保留 chip 操作
-      // 请求的顺序（拖拽结果），只补丢弃/新增仅由文本变化引起的部分。
-      const body: { prompt?: string; references: ReferenceResource[] } = hasDraft
-        ? { prompt: draftText, references: mergeReferences(draftText, nextRefs, project ?? null) }
-        : { references: nextRefs };
-      void patchUnit(projectName, episode, unitId, body)
-        .then(() => {
-          if (hasDraft) clearFlushedDraft(key, draftText);
-        })
-        .catch((e) => {
-          toastError(e);
-        });
-    },
-    [drafts, units, patchUnit, projectName, episode, project, clearFlushedDraft],
-  );
-
-  const handleReorderRefs = useCallback(
-    (next: ReferenceResource[]) => {
-      if (!selected) return;
-      patchReferencesAtomic(selected.unit_id, next);
-    },
-    [patchReferencesAtomic, selected],
-  );
-
-  const handleRemoveRef = useCallback(
-    (ref: ReferenceResource) => {
-      if (!selected) return;
-      // 存量 references 的 name 可能是 NFD（外部编辑/旧数据落盘），归一后比对，
-      // 否则视觉同名的条目删不掉
-      const target = normalizeAssetName(ref.name);
-      const next = selected.references.filter(
-        (r) => !(normalizeAssetName(r.name) === target && r.type === ref.type),
-      );
-      patchReferencesAtomic(selected.unit_id, next);
-    },
-    [patchReferencesAtomic, selected],
-  );
-
-  const handleAddRef = useCallback(
-    (ref: ReferenceResource) => {
-      if (!selected) return;
-      // 落盘值统一 NFC：PATCH 的 references 写回口径与 mergeReferences 的产出一致，否则
-      // 挑选到的 NFD 名称会绕过归一边界直接落盘。
-      const normalizedRef: ReferenceResource = { ...ref, name: normalizeAssetName(ref.name) };
-      if (
-        selected.references.some(
-          (r) => r.type === normalizedRef.type && normalizeAssetName(r.name) === normalizedRef.name,
-        )
-      )
-        return;
-      const next = [...selected.references, normalizedRef];
-      patchReferencesAtomic(selected.unit_id, next);
-    },
-    [patchReferencesAtomic, selected],
-  );
+  }, [selected, drafts, patchUnit, projectName, episode, clearFlushedDraft]);
 
   // Reset tab to units on project/episode change (render-time derived-state pattern).
   // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
@@ -1144,12 +1077,6 @@ export function ReferenceVideoCanvas({
                         </span>
                       )}
                     </span>
-                    <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
-                      <Scissors className="h-3 w-3" aria-hidden="true" />
-                      <span className="font-mono tabular-nums">
-                        {t("reference_unit_shots_count", { count: selected.shots.length })}
-                      </span>
-                    </span>
                     <span className="flex-1" />
                     {selectedIndex >= 0 && (
                       <span className="font-mono text-[10.5px] tabular-nums text-[var(--color-text-4)]">
@@ -1248,13 +1175,6 @@ export function ReferenceVideoCanvas({
                   <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     {(!stackPreview || stackTab === "editor") && (
                       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                        <ReferencePanel
-                          references={selected.references}
-                          projectName={projectName}
-                          onReorder={handleReorderRefs}
-                          onRemove={handleRemoveRef}
-                          onAdd={handleAddRef}
-                        />
                         <div
                           role="tablist"
                           aria-label={t("reference_editor_view_aria")}

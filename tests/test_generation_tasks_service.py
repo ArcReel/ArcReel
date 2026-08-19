@@ -26,6 +26,7 @@ from lib.narration_delivery import (
     TtsSynthesisSettings,
     prepare_narrated_video_duration,
 )
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.prompt_builders import append_image_negative_tail
 from lib.prompt_utils import image_prompt_to_yaml
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
@@ -91,7 +92,12 @@ class TestCollectSheetReferences:
             sheet_path.write_bytes(b"fake-image")
             characters[name] = {"character_sheet": f"{name}.png"}
 
-        project = {"schema_version": 8, "characters": characters, "scenes": {}, "props": {}}
+        project = {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "characters": characters,
+            "scenes": {},
+            "props": {},
+        }
         items = [{"characters_in_segment": char_names}]
         for name in char_names:
             _register_stale_visual_claim(
@@ -306,7 +312,7 @@ class _FakePM:
     def __init__(self, project_path: Path, *, register_script: bool = True):
         self.project_path = project_path
         self.project = {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             "content_mode": "narration",
             "style": "Anime",
@@ -530,7 +536,7 @@ def _persist_active_fake_project(fake_pm: _FakePM, *, register_script: bool = Tr
 
     fake_pm.project.update(
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "generation_mode": "storyboard",
             "aspect_ratio": "9:16",
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
@@ -914,6 +920,7 @@ class TestGenerationTasks:
         from lib.artifact_activation import activate_artifact_target_state
         from lib.grid.models import GridGeneration
         from lib.grid_manager import GridManager
+        from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
         from lib.version_manager import VersionManager
 
         project_path = _prepare_files(tmp_path)
@@ -979,6 +986,9 @@ class TestGenerationTasks:
             activation_ready.set()
             assert release_activation.wait(timeout=5)
             original_commit_schema(project_dir, project)
+            # 清单激活只把项目送到 v8；形式产物注册要求当前 schema，故在同一把项目元数据锁内
+            # 走完剩余迁移，模拟启动扫描一次跑完整条链。
+            migrate_v8_to_v9(project_dir)
 
         monkeypatch.setattr(artifact_activation, "_commit_schema_version", _pause_before_schema)
 
@@ -1011,7 +1021,10 @@ class TestGenerationTasks:
         assert not activation_thread.is_alive()
         assert not writer_thread.is_alive()
         assert failures == []
-        assert json.loads((project_path / "project.json").read_text(encoding="utf-8"))["schema_version"] == 8
+        assert (
+            json.loads((project_path / "project.json").read_text(encoding="utf-8"))["schema_version"]
+            == CURRENT_PROJECT_SCHEMA_VERSION
+        )
         entry = ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_grid(1, grid.id))
         assert entry is not None
         assert entry.basis_digest == basis.digest
@@ -3969,7 +3982,10 @@ class TestAdProductFidelityStoryboard:
     def test_collect_shot_product_references_skips_non_list_products_in_shot(self, tmp_path):
         """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零产品参考（str 不得被逐字符迭代）。"""
         project_path = _prepare_files(tmp_path)
-        project = {"schema_version": 8, "products": {"保温杯": {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+        project = {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "products": {"保温杯": {"reference_images": ["products/refs/保温杯_1.jpg"]}},
+        }
         resolver = _currency_resolver(project_path, project)
 
         for dirty in ("保温杯", {"保温杯": True}, 7):
@@ -4008,7 +4024,10 @@ class TestAdProductFidelityStoryboard:
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
         name_nfd = unicodedata.normalize("NFD", "Hiếu")
         assert name_nfc != name_nfd
-        project = {"schema_version": 8, "products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+        project = {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}},
+        }
 
         refs = generation_tasks.collect_product_references_for_names(
             project,
@@ -4029,7 +4048,10 @@ class TestAdProductFidelityStoryboard:
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
         name_nfd = unicodedata.normalize("NFD", "Hiếu")
         assert name_nfc != name_nfd
-        project = {"schema_version": 8, "products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+        project = {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}},
+        }
 
         refs = generation_tasks.collect_product_references_for_names(
             project,
