@@ -16,6 +16,9 @@ export const PROVIDER_NAMES: Record<string, string> = {
   grok: "Grok",
   openai: "OpenAI",
   vidu: "Vidu",
+  runware: "Runware",
+  croco: "Croco GPU",
+  doubao: "火山 TTS",
 };
 
 /**

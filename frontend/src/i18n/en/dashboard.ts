@@ -863,6 +863,7 @@ export default {
   'status_unconfigured': 'Unconfigured',
   'loading_providers': 'Loading providers...',
   'provider_list': 'Provider list',
+  'own_channels': 'Own Channels',
   'preset_providers': 'Preset Providers',
   'select_provider': 'Please select a provider',
 

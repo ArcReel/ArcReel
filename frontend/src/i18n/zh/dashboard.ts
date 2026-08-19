@@ -862,6 +862,7 @@ export default {
   'status_unconfigured': '未配置',
   'loading_providers': '加载供应商列表…',
   'provider_list': '供应商列表',
+  'own_channels': '自有渠道',
   'preset_providers': '预置供应商',
   'select_provider': '请选择供应商',
 

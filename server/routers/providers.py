@@ -104,6 +104,7 @@ class ProviderSummary(BaseModel):
     configured_keys: list[str]
     missing_keys: list[str]
     models: dict[str, ModelInfoResponse]
+    group: str = "builtin"
 
 
 class ProvidersListResponse(BaseModel):
@@ -403,6 +404,7 @@ async def list_providers(
                 configured_keys=s.configured_keys,
                 missing_keys=s.missing_keys,
                 models=models,
+                group=meta.group if meta is not None else "builtin",
             )
         )
     return ProvidersListResponse(providers=providers)

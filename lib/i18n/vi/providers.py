@@ -13,6 +13,9 @@ MESSAGES: dict[str, str] = {
     "provider_name_minimax": "MiniMax",
     "provider_name_kling": "Kling",
     "provider_name_agnes": "Agnes",
+    "provider_name_runware": "Runware",
+    "provider_name_croco": "Croco GPU",
+    "provider_name_doubao": "Volcano TTS",
     # Provider descriptions
     "provider_desc_gemini-aistudio": "Google AI Studio cung cấp các mô hình Gemini hỗ trợ tạo ảnh và video, phù hợp cho việc dựng prototype nhanh và dự án cá nhân.",
     "provider_desc_gemini-vertex": "Nền tảng doanh nghiệp Vertex AI của Google Cloud hỗ trợ các mô hình Gemini và Imagen với hạn mức cao hơn cùng khả năng tạo âm thanh.",
@@ -25,6 +28,9 @@ MESSAGES: dict[str, str] = {
     "provider_desc_minimax": "Nền tảng đa phương thức MiniMax (Hailuo) hỗ trợ tạo văn bản, ảnh và video. Mặc định kết nối site nội địa; đặt base_url sang site quốc tế khi dùng ở nước ngoài.",
     "provider_desc_kling": "Nền tảng tạo video và ảnh Kling của Kuaishou. Xác thực bằng API Key áp dụng cho mọi model; Access Key + Secret Key (JWT) chỉ áp dụng cho model từ 3.0 trở về trước. Chọn một trong hai — nếu điền cả hai, API Key được ưu tiên.",
     "provider_desc_agnes": "Nền tảng đa phương thức Agnes (phong cách OpenAI), xác thực bằng Bearer API key; hiện hỗ trợ tạo ảnh, văn bản và video.",
+    "provider_desc_runware": "Nền tảng suy luận tổng hợp Runware, xác thực Bearer API key; hỗ trợ tạo ảnh (Nano Banana Lite / GPT Image 2).",
+    "provider_desc_croco": "Trung tâm điều phối GPU tự lưu trữ, xác thực Bearer token; hỗ trợ video MiniMax H3, ảnh ERNIE Image Turbo và nhạc MiniMax Music 3.",
+    "provider_desc_doubao": "Tổng hợp giọng nói Volcengine (seed-icl voice cloning), xác thực X-Api-Key + X-Api-Resource-Id.",
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "Endpoint Anthropic-compat chính thức của DeepSeek; cần API key sk-.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo chỉ chấp nhận tên model đã biết; không có danh sách model công khai.",

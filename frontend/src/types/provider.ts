@@ -35,6 +35,7 @@ export interface ProviderInfo {
   configured_keys: string[];
   missing_keys: string[];
   models: Record<string, ModelInfoResponse>;
+  group?: "builtin" | "own";
 }
 
 export interface ProviderField {

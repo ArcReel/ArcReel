@@ -129,6 +129,8 @@ class ProviderMeta:
     # lane 无害——_lane_limits 会按 media_types 把不支持的 lane 投影为 0。键名与上限值在
     # __post_init__ 校验。
     default_concurrency: dict[str, int] = field(default_factory=dict)
+    # 前端 sidebar 分组：builtin = 平台预置供应商，own = 用户自有渠道（如 Runware / Croco GPU / 火山 TTS）。
+    group: str = "builtin"
 
     def __post_init__(self) -> None:
         # default_concurrency 是注册表静态声明：拼错的 lane key 会被静默忽略、该 lane 漂回
@@ -1482,6 +1484,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
         default_base_url=RUNWARE_API_BASE,
+        group="own",
     ),
     "croco": ProviderMeta(
         display_name="Croco GPU",
@@ -1519,9 +1522,10 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
         default_base_url=CROCO_BASE_URL,
+        group="own",
     ),
     "doubao": ProviderMeta(
-        display_name="Doubao TTS",
+        display_name="火山 TTS",
         description="火山引擎豆包语音合成（seed-icl 声音复刻大模型），X-Api-Key + X-Api-Resource-Id 鉴权。",
         required_keys=["api_key", "resource_id"],
         optional_keys=["base_url", "audio_max_workers"],
@@ -1536,6 +1540,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
         default_base_url=DOUBAO_TTS_BASE_URL,
+        group="own",
     ),
 }
 

@@ -13,6 +13,9 @@ MESSAGES: dict[str, str] = {
     "provider_name_minimax": "MiniMax",
     "provider_name_kling": "可灵 Kling",
     "provider_name_agnes": "Agnes",
+    "provider_name_runware": "Runware",
+    "provider_name_croco": "Croco GPU",
+    "provider_name_doubao": "火山 TTS",
     # Provider descriptions
     "provider_desc_gemini-aistudio": "Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
     "provider_desc_gemini-vertex": "Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
@@ -25,6 +28,9 @@ MESSAGES: dict[str, str] = {
     "provider_desc_minimax": "MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
     "provider_desc_kling": "快手可灵 Kling 视频与图像生成平台。API Key 鉴权适用于全部模型；Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。",
     "provider_desc_agnes": "Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像 / 文本 / 视频生成。",
+    "provider_desc_runware": "Runware 聚合推理平台，Bearer API Key 鉴权；支持图像生成（Nano Banana Lite / GPT Image 2）。",
+    "provider_desc_croco": "自建 GPU 视频调度中枢，Bearer Token 鉴权；支持 MiniMax H3 视频、ERNIE Image Turbo 图像、MiniMax Music 3 音乐。",
+    "provider_desc_doubao": "火山引擎语音合成（seed-icl 声音复刻大模型），X-Api-Key + X-Api-Resource-Id 鉴权。",
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
     "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",

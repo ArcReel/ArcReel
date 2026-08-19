@@ -13,6 +13,9 @@ MESSAGES: dict[str, str] = {
     "provider_name_minimax": "MiniMax",
     "provider_name_kling": "Kling",
     "provider_name_agnes": "Agnes",
+    "provider_name_runware": "Runware",
+    "provider_name_croco": "Croco GPU",
+    "provider_name_doubao": "Volcano TTS",
     # Provider descriptions
     "provider_desc_gemini-aistudio": "Google AI Studio provides Gemini models with image and video generation, ideal for rapid prototyping and personal projects.",
     "provider_desc_gemini-vertex": "Google Cloud Vertex AI enterprise platform supporting Gemini and Imagen models with higher quotas and audio generation.",
@@ -25,6 +28,9 @@ MESSAGES: dict[str, str] = {
     "provider_desc_minimax": "MiniMax (Hailuo) multimodal platform with text, image and video generation. Connects to the domestic site by default; set base_url to the international site for overseas access.",
     "provider_desc_kling": "Kuaishou Kling video and image generation platform. API Key authentication works with all models; Access Key + Secret Key (JWT) only supports 3.0-and-earlier models. Choose either — when both are set, API Key takes priority.",
     "provider_desc_agnes": "Agnes multimodal platform (OpenAI-style), authenticated with a Bearer API key; currently supports image, text and video generation.",
+    "provider_desc_runware": "Runware aggregation inference platform with Bearer API key auth; supports image generation (Nano Banana Lite / GPT Image 2).",
+    "provider_desc_croco": "Self-hosted GPU orchestration hub with Bearer token auth; supports MiniMax H3 video, ERNIE Image Turbo image and MiniMax Music 3 music.",
+    "provider_desc_doubao": "Volcengine speech synthesis (seed-icl voice cloning), X-Api-Key + X-Api-Resource-Id auth.",
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek official Anthropic-compat endpoint; needs sk- prefixed key.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo only accepts known model names; no public model list.",

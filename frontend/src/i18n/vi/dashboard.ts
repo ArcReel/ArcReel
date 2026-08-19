@@ -843,6 +843,7 @@ export default {
   'status_unconfigured': 'Chưa cấu hình',
   'loading_providers': 'Đang tải nhà cung cấp...',
   'provider_list': 'Danh sách nhà cung cấp',
+  'own_channels': 'Kênh riêng',
   'preset_providers': 'Nhà cung cấp có sẵn',
   'select_provider': 'Vui lòng chọn nhà cung cấp',
 
