@@ -649,7 +649,7 @@ async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None
 @pytest.mark.integration
 async def test_generate_assets_legacy_project_reverifies_sheet_file_on_disk(fake_ctx: ToolContext, monkeypatch) -> None:
     """预激活 Manifest 的旧项目：metadata 记了 sheet 路径但文件已被删/挪走时，
-    missing-only 不能只信 metadata 就把它当复用，否则永远生不出真正缺失的设计图。"""
+    missing-only 不能只信 metadata 就把它当复用，否则永远生不出真正缺失的资产图。"""
     from server.agent_runtime.sdk_tools import enqueue_assets as mod
 
     # 未设置当前 schema：resolver 走 legacy 分支（没有 active Manifest）。
@@ -3266,12 +3266,12 @@ async def test_generate_video_episode_reference_rejects_malformed_unit_container
     from server.agent_runtime.sdk_tools.enqueue_videos import generate_video_episode_tool
 
     _use_reference_route(fake_ctx)
-    for malformed, type_name in (
-        ({"E1U1": {}}, "dict"),
-        ({}, "dict"),
-        ("", "str"),
-        (False, "bool"),
-        (None, "NoneType"),
+    for malformed in (
+        {"E1U1": {}},
+        {},
+        "",
+        False,
+        None,
     ):
         # 键在场即按类型判定，不看真值：``{}`` / ``""`` / ``False`` 同样是类型错误，
         # 报成「为空」会把成因埋掉。
@@ -3281,7 +3281,6 @@ async def test_generate_video_episode_reference_rejects_malformed_unit_container
         assert out.get("is_error") is True
         text = out["content"][0]["text"]
         assert "video_units 必须是数组" in text
-        assert type_name in text
 
 
 @pytest.mark.integration

@@ -110,22 +110,22 @@ MESSAGES = {
     "val_route_reference_video": "参考生视频（reference_video）",
     "val_route_storyboard": "分镜图生视频（storyboard）",
     "val_skeleton_mismatch_reference_known": (
-        "脚本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本是 {actual}（{actual_noun}）骨架。"
         "请重跑 split-reference-video-units 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_reference_none": (
-        "脚本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本没有任何骨架数组。"
         "请重跑 split-reference-video-units 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_known": (
-        "脚本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本是 {actual}（{actual_noun}）骨架。"
         "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_none": (
-        "脚本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
         "当前脚本没有任何骨架数组。"
         "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),

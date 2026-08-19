@@ -99,7 +99,8 @@ def read_instructions_arg(args: dict[str, Any]) -> tuple[str | None, dict[str, A
     if raw is None:
         return None, None
     if not isinstance(raw, str):
-        return None, _param_error(f"instructions 必须是字符串，收到 {type(raw).__name__}")
+        logger.debug("instructions 入参类型非法: %s", type(raw).__name__)
+        return None, _param_error("instructions 必须是文本")
     if len(raw) > MAX_INSTRUCTIONS_LEN:
         return None, _param_error(f"instructions 过长（{len(raw)} 字符，上限 {MAX_INSTRUCTIONS_LEN}），请精简后重试")
     text = raw.strip()

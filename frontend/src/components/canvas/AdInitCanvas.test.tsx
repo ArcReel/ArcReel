@@ -23,7 +23,7 @@ describe("AdInitCanvas", () => {
     expect(screen.getByLabelText("商品图")).toBeInTheDocument();
     expect(screen.getByLabelText("商品描述")).toBeInTheDocument();
     expect(screen.getByLabelText("创作 Brief")).toBeInTheDocument();
-    expect(screen.getByLabelText("生成商品设计图")).toBeInTheDocument();
+    expect(screen.getByLabelText("生成商品资产图")).toBeInTheDocument();
   });
 
   it("creates product, uploads images, saves brief and enqueues sheet generation", async () => {
@@ -45,7 +45,7 @@ describe("AdInitCanvas", () => {
     fireEvent.change(screen.getByLabelText("商品图"), {
       target: { files: [makeFile("front.jpg"), makeFile("back.jpg")] },
     });
-    fireEvent.click(screen.getByLabelText("生成商品设计图"));
+    fireEvent.click(screen.getByLabelText("生成商品资产图"));
 
     fireEvent.click(screen.getByRole("button", { name: "开始创作" }));
 
@@ -95,19 +95,19 @@ describe("AdInitCanvas", () => {
 
   it("keeps the sheet checkbox enabled and guides users to complete product info", () => {
     render(<AdInitCanvas projectName="ad-demo" onDone={onDone} />);
-    const checkbox = screen.getByLabelText("生成商品设计图");
+    const checkbox = screen.getByLabelText("生成商品资产图");
     const submit = screen.getByRole("button", { name: "开始创作" });
 
-    // 产品信息为空时复选框仍可勾选，不再置灰形成无反馈死路
+    // 商品信息为空时复选框仍可勾选，不再置灰形成无反馈死路
     expect(checkbox).toBeEnabled();
     fireEvent.click(checkbox);
     expect(checkbox).toBeChecked();
 
-    // 勾选即视为要建产品：信息不完整时提示出现且不可提交，避免静默丢弃生图意图
+    // 勾选即视为要建商品：信息不完整时提示出现且不可提交，避免静默丢弃生图意图
     expect(screen.getByRole("alert")).toHaveTextContent("商品信息不完整");
     expect(submit).toBeDisabled();
 
-    // 补全产品名称与描述后恢复可提交、提示消失
+    // 补全商品名称与描述后恢复可提交、提示消失
     fireEvent.change(screen.getByLabelText("商品名称"), { target: { value: "保温杯" } });
     fireEvent.change(screen.getByLabelText("商品描述"), { target: { value: "不锈钢" } });
     expect(submit).toBeEnabled();
@@ -118,14 +118,14 @@ describe("AdInitCanvas", () => {
     render(<AdInitCanvas projectName="ad-demo" onDone={onDone} />);
     const submit = screen.getByRole("button", { name: "开始创作" });
 
-    // brief 已填 + 产品区部分填写（只有名称）：不可提交并出现提示，防止静默丢弃产品信息
+    // brief 已填 + 商品区部分填写（只有名称）：不可提交并出现提示，防止静默丢弃商品信息
     fireEvent.change(screen.getByLabelText("创作 Brief"), { target: { value: "通用短片" } });
     expect(submit).toBeEnabled();
     fireEvent.change(screen.getByLabelText("商品名称"), { target: { value: "保温杯" } });
     expect(submit).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("商品信息不完整");
 
-    // 只选了图片同样视为产品区已填写
+    // 只选了图片同样视为商品区已填写
     fireEvent.change(screen.getByLabelText("商品名称"), { target: { value: "" } });
     expect(submit).toBeEnabled();
     fireEvent.change(screen.getByLabelText("商品图"), {
@@ -134,7 +134,7 @@ describe("AdInitCanvas", () => {
     expect(submit).toBeDisabled();
     expect(screen.getByRole("alert")).toBeInTheDocument();
 
-    // 补全产品信息后恢复可提交，提示消失
+    // 补全商品信息后恢复可提交，提示消失
     fireEvent.change(screen.getByLabelText("商品名称"), { target: { value: "保温杯" } });
     fireEvent.change(screen.getByLabelText("商品描述"), { target: { value: "不锈钢" } });
     expect(submit).toBeEnabled();

@@ -280,7 +280,7 @@ def build_narration_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """构建说书模式 step2（视觉层）prompt。
+    """构建旁白/解说模式 step2（视觉层）prompt。
 
     step1 已定的 novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具按 segment_id
     透传，step2 只产 image_prompt 与 video_prompt。``<segments>`` 块为只读上下文，
@@ -430,7 +430,7 @@ def build_drama_prompt(
     scenes: dict | None = None,
     props: dict | None = None,
 ) -> str:
-    """构建剧集动画模式 step2（视觉层）prompt。
+    """构建剧情演绎模式 step2（视觉层）prompt。
 
     内容抽取前移到 step1（见 ADR 0041）：场景边界、出场资产、逐字口播 utterances、原文锚
     source_text、视觉改编描述均已在 step1 定稿，``scenes_content`` 是其渲染输入
@@ -697,7 +697,7 @@ def build_narration_split_prompt(
     episode: int,
     target_language: str = "中文",
 ) -> str:
-    """Step-1 说书片段拆分 prompt：源文 → 结构化片段表（逐字 novel_text + 时长 + 资产登记）。
+    """Step-1 旁白/解说片段拆分 prompt：源文 → 结构化片段表（逐字 novel_text + 时长 + 资产登记）。
 
     由 ``split_narration_segments`` MCP tool 消费。输出受 response_schema（``NarrationStep1Draft``）
     约束为结构化 JSON——``novel_text`` 逐字保留原文（配音与透传真相源），视觉层由后续 step2 按
@@ -732,8 +732,8 @@ def build_narration_split_prompt(
 
     return f"""# 角色与任务
 
-你是一位专业的说书内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的片段表（step1 内容拆分）。
-说书剧本走两段式：本阶段只定内容层——逐字 `novel_text`、片段边界、时长、场景切换标记与出场资产；
+你是一位专业的旁白内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的片段表（step1 内容拆分）。
+旁白/解说脚本走两段式：本阶段只定内容层——逐字 `novel_text`、片段边界、时长、场景切换标记与出场资产；
 视觉层（image_prompt / video_prompt）由后续 step2 按 `segment_id` 对齐生成，`novel_text` 由本阶段定稿后透传、不再重出。
 
 **输出语言**：自然语言字符串值使用 {target_language}；JSON 键名保持英文。

@@ -23,9 +23,9 @@ const FIELD_STYLE: React.CSSProperties = {
 };
 
 /**
- * 广告/短片项目初始化页：上传多张产品图、填写产品描述与创作 brief，
- * 可勾选「生成标准产品参考图」触发 product sheet 生成（走资产生成队列）。
- * 也支持不上传产品、只写 brief 的通用短片流程。
+ * 广告/短片项目初始化页：上传多张商品图、填写商品描述与创作 brief，
+ * 可勾选「生成商品资产图」触发 product sheet 生成（走资产生成队列）。
+ * 也支持不上传商品、只写 brief 的通用短片流程。
  */
 export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -44,8 +44,8 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasProduct = productName.trim() !== "" && description.trim() !== "";
-  // 产品区有任意输入（名称/描述/图片）或勾选了「生成标准产品参考图」即视为用户想建产品：
-  // 此时必须信息完整才能提交，避免 brief-only 提交静默丢弃已填的产品信息、已选图片或生图意图
+  // 商品区有任意输入（名称/描述/图片）或勾选了「生成商品资产图」即视为用户想建商品：
+  // 此时必须信息完整才能提交，避免 brief-only 提交静默丢弃已填的商品信息、已选图片或生图意图
   const productDirty =
     productName.trim() !== "" || description.trim() !== "" || files.length > 0 || generateSheet;
   const productIncomplete = productDirty && !hasProduct;
@@ -82,8 +82,8 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
       useAppStore
         .getState()
         .pushToast(t("dashboard:ad_init_failed", { message: errMsg(err) }), "error");
-      // 序列中途失败（如产品已创建但后续上传失败）时同步一次服务端状态：
-      // 已持久化的部分让页面自然切换到对应视图，避免重复提交撞「产品已存在」死端
+      // 序列中途失败（如商品已创建但后续上传失败）时同步一次服务端状态：
+      // 已持久化的部分让页面自然切换到对应视图，避免重复提交撞「商品已存在」死端
       try {
         await onDone();
       } catch {
@@ -128,7 +128,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         </p>
       </header>
 
-      {/* ---- 产品信息 ---- */}
+      {/* ---- 商品信息 ---- */}
       <fieldset
         className="mb-5 rounded-xl p-4"
         style={{ border: "1px solid var(--color-hairline-soft)" }}
@@ -235,7 +235,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         )}
 
         <div className="mt-2 flex items-start gap-2">
-          {/* 始终可勾选以表达「要生标准图」的意图；产品信息是否完整由 productIncomplete
+          {/* 始终可勾选以表达「要生标准图」的意图；商品信息是否完整由 productIncomplete
               提示与 canSubmit 把关引导补全，而非置灰复选框形成无反馈死路 */}
           <input
             id={sheetId}

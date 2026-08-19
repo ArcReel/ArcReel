@@ -161,7 +161,7 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("3 张设计图比当前内容旧")).toBeInTheDocument();
+    expect(await screen.findByText("3 张资产图比当前内容旧")).toBeInTheDocument();
     // stale 仍是可用产物：计数格照报 3 / 3，不从可用里扣
     expect(screen.getAllByText("3 / 3").length).toBeGreaterThan(0);
   });

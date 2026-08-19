@@ -282,7 +282,7 @@ export function OverviewCanvas({
   const overview = projectData.overview;
   const showWelcome = !overview && (projectData.episodes?.length ?? 0) === 0;
   // ad 项目恒单集（episodes 非空），不会落入 showWelcome；建项后素材全空时进入初始化页：
-  // 上传产品图 + 产品描述 + brief + 可选 sheet 生成。任一素材就绪即切回概览。
+  // 上传商品图 + 商品描述 + brief + 可选 sheet 生成。任一素材就绪即切回概览。
   const showAdInit =
     isAd &&
     Object.keys(projectData.products ?? {}).length === 0 &&

@@ -615,7 +615,7 @@ class CostEstimationService:
                 except Exception:
                     logger.debug("无法计算 video 预估 for %s", seg_id, exc_info=True)
 
-                # 旁白配音按 novel_text 字符数估价（仅说书模式 segment 携带原文）
+                # 旁白配音按 novel_text 字符数估价（仅旁白/解说 segment 携带原文）
                 novel_text = seg.get("novel_text")
                 narration_chars = len(novel_text.strip()) if isinstance(novel_text, str) else 0
                 if narration_chars:
