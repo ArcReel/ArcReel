@@ -27,6 +27,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_agnes": "Agnes multimodal platform (OpenAI-style), authenticated with a Bearer API key; currently supports image, text and video generation.",
     # Agent preset notes (lib/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek official Anthropic-compat endpoint; needs sk- prefixed key.",
+    "preset_notes_orcarouter": "OrcaRouter Anthropic-compat gateway; needs an sk-orca- prefixed key.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo only accepts known model names; no public model list.",
     "preset_notes_ark_coding_plan": "Volcengine Ark Coding Plan",
     "preset_notes_ark_agent_plan": "Volcengine Ark Agent Plan",

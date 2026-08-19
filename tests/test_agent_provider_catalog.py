@@ -56,7 +56,7 @@ def test_messages_url_https_only() -> None:
 
 
 def test_curated_preset_set() -> None:
-    """目录与用户提供的表格保持一致;11 条预设."""
+    """目录与用户提供的表格保持一致;12 条预设."""
     expected = {
         "anthropic-official",
         "arcreel",
@@ -64,6 +64,7 @@ def test_curated_preset_set() -> None:
         "glm-intl",
         "xiaomi-mimo",
         "deepseek",
+        "orcarouter",
         "minimax-cn",
         "minimax-intl",
         "kimi",
@@ -83,6 +84,7 @@ def test_default_models_match_table() -> None:
         "glm-intl": "glm-5.1",
         "xiaomi-mimo": "mimo-v2.5-pro",
         "deepseek": "deepseek-v4-pro",
+        "orcarouter": "orcarouter/auto",
         "minimax-cn": "MiniMax-M3",
         "minimax-intl": "MiniMax-M3",
         "kimi": "",
@@ -91,6 +93,18 @@ def test_default_models_match_table() -> None:
     }
     actual = {p.id: p.default_model for p in list_presets()}
     assert actual == expected
+
+
+def test_orcarouter_preset() -> None:
+    """OrcaRouter preset exposes the Anthropic-compat gateway defaults."""
+    p = get_preset("orcarouter")
+    assert p is not None
+    assert p.display_name == "OrcaRouter"
+    assert p.messages_url == "https://api.orcarouter.ai"
+    assert p.discovery_url == "https://api.orcarouter.ai"
+    assert p.default_model == "orcarouter/auto"
+    assert p.api_key_pattern == r"^sk-orca-[A-Za-z0-9]+$"
+    assert p.is_recommended is False
 
 
 def test_api_key_url_required() -> None:
