@@ -222,6 +222,27 @@ export function extractMentions(text: string): string[] {
   return out;
 }
 
+/**
+ * 台词记号的说话人，按出现顺序去重。镜像后端
+ * `lib/reference_video/draft_validation.py::dialogue_speakers`——「谁在这个单元里发声」只由
+ * 说话人位决定，与 `extractMentions`（画面参考图）互补：一个角色可以只发声不出镜，也可以
+ * 只出镜不发声，音色相关的判定一律走本函数。
+ *
+ * 名字取自 `splitSpeechLine`，已归一到资产名比对坐标系，调用方直接与已归一的资产表 key 判等。
+ */
+export function dialogueSpeakers(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of splitScriptLines(text)) {
+    for (const mark of lineSpeechMarks(line)) {
+      if (!mark.speaker || seen.has(mark.speaker)) continue;
+      seen.add(mark.speaker);
+      out.push(mark.speaker);
+    }
+  }
+  return out;
+}
+
 type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props" | "products">;
 type ProjectAssetKind = AssetKind;
 export type MentionLookup = Record<string, ProjectAssetKind>;

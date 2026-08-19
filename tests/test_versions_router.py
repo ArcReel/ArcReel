@@ -70,7 +70,7 @@ _MINIMAL_SCRIPT = {
 
 
 def _write_minimal_project(project_path: Path) -> None:
-    """落一个最小的 v8 项目：产物清单的取证要读到 project.json 与剧集绑定。"""
+    """落一个当前 schema 版本的最小项目：产物清单的取证要读到 project.json 与剧集绑定。"""
     project_path.mkdir(parents=True, exist_ok=True)
     project_path.joinpath("project.json").write_text(json.dumps(_MINIMAL_PROJECT, ensure_ascii=False), encoding="utf-8")
     scripts_dir = project_path / "scripts"

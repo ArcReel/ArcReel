@@ -96,7 +96,7 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
     plan = plan_artifact_target_state(project_dir)
     current_schema = plan.project.get("schema_version")
     if bump_schema and current_schema != ARTIFACT_MANIFEST_SCHEMA_VERSION - 1:
-        raise ValueError("schema bump requires a v7 project")
+        raise ValueError(f"schema bump requires a v{ARTIFACT_MANIFEST_SCHEMA_VERSION - 1} project")
     if not bump_schema and not project_schema_is_current(plan.project):
         raise ValueError("schema-preserving activation requires a current-schema project")
 

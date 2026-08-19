@@ -5116,6 +5116,8 @@ def test_build_reference_specs_handles_a_non_string_text(tmp_path) -> None:
     specs, _, refused = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None)
     assert [s.resource_id for s in specs] == ["E1U2"]
     assert all("None" not in (s.payload.get("prompt") or "") for s in specs)
+    # 显式拒收与静默跳过在 specs 上不可分辨，问题码才锁得住守卫点确实拒了这一条。
+    assert _refused_problems(refused) == {"E1U1": ("generation_unit_request_invalid", "fix_input")}
 
 
 # ---------------------------------------------------------------------------

@@ -790,7 +790,7 @@ export default {
   'script_preview_utterances': '台词',
   'script_preview_utterances_value': '{{dialogue}} 句台词 · {{voiceover}} 段画外音',
   'script_preview_none': '无',
-  'reference_editor_placeholder': '写下这段画面。用 @ 引用角色 / 场景 / 道具，用 {} 写台词。',
+  'reference_editor_placeholder': '写下这个视频单元的画面。用 @ 引用商品 / 角色 / 场景 / 道具，用 {} 写台词。',
   'reference_editor_aria_name': 'Unit 提示词',
   'reference_editor_unknown_mentions_label': '未注册提及',
   'reference_editor_unknown_mention': '未注册：@{{name}}（产品/角色/场景/道具中都未找到）',

@@ -1425,9 +1425,9 @@ describe("ReferenceVideoCanvas", () => {
   describe("存量声音过渡横幅", () => {
     const VOICE_UPDATED_AT = "2026-06-01T00:00:00+00:00";
 
-    /** 一个已完成、且生成于当前声音设置之前的片段 */
+    /** 一个已完成、且生成于当前声音设置之前的片段；角色须开口说话，音色才作用于它 */
     function staleUnit(): ReferenceVideoUnit {
-      const u = mkUnit("E1U1", "@[王] 推门。");
+      const u = mkUnit("E1U1", "@[王] 推门。@[王]{我来了。}");
       u.generated_assets = { ...u.generated_assets, status: "completed", video_generated_at: null };
       return u;
     }

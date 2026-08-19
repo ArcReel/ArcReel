@@ -111,8 +111,6 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
-    "val_ref_type_invalid": "{prefix}: type không hợp lệ: {value}",
-    "val_ref_name_invalid": "{prefix}: name phải là chuỗi không rỗng: {value}",
     # ---- khung xương và tuyến sinh video ----
     "val_skeleton_noun_segments": "phân cảnh",
     "val_skeleton_noun_scenes": "cảnh",

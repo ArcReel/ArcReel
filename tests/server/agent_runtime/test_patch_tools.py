@@ -80,7 +80,7 @@ def _drama_script() -> dict[str, Any]:
 def _unit(unit_id: str) -> dict[str, Any]:
     return {
         "unit_id": unit_id,
-        "text": "镜头1\n镜头2",
+        "text": "推门进屋\n环视四周",
         "duration_seconds": 8,
     }
 

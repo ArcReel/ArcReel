@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib.artifact_planner import ARTIFACT_MANIFEST_SCHEMA_VERSION
+from lib.episode_ledger import parse_positive_episode_num
+from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME, episode_drafts_dir
 from lib.path_safety import try_safe_join
 from lib.project_migration_failure import (
     MigrationFailureRecord,
@@ -68,7 +70,11 @@ def _numeric_backup_candidates(source: Path, versions: tuple[int, ...]) -> list[
 
 
 def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
-    """Resolve the exact script paths that v6/v7 migrations were allowed to back up."""
+    """Resolve every script-shaped source a migration was allowed to back up.
+
+    账本里绑定的剧集脚本，加上同集的 step1 草稿——草稿是同一份正文的上一形态，改写脚本的
+    迁移同批改写它，备份因此成对出现，回收也必须成对，否则草稿备份没有任何清理路径。
+    """
 
     try:
         project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
@@ -79,12 +85,16 @@ def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
         return ()
     sources: list[Path] = []
     for episode in episodes:
-        script_file = episode.get("script_file") if isinstance(episode, dict) else None
-        if not isinstance(script_file, str) or not script_file:
+        if not isinstance(episode, dict):
             continue
-        source = try_safe_join(project_dir, script_file)
-        if source is not None:
-            sources.append(source)
+        script_file = episode.get("script_file")
+        if isinstance(script_file, str) and script_file:
+            source = try_safe_join(project_dir, script_file)
+            if source is not None:
+                sources.append(source)
+        episode_num = parse_positive_episode_num(episode.get("episode"))
+        if episode_num is not None:
+            sources.append(episode_drafts_dir(project_dir, episode_num) / REFERENCE_VIDEO_STEP1_FILENAME)
     return tuple(sources)
 
 
@@ -279,11 +289,9 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
             if not (retain_activation_recovery and version == _ACTIVATION_BACKUP_VERSION)
         )
         activation_backup_versions = () if retain_activation_recovery else (_ACTIVATION_BACKUP_VERSION,)
-        script_backup_versions = (
-            (6, ARTIFACT_MANIFEST_SCHEMA_VERSION)
-            if retain_activation_recovery
-            else (6, _ACTIVATION_BACKUP_VERSION, ARTIFACT_MANIFEST_SCHEMA_VERSION)
-        )
+        # 脚本类源文与 project.json 用同一份版本集合：备份名按来源文件枚举，列进从未产生过
+        # 备份的版本没有代价，而写死一张「哪几版改过脚本」的清单会在下一次迁移时漏掉新版本。
+        script_backup_versions = project_backup_versions
         sources = (
             (project_dir / "project.json", project_backup_versions),
             (project_dir / ".arcreel_artifacts.json", activation_backup_versions),

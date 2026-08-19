@@ -102,8 +102,6 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
     "val_video_units_missing": "reference_video 脚本缺少 video_units 数组或为空",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数",
-    "val_ref_type_invalid": "{prefix}: type 无效: {value}",
-    "val_ref_name_invalid": "{prefix}: name 必须是非空字符串: {value}",
     # ---- 骨架与路线失配 ----
     "val_skeleton_noun_segments": "分镜",
     "val_skeleton_noun_scenes": "场景",

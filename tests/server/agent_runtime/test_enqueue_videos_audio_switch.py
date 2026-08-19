@@ -149,6 +149,8 @@ class TestReferenceRouteGate:
                 return {"allowed": True, "unit_id": "test", "problems": []}
 
         async def _record(*, unit, **_kwargs):
+            # 替身只需产出可预期的分桶信号：本用例的 project 为空，未登记名经生产侧的
+            # unit_reference_declarations 会被全部滤掉，故此处按正文提及直接判。
             seen.append("r2v" if extract_mentions(str(unit.get("text") or "")) else "i2v")
             return _Projection()
 
@@ -226,7 +228,7 @@ def _claim_existing_video(project_dir: Path, resource_id: str) -> None:
 class _EpisodePM:
     """整集工具够用的 pm 替身：一集一个 segment，分镜图有无由调用方决定。
 
-    项目按生产形态构造：schema v8、剧本在 episodes 账本里绑定，已落盘的分镜图在构造时
+    项目按生产形态构造：当前 schema、剧本在 episodes 账本里绑定，已落盘的分镜图在构造时
     经清单激活登记——清单是读取已生成产物的唯一口径。构造之后用例会往内存剧本里塞畸形
     条目验证工具侧的逐条拒收，那些条目不回写磁盘，清单保持这份干净基线。
     """

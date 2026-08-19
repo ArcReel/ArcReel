@@ -365,6 +365,8 @@ class ProjectArchiveService:
                         if stalled_project is not None and stalled_project.get("schema_version") == 7:
                             self._raise_artifact_activation_validation_error(diagnostics, exc)
                         raise
+                    # 提及自愈跑在迁移之后：存量归档的正文是迁移折出来的，早跑读不到正文。
+                    self._repair_unit_mentions_tree(staging_dir, diagnostics)
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
                     if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
@@ -442,6 +444,8 @@ class ProjectArchiveService:
         source_manifest_entries = self._capture_stable_visible_tree(source_dir, snapshot_dir)
 
         diagnostics = self._repair_project_tree(snapshot_dir)
+        # 源项目已在当前 schema 上，正文就位，与导入路径共用同一遍提及自愈。
+        self._repair_unit_mentions_tree(snapshot_dir, diagnostics)
         diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
 
         # 从源目录收集非标准顶层条目，记录到诊断中（即使已被过滤不导出）
@@ -1020,20 +1024,16 @@ class ProjectArchiveService:
         # video_units 骨架用 references 组织资产，结构与
         # storyboard 骨架的 characters/scenes/props 不同，单独走专用修复分支。
         if kind == "video_units":
-            units_changed, units_project_changed = self._repair_video_units_payload(
+            units_changed = self._repair_video_units_payload(
                 project_dir,
                 script_path_rel=script_path_rel,
                 script_payload=script_payload,
                 project_payload=project_payload,
-                project_characters=project_characters,
-                project_scenes=project_scenes,
-                project_props=project_props,
-                project_products=project_products,
                 content_mode=content_mode,
                 versions_payload=versions_payload,
                 diagnostics=diagnostics,
             )
-            return script_changed or units_changed, project_changed or units_project_changed
+            return script_changed or units_changed, project_changed
 
         # storyboard 骨架（segments/scenes/shots，含 ad 的 shots）逐条补全字段与资产回填。
         items_key = kind
@@ -1243,25 +1243,21 @@ class ProjectArchiveService:
         script_path_rel: str,
         script_payload: dict[str, Any],
         project_payload: dict[str, Any],
-        project_characters: set[str],
-        project_scenes: set[str],
-        project_props: set[str],
-        project_products: set[str],
         content_mode: str,
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
-    ) -> tuple[bool, bool]:
-        """修复 reference_video 模式剧本的 video_units，返回 (script_changed, project_changed)。
+    ) -> bool:
+        """修复 reference_video 模式剧本的 video_units，返回 script_changed。
 
-        video_units 没有 storyboard 条目的 characters/scenes/props 字段，引用资产改放在
-        references（list[{type, name}]）里。本方法做三件事，与 narration/drama 分支对齐：
-        generated_assets 补全；references 自愈（缺失角色补占位、缺失场景/道具报阻断）；
-        video_clip / video_thumbnail 路径规范化与版本回溯。
+        单元的引用不落盘，正文才是真相，因此本方法只碰结构与产物字段：per-unit 时长收编、
+        generated_assets 补全、video_clip / video_thumbnail 路径规范化与版本回溯。正文里
+        ``@[名称]`` 的自愈另走 :meth:`_repair_unit_mentions_tree`——它要等 schema 迁移把存量
+        镜头结构折成正文之后才有正文可读。
         video_uri 是远端 URL，不当作本地路径处理（否则会被同名 canonical 本地文件覆盖）。
         """
         raw_units = script_payload.get("video_units")
         if not isinstance(raw_units, list):
-            return False, False
+            return False
 
         # 存量归档可能仍是收编前的形状（时长挂在 shots 上、unit 缺 duration_seconds）：
         # 下游的结构校验（DataValidator）要求 unit 级 duration_seconds 落在结构区间内，
@@ -1288,7 +1284,6 @@ class ProjectArchiveService:
                 location=script_path_rel,
             )
 
-        project_changed = False
         for index, unit in enumerate(raw_units):
             if not isinstance(unit, dict):
                 continue
@@ -1306,19 +1301,6 @@ class ProjectArchiveService:
             )
             if assets_changed:
                 changed = True
-
-            if self._repair_unit_mentions(
-                unit,
-                project_payload=project_payload,
-                project_characters=project_characters,
-                project_scenes=project_scenes,
-                project_props=project_props,
-                project_products=project_products,
-                index=index,
-                location_prefix=location_prefix,
-                diagnostics=diagnostics,
-            ):
-                project_changed = True
 
             if not (isinstance(assets, dict) and resource_id):
                 continue
@@ -1348,7 +1330,64 @@ class ProjectArchiveService:
             ):
                 changed = True
 
-        return changed, project_changed
+        return changed
+
+    def _repair_unit_mentions_tree(self, project_dir: Path, diagnostics: ArchiveDiagnostics) -> None:
+        """迁移之后再扫一遍全部 video_units 正文：说话人缺定义补占位，其余未解析提及只警告。
+
+        必须跑在 :func:`migrate_project_dir` **之后**：存量归档的单元把内容挂在镜头结构上，
+        正文是迁移折出来的，早跑一遍等于对着空正文自愈，占位角色与诊断都不会产生。
+        本遍只改 ``project.json``（补占位角色），不改剧本。
+        """
+        project_path = project_dir / self.project_manager.PROJECT_FILE
+        project = self._load_json_file(project_path)
+        if project is None:
+            return
+        pools = {
+            key: {name for name, payload in (project.get(key) or {}).items() if isinstance(payload, dict)}
+            if isinstance(project.get(key), dict)
+            else set[str]()
+            for key in ("characters", "scenes", "props", "products")
+        }
+        episodes = project.get("episodes")
+        if not isinstance(episodes, list):
+            return
+
+        project_changed = False
+        for episode_meta in episodes:
+            if not isinstance(episode_meta, dict):
+                continue
+            script_file = episode_meta.get("script_file")
+            if not isinstance(script_file, str) or not script_file.strip():
+                continue
+            script_path = try_safe_join(project_dir, script_file)
+            if script_path is None or not script_path.is_file():
+                continue
+            script_payload = self._load_json_file(script_path)
+            if script_payload is None:
+                continue
+            raw_units = script_payload.get("video_units")
+            if not isinstance(raw_units, list):
+                continue
+            script_path_rel = script_file.replace("\\", "/")
+            for index, unit in enumerate(raw_units):
+                if not isinstance(unit, dict):
+                    continue
+                if self._repair_unit_mentions(
+                    unit,
+                    project_payload=project,
+                    project_characters=pools["characters"],
+                    project_scenes=pools["scenes"],
+                    project_props=pools["props"],
+                    project_products=pools["products"],
+                    index=index,
+                    location_prefix=f"{script_path_rel}:video_units[{index}]",
+                    diagnostics=diagnostics,
+                ):
+                    project_changed = True
+
+        if project_changed:
+            self._write_json_file(project_path, project)
 
     def _repair_unit_mentions(
         self,

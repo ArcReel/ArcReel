@@ -286,7 +286,6 @@ MESSAGES = {
     "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
     "ref_payload_floor_exceeded": "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
     "ref_sora_single_ref": "Sora reference mode does not currently support multiple images, downgraded to single image",
-    "ref_shot_parse_fallback": "No Shot N (Xs) header detected, treated as a single shot",
     "ref_episode_not_found": "Episode {episode} not found",
     "ref_not_reference_video_mode": "Episode script is not in reference-video mode",
     "ref_unit_not_found": "Video unit '{unit_id}' not found",

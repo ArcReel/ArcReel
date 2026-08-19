@@ -771,7 +771,7 @@ export default {
   'script_preview_utterances': 'Lời thoại',
   'script_preview_utterances_value': '{{dialogue}} câu thoại · {{voiceover}} lời dẫn',
   'script_preview_none': 'Không có',
-  'reference_editor_placeholder': 'Mô tả cảnh này. Dùng @ để tham chiếu nhân vật / cảnh / đạo cụ và {} cho lời thoại.',
+  'reference_editor_placeholder': 'Mô tả đơn vị video này. Dùng @ để tham chiếu hàng hóa / nhân vật / cảnh / đạo cụ và {} cho lời thoại.',
   'reference_editor_aria_name': 'Prompt đơn vị',
   'reference_editor_unknown_mentions_label': 'Mention chưa đăng ký',
   'reference_editor_unknown_mention': 'Chưa đăng ký: @{{name}} (không có trong hàng hóa/nhân vật/cảnh/đạo cụ)',

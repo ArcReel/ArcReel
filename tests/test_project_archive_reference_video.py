@@ -175,7 +175,7 @@ class TestProjectArchiveReferenceVideo:
             },
         }
         project_dir = _create_reference_video_project(pm, unit=legacy_unit)
-        # 收编前形状的归档必然早于当前 schema 版本：去掉版本戳，导入时补跑完整迁移链。
+        # 缺 schema_version 的归档按最早版本处理：导入时补跑完整迁移链，时长收编在链上完成。
         project_file = project_dir / "project.json"
         payload = json.loads(project_file.read_text(encoding="utf-8"))
         payload.pop("schema_version", None)

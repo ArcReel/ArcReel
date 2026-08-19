@@ -791,7 +791,7 @@ export default {
   'script_preview_utterances': 'Dialogue',
   'script_preview_utterances_value': '{{dialogue}} lines · {{voiceover}} voiceovers',
   'script_preview_none': 'None',
-  'reference_editor_placeholder': 'Describe this shot. Use @ to reference characters, scenes, and props, and {} for spoken lines.',
+  'reference_editor_placeholder': 'Describe this video unit. Use @ to reference merchandise, characters, scenes, and props, and {} for spoken lines.',
   'reference_editor_aria_name': 'Unit prompt',
   'reference_editor_unknown_mentions_label': 'Unregistered mentions',
   'reference_editor_unknown_mention': 'Unregistered: @{{name}} (not found in merchandise/characters/scenes/props)',

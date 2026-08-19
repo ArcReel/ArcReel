@@ -111,8 +111,6 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: duplicate unit_id '{value}'",
     "val_video_units_missing": "The reference_video script is missing the video_units array, or it is empty",
     "val_unit_duration_range": "{prefix}: duration_seconds must be an integer between {low} and {high}",
-    "val_ref_type_invalid": "{prefix}: invalid type: {value}",
-    "val_ref_name_invalid": "{prefix}: name must be a non-empty string: {value}",
     # ---- skeleton / route mismatch ----
     "val_skeleton_noun_segments": "segments",
     "val_skeleton_noun_scenes": "scenes",

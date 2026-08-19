@@ -15,7 +15,7 @@
  */
 import { History, X } from "lucide-react";
 import type { Character } from "@/types/project";
-import { extractMentions, normalizeAssetName } from "@/utils/reference-mentions";
+import { dialogueSpeakers, normalizeAssetName } from "@/utils/reference-mentions";
 
 /**
  * computeVoiceLegacyNotice 所需的最小 unit 形状——同时兼容 narration/drama 的
@@ -25,7 +25,7 @@ import { extractMentions, normalizeAssetName } from "@/utils/reference-mentions"
  */
 export interface VoiceNoticeUnit {
   unit_id: string;
-  /** 单元正文；出场角色按 `@[名称]` 首现顺序从中派生，与执行期的参考图解析同一出口。 */
+  /** 单元正文；发声角色按台词记号的说话人位从中派生，与执行期的音频绑定同一出口。 */
   text?: string | null;
   generated_assets?: { status?: string | null; video_generated_at?: string | null } | null;
 }
@@ -63,9 +63,10 @@ export function computeVoiceLegacyNotice(
     if (unit.generated_assets?.status !== "completed") continue;
     const videoGeneratedAt = unit.generated_assets?.video_generated_at;
 
-    // 正文缺省是校验层允许的合法状态（迁移问题壳的正文可为空），当作空串处理，
-    // 否则整个参考生视频画布会因这一个 unit 崩溃。
-    for (const name of extractMentions(unit.text ?? "")) {
+    // 只看台词记号的说话人：音色只作用于该角色说的台词，出镜但不发声的角色换了音色也
+    // 不会让已生成的视频过期。正文缺省是校验层允许的合法状态（迁移问题壳的正文可为空），
+    // 当作空串处理，否则整个参考生视频画布会因这一个 unit 崩溃。
+    for (const name of dialogueSpeakers(unit.text ?? "")) {
       const found = normalizedCharacters.get(name);
       if (!found) continue;
       const { key: characterKey, character } = found;

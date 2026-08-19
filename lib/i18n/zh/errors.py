@@ -260,7 +260,6 @@ MESSAGES = {
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
     "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
     "ref_sora_single_ref": "Sora 参考模式暂不支持多图，已降级为单图",
-    "ref_shot_parse_fallback": "未识别到 Shot N (Xs): 标记，按单镜头处理",
     "ref_episode_not_found": "第 {episode} 集不存在",
     "ref_not_reference_video_mode": "该集脚本不是参考生视频模式",
     "ref_unit_not_found": "视频单元「{unit_id}」不存在",

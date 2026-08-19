@@ -17,10 +17,11 @@ function ga(overrides: Partial<UnitGeneratedAssets>): UnitGeneratedAssets {
   };
 }
 
+// 音色只作用于该角色说出的台词，因此夹具让角色开口说话：出镜与否不决定语音过期。
 function unit(id: string, characterName: string, generatedAssets: UnitGeneratedAssets): ReferenceVideoUnit {
   return {
     unit_id: id,
-    text: `@[${characterName}] 出场`,
+    text: `@[${characterName}] 出场。@[${characterName}]{我来了}`,
     duration_seconds: 5,
     transition_to_next: "cut",
     note: null,
@@ -86,9 +87,9 @@ describe("computeVoiceLegacyNotice", () => {
     expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
   });
 
-  it("dedupes unit count when multiple mentioned characters are both stale", () => {
+  it("dedupes unit count when multiple speaking characters are both stale", () => {
     const u = unit("E1U1", "王", ga({ video_generated_at: null }));
-    u.text += "，@[李] 跟上";
+    u.text += "\n@[李]{我也在}";
     const characters = {
       王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }),
       李: character({ voice_updated_at: "2026-01-02T00:00:00Z" }),
@@ -104,10 +105,17 @@ describe("computeVoiceLegacyNotice", () => {
     expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });
   });
 
-  // 说话人位不进参考图，同 extract_mentions：只在花括号前出现的角色只提供声音、不入画。
-  it("ignores a character that only occupies a speaker slot", () => {
+  // 说话人位不进参考图，但它正是音色的作用点：只发声不出镜的角色换音色照样让视频过期。
+  it("counts a character that only occupies a speaker slot", () => {
     const u = unit("E1U1", "王", ga({ video_generated_at: null }));
     u.text = "@[王]{我来了}";
+    const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
+    expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 1, characterNames: ["王"] });
+  });
+
+  it("ignores a character that is only referenced visually", () => {
+    const u = unit("E1U1", "王", ga({ video_generated_at: null }));
+    u.text = "@[王] 推门进屋";
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
     expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });
   });
