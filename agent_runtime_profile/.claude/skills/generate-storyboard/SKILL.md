@@ -45,9 +45,9 @@ description: 为剧本场景生成分镜图。当用户说"生成分镜"、"预�
 ## 角色一致性机制
 
 MCP 工具自动处理以下参考图传入，无需手动指定：
-- **character_sheet**：场景中出场角色的设计图，保持外貌一致
-- **scene_sheet / prop_sheet**：场景中出现的场景 / 道具设计图
-- **产品参考（广告/短片项目）**：镜头 `products_in_shot` 非空时自动注入产品参考并排在所有参考之前（有 product sheet 时 sheet + 原图，无 sheet 时原图直注），同时附加高保真还原指令——image_prompt 无需复述产品外观
+- **character_sheet**：场景中出场角色的资产图，保持外貌一致
+- **scene_sheet / prop_sheet**：场景中出现的场景 / 道具资产图
+- **商品参考（广告/短片项目）**：镜头 `products_in_shot` 非空时自动注入商品参考并排在所有参考之前（有 product sheet 时 sheet + 原图，无 sheet 时原图直注），同时附加高保真还原指令——image_prompt 无需复述商品外观
 - **上一张分镜图**：相邻片段默认引用，提升画面连续性
 - 当片段标记 `segment_break=true` 时，跳过上一张分镜图参考
 

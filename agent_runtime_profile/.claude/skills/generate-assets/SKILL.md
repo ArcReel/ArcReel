@@ -4,9 +4,9 @@ description: >-
   统一资产生成 skill：接受 `--type=character|scene|prop`，或不传自动扫所有 pending（缺 sheet）资源并按类型分发。当用户说“生成角色图”/“生成场景图”/“生成道具图”、想为新资产创建参考图、或有资产缺少 *_sheet 时使用。
 ---
 
-# 生成资产设计图
+# 生成资产图
 
-为项目的角色、场景、道具创建参考设计图，保证整个视频中视觉元素的一致性。
+为项目的角色、场景、道具创建资产图，保证整个视频中视觉元素的一致性。
 图像供应商由项目设置选择（不锁定具体 backend）。
 
 > Prompt 编写原则详见 `.claude/references/generation-modes.md` 的"Prompt 语言"章节。
@@ -17,7 +17,7 @@ description: >-
 - 用户只需在 project.json 中维护 `description`；最终交给图像 backend 的完整 prompt
   （含布局 / 防崩短语 / 反向提示词）由 `lib/prompt_builders.py` 在 server 端拼好，
   WebUI 与 Skill 走同一份真相源。
-- Pending 判定：Artifact Manifest 中该资产设计图状态为 `missing`；`stale` 产物复用，不计入待生成。
+- Pending 判定：Artifact Manifest 中该资产图状态为 `missing`；`stale` 产物复用，不计入待生成。
 
 ---
 
@@ -91,14 +91,14 @@ description: >-
 
 ## 工作流程
 
-1. **加载项目元数据** — 从 Artifact Manifest 找出设计图状态为 `missing` 的资产
+1. **加载项目元数据** — 从 Artifact Manifest 找出资产图状态为 `missing` 的资产
 2. **入队生成任务** — description 直接作为 prompt 提交；server 端 `lib.prompt_builders` 注入布局 / 防崩 / 反向
-3. **审核检查点** — 展示每张设计图，用户可批准、要求重新生成，或要求编辑
+3. **审核检查点** — 展示每张资产图，用户可批准、要求重新生成，或要求编辑
 4. **更新 project.json** — 更新 `character_sheet` / `scene_sheet` / `prop_sheet` 路径
 
 ## 审核检查点：编辑 vs 重新生成
 
-用户对设计图提意见时先判断诉求类型，选错路径会推翻已满意的部分或丢掉预期外的改动：
+用户对资产图提意见时先判断诉求类型，选错路径会推翻已满意的部分或丢掉预期外的改动：
 
 - **只想改局部**（换发色、去掉杂物、调整光线氛围等），且构图和整体设计满意 → 用
   `mcp__arcreel__edit_images({"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]})`

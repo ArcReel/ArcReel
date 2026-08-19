@@ -881,20 +881,61 @@ _STATE_MARKS: dict[GenerationItemState, str] = {
     GenerationItemState.BLOCKED: "⛔",
 }
 
+_ACTION_LABELS: dict[GenerationAction, str] = {
+    GenerationAction.RETRY: "可重试",
+    GenerationAction.FIX_INPUT: "需修正输入",
+    GenerationAction.GENERATE_DEPENDENCY: "需先生成依赖",
+    GenerationAction.GENERATE_TTS: "需先生成旁白配音",
+    GenerationAction.REGENERATE_TTS: "需重新生成旁白配音",
+    GenerationAction.WAIT_FOR_TASK: "等待进行中任务完成",
+    GenerationAction.REPLAN_UNIT: "需重新规划内容",
+    GenerationAction.CONFIRM_REQUEST_DURATION: "需确认时长档位",
+    GenerationAction.CONFIGURE_PROVIDER: "需配置供应商",
+    GenerationAction.REPAIR_ARTIFACT_STATE: "需修复产物状态",
+    GenerationAction.RETRY_PROJECT_MIGRATION: "需重试项目迁移",
+    GenerationAction.NONE: "",
+}
+
+_ARTIFACT_STATUS_LABELS: dict[ArtifactStatus, str] = {
+    ArtifactStatus.CURRENT: "与当前内容一致",
+    ArtifactStatus.STALE: "比当前内容旧",
+    ArtifactStatus.MISSING: "缺失",
+    ArtifactStatus.BLOCKED: "不可用",
+}
+
+#: 各生成入口的产品语言名。摘要里不出现工具名——工具名属机器层，只留在结构化
+#: ``generation_result`` 的 ``operation`` 字段。未登记的入口回落到中性措辞而非直出工具名；
+#: 登记完整性由测试兜底。
+_OPERATION_LABELS: dict[str, str] = {
+    "generate_assets": "资产图生成",
+    "generate_storyboards": "分镜图生成",
+    "generate_grid": "多宫格分镜生成",
+    "generate_narration_audio": "旁白配音生成",
+    "edit_images": "图片编辑",
+    "generate_video_episode": "整集视频生成",
+    "generate_video_scene": "单条视频生成",
+    "generate_video_all": "待生成视频批量生成",
+    "generate_video_selected": "点名视频生成",
+}
+_FALLBACK_OPERATION_LABEL = "生成"
+
 
 def render_generation_result(result: GenerationBatchResult, *, log: Iterable[str] = ()) -> str:
-    """Render the same contract as the agent-facing text summary.
+    """Render the agent-facing text summary (product language).
 
-    The text is a projection of the structured payload, never a second source
-    of truth: every fact printed here is present as a field.
+    The text is a human-readable projection of the structured payload — it
+    carries *no* raw enum values, Python class names, or tool names. Machine
+    identifiers (``operation``, problem codes, actions, artifact statuses)
+    live exclusively in the structured ``generation_result`` sibling field.
     """
 
+    operation_label = _OPERATION_LABELS.get(result.operation, _FALLBACK_OPERATION_LABEL)
     header = (
-        f"{result.operation} summary: {len(result.succeeded)} succeeded, "
-        f"{len(result.failed)} failed, {len(result.blocked)} blocked"
+        f"{operation_label}：成功 {len(result.succeeded)} 件、"
+        f"失败 {len(result.failed)} 件、受阻 {len(result.blocked)} 件"
     )
     if result.skipped:
-        header += f", {len(result.skipped)} reused"
+        header += f"、复用 {len(result.skipped)} 件"
     lines = [header, *log]
     for item in result.items:
         mark = _STATE_MARKS[item.state]
@@ -907,13 +948,16 @@ def render_generation_result(result: GenerationBatchResult, *, log: Iterable[str
         else:
             problem = item.problem
             assert problem is not None
-            line += f": [{problem.code}] {problem.detail} → next: {problem.action.value}"
+            action_label = _ACTION_LABELS.get(problem.action, "")
+            line += f": {problem.detail}"
+            if action_label:
+                line += f" → {action_label}"
             if item.provider_checkpoint is not None and item.provider_checkpoint.submitted:
                 line += "（供应商已提交，可恢复）"
         lines.append(line)
     for entry in result.skipped:
-        # 入口自己声明不观测产物时效轴时该字段留空，此处就不假装知道它是 current 还是 stale。
-        suffix = f"（{entry.artifact_status.value}）" if entry.artifact_status is not None else ""
+        label = _ARTIFACT_STATUS_LABELS.get(entry.artifact_status, "") if entry.artifact_status is not None else ""
+        suffix = f"（{label}）" if label else ""
         lines.append(f"  ↺ {entry.unit_id}: 复用现有产物{suffix}")
     return "\n".join(lines)
 

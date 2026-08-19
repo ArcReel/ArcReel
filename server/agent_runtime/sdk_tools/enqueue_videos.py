@@ -118,6 +118,31 @@ _REQUEST_SCHEMA_PROPERTIES = {
 }
 
 
+#: 已退役的入参名 → 该怎么写。键都是曾经真实存在、或与视频单元旧结构同名的写法：
+#: 前三个是点名目标的旧 id 参数，后两个是视频单元已删除的镜头与参考清单字段。
+#: 视频单元现在只持有 ``text`` 与 ``duration_seconds``，参考图在执行期从正文的
+#: ``@[名称]`` 首次提及顺序派生，两者都不再经工具入参传入。
+_RETIRED_PARAMS: dict[str, str] = {
+    "shot_ids": "改用点名参数 scene_id（单个）/ scene_ids（批量）",
+    "unit_id": "改用点名参数 scene_id——参考生视频项目在该参数里直接传 unit_id",
+    "unit_ids": "改用点名参数 scene_ids——参考生视频项目在该参数里直接传 unit_id 列表",
+    "shots": "视频单元不再有镜头数组；正文写在剧本的 text 字段里，经 patch_episode_script 修改",
+    "references": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
+    "reference_images": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
+}
+
+
+def _reject_retired_params(args: dict[str, Any]) -> None:
+    """入参里出现已退役的参数名时 fail loud，并指明当下该怎么写。
+
+    Raises:
+        ValueError: 命中 :data:`_RETIRED_PARAMS`。
+    """
+    for name, guidance in _RETIRED_PARAMS.items():
+        if name in args:
+            raise ValueError(f"参数 {name!r} 已不存在：{guidance}")
+
+
 def _video_tool_schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
     """工具入参 schema 的统一外壳。"""
 
@@ -454,10 +479,10 @@ async def _admit_storyboard_specs(
 
 
 def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | None:
-    """定生成路线并把守骨架闸门。
+    """定生成模式并把守骨架闸门。
 
-    项目走参考生视频路线时返回 ``"reference"``，分镜路线返回 ``None``。
-    路线以 project.json 的 ``generation_mode`` 为唯一真相源；所有内容模式共用
+    项目走参考生视频时返回 ``"reference"``，分镜图生视频返回 ``None``。
+    生成模式以 project.json 的 ``generation_mode`` 为唯一真相源；所有创作类型共用
     同一份 ``video_units`` 骨架。
 
     Raises:
@@ -790,7 +815,7 @@ async def _generate_reference_units(
 ) -> ReferenceGenerationComplete | BatchAdmissionRefused:
     """unit 批量生成的共享骨架：时长确认 + checkpoint 续传 + 已产出扫描 + 入队等待。
 
-    所有内容模式的 ``video_units`` 共用同一构造路径。``build_specs`` 是本批唯一的
+    所有创作类型的 ``video_units`` 共用同一构造路径。``build_specs`` 是本批唯一的
     可入队性口径：它先于准入运行，构造不出 TaskSpec 的 unit 直接带着自己的问题码
     进入准入结论，不再被解析或报价。
 
@@ -1138,7 +1163,7 @@ async def _run_reference_units(
 
 @dataclass(frozen=True)
 class _VideoRequestContext:
-    """四个视频工具共有的请求前导：入参投影、剧本与生成路线判定。"""
+    """四个视频工具共有的请求前导：入参投影、剧本与生成模式判定。"""
 
     script_filename: str
     request_options: ReferenceRequestOptions
@@ -1153,12 +1178,14 @@ def _video_request_context(
     args: dict[str, Any],
     script_filename: str,
 ) -> _VideoRequestContext:
-    """把入参折成本次请求的投影选项、载入剧本，并定下走哪条生成路线。
+    """把入参折成本次请求的投影选项、载入剧本，并定下走哪条生成模式。
 
     剧本文件名由调用方先行校验后传入：``scene_ids`` 之类的入参校验要排在文件名之后、
-    投影选项之前，入参报错的先后次序才与各入口一致。
+    投影选项之前，入参报错的先后次序才与各入口一致。已退役参数名的拒绝落在这里，
+    四个入口因此共用同一份判据与同一个报错次序。
     """
 
+    _reject_retired_params(args)
     request_options = _reference_request_options(args)
     confirmed_request_durations = _confirmed_request_durations(args)
     project_dir = ctx.project_path
@@ -1190,7 +1217,7 @@ def _screen_script_targets(
 ) -> _StoryboardScreening:
     """取分镜条目并筛掉成不了目标的脏条目。
 
-    骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
+    骨架种类取剧本实际形态（与生成模式闸门同一份判别），族内历史形态才不会被按创作类型
     反推的种类误判成解析失败。
     """
 
@@ -1207,7 +1234,7 @@ def _screen_script_targets(
 
 @dataclass(frozen=True)
 class _StoryboardContext:
-    """分镜路线的项目侧上下文：项目、集号与内容模式。"""
+    """分镜图生视频的项目侧上下文：项目、集号与创作类型。"""
 
     project: dict[str, Any]
     episode: int
@@ -1512,7 +1539,7 @@ def generate_video_episode_tool(ctx: ToolContext):
 def generate_video_scene_tool(ctx: ToolContext):
     @tool(
         "generate_video_scene",
-        "生成单个场景/片段的视频。reference_video 项目传 unit_id 即对该 unit 重新生成（覆盖已有成片）。",
+        "生成单个分镜/片段的视频。reference_video 项目把 unit_id 填进 scene_id 即对该 unit 重新生成（覆盖已有成片）。",
         _SCENE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:

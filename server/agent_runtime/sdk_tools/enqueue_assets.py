@@ -123,7 +123,7 @@ def _description_of(project: dict[str, Any], asset_type: str, unit_id: str) -> s
 def list_pending_assets_tool(ctx: ToolContext):
     @tool(
         "list_pending_assets",
-        "列出项目内待生成设计图的角色/场景/道具/产品。type 省略则汇总所有类型。",
+        "列出项目内待生成资产图的角色/场景/道具/商品。type 省略则汇总所有类型。",
         {
             "type": "object",
             "properties": {
@@ -145,7 +145,7 @@ def list_pending_assets_tool(ctx: ToolContext):
                 spec = ASSET_SPECS[t]
                 pending = _get_pending(ctx.pm, ctx.project_name, t)
                 if not pending:
-                    lines.append(f"✅ 项目 '{ctx.project_name}' 所有{spec.label_zh}都已有设计图")
+                    lines.append(f"✅ 项目 '{ctx.project_name}' 所有{spec.label_zh}都已有资产图")
                     continue
                 total += len(pending)
                 lines.append(f"\n📋 待生成的{spec.label_zh} ({len(pending)} 个):")
@@ -154,7 +154,7 @@ def list_pending_assets_tool(ctx: ToolContext):
                     desc_preview = desc[:60] + "..." if len(desc) > 60 else desc
                     lines.append(f"  {_EMOJI[t]} {item['name']} — {desc_preview}")
             if not asset_type and total == 0:
-                lines.append(f"\n✅ 项目 '{ctx.project_name}' 所有资产均已有设计图")
+                lines.append(f"\n✅ 项目 '{ctx.project_name}' 所有资产均已有资产图")
             return {"content": [{"type": "text", "text": "\n".join(lines)}]}
         except Exception as exc:  # noqa: BLE001
             return tool_error("list_pending_assets", exc)
@@ -165,10 +165,10 @@ def list_pending_assets_tool(ctx: ToolContext):
 def generate_assets_tool(ctx: ToolContext):
     @tool(
         _OPERATION,
-        "批量生成角色/场景/道具/产品设计图。"
+        "批量生成角色/场景/道具/商品资产图。"
         "type 省略则按 character→scene→prop→product 顺序每类独立 batch；"
         "names 指定具体名称（必须同时给 type）；all=true 表示该 type 的全部缺图资产。"
-        "不传 names 时只选缺设计图的资产：已失效但可用的旧图会被复用，不会自动重生。"
+        "不传 names 时只选缺资产图的资产：已失效但可用的旧图会被复用，不会自动重生。"
         "结果按 requested / succeeded / failed / blocked 逐 ID 返回，ID 形如 character/张三。",
         {
             "type": "object",
@@ -229,7 +229,7 @@ def generate_assets_tool(ctx: ToolContext):
                             state.unit_id,
                             problem=GenerationProblem(
                                 code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                                detail=f"{spec.label_zh} '{state.unit_id}' 缺少 description，无法生成设计图",
+                                detail=f"{spec.label_zh} '{state.unit_id}' 缺少 description，无法生成资产图",
                                 action=GenerationAction.FIX_INPUT,
                             ),
                             artifact_key=state.artifact_key,

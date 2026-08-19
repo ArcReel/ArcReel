@@ -16,6 +16,9 @@ from lib.artifact_manifest import (
 )
 from lib.generation_queue_client import BatchTaskResult
 from lib.generation_result import (
+    _ACTION_LABELS,
+    _ARTIFACT_STATUS_LABELS,
+    _OPERATION_LABELS,
     _TASK_FAILURE_ACTIONS,
     GenerationAction,
     GenerationBatchResult,
@@ -565,7 +568,94 @@ def test_the_rendered_text_is_only_a_projection_of_the_payload() -> None:
 
     text = render_generation_result(result, log=["注意"])
 
-    assert "generate_videos summary: 1 succeeded, 1 failed, 0 blocked, 1 reused" in text
+    assert "成功 1 件、失败 1 件、受阻 0 件、复用 1 件" in text
     assert "注意" in text
     for unit_id in ("A", "B", "C"):
         assert unit_id in text
+
+
+def test_rendered_summary_uses_product_language_not_raw_enums() -> None:
+    """默认摘要不含原始枚举值或 Python 类名/函数名——机器标识只在结构化层。"""
+    builder = GenerationResultBuilder("generate_video_selected", GenerationSelectionMode.MISSING_ONLY)
+    builder.fail(
+        "E1S01",
+        problem=GenerationProblem(
+            code=GenerationProblemCode.UNIT_NOT_FOUND,
+            detail="剧本中未找到该 ID",
+            action=GenerationAction.FIX_INPUT,
+        ),
+    )
+    builder.block(
+        "E1S02",
+        problem=GenerationProblem(
+            code=GenerationProblemCode.ACTIVE_TASK_CONFLICT,
+            detail="该 ID 有在途任务",
+            action=GenerationAction.WAIT_FOR_TASK,
+        ),
+    )
+    builder.skip_unit("E1S03", artifact_path="videos/c.mp4", artifact_status=ArtifactStatus.STALE)
+    result = builder.build()
+
+    text = render_generation_result(result)
+
+    assert "generation_unit_not_found" not in text
+    assert "generation_active_task_conflict" not in text
+    assert "fix_input" not in text
+    assert "wait_for_task" not in text
+    assert "GenerationProblemCode" not in text
+    assert "GenerationAction" not in text
+
+    assert "需修正输入" in text
+    assert "等待进行中任务完成" in text
+    assert "比当前内容旧" in text
+    assert "点名视频生成" in text
+
+
+def test_every_machine_identifier_has_a_product_language_label() -> None:
+    """标签表对枚举全覆盖：漏一个成员，摘要就会静默丢掉那条信息。"""
+    assert set(_ACTION_LABELS) == set(GenerationAction)
+    assert set(_ARTIFACT_STATUS_LABELS) == set(ArtifactStatus)
+
+
+def test_every_generation_entry_point_has_a_product_language_label() -> None:
+    """每个生成入口都登记了产品语言名，摘要抬头才不会回落到中性措辞。"""
+    from server.agent_runtime.sdk_tools import (
+        enqueue_assets,
+        enqueue_grid,
+        enqueue_image_edits,
+        enqueue_narration_audio,
+        enqueue_storyboards,
+        enqueue_videos,
+    )
+
+    operations = {
+        enqueue_assets._OPERATION,
+        enqueue_grid._OPERATION,
+        enqueue_image_edits._OPERATION,
+        enqueue_narration_audio._OPERATION,
+        enqueue_storyboards._OPERATION,
+        enqueue_videos._EPISODE_OPERATION,
+        enqueue_videos._SCENE_OPERATION,
+        enqueue_videos._ALL_OPERATION,
+        enqueue_videos._SELECTED_OPERATION,
+    }
+    for operation in operations:
+        label = _OPERATION_LABELS.get(operation, "")
+        assert label, f"{operation} 未登记产品语言名"
+
+        builder = GenerationResultBuilder(operation, GenerationSelectionMode.MISSING_ONLY)
+        builder.succeed("E1S01", task_id="t1", artifact_path="videos/E1S01.mp4")
+        text = render_generation_result(builder.build())
+
+        assert text.startswith(f"{label}：")
+        assert operation not in text
+
+
+def test_the_summary_header_names_the_operation_in_product_language() -> None:
+    """抬头用生成入口的产品语言名，不直出工具名。"""
+    builder = GenerationResultBuilder("generate_video_episode", GenerationSelectionMode.MISSING_ONLY)
+    builder.succeed("E1S01", task_id="t1", artifact_path="videos/E1S01.mp4")
+    text = render_generation_result(builder.build())
+
+    assert "generate_video_episode" not in text
+    assert text.startswith("整集视频生成：")
