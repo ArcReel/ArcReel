@@ -73,7 +73,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 | 统计项 | 数值 |
 |--------|------|
-| 创作类型 | narration/drama |
+| 创作类型 | 旁白/解说 或 剧情演绎 |
 | 总片段/场景数 | XX 个 |
 | 总时长 | X 分 X 秒 |
 | 生成模型 | {脚本输出中实际使用的模型名} |

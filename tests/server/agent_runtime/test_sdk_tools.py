@@ -922,6 +922,40 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     assert "audio/segment_E1S01.wav" in text
 
 
+@pytest.mark.unit
+async def test_generate_narration_audio_covers_reference_video_units(fake_ctx: ToolContext, monkeypatch) -> None:
+    """参考生视频的 video_units 同样可点名配音——入口按当前骨架取单元，不限生成模式。"""
+    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+
+    _use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = _reference_video_script(  # type: ignore[attr-defined]
+        video_units=[{"unit_id": "E1U1", "duration_seconds": 5, "text": "{风吹过旷野。}"}]
+    )
+    captured: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+        from lib.generation_queue_client import BatchTaskResult
+
+        captured.extend(specs)
+        return [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"audio/unit_{s.resource_id}.wav"},
+            )
+            for s in specs
+        ], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in captured] == ["E1U1"]
+    assert captured[0].task_type == "tts"
+    assert "成功 1 件" in out["content"][0]["text"]
+
+
 @pytest.mark.integration
 async def test_generate_narration_audio_rejects_unbound_active_script_before_enqueue(
     fake_ctx: ToolContext,

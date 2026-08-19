@@ -639,7 +639,16 @@ def test_every_generation_entry_point_has_a_product_language_label() -> None:
         enqueue_videos._ALL_OPERATION,
         enqueue_videos._SELECTED_OPERATION,
     }
-    assert operations <= set(_OPERATION_LABELS)
+    for operation in operations:
+        label = _OPERATION_LABELS.get(operation, "")
+        assert label, f"{operation} 未登记产品语言名"
+
+        builder = GenerationResultBuilder(operation, GenerationSelectionMode.MISSING_ONLY)
+        builder.succeed("E1S01", task_id="t1", artifact_path="videos/E1S01.mp4")
+        text = render_generation_result(builder.build())
+
+        assert text.startswith(f"{label}：")
+        assert operation not in text
 
 
 def test_the_summary_header_names_the_operation_in_product_language() -> None:

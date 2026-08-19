@@ -125,7 +125,7 @@ _REQUEST_SCHEMA_PROPERTIES = {
 _RETIRED_PARAMS: dict[str, str] = {
     "shot_ids": "改用点名参数 scene_id（单个）/ scene_ids（批量）",
     "unit_id": "改用点名参数 scene_id——参考生视频项目在该参数里直接传 unit_id",
-    "unit_ids": "改用点名参数 scene_ids——参考生视频项目在该参数里直接传 unit_id",
+    "unit_ids": "改用点名参数 scene_ids——参考生视频项目在该参数里直接传 unit_id 列表",
     "shots": "视频单元不再有镜头数组；正文写在剧本的 text 字段里，经 patch_episode_script 修改",
     "references": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
     "reference_images": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
