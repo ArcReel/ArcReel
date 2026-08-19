@@ -164,3 +164,38 @@ triage 状态机使用五个默认标签：`needs-triage` / `needs-info` / `read
 ### Domain docs
 
 单上下文布局：根目录 `CONTEXT.md` + `docs/adr/`。详见 `docs/agents/domain.md`。
+
+## 开发与维护流程（Feature Worktree）
+
+所有 feature / bug / 重构 / 文档改动都在独立 worktree 中进行，**不在 main 工作树直接开发**。
+
+### 隔离与分支命名
+
+- Worktree 根目录：`.worktrees/`（已 gitignore；每项一个 worktree checkout，main 工作树保持干净）
+- 分支命名：`<type>-<kebab-case>`，type 取值：
+  - `feat-<name>` — 新功能
+  - `bug-<name>` — 缺陷修复
+  - `refactor-<name>` — 行为不变的重构
+  - `chore-<name>` — 依赖 / 配置 / 构建等杂务
+  - `docs-<name>` — 文档
+
+### 流程
+
+1. 从 `main` 开 worktree 与分支：
+   ```bash
+   git worktree add .worktrees/<name> -b <type>-<name> main
+   ```
+2. 在该 worktree 内开发 / 修复。
+3. 本地验证通过：`uv run pytest`、`uv run ruff check`、`uv run basedpyright`、`uv run lint-imports`（前端 `pnpm lint && pnpm check`）。
+4. 验证通过后，用 ask questions 询问用户是否 merge；**未经用户确认不 merge**。
+5. 用户确认后：merge 回 `main`，再删除 worktree 与分支（properly clean）：
+   ```bash
+   git worktree remove .worktrees/<name>
+   git branch -d <type>-<name>
+   ```
+
+### 最优开发 / 修复原则
+
+- **最优实现，而非最小 diff**：目标是做「能满足需求的最小完整功能实现」，不是「改动行数最少」。
+- **拒绝补丁式修改**：不在既有代码上打补丁堆屎山；正确实现需要重构时就重构，让结构先正确。
+- **重构同样最优化**：重构只做必要范围，不过度重构——以「最优的修复与开发」为准，而不是以「改动最小」为准。
