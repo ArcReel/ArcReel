@@ -118,32 +118,29 @@ _REQUEST_SCHEMA_PROPERTIES = {
 }
 
 
-_REJECTED_PARAMS: dict[str, str] = {
-    "shots": "scene_ids",
-    "shot_ids": "scene_ids",
-    "unit_ids": "scene_ids",
-    "references": "text（参考图由正文 @[名称] 自动派生）",
-    "reference_images": "text（参考图由正文 @[名称] 自动派生）",
-    "镜头数": "item_count（由项目摘要读时计算）",
-    "storyboard_count": "item_count（由项目摘要读时计算）",
-    "video_unit_count": "item_count（由项目摘要读时计算）",
+#: 已退役的入参名 → 该怎么写。键都是曾经真实存在、或与视频单元旧结构同名的写法：
+#: 前三个是点名目标的旧 id 参数，后两个是视频单元已删除的镜头与参考清单字段。
+#: 视频单元现在只持有 ``text`` 与 ``duration_seconds``，参考图在执行期从正文的
+#: ``@[名称]`` 首次提及顺序派生，两者都不再经工具入参传入。
+_RETIRED_PARAMS: dict[str, str] = {
+    "shot_ids": "改用点名参数 scene_id（单个）/ scene_ids（批量）",
+    "unit_id": "改用点名参数 scene_id——参考生视频项目在该参数里直接传 unit_id",
+    "unit_ids": "改用点名参数 scene_ids——参考生视频项目在该参数里直接传 unit_id",
+    "shots": "视频单元不再有镜头数组；正文写在剧本的 text 字段里，经 patch_episode_script 修改",
+    "references": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
+    "reference_images": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
 }
 
 
-def reject_legacy_params(args: dict[str, Any]) -> dict[str, Any] | None:
-    """Reject known legacy parameter names with a clear error."""
-    for old, replacement in _REJECTED_PARAMS.items():
-        if old in args:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"❌ 参数 '{old}' 已废弃，请使用 '{replacement}'",
-                    }
-                ],
-                "is_error": True,
-            }
-    return None
+def _reject_retired_params(args: dict[str, Any]) -> None:
+    """入参里出现已退役的参数名时 fail loud，并指明当下该怎么写。
+
+    Raises:
+        ValueError: 命中 :data:`_RETIRED_PARAMS`。
+    """
+    for name, guidance in _RETIRED_PARAMS.items():
+        if name in args:
+            raise ValueError(f"参数 {name!r} 已不存在：{guidance}")
 
 
 def _video_tool_schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
@@ -1184,9 +1181,11 @@ def _video_request_context(
     """把入参折成本次请求的投影选项、载入剧本，并定下走哪条生成模式。
 
     剧本文件名由调用方先行校验后传入：``scene_ids`` 之类的入参校验要排在文件名之后、
-    投影选项之前，入参报错的先后次序才与各入口一致。
+    投影选项之前，入参报错的先后次序才与各入口一致。已退役参数名的拒绝落在这里，
+    四个入口因此共用同一份判据与同一个报错次序。
     """
 
+    _reject_retired_params(args)
     request_options = _reference_request_options(args)
     confirmed_request_durations = _confirmed_request_durations(args)
     project_dir = ctx.project_path
@@ -1428,9 +1427,6 @@ def generate_video_episode_tool(ctx: ToolContext):
         _EPISODE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        legacy_err = reject_legacy_params(args)
-        if legacy_err is not None:
-            return legacy_err
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
@@ -1543,13 +1539,10 @@ def generate_video_episode_tool(ctx: ToolContext):
 def generate_video_scene_tool(ctx: ToolContext):
     @tool(
         "generate_video_scene",
-        "生成单个场景/片段的视频。reference_video 项目传 unit_id 即对该 unit 重新生成（覆盖已有成片）。",
+        "生成单个分镜/片段的视频。reference_video 项目把 unit_id 填进 scene_id 即对该 unit 重新生成（覆盖已有成片）。",
         _SCENE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        legacy_err = reject_legacy_params(args)
-        if legacy_err is not None:
-            return legacy_err
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
@@ -1630,9 +1623,6 @@ def generate_video_all_tool(ctx: ToolContext):
         _ALL_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        legacy_err = reject_legacy_params(args)
-        if legacy_err is not None:
-            return legacy_err
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
@@ -1723,9 +1713,6 @@ def generate_video_selected_tool(ctx: ToolContext):
         _SELECTED_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        legacy_err = reject_legacy_params(args)
-        if legacy_err is not None:
-            return legacy_err
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])

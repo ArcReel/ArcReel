@@ -126,7 +126,7 @@ mcp__arcreel__get_workflow_plan({
 | `post_production` | 后期配音：视频照常生成，旁白留到剪映等后期工具里补 |
 | `use_tts` | 使用当前 TTS：把已生成的旁白音频作为本次请求的依据 |
 
-参考路线同样要做交付选择：两条路线跳过哪些步骤见
+参考生视频同样要做交付选择：两种生成模式跳过哪些步骤见
 [generation-modes.md](generation-modes.md)。
 
 计划给出 `next_action.type == "choose_narration_delivery"` 时：

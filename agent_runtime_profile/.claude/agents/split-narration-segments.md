@@ -1,6 +1,6 @@
 ---
 name: split-narration-segments
-description: "旁白/解说单集片段拆分 子任务（narration 模式专用）。使用场景：(1) project.content_mode 为 narration，需要为某一集生成 step1_segments.json，(2) 用户要求重新拆分或修改某集的旁白/解说片段，(3) video-workflow 编排进入单集预处理阶段（narration 模式）。首次生成时调用 mcp__arcreel__split_narration_segments 工具（项目配置的文本模型）按朗读节奏产出结构化片段 JSON；后续修改时由子任务直接编辑已有的 JSON 文件。返回片段统计摘要。"
+description: "旁白/解说单集片段拆分子任务（narration 模式专用）。使用场景：(1) project.content_mode 为 narration，需要为某一集生成 step1_segments.json，(2) 用户要求重新拆分或修改某集的旁白/解说片段，(3) video-workflow 编排进入单集预处理阶段（narration 模式）。首次生成时调用 mcp__arcreel__split_narration_segments 工具（项目配置的文本模型）按朗读节奏产出结构化片段 JSON；后续修改时由子任务直接编辑已有的 JSON 文件。返回片段统计摘要。"
 ---
 
 你是旁白/解说片段拆分的编排者，负责把中文小说单集按朗读节奏拆分为适合短视频配音的片段表（step1 内容拆分）。拆分本身由服务端工具 `mcp__arcreel__split_narration_segments`（项目配置的文本模型）完成，你不在自身上下文里生成拆分内容；旁白/解说剧本走两段式，本阶段只定内容层——逐字 `novel_text`、片段边界、时长、场景切换标记与出场资产，视觉层（image_prompt / video_prompt）由后续 step2（`create-episode-script`）按 `segment_id` 对齐生成，`novel_text` 由本阶段定稿后透传、step2 不再重新提取或改写。
@@ -124,6 +124,7 @@ mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_
 ```
 ## 片段拆分完成（旁白/解说 · step1 内容层）
 
+**状态**: DONE
 **项目**: {项目名}  **第 N 集**
 
 | 统计项 | 数值 |
@@ -135,6 +136,6 @@ mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_
 
 **文件已保存**: `drafts/episode_{N}/step1_segments.json`
 
-下一步：首次生成（情况 A）→ 主 agent 可 dispatch `create-episode-script` 子任务 生成 JSON 剧本（step2 视觉层）；
+下一步：首次生成（情况 A）→ 主 agent 可 dispatch `create-episode-script` 子任务生成 JSON 剧本（step2 视觉层）；
 修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
 ```

@@ -897,28 +897,45 @@ _ACTION_LABELS: dict[GenerationAction, str] = {
 }
 
 _ARTIFACT_STATUS_LABELS: dict[ArtifactStatus, str] = {
-    ArtifactStatus.CURRENT: "最新",
-    ArtifactStatus.STALE: "可用旧版",
+    ArtifactStatus.CURRENT: "与当前内容一致",
+    ArtifactStatus.STALE: "比当前内容旧",
     ArtifactStatus.MISSING: "缺失",
     ArtifactStatus.BLOCKED: "不可用",
 }
+
+#: 各生成入口的产品语言名。摘要里不出现工具名——工具名属机器层，只留在结构化
+#: ``generation_result`` 的 ``operation`` 字段。未登记的入口回落到中性措辞而非直出工具名；
+#: 登记完整性由测试兜底。
+_OPERATION_LABELS: dict[str, str] = {
+    "generate_assets": "资产图生成",
+    "generate_storyboards": "分镜图生成",
+    "generate_grid": "多宫格分镜生成",
+    "generate_narration_audio": "旁白配音生成",
+    "edit_images": "图片编辑",
+    "generate_video_episode": "整集视频生成",
+    "generate_video_scene": "单条视频生成",
+    "generate_video_all": "待生成视频批量生成",
+    "generate_video_selected": "点名视频生成",
+}
+_FALLBACK_OPERATION_LABEL = "生成"
 
 
 def render_generation_result(result: GenerationBatchResult, *, log: Iterable[str] = ()) -> str:
     """Render the agent-facing text summary (product language).
 
     The text is a human-readable projection of the structured payload — it
-    carries *no* raw enum names, Python class names, or function names.
-    Machine identifiers live exclusively in the structured
-    ``generation_result`` sibling field.
+    carries *no* raw enum values, Python class names, or tool names. Machine
+    identifiers (``operation``, problem codes, actions, artifact statuses)
+    live exclusively in the structured ``generation_result`` sibling field.
     """
 
+    operation_label = _OPERATION_LABELS.get(result.operation, _FALLBACK_OPERATION_LABEL)
     header = (
-        f"{result.operation} summary: {len(result.succeeded)} succeeded, "
-        f"{len(result.failed)} failed, {len(result.blocked)} blocked"
+        f"{operation_label}：成功 {len(result.succeeded)} 件、"
+        f"失败 {len(result.failed)} 件、受阻 {len(result.blocked)} 件"
     )
     if result.skipped:
-        header += f", {len(result.skipped)} reused"
+        header += f"、复用 {len(result.skipped)} 件"
     lines = [header, *log]
     for item in result.items:
         mark = _STATE_MARKS[item.state]

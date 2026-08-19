@@ -123,7 +123,7 @@ def _description_of(project: dict[str, Any], asset_type: str, unit_id: str) -> s
 def list_pending_assets_tool(ctx: ToolContext):
     @tool(
         "list_pending_assets",
-        "列出项目内待生成资产图的角色/场景/道具/产品。type 省略则汇总所有类型。",
+        "列出项目内待生成资产图的角色/场景/道具/商品。type 省略则汇总所有类型。",
         {
             "type": "object",
             "properties": {
@@ -165,7 +165,7 @@ def list_pending_assets_tool(ctx: ToolContext):
 def generate_assets_tool(ctx: ToolContext):
     @tool(
         _OPERATION,
-        "批量生成角色/场景/道具/产品资产图。"
+        "批量生成角色/场景/道具/商品资产图。"
         "type 省略则按 character→scene→prop→product 顺序每类独立 batch；"
         "names 指定具体名称（必须同时给 type）；all=true 表示该 type 的全部缺图资产。"
         "不传 names 时只选缺资产图的资产：已失效但可用的旧图会被复用，不会自动重生。"

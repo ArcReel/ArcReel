@@ -1,6 +1,6 @@
 ---
 name: create-episode-script
-description: "单集 JSON 剧本资产生成子任务。使用场景：(1) drafts/episode_N/ 中间文件已存在，需要生成最终 JSON 剧本，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和集数，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
+description: "单集 JSON 剧本生成子任务。使用场景：(1) drafts/episode_N/ 中间文件已存在，需要生成最终 JSON 剧本，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和集数，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
 skills:
   - generate-script
 ---
@@ -68,6 +68,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 ```
 ## JSON 剧本生成完成
 
+**状态**: DONE
 **项目**: {项目名}  **第 N 集**
 
 | 统计项 | 数值 |
@@ -81,12 +82,14 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 ✅ 数据验证通过
 
-下一步：主 agent 可继续 dispatch 资产资产生成子任务（角色资产图、分镜图等）。
+下一步：主 agent 可继续 dispatch 资产生成子任务（角色资产图、分镜图等）。
 ```
 
 如果生成失败：
 ```
 ## JSON 剧本生成失败
+
+**状态**: {PARTIAL / BLOCKED}
 
 **错误**: {错误描述}
 

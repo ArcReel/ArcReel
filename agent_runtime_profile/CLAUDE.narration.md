@@ -12,7 +12,7 @@
 - **单片段/场景时长**：由视频模型能力和项目 `default_duration` 配置决定
   - storyboard 模式（含 `grid_storyboard=true`）：取值必须在所选视频模型的 `supported_durations` 内，项目 `default_duration` 非 null 时作默认偏好
   - reference_video 模式：unit 时长必须取该 unit **引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
-  - 两者的真值均由 子任务运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 step1 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
+  - 两者的真值均由子任务运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 step1 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
 - **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个片段/场景独立生成、以分镜图作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；reference_video 模式按 video_unit 直出、以资产 sheet 图作 `reference_images`，无分镜图
@@ -63,7 +63,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
-| `storyboard` | 分镜图生视频 / 宫格分镜 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧；`grid_storyboard=true` 时改用宫格图切块 |
+| `storyboard` | 分镜图生视频 / 多宫格分镜生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧；`grid_storyboard=true` 时改用宫格图切块 |
 | `reference_video` | 参考生视频 | `video_units[]` | 角色/场景/道具 sheet 图作为参考 |
 
 宫格不是独立生成模式：`grid_storyboard` 是仅在 `generation_mode="storyboard"` 下生效的独立布尔开关，切换宫格 UI 在设置页操作，agent 无法经工具绕过。
@@ -144,7 +144,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 分集规划的常驻偏好（如按章节对齐切分）不持久化，须经 `plan_episodes` 的 `instructions` 在**每一批
   调用上重复带上**；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
 - 预处理中间文件被修改 / 重拆后必须重新生成剧本 JSON，剧本不会自动跟随中间文件更新
-- `reference_video` **只跳过分镜图**，不跳过 audio：旁白交付选择在两条路线上都要逐次做
+- `reference_video` **只跳过分镜图**，不跳过 audio：旁白交付选择在两种生成模式下都要逐次做
 - 批量旁白配音由用户显式要求触发，不由 `next_action` 驱动
 
 工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，支持中断后恢复。

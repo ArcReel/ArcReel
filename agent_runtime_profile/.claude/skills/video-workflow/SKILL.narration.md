@@ -67,7 +67,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 **每个子任务返回后**，主 agent 执行：
 
-1. **展示摘要**：将 子任务返回的摘要展示给用户
+1. **展示摘要**：将子任务返回的摘要展示给用户
 2. **获取确认**：使用 AskUserQuestion 提供选项：
    - **继续下一动作**（推荐）
    - **重做此动作**（附加修改要求后重新 dispatch）
@@ -173,7 +173,7 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
   若 names 非空 → dispatch 对应的 `generate-assets` 子任务，并把 names 原样传给子任务和工具
   若 names 为空 → 跳过，不 dispatch；不得回退到整类 missing_ids
 
-三类判断彼此独立，结果可能 dispatch 0~3 个 子任务。
+三类判断彼此独立，结果可能 dispatch 0~3 个子任务。
 所有 dispatch 的子任务返回后，合并摘要展示给用户，进入动作间确认。
 ```
 
@@ -301,7 +301,7 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 旁白配音以各段 `novel_text` 原文逐段合成语音，只依赖剧本、独立于分镜图/视频：
 用户要求时可在 `generate_script` 产出剧本后随时执行。
 
-`generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：参考路线没有按段批量 TTS 的
+`generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：参考生视频没有按段批量 TTS 的
 入口（无 `segments[]`），但每个叙述旁白 unit 的旁白交付选择照样要逐次做，见 `generate_videos`。
 
 **dispatch `generate-assets` 子任务**：

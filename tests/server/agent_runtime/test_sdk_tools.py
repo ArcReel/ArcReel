@@ -37,8 +37,10 @@ from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.draft_validation import DraftViolation
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
+from lib.script_skeleton import SkeletonRouteMismatchError
 from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
+from server.agent_runtime.sdk_tools import enqueue_videos as enqueue_videos_mod
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
@@ -916,7 +918,7 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     assert spec.payload["prompt"] is None
     assert spec.payload["script_file"] == "episode_1.json"
     text = out["content"][0]["text"]
-    assert "1 succeeded" in text
+    assert "成功 1 件" in text
     assert "audio/segment_E1S01.wav" in text
 
 
@@ -1377,7 +1379,7 @@ async def test_generate_narration_audio_task_failures_surface(fake_ctx: ToolCont
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "0 succeeded, 1 failed" in text
+    assert "成功 0 件、失败 1 件" in text
     assert "provider down" in text
 
 
@@ -1609,7 +1611,7 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     )
     assert out.get("is_error") is not True, out
     text = out["content"][0]["text"]
-    assert "1 succeeded" in text
+    assert "成功 1 件" in text
     assert "张三" in text
 
 
@@ -1963,7 +1965,7 @@ async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) 
         },
     )
     assert out.get("is_error") is not True, out
-    assert "1 succeeded" in out["content"][0]["text"]
+    assert "成功 1 件" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
@@ -1994,7 +1996,7 @@ async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) 
     out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "改发型"}]})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "0 succeeded, 1 failed" in text
+    assert "成功 0 件、失败 1 件" in text
     assert "provider timeout" in text
 
 
@@ -9075,18 +9077,15 @@ async def test_generate_reference_units_refuses_a_duplicated_named_unit(
 
 
 # ---------------------------------------------------------------------------
-# Legacy parameter rejection
+# Retired parameter rejection
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "legacy_param",
-    ["shots", "shot_ids", "unit_ids", "references", "reference_images", "storyboard_count", "video_unit_count"],
-)
-async def test_video_tools_reject_legacy_params(fake_ctx: ToolContext, legacy_param: str) -> None:
-    """旧参数名传入任何视频工具时返回 is_error 且指明正确参数名。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+@pytest.mark.parametrize("retired_param", sorted(enqueue_videos_mod._RETIRED_PARAMS))
+async def test_video_tools_reject_retired_params(fake_ctx: ToolContext, retired_param: str) -> None:
+    """已退役的参数名传给任何一个视频工具都被拒，报错点名该参数并给出当下写法。"""
+    mod = enqueue_videos_mod
 
     for factory in (
         mod.generate_video_episode_tool,
@@ -9095,8 +9094,77 @@ async def test_video_tools_reject_legacy_params(fake_ctx: ToolContext, legacy_pa
         mod.generate_video_selected_tool,
     ):
         tool_obj = factory(fake_ctx)
-        result = await tool_obj.handler({"script": "episode_1.json", legacy_param: "dummy"})
-        assert result["is_error"], f"{tool_obj.name} did not reject '{legacy_param}'"
+        args: dict[str, Any] = {"script": "episode_1.json", retired_param: "dummy"}
+        if factory is mod.generate_video_scene_tool:
+            args["scene_id"] = "E1S01"
+        if factory is mod.generate_video_selected_tool:
+            args["scene_ids"] = ["E1S01"]
+        result = await tool_obj.handler(args)
+        assert result["is_error"], f"{tool_obj.name} 未拒绝 {retired_param!r}"
         text = result["content"][0]["text"]
-        assert legacy_param in text
-        assert "已废弃" in text
+        assert retired_param in text
+        assert "已不存在" in text
+
+
+@pytest.mark.integration
+async def test_retired_param_rejection_does_not_preempt_the_script_filename_error(
+    fake_ctx: ToolContext,
+) -> None:
+    """报错次序：剧本文件名先校验，退役参数其次——与本模块声明的入参报错次序一致。"""
+    tool_obj = enqueue_videos_mod.generate_video_episode_tool(fake_ctx)
+
+    result = await tool_obj.handler({"script": "../escape.json", "shot_ids": ["E1S01"]})
+
+    assert result["is_error"]
+    assert "shot_ids" not in result["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# 生成分派：六种创作类型 × 生成模式组合
+# ---------------------------------------------------------------------------
+
+
+_SKELETON_BY_MODE_PAIR: dict[tuple[str, str], str] = {
+    ("narration", "storyboard"): "segments",
+    ("drama", "storyboard"): "scenes",
+    ("ad", "storyboard"): "shots",
+    ("narration", "reference_video"): "video_units",
+    ("drama", "reference_video"): "video_units",
+    ("ad", "reference_video"): "video_units",
+}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("content_mode", "generation_mode"), sorted(_SKELETON_BY_MODE_PAIR))
+def test_video_generation_dispatches_by_generation_mode_for_every_content_mode(
+    fake_ctx: ToolContext,
+    content_mode: str,
+    generation_mode: str,
+) -> None:
+    """六个组合各自派给正确的生成模式，且骨架闸门放行本组合应有的骨架。"""
+    fake_ctx.pm.project_payload["content_mode"] = content_mode  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = generation_mode  # type: ignore[attr-defined]
+    skeleton = _SKELETON_BY_MODE_PAIR[(content_mode, generation_mode)]
+    script = {"content_mode": content_mode, "episode": 1, skeleton: []}
+
+    route = enqueue_videos_mod._resolve_reference_route(fake_ctx, script)
+
+    assert route == ("reference" if generation_mode == "reference_video" else None)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("content_mode", "generation_mode"), sorted(_SKELETON_BY_MODE_PAIR))
+def test_video_generation_refuses_a_script_from_the_other_generation_mode(
+    fake_ctx: ToolContext,
+    content_mode: str,
+    generation_mode: str,
+) -> None:
+    """骨架来自另一种生成模式时六个组合一律拒绝入队，不静默按剧本形态改派。"""
+    other_mode = "storyboard" if generation_mode == "reference_video" else "reference_video"
+    fake_ctx.pm.project_payload["content_mode"] = content_mode  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = generation_mode  # type: ignore[attr-defined]
+    mismatched = _SKELETON_BY_MODE_PAIR[(content_mode, other_mode)]
+    script = {"content_mode": content_mode, "episode": 1, mismatched: []}
+
+    with pytest.raises(SkeletonRouteMismatchError):
+        enqueue_videos_mod._resolve_reference_route(fake_ctx, script)
