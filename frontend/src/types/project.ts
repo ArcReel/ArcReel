@@ -163,9 +163,9 @@ export interface ProjectData {
   default_image_backend?: string | null;
   image_provider_t2i?: string | null;
   image_provider_i2i?: string | null;
-  /** 生成路线，创建时锁定、之后不可更改。 */
+  /** 生成模式，创建时锁定、之后不可更改。 */
   generation_mode?: GenerationRoute;
-  /** 分镜板（宫格）装配开关；仅分镜路线有意义，随时可切。 */
+  /** 多宫格分镜装配开关；仅分镜路线有意义，随时可切。 */
   grid_storyboard?: boolean;
   video_generate_audio?: boolean | null;
   /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */

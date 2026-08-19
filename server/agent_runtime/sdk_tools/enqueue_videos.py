@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -78,6 +79,8 @@ from server.services.video_batch_admission import (
     storyboard_item_id,
     video_target_states,
 )
+
+logger = logging.getLogger(__name__)
 
 _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY = {
     "type": "integer",
@@ -301,7 +304,8 @@ def _confirmed_request_durations(args: dict[str, Any]) -> dict[str, int]:
     if raw is None:
         return {}
     if not isinstance(raw, dict):
-        raise ValueError(f"confirmed_request_durations 必须是 unit_id 到秒数档位的对象，收到 {type(raw).__name__}")
+        logger.debug("confirmed_request_durations 类型非法: %s", type(raw).__name__)
+        raise ValueError("confirmed_request_durations 必须是 unit_id 到秒数档位的对象")
     confirmed: dict[str, int] = {}
     for unit_id, seconds in raw.items():
         if not isinstance(seconds, int) or isinstance(seconds, bool) or seconds <= 0:
@@ -585,11 +589,11 @@ def _screen_storyboard_items(
         detail: str | None = None
         item_id = ""
         if not isinstance(item, dict):
-            detail = f"该条目不是对象，当前为 {type(item).__name__}"
+            detail = "该条目不是对象"
         else:
             raw_id = storyboard_item_id(item, id_field)
             if raw_id is not None and not isinstance(raw_id, str):
-                detail = f"该条目的 ID 不是字符串，当前为 {type(raw_id).__name__}"
+                detail = "该条目的 ID 不是字符串"
             else:
                 item_id = (raw_id or "").strip()
                 if not item_id:
@@ -1038,7 +1042,8 @@ async def _run_reference_episode(
     if "video_units" in script and not isinstance(units, list):
         # 路线闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
         # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
-        raise ValueError(f"第 {episode} 集 video_units 必须是数组，当前为 {type(units).__name__}：{script_filename}")
+        logger.debug("第 %d 集 video_units 类型非法: %s (%s)", episode, type(units).__name__, script_filename)
+        raise ValueError(f"第 {episode} 集 video_units 必须是数组：{script_filename}")
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
     units, malformed = screen_script_entries(units, requested_ids=None)

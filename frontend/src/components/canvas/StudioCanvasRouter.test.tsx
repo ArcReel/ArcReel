@@ -1031,7 +1031,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-product"));
     await waitFor(() => {
       expect(generateSpy).toHaveBeenCalledWith("demo", "Phone", "sleek phone");
-      expect(useAppStore.getState().toast?.text).toContain("设计图生成任务已提交");
+      expect(useAppStore.getState().toast?.text).toContain("资产图生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
       const { tasks, optimisticActive } = useTasksStore.getState();
       expect(selectActiveResourceIds(tasks, "product", "demo", optimisticActive).has("Phone")).toBe(true);

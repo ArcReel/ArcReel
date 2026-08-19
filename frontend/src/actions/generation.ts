@@ -185,7 +185,7 @@ export async function enqueueCharacterVoiceSample(
   text: string,
   voice: string,
 ): Promise<EnqueueResult> {
-  // 音色试听样本与该角色的设计图生成/编辑共用同一资源槽（kind "character"）：
+  // 音色试听样本与该角色的资产图生成/编辑共用同一资源槽（kind "character"）：
   // 二者互斥可接受——试听样本本就该在角色卡其它生成任务空闲时才发起。
   const res = await submit(
     [markResource(projectName, "character", name, "voice_sample")],

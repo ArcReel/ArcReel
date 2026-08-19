@@ -23,7 +23,7 @@ describe("AdInitCanvas", () => {
     expect(screen.getByLabelText("商品图")).toBeInTheDocument();
     expect(screen.getByLabelText("商品描述")).toBeInTheDocument();
     expect(screen.getByLabelText("创作 Brief")).toBeInTheDocument();
-    expect(screen.getByLabelText("生成商品设计图")).toBeInTheDocument();
+    expect(screen.getByLabelText("生成商品资产图")).toBeInTheDocument();
   });
 
   it("creates product, uploads images, saves brief and enqueues sheet generation", async () => {
@@ -45,7 +45,7 @@ describe("AdInitCanvas", () => {
     fireEvent.change(screen.getByLabelText("商品图"), {
       target: { files: [makeFile("front.jpg"), makeFile("back.jpg")] },
     });
-    fireEvent.click(screen.getByLabelText("生成商品设计图"));
+    fireEvent.click(screen.getByLabelText("生成商品资产图"));
 
     fireEvent.click(screen.getByRole("button", { name: "开始创作" }));
 
@@ -95,7 +95,7 @@ describe("AdInitCanvas", () => {
 
   it("keeps the sheet checkbox enabled and guides users to complete product info", () => {
     render(<AdInitCanvas projectName="ad-demo" onDone={onDone} />);
-    const checkbox = screen.getByLabelText("生成商品设计图");
+    const checkbox = screen.getByLabelText("生成商品资产图");
     const submit = screen.getByRole("button", { name: "开始创作" });
 
     // 产品信息为空时复选框仍可勾选，不再置灰形成无反馈死路

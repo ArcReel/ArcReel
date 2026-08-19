@@ -111,14 +111,14 @@ MESSAGES = {
     "narration_speed_must_be_positive": "旁白语速必须是正数",
     "speech_rate_out_of_range": "语速需在 {min} 到 {max} 之间（字或词/秒）",
     "character_not_found": "角色「{name}」不存在",
-    "character_task_submitted": "角色「{name}」设计图生成任务已提交",
+    "character_task_submitted": "角色「{name}」资产图生成任务已提交",
     "voice_sample_voice_required": "请先选择音色",
     "voice_sample_text_too_long": "试听文案不能超过 {max_length} 个字符",
     "voice_sample_task_submitted": "角色「{name}」的语音试听样本生成任务已提交",
     "voice_sample_not_ready": "语音试听样本尚未生成成功，无法确认保存",
     "voice_sample_file_missing": "语音试听样本文件不存在，请重新生成",
-    "scene_task_submitted": "场景「{name}」设计图生成任务已提交",
-    "prop_task_submitted": "道具「{name}」设计图生成任务已提交",
+    "scene_task_submitted": "场景「{name}」资产图生成任务已提交",
+    "prop_task_submitted": "道具「{name}」资产图生成任务已提交",
     "product_task_submitted": "商品「{name}」标准参考图生成任务已提交",
     # Files
     "file_not_found": "文件不存在: {path}",
@@ -268,7 +268,7 @@ MESSAGES = {
     "ref_script_rebound": "该集脚本绑定已变更，请重试",
     "ref_ad_reference_skipped": "「{name}」（{type}）缺少可用参考图，本次生成已跳过该参考",
     # 分镜文稿解析预览的降级可见性提示
-    "ref_warn_unregistered_mention": "@[{name}] 未在产品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
+    "ref_warn_unregistered_mention": "@[{name}] 未在商品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
     "ref_warn_unclosed_brace": "第 {line} 行：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",
     "ref_warn_braces_not_speech": (
         "第 {line} 行：花括号未被识别为台词，将原样发送；台词写成 @[角色]{{台词}}，画外音写成 {{台词}}，"

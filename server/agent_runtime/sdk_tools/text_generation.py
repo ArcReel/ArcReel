@@ -943,7 +943,7 @@ async def revalidate_reference_step1_draft(
     if not isinstance(raw_units, list) or not raw_units:
         violations = [
             DraftViolation(
-                f"隔离草稿的 content.units 必须是非空的 unit 对象数组（当前为 {type(raw_units).__name__}）",
+                "隔离草稿的 content.units 必须是非空的 unit 对象数组",
                 code="schema_invalid",
             )
         ]

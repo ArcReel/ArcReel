@@ -119,25 +119,25 @@ MESSAGES = {
     "val_route_reference_video": "reference-to-video (reference_video)",
     "val_route_storyboard": "storyboard-to-video (storyboard)",
     "val_skeleton_mismatch_reference_known": (
-        "Script skeleton does not match the project generation route: the route is {route}, which requires the "
+        "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script uses {actual} ({actual_noun}). "
         "Re-run split-reference-video-units to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     "val_skeleton_mismatch_reference_none": (
-        "Script skeleton does not match the project generation route: the route is {route}, which requires the "
+        "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script has no skeleton array at all. "
         "Re-run split-reference-video-units to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     "val_skeleton_mismatch_storyboard_known": (
-        "Script skeleton does not match the project generation route: the route is {route}, which requires the "
+        "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script uses {actual} ({actual_noun}). "
         "Re-run episode splitting (step1) to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     "val_skeleton_mismatch_storyboard_none": (
-        "Script skeleton does not match the project generation route: the route is {route}, which requires the "
+        "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script has no skeleton array at all. "
         "Re-run episode splitting (step1) to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."

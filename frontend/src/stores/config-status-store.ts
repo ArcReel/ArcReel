@@ -75,7 +75,7 @@ async function getConfigStatus(): Promise<{ issues: ConfigIssue[]; availableMedi
     });
   }
 
-  // audio 是可选能力（仅说书旁白用），缺失不进 issues 红点；
+  // audio 是可选能力（仅旁白/解说用），缺失不进 issues 红点；
   // 可用性经 availableMediaTypes 暴露给生成入口做"请先配置 audio 供应商"前置提示。
   const availableMediaTypes = ["image", "video", "text", "audio"].filter(hasMediaType);
 

@@ -1005,7 +1005,7 @@ def _build_planning_prompt(
         *(_PLAN_INTRO_SCREENPLAY if is_screenplay else _PLAN_INTRO_NOVEL),
         "",
         "# 项目信息",
-        f"- 内容模式：{'剧集动画（drama）' if content_mode == 'drama' else '说书旁白（narration）'}",
+        f"- 内容模式：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
     ]
     synopsis = overview.get("synopsis") if isinstance(overview, Mapping) else None
     if synopsis:

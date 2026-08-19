@@ -119,25 +119,25 @@ MESSAGES = {
     "val_route_reference_video": "sinh video từ ảnh tham chiếu (reference_video)",
     "val_route_storyboard": "sinh video từ storyboard (storyboard)",
     "val_skeleton_mismatch_reference_known": (
-        "Khung xương kịch bản không khớp tuyến sinh video của dự án: tuyến là {route}, yêu cầu khung "
+        "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản hiện dùng {actual} ({actual_noun}). "
         "Hãy chạy lại split-reference-video-units để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
     ),
     "val_skeleton_mismatch_reference_none": (
-        "Khung xương kịch bản không khớp tuyến sinh video của dự án: tuyến là {route}, yêu cầu khung "
+        "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản không có mảng khung xương nào. "
         "Hãy chạy lại split-reference-video-units để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
     ),
     "val_skeleton_mismatch_storyboard_known": (
-        "Khung xương kịch bản không khớp tuyến sinh video của dự án: tuyến là {route}, yêu cầu khung "
+        "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản hiện dùng {actual} ({actual_noun}). "
         "Hãy chạy lại bước tách tập (step1) để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
     ),
     "val_skeleton_mismatch_storyboard_none": (
-        "Khung xương kịch bản không khớp tuyến sinh video của dự án: tuyến là {route}, yêu cầu khung "
+        "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản không có mảng khung xương nào. "
         "Hãy chạy lại bước tách tập (step1) để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."

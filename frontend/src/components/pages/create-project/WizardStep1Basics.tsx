@@ -14,9 +14,9 @@ export interface WizardStep1Value {
   /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
   sourceKind: "novel" | "screenplay";
   aspectRatio: "9:16" | "16:9";
-  /** 生成路线，创建时锁定。null = 未选：必选，未选不放行。 */
+  /** 生成模式，创建时锁定。null = 未选：必选，未选不放行。 */
   generationRoute: GenerationRoute | null;
-  /** 分镜板（宫格）装配开关，随创建写入；仅分镜路线有意义，ad 不支持。 */
+  /** 多宫格分镜装配开关，随创建写入；仅分镜路线有意义，ad 不支持。 */
   gridStoryboard: boolean;
   /** 仅 ad：目标总时长（秒）。UI 四档 15/30/60/90，默认 60。 */
   targetDuration: number;
@@ -130,7 +130,7 @@ export function WizardStep1Basics({
               value="ad"
               checked={value.contentMode === "ad"}
               onChange={() =>
-                // ad 不支持分镜板（宫格）：切到 ad 时清掉已勾选的装配开关
+                // ad 不支持多宫格分镜：切到 ad 时清掉已勾选的装配开关
                 onChange({ ...value, contentMode: "ad", gridStoryboard: false })
               }
               className="sr-only"

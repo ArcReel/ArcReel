@@ -382,7 +382,7 @@ export interface AgentProfileStatus {
   customized_files: string[];
 }
 
-/** 说书模式片段 PATCH 入参（drama 模式片段走 {@link API.updateScene}）。 */
+/** 旁白/解说片段 PATCH 入参（drama 模式片段走 {@link API.updateScene}）。 */
 export interface SegmentUpdatePayload {
   script_file: string;
   duration_seconds?: number;
@@ -404,9 +404,9 @@ export interface CreateProjectPayload {
   /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
   source_kind?: "novel" | "screenplay";
   aspect_ratio?: "9:16" | "16:9";
-  /** 生成路线，创建时必填二选一、无默认值（后端缺失即 422）。 */
+  /** 生成模式，创建时必填二选一、无默认值（后端缺失即 422）。 */
   generation_mode: GenerationRoute;
-  /** 分镜板（宫格）装配开关，可随创建写入；仅分镜路线有意义。 */
+  /** 多宫格分镜装配开关，可随创建写入；仅分镜路线有意义。 */
   grid_storyboard?: boolean;
   /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
   speech_rate_units_per_second?: number | null;
@@ -1379,7 +1379,7 @@ class API {
     );
   }
 
-  // ==================== 片段管理（说书模式） ====================
+  // ==================== 片段管理（旁白/解说） ====================
 
   /** `updates` 字段形状参见 {@link SegmentUpdatePayload}；保留 Record 以兼容 spread 调用。 */
   static async updateSegment(
@@ -1945,7 +1945,7 @@ class API {
   }
 
   /**
-   * 生成角色设计图
+   * 生成角色资产图
    * @param projectName - 项目名称
    * @param charName - 角色名称
    * @param prompt - 角色描述 prompt
@@ -1970,7 +1970,7 @@ class API {
   }
 
   /**
-   * 生成场景设计图
+   * 生成场景资产图
    * @param projectName - 项目名称
    * @param sceneName - 场景名称
    * @param prompt - 场景描述 prompt
@@ -1995,7 +1995,7 @@ class API {
   }
 
   /**
-   * 生成道具设计图
+   * 生成道具资产图
    * @param projectName - 项目名称
    * @param propName - 道具名称
    * @param prompt - 道具描述 prompt
