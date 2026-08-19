@@ -45,6 +45,16 @@ class TestSkillMdTemplate:
         assert "grid_storyboard" in self.template
 
     @pytest.mark.unit
+    def test_ad_only_request_fields_described(self):
+        """ad 专用请求字段须出现在模板里，否则外部 Agent 无从发现广告项目的入口。"""
+        from server.routers.projects import CreateProjectRequest, UpdateProjectRequest
+
+        for field in ("brief", "target_duration"):
+            assert field in CreateProjectRequest.model_fields
+            assert field in UpdateProjectRequest.model_fields
+            assert f"`{field}`" in self.template
+
+    @pytest.mark.unit
     def test_no_all_json_claim(self):
         assert "所有 API 响应均为 JSON" not in self.template
 
