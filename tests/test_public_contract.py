@@ -55,9 +55,11 @@ class TestSkillMdTemplate:
             assert f"`{field}`" in self.template
 
     @pytest.mark.unit
-    def test_source_upload_not_claimed_mandatory_for_all(self):
-        """ad 项目的脚本由 brief 驱动、不读源文件，模板不得把上传源文件写成所有新项目必须。"""
+    def test_source_upload_scope_described_per_content_mode(self):
+        """ad 的脚本由 brief 驱动、不读源文件，模板须按创作类型说清 /source 的适用范围。"""
         assert "上传小说内容并生成概述（新项目必须）" not in self.template
+        assert "为 `ad`：不需要调用本端点" in self.template
+        assert "为 `drama` 或 `narration`：必须先调用本端点" in self.template
 
     @pytest.mark.unit
     def test_no_all_json_claim(self):
