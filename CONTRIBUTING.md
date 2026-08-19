@@ -7,7 +7,8 @@
 ```bash
 # 前置要求：Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
 # 文档站 website/ 另需 Node 24（版本钉在 website/.node-version）
-# 操作系统：Linux / MacOS / Windows WSL2（Windows 原生不支持）
+# 操作系统：Linux / macOS / Windows WSL2；Windows 原生可运行项目创建与基础流程，
+# Agent 沙箱在 Windows 上降级为命令前缀白名单（见 docs/adr/0025），生产部署推荐 WSL2/Docker
 
 # 安装依赖
 uv sync
@@ -58,12 +59,15 @@ pnpm check-consistency
 ## 运行测试
 
 ```bash
-# 后端测试
-python -m pytest
+# 后端测试（-v 单文件 / -k 关键字 / --cov 覆盖率）
+uv run python -m pytest
 
-# 前端类型检查 + 测试
+# 前端 typecheck + lint + 测试
 cd frontend && pnpm check
 ```
+
+- pytest `asyncio_mode = "auto"`，CI 覆盖率 ≥80%
+- 共用 fixtures 在 `tests/conftest.py`，跨文件共用的测试替身在 `tests/fakes.py`（收录边界见其模块 docstring）
 
 ## 代码质量
 
@@ -76,6 +80,25 @@ uv run ruff check . && uv run ruff format .
 - 规则集：`E`/`F`/`I`/`UP`，忽略 `E402` 和 `E501`
 - line-length：120
 - CI 中强制检查：`ruff check . && ruff format --check .`
+
+**类型检查（basedpyright）：**
+
+```bash
+uv run basedpyright
+```
+
+- standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 跑全量扫描
+- tests/ 内 `reportOptional*` 和 `unknown*` 系列降级为 warning，避免大量使用 mock 的测试产生噪声
+- 第三方 untyped 库通过行级 `# pyright: ignore[...]` 处理
+
+**Import 分层契约（import-linter）：**
+
+```bash
+uv run lint-imports
+```
+
+- 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，CI backend-static 必过
+- 新增 ignore 条目前先确认该依赖边无法就地清零（约定见 `pyproject.toml`）
 
 **Lint（前端 ESLint）：**
 
@@ -101,6 +124,14 @@ cd website && pnpm format         # prettier 写回
 - ESLint 规则集与 frontend 同构：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - prettier printWidth 120（与后端 ruff 的 line-length 对齐）；`docs/` 与 `i18n/` 不参与格式化，排除依据见 `website/.prettierignore` 顶部注释
 - CI 中强制检查：`website-checks` job 的 `Typecheck` / `Lint` / `Format check` 三个 step，均排在 `Build` 之前
+
+### 依赖管理
+
+前后端新增/升级依赖一律用 `uv add` / `pnpm add`，不手写版本号到 `pyproject.toml` / `package.json`；新增依赖后同步 `.github/dependabot.yml` 的 patterns 归入对应分组。
+
+### 注释纪律
+
+代码与测试注释只描述当下行为与约束，不写 issue/PR/Spec 编号，也不用时间性措辞（「最近」「本次」「实测」）——这些信息写在 commit message / PR 描述；修改文件时顺带清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限。
 
 ### ESLint disable 使用规范
 
@@ -223,6 +254,8 @@ refactor: 重构描述
 docs: 文档变更
 chore: 构建/工具变更
 ```
+
+标题写成 `type(scope): 摘要`。squash 合并下 PR 标题即 changelog 条目：写用户可感知的收益，范围词用产品术语，不写实现术语（status_code、内部类名等），并如实限定范围。type 取值与 changelog 分类见下文「发版流程」与 `.release-please-config.json`。
 
 ## 发版流程
 

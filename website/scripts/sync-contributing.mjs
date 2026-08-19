@@ -21,6 +21,8 @@ const ANCHORS = new Map([
   ["### 文档站", "docs-site"],
   ["## 运行测试", "running-tests"],
   ["## 代码质量", "code-quality"],
+  ["### 依赖管理", "dependency-management"],
+  ["### 注释纪律", "comment-discipline"],
   ["### ESLint disable 使用规范", "eslint-disable-policy"],
   ["### Pytest markers 纪律", "pytest-markers"],
   ["## 文档维护", "docs-maintenance"],

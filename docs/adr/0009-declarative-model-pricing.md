@@ -4,7 +4,7 @@ status: proposed
 
 # 计费定价改为代码级声明式：定价并进 `ModelInfo`、按 `kind` 派发，不引入运行时 DB+UI 改价
 
-ArcReel 的 `CostCalculator`（`lib/cost_calculator.py`）当前把每个供应商各模态的费率写成**散落的类属性 dict**（`IMAGE_COST` / `VIDEO_COST` / `ARK_VIDEO_COST` / `GROK_TEXT_COST` / `OPENAI_IMAGE_TOKEN_COST` 等十余张），`calculate_cost` 用一长串 `if provider == X` 手工路由到对应的 per-shape 计算函数，币种 USD/CNY 混在各函数里。新增一个内置供应商时，若不为它加显式分支，视频会**静默回落到 Veo 费率表**按错误单价计费。同期的三家供应商接入调研（`docs/research/arcreel-vendor-integration-research.md` §7 Caveats 1）提出"价格随促销波动，费率字段应配置化，不写死"。
+ArcReel 的 `CostCalculator`（`lib/cost_calculator.py`）当前把每个供应商各模态的费率写成**散落的类属性 dict**（`IMAGE_COST` / `VIDEO_COST` / `ARK_VIDEO_COST` / `GROK_TEXT_COST` / `OPENAI_IMAGE_TOKEN_COST` 等十余张），`calculate_cost` 用一长串 `if provider == X` 手工路由到对应的 per-shape 计算函数，币种 USD/CNY 混在各函数里。新增一个内置供应商时，若不为它加显式分支，视频会**静默回落到 Veo 费率表**按错误单价计费。供应商价格随促销波动，费率字段应配置化、不写死。
 
 评估时确认了一个关键事实：**ArcReel 的生成费用是快照的**。`finish_call` 仅在调用完成那一刻调一次 `calculate_cost`，把结果冻结进 `ApiCall.cost_amount`；所有用量/费用聚合读冻结值，不重算。因此"为历史计费保留下线模型费率"这一诉求并不成立——过往记录不依赖费率表。我们也对照了 LiteLLM 的做法：它用单一数据表按 model 名建索引，每个 model 条目内同时承载元数据、上下文窗口与定价（`input_cost_per_token` / 每图 / 每秒等），按 `mode` 派发计算，定价与模型元数据**不分家**。
 

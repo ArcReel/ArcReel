@@ -69,8 +69,8 @@ class _KlingVideoModelCaps:
     # ——各档首帧恒可用，video_capabilities_for_model 直接声明 first_frame=True。
     text_to_video: bool
     last_frame: bool
-    # last_frame=True 但仅 pro 档可用（官方一手：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"，
-    # 出处 docs/research/arcreel-vendor-integration-research.md）；std 档提交 image_tail 请求体虽会
+    # last_frame=True 但仅 pro 档可用（官方文档：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"）；
+    # std 档提交 image_tail 请求体虽会
     # 被受理，尾帧约束却不生效——_build_payload 按此位在 std 档拒绝 image_tail，而非放行一个
     # 调用方以为已生效实则被忽略的请求。
     last_frame_requires_pro: bool
