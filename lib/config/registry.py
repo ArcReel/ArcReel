@@ -6,7 +6,9 @@ from typing import Literal
 
 from lib.agnes_shared import AGNES_BASE_URL
 from lib.ark_shared import ARK_BASE_URL
+from lib.croco_shared import CROCO_BASE_URL
 from lib.dashscope_shared import DASHSCOPE_BASE_URL
+from lib.doubao_shared import DOUBAO_TTS_BASE_URL
 from lib.minimax_shared import MINIMAX_BASE_URL
 from lib.pricing.types import (
     PerCharacter,
@@ -1480,6 +1482,60 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
         },
         default_base_url=RUNWARE_API_BASE,
+    ),
+    "croco": ProviderMeta(
+        display_name="Croco GPU",
+        description="自建 GPU 视频调度中枢，Bearer Token 鉴权；支持 MiniMax H3 视频、ERNIE Image Turbo 图像、MiniMax Music 3 音乐（FlashVSR 超分为后续 Feature）。",
+        required_keys=["api_key"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- video ---
+            "minimax-h3": ModelInfo(
+                display_name="MiniMax H3",
+                media_type="video",
+                capabilities=[],
+                audio_always_on=True,
+                default=True,
+                supported_durations=list(range(3, 16)),
+                pricing=None,
+            ),
+            # --- image ---
+            "ernie-image-turbo": ModelInfo(
+                display_name="ERNIE Image Turbo",
+                media_type="image",
+                capabilities=["text_to_image"],
+                default=True,
+                resolutions=["1K"],
+                pricing=None,
+            ),
+            # --- audio（音乐/BGM）---
+            "minimax-music-3": ModelInfo(
+                display_name="MiniMax Music 3",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                default=True,
+                pricing=None,
+            ),
+        },
+        default_base_url=CROCO_BASE_URL,
+    ),
+    "doubao": ProviderMeta(
+        display_name="Doubao TTS",
+        description="火山引擎豆包语音合成（seed-icl 声音复刻大模型），X-Api-Key + X-Api-Resource-Id 鉴权。",
+        required_keys=["api_key", "resource_id"],
+        optional_keys=["base_url", "audio_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            "seed-icl-2.0": ModelInfo(
+                display_name="Seed-ICL 2.0",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                default=True,
+                pricing=None,
+            ),
+        },
+        default_base_url=DOUBAO_TTS_BASE_URL,
     ),
 }
 

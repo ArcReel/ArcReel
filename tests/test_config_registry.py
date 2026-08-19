@@ -25,6 +25,8 @@ def test_all_providers_registered():
         "kling",
         "agnes",
         "runware",
+        "croco",
+        "doubao",
     }
 
 
@@ -406,6 +408,7 @@ class TestAudioSwitchControllable:
 #: 的恒有声新型号会以 silent 落到这张表上，与作者的登记意图对不上而在 CI 暴露。
 _VIDEO_AUDIO_STANCES: dict[tuple[str, str], str] = {
     ("agnes", "agnes-video-v2.0"): "silent",
+    ("croco", "minimax-h3"): "always_on",
     ("ark", "doubao-seedance-1-5-pro-251215"): "controllable",
     ("ark", "doubao-seedance-2-0-260128"): "controllable",
     ("ark", "doubao-seedance-2-0-fast-260128"): "controllable",

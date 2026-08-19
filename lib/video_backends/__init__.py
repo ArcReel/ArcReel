@@ -87,3 +87,9 @@ from lib.providers import PROVIDER_AGNES  # noqa: E402
 from lib.video_backends.agnes import AgnesVideoBackend  # noqa: E402
 
 register_backend(PROVIDER_AGNES, AgnesVideoBackend)
+
+# Croco GPU — MiniMax H3 统一任务协议视频（提交-轮询-下载 + resume）
+from lib.providers import PROVIDER_CROCO  # noqa: E402
+from lib.video_backends.croco import CrocoVideoBackend  # noqa: E402
+
+register_backend(PROVIDER_CROCO, CrocoVideoBackend)

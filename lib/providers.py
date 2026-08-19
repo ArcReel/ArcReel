@@ -14,6 +14,8 @@ PROVIDER_MINIMAX = "minimax"
 PROVIDER_KLING = "kling"
 PROVIDER_AGNES = "agnes"
 PROVIDER_RUNWARE = "runware"
+PROVIDER_CROCO = "croco"
+PROVIDER_DOUBAO = "doubao"
 PROVIDER_ANTHROPIC = "anthropic"
 
 CallType = Literal["image", "video", "text", "audio"]

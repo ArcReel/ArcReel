@@ -25,3 +25,13 @@ from lib.audio_backends.dashscope import DashScopeAudioBackend
 from lib.providers import PROVIDER_DASHSCOPE
 
 register_backend(PROVIDER_DASHSCOPE, DashScopeAudioBackend)
+
+from lib.audio_backends.croco import CrocoAudioBackend
+from lib.providers import PROVIDER_CROCO
+
+register_backend(PROVIDER_CROCO, CrocoAudioBackend)
+
+from lib.audio_backends.doubao import DoubaoAudioBackend
+from lib.providers import PROVIDER_DOUBAO
+
+register_backend(PROVIDER_DOUBAO, DoubaoAudioBackend)

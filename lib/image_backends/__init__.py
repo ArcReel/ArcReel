@@ -71,3 +71,8 @@ from lib.image_backends.runware import RunwareImageBackend
 from lib.providers import PROVIDER_RUNWARE
 
 register_backend(PROVIDER_RUNWARE, RunwareImageBackend)
+
+from lib.image_backends.croco import CrocoImageBackend
+from lib.providers import PROVIDER_CROCO
+
+register_backend(PROVIDER_CROCO, CrocoImageBackend)

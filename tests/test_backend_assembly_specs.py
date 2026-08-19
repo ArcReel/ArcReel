@@ -524,9 +524,9 @@ class TestRegistryShape:
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):
             get_provider_spec("ark", "audio")  # ark 无 audio backend，未登记
 
-    def test_audio_only_dashscope_registered(self):
+    def test_audio_providers_registered(self):
         audio_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "audio"}
-        assert audio_keys == {("dashscope", "audio")}
+        assert audio_keys == {("dashscope", "audio"), ("croco", "audio"), ("doubao", "audio")}
 
     def test_simple_family_image_video_complete(self):
         for provider in ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax"):
