@@ -138,6 +138,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
   useEffect(() => {
     tRef.current = t;
   }, [t]);
+  const { t: tEvents } = useTranslation("events");
+  const tEventsRef = useRef(tEvents);
+  useEffect(() => {
+    tEventsRef.current = tEvents;
+  }, [tEvents]);
   const [, setLocation] = useLocation();
   const invalidateEntities = useAppStore((s) => s.invalidateEntities);
   const triggerScrollTo = useAppStore((s) => s.triggerScrollTo);
@@ -282,7 +287,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
               if (!hasImportantChanges(group)) {
                 continue;
               }
-              pushNotification(formatGroupedNotificationText(group), "success");
+              pushNotification(
+                formatGroupedNotificationText(group, tEventsRef.current),
+                "success",
+              );
             }
           }
 
@@ -313,7 +321,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
                       return null;
                     }
                     pushWorkspaceNotification({
-                      text: formatGroupedDeferredText(group),
+                      text: formatGroupedDeferredText(group, tEventsRef.current),
                       target,
                     });
                     return target;

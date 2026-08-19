@@ -3466,6 +3466,45 @@ class TestGenerationTasks:
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
+        ("task_type", "expected_label_key", "expected_label"),
+        [
+            pytest.param("grid", "grid", "多宫格分镜「E1G01」", id="grid"),
+            pytest.param("grid_split", "grid_split", "多宫格分镜「E1G01」切分", id="grid-split"),
+            pytest.param("voice_sample", "voice_sample", "「E1G01」试听样本", id="voice-sample"),
+            pytest.param("character", "asset_image_character", "角色「E1G01」资产图", id="character-sheet"),
+            pytest.param("prop", "asset_image_prop", "道具「E1G01」资产图", id="prop-sheet"),
+        ],
+    )
+    def test_emit_success_batch_carries_label_key_and_params(
+        self, monkeypatch, tmp_path, task_type, expected_label_key, expected_label
+    ):
+        """完成事件携带稳定 label_key 与参数，界面据此按用户语言成文；label 只是默认语言兜底。"""
+        captured = []
+        monkeypatch.setattr(
+            generation_tasks,
+            "emit_project_change_batch",
+            lambda project_name, changes: captured.append(changes),
+        )
+
+        project_path = tmp_path / "demo"
+        project_path.mkdir()
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: _FakePM(project_path))
+
+        generation_tasks.emit_generation_success_batch(
+            task_type=task_type,
+            project_name="demo",
+            resource_id="E1G01",
+            payload={},
+        )
+
+        assert len(captured) == 1
+        change = captured[0][0]
+        assert change["label_key"] == expected_label_key
+        assert change["label_params"] == {"id": "E1G01"}
+        assert change["label"] == expected_label
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
         ("script", "expected_entity_type", "expected_label"),
         [
             pytest.param(
@@ -3549,7 +3588,8 @@ class TestGenerationTasks:
         change = captured[0][0]
         assert change["entity_type"] == "reference_unit"
         assert change["action"] == "reference_video_ready"
-        assert change["label"] == "参考视频「U01」"
+        assert change["label_key"] == "skeleton_video_units"
+        assert change["label"] == "视频单元「U01」"
 
     @pytest.mark.unit
     def test_emit_success_batch_reference_video_ad_entity_type_not_shot(self, monkeypatch, tmp_path):
@@ -3585,7 +3625,8 @@ class TestGenerationTasks:
         change = captured[0][0]
         assert change["entity_type"] == "reference_unit"
         assert change["action"] == "reference_video_ready"
-        assert change["label"] == "参考视频「U01」"
+        assert change["label_key"] == "skeleton_video_units"
+        assert change["label"] == "视频单元「U01」"
 
     @pytest.mark.unit
     def test_emit_success_batch_reference_video_tts_entity_type_not_shot(self, monkeypatch, tmp_path):
@@ -3619,7 +3660,8 @@ class TestGenerationTasks:
         change = captured[0][0]
         assert change["entity_type"] == "reference_unit"
         assert change["action"] == "tts_ready"
-        assert change["label"] == "旁白「E1U01」"
+        assert change["label_key"] == "narration_audio"
+        assert change["label"] == "旁白配音「E1U01」"
 
     @pytest.mark.unit
     def test_emit_success_batch_falls_back_to_segments_when_script_load_fails(self, monkeypatch, tmp_path):

@@ -29,6 +29,7 @@ const I18N_NAMESPACES = [
   'auth',
   'dashboard',
   'errors',
+  'events',
   'templates',
   'assets',
   'onboarding',

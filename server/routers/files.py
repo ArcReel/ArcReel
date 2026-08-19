@@ -41,7 +41,7 @@ from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.json_io import atomic_write_bytes
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_change_hints import emit_project_change_batch, project_change_source
+from lib.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project_manager import ProjectManager, get_project_manager
 from lib.source_loader import (
     ConflictError,
@@ -866,12 +866,12 @@ async def update_draft_content(
 
         # 发射 draft 事件通知前端
         action = "created" if is_new else "updated"
-        label_prefix = _t("segment_splitting") if content_mode == "narration" else _t("normalized_script")
+        draft_label_key = "draft_segment_splitting" if content_mode == "narration" else "draft_normalized_script"
         change = {
             "entity_type": "draft",
             "action": action,
             "entity_id": f"episode_{episode}_step{step_num}",
-            "label": _t("draft_event_label", episode=episode, label_prefix=label_prefix),
+            **build_change_label(draft_label_key, episode=episode),
             "episode": episode,
             "focus": {
                 "pane": "episode",

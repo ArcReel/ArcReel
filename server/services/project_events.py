@@ -21,6 +21,7 @@ from lib.content_digest import canonical_json_bytes
 from lib.project_change_hints import (
     ProjectChangeBatch,
     ProjectChangeSource,
+    build_change_label,
     project_change_source,
     register_project_change_batch_listener,
     register_project_change_listener,
@@ -30,7 +31,7 @@ from lib.script_models import get_generated_assets
 from lib.script_skeleton import (
     SKELETON_ANCHOR_TYPES,
     SKELETON_ENTITY_TYPES,
-    SKELETON_ITEM_NOUNS,
+    SKELETON_ITEM_LABEL_KEYS,
     SKELETONS,
     resolve_kind_items,
 )
@@ -855,7 +856,7 @@ class ProjectEventService:
                     "entity_type": "project",
                     "action": "updated",
                     "entity_id": "project",
-                    "label": "项目设置",
+                    **build_change_label("project_settings"),
                     "focus": None,
                     "important": False,
                 }
@@ -866,7 +867,7 @@ class ProjectEventService:
                     "entity_type": "overview",
                     "action": "updated",
                     "entity_id": "overview",
-                    "label": "项目概览",
+                    **build_change_label("overview"),
                     "focus": None,
                     "important": False,
                 }
@@ -902,7 +903,8 @@ class ProjectEventService:
                     entity_type=entity_type,
                     action="created",
                     entity_id=name,
-                    label=f"{'角色' if entity_type == 'character' else '线索'}「{name}」",
+                    label_key=f"named_entity_{entity_type}",
+                    label_params={"id": name},
                     focus={
                         "pane": pane,
                         "anchor_type": entity_type,
@@ -917,7 +919,8 @@ class ProjectEventService:
                     entity_type=entity_type,
                     action="deleted",
                     entity_id=name,
-                    label=f"{'角色' if entity_type == 'character' else '线索'}「{name}」",
+                    label_key=f"named_entity_{entity_type}",
+                    label_params={"id": name},
                     focus=None,
                     important=False,
                 )
@@ -930,7 +933,8 @@ class ProjectEventService:
                     entity_type=entity_type,
                     action="updated",
                     entity_id=name,
-                    label=f"{'角色' if entity_type == 'character' else '线索'}「{name}」",
+                    label_key=f"named_entity_{entity_type}",
+                    label_params={"id": name},
                     focus={
                         "pane": pane,
                         "anchor_type": entity_type,
@@ -956,7 +960,8 @@ class ProjectEventService:
                     entity_type="episode",
                     action="created",
                     entity_id=episode_key,
-                    label=f"第 {episode['episode']} 集",
+                    label_key="episode",
+                    label_params={"episode": episode["episode"]},
                     script_file=episode.get("script_file"),
                     episode=episode["episode"],
                     focus=None,
@@ -972,7 +977,8 @@ class ProjectEventService:
                     entity_type="episode",
                     action="updated",
                     entity_id=episode_key,
-                    label=f"第 {episode['episode']} 集",
+                    label_key="episode",
+                    label_params={"episode": episode["episode"]},
                     script_file=episode.get("script_file"),
                     episode=episode["episode"],
                     focus=None,
@@ -1017,7 +1023,7 @@ class ProjectEventService:
                 previous_item = previous_items[item_id]
                 current_item = current_items[item_id]
                 focus = self._build_script_item_focus(item_id, current_meta)
-                label = self._build_script_item_label(item_id, current_meta)
+                label_key = self._build_script_item_label_key(current_meta)
                 if self._became_truthy(
                     get_generated_assets(previous_item).get("storyboard_image"),
                     get_generated_assets(current_item).get("storyboard_image"),
@@ -1027,7 +1033,8 @@ class ProjectEventService:
                             entity_type=entity_type,
                             action="storyboard_ready",
                             entity_id=item_id,
-                            label=label,
+                            label_key=label_key,
+                            label_params={"id": item_id},
                             script_file=script_file,
                             episode=current_meta.get("episode"),
                             focus=focus,
@@ -1043,7 +1050,8 @@ class ProjectEventService:
                             entity_type=entity_type,
                             action="video_ready",
                             entity_id=item_id,
-                            label=label,
+                            label_key=label_key,
+                            label_params={"id": item_id},
                             script_file=script_file,
                             episode=current_meta.get("episode"),
                             focus=focus,
@@ -1059,7 +1067,8 @@ class ProjectEventService:
                             entity_type=entity_type,
                             action="updated",
                             entity_id=item_id,
-                            label=label,
+                            label_key=label_key,
+                            label_params={"id": item_id},
                             script_file=script_file,
                             episode=current_meta.get("episode"),
                             focus=focus,
@@ -1094,9 +1103,8 @@ class ProjectEventService:
         }
 
     @staticmethod
-    def _build_script_item_label(item_id: str, script_meta: dict[str, Any]) -> str:
-        noun = SKELETON_ITEM_NOUNS.get(ProjectEventService._script_kind(script_meta), "分镜")
-        return f"{noun}「{item_id}」"
+    def _build_script_item_label_key(script_meta: dict[str, Any]) -> str:
+        return SKELETON_ITEM_LABEL_KEYS.get(ProjectEventService._script_kind(script_meta), "skeleton_segments")
 
     def _build_script_item_change(
         self,
@@ -1112,7 +1120,8 @@ class ProjectEventService:
             entity_type=self._script_item_entity_type(script_meta),
             action=action,
             entity_id=item_id,
-            label=self._build_script_item_label(item_id, script_meta),
+            label_key=self._build_script_item_label_key(script_meta),
+            label_params={"id": item_id},
             script_file=script_file,
             episode=script_meta.get("episode"),
             focus=focus,
@@ -1129,7 +1138,8 @@ class ProjectEventService:
         entity_type: str,
         action: str,
         entity_id: str,
-        label: str,
+        label_key: str,
+        label_params: dict[str, Any] | None = None,
         focus: dict[str, Any] | None,
         important: bool,
         script_file: str | None = None,
@@ -1139,7 +1149,7 @@ class ProjectEventService:
             "entity_type": entity_type,
             "action": action,
             "entity_id": entity_id,
-            "label": label,
+            **build_change_label(label_key, **(label_params or {})),
             "focus": focus,
             "important": important,
         }

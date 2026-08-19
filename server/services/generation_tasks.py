@@ -77,7 +77,7 @@ from lib.narration_delivery import (
     register_narration_audio_transactionally,
 )
 from lib.path_safety import safe_exists, safe_join, try_safe_join
-from lib.project_change_hints import emit_project_change_batch, project_change_source
+from lib.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project_manager import (
     EpisodeScriptReboundError,
     ProjectManager,
@@ -113,7 +113,7 @@ from lib.reference_video.execution_checkpoint import (
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import resolve_items
 from lib.script_models import resolve_content_mode
-from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
+from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_LABEL_KEYS, resolve_script_kind
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.speech_composition import SpeechAdmissionError, admit_script_unit
 from lib.storyboard_sequence import (
@@ -1444,16 +1444,18 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
     return result
 
 
-# (entity_type, action, label_tpl, include_script_episode)
-# 三类项目级资产（character / scene / prop）的 spec 由 lib.asset_types.ASSET_SPECS 派生。
+# (entity_type, action, label_key, include_script_episode)
+# label_key 是事件载荷携带的稳定标识，界面按用户语言查表成文；文案本身见 lib/i18n 的
+# ``event_label_*``。三类项目级资产（character / scene / prop）的 spec 由
+# lib.asset_types.ASSET_SPECS 派生。
 # storyboard / video / reference_video 不在此表——三者按剧本骨架种类（segments/scenes/shots/
 # video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
 # ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
-    "grid": ("grid", "grid_ready", "多宫格分镜「{}」", True),
-    "grid_split": ("grid", "grid_split_done", "多宫格分镜「{}」切分", True),
-    "voice_sample": ("character", "voice_sample_ready", "「{}」试听样本", False),
-    **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
+    "grid": ("grid", "grid_ready", "grid", True),
+    "grid_split": ("grid", "grid_split_done", "grid_split", True),
+    "voice_sample": ("character", "voice_sample_ready", "voice_sample", False),
+    **{atype: (atype, "updated", f"asset_image_{atype}", False) for atype in ASSET_SPECS},
 }
 
 # 骨架驱动的任务类型 → 完成事件 action。entity_type/条目名词按项目剧本当前骨架种类
@@ -1465,12 +1467,12 @@ _SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
     "tts": "tts_ready",
 }
 
-# reference_video 的条目标签沿用「参考视频」措辞（区别于分镜级事件的骨架名词「视频单元」，
-# 两者服务不同场景：此为任务完成通知的条目文案，不随骨架名词收敛）；storyboard/video 未列出，
-# 回退到骨架名词本身（分镜/场景/镜头），与同项目分镜级事件同口径。
-_SKELETON_TASK_LABEL_NOUNS: dict[str, str] = {
-    "reference_video": "参考视频",
-    "tts": "旁白",
+# 任务类型自带条目标签的例外：tts 的产物是旁白配音，与骨架条目名词不同名。reference_video 显式
+# 指向视频单元，与参考生视频项目的骨架名词同口径；storyboard/video 未列出，回退到按骨架种类派生
+# 的 label_key（分镜/场景/镜头），与同项目分镜级事件同口径。
+_SKELETON_TASK_LABEL_KEYS: dict[str, str] = {
+    "reference_video": "skeleton_video_units",
+    "tts": "narration_audio",
 }
 
 
@@ -1524,14 +1526,13 @@ def emit_generation_success_batch(
         else:
             kind = resolve_script_kind(script) if isinstance(script, dict) else "segments"
         entity_type = SKELETON_ENTITY_TYPES.get(kind, "segment")
-        noun = _SKELETON_TASK_LABEL_NOUNS.get(task_type) or SKELETON_ITEM_NOUNS.get(kind, "分镜")
-        label_tpl = f"{noun}「{{}}」"
+        label_key = _SKELETON_TASK_LABEL_KEYS.get(task_type) or SKELETON_ITEM_LABEL_KEYS.get(kind, "skeleton_segments")
         include_script_episode = True
     else:
         spec = _TASK_CHANGE_SPECS.get(task_type)
         if spec is None:
             return {}
-        entity_type, action, label_tpl, include_script_episode = spec
+        entity_type, action, label_key, include_script_episode = spec
 
     asset_fingerprints = compute_affected_fingerprints(project_name, task_type, resource_id)
 
@@ -1539,7 +1540,7 @@ def emit_generation_success_batch(
         "entity_type": entity_type,
         "action": action,
         "entity_id": resource_id,
-        "label": label_tpl.format(resource_id),
+        **build_change_label(label_key, id=resource_id),
         "focus": None,
         "important": True,
         "asset_fingerprints": asset_fingerprints,
