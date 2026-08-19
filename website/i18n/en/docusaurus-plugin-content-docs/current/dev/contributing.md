@@ -156,7 +156,7 @@ This file is the source of truth for the contributing guide. During builds, it i
 | `README.md` | Product positioning, core value, and the shortest path to getting started | A complete model list, every environment variable, or internal implementation details |
 | `website/docs/index.mdx` | Documentation-site positioning, primary entry points, and a navigation overview | Complete instructions for specific features |
 | `website/docs/guide/getting-started.md` | The complete path from deployment to the first generated video | Production-grade reverse proxy and backup strategies |
-| `website/docs/guide/workflows.md` | Content modes, video-making workflows, review checkpoints, and selection guidance | Provider credentials and operations commands |
+| `website/docs/guide/workflows.md` | Content modes, video generation routes, review checkpoints, and selection guidance | Provider credentials and operations commands |
 | `website/docs/guide/providers.md` | Provider types, capability coverage, selection principles, and configuration hierarchy | Price promises likely to become outdated |
 | `website/docs/guide/jianying-export.md` | Locating the Jianying draft directory, exporting, and further editing steps | The video generation process itself |
 | `website/docs/guide/faq.md` | Frequently asked questions and short answers | Long tutorials |
@@ -171,7 +171,7 @@ This file is the source of truth for the contributing guide. During builds, it i
 - **Keep the README stable**: the README only needs to help a first-time repository visitor answer, "What is ArcReel, is it right for me, how is it different from calling a model API directly, and what is the fastest way to run it?" Put specific model names, prices, and API parameters on the corresponding site pages so that the homepage does not need to be rewritten every time a provider changes.
 - **Treat runtime capabilities as authoritative for provider information**: documentation describes the media types covered, how ArcReel unifies configuration, how to choose between different capabilities, and where to confirm specifics; the models actually selectable on the Settings page and the provider's official documentation are definitive.
 - **Give headings explicit anchor IDs**: write every heading on a published page as `## 标题 {#english-id}`. The Chinese and English locales share the same anchor to prevent changes to copy from invalidating automatically generated Chinese slugs. Use relative file paths for cross-references within the site (such as `../ops/deployment.md`), and use absolute GitHub links when pointing to repository files not published on the site.
-- **Commit documentation changes with feature changes**: when adding a content mode or video-making workflow, adding a provider or media capability, or changing deployment directories, ports, environment variables, data directories, backup methods, migration behavior, public APIs, licenses, or commercial-use terms, update the corresponding documentation at the same time.
+- **Commit documentation changes with feature changes**: when adding a content mode or video generation route, adding a provider or media capability, or changing deployment directories, ports, environment variables, data directories, backup methods, migration behavior, public APIs, licenses, or commercial-use terms, update the corresponding documentation at the same time.
 - **No JSX or import in docs-site `.md` files**: `website/docusaurus.config.ts` sets `markdown.format: "detect"`, so `.md` files are parsed as CommonMark rather than MDX. Neither raises a compile error, and neither is executed as MDX: a JSX tag is output verbatim as raw HTML (a tag with children leaks that content directly onto the page), and an import statement is displayed verbatim as page text. Use `.mdx` for pages that need JSX.
 
 ## Workflow {#workflow}
@@ -251,7 +251,7 @@ fix(queue): 修复任务 lease 超时后未正确归还的问题
 # With a scope and a body
 feat(grid): 支持 grid_12 布局
 
-将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
+将多宫格分镜系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
 **This repository does not use breaking-change markers.** The frontend and backend are released together, and the backend API does not make versioned compatibility guarantees—the bundled frontend evolves with each version, while external integrations (OpenClaw and others) fetch the latest contract at runtime through `/skill.md` rather than depending on a version number. When deleting or changing endpoints referenced by `public/skill.md.template`, update that template at the same time. Classify API changes normally as `fix`/`refactor`; do not add a `!` suffix or a `BREAKING CHANGE:` footer. To correct an incorrectly marked commit after it has been merged, edit that PR's description and append a `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` block. release-please then recalculates the changelog and version number according to the override (this requires squash merging, which this repository uses). The workflow runs only on pushes to main; after editing, wait for the next push to main or rerun the release-please workflow manually. During the 0.x stage, `bump-minor-pre-major` limits the version jump caused by an incorrect marker to minor, but does not correct the changelog.

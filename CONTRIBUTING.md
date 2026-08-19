@@ -191,7 +191,7 @@ cd website && pnpm format         # prettier 写入
 | `README.md` | 产品定位、核心价值、最短上手路径 | 完整模型清单、所有环境变量、内部实现细节 |
 | `website/docs/index.mdx` | 文档站定位、主要入口和导航概览 | 具体功能的完整操作步骤 |
 | `website/docs/guide/getting-started.md` | 从部署到第一条成片的完整操作路径 | 生产级反向代理和备份策略 |
-| `website/docs/guide/workflows.md` | 内容模式、视频制作方式、审核节点、选择建议 | 供应商密钥和运维命令 |
+| `website/docs/guide/workflows.md` | 内容模式、视频生成路线、审核节点、选择建议 | 供应商密钥和运维命令 |
 | `website/docs/guide/providers.md` | 供应商类型、覆盖能力、选择原则、配置层级 | 容易过期的价格承诺 |
 | `website/docs/guide/jianying-export.md` | 剪映草稿目录定位、导出与二次编辑操作步骤 | 视频生成本身的流程说明 |
 | `website/docs/guide/faq.md` | 高频问题和短答案 | 长篇教程 |
@@ -206,7 +206,7 @@ cd website && pnpm format         # prettier 写入
 - **README 保持稳定**：README 只需让第一次访问仓库的人回答「ArcReel 是什么、适不适合我、和直接调用模型 API 有什么区别、如何最快运行起来」。具体模型名称、单价和接口参数放到站点对应页面，避免供应商每次更新都要重写首页。
 - **供应商信息以运行时能力为准**：文档描述覆盖哪些媒体类型、ArcReel 如何统一配置、不同能力如何选择、具体信息在哪里确认；设置页中实际可选的模型与供应商官方文档是最终依据。
 - **标题带显式锚点 ID**：上站页面的每个标题写成 `## 标题 {#english-id}`，中英两个 locale 共用同一锚点，避免中文自动 slug 随文案改动而失效。站内互引用相对文件路径（如 `../ops/deployment.md`），指向未上站的仓库文件时用 GitHub 绝对链接。
-- **文档变更应与功能变更一起提交**：新增内容模式或视频制作方式、新增供应商或媒体能力、部署目录/端口/环境变量变化、数据目录/备份方式/迁移行为变化、对外 API/许可证或商业使用方式变化，均须同步更新对应文档。
+- **文档变更应与功能变更一起提交**：新增内容模式或视频生成路线、新增供应商或媒体能力、部署目录/端口/环境变量变化、数据目录/备份方式/迁移行为变化、对外 API/许可证或商业使用方式变化，均须同步更新对应文档。
 - **上站 `.md` 不能使用 JSX / import**：`website/docusaurus.config.ts` 设 `markdown.format: "detect"`，`.md` 按 CommonMark 解析而非 MDX：两者都不会报编译错误，但也都不会按 MDX 语法执行——JSX 标签被当作原始 HTML 原样输出（带子内容的标签，子内容会直接显示成页面文本），import 语句被当作普通文本原样显示。需要 JSX 的页面改用 `.mdx`。
 
 ## 工作流程
@@ -288,7 +288,7 @@ fix(queue): 修复任务 lease 超时后未正确归还的问题
 # 带 scope 与正文
 feat(grid): 支持 grid_12 布局
 
-将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
+将多宫格分镜系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
 **本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成（OpenClaw 等）经 `/skill.md` 运行时拉取最新契约、不依赖版本号，删改 `public/skill.md.template` 引用的端点时同步更新该模板。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正方式：编辑该 PR 正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，release-please 按 override 重算 changelog 与版本号（需 squash 合并，本仓库满足）；workflow 仅在 main push 时运行，编辑后需等下一次 main push 或手动重新运行 release-please workflow 才生效。0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。

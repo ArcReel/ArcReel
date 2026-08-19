@@ -214,8 +214,6 @@ MESSAGES = {
     "ad_grid_not_supported": "广告/短片项目不支持多宫格分镜生视频",
     "grid_storyboard_not_enabled": "项目未启用多宫格分镜，无法生成多宫格分镜",
     "ad_target_duration_required": "广告/短片项目必须设置目标总时长（正整数秒）",
-    "project_id_not_editable": "项目创建后不支持修改 content_mode",
-    "source_kind_not_editable": "项目创建后不支持修改源文件性质（source_kind）",
     "project_deleted": "项目 '{name}' 已删除",
     "scene_updated": "场景 '{scene_id}' 已更新",
     "segment_updated": "片段 '{segment_id}' 已更新",
@@ -243,7 +241,6 @@ MESSAGES = {
     # Validators
     "invalid_backend_format": "模型选择格式无效，应为「供应商/模型」",
     "backend_media_type_mismatch": "所选模型类型不符：该项需要 {expected} 模型，但 {provider}/{model} 是 {actual} 模型",
-    "deprecated_image_backend": "image_backend 字段已废弃，请改用 image_provider_t2i 与 image_provider_i2i",
     # Versions
     "unsupported_resource_type": "不支持的资源类型: {resource_type}",
     "invalid_resource_id": "非法的资源 ID: {resource_id}",

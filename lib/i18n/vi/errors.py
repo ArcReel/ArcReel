@@ -235,8 +235,6 @@ MESSAGES = {
     "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ phân cảnh đa lưới",
     "grid_storyboard_not_enabled": "Dự án chưa bật phân cảnh đa lưới",
     "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
-    "project_id_not_editable": "content_mode không thể chỉnh sửa sau khi tạo dự án",
-    "source_kind_not_editable": "source_kind không thể chỉnh sửa sau khi tạo dự án",
     "project_deleted": "Đã xóa dự án '{name}'",
     "scene_updated": "Đã cập nhật cảnh '{scene_id}'",
     "segment_updated": "Đã cập nhật đoạn '{segment_id}'",
@@ -267,7 +265,6 @@ MESSAGES = {
     # Validators
     "invalid_backend_format": "Định dạng lựa chọn mô hình không hợp lệ; sử dụng provider/model",
     "backend_media_type_mismatch": "Loại mô hình không khớp: mục này cần mô hình {expected}, nhưng {provider}/{model} là mô hình {actual}",
-    "deprecated_image_backend": "Trường image_backend đã ngừng dùng; hãy dùng image_provider_t2i và image_provider_i2i",
     # Versions
     "unsupported_resource_type": "Loại tài nguyên không hỗ trợ: {resource_type}",
     "invalid_resource_id": "ID tài nguyên không hợp lệ: {resource_id}",

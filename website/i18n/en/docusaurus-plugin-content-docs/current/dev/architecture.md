@@ -249,7 +249,7 @@ An ArcReel project is more than a database record; it also includes media assets
 
 Typical contents include:
 
-- source novels, screenplays, or product assets;
+- source novels, screenplays, or merchandise assets;
 - project configuration;
 - character, scene, and prop definitions;
 - reference images;

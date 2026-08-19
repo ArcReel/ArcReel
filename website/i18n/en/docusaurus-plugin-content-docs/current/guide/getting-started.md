@@ -233,20 +233,20 @@ ArcReel builds characters and shots from the author's supplied content. It shoul
 
 #### Ad or Short Video {#source-ad}
 
-Best for product showcases, shoppable videos, and short-form content with a defined target duration.
+Best for merchandise showcases, shoppable videos, and short-form content with a defined target duration.
 
 Prepare:
 
-- Clear product photos from multiple angles;
+- Clear merchandise photos from multiple angles;
 - Key selling points;
 - The target audience;
 - The desired duration and visual style.
 
 ### 4.2 Choose a Content Mode {#choose-content-mode}
 
-- **Narration Mode**: Organizes segments around the reading pace, with voice-over and visuals at the center.
-- **Drama Mode**: Organizes shots around scenes, characters, and dialogue.
-- **Ad / Short Video Mode**: Organizes content around the target duration, selling points, and product visuals.
+- **Narration/Commentary**: Organizes segments around the reading pace, with voice-over and visuals at the center.
+- **Drama**: Organizes shots around scenes, characters, and dialogue.
+- **Ad / Short Video**: Organizes content around the target duration, selling points, and merchandise visuals.
 
 For a detailed comparison, see [Workflows and Modes](./workflows.md).
 
@@ -294,7 +294,7 @@ Review them for:
 - Accurate age, hairstyle, clothing, body type, and demeanor;
 - Characters that are easy to distinguish from one another;
 - Backgrounds or text in reference images that you do not want copied downstream;
-- Accurate structure for products, logos, and key props.
+- Accurate structure for merchandise, logos, and key props.
 
 Do not batch-generate every storyboard before confirming the character assets, or any later rework will multiply.
 
@@ -313,13 +313,12 @@ After confirming the direction, generate them in batches.
 
 ### 5.5 Video Clips {#video-clips}
 
-Choose a video workflow based on the project:
+Choose a video generation route based on the project:
 
-- Storyboard image-to-video;
-- Storyboard sheet-to-video;
-- Reference-to-video.
+- Storyboard route (storyboard image-to-video, with multi-grid storyboards as an option);
+- Reference-to-video route.
 
-Storyboard sheet-to-video first generates several shots together on a single storyboard sheet (grid), then splits it into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
+With multi-grid storyboards enabled, the Storyboard route first generates several shots together on one or more multi-grid storyboards, then splits each grid into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
 
 Review the results for:
 
@@ -371,7 +370,7 @@ On the Usage page, review:
 
 ### 7.1 Compose the Final Video for a Drama Episode {#compose-final-video}
 
-For Drama Mode projects using the storyboard route, you can use ArcReel to compose the final video after confirming every video clip. For Narration Mode and Ad / Short Video Mode projects using the storyboard route, export a Jianying draft. For reference-to-video projects, download the generated clips and continue in post-production.
+For Drama projects using the storyboard route, you can use ArcReel to compose the final video after confirming every video clip. For Narration/Commentary and Ad / Short Video projects using the storyboard route, export a Jianying draft. For reference-to-video projects, download the generated clips and continue in post-production.
 
 Before composing, check:
 
@@ -384,7 +383,7 @@ Before composing, check:
 
 ### 7.2 Export a Jianying Draft or Generated Clips {#export-jianying-draft}
 
-Narration Mode and Ad / Short Video Mode projects using the storyboard route complete the final video through a Jianying draft. Drama Mode projects can also use this option when subtitles, audio tracks, transitions, or pacing need more work. Reference-to-video projects can download the generated video clips and continue editing them in Jianying or another post-production tool.
+Narration/Commentary and Ad / Short Video projects using the storyboard route complete the final video through a Jianying draft. Drama projects can also use this option when subtitles, audio tracks, transitions, or pacing need more work. Reference-to-video projects can download the generated video clips and continue editing them in Jianying or another post-production tool.
 
 For detailed instructions, see [Jianying Draft Export Guide](./jianying-export.md).
 

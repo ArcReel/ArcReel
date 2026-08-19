@@ -6,20 +6,20 @@ sidebar_position: 2
 
 # Workflows and Modes {#workflows}
 
-ArcReel supports multiple content sources and video-making workflows. This page helps you choose the right path before starting a project and define the review criteria for each stage.
+ArcReel supports multiple content sources and video generation routes. This page helps you choose the right path before starting a project and define the review criteria for each stage.
 
 ## 1. Two Dimensions to Choose Separately {#two-dimensions}
 
 When creating a project, distinguish between:
 
 1. **Content Mode**: determines how the script is organized;
-2. **Video-Making Workflow**: determines whether video production is organized around storyboard images, storyboard sheets, or asset reference images.
+2. **Video generation route**: determines whether video production is organized around storyboard images or asset reference images. Multi-grid storyboards are an optional image-generation method within the Storyboard route.
 
 They can be combined. For example:
 
-- Drama Mode + Storyboard image-to-video;
-- Drama Mode + Reference-to-video;
-- Narration Mode + Storyboard image-to-video;
+- Drama + Storyboard image-to-video;
+- Drama + Reference-to-video;
+- Narration/Commentary + Storyboard image-to-video;
 - Ad / Short Video + Reference-to-video.
 
 ## 2. Content Sources {#content-sources}
@@ -62,29 +62,29 @@ Core principles:
 - Extras and establishing shots should not automatically expand into long-lived character assets;
 - The focus is normalization and shot production, not rewriting.
 
-### 2.3 Product Materials {#source-product-material}
+### 2.3 Merchandise Materials {#source-product-material}
 
 Best for:
 
 - Shoppable short videos;
-- Product demos;
+- Merchandise demos;
 - Ad scripts;
 - Branded short videos.
 
 Prepare:
 
-- Front, side, detail, and in-use product images;
+- Front, side, detail, and in-use merchandise images;
 - Core selling points;
 - Target audience;
 - Prohibited claims;
 - Brand visual requirements;
 - Target duration and publishing platform.
 
-Product projects should establish stable product reference assets before generating shots in context.
+Ad / Short Video projects should establish stable merchandise reference assets before generating shots in context.
 
 ## 3. Content Modes {#content-modes}
 
-### 3.1 Narration Mode {#narration-mode}
+### 3.1 Narration/Commentary {#narration-mode}
 
 #### Characteristics {#narration-traits}
 
@@ -118,10 +118,10 @@ flowchart LR
 
 - Novel-recap videos;
 - History, storytelling, and educational content;
-- Narration-led product introductions;
+- Narration-led merchandise introductions;
 - Projects with limited lip-sync requirements.
 
-### 3.2 Drama Mode {#drama-mode}
+### 3.2 Drama {#drama-mode}
 
 #### Characteristics {#drama-traits}
 
@@ -157,22 +157,22 @@ flowchart LR
 - Character-driven narrative shorts;
 - Animating existing dialogue-based screenplays.
 
-### 3.3 Ad / Short Video Mode {#ad-mode}
+### 3.3 Ad / Short Video {#ad-mode}
 
 #### Characteristics {#ad-traits}
 
 - A clearly defined target duration;
 - Shots organized around selling points, use cases, and calls to action;
-- Product fidelity and reference consistency take priority;
+- Merchandise fidelity and reference consistency take priority;
 - Can generate voice-over copy, subtitles, and a Jianying draft, with dubbing completed after export.
 
 #### Recommended Workflow {#ad-flow}
 
 ```mermaid
 flowchart LR
-    A["Product Images + Selling Points"] --> B["Standard Product References"]
+    A["Merchandise Images + Selling Points"] --> B["Standard Merchandise References"]
     B --> C["Short-Video Shot Script"]
-    C --> D["Product-Anchored Storyboards"]
+    C --> D["Merchandise-Anchored Storyboards"]
     D --> E["Video Clips"]
     C --> F["Voice-over Copy / Subtitles"]
     E --> G["Jianying Draft / Export Without Dubbing"]
@@ -182,14 +182,14 @@ flowchart LR
 
 #### Review Focus {#ad-review}
 
-- Whether the product's shape, Logo, colors, and structure are accurate;
+- Whether the merchandise's shape, Logo, colors, and structure are accurate;
 - Whether selling points are factually supported;
-- Whether shots rely too heavily on the generation model to fill in product details;
-- Whether the opening quickly communicates the product's value;
+- Whether shots rely too heavily on the generation model to fill in merchandise details;
+- Whether the opening quickly communicates the merchandise's value;
 - Whether the ending has a clear call to action;
 - Whether voice-over copy and subtitles comply with platform rules.
 
-## 4. Video-Making Workflows {#video-production-routes}
+## 4. Video Generation Routes {#video-production-routes}
 
 ### 4.1 Storyboard Image-to-Video {#storyboard-image-route}
 
@@ -215,21 +215,21 @@ Uses a single storyboard image as the video input.
 - Projects where each shot is relatively independent;
 - Projects that need to switch providers quickly.
 
-### 4.2 Storyboard Sheet-to-Video {#grid-storyboard-route}
+### 4.2 Multi-grid Storyboards Within the Storyboard Route {#grid-storyboard-route}
 
-Generates multiple shots from the same passage together on a single storyboard sheet (grid), then automatically splits the sheet into an individual storyboard image for each shot and generates each video separately. The video model still receives the individual storyboard image after splitting.
+Multi-grid storyboards are not a separate route but an image-generation method within the Storyboard route. It generates multiple shots from the same passage together on one or more multi-grid storyboards, then automatically splits each grid into an individual storyboard image for each shot and generates each video separately. The video model still receives the individual storyboard image after splitting.
 
-Storyboard sheets automatically use square 2×2 / 3×3 grids based on the number of shots. Each cell uses the same aspect ratio as the project video; when there are more shots, they are divided across multiple sheets according to the grid capacity. Denser 4×4 / 5×5 grids are available only when the image model's resolution tier is configured as 4K—the more cells a sheet contains, the lower the resolution of each cell, and dense grids at lower resolution tiers will degrade downstream video quality.
+Multi-grid storyboards automatically use square 2×2 / 3×3 grids based on the number of shots. Each cell uses the same aspect ratio as the project video; when there are more shots, they are divided across multiple multi-grid storyboards according to the grid capacity. Denser 4×4 / 5×5 grids are available only when the image model's resolution tier is configured as 4K—the more cells a multi-grid storyboard contains, the lower the resolution of each cell, and dense grids at lower resolution tiers will degrade downstream video quality.
 
 #### Advantages {#grid-storyboard-pros}
 
-- Characters, scenes, and visual style are easier to keep consistent within the same storyboard sheet;
+- Characters, scenes, and visual style are easier to keep consistent within the same multi-grid storyboard;
 - Lets you review the composition and rhythm of a group of consecutive shots at once;
 - Suitable for establishing a unified visual direction before generating videos shot by shot.
 
 #### Limitations {#grid-storyboard-cons}
 
-- Storyboard sheet layouts and splitting rules add complexity;
+- Multi-grid storyboard layouts and splitting rules add complexity;
 - Each cell may be less sharp;
 - Not available for the Reference-to-video workflow or Ad / Short Video projects.
 
@@ -242,14 +242,14 @@ Storyboard sheets automatically use square 2×2 / 3×3 grids based on the number
 
 ### 4.3 Reference-to-Video {#reference-video-route}
 
-Instead of using an ordinary storyboard as the sole input, directly provides character, scene, prop, or product reference assets.
+Instead of using an ordinary storyboard as the sole input, the workflow directly provides character, scene, prop, or merchandise reference assets.
 
 #### Advantages {#reference-video-pros}
 
 - Makes more direct use of long-lived assets;
 - Suits video models that support multiple reference images;
 - Can eliminate the ordinary storyboard generation step;
-- Helps anchor character or product identity.
+- Helps anchor character or merchandise identity.
 
 #### Limitations {#reference-video-cons}
 
@@ -261,22 +261,22 @@ Instead of using an ordinary storyboard as the sole input, directly provides cha
 #### Recommended For {#reference-video-fit}
 
 - Models with mature Reference-to-video capabilities;
-- High-quality character and product assets;
+- High-quality character and merchandise assets;
 - Projects where identity consistency is the priority;
 - Projects that want fewer intermediate storyboard steps.
 
 ## 5. Mode Selection Table {#mode-selection-table}
 
-| Requirement | Recommended Content Mode | Recommended Video-Making Workflow |
+| Requirement | Recommended Content Mode | Recommended video generation route |
 |---|---|---|
-| Novel recaps and narration-led content | Narration Mode | Storyboard image-to-video |
-| Continuous narratives and character dialogue | Drama Mode | Storyboard sheet-to-video or Reference-to-video |
-| A complete existing screenplay | Drama Mode | Storyboard image-to-video |
-| Product structure must remain stable | Ad / Short Video | Prefer Reference-to-video |
-| Strong cross-shot consistency requirements | Narration Mode or Drama Mode | Storyboard sheet-to-video |
+| Novel recaps and narration-led content | Narration/Commentary | Storyboard image-to-video |
+| Continuous narratives and character dialogue | Drama | Storyboard route (with multi-grid storyboards) or Reference-to-video |
+| A complete existing screenplay | Drama | Storyboard image-to-video |
+| Merchandise structure must remain stable | Ad / Short Video | Prefer Reference-to-video |
+| Strong cross-shot consistency requirements | Narration/Commentary or Drama | Storyboard route (with multi-grid storyboards) |
 | First ArcReel trial | Any | Storyboard image-to-video |
 | Limited provider support | Any | Storyboard image-to-video |
-| An established library of high-quality character assets | Drama Mode | Reference-to-video |
+| An established library of high-quality character assets | Drama | Reference-to-video |
 
 ## 6. Standard Production Stages {#production-stages}
 
@@ -313,7 +313,7 @@ Confirm:
 - Recurring costumes;
 - Scenes;
 - Key props;
-- Products;
+- Merchandise;
 - Style references.
 
 ### Stage 4: Small Sample {#stage-sample-clips}
@@ -391,10 +391,10 @@ ArcReel's advantage is not “skipping review,” but placing review where the c
 - Avoid unnecessary changes in lighting and time of day within the same passage;
 - Track where characters are positioned in the space.
 
-### Props and Products {#consistency-props}
+### Props and Merchandise {#consistency-props}
 
 - Create prop assets for story-critical items;
-- Prefer real product photos from multiple angles;
+- Prefer real merchandise photos from multiple angles;
 - Do not let the model invent important text, Logo details, or structures;
 - When details drift, redo the affected shot first instead of concealing the problem with later shots.
 
@@ -416,7 +416,7 @@ An episode or short video is complete only when it meets at least the following 
 - The content structure has been confirmed;
 - The main assets have been confirmed;
 - Every shot has a clear purpose;
-- Characters and products have no obvious identity drift;
+- Characters and merchandise have no obvious identity drift;
 - Video clips transition cleanly;
 - Narration and subtitles have been proofread;
 - Actual costs have been reviewed;

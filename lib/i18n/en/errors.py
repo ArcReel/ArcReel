@@ -237,8 +237,6 @@ MESSAGES = {
     "ad_grid_not_supported": "Ad/short-video projects do not support Multi-grid Storyboard to Video",
     "grid_storyboard_not_enabled": "Multi-grid Storyboard is not enabled for this project",
     "ad_target_duration_required": "Ad/short-video projects require a target duration (positive integer seconds)",
-    "project_id_not_editable": "content_mode cannot be modified after project creation",
-    "source_kind_not_editable": "source_kind cannot be modified after project creation",
     "project_deleted": "Project '{name}' deleted",
     "scene_updated": "Scene '{scene_id}' updated",
     "segment_updated": "Segment '{segment_id}' updated",
@@ -269,7 +267,6 @@ MESSAGES = {
     # Validators
     "invalid_backend_format": "Model selection format is invalid; use provider/model",
     "backend_media_type_mismatch": "Model type mismatch: this setting needs a {expected} model, but {provider}/{model} is a {actual} model",
-    "deprecated_image_backend": "The image_backend field is deprecated; use image_provider_t2i and image_provider_i2i instead",
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
     "invalid_resource_id": "Invalid resource ID: {resource_id}",

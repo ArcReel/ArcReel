@@ -129,12 +129,10 @@ class GenerateUnitRequest(BaseModel):
 
 
 class GenerateUnitsBatchRequest(BaseModel):
-    """One batch video request: which units, how narration is delivered, what was agreed.
+    """批量视频生成请求。
 
-    ``unit_ids`` omitted means missing-only; naming ids regenerates exactly those.
-    ``confirmed_request_durations`` carries the tiers the user accepted in the
-    aggregate confirmation, bound to this request's targets and options — it does
-    not freeze what the worker will read when execution starts.
+    ``unit_ids`` 省略时只补齐缺失项；指定 id 则重新生成对应单元。
+    ``confirmed_request_durations`` 为用户在聚合确认中接受的时长档位。
     """
 
     unit_ids: list[str] | None = None

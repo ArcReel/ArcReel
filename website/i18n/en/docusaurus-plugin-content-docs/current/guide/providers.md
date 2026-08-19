@@ -95,7 +95,7 @@ Do not consider only the result of a single generation.
 Consider:
 
 - Character identity preservation;
-- Product structure preservation;
+- Merchandise structure preservation;
 - Image composition;
 - Naturalness of motion;
 - Prompt adherence;
@@ -202,7 +202,7 @@ Use for:
 
 - Key plot moments;
 - Cover shots;
-- Product close-ups;
+- Merchandise close-ups;
 - Branded deliverables;
 - Final videos that need higher resolution.
 
@@ -220,15 +220,15 @@ Image capabilities are mainly used for:
 
 - Character design;
 - Scene and prop design;
-- Standardized product reference images;
+- Standardized merchandise reference images;
 - Single-shot storyboards;
-- Storyboard sheets (grids);
+- Multi-grid storyboards;
 - Style analysis and image editing.
 
 When choosing a provider, pay particular attention to:
 
 - Support for multiple reference images;
-- Character and product identity preservation;
+- Character and merchandise identity preservation;
 - Rendering of text and logos;
 - Target aspect ratios and resolutions;
 - Image editing capabilities;
@@ -237,7 +237,7 @@ When choosing a provider, pay particular attention to:
 Recommendations:
 
 - For character design images, use compositions with simple backgrounds and the full subject visible whenever possible;
-- For product reference images, prefer real source material and multiple viewing angles;
+- For merchandise reference images, prefer real source material and multiple viewing angles;
 - Ordinary storyboards do not all need to use the most expensive model;
 - Lock in the characters and visual style before generating in batches.
 
