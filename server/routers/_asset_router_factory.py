@@ -99,7 +99,7 @@ class _RenameRequest(BaseModel):
 
 
 class _CreateRequest(BaseModel):
-    """通用 create 请求体；额外字段（如 voice_style）通过 extra='allow' 透传。"""
+    """创建请求体。按资产类型接受不同的额外字段。"""
 
     model_config = ConfigDict(extra="allow")
 
