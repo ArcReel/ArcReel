@@ -161,9 +161,8 @@ describe("project-changes utils", () => {
   });
 
   it("labels reference_unit notifications as 视频单元, not the 内容 fallback", () => {
-    // 回归：后端曾把参考生视频任务完成事件的 entity_type 发成前端不认识的
-    // "reference_video_unit"，落 entity 名词兜底显示「内容」。修复后 entity_type 与前端
-    // 联合类型的 "reference_unit" 对齐，分组标题应显示「视频单元」。
+    // 参考生视频任务完成事件的 entity_type 必须与前端联合类型的 "reference_unit"
+    // 一致，分组标题才显示「视频单元」而非 entity 名词兜底的「内容」。
     const [group] = groupChangesByType(
       ["U01", "U02"].map((id) =>
         makeChange({

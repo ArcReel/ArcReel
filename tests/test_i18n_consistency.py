@@ -220,5 +220,5 @@ def test_frontend_event_label_keys_match_backend():
     source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "i18n" / "en" / "events.ts").read_text(
         encoding="utf-8"
     )
-    frontend_keys = set(re.findall(r'"label\.([a-z0-9_]+)"', source))
+    frontend_keys = set(re.findall(r"""["']label\.([a-z0-9_]+)["']""", source))
     assert frontend_keys == _event_label_keys(en_events.MESSAGES)
