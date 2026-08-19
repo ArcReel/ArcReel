@@ -9,10 +9,10 @@ paths:
 
 首次使用引导的高亮点靠元素上的 `data-onboarding` 属性定位：锚点名登记在
 `frontend/src/onboarding/anchors.ts`，步骤大纲在 `steps.ts`，文案在
-`frontend/src/i18n/{zh,en,vi}/onboarding.ts`。锚点名本身有 typecheck 兜底，但「属性仍存在于
-页面、元素语义仍成立、文案指向仍准确」这三件事没有编译期约束——属性被删、挂载点移入条件
-分支、界面标签改名，typecheck 与现有测试都不报错，引导只在运行期降级为居中气泡或将用户
-指向界面上不存在的名称。
+`frontend/src/i18n/{zh,en,vi}/onboarding.ts`。锚点名本身有 typecheck 兜底，`anchors.test.tsx`
+只校验已登记锚点在其挂载场景下存在于页面；「元素语义仍成立、文案指向仍准确、挂载点在常见
+路径上无条件渲染」没有编译期或测试约束——挂载点移入条件分支、界面标签改名时 typecheck 与
+现有测试都不报错，引导只在运行期降级为居中气泡或将用户指向界面上不存在的名称。
 
 改动带 `data-onboarding` 的元素时，一并核对：
 

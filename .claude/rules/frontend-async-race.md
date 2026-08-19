@@ -1,9 +1,6 @@
 ---
 paths:
-  - "frontend/src/hooks/**"
-  - "frontend/src/stores/**"
-  - "frontend/src/actions/**"
-  - "frontend/src/api.ts"
+  - "frontend/src/**"
 ---
 
 # 前端异步竞态防护

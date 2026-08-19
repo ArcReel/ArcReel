@@ -157,7 +157,7 @@ cd website && pnpm format         # prettier 写入
 
 **已知约束：**
 
-- TypeScript 版本锁：`typescript-eslint@8.x` 的 peer 范围为 `typescript <6.1`；升级 TypeScript 至 6.1+ 前须同步升级 `typescript-eslint`
+- TypeScript 版本锁：`typescript-eslint` 的 peer 范围限制 TypeScript 上限；升级 TypeScript 前先核对锁定版本的 peer 范围，必要时同步升级 `typescript-eslint`
 
 ### Pytest markers 规范
 
