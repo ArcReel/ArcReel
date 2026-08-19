@@ -87,7 +87,7 @@ uv run ruff check . && uv run ruff format .
 uv run basedpyright
 ```
 
-- standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 跑全量扫描
+- standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 执行全量扫描
 - tests/ 内 `reportOptional*` 和 `unknown*` 系列降级为 warning，避免大量使用 mock 的测试产生噪声
 - 第三方 untyped 库通过行级 `# pyright: ignore[...]` 处理
 
@@ -97,8 +97,8 @@ uv run basedpyright
 uv run lint-imports
 ```
 
-- 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，CI backend-static 必过
-- 新增 ignore 条目前先确认该依赖边无法就地清零（约定见 `pyproject.toml`）
+- 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，是 CI backend-static 的必过步骤
+- 新增 ignore 条目前先确认该依赖边无法直接消除（约定见 `pyproject.toml`）
 
 **Lint（前端 ESLint）：**
 
@@ -127,11 +127,11 @@ cd website && pnpm format         # prettier 写回
 
 ### 依赖管理
 
-前后端新增/升级依赖一律用 `uv add` / `pnpm add`，不手写版本号到 `pyproject.toml` / `package.json`；新增依赖后同步 `.github/dependabot.yml` 的 patterns 归入对应分组。
+前后端新增/升级依赖一律用 `uv add` / `pnpm add`，不手动写入版本号到 `pyproject.toml` / `package.json`；新增依赖后同步 `.github/dependabot.yml` 的 patterns 归入对应分组。
 
 ### 注释纪律
 
-代码与测试注释只描述当下行为与约束，不写 issue/PR/Spec 编号，也不用时间性措辞（「最近」「本次」「实测」）——这些信息写在 commit message / PR 描述；修改文件时顺带清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限。
+代码与测试注释只描述当下行为与约束，不写 issue/PR/Spec 编号，也不用时间性措辞（「最近」「本次」「实测」）——这些信息写在 commit message / PR 描述；修改文件时一并清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限。
 
 ### ESLint disable 使用规范
 
@@ -255,7 +255,7 @@ docs: 文档变更
 chore: 构建/工具变更
 ```
 
-标题写成 `type(scope): 摘要`。squash 合并下 PR 标题即 changelog 条目：写用户可感知的收益，范围词用产品术语，不写实现术语（status_code、内部类名等），并如实限定范围。type 取值与 changelog 分类见下文「发版流程」与 `.release-please-config.json`。
+标题写成 `type(scope): 摘要`。squash 合并下 PR 标题即 changelog 条目：描述用户可感知的收益，范围词使用产品术语而非实现术语（status_code、内部类名等），并如实限定范围。type 取值与 changelog 分类见下文「发版流程」与 `.release-please-config.json`。
 
 ## 发版流程
 
