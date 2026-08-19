@@ -17,7 +17,7 @@ API Key 可从 ArcReel 设置页面的「API Keys」管理区获取。
 推荐的完整创作工作流：
 
 1. **创建项目**：`POST {{BASE_URL}}/api/v1/projects`
-2. **上传小说内容并生成概述**：`POST {{BASE_URL}}/api/v1/projects/{name}/source`
+2. **上传源文件并生成概述**（广告/短片项目跳过此步）：`POST {{BASE_URL}}/api/v1/projects/{name}/source`
 3. **多轮 Agent 对话**（创作剧本、分镜等）：`POST {{BASE_URL}}/api/v1/agent/chat`
 4. **查看生成结果**：`GET {{BASE_URL}}/api/v1/projects/{name}`
 
@@ -83,9 +83,14 @@ curl -X POST {{BASE_URL}}/api/v1/projects \
 
 - **响应**：201，返回项目详情
 
-### 3. 上传小说内容并生成概述（新项目必须）
+### 3. 上传源文件并生成概述
 
-将小说内容传入项目，并自动触发 AI 分析生成概述。支持两种方式：**直接提交文本** 或 **上传文件**。
+将源文件内容传入项目，并自动触发 AI 分析生成概述。支持两种方式：**直接提交文本** 或 **上传文件**。
+
+适用范围按创作类型区分：
+
+- `content_mode` 为 `drama` 或 `narration`：必须先调用本端点，脚本生成读取这里传入的源文件。`source_kind` 为 `novel` 时传入小说原文，为 `screenplay` 时传入成品剧本，两者走同一端点、同一表单字段，差别在于脚本生成阶段是改编还是保留原稿
+- `content_mode` 为 `ad`：不需要调用本端点。广告/短片的脚本由创建时的 `brief`、`target_duration` 与项目商品资产驱动，不读源文件
 
 - **端点**：`POST {{BASE_URL}}/api/v1/projects/{name}/source`
 - **认证**：需要 Bearer Token
@@ -94,7 +99,7 @@ curl -X POST {{BASE_URL}}/api/v1/projects \
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `content` | string（文本字段） | 小说文本内容，与 `file` 二选一，最大 200000 字符 |
+| `content` | string（文本字段） | 源文件文本内容，与 `file` 二选一，最大 200000 字符 |
 | `file` | file（文件字段） | 上传 .txt/.md 文件，文件名自动取自原始文件名，与 `content` 二选一 |
 | `generate_overview` | bool | 是否自动生成概述，默认 `true` |
 

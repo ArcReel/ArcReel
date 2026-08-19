@@ -55,6 +55,11 @@ class TestSkillMdTemplate:
             assert f"`{field}`" in self.template
 
     @pytest.mark.unit
+    def test_source_upload_not_claimed_mandatory_for_all(self):
+        """ad 项目的脚本由 brief 驱动、不读源文件，模板不得把上传源文件写成所有新项目必须。"""
+        assert "上传小说内容并生成概述（新项目必须）" not in self.template
+
+    @pytest.mark.unit
     def test_no_all_json_claim(self):
         assert "所有 API 响应均为 JSON" not in self.template
 
