@@ -190,7 +190,7 @@ Content Mode and the video generation route cannot be changed after creation. Gr
 - **Grid Storyboard**: still part of the Storyboard route. ArcReel first generates a grid image, splits it into starting storyboard images for each shot, and then generates video from those storyboard images.
 - **Reference-to-video route**: skips storyboard images and directly uses the character, scene, and prop designs referenced by the screenplay as video references.
 
-Reference-to-video does not mean that asset images are unnecessary. If a referenced asset in a Narration or Drama project has no design image, its video will fail. In an Ad / Short Video project, a task may continue without product reference images, but product fidelity cannot be guaranteed.
+Reference-to-video does not mean that asset images are unnecessary. If a referenced asset in a Narration or Drama project has no design image, its video will fail. In an Ad / Short Video project, a task may continue without merchandise reference images, but merchandise fidelity cannot be guaranteed.
 
 If the video provider receives only text and no storyboard or reference image, verify the project route, actual model, and custom model's call endpoint:
 
@@ -213,7 +213,7 @@ Usually a prerequisite review or asset is incomplete:
 1. For Narration and Drama projects, confirm that the screenplay preprocessing result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
 2. Check whether characters, scenes, and props have definitions but no generated design images.
 3. On the Storyboard route, check whether the target shot has a storyboard image.
-4. On the Reference-to-video route, verify that referenced assets in Narration and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original product images were uploaded. Missing reference images may not block the task, but they reduce product fidelity.
+4. On the Reference-to-video route, verify that referenced assets in Narration and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.
 5. Expand the task panel and check for tasks that are still queued, running, or failed.
 
 Do not judge completion solely from the phase number in the header. Assets in the sidebar, episode status, and task errors provide more specific information about what is missing.
@@ -259,7 +259,7 @@ A scene design is different from a story-specific storyboard image: the scene de
 
 ### Does ArcReel support voice-over? {#voice-over-support}
 
-The Web UI currently offers standalone voice-over TTS only for Narration Mode. You can preview or generate voice-over segment by segment or for a full episode, then include it in a Jianying draft export. Configure the speech provider, voice, and speed globally or per project; some models do not support speed control.
+The Web UI currently offers standalone voice-over TTS only for Narration/Commentary. You can preview or generate voice-over segment by segment or for a full episode, then include it in a Jianying draft export. Configure the speech provider, voice, and speed globally or per project; some models do not support speed control.
 
 Built-in speech from a video model, character reference audio, and standalone voice-over TTS are separate capabilities. Character reference audio is currently used on the Reference-to-video route, and the selected video model must explicitly support reference audio. On the Storyboard route, or when only a voice description is available, voice is a soft constraint and cannot guarantee identical timbre across segments.
 
@@ -285,7 +285,7 @@ For disaster recovery, use the full-instance backup approach described above and
 
 When exporting, select the 5.x or 6+ format that matches your local Jianying version, extract the ZIP directly into the Jianying drafts directory, and restart Jianying. A draft contains only successfully generated video clips. Generate any missing clips in ArcReel before exporting again.
 
-Narration Mode currently exports the original novel text as subtitles, Ad / Short Video Mode exports spoken promotional copy as subtitles, and Drama Mode exports dialogue and voice-over subtitles. Narration Mode also includes generated voice-over tracks. See the [Jianying draft export guide](./jianying-export.md) for the complete steps.
+Narration/Commentary currently exports the original novel text as subtitles, Ad / Short Video exports spoken promotional copy as subtitles, and Drama exports dialogue and voice-over subtitles. Narration/Commentary also includes generated voice-over tracks. See the [Jianying draft export guide](./jianying-export.md) for the complete steps.
 
 ### Is there a mobile app? Which platforms are supported? {#mobile-app-support}
 
