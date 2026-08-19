@@ -78,10 +78,9 @@ SPEECH_CONTRACT_CASES = (
             {
                 "unit_id": "E1U1",
                 "duration_seconds": 4,
-                "shots": [{"text": "@[阿离]：{快走。}\n{风吹过旷野。}"}],
-                "references": [],
+                "text": "@[阿离]：{快走。}\n{风吹过旷野。}",
             },
-            (("shots", 0, "text"), ("shots", 0, "text")),
+            (("text",), ("text",)),
         )
         for content_mode in ("narration", "drama", "ad")
     ),

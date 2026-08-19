@@ -255,7 +255,7 @@ class TestExecuteImageEditTask:
             "demo",
             lambda project: project.update(
                 {
-                    "schema_version": 8,
+                    "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
                     "generation_mode": "storyboard",
                     "source_kind": "novel",
                     "source_language": "中文",
@@ -335,7 +335,7 @@ class TestExecuteImageEditTask:
 
         monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _resolve)
 
-        with pytest.raises(ProjectMigrationError, match="did not reach v8"):
+        with pytest.raises(ProjectMigrationError, match=f"did not reach v{CURRENT_PROJECT_SCHEMA_VERSION}"):
             await execute_image_edit_task(
                 "demo",
                 "Alice",
@@ -605,7 +605,7 @@ class TestExecuteImageEditTask:
         fake_pm = _FakePM(project_path)
         fake_pm.project.update(
             {
-                "schema_version": 8,
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
                 "generation_mode": "storyboard",
                 "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             }
@@ -692,7 +692,7 @@ class TestExecuteImageEditTask:
         fake_pm = _FakePM(project_path)
         fake_pm.project.update(
             {
-                "schema_version": 8,
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
                 "generation_mode": "storyboard",
                 "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             }

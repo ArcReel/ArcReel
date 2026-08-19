@@ -3,7 +3,7 @@
 import pydantic
 import pytest
 
-from lib.reference_video.shot_parser import derive_references_from_text
+from lib.reference_video.text_parser import derive_references_from_text
 from lib.script_models import ReferenceVideoScript, ReferenceVideoUnit
 from lib.script_skeleton import ensure_route_skeleton, resolve_declared_kind
 from lib.speech_composition import SpeechComposition, SpeechMode, adapt_video_unit
@@ -14,8 +14,7 @@ pytestmark = pytest.mark.unit
 def _unit(**overrides: object) -> dict:
     payload: dict = {
         "unit_id": "E1U1",
-        "shots": [{"text": "@[产品] 放在 @[场景] 的桌面上"}],
-        "references": [{"type": "product", "name": "产品"}, {"type": "scene", "name": "场景"}],
+        "text": "@[产品] 放在 @[场景] 的桌面上",
         "duration_seconds": 8,
         "generated_assets": {},
     }
@@ -35,29 +34,18 @@ def test_reference_video_script_accepts_ad_products_and_replan_state() -> None:
     )
 
     assert script.content_mode == "ad"
-    assert script.video_units[0].references[0].type == "product"
+    assert script.video_units[0].text == "@[产品] 放在 @[场景] 的桌面上"
     assert script.video_units[0].needs_replan is False
 
 
 def test_only_replan_shell_may_be_empty_and_zero_duration() -> None:
-    shell = ReferenceVideoUnit.model_validate(
-        _unit(
-            shots=[],
-            references=[],
-            duration_seconds=0,
-            needs_replan=True,
-            migration_requires_content_replan=True,
-        )
-    )
+    shell = ReferenceVideoUnit.model_validate(_unit(text="", duration_seconds=0, needs_replan=True))
     assert shell.needs_replan is True
-    assert shell.migration_requires_content_replan is True
 
     with pytest.raises(pydantic.ValidationError):
-        ReferenceVideoUnit.model_validate(_unit(shots=[], references=[], duration_seconds=0, needs_replan=False))
+        ReferenceVideoUnit.model_validate(_unit(text="", duration_seconds=0, needs_replan=False))
     with pytest.raises(pydantic.ValidationError):
-        ReferenceVideoUnit.model_validate(_unit(shots=[], references=[], duration_seconds=8, needs_replan=True))
-    with pytest.raises(pydantic.ValidationError):
-        ReferenceVideoUnit.model_validate(_unit(migration_requires_content_replan=True, needs_replan=False))
+        ReferenceVideoUnit.model_validate(_unit(text="   ", duration_seconds=8, needs_replan=True))
 
 
 def test_product_mentions_resolve_first_even_in_corrupt_duplicate_namespace() -> None:
@@ -67,14 +55,14 @@ def test_product_mentions_resolve_first_even_in_corrupt_duplicate_namespace() ->
         "scenes": {"同名": {}},
         "props": {"同名": {}},
     }
-    refs, missing = derive_references_from_text("镜头1：@[同名] 位于桌面", project)
+    refs, missing = derive_references_from_text("@[同名] 位于桌面", project)
 
     assert [(ref.type, ref.name) for ref in refs] == [("product", "同名")]
     assert missing == []
 
 
 def test_product_label_before_colon_is_not_misparsed_as_character_speech() -> None:
-    unit = _unit(shots=[{"text": "@[产品]：瓶身正面朝向镜头"}])
+    unit = _unit(text="@[产品]：瓶身正面朝向镜头")
     result = SpeechComposition.prepare(adapt_video_unit(unit))
 
     assert result.mode is SpeechMode.SILENT

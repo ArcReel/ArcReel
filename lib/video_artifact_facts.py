@@ -232,25 +232,17 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
             raise ValueError("storyboard visual basis has invalid frame evidence")
         return
 
-    if set(inputs) != {"unit_id", "visual_shots", "style", "canvas", "request_references"}:
+    if set(inputs) != {"unit_id", "visual_lines", "style", "canvas", "request_references"}:
         raise ValueError("reference visual basis has invalid canonical inputs")
-    shots = inputs["visual_shots"]
-    shots_valid = isinstance(shots, list) and all(
-        isinstance(shot, Mapping)
-        and set(shot) == {"shot_index", "lines"}
-        and shot["shot_index"] == index
-        and isinstance(shot["lines"], list)
-        and bool(shot["lines"])
-        and all(_nonempty(line) for line in shot["lines"])
-        for index, shot in enumerate(shots)
-    )
+    lines = inputs["visual_lines"]
+    lines_valid = isinstance(lines, list) and all(_nonempty(line) for line in lines)
     references = inputs["request_references"]
     references_valid = isinstance(references, list) and all(_reference_evidence_is_valid(item) for item in references)
     if (
         not _nonempty(inputs["unit_id"])
         or not isinstance(inputs["style"], str)
         or not _canvas_is_valid(inputs["canvas"])
-        or not shots_valid
+        or not lines_valid
         or not references_valid
     ):
         raise ValueError("reference visual basis has invalid canonical inputs")

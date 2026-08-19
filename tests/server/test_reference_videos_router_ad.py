@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -49,8 +50,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
                 "video_units": [
                     {
                         "unit_id": "E1U1",
-                        "shots": [{"text": "@[按摩仪] 放在桌面上"}],
-                        "references": [{"type": "product", "name": "按摩仪"}],
+                        "text": "@[按摩仪] 放在桌面上",
                         "duration_seconds": 5,
                         "generated_assets": {},
                     }
@@ -62,6 +62,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     )
 
     migrate_v7_to_v8(project_dir)
+    migrate_v8_to_v9(project_dir)
 
     from lib.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
@@ -103,24 +104,26 @@ def test_list_and_legacy_derive_removal(ad_client: TestClient) -> None:
 
 
 @pytest.mark.integration
-def test_ad_units_support_crud_and_product_references(ad_client: TestClient) -> None:
+def test_ad_units_support_crud_and_product_mentions(ad_client: TestClient) -> None:
+    from lib.project_manager import ProjectManager
+    from lib.reference_video.request_projection import unit_reference_declarations
+
     added = ad_client.post(
         "/api/v1/projects/ad-demo/reference-videos/episodes/1/units",
-        json={
-            "prompt": "@[按摩仪] 被 @[小美] 举到镜头前",
-            "references": [{"type": "product", "name": "按摩仪"}, {"type": "character", "name": "小美"}],
-            "duration_seconds": 6,
-        },
+        json={"prompt": "@[按摩仪] 被 @[小美] 举到镜头前", "duration_seconds": 6},
     )
     assert added.status_code == 201, added.text
     assert added.json()["unit"]["unit_id"] == "E1U2"
 
     patched = ad_client.patch(
         "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U2",
-        json={"prompt": "@[按摩仪] 正面朝向镜头", "references": [{"type": "product", "name": "按摩仪"}]},
+        json={"prompt": "@[按摩仪] 正面朝向镜头"},
     )
     assert patched.status_code == 200, patched.text
-    assert patched.json()["unit"]["references"] == [{"type": "product", "name": "按摩仪"}]
+    project = ProjectManager(ad_client.project_dir.parent).load_project("ad-demo")  # type: ignore[attr-defined]
+    assert [(ref.type, ref.name) for ref in unit_reference_declarations(project, patched.json()["unit"])] == [
+        ("product", "按摩仪")
+    ]
 
     reordered = ad_client.post(
         "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/reorder",
@@ -153,7 +156,7 @@ def test_generate_enqueues_self_contained_unit(ad_client: TestClient) -> None:
 @pytest.mark.integration
 def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: TestClient) -> None:
     script = _script(ad_client)
-    script["video_units"][0].update({"shots": [], "duration_seconds": 0, "needs_replan": True})
+    script["video_units"][0].update({"text": "", "duration_seconds": 0, "needs_replan": True})
     path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -171,7 +174,6 @@ def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: Tes
 def test_non_planning_patch_keeps_replan_marker_until_content_is_repaired(ad_client: TestClient) -> None:
     script = _script(ad_client)
     script["video_units"][0]["needs_replan"] = True
-    script["video_units"][0]["migration_requires_content_replan"] = True
     path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -182,27 +184,12 @@ def test_non_planning_patch_keeps_replan_marker_until_content_is_repaired(ad_cli
     assert noted.status_code == 200, noted.text
     assert noted.json()["unit"]["needs_replan"] is True
 
-    resized = ad_client.patch(
-        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
-        json={"duration_seconds": 12},
-    )
-    assert resized.status_code == 200, resized.text
-    assert resized.json()["unit"]["needs_replan"] is True
-
-    resubmitted = ad_client.patch(
-        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
-        json={"prompt": "@[按摩仪] 放在桌面上"},
-    )
-    assert resubmitted.status_code == 200, resubmitted.text
-    assert resubmitted.json()["unit"]["needs_replan"] is True
-
     repaired = ad_client.patch(
         "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
         json={"prompt": "@[按摩仪] 正面朝向镜头"},
     )
     assert repaired.status_code == 200, repaired.text
     assert "needs_replan" not in repaired.json()["unit"]
-    assert "migration_requires_content_replan" not in repaired.json()["unit"]
 
 
 @pytest.mark.integration
@@ -225,14 +212,7 @@ def test_duration_repair_clears_an_independent_migration_marker(ad_client: TestC
 @pytest.mark.integration
 def test_empty_migration_shell_can_repair_body_and_duration_atomically(ad_client: TestClient) -> None:
     script = _script(ad_client)
-    script["video_units"][0].update(
-        {
-            "shots": [],
-            "duration_seconds": 0,
-            "needs_replan": True,
-            "migration_requires_content_replan": True,
-        }
-    )
+    script["video_units"][0].update({"text": "", "duration_seconds": 0, "needs_replan": True})
     path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -243,7 +223,6 @@ def test_empty_migration_shell_can_repair_body_and_duration_atomically(ad_client
 
     assert repaired.status_code == 200, repaired.text
     assert "needs_replan" not in repaired.json()["unit"]
-    assert "migration_requires_content_replan" not in repaired.json()["unit"]
 
 
 @pytest.mark.integration

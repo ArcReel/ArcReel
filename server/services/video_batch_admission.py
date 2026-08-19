@@ -62,7 +62,6 @@ from lib.prompt_utils import (
     strip_voice_profiles,
     video_prompt_to_yaml,
 )
-from lib.reference_video import assemble_shots_text
 from lib.reference_video.request_projection import (
     ProjectionProblem,
     ReferenceRequestOptions,
@@ -294,19 +293,19 @@ def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
     unit_id = str(unit.get("unit_id") or "")
     if unit.get("needs_replan") is True:
         require_script_unit_admitted("video_units", unit)
-    shots = unit.get("shots")
-    if not shots:
-        raise ValueError("没有 shots")
-    if not isinstance(shots, list):
+    text = unit.get("text")
+    if not isinstance(text, str):
         # 容器校验落在入队校验这一处：脏值（导入 / Agent 裸写 script 产生的 dict、数字）
-        # 不拦就会在拼接镜头文本时抛出 TypeError，把整批打成 500，而不是让这个 unit
+        # 不拦就会在下游拼接提示词时抛出 TypeError，把整批打成 500，而不是让这个 unit
         # 带着自己的问题码进入准入结论。
-        raise ValueError(f"shots 必须是数组，当前为 {type(shots).__name__}")
+        raise ValueError(f"text 必须是字符串，当前为 {type(text).__name__}")
+    if not text.strip():
+        raise ValueError("正文为空")
     spec = TaskSpec.from_request(
         task_type="reference_video",
         media_type="video",
         resource_id=unit_id,
-        prompt=assemble_shots_text(shots),
+        prompt=text,
         script_file=script_file,
     )
     require_script_unit_admitted("video_units", unit)
@@ -332,7 +331,6 @@ _PROBLEM_ACTIONS: dict[str, GenerationAction] = {
     "confirm_duration": GenerationAction.CONFIRM_REQUEST_DURATION,
     "configure_video_model": GenerationAction.CONFIGURE_PROVIDER,
     "enable_model_audio": GenerationAction.CONFIGURE_PROVIDER,
-    "repair_reference_declaration": GenerationAction.FIX_INPUT,
     "repair_reference_assets": GenerationAction.GENERATE_DEPENDENCY,
     "review_reference_selection": GenerationAction.FIX_INPUT,
     "review_request_configuration": GenerationAction.FIX_INPUT,

@@ -33,6 +33,7 @@ from lib.generation_result import (
     GenerationResultBuilder,
 )
 from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.draft_validation import DraftViolation
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
@@ -127,7 +128,7 @@ _CLAIMED_BASIS_DIGEST = "sha256-v1:" + "a" * 64
 
 
 def _activated_project(project_dir: Path, storyboard_ids: dict[str, str] | None = None) -> dict[str, Any]:
-    """构造一个已迁移到 v8 的项目，并把点名的分镜图登记进产物清单。
+    """构造一个已迁移到当前 schema 的项目，并把点名的分镜图登记进产物清单。
 
     直接调用入队构造函数的用例不经 pm，项目形态得在这里补齐：清单是读取已生成产物的
     唯一口径，没有登记的分镜图不能作为视频输入。
@@ -141,7 +142,7 @@ def _activated_project(project_dir: Path, storyboard_ids: dict[str, str] | None 
     )
 
     project: dict[str, Any] = {
-        "schema_version": 8,
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "content_mode": "narration",
         "generation_mode": "storyboard",
         "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
@@ -161,7 +162,7 @@ class _FakePM:
         self._project_name = project_name
         self._project_dir = project_dir
         self.project_payload: dict[str, Any] = {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "content_mode": "drama",
             "generation_mode": "storyboard",
             "source_kind": "novel",
@@ -399,10 +400,10 @@ def _fake_reference_projection(
             ProviderProjectionCandidate,
             ReferenceUnitRequestProjector,
             ResolvedReferenceAsset,
-            canonicalize_references,
+            unit_reference_declarations,
         )
 
-        references = canonicalize_references(unit.get("references"))
+        references = unit_reference_declarations(project, unit)
         capability = "r2v" if references else "i2v"
         if calls is not None:
             calls.append(capability)
@@ -484,7 +485,7 @@ def _activate_unbound_project(fake_ctx: ToolContext, *, generation_mode: str = "
     project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
     project.update(
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "content_mode": "narration",
             "generation_mode": generation_mode,
             "episodes": [],
@@ -649,7 +650,7 @@ async def test_generate_assets_legacy_project_reverifies_sheet_file_on_disk(fake
     missing-only 不能只信 metadata 就把它当复用，否则永远生不出真正缺失的设计图。"""
     from server.agent_runtime.sdk_tools import enqueue_assets as mod
 
-    # 未设置 schema_version 8：resolver 走 legacy 分支（没有 active Manifest）。
+    # 未设置当前 schema：resolver 走 legacy 分支（没有 active Manifest）。
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["characters"]["李四"]["character_sheet"] = "characters/lisi.png"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"  # type: ignore[attr-defined]
@@ -957,7 +958,7 @@ async def test_generate_narration_audio_uses_canonical_filename_when_episode_fie
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "content_mode": "narration",
             "generation_mode": "storyboard",
             "episodes": [{"episode": 2, "script_file": "scripts/episode_2.json"}],
@@ -1202,8 +1203,7 @@ async def test_generate_narration_audio_accepts_reference_narrator_unit(
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"text": "镜头1：海面\n{风从远方吹来。}"}],
-                "references": [],
+                "text": "海面\n{风从远方吹来。}",
                 "duration_seconds": 8,
                 "generated_assets": {},
             }
@@ -1245,7 +1245,7 @@ async def test_generate_video_rejects_mismatched_unit_script_on_storyboard_route
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "narration",
         "episode": 1,
-        "video_units": [{"unit_id": "E1U1", "shots": [{"text": "x"}], "duration_seconds": 5}],
+        "video_units": [{"unit_id": "E1U1", "text": "x", "duration_seconds": 5}],
     }
     tool_obj = getattr(mod, tool_name)(fake_ctx)
     out = await _call(tool_obj, args)
@@ -1686,7 +1686,7 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
-    fake_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
     comparisons = []
 
@@ -1736,7 +1736,7 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     (project_path / "characters").mkdir()
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
     (project_path / "characters" / "lisi.png").write_bytes(b"png")
-    fake_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["characters"]["李四"]["character_sheet"] = "characters/lisi.png"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"  # type: ignore[attr-defined]
@@ -1814,7 +1814,7 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
 ) -> None:
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
-    fake_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["episodes"] = []  # type: ignore[attr-defined]
     provider_gate = AsyncMock(return_value=True)
     enqueue = AsyncMock(return_value=([], []))
@@ -2344,7 +2344,7 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
 
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
@@ -2405,7 +2405,7 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
 
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "generation_mode": "storyboard",
             "grid_storyboard": True,
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
@@ -2793,7 +2793,7 @@ async def test_storyboard_resume_requires_usable_manifest_video_claim(
     project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
     project.update(
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "content_mode": "narration",
             "generation_mode": "storyboard",
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
@@ -2911,7 +2911,7 @@ async def test_generate_video_episode_skips_current_clip_without_resume(fake_ctx
     project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
     project.update(
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "generation_mode": "storyboard",
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         }
@@ -2967,7 +2967,7 @@ async def test_generate_video_episode_blocks_a_clip_whose_manifest_state_is_unre
     project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
     project.update(
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "generation_mode": "storyboard",
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         }
@@ -3066,7 +3066,7 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
     fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "content_mode": "narration",
             "generation_mode": "storyboard",
             "episodes": [{"episode": 2, "script_file": "scripts/episode_2.json"}],
@@ -3164,8 +3164,7 @@ def _reference_video_script(**overrides: Any) -> dict[str, Any]:
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"text": "@张三 推门"}],
-                "references": [{"type": "character", "name": "张三"}],
+                "text": "@张三 推门",
                 "duration_seconds": 5,
             }
         ],
@@ -3492,14 +3491,12 @@ async def test_generate_video_episode_confirms_two_tiers_in_one_batch(fake_ctx: 
         video_units=[
             {
                 "unit_id": "E1U1",
-                "shots": [{"text": "@张三 推门"}],
-                "references": [{"type": "character", "name": "张三"}],
+                "text": "@张三 推门",
                 "duration_seconds": 5,
             },
             {
                 "unit_id": "E1U2",
-                "shots": [{"text": "@张三 回头"}],
-                "references": [{"type": "character", "name": "张三"}],
+                "text": "@张三 回头",
                 "duration_seconds": 6,
             },
         ]
@@ -3902,16 +3899,14 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
     script["video_units"].append(
         {
             "unit_id": "E1U2",
-            "shots": [{"text": "@张三 转身"}],
-            "references": [{"type": "character", "name": "张三"}],
+            "text": "@张三 转身",
             "duration_seconds": 5,
         }
     )
     script["video_units"].append(
         {
             "unit_id": "E1U3",
-            "shots": [{"text": "空镜转场"}],
-            "references": [],
+            "text": "空镜转场",
             "duration_seconds": 5,
         }
     )
@@ -3954,7 +3949,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_noth
 
     script = _reference_video_script()
     for unit in script["video_units"]:
-        unit["shots"] = []
+        unit["text"] = ""
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
@@ -3979,13 +3974,13 @@ async def test_generate_video_episode_reference_skips_duration_context_when_noth
 async def test_generate_video_episode_reference_skips_duration_context_when_prompt_blank(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """shots 非空但拼接后提示词全空白时，build_specs 会拒绝该 unit——预检须复用同一份
-    结构校验提前判定，不能先触发项目能力解析再让 build_specs 事后跳过。"""
+    """正文全空白时 build_specs 会拒绝该 unit——预检须复用同一份结构校验提前判定，
+    不能先触发项目能力解析再让 build_specs 事后跳过。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     script = _reference_video_script()
     for unit in script["video_units"]:
-        unit["shots"] = [{"text": "   "}]
+        unit["text"] = "   "
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
@@ -4642,7 +4637,7 @@ async def test_generate_video_all_preserves_the_selected_manual_upload(
     project_path = fake_ctx.project_path
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
         {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         }
     )
@@ -5037,13 +5032,10 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     """参考生视频 prompt 只用于统一结构守卫，不冻结进任务 payload。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
 
-    # production 的 shots[*].text 由 parse_prompt 产出、已剥离 "Shot N (Xs):" header，
-    # fixture 用同样的 header-stripped 形态以贴近真实数据。
     units = [
         {
             "unit_id": "E1U1",
-            "shots": [{"text": "@张三 推门"}],
-            "references": [{"type": "character", "name": "张三"}],
+            "text": "@张三 推门",
         }
     ]
     specs, order_map, refused = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None)
@@ -5056,12 +5048,12 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
 
 @pytest.mark.unit
 def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
-    """shots 存在但文本全空白的 unit 被跳过并告警，不漏到执行层（结构校验上移到守卫点）。"""
+    """正文全空白的 unit 被跳过并告警，不漏到执行层（结构校验上移到守卫点）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
 
     units = [
-        {"unit_id": "E1U1", "shots": [{"text": "   "}, {"text": ""}]},
-        {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}]},
+        {"unit_id": "E1U1", "text": "   \n"},
+        {"unit_id": "E1U2", "text": "@李四 转身"},
     ]
     specs, order_map, refused = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None)
     assert [s.resource_id for s in specs] == ["E1U2"]
@@ -5075,10 +5067,9 @@ def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_pat
     units = [
         {
             "unit_id": "E1U1",
-            "shots": [{"text": "@[张三]：{快走。}\n{风吹过旷野。}"}],
-            "references": [],
+            "text": "@[张三]：{快走。}\n{风吹过旷野。}",
         },
-        {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}], "references": []},
+        {"unit_id": "E1U2", "text": "@李四 转身"},
     ]
 
     specs, order_map, refused = _build_reference_specs(
@@ -5100,9 +5091,9 @@ def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
     from server.services.video_batch_admission import screen_script_entries
 
     entries = [
-        {"unit_id": "", "shots": [{"text": "@张三 推门"}]},  # 空串
-        {"shots": [{"text": "@王五 起身"}]},  # 缺 unit_id 键
-        {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}]},
+        {"unit_id": "", "text": "@张三 推门"},  # 空串
+        {"text": "@王五 起身"},  # 缺 unit_id 键
+        {"unit_id": "E1U2", "text": "@李四 转身"},
     ]
     units, tickets = screen_script_entries(entries, requested_ids=None)
 
@@ -5113,18 +5104,20 @@ def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
 
 
 @pytest.mark.unit
-def test_build_reference_specs_handles_malformed_shots(tmp_path) -> None:
-    """畸形 shots（显式 null text / 非 dict 元素）不应崩溃整批，且不得把 'None' 注入 prompt。"""
+def test_build_reference_specs_handles_a_non_string_text(tmp_path) -> None:
+    """text 为显式 null 的畸形 unit 不应崩溃整批，且不得把 'None' 注入 prompt。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
 
     units = [
-        # text 显式 null + 一个非 dict 元素 → 拼接后为空 → 被守卫点判空跳过（不注入 'None'）。
-        {"unit_id": "E1U1", "shots": [{"text": None}, "garbage"]},
-        {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}]},
+        # text 显式 null → 被守卫点按「text 必须是字符串」拒收（不注入 'None'）。
+        {"unit_id": "E1U1", "text": None},
+        {"unit_id": "E1U2", "text": "@李四 转身"},
     ]
     specs, _, refused = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None)
     assert [s.resource_id for s in specs] == ["E1U2"]
     assert all("None" not in (s.payload.get("prompt") or "") for s in specs)
+    # 显式拒收与静默跳过在 specs 上不可分辨，问题码才锁得住守卫点确实拒了这一条。
+    assert _refused_problems(refused) == {"E1U1": ("generation_unit_request_invalid", "fix_input")}
 
 
 # ---------------------------------------------------------------------------
@@ -5735,7 +5728,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
 
     project = {
         **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
-        "schema_version": 8,
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "content_mode": "drama",
         "generation_mode": "storyboard",
         "source_kind": "novel",
@@ -6364,8 +6357,7 @@ def _ad_reference_unit(**overrides: Any) -> dict[str, Any]:
     unit: dict[str, Any] = {
         "unit_id": "E1U1",
         "duration_seconds": 5,
-        "shots": [{"text": "镜头1：@[保温杯] 置于桌面"}],
-        "references": [{"type": "product", "name": "保温杯"}],
+        "text": "@[保温杯] 置于桌面",
         "generated_assets": {},
     }
     unit.update(overrides)
@@ -6504,7 +6496,7 @@ async def test_generate_video_episode_ad_reference_preserves_the_selected_manual
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     project_path = ad_reference_ctx.project_path
-    ad_reference_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    ad_reference_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
     artifact_path = _select_manual_video(
         project_path,
         resource_type="reference_videos",
@@ -6541,7 +6533,7 @@ async def test_generate_video_episode_reference_blocks_a_clip_whose_manifest_sta
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     project_path = ad_reference_ctx.project_path
-    ad_reference_ctx.pm.project_payload["schema_version"] = 8  # type: ignore[attr-defined]
+    ad_reference_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
     artifact_path = "reference_videos/E1U1.mp4"
     output = project_path / artifact_path
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -6981,6 +6973,15 @@ def _rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> d
     return {"duration_seconds": duration, "source_text": source_text, "text": text}
 
 
+def _derived_reference_names(fake_ctx: ToolContext, text: str) -> list[str]:
+    """正文 → 参考图名称：读侧的唯一派生入口，落盘不带 references。"""
+    from lib.reference_video.text_parser import derive_references_from_text
+
+    project = json.loads((fake_ctx.project_path / "project.json").read_text(encoding="utf-8"))
+    references, _missing = derive_references_from_text(text, project)
+    return [reference.name for reference in references]
+
+
 def _rv_step1_path(fake_ctx: ToolContext):
     return fake_ctx.project_path / "drafts" / "episode_1" / "step1_reference_units.json"
 
@@ -7009,17 +7010,18 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkey
     assert "第 1 集" in prompt_text
     assert "张三" in prompt_text
     assert "12 秒" in prompt_text
-    assert "镜头N：" in prompt_text
+    assert "分段前缀" in prompt_text
 
 
 @pytest.mark.unit
 async def test_split_reference_video_units_happy_derives_structure(fake_ctx: ToolContext, monkeypatch) -> None:
-    """happy path：LLM 只写扁平正文，unit_id / shots / references 全部由工具机械派生后落盘。"""
+    """happy path：LLM 只写扁平正文，正文逐字落盘，只有 unit_id 由工具机械派生。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _rv_source(fake_ctx)
     captured: dict[str, Any] = {}
-    units = [_rv_unit("镜头1：@[张三] 走向 @[村口]\n镜头2：@[张三] 停下脚步")]
+    text = "@[张三] 走向 @[村口]\n@[张三] 停下脚步"
+    units = [_rv_unit(text)]
     monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher())
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units, captured))
 
@@ -7029,11 +7031,10 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
     saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
     unit = saved["units"][0]
     assert unit["unit_id"] == "E1U01"
-    assert [s["text"] for s in unit["shots"]] == ["@[张三] 走向 @[村口]", "@[张三] 停下脚步"]
-    assert unit["references"] == [
-        {"type": "character", "name": "张三"},
-        {"type": "scene", "name": "村口"},
-    ]
+    assert unit["text"] == text
+    # 参考图不落盘：读侧一律从正文的 @[名称] 派生
+    assert "references" not in unit
+    assert _derived_reference_names(fake_ctx, unit["text"]) == ["张三", "村口"]
     assert unit["source_text"] == _RV_NOVEL
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
     assert captured["create_project_name"] == "demo"
@@ -7044,7 +7045,7 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
 async def test_split_reference_video_units_numbers_unit_ids_by_order(fake_ctx: ToolContext, monkeypatch) -> None:
     """unit_id 按数组序号机械编号：LLM 不写 id，也就不存在重复 / 错集号可写。"""
     _rv_source(fake_ctx)
-    units = [_rv_unit("镜头1：@[张三] 起身"), _rv_unit("镜头1：@[张三] 出门")]
+    units = [_rv_unit("@[张三] 起身"), _rv_unit("@[张三] 出门")]
     out = await _run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is not True, out
     saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
@@ -7057,18 +7058,18 @@ async def test_split_reference_video_units_derives_dialogue_without_reference_im
 ) -> None:
     """台词记号的说话人位不进参考图（画外说话的角色附参考图会诱导入画）。"""
     _rv_source(fake_ctx)
-    units = [_rv_unit("镜头1：门开了\n@[张三]：{我来了。}")]
+    units = [_rv_unit("门开了\n@[张三]：{我来了。}")]
     out = await _run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is not True, out
     saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
-    assert saved["units"][0]["references"] == []
+    assert _derived_reference_names(fake_ctx, saved["units"][0]["text"]) == []
 
 
 @pytest.mark.unit
 async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: ToolContext, monkeypatch) -> None:
     """正文引用未登记资产名 → fail-loud，不写盘（资产名引用完整性）。"""
     _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
     assert out.get("is_error") is True
     assert "未登记" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
@@ -7078,7 +7079,7 @@ async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: 
 async def test_split_reference_video_units_rejects_unregistered_speaker(fake_ctx: ToolContext, monkeypatch) -> None:
     """说话人位未登记同样阻断：说话人决定该句台词绑哪段参考音频。"""
     _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：门开了\n@[无名氏]：{我来了。}")])
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("门开了\n@[无名氏]：{我来了。}")])
     assert out.get("is_error") is True
     assert "说话人未登记" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
@@ -7087,9 +7088,9 @@ async def test_split_reference_video_units_rejects_unregistered_speaker(fake_ctx
 @pytest.mark.unit
 async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolContext, monkeypatch) -> None:
     _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 与 @[李四] 在 @[村口]")], max_refs=2)
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 与 @[李四] 在 @[村口]")], max_refs=2)
     assert out.get("is_error") is True
-    assert "references" in out["content"][0]["text"]
+    assert "参考图数" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
 
 
@@ -7105,7 +7106,7 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     out = await _run_rv_split(
         fake_ctx,
         monkeypatch,
-        [_rv_unit("镜头1：@[张三] 起身", duration=4)],
+        [_rv_unit("@[张三] 起身", duration=4)],
         reference_durations=(8,),
     )
     assert out.get("is_error") is True
@@ -7125,20 +7126,20 @@ async def test_split_reference_video_units_accepts_wide_tier_without_references(
     out = await _run_rv_split(
         fake_ctx,
         monkeypatch,
-        [_rv_unit("镜头1：门被风吹开", duration=4)],
+        [_rv_unit("门被风吹开", duration=4)],
         reference_durations=(8,),
     )
     assert out.get("is_error") is not True, out
     saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["units"][0]["duration_seconds"] == 4
-    assert saved["units"][0]["references"] == []
+    assert _derived_reference_names(fake_ctx, saved["units"][0]["text"]) == []
 
 
 @pytest.mark.unit
 async def test_split_reference_video_units_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
     """本地校验复用动态 schema：超出 supported_durations 的 unit 时长被拦截，不落盘。"""
     _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 起身", duration=5)])
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身", duration=5)])
     assert out.get("is_error") is True
     assert "step1 拆分内容结构校验失败" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
@@ -7156,7 +7157,7 @@ async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolCon
 async def test_split_reference_video_units_rejects_non_verbatim_source_text(fake_ctx: ToolContext, monkeypatch) -> None:
     """source_text 非源文逐字子串 → 响亮失败（模型转述 / 杜撰原文）。"""
     _rv_source(fake_ctx)
-    units = [_rv_unit("镜头1：@[张三] 起身", source_text="张三在城里等人")]
+    units = [_rv_unit("@[张三] 起身", source_text="张三在城里等人")]
     out = await _run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is True
     assert "不是小说原文的逐字片段" in out["content"][0]["text"]
@@ -7167,7 +7168,7 @@ async def test_split_reference_video_units_rejects_non_verbatim_source_text(fake
 async def test_split_reference_video_units_accepts_source_text_substring(fake_ctx: ToolContext, monkeypatch) -> None:
     """锚只需是源文子串：unit 是画面单元，不必覆盖整段原文。"""
     _rv_source(fake_ctx)
-    units = [_rv_unit("镜头1：@[张三] 起身", source_text="张三在村口")]
+    units = [_rv_unit("@[张三] 起身", source_text="张三在村口")]
     out = await _run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is not True, out
 
@@ -7177,7 +7178,7 @@ async def test_split_reference_video_units_rejects_dialogue_overload(fake_ctx: T
     """台词量按语速估算超过 unit 时长（宽容系数外）→ 阻断。"""
     _rv_source(fake_ctx)
     long_line = "这是一段非常长的台词" * 6  # 60 字，zh 语速 5 字/秒 → 约 12 秒
-    units = [_rv_unit(f"镜头1：@[张三] 起身\n@[张三]：{{{long_line}}}", duration=4)]
+    units = [_rv_unit(f"@[张三] 起身\n@[张三]：{{{long_line}}}", duration=4)]
     out = await _run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is True
     assert "超过该 unit" in out["content"][0]["text"]
@@ -7188,19 +7189,9 @@ async def test_split_reference_video_units_rejects_dialogue_overload(fake_ctx: T
 async def test_split_reference_video_units_rejects_braces_in_description(fake_ctx: ToolContext, monkeypatch) -> None:
     """画面描述误用花括号保留语法 → 阻断（没被识别成发声记号的花括号须响亮失败）。"""
     _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 推门，音量 {}，转身离开")])
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 推门，音量 {}，转身离开")])
     assert out.get("is_error") is True
     assert "花括号" in out["content"][0]["text"]
-    assert not _rv_step1_path(fake_ctx).exists()
-
-
-@pytest.mark.unit
-async def test_split_reference_video_units_rejects_too_many_shots(fake_ctx: ToolContext, monkeypatch) -> None:
-    _rv_source(fake_ctx)
-    text = "\n".join(f"镜头{i}：@[张三] 动作 {i}" for i in range(1, 6))
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit(text)])
-    assert out.get("is_error") is True
-    assert "超过单 unit 上限" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
 
 
@@ -7233,21 +7224,20 @@ async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
     return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
 
 
-#: 七类阻断违约的最小触发样例（违约类 → 扁平 unit），共 8 条：「``@[X]`` 未登记」一类按出现位置
+#: 六类阻断违约的最小触发样例（违约类 → 扁平 unit），共 7 条：「``@[X]`` 未登记」一类按出现位置
 #: 拆成描述位（unregistered_asset）与台词记号 speaker 位（unregistered_speaker）两条，两处走不同入口，
 #: 合测会漏掉其中一处。逐类断言「落隔离草稿 + 正式文件干净 + 报告按类定位」，而不是只验其中
 #: 一两类——各类共用同一次遍历，漏测哪一类都可能在该类上退回「丢弃重抽」。
 #: ``duration_off_tier``（时长不在该 unit 引用状态的生效档位内）需要另一套 caps 才触发，
 #: 单列在 ``test_split_reference_video_units_rejects_duration_off_reference_tier``。
 _RV_VIOLATION_CASES = [
-    ("unclosed_brace", _rv_unit("镜头1：@[张三] 起身，喊了一句 {我来了")),
-    ("dialogue_line_syntax", _rv_unit("镜头1：门开了\n@[张三]：我来了。")),
-    ("unregistered_asset", _rv_unit("镜头1：@[不存在的人] 出场")),
-    ("unregistered_speaker", _rv_unit("镜头1：门开了\n@[无名氏]：{我来了。}")),
-    ("braces_in_description", _rv_unit("镜头1：@[张三] 推门，音量 {}，转身离开")),
-    ("source_text_not_verbatim", _rv_unit("镜头1：@[张三] 起身", source_text="张三在城里等人")),
-    ("too_many_shots", _rv_unit("\n".join(f"镜头{i}：@[张三] 动作 {i}" for i in range(1, 6)))),
-    ("dialogue_overload", _rv_unit("镜头1：@[张三] 起身\n@[张三]：{" + "这是一段非常长的台词" * 6 + "}", duration=4)),
+    ("unclosed_brace", _rv_unit("@[张三] 起身，喊了一句 {我来了")),
+    ("dialogue_line_syntax", _rv_unit("门开了\n@[张三]：我来了。")),
+    ("unregistered_asset", _rv_unit("@[不存在的人] 出场")),
+    ("unregistered_speaker", _rv_unit("门开了\n@[无名氏]：{我来了。}")),
+    ("braces_in_description", _rv_unit("@[张三] 推门，音量 {}，转身离开")),
+    ("source_text_not_verbatim", _rv_unit("@[张三] 起身", source_text="张三在城里等人")),
+    ("dialogue_overload", _rv_unit("@[张三] 起身\n@[张三]：{" + "这是一段非常长的台词" * 6 + "}", duration=4)),
 ]
 
 
@@ -7256,7 +7246,7 @@ _RV_VIOLATION_CASES = [
 async def test_split_reference_video_units_quarantines_each_violation_class(
     fake_ctx: ToolContext, monkeypatch, code: str, unit: dict
 ) -> None:
-    """七类阻断违约逐类：产物落隔离草稿、正式文件不被写出、报告按违约类逐条定位。"""
+    """六类阻断违约逐类：产物落隔离草稿、正式文件不被写出、报告按违约类逐条定位。"""
     _rv_source(fake_ctx)
     out = await _run_rv_split(fake_ctx, monkeypatch, [unit])
 
@@ -7285,9 +7275,9 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     """报告逐条覆盖所有坏 unit，不停在第一个——否则 agent 每修一处就要再跑一轮付费拆分。"""
     _rv_source(fake_ctx)
     units = [
-        _rv_unit("镜头1：@[张三] 起身"),
-        _rv_unit("镜头1：@[不存在的人] 出场"),
-        _rv_unit("镜头1：@[张三] 推门，音量 {}"),
+        _rv_unit("@[张三] 起身"),
+        _rv_unit("@[不存在的人] 出场"),
+        _rv_unit("@[张三] 推门，音量 {}"),
     ]
     out = await _run_rv_split(fake_ctx, monkeypatch, units)
 
@@ -7303,10 +7293,10 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
 async def test_validate_and_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
     """agent 修好隔离草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
     _rv_source(fake_ctx)
-    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
 
     envelope = _read_rv_quarantine(fake_ctx)
-    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 在 @[村口] 出场"
+    envelope["content"]["units"][0]["text"] = "@[张三] 在 @[村口] 出场"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await _promote(fake_ctx, monkeypatch)
@@ -7315,17 +7305,14 @@ async def test_validate_and_promote_draft_promotes_after_repair(fake_ctx: ToolCo
     assert not _rv_quarantine_path(fake_ctx).exists()
     saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["units"][0]["unit_id"] == "E1U01"
-    assert saved["units"][0]["references"] == [
-        {"type": "character", "name": "张三"},
-        {"type": "scene", "name": "村口"},
-    ]
+    assert saved["units"][0]["text"] == "@[张三] 在 @[村口] 出场"
 
 
 @pytest.mark.unit
 async def test_validate_and_promote_draft_reports_again_without_round_limit(fake_ctx: ToolContext, monkeypatch) -> None:
     """再违约则再返回刷新后的报告、草稿留在原地，可反复晋升——无收敛轮次上限。"""
     _rv_source(fake_ctx)
-    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
 
     for _round in range(3):
         out = await _promote(fake_ctx, monkeypatch)
@@ -7336,7 +7323,7 @@ async def test_validate_and_promote_draft_reports_again_without_round_limit(fake
 
     # 改成另一类违约后报告随之刷新，不是上一轮的陈旧快照
     envelope = _read_rv_quarantine(fake_ctx)
-    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 推门，音量 {}"
+    envelope["content"]["units"][0]["text"] = "@[张三] 推门，音量 {}"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
     await _promote(fake_ctx, monkeypatch)
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["braces_in_description"]
@@ -7354,13 +7341,12 @@ def _write_rv_step1(fake_ctx: ToolContext, units: list[dict]) -> None:
     path.write_text(json.dumps({"units": units}, ensure_ascii=False), encoding="utf-8")
 
 
-def _rv_saved_unit(shots: list[str], *, unit_id: str = "E1U01", duration: int = 8) -> dict:
-    """正式 step1 的落盘形状（含机器派生的 unit_id / shots / references）。"""
+def _rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> dict:
+    """正式 step1 的落盘形状（正文 + 机器派生的 unit_id）。"""
     return {
         "unit_id": unit_id,
-        "shots": [{"text": t} for t in shots],
+        "text": text,
         "duration_seconds": duration,
-        "references": [{"type": "character", "name": "张三"}],
         "source_text": _RV_NOVEL,
     }
 
@@ -7374,9 +7360,9 @@ async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
 @pytest.mark.unit
 async def test_open_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolContext) -> None:
     """取回的草稿装扁平书写层，不装派生物：agent 改的是正文 / 锚 / 时长，
-    unit_id / shots / references 由晋升时按正文重新派生，放进草稿等于给漂移开口子。"""
+    unit_id 由晋升时按数组序号重新派生，放进草稿等于给漂移开口子。"""
     _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身", "@[张三] 走向 @[村口]"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身\n@[张三] 走向 @[村口]")])
 
     out = await _open_for_edit(fake_ctx, source="source/episode_1.txt")
 
@@ -7389,16 +7375,14 @@ async def test_open_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolCont
     assert set(unit) == {"duration_seconds", "source_text", "text"}
     assert unit["duration_seconds"] == 8
     assert unit["source_text"] == _RV_NOVEL
-    # 多镜头 unit 的 text 必须带回 `镜头N：` header：落盘的 shots[*].text 不带 header，
-    # 裸拼接后晋升时会被 parse_prompt 重新解析成一个镜头，分镜结构静默丢失。
-    assert unit["text"] == "镜头1：@[张三] 起身\n镜头2：@[张三] 走向 @[村口]"
+    assert unit["text"] == "@[张三] 起身\n@[张三] 走向 @[村口]"
 
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_leaves_official_file_untouched(fake_ctx: ToolContext) -> None:
     """取回只是开编辑工位，正式文件一步不动——改动落回正式文件只发生在持锁的晋升侧。"""
     _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     before = _rv_step1_path(fake_ctx).read_text(encoding="utf-8")
 
     await _open_for_edit(fake_ctx)
@@ -7408,14 +7392,13 @@ async def test_open_step1_for_edit_leaves_official_file_untouched(fake_ctx: Tool
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
-    """情况 B 的完整闭环：取回 → 改草稿 → 晋升。改动经晋升侧的持锁写盘落回正式文件，
-    结构字段按新正文重新派生（references 跟着正文里的 @ 引用走）。"""
+    """情况 B 的完整闭环：取回 → 改草稿 → 晋升。改动经晋升侧的持锁写盘落回正式文件。"""
     _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
 
     await _open_for_edit(fake_ctx, source="source/episode_1.txt")
     envelope = _read_rv_quarantine(fake_ctx)
-    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 在 @[村口] 出场"
+    envelope["content"]["units"][0]["text"] = "@[张三] 在 @[村口] 出场"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await _promote(fake_ctx, monkeypatch)
@@ -7423,11 +7406,8 @@ async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolCon
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
     saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
-    assert saved["units"][0]["shots"] == [{"text": "@[张三] 在 @[村口] 出场"}]
-    assert saved["units"][0]["references"] == [
-        {"type": "character", "name": "张三"},
-        {"type": "scene", "name": "村口"},
-    ]
+    assert saved["units"][0]["text"] == "@[张三] 在 @[村口] 出场"
+    assert _derived_reference_names(fake_ctx, saved["units"][0]["text"]) == ["张三", "村口"]
 
 
 @pytest.mark.unit
@@ -7435,9 +7415,9 @@ async def test_open_step1_for_edit_refuses_to_clobber_existing_draft(fake_ctx: T
     """已有隔离草稿在场时不覆盖：那份草稿可能已含 agent 未晋升的修改（或是待处置的违约产物），
     拿正式文件盖过去等于抹掉它手上的工作。"""
     _rv_source(fake_ctx)
-    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
     before = _rv_quarantine_path(fake_ctx).read_text(encoding="utf-8")
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
 
     out = await _open_for_edit(fake_ctx)
 
@@ -7464,7 +7444,7 @@ async def test_open_step1_for_edit_keeps_malformed_duration_verbatim(fake_ctx: T
     后，agent 从草稿里看到的是一个它没写过的时长，晋升报告说「时长不在档位内」也对不上
     盘上的原值。原样带过则由晋升侧 schema 逐条报告，agent 看得见错在哪。"""
     _rv_source(fake_ctx)
-    unit = _rv_saved_unit(["@[张三] 起身"])
+    unit = _rv_saved_unit("@[张三] 起身")
     unit["duration_seconds"] = 8.0
     _write_rv_step1(fake_ctx, [unit])
 
@@ -7480,7 +7460,7 @@ async def test_open_step1_for_edit_keeps_malformed_non_dict_unit_slot(fake_ctx: 
     unit 都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。留空占位在原数组
     位置，让晋升侧 schema 判它结构非法、逐条报出。"""
     _rv_source(fake_ctx)
-    good_unit = _rv_saved_unit(["@[张三] 起身"])
+    good_unit = _rv_saved_unit("@[张三] 起身")
     path = _rv_step1_path(fake_ctx)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"units": [good_unit, "不是对象"]}, ensure_ascii=False), encoding="utf-8")
@@ -7494,23 +7474,6 @@ async def test_open_step1_for_edit_keeps_malformed_non_dict_unit_slot(fake_ctx: 
 
 
 @pytest.mark.unit
-async def test_open_step1_for_edit_blanks_shot_with_embedded_fake_header(fake_ctx: ToolContext) -> None:
-    """盘上 shot 自身文本里恰好有一行形如「镜头N：」（旧数据经 Web 端保存，字段不禁止这种
-    文本）时，render 后重新解析会把这一个 shot 误判成两个——原样晋升也会带着错位的分镜覆盖
-    正式文件。清空为占位交给 schema 判非法，而不是悄悄晋升一份分镜数对不上的内容。"""
-    _rv_source(fake_ctx)
-    unit = _rv_saved_unit(["描述行\n镜头2：这是台词内容"])
-    path = _rv_step1_path(fake_ctx)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"units": [unit]}, ensure_ascii=False), encoding="utf-8")
-
-    out = await _open_for_edit(fake_ctx)
-
-    assert out.get("is_error") is not True, out
-    assert _read_rv_quarantine(fake_ctx)["content"]["units"][0]["text"] == ""
-
-
-@pytest.mark.unit
 async def test_open_step1_for_edit_rejects_missing_source_without_side_effect(
     fake_ctx: ToolContext,
 ) -> None:
@@ -7518,7 +7481,7 @@ async def test_open_step1_for_edit_rejects_missing_source_without_side_effect(
     晋升时 `_load_novel_source` 会反复报错，而草稿在场又挡住重新取回改正 source，agent
     会卡在一个自己改不动的死角。校验失败时不产生持久副作用，agent 改对参数重试即可。"""
     _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
 
     out = await _open_for_edit(fake_ctx, source="source/episode_不存在.txt")
 
@@ -7531,7 +7494,7 @@ async def test_open_step1_for_edit_rejects_non_reference_episode(fake_ctx: ToolC
     """切走参考路径的集不给编辑：盘上的 step1 与该集此刻的生成路径无关。与晋升工具同一判据。"""
     _rv_source(fake_ctx)
     _rv_project(fake_ctx, generation_mode="image_to_video")
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
 
     out = await _open_for_edit(fake_ctx)
 
@@ -7548,7 +7511,7 @@ async def test_open_step1_for_edit_rejects_non_reference_episode(fake_ctx: ToolC
 async def test_open_step1_for_edit_records_base_fingerprint(fake_ctx: ToolContext) -> None:
     """取回时把正式文件此刻的内容指纹记进 meta.base_fingerprint，供晋升前基线比对。"""
     _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
 
     out = await _open_for_edit(fake_ctx)
 
@@ -7563,11 +7526,11 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
     留在原地。按报告把 meta.base_fingerprint 更新为现值（显式确认已合并）后方可重新晋升。"""
     _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     await _open_for_edit(fake_ctx, source="source/episode_1.txt")
 
     # 模拟取回之后 Web 端保存改写了正式文件
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 在 @[村口] 等候"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 在 @[村口] 等候")])
     web_version = _rv_step1_path(fake_ctx).read_text(encoding="utf-8")
 
     out = await _promote(fake_ctx, monkeypatch)
@@ -7598,7 +7561,7 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
     """取回后正式文件被删除：现值指纹是 null，报告须按 JSON 字面量给出而非字符串 "None"。
     照报告把 meta.base_fingerprint 设为 null 后重晋升即放行——写成字符串则永远比对不上、冲突解不掉。"""
     _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     await _open_for_edit(fake_ctx, source="source/episode_1.txt")
     _rv_step1_path(fake_ctx).unlink()
 
@@ -7621,13 +7584,13 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
 async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx: ToolContext, monkeypatch) -> None:
     """基线机制引入前产出的存量草稿缺 meta.base_fingerprint 键：按无基线晋升，不被新校验卡死。"""
     _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     await _open_for_edit(fake_ctx, source="source/episode_1.txt")
     envelope = _read_rv_quarantine(fake_ctx)
     del envelope["meta"]["base_fingerprint"]
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
     # 取回后正式文件又被改过——存量草稿无基线可比，照旧覆盖（维持引入前语义）
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 在 @[村口] 等候"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 在 @[村口] 等候")])
 
     out = await _promote(fake_ctx, monkeypatch)
 
@@ -7640,16 +7603,16 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
     """拆分违约落隔离草稿时同样记基线：修好晋升前正式文件被并发改写的话按基线中止。
     首拆时正式文件不存在，基线为 null——晋升时若正式文件已被另一次拆分写出，同样判冲突。"""
     _rv_source(fake_ctx)
-    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
 
     meta = _read_rv_quarantine(fake_ctx)["meta"]
     assert "base_fingerprint" in meta
     assert meta["base_fingerprint"] is None
 
     # 草稿在场期间正式文件被写出（另一路径），修好草稿后晋升应报冲突而非覆盖
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     envelope = _read_rv_quarantine(fake_ctx)
-    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 出场"
+    envelope["content"]["units"][0]["text"] = "@[张三] 出场"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await _promote(fake_ctx, monkeypatch)
@@ -7677,11 +7640,11 @@ async def test_validate_and_promote_draft_rejects_schema_breach(
     改成非档位值或整个删掉（收成 0 秒）就能一路进正式 step1。
     """
     _rv_source(fake_ctx)
-    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
 
     envelope = _read_rv_quarantine(fake_ctx)
     mutate(envelope["content"]["units"][0])
-    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 起身"
+    envelope["content"]["units"][0]["text"] = "@[张三] 起身"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await _promote(fake_ctx, monkeypatch)
@@ -7711,7 +7674,7 @@ async def test_validate_and_promote_draft_reports_broken_outer_shape(
     刷新报告的话，这几种就被甩出了「按报告改完再晋升」的循环。
     """
     _rv_source(fake_ctx)
-    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
 
     envelope = _read_rv_quarantine(fake_ctx)
     mutate_content(envelope["content"])
@@ -7735,12 +7698,12 @@ async def test_validate_and_promote_draft_reports_broken_outer_shape(
 async def test_validate_and_promote_draft_requires_source_provenance(fake_ctx: ToolContext, monkeypatch) -> None:
     """meta.source 被改掉后不晋升：按整个 source/ 重解析比产出时更松，别集的原文锚会恰好命中。"""
     _rv_source(fake_ctx)
-    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
 
     envelope = _read_rv_quarantine(fake_ctx)
     assert "source" in envelope["meta"], "拆分侧须一律写出 source 键（未指定源文时为 null）"
     envelope["meta"] = {}
-    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 起身"
+    envelope["content"]["units"][0]["text"] = "@[张三] 起身"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await _promote(fake_ctx, monkeypatch)
@@ -7753,9 +7716,9 @@ async def test_validate_and_promote_draft_requires_source_provenance(fake_ctx: T
 async def test_validate_and_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, monkeypatch) -> None:
     """晋升成功的摘要要说「晋升」：说成「拆分」会让 agent 以为自己的修改被一次重抽覆盖了。"""
     _rv_source(fake_ctx)
-    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
     envelope = _read_rv_quarantine(fake_ctx)
-    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 起身"
+    envelope["content"]["units"][0]["text"] = "@[张三] 起身"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await _promote(fake_ctx, monkeypatch)
@@ -7772,13 +7735,13 @@ async def test_writing_reference_step1_clears_stale_step2_quarantine(fake_ctx: T
         fake_ctx.project_path,
         1,
         QUARANTINE_KIND_STEP2,
-        content={"title": "第1集", "units": [{"text": "镜头1：@[张三] 起身"}]},
+        content={"title": "第1集", "units": [{"text": "@[张三] 起身"}]},
         violations=[],
     )
     step2_path = quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2)
     assert step2_path.exists()
 
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 起身")])
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身")])
 
     assert out.get("is_error") is not True, out
     assert not step2_path.exists()
@@ -7792,12 +7755,12 @@ async def test_promote_reference_step1_preserves_step2_draft_when_content_unchan
     此时不该清在场的 step2 隔离草稿——它的保结构 diff 仍然对得上这份没变的基底，agent
     放弃 step1 修改不该连带销毁一份仍然有效的 step2 修复草稿。"""
     _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     write_quarantine(
         fake_ctx.project_path,
         1,
         QUARANTINE_KIND_STEP2,
-        content={"title": "第1集", "units": [{"text": "镜头1：@[张三] 起身"}]},
+        content={"title": "第1集", "units": [{"text": "@[张三] 起身"}]},
         violations=[],
     )
     step2_path = quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2)
@@ -7820,7 +7783,7 @@ async def test_validate_and_promote_draft_step2_uses_async_factory(fake_ctx: Too
         fake_ctx.project_path,
         1,
         QUARANTINE_KIND_STEP2,
-        content={"title": "第1集", "units": [{"text": "镜头1：@[张三] 起身"}]},
+        content={"title": "第1集", "units": [{"text": "@[张三] 起身"}]},
         violations=[],
     )
 
@@ -7851,7 +7814,7 @@ async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: To
         fake_ctx.project_path,
         1,
         QUARANTINE_KIND_STEP2,
-        content={"title": "第1集", "units": [{"text": "镜头1：@[张三] 起身"}]},
+        content={"title": "第1集", "units": [{"text": "@[张三] 起身"}]},
         violations=[],
     )
 
@@ -7877,7 +7840,7 @@ async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx:
         fake_ctx.project_path,
         1,
         QUARANTINE_KIND_STEP2,
-        content={"title": "第1集", "units": [{"text": "镜头1：@[张三] 起身"}]},
+        content={"title": "第1集", "units": [{"text": "@[张三] 起身"}]},
         violations=[],
     )
     monkeypatch.setattr(mod.script_review, "gate_blocks_step2", lambda *_args, **_kw: True)
@@ -7900,10 +7863,10 @@ async def test_split_reference_video_units_clears_stale_quarantine_on_success(
 ) -> None:
     """重拆分成功即清掉上一轮的隔离草稿——留着会让 gate 与生成侧继续阻塞在已被取代的产物上。"""
     _rv_source(fake_ctx)
-    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
     assert _rv_quarantine_path(fake_ctx).exists()
 
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 起身")])
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身")])
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
 
@@ -7917,7 +7880,7 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
     out = await _run_rv_split(
         fake_ctx,
         monkeypatch,
-        [_rv_unit("镜头1：@[张三] 起身\n@[张三]：{我来了。}")],
+        [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}")],
         voice=VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, model_id="m"),
     )
 
@@ -7945,7 +7908,7 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
     out = await _run_rv_split(
         fake_ctx,
         monkeypatch,
-        [_rv_unit("镜头1：@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
+        [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
         voice=VoiceRenderSettings(
             voice_consistency="native", max_reference_audio=1, model_id="m", requires_reference_image=True
         ),
@@ -8505,7 +8468,7 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
 
     project = {
         **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
-        "schema_version": 8,
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "content_mode": "narration",
         "generation_mode": "storyboard",
         "source_kind": "novel",

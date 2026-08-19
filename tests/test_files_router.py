@@ -16,6 +16,7 @@ from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
@@ -1083,7 +1084,7 @@ class TestFilesRouter:
         project_dir = pm.get_project_path("demo")
 
         def _activate(project: dict) -> None:
-            project["schema_version"] = 8
+            project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
             project["content_mode"] = "narration"
             project["generation_mode"] = "storyboard"
             project["episodes"] = [
@@ -1265,7 +1266,7 @@ class TestFilesRouter:
             assert invalid.status_code == 422
 
             # 合法结构化内容按 generation_mode 路由到 step1_reference_units.json
-            unit = {"unit_id": "E1U01", "shots": [{"text": "镜头描述"}], "duration_seconds": 8}
+            unit = {"unit_id": "E1U01", "text": "镜头描述", "duration_seconds": 8}
             update = client.put(
                 "/api/v1/projects/demo/drafts/1/step1",
                 content=json.dumps({"units": [unit]}, ensure_ascii=False),
@@ -1312,7 +1313,7 @@ class TestFilesRouter:
         (project_dir / "source" / "episode_2.txt").write_text("原文", encoding="utf-8")
 
         with client:
-            unit = {"unit_id": "E2U01", "shots": [{"text": "镜头描述"}], "duration_seconds": 8}
+            unit = {"unit_id": "E2U01", "text": "镜头描述", "duration_seconds": 8}
             update = client.put(
                 "/api/v1/projects/demo/drafts/2/step1",
                 content=json.dumps({"units": [unit]}, ensure_ascii=False),

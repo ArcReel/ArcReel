@@ -1469,11 +1469,7 @@ class TestAdReferenceVideoUnitsValidation:
     def _unit(**overrides) -> dict:
         unit = {
             "unit_id": "E1U1",
-            "shots": [{"text": "镜头1：@[主播] 展示 @[速干杯]"}],
-            "references": [
-                {"type": "product", "name": "速干杯"},
-                {"type": "character", "name": "主播"},
-            ],
+            "text": "@[主播] 展示 @[速干杯]",
             "duration_seconds": 7,
             "generated_assets": {"status": "pending"},
         }
@@ -1499,52 +1495,34 @@ class TestAdReferenceVideoUnitsValidation:
         assert result.valid, result.errors
 
     @pytest.mark.unit
-    def test_replan_shell_allows_empty_shots_and_zero_duration(self, tmp_path):
-        result = self._validate(
-            tmp_path,
-            [self._unit(shots=[], references=[], duration_seconds=0, needs_replan=True)],
-        )
+    def test_replan_shell_allows_empty_text_and_zero_duration(self, tmp_path):
+        result = self._validate(tmp_path, [self._unit(text="", duration_seconds=0, needs_replan=True)])
         assert result.valid, result.errors
 
     @pytest.mark.unit
-    def test_normal_unit_rejects_empty_shots_and_zero_duration(self, tmp_path):
-        result = self._validate(
-            tmp_path,
-            [self._unit(shots=[], references=[], duration_seconds=0, needs_replan=False)],
-        )
+    def test_normal_unit_rejects_empty_text_and_zero_duration(self, tmp_path):
+        result = self._validate(tmp_path, [self._unit(text="   ", duration_seconds=0, needs_replan=False)])
         assert not result.valid
-        assert any("shots" in error for error in result.errors)
+        assert any("text" in error for error in result.errors)
         assert any("duration_seconds" in error for error in result.errors)
 
     @pytest.mark.unit
-    def test_unit_rejects_more_than_four_shots(self, tmp_path):
-        result = self._validate(
-            tmp_path,
-            [self._unit(shots=[{"text": f"镜头{i}"} for i in range(1, 6)])],
-        )
-
+    def test_text_must_be_a_string(self, tmp_path):
+        result = self._validate(tmp_path, [self._unit(text=["镜头1"])])
         assert not result.valid
-        assert any("shots 含 5 个条目，最多允许 4 个" in error for error in result.errors)
+        assert any("text" in error for error in result.errors)
 
     @pytest.mark.unit
-    def test_migration_content_replan_marker_requires_boolean(self, tmp_path):
-        result = self._validate(
-            tmp_path,
-            [self._unit(needs_replan=True, migration_requires_content_replan="yes")],
-        )
-
-        assert not result.valid
-        assert any("migration_requires_content_replan" in error for error in result.errors)
-
-    @pytest.mark.unit
-    def test_migration_content_replan_marker_requires_needs_replan(self, tmp_path):
-        result = self._validate(
-            tmp_path,
-            [self._unit(needs_replan=False, migration_requires_content_replan=True)],
-        )
-
+    def test_needs_replan_must_be_boolean(self, tmp_path):
+        result = self._validate(tmp_path, [self._unit(needs_replan="yes")])
         assert not result.valid
         assert any("needs_replan" in error for error in result.errors)
+
+    @pytest.mark.unit
+    def test_unregistered_mention_is_not_a_structural_error(self, tmp_path):
+        """参考图是执行期派生物：正文里未登记的 `@[名称]` 只在渲染侧发 warning，不判结构错误。"""
+        result = self._validate(tmp_path, [self._unit(text="@[不存在的资产] 出现在画面里")])
+        assert result.valid, result.errors
 
     @pytest.mark.integration
     def test_unparseable_video_generated_at_rejected(self, tmp_path):
@@ -1558,42 +1536,7 @@ class TestAdReferenceVideoUnitsValidation:
         result = self._validate(tmp_path, ["not-a-dict", {"unit_id": "E1U2"}])
         assert not result.valid
         assert any("video_units[0]" in error for error in result.errors)
-        assert any("shots" in error for error in result.errors)
-
-    @pytest.mark.unit
-    def test_invalid_or_unregistered_reference_rejected(self, tmp_path):
-        invalid_type = self._validate(
-            tmp_path,
-            [self._unit(references=[{"type": "voice", "name": "x"}])],
-        )
-        assert not invalid_type.valid
-
-        unregistered = self._validate(
-            tmp_path,
-            [self._unit(references=[{"type": "product", "name": "不存在"}])],
-        )
-        assert not unregistered.valid
-        assert any("不存在" in error for error in unregistered.errors)
-
-    @pytest.mark.integration
-    def test_nfc_reference_accepted_for_nfd_registered_character(self, tmp_path):
-        import unicodedata
-
-        name_nfd = unicodedata.normalize("NFD", "Hiếu")
-        name_nfc = unicodedata.normalize("NFC", "Hiếu")
-        assert name_nfd != name_nfc
-
-        project_dir = tmp_path / "projects" / "demo"
-        payload = _ad_project_payload(generation_mode="reference_video")
-        payload["characters"] = {name_nfd: {"description": "主播"}}
-        _write_json(project_dir / "project.json", payload)
-        unit = self._unit(references=[{"type": "character", "name": name_nfc}])
-        _write_json(
-            project_dir / "scripts" / "episode_1.json",
-            {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "video_units": [unit]},
-        )
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
-        assert result.valid, result.errors
+        assert any("text" in error for error in result.errors)
 
 
 class TestSourceKindValidation:

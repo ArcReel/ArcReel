@@ -189,10 +189,7 @@ export function UnitPreviewPanel({
                 {t("reference_preview_in_flight")}
               </div>
               <div className="mt-1 text-[10.5px] text-[var(--color-text-4)]">
-                {t("reference_preview_in_flight_meta", {
-                  refs: unit.references.length,
-                  duration: unit.duration_seconds,
-                })}
+                {t("reference_preview_in_flight_meta", { duration: unit.duration_seconds })}
               </div>
             </div>
           </div>
@@ -295,12 +292,6 @@ export function UnitPreviewPanel({
           <dt className="text-[var(--color-text-4)]">{t("reference_meta_duration")}</dt>
           <dd className="font-mono tabular-nums text-[var(--color-text-2)]">
             {unit.duration_seconds}s
-          </dd>
-          <dt className="text-[var(--color-text-4)]">{t("reference_meta_shots")}</dt>
-          <dd className="font-mono tabular-nums text-[var(--color-text-2)]">{unit.shots.length}</dd>
-          <dt className="text-[var(--color-text-4)]">{t("reference_meta_references")}</dt>
-          <dd className="font-mono tabular-nums text-[var(--color-text-2)]">
-            {unit.references.length}
           </dd>
           <dt className="text-[var(--color-text-4)]">{t("reference_meta_status")}</dt>
           <dd>

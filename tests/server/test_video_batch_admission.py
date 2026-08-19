@@ -149,7 +149,7 @@ async def test_an_active_task_conflicts_before_anything_is_projected(monkeypatch
         project_path=tmp_path,
         script={"video_units": []},
         script_file="episode_1.json",
-        units=[{"unit_id": "E1U1", "shots": [{"text": "镜头"}]}],
+        units=[{"unit_id": "E1U1", "text": "镜头"}],
         request_options=ReferenceRequestOptions(),
         operation="generate_video_episode",
         selection=GenerationSelectionMode.MISSING_ONLY,
@@ -172,7 +172,7 @@ async def test_a_unit_that_cannot_be_enqueued_is_refused_with_its_own_code(monke
     monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
 
     def _reject(_unit):
-        raise ValueError("没有 shots")
+        raise ValueError("正文为空")
 
     admission = await admit_reference_video_batch(
         project_name="demo",
@@ -224,7 +224,7 @@ async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
         project_path=tmp_path,
         script={"video_units": []},
         script_file="episode_1.json",
-        units=[{"unit_id": "E1U1", "shots": [{"text": "镜头"}]}],
+        units=[{"unit_id": "E1U1", "text": "镜头"}],
         request_options=ReferenceRequestOptions(),
         operation="generate_video_episode",
         selection=GenerationSelectionMode.EXPLICIT,

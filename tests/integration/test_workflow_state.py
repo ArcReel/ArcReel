@@ -244,8 +244,7 @@ def _valid_video_unit(**overrides: object) -> dict:
     unit = {
         "unit_id": "E1U01",
         "duration_seconds": 8,
-        "shots": [{"text": "镜头"}],
-        "references": [],
+        "text": "镜头",
         "generated_assets": {},
     }
     unit.update(overrides)
@@ -524,7 +523,7 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_export(tmp_pat
         ]
         project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
         project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
-        project["schema_version"] = 8
+        project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -1740,8 +1739,7 @@ def test_ad_reference_replan_shell_requests_repair_before_generation(tmp_path: P
             "video_units": [
                 {
                     "unit_id": "E1U1",
-                    "shots": [],
-                    "references": [],
+                    "text": "",
                     "duration_seconds": 0,
                     "needs_replan": True,
                     "generated_assets": {"video_clip": video_path},
@@ -2023,8 +2021,8 @@ def test_workflow_status_does_not_persist_read_time_script_migrations(tmp_path: 
             "video_units": [
                 {
                     "unit_id": "E1U01",
-                    "shots": [{"text": "镜头", "duration": 8}],
-                    "references": [],
+                    "text": "镜头",
+                    "duration_seconds": 8,
                     "generated_assets": {},
                 }
             ],

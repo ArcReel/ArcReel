@@ -9,6 +9,7 @@ from PIL import Image
 
 from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ProviderModel
+from lib.project_migrations.runner import migrate_project_dir
 from server.services.generation_context import GenerationContext, ImageLaneResult
 
 pytestmark = pytest.mark.unit
@@ -96,6 +97,8 @@ def project_with_script(tmp_path):
         json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
     )
     activate_artifact_target_state(p, bump_schema=True)
+    # 清单激活只落到清单版本，后续迁移把项目补到当前 schema，产物读路径才准入
+    migrate_project_dir(p)
     return p
 
 

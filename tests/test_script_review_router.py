@@ -44,9 +44,8 @@ def _rv_step1() -> dict:
         "units": [
             {
                 "unit_id": "E1U01",
-                "shots": [{"text": "@[阿离] 立于屋檐下。"}],
+                "text": "@[阿离] 立于屋檐下。",
                 "duration_seconds": 4,
-                "references": [{"type": "character", "name": "阿离"}],
             }
         ],
     }
@@ -211,9 +210,9 @@ class TestReferenceVideoRouter:
             assert body["quarantine"] is None
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
 
-            # 编辑 shot 文本 → 重新待审
+            # 编辑单元正文 → 重新待审
             edited = _rv_step1()
-            edited["units"][0]["shots"][0]["text"] = "@[阿离] 转身离去。"
+            edited["units"][0]["text"] = "@[阿离] 转身离去。"
             put = client.put(f"{base}/content", json=edited)
             assert put.status_code == 200
             assert put.json()["status"] == "pending_review"
@@ -565,16 +564,16 @@ class TestReferenceVideoRouter:
             stale = client.get(base).json()["fingerprint"]
 
             other = _rv_step1()
-            other["units"][0]["shots"][0]["text"] = "@[阿离] 转身离开。"
+            other["units"][0]["text"] = "@[阿离] 转身离开。"
             assert client.put(f"{base}/content", json=other).status_code == 200
 
             mine = _rv_step1()
             resp = client.put(f"{base}/content", params={"base_fingerprint": stale}, json=mine)
             assert resp.status_code == 409
             # 冲突未覆盖：盘上仍是另一方保存的内容
-            assert client.get(base).json()["content"]["units"][0]["shots"][0]["text"] == "@[阿离] 转身离开。"
+            assert client.get(base).json()["content"]["units"][0]["text"] == "@[阿离] 转身离开。"
 
             fresh = client.get(base).json()["fingerprint"]
             resp = client.put(f"{base}/content", params={"base_fingerprint": fresh}, json=mine)
             assert resp.status_code == 200
-            assert resp.json()["content"]["units"][0]["shots"][0]["text"] == "@[阿离] 立于屋檐下。"
+            assert resp.json()["content"]["units"][0]["text"] == "@[阿离] 立于屋檐下。"

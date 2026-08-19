@@ -1,9 +1,9 @@
 import type { ProjectData } from "@/types";
-import type { AssetKind, ReferenceResource } from "@/types/reference-video";
+import type { AssetKind } from "@/types/reference-video";
 
 /**
  * Mention regex shared across frontend tokenizers. Mirrors backend
- * `lib/reference_video/shot_parser.py` mention scanner — keep in sync.
+ * `lib/reference_video/text_parser.py` mention scanner — keep in sync.
  *
  * 前后端字面不同但语义等价：
  * - JS `\w` 永远是 ASCII-only，`(?<!\w)` 直接表达"左侧不是 ASCII 词字符"。
@@ -21,7 +21,7 @@ import type { AssetKind, ReferenceResource } from "@/types/reference-video";
 export const MENTION_RE = /(?<!\w)@(?:\[([^\]\r\n]+)\]|([\w\u4e00-\u9fff]+))/g;
 
 /**
- * BOM / ZWNBSP。镜像后端 `shot_parser._BOM`：正文里它没有语义，却让按字节走的判定分叉
+ * BOM / ZWNBSP。镜像后端 `text_parser._BOM`：正文里它没有语义，却让按字节走的判定分叉
  * ——JS 的 `\s` 认它、Python 的 `str.strip()` 不认，带 BOM 的记号在前端认、在
  * 后端不认，说话人是否进参考图两侧结论相反。
  */
@@ -29,7 +29,7 @@ const BOM_RE = /\uFEFF/gu;
 
 /**
  * 书写层文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。镜像后端
- * `lib/reference_video/shot_parser.py::_normalize_source`——两条派生路径同口径。
+ * `lib/reference_video/text_parser.py::_normalize_source`——两条派生路径同口径。
  *
  * 两者同一性质：屏幕上看不见的字节差异，却让按字节走的判定分叉，故合并在一个入口处理。
  * BOM 不止出现在文档开头，粘贴拼接会把它带到任意行首，而分叉是按行发生的；NFC 则是资产名
@@ -82,7 +82,7 @@ export function isSpeechMark(part: SpeechPart): part is SpeechMark {
 
 /**
  * 把一行拆成「画面描述片段」与「发声记号」的有序序列。镜像后端
- * `lib/reference_video/shot_parser.py::split_speech_line`——两条派生路径同口径，
+ * `lib/reference_video/text_parser.py::split_speech_line`——两条派生路径同口径，
  * 改一侧必须同步改另一侧。
  *
  * 记号可出现在行内任意位置：`{台词}` 是画外音；紧接在 `@[角色]` 之后（中间允许空白或一个
@@ -172,7 +172,7 @@ export function stripSpeechMarks(line: string): string {
 }
 
 /**
- * Python `str.splitlines()` 的换行集合——后端 `shot_parser` / `script_preview` 都用它切行。
+ * Python `str.splitlines()` 的换行集合——后端 `text_parser` / `script_preview` 都用它切行。
  * 只按 `\n` 切会把 U+2028 之后的台词记号与上一行粘在一起（粘贴、agent 产出的文本里会出现），
  * 前端据此把说话人算进参考图、后端不算，两条派生路径当场分叉。
  * 带捕获组：`split` 时分隔符原样留在结果里，token 仍可拼回原文。
@@ -198,31 +198,8 @@ export function splitScriptLines(text: string): string[] {
 }
 
 /**
- * Leading `镜头N：` header. Stripped before speech marks are read so a dialogue written
- * on the header line is judged the way the backend judges it — `parse_prompt` drops the
- * header when it splits shots, so such a mark lives in the shot text and must not leave
- * a reference-image entry behind.
- * Mirrors `shot_parser.py:_strip_shot_header`（其 `line.strip()` 对应此处的前导 `\s*`）。
- *
- * 序号用 `\p{Nd}` 而非 `\d`：Python 的 `\d` 是 Unicode-aware，`镜头１：`（全角数字）后端
- * 照样剥 header 并按台词派生；JS 的 `\d` 只认 ASCII，用它会让这行在前端留下说话人的参考图。
- */
-const SHOT_HEADER_PREFIX_RE = /^\s*镜头\s*\p{Nd}+\s*[:：]\s*/u;
-
-/** 同上，但不吃行首空白——高亮分词按原样切 token，缩进须留在 text token 里才能拼回原文。 */
-export const SHOT_HEADER_RE = /^镜头\s*\p{Nd}+\s*[:：]\s*/u;
-
-/**
- * 结构化 `shots[]` 拼回可显示脚本时的 header 写法（`shotIndex` 1-based）。与上面两个 RE
- * 同处，免得 header 语法在识别侧与生成侧各写一份而漂移。这是文稿语法而非界面文案，不 i18n。
- */
-export function formatShotHeader(shotIndex: number): string {
-  return `镜头${shotIndex}：`;
-}
-
-/**
  * Mention names in first-appearance order, deduplicated — the reference-image
- * derivation. Mirrors `shot_parser.py:extract_mentions`, including its rule that
+ * derivation. Mirrors `text_parser.py:extract_mentions`, including its rule that
  * **the speaker slot of a speech mark is excluded**: attaching a reference image to
  * a speaker would coax the model into drawing a character who only speaks off-screen.
  * 记号之外的 `@[名称]` 照常进参考图，同一行里两者并存。
@@ -233,13 +210,34 @@ export function extractMentions(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of splitScriptLines(text)) {
-    const line = stripSpeechMarks(raw.replace(SHOT_HEADER_PREFIX_RE, ""));
+    const line = stripSpeechMarks(raw);
     for (const m of line.matchAll(MENTION_RE)) {
       const name = normalizeAssetName(mentionNameFromMatch(m));
       if (!seen.has(name)) {
         seen.add(name);
         out.push(name);
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * 台词记号的说话人，按出现顺序去重。镜像后端
+ * `lib/reference_video/draft_validation.py::dialogue_speakers`——「谁在这个单元里发声」只由
+ * 说话人位决定，与 `extractMentions`（画面参考图）互补：一个角色可以只发声不出镜，也可以
+ * 只出镜不发声，音色相关的判定一律走本函数。
+ *
+ * 名字取自 `splitSpeechLine`，已归一到资产名比对坐标系，调用方直接与已归一的资产表 key 判等。
+ */
+export function dialogueSpeakers(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of splitScriptLines(text)) {
+    for (const mark of lineSpeechMarks(line)) {
+      if (!mark.speaker || seen.has(mark.speaker)) continue;
+      seen.add(mark.speaker);
+      out.push(mark.speaker);
     }
   }
   return out;
@@ -264,14 +262,6 @@ export function normalizeAssetName(name: string): string {
   return name.replace(PYTHON_STRIP_RE, "").normalize("NFC");
 }
 
-function bucketHasName(bucket: Record<string, unknown> | undefined, target: string): boolean {
-  if (!bucket) return false;
-  // Object.keys 而非 `in`：`toString` / `constructor` / `__proto__` 都是合法资产名
-  // （`validate_asset_name` 只挡路径分隔符与 Windows 保留字符），`in` 会命中原型链上的
-  // 同名属性，把未登记的名字判成已登记；Object.keys 只返回自有可枚举属性，同样安全。
-  return Object.keys(bucket).some((key) => normalizeAssetName(key) === target);
-}
-
 /**
  * 为编辑器高亮构造项目资产名到类型的唯一映射。
  *
@@ -289,54 +279,4 @@ export function buildMentionLookup(project: ProjectBuckets | null | undefined): 
   for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
   for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
   return lookup;
-}
-
-export function resolveMentionType(
-  project: ProjectBuckets | null | undefined,
-  name: string,
-): ProjectAssetKind | undefined {
-  if (!project) return undefined;
-  const target = normalizeAssetName(name);
-  if (bucketHasName(project.products, target)) return "product";
-  if (bucketHasName(project.characters, target)) return "character";
-  if (bucketHasName(project.scenes, target)) return "scene";
-  if (bucketHasName(project.props, target)) return "prop";
-  return undefined;
-}
-
-/**
- * Re-derive the references list for a unit given new prompt text.
- *
- * Rules:
- *  1. Preserve the order of `existing` entries whose names still appear in prompt.
- *  2. Drop entries whose names no longer appear.
- *  3. Append new mentions (in first-appearance order) that resolve to a known bucket.
- *  4. Skip unknown mentions (they become UI warning chips, not references).
- *  5. Deduplicate by name.
- */
-export function mergeReferences(
-  prompt: string,
-  existing: ReferenceResource[],
-  project: ProjectBuckets | null | undefined,
-): ReferenceResource[] {
-  // mention 名出自解析器、已是规范形；既有 references 出自后端落盘值，来源不同故仍需归一后
-  // 再判等/去重。输出的 name 一律是规范形，与后端 `resolve_references` 的产出口径一致。
-  const mentioned = new Set(extractMentions(prompt).map(normalizeAssetName));
-  const kept: ReferenceResource[] = [];
-  const keptNames = new Set<string>();
-  for (const ref of existing) {
-    const name = normalizeAssetName(ref.name);
-    if (mentioned.has(name) && !keptNames.has(name)) {
-      kept.push({ ...ref, name });
-      keptNames.add(name);
-    }
-  }
-  for (const name of mentioned) {
-    if (keptNames.has(name)) continue;
-    const type = resolveMentionType(project, name);
-    if (!type) continue;
-    kept.push({ type, name });
-    keptNames.add(name);
-  }
-  return kept;
 }

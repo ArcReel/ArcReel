@@ -23,7 +23,7 @@ from lib.asset_types import (
 from lib.episode_paths import REFERENCE_VIDEO_STEP1_LEGACY_FILENAME, STEP1_LEGACY_FILENAMES
 from lib.json_io import atomic_write_json, load_json
 from lib.project_migrations.staged_swap import new_rollback_dir, new_staging_dir
-from lib.reference_video.shot_parser import line_speech_marks, rewrite_mentions, strip_shot_header
+from lib.reference_video.text_parser import line_speech_marks, rewrite_mentions
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ def _rewrite_text(
         body = line.rstrip("\r\n")
         ending = line[len(body) :]
         protected: set[str] = set()
-        for mark in line_speech_marks(strip_shot_header(body)):
+        for mark in line_speech_marks(body):
             if not mark.speaker:
                 continue
             speaker_key = asset_name_comparison_key(mark.speaker)

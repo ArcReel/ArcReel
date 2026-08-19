@@ -49,7 +49,6 @@ import type {
   AnthropicDiscoverResponse,
   CostEstimateResponse,
   ReferenceVideoUnit,
-  ReferenceResource,
   TransitionType,
   AdShot,
   ReferenceDurationPrecheck,
@@ -2967,7 +2966,6 @@ class API {
     episode: number,
     payload: {
       prompt: string;
-      references: ReferenceResource[];
       duration_seconds?: number;
       transition_to_next?: TransitionType;
       note?: string | null;
@@ -2979,14 +2977,13 @@ class API {
     );
   }
 
-  /** Patch prompt/references/duration/transition/note on an existing unit. */
+  /** Patch body/duration/transition/note on an existing unit. */
   static async patchReferenceVideoUnit(
     projectName: string,
     episode: number,
     unitId: string,
     patch: {
       prompt?: string;
-      references?: ReferenceResource[];
       duration_seconds?: number;
       transition_to_next?: TransitionType;
       note?: string | null;
@@ -3041,9 +3038,9 @@ class API {
   }
 
   /**
-   * 分镜文稿的读时派生预览：shots / references / utterances + 降级可见性提示。
+   * 视频单元正文的读时派生预览：utterances + 降级可见性提示。
    *
-   * 只读、不落盘——文稿是唯一真相。提示文本由后端按请求语言渲染（含依赖项目当前
+   * 只读、不落盘——正文是唯一真相。提示文本由后端按请求语言渲染（含依赖项目当前
    * 视频模型能力的声音相关几条），前端不再二次翻译。
    */
   static async previewReferenceScript(

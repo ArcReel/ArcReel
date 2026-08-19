@@ -772,14 +772,12 @@ class ProjectEventService:
             items[item_id] = {
                 "duration_seconds": item.get("duration_seconds"),
                 "needs_replan": bool(item.get("needs_replan")),
-                "migration_requires_content_replan": bool(item.get("migration_requires_content_replan")),
                 "segment_break": bool(item.get("segment_break")),
                 "characters": characters,
                 "scenes": scenes,
                 "props": props,
                 "products": products,
-                "shots": self._item_member_shots(item.get("shots")),
-                "references": self._item_references(item.get("references")) if chars_field is None else [],
+                "text": str(item.get("text") or "") if chars_field is None else "",
                 "image_prompt": item.get("image_prompt"),
                 "video_prompt": item.get("video_prompt"),
                 "generated_assets": {
@@ -805,8 +803,9 @@ class ProjectEventService:
         """条目出场的 (角色, 场景, 道具, 产品) 名单（各自排序、去重）。
 
         ``chars_field`` 非 ``None`` 时角色读逐条字段、场景/道具读顶层 ``scenes`` / ``props``；为
-        ``None``（video_units 无逐条实体字段的显式缺位，见 ``SKELETONS``）时三者均从条目
-        ``references`` 按引用类型派生，使 video_unit 的场景/道具/产品引用编辑也能进入差分。
+        ``None``（video_units 无逐条实体字段的显式缺位，见 ``SKELETONS``）时一律为空——参考路线
+        的资产引用写在正文的 ``@[名称]`` 里，正文本身已进快照，实体名单再派生一遍只是同一处
+        改动的第二种说法。
         """
         if chars_field is not None:
             chars_raw = item.get(chars_field)
@@ -818,46 +817,7 @@ class ProjectEventService:
             props = sorted({str(name) for name in props_raw}) if isinstance(props_raw, list) else []
             products = sorted({str(name) for name in products_raw}) if isinstance(products_raw, list) else []
             return characters, scenes, props, products
-        buckets: dict[str, set[str]] = {"character": set(), "scene": set(), "prop": set(), "product": set()}
-        references = item.get("references")
-        if isinstance(references, list):
-            for ref in references:
-                if not isinstance(ref, dict):
-                    continue
-                name = ref.get("name")
-                if not name:
-                    continue
-                ref_type = ref.get("type")
-                target = buckets.get(ref_type) if isinstance(ref_type, str) else None
-                if target is not None:
-                    target.add(str(name))
-        return (
-            sorted(buckets["character"]),
-            sorted(buckets["scene"]),
-            sorted(buckets["prop"]),
-            sorted(buckets["product"]),
-        )
-
-    @staticmethod
-    def _item_member_shots(shots: Any) -> list[dict[str, Any]]:
-        """video_units 成员镜头的内容体（``text``），供 ``updated`` 差分捕获镜头文本编辑——
-        这些内容不落在 ``characters`` / ``duration_seconds`` 上，不纳入则单元内容改动无事件。
-        storyboard 骨架（segments/scenes/shots）条目无成员镜头子列表，返回空列表。
-        """
-        if not isinstance(shots, list):
-            return []
-        return [{"text": str(shot.get("text") or "")} for shot in shots if isinstance(shot, dict)]
-
-    @staticmethod
-    def _item_references(references: Any) -> list[dict[str, Any]]:
-        """保留 video_unit 引用的顺序与重复项，供 ``updated`` 差分捕获参考图绑定变化。"""
-        if not isinstance(references, list):
-            return []
-        return [
-            {"type": reference.get("type"), "name": reference.get("name")}
-            for reference in references
-            if isinstance(reference, dict)
-        ]
+        return [], [], [], []
 
     def _diff_snapshots(
         self,

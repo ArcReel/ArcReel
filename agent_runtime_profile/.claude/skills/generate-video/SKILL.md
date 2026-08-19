@@ -22,8 +22,8 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 把每个 `video_units[]` 条目视为一次独立生成调用：
 
-- 从 `shots[].text` 构造统一书写层 prompt。
-- 从 `references` 解析产品、角色、场景、道具。广告产品参考优先于其他资产；产品按 sheet、原图展开，随后注入其他资产 sheet。
+- 从 unit 正文（`text`）构造统一书写层 prompt。
+- 参考图执行期从正文的 `@[名称]` 按首次提及顺序解析，无特殊排序；有资产图用资产图，否则用该资产的全部原图。
 - 让生成预检把 unit 编排时长投影到供应商申请档位。
 - 遇到 `needs_replan` 或发声归属问题时停止该 unit，先修复规划内容。
 - 整集生成只复用 `generated_assets.video_clip` 明确指向的现行成片；同名孤儿文件不代表该 unit 已完成。
@@ -130,7 +130,7 @@ stale 产物照常可预览、可导出、可参与成片，服务端会复用�
 让 MCP 工具按路线构建 Prompt：
 
 - storyboard 路线读取 `image_prompt`、`video_prompt` 与分镜图。
-- reference 路线读取 `shots[].text`、`references` 与 unit 编排时长。
+- reference 路线读取 unit 正文（`text`）与编排时长。
 - 说书 storyboard 路线不把 `novel_text` 放入视频 Prompt；旁白由独立音频流程处理。
 - 自动应用音频开关、角色发声归属与负面 Prompt 规则。
 

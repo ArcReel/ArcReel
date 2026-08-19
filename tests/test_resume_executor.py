@@ -556,7 +556,7 @@ def _reference_checkpoint(
         kind_version=1,
         inputs={
             "unit_id": "E1U1",
-            "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+            "visual_lines": ["Run."],
             "style": "cinematic",
             "canvas": {"aspect_ratio": "16:9"},
             "request_references": [],

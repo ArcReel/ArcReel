@@ -20,7 +20,6 @@ from pydantic import ValidationError
 
 from lib.asset_types import (
     ASSET_SPECS,
-    ASSET_TYPES,
     asset_name_comparison_key,
     normalize_asset_name,
     project_asset_name_conflicts,
@@ -37,7 +36,6 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
 from lib.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
 from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
-from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     REFERENCE_UNIT_DURATION_RANGE,
@@ -1190,10 +1188,6 @@ class DataValidator:
     def _validate_reference_video_script(
         self,
         video_units: list[dict[str, Any]] | Any,
-        project_characters: set[str],
-        project_scenes: set[str],
-        project_props: set[str],
-        project_products: set[str],
         errors: list[ValidationMessage],
         warnings: list[ValidationMessage],
         *,
@@ -1204,15 +1198,6 @@ class DataValidator:
             errors.append(_m("val_video_units_missing"))
             return
 
-        # 归一到 NFC 再建集合：project_characters/scenes/props 是落盘原始 key（可能 NFD），
-        # reference.name 已在别处归一到 NFC（见 lib.asset_types.normalize_asset_name），
-        # 裸比对会把已登记的资产误判成不在 bucket 中，产生假阳性 unregistered 报错。
-        bucket_by_type = {
-            "product": {normalize_asset_name(n) for n in project_products},
-            "character": {normalize_asset_name(n) for n in project_characters},
-            "scene": {normalize_asset_name(n) for n in project_scenes},
-            "prop": {normalize_asset_name(n) for n in project_props},
-        }
         seen_unit_ids: set[str] = set()
 
         for index, unit in enumerate(video_units):
@@ -1233,65 +1218,22 @@ class DataValidator:
             needs_replan = unit.get("needs_replan", False)
             if not isinstance(needs_replan, bool):
                 errors.append(_m("val_field_type_bool", field=f"{prefix}: needs_replan"))
-            migration_requires_content_replan = unit.get("migration_requires_content_replan", False)
-            if not isinstance(migration_requires_content_replan, bool):
-                errors.append(_m("val_field_type_bool", field=f"{prefix}: migration_requires_content_replan"))
-            elif migration_requires_content_replan and needs_replan is not True:
-                errors.append(_m("val_migration_content_replan_requires_needs_replan", prefix=prefix))
+            text = unit.get("text")
+            if not isinstance(text, str):
+                errors.append(_m("val_field_must_be_string", field=f"{prefix}: text"))
+            elif not text.strip() and needs_replan is not True:
+                errors.append(_m("val_field_must_be_nonempty_string", field=f"{prefix}: text"))
+
             low, high = self.VALID_UNIT_DURATION_RANGE
+            blank_shell = needs_replan is True and (not isinstance(text, str) or not text.strip())
             valid_duration = False
             if isinstance(duration, int) and not isinstance(duration, bool):
-                if needs_replan is True and not unit.get("shots"):
-                    valid_duration = duration == 0
-                else:
-                    valid_duration = low <= duration <= high
+                valid_duration = duration == 0 if blank_shell else low <= duration <= high
             if not valid_duration:
                 errors.append(_m("val_unit_duration_range", prefix=prefix, low=low, high=high))
 
-            shots = unit.get("shots")
-            if not isinstance(shots, list) or (not shots and needs_replan is not True):
-                errors.append(_m("val_field_must_be_nonempty_array", field=f"{prefix}: shots"))
-            else:
-                if len(shots) > MAX_SHOTS_PER_UNIT:
-                    errors.append(
-                        _m(
-                            "val_unit_shots_too_many",
-                            prefix=prefix,
-                            count=len(shots),
-                            max=MAX_SHOTS_PER_UNIT,
-                        )
-                    )
-                for si, shot in enumerate(shots):
-                    sp = f"{prefix}.shots[{si}]"
-                    if not isinstance(shot, dict):
-                        errors.append(_m("val_item_must_be_object", prefix=sp))
-                        continue
-                    if not isinstance(shot.get("text"), str):
-                        errors.append(_m("val_field_must_be_string", field=f"{sp}: text"))
-
-            refs = unit.get("references")
-            if refs is None:
-                refs = []
-            elif not isinstance(refs, list):
-                errors.append(_m("val_field_must_be_array", field=f"{prefix}: references"))
-                refs = []
-            for ref in refs:
-                if not isinstance(ref, dict):
-                    errors.append(_m("val_reference_entry_must_be_object", prefix=prefix))
-                    continue
-                rtype = ref.get("type")
-                rname = ref.get("name")
-                if rtype not in ASSET_TYPES:
-                    errors.append(_m("val_reference_type_invalid", prefix=prefix, value=repr(rtype)))
-                    continue
-                if not isinstance(rname, str) or not rname:
-                    errors.append(_m("val_reference_name_invalid", prefix=prefix, value=repr(rname)))
-                    continue
-                bucket = bucket_by_type.get(rtype, set())
-                if asset_name_comparison_key(rname) not in bucket:
-                    errors.append(
-                        _m("val_reference_not_in_bucket", prefix=prefix, asset_type=_asset(rtype), name=rname)
-                    )
+            # 正文里未登记的 `@[名称]` 不在此报错：参考图是执行期派生物，未解析的提及只在
+            # 渲染与预览侧发一条非阻断 warning（见 ADR 0064），校验器不把它升级成结构错误。
 
             if project_dir is not None:
                 self._validate_generated_assets(
@@ -1315,8 +1257,6 @@ class DataValidator:
         project_characters = set(project.get("characters", {}).keys())
         project_scenes = set(project.get("scenes", {}).keys())
         project_props = set(project.get("props", {}).keys())
-        raw_products = project.get("products")
-        project_products = set(raw_products.keys()) if isinstance(raw_products, dict) else set()
 
         if not isinstance(episode.get("episode"), int):
             errors.append(_m("val_episode_missing_num"))
@@ -1373,10 +1313,6 @@ class DataValidator:
         if kind == "video_units":
             self._validate_reference_video_script(
                 episode.get("video_units", []),
-                project_characters,
-                project_scenes,
-                project_props,
-                project_products,
                 errors,
                 warnings,
                 project_dir=artifact_root,
@@ -1393,6 +1329,7 @@ class DataValidator:
             )
         elif kind == "shots":
             shots = episode.get("shots", [])
+            raw_products = project.get("products")
             self._validate_shots(
                 shots,
                 project_characters,

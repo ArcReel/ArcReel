@@ -11,6 +11,7 @@ from PIL import Image
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.grid_split import GridImageNotReadyError, apply_grid_split
 
 pytestmark = pytest.mark.unit
@@ -26,7 +27,7 @@ def project_with_script(tmp_path):
             {
                 "name": "test-project",
                 "title": "Test",
-                "schema_version": 8,
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
                 "style": "realistic",
                 "content_mode": "narration",
                 "aspect_ratio": "9:16",

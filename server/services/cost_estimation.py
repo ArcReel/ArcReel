@@ -32,7 +32,6 @@ from lib.narration_delivery import (
 )
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import grid_storyboard_enabled, is_reference_video_project
-from lib.reference_video import assemble_shots_text
 from lib.reference_video.request_projection import (
     ConfigReferenceCapabilityProjection,
     FilesystemReferenceAssets,
@@ -40,8 +39,8 @@ from lib.reference_video.request_projection import (
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
-    canonicalize_references,
     resolve_reference_assets,
+    unit_reference_declarations,
 )
 from lib.script_editor import ScriptEditError
 from lib.script_models import get_generated_assets
@@ -753,7 +752,7 @@ class CostEstimationService:
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
         """reference_video 集的估值：unit 本身就是展示与计费颗粒度。
 
-        ``video_units[*].shots`` 没有独立 ID，unit 本身就是最小可寻址单位，
+        unit 本身就是最小可寻址单位，
         前端画布与费用面板均按 ``unit_id`` 索引（见 ``ReferenceVideoCanvas`` 读
         ``cost-store`` 的 ``_segmentIndex.get(unit.unit_id)``），故此处不需要
         ``_split_cost_across`` 这一步。
@@ -763,16 +762,15 @@ class CostEstimationService:
         请求时长基准通常是 ``unit.duration_seconds``；选择 ``use_tts`` 时还会纳入上游提供的
         实际旁白时长下限。按该基准取档后用同桶模型计费，与执行请求的秒数对齐。
 
-        无图片/音频估值维度：该模式跳过分镜步骤（无分镜图），``Shot`` 没有独立的旁白/口播
-        文案字段可供独立音频计价。实付按 ``actual_by_segment[unit_id]`` 三个维度原样透传——``lib/media_generator.py``
+        无图片/音频估值维度：该模式跳过分镜步骤（无分镜图），unit 正文是一整段、没有可供
+        独立音频计价的旁白/口播文案字段。实付按 ``actual_by_segment[unit_id]`` 三个维度原样透传——``lib/media_generator.py``
         对 ``resource_type == "reference_videos"`` 的记账以 unit_id 写入 usage 的 segment_id，
         与本函数的输出 identity 一致。切换模式前按分镜 ID（``E1S1`` 等）记的历史支出不在此
         呈现：unit 与分镜之间没有映射关系，无处归属。
 
-        没有 shots、拼接文本为空或命中 ``video_unit_replan_problems`` 的 unit 不产生预估：这些 unit
-        会被 ``enqueue_videos.py::_reference_unit_spec`` 拒绝，估值给出非零金额会展示一笔查无实据的
-        费用；判据与入队侧共用 ``assemble_shots_text`` 和重规划问题模型，不能自行另起一套处理否则
-        两处会漂移。但该 unit 仍要整条保留、纳入汇总——不可入队只影响能否产生新预估，不影响该
+        正文为空或命中 ``video_unit_replan_problems`` 的 unit 不产生预估：这些 unit 会被
+        ``enqueue_videos.py::_reference_unit_spec`` 拒绝，估值给出非零金额会展示一笔查无实据的
+        费用；判据与入队侧共用同一个正文与重规划问题模型，不能自行另起一套处理否则两处会漂移。但该 unit 仍要整条保留、纳入汇总——不可入队只影响能否产生新预估，不影响该
         unit 是否曾经成功生成过（``actual_by_segment[unit_id]`` 记的是历史实付，与 unit 当前编辑状态
         无关）：unit 曾成功生成、随后剧本被编辑成不可入队状态，其历史支出不能因此从段级/集级/项目级
         合计里消失。
@@ -798,16 +796,9 @@ class CostEstimationService:
                 continue
             unit_id = raw_unit_id
 
-            # shots 非 list（如裸写 "shots": true/1）会让 assemble_shots_text 的遍历抛
-            # TypeError；先做类型检查再拼接，与下方 duration 解析同样不能让单条脏数据中断
-            # 整次估算。
-            shots = unit.get("shots")
-            enqueueable = (
-                isinstance(shots, list)
-                and bool(shots)
-                and bool(assemble_shots_text(shots).strip())
-                and not video_unit_replan_problems(unit)
-            )
+            # text 非字符串（如裸写 "text": true/1）同样不能让单条脏数据中断整次估算。
+            text = unit.get("text")
+            enqueueable = isinstance(text, str) and bool(text.strip()) and not video_unit_replan_problems(unit)
 
             est_video: CostBreakdown = {}
             request_quote: VideoRequestQuote | None = None
@@ -827,7 +818,7 @@ class CostEstimationService:
                                 path=Path(f"{reference.type}/{reference.name}.png"),
                                 reference=reference,
                             )
-                            for reference in canonicalize_references(unit.get("references"))
+                            for reference in unit_reference_declarations(project, unit)
                         ]
                     else:
                         resolved_assets = resolve_reference_assets(project, self._project_path, unit)

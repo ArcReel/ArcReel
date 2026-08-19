@@ -18,7 +18,7 @@ from lib.content_digest import sha256_file
 from lib.grid.prompt_builder import project_grid_image_prompt
 from lib.prompt_utils import normalize_style, project_storyboard_image_prompt
 from lib.reference_video.request_projection import ResolvedReferenceAsset
-from lib.reference_video.shot_parser import strip_shot_header, strip_speech_marks
+from lib.reference_video.text_parser import strip_speech_marks
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,32 +357,17 @@ def build_reference_video_artifact_visual_basis(
 ) -> ArtifactBasis:
     """Describe one canonical ``video_unit`` and the images actually sent for it.
 
-    Only ``unit_id`` and visual lines from ``shots`` are projected. Legacy grouping
-    fields and speech-only lines never enter the basis. ``request_assets`` must be
-    the already-clamped request projection, so unavailable or provider-truncated
-    declarations cannot make the formal video stale.
+    Only ``unit_id`` and the visual lines of ``text`` are projected; speech-only lines
+    never enter the basis, so rewording a line of dialogue does not make a rendered video
+    stale. ``request_assets`` must be the already-clamped request projection, so
+    unavailable or provider-truncated declarations cannot make the formal video stale.
     """
 
     unit_id = _require_non_empty("unit.unit_id", unit.get("unit_id"))
-    raw_shots = unit.get("shots")
-    if not isinstance(raw_shots, (list, tuple)):
-        raise ValueError("unit.shots must be an array")
-    visual_shots: list[dict[str, object]] = []
-    for index, raw_shot in enumerate(raw_shots):
-        if not isinstance(raw_shot, Mapping):
-            raise ValueError(f"unit.shots[{index}] must be an object")
-        raw_text = raw_shot.get("text")
-        if not isinstance(raw_text, str):
-            raise ValueError(f"unit.shots[{index}].text must be a string")
-        visual_lines = _reference_visual_lines(raw_text)
-        if not visual_lines:
-            continue
-        visual_shots.append(
-            {
-                "shot_index": len(visual_shots),
-                "lines": visual_lines,
-            }
-        )
+    raw_text = unit.get("text")
+    if not isinstance(raw_text, str):
+        raise ValueError("unit.text must be a string")
+    visual_lines = _reference_visual_lines(raw_text)
     references: list[VisualReference] = []
     for asset in request_assets:
         if not isinstance(asset, ResolvedReferenceAsset):
@@ -401,7 +386,7 @@ def build_reference_video_artifact_visual_basis(
         kind_version=1,
         inputs={
             "unit_id": unit_id,
-            "visual_shots": visual_shots,
+            "visual_lines": visual_lines,
             "style": normalize_style(style),
             "canvas": {"aspect_ratio": _require_non_empty("aspect_ratio", aspect_ratio)},
             "request_references": _reference_evidence(references),
@@ -410,14 +395,14 @@ def build_reference_video_artifact_visual_basis(
 
 
 def _reference_visual_lines(text: str) -> list[str]:
-    """产物依据只取画面描述：剥掉 ``镜头N：`` header 与全部发声记号后剩下的文本。
+    """产物依据只取画面描述：剥掉全部发声记号后剩下的文本。
 
     台词改一个字不该让已生成的视频判过期——画面依据里不能含台词，而记号可写在行内任意
     位置，故按记号逐段剔除而非整行跳过，同一行里的画面描述照常留下。
     """
     lines: list[str] = []
     for raw_line in text.splitlines():
-        line = strip_speech_marks(strip_shot_header(raw_line)).strip()
+        line = strip_speech_marks(raw_line).strip()
         if line:
             lines.append(line)
     return lines

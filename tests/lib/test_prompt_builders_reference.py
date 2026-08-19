@@ -49,11 +49,7 @@ def test_build_reference_video_prompt_contains_required_sections():
     step1_units = [
         {
             "unit_id": "E1U01",
-            "shots": [
-                {"text": "@[主角] 推门走进 @[酒馆]"},
-                {"text": "@[主角] 按住 @[长剑]"},
-            ],
-            "references": [{"type": "character", "name": "主角"}],
+            "text": "@[主角] 推门走进 @[酒馆]\n@[主角] 按住 @[长剑]",
             "duration_seconds": 8,
         }
     ]
@@ -73,9 +69,8 @@ def test_build_reference_video_prompt_contains_required_sections():
     assert "主角" in prompt and "张三" in prompt
     assert "酒馆" in prompt
     assert "长剑" in prompt
-    # step1 正文经机械渲染透传，带 镜头N： header
-    assert "镜头1：@[主角] 推门走进 @[酒馆]" in prompt
-    assert "镜头2：@[主角] 按住 @[长剑]" in prompt
+    # step1 正文逐字透传，不加任何分段前缀
+    assert "@[主角] 推门走进 @[酒馆]\n@[主角] 按住 @[长剑]" in prompt
     assert "（时长 8s）" in prompt
     # 断言完整约束句：单看 "9" 会被默认 aspect_ratio "9:16" 满足，max_refs 未注入也能通过
     assert "不超过 9 个（模型上限）" in prompt
@@ -93,16 +88,15 @@ def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
 
 
 def test_build_reference_video_prompt_states_structure_preserving_contract():
-    """step2 的职责是视觉展开：unit 数、台词、镜头数三项保结构要求必须写进 prompt。"""
+    """step2 的职责是视觉展开：unit 数与台词两项保结构要求必须写进 prompt。"""
     prompt = _step2_prompt()
     assert "等长、同序" in prompt
     assert "逐字保留" in prompt
-    assert "镜头行数不增减" in prompt
 
 
 def test_build_reference_video_prompt_omits_duration_from_output_contract():
     """时长是 step1 定稿、机械沿用的字段，step2 不写——prompt 不得要求模型产出它。"""
-    prompt = _step2_prompt(step1_units=[{"unit_id": "E1U01", "shots": [{"text": "x"}], "duration_seconds": 8}])
+    prompt = _step2_prompt(step1_units=[{"unit_id": "E1U01", "text": "x", "duration_seconds": 8}])
     assert "duration_seconds" not in prompt
 
 
@@ -264,22 +258,19 @@ def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
 
 
 def test_render_reference_units_for_step2_mechanical():
-    """渲染是机械变换：序号 + unit 时长 + 带 header 的正文逐项出现；unit_id 不进渲染。"""
+    """渲染是机械变换：序号 + unit 时长 + 正文逐字出现；unit_id 不进渲染。"""
     text = render_reference_units_for_step2(
         [
             {
                 "unit_id": "E1U01",
-                "shots": [{"text": "@[甲] 起身\n@[甲]：{走了。}"}, {"text": "@[甲] 出门"}],
-                "references": [{"type": "character", "name": "甲"}],
+                "text": "@[甲] 起身\n@[甲]：{走了。}\n@[甲] 出门",
                 "duration_seconds": 10,
             },
-            {"unit_id": "E1U02", "shots": [{"text": "@[甲] 回头"}], "references": [], "duration_seconds": 8},
+            {"unit_id": "E1U02", "text": "@[甲] 回头", "duration_seconds": 8},
         ]
     )
     assert "#### unit 1（时长 10s）" in text
-    assert "镜头1：@[甲] 起身" in text
-    assert "@[甲]：{走了。}" in text
-    assert "镜头2：@[甲] 出门" in text
+    assert "@[甲] 起身\n@[甲]：{走了。}\n@[甲] 出门" in text
     assert "#### unit 2（时长 8s）" in text
     # unit_id 由序号机械派生，不下发给 step2
     assert "E1U01" not in text

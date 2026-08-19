@@ -41,7 +41,7 @@ Read 只补充创作输入与产品 soft gate 信息。每次动作完成后刷�
 6. **sheet 过目（软门禁）**：产品有 `product_sheet` 时，请用户在首次分镜或参考视频生成前确认它与真品一致；只有原图时直接继续。
 7. **编排与生成**：
 
-   - `repair_video_units`：Read `target.script`，只处理 `requested_ids` 对应的 unit。先调用 `mcp__arcreel__get_episode_script_revision({"script": target.script_filename})`；再用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "expected_revision": revision, "operations": [{"op": "update", "id": unit_id, "fields": {"shots": [...], "references": [...], "duration_seconds": ...}}]})` 写回全部 unit 的完整规划（每个 unit 一条有序 update）；由工具重算 `needs_replan`，不要直接编辑标记。每个 unit 保持单一发声归属，产品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_video_selected` 点名重做这些 unit，再刷新状态。
+   - `repair_video_units`：Read `target.script`，只处理 `requested_ids` 对应的 unit。先调用 `mcp__arcreel__get_episode_script_revision({"script": target.script_filename})`；再用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "expected_revision": revision, "operations": [{"op": "update", "id": unit_id, "fields": {"text": "...", "duration_seconds": ...}}]})` 写回全部 unit 的完整规划（每个 unit 一条有序 update）；由工具重算 `needs_replan`，不要直接编辑标记。每个 unit 保持单一发声归属，产品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_video_selected` 点名重做这些 unit，再刷新状态。
    - `next_action.type == "generate_storyboards"` → 调
      `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
    - `next_action.type == "generate_grid"` → 调
@@ -84,5 +84,5 @@ storyboard 分镜时长取视频模型 `supported_durations` 成员，可用 `mc
 ## 边界
 
 - storyboard 广告以 `shots[]` 为唯一真相源；reference 广告以自包含 `video_units[]` 为唯一真相源。
-- reference unit 自持书写层、编排时长、references、生成资产与规划状态；编辑这些字段后刷新计划。
+- reference unit 自持书写层正文、编排时长、生成资产与规划状态；编辑这些字段后刷新计划。
 - unit 顺序调整使用 WebUI，字段修复使用 `patch_episode_script`，视频生成使用 `generate-video` skill。

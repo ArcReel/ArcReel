@@ -238,7 +238,7 @@ class TestGenerateTtsSingle:
             "video_units": [
                 {
                     "unit_id": "E1U1",
-                    "shots": [{"text": "镜头推进。\n{独立旁白。}"}],
+                    "text": "镜头推进。\n{独立旁白。}",
                     "generated_assets": {},
                 }
             ],
@@ -268,7 +268,7 @@ class TestGenerateTtsSingle:
             "video_units": [
                 {
                     "unit_id": "E1U1",
-                    "shots": [{"text": "@[阿离]：{快走。}"}],
+                    "text": "@[阿离]：{快走。}",
                     "generated_assets": {},
                 }
             ],
@@ -396,17 +396,17 @@ class TestGenerateTtsBatch:
             "video_units": [
                 {
                     "unit_id": "E1U1",
-                    "shots": [{"text": "镜头推进。\n{独立旁白。}"}],
+                    "text": "镜头推进。\n{独立旁白。}",
                     "generated_assets": {},
                 },
                 {
                     "unit_id": "E1U2",
-                    "shots": [{"text": "@[阿离]：{快走。}"}],
+                    "text": "@[阿离]：{快走。}",
                     "generated_assets": {},
                 },
                 {
                     "unit_id": "E1U3",
-                    "shots": [{"text": "{已有旁白。}"}],
+                    "text": "{已有旁白。}",
                     "generated_assets": {"narration_audio": "audio/segment_E1U3.wav"},
                 },
             ],

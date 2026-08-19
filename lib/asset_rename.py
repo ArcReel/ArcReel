@@ -23,7 +23,7 @@ from lib.asset_types import (
     normalize_asset_name,
     rekey_equivalent_entries,
 )
-from lib.reference_video.shot_parser import rewrite_mentions
+from lib.reference_video.text_parser import rewrite_mentions
 
 
 class AssetRenameNotFoundError(KeyError):
@@ -89,9 +89,8 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
     覆盖面（与 :mod:`lib.data_validator` 的引用扫描 + 书写层派生口径对齐）：
 
     - 各骨架的引用数组（``_LIST_FIELDS_BY_TYPE``，仅 str 元素）；
-    - ``references`` 列表内 ``{type, name}`` 引用（type 须匹配本资产类型）；
     - drama ``utterances[].speaker`` 与 ad ``video_prompt.dialogue[].speaker``（仅 character）；
-    - ``shots[].text`` 自由文本内的 ``@[旧名]`` mention（经 :func:`rewrite_mentions`）；
+    - 单元正文与 ad 分镜文本内的 ``@[旧名]`` mention（经 :func:`rewrite_mentions`）；
     - 旧式剧本内嵌的顶层 ``characters`` 镜像 dict（仅 character：re-key + 路径字段同步）。
 
     只识别骨架结构、不校验语义：结构校验由写盘统一入口的「不更坏」守卫兜底。
@@ -115,20 +114,14 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
                         else:
                             _walk(item)
                     continue
-                if key == "references" and isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, dict) and item.get("type") == asset_type and _matches(item.get("name")):
-                            item["name"] = new_name
-                            count += 1
-                    continue
                 if key == "speaker" and asset_type == "character" and _matches(value):
                     node[key] = new_name
                     count += 1
                     continue
-                if key in ("shots", "units") and isinstance(value, list):
-                    # 参考路线 shot 只有 text（改写 mention）；ad shot 还带引用数组与
-                    # video_prompt.dialogue，继续下钻由通用规则处理。unit 一并认：隔离草稿装的是
-                    # 扁平书写层产物，mention 直接落在 units[].text 上，结构字段尚未派生出 shots。
+                if key in ("shots", "units", "video_units") and isinstance(value, list):
+                    # 参考路线的 mention 落在 unit 正文（``video_units[].text``，隔离草稿里是
+                    # ``units[].text``）；ad 分镜的 shot 还带引用数组与 video_prompt.dialogue，
+                    # 继续下钻由通用规则处理。
                     for item in value:
                         if isinstance(item, dict) and isinstance(item.get("text"), str):
                             new_text, n = rewrite_mentions(item["text"], old_name, new_name)

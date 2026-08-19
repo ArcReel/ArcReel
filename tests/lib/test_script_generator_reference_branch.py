@@ -15,7 +15,9 @@ from lib.draft_quarantine import (
     quarantine_path,
     write_quarantine,
 )
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.draft_validation import DraftViolation
+from lib.reference_video.text_parser import extract_mentions
 from lib.script_generator import ScriptGenerator
 
 STEP1_UNITS_JSON = _json.dumps(
@@ -23,12 +25,8 @@ STEP1_UNITS_JSON = _json.dumps(
         "units": [
             {
                 "unit_id": "E1U01",
-                "shots": [{"text": "@[主角] 推开 @[酒馆] 的门"}],
+                "text": "@[主角] 推开 @[酒馆] 的门",
                 "duration_seconds": 4,
-                "references": [
-                    {"type": "character", "name": "主角"},
-                    {"type": "scene", "name": "酒馆"},
-                ],
             }
         ]
     },
@@ -37,7 +35,7 @@ STEP1_UNITS_JSON = _json.dumps(
 
 
 def _step2_response(*texts: str, title: str = "t") -> str:
-    """step2 的 LLM 产出：扁平 ``{title, units: [{text}]}``——unit_id / 时长 / references 不进输出。"""
+    """step2 的 LLM 产出：扁平 ``{title, units: [{text}]}``——unit_id 与时长不进输出。"""
     return _json.dumps({"title": title, "units": [{"text": t} for t in texts]}, ensure_ascii=False)
 
 
@@ -48,7 +46,7 @@ def _fake_step2_generator(*texts: str) -> MagicMock:
     return generator
 
 
-#: 与 ``STEP1_UNITS_JSON`` 单 unit 对应的合法视觉展开：镜头数不变、无台词可改。
+#: 与 ``STEP1_UNITS_JSON`` 单 unit 对应的合法视觉展开：无台词可改。
 STEP2_UNIT_TEXT = "镜头1：中景，平视。@[主角] 推开 @[酒馆] 的门，侧身跨过门槛。"
 
 
@@ -79,7 +77,7 @@ def reference_project(tmp_path: Path) -> Path:
     project_dir.mkdir()
     (project_dir / "project.json").write_text(
         """{
-          "schema_version": 8,
+          "schema_version": __SCHEMA__,
           "title": "t",
           "content_mode": "narration",
           "generation_mode": "reference_video",
@@ -94,7 +92,7 @@ def reference_project(tmp_path: Path) -> Path:
             {"episode": 1, "title": "t1", "script_file": "scripts/episode_1.json",
              "generation_mode": "reference_video"}
           ]
-        }""",
+        }""".replace("__SCHEMA__", str(CURRENT_PROJECT_SCHEMA_VERSION)),
         encoding="utf-8",
     )
     _write_step1(project_dir, STEP1_UNITS_JSON)
@@ -106,8 +104,8 @@ def reference_project(tmp_path: Path) -> Path:
 async def test_script_generator_reads_step1_reference_units(reference_project: Path):
     gen = ScriptGenerator(reference_project)
     prompt = await gen.build_prompt(episode=1)
-    # step1 正文须经机械渲染进入 prompt（带 镜头N： header 的书写层文本 + unit 时长）
-    assert "镜头1：@[主角] 推开 @[酒馆] 的门" in prompt
+    # step1 正文逐字进入 prompt，与 unit 时长一起
+    assert "@[主角] 推开 @[酒馆] 的门" in prompt
     assert "（时长 4s）" in prompt
     # unit_id 由序号机械派生，不下发给 step2
     assert "E1U01" not in prompt
@@ -134,14 +132,11 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     assert "generation_mode" not in data
     assert len(data["video_units"]) == 1
     unit = data["video_units"][0]
-    # unit_id / 时长沿用 step1；shots / references 由正文机械派生
+    # unit_id / 时长沿用 step1；正文是 step2 展开后的整段文本，参考图执行期才从中派生
     assert unit["unit_id"] == "E1U01"
     assert unit["duration_seconds"] == 4
-    assert unit["shots"][0]["text"].startswith("中景，平视。")
-    assert unit["references"] == [
-        {"type": "character", "name": "主角"},
-        {"type": "scene", "name": "酒馆"},
-    ]
+    assert unit["text"].startswith("镜头1：中景，平视。")
+    assert extract_mentions(unit["text"]) == ["主角", "酒馆"]
 
     # step2 的 response_schema 是扁平形状，且不含 duration_seconds——时长没让 LLM 写
     schema = fake_generator.generate.await_args.args[0].response_schema
@@ -182,8 +177,7 @@ async def test_script_generator_rejects_confirmed_duration_outside_effective_tie
                 '{"episode":1,"title":"t",'
                 '"summary":"s","novel":{"title":"t","chapter":"1"},'
                 '"video_units":[{"unit_id":"E1U01",'
-                '"shots":[{"text":"@主角 推门"}],'
-                '"references":[{"type":"character","name":"主角"}],'
+                '"text":"@[主角] 推门",'
                 '"duration_seconds":8,"transition_to_next":"cut"}]}'
             )
         )
@@ -215,15 +209,13 @@ async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide
                 "units": [
                     {
                         "unit_id": "E1U01",
-                        "shots": [{"text": "@[主角] 推门"}],
+                        "text": "@[主角] 推门",
                         "duration_seconds": 8,
-                        "references": [{"type": "character", "name": "主角"}],
                     },
                     {
                         "unit_id": "E1U02",
-                        "shots": [{"text": "空镜"}],
+                        "text": "空镜",
                         "duration_seconds": 4,
-                        "references": [],
                     },
                 ]
             },
@@ -263,9 +255,8 @@ async def test_script_generator_takes_duration_tier_from_final_output_references
                 "units": [
                     {
                         "unit_id": "E1U01",
-                        "shots": [{"text": "@[主角] 推门"}],
+                        "text": "@[主角] 推门",
                         "duration_seconds": 4,
-                        "references": [{"type": "character", "name": "主角"}],
                     }
                 ]
             },
@@ -290,8 +281,8 @@ async def test_script_generator_takes_duration_tier_from_final_output_references
 
     data = _json.loads(out.read_text(encoding="utf-8"))
     unit = data["video_units"][0]
-    assert unit["references"] == []
-    assert unit["duration_seconds"] == 4  # 按最终 references（无图）取档合法，不因 step1 的带图状态被误判
+    assert extract_mentions(unit["text"]) == []
+    assert unit["duration_seconds"] == 4  # 按最终正文（无引用）取档合法，不因 step1 的带图状态被误判
 
 
 @pytest.mark.asyncio
@@ -317,8 +308,7 @@ async def test_script_generator_reclamps_duration_even_when_caps_unavailable(ref
                 '{"episode":1,"title":"t",'
                 '"summary":"s","novel":{"title":"t","chapter":"1"},'
                 '"video_units":[{"unit_id":"E1U01",'
-                '"shots":[{"text":"@主角 推门"}],'
-                '"references":[{"type":"character","name":"主角"}],'
+                '"text":"@[主角] 推门",'
                 '"duration_seconds":8,"transition_to_next":"cut"}]}'
             )
         )
@@ -353,9 +343,8 @@ async def test_script_generator_rejects_step2_dialogue_rewrite(reference_project
                 "units": [
                     {
                         "unit_id": "E1U01",
-                        "shots": [{"text": "@[主角] 推门\n@[主角]：{我来了。}"}],
+                        "text": "@[主角] 推门\n@[主角]：{我来了。}",
                         "duration_seconds": 4,
-                        "references": [{"type": "character", "name": "主角"}],
                     }
                 ]
             },
@@ -382,9 +371,8 @@ async def test_script_generator_accepts_step2_expansion_keeping_dialogue(referen
                 "units": [
                     {
                         "unit_id": "E1U01",
-                        "shots": [{"text": "@[主角] 推门\n@[主角]：{我来了。}"}],
+                        "text": "@[主角] 推门\n@[主角]：{我来了。}",
                         "duration_seconds": 4,
-                        "references": [{"type": "character", "name": "主角"}],
                     }
                 ]
             },
@@ -398,10 +386,7 @@ async def test_script_generator_accepts_step2_expansion_keeping_dialogue(referen
     )
     out = await gen.generate(episode=1)
     unit = _json.loads(out.read_text(encoding="utf-8"))["video_units"][0]
-    assert unit["references"] == [
-        {"type": "character", "name": "主角"},
-        {"type": "scene", "name": "酒馆"},
-    ]
+    assert extract_mentions(unit["text"]) == ["主角", "酒馆"]
 
 
 @pytest.mark.asyncio
@@ -426,7 +411,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
     project_dir.mkdir()
     (project_dir / "project.json").write_text(
         """{
-          "schema_version": 8,
+          "schema_version": __SCHEMA__,
           "title": "t",
           "content_mode": "drama",
           "generation_mode": "reference_video",
@@ -439,7 +424,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
             {"episode": 1, "title": "t1", "script_file": "scripts/episode_1.json",
              "generation_mode": "reference_video"}
           ]
-        }""",
+        }""".replace("__SCHEMA__", str(CURRENT_PROJECT_SCHEMA_VERSION)),
         encoding="utf-8",
     )
     _write_step1(project_dir, STEP1_UNITS_JSON)
@@ -598,7 +583,7 @@ async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
     (project_dir / "project.json").write_text(
         _j.dumps(
             {
-                "schema_version": 8,
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
                 "title": "t",
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
@@ -667,7 +652,7 @@ async def test_reference_step1_rejects_out_of_enum_duration(reference_project: P
     """读取侧复验 unit 时长 ∈ supported_durations，防手工编辑漂移出非法时长。"""
     drafts = reference_project / "drafts" / "episode_1"
     (drafts / "step1_reference_units.json").write_text(
-        _json.dumps({"units": [{"unit_id": "E1U01", "shots": [{"text": "@[主角] 转身"}], "duration_seconds": 5}]}),
+        _json.dumps({"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 5}]}),
         encoding="utf-8",
     )
 
@@ -685,7 +670,7 @@ async def test_reference_step1_rejects_out_of_enum_duration(reference_project: P
 @pytest.mark.asyncio
 async def test_reference_step1_rejects_duplicate_unit_ids(reference_project: Path):
     drafts = reference_project / "drafts" / "episode_1"
-    unit = {"unit_id": "E1U01", "shots": [{"text": "@[主角] 转身"}], "duration_seconds": 4}
+    unit = {"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4}
     (drafts / "step1_reference_units.json").write_text(_json.dumps({"units": [unit, dict(unit)]}), encoding="utf-8")
 
     gen = ScriptGenerator(reference_project)
@@ -699,7 +684,8 @@ def test_reference_step1_migration_carries_confirmation_forward(reference_projec
     平移到迁移后的值，否则仅 build_prompt/dry-run 预览一次就会把已确认分集退回待审。
     """
     drafts = reference_project / "drafts" / "episode_1"
-    legacy = {"units": [{"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[主角] 转身"}]}]}
+    # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
+    legacy = {"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4, "duration_override": True}]}
     step1_path = drafts / "step1_reference_units.json"
     step1_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
     before = script_review.content_fingerprint(step1_path)
@@ -726,7 +712,8 @@ def test_reference_step1_migration_carries_confirmation_confirmed_after_construc
     看不到这次确认，但迁移写回仍须正确搬移它——不能用这份旧快照做前置短路。
     """
     drafts = reference_project / "drafts" / "episode_1"
-    legacy = {"units": [{"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[主角] 转身"}]}]}
+    # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
+    legacy = {"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4, "duration_override": True}]}
     step1_path = drafts / "step1_reference_units.json"
     step1_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
     before = script_review.content_fingerprint(step1_path)
@@ -760,7 +747,8 @@ def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_
     改写发生在放行之后，继续下去就会按用户从未过目的秒数走完付费的 step2。
     """
     drafts = reference_project / "drafts" / "episode_1"
-    legacy = {"units": [{"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[主角] 转身"}]}]}
+    # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
+    legacy = {"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4, "duration_override": True}]}
     step1_path = drafts / "step1_reference_units.json"
     step1_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
     before = script_review.content_fingerprint(step1_path)
@@ -794,7 +782,7 @@ async def test_step1_text_violation_is_caught_before_the_paid_step2_call(referen
     drafts = reference_project / "drafts" / "episode_1"
     (drafts / "step1_reference_units.json").write_text(
         _json.dumps(
-            {"units": [{"unit_id": "E1U01", "duration_seconds": 4, "shots": [{"text": "@[查无此人} 推门"}]}]},
+            {"units": [{"unit_id": "E1U01", "duration_seconds": 4, "text": "@[查无此人} 推门"}]},
             ensure_ascii=False,
         ),
         encoding="utf-8",
@@ -815,7 +803,7 @@ def test_step1_speech_violation_preserves_canonical_unit_and_locations(reference
         {
             "unit_id": "E1U01",
             "duration_seconds": 4,
-            "shots": [{"text": "门被推开\n@[主角]：{快走。}\n{风吹过旷野。}"}],
+            "text": "门被推开\n@[主角]：{快走。}\n{风吹过旷野。}",
         }
     ]
 
@@ -827,8 +815,8 @@ def test_step1_speech_violation_preserves_canonical_unit_and_locations(reference
     assert "unit E1U01 发声准入未通过" in str(problem)
     assert "unit step1 的 unit" not in str(problem)
     assert problem.locations == (
-        {"path": ["shots", 0, "text"], "line": 1},
-        {"path": ["shots", 0, "text"], "line": 2},
+        {"path": ["text"], "line": 1},
+        {"path": ["text"], "line": 2},
     )
     assert problem.reason == "character_and_narrator_mixed"
     assert problem.action == "replan_unit"
@@ -849,7 +837,7 @@ async def test_step1_dialogue_overload_is_caught_before_the_paid_step2_call(refe
                     {
                         "unit_id": "E1U01",
                         "duration_seconds": 4,
-                        "shots": [{"text": f"@[主角] 推开 @[酒馆] 的门\n@[主角]：{{{long_line}}}"}],
+                        "text": f"@[主角] 推开 @[酒馆] 的门\n@[主角]：{{{long_line}}}",
                     }
                 ]
             },
@@ -862,37 +850,6 @@ async def test_step1_dialogue_overload_is_caught_before_the_paid_step2_call(refe
     gen = ScriptGenerator(reference_project, generator=fake_generator)
 
     with pytest.raises(DraftViolation, match="台词念完约需"):
-        await gen.generate(episode=1)
-    fake_generator.generate.assert_not_awaited()
-
-
-@pytest.mark.integration
-async def test_shot_embedded_header_is_caught_before_the_paid_step2_call(reference_project: Path):
-    """落盘 shot 正文里嵌了 `镜头N：`（Agent 可裸写剧本 JSON）：解析回来会多切一个镜头。
-
-    step2 按多出来的镜头数展开，合并时却比对落盘的 shots 数——不在生成前拦，必然是付完钱才失败。
-    """
-    drafts = reference_project / "drafts" / "episode_1"
-    (drafts / "step1_reference_units.json").write_text(
-        _json.dumps(
-            {
-                "units": [
-                    {
-                        "unit_id": "E1U01",
-                        "duration_seconds": 4,
-                        "shots": [{"text": "@[主角] 推开 @[酒馆] 的门\n镜头2：@[主角] 走进去"}],
-                    }
-                ]
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    fake_generator = _fake_step2_generator(STEP2_UNIT_TEXT)
-
-    gen = ScriptGenerator(reference_project, generator=fake_generator)
-
-    with pytest.raises(DraftViolation, match="解析回"):
         await gen.generate(episode=1)
     fake_generator.generate.assert_not_awaited()
 
@@ -972,10 +929,7 @@ async def test_promote_step2_draft_after_repair(reference_project: Path):
     unit = data["video_units"][0]
     assert unit["unit_id"] == "E1U01"
     assert unit["duration_seconds"] == 4
-    assert unit["references"] == [
-        {"type": "character", "name": "主角"},
-        {"type": "scene", "name": "酒馆"},
-    ]
+    assert extract_mentions(unit["text"]) == ["主角", "酒馆"]
 
 
 @pytest.mark.asyncio
@@ -994,12 +948,12 @@ async def test_promote_step2_draft_reports_again_without_round_limit(reference_p
         assert not _script_path(reference_project).exists()
 
     envelope = _json.loads(path.read_text(encoding="utf-8"))
-    envelope["content"]["units"][0]["text"] = "镜头1：门开了\n镜头2：@[主角] 跨过门槛"
+    envelope["content"]["units"][0]["text"] = "门开了\n@[主角]：{我来了"
     path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
     with pytest.raises(DraftViolation):
         await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
     refreshed = _json.loads(path.read_text(encoding="utf-8"))
-    assert [v["code"] for v in refreshed["violations"]] == ["shot_count_changed"]
+    assert [v["code"] for v in refreshed["violations"]] == ["dialogue_line_syntax"]
 
 
 @pytest.mark.asyncio
@@ -1080,7 +1034,7 @@ async def test_promote_step2_draft_revalidates_edited_step1(reference_project: P
 
     step1 = reference_project / "drafts" / "episode_1" / "step1_reference_units.json"
     step1_data = _json.loads(step1.read_text(encoding="utf-8"))
-    step1_data["units"][0]["shots"] = [{"text": "@[路人甲] 推开 @[酒馆] 的门"}]
+    step1_data["units"][0]["text"] = "@[路人甲] 推开 @[酒馆] 的门"
     step1.write_text(_json.dumps(step1_data, ensure_ascii=False), encoding="utf-8")
 
     with pytest.raises(DraftViolation, match="step1"):

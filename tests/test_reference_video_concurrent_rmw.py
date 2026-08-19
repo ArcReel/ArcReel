@@ -40,8 +40,7 @@ def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -
         "video_units": [
             {
                 "unit_id": f"E1U{i}",
-                "shots": [],
-                "references": [],
+                "text": "镜头",
                 "duration_seconds": 4,
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }
@@ -71,8 +70,7 @@ class TestReferenceVideoConcurrentRMW:
                 script["video_units"].append(
                     {
                         "unit_id": f"E1U{idx}",
-                        "shots": [],
-                        "references": [],
+                        "text": "镜头",
                         "duration_seconds": 4,
                         "generated_assets": {"video_clip": None, "status": "pending"},
                     }

@@ -22,6 +22,7 @@ from lib.draft_quarantine import (
 )
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.draft_validation import DraftViolation
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
@@ -68,20 +69,13 @@ def _narration_step1() -> dict:
 def _rv_step1() -> dict:
     """reference_video step1 结构化中间态（``step1_reference_units.json`` 形状）。
 
-    references 由 shot 文本 ``@[名称]`` 机械派生（此处预填与文本一致的期望值）。
+    正文是单元的唯一内容真相：参考图由其中的 ``@[名称]`` 读时派生，不落盘。
     """
     return {
         "units": [
             {
                 "unit_id": "E1U01",
-                "shots": [
-                    {"text": "@[阿离] 立于屋檐下，望向雨幕。"},
-                    {"text": "@[裴与] 策马自远方而来。"},
-                ],
-                "references": [
-                    {"type": "character", "name": "阿离"},
-                    {"type": "character", "name": "裴与"},
-                ],
+                "text": "@[阿离] 立于屋檐下，望向雨幕。\n@[裴与] 策马自远方而来。",
                 "duration_seconds": 8,
             }
         ],
@@ -394,7 +388,7 @@ class TestReferenceVideoGateFlow:
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
         assert state["content"]["units"][0]["unit_id"] == "E1U01"
-        assert state["content"]["units"][0]["shots"][0]["text"].startswith("@[阿离]")
+        assert state["content"]["units"][0]["text"].startswith("@[阿离]")
         assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
 
         # 确认 → 放行
@@ -404,8 +398,8 @@ class TestReferenceVideoGateFlow:
         assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
 
     @pytest.mark.unit
-    async def test_editing_shot_text_repends_and_rederives_references(self, tmp_path):
-        """编辑 shot 文本 → 重新待审；references 随正文 @ 引用机械重派生（不采用入参陈旧值）。"""
+    async def test_editing_unit_text_reopens_review(self, tmp_path):
+        """编辑单元正文 → 重新待审；正文是落盘的唯一内容，参考图不随之落一份副本。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
         svc = ScriptReviewService(pm)
@@ -413,15 +407,15 @@ class TestReferenceVideoGateFlow:
         await svc.confirm("demo", 1)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
-        # 正文引用从 @[裴与] 改为 @[屋檐]，同时故意保留陈旧 references（应被重派生覆盖）。
         edited = _rv_step1()
-        edited["units"][0]["shots"][1]["text"] = "镜头扫过 @[屋檐]。"
+        edited["units"][0]["text"] = "@[阿离] 立于屋檐下。\n镜头扫过 @[屋檐]。"
         await svc.save_content("demo", 1, edited)
 
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
-        refs = state["content"]["units"][0]["references"]
-        assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
+        unit = state["content"]["units"][0]
+        assert unit["text"] == edited["units"][0]["text"]
+        assert "references" not in unit
 
     @pytest.mark.unit
     async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
@@ -508,52 +502,35 @@ class TestReferenceVideoGateFlow:
         assert exc.value.code == "invalid_content"
 
     @pytest.mark.unit
-    async def test_confirm_rederives_references_when_step1_edited_outside_save_content(self, tmp_path):
-        """confirm 前直改 step1 文件（绕过 save_content，如 agent Write/Edit 直改 drafts/）→
-        确认时按当前正文重派生 references 并落盘，不放行陈旧引用。"""
+    async def test_confirm_allows_text_with_unregistered_mention(self, tmp_path):
+        """正文引用的资产未登记不阻断确认：参考图执行期才从正文解析，缺登记只意味着这一处
+        不出参考图，不是内容层的规划问题。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
-        pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
-        svc = ScriptReviewService(pm)
-
-        # 直改正文引用为 @[屋檐]，但故意保留旧 references（模拟绕过 save_content 的直写）。
-        stale = _rv_step1()
-        stale["units"][0]["shots"][1]["text"] = "镜头扫过 @[屋檐]。"
-        path = _write_rv_step1(pm, stale)
-
-        confirmed = await svc.confirm("demo", 1)
-        assert confirmed["status"] == "confirmed"
-        refs = confirmed["content"]["units"][0]["references"]
-        assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
-
-        # 落盘内容也已更新（confirm 记录的指纹对应重派生后的内容，非编辑前的陈旧版本）。
-        on_disk = json.loads(path.read_text(encoding="utf-8"))
-        assert [(r["type"], r["name"]) for r in on_disk["units"][0]["references"]] == [
-            ("character", "阿离"),
-            ("scene", "屋檐"),
-        ]
-
-    @pytest.mark.unit
-    async def test_confirm_readmits_after_deleted_reference_is_rederived(self, tmp_path):
-        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
-        pm.add_scenes_batch("demo", {"酒馆": {"description": "夜雨中的酒馆"}})
         svc = ScriptReviewService(pm)
         candidate = _rv_step1()
-        candidate["units"][0]["shots"] = [{"text": "@[酒馆]：木门被风吹开。"}]
-        candidate["units"][0]["references"] = [{"type": "scene", "name": "酒馆"}]
+        candidate["units"][0]["text"] = "@[酒馆] 的木门被风吹开。"
         path = _write_rv_step1(pm, candidate)
 
-        def _delete_scene(project: dict) -> None:
-            project["scenes"].pop("酒馆")
+        confirmed = await svc.confirm("demo", 1)
 
-        pm.update_project("demo", _delete_scene)
+        assert confirmed["status"] == "confirmed"
+        assert confirmed["content"]["units"][0]["text"] == "@[酒馆] 的木门被风吹开。"
+        assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["text"] == "@[酒馆] 的木门被风吹开。"
+
+    @pytest.mark.unit
+    async def test_confirm_rejects_speech_problem_in_an_unmarked_unit(self, tmp_path):
+        """发声准入对全部 unit 生效，不只对标了 needs_replan 的那些：一个 unit 里既有人物
+        台词又有无归属旁白，两条音轨在同一段视频上无从叠加，须在确认这一关就拒。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        candidate = _rv_step1()
+        candidate["units"][0]["text"] = "@[阿离] 立于屋檐下。@[阿离]{雨要停了。}\n{雨声渐歇。}"
+        _write_rv_step1(pm, candidate)
 
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
 
         assert exc.value.code == "speech_admission"
-        assert exc.value.admission is not None
-        assert exc.value.admission.problems[0].code == "parse_failed"
-        assert json.loads(path.read_text(encoding="utf-8")) == candidate
 
     @pytest.mark.integration
     async def test_reference_duration_tiers_narrows_raw_set_by_resolution_constraint(self, tmp_path, monkeypatch):
@@ -656,12 +633,11 @@ class TestReferenceVideoStep1Migration:
     pytestmark = pytest.mark.integration
 
     @staticmethod
-    def _legacy_step1() -> dict:
-        """收编前形状：时长挂在各 shot 上，unit 无 duration_seconds。"""
+    def _legacy_step1(seconds: int = 8) -> dict:
+        """收编前形状：正文已是 v9 形态，但仍带着退役的 ``duration_override`` 标记。"""
         legacy = _rv_step1()
-        del legacy["units"][0]["duration_seconds"]
-        legacy["units"][0]["shots"][0]["duration"] = 5
-        legacy["units"][0]["shots"][1]["duration"] = 3
+        legacy["units"][0]["duration_seconds"] = seconds
+        legacy["units"][0]["duration_override"] = False
         return legacy
 
     async def test_migration_takes_slot_so_step2_never_sees_a_non_member_duration(self, tmp_path, monkeypatch):
@@ -675,9 +651,8 @@ class TestReferenceVideoStep1Migration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        # 求和 10s：落在结构区间内，但不是档位成员——只做结构 clamp 时会原样固化。
-        legacy["units"][0]["shots"][0]["duration"] = 6
-        legacy["units"][0]["shots"][1]["duration"] = 4
+        # 10s 落在结构区间内，但不是档位成员——只做结构 clamp 时会原样固化。
+        legacy["units"][0]["duration_seconds"] = 10
         path = _write_rv_step1(pm, legacy)
 
         assert (await svc.get_state("demo", 1))["content"]["units"][0]["duration_seconds"] == 12
@@ -694,9 +669,8 @@ class TestReferenceVideoStep1Migration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        # 求和 7s：结构区间内，但不是 [5, 10] 的成员。
-        legacy["units"][0]["shots"][0]["duration"] = 4
-        legacy["units"][0]["shots"][1]["duration"] = 3
+        # 7s 在结构区间内，但不是 [5, 10] 的成员。
+        legacy["units"][0]["duration_seconds"] = 7
         path = _write_rv_step1(pm, legacy)
 
         state = await svc.get_state("demo", 1)
@@ -711,8 +685,7 @@ class TestReferenceVideoStep1Migration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        legacy["units"][0]["shots"][0]["duration"] = 4
-        legacy["units"][0]["shots"][1]["duration"] = 3
+        legacy["units"][0]["duration_seconds"] = 7
         _write_rv_step1(pm, legacy)
 
         state = await svc.confirm("demo", 1)
@@ -736,9 +709,8 @@ class TestReferenceVideoStep1Migration:
         monkeypatch.setattr(mod, "resolve_video_caps", _raise)
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        # 求和 7s：结构区间内，但不是 registry 档位 [4, 6, 8] 的成员。
-        legacy["units"][0]["shots"][0]["duration"] = 4
-        legacy["units"][0]["shots"][1]["duration"] = 3
+        # 7s 在结构区间内，但不是 registry 档位 [4, 6, 8] 的成员。
+        legacy["units"][0]["duration_seconds"] = 7
         _write_rv_step1(pm, legacy)
 
         state = await svc.get_state("demo", 1)
@@ -750,25 +722,24 @@ class TestReferenceVideoStep1Migration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        legacy["units"][0]["shots"][0]["duration"] = 6
-        legacy["units"][0]["shots"][1]["duration"] = 4
+        legacy["units"][0]["duration_seconds"] = 10
 
         _write_rv_step1(pm, legacy)
         assert (await svc.get_state("demo", 1))["content"]["units"][0]["duration_seconds"] == 10
 
     async def test_legacy_draft_is_migrated_on_read_and_written_back(self, tmp_path):
-        """读状态即收编：unit 拿到求和时长、shot 不再带时长，且一次落盘、二次读不再改写。"""
+        """读状态即收编：退役的 ``duration_override`` 被剥掉、unit 时长保持，且一次落盘、二次读不再改写。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         path = _write_rv_step1(pm, self._legacy_step1())
 
         unit = (await svc.get_state("demo", 1))["content"]["units"][0]
         assert unit["duration_seconds"] == 8
-        assert all("duration" not in s for s in unit["shots"])
+        assert "duration_override" not in unit
 
         on_disk = json.loads(path.read_text(encoding="utf-8"))
         assert on_disk["units"][0]["duration_seconds"] == 8
-        assert all("duration" not in s for s in on_disk["units"][0]["shots"])
+        assert "duration_override" not in on_disk["units"][0]
 
         # 幂等：二次读不再改写落盘内容。
         before = path.read_bytes()
@@ -776,7 +747,7 @@ class TestReferenceVideoStep1Migration:
         assert path.read_bytes() == before
 
     async def test_legacy_draft_can_be_confirmed_and_saved(self, tmp_path):
-        """收编后存量草稿在 gate 里可确认、可保存——迁移前两者都撞结构校验（unit 缺必填时长）。"""
+        """收编后存量草稿在 gate 里可确认、可保存——迁移前两者都撞结构校验（unit 带已退役字段）。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         _write_rv_step1(pm, self._legacy_step1())
@@ -785,7 +756,7 @@ class TestReferenceVideoStep1Migration:
         assert confirmed["status"] == "confirmed"
 
         edited = confirmed["content"]
-        edited["units"][0]["shots"][0]["text"] = "@[阿离] 收伞。"
+        edited["units"][0]["text"] = "@[阿离] 收伞。"
         assert (await svc.save_content("demo", 1, edited))["status"] == "pending_review"
 
     async def test_confirm_survives_migration_without_reopening_review(self, tmp_path):
@@ -815,9 +786,8 @@ class TestReferenceVideoStep1Migration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        # 求和 90s 超出最大档位（12s），迁移会取档改写并记 warning。
-        legacy["units"][0]["shots"][0]["duration"] = 60
-        legacy["units"][0]["shots"][1]["duration"] = 30
+        # 90s 超出最大档位（12s），迁移会取档改写并记 warning。
+        legacy["units"][0]["duration_seconds"] = 90
         path = _write_rv_step1(pm, legacy)
 
         def _confirm_legacy(p: dict) -> None:
@@ -838,8 +808,7 @@ class TestReferenceVideoStep1Migration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        legacy["units"][0]["shots"][0]["duration"] = 60
-        legacy["units"][0]["shots"][1]["duration"] = 30
+        legacy["units"][0]["duration_seconds"] = 90
         _write_rv_step1(pm, legacy)
         _write_step2(pm)
 
@@ -858,8 +827,7 @@ class TestReferenceVideoStep1Migration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        legacy["units"][0]["shots"][0]["duration"] = 60
-        legacy["units"][0]["shots"][1]["duration"] = 30
+        legacy["units"][0]["duration_seconds"] = 90
         _write_rv_step1(pm, legacy)
         _write_step2(pm)
 
@@ -888,8 +856,7 @@ class TestReferenceVideoStep1Migration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        legacy["units"][0]["shots"][0]["duration"] = 60
-        legacy["units"][0]["shots"][1]["duration"] = 30
+        legacy["units"][0]["duration_seconds"] = 90
         _write_rv_step1(pm, legacy)
 
         state = await svc.confirm("demo", 1)
@@ -913,7 +880,7 @@ class TestReferenceVideoStep1Migration:
         pm.update_project("demo", _confirm_legacy)
 
         concurrent_edit = self._legacy_step1()
-        concurrent_edit["units"][0]["shots"][0]["text"] = "并发编辑：紧随迁移写回落盘。"
+        concurrent_edit["units"][0]["text"] = "并发编辑：紧随迁移写回落盘。"
 
         written: list[dict] = []
         original_write = script_review.atomic_write_json
@@ -1125,12 +1092,12 @@ class TestErrors:
 
         # 另一编辑方先保存（内容变化 → 指纹漂移）
         other = _rv_step1()
-        other["units"][0]["shots"][0]["text"] = "@[阿离] 转身离开。"
+        other["units"][0]["text"] = "@[阿离] 转身离开。"
         await svc.save_content("demo", 1, other)
         before = path.read_text(encoding="utf-8")
 
         mine = _rv_step1()
-        mine["units"][0]["shots"][1]["text"] = "@[裴与] 下马。"
+        mine["units"][0]["text"] = "@[裴与] 下马。"
         with pytest.raises(ScriptReviewError) as exc:
             await svc.save_content("demo", 1, mine, stale)
         assert exc.value.code == "conflict"
@@ -1139,7 +1106,7 @@ class TestErrors:
         fresh = (await svc.get_state("demo", 1))["fingerprint"]
         state = await svc.save_content("demo", 1, mine, fresh)
         assert state["status"] == "pending_review"
-        assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["shots"][1]["text"] == "@[裴与] 下马。"
+        assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["text"] == "@[裴与] 下马。"
 
     @pytest.mark.unit
     async def test_save_with_stale_fingerprint_conflicts_drama(self, tmp_path):
@@ -1166,7 +1133,7 @@ class TestErrors:
         svc = ScriptReviewService(pm)
         _write_rv_step1(pm, _rv_step1())
         other = _rv_step1()
-        other["units"][0]["shots"][0]["text"] = "@[阿离] 转身离开。"
+        other["units"][0]["text"] = "@[阿离] 转身离开。"
         await svc.save_content("demo", 1, other)
 
         state = await svc.save_content("demo", 1, _rv_step1())
@@ -1185,11 +1152,11 @@ class TestErrors:
         step2_q = quarantine_path(project_path, 1, QUARANTINE_KIND_STEP2)
 
         write_quarantine(project_path, 1, QUARANTINE_KIND_STEP2, content={"units": [{"text": "旧基底"}]}, violations=[])
-        await svc.save_content("demo", 1, _rv_step1())  # 内容未变（校验/重派生结果与盘上一致）
+        await svc.save_content("demo", 1, _rv_step1())  # 内容未变（校验结果与盘上一致）
         assert step2_q.exists()
 
         edited = _rv_step1()
-        edited["units"][0]["shots"][0]["text"] = "@[阿离] 转身离开。"
+        edited["units"][0]["text"] = "@[阿离] 转身离开。"
         await svc.save_content("demo", 1, edited)
         assert not step2_q.exists()
 
@@ -1283,7 +1250,7 @@ class TestStep1WriteStore:
         project_path = self._project_path(tmp_path)
         project_file = project_path / "project.json"
         project = json.loads(project_file.read_text(encoding="utf-8"))
-        project["schema_version"] = 8
+        project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
         atomic_write_json(project_file, project)
         content = {"units": [{"v": 1}]}
         with script_review.step1_write_lock(project_path, 1):

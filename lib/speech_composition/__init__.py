@@ -7,10 +7,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from lib.asset_types import normalize_asset_name
-from lib.reference_video.shot_parser import (
+from lib.reference_video.text_parser import (
     find_malformed_mention,
-    leading_mention_before_colon,
     speech_line_description,
     split_speech_line,
 )
@@ -291,19 +289,6 @@ def _append_structured_entry(
     )
 
 
-def _non_character_reference_names(raw_references: object) -> set[str]:
-    if not isinstance(raw_references, list):
-        return set()
-    return {
-        normalize_asset_name(name.strip())
-        for reference in raw_references
-        if isinstance(reference, Mapping)
-        and reference.get("type") in {"product", "scene", "prop"}
-        and isinstance((name := reference.get("name")), str)
-        and name.strip()
-    }
-
-
 def _append_video_prompt_dialogue(
     entries: list[SpeechInputUtterance],
     problems: list[SpeechProblem],
@@ -467,68 +452,54 @@ def adapt_ad_shot(shot: Mapping[str, object]) -> SpeechUnitSnapshot:
 
 
 def adapt_video_unit(unit: Mapping[str, object]) -> SpeechUnitSnapshot:
-    """Translate utterance lines from a self-contained reference-video unit."""
+    """Translate utterance lines from a self-contained reference-video unit body.
+
+    A leading ``@[名称]：`` followed by plain text stays a description here: telling a
+    brace-less dialogue line apart from a scene label needs the asset type, and the unit
+    body is the only input this adapter has. Machine drafts keep that judgement in
+    ``lib.reference_video.draft_validation``, which does see the project asset tables.
+    """
 
     unit_id = unit.get("unit_id")
     normalized_unit_id = unit_id if isinstance(unit_id, str) else ""
     entries: list[SpeechInputUtterance] = []
     problems = _initial_problems(unit, normalized_unit_id, "unit_id")
-    non_character_names = _non_character_reference_names(unit.get("references"))
-    shots = unit.get("shots")
-    if isinstance(shots, list) and shots:
-        for shot_index, shot in enumerate(shots):
-            if not isinstance(shot, Mapping):
-                problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("shots", shot_index))))
+    text = unit.get("text")
+    if not isinstance(text, str):
+        problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("text",))))
+        return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
+    for line_index, line in enumerate(text.splitlines()):
+        location = SpeechFieldLocation(("text",), line_index)
+        parts = split_speech_line(line)
+        for part in parts:
+            if isinstance(part, str):
                 continue
-            text = shot.get("text")
-            if not isinstance(text, str):
-                problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("shots", shot_index, "text"))))
+            entries.append(
+                SpeechInputUtterance(
+                    speaker=part.speaker or None,
+                    speaker_required=bool(part.speaker),
+                    text=part.text,
+                    location=location,
+                )
+            )
+        rest = speech_line_description(parts)
+        empty_speaker = _EMPTY_SPEAKER_LINE.match(rest.replace("\ufeff", ""))
+        if empty_speaker is not None:
+            spoken = empty_speaker.group(1)
+            if not spoken.strip():
+                problems.append(_parse_problem(normalized_unit_id, location))
                 continue
-            for line_index, line in enumerate(text.splitlines()):
-                location = SpeechFieldLocation(("shots", shot_index, "text"), line_index)
-                parts = split_speech_line(line)
-                for part in parts:
-                    if isinstance(part, str):
-                        continue
-                    entries.append(
-                        SpeechInputUtterance(
-                            speaker=part.speaker or None,
-                            speaker_required=bool(part.speaker),
-                            text=part.text,
-                            location=location,
-                        )
-                    )
-                rest = speech_line_description(parts)
-                empty_speaker = _EMPTY_SPEAKER_LINE.match(rest.replace("\ufeff", ""))
-                if empty_speaker is not None:
-                    spoken = empty_speaker.group(1)
-                    if not spoken.strip():
-                        problems.append(_parse_problem(normalized_unit_id, location))
-                        continue
-                    entries.append(
-                        SpeechInputUtterance(
-                            speaker=None,
-                            speaker_required=True,
-                            text=spoken,
-                            location=location,
-                        )
-                    )
-                    continue
-                leading_name = leading_mention_before_colon(rest)
-                if (
-                    "{" in rest
-                    or "}" in rest
-                    or "｛" in rest
-                    or "｝" in rest
-                    or (
-                        leading_name is not None
-                        and normalize_asset_name(leading_name.strip()) not in non_character_names
-                    )
-                    or find_malformed_mention(rest) is not None
-                ):
-                    problems.append(_parse_problem(normalized_unit_id, location))
-    else:
-        problems.append(_parse_problem(normalized_unit_id, SpeechFieldLocation(("shots",))))
+            entries.append(
+                SpeechInputUtterance(
+                    speaker=None,
+                    speaker_required=True,
+                    text=spoken,
+                    location=location,
+                )
+            )
+            continue
+        if "{" in rest or "}" in rest or "｛" in rest or "｝" in rest or find_malformed_mention(rest) is not None:
+            problems.append(_parse_problem(normalized_unit_id, location))
     return SpeechUnitSnapshot(normalized_unit_id, tuple(entries), tuple(problems))
 
 
@@ -589,21 +560,17 @@ def refresh_video_unit_replan_state(
     unit: dict[str, object],
     *,
     allow_clear: bool = True,
-    content_changed: bool = False,
 ) -> None:
-    """Refresh ``needs_replan`` after a planning edit.
-
-    ``migration_requires_content_replan`` records membership/over-capacity evidence that
-    the migrated self-contained body cannot express. Only an actual body rewrite consumes
-    that provenance; duration edits may still clear an independent invalid-duration marker.
-    """
-    if content_changed:
-        unit.pop("migration_requires_content_replan", None)
-    if unit.get("migration_requires_content_replan") is True:
-        unit["needs_replan"] = True
-        return
+    """Refresh ``needs_replan`` after a planning edit."""
     duration = unit.get("duration_seconds")
-    if not unit.get("shots") or not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
+    text = unit.get("text")
+    if (
+        not isinstance(text, str)
+        or not text.strip()
+        or not isinstance(duration, int)
+        or isinstance(duration, bool)
+        or duration <= 0
+    ):
         unit["needs_replan"] = True
         return
     if video_unit_replan_problems(unit, ignore_marker=True):

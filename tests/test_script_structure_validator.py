@@ -58,12 +58,10 @@ def _drama(scenes: list[dict] | None = None) -> dict:
     }
 
 
-def _unit(unit_id: str = "E1U1", shots: list[dict] | None = None, duration: int | None = None, **extra) -> dict:
-    shots = shots if shots is not None else [{"text": "镜头1"}, {"text": "镜头2"}]
+def _unit(unit_id: str = "E1U1", text: str | None = None, duration: int | None = None, **extra) -> dict:
     unit = {
         "unit_id": unit_id,
-        "shots": shots,
-        "references": [],
+        "text": text if text is not None else "中景，@[张三] 推门。\n近景，他抬眼。",
         "duration_seconds": duration if duration is not None else 8,
     }
     unit.update(extra)
@@ -187,24 +185,22 @@ class TestInvalidNarration:
 
 class TestInvalidReferenceVideo:
     def test_duration_out_of_structural_range_rejected(self):
-        # unit 时长是唯一真相、与镜头无关，只受结构合理性区间约束
+        # unit 时长是唯一真相、与正文无关，只受结构合理性区间约束
         result = validate_script_structure(_reference([_unit(duration=9999)]))
         assert not result.valid
         assert any("duration" in e.lower() for e in result.errors)
 
-    def test_duration_independent_of_shot_count(self):
+    def test_duration_independent_of_text_length(self):
         assert validate_script_structure(_reference([_unit(duration=12)])).valid
+        assert validate_script_structure(_reference([_unit(text="一行", duration=12)])).valid
 
-    def test_empty_shots_rejected(self):
-        unit = _unit(shots=[], duration=8)
-        result = validate_script_structure(_reference([unit]))
-        assert not result.valid
+    def test_empty_text_rejected_unless_replan_shell(self):
+        assert not validate_script_structure(_reference([_unit(text="", duration=8)])).valid
+        assert validate_script_structure(_reference([_unit(text="", duration=0, needs_replan=True)])).valid
 
-    def test_too_many_shots_rejected(self):
-        shots = [{"text": f"镜头{i}"} for i in range(5)]
-        unit = _unit(shots=shots, duration=5)
-        result = validate_script_structure(_reference([unit]))
-        assert not result.valid
+    def test_legacy_shot_fields_rejected(self):
+        unit = _unit(shots=[{"text": "镜头1"}])
+        assert not validate_script_structure(_reference([unit])).valid
 
 
 def _ad_shot(shot_id: str = "E1S01", duration: int = 3) -> dict:

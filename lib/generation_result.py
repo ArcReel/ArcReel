@@ -143,7 +143,6 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "tts_conflicts_with_active_narrated_video": GenerationAction.WAIT_FOR_TASK,
     "reference_duration_confirmation_required": GenerationAction.CONFIRM_REQUEST_DURATION,
     "reference_asset_missing": GenerationAction.GENERATE_DEPENDENCY,
-    "reference_declaration_invalid": GenerationAction.FIX_INPUT,
     "reference_capability_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "reference_capability_changed": GenerationAction.CONFIGURE_PROVIDER,
     "reference_supported_durations_missing": GenerationAction.CONFIGURE_PROVIDER,

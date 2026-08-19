@@ -12,6 +12,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lib.artifact_planner import ARTIFACT_MANIFEST_SCHEMA_VERSION
+from lib.episode_ledger import parse_positive_episode_num
+from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME, episode_drafts_dir
 from lib.path_safety import try_safe_join
 from lib.project_migration_failure import (
     MigrationFailureRecord,
@@ -32,14 +35,18 @@ from lib.project_migrations.v4_to_v5_generation_route import migrate_v4_to_v5
 from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 from lib.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
 
 CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 
+#: 清单激活的输入备份命名所用的版本号（``*.bak.v7-*``）：它是那一步的**起点**版本。
+_ACTIVATION_BACKUP_VERSION = ARTIFACT_MANIFEST_SCHEMA_VERSION - 1
+
 MIGRATORS: dict[int, Callable[[Path], None]] = {}
-_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7})
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8})
 
 # 只读预检：在 runner 写下任何备份之前跑，拒绝时项目目录一个字节都没被动过。
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
@@ -63,7 +70,11 @@ def _numeric_backup_candidates(source: Path, versions: tuple[int, ...]) -> list[
 
 
 def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
-    """Resolve the exact script paths that v6/v7 migrations were allowed to back up."""
+    """Resolve every script-shaped source a migration was allowed to back up.
+
+    账本里绑定的剧集脚本，加上同集的 step1 草稿——草稿是同一份正文的上一形态，改写脚本的
+    迁移同批改写它，备份因此成对出现，回收也必须成对，否则草稿备份没有任何清理路径。
+    """
 
     try:
         project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
@@ -74,12 +85,16 @@ def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
         return ()
     sources: list[Path] = []
     for episode in episodes:
-        script_file = episode.get("script_file") if isinstance(episode, dict) else None
-        if not isinstance(script_file, str) or not script_file:
+        if not isinstance(episode, dict):
             continue
-        source = try_safe_join(project_dir, script_file)
-        if source is not None:
-            sources.append(source)
+        script_file = episode.get("script_file")
+        if isinstance(script_file, str) and script_file:
+            source = try_safe_join(project_dir, script_file)
+            if source is not None:
+                sources.append(source)
+        episode_num = parse_positive_episode_num(episode.get("episode"))
+        if episode_num is not None:
+            sources.append(episode_drafts_dir(project_dir, episode_num) / REFERENCE_VIDEO_STEP1_FILENAME)
     return tuple(sources)
 
 
@@ -265,14 +280,18 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
     for project_dir in projects_root.iterdir():
         if not project_dir.is_dir():
             continue
-        retain_v7_recovery = _load_schema_version(project_dir) < CURRENT_SCHEMA_VERSION
+        # 清单激活的恢复备份留到那一步的版本提升坐实为止，之后才可回收；它锚在
+        # 「激活落点」而非「当前版本」上，否则每次 schema 升版都会把回收目标错位到别的迁移。
+        retain_activation_recovery = _load_schema_version(project_dir) < ARTIFACT_MANIFEST_SCHEMA_VERSION
         project_backup_versions = tuple(
             version
             for version in range(CURRENT_SCHEMA_VERSION)
-            if not (retain_v7_recovery and version == CURRENT_SCHEMA_VERSION - 1)
+            if not (retain_activation_recovery and version == _ACTIVATION_BACKUP_VERSION)
         )
-        activation_backup_versions = () if retain_v7_recovery else (CURRENT_SCHEMA_VERSION - 1,)
-        script_backup_versions = (6,) if retain_v7_recovery else (6, CURRENT_SCHEMA_VERSION - 1)
+        activation_backup_versions = () if retain_activation_recovery else (_ACTIVATION_BACKUP_VERSION,)
+        # 脚本类源文与 project.json 用同一份版本集合：备份名按来源文件枚举，列进从未产生过
+        # 备份的版本没有代价，而写死一张「哪几版改过脚本」的清单会在下一次迁移时漏掉新版本。
+        script_backup_versions = project_backup_versions
         sources = (
             (project_dir / "project.json", project_backup_versions),
             (project_dir / ".arcreel_artifacts.json", activation_backup_versions),
@@ -306,3 +325,4 @@ MIGRATORS[4] = migrate_v4_to_v5
 MIGRATORS[5] = migrate_v5_to_v6
 MIGRATORS[6] = migrate_v6_to_v7
 MIGRATORS[7] = migrate_v7_to_v8
+MIGRATORS[8] = migrate_v8_to_v9

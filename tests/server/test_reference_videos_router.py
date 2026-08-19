@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -66,6 +67,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     )
 
     migrate_v7_to_v8(proj_dir)
+    migrate_v8_to_v9(proj_dir)
 
     # Patch project_manager 的根目录
     from lib.project_manager import ProjectManager
@@ -101,28 +103,50 @@ def test_list_units_404_for_unknown_project(client: TestClient):
 def test_add_unit_creates_minimal_entry(client: TestClient):
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "镜头1：@张三 推门", "duration_seconds": 3},
+    )
+    assert resp.status_code == 201, resp.text
+    payload = resp.json()
+    assert payload["unit"]["unit_id"].startswith("E1U")
+    assert payload["unit"]["duration_seconds"] == 3
+    assert payload["unit"]["text"] == "镜头1：@张三 推门"
+
+
+@pytest.mark.integration
+def test_add_unit_refuses_a_blank_body(client: TestClient):
+    """正文是单元的唯一内容真相：空正文的单元不可执行，创建时即以 needs_replan 拒绝。"""
+    response = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "", "duration_seconds": 3},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["problems"][0]["code"] == "needs_replan"
+    assert client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json() == {"units": []}
+
+
+@pytest.mark.unit
+def test_add_unit_rejects_a_stored_reference_list(client: TestClient):
+    """正文是参考图的唯一来源；仍带 ``references`` 的旧客户端须拿到 422 而非被静默忽略。"""
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={
             "prompt": "镜头1：@张三 推门",
             "duration_seconds": 3,
             "references": [{"type": "character", "name": "张三"}],
         },
     )
-    assert resp.status_code == 201, resp.text
-    payload = resp.json()
-    assert payload["unit"]["unit_id"].startswith("E1U")
-    assert payload["unit"]["duration_seconds"] == 3
-    assert payload["unit"]["references"] == [{"type": "character", "name": "张三"}]
+    assert resp.status_code == 422, resp.text
 
 
-@pytest.mark.integration
-def test_add_unit_allows_blank_editor_draft(client: TestClient):
-    response = client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "", "duration_seconds": 3, "references": []},
+@pytest.mark.unit
+def test_patch_unit_rejects_a_stored_reference_list(client: TestClient):
+    uid = _seed_unit(client)
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"references": [{"type": "scene", "name": "酒馆"}]},
     )
-
-    assert response.status_code == 201, response.text
-    assert response.json()["unit"]["shots"] == [{"text": ""}]
+    assert resp.status_code == 422, resp.text
 
 
 @pytest.mark.integration
@@ -131,17 +155,17 @@ def test_add_unit_without_duration_falls_back_to_model_slot(client: TestClient, 
     _patch_supported_durations(monkeypatch, [6, 9])
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "镜头1：@张三 推门", "references": [{"type": "character", "name": "张三"}]},
+        json={"prompt": "镜头1：@张三 推门"},
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["unit"]["duration_seconds"] == 6
 
 
 @pytest.mark.integration
-def test_add_unit_derives_omitted_references_before_selecting_duration_bucket(
+def test_add_unit_derives_references_from_text_before_selecting_duration_bucket(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """省略 references 时先从正文派生，默认时长按最终 r2v 单元定桶。"""
+    """默认时长按正文派生出的参考图定桶：正文提到已登记资产即走 r2v 档。"""
     from server.routers import reference_videos as router_mod
     from server.services.reference_video_tasks import ProjectDurationContext
 
@@ -155,7 +179,6 @@ def test_add_unit_derives_omitted_references_before_selecting_duration_bucket(
     )
 
     assert response.status_code == 201, response.text
-    assert response.json()["unit"]["references"] == [{"type": "character", "name": "张三"}]
     assert response.json()["unit"]["duration_seconds"] == 6
     assert resolve_context.await_args.kwargs["capability"] == "r2v"
 
@@ -166,34 +189,16 @@ def test_add_unit_rejects_non_positive_duration(client: TestClient, duration_sec
     """显式非正时长须在请求边界被拒，不静默改写成 1 秒。"""
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={
-            "prompt": "镜头1：@张三 推门",
-            "duration_seconds": duration_seconds,
-            "references": [{"type": "character", "name": "张三"}],
-        },
+        json={"prompt": "镜头1：@张三 推门", "duration_seconds": duration_seconds},
     )
     assert resp.status_code == 422, resp.text
-
-
-@pytest.mark.unit
-def test_add_unit_rejects_unknown_asset_reference(client: TestClient):
-    resp = client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "镜头1：@未知角色 出现", "references": [{"type": "character", "name": "未知角色"}]},
-    )
-    assert resp.status_code == 400
-    assert "未知角色" in resp.json()["detail"]
 
 
 @pytest.mark.unit
 def test_add_unit_atomically_rejects_mixed_speech(client: TestClient):
     response = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={
-            "prompt": "镜头1：张三推门\n@[张三]：{快走。}\n{风吹过旷野。}",
-            "duration_seconds": 3,
-            "references": [{"type": "character", "name": "张三"}],
-        },
+        json={"prompt": "镜头1：张三推门\n@[张三]：{快走。}\n{风吹过旷野。}", "duration_seconds": 3},
     )
 
     assert response.status_code == 409
@@ -204,19 +209,24 @@ def test_add_unit_atomically_rejects_mixed_speech(client: TestClient):
 def _seed_unit(client: TestClient) -> str:
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={
-            "prompt": "镜头1：@张三 推门",
-            "duration_seconds": 3,
-            "references": [{"type": "character", "name": "张三"}],
-        },
+        json={"prompt": "镜头1：@张三 推门", "duration_seconds": 3},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["unit"]["unit_id"]
 
 
+def _derived_references(client: TestClient, unit: dict[str, Any]) -> list[tuple[str, str]]:
+    """执行期会用到的参考图引用：正文的唯一派生出口，不落盘。"""
+    from lib.reference_video.request_projection import unit_reference_declarations
+    from server.routers import reference_videos as router_mod
+
+    project = router_mod.get_project_manager().load_project("demo")
+    return [(ref.type, ref.name) for ref in unit_reference_declarations(project, unit)]
+
+
 @pytest.mark.integration
 def test_patch_unit_prompt_keeps_duration(client: TestClient):
-    """时长与正文互不牵连；只传正文时 references 用当前资产表重新派生。"""
+    """时长与正文互不牵连；正文换掉后参考图按新正文重新派生。"""
     uid = _seed_unit(client)
     resp = client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
@@ -224,13 +234,13 @@ def test_patch_unit_prompt_keeps_duration(client: TestClient):
     )
     assert resp.status_code == 200, resp.text
     unit = resp.json()["unit"]
-    assert len(unit["shots"]) == 2
+    assert unit["text"] == "镜头1：@酒馆 门口\n镜头2：@酒馆 全景"
     assert unit["duration_seconds"] == 3
-    assert unit["references"] == [{"type": "scene", "name": "酒馆"}]
+    assert _derived_references(client, unit) == [("scene", "酒馆")]
 
 
 @pytest.mark.integration
-def test_patch_unit_rederives_non_character_references_before_speech_admission(client: TestClient):
+def test_patch_unit_derives_non_character_references_before_speech_admission(client: TestClient):
     uid = _seed_unit(client)
 
     response = client.patch(
@@ -239,7 +249,7 @@ def test_patch_unit_rederives_non_character_references_before_speech_admission(c
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()["unit"]["references"] == [{"type": "scene", "name": "酒馆"}]
+    assert _derived_references(client, response.json()["unit"]) == [("scene", "酒馆")]
 
 
 @pytest.mark.integration
@@ -275,7 +285,7 @@ def test_three_reference_route_web_manual_edits_atomically_reject_mixed_speech_o
     assert response.status_code == 409
     assert response.json()["detail"]["problems"][0]["code"] == "mixed_speech"
     after = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"][0]
-    assert after["shots"] == before["shots"]
+    assert after["text"] == before["text"]
     assert after["generated_assets"] == before["generated_assets"]
 
 
@@ -287,7 +297,7 @@ def test_patch_allows_unchanged_legacy_mixed_prompt(client: TestClient):
 
     pm = router_mod.get_project_manager()
     script = pm.load_script("demo", "episode_1.json")
-    script["video_units"][0]["shots"] = [{"text": "张三推门\n@[张三]：{快走。}\n{风吹过旷野。}"}]
+    script["video_units"][0]["text"] = "张三推门\n@[张三]：{快走。}\n{风吹过旷野。}"
     script["video_units"][0]["needs_replan"] = True
     pm.save_script("demo", script, "episode_1.json")
 
@@ -303,7 +313,7 @@ def test_patch_allows_unchanged_legacy_mixed_prompt(client: TestClient):
 
 @pytest.mark.integration
 def test_patch_unit_duration_only(client: TestClient):
-    """只改时长：镜头正文原样保留。"""
+    """只改时长：正文原样保留。"""
     uid = _seed_unit(client)
     resp = client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
@@ -312,7 +322,7 @@ def test_patch_unit_duration_only(client: TestClient):
     assert resp.status_code == 200, resp.text
     unit = resp.json()["unit"]
     assert unit["duration_seconds"] == 9
-    assert unit["shots"] == [{"text": "@张三 推门"}]
+    assert unit["text"] == "镜头1：@张三 推门"
 
 
 @pytest.mark.integration
@@ -327,98 +337,20 @@ def test_patch_unit_rejects_non_positive_duration(client: TestClient, duration_s
     assert resp.status_code == 422, resp.text
 
 
-@pytest.mark.unit
-def test_patch_unit_references_only(client: TestClient):
-    uid = _seed_unit(client)
-    resp = client.patch(
-        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={
-            "references": [
-                {"type": "character", "name": "张三"},
-                {"type": "scene", "name": "酒馆"},
-            ]
-        },
-    )
-    assert resp.status_code == 200, resp.text
-    assert len(resp.json()["unit"]["references"]) == 2
-
-
 @pytest.mark.integration
-def test_add_nonblank_unit_derives_registered_references_when_omitted(client: TestClient):
+def test_add_nonblank_unit_derives_registered_references_from_text(client: TestClient):
     response = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={"prompt": "@[酒馆]：木门被风吹开", "duration_seconds": 5},
     )
 
     assert response.status_code == 201, response.text
-    assert response.json()["unit"]["references"] == [{"type": "scene", "name": "酒馆"}]
+    assert _derived_references(client, response.json()["unit"]) == [("scene", "酒馆")]
 
 
 @pytest.mark.integration
-def test_patch_unit_references_atomically_rejects_new_parse_failure(client: TestClient):
-    uid = _seed_unit(client)
-    from server.routers import reference_videos as router_mod
-
-    pm = router_mod.get_project_manager()
-    script = pm.load_script("demo", "episode_1.json")
-    script["video_units"][0].update(
-        {
-            "shots": [{"text": "@[酒馆]：木门被风吹开"}],
-            "references": [{"type": "scene", "name": "酒馆"}],
-        }
-    )
-    pm.save_script("demo", script, "episode_1.json")
-
-    response = client.patch(
-        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={"references": []},
-    )
-
-    assert response.status_code == 409
-    assert response.json()["detail"]["problems"][0]["code"] == "parse_failed"
-    saved = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"][0]
-    assert saved["references"] == [{"type": "scene", "name": "酒馆"}]
-
-
-@pytest.mark.integration
-def test_patch_unit_references_can_repair_parse_failure(client: TestClient):
-    uid = _seed_unit(client)
-    from server.routers import reference_videos as router_mod
-
-    pm = router_mod.get_project_manager()
-    script = pm.load_script("demo", "episode_1.json")
-    script["video_units"][0].update(
-        {
-            "shots": [{"text": "@[酒馆]：木门被风吹开"}],
-            "references": [],
-            "needs_replan": True,
-        }
-    )
-    pm.save_script("demo", script, "episode_1.json")
-
-    response = client.patch(
-        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={"references": [{"type": "scene", "name": "酒馆"}]},
-    )
-
-    assert response.status_code == 200, response.text
-    assert response.json()["unit"].get("needs_replan") is not True
-
-
-@pytest.mark.unit
-def test_patch_unit_rejects_unknown_reference(client: TestClient):
-    uid = _seed_unit(client)
-    resp = client.patch(
-        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={"references": [{"type": "prop", "name": "不存在"}]},
-    )
-    assert resp.status_code == 400
-
-
-@pytest.mark.integration
-def test_patch_unit_accepts_nfc_reference_for_nfd_registered_name(client: TestClient):
-    """资产以 NFD 形式登记、PATCH 请求携带解析器已归一的 NFC 名字：_validate_references_exist
-    须按归一形式比对判「已登记」放行，不能因编码形式不同误判未登记。"""
+def test_patch_unit_derives_nfc_reference_for_nfd_registered_name(client: TestClient):
+    """资产以 NFD 形式登记、正文写的是 NFC 名字：派生须按归一形式比对判「已登记」。"""
     from server.routers import reference_videos as router_mod
 
     name_nfd = unicodedata.normalize("NFD", "Hiếu")
@@ -432,49 +364,10 @@ def test_patch_unit_accepts_nfc_reference_for_nfd_registered_name(client: TestCl
     uid = _seed_unit(client)
     resp = client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={"references": [{"type": "character", "name": name_nfc}]},
+        json={"prompt": f"镜头1：@[{name_nfc}] 推门"},
     )
     assert resp.status_code == 200, resp.text
-
-
-@pytest.mark.integration
-def test_unit_references_persisted_in_asset_comparison_form(client: TestClient):
-    """add/patch 落盘的 reference name 统一 strip + NFC。"""
-    from server.routers import reference_videos as router_mod
-
-    name_nfd = unicodedata.normalize("NFD", "Hiếu")
-    name_nfc = unicodedata.normalize("NFC", "Hiếu")
-    pm = router_mod.get_project_manager()
-    project = pm.load_project("demo")
-    project["characters"][name_nfd] = {"description": "x"}
-    pm.save_project("demo", project)
-
-    resp = client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={
-            "prompt": "镜头1：推门",
-            "duration_seconds": 3,
-            "references": [{"type": "character", "name": f" {name_nfd} "}],
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    unit = resp.json()["unit"]
-    assert unit["references"] == [{"type": "character", "name": name_nfc}]
-
-    resp = client.patch(
-        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{unit['unit_id']}",
-        json={
-            "references": [
-                {"type": "character", "name": f" {name_nfd} "},
-                {"type": "character", "name": " 张三 "},
-            ]
-        },
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["unit"]["references"] == [
-        {"type": "character", "name": name_nfc},
-        {"type": "character", "name": "张三"},
-    ]
+    assert _derived_references(client, resp.json()["unit"]) == [("character", name_nfc)]
 
 
 @pytest.mark.unit
@@ -760,7 +653,7 @@ def test_generate_unit_bucket_capability_error_returns_400(client: TestClient, m
                 "code": "video_capability_missing_r2v",
                 "blocking": True,
                 "unit_id": uid,
-                "locations": [{"path": ["references"], "line": None}],
+                "locations": [{"path": ["text"], "line": None}],
                 "params": {"provider": "minimax", "model": "MiniMax-Hailuo-2.3"},
                 "action": "configure_video_model",
                 "message": i18n_message("video_capability_missing_r2v", provider="minimax", model="MiniMax-Hailuo-2.3"),
@@ -777,9 +670,7 @@ def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
     """无参考图退化 unit 的入队预检按降级后的 i2v 桶过解析闸，与执行侧分流同口径。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"] = [
-        {"unit_id": "E1U1", "shots": [{"text": "空镜头"}], "references": [], "duration_seconds": 3}
-    ]
+    script["video_units"] = [{"unit_id": "E1U1", "text": "空镜头", "duration_seconds": 3}]
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.routers import reference_videos as router_mod
@@ -807,10 +698,10 @@ def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
 
 @pytest.mark.unit
 def test_generate_unit_rejects_blank_prompt(client: TestClient, tmp_path: Path):
-    """shots 文本全空白的 unit 在入队时被守卫点拒绝（400），不再漏到执行层失败。"""
+    """正文全空白的 unit 在入队时被守卫点拒绝（400），不漏到执行层失败。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"] = [{"unit_id": "E1U1", "shots": [{"text": "  "}], "references": [], "duration_seconds": 3}]
+    script["video_units"] = [{"unit_id": "E1U1", "text": "  ", "duration_seconds": 3}]
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
@@ -1035,7 +926,7 @@ def test_precheck_use_tts_while_regenerating_returns_canonical_problem(
 def test_precheck_uses_actual_tts_duration_as_floor(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     created = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "镜头1：海面\n{旁白正文。}", "duration_seconds": 3, "references": []},
+        json={"prompt": "镜头1：海面\n{旁白正文。}", "duration_seconds": 3},
     )
     assert created.status_code == 201, created.text
     uid = created.json()["unit"]["unit_id"]  # 剧本 3s，实际旁白 9.5s
@@ -1156,7 +1047,7 @@ def test_add_unit_stale_script_file_returns_404(client: TestClient, tmp_path: Pa
     (tmp_path / "projects" / "demo" / "scripts" / "episode_1.json").unlink()
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "镜头1：@张三 出现", "references": [{"type": "character", "name": "张三"}]},
+        json={"prompt": "镜头1：@张三 出现"},
     )
     assert resp.status_code == 404, resp.text
 
@@ -1165,7 +1056,7 @@ def test_add_unit_stale_script_file_returns_404(client: TestClient, tmp_path: Pa
 def test_add_unit_unknown_project_returns_404(client: TestClient):
     resp = client.post(
         "/api/v1/projects/missing/reference-videos/episodes/1/units",
-        json={"prompt": "镜头1：@张三 出现", "references": []},
+        json={"prompt": "镜头1：@张三 出现"},
     )
     assert resp.status_code == 404
 
@@ -1174,7 +1065,7 @@ def test_add_unit_unknown_project_returns_404(client: TestClient):
 def test_add_unit_unknown_episode_returns_404(client: TestClient):
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/99/units",
-        json={"prompt": "镜头1：空镜", "references": []},
+        json={"prompt": "镜头1：空镜"},
     )
     assert resp.status_code == 404
 
@@ -1193,7 +1084,7 @@ def test_write_endpoint_rejects_non_reference_video_mode(client: TestClient, tmp
 
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "镜头1：空镜", "references": []},
+        json={"prompt": "镜头1：空镜"},
     )
     assert resp.status_code == 409
 
@@ -1203,7 +1094,7 @@ def test_patch_unit_duration_override_without_header(client: TestClient):
     """无 header 的 prompt → override=True，duration_seconds 直接生效。"""
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "@张三 推门", "references": [{"type": "character", "name": "张三"}], "duration_seconds": 5},
+        json={"prompt": "@张三 推门", "duration_seconds": 5},
     )
     assert resp.status_code == 201, resp.text
     uid = resp.json()["unit"]["unit_id"]
@@ -1273,7 +1164,7 @@ def test_add_unit_concurrent_rebind_returns_409(client: TestClient, monkeypatch:
 
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "镜头1：空镜", "references": []},
+        json={"prompt": "镜头1：空镜"},
     )
     assert resp.status_code == 409, resp.text
 
@@ -1295,16 +1186,15 @@ def _preview(client: TestClient, prompt: str):
 
 
 @pytest.mark.integration
-def test_script_preview_derives_shots_references_and_utterances(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+def test_script_preview_derives_utterances_in_reading_order(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """预览只回发声派生：utterances 按正文顺序 1-based 编号，另加降级 warning。"""
     _patch_video_caps(monkeypatch, {})
     body = _preview(client, "镜头1：@[酒馆] 内景。\n@[张三]：{我来了}\n{那年冬天格外冷}").json()
 
-    assert [s["index"] for s in body["shots"]] == [1]
-    # speaker 位不计入参考图
-    assert body["references"] == [{"type": "scene", "name": "酒馆"}]
+    assert set(body) == {"utterances", "warnings"}
     assert body["utterances"] == [
-        {"shot_index": 1, "kind": "dialogue", "speaker": "张三", "text": "我来了"},
-        {"shot_index": 1, "kind": "voiceover", "speaker": None, "text": "那年冬天格外冷"},
+        {"index": 1, "kind": "dialogue", "speaker": "张三", "text": "我来了"},
+        {"index": 2, "kind": "voiceover", "speaker": None, "text": "那年冬天格外冷"},
     ]
     assert body["warnings"] == []
 
@@ -1406,11 +1296,7 @@ def _record_finished_clip(unit_id: str) -> None:
 def _seed_second_unit(client: TestClient) -> str:
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={
-            "prompt": "镜头1：@酒馆 全景",
-            "duration_seconds": 3,
-            "references": [{"type": "scene", "name": "酒馆"}],
-        },
+        json={"prompt": "镜头1：@酒馆 全景", "duration_seconds": 3},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["unit"]["unit_id"]
@@ -1879,13 +1765,13 @@ def test_generate_batch_creates_zero_tasks_when_one_artifact_state_is_unreadable
 
 
 @pytest.mark.unit
-def test_reference_unit_task_spec_rejects_a_non_list_shots() -> None:
-    """脏值 shots 报可入队性问题，而不是在拼接镜头文本时把整批打成 500。"""
+def test_reference_unit_task_spec_rejects_a_non_string_text() -> None:
+    """脏值正文报可入队性问题，而不是在读正文时把整批打成 500。"""
 
     from server.services.video_batch_admission import reference_unit_task_spec
 
-    with pytest.raises(ValueError, match="shots 必须是数组"):
-        reference_unit_task_spec({"unit_id": "E1U1", "shots": 42}, "scripts/episode_1.json")
+    with pytest.raises(ValueError, match="text 必须是字符串"):
+        reference_unit_task_spec({"unit_id": "E1U1", "text": 42}, "scripts/episode_1.json")
 
 
 @pytest.mark.integration
@@ -2204,9 +2090,7 @@ def test_generate_unit_rejects_a_path_like_unit_id(client: TestClient, tmp_path:
     """unit_id 带路径分隔符时当场拒绝（400），不漏到执行层拼产物路径时才失败。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"] = [
-        {"unit_id": "a\\b", "shots": [{"text": "镜头平移"}], "references": [], "duration_seconds": 3}
-    ]
+    script["video_units"] = [{"unit_id": "a\\b", "text": "镜头平移", "duration_seconds": 3}]
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/a%5Cb/generate")

@@ -70,7 +70,7 @@ _MINIMAL_SCRIPT = {
 
 
 def _write_minimal_project(project_path: Path) -> None:
-    """落一个最小的 v8 项目：产物清单的取证要读到 project.json 与剧集绑定。"""
+    """落一个当前 schema 版本的最小项目：产物清单的取证要读到 project.json 与剧集绑定。"""
     project_path.mkdir(parents=True, exist_ok=True)
     project_path.joinpath("project.json").write_text(json.dumps(_MINIMAL_PROJECT, ensure_ascii=False), encoding="utf-8")
     scripts_dir = project_path / "scripts"
@@ -241,7 +241,7 @@ def _typed_video_versions(project_path: Path, resource_type: str, resource_id: s
         inputs=(
             {
                 "unit_id": resource_id,
-                "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+                "visual_lines": ["Run."],
                 "style": "cinematic",
                 "canvas": {"aspect_ratio": "9:16"},
                 "request_references": [],
@@ -431,7 +431,7 @@ class TestVersionsRouter:
         project_path = tmp_path / "demo"
         (project_path / "characters").mkdir(parents=True)
         project_path.joinpath("project.json").write_text(
-            '{"schema_version":8,"title":"Demo","content_mode":"narration",'
+            f'{{"schema_version":{CURRENT_PROJECT_SCHEMA_VERSION},"title":"Demo","content_mode":"narration",'
             '"generation_mode":"storyboard","style":"Anime","style_description":"",'
             '"aspect_ratio":"9:16","episodes":[],"characters":{"Alice":{'
             '"description":"hero","character_sheet":"characters/Alice.png"}},'
@@ -472,7 +472,7 @@ class TestVersionsRouter:
         project_path = tmp_path / "demo"
         (project_path / "characters").mkdir(parents=True)
         project_path.joinpath("project.json").write_text(
-            '{"schema_version":8,"title":"Demo","content_mode":"narration",'
+            f'{{"schema_version":{CURRENT_PROJECT_SCHEMA_VERSION},"title":"Demo","content_mode":"narration",'
             '"generation_mode":"storyboard","style":"Anime","style_description":"",'
             '"aspect_ratio":"9:16","episodes":[],"characters":{},'
             '"scenes":{},"props":{},"products":{}}',
@@ -525,7 +525,7 @@ class TestVersionsRouter:
         project_path = tmp_path / "demo"
         (project_path / "characters").mkdir(parents=True)
         project_path.joinpath("project.json").write_text(
-            '{"schema_version":8,"title":"Demo","content_mode":"narration",'
+            f'{{"schema_version":{CURRENT_PROJECT_SCHEMA_VERSION},"title":"Demo","content_mode":"narration",'
             '"generation_mode":"storyboard","style":"Anime","aspect_ratio":"9:16",'
             '"episodes":[],"characters":{"Alice":{"description":"hero",'
             '"character_sheet":"characters/Alice.png"}},"scenes":{},"props":{}}',
@@ -574,7 +574,7 @@ class TestVersionsRouter:
         scripts_dir.mkdir(parents=True)
         storyboards_dir.mkdir()
         project = {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "title": "Demo",
             "content_mode": "narration",
             "generation_mode": "storyboard",
@@ -980,7 +980,7 @@ class TestVersionsRouter:
     ):
         grid_id = "grid_000000000000"
         project = {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "title": "Demo",
             "content_mode": "narration",
             "generation_mode": "storyboard",
@@ -1221,8 +1221,7 @@ class TestVersionsRouter:
                 "video_units": [
                     {
                         "unit_id": "E1U1",
-                        "shots": [{"text": "镜头1：产品特写"}],
-                        "references": [],
+                        "text": "镜头1：产品特写",
                         "duration_seconds": 5,
                         "generated_assets": {
                             "video_clip": "reference_videos/E1U1.mp4",

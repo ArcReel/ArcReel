@@ -18,13 +18,13 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 ## 核心原则
 
 1. **写盘一律经工具**：首次生成调 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型）；修改已有拆分经「取回草稿 → 改草稿 → 晋升」。正式 `step1_reference_units.json` 不可用 Write/Edit 直改——它与 Web 端保存、迁移共享一把文件锁，你的文件工具取不到这把锁，直改会与并发的保存互相丢失更新（写禁由运行时强制，直改会被拒）
-2. **结构由机器派生**：模型只写「时长 + 原文锚 + 书写层正文」，`unit_id` / `shots` / `references` 一律由工具从正文派生并落盘；正文语法、资产引用、原文锚、台词量均由工具机械校验，违约不写盘
+2. **结构由机器派生**：模型只写「时长 + 原文锚 + 书写层正文」，`unit_id` 由工具按数组顺序编号；正文语法、资产引用、原文锚、台词量均由工具机械校验，违约不写盘
 3. **参考图驱动**：正文只用 `@[名称]` 引用**已注册**的资产名；不写外貌 / 服装 / 场景细节（由参考图承担视觉一致性）
 4. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认
 
 ## 书写层语法（概览）
 
-正文按行书写，行以 `镜头N：` 开头（每 unit 最多 4 个）。记号只有三种，可出现在正文任意位置：`@[名称]` 引用资产、`@[角色名]{台词}` 表示该角色说话、`{台词}` 表示画外音。花括号只用于台词与画外音。
+正文是一段自由文本（可多行），一个 unit 一次生成调用。记号只有三种，可出现在正文任意位置：`@[名称]` 引用资产、`@[角色名]{台词}` 表示该角色说话、`{台词}` 表示画外音。花括号只用于台词与画外音。不要写 `镜头N：` 之类的分段前缀——它没有语法含义，会被逐字带进生成提示词。
 
 > 完整语法规范由服务端在两级 prompt 中注入，真相源是 `lib/reference_video/writing_syntax.py`；本文件只留概览，不复制全文。
 
@@ -44,7 +44,7 @@ mcp__arcreel__get_video_capabilities({})
   部分型号对带参考图的生成另有时长限制，无引用的 unit 不受此限
 - `supported_durations`：型号声明的时长全集，**未**施加「分辨率↔时长」「参考图↔时长」联动约束；
   仅作参考，取值一律以 `reference_unit_durations` 为准
-- `max_reference_images`：单 unit references 上限
+- `max_reference_images`：单 unit 参考图上限（即正文里去重后的 `@[名称]` 提及数上限）
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 
 情况 A（首次生成）时由 `mcp__arcreel__split_reference_video_units` 自行查询并注入 prompt，subagent 可不直接使用；
@@ -66,14 +66,14 @@ mcp__arcreel__get_video_capabilities({})
 mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加说明原文，可选，无则省略>"})
 ```
 
-> dry_run=true 时仅返回 prompt 不调用模型，便于审查。模型只产出「时长 + 原文锚 + 书写层正文」，`unit_id` / `shots` / `references` 由工具从正文派生；写盘前校验正文语法、资产名引用完整性、原文锚是否为源文逐字子串与台词量是否念得完。任一违约时**正式文件不写**，产出连同逐条违约报告落到 `drafts/episode_{N}/step1_reference_units.invalid.json`——不要重跑工具重抽，按情况 C 修复后晋升。
+> dry_run=true 时仅返回 prompt 不调用模型，便于审查。模型只产出「时长 + 原文锚 + 书写层正文」，`unit_id` 由工具按数组顺序编号；写盘前校验正文语法、资产名引用完整性、原文锚是否为源文逐字子串与台词量是否念得完。任一违约时**正式文件不写**，产出连同逐条违约报告落到 `drafts/episode_{N}/step1_reference_units.invalid.json`——不要重跑工具重抽，按情况 C 修复后晋升。
 >
 > 工具成功时可能附带「声音降级提示」（角色未设参考音频 / 参考音频段数超上限 / 当前视频模型不生成音频）。这些不阻断落盘，原样转述给主 agent 即可，不要为它们改拆分。
 
 **Step 2**: 验证输出
 
 使用 Read 工具读取生成的 `drafts/episode_{N}/step1_reference_units.json`，
-确认为合法 JSON 且每个 unit 含 unit_id / duration_seconds / source_text / shots（每 shot 只含 text）/ references。
+确认为合法 JSON 且每个 unit 含 unit_id / duration_seconds / source_text / text。
 
 如果结构有问题，按下方**情况 B** 的流程修（取回草稿 → 改 → 晋升），不要用 Edit 直改正式文件。
 
@@ -81,7 +81,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 
 **触发**：`drafts/episode_{N}/step1_reference_units.invalid.json` 存在（拆分或晋升返回了违约报告）。
 
-隔离草稿装的是**扁平书写层产出**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），结构字段一律由工具派生，不要在草稿里手写 `unit_id` / `shots` / `references`。
+隔离草稿装的是**扁平书写层产出**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。
 
 1. Read 该草稿，按 `violations[]` 的 `label`（unit 定位）与 `code`（违约类）逐条定位
 2. 用 Edit 直接改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方「修改口径」；`code` 为资产名未登记时，也可改为在 `project.json` 登记该资产、或改用已登记的名称
@@ -97,7 +97,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 正式文件不可直改，改动经隔离草稿这条持锁通道落回：
 
 1. 调用 `mcp__arcreel__open_step1_for_edit({"episode": N, "source": "source/episode_N.txt"})` 把现有拆分取回为可编辑草稿 `drafts/episode_{N}/step1_reference_units.invalid.json`（正式文件保持原样）。`source` 传本集源文路径——晋升时按它重判原文锚，不传则按整个 `source/` 判、更松
-2. Read 该草稿，用 Edit 改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方**修改口径**。草稿装的是**扁平书写层**：`unit_id` / `shots` / `references` 是派生物，不在草稿里、也不要手写。增删 unit 即增删数组元素
+2. Read 该草稿，用 Edit 改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方**修改口径**。草稿装的是**扁平书写层**：`unit_id` 是派生物，不在草稿里、也不要手写。增删 unit 即增删数组元素
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 全量校验并晋升回正式文件——写盘在此发生，与 Web 端保存串行化
 4. 返回违约报告则按报告继续改草稿再晋升，无轮次上限（同情况 C）。中途决定不改了就原样晋升：内容未变即等于把原稿回写，草稿随之清除
 
@@ -105,10 +105,10 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 
 **修改口径**：
 
-- unit `duration_seconds` 必须取 Step 0 查得的 `reference_unit_durations` 中**该 unit 引用状态对应**的那套：画面描述含 `@` 引用取 `with_references`，不含则取 `without_references`（台词记号 `@[角色]{台词}` 的说话人位不计入——它不生成参考图，只驱动音色声明，判据与下方 `references` 派生口径同源）。一个 unit 一个时长，镜头不单独承载时长。内容装不下所选档位时把该 unit 按叙事顺序重拆为多个 unit，不得违约时长；台词念不完所选档位时同样重拆，不压进短档。两套档位不同、且想要的时长不在该 unit 当前引用状态对应的档位内时，两条出路二选一：改取该状态档位内的值，或调整引用状态使其落入另一档位——两套档位之间不假定包含关系，调整方向（去引用变宽还是变窄）以该型号实际两套档位为准，不预设「去引用」必然更宽
-- unit `text` 按书写层语法逐行写：`镜头N：` 行分镜（每 unit 最多 4 个），台词与画外音记号可独占一行、也可跟在同一行的画面描述之后。用 `@[名称]` 引用资产，名称必须逐字取自 `project.json` 三张表（不确定就 Read `project.json` 确认）；不写外貌 / 服装 / 场景细节
+- unit `duration_seconds` 必须取 Step 0 查得的 `reference_unit_durations` 中**该 unit 引用状态对应**的那套：画面描述含 `@` 引用取 `with_references`，不含则取 `without_references`（台词记号 `@[角色]{台词}` 的说话人位不计入——它不生成参考图，只驱动音色声明，判据与下方参考图派生口径同源）。一个 unit 一个时长。内容装不下所选档位时把该 unit 按叙事顺序重拆为多个 unit，不得违约时长；台词念不完所选档位时同样重拆，不压进短档。两套档位不同、且想要的时长不在该 unit 当前引用状态对应的档位内时，两条出路二选一：改取该状态档位内的值，或调整引用状态使其落入另一档位——两套档位之间不假定包含关系，调整方向（去引用变宽还是变窄）以该型号实际两套档位为准，不预设「去引用」必然更宽
+- unit `text` 是一段自由文本，按书写层语法写：台词与画外音记号可独占一行、也可跟在同一行的画面描述之后；不要写 `镜头N：` 之类的分段前缀。用 `@[名称]` 引用资产，名称必须逐字取自 `project.json` 三张表（不确定就 Read `project.json` 确认）；不写外貌 / 服装 / 场景细节
 - `source_text` 必须是本集源文的逐字片段（可截断首尾，中间不得删改）；改动 unit 边界时同步改锚
-- `references` 不手写：晋升时按正文里 `@[名称]` 的首现顺序机械派生（顺序即参考图编号），去重后超过 `max_reference_images` 会判违约——要改参考图就改正文的引用，台词记号的说话人位不计入
+- 参考图不落盘：执行期按正文里 `@[名称]` 的首现顺序解析（顺序即参考图编号），去重后超过 `max_reference_images` 会判违约——要改参考图就改正文的引用，台词记号的说话人位不计入
 - `unit_id` 不手写：晋升时按数组顺序重编为 `E{集数}U{两位序号}`。调整 unit 顺序或增删 unit 即调整数组元素，编号自动跟随
 
 **修改必重生 JSON 剧本**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新拆分 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
@@ -124,15 +124,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
       "unit_id": "E<集号>U01",
       "duration_seconds": <duration>,
       "source_text": "<本 unit 所依据的源文逐字片段>",
-      "shots": [
-        {"text": "@[李明] 推开 @[酒馆] 的门，环视四周。\n@[李明]：{这地方比我想的还热闹。}"},
-        {"text": "@[李明] 走向柜台，把 @[长剑] 放在桌上。"}
-      ],
-      "references": [
-        {"type": "character", "name": "李明"},
-        {"type": "scene", "name": "酒馆"},
-        {"type": "prop", "name": "长剑"}
-      ]
+      "text": "@[李明] 推开 @[酒馆] 的门，环视四周。\n@[李明]：{这地方比我想的还热闹。}\n@[李明] 走向柜台，把 @[长剑] 放在桌上。"
     }
   ]
 }
@@ -151,9 +143,8 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 | 统计项 | 数值 |
 |--------|------|
 | 总 unit 数 | XX 个 |
-| 总 shot 数 | XX 个 |
 | 预计总时长 | X 分 X 秒 |
-| references 最大数（单 unit） | XX / max_reference_images |
+| `@` 提及最大数（单 unit） | XX / max_reference_images |
 
 **文件已保存**: `drafts/episode_{N}/step1_reference_units.json`
 

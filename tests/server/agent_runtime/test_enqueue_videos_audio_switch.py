@@ -19,7 +19,9 @@ from lib.config.service import ConfigService
 from lib.db.base import Base
 from lib.generation_queue_client import TaskSpec
 from lib.generation_result import GenerationAction, GenerationSelectionMode
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.request_projection import ReferenceRequestOptions
+from lib.reference_video.text_parser import extract_mentions
 from server.agent_runtime.sdk_tools import enqueue_videos as mod
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.services import video_batch_admission as admission_mod
@@ -147,15 +149,17 @@ class TestReferenceRouteGate:
                 return {"allowed": True, "unit_id": "test", "problems": []}
 
         async def _record(*, unit, **_kwargs):
-            seen.append("r2v" if unit.get("references") else "i2v")
+            # 替身只需产出可预期的分桶信号：本用例的 project 为空，未登记名经生产侧的
+            # unit_reference_declarations 会被全部滤掉，故此处按正文提及直接判。
+            seen.append("r2v" if extract_mentions(str(unit.get("text") or "")) else "i2v")
             return _Projection()
 
         self._stub_current_state(monkeypatch)
         monkeypatch.setattr(admission_mod, "project_reference_unit_request", _record)
         units = [
-            {"unit_id": "E1U1", "references": [{"type": "character", "name": "张三"}]},
-            {"unit_id": "E1U2", "references": [{"type": "character", "name": "李四"}]},
-            {"unit_id": "E1U3", "references": []},
+            {"unit_id": "E1U1", "text": "@[张三] 推门"},
+            {"unit_id": "E1U2", "text": "@[李四] 举杯"},
+            {"unit_id": "E1U3", "text": "空镜：长街"},
         ]
         await admit_reference_video_batch(
             project_name="demo",
@@ -180,7 +184,7 @@ class TestReferenceRouteGate:
             called = True
 
         def _reject(_unit):
-            raise ValueError("没有 shots")
+            raise ValueError("正文为空")
 
         self._stub_current_state(monkeypatch)
         monkeypatch.setattr(admission_mod, "project_reference_unit_request", _record)
@@ -190,7 +194,7 @@ class TestReferenceRouteGate:
             project_path=tmp_path,
             script={"video_units": []},
             script_file="episode_1.json",
-            units=[{"unit_id": "E1U1", "references": []}],
+            units=[{"unit_id": "E1U1", "text": ""}],
             request_options=ReferenceRequestOptions(),
             operation="generate_video",
             selection=GenerationSelectionMode.MISSING_ONLY,
@@ -224,7 +228,7 @@ def _claim_existing_video(project_dir: Path, resource_id: str) -> None:
 class _EpisodePM:
     """整集工具够用的 pm 替身：一集一个 segment，分镜图有无由调用方决定。
 
-    项目按生产形态构造：schema v8、剧本在 episodes 账本里绑定，已落盘的分镜图在构造时
+    项目按生产形态构造：当前 schema、剧本在 episodes 账本里绑定，已落盘的分镜图在构造时
     经清单激活登记——清单是读取已生成产物的唯一口径。构造之后用例会往内存剧本里塞畸形
     条目验证工具侧的逐条拒收，那些条目不回写磁盘，清单保持这份干净基线。
     """
@@ -248,7 +252,7 @@ class _EpisodePM:
             item["generated_assets"] = assets
         self.script_payload: dict[str, Any] = {"content_mode": "narration", "episode": 1, "segments": [item]}
         self.project_payload: dict[str, Any] = {
-            "schema_version": 8,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "content_mode": "narration",
             "generation_mode": "storyboard",
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],

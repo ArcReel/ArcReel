@@ -31,7 +31,7 @@ def _typed_video_metadata(
         inputs=(
             {
                 "unit_id": resource_id,
-                "visual_shots": [{"shot_index": 0, "lines": ["Run."]}],
+                "visual_lines": ["Run."],
                 "style": "cinematic",
                 "canvas": {"aspect_ratio": "9:16"},
                 "request_references": [],
@@ -311,8 +311,7 @@ async def test_current_reference_task_narration_uses_video_units_when_ad_script_
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"text": "镜头推进。\n{参考视频单元旁白。}"}],
-                "references": [],
+                "text": "镜头推进。\n{参考视频单元旁白。}",
                 "duration_seconds": 8,
             }
         ],

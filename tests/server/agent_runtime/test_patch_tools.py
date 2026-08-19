@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from lib.project_manager import ProjectManager
+from lib.reference_video.request_projection import unit_reference_declarations
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
@@ -77,11 +78,9 @@ def _drama_script() -> dict[str, Any]:
 
 
 def _unit(unit_id: str) -> dict[str, Any]:
-    shots = [{"text": "镜头1"}, {"text": "镜头2"}]
     return {
         "unit_id": unit_id,
-        "shots": shots,
-        "references": [],
+        "text": "推门进屋\n环视四周",
         "duration_seconds": 8,
     }
 
@@ -164,6 +163,13 @@ def ad_ctx(tmp_path: Path) -> ToolContext:
     _register_default_character(pm)
     pm.save_script("demo", _ad_script(), "episode_1.json")
     return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+
+
+def _derived_references(tool_ctx: ToolContext, index: int) -> list[tuple[str, str]]:
+    """该 unit 正文当前派生出的参考图引用——引用不落盘，读时按正文派生。"""
+    project = tool_ctx.pm.load_project("demo")
+    unit = _load(tool_ctx)["video_units"][index]
+    return [(ref.type, ref.name) for ref in unit_reference_declarations(project, unit)]
 
 
 async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
@@ -264,7 +270,7 @@ class TestPatchEpisodeScript:
                     "reference_video",
                     _reference_script,
                     "E1U1",
-                    {"shots": [{"text": "@[角色A]：{快走。}\n{风吹过旷野。}"}]},
+                    {"text": "@[角色A]：{快走。}\n{风吹过旷野。}"},
                     "video_units",
                 )
                 for content_mode in ("narration", "drama", "ad")
@@ -570,13 +576,7 @@ class TestPatchEpisodeScript:
             patch_episode_script_tool(ref_ctx),
             {
                 "script": "episode_1.json",
-                "edits": {
-                    "E1U1": {
-                        "shots": [
-                            {"text": "镜头1\n@[角色A]：{快走。}\n{风吹过旷野。}"},
-                        ]
-                    }
-                },
+                "edits": {"E1U1": {"text": "镜头1\n@[角色A]：{快走。}\n{风吹过旷野。}"}},
             },
         )
 
@@ -589,7 +589,6 @@ class TestPatchEpisodeScript:
     async def test_reference_replan_marker_requires_planning_edit(self, ref_ctx: ToolContext) -> None:
         script = _reference_script()
         script["video_units"][0]["needs_replan"] = True
-        script["video_units"][0]["migration_requires_content_replan"] = True
         ref_ctx.pm.save_script("demo", script, "episode_1.json")
 
         noted = await _call(
@@ -599,27 +598,12 @@ class TestPatchEpisodeScript:
         assert noted.get("is_error") is not True
         assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
 
-        resized = await _call(
-            patch_episode_script_tool(ref_ctx),
-            {"script": "episode_1.json", "edits": {"E1U1": {"duration_seconds": 12}}},
-        )
-        assert resized.get("is_error") is not True
-        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
-
-        resubmitted = await _call(
-            patch_episode_script_tool(ref_ctx),
-            {"script": "episode_1.json", "edits": {"E1U1": {"shots": _unit("E1U1")["shots"]}}},
-        )
-        assert resubmitted.get("is_error") is not True
-        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
-
         repaired = await _call(
             patch_episode_script_tool(ref_ctx),
-            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "修复后的无声镜头"}]}}},
+            {"script": "episode_1.json", "edits": {"E1U1": {"text": "修复后的无声镜头"}}},
         )
         assert repaired.get("is_error") is not True
         assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
-        assert _load(ref_ctx)["video_units"][0].get("migration_requires_content_replan") is not True
 
     @pytest.mark.integration
     async def test_reference_duration_repair_clears_non_content_marker(self, ref_ctx: ToolContext) -> None:
@@ -636,129 +620,35 @@ class TestPatchEpisodeScript:
         assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
 
     @pytest.mark.integration
-    async def test_reference_repair_clears_non_content_marker(self, ref_ctx: ToolContext) -> None:
-        project = ref_ctx.pm.load_project("demo")
-        project["scenes"] = {"酒馆": {"description": ""}}
-        ref_ctx.pm.save_project("demo", project)
-        script = _reference_script()
-        script["video_units"][0].update(
-            {
-                "shots": [{"text": "@[酒馆]：木门被风吹开"}],
-                "references": [],
-                "needs_replan": True,
-            }
-        )
-        ref_ctx.pm.save_script("demo", script, "episode_1.json")
-
-        repaired = await _call(
-            patch_episode_script_tool(ref_ctx),
-            {
-                "script": "episode_1.json",
-                "edits": {"E1U1": {"references": [{"type": "scene", "name": "酒馆"}]}},
-            },
-        )
-
-        assert repaired.get("is_error") is not True
-        assert _load(ref_ctx)["video_units"][0].get("needs_replan") is not True
-
-    @pytest.mark.integration
-    async def test_reference_repair_rejects_unregistered_asset_without_clearing_marker(
-        self, ref_ctx: ToolContext
-    ) -> None:
-        script = _reference_script()
-        script["video_units"][0].update(
-            {
-                "shots": [{"text": "@[不存在]：木门被风吹开"}],
-                "references": [],
-                "needs_replan": True,
-            }
-        )
-        ref_ctx.pm.save_script("demo", script, "episode_1.json")
-
-        repaired = await _call(
-            patch_episode_script_tool(ref_ctx),
-            {
-                "script": "episode_1.json",
-                "edits": {"E1U1": {"references": [{"type": "scene", "name": "不存在"}]}},
-            },
-        )
-
-        assert repaired.get("is_error") is True
-        problem = repaired["script_edit"]["problems"][0]
-        assert problem["code"] == "references_invalid"
-        assert problem["operation_index"] == 0
-        assert problem["unit_id"] == "E1U1"
-        saved = _load(ref_ctx)["video_units"][0]
-        assert saved["references"] == []
-        assert saved["needs_replan"] is True
-
-    @pytest.mark.integration
-    async def test_reference_shot_edit_rederives_registered_references(self, ref_ctx: ToolContext) -> None:
+    async def test_reference_text_edit_moves_the_derived_references(self, ref_ctx: ToolContext) -> None:
         project = ref_ctx.pm.load_project("demo")
         project["products"] = {"产品A": {"description": ""}, "产品B": {"description": ""}}
         ref_ctx.pm.save_project("demo", project)
         script = _reference_script()
-        script["video_units"][0].update(
-            {
-                "shots": [{"text": "@[产品A] 正面展示"}],
-                "references": [{"type": "product", "name": "产品A"}],
-            }
-        )
+        script["video_units"][0]["text"] = "@[产品A] 正面展示"
         ref_ctx.pm.save_script("demo", script, "episode_1.json")
 
         changed = await _call(
             patch_episode_script_tool(ref_ctx),
-            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[产品B] 侧面展示"}]}}},
+            {"script": "episode_1.json", "edits": {"E1U1": {"text": "@[产品B] 侧面展示"}}},
         )
 
         assert changed.get("is_error") is not True
-        assert _load(ref_ctx)["video_units"][0]["references"] == [{"type": "product", "name": "产品B"}]
+        assert _derived_references(ref_ctx, 0) == [("product", "产品B")]
 
     @pytest.mark.integration
-    async def test_reference_shot_edit_rederives_non_character_references_before_admission(
-        self, ref_ctx: ToolContext
-    ) -> None:
+    async def test_reference_text_edit_admits_non_character_mentions(self, ref_ctx: ToolContext) -> None:
         project = ref_ctx.pm.load_project("demo")
         project["scenes"] = {"酒馆": {"description": ""}}
         ref_ctx.pm.save_project("demo", project)
 
         changed = await _call(
             patch_episode_script_tool(ref_ctx),
-            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[酒馆]：木门被风吹开"}]}}},
+            {"script": "episode_1.json", "edits": {"E1U1": {"text": "@[酒馆]：木门被风吹开"}}},
         )
 
         assert changed.get("is_error") is not True
-        assert _load(ref_ctx)["video_units"][0]["references"] == [{"type": "scene", "name": "酒馆"}]
-
-    @pytest.mark.integration
-    async def test_reference_shot_edit_rederives_from_locked_project_snapshot(
-        self, ref_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        project = ref_ctx.pm.load_project("demo")
-        project["products"] = {"产品B": {"description": ""}}
-        ref_ctx.pm.save_project("demo", project)
-
-        original_load_project = ref_ctx.pm.load_project_readonly
-        first_load = True
-
-        def _load_then_remove_product(project_name: str) -> dict[str, Any]:
-            nonlocal first_load
-            stale = original_load_project(project_name)
-            if first_load:
-                first_load = False
-                current = {**stale, "products": {}}
-                ref_ctx.pm.save_project(project_name, current)
-            return stale
-
-        monkeypatch.setattr(ref_ctx.pm, "load_project_readonly", _load_then_remove_product)
-
-        changed = await _call(
-            patch_episode_script_tool(ref_ctx),
-            {"script": "episode_1.json", "edits": {"E1U1": {"shots": [{"text": "@[产品B] 侧面展示"}]}}},
-        )
-
-        assert changed.get("is_error") is not True
-        assert _load(ref_ctx)["video_units"][0]["references"] == []
+        assert _derived_references(ref_ctx, 0) == [("scene", "酒馆")]
 
     @pytest.mark.integration
     async def test_reference_replan_marker_cannot_be_patched_directly(self, ref_ctx: ToolContext) -> None:
@@ -772,17 +662,6 @@ class TestPatchEpisodeScript:
         )
 
         assert out.get("is_error") is True
-        assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
-
-        provenance = await _call(
-            patch_episode_script_tool(ref_ctx),
-            {
-                "script": "episode_1.json",
-                "edits": {"E1U1": {"migration_requires_content_replan": False}},
-            },
-        )
-
-        assert provenance.get("is_error") is True
         assert _load(ref_ctx)["video_units"][0]["needs_replan"] is True
 
     @pytest.mark.unit
@@ -852,15 +731,12 @@ class TestInsertRemoveSplit:
         assert _load(ctx) == before
 
     @pytest.mark.integration
-    async def test_reference_insert_derives_non_character_references_before_admission(
-        self, ref_ctx: ToolContext
-    ) -> None:
+    async def test_reference_insert_admits_non_character_mentions(self, ref_ctx: ToolContext) -> None:
         project = ref_ctx.pm.load_project("demo")
         project["scenes"] = {"酒馆": {"description": ""}}
         ref_ctx.pm.save_project("demo", project)
         inserted = _unit("ignored")
-        inserted["shots"] = [{"text": "@[酒馆]：木门被风吹开"}]
-        inserted.pop("references")
+        inserted["text"] = "@[酒馆]：木门被风吹开"
 
         out = await _call(
             insert_segment_tool(ref_ctx),
@@ -868,7 +744,7 @@ class TestInsertRemoveSplit:
         )
 
         assert out.get("is_error") is not True, out
-        assert _load(ref_ctx)["video_units"][1]["references"] == [{"type": "scene", "name": "酒馆"}]
+        assert _derived_references(ref_ctx, 1) == [("scene", "酒馆")]
 
     @pytest.mark.unit
     async def test_remove_by_id(self, ctx: ToolContext) -> None:
@@ -922,7 +798,7 @@ class TestInsertRemoveSplit:
         ref_ctx.pm.save_script("demo", script, "episode_1.json")
         before = _load(ref_ctx)
         mixed = _unit("ignored")
-        mixed["shots"] = [{"text": "@[角色A]：{快走。}\n{风吹过旷野。}"}]
+        mixed["text"] = "@[角色A]：{快走。}\n{风吹过旷野。}"
 
         out = await _call(
             split_segment_tool(ref_ctx),
@@ -935,16 +811,13 @@ class TestInsertRemoveSplit:
         assert _load(ref_ctx) == before
 
     @pytest.mark.integration
-    async def test_reference_split_derives_non_character_references_before_admission(
-        self, ref_ctx: ToolContext
-    ) -> None:
+    async def test_reference_split_admits_non_character_mentions(self, ref_ctx: ToolContext) -> None:
         project = ref_ctx.pm.load_project("demo")
         project["scenes"] = {"酒馆": {"description": ""}}
         ref_ctx.pm.save_project("demo", project)
         parts = [_unit("ignored"), _unit("ignored")]
         for part in parts:
-            part["shots"] = [{"text": "@[酒馆]：木门被风吹开"}]
-            part.pop("references")
+            part["text"] = "@[酒馆]：木门被风吹开"
 
         out = await _call(
             split_segment_tool(ref_ctx),
@@ -952,9 +825,9 @@ class TestInsertRemoveSplit:
         )
 
         assert out.get("is_error") is not True, out
-        assert [unit["references"] for unit in _load(ref_ctx)["video_units"][:2]] == [
-            [{"type": "scene", "name": "酒馆"}],
-            [{"type": "scene", "name": "酒馆"}],
+        assert [_derived_references(ref_ctx, index) for index in (0, 1)] == [
+            [("scene", "酒馆")],
+            [("scene", "酒馆")],
         ]
 
     @pytest.mark.unit

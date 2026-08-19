@@ -64,7 +64,6 @@ MESSAGES = {
     "invalid_storyboard_image_path": "片段「{segment_id}」的分镜图引用无效，请重新生成分镜图",
     "invalid_end_frame_image_path": "片段「{segment_id}」的尾帧图引用无效，请重新截取尾帧图",
     "video_audio_switch_not_supported": "{provider}/{model} 的成片恒有声，无法关闭音频；请在设置中把音频开关改回开启后重试",
-    "reference_declaration_invalid": "参考素材声明格式无效（{count} 项）；请修复 references 后重试",
     "reference_asset_missing": "参考素材缺失或文件不可用：{missing_text}",
     "reference_capability_changed": "声明能力桶为 {declared}，实际素材水合后为 {hydrated}；请修复素材后重试",
     "reference_images_clamped": "参考图数量 {count} 超出 {provider}/{model} 上限 {max_count}，请求将使用前 {max_count} 张",
@@ -261,10 +260,8 @@ MESSAGES = {
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
     "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
     "ref_sora_single_ref": "Sora 参考模式暂不支持多图，已降级为单图",
-    "ref_shot_parse_fallback": "未识别到 Shot N (Xs): 标记，按单镜头处理",
     "ref_episode_not_found": "第 {episode} 集不存在",
     "ref_not_reference_video_mode": "该集脚本不是参考生视频模式",
-    "ref_not_registered": "引用的资产未注册：{missing}",
     "ref_unit_not_found": "视频单元「{unit_id}」不存在",
     "ref_unit_needs_replan": "该视频单元存在发声归属或迁移问题，请先重新规划后再生成",
     "ref_unit_ids_length_mismatch": "unit_ids 数量与现有单元不一致",
@@ -274,10 +271,10 @@ MESSAGES = {
     "ref_script_rebound": "该集脚本绑定已变更，请重试",
     "ref_ad_reference_skipped": "「{name}」（{type}）缺少可用参考图，本次生成已跳过该参考",
     # 分镜文稿解析预览的降级可见性提示
-    "ref_warn_unregistered_mention": "@[{name}] 未在商品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
-    "ref_warn_unclosed_brace": "镜头{shot}：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",
+    "ref_warn_unregistered_mention": "@[{name}] 未在产品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
+    "ref_warn_unclosed_brace": "第 {line} 行：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",
     "ref_warn_braces_not_speech": (
-        "镜头{shot}：花括号未被识别为台词，将原样发送；台词写成 @[角色]{{台词}}，画外音写成 {{台词}}，"
+        "第 {line} 行：花括号未被识别为台词，将原样发送；台词写成 @[角色]{{台词}}，画外音写成 {{台词}}，"
         "说话人须非空、花括号须成对且不嵌套"
     ),
     "ref_warn_unregistered_speaker": "@[{name}] 未在角色中登记：无法确认说话人，该行按原文发送",

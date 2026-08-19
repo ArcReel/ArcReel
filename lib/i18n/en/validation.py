@@ -14,6 +14,7 @@ MESSAGES = {
     "val_field_must_be_string_typed": "{field} must be a string, got {actual}",
     "val_field_must_be_array": "{field} must be an array",
     "val_field_must_be_nonempty_array": "{field} must be a non-empty array",
+    "val_field_must_be_nonempty_string": "{field} must be a non-empty string",
     "val_field_must_be_object": "{field} must be an object",
     "val_field_invalid": "{field} is invalid: {detail}",
     "val_ledger_source_file_not_relative": "source_file must be a project-relative POSIX path",
@@ -110,18 +111,6 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: duplicate unit_id '{value}'",
     "val_video_units_missing": "The reference_video script is missing the video_units array, or it is empty",
     "val_unit_duration_range": "{prefix}: duration_seconds must be an integer between {low} and {high}",
-    "val_unit_shots_too_many": "{prefix}: shots contains {count} entries; at most {max} are allowed",
-    "val_migration_content_replan_requires_needs_replan": (
-        "{prefix}: migration_requires_content_replan=true requires needs_replan=true"
-    ),
-    "val_reference_entry_must_be_object": "{prefix}: each reference entry must be an object",
-    "val_reference_type_invalid": "{prefix}: invalid reference.type: {value}",
-    "val_reference_name_invalid": "{prefix}: reference.name must be a non-empty string: {value}",
-    "val_reference_not_in_bucket": (
-        "{prefix}: referenced {asset_type} '{name}' is not in the matching project.json bucket"
-    ),
-    "val_ref_type_invalid": "{prefix}: invalid type: {value}",
-    "val_ref_name_invalid": "{prefix}: name must be a non-empty string: {value}",
     # ---- skeleton / route mismatch ----
     "val_skeleton_noun_segments": "segments",
     "val_skeleton_noun_scenes": "scenes",
@@ -181,8 +170,9 @@ MESSAGES = {
     "arch_missing_asset_definition": (
         "{items_key}[{index}]: {field} references {asset_type} entries missing from project.json: {names}"
     ),
-    "arch_unit_missing_asset_definition": (
-        "video_units[{index}]: references point to {asset_type} entries missing from project.json: {names}"
+    "arch_unit_unresolved_mentions": (
+        "video_units[{index}]: the body mentions asset names missing from project.json: {names}; "
+        "they will not produce reference images"
     ),
     "arch_generated_assets_defaults": "{label}[{index}].generated_assets: filled in default fields {fields}",
     "arch_missing_generated_assets": "{label}[{index}]: filled in the missing field generated_assets",

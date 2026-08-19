@@ -195,11 +195,9 @@ class TestUtterancesEditGuard:
 
 
 def _unit(unit_id: str = "E1U1", duration_seconds: int = 8) -> dict:
-    shots = [{"text": "镜头1"}, {"text": "镜头2"}]
     return {
         "unit_id": unit_id,
-        "shots": shots,
-        "references": [],
+        "text": "中景，@[角色A] 推门。\n近景，他抬眼。",
         "duration_seconds": duration_seconds,
     }
 

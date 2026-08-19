@@ -2,13 +2,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
 import type {
-  ReferenceResource,
   ReferenceStep1Draft,
   ReferenceStep1FlatDraft,
   ReferenceStep1FlatUnit,
   ScriptReviewState,
   ScriptReviewViolation,
-  Shot,
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
@@ -17,10 +15,9 @@ import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
-import { assetColor } from "@/components/canvas/reference/asset-colors";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
-import { toScriptLines, type MentionLookup } from "@/hooks/useShotPromptHighlight";
-import { extractMentions, formatShotHeader } from "@/utils/reference-mentions";
+import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
+import { extractMentions } from "@/utils/reference-mentions";
 
 interface ReferenceStep1PreviewPanelProps {
   projectName: string;
@@ -49,20 +46,14 @@ interface DisplayUnit {
   durationSeconds: number;
   sourceText: string;
   scriptText: string;
-  references: ReferenceResource[];
-  /** 非 null 时可编辑（已晋升内容）；隔离草稿的扁平产物只读，修复由 agent 在草稿上完成。 */
-  shots: Shot[] | null;
+  /** true 时可编辑（已晋升内容）；隔离草稿的扁平产物只读，修复由 agent 在草稿上完成。 */
+  editable: boolean;
 }
 
-function shotsToScriptText(shots: Shot[]): string {
-  return shots.map((s, i) => `${formatShotHeader(i + 1)}${s.text}`).join("\n");
-}
-
-/** 头部统计：镜头数 + 被解析器认作台词的行数，与正文高亮同一套切分口径。 */
-function unitStats(scriptText: string, lookup: MentionLookup): { shots: number; utterances: number } {
+/** 头部统计：被解析器认作台词的行数，与正文高亮同一套切分口径。 */
+function unitStats(scriptText: string, lookup: MentionLookup): { utterances: number } {
   const lines = toScriptLines(scriptText, lookup);
   return {
-    shots: lines.reduce((max, l) => Math.max(max, l.shotIndex), 0),
     utterances: lines.filter((l) => l.kind === "dialogue" || l.kind === "voiceover").length,
   };
 }
@@ -72,28 +63,9 @@ function structuredDisplayUnits(draft: ReferenceStep1Draft): DisplayUnit[] {
     key: u.unit_id,
     durationSeconds: u.duration_seconds,
     sourceText: u.source_text,
-    scriptText: shotsToScriptText(u.shots),
-    references: u.references,
-    shots: u.shots,
+    scriptText: u.text,
+    editable: true,
   }));
-}
-
-/**
- * 隔离草稿没有 references 字段（书写层扁平产物，结构字段一律机器派生）：客户端按 @ 引用
- * 顺序派生一份仅供展示的参考图列表，与后端 `derive_references_from_text` 同口径（首现顺序、
- * 未登记名不进列表——未登记会在正文高亮里以红色呈现，footer 不重复报它）。晋升后端会重新
- * 权威派生一份落盘，这里的派生不作为任何写入依据。
- */
-function deriveDisplayReferences(text: string, lookup: MentionLookup): ReferenceResource[] {
-  const out: ReferenceResource[] = [];
-  // extractMentions（非 tokenizePrompt）：台词记号里的说话人不产参考图，与后端
-  // extract_mentions 同口径——tokenizePrompt 是给高亮用的，不做这条跳过。
-  for (const name of extractMentions(text)) {
-    const assetKind = lookup[name];
-    if (!assetKind || assetKind === "product") continue;
-    out.push({ type: assetKind, name });
-  }
-  return out;
 }
 
 /**
@@ -104,7 +76,6 @@ function deriveDisplayReferences(text: string, lookup: MentionLookup): Reference
 function quarantinedDisplayUnits(
   content: ReferenceStep1FlatDraft | null,
   episode: number,
-  lookup: MentionLookup,
 ): DisplayUnit[] {
   // content 为 null：隔离草稿文件本身损坏无法解析（信封形状坏），不是「schema 违约但仍可读」。
   const units: unknown = content?.units;
@@ -119,8 +90,7 @@ function quarantinedDisplayUnits(
         durationSeconds: typeof u.duration_seconds === "number" ? u.duration_seconds : 0,
         sourceText: typeof u.source_text === "string" ? u.source_text : "",
         scriptText: text,
-        references: deriveDisplayReferences(text, lookup),
-        shots: null,
+        editable: false,
       },
     ];
   });
@@ -158,9 +128,8 @@ function partitionViolations(violations: ScriptReviewViolation[], unitKey: strin
  * unit 当前生效的时长档位（按是否带参考图收窄）；解析不到收窄表时返回 null，由调用方退回
  * 未收窄的 `supported_durations`。
  *
- * 有无引用按当前正文（`extractMentions`，非 `unit.references`）判——`updateShotText` 只改
- * `shots`，`references` 要保存后服务端重派生才更新；编辑期新增/删除的 `@[名称]` 若仍按旧
- * `references` 选档位，用户在编辑框里加了引用之后，下拉仍按无引用的宽档位显示可选项。
+ * 有无引用按当前正文实时判：参考图在执行期才由正文解析出来，编辑期新增/删除的
+ * `@[名称]` 必须当场改变可选档位。
  */
 function unitDurationTiers(
   unit: DisplayUnit,
@@ -168,38 +137,9 @@ function unitDurationTiers(
   tiers: NonNullable<ScriptReviewState["duration_tiers"]> | null,
 ): number[] | null {
   if (!tiers) return null;
-  const hasReferences = extractMentions(unit.scriptText).some((name) => {
-    const kind = lookup[name];
-    return Boolean(kind && kind !== "product");
-  });
+  // 四类资产同规则（ADR 0064）：任一已登记的提及都会在执行期派生出参考图。
+  const hasReferences = extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
   return hasReferences ? tiers.with_references : tiers.without_references;
-}
-
-function ReferencePills({ references }: { references: ReferenceResource[] }) {
-  const { t } = useTranslation("dashboard");
-  if (!references.length) {
-    return <span className="text-[10.5px] text-text-4">{t("reference_step1_no_references")}</span>;
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      {references.map((ref, i) => {
-        const palette = assetColor(ref.type);
-        return (
-          <span
-            key={`${ref.type}:${ref.name}`}
-            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] ${palette.textClass} ${palette.bgClass}`}
-            translate="no"
-          >
-            <span aria-hidden="true" className="text-[9px] text-text-4">
-              [{t("reference_strip_image_token", { n: i + 1 })}]
-            </span>
-            <span aria-hidden="true" className={`h-[3px] w-[3px] rounded-full ${palette.dotClass}`} />
-            {ref.name}
-          </span>
-        );
-      })}
-    </div>
-  );
 }
 
 function InlineViolations({ violations }: { violations: ScriptReviewViolation[] }) {
@@ -234,7 +174,7 @@ function UnitCard({
   onScrollRef,
   editing,
   onToggleEdit,
-  onShotTextChange,
+  onTextChange,
   supportedDurations,
   outOfTier,
   onDurationChange,
@@ -247,21 +187,18 @@ function UnitCard({
   onScrollRef: (key: string, el: HTMLElement | null) => void;
   editing: boolean;
   onToggleEdit: () => void;
-  onShotTextChange: ((shotIndex: number, text: string) => void) | null;
+  onTextChange: ((text: string) => void) | null;
   supportedDurations: number[] | null;
   /** unit 当前存盘时长已不在收窄后的档位表内——展示照旧，但阻断确认（父组件按此禁用确认按钮）。 */
   outOfTier: boolean;
   onDurationChange: ((seconds: number) => void) | null;
-  /** 保存 / 确认请求在途：锁住时长下拉与镜头正文，避免 adopt() 用服务端回显覆盖请求发出后的新编辑。 */
+  /** 保存 / 确认请求在途：锁住时长下拉与正文，避免 adopt() 用服务端回显覆盖请求发出后的新编辑。 */
   busy: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const hasViolation = violations.anchorSource.length + violations.byLine.size + violations.aggregate.length > 0;
   const anchorBroken = violations.anchorSource.length > 0;
   const stats = useMemo(() => unitStats(unit.scriptText, lookup), [unit.scriptText, lookup]);
-  // 参考图 pills 按当前正文实时派生，不用 unit.references——那是服务端上一次落盘时派生的，
-  // 编辑期加/删/改 @[名称] 引用后要保存才更新，用户在改的当下会看到一份对不上正文的旧列表。
-  const references = useMemo(() => deriveDisplayReferences(unit.scriptText, lookup), [unit.scriptText, lookup]);
   // 档位表解析不到、或内容不可编辑（隔离草稿）时退回只读秒数：能选的档位必须是保存后
   // 后端收编不会再改的那一档，拿不到权威档位表就不提供会被静默改掉的选择。
   const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
@@ -302,10 +239,10 @@ function UnitCard({
           </span>
         )}
         <span className="text-[11px] text-text-4">
-          {t("reference_step1_unit_stats", { shots: stats.shots, utterances: stats.utterances })}
+          {t("reference_step1_unit_stats", { utterances: stats.utterances })}
         </span>
         <span className="flex-1" />
-        {onShotTextChange && (
+        {onTextChange && (
           <button
             type="button"
             onClick={onToggleEdit}
@@ -338,23 +275,14 @@ function UnitCard({
       </details>
 
       <div className="mt-3">
-        {editing && unit.shots && onShotTextChange ? (
-          <div className="flex flex-col gap-2">
-            {unit.shots.map((shot, i) => (
-              <div key={i} className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/30 p-2.5">
-                <div className="mb-1.5 font-mono text-[11px] text-text-3">
-                  {t("review_shot_label", { index: i + 1 })}
-                </div>
-                <AutoTextarea
-                  value={shot.text}
-                  onChange={(text) => onShotTextChange(i, text)}
-                  disabled={busy}
-                  aria-label={t("review_shot_label", { index: i + 1 })}
-                  className="text-text-3"
-                />
-              </div>
-            ))}
-          </div>
+        {editing && unit.editable && onTextChange ? (
+          <AutoTextarea
+            value={unit.scriptText}
+            onChange={onTextChange}
+            disabled={busy}
+            aria-label={t("reference_step1_unit_text_label", { unit: unit.key })}
+            className="text-text-3"
+          />
         ) : (
           <ScriptHighlight
             text={unit.scriptText}
@@ -365,11 +293,6 @@ function UnitCard({
       </div>
 
       <InlineViolations violations={violations.aggregate} />
-
-      <div className="mt-3 flex items-center gap-2 border-t border-hairline-soft pt-2.5">
-        <span className="font-mono text-[10px] tracking-[0.08em] text-text-4">{t("reference_step1_references_label")}</span>
-        <ReferencePills references={references} />
-      </div>
 
       {quarantined && hasViolation && (
         <p className="mt-2 text-[10.5px] text-text-4">{t("reference_step1_quarantined_unit_hint")}</p>
@@ -385,8 +308,8 @@ function selectUnitsContent(state: ScriptReviewState): ReferenceStep1Draft | nul
 
 /**
  * reference_video step1 拆分结果的按集预览：与 drama/narration 的 `ScriptReviewGate` 同级、
- * 专属 reference_video 变体的审核 gate 面板——文稿流布局（unit 卡：头部 + 原文 + 高亮文稿 +
- * 参考图），隔离草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 step2。
+ * 专属 reference_video 变体的审核 gate 面板——文稿流布局（unit 卡：头部 + 原文 + 高亮正文），
+ * 隔离草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 step2。
  *
  * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（非隔离
  * 草稿）内容上开放；隔离草稿的修复走 agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
@@ -429,15 +352,13 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     onConfirmed: handleConfirmed,
   });
 
-  const updateShotText = useCallback(
-    (unitIndex: number, shotIndex: number, text: string) => {
+  const updateUnitText = useCallback(
+    (unitIndex: number, text: string) => {
       setDraft((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
-          units: prev.units.map((u, i) =>
-            i === unitIndex ? { ...u, shots: u.shots.map((s, j) => (j === shotIndex ? { ...s, text } : s)) } : u,
-          ),
+          units: prev.units.map((u, i) => (i === unitIndex ? { ...u, text } : u)),
         };
       });
     },
@@ -512,7 +433,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
   const quarantined = quarantine != null;
   const confirmed = status === "confirmed" && !dirty && !quarantined;
   const displayUnits: DisplayUnit[] = quarantined
-    ? quarantinedDisplayUnits(quarantine.content, episode, lookup)
+    ? quarantinedDisplayUnits(quarantine.content, episode)
     : draft
       ? structuredDisplayUnits(draft)
       : [];
@@ -639,7 +560,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
             onScrollRef={setCardRef}
             editing={!quarantined && editingUnitKey === unit.key}
             onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
-            onShotTextChange={quarantined ? null : (shotIndex, text) => updateShotText(i, shotIndex, text)}
+            onTextChange={quarantined ? null : (text) => updateUnitText(i, text)}
             supportedDurations={unitDurationTiers(unit, lookup, state?.duration_tiers ?? null) ?? (state?.supported_durations ?? null)}
             outOfTier={outOfTierUnitKeys.has(unit.key)}
             onDurationChange={quarantined ? null : (seconds) => updateDuration(i, seconds)}

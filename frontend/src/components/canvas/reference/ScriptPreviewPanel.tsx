@@ -4,7 +4,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { assetColor } from "./asset-colors";
-import type { MentionLookup } from "@/hooks/useShotPromptHighlight";
+import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { errMsg } from "@/utils/async";
 import type { ScriptPreview } from "@/types";
 
@@ -14,18 +14,18 @@ const DEBOUNCE_MS = 400;
 export interface ScriptPreviewPanelProps {
   projectName: string;
   episode: number;
-  /** 当前文稿正文（草稿优先），与编辑器同一个值。 */
+  /** 当前单元正文（草稿优先），与编辑器同一个值。 */
   text: string;
   /** 资产名 → 类型，供 mention 着色；调用侧须 memo 化。 */
   lookup: MentionLookup;
 }
 
 /**
- * 解析预览面板：把编辑器里的文稿按解析器读到的样子摊开。
+ * 解析预览面板：把编辑器里的正文按解析器读到的样子摊开。
  *
- * 分工——高亮文稿在本地即时渲染，跟得上打字；派生出的参考图、台词与降级提示由后端
- * 解析接口给出（声音相关的几条依赖项目当前视频模型能力，前端无从判断），停止输入后
- * 才发一次请求。前一次请求随下一次输入立即作废（AbortSignal），慢响应不会盖住新结果。
+ * 分工——高亮正文在本地即时渲染，跟得上打字；派生出的台词与降级提示由后端解析接口
+ * 给出（声音相关的几条依赖项目当前视频模型能力，前端无从判断），停止输入后才发一次
+ * 请求。前一次请求随下一次输入立即作废（AbortSignal），慢响应不会盖住新结果。
  *
  * 派生结果还取决于项目资产表（未登记 mention / speaker 未登记 / 角色未设参考音频三条
  * warning 都读它），故 `lookup` 变化同样重新拉取——否则资产改完面板仍报旧提示。
@@ -41,7 +41,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
   const [error, setError] = useState<string | null>(null);
   // 手上这份 preview 是按哪套输入派生的。与当前输入不一致 = 面板过期（节流等待 +
   // 请求在途的窗口）。此时不清空——边打字边清会让整块反复闪空——改为标记过期：
-  // 降透明度并置 aria-busy，读者不会把旧的镜头数 / 参考图 / 台词当成当前正文的结果。
+  // 降透明度并置 aria-busy，读者不会把旧的台词与提示当成当前正文的结果。
   const [appliedFor, setAppliedFor] = useState<{
     projectName: string;
     episode: number;
@@ -64,8 +64,8 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
         })
         .catch((e: unknown) => {
           if (controller.signal.aborted) return;
-          // 同时清空上一次结果：文稿已经改了，留着旧派生会让面板在报错横幅下继续
-          // 展示对不上当前正文的镜头 / 参考图 / 台词。
+          // 同时清空上一次结果：正文已经改了，留着旧派生会让面板在报错横幅下继续
+          // 展示对不上当前正文的台词。
           setPreview(null);
           setError(errMsg(e));
           setAppliedFor(null);
@@ -149,30 +149,6 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           stale ? "opacity-45" : ""
         }`}
       >
-        <dt className="text-[var(--color-text-4)]">{t("script_preview_shots")}</dt>
-        <dd className="font-mono tabular-nums text-[var(--color-text-2)]">
-          {preview?.shots.length ?? 0}
-        </dd>
-
-        <dt className="text-[var(--color-text-4)]">{t("script_preview_references")}</dt>
-        <dd className="flex flex-wrap gap-1">
-          {preview && preview.references.length > 0
-            ? preview.references.map((ref, i) => {
-                const palette = assetColor(ref.type);
-                return (
-                  <span
-                    key={`${ref.type}:${ref.name}`}
-                    translate="no"
-                    className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 ${palette.textClass} ${palette.bgClass} ${palette.borderClass}`}
-                  >
-                    <span className="font-mono tabular-nums opacity-70">{i + 1}</span>
-                    {ref.name}
-                  </span>
-                );
-              })
-            : <span className="text-[var(--color-text-4)]">{t("script_preview_none")}</span>}
-        </dd>
-
         <dt className="text-[var(--color-text-4)]">{t("script_preview_utterances")}</dt>
         <dd className="text-[var(--color-text-2)]">
           {counts.dialogue + counts.voiceover > 0
@@ -193,9 +169,9 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           {utterances.map((u, i) => {
             const palette = assetColor(u.kind === "dialogue" ? "character" : "unknown");
             return (
-              <li key={`${u.shot_index}-${i}`} className="flex items-baseline gap-2">
+              <li key={`${u.index}-${i}`} className="flex items-baseline gap-2">
                 <span className="shrink-0 font-mono tabular-nums text-[var(--color-text-4)]">
-                  {t("script_preview_shot_badge", { index: u.shot_index })}
+                  {t("script_preview_utterance_badge", { index: u.index })}
                 </span>
                 <span
                   translate="no"

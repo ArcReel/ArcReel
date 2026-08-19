@@ -35,7 +35,6 @@ from lib.project_migration_failure import (
     ProjectMigrationError,
     load_migration_verdict,
 )
-from lib.reference_video import rederive_unit_references
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.script_review import content_fingerprint_of_data
 from lib.script_structure_validator import validate_script_structure
@@ -313,7 +312,6 @@ class ScriptBatchEditor:
                         item_id, before_admission, after_admission = _apply_operation(
                             candidate,
                             operation,
-                            project,
                             removed_items,
                         )
                     except ScriptEditError as exc:
@@ -573,17 +571,9 @@ def _admission_for(script: dict[str, Any], item_id: str) -> SpeechAdmission | No
     return None
 
 
-def _rederive_video_unit_references(item: dict[str, Any], project: dict[str, Any]) -> None:
-    """Derive only from a shot list; structured preflight reports malformed containers."""
-
-    if isinstance(item.get("shots"), list):
-        rederive_unit_references([item], project)
-
-
 def _apply_operation(
     script: dict[str, Any],
     operation: ScriptBatchOperation,
-    project: dict[str, Any],
     removed_items: dict[str, dict[str, Any]],
 ) -> tuple[str | None, SpeechAdmission | None, SpeechAdmission | None]:
     if isinstance(operation, UpdateOperation):
@@ -596,8 +586,6 @@ def _apply_operation(
             raise _OperationApplyError(str(exc), location=("id",)) from exc
         item = items[item_index]
         before_content_admission = admit_script_unit(kind, item, ignore_marker=True)
-        previous_shots = copy.deepcopy(item.get("shots"))
-        previous_references = copy.deepcopy(item.get("references"))
         for field, value in operation.fields.items():
             try:
                 patch_field(script, item_id, field, value)
@@ -608,16 +596,8 @@ def _apply_operation(
                 ) from exc
         roots = {field.split(".", 1)[0] for field in operation.fields}
         if kind == "video_units":
-            body_changed = "shots" in roots and item.get("shots") != previous_shots
-            if body_changed and "references" not in roots:
-                _rederive_video_unit_references(item, project)
-            references_changed = "references" in roots and item.get("references") != previous_references
-            if roots & {"shots", "references", "duration_seconds"}:
-                refresh_video_unit_replan_state(
-                    item,
-                    allow_clear=body_changed or references_changed or "duration_seconds" in roots,
-                    content_changed=body_changed,
-                )
+            if roots & {"text", "duration_seconds"}:
+                refresh_video_unit_replan_state(item)
         else:
             after_content_admission = admit_script_unit(kind, item, ignore_marker=True)
             if (
@@ -657,9 +637,7 @@ def _apply_operation(
             else:
                 item["end_frame_image"] = removed["end_frame_image"]
         if kind == "video_units":
-            if "references" not in item:
-                _rederive_video_unit_references(item, project)
-            refresh_video_unit_replan_state(item, content_changed=True)
+            refresh_video_unit_replan_state(item)
         items.insert(insert_at, item)
         return item_id, None, _admission_for(script, item_id)
 
@@ -780,8 +758,6 @@ def _validation_location(message: ValidationMessage) -> ScriptBatchEditLocation:
             field_path = _parse_path(field)
             if not field_path[: len(path)] == path:
                 path += field_path
-        elif message.key == "val_reference_not_in_bucket":
-            path += ("references",)
         return ScriptBatchEditLocation(path=path)
     if isinstance(field, str):
         return ScriptBatchEditLocation(path=_parse_path(field))
@@ -831,10 +807,7 @@ def _responsible_operation(
 
 def _operation_field_affects_location(field: str, location: tuple[str | int, ...]) -> bool:
     field_path = _parse_path(field)
-    overlaps = field_path[: len(location)] == location or location[: len(field_path)] == field_path
-    if overlaps:
-        return True
-    return bool(location and location[0] == "references" and field_path and field_path[0] == "shots")
+    return field_path[: len(location)] == location or location[: len(field_path)] == field_path
 
 
 __all__ = [

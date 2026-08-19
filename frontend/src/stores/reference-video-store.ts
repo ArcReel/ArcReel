@@ -2,11 +2,10 @@
 import { create } from "zustand";
 import { API } from "@/api";
 import { errMsg } from "@/utils/async";
-import type { ReferenceResource, ReferenceVideoUnit, TransitionType } from "@/types";
+import type { ReferenceVideoUnit, TransitionType } from "@/types";
 
 interface AddUnitPayload {
   prompt: string;
-  references: ReferenceResource[];
   duration_seconds?: number;
   transition_to_next?: TransitionType;
   note?: string | null;
@@ -14,7 +13,6 @@ interface AddUnitPayload {
 
 interface PatchUnitPayload {
   prompt?: string;
-  references?: ReferenceResource[];
   duration_seconds?: number;
   transition_to_next?: TransitionType;
   note?: string | null;

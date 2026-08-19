@@ -13,8 +13,7 @@
 
 from __future__ import annotations
 
-from lib.reference_video.shot_parser import render_shots_text
-from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT, WRITING_SYNTAX_SPEC
+from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
 
@@ -88,7 +87,7 @@ def build_reference_units_split_prompt(
     由 ``split_reference_video_units`` MCP tool 消费。step1 定的是**结构与内容契约**——
     unit 边界、时长（即计费单位）、台词落位、核心资产指认；视觉展开（景别 / 构图 / 运镜）
     留给 step2。产出受 response_schema（``build_reference_units_step1_model``，unit 时长
-    枚举硬约束）约束；unit_id / shots / references / utterances 全部机器派生，不进 LLM 输出。
+    枚举硬约束）约束；unit_id / utterances 全部机器派生，不进 LLM 输出。
 
     Args:
         supported_durations: unit 允许的时长取值集合（秒），即两种引用状态下档位的并集，
@@ -174,7 +173,7 @@ def build_reference_units_split_prompt(
     return f"""# 角色与任务
 
 你是一位参考生视频单元架构师，本任务是把源文拆分为适配多模态参考视频模型的 video_unit 表（step1 内容拆分）。
-每个 video_unit 对应**一次视频生成调用**，含 1-{MAX_SHOTS_PER_UNIT} 个镜头；镜头表示画面切换，但共享同一次生成。
+每个 video_unit 对应**一次视频生成调用**，正文是一段连续的画面描述，一次生成完整覆盖它。
 本阶段定的是**结构与内容契约**：unit 边界、时长（时长即计费单位）、台词落位、核心资产指认——用户会逐 unit 审阅确认这份契约。
 视觉编排（景别 / 构图 / 运镜扩写）由后续 step2 以你的拆分为基底生成，本阶段不写。
 
@@ -225,7 +224,7 @@ def build_reference_units_split_prompt(
      取**不低于**这个秒数的档位。这是单向下界——台词永不压进念不完的短档；无台词的 unit 没有此下界。
      台词量超过最长档（{max_duration} 秒）时把该 unit 拆开，不要把台词硬塞进一个 unit。
   3. 默认偏好：{default_rule}。
-  4. 打包效率：在 1-3 之内组织镜头，使 unit 时长贴近 {max_duration} 秒；不要默认选最短 / 保守值。{max_refs_rule}
+  4. 打包效率：在 1-3 之内组织正文内容，使 unit 时长贴近 {max_duration} 秒；不要默认选最短 / 保守值。{max_refs_rule}
 
 # 正文书写语法
 
@@ -233,7 +232,7 @@ def build_reference_units_split_prompt(
 
 # 本阶段的正文写作指引
 
-- 镜头的画面描述聚焦当下瞬间的**可见动作**：谁做了什么、物件互动、环境动态；动词描述物理可观察动作
+- 画面描述聚焦当下瞬间的**可见动作**：谁做了什么、物件互动、环境动态；动词描述物理可观察动作
   （伸手 / 转身 / 推门 / 投向），避免「陷入 / 回忆 / 意识到 / 决定」等内心动词。
 - 资产名必须逐字取自下列候选，不要发明候选之外的名称：
 {_candidate_block(characters, scenes, props)}
@@ -246,14 +245,14 @@ def build_reference_units_split_prompt(
 def render_reference_units_for_step2(units: list[dict]) -> str:
     """把 step1 units 渲染为 step2 prompt 的输入文本。
 
-    机械渲染、无 LLM 参与：按 step1 的落盘顺序逐 unit 输出序号 + 时长 + 书写层正文。
+    机械渲染、无 LLM 参与：按 step1 的落盘顺序逐 unit 输出序号 + 时长 + 正文。
     step2 以此为唯一基底做视觉扩写（见 ADR 0041）；``unit_id`` 不进渲染——它由序号机械
     派生，step2 不写 id 就没有 id 漂移可校验。
     """
     blocks: list[str] = []
     for index, unit in enumerate(units, start=1):
         duration = int(unit.get("duration_seconds") or 0)
-        body = render_shots_text(unit.get("shots") or [])
+        body = str(unit.get("text") or "")
         blocks.append(f"#### unit {index}（时长 {duration}s）\n{body}")
     return "\n\n".join(blocks)
 
@@ -275,7 +274,7 @@ def build_reference_video_prompt(
     """构建参考生视频模式 step2（视觉展开）的 LLM Prompt。
 
     step2 只做一件事：把 step1 每个 unit 的正文按同一份书写语法扩写出视觉层，**保结构**——
-    unit 数与顺序不变、台词逐字不变、镜头数不增减；时长不进输出（step1 定稿、机械沿用）。
+    unit 数与顺序不变、台词逐字不变；时长不进输出（step1 定稿、机械沿用）。
 
     Args:
         project_overview: 项目概述（synopsis, genre, theme, world_setting）。
@@ -306,7 +305,6 @@ def build_reference_video_prompt(
 - `units` 数组与 step1_units **等长、同序**：不合并、不拆分、不增删 unit。
 - 每个 unit 的**台词与画外音逐字保留**：不改词、不增删、不重排、不换说话人。
   台词配不上你想要的画面时，请按台词写画面——**不要**改台词。
-- 镜头行数不增减：step1 写了几个 `镜头N：`，展开后仍是几个。
 - 正文里新出现的 `@[名称]` 必须是候选表中的登记名（step1 没引用过的资产也可以引用，但必须已登记）。{max_refs_line}
 
 # 上下文
@@ -347,22 +345,22 @@ def build_reference_video_prompt(
 
 # 视觉展开写作指引
 
-镜头行的描述将直接驱动该镜头的视频生成，按「景别 → 构图 → 运镜 → 画面内容」四要素依次组织，写足画面信息、宁详勿略：
+正文将直接驱动该 unit 的视频生成，按「景别 → 构图 → 运镜 → 画面内容」四要素依次组织，写足画面信息、宁详勿略：
 
 - 景别：大全景 / 全景 / 中景 / 近景 / 特写，及拍摄角度（俯拍 / 仰拍 / 平视）。
 - 构图：主体在画面中的位置、前景与背景的关系（如中心构图、对角线构图、以公路 / 廊柱作引导线）。
-- 运镜：机位与镜头运动（固定机位 / 跟随 / 推近 / 拉远 / 摇移），含镜头内焦点主体的变更。
-- 画面内容：占篇幅大头——镜头时长内发生的全部可见运动：每个出场主体各自的动作链（肢体 / 手势 / 神态过渡）、
+- 运镜：机位与镜头运动（固定机位 / 跟随 / 推近 / 拉远 / 摇移），含焦点主体的变更。
+- 画面内容：占篇幅大头——unit 时长内发生的全部可见运动：每个出场主体各自的动作链（肢体 / 手势 / 神态过渡）、
   物件互动、背景与环境动态（人群、天气、衣摆、光影移动），可带运动质感（如动态模糊），末尾用一句点明氛围基调。
-  动作量与 unit 时长匹配：镜头多则每镜完成一个连贯动作 + 一个细节互动，镜头少则随时长递增动作段数。
+  动作量与 unit 时长匹配：时长越长，动作段数随之递增。
 - 角色 / 场景 / 道具仅用 `@[名称]` 引用，候选：
 {_candidate_block(characters, scenes, props)}
   外貌、服装、场景陈设等静态外观由参考图承担，**不要**在文本里描写；动作、姿态、互动与环境动态则写得越具体越好。
   动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免「陷入 / 回忆 / 意识到 / 决定」等内心动词。
-- 正例：「镜头1：景别：中景，轻微仰拍。构图：@[角色A] 居画面中心，@[场景A] 的窗棂与案几为前景。运镜：固定机位，缓慢推近。
+- 正例：「景别：中景，轻微仰拍。构图：@[角色A] 居画面中心，@[场景A] 的窗棂与案几为前景。运镜：固定机位，缓慢推近。
   画面内容：@[角色A] 在 @[场景A] 中缓步走向窗前，抬手推开木窗，衣摆随穿堂风轻扬；随后低头凝视手中的 @[道具A]，
   指尖缓缓收紧，呼吸放缓，目光从 @[道具A] 缓慢抬起投向窗外；烛焰随风明灭，光影在面部缓慢移动，渲染压抑而克制的氛围。」
-- 反例（过短）：「镜头1：@[角色A] 站在 @[场景A] 里。」——没有景别 / 构图 / 运镜，也没有动作过程与环境动态，生成的视频会近乎静止。
+- 反例（过短）：「@[角色A] 站在 @[场景A] 里。」——没有景别 / 构图 / 运镜，也没有动作过程与环境动态，生成的视频会近乎静止。
 - 反例（写外貌）：「身穿某色服装的角色A 站在某色场景A 前」——外貌 / 服装 / 颜色应由参考图承担，且未用 `@[名称]` 引用。
 
 `title` 给本集拟一个简短标题。请按 step1_units 顺序逐 unit 产出。
