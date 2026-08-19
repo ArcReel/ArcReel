@@ -59,7 +59,7 @@ pnpm check-consistency
 ## 运行测试
 
 ```bash
-# 后端测试（-v 单文件 / -k 关键字 / --cov 覆盖率）
+# 后端测试；单文件：uv run python -m pytest path/to/test.py，-k 关键字筛选，--cov 覆盖率，-v 详细输出
 uv run python -m pytest
 
 # 前端 typecheck + lint + 测试
@@ -250,7 +250,7 @@ docs: 文档变更
 chore: 构建/工具变更
 ```
 
-标题写成 `type(scope): 摘要`。squash 合并下 PR 标题即 changelog 条目：描述用户可感知的收益，范围词使用产品术语而非实现术语（status_code、内部类名等），并如实限定范围。type 取值与 changelog 分类见下文「发版流程」与 `.release-please-config.json`。
+标题格式为 `type(scope): 摘要`，scope 可省略。squash 合并下 PR 标题即 changelog 条目：描述用户可感知的收益，范围词使用产品术语而非实现术语（status_code、内部类名等），并如实限定范围。type 取值与 changelog 分类见下文「发版流程」与 `.release-please-config.json`。
 
 ## 发版流程
 
