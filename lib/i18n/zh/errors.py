@@ -149,9 +149,6 @@ MESSAGES = {
     "script_review_conflict": "内容整理草稿在编辑期间已被其他编辑方修改，本次保存未覆盖；请刷新查看最新内容，合并后再保存",
     "script_review_invalid_content": "内容确认草稿结构校验失败，请检查后重试",
     "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请让智能体重新拆分该集",
-    "draft_event_label": "第 {episode} 集{label_prefix}",
-    "normalized_script": "规范化脚本",
-    "segment_splitting": "片段拆分",
     # Source loader
     "source_unsupported_format": "不支持的源文件格式：{ext}（支持 .txt / .md / .docx / .epub / .pdf）",
     "source_decode_failed": "源文件「{filename}」解码失败（已尝试：{tried}）",

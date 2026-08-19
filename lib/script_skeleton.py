@@ -51,17 +51,17 @@ SKELETONS: dict[str, Skeleton] = {
     "video_units": Skeleton("unit_id", None),
 }
 
-# 条目名词按骨架种类硬编码——驱动分镜级事件与任务完成事件共用的通知文案（如「镜头「E1S01」」）。
-# 名词 i18n 化是独立议题（与 ``_diff_named_entities`` 的「角色」/「线索」同为既有硬编码形态），
-# 不在此处收敛。两套事件路径必须读同一张表，不各自维护一份。
-SKELETON_ITEM_NOUNS: dict[str, str] = {
-    "segments": "分镜",
-    "scenes": "场景",
-    "shots": "镜头",
-    "video_units": "视频单元",
+# 条目标签的 i18n key 按骨架种类派生——驱动分镜级事件与任务完成事件共用的通知文案
+# （如「镜头「E1S01」」）。文案本身按语言存放在 lib/i18n 的 ``event_label_*``，此处只登记
+# 稳定标识。两套事件路径必须读同一张表，不各自维护一份。
+SKELETON_ITEM_LABEL_KEYS: dict[str, str] = {
+    "segments": "skeleton_segments",
+    "scenes": "skeleton_scenes",
+    "shots": "skeleton_shots",
+    "video_units": "skeleton_video_units",
 }
 
-# 事件的实体类型按骨架种类推导，与 ``SKELETON_ITEM_NOUNS`` 同源。驱动前端分组标签映射
+# 事件的实体类型按骨架种类推导，与 ``SKELETON_ITEM_LABEL_KEYS`` 同源。驱动前端分组标签映射
 # （``ENTITY_LABELS``），使四种骨架各显分镜/场景/镜头/视频单元，而非恒为「分镜」。取值与既有
 # ``entity_type`` 枚举不冲突（drama 用 ``drama_scene`` 避免与命名实体 ``scene`` 撞组）。
 SKELETON_ENTITY_TYPES: dict[str, str] = {
@@ -94,7 +94,7 @@ def _validate_registry() -> None:
         if skeleton.chars_field is not None and not skeleton.chars_field:
             raise RuntimeError(f"SKELETONS[{kind!r}].chars_field 非法：{skeleton.chars_field!r}")
     for name, table in (
-        ("SKELETON_ITEM_NOUNS", SKELETON_ITEM_NOUNS),
+        ("SKELETON_ITEM_LABEL_KEYS", SKELETON_ITEM_LABEL_KEYS),
         ("SKELETON_ENTITY_TYPES", SKELETON_ENTITY_TYPES),
         ("SKELETON_ANCHOR_TYPES", SKELETON_ANCHOR_TYPES),
     ):

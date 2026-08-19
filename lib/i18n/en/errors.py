@@ -161,9 +161,6 @@ MESSAGES = {
     "script_review_quarantine_unreadable": (
         "The draft needing fixes is corrupted or malformed and can't be read; ask the agent to re-split this episode"
     ),
-    "draft_event_label": "Episode {episode} {label_prefix}",
-    "normalized_script": "Normalized Script",
-    "segment_splitting": "Segment Splitting",
     # Source loader
     "source_unsupported_format": "Unsupported source format: {ext} (supported: .txt / .md / .docx / .epub / .pdf)",
     "source_decode_failed": "Failed to decode source file '{filename}' (tried: {tried})",

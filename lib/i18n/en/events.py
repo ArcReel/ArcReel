@@ -1,0 +1,26 @@
+"""English labels for project change events. See ``lib/i18n/zh/events.py`` for the contract."""
+
+MESSAGES = {
+    "event_label_grid": 'Grid storyboard "{id}"',
+    "event_label_grid_split": 'Grid storyboard "{id}" split',
+    "event_label_voice_sample": 'Voice preview for "{id}"',
+    "event_label_asset_image_character": 'Sheet for character "{id}"',
+    "event_label_asset_image_scene": 'Sheet for scene "{id}"',
+    "event_label_asset_image_prop": 'Sheet for prop "{id}"',
+    "event_label_asset_image_product": 'Sheet for product "{id}"',
+    "event_label_skeleton_segments": 'Segment "{id}"',
+    "event_label_skeleton_scenes": 'Scene "{id}"',
+    "event_label_skeleton_shots": 'Shot "{id}"',
+    "event_label_skeleton_video_units": 'Video unit "{id}"',
+    "event_label_reference_video": 'Reference video "{id}"',
+    "event_label_narration": 'Narration "{id}"',
+    "event_label_named_entity_character": 'Character "{id}"',
+    "event_label_named_entity_scene": 'Scene "{id}"',
+    "event_label_named_entity_prop": 'Prop "{id}"',
+    "event_label_character_reference_audio": 'Reference audio for character "{id}"',
+    "event_label_project_settings": "Project settings",
+    "event_label_overview": "Project overview",
+    "event_label_episode": "Episode {episode}",
+    "event_label_draft_normalized_script": "Episode {episode} normalized script",
+    "event_label_draft_segment_splitting": "Episode {episode} segment splitting",
+}

@@ -106,7 +106,10 @@ describe("useProjectEventsSSE", () => {
               entity_type: "character",
               action: "created",
               entity_id: "hero",
-              label: "角色「hero」",
+              // label 是后端默认语言兜底；通知文案应由 label_key 按界面语言渲染而来。
+              label: "backend fallback",
+              label_key: "named_entity_character",
+              label_params: { id: "hero" },
               focus: {
                 pane: "characters",
                 anchor_type: "character",

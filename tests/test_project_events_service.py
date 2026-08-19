@@ -11,7 +11,7 @@ from lib.project_manager import ProjectManager
 from lib.script_skeleton import (
     SKELETON_ANCHOR_TYPES,
     SKELETON_ENTITY_TYPES,
-    SKELETON_ITEM_NOUNS,
+    SKELETON_ITEM_LABEL_KEYS,
     SKELETONS,
 )
 from server.services.project_events import (
@@ -1344,13 +1344,13 @@ class TestProjectEventService:
             # 逐条实体字段的显式缺位：引用写在正文里，正文本身进快照。
             assert normalized["items"]["X1"]["characters"] == []
             assert normalized["items"]["X1"]["text"] == "@[Hero] 登场"
-        label = service._build_script_item_label("X1", normalized)
-        assert label.endswith("「X1」") and not label.startswith("「")
+        label_key = service._build_script_item_label_key(normalized)
+        assert label_key == SKELETON_ITEM_LABEL_KEYS[kind]
 
     @pytest.mark.unit
-    def test_every_skeleton_kind_has_label_noun(self):
-        """标签名词表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出名词补全。"""
-        assert set(SKELETON_ITEM_NOUNS) == set(SKELETONS)
+    def test_every_skeleton_kind_has_label_key(self):
+        """标签 key 表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出补全。"""
+        assert set(SKELETON_ITEM_LABEL_KEYS) == set(SKELETONS)
 
     @pytest.mark.unit
     def test_every_skeleton_kind_has_entity_and_anchor_type(self):

@@ -159,9 +159,6 @@ MESSAGES = {
     "script_review_quarantine_unreadable": (
         "Tệp bản nháp cần sửa đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"
     ),
-    "draft_event_label": "Tập {episode} {label_prefix}",
-    "normalized_script": "Kịch bản đã chuẩn hóa",
-    "segment_splitting": "Chia đoạn",
     # Source loader
     "source_unsupported_format": "Định dạng nguồn không hỗ trợ: {ext} (hỗ trợ: .txt / .md / .docx / .epub / .pdf)",
     "source_decode_failed": "Không giải mã được tệp nguồn '{filename}' (đã thử: {tried})",
