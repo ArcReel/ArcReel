@@ -1,8 +1,7 @@
 """公开契约行为测试：skill.md 模板、OpenAPI 可写字段与非 JSON 响应例外。"""
 
 import pytest
-from fastapi import FastAPI, Request
-from fastapi.responses import Response
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib import PROJECT_ROOT
@@ -67,33 +66,11 @@ class TestSkillMdTemplate:
 
 
 def _skill_md_app() -> FastAPI:
-    """构造包含 /skill.md 端点的 mini app。"""
-    import asyncio
+    """把真实的 /skill.md 处理函数挂到 mini app 上，避免测试复制一份实现。"""
+    from server.app import serve_skill_md
 
     app = FastAPI()
-
-    @app.get("/skill.md")
-    async def serve_skill_md(request: Request) -> Response:
-        from starlette.responses import PlainTextResponse
-
-        template_path = PROJECT_ROOT / "public" / "skill.md.template"
-
-        def _read() -> tuple[bool, str]:
-            if not template_path.exists():
-                return False, ""
-            return True, template_path.read_text(encoding="utf-8")
-
-        exists, template = await asyncio.to_thread(_read)
-        if not exists:
-            return PlainTextResponse("skill.md 模板不存在", status_code=404)
-
-        forwarded_proto = request.headers.get("x-forwarded-proto")
-        scheme = forwarded_proto or request.url.scheme or "http"
-        host = request.url.netloc
-        base_url = f"{scheme}://{host}"
-        content = template.replace("{{BASE_URL}}", base_url)
-        return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
-
+    app.add_api_route("/skill.md", serve_skill_md, methods=["GET"])
     return app
 
 

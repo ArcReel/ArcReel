@@ -672,10 +672,13 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_source_kind_silently_ignored_on_patch(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
             assert resp.status_code == 200
+            # 「不接受该字段」的实质保证：请求体里的值不得落进项目数据
+            assert "source_kind" not in fake_pm.project_data["ready"]
 
     @pytest.mark.unit
     def test_project_details_and_updates(self, tmp_path, monkeypatch):
@@ -703,6 +706,7 @@ class TestProjectsRouter:
                 json={"content_mode": "drama"},
             )
             assert ignored_mode.status_code == 200
+            assert "content_mode" not in fake_pm.project_data["ready"]
 
             # aspect_ratio 现在允许修改（字符串），dict 类型将被 Pydantic 拒绝（422）
             rejected_ratio_dict = client.patch(
@@ -724,6 +728,7 @@ class TestProjectsRouter:
                 json={"image_backend": "gemini-aistudio/nano-banana"},
             )
             assert ignored_legacy.status_code == 200
+            assert "image_backend" not in fake_pm.project_data["ready"]
 
             get_script = client.get("/api/v1/projects/ready/scripts/episode_1.json")
             assert get_script.status_code == 200
@@ -1012,6 +1017,7 @@ class TestProjectsRouter:
                 json={"content_mode": "ad"},
             )
             assert ignored_mode.status_code == 200
+            assert "content_mode" not in fake_pm.project_data["ready"]
 
             # ad 项目 target_duration 接受任意正整数秒
             updated = client.patch(
@@ -1900,6 +1906,8 @@ class TestProjectsRouter:
                 },
             )
             assert resp.status_code == 200
+            # 关键保证：退役字段不得落进 project.json，否则解析链会忽略它、静默错配供应商
+            assert "image_backend" not in fake_pm.project_data["legacy-1"]
 
     @pytest.mark.unit
     def test_create_project_empty_model_fields_not_written(self, tmp_path, monkeypatch):
