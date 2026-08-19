@@ -1,6 +1,6 @@
 # ArcReel Skill
 
-ArcReel 是一个 AI 视频生成平台，将小说转化为短视频。通过此 Skill，你可以使用自然语言对话来调用 ArcReel 的项目管理和内容创作能力。
+ArcReel 是一个 AI 视频生成平台，将小说、剧本或创作构想转化为短视频。通过此 Skill，你可以使用自然语言对话来调用 ArcReel 的项目管理和内容创作能力。
 
 ## 认证
 
@@ -67,8 +67,10 @@ curl {{BASE_URL}}/api/v1/projects \
 |------|------|------|
 | `name` | string | 项目标识，仅字母、数字与连字符 |
 | `title` | string | 项目标题 |
-| `generation_mode` | string | **必填**，视频来源二选一：`storyboard`（分镜图生视频）/ `reference_video`（参考图直接生视频，无分镜图步骤）。创建后不可更改 |
-| `grid_storyboard` | bool | 选填，默认 `false`。按分镜板（宫格）批量产出分镜图，仅 `generation_mode` 为 `storyboard` 时生效；广告/短片项目不可开启。创建后可经项目 PATCH 切换 |
+| `content_mode` | string | 选填，创作类型：`drama`（剧情演绎，角色驱动）/ `narration`（旁白/解说，旁白驱动）/ `ad`（广告/短片，商品与目标时长驱动）。默认 `drama`。创建后不可更改 |
+| `source_kind` | string | 选填，源文件类型：`novel`（小说，AI 改编为脚本）/ `screenplay`（剧本，优先保留原稿）。默认 `novel`。创建后不可更改 |
+| `generation_mode` | string | **必填**，视频生成方法二选一：`storyboard`（分镜图生视频）/ `reference_video`（参考图直接生视频，无分镜图步骤）。创建后不可更改 |
+| `grid_storyboard` | bool | 选填，默认 `false`。按多宫格分镜批量产出分镜图，仅 `generation_mode` 为 `storyboard` 时生效；广告/短片项目不可开启。创建后可经项目 PATCH 切换 |
 
 ```bash
 curl -X POST {{BASE_URL}}/api/v1/projects \
@@ -155,7 +157,7 @@ curl {{BASE_URL}}/api/v1/projects/my-novel \
 
 ### 5. 更新项目设置
 
-修改项目配置（标题、风格、分镜板（宫格）开关等）。生成方式 `generation_mode` 创建后不可更改，不接受该字段。
+修改项目配置（标题、风格、多宫格分镜开关等）。`generation_mode`、`content_mode`、`source_kind` 创建后不可更改，不接受这些字段。
 
 - **端点**：`PATCH {{BASE_URL}}/api/v1/projects/{name}`
 - **认证**：需要 Bearer Token
@@ -237,5 +239,9 @@ curl {{BASE_URL}}/api/v1/projects/ghost-story \
 
 - `source` 接口最大 200000 字符（约 10 万汉字）；超长小说建议分章节多次传入（后续调用会覆盖同名文件）
 - Agent 对话最长等待 120 秒，复杂任务可能返回 `status: "timeout"` 和部分响应，此时可继续传入同一 `session_id` 查询进度
-- 所有 API 响应均为 JSON 格式
+- 多数 API 端点返回 JSON；以下为例外：
+  - `GET /skill.md` — 纯文本（`text/plain`），外部 Agent 运行时拉取最新契约
+  - `GET /api/v1/projects/{name}/events/stream` — 项目事件 SSE（`text/event-stream`）
+  - `POST /api/v1/assistant/sessions/{id}/stream` — 助手对话 SSE（`text/event-stream`）
+  - `GET /api/v1/projects/{name}/export` 等文件下载端点 — 二进制（`application/zip` 等）
 - 项目名称（`name`）仅支持字母、数字和连字符，建议使用英文或拼音
