@@ -119,7 +119,7 @@ MESSAGES = {
     "voice_sample_file_missing": "语音试听样本文件不存在，请重新生成",
     "scene_task_submitted": "场景「{name}」资产图生成任务已提交",
     "prop_task_submitted": "道具「{name}」资产图生成任务已提交",
-    "product_task_submitted": "商品「{name}」标准参考图生成任务已提交",
+    "product_task_submitted": "商品「{name}」资产图生成任务已提交",
     # Files
     "file_not_found": "文件不存在: {path}",
     "forbidden_access": "禁止访问项目目录外的文件",

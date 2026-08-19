@@ -589,10 +589,12 @@ def _screen_storyboard_items(
         detail: str | None = None
         item_id = ""
         if not isinstance(item, dict):
+            logger.debug("剧本条目 items[%d] 类型非法: %s", index, type(item).__name__)
             detail = "该条目不是对象"
         else:
             raw_id = storyboard_item_id(item, id_field)
             if raw_id is not None and not isinstance(raw_id, str):
+                logger.debug("剧本条目 items[%d] 的 ID 类型非法: %s", index, type(raw_id).__name__)
                 detail = "该条目的 ID 不是字符串"
             else:
                 item_id = (raw_id or "").strip()

@@ -68,7 +68,7 @@ describe("ShotDetail ad 模式", () => {
     );
   });
 
-  it("展示镜头中的产品引用", () => {
+  it("展示镜头中的商品引用", () => {
     renderDetail();
     expect(screen.getByText("速干杯")).toBeInTheDocument();
   });

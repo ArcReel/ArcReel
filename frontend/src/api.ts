@@ -406,7 +406,7 @@ export interface CreateProjectPayload {
   aspect_ratio?: "9:16" | "16:9";
   /** 生成模式，创建时必填二选一、无默认值（后端缺失即 422）。 */
   generation_mode: GenerationRoute;
-  /** 多宫格分镜装配开关，可随创建写入；仅分镜路线有意义。 */
+  /** 多宫格分镜装配开关，可随创建写入；仅分镜图生视频模式有意义。 */
   grid_storyboard?: boolean;
   /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
   speech_rate_units_per_second?: number | null;
@@ -1214,7 +1214,7 @@ class API {
     );
   }
 
-  // ==================== 项目产品管理 ====================
+  // ==================== 项目商品管理 ====================
 
   static async addProjectProduct(
     projectName: string,
@@ -2020,10 +2020,10 @@ class API {
   }
 
   /**
-   * 生成产品标准参考图（product sheet）
+   * 生成商品资产图（product sheet）
    * @param projectName - 项目名称
-   * @param productName - 产品名称
-   * @param prompt - 产品描述 prompt
+   * @param productName - 商品名称
+   * @param prompt - 商品描述 prompt
    */
   static async generateProjectProduct(
     projectName: string,

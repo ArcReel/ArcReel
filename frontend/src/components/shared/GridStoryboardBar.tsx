@@ -6,15 +6,15 @@ import { PillSwitch } from "@/components/ui/PillSwitch";
 export interface GridStoryboardBarProps {
   checked: boolean;
   onToggle: (next: boolean) => void;
-  /** 随上方路线选择滑入时置 true；常驻呈现（设置页）留空。 */
+  /** 随上方生成模式选择滑入时置 true；常驻呈现（设置页）留空。 */
   animated?: boolean;
 }
 
 /**
  * 多宫格分镜装配条。
  *
- * 结构上独立于路线卡：宫格只改变分镜图的生产方式，不改变喂给视频模型的输入契约，
- * 因此是分镜路线内的选项而非第三条路线。向导与设置页共用同一文案与同一开关语义。
+ * 结构上独立于生成模式卡：宫格只改变分镜图的生产方式，不改变喂给视频模型的输入契约，
+ * 因此是分镜图生视频模式内的选项而非第三种生成模式。向导与设置页共用同一文案与同一开关语义。
  */
 export function GridStoryboardBar({ checked, onToggle, animated }: GridStoryboardBarProps) {
   const { t } = useTranslation("dashboard");

@@ -124,7 +124,7 @@ MESSAGES = {
     "voice_sample_file_missing": "The voice sample file no longer exists; please regenerate it",
     "scene_task_submitted": "Scene asset sheet generation task for '{name}' submitted",
     "prop_task_submitted": "Prop asset sheet generation task for '{name}' submitted",
-    "product_task_submitted": "Merchandise reference image generation task for '{name}' submitted",
+    "product_task_submitted": "Merchandise asset sheet generation task for '{name}' submitted",
     # Files
     "file_not_found": "File does not exist: {path}",
     "forbidden_access": "Access to files outside the project directory is forbidden",

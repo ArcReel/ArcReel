@@ -43,11 +43,11 @@ export interface Prop {
 
 export interface Product {
   description: string;
-  /** 标准多角度产品参考图（可选，生成/上传后回写）。 */
+  /** 标准多角度商品资产图（可选，生成/上传后回写）。 */
   product_sheet?: string;
   /** 品牌要素自由文本。 */
   brand?: string;
-  /** 用户上传的产品原图路径列表（保真验收锚点，系统级字段）。 */
+  /** 用户上传的商品原图路径列表（保真验收锚点，系统级字段）。 */
   reference_images?: string[];
   /** 卖点列表（agent 起草、用户可改）。 */
   selling_points?: string[];
@@ -113,7 +113,7 @@ export interface EpisodeMeta {
    * manifest's terms — the same numbers the studio reads, never persisted to project.json.
    * Optional because the fallback meta some canvases build has no summary behind it.
    *
-   * item_count 是该集的内容规模：分镜图生视频路线是分镜数，参考生视频路线是视频单元数。
+   * item_count 是该集的内容规模：分镜图生视频是分镜数，参考生视频是视频单元数。
    * 计数口径由项目的 generation_mode 决定，三种创作类型一致。
    */
   item_count?: number;
@@ -150,7 +150,7 @@ export interface ProjectData {
   characters: Record<string, Character>;
   scenes?: Record<string, Scene>;
   props?: Record<string, Prop>;
-  /** 产品资产（广告/短片项目使用，v1 单产品设定，字段形态为映射）。 */
+  /** 商品资产（广告/短片项目使用，v1 单商品设定，字段形态为映射）。 */
   products?: Record<string, Product>;
   /** Project summary projection, injected at read time */
   status?: ProjectStatus;
@@ -165,7 +165,7 @@ export interface ProjectData {
   image_provider_i2i?: string | null;
   /** 生成模式，创建时锁定、之后不可更改。 */
   generation_mode?: GenerationRoute;
-  /** 多宫格分镜装配开关；仅分镜路线有意义，随时可切。 */
+  /** 多宫格分镜装配开关；仅分镜图生视频模式有意义，随时可切。 */
   grid_storyboard?: boolean;
   video_generate_audio?: boolean | null;
   /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */

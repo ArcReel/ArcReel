@@ -124,7 +124,7 @@ MESSAGES = {
     "voice_sample_file_missing": "Tệp mẫu giọng đọc thử không còn tồn tại, vui lòng tạo lại",
     "scene_task_submitted": "Đã gửi tác vụ tạo hình tài sản cảnh cho '{name}'",
     "prop_task_submitted": "Đã gửi tác vụ tạo hình tài sản đạo cụ cho '{name}'",
-    "product_task_submitted": "Đã gửi tác vụ tạo ảnh tham chiếu chuẩn cho hàng hóa '{name}'",
+    "product_task_submitted": "Đã gửi tác vụ tạo hình tài sản hàng hóa cho '{name}'",
     # Files
     "file_not_found": "Tệp không tồn tại: {path}",
     "forbidden_access": "Cấm truy cập tệp ngoài thư mục dự án",

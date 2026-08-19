@@ -941,6 +941,7 @@ async def revalidate_reference_step1_draft(
     violations: list[DraftViolation] = []
     flat_units: list[dict[str, Any]] = []
     if not isinstance(raw_units, list) or not raw_units:
+        logger.debug("隔离草稿 content.units 形状非法: %s", type(raw_units).__name__)
         violations = [
             DraftViolation(
                 "隔离草稿的 content.units 必须是非空的 unit 对象数组",

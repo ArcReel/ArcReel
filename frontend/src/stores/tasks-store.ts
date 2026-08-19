@@ -210,7 +210,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
    * 参考生视频画布靠 `referenceVideoUnitsRevision` 重拉成片和旁白路径，而自增主通道是项目
    * 事件 SSE：SSE 断线、静默失速或丢掉这一条事件时，任务状态还能靠轮询兜底恢复，unit
    * 快照却一直不更新，直到画布重新挂载。这里让 reference_video / tts 的轮询成功也走同一次
-   * 失效，补上兜底路径的缺口；非参考路线没有挂载该画布，多一次 revision 自增不触发请求。
+   * 失效，补上兜底路径的缺口；非参考生视频模式没有挂载该画布，多一次 revision 自增不触发请求。
    *
    * 判据是「这一轮成功、上一轮不成功」，其中「上一轮没见过」也算不成功——任务的入队与完成
    * 整个落在两次轮询之间时（空闲档间隔较长，provider 命中缓存时可能秒回），它是首次以

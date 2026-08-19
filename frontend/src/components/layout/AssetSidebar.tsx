@@ -125,7 +125,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       icon: Package,
       meta: propCount,
     },
-    // 产品资产仅广告/短片项目使用（v1 单产品设定），其余模式隐藏入口
+    // 商品资产仅广告/短片项目使用（v1 单商品设定），其余模式隐藏入口
     ...(isAd
       ? [
           {
