@@ -4,7 +4,7 @@ export const ACCENT_BUTTON_STYLE: CSSProperties = {
   color: "oklch(0.14 0 0)",
   background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
   boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
+    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 160 / 0.4), 0 6px 18px -8px var(--color-accent-glow)",
 };
 
 export const CARD_STYLE: CSSProperties = {
@@ -92,6 +92,6 @@ export function ambientGlowStyle(opts?: AmbientGlowOptions): CSSProperties {
   const at = opts?.at ?? "50% 0%";
   const alpha = opts?.intensity ?? 0.16;
   return {
-    background: `radial-gradient(circle at ${at}, oklch(0.76 0.09 295 / ${alpha}), transparent 60%)`,
+    background: `radial-gradient(circle at ${at}, oklch(0.76 0.09 160 / ${alpha}), transparent 60%)`,
   };
 }

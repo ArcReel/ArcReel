@@ -258,7 +258,7 @@ export function ShotList({
                   gridTemplateColumns: "auto 1fr",
                   transform: `translateY(${virt.start}px)`,
                   background: active
-                    ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), oklch(0.22 0.015 280 / 0.35))"
+                    ? "linear-gradient(180deg, oklch(0.26 0.018 160 / 0.5), oklch(0.22 0.015 160 / 0.35))"
                     : undefined,
                   border: active
                     ? "1px solid var(--color-accent-soft)"
@@ -294,7 +294,7 @@ export function ShotList({
                       className="flex h-full w-full items-center justify-center"
                       style={{
                         background:
-                          "linear-gradient(135deg, oklch(0.30 0.05 280), oklch(0.18 0.02 260))",
+                          "linear-gradient(135deg, oklch(0.30 0.05 160), oklch(0.18 0.02 260))",
                       }}
                     />
                   )}
@@ -335,7 +335,7 @@ export function ShotList({
                         className="rounded px-1 py-px text-[9px] font-semibold uppercase"
                         style={{
                           color: "var(--color-accent-2)",
-                          background: "oklch(0.26 0.018 290 / 0.45)",
+                          background: "oklch(0.26 0.018 160 / 0.45)",
                           border: "1px solid var(--color-accent-soft)",
                           letterSpacing: "0.4px",
                         }}

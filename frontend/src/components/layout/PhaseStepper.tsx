@@ -7,7 +7,7 @@ interface PhaseStepperProps {
 
 /**
  * 顶栏阶段步进器：胶囊样式（圆形号 + 标签 + 短分隔线）。
- * 当前阶段高亮 accent 紫色，已完成阶段显示弱化的连接线。
+ * 当前阶段高亮 accent 绿色，已完成阶段显示弱化的连接线。
  */
 export function PhaseStepper({ currentPhase }: PhaseStepperProps) {
   const { t } = useTranslation("dashboard");

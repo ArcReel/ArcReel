@@ -2,7 +2,7 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 // ---------------------------------------------------------------------------
-// GenerateButton — v3 视觉：紫色 accent 梯度 + glow 光晕
+// GenerateButton — v3 视觉：绿色 accent 梯度 + glow 光晕
 // ---------------------------------------------------------------------------
 
 interface GenerateButtonProps {
@@ -17,7 +17,7 @@ interface GenerateButtonProps {
 const ACTIVE_BG =
   "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))";
 const LOADING_BG =
-  "linear-gradient(135deg, oklch(0.66 0.08 295), oklch(0.58 0.07 295))";
+  "linear-gradient(135deg, oklch(0.66 0.08 160), oklch(0.58 0.07 160))";
 const ACTIVE_SHADOW =
   "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)";
 

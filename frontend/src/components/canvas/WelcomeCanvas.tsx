@@ -184,7 +184,7 @@ export function WelcomeCanvas({
           className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-2xl"
           style={{
             background:
-              "linear-gradient(135deg, oklch(0.85 0.08 295), oklch(0.70 0.12 280))",
+              "linear-gradient(135deg, oklch(0.85 0.08 160), oklch(0.70 0.12 160))",
             color: "oklch(0.14 0 0)",
             boxShadow:
               "0 10px 32px -10px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
@@ -228,7 +228,7 @@ export function WelcomeCanvas({
                 ? "1px dashed var(--color-accent-soft)"
                 : "1px dashed var(--color-hairline)",
               background: isDragging
-                ? "linear-gradient(180deg, oklch(0.76 0.09 295 / 0.12), oklch(0.76 0.09 295 / 0.04))"
+                ? "linear-gradient(180deg, oklch(0.76 0.09 160 / 0.12), oklch(0.76 0.09 160 / 0.04))"
                 : CARD_BG,
               boxShadow: isDragging
                 ? "0 0 0 4px var(--color-accent-dim), inset 0 1px 0 oklch(1 0 0 / 0.04)"
@@ -462,7 +462,7 @@ export function WelcomeCanvas({
             className="focus-ring relative w-full overflow-hidden rounded-xl px-6 py-3 text-[13px] font-semibold transition-transform hover:translate-y-[-1px] active:translate-y-0"
             style={{
               background:
-                "linear-gradient(180deg, oklch(0.85 0.08 295), oklch(0.70 0.12 280))",
+                "linear-gradient(180deg, oklch(0.85 0.08 160), oklch(0.70 0.12 160))",
               color: "oklch(0.14 0 0)",
               boxShadow:
                 "0 12px 32px -10px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
@@ -516,7 +516,7 @@ export function WelcomeCanvas({
           style={{
             border: "1px solid var(--color-accent-soft)",
             background:
-              "linear-gradient(180deg, oklch(0.76 0.09 295 / 0.10), oklch(0.76 0.09 295 / 0.04))",
+              "linear-gradient(180deg, oklch(0.76 0.09 160 / 0.10), oklch(0.76 0.09 160 / 0.04))",
             boxShadow:
               "0 0 0 1px var(--color-accent-dim), inset 0 1px 0 oklch(1 0 0 / 0.05)",
           }}

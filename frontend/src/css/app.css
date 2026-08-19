@@ -15,7 +15,7 @@ body {
  * 这里直接在 .app-shell 上落地最终背景，避免歧义。 */
 .app-shell {
     background:
-        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
+        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.06 160 / 0.28), transparent 55%),
         radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
         linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
     background-attachment: fixed;
@@ -105,8 +105,8 @@ body {
 
 .landing-shell {
     background:
-        radial-gradient(circle at 14% 11%, oklch(0.76 0.09 295 / 0.16), transparent 34%),
-        radial-gradient(circle at 88% 16%, oklch(0.70 0.12 320 / 0.14), transparent 32%),
+        radial-gradient(circle at 14% 11%, oklch(0.76 0.09 160 / 0.16), transparent 34%),
+        radial-gradient(circle at 88% 16%, oklch(0.70 0.12 160 / 0.14), transparent 32%),
         linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
 }
 
@@ -154,7 +154,7 @@ body {
 .landing-orb-a {
     width: 380px;
     height: 380px;
-    background: oklch(0.76 0.09 295 / 0.3);
+    background: oklch(0.76 0.09 160 / 0.3);
     top: 22%;
     left: 8%;
     animation: float-a 8s ease-in-out infinite;
@@ -163,7 +163,7 @@ body {
 .landing-orb-b {
     width: 320px;
     height: 320px;
-    background: oklch(0.70 0.12 320 / 0.24);
+    background: oklch(0.70 0.12 160 / 0.24);
     right: 10%;
     top: 14%;
     animation: float-b 9s ease-in-out infinite;

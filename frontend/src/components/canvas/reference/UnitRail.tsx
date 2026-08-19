@@ -47,7 +47,7 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
               title={`${u.unit_id} · ${t(conf.i18nKey)}`}
               className={`focus-ring relative flex w-full flex-col items-center gap-1 rounded-md py-2 ${
                 sel
-                  ? "border border-[var(--color-accent-soft)] bg-[linear-gradient(180deg,oklch(0.26_0.018_290_/_0.5),oklch(0.22_0.015_280_/_0.35))]"
+                  ? "border border-[var(--color-accent-soft)] bg-[linear-gradient(180deg,oklch(0.26_0.018_160_/_0.5),oklch(0.22_0.015_160_/_0.35))]"
                   : "border border-transparent hover:bg-[oklch(0.22_0.011_265_/_0.4)]"
               }`}
             >

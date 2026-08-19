@@ -57,7 +57,7 @@ export function DemoAssistantPanel() {
           className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
           style={{
             background:
-              "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
+              "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 160))",
             color: "oklch(0.12 0 0)",
           }}
         >

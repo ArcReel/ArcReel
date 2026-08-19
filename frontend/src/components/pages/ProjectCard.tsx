@@ -33,9 +33,9 @@ const PHASE_TONE: Record<Phase, PhaseTone> = {
     glow: "oklch(0.80 0.12 75 / 0.35)",
   },
   production: {
-    dot: "oklch(0.76 0.09 295)",
-    text: "oklch(0.88 0.05 295)",
-    glow: "oklch(0.76 0.09 295 / 0.40)",
+    dot: "oklch(0.76 0.09 160)",
+    text: "oklch(0.88 0.05 160)",
+    glow: "oklch(0.76 0.09 160 / 0.40)",
   },
   completed: {
     dot: "oklch(0.78 0.10 155)",

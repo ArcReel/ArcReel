@@ -142,7 +142,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
       className="fixed inset-0 z-50 flex items-center justify-center px-4"
       style={{
         background:
-          "radial-gradient(800px 500px at 50% 30%, oklch(0.30 0.04 295 / 0.20), transparent 60%), oklch(0 0 0 / 0.62)",
+          "radial-gradient(800px 500px at 50% 30%, oklch(0.30 0.04 160 / 0.20), transparent 60%), oklch(0 0 0 / 0.62)",
         backdropFilter: "blur(8px)",
         WebkitBackdropFilter: "blur(8px)",
       }}

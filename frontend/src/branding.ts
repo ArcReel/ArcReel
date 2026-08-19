@@ -18,7 +18,7 @@ function fallback(value: string | undefined, defaultValue: string): string {
 }
 
 export const BRAND = {
-  name: fallback(env.VITE_BRAND_NAME, "ArcReel"),
+  name: fallback(env.VITE_BRAND_NAME, "CrocoTV"),
   tagline: fallback(env.VITE_BRAND_TAGLINE, "AI 视频创作工作台"),
   description: fallback(
     env.VITE_BRAND_DESCRIPTION,

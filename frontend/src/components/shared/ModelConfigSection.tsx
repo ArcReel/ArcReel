@@ -447,7 +447,7 @@ export function ModelConfigSection({
                       name={generateAudioName}
                       checked={audioDisplayValue === val}
                       onChange={() => onVideoGenerateAudioChange(val)}
-                      className="accent-[oklch(0.76_0.09_295)]"
+                      className="accent-[oklch(0.76_0.09_160)]"
                     />
                     {label}
                   </label>

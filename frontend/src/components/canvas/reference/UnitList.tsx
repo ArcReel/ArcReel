@@ -97,7 +97,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
                 }}
                 className={`focus-ring relative mb-1 cursor-pointer rounded-lg p-2.5 text-sm transition-colors ${
                   selected
-                    ? "border border-[var(--color-accent-soft)] bg-[linear-gradient(180deg,oklch(0.26_0.018_290_/_0.5),oklch(0.22_0.015_280_/_0.35))]"
+                    ? "border border-[var(--color-accent-soft)] bg-[linear-gradient(180deg,oklch(0.26_0.018_160_/_0.5),oklch(0.22_0.015_160_/_0.35))]"
                     : "border border-transparent hover:bg-[oklch(0.22_0.011_265_/_0.4)]"
                 }`}
               >

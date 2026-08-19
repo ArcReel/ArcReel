@@ -9,7 +9,7 @@ interface Props {
 }
 
 /**
- * GalleryEmptyState — 资产页空态：editorial 卡片，带累托线 + 紫色 CTA。
+ * GalleryEmptyState — 资产页空态：editorial 卡片，带累托线 + 绿色 CTA。
  */
 export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
   return (
@@ -54,7 +54,7 @@ export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
           className="grid h-14 w-14 place-items-center rounded-2xl"
           style={{
             background:
-              "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.04))",
+              "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 160 / 0.04))",
             border: "1px solid var(--color-accent-soft)",
             color: "var(--color-accent-2)",
             boxShadow: "0 12px 30px -10px var(--color-accent-glow)",

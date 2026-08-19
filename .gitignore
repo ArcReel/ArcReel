@@ -60,6 +60,9 @@ frontend/dist/
 frontend/.vite/
 *.tsbuildinfo
 
+# pnpm store (项目根目录误生成的 pnpm 缓存)
+.pnpm-store/
+
 # Git backup
 .git.backup
 

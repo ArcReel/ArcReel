@@ -34,7 +34,7 @@ function EpisodeHeader({
       <div
         className="num grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[13px] font-bold"
         style={{
-          background: "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.45 0.12 285) 100%)",
+          background: "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.45 0.12 160) 100%)",
           color: "oklch(0.14 0 0)",
           boxShadow:
             "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 4px 12px -4px var(--color-accent-glow)",

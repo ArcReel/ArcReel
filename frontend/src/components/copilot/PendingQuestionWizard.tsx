@@ -171,7 +171,7 @@ export function PendingQuestionWizard({
       style={{
         borderTop: "1px solid var(--color-accent-soft)",
         background:
-          "linear-gradient(180deg, oklch(0.76 0.09 295 / 0.10), transparent 60%), oklch(0.18 0.010 265 / 0.6)",
+          "linear-gradient(180deg, oklch(0.76 0.09 160 / 0.10), transparent 60%), oklch(0.18 0.010 265 / 0.6)",
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
       }}

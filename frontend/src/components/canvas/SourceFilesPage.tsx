@@ -329,7 +329,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                 className="grid h-14 w-14 place-items-center rounded-2xl"
                 style={{
                   background:
-                    "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.04))",
+                    "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 160 / 0.04))",
                   border: "1px solid var(--color-accent-soft)",
                   color: "var(--color-accent-2)",
                   boxShadow: "0 12px 30px -10px var(--color-accent-glow)",
@@ -455,7 +455,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                     className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
                     style={{
                       background:
-                        "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
+                        "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 160 / 0.05))",
                       border: "1px solid var(--color-accent-soft)",
                       color: "var(--color-accent-2)",
                     }}

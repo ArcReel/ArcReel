@@ -15,7 +15,7 @@ export const USER_BUBBLE_LAYOUT_CLASS = "ml-auto max-w-[85%]";
 
 /** 用户气泡的底色与描边。 */
 export const USER_BUBBLE_STYLE: CSSProperties = {
-  background: "linear-gradient(180deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.06))",
+  background: "linear-gradient(180deg, var(--color-accent-dim), oklch(0.76 0.09 160 / 0.06))",
   border: "1px solid var(--color-accent-soft)",
 };
 

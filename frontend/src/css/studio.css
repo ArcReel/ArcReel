@@ -79,18 +79,18 @@
 
 @keyframes workspace-focus-flash {
   0% {
-    box-shadow: 0 0 0 0 oklch(0.76 0.09 295 / 0);
+    box-shadow: 0 0 0 0 oklch(0.76 0.09 160 / 0);
     background-color: transparent;
   }
   12% {
     box-shadow:
-      0 0 0 1px oklch(0.88 0.05 295 / 0.78),
-      0 0 0 10px oklch(0.76 0.09 295 / 0.12),
+      0 0 0 1px oklch(0.88 0.05 160 / 0.78),
+      0 0 0 10px oklch(0.76 0.09 160 / 0.12),
       0 18px 36px oklch(0 0 0 / 0.38);
-    background-color: oklch(0.76 0.09 295 / 0.08);
+    background-color: oklch(0.76 0.09 160 / 0.08);
   }
   32% {
-    box-shadow: 0 0 0 0 oklch(0.76 0.09 295 / 0);
+    box-shadow: 0 0 0 0 oklch(0.76 0.09 160 / 0);
     background-color: transparent;
   }
   46% {
@@ -101,7 +101,7 @@
     background-color: oklch(0.80 0.12 70 / 0.08);
   }
   66% {
-    box-shadow: 0 0 0 0 oklch(0.76 0.09 295 / 0);
+    box-shadow: 0 0 0 0 oklch(0.76 0.09 160 / 0);
     background-color: transparent;
   }
   82% {
@@ -112,7 +112,7 @@
     background-color: oklch(0.78 0.10 155 / 0.08);
   }
   100% {
-    box-shadow: 0 0 0 0 oklch(0.76 0.09 295 / 0);
+    box-shadow: 0 0 0 0 oklch(0.76 0.09 160 / 0);
     background-color: transparent;
   }
 }
@@ -149,7 +149,7 @@
   font-size: 0.78125rem;
   line-height: 1.65;
   color: var(--color-text);
-  background: linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4));
+  background: linear-gradient(180deg, oklch(0.225 0.003 160 / 0.55), oklch(0.195 0.003 160 / 0.4));
   border: 1px solid var(--color-hairline-soft);
   border-radius: 8px;
   font-family: var(--font-sans);

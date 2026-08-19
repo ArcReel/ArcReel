@@ -76,7 +76,7 @@ function TemplateCard({
         className="-z-10 absolute inset-0"
         style={{
           background:
-            "linear-gradient(135deg, oklch(0.30 0.04 295), oklch(0.18 0.012 265))",
+            "linear-gradient(135deg, oklch(0.30 0.04 160), oklch(0.18 0.012 265))",
         }}
       />
 

@@ -28,7 +28,7 @@ import {
 } from "@/i18n";
 
 // 全局设置页 · "Control Booth"
-// 延续 Darkroom 美学：editorial 大标题 + mono kicker + 分组侧栏 + accent 紫色高亮。
+// 延续 Darkroom 美学：editorial 大标题 + mono kicker + 分组侧栏 + accent 绿色高亮。
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,7 +131,7 @@ export function SystemConfigPage() {
       style={
         {
           background:
-            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
+            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 160 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
         }
       }
     >

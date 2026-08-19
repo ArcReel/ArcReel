@@ -20,12 +20,12 @@
     --color-text-3: oklch(0.640 0.010 265);
     --color-text-4: oklch(0.490 0.010 265);
 
-    /* Accent — 紫色 */
-    --color-accent: oklch(0.76 0.09 295);
-    --color-accent-2: oklch(0.88 0.05 295);
-    --color-accent-soft: oklch(0.76 0.09 295 / 0.22);
-    --color-accent-dim: oklch(0.76 0.09 295 / 0.12);
-    --color-accent-glow: oklch(0.76 0.09 295 / 0.35);
+    /* Accent — 绿色（CrocoTV emerald） */
+    --color-accent: oklch(0.76 0.13 160);
+    --color-accent-2: oklch(0.88 0.08 160);
+    --color-accent-soft: oklch(0.76 0.13 160 / 0.22);
+    --color-accent-dim: oklch(0.76 0.13 160 / 0.12);
+    --color-accent-glow: oklch(0.76 0.13 160 / 0.35);
 
     /* 状态色 */
     --color-good: oklch(0.78 0.10 155);
@@ -57,7 +57,7 @@
     --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
 
     /* 阴影 */
-    --shadow-glow: 0 0 0 1px oklch(0.76 0.09 295 / 0.28), 0 18px 40px oklch(0 0 0 / 0.45);
+    --shadow-glow: 0 0 0 1px oklch(0.76 0.13 160 / 0.28), 0 18px 40px oklch(0 0 0 / 0.45);
 
     /* ---- Legacy aliases — 旧组件继续可用，逐步迁移 ---- */
     --color-ink-950: oklch(0.148 0.009 260);
@@ -65,9 +65,9 @@
     --color-ink-850: oklch(0.182 0.011 270);
     --color-ink-800: oklch(0.250 0.012 265);
     --color-ink-700: oklch(0.310 0.013 265);
-    --color-neon-500: oklch(0.76 0.09 295);
-    --color-neon-400: oklch(0.82 0.07 295);
-    --color-neon-300: oklch(0.88 0.05 295);
+    --color-neon-500: oklch(0.76 0.13 160);
+    --color-neon-400: oklch(0.82 0.11 160);
+    --color-neon-300: oklch(0.88 0.08 160);
     --color-amberx-500: oklch(0.78 0.13 70);
     --color-amberx-400: oklch(0.84 0.10 70);
     --color-amberx-300: oklch(0.90 0.08 75);
@@ -85,7 +85,7 @@ html { color-scheme: dark; }
 
 body {
     background:
-        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
+        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.06 160 / 0.28), transparent 55%),
         radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
         linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
     background-attachment: fixed;
@@ -138,7 +138,7 @@ body {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)];
 }
 
-/* 打字机 caret 闪烁 — 紫色 accent-2 + accent-glow */
+/* 打字机 caret 闪烁 — 绿色 accent-2 + accent-glow */
 @keyframes tw-blink {
     0%, 50% { opacity: 1; }
     50.01%, 100% { opacity: 0; }

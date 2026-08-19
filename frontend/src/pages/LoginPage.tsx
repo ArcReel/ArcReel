@@ -86,8 +86,8 @@ export function LoginPage() {
           <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-text-4">
             system · login
           </div>
-          <h1 className="font-editorial mt-1 flex items-center justify-center gap-2 text-[28px] tracking-tight text-text">
-            <img src="/android-chrome-192x192.png" alt="" aria-hidden className="h-7 w-7" />
+          <h1 className="font-sans mt-1 flex items-center justify-center gap-2 text-[28px] font-medium tracking-[-0.012em] text-text">
+            <img src="/android-chrome-192x192.png?v=2" alt="" aria-hidden className="h-7 w-7" />
             <span>{BRAND.name}</span>
           </h1>
         </div>

@@ -1,7 +1,7 @@
 /* === 首次使用引导 — driver.js 皮肤 ===
  *
  * driver.js 的 popover 用 `all: unset` 起手，所有观感都要在这里显式给出。皮肤刻意
- * 复用工作台既有 token（玻璃面板、紫色 accent、文字四档、编辑体大标题），让引导读起来
+ * 复用工作台既有 token（玻璃面板、绿色 accent、文字四档、编辑体大标题），让引导读起来
  * 是产品本身的一部分，而不是嵌进来的第三方控件。
  *
  * 作用域全部挂在 `.arc-tour` 上（driver 的 popoverClass），不改 driver 默认皮肤，

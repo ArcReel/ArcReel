@@ -399,10 +399,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 background:
-                  "linear-gradient(180deg, oklch(0.82 0.09 295), oklch(0.72 0.09 295))",
+                  "linear-gradient(180deg, oklch(0.82 0.09 160), oklch(0.72 0.09 160))",
                 color: "oklch(0.15 0 0)",
                 boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--color-accent-glow)",
+                  "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 160 / 0.4), 0 4px 14px -6px var(--color-accent-glow)",
               }}
               title={
                 demoMode

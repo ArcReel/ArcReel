@@ -26,7 +26,6 @@ import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { WARM_TONE } from "@/utils/severity-tone";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { CreateProjectModal } from "./CreateProjectModal";
-import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
 import { ICON_BTN_FILLED_CLS } from "@/components/ui/darkroom-tokens";
 import {
@@ -62,6 +61,7 @@ import {
 type PhaseFilter = Phase | "all";
 type GreetingKey =
   | "lobby_hero_greeting_morning"
+  | "lobby_hero_greeting_noon"
   | "lobby_hero_greeting_afternoon"
   | "lobby_hero_greeting_evening"
   | "lobby_hero_greeting_late";
@@ -71,7 +71,7 @@ const ACCENT_BUTTON_STYLE: CSSProperties = {
   background:
     "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
   boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--color-accent)",
+    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 160 / 0.4), 0 4px 14px -6px var(--color-accent)",
 };
 
 function projectActivityScore(p: ProjectSummary): number {
@@ -106,8 +106,9 @@ function styleLabelOf(p: ProjectSummary, t: TFunction): string {
 function getGreetingKey(d = new Date()): GreetingKey {
   const h = d.getHours();
   if (h >= 5 && h < 11) return "lobby_hero_greeting_morning";
-  if (h >= 11 && h < 14) return "lobby_hero_greeting_afternoon";
-  if (h >= 14 && h < 22) return "lobby_hero_greeting_evening";
+  if (h >= 11 && h < 13) return "lobby_hero_greeting_noon";
+  if (h >= 13 && h < 18) return "lobby_hero_greeting_afternoon";
+  if (h >= 18 && h < 22) return "lobby_hero_greeting_evening";
   return "lobby_hero_greeting_late";
 }
 
@@ -152,7 +153,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
         <span
           aria-hidden
           className="font-editorial pointer-events-none absolute right-[-6px] top-2 italic"
-          style={{ fontSize: 120, lineHeight: 1, color: "oklch(0.22 0.013 280)" }}
+          style={{ fontSize: 120, lineHeight: 1, color: "oklch(0.22 0.013 160)" }}
         >
           now
         </span>
@@ -298,7 +299,7 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
           style={{
             aspectRatio: "2 / 1",
             background:
-              "radial-gradient(120% 80% at 30% 30%, oklch(0.26 0.04 290 / 0.5) 0%, transparent 60%), oklch(0.18 0.011 265 / 0.55)",
+              "radial-gradient(120% 80% at 30% 30%, oklch(0.26 0.04 160 / 0.5) 0%, transparent 60%), oklch(0.18 0.011 265 / 0.55)",
           }}
         >
           <div className="flex flex-col items-center gap-2.5 transition-transform motion-safe:group-hover:-translate-y-0.5">
@@ -307,8 +308,8 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
               className="grid h-12 w-12 place-items-center rounded-[12px]"
               style={{
                 background:
-                  "linear-gradient(180deg, oklch(0.30 0.04 290), oklch(0.22 0.02 280))",
-                border: "1px solid oklch(0.76 0.09 295 / 0.4)",
+                  "linear-gradient(180deg, oklch(0.30 0.04 160), oklch(0.22 0.02 160))",
+                border: "1px solid oklch(0.76 0.09 160 / 0.4)",
                 boxShadow:
                   "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--color-accent)",
                 color: "var(--color-accent-2)",
@@ -382,7 +383,6 @@ interface TopBarProps {
   onCreate: () => void;
   onSettings: () => void;
   onAssets: () => void;
-  onOpenClaw: () => void;
   importing: boolean;
   configIncomplete: boolean;
   searchInputRef: React.RefObject<HTMLInputElement | null>;
@@ -395,7 +395,6 @@ function TopBar({
   onCreate,
   onSettings,
   onAssets,
-  onOpenClaw,
   importing,
   configIncomplete,
   searchInputRef,
@@ -417,7 +416,7 @@ function TopBar({
       <div className="mx-auto flex max-w-[1320px] items-center gap-4 px-6 py-3">
         <div className="flex items-center gap-2.5">
           <img
-            src="/android-chrome-192x192.png"
+            src="/android-chrome-192x192.png?v=2"
             alt={BRAND.name}
             className="h-8 w-8 rounded-lg"
           />
@@ -489,15 +488,6 @@ function TopBar({
             {t("dashboard:create_project")}
           </button>
           <span aria-hidden className="mx-1 h-5 w-px bg-hairline-soft" />
-          <button
-            type="button"
-            onClick={onOpenClaw}
-            className="rounded-md px-2 py-1.5 text-sm text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            title={t("dashboard:openclaw")}
-            aria-label={t("dashboard:openclaw")}
-          >
-            <span aria-hidden>🦞</span>
-          </button>
           <button
             type="button"
             onClick={onSettings}
@@ -762,7 +752,6 @@ export function ProjectsPage() {
     | { source: "failure"; diagnostics: ImportFailureDiagnostics };
   const [importDiagnostics, setImportDiagnostics] =
     useState<ImportDiagnosticsState | null>(null);
-  const [showOpenClaw, setShowOpenClaw] = useState(false);
   const [deletingProject, setDeletingProject] = useState<ProjectSummary | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>("all");
@@ -984,7 +973,7 @@ export function ProjectsPage() {
           // FilterPills 的 sticky top 读这个变量；TopBar = logo h-8 (32) + py-3 (24) + 1px border
           "--lobby-topbar-h": "57px",
           background:
-            "radial-gradient(1100px 540px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%), radial-gradient(900px 500px at 100% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
+            "radial-gradient(1100px 540px at 8% -10%, oklch(0.32 0.05 160 / 0.28), transparent 55%), radial-gradient(900px 500px at 100% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
         } as CSSProperties
       }
     >
@@ -998,7 +987,6 @@ export function ProjectsPage() {
           rememberAssetLibraryReturnTo(window.location.pathname);
           navigate("/app/assets");
         }}
-        onOpenClaw={() => setShowOpenClaw(true)}
         importing={importingProject}
         configIncomplete={!isConfigComplete}
         searchInputRef={searchInputRef}
@@ -1156,7 +1144,6 @@ export function ProjectsPage() {
         />
       )}
 
-      {showOpenClaw && <OpenClawModal onClose={() => setShowOpenClaw(false)} />}
       {showCreateModal && <CreateProjectModal />}
 
       <ConfirmDialog

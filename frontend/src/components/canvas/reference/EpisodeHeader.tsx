@@ -47,7 +47,7 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
   });
 
   return (
-    <div className="flex flex-wrap items-end justify-between gap-5 border-b border-[var(--color-hairline)] bg-[linear-gradient(180deg,oklch(0.22_0.014_290_/_0.4),oklch(0.20_0.012_250_/_0.15))] px-6 py-4">
+    <div className="flex flex-wrap items-end justify-between gap-5 border-b border-[var(--color-hairline)] bg-[linear-gradient(180deg,oklch(0.22_0.014_160_/_0.4),oklch(0.20_0.012_250_/_0.15))] px-6 py-4">
       <div className="min-w-0 flex-1">
         <div className="mb-2 flex flex-wrap items-center gap-2.5">
           <span

@@ -240,7 +240,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         }`}
         style={{
           background:
-            "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
+            "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 160))",
           color: "oklch(0.12 0 0)",
           boxShadow:
             "0 0 0 1px oklch(1 0 0 / 0.1), 0 6px 20px -6px var(--color-accent-glow)",
