@@ -10,7 +10,7 @@
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定（广告/短片默认 9:16 竖屏），无需在 prompt 中指定
 - **时长规划**：广告/短片项目**没有** `default_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
-  - storyboard 模式：单镜头时长必须取所选视频模型 `supported_durations` 中的值；subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
+  - storyboard 模式：单镜头时长必须取所选视频模型 `supported_durations` 中的值；子任务运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
   - reference_video 模式：每个 video unit 持有符合剧本模型结构约束的正整数编排时长，unit 内镜头不单列时长；生成预检会把编排时长投影到供应商申请档位
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
@@ -43,13 +43,13 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   - ❌ `projects/{项目名}/scripts/episode_1.json`（双前缀，占位符替换或拼接出错就会落到 projects 根）
 - **严禁**在工具参数中出现 `projects/{...}/` 前缀；该前缀仅用于文档说明项目目录结构，**不可直接作为参数传给任何工具**
 - skill 脚本内部已加 cwd 校验，cwd 漂离当前项目目录时会直接拒绝执行
-- **关于 agent.md / SKILL.md 中的相对形式**：subagent 指引（如「读取 `project.json`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
+- **关于 agent.md / SKILL.md 中的相对形式**：子任务指引（如「读取 `project.json`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
 
 ---
 
-## 内容模式
+## 创作类型
 
-本项目为**广告/短片模式**（ad），产出**单个**约 `target_duration` 秒的短视频，而非多集系列：
+本项目为**广告/短片**（ad），产出**单个**约 `target_duration` 秒的短视频，而非多集系列：
 
 - storyboard 路径的剧本是平铺 `shots[]`，`shot_id` 格式 `E1S{n}`；每个镜头携带 `section`（带货框架段落标签，如 hook/pain_point/product_reveal/selling_point/demo/trust/price_promo/cta）与一等口播文案 `voiceover_text`
 - reference_video 路径的剧本是自包含 `video_units[]`；每个 unit 持有书写层正文、编排时长与产物，不持久化 `section`、`voiceover_text` 或 `speech_mode`；参考图不落盘，执行期从正文派生
@@ -57,22 +57,22 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 创作输入为 `project.json` 顶层的 `brief`（创作诉求短文本）与 `target_duration`（目标总时长，秒）；不走小说源文件导入流程
 - 剧本总时长应贴近 `target_duration`，偏差过大时提醒用户而非拒绝保存
 
-> 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与内容模式独立。ad 的数据结构与阶段分支以本文为准——`.claude/references/generation-modes.md` 只覆盖 narration / drama 的预处理与 schema 路径，不适用于 ad。
+> 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与创作类型独立。ad 的数据结构与阶段分支以本文为准——`.claude/references/generation-modes.md` 只覆盖 narration / drama 的预处理与 schema 路径，不适用于 ad。
 
 ---
 
 ## 生成模式
 
-广告/短片模式的**生成模式**（`generation_mode`）由 `project.json` 顶层字段唯一表达，创建后不可更改，不存在集级覆盖：
+广告/短片的**生成模式**（`generation_mode`）由 `project.json` 顶层字段唯一表达，创建后不可更改，不存在集级覆盖：
 
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
-| `storyboard` | 图生视频 | `shots[]` + 分镜图 | 每镜头一张分镜图作起始帧 |
+| `storyboard` | 分镜图生视频 | `shots[]` + 分镜图 | 每镜头一张分镜图作起始帧 |
 | `reference_video` | 参考生视频 | 自包含 `video_units[]` | 产品参考 + 资产 sheet 图 |
 
 宫格装配（`grid_storyboard`）对广告/短片项目**不开放**：宫格单格分辨率与产品高保真目标冲突。
 
-### 参考直出（reference_video）的自包含单元
+### 参考生视频（reference_video）的自包含单元
 
 - 剧本生成会单阶段直接产出 `video_units[]`，不创建 step1 审阅中间态；每个 unit 对应一次生成调用与 `reference_videos/{unit_id}.mp4`
 - unit 正文是一段自由文本，使用统一书写层：`@[角色]{台词}` 表达人物发声，`{台词}` 表达无归属旁白，两者可写在行内任意位置；产品、角色、场景、道具均用 `@[名称]` mention。参考图由系统在执行期按首次提及顺序从正文解析，同名按 product → character → scene → prop 归属
@@ -91,11 +91,11 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 需要在这里说清、不由计划表达的 ad 专属规则：
 
 - **创作输入**：带货项目产品未登记或缺原图时，引导用户在 WebUI 初始化页或产品资产页上传产品图（原图是产品保真的验收锚点，agent 不能代传图片；通用短片见下文，不索要产品）；用户勾选「生成标准产品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（产品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入
-- **生成路线**：用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；宫格装配对 ad 不开放
+- **生成模式**：用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知生成模式创建后不可更改，无绕过方式；宫格装配对 ad 不开放
 - **卖点**：产品已登记但 `selling_points` 为空时，从 brief、产品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
-- **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` subagent 出设计图；轻量短片可跳过，仅靠产品参考与项目 style
+- **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` 子任务 出资产图；轻量短片可跳过，仅靠产品参考与项目 style
 - **剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与书写层正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
-- **product sheet 过目（软门禁）**：产品生成了 `product_sheet` 时，分镜开工前（参考直出路径为首次视频生成前）安排用户到产品资产页确认 sheet 与真品一致（见下文「产品保真」）；无 sheet（仅原图）直接进入下一步
+- **product sheet 过目（软门禁）**：产品生成了 `product_sheet` 时，分镜开工前（参考生视频路径为首次视频生成前）安排用户到产品资产页确认 sheet 与真品一致（见下文「产品保真」）；无 sheet（仅原图）直接进入下一步
 - **保真拦截**：分镜图生成后引导用户审核产品形象保真度，不合格的重新生成——在产生视频费用前拦截
 - **导出**：视频齐全后引导用户在 Web 端导出剪映草稿。声音归属与字幕时序由服务端 presentation 结果决定，预览、下载与剪映草稿消费同一份；agent 不自行估算字幕时序、不静音 provider 原音、也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。in-app 成片（compose-video）对 ad 不适用
 
@@ -103,7 +103,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ### 产品保真（软门禁）
 
-- **分镜开工前安排用户过目 product sheet**：产品生成了标准参考图（`product_sheet`）时，开始分镜前（参考直出路径为首次视频生成前——该路径 sheet 直接进视频参考集，更要在产生视频费用前确认）先请用户到产品资产页确认 sheet 与真品一致（不一致就重新生成）；确认后才继续。这是工作流约定，不是系统状态机——无 sheet（仅原图）时直接开工即可
+- **分镜开工前安排用户过目 product sheet**：产品生成了标准参考图（`product_sheet`）时，开始分镜前（参考生视频路径为首次视频生成前——该路径 sheet 直接进视频参考集，更要在产生视频费用前确认）先请用户到产品资产页确认 sheet 与真品一致（不一致就重新生成）；确认后才继续。这是工作流约定，不是系统状态机——无 sheet（仅原图）时直接开工即可
 - 产品镜头（剧本 `products_in_shot` 非空）在 storyboard 路径的**分镜生成**会**自动注入产品参考**（有 sheet 时 sheet + 原图，无 sheet 时原图直注）并附高保真还原指令，无需在 image_prompt 里复述产品外观细节；该路径的**视频生成**不再叠加产品参考图，产品一致性由分镜图承载。reference_video 路径跳过分镜，产品参考直接注入视频请求。氛围镜头零产品图，画风由项目级 style 承载
 - 分镜生成后引导用户审核产品形象保真度，不合格的镜头重新生成分镜——在产生视频费用前拦截错误的产品形象
 
@@ -138,9 +138,9 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ├── project.json       # 项目元数据（产品、角色、场景、道具、风格、target_duration、brief）
 ├── scripts/           # 剧本 (JSON)，恒为 episode_1.json
 ├── products/          # product sheet；products/refs/ 存用户上传的产品原图
-├── characters/        # 角色设计图
-├── scenes/            # 场景设计图
-├── props/             # 道具设计图
+├── characters/        # 角色资产图
+├── scenes/            # 场景资产图
+├── props/             # 道具资产图
 ├── storyboards/       # 分镜图片（storyboard 模式）
 ├── videos/            # 生成的视频片段（storyboard 模式）
 ├── reference_videos/  # 生成的 video_unit（reference_video 模式）

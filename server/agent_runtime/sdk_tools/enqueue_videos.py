@@ -118,6 +118,34 @@ _REQUEST_SCHEMA_PROPERTIES = {
 }
 
 
+_REJECTED_PARAMS: dict[str, str] = {
+    "shots": "scene_ids",
+    "shot_ids": "scene_ids",
+    "unit_ids": "scene_ids",
+    "references": "text（参考图由正文 @[名称] 自动派生）",
+    "reference_images": "text（参考图由正文 @[名称] 自动派生）",
+    "镜头数": "item_count（由项目摘要读时计算）",
+    "storyboard_count": "item_count（由项目摘要读时计算）",
+    "video_unit_count": "item_count（由项目摘要读时计算）",
+}
+
+
+def reject_legacy_params(args: dict[str, Any]) -> dict[str, Any] | None:
+    """Reject known legacy parameter names with a clear error."""
+    for old, replacement in _REJECTED_PARAMS.items():
+        if old in args:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"❌ 参数 '{old}' 已废弃，请使用 '{replacement}'",
+                    }
+                ],
+                "is_error": True,
+            }
+    return None
+
+
 def _video_tool_schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
     """工具入参 schema 的统一外壳。"""
 
@@ -454,10 +482,10 @@ async def _admit_storyboard_specs(
 
 
 def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | None:
-    """定生成路线并把守骨架闸门。
+    """定生成模式并把守骨架闸门。
 
-    项目走参考生视频路线时返回 ``"reference"``，分镜路线返回 ``None``。
-    路线以 project.json 的 ``generation_mode`` 为唯一真相源；所有内容模式共用
+    项目走参考生视频时返回 ``"reference"``，分镜图生视频返回 ``None``。
+    生成模式以 project.json 的 ``generation_mode`` 为唯一真相源；所有创作类型共用
     同一份 ``video_units`` 骨架。
 
     Raises:
@@ -790,7 +818,7 @@ async def _generate_reference_units(
 ) -> ReferenceGenerationComplete | BatchAdmissionRefused:
     """unit 批量生成的共享骨架：时长确认 + checkpoint 续传 + 已产出扫描 + 入队等待。
 
-    所有内容模式的 ``video_units`` 共用同一构造路径。``build_specs`` 是本批唯一的
+    所有创作类型的 ``video_units`` 共用同一构造路径。``build_specs`` 是本批唯一的
     可入队性口径：它先于准入运行，构造不出 TaskSpec 的 unit 直接带着自己的问题码
     进入准入结论，不再被解析或报价。
 
@@ -1138,7 +1166,7 @@ async def _run_reference_units(
 
 @dataclass(frozen=True)
 class _VideoRequestContext:
-    """四个视频工具共有的请求前导：入参投影、剧本与生成路线判定。"""
+    """四个视频工具共有的请求前导：入参投影、剧本与生成模式判定。"""
 
     script_filename: str
     request_options: ReferenceRequestOptions
@@ -1153,7 +1181,7 @@ def _video_request_context(
     args: dict[str, Any],
     script_filename: str,
 ) -> _VideoRequestContext:
-    """把入参折成本次请求的投影选项、载入剧本，并定下走哪条生成路线。
+    """把入参折成本次请求的投影选项、载入剧本，并定下走哪条生成模式。
 
     剧本文件名由调用方先行校验后传入：``scene_ids`` 之类的入参校验要排在文件名之后、
     投影选项之前，入参报错的先后次序才与各入口一致。
@@ -1190,7 +1218,7 @@ def _screen_script_targets(
 ) -> _StoryboardScreening:
     """取分镜条目并筛掉成不了目标的脏条目。
 
-    骨架种类取剧本实际形态（与路线闸门同一份判别），族内历史形态才不会被按内容模式
+    骨架种类取剧本实际形态（与生成模式闸门同一份判别），族内历史形态才不会被按创作类型
     反推的种类误判成解析失败。
     """
 
@@ -1207,7 +1235,7 @@ def _screen_script_targets(
 
 @dataclass(frozen=True)
 class _StoryboardContext:
-    """分镜路线的项目侧上下文：项目、集号与内容模式。"""
+    """分镜图生视频的项目侧上下文：项目、集号与创作类型。"""
 
     project: dict[str, Any]
     episode: int
@@ -1400,6 +1428,9 @@ def generate_video_episode_tool(ctx: ToolContext):
         _EPISODE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        legacy_err = reject_legacy_params(args)
+        if legacy_err is not None:
+            return legacy_err
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
@@ -1516,6 +1547,9 @@ def generate_video_scene_tool(ctx: ToolContext):
         _SCENE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        legacy_err = reject_legacy_params(args)
+        if legacy_err is not None:
+            return legacy_err
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
@@ -1596,6 +1630,9 @@ def generate_video_all_tool(ctx: ToolContext):
         _ALL_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        legacy_err = reject_legacy_params(args)
+        if legacy_err is not None:
+            return legacy_err
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])
@@ -1686,6 +1723,9 @@ def generate_video_selected_tool(ctx: ToolContext):
         _SELECTED_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        legacy_err = reject_legacy_params(args)
+        if legacy_err is not None:
+            return legacy_err
         log: list[str] = []
         try:
             script_filename = validate_script_filename(args["script"])

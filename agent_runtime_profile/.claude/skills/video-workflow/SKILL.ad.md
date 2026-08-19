@@ -1,12 +1,12 @@
 ---
 name: video-workflow
-description: 广告/短片项目的工作流入口。当用户提到做视频、继续项目、查看进度时必须使用此 skill。触发场景包括但不限于："帮我做一条带货视频"、"继续"、"下一步"、"看看项目进度"等。即使用户只说了简短的"继续"或"下一步"，只要当前上下文涉及视频项目，就应该触发。不要用于单个资产生成（如只重画某张分镜图或只重新生成某个角色设计图——那些有专门的 skill）。
+description: 广告/短片项目的工作流入口。当用户提到做视频、继续项目、查看进度时必须使用此 skill。触发场景包括但不限于："帮我做一条带货视频"、"继续"、"下一步"、"看看项目进度"等。即使用户只说了简短的"继续"或"下一步"，只要当前上下文涉及视频项目，就应该触发。不要用于单个资产生成（如只重画某张分镜图或只重新生成某个角色资产图——那些有专门的 skill）。
 ---
 <!-- mode: ad -->
 
 # 广告/短片工作流
 
-本项目为**广告/短片模式**（ad）：单视频、恒单集（剧本即 `scripts/episode_1.json`）、按 `target_duration` 规划镜头。**没有分集概念**——不要做分集规划、拆分或小说源文件处理。
+本项目为**广告/短片**（ad）：单视频、恒单集（剧本即 `scripts/episode_1.json`）、按 `target_duration` 规划镜头。**没有分集概念**——不要做分集规划、拆分或小说源文件处理。
 
 ## 工作流步骤
 
@@ -16,7 +16,7 @@ Read 只补充创作输入与产品 soft gate 信息。每次动作完成后刷�
 `next_action.type == "none"` 时展示 blockers 并停止变更。
 
 计划的字段含义、完整受控动作表、旁白交付、批量准入、四条状态轴与 stale / 历史纪律，见
-[.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按生成路线
+[.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按生成模式
 展开的步骤表**：哪些步骤适用由 `plan.steps[].required` 表达。
 
 按 `next_action.type` 直接进入对应步骤：
@@ -31,12 +31,12 @@ Read 只补充创作输入与产品 soft gate 信息。每次动作完成后刷�
 - `next_action.type == "generate_videos"` → 步骤 7 的视频生成
 - `next_action.type == "export"` → 步骤 8
 
-调用工具或 dispatch subagent 时带入 `target.episode`、`next_action.args` 与 `requested_ids`，不二次检查 `generation_mode` 或 `grid_storyboard` 来改选阶段。步骤内的产品原图与 sheet 过目规则是执行动作前的 soft gate。
+调用工具或 dispatch 子任务 时带入 `target.episode`、`next_action.args` 与 `requested_ids`，不二次检查 `generation_mode` 或 `grid_storyboard` 来改选阶段。步骤内的产品原图与 sheet 过目规则是执行动作前的 soft gate。
 
-1. **确认项目状态**：按计划确认 `content_mode=ad` 与项目级 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。生成路线创建后不可更改。
+1. **确认项目状态**：按计划确认 `content_mode=ad` 与项目级 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。生成模式创建后不可更改。
 2. **创作输入**：带货项目未登记产品或缺原图时，引导用户在 WebUI 上传；原图是保真锚点。用 `mcp__arcreel__patch_project` 写产品描述、品牌与 `brief`。通用短片不索要产品。
 3. **起草卖点**：产品的 `selling_points` 为空时，根据 brief、描述与原图起草，与用户确认后用 `patch_project` 写回。
-4. **资产定义与设计图**：定义角色、场景、道具后，对每个类型取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集，调用 `mcp__arcreel__generate_assets({"type": type, "names": [该类型 requested_ids]})`。产品 sheet 在产品资产页生成。
+4. **资产定义与资产图**：定义角色、场景、道具后，对每个类型取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集，调用 `mcp__arcreel__generate_assets({"type": type, "names": [该类型 requested_ids]})`。产品 sheet 在产品资产页生成。
 5. **一键生成剧本**：调用 `mcp__arcreel__generate_episode_script({"episode": 1})`。广告不走 step1；storyboard 路线直接产出 `shots[]`，reference 路线直接产出自包含 `video_units[]`。总时长偏离 `target_duration` 时提醒用户，不阻塞保存。
 6. **sheet 过目（软门禁）**：产品有 `product_sheet` 时，请用户在首次分镜或参考视频生成前确认它与真品一致；只有原图时直接继续。
 7. **编排与生成**：

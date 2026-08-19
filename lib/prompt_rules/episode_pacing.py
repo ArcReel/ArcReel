@@ -1,7 +1,7 @@
-"""短剧 / 说书节奏建议（drama / narration）。
+"""短剧 / 旁白解说节奏建议（drama / narration）。
 
 短剧体裁特征：开篇 ~4 秒钩子、中段每 ~15 秒一个情绪转折、末镜停在情绪极致瞬间。
-这不是 prompt engineering 启发，而是体裁约束，需要在 builder 与 subagent .md 间
+这不是 prompt engineering 启发，而是体裁约束，需要在 builder 与子任务 .md 间
 共享同一份措辞，避免漂移。
 
 注意：本模块的 DRAMA_PACING_RULES / NARRATION_PACING_RULES 文本会被
@@ -20,7 +20,7 @@ DRAMA_PACING_RULES = """分集节奏（短剧体裁建议）：
   给观众留下回看的钩子。""".strip()
 
 
-NARRATION_PACING_RULES = """说书节奏建议：
+NARRATION_PACING_RULES = """旁白/解说节奏建议：
 - 首段画面（朗读前 ~4 秒）服务于钩子：用强冲击 / 悬念 / 危机匹配钩子台词，
   避免平铺式开场。
 - 末段画面服务于卡点留悬（特写人物 / 关键物件 / 极端表情），

@@ -881,12 +881,36 @@ _STATE_MARKS: dict[GenerationItemState, str] = {
     GenerationItemState.BLOCKED: "⛔",
 }
 
+_ACTION_LABELS: dict[GenerationAction, str] = {
+    GenerationAction.RETRY: "可重试",
+    GenerationAction.FIX_INPUT: "需修正输入",
+    GenerationAction.GENERATE_DEPENDENCY: "需先生成依赖",
+    GenerationAction.GENERATE_TTS: "需先生成旁白配音",
+    GenerationAction.REGENERATE_TTS: "需重新生成旁白配音",
+    GenerationAction.WAIT_FOR_TASK: "等待进行中任务完成",
+    GenerationAction.REPLAN_UNIT: "需重新规划内容",
+    GenerationAction.CONFIRM_REQUEST_DURATION: "需确认时长档位",
+    GenerationAction.CONFIGURE_PROVIDER: "需配置供应商",
+    GenerationAction.REPAIR_ARTIFACT_STATE: "需修复产物状态",
+    GenerationAction.RETRY_PROJECT_MIGRATION: "需重试项目迁移",
+    GenerationAction.NONE: "",
+}
+
+_ARTIFACT_STATUS_LABELS: dict[ArtifactStatus, str] = {
+    ArtifactStatus.CURRENT: "最新",
+    ArtifactStatus.STALE: "可用旧版",
+    ArtifactStatus.MISSING: "缺失",
+    ArtifactStatus.BLOCKED: "不可用",
+}
+
 
 def render_generation_result(result: GenerationBatchResult, *, log: Iterable[str] = ()) -> str:
-    """Render the same contract as the agent-facing text summary.
+    """Render the agent-facing text summary (product language).
 
-    The text is a projection of the structured payload, never a second source
-    of truth: every fact printed here is present as a field.
+    The text is a human-readable projection of the structured payload — it
+    carries *no* raw enum names, Python class names, or function names.
+    Machine identifiers live exclusively in the structured
+    ``generation_result`` sibling field.
     """
 
     header = (
@@ -907,13 +931,16 @@ def render_generation_result(result: GenerationBatchResult, *, log: Iterable[str
         else:
             problem = item.problem
             assert problem is not None
-            line += f": [{problem.code}] {problem.detail} → next: {problem.action.value}"
+            action_label = _ACTION_LABELS.get(problem.action, "")
+            line += f": {problem.detail}"
+            if action_label:
+                line += f" → {action_label}"
             if item.provider_checkpoint is not None and item.provider_checkpoint.submitted:
                 line += "（供应商已提交，可恢复）"
         lines.append(line)
     for entry in result.skipped:
-        # 入口自己声明不观测产物时效轴时该字段留空，此处就不假装知道它是 current 还是 stale。
-        suffix = f"（{entry.artifact_status.value}）" if entry.artifact_status is not None else ""
+        label = _ARTIFACT_STATUS_LABELS.get(entry.artifact_status, "") if entry.artifact_status is not None else ""
+        suffix = f"（{label}）" if label else ""
         lines.append(f"  ↺ {entry.unit_id}: 复用现有产物{suffix}")
     return "\n".join(lines)
 

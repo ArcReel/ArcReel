@@ -1,11 +1,11 @@
 ---
 name: generate-narration-audio
-description: 为说书模式剧本逐段生成旁白配音（TTS）。当用户说"生成旁白"、"配音"、"生成全集旁白"、想重新生成某段配音、或批量配音中断需要补齐时使用。
+description: 为旁白/解说剧本逐段生成旁白配音（TTS）。当用户说"生成旁白"、"配音"、"生成全集旁白"、想重新生成某段配音、或批量配音中断需要补齐时使用。
 ---
 
 # 生成旁白配音
 
-为说书（narration）模式剧本的每个片段，以该段 `novel_text` 原文合成一段旁白音频，
+为旁白/解说（narration）模式剧本的每个片段，以该段 `novel_text` 原文合成一段旁白音频，
 写回该段 `generated_assets.narration_audio`（输出 `audio/segment_{segment_id}.wav`）。
 只依赖剧本，不依赖分镜图/视频——剧本生成后即可推进。
 

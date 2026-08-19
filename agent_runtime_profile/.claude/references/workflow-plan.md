@@ -3,7 +3,7 @@
 `mcp__arcreel__get_workflow_plan` 是编排的**唯一权威入口**。它返回一份只读计划：有序步骤、
 阻断原因、活动任务、视频批量准入结论，以及唯一的下一动作。
 
-**不要在 profile 里另建一张按内容模式或生成路线展开的步骤表。** 六种模式组合（narration /
+**不要在 profile 里另建一张按创作类型或生成模式展开的步骤表。** 六种模式组合（narration /
 drama / ad × storyboard / reference_video）之间哪些步骤适用、顺序如何、当前停在哪一步，全部由
 计划的 `steps[]` 表达；agent 只负责执行计划交回的受控动作。
 
@@ -20,7 +20,7 @@ mcp__arcreel__get_workflow_plan({
 三个字段都只属于**这一次查询**，服务端不会持久化。因此每次重新查询都要把仍然成立的选择原样
 带上；漏带等于把选择撤回。
 
-调用时机：进入工作流、用户说「继续 / 下一步 / 查看进度」、以及**每次工具或 subagent 完成之后**。
+调用时机：进入工作流、用户说「继续 / 下一步 / 查看进度」、以及**每次工具或子任务完成之后**。
 `Read` / `Glob` 只用于取执行已选定动作所需的内容，不用于另建一套状态机。不得根据空资产 bucket、
 文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
@@ -75,12 +75,12 @@ mcp__arcreel__get_workflow_plan({
 |---|---|
 | `collect_project_input` | 引导用户在 Web 端补齐项目输入 |
 | `draft_selling_points` | 起草卖点后经 `mcp__arcreel__patch_project` 写回（ad） |
-| `analyze_assets` | dispatch `analyze-assets` subagent |
+| `analyze_assets` | dispatch `analyze-assets` 子任务 |
 | `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`，按 `next_action.args` 传参 |
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
-| `prepare_step1` | dispatch `next_action.args.preprocessor` 指名的 subagent |
+| `prepare_step1` | dispatch `next_action.args.preprocessor` 指名的子任务 |
 | `confirm_step1` | `mcp__arcreel__confirm_script_review` |
-| `generate_script` | dispatch `create-episode-script` subagent（ad 直接调 `mcp__arcreel__generate_episode_script`） |
+| `generate_script` | dispatch `create-episode-script` 子任务（ad 直接调 `mcp__arcreel__generate_episode_script`） |
 | `generate_asset_sheets` | `mcp__arcreel__generate_assets`，逐类型传 `names` |
 | `generate_storyboards` | `mcp__arcreel__generate_storyboards`，传 `segment_ids` |
 | `generate_grid` | `mcp__arcreel__generate_grid`，传 `scene_ids` |
@@ -94,7 +94,7 @@ mcp__arcreel__get_workflow_plan({
 | `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
 | `none` | 展示 `blockers` 并停止变更 |
 
-`next_action.args.preprocessor` 是权威的预处理 subagent 名，**不要自己按 `content_mode` ×
+`next_action.args.preprocessor` 是权威的预处理子任务名，**不要自己按创作类型 ×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
 
 ### 批量被拒时交回的逐问题动作

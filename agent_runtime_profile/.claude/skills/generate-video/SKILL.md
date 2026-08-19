@@ -9,7 +9,7 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 让 MCP 工具读取 `project.json`，按 `generation_mode` × `content_mode` 选择路线，并校验剧本骨架：
 
-| 项目路线 × 内容模式 | 应有骨架 | 路由 | 输出目录 |
+| 生成模式 × 创作类型 | 应有骨架 | 路由 | 输出目录 |
 |---|---|---|---|
 | `reference_video` × narration / drama / ad | `video_units[]` | `task_type="reference_video"` → `execute_reference_video_task` | `reference_videos/{unit_id}.mp4` |
 | `storyboard` × narration | `segments[]` | `task_type="video"` → `execute_video_task` | `videos/scene_{segment_id}.mp4` |
@@ -131,7 +131,7 @@ stale 产物照常可预览、可导出、可参与成片，服务端会复用�
 
 - storyboard 路线读取 `image_prompt`、`video_prompt` 与分镜图。
 - reference 路线读取 unit 正文（`text`）与编排时长。
-- 说书 storyboard 路线不把 `novel_text` 放入视频 Prompt；旁白由独立音频流程处理。
+- 旁白/解说 storyboard 路线不把 `novel_text` 放入视频 Prompt；旁白由独立音频流程处理。
 - 自动应用音频开关、角色发声归属与负面 Prompt 规则。
 
 ## 生成前检查

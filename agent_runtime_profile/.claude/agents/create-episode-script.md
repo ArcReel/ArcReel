@@ -1,6 +1,6 @@
 ---
 name: create-episode-script
-description: "单集 JSON 剧本生成 subagent。使用场景：(1) drafts/episode_N/ 中间文件已存在，需要生成最终 JSON 剧本，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和集数，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
+description: "单集 JSON 剧本资产生成子任务。使用场景：(1) drafts/episode_N/ 中间文件已存在，需要生成最终 JSON 剧本，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和集数，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
 skills:
   - generate-script
 ---
@@ -35,7 +35,7 @@ skills:
 - generation_mode == storyboard 且 content_mode == narration：`drafts/episode_{N}/step1_segments.json`（缺失时需先运行 `split-narration-segments`）
 - generation_mode == storyboard 且 content_mode == drama：`drafts/episode_{N}/step1_normalized_script.json`（结构化内容；缺失时需先运行 `normalize-drama-script`。旧项目残留的 `step1_normalized_script.md` 是结构化前的自由文本稿，不算有效 step1，须重跑 normalize 产出 `.json`）
 
-只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的预处理 subagent。
+只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的预处理子任务。
 
 > reference_video 同样走两段式：step1 已定稿的是内容契约（unit 边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做视觉展开——unit 数、unit 时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
 >
@@ -72,7 +72,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 | 统计项 | 数值 |
 |--------|------|
-| 内容模式 | narration/drama |
+| 创作类型 | narration/drama |
 | 总片段/场景数 | XX 个 |
 | 总时长 | X 分 X 秒 |
 | 生成模型 | {脚本输出中实际使用的模型名} |
@@ -81,7 +81,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 ✅ 数据验证通过
 
-下一步：主 agent 可继续 dispatch 资产生成 subagent（角色设计图、分镜图等）。
+下一步：主 agent 可继续 dispatch 资产资产生成子任务（角色资产图、分镜图等）。
 ```
 
 如果生成失败：

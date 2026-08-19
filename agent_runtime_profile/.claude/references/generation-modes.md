@@ -6,7 +6,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 
 ## 模式矩阵
 
-| generation_mode | content_mode | 数据主结构 | 预处理 subagent | step1 中间文件 | 脚本 schema | 视觉参考来源 |
+| generation_mode | content_mode | 数据主结构 | 预处理子任务 | step1 中间文件 | 脚本 schema | 视觉参考来源 |
 |---|---|---|---|---|---|---|
 | `storyboard` | `narration` | `segments[]` | split-narration-segments | `step1_segments.json` | NarrationEpisodeScript | 每片段一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
 | `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `step1_normalized_script.json` | DramaNormalizedScript（step1）→ DramaVisualScript（step2）→ DramaEpisodeScript（合并） | 每场景一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
@@ -18,9 +18,9 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 
 ## 步骤适用性由计划表达
 
-**本文档不再复述一张按内容模式或生成路线展开的步骤表。** 哪些步骤适用、顺序如何、当前停在哪一步、
-预处理该 dispatch 哪个 subagent，一律读 `mcp__arcreel__get_workflow_plan` 的 `steps[]` 与
-`next_action`（`prepare_step1` 的 `next_action.args.preprocessor` 就是权威的预处理 subagent 名）。
+**本文档不再复述一张按创作类型或生成模式展开的步骤表。** 哪些步骤适用、顺序如何、当前停在哪一步、
+预处理该 dispatch 哪个子任务，一律读 `mcp__arcreel__get_workflow_plan` 的 `steps[]` 与
+`next_action`（`prepare_step1` 的 `next_action.args.preprocessor` 就是权威的预处理子任务名）。
 读法见 [workflow-plan.md](workflow-plan.md)。
 
 上表只解释**数据结构与 schema 的差异**：同一步骤在不同组合下操作的是哪种主结构、哪个中间文件、
@@ -38,7 +38,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 
 - **分辨率**：图片 1K，视频 1080p
 - **单片段时长**（storyboard，含 grid_storyboard）：取值必须在模型 `supported_durations` 内；项目 `default_duration` 非 null 时作默认值（项目创建时按 content_mode 写入 project.json），为 null 时由预处理按内容节奏自行取值
-- **单 unit 时长**（reference_video）：unit 是一次生成调用的单元，一个 unit 一个时长——取值必须在该 unit **引用状态对应**的生效档位内（`get_video_capabilities` 返回的 `reference_unit_durations.with_references` / `.without_references`；部分型号对带参考图的生成另有时长限制）；内容装不下所选档位时重拆 unit，不违约时长。具体数值由 subagent 在执行时通过 `mcp__arcreel__get_video_capabilities` 工具查得，**不在本文档固化**
+- **单 unit 时长**（reference_video）：unit 是一次生成调用的单元，一个 unit 一个时长——取值必须在该 unit **引用状态对应**的生效档位内（`get_video_capabilities` 返回的 `reference_unit_durations.with_references` / `.without_references`；部分型号对带参考图的生成另有时长限制）；内容装不下所选档位时重拆 unit，不违约时长。具体数值由子任务在执行时通过 `mcp__arcreel__get_video_capabilities` 工具查得，**不在本文档固化**
 - **拼接**：全部模式用 ffmpeg concat；Veo extend 仅用于**单片段延长**，不串联不同镜头
 - **BGM**：生成端已在视频 prompt 末尾自动追加"禁止出现：BGM、文字字幕、水印"，无需手动追加，prompt 里也不要描述 BGM / 配乐
 
@@ -58,7 +58,7 @@ projects/{name}/          # ← session cwd 已在此
 ├── grids/                # storyboard 模式且 grid_storyboard=true（宫格大图）
 ├── reference_videos/     # reference_video 模式视频输出
 ├── videos/               # storyboard 模式视频输出
-└── audio/                # 旁白音频（仅 narration 内容模式，首次生成时创建）
+└── audio/                # 旁白音频（仅旁白/解说，首次生成时创建）
 ```
 
 > 参考 [Gemini 图像生成官方指南](https://ai.google.dev/gemini-api/docs/image-generation)的 prompting strategies。

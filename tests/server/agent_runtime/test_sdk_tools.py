@@ -9072,3 +9072,31 @@ async def test_generate_reference_units_refuses_a_duplicated_named_unit(
         unit["unit_id"]: [problem["code"] for problem in unit["problems"]] for unit in out["batch_admission"]["units"]
     }
     assert codes == {duplicated_id: ["generation_unit_request_invalid"]}
+
+
+# ---------------------------------------------------------------------------
+# Legacy parameter rejection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "legacy_param",
+    ["shots", "shot_ids", "unit_ids", "references", "reference_images", "storyboard_count", "video_unit_count"],
+)
+async def test_video_tools_reject_legacy_params(fake_ctx: ToolContext, legacy_param: str) -> None:
+    """旧参数名传入任何视频工具时返回 is_error 且指明正确参数名。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    for factory in (
+        mod.generate_video_episode_tool,
+        mod.generate_video_scene_tool,
+        mod.generate_video_all_tool,
+        mod.generate_video_selected_tool,
+    ):
+        tool_obj = factory(fake_ctx)
+        result = await tool_obj.handler({"script": "episode_1.json", legacy_param: "dummy"})
+        assert result["is_error"], f"{tool_obj.name} did not reject '{legacy_param}'"
+        text = result["content"][0]["text"]
+        assert legacy_param in text
+        assert "已废弃" in text

@@ -569,3 +569,39 @@ def test_the_rendered_text_is_only_a_projection_of_the_payload() -> None:
     assert "注意" in text
     for unit_id in ("A", "B", "C"):
         assert unit_id in text
+
+
+def test_rendered_summary_uses_product_language_not_raw_enums() -> None:
+    """默认摘要不含原始枚举值或 Python 类名/函数名——机器标识只在结构化层。"""
+    builder = GenerationResultBuilder("generate_videos", GenerationSelectionMode.MISSING_ONLY)
+    builder.fail(
+        "E1S01",
+        problem=GenerationProblem(
+            code=GenerationProblemCode.UNIT_NOT_FOUND,
+            detail="剧本中未找到该 ID",
+            action=GenerationAction.FIX_INPUT,
+        ),
+    )
+    builder.block(
+        "E1S02",
+        problem=GenerationProblem(
+            code=GenerationProblemCode.ACTIVE_TASK_CONFLICT,
+            detail="该 ID 有在途任务",
+            action=GenerationAction.WAIT_FOR_TASK,
+        ),
+    )
+    builder.skip_unit("E1S03", artifact_path="videos/c.mp4", artifact_status=ArtifactStatus.STALE)
+    result = builder.build()
+
+    text = render_generation_result(result)
+
+    assert "generation_unit_not_found" not in text
+    assert "generation_active_task_conflict" not in text
+    assert "fix_input" not in text
+    assert "wait_for_task" not in text
+    assert "GenerationProblemCode" not in text
+    assert "GenerationAction" not in text
+
+    assert "需修正输入" in text
+    assert "等待进行中任务完成" in text
+    assert "可用旧版" in text
