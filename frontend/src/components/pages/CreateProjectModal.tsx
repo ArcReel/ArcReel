@@ -36,7 +36,7 @@ const STEPS = [
 ] as const;
 
 const STEP_BADGE_GRADIENT =
-  "linear-gradient(180deg, oklch(0.30 0.05 295 / 0.65), oklch(0.20 0.02 280 / 0.65))";
+  "linear-gradient(180deg, oklch(0.30 0.05 160 / 0.65), oklch(0.20 0.02 160 / 0.65))";
 
 const STEP_BADGE_ACTIVE_STYLE: CSSProperties = {
   background: STEP_BADGE_GRADIENT,
@@ -56,7 +56,7 @@ const STEP_BADGE_INACTIVE_STYLE: CSSProperties = {
 const STEP_CONNECTOR_DONE_STYLE: CSSProperties = {
   height: 1,
   background:
-    "linear-gradient(90deg, var(--color-accent), oklch(0.55 0.06 295 / 0.4))",
+    "linear-gradient(90deg, var(--color-accent), oklch(0.55 0.06 160 / 0.4))",
 };
 
 const STEP_CONNECTOR_INACTIVE_STYLE: CSSProperties = {
@@ -148,10 +148,10 @@ export function CreateProjectModal() {
 
   const [basics, setBasics] = useState<WizardStep1Value>({
     title: "",
-    contentMode: "narration",
-    sourceKind: "novel",
-    aspectRatio: "9:16",
-    generationRoute: null,
+    contentMode: "drama",
+    sourceKind: "screenplay",
+    aspectRatio: "16:9",
+    generationRoute: "reference_video",
     gridStoryboard: false,
     targetDuration: 60,
     speechRate: null,
@@ -354,7 +354,7 @@ export function CreateProjectModal() {
       className="fixed inset-0 z-50 flex items-center justify-center px-4"
       style={{
         background:
-          "radial-gradient(900px 480px at 12% -10%, oklch(0.32 0.05 295 / 0.30), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.28), transparent 55%), oklch(0 0 0 / 0.62)",
+          "radial-gradient(900px 480px at 12% -10%, oklch(0.32 0.05 160 / 0.30), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.28), transparent 55%), oklch(0 0 0 / 0.62)",
         backdropFilter: "blur(12px) saturate(1.1)",
         WebkitBackdropFilter: "blur(12px) saturate(1.1)",
       }}

@@ -11,10 +11,10 @@ import type { GenerationRoute } from "@/utils/generation-mode";
 export interface WizardStep1Value {
   title: string;
   contentMode: "narration" | "drama" | "ad";
-  /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
+  /** 源文件性质：novel / screenplay（默认）。仅 drama 暴露，创建即定、不可变。 */
   sourceKind: "novel" | "screenplay";
   aspectRatio: "9:16" | "16:9";
-  /** 生成路线，创建时锁定。null = 未选：必选，未选不放行。 */
+  /** 生成路线，创建时锁定。默认预选参考生视频（R2V）；null 仅作防御（未选不放行）。 */
   generationRoute: GenerationRoute | null;
   /** 分镜板（宫格）装配开关，随创建写入；仅分镜路线有意义，ad 不支持。 */
   gridStoryboard: boolean;
@@ -56,7 +56,7 @@ export function WizardStep1Basics({
       setTitleError(t("dashboard:project_title_required"));
       return;
     }
-    // 路线必选：无预选、未选不放行
+    // 路线必选（默认已预选参考生视频）：null 仅作防御性拦下
     if (!value.generationRoute) return;
     // 口播语速越界不放行（区间与后端同一把尺）；未填合法
     if (!isValidSpeechRate(value.speechRate)) return;
@@ -101,17 +101,6 @@ export function WizardStep1Basics({
       <div>
         <FieldLabel>{t("dashboard:content_mode")}</FieldLabel>
         <div className="flex gap-2.5" role="radiogroup" aria-label={t("dashboard:content_mode")}>
-          <label className={radioCardClass(value.contentMode === "narration")}>
-            <input
-              type="radio"
-              name="contentMode"
-              value="narration"
-              checked={value.contentMode === "narration"}
-              onChange={() => onChange({ ...value, contentMode: "narration" })}
-              className="sr-only"
-            />
-            {t("dashboard:narration_visuals")}
-          </label>
           <label className={radioCardClass(value.contentMode === "drama")}>
             <input
               type="radio"
@@ -122,6 +111,17 @@ export function WizardStep1Basics({
               className="sr-only"
             />
             {t("dashboard:drama_animation")}
+          </label>
+          <label className={radioCardClass(value.contentMode === "narration")}>
+            <input
+              type="radio"
+              name="contentMode"
+              value="narration"
+              checked={value.contentMode === "narration"}
+              onChange={() => onChange({ ...value, contentMode: "narration" })}
+              className="sr-only"
+            />
+            {t("dashboard:narration_visuals")}
           </label>
           <label className={radioCardClass(value.contentMode === "ad")}>
             <input
