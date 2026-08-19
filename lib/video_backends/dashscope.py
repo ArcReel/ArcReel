@@ -137,7 +137,7 @@ WAN3_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", re.I)
 #
 # 只锚 2.7、不覆盖其余 2.x 小版本：本后端固定请求
 # `/services/aigc/video-generation/video-synthesis`（_VIDEO_ENDPOINT），而 wan2.1 / wan2.2-s2v
-# 按 docs/research/arcreel-video-api-protocol-research.md 记录走的是旧端点
+# 走的是旧端点
 # `/services/aigc/image2video/video-synthesis/`、payload 字段也不同（如 wan2.6 用 `size` 而非
 # 2.7 的 `resolution`+`ratio`），并入本正则会把协议不兼容的请求送到这个端点。
 # 点号形态（如 "wan2.1-kf2v"）不受本正则约束，归 WAN_DOT_FORM_PATTERN 判定，其路由是否也应
@@ -159,7 +159,7 @@ HAPPYHORSE_PATTERN = re.compile(r"(?<![a-z0-9])happyhorse(?![a-z0-9])", re.I)
 # "wan2.7-fooimage-to-video" / "wan2.7-image-to-videofoo" 这类相邻字母被误判命中。
 WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"(?<![a-z0-9])image[-_]?(?:to|2)[-_]?video(?![a-z0-9])", re.I)
 
-# wan2.7-videoedit（指令式视频编辑，见 docs/research/arcreel-vendor-integration-research.md）是
+# wan2.7-videoedit（指令式视频编辑）是
 # 万相家族内真实存在的独立模态，但本后端只实现了 t2v/i2v/r2v 三档的请求构造，没有该模态所需的
 # 输入视频传输字段。命中家族正则但落这个模态的 id 须排除出原生路由与已知能力档，否则会带着
 # _DEFAULT_PROFILE（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。两侧标识符边界

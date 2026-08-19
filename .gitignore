@@ -97,3 +97,6 @@ deploy/production/projects/
 deploy/production/vertex_keys/
 deploy/production/claude_data/
 deploy/production/pgdata/
+
+# scripts/verify_reference_video_sdks.py 的输出目录，报告是运行时快照
+docs/verification-reports/
