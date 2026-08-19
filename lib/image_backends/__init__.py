@@ -66,3 +66,8 @@ from lib.image_backends.agnes import AgnesImageBackend
 from lib.providers import PROVIDER_AGNES
 
 register_backend(PROVIDER_AGNES, AgnesImageBackend)
+
+from lib.image_backends.runware import RunwareImageBackend
+from lib.providers import PROVIDER_RUNWARE
+
+register_backend(PROVIDER_RUNWARE, RunwareImageBackend)

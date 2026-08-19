@@ -21,6 +21,7 @@ from lib.pricing.types import (
     Pricing,
     ViduDelegate,
 )
+from lib.runware_shared import RUNWARE_API_BASE
 
 #: 能力 token 的封闭词汇表：仅收录有消费方的 token，词汇与各媒体 backend 能力枚举
 #: （TextCapability / ImageCapability / AudioCapability）同名同义。新 token 先有消费方
@@ -1449,6 +1450,36 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         # Agnes 视频上游对并发敏感，出厂串行（默认 1）避免主动制造 503 Service busy；
         # 用户可经 video_max_workers 覆盖。其余 lane 未声明，走全局默认。
         default_concurrency={"video": 1},
+    ),
+    "runware": ProviderMeta(
+        display_name="Runware",
+        description="Runware 聚合推理平台，Bearer API Key 鉴权；当前支持图像生成（Nano Banana Lite / GPT Image 2）。",
+        required_keys=["api_key"],
+        optional_keys=["base_url", "image_max_workers"],
+        secret_keys=["api_key"],
+        models={
+            # --- image ---
+            # Nano Banana 2 Lite（Gemini 3.1 Flash Lite Image）：T2I + I2I + edit，
+            # 只支持固定比例档位（见 backend _NANO_BANANA_DIMENSIONS），resolutions 为 UI 档位、
+            # 与 backend 实际尺寸解耦。
+            "google:nano-banana@2-lite": ModelInfo(
+                display_name="Nano Banana 2 Lite",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+                resolutions=["1K", "2K"],
+                pricing=None,
+            ),
+            # GPT Image 2（OpenAI）：T2I + I2I + edit，任意尺寸（总像素预算，见 backend）。
+            "openai:gpt-image@2": ModelInfo(
+                display_name="GPT Image 2",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                resolutions=["1K", "2K"],
+                pricing=None,
+            ),
+        },
+        default_base_url=RUNWARE_API_BASE,
     ),
 }
 

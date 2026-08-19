@@ -12,4 +12,5 @@
 - [kling](kling.md)
 - [minimax](minimax.md)
 - [openai](openai.md)
+- [runware](runware.md)
 - [vidu](vidu.md)
