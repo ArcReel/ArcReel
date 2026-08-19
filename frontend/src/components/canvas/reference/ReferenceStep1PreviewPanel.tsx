@@ -137,10 +137,8 @@ function unitDurationTiers(
   tiers: NonNullable<ScriptReviewState["duration_tiers"]> | null,
 ): number[] | null {
   if (!tiers) return null;
-  const hasReferences = extractMentions(unit.scriptText).some((name) => {
-    const kind = lookup[name];
-    return Boolean(kind && kind !== "product");
-  });
+  // 四类资产同规则（ADR 0064）：任一已登记的提及都会在执行期派生出参考图。
+  const hasReferences = extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
   return hasReferences ? tiers.with_references : tiers.without_references;
 }
 

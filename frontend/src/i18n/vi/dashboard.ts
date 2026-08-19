@@ -774,7 +774,7 @@ export default {
   'reference_editor_placeholder': 'Mô tả cảnh này. Dùng @ để tham chiếu nhân vật / cảnh / đạo cụ và {} cho lời thoại.',
   'reference_editor_aria_name': 'Prompt đơn vị',
   'reference_editor_unknown_mentions_label': 'Mention chưa đăng ký',
-  'reference_editor_unknown_mention': 'Chưa đăng ký: @{{name}} (không có trong nhân vật/cảnh/đạo cụ)',
+  'reference_editor_unknown_mention': 'Chưa đăng ký: @{{name}} (không có trong hàng hóa/nhân vật/cảnh/đạo cụ)',
   'reference_picker_title': 'Chèn tham chiếu',
   'reference_picker_empty': 'Không có kết quả',
   'reference_picker_group_product': 'Hàng hóa',

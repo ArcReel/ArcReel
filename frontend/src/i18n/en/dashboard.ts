@@ -794,7 +794,7 @@ export default {
   'reference_editor_placeholder': 'Describe this shot. Use @ to reference characters, scenes, and props, and {} for spoken lines.',
   'reference_editor_aria_name': 'Unit prompt',
   'reference_editor_unknown_mentions_label': 'Unregistered mentions',
-  'reference_editor_unknown_mention': 'Unregistered: @{{name}} (not found in characters/scenes/props)',
+  'reference_editor_unknown_mention': 'Unregistered: @{{name}} (not found in merchandise/characters/scenes/props)',
   'reference_picker_title': 'Insert reference',
   'reference_picker_empty': 'No matches',
   'reference_picker_group_product': 'Merchandise',

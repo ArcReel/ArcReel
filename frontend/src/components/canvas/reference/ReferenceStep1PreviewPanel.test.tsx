@@ -340,6 +340,23 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect([...select.options].map((o) => o.value)).toEqual(["8"]);
   });
 
+  it("counts a merchandise-only body as carrying references", async () => {
+    const state = pendingState({
+      supported_durations: [4, 6, 8],
+      duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
+    });
+    (state.content as ReferenceStep1Draft).units[0].text = "@[保温杯] 特写";
+    (state.content as ReferenceStep1Draft).units[0].duration_seconds = 8;
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+    render(
+      <ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={{ ...LOOKUP, 保温杯: "product" }} />,
+    );
+
+    // 商品与其它资产同规则派生参考图，档位按 with_references 收窄。
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+  });
+
   it("blocks confirmation and flags a unit whose stored duration has fallen out of the effective tier", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
       pendingState({

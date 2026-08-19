@@ -793,7 +793,7 @@ export default {
   'reference_editor_placeholder': '写下这段画面。用 @ 引用角色 / 场景 / 道具，用 {} 写台词。',
   'reference_editor_aria_name': 'Unit 提示词',
   'reference_editor_unknown_mentions_label': '未注册提及',
-  'reference_editor_unknown_mention': '未注册：@{{name}}（角色/场景/道具中都未找到）',
+  'reference_editor_unknown_mention': '未注册：@{{name}}（产品/角色/场景/道具中都未找到）',
   'reference_picker_title': '插入引用',
   'reference_picker_empty': '无匹配项',
   'reference_picker_group_product': '商品',

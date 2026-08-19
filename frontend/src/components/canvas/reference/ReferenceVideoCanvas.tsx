@@ -253,10 +253,7 @@ export function ReferenceVideoCanvas({
   const selectedHasReference = useMemo(
     () =>
       selected
-        ? extractMentions(selected.text).some((name) => {
-            const kind = mentionLookup[name];
-            return Boolean(kind && kind !== "product");
-          })
+        ? extractMentions(selected.text).some((name) => Boolean(mentionLookup[name]))
         : false,
     [selected, mentionLookup],
   );

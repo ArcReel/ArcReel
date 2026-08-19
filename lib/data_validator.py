@@ -1329,12 +1329,13 @@ class DataValidator:
             )
         elif kind == "shots":
             shots = episode.get("shots", [])
+            raw_products = project.get("products")
             self._validate_shots(
                 shots,
                 project_characters,
                 project_scenes,
                 project_props,
-                set(project["products"].keys()) if isinstance(project.get("products"), dict) else set(),
+                set(raw_products.keys()) if isinstance(raw_products, dict) else set(),
                 errors,
                 warnings,
                 project_dir=artifact_root,

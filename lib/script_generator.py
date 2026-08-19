@@ -122,7 +122,7 @@ _EID_PREFIX_RE = re.compile(r"^E\d+(?=[SU])")
 # 质量探针阈值：仅捕极端短样本，正常完整描述应远超这些值。
 _QUALITY_PROBE_SCENE_MIN_LEN = 40
 _QUALITY_PROBE_ACTION_MIN_LEN = 25
-_QUALITY_PROBE_SHOT_TEXT_MIN_LEN = 15
+_QUALITY_PROBE_UNIT_TEXT_MIN_LEN = 15
 
 # 骨架种类 → 响应校验模型。模型类属上层依赖、不进 SKELETONS 窄表，映射留本地。
 # 键与 SKELETONS 逐一对应；新增第五种骨架时穷尽性断言逐个报红。
@@ -1701,7 +1701,7 @@ class ScriptGenerator:
                     if not isinstance(u, dict):
                         continue
                     uid = str(u.get(id_key) or "?")
-                    if len(str(u.get("text") or "")) < _QUALITY_PROBE_SHOT_TEXT_MIN_LEN:
+                    if len(str(u.get("text") or "")) < _QUALITY_PROBE_UNIT_TEXT_MIN_LEN:
                         short_ids.append(uid)
             else:
                 for item in items:

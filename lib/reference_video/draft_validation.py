@@ -46,7 +46,7 @@ class DraftViolation(ValueError):
 
     ``code`` 是违约类的机读标识，``label`` 是 unit 定位（``unit E1U02`` 一类的前缀）：消息本身
     面向 agent、措辞可改，报告的分组与测试的按类断言不该挂在措辞上。两者均可为空——异常在
-    模块外被构造时（如生成侧对镜头数对账的补充判定）只有消息。
+    模块外被构造时（如生成侧的补充判定）只有消息。
 
     ``line`` 是该 unit 正文内 0-based 的原始行号（``text.splitlines()`` 坐标系，与前端
     ``toScriptLines`` 的 ``sourceLine`` 同一坐标系），仅在校验发生于具体某一行时才有意义

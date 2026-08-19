@@ -99,9 +99,9 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
       kind: "mention",
       text: m[0],
       name,
-      // product 参与四 bucket 名称空间归属，但不是 generic reference-video
-      // ReferenceResource；继续以 unknown 样式提示它不会进入参考图列表。
-      assetKind: resolved === "product" ? "unknown" : (resolved ?? "unknown"),
+      // 四类资产同规则派生参考图（ADR 0064），商品与角色 / 场景 / 道具一样按自己的
+      // 色板着色；只有查不到的名字才落 unknown 样式。
+      assetKind: resolved ?? "unknown",
     });
     lastIdx = idx + m[0].length;
   }
@@ -127,11 +127,11 @@ export function useUnitPromptHighlight(text: string, lookup: MentionLookup): Tok
  *
  * 整行除空白外只有一个发声记号时才独占一条 `dialogue` / `voiceover`；记号与描述混写的行
  * 归 `text`，记号作为 `speech` token 在行内就地着色。缩进与行尾空白不影响这一判定——
- * 后端 `_content_lines` 同样先 strip 再判，缩进写的台词两侧都是台词。
+ * 后端按行解析时同样先 strip 再判，缩进写的台词两侧都是台词。
  *
  * `sourceLine` is the 0-based raw line index (`splitScriptLines` order — one entry per
  * physical line), the same coordinate system as the backend's `DraftViolation.line`
- * (`lib/reference_video/draft_validation.py::_content_lines`).
+ * (`lib/reference_video/draft_validation.py`, `text.splitlines()` 坐标系).
  */
 export type ScriptLine =
   | { kind: "dialogue"; sourceLine: number; speaker: string; speakerKind: MentionKind; text: string }

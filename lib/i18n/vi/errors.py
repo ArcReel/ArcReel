@@ -287,7 +287,6 @@ MESSAGES = {
     "ref_shot_parse_fallback": "Không phát hiện tiêu đề Shot N (Xs), được xử lý như một cảnh quay duy nhất",
     "ref_episode_not_found": "Không tìm thấy tập {episode}",
     "ref_not_reference_video_mode": "Kịch bản của tập này không ở chế độ video tham chiếu",
-    "ref_not_registered": "Các tài nguyên được tham chiếu chưa được đăng ký: {missing}",
     "ref_unit_not_found": "Không tìm thấy đơn vị video '{unit_id}'",
     "ref_unit_needs_replan": "Đơn vị video này có vấn đề về người phát ngôn hoặc di chuyển; hãy lập kế hoạch lại trước khi tạo",
     "ref_unit_ids_length_mismatch": "Số lượng unit_ids không khớp với các đơn vị hiện có",

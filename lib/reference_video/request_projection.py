@@ -417,8 +417,8 @@ def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceRes
 def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> tuple[ResolvedReferenceAsset, ...]:
     """把正文派生的逻辑引用展开为图片候选，不把「路径已登记」误当成「文件存在」。
 
-    每件资产同一条规则：有资产图就用资产图，没有才退到该资产的全部原图。商品不例外——
-    它不再排最前、也不再在有资产图时额外全量注入原图（见 ADR 0064 与 ADR 0034）。
+    每件资产同一条规则：有资产图就用资产图，没有才退到该资产的全部原图。商品与其它资产
+    共用这条规则，不按类型排序、也不在有资产图时额外注入原图（见 ADR 0064 与 ADR 0034）。
     缺字段、未登记或越界路径不制造候选，由 projector 对照派生引用统一产出
     ``reference_asset_missing``。
     """

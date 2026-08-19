@@ -36,10 +36,10 @@ describe("tokenizePrompt", () => {
     expect(mention?.text).toBe("@路人");
   });
 
-  it("keeps product ownership out of generic reference-video highlighting", () => {
+  it("resolves registered products like any other asset kind", () => {
     const t = tokenizePrompt("@水杯 特写", { ...LOOKUP, 水杯: "product" });
     const mention = t.find((x) => x.kind === "mention");
-    expect(mention?.assetKind).toBe("unknown");
+    expect(mention?.assetKind).toBe("product");
   });
 
   it("resolves wrapped mentions with punctuation", () => {
@@ -158,7 +158,7 @@ describe("toScriptLines", () => {
     ]);
   });
 
-  // 后端 `_content_lines` 先 strip 再判，缩进 / 行尾空白的整行台词照样是台词；
+  // 后端按行解析时先 strip 再判，缩进 / 行尾空白的整行台词照样是台词；
   // 预览若因两侧空白把它降级成描述行，就与同屏的服务端派生台词列表对不上。
   it("keeps a whole-line utterance padded with whitespace on its own line", () => {
     expect(toScriptLines("  @[张三]：{我来了}  ", LOOKUP)).toEqual([

@@ -289,7 +289,6 @@ MESSAGES = {
     "ref_shot_parse_fallback": "No Shot N (Xs) header detected, treated as a single shot",
     "ref_episode_not_found": "Episode {episode} not found",
     "ref_not_reference_video_mode": "Episode script is not in reference-video mode",
-    "ref_not_registered": "Referenced assets are not registered: {missing}",
     "ref_unit_not_found": "Video unit '{unit_id}' not found",
     "ref_unit_needs_replan": "This video unit has a speech-ownership or migration problem; replan it before generating",
     "ref_unit_ids_length_mismatch": "unit_ids count does not match existing units",

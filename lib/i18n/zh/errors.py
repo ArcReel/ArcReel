@@ -263,7 +263,6 @@ MESSAGES = {
     "ref_shot_parse_fallback": "未识别到 Shot N (Xs): 标记，按单镜头处理",
     "ref_episode_not_found": "第 {episode} 集不存在",
     "ref_not_reference_video_mode": "该集脚本不是参考生视频模式",
-    "ref_not_registered": "引用的资产未注册：{missing}",
     "ref_unit_not_found": "视频单元「{unit_id}」不存在",
     "ref_unit_needs_replan": "该视频单元存在发声归属或迁移问题，请先重新规划后再生成",
     "ref_unit_ids_length_mismatch": "unit_ids 数量与现有单元不一致",

@@ -5,8 +5,8 @@
 
 - 窄表 ``SKELETONS``：键即剧本里的条目数组键（``segments`` / ``scenes`` / ``shots`` /
   ``video_units``），行 ``Skeleton(id_field, chars_field)``。``chars_field`` 可为 ``None``
-  ——``video_units`` 无逐条角色名单（角色以 ``references`` 中 ``type == "character"`` 的条目
-  形态存在），表如实声明缺位；消费方拿到 ``None`` 必须显式决策（自行派生或声明不适用），
+  ——``video_units`` 无逐条角色名单（角色以正文 ``text`` 里的 ``@[名称]`` 提及形态存在，
+  读时派生），表如实声明缺位；消费方拿到 ``None`` 必须显式决策（自行派生或声明不适用），
   不提供假字段名使 ``get()`` 返回空值。
 - 规范解析 ``resolve_declared_kind(content_mode, generation_mode)``：服务只有项目配置在手
   的消费方，输入为项目级已过校验的 content_mode 与项目声明的 generation_mode。**fail-loud**——未知/缺失 content_mode 抛 ``ValueError``，不静默兜底。
