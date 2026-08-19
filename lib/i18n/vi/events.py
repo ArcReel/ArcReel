@@ -1,8 +1,8 @@
 """Nhãn tiếng Việt cho sự kiện thay đổi dự án. Xem ``lib/i18n/zh/events.py`` để biết giao ước."""
 
 MESSAGES = {
-    "event_label_grid": 'Phân cảnh lưới "{id}"',
-    "event_label_grid_split": 'Tách phân cảnh lưới "{id}"',
+    "event_label_grid": 'Phân cảnh đa lưới "{id}"',
+    "event_label_grid_split": 'Tách phân cảnh đa lưới "{id}"',
     "event_label_voice_sample": 'Mẫu giọng thử của "{id}"',
     "event_label_asset_image_character": 'Ảnh tài sản của nhân vật "{id}"',
     "event_label_asset_image_scene": 'Ảnh tài sản của cảnh "{id}"',
@@ -12,8 +12,7 @@ MESSAGES = {
     "event_label_skeleton_scenes": 'Cảnh "{id}"',
     "event_label_skeleton_shots": 'Cú máy "{id}"',
     "event_label_skeleton_video_units": 'Đơn vị video "{id}"',
-    "event_label_reference_video": 'Video tham chiếu "{id}"',
-    "event_label_narration": 'Lời dẫn "{id}"',
+    "event_label_narration_audio": 'Lời dẫn "{id}"',
     "event_label_named_entity_character": 'Nhân vật "{id}"',
     "event_label_named_entity_scene": 'Cảnh "{id}"',
     "event_label_named_entity_prop": 'Đạo cụ "{id}"',

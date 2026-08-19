@@ -1,8 +1,8 @@
 import type enEvents from '../en/events';
 
 export default {
-  "label.grid": 'Phân cảnh lưới "{{id}}"',
-  "label.grid_split": 'Tách phân cảnh lưới "{{id}}"',
+  "label.grid": 'Phân cảnh đa lưới "{{id}}"',
+  "label.grid_split": 'Tách phân cảnh đa lưới "{{id}}"',
   "label.voice_sample": 'Mẫu giọng thử của "{{id}}"',
   "label.asset_image_character": 'Ảnh tài sản của nhân vật "{{id}}"',
   "label.asset_image_scene": 'Ảnh tài sản của cảnh "{{id}}"',
@@ -12,8 +12,7 @@ export default {
   "label.skeleton_scenes": 'Cảnh "{{id}}"',
   "label.skeleton_shots": 'Cú máy "{{id}}"',
   "label.skeleton_video_units": 'Đơn vị video "{{id}}"',
-  "label.reference_video": 'Video tham chiếu "{{id}}"',
-  "label.narration": 'Lời dẫn "{{id}}"',
+  "label.narration_audio": 'Lời dẫn "{{id}}"',
   "label.named_entity_character": 'Nhân vật "{{id}}"',
   "label.named_entity_scene": 'Cảnh "{{id}}"',
   "label.named_entity_prop": 'Đạo cụ "{{id}}"',
@@ -34,15 +33,15 @@ export default {
   "entity.reference_unit": "đơn vị video",
   "entity.episode": "tập",
   "entity.overview": "tổng quan dự án",
-  "entity.draft": "kết quả tiền xử lý",
-  "entity.grid": "phân cảnh lưới",
+  "entity.draft": "kết quả tổ chức nội dung",
+  "entity.grid": "phân cảnh đa lưới",
   "entity.task": "tác vụ",
   "entity.fallback": "mục",
 
   "noun.storyboard_image": "ảnh phân cảnh",
   "noun.video": "video",
-  "noun.grid": "phân cảnh lưới",
-  "noun.narration": "lời dẫn",
+  "noun.grid": "phân cảnh đa lưới",
+  "noun.narration_audio": "lời dẫn",
   "noun.voice_sample": "mẫu giọng thử",
 
   "single.storyboard_ready": "Đã tạo xong ảnh phân cảnh của {{label}}",

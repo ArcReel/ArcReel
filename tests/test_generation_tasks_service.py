@@ -3588,7 +3588,8 @@ class TestGenerationTasks:
         change = captured[0][0]
         assert change["entity_type"] == "reference_unit"
         assert change["action"] == "reference_video_ready"
-        assert change["label"] == "参考视频「U01」"
+        assert change["label_key"] == "skeleton_video_units"
+        assert change["label"] == "视频单元「U01」"
 
     @pytest.mark.unit
     def test_emit_success_batch_reference_video_ad_entity_type_not_shot(self, monkeypatch, tmp_path):
@@ -3624,7 +3625,8 @@ class TestGenerationTasks:
         change = captured[0][0]
         assert change["entity_type"] == "reference_unit"
         assert change["action"] == "reference_video_ready"
-        assert change["label"] == "参考视频「U01」"
+        assert change["label_key"] == "skeleton_video_units"
+        assert change["label"] == "视频单元「U01」"
 
     @pytest.mark.unit
     def test_emit_success_batch_reference_video_tts_entity_type_not_shot(self, monkeypatch, tmp_path):
@@ -3658,7 +3660,8 @@ class TestGenerationTasks:
         change = captured[0][0]
         assert change["entity_type"] == "reference_unit"
         assert change["action"] == "tts_ready"
-        assert change["label"] == "旁白「E1U01」"
+        assert change["label_key"] == "narration_audio"
+        assert change["label"] == "旁白配音「E1U01」"
 
     @pytest.mark.unit
     def test_emit_success_batch_falls_back_to_segments_when_script_load_fails(self, monkeypatch, tmp_path):

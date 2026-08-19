@@ -3,19 +3,18 @@
 // build the sentence around it. Group sentences only render for counts above
 // one, so `entity.*` and `noun.*` use plural wording.
 export default {
-  "label.grid": 'Grid storyboard "{{id}}"',
-  "label.grid_split": 'Grid storyboard "{{id}}" split',
+  "label.grid": 'Multi-grid storyboard "{{id}}"',
+  "label.grid_split": 'Multi-grid storyboard "{{id}}" split',
   "label.voice_sample": 'Voice preview for "{{id}}"',
-  "label.asset_image_character": 'Sheet for character "{{id}}"',
-  "label.asset_image_scene": 'Sheet for scene "{{id}}"',
-  "label.asset_image_prop": 'Sheet for prop "{{id}}"',
-  "label.asset_image_product": 'Sheet for product "{{id}}"',
+  "label.asset_image_character": 'Asset image for character "{{id}}"',
+  "label.asset_image_scene": 'Asset image for scene "{{id}}"',
+  "label.asset_image_prop": 'Asset image for prop "{{id}}"',
+  "label.asset_image_product": 'Asset image for product "{{id}}"',
   "label.skeleton_segments": 'Segment "{{id}}"',
   "label.skeleton_scenes": 'Scene "{{id}}"',
   "label.skeleton_shots": 'Shot "{{id}}"',
   "label.skeleton_video_units": 'Video unit "{{id}}"',
-  "label.reference_video": 'Reference video "{{id}}"',
-  "label.narration": 'Narration "{{id}}"',
+  "label.narration_audio": 'Narration audio "{{id}}"',
   "label.named_entity_character": 'Character "{{id}}"',
   "label.named_entity_scene": 'Scene "{{id}}"',
   "label.named_entity_prop": 'Prop "{{id}}"',
@@ -36,8 +35,8 @@ export default {
   "entity.reference_unit": "video units",
   "entity.episode": "episodes",
   "entity.overview": "project overviews",
-  "entity.draft": "preprocessing results",
-  "entity.grid": "grid storyboards",
+  "entity.draft": "content organization results",
+  "entity.grid": "multi-grid storyboards",
   // Task terminal states are refresh signals (important=false) and never reach
   // notification copy; this entry only keeps the mapping exhaustive.
   "entity.task": "tasks",
@@ -45,8 +44,8 @@ export default {
 
   "noun.storyboard_image": "storyboard images",
   "noun.video": "videos",
-  "noun.grid": "grid storyboards",
-  "noun.narration": "narrations",
+  "noun.grid": "multi-grid storyboards",
+  "noun.narration_audio": "narration audio",
   "noun.voice_sample": "voice previews",
 
   "single.storyboard_ready": "Storyboard image for {{label}} is ready",

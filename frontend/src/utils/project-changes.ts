@@ -81,7 +81,7 @@ function getEntityLabel(group: GroupedProjectChange, t: EventsT): string {
     return t("noun.grid");
   }
   if (group.action === "tts_ready") {
-    return t("noun.narration");
+    return t("noun.narration_audio");
   }
   if (group.action === "voice_sample_ready") {
     return t("noun.voice_sample");

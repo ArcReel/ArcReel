@@ -170,8 +170,8 @@ describe("project-changes utils", () => {
           entity_type: "reference_unit",
           action: "reference_video_ready",
           entity_id: id,
-          label: `参考视频「${id}」`,
-          label_key: "reference_video",
+          label: `视频单元「${id}」`,
+          label_key: "skeleton_video_units",
           label_params: { id },
         }),
       ),
@@ -189,16 +189,16 @@ describe("project-changes utils", () => {
         entity_type: "reference_unit",
         action: "reference_video_ready",
         entity_id: "U01",
-        label: "参考视频「U01」",
-        label_key: "reference_video",
+        label: "视频单元「U01」",
+        label_key: "skeleton_video_units",
         label_params: { id: "U01" },
       }),
     ]);
     expect(formatGroupedNotificationText(singleReferenceVideo, t)).toBe(
-      "参考视频「U01」已生成",
+      "视频单元「U01」已生成",
     );
     expect(formatGroupedDeferredText(singleReferenceVideo, t)).toBe(
-      "参考视频「U01」 已生成",
+      "视频单元「U01」 已生成",
     );
 
     const ttsChange = (id: string) =>
@@ -206,28 +206,33 @@ describe("project-changes utils", () => {
         entity_type: "segment",
         action: "tts_ready",
         entity_id: id,
-        label: `旁白「${id}」`,
-        label_key: "narration",
+        label: `旁白配音「${id}」`,
+        label_key: "narration_audio",
         label_params: { id },
       });
 
     const [singleTts] = groupChangesByType([ttsChange("E1S01")]);
-    expect(formatGroupedNotificationText(singleTts, t)).toBe("旁白「E1S01」已生成");
-    expect(formatGroupedDeferredText(singleTts, t)).toBe("旁白「E1S01」 已生成");
+    expect(formatGroupedNotificationText(singleTts, t)).toBe("旁白配音「E1S01」已生成");
+    expect(formatGroupedDeferredText(singleTts, t)).toBe("旁白配音「E1S01」 已生成");
 
     const [groupedTts] = groupChangesByType([
       ttsChange("E1S01"),
       ttsChange("E1S02"),
     ]);
     expect(formatGroupedNotificationText(groupedTts, t)).toBe(
-      "已生成 2 个旁白：E1S01、E1S02",
+      "已生成 2 个旁白配音：E1S01、E1S02",
     );
     expect(formatGroupedNotificationText(groupedTts, t)).not.toContain("更新了");
   });
 
-  it.each(["en", "vi"])(
+  // 缺 key 时 i18next 回落到裸 key，同样不含中文，所以「无中文残留」之外还断言两条代表性
+  // 全等文案（单条句式 + 分组句式），缺 key 才会被这条护栏抓住。
+  it.each([
+    ["en", 'Character "hero" created', "Generated 2 storyboard images: E1S01, E1S02"],
+    ["vi", 'Đã tạo Nhân vật "hero"', "Đã tạo 2 ảnh phân cảnh: E1S01, E1S02"],
+  ])(
     "renders every notification sentence in %s without Chinese leftovers",
-    async (language) => {
+    async (language, expectedSingle, expectedGroup) => {
       await i18n.changeLanguage(language);
       await i18n.loadNamespaces("events");
       const localized = i18n.getFixedT(null, "events");
@@ -268,6 +273,8 @@ describe("project-changes utils", () => {
       ]);
 
       expect(rendered).toHaveLength(8);
+      expect(rendered[0]).toBe(expectedSingle);
+      expect(rendered[4]).toBe(expectedGroup);
       for (const text of rendered) {
         expect(text).not.toMatch(/[一-鿿]/);
       }

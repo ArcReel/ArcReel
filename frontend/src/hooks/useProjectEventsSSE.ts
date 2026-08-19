@@ -288,9 +288,9 @@ export function useProjectEventsSSE(projectName?: string | null): void {
                 continue;
               }
               pushNotification(
-            formatGroupedNotificationText(group, tEventsRef.current),
-            "success",
-          );
+                formatGroupedNotificationText(group, tEventsRef.current),
+                "success",
+              );
             }
           }
 
