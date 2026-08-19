@@ -1,7 +1,5 @@
 """公开契约行为测试：skill.md 模板、OpenAPI 可写字段与非 JSON 响应例外。"""
 
-from pathlib import Path
-
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import Response

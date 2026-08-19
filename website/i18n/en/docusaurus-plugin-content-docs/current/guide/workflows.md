@@ -13,7 +13,7 @@ ArcReel supports multiple content sources and video-making workflows. This page 
 When creating a project, distinguish between:
 
 1. **Content Mode**: determines how the script is organized;
-2. **Video-Making Workflow**: determines whether video production is organized around storyboard images, storyboard sheets, or asset reference images.
+2. **Video-Making Workflow**: determines whether video production is organized around storyboard images, grid storyboards, or asset reference images.
 
 They can be combined. For example:
 
@@ -215,21 +215,21 @@ Uses a single storyboard image as the video input.
 - Projects where each shot is relatively independent;
 - Projects that need to switch providers quickly.
 
-### 4.2 Storyboard Sheet-to-Video {#grid-storyboard-route}
+### 4.2 Grid Storyboard-to-Video {#grid-storyboard-route}
 
-Generates multiple shots from the same passage together on a single storyboard sheet (grid), then automatically splits the sheet into an individual storyboard image for each shot and generates each video separately. The video model still receives the individual storyboard image after splitting.
+Generates multiple shots from the same passage together on a single grid storyboard (grid), then automatically splits the grid storyboard into an individual storyboard image for each shot and generates each video separately. The video model still receives the individual storyboard image after splitting.
 
-Storyboard sheets automatically use square 2×2 / 3×3 grids based on the number of shots. Each cell uses the same aspect ratio as the project video; when there are more shots, they are divided across multiple sheets according to the grid capacity. Denser 4×4 / 5×5 grids are available only when the image model's resolution tier is configured as 4K—the more cells a sheet contains, the lower the resolution of each cell, and dense grids at lower resolution tiers will degrade downstream video quality.
+Grid storyboards automatically use square 2×2 / 3×3 grids based on the number of shots. Each cell uses the same aspect ratio as the project video; when there are more shots, they are divided across multiple grid storyboards according to the grid capacity. Denser 4×4 / 5×5 grids are available only when the image model's resolution tier is configured as 4K—the more cells a grid storyboard contains, the lower the resolution of each cell, and dense grids at lower resolution tiers will degrade downstream video quality.
 
 #### Advantages {#grid-storyboard-pros}
 
-- Characters, scenes, and visual style are easier to keep consistent within the same storyboard sheet;
+- Characters, scenes, and visual style are easier to keep consistent within the same grid storyboard;
 - Lets you review the composition and rhythm of a group of consecutive shots at once;
 - Suitable for establishing a unified visual direction before generating videos shot by shot.
 
 #### Limitations {#grid-storyboard-cons}
 
-- Storyboard sheet layouts and splitting rules add complexity;
+- Grid storyboard layouts and splitting rules add complexity;
 - Each cell may be less sharp;
 - Not available for the Reference-to-video workflow or Ad / Short Video projects.
 
@@ -270,10 +270,10 @@ Instead of using an ordinary storyboard as the sole input, directly provides cha
 | Requirement | Recommended Content Mode | Recommended Video-Making Workflow |
 |---|---|---|
 | Novel recaps and narration-led content | Narration Mode | Storyboard image-to-video |
-| Continuous narratives and character dialogue | Drama Mode | Storyboard sheet-to-video or Reference-to-video |
+| Continuous narratives and character dialogue | Drama Mode | Grid storyboard-to-video or Reference-to-video |
 | A complete existing screenplay | Drama Mode | Storyboard image-to-video |
 | Product structure must remain stable | Ad / Short Video | Prefer Reference-to-video |
-| Strong cross-shot consistency requirements | Narration Mode or Drama Mode | Storyboard sheet-to-video |
+| Strong cross-shot consistency requirements | Narration Mode or Drama Mode | Grid storyboard-to-video |
 | First ArcReel trial | Any | Storyboard image-to-video |
 | Limited provider support | Any | Storyboard image-to-video |
 | An established library of high-quality character assets | Drama Mode | Reference-to-video |

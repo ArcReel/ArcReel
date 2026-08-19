@@ -316,10 +316,10 @@ After confirming the direction, generate them in batches.
 Choose a video workflow based on the project:
 
 - Storyboard image-to-video;
-- Storyboard sheet-to-video;
+- Grid storyboard-to-video;
 - Reference-to-video.
 
-Storyboard sheet-to-video first generates several shots together on a single storyboard sheet (grid), then splits it into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
+Grid storyboard-to-video first generates several shots together on a single grid storyboard, then splits it into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
 
 Review the results for:
 

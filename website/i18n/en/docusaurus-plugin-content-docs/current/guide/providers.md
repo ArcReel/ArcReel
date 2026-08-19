@@ -222,7 +222,7 @@ Image capabilities are mainly used for:
 - Scene and prop design;
 - Standardized product reference images;
 - Single-shot storyboards;
-- Storyboard sheets (grids);
+- Grid storyboards;
 - Style analysis and image editing.
 
 When choosing a provider, pay particular attention to:
