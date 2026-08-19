@@ -1,12 +1,12 @@
 # 贡献指南
 
-欢迎贡献代码、报告 Bug 或提出功能建议！
+欢迎贡献代码、报告 Bug 或提出功能建议。
 
 ## 本地开发环境
 
 ```bash
 # 前置要求：Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
-# 文档站 website/ 另需 Node 24（版本钉在 website/.node-version）
+# 文档站 website/ 另需 Node 24（版本固定于 website/.node-version）
 # 操作系统：Linux / macOS / Windows WSL2；Windows 原生可运行项目创建与基础流程，
 # Agent 沙箱在 Windows 上降级为命令前缀白名单（见 docs/adr/0025），生产部署推荐 WSL2/Docker
 
@@ -22,7 +22,7 @@ uv run alembic upgrade head
 
 # 启动后端 (终端 1)
 # 注意：必须用 --reload-dir 限定监视目录，否则 watchfiles 会扫描
-# node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+
+# node_modules / .venv / .git / .worktrees 等数十万个文件，单核 CPU 占用超过 50%
 uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --port 1241
 
 # 启动前端 (终端 2)
@@ -33,26 +33,26 @@ cd frontend && pnpm dev
 
 ### 文档站
 
-`website/` 是独立包根，有自己的 lockfile，不与 frontend 组 workspace：
+`website/` 是独立包根，有独立的 lockfile，不与 frontend 组成 workspace：
 
 ```bash
 cd website && pnpm install
 
 pnpm start        # 开发预览
-pnpm build        # 双 locale 构建，broken link / anchor 直接 fail
+pnpm build        # 双 locale 构建，失效链接或锚点会导致构建失败
 pnpm typecheck
 pnpm lint         # ESLint
-pnpm format       # prettier 写回；format:check 只校验不改写
-pnpm check        # typecheck + lint + format:check，等价于 CI 的三道静态闸
+pnpm format       # prettier 写入；format:check 仅校验不修改
+pnpm check        # typecheck + lint + format:check，与 CI 的三项静态检查等价
 
-# 站内搜索只在构建产物上生效，dev server 里不工作
+# 站内搜索仅在构建产物上可用，dev server 中不可用
 pnpm build && pnpm serve
 
-# 把仓库根 CONTRIBUTING.md 同步为开发区页面（start / build 已自动前置执行，一般无需手动跑）
+# 将仓库根 CONTRIBUTING.md 同步为开发区页面（start / build 已自动前置执行，通常无需手动运行）
 pnpm sync-contributing
 
-# CI 一致性闸门：页面库存 / 孤儿译文 / 上站文档标题缺显式锚点 / UI JSON key 齐全性，任一命中非零退出；
-# 依赖 sync-contributing 已同步过的产物，须先跑 sync-contributing 再跑本命令
+# CI 一致性检查：页面清单 / 孤立译文 / 上站文档标题缺少显式锚点 / UI JSON key 完整性，任一不满足即非零退出；
+# 依赖 sync-contributing 的产物，须先运行 sync-contributing
 pnpm check-consistency
 ```
 
@@ -104,24 +104,24 @@ uv run lint-imports
 
 ```bash
 cd frontend && pnpm lint          # 检查
-cd frontend && pnpm lint:fix      # 自动修可修的部分
+cd frontend && pnpm lint:fix      # 自动修复可修复的问题
 ```
 
 - 配置：`frontend/eslint.config.js`（flat config）
 - 规则集：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
-- typed linting 启用 `projectService: true`，能检查 `no-floating-promises`、`no-misused-promises` 等 async 相关问题
+- typed linting 启用 `projectService: true`，可检查 `no-floating-promises`、`no-misused-promises` 等 async 相关问题
 - CI 中强制检查：`frontend-tests` job 的 `Lint` step
 
 **Lint & Format（文档站 ESLint + prettier）：**
 
 ```bash
 cd website && pnpm check          # typecheck + lint + format:check
-cd website && pnpm lint:fix       # ESLint 自动修可修的部分
-cd website && pnpm format         # prettier 写回
+cd website && pnpm lint:fix       # ESLint 自动修复可修复的问题
+cd website && pnpm format         # prettier 写入
 ```
 
 - 配置：`website/eslint.config.mjs` + `website/.prettierrc.json`（`website/` 是独立包根，工具链与 `frontend/` 各自独立，因为两者的 TypeScript 大版本不同）
-- ESLint 规则集与 frontend 同构：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
+- ESLint 规则集与 frontend 相同：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - prettier printWidth 120（与后端 ruff 的 line-length 对齐）；`docs/` 与 `i18n/` 不参与格式化，排除依据见 `website/.prettierignore` 顶部注释
 - CI 中强制检查：`website-checks` job 的 `Typecheck` / `Lint` / `Format check` 三个 step，均排在 `Build` 之前
 
@@ -129,13 +129,13 @@ cd website && pnpm format         # prettier 写回
 
 前后端新增/升级依赖一律用 `uv add` / `pnpm add`，不手动写入版本号到 `pyproject.toml` / `package.json`；新增依赖后同步 `.github/dependabot.yml` 的 patterns 归入对应分组。
 
-### 注释纪律
+### 注释规范
 
-代码与测试注释只描述当下行为与约束，不写 issue/PR/Spec 编号，也不用时间性措辞（「最近」「本次」「实测」）——这些信息写在 commit message / PR 描述；修改文件时一并清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限。
+代码与测试注释仅描述当前行为与约束，不写 issue/PR/Spec 编号，也不使用时间性措辞（「最近」「本次」「实测」）；此类信息写在 commit message / PR 描述中。修改文件时一并清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限。
 
 ### ESLint disable 使用规范
 
-本项目在 PR 3（#219）后采用零 warning 政策，所有规则均为 error。如必须绕过，遵循：
+前端 ESLint 采用零 warning 政策，所有规则均为 error。如须绕过，遵循以下约定：
 
 - **形式**：`// eslint-disable-next-line <rule> -- <中文理由>`，`--` 后的理由**强制**
 - **禁用**：文件级 `/* eslint-disable */`、无理由的 `// eslint-disable-line`、`@ts-ignore` 联用
@@ -144,9 +144,9 @@ cd website && pnpm format         # prettier 写回
 - **不可接受的理由**：「太麻烦」「暂时这样」「later fix」
 - **可接受的理由示例**：「React setter 引用稳定」「mount-only 初始化」「生成式预览视频无字幕源」
 
-**本地 IDE 建议（不提交 repo）：**
+**本地 IDE 建议（不提交到仓库）：**
 
-`.vscode/` 已在 `.gitignore`。自行添加 `frontend/.vscode/settings.json` 可让 VS Code / Cursor 实时显示 lint 黄线并在保存时自动修复：
+`.vscode/` 已在 `.gitignore`。自行添加 `frontend/.vscode/settings.json` 可让 VS Code / Cursor 实时显示 lint 提示并在保存时自动修复：
 
 ```json
 {
@@ -157,35 +157,30 @@ cd website && pnpm format         # prettier 写回
 
 **已知约束：**
 
-- TypeScript 版本锁：`typescript-eslint@8.x` 的 peer 范围为 `typescript <6.1`；升 TS 到 6.1+ 前需同步升级 `typescript-eslint`
+- TypeScript 版本锁：`typescript-eslint@8.x` 的 peer 范围为 `typescript <6.1`；升级 TypeScript 至 6.1+ 前须同步升级 `typescript-eslint`
 
-**测试覆盖率：**
+### Pytest markers 规范
 
-- CI 要求 ≥80%
-- `asyncio_mode = "auto"`（无需手动标记 async 测试）
-
-### Pytest markers 纪律
-
-每个测试用例必须恰好带一个类型标记，默认 CI 跑 `-m "not e2e"`：
+每个测试用例必须恰好带一个类型标记，CI 默认执行 `-m "not e2e"`：
 
 | Marker | 含义 | 禁止 |
 |--------|------|------|
-| `unit` | 快速、隔离，不碰真实 I/O / 外部服务 | — |
-| `integration` | 跨模块协作，使用真实依赖（in-memory DB、tmp 文件系统等） | **禁止 mock 被测 module 的公共入口**（例如测 `MediaGenerator` 的集成测试不能 mock `MediaGenerator.generate`，否则是在测 mock 本身） |
-| `e2e` | 端到端，依赖真实外部资源（远程 API、大模型调用、真实 ffmpeg 重活） | CI 默认跳过，本地按需运行 |
+| `unit` | 快速、隔离，不涉及真实 I/O 或外部服务 | — |
+| `integration` | 跨模块协作，使用真实依赖（in-memory DB、tmp 文件系统等） | **禁止 mock 被测 module 的公共入口**（例如测 `MediaGenerator` 的集成测试不能 mock `MediaGenerator.generate`，否则测试对象变成 mock 本身） |
+| `e2e` | 端到端，依赖真实外部资源（远程 API、大模型调用、重量级 ffmpeg 处理） | CI 默认跳过，本地按需运行 |
 
 标记可打在用例、类或模块（`pytestmark`）任一层，三层叠加后仍须恰好命中一个分类。
 
-打标由 pytest 收集期强制，不依赖人工 review：
+标记由 pytest 收集期强制校验，不依赖人工 review：
 
-- 漏标或多标的用例让收集直接失败（`tests/conftest.py::_enforce_classification_markers`），报错列出具体 nodeid
+- 漏标或多标的用例导致收集失败（`tests/conftest.py::_enforce_classification_markers`），报错列出具体 nodeid
 - `--strict-markers` 使未在 `pyproject.toml` 注册的 marker 同样在收集期失败
 
-`unit`/`integration` 的现存分类由批量默认档得出（真实调用 ffmpeg 生成测试用音视频资源、`uses_db` 命中的归 `integration`，其余归 `unit`），不保证逐条语义精确；新增测试按上表语义自行选择——用真实 ffmpeg 生成用例夹具与 `e2e` 定义的"真实 ffmpeg 重活"不是同一回事：前者是调用 ffmpeg 产出测试输入，后者指端到端场景里的重量级 ffmpeg 处理链路。
+现有 `unit`/`integration` 分类由批量规则得出（真实调用 ffmpeg 生成测试音视频资源、命中 `uses_db` 的归 `integration`，其余归 `unit`），不保证逐条语义精确；新增测试按上表语义选择。用真实 ffmpeg 生成测试夹具不属于 `e2e` 定义的重量级 ffmpeg 处理：前者是调用 ffmpeg 产出测试输入，后者指端到端场景中的完整 ffmpeg 处理链路。
 
 ## 文档维护
 
-用户文档的唯一发布位置是 [docs.arc-reel.com](https://docs.arc-reel.com)，源文件在 `website/docs/`（本地构建与预览见上文「文档站」）。中文是唯一写作源，英文译文由 AI 生成、人工只审中文源。内部文档（ADR、`CONTEXT.md`、`AGENTS.md`、安全威胁模型、供应商 API 文档索引等）不上站，留在仓库 `docs/` 下；`SECURITY.md` 因 GitHub Security 选项卡依赖也留在仓库根。
+用户文档的唯一发布位置是 [docs.arc-reel.com](https://docs.arc-reel.com)，源文件在 `website/docs/`（本地构建与预览见上文「文档站」）。中文是唯一写作源，英文译文由 AI 生成，人工仅审校中文源。内部文档（ADR、`CONTEXT.md`、`AGENTS.md`、安全威胁模型、供应商 API 文档索引等）不上站，留在仓库 `docs/` 下；`SECURITY.md` 因 GitHub Security 选项卡依赖也留在仓库根。
 
 本文件是贡献指南的真相源，构建时复制为站点的开发区页面（`website/scripts/sync-contributing.mjs`），中文副本不入库。
 
@@ -208,7 +203,7 @@ cd website && pnpm format         # prettier 写回
 
 ### 写作约定
 
-- **README 保持稳定**：README 只需让第一次访问仓库的人回答「ArcReel 是什么、适不适合我、和直接调模型 API 有什么区别、怎样最快跑起来」。具体模型名称、单价和接口参数放到站点对应页面，避免供应商每次更新都要重写首页。
+- **README 保持稳定**：README 只需让第一次访问仓库的人回答「ArcReel 是什么、适不适合我、和直接调用模型 API 有什么区别、如何最快运行起来」。具体模型名称、单价和接口参数放到站点对应页面，避免供应商每次更新都要重写首页。
 - **供应商信息以运行时能力为准**：文档描述覆盖哪些媒体类型、ArcReel 如何统一配置、不同能力如何选择、具体信息在哪里确认；设置页中实际可选的模型与供应商官方文档是最终依据。
 - **标题带显式锚点 ID**：上站页面的每个标题写成 `## 标题 {#english-id}`，中英两个 locale 共用同一锚点，避免中文自动 slug 随文案改动而失效。站内互引用相对文件路径（如 `../ops/deployment.md`），指向未上站的仓库文件时用 GitHub 绝对链接。
 - **文档变更应与功能变更一起提交**：新增内容模式或视频制作方式、新增供应商或媒体能力、部署目录/端口/环境变量变化、数据目录/备份方式/迁移行为变化、对外 API/许可证或商业使用方式变化，均须同步更新对应文档。
@@ -219,7 +214,7 @@ cd website && pnpm format         # prettier 写回
 ### 分支策略（trunk-based）
 
 - 只有 `main` 是长期分支。所有工作从最新 `main` 切短分支完成，PR 合回 `main`
-- 禁止 `git push origin main` 直推。即使个人分支也走 PR 流程，自己先过一遍 diff + 验收清单
+- 禁止直接 push 到 `main`。个人分支同样经 PR 流程合并，提交前自行检查 diff 与验收清单
 
 ### 分支命名约定
 
@@ -233,15 +228,15 @@ cd website && pnpm format         # prettier 写回
 - `ci/` — CI 配置（如 `ci/testing-discipline`）
 - `test/` — 仅测试
 
-`slug` 用小写 + 短横线，简短描述该分支聚焦点。
+`slug` 用小写 + 短横线，简短描述该分支的主题。
 
 ### 短分支寿命
 
-从创建到合并 ≤ 3 天。超期要么拆分，要么先 rebase 主线同步——**不要**把 1 个月的分支直接拖进 review。
+从创建到合并 ≤ 3 天。超期应拆分或先 rebase 主线同步，避免将长期分支直接提交 review。
 
 ### Squash merge
 
-每个 PR 压成 1 个 commit 合回 `main`，commit message 用 conventional commits 规范（见下节）。GitHub 上 merge 按钮选 "Squash and merge"。
+每个 PR 压缩为 1 个 commit 合并回 `main`，commit message 遵循 conventional commits 规范（见下节）。GitHub 上选择 "Squash and merge"。
 
 ## 提交规范
 
@@ -264,8 +259,8 @@ chore: 构建/工具变更
 ### 工作流程
 
 1. PR 按 conventional commits 规范 squash merge 到 `main`
-2. release-please 扫描自上次 release 以来的 commit，自动开/更新一个标题形如 `chore(main): release X.Y.Z` 的 Release PR，里面包含下次版本号 bump + 更新的 `CHANGELOG.md`
-3. 合并该 Release PR 即自动打 `vX.Y.Z` tag 并发布 GitHub Release
+2. release-please 扫描自上次 release 以来的 commit，自动创建或更新标题形如 `chore(main): release X.Y.Z` 的 Release PR，包含下一版本号与更新后的 `CHANGELOG.md`
+3. 合并该 Release PR 即自动创建 `vX.Y.Z` tag 并发布 GitHub Release
 
 ### commit type → 版本步进
 
@@ -277,7 +272,7 @@ chore: 构建/工具变更
 | `perf` / `refactor` / `docs` / `revert` | 不步进 | 显示（⚡ / ♻️ / 📚 / ↩️） |
 | `chore` / `ci` / `build` / `test` / `style` | 不步进 | 隐藏 |
 
-> release-please 默认只有 `feat` 和 `fix`（以及破坏性变更）触发版本 bump。把 `perf`/`refactor`/`docs`/`revert` 配成 `hidden: false` 只影响 changelog 呈现，不会使它们触发 patch bump。如果一轮迭代只有这几类 commit，不会产出 Release PR，直到下一个 `fix`/`feat` commit 到来。
+> release-please 默认只有 `feat` 和 `fix`（以及破坏性变更）触发版本 bump。将 `perf`/`refactor`/`docs`/`revert` 配置为 `hidden: false` 仅影响 changelog 呈现，不会使它们触发 patch bump。如果一轮迭代只有这几类 commit，不会产出 Release PR，直到下一个 `fix`/`feat` commit 到来。
 
 `pyproject.toml` 和 `frontend/package.json` 的 `version` 字段由 release-please 自动维护（见 `pyproject.toml` 的 `# managed by release-please` 注释），**开发者视为只读**。`uv.lock` 同样由 release-please workflow 在 Release PR 分支上自动 `uv lock` 同步。实际版本状态以 git tag + `.release-please-manifest.json` 为准。
 
@@ -296,7 +291,7 @@ feat(grid): 支持 grid_12 布局
 将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成（OpenClaw 等）经 `/skill.md` 运行时拉取最新契约、不依赖版本号，删改 `public/skill.md.template` 引用的端点时同步更新该模板。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正方式：编辑该 PR 正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，release-please 按 override 重算 changelog 与版本号（需 squash 合并，本仓库满足）；workflow 仅在 main push 时运行，编辑后需等下一次 main push 或手动重跑 release-please workflow 才生效。0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。
+**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成（OpenClaw 等）经 `/skill.md` 运行时拉取最新契约、不依赖版本号，删改 `public/skill.md.template` 引用的端点时同步更新该模板。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正方式：编辑该 PR 正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，release-please 按 override 重算 changelog 与版本号（需 squash 合并，本仓库满足）；workflow 仅在 main push 时运行，编辑后需等下一次 main push 或手动重新运行 release-please workflow 才生效。0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。
 
 以下语法说明仅用于识别误标。**破坏性变更**有两种等价写法：
 
@@ -313,5 +308,5 @@ BREAKING CHANGE: /api/v1/api-keys 的返回结构改为 { items: [...] }，
 
 两种写法 release-please 都会：
 - 将版本号 bump 为 major；当前版本 <1.0.0 时受 `bump-minor-pre-major` 配置约束，只 bump minor
-- 在 changelog 顶部插入独立的 **⚠️ BREAKING CHANGES** 区块，把每条破坏性变更的描述汇总展示
+- 在 changelog 顶部插入独立的 **⚠️ BREAKING CHANGES** 区块，汇总展示每条破坏性变更的描述
 - 在对应 type section（如 `✨ 新功能`）下保留该 commit 的常规条目
