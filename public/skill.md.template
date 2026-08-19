@@ -157,7 +157,7 @@ curl {{BASE_URL}}/api/v1/projects/my-novel \
 
 ### 5. 更新项目设置
 
-修改项目配置（标题、风格、多宫格分镜开关等）。`generation_mode`、`content_mode`、`source_kind` 创建后不可更改，不接受这些字段。
+修改项目配置（标题、风格、多宫格分镜开关等）。`generation_mode`、`content_mode`、`source_kind` 创建后不可更改；请求中携带这些字段不会报错，服务端会忽略它们，项目数据保持原值。
 
 - **端点**：`PATCH {{BASE_URL}}/api/v1/projects/{name}`
 - **认证**：需要 Bearer Token
@@ -240,7 +240,7 @@ curl {{BASE_URL}}/api/v1/projects/ghost-story \
 - `source` 接口最大 200000 字符（约 10 万汉字）；超长小说建议分章节多次传入（后续调用会覆盖同名文件）
 - Agent 对话最长等待 120 秒，复杂任务可能返回 `status: "timeout"` 和部分响应，此时可继续传入同一 `session_id` 查询进度
 - 多数 API 端点返回 JSON；以下为例外：
-  - `GET /skill.md` — 纯文本（`text/plain`），外部 Agent 运行时拉取最新契约
+  - `GET /skill.md` — Markdown 文本（`text/markdown`），外部 Agent 运行时拉取最新契约
   - `GET /api/v1/projects/{name}/events/stream` — 项目事件 SSE（`text/event-stream`）
   - `POST /api/v1/assistant/sessions/{id}/stream` — 助手对话 SSE（`text/event-stream`）
   - `GET /api/v1/projects/{name}/export` 等文件下载端点 — 二进制（`application/zip` 等）

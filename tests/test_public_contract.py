@@ -148,9 +148,11 @@ class TestEnumSemantics:
 
     @pytest.mark.unit
     def test_generation_mode_create_rejects_invalid(self):
+        from pydantic import ValidationError
+
         from server.routers.projects import CreateProjectRequest
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CreateProjectRequest(name="x", title="X", generation_mode="grid")
 
     @pytest.mark.unit

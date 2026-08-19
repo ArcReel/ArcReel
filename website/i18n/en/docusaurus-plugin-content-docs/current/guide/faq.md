@@ -177,20 +177,20 @@ A read timeout after a generation request is submitted can leave an uncertain st
 
 ## Project workflows and tasks {#project-workflow-and-tasks}
 
-### How should I choose a project mode and the Storyboard, Grid Storyboard, or Reference-to-video route? Can I change them later? {#choose-mode-and-route}
+### How should I choose a project mode and the Storyboard or Reference-to-video route? Can I change them later? {#choose-mode-and-route}
 
 You must choose two separate dimensions when creating a project:
 
-- **Content Mode**: Narration, Drama, or Ad / Short Video. This determines the screenplay structure and production workflow.
+- **Content Mode**: Narration/Commentary, Drama, or Ad / Short Video. This determines the screenplay structure and production workflow.
 - **Video generation route**: Storyboard or Reference-to-video. This determines whether videos use storyboard images or asset reference images.
 
-Content Mode and the video generation route cannot be changed after creation. Grid Storyboard is not a third route; it is an image-generation method within the Storyboard route. Ad / Short Video projects do not support Grid Storyboard. Before creating the full project, use a short sample to confirm that the route fits your needs.
+Content Mode and the video generation route cannot be changed after creation. Multi-grid storyboards are not a third route; they are an image-generation method within the Storyboard route. Ad / Short Video projects do not support multi-grid storyboards. Before creating the full project, use a short sample to confirm that the route fits your needs.
 
 - **Storyboard route**: screenplay → character/scene/prop designs → storyboard images → video. Each shot must have a corresponding storyboard image before video generation.
-- **Grid Storyboard**: still part of the Storyboard route. ArcReel first generates a grid image, splits it into starting storyboard images for each shot, and then generates video from those storyboard images.
+- **Multi-grid storyboards**: still part of the Storyboard route, as an image-generation method within it. ArcReel first generates one or more grid images, splits them into starting storyboard images for each shot, and then generates video from those storyboard images.
 - **Reference-to-video route**: skips storyboard images and directly uses the character, scene, and prop designs referenced by the screenplay as video references.
 
-Reference-to-video does not mean that asset images are unnecessary. If a referenced asset in a Narration or Drama project has no design image, its video will fail. In an Ad / Short Video project, a task may continue without merchandise reference images, but merchandise fidelity cannot be guaranteed.
+Reference-to-video does not mean that asset images are unnecessary. If a referenced asset in a Narration/Commentary or Drama project has no design image, its video will fail. In an Ad / Short Video project, a task may continue without merchandise reference images, but merchandise fidelity cannot be guaranteed.
 
 If the video provider receives only text and no storyboard or reference image, verify the project route, actual model, and custom model's call endpoint:
 
@@ -210,10 +210,10 @@ A scanned PDF with no extractable text cannot be used directly and must go throu
 
 Usually a prerequisite review or asset is incomplete:
 
-1. For Narration and Drama projects, confirm that the screenplay preprocessing result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
+1. For Narration/Commentary and Drama projects, confirm that the screenplay preprocessing result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
 2. Check whether characters, scenes, and props have definitions but no generated design images.
 3. On the Storyboard route, check whether the target shot has a storyboard image.
-4. On the Reference-to-video route, verify that referenced assets in Narration and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.
+4. On the Reference-to-video route, verify that referenced assets in Narration/Commentary and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.
 5. Expand the task panel and check for tasks that are still queued, running, or failed.
 
 Do not judge completion solely from the phase number in the header. Assets in the sidebar, episode status, and task errors provide more specific information about what is missing.

@@ -313,13 +313,12 @@ After confirming the direction, generate them in batches.
 
 ### 5.5 Video Clips {#video-clips}
 
-Choose a video workflow based on the project:
+Choose a video generation route based on the project:
 
-- Storyboard image-to-video;
-- Multi-grid storyboard-to-video;
-- Reference-to-video.
+- Storyboard route (storyboard image-to-video, with multi-grid storyboards as an option);
+- Reference-to-video route.
 
-Multi-grid storyboard-to-video first generates several shots together on a single multi-grid storyboard, then splits it into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
+With multi-grid storyboards enabled, the Storyboard route first generates several shots together on one or more multi-grid storyboards, then splits each grid into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
 
 Review the results for:
 
