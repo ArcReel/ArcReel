@@ -915,7 +915,7 @@ class ReferenceStep1Draft(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 书写层扁平文本：两级 LLM 产出的形状
+# 引用语法扁平文本：两级 LLM 产出的形状
 # ---------------------------------------------------------------------------
 #
 # step1 / step2 的 LLM 产出与人在编辑器里写的是同一种格式（见 lib/reference_video/
@@ -926,7 +926,7 @@ class ReferenceStep1Draft(BaseModel):
 
 
 class ReferenceStep1FlatUnit(BaseModel):
-    """step1 的 LLM 产出单元：时长 + 原文锚 + 书写层正文。"""
+    """step1 的 LLM 产出单元：时长 + 原文锚 + 引用语法正文。"""
 
     model_config = _STRICT_CONFIG
 
@@ -936,7 +936,7 @@ class ReferenceStep1FlatUnit(BaseModel):
         description="该单元时长（秒）",
     )
     source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
-    text: str = Field(min_length=1, description="该单元的书写层正文：画面描述 + 行内的台词 / 画外音记号")
+    text: str = Field(min_length=1, description="该单元的引用语法正文：画面描述 + 行内的台词 / 画外音记号")
 
 
 class ReferenceStep1FlatDraft(BaseModel):
@@ -948,7 +948,7 @@ class ReferenceStep1FlatDraft(BaseModel):
 
 
 class ReferenceStep2FlatUnit(BaseModel):
-    """step2 的 LLM 产出单元：只有展开后的书写层正文。
+    """step2 的 LLM 产出单元：只有展开后的引用语法正文。
 
     时长与 unit 顺序是 step1 已定稿、用户已在审阅 gate 上确认的内容契约，不进 step2 输出——
     不给 LLM 写的字段就没有漂移可校验。
@@ -956,7 +956,7 @@ class ReferenceStep2FlatUnit(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    text: str = Field(min_length=1, description="视觉展开后的书写层正文：画面描述 + 行内的台词 / 画外音记号")
+    text: str = Field(min_length=1, description="视觉展开后的引用语法正文：画面描述 + 行内的台词 / 画外音记号")
 
 
 class ReferenceStep2FlatScript(BaseModel):
@@ -978,7 +978,7 @@ class AdReferenceFlatUnit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元的编排时长（秒），不按供应商档位量化",
     )
-    text: str = Field(min_length=1, description="书写层正文：画面描述 + 行内的台词 / 画外音记号")
+    text: str = Field(min_length=1, description="引用语法正文：画面描述 + 行内的台词 / 画外音记号")
 
 
 class AdReferenceFlatScript(BaseModel):

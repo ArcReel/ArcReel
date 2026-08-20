@@ -1,4 +1,4 @@
-"""Web 与 Agent 共用的批量准入适配层：分镜路线与参考路线的当前状态判定。"""
+"""Web 与 Agent 共用的整批准入判定适配层：分镜路线与参考路线的当前状态判定。"""
 
 from __future__ import annotations
 

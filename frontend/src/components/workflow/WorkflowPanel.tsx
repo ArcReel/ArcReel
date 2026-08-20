@@ -101,7 +101,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
   );
   const ttsUnavailable = useMemo(() => {
     if (!shown) return null;
-    // TTS 没配好这件事是视频批量准入求解出来的（选了 TTS 才会跑那一轮），落点是计划的
+    // TTS 没配好这件事是视频整批准入判定求解出来的（选了 TTS 才会跑那一轮），落点是计划的
     // 问题清单与视频步骤，而不是旁白交付步骤自己。所以按 code 在整份计划里找：只翻交付
     // 步骤的 problems 永远翻不到，那条引导就等于不存在。
     const problem = [

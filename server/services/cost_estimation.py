@@ -60,7 +60,7 @@ ActualBySegment = dict[str, dict[str, CostBreakdown]]
 ACTUAL_COST_TYPES = ("image", "video", "audio")
 
 
-#: 读侧定桶要枚举的全部视频能力桶。分镜路线整项目走 i2v 桶；参考路线由公共
+#: 读侧定桶要枚举的全部视频任务类型桶。分镜路线整项目走 i2v 桶；参考路线由公共
 #: request projection 按每个 unit 当前实际可用资产分桶。两个桶都在这里预解析，省去按
 #: 路线与镜头分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
@@ -74,7 +74,7 @@ _IMAGE_PRICING_FALLBACK_RESOLUTION = "1K"
 
 @dataclass(frozen=True)
 class _VideoPricing:
-    """一个能力桶下的视频计价参数——解析出的模型身份、分辨率、有效 generate_audio 与自定义单价。
+    """一个任务类型桶下的视频计价参数——解析出的模型身份、分辨率、有效 generate_audio 与自定义单价。
 
     五项总是结伴传给三条估算路径，且必须同源于一次解析：分辨率与 generate_audio 都按模型身份
     求值，混用不同桶的分项会算出任何一个模型都不会产生的价。
@@ -350,7 +350,7 @@ class CostEstimationService:
             image_resolution = await resolve_image_resolution(r, project_data)
             grid_allow_large = large_grid_allowed(image_resolution)
 
-            # 视频按能力桶解析（``docs/adr/0054``），与执行扣费同一个模型：图生视频 / 宫格算
+            # 视频按任务类型桶解析（``docs/adr/0054``），与执行扣费同一个模型：图生视频 / 宫格算
             # i2v 桶的价；参考生视频逐 unit 水合当前资产后分桶。两个桶都在这里
             # 解析出来（见 ``_VIDEO_BUCKETS``），分辨率与
             # generate_audio 随各自的模型身份求值。

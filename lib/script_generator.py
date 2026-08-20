@@ -310,7 +310,7 @@ class ScriptGenerator:
                 episode=episode,
                 target_language=self.project_json.get("source_language") or "中文",
             )
-            # step2 只产书写层正文：unit_id / 时长机械沿用 step1，参考图执行期从正文派生，
+            # step2 只产引用语法正文：unit_id / 时长机械沿用 step1，参考图执行期从正文派生，
             # 不进 LLM 输出——没让模型写的字段就没有漂移可校验，故此处无需按能力收窄的动态 schema。
             schema: type = ReferenceStep2FlatScript
         else:
@@ -502,7 +502,7 @@ class ScriptGenerator:
 
         ``narration_step1`` 非 None 时走两段式合并：LLM 输出视觉层，按 segment_id 合并回
         step1 已定结构（novel_text 等透传）；``reference_step1`` 非 None 时走参考路径的保结构
-        合并（LLM 只出书写层正文，见 ``_merge_reference_visual``）；两者皆 None 时走单段解析
+        合并（LLM 只出引用语法正文，见 ``_merge_reference_visual``）；两者皆 None 时走单段解析
         （drama/ad）。``reference_unit_durations`` 非 None 时（reference_video 路径）按 unit_id
         机械覆盖 ``duration_seconds``（取档用最终输出正文的提及状态重算，见 ``_add_metadata``）；
         ``caps`` 可一并传入，为 None 时 ``_add_metadata`` 仍按 caps → registry 两级回退解析每个
@@ -590,7 +590,7 @@ class ScriptGenerator:
         """构建广告/短片模式 prompt：brief + 产品信息 + 审定配比表，不读 step1 中间文件。
 
         storyboard 路径把 supported_durations 作为单镜头时长枚举写进 prompt；参考路线
-        直接输出统一书写层 video unit，八段式只作为内容规划而不持久化。
+        直接输出统一引用语法 video unit，八段式只作为内容规划而不持久化。
         """
         direct_inputs = project_ad_episode_script_inputs(episode, project=self.project_json)
         common: dict[str, Any] = {
@@ -695,7 +695,7 @@ class ScriptGenerator:
         宽松捕获：除 ValueError 外，DB 未 migration / 连接失败等 SQLAlchemy 异常也走 fallback，
         保证在缺能力元数据的环境（如裸 CI 测试容器）中 generate() 仍能跑通。
 
-        能力桶解析闸的报错例外，原样上抛：那是配置指向的模型缺该桶所需能力或引用已失效
+        任务类型桶解析闸的报错例外，原样上抛：那是配置指向的模型缺该桶所需能力或引用已失效
         （``docs/adr/0054``），fallback 会拿项目默认模型的档位去写剧本，写出来的时长 / 参考图
         数量执行期照样被拒。报错带 code 与修复指引，比先写一份必败的剧本更省事。
         """
@@ -1207,7 +1207,7 @@ class ScriptGenerator:
         *,
         max_refs: int | None,
     ) -> dict:
-        """参考路径 step2 合并：LLM 只出书写层正文，其余字段机械沿用 step1 / 从正文派生。
+        """参考路径 step2 合并：LLM 只出引用语法正文，其余字段机械沿用 step1 / 从正文派生。
 
         保结构 diff 在此落地——unit 数与顺序、台词规范行逐字都由 step1 定稿，
         step2 只允许把画面描述写详细。任一项被改动即 fail-loud（``DraftViolation``），不静默

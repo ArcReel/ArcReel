@@ -239,8 +239,8 @@ export interface ReferenceStep1Draft {
 }
 
 /**
- * step1 的书写层扁平形状（隔离草稿装的是这个，不是落盘的 `ReferenceStep1Draft`）：
- * `unit_id` 机器派生，落盘前才有——隔离期间只有时长 + 原文锚 + 一段书写层正文。
+ * step1 的引用语法扁平形状（隔离草稿装的是这个，不是落盘的 `ReferenceStep1Draft`）：
+ * `unit_id` 机器派生，落盘前才有——隔离期间只有时长 + 原文锚 + 一段引用语法正文。
  * Mirrors lib/script_models.py ReferenceStep1FlatUnit / ReferenceStep1FlatDraft。
  */
 export interface ReferenceStep1FlatUnit {

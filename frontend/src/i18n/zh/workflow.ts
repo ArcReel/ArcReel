@@ -82,7 +82,7 @@ export default {
   'checkpoint_submitted': '已提交给 {{provider}}，重试可能再次计费。',
   'checkpoint_provider_unknown': '供应商',
 
-  // ---- 批量准入 ----
+  // ---- 整批准入判定 ----
   'admission_blocked_intro': '这一批一个任务也没有创建，没有产生费用。修好下面这些再发一次即可。',
   'admission_withheld_title_one': '{{count}} 个单元本身没问题，随本批一起未提交：',
   'admission_withheld_title_other': '{{count}} 个单元本身没问题，随本批一起未提交：',

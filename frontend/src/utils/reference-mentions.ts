@@ -28,7 +28,7 @@ export const MENTION_RE = /(?<!\w)@(?:\[([^\]\r\n]+)\]|([\w\u4e00-\u9fff]+))/g;
 const BOM_RE = /\uFEFF/gu;
 
 /**
- * 书写层文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。镜像后端
+ * 引用语法文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。镜像后端
  * `lib/reference_video/text_parser.py::_normalize_source`——两条派生路径同口径。
  *
  * 两者同一性质：屏幕上看不见的字节差异，却让按字节走的判定分叉，故合并在一个入口处理。

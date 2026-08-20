@@ -775,7 +775,7 @@ export function StudioCanvasRouter() {
                   projectName={currentProjectName}
                   episode={epNum}
                   onViewUnit={handleViewWorkflowUnit}
-                  // 参考路线的视频入队由 ReferenceVideoCanvas 自己的批量准入路径承担，
+                  // 参考路线的视频入队由 ReferenceVideoCanvas 自己的整批准入判定路径承担，
                   // 本组件的逐单元回调对 video_units 剧本解不出提示词、按下去毫无反应。
                   // 该路线只给「查看」跳转，重生入口在跳过去的那张单元卡上。
                   onRegenerate={

@@ -8,7 +8,7 @@ import type {
 } from "@/types/workflow";
 
 /**
- * 面板里所有「哪里出了问题」的统一呈现形状。三类来源（批量准入的逐单元缺口、
+ * 面板里所有「哪里出了问题」的统一呈现形状。三类来源（整批准入判定的逐单元缺口、
  * 计划里的结构化问题、数据损坏 blocker）归一到这里，界面只认这一种行。
  *
  * 四个位置各司其职，不互相顶替：`unitId` / `field` 说的是**在哪**，`summary` 说的是
@@ -114,7 +114,7 @@ export function blockerViews(t: Translate, blockers: WorkflowBlocker[]): Problem
   }));
 }
 
-/** 批量准入里「自身没问题、随本批一起未提交」的标记。 */
+/** 整批准入判定里「自身没问题、随本批一起未提交」的标记。 */
 const WITHHELD_CODE = "generation_batch_admission_withheld";
 
 export function isWithheld(unit: BatchAdmissionUnit): boolean {

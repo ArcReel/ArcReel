@@ -22,7 +22,7 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 把每个 `video_units[]` 条目视为一次独立生成调用：
 
-- 从 unit 正文（`text`）构造统一书写层 prompt。
+- 从 unit 正文（`text`）构造统一引用语法 prompt。
 - 参考图执行期从正文的 `@[名称]` 按首次提及顺序解析，无特殊排序；有资产图用资产图，否则用该资产的全部原图。
 - 让生成预检把 unit 编排时长投影到供应商申请档位。
 - 遇到 `needs_replan` 或发声归属问题时停止该 unit，先修复规划内容。
@@ -85,7 +85,7 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 `generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：旁白交付选择在两种生成模式下都要做。
 
-### 批量准入与档位确认
+### 整批准入判定与档位确认
 
 视频批量请求是**全有或全无**：准入 `admitted` 时整批入队，`blocked` 或 `confirmation_required` 时
 **一个任务都不入队**。Web 与 agent 走同一套准入与同一套请求选择语义，没有 agent 专属的宽松通道。
@@ -139,6 +139,6 @@ stale 产物照常可预览、可导出、可参与成片，服务端会复用�
 按项目生成模式检查：
 
 - storyboard：每个目标分镜都有可用分镜图，动作与发声内容可执行。
-- reference：每个目标 unit 有非空书写层、合法编排时长、单一发声归属，且未标记 `needs_replan`。
+- reference：每个目标 unit 有非空正文、合法编排时长、单一发声归属，且未标记 `needs_replan`。
 - reference：参考图由服务端在执行期从正文 `@[名称]` 的首次提及顺序解析；未登记的提及只产生警告、不阻断入队，让服务端按 `max_reference_images` 裁剪。
 - reference：输出路径为 `reference_videos/{unit_id}.mp4`。

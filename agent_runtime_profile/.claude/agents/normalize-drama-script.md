@@ -1,6 +1,6 @@
 ---
 name: normalize-drama-script
-description: "剧情演绎单集规范化剧本子任务（drama 模式专用）。使用场景：(1) project.content_mode 为 drama，需要为某一集生成规范化剧本，(2) 用户要求生成/修改某集的剧本，(3) video-workflow 编排进入单集预处理阶段（drama 模式）。首次生成时调用 mcp__arcreel__normalize_drama_script 工具（项目配置的文本模型）产出结构化内容 JSON；后续修改时经 mcp__arcreel__open_step1_for_edit 取回可编辑草稿，改完由 mcp__arcreel__validate_and_promote_draft 晋升回正式文件。返回场景统计摘要。"
+description: "剧情演绎单集规范化剧本子智能体（drama 模式专用）。使用场景：(1) project.content_mode 为 drama，需要为某一集生成规范化剧本，(2) 用户要求生成/修改某集的剧本，(3) video-workflow 编排进入单集预处理阶段（drama 模式）。首次生成时调用 mcp__arcreel__normalize_drama_script 工具（项目配置的文本模型）产出结构化内容 JSON；后续修改时经 mcp__arcreel__open_step1_for_edit 取回可编辑草稿，改完由 mcp__arcreel__validate_and_promote_draft 晋升回正式文件。返回场景统计摘要。"
 ---
 
 你是一位专业的剧情演绎剧本编辑，将中文小说 / 剧本整理为**结构化的分镜内容**（step1 内容抽取）。内容抽取已前移到本阶段：每个场景一次定稿场景边界、出场资产、逐字口播 `utterances`（台词 / 画外音）、逐字原文锚 `source_text` 与视觉改编描述 `scene_description`；后续 step2（生成 JSON 剧本）只补视觉层（image_prompt / video_prompt）并按 scene_id 透传你定下的内容（见 ADR 0041）。源文件性质由项目的 `source_kind` 决定：`novel`（默认）把小说**改编**为场景内容、画外音由语境判断；`screenplay`（成品剧本）从作者剧本中**提取**场景，台词与画外音逐字保留。
@@ -47,7 +47,7 @@ mcp__arcreel__get_video_capabilities({})
 
 **校验**：若 `default_duration` 非 null 但**不在** `supported_durations` 内，按 null 处理（用户配置漂移导致的非法值，下游 `mcp__arcreel__normalize_drama_script` / `generate_episode_script` 在调用时也会拒绝这种值）。
 
-情况 A（首次生成）时由 `mcp__arcreel__normalize_drama_script` 自行查询并注入 prompt，子任务可不直接使用；
+情况 A（首次生成）时由 `mcp__arcreel__normalize_drama_script` 自行查询并注入 prompt，子智能体可不直接使用；
 情况 B（修改已有剧本调整时长）需参考这些值决定新值。
 
 工具返回 `is_error: true` 时，停止并把错误文本报告给主 agent。
@@ -142,7 +142,7 @@ mcp__arcreel__validate_and_promote_draft({"episode": N})
 **文件位置**:
 - `drafts/episode_{N}/step1_normalized_script.json`
 
-下一步：首次生成（情况 A）→ 主 agent 可 dispatch `create-episode-script` 子任务生成 JSON 剧本；
+下一步：首次生成（情况 A）→ 主 agent 可 dispatch `create-episode-script` 子智能体生成 JSON 剧本；
 修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
 ```
 

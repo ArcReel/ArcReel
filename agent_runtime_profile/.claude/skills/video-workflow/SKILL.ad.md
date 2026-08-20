@@ -15,7 +15,7 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷新计划。
 `next_action.type == "none"` 时展示 blockers 并停止变更。
 
-计划的字段含义、完整受控动作表、旁白交付、批量准入、四条状态轴与 stale / 历史纪律，见
+计划的字段含义、完整受控动作表、旁白交付、整批准入判定、四条状态轴与 stale / 历史纪律，见
 [.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按生成模式
 展开的步骤表**：哪些步骤适用由 `plan.steps[].required` 表达。
 
@@ -31,7 +31,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 - `next_action.type == "generate_videos"` → 步骤 7 的视频生成
 - `next_action.type == "export"` → 步骤 8
 
-调用工具或 dispatch 子任务时带入 `target.episode`、`next_action.args` 与 `requested_ids`，不二次检查 `generation_mode` 或 `grid_storyboard` 来改选阶段。步骤内的商品原图与 sheet 过目规则是执行动作前的 soft gate。
+调用工具或 dispatch 子智能体时带入 `target.episode`、`next_action.args` 与 `requested_ids`，不二次检查 `generation_mode` 或 `grid_storyboard` 来改选阶段。步骤内的商品原图与 sheet 过目规则是执行动作前的 soft gate。
 
 1. **确认项目状态**：按计划确认 `content_mode=ad` 与项目级 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。生成模式创建后不可更改。
 2. **创作输入**：带货项目未登记商品或缺原图时，引导用户在 WebUI 上传；原图是保真锚点。用 `mcp__arcreel__patch_project` 写商品描述、品牌与 `brief`。通用短片不索要商品。
@@ -84,5 +84,5 @@ storyboard 分镜时长取视频模型 `supported_durations` 成员，可用 `mc
 ## 边界
 
 - storyboard 广告以 `shots[]` 为唯一真相源；reference 广告以自包含 `video_units[]` 为唯一真相源。
-- reference unit 自持书写层正文、编排时长、生成资产与规划状态；编辑这些字段后刷新计划。
+- reference unit 自持引用语法正文、编排时长、生成资产与规划状态；编辑这些字段后刷新计划。
 - unit 顺序调整使用 WebUI，字段修复使用 `patch_episode_script`，视频生成使用 `generate-video` skill。

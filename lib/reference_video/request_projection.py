@@ -123,7 +123,7 @@ class ResolvedReferenceAsset:
 
 @dataclass(frozen=True)
 class ProviderProjectionCandidate:
-    """当前能力桶的 provider/model 与请求能力事实。"""
+    """当前任务类型桶的 provider/model 与请求能力事实。"""
 
     capability: VideoCapability
     provider_id: str

@@ -1245,7 +1245,7 @@ def test_script_preview_404_for_unknown_episode(client: TestClient, monkeypatch:
 
 
 # ---------------------------------------------------------------------------
-# 批量准入：整批要么全建、要么零任务
+# 整批准入判定：整批要么全建、要么零任务
 # ---------------------------------------------------------------------------
 
 BATCH_ENDPOINT = "/api/v1/projects/demo/reference-videos/episodes/1/units/generate-batch"
@@ -1311,7 +1311,7 @@ def _patch_batch_admission(
     quote_amount: float | None = None,
     fail_enqueue_after: int | None = None,
 ) -> list[dict[str, object]]:
-    """把批量准入的当前状态查询接到进程内替身，返回入队记录。
+    """把整批准入判定的当前状态查询接到进程内替身，返回入队记录。
 
     准入要读任务库、TTS 在途状态与报价；路由测试不带这些依赖，逐个注入替身。
 

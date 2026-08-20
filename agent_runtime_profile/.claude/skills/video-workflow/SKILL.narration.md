@@ -7,12 +7,12 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 # 视频工作流编排
 
 你（主 agent）是编排中枢。你**不直接**处理小说原文或生成剧本，而是：
-1. 检测项目状态 → 2. 读计划的 `next_action` → 3. dispatch 合适的子任务 → 4. 展示结果 → 5. 获取用户确认 → 6. 循环
+1. 检测项目状态 → 2. 读计划的 `next_action` → 3. dispatch 合适的子智能体 → 4. 展示结果 → 5. 获取用户确认 → 6. 循环
 
 **核心约束**：
-- 小说原文**永远不加载到主 agent context**，由子任务自行读取
+- 小说原文**永远不加载到主 agent context**，由子智能体自行读取
 - 每次 dispatch 只传**文件路径和关键参数**，不传大块内容
-- 每个子任务完成一个聚焦目标就返回，主 agent 负责动作间衔接
+- 每个子智能体完成一个聚焦目标就返回，主 agent 负责动作间衔接
 
 > 两种生成模式（分镜图生视频 storyboard，含 grid_storyboard 宫格开关 / 参考生视频 reference_video）的数据结构与 schema 差异详见 `.claude/references/generation-modes.md`；步骤适用性由计划表达，参考文档不重复。
 
@@ -41,11 +41,11 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ## 计划查询
 
-进入工作流、用户说“继续/下一步/查看进度”、以及每次工具或子任务完成后，都调用
+进入工作流、用户说“继续/下一步/查看进度”、以及每次工具或子智能体完成后，都调用
 `mcp__arcreel__get_workflow_plan({})` 取回权威计划（用户指定集数时传 `{"episode": N}`），
 再按 `next_action.type` 路由到下面同名的小节。
 
-计划的字段含义、完整受控动作表、旁白交付、批量准入、四条状态轴与 stale / 历史纪律，见
+计划的字段含义、完整受控动作表、旁白交付、整批准入判定、四条状态轴与 stale / 历史纪律，见
 [.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按创作类型
 或生成模式展开的步骤表**：哪些步骤适用、当前停在哪一步，一律读 `plan.steps[]` 与 `plan.next_action`，
 它们是阶段判断的唯一真相源。`plan.status` 内嵌完整状态快照（`project` / `target` / `state` /
@@ -65,9 +65,9 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ## 动作间确认协议
 
-**每个子任务返回后**，主 agent 执行：
+**每个子智能体返回后**，主 agent 执行：
 
-1. **展示摘要**：将子任务返回的摘要展示给用户
+1. **展示摘要**：将子智能体返回的摘要展示给用户
 2. **获取确认**：使用 AskUserQuestion 提供选项：
    - **继续下一动作**（推荐）
    - **重做此动作**（附加修改要求后重新 dispatch）
@@ -80,7 +80,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 **触发**：`next_action.type == "analyze_assets"`。空 bucket 是合法分析结果，不得凭空 bucket 重跑。
 
-**dispatch `analyze-assets` 子任务**：
+**dispatch `analyze-assets` 子智能体**：
 
 ```text
 项目名称：{project_name}
@@ -122,19 +122,19 @@ expected source revision：{next_action.args.expected_source_revision}
 
 **触发**：`next_action.type == "prepare_step1"`
 
-dispatch `next_action.args.preprocessor` 指名的子任务，产出 `drafts/episode_{N}/` 下对应的 step1
+dispatch `next_action.args.preprocessor` 指名的子智能体，产出 `drafts/episode_{N}/` 下对应的 step1
 中间文件。**不要自己按 `generation_mode` × `content_mode` 反推该选谁**：服务端在同一张规则表上得出
 `preprocessor`，profile 侧再推一遍只会造出第二个真相源。各 step1 文件与 schema 的对应关系见
 `.claude/references/generation-modes.md`。
 
-dispatch prompt 通用参数：项目名称、项目路径、集数、本集小说文件路径；可选附加说明（用户对本次生成的意见等任何需带给子任务的临时上下文，原文透传）。
+dispatch prompt 通用参数：项目名称、项目路径、集数、本集小说文件路径；可选附加说明（用户对本次生成的意见等任何需带给子智能体的临时上下文，原文透传）。
 
-若 `next_action.args` 含 `expected_stale_step1_revision`，子任务成功产出正式 step1 后必须调用
+若 `next_action.args` 含 `expected_stale_step1_revision`，子智能体成功产出正式 step1 后必须调用
 `mcp__arcreel__complete_step1_rebuild({"episode": N, "expected_stale_step1_revision": next_action.args.expected_stale_step1_revision})`。
 该完成事实不可用“文件内容是否变化”推断：确定性重建可能产出完全相同的 JSON。工具报冲突时刷新计划，
 不得用旧参数重试。
 
-（两个预处理子任务会自行读 project.json + 调用
+（两个预处理子智能体会自行读 project.json + 调用
 `mcp__arcreel__get_video_capabilities({})`
 拿到模型能力与用户偏好；主 agent 不需要预先注入角色/场景/道具列表或
 `supported_durations` / `max_duration` / `max_reference_images` / `default_duration` 等数据。）
@@ -152,7 +152,7 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 **step1→step2 审核 gate（阻塞）**：`prepare_step1` 的结构化 step1 中间态须经**显式确认**才放行剧本生成（三种结构化 step1 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `step1_reference_units.json` 同样须确认，不要跳过。ad 无 step1，不纳入 gate）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 step1 又被改）时 `generate_episode_script` 会被 gate 拒绝；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
 
-**dispatch `create-episode-script` 子任务**：传入项目名称、项目路径、集数；可选附加说明（用户对本次生成的意见等任何需带给子任务的临时上下文，原文透传）。
+**dispatch `create-episode-script` 子智能体**：传入项目名称、项目路径、集数；可选附加说明（用户对本次生成的意见等任何需带给子智能体的临时上下文，原文透传）。
 
 ---
 
@@ -160,7 +160,7 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 **触发**：`next_action.type == "generate_asset_sheets"`。空资产 bucket 是 `analyze_assets` 的合法完成结果，
 不得据此回退；对每个资产类型，取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集作为
-该类型的 `names`，同时传给子任务和工具：
+该类型的 `names`，同时传给子智能体和工具：
 - character 缺 character_sheet
 - scene 缺 scene_sheet
 - prop 缺 prop_sheet
@@ -170,21 +170,21 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 ```text
 对于 type ∈ {character, scene, prop}:
   names = artifacts.asset_sheets[type].missing_ids ∩ requested_ids
-  若 names 非空 → dispatch 对应的 `generate-assets` 子任务，并把 names 原样传给子任务和工具
+  若 names 非空 → dispatch 对应的 `generate-assets` 子智能体，并把 names 原样传给子智能体和工具
   若 names 为空 → 跳过，不 dispatch；不得回退到整类 missing_ids
 
-三类判断彼此独立，结果可能 dispatch 0~3 个子任务。
-所有 dispatch 的子任务返回后，合并摘要展示给用户，进入动作间确认。
+三类判断彼此独立，结果可能 dispatch 0~3 个子智能体。
+所有 dispatch 的子智能体返回后，合并摘要展示给用户，进入动作间确认。
 ```
 
 下面三个 dispatch 块是模板，只实例化满足上述条件的那几个：
 
-### 子任务 — 角色设计
+### 子智能体 — 角色设计
 
 **触发**：该类 `names` 交集非空
 
 ```text
-dispatch `generate-assets` 子任务：
+dispatch `generate-assets` 子智能体：
   任务类型：character
   项目名称：{project_name}
   待生成项：{names 交集}
@@ -193,12 +193,12 @@ dispatch `generate-assets` 子任务：
   验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
 ```
 
-### 子任务 — 场景设计
+### 子智能体 — 场景设计
 
 **触发**：该类 `names` 交集非空
 
 ```text
-dispatch `generate-assets` 子任务：
+dispatch `generate-assets` 子智能体：
   任务类型：scene
   项目名称：{project_name}
   待生成项：{names 交集}
@@ -207,12 +207,12 @@ dispatch `generate-assets` 子任务：
   验证方式：重新读取 project.json，检查对应场景的 scene_sheet 字段
 ```
 
-### 子任务 — 道具设计
+### 子智能体 — 道具设计
 
 **触发**：该类 `names` 交集非空
 
 ```text
-dispatch `generate-assets` 子任务：
+dispatch `generate-assets` 子智能体：
   任务类型：prop
   项目名称：{project_name}
   待生成项：{names 交集}
@@ -235,7 +235,7 @@ reference_video 模式返回这两个动作。
 - `next_action.type == "generate_grid"` → dispatch `generate-assets`，调
   `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": requested_ids})`
 
-两条路径都把 `next_action.args` 与 `requested_ids` 原样传给子任务，由子任务按上面映射调用工具。
+两条路径都把 `next_action.args` 与 `requested_ids` 原样传给子智能体，由子智能体按上面映射调用工具。
 
 > **切换 `grid_storyboard` 后的重做**：本动作的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的片段范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑 `generate_videos` 对应片段。
 
@@ -250,7 +250,7 @@ reference_video 模式返回这两个动作。
   `mcp__arcreel__get_workflow_plan`，不持久化，之后每次查询都要重新带上。未配置 TTS 时默认后期配音，
   不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时先显式生成并让用户试听，再按
   预检返回的 `problems[].action` 处理（action 是权威，不要按 `code` 自己推）
-- `confirm_request_duration` — 批量准入要求确认申请档位。按 `admission.confirmation.tiers[]` 逐档位
+- `confirm_request_duration` — 整批准入判定要求确认申请档位。按 `admission.confirmation.tiers[]` 逐档位
   展示涉及的 unit 与费用，取得确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
 
 只有 `plan.steps[].admission.decision == "admitted"` 才入队；`blocked` 或 `confirmation_required` 时
@@ -259,11 +259,11 @@ reference_video 模式返回这两个动作。
 `blocked_unit_ids` 连累而非自身有问题。修掉被拒 unit 后**整批重来**，不拆批先跑通过的那一半，
 否则会重复提交已经付过费的 unit。
 
-**dispatch `generate-assets` 子任务**：请求选择语义与 Web 完全一致——**点名即强制重做（必然计费）/
+**dispatch `generate-assets` 子智能体**：请求选择语义与 Web 完全一致——**点名即强制重做（必然计费）/
 不传即只补缺 / 空数组非法**，所以按 `requested_ids` 是否为空二选一，不要两个工具都试：
 
 ```text
-dispatch `generate-assets` 子任务：
+dispatch `generate-assets` 子智能体：
   任务类型：video
   项目名称：{project_name}
   工具调用（两个工具的 narration_delivery 均为必填，填本次已向用户确认的那个值）：
@@ -291,7 +291,7 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 
 - **用户显式触发**：用户明确要求生成旁白配音。这一条不由计划的 `next_action` 驱动——缺 TTS 不是
   工作流缺口，计划不会因此停下，也不会因此拦住导出；`plan.status.artifacts.audio` 只如实报告哪些段缺配音。
-- **计划驱动**：用户在 `choose_narration_delivery` 处选了「使用当前 TTS」，视频批量准入因此被拒，
+- **计划驱动**：用户在 `choose_narration_delivery` 处选了「使用当前 TTS」，视频整批准入判定因此被拒，
   计划把 `generate_tts` / `regenerate_tts` 交回成 `next_action.type`。这一条按受控动作办：逐 unit
   读 `problems[].action`（action 是权威，不要按 `code` 自己推），`wait_for_task` / `configure_provider`
   等其它动作照它们各自的规矩来，不要一律当成缺配音去合成。
@@ -304,10 +304,10 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 `generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：参考生视频没有按段批量 TTS 的
 入口（无 `segments[]`），但每个叙述旁白 unit 的旁白交付选择照样要逐次做，见 `generate_videos`。
 
-**dispatch `generate-assets` 子任务**：
+**dispatch `generate-assets` 子智能体**：
 
 ```text
-dispatch `generate-assets` 子任务：
+dispatch `generate-assets` 子智能体：
   任务类型：narration_audio
   项目名称：{project_name}
   工具调用：

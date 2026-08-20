@@ -112,7 +112,7 @@ async def test_endpoint_field_stores_gemini_image(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSession):
-    """配 endpoint=openai-chat 但被当作 video_backend 使用 → 能力桶解析闸判悬空引用并报错。
+    """配 endpoint=openai-chat 但被当作 video_backend 使用 → 任务类型桶解析闸判悬空引用并报错。
 
     与执行路径同一条口径：media_type 不符的引用已不可兑现，报错让用户重选，不静默换成该供应商
     的其它 model（``docs/adr/0054``）。"""
@@ -268,7 +268,7 @@ async def test_custom_video_caps_resolved_without_api_key(db_session: AsyncSessi
 
 @pytest.mark.asyncio
 async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch):
-    """endpoint cap=None 且 video_caps_for_model 也缺失（misconfig）→ 能力桶解析闸报悬空引用。
+    """endpoint cap=None 且 video_caps_for_model 也缺失（misconfig）→ 任务类型桶解析闸报悬空引用。
 
     EndpointSpec 是 frozen dataclass，用 dataclasses.replace 造 misconfig spec 再 setitem 临时替换
     （module-load 不变式仅 import 期生效，不拦运行时 monkeypatch）。"""

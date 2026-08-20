@@ -281,7 +281,7 @@ def resolve_reference_batch_targets(
 
 
 def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
-    """单 unit 的 TaskSpec 构造，供批量准入、批量入队与时长预检共用同一份结构校验
+    """单 unit 的 TaskSpec 构造，供整批准入判定、批量入队与时长预检共用同一份结构校验
     （见 ADR-0001）——``TaskSpec.from_request`` 是「是否可入队」的唯一真相源，几处判断
     不能各自维护一份、由此产生分歧（如预检放行了入队会拒绝的空提示词 unit）。
     """

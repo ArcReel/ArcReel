@@ -10,7 +10,7 @@
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定（广告/短片默认 9:16 竖屏），无需在 prompt 中指定
 - **时长规划**：广告/短片项目**没有** `default_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
-  - storyboard 模式：单镜头时长必须取所选视频模型 `supported_durations` 中的值；子任务运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
+  - storyboard 模式：单镜头时长必须取所选视频模型 `supported_durations` 中的值；子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
   - reference_video 模式：每个 video unit 持有符合剧本模型结构约束的正整数编排时长，unit 内镜头不单列时长；生成预检会把编排时长投影到供应商申请档位
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
@@ -43,7 +43,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   - ❌ `projects/{项目名}/scripts/episode_1.json`（双前缀，占位符替换或拼接出错就会落到 projects 根）
 - **严禁**在工具参数中出现 `projects/{...}/` 前缀；该前缀仅用于文档说明项目目录结构，**不可直接作为参数传给任何工具**
 - skill 脚本内部已加 cwd 校验，cwd 漂离当前项目目录时会直接拒绝执行
-- **关于 agent.md / SKILL.md 中的相对形式**：子任务指引（如「读取 `project.json`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
+- **关于 agent.md / SKILL.md 中的相对形式**：子智能体指引（如「读取 `project.json`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
 
 ---
 
@@ -52,7 +52,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 本项目为**广告/短片**（ad），产出**单个**约 `target_duration` 秒的短视频，而非多集系列：
 
 - storyboard 路径的剧本是平铺 `shots[]`，`shot_id` 格式 `E1S{n}`；每个镜头携带 `section`（带货框架段落标签，如 hook/pain_point/product_reveal/selling_point/demo/trust/price_promo/cta）与一等口播文案 `voiceover_text`
-- reference_video 路径的剧本是自包含 `video_units[]`；每个 unit 持有书写层正文、编排时长与产物，不持久化 `section`、`voiceover_text` 或 `speech_mode`；参考图不落盘，执行期从正文派生
+- reference_video 路径的剧本是自包含 `video_units[]`；每个 unit 持有引用语法正文、编排时长与产物，不持久化 `section`、`voiceover_text` 或 `speech_mode`；参考图不落盘，执行期从正文派生
 - 项目**恒单集**：`episodes` 恒为第 1 集单条，剧本即 `scripts/episode_1.json`；**不存在分集概念**，不要做分集规划或拆分
 - 创作输入为 `project.json` 顶层的 `brief`（创作诉求短文本）与 `target_duration`（目标总时长，秒）；不走小说源文件导入流程
 - 剧本总时长应贴近 `target_duration`，偏差过大时提醒用户而非拒绝保存
@@ -75,7 +75,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 ### 参考生视频（reference_video）的自包含单元
 
 - 剧本生成会单阶段直接产出 `video_units[]`，不创建 step1 审阅中间态；每个 unit 对应一次生成调用与 `reference_videos/{unit_id}.mp4`
-- unit 正文是一段自由文本，使用统一书写层：`@[角色]{台词}` 表达人物发声，`{台词}` 表达无归属旁白，两者可写在行内任意位置；商品、角色、场景、道具均用 `@[名称]` mention。参考图由系统在执行期按首次提及顺序从正文解析，同名按 product → character → scene → prop 归属
+- unit 正文是一段自由文本，使用统一引用语法：`@[角色]{台词}` 表达人物发声，`{台词}` 表达无归属旁白，两者可写在行内任意位置；商品、角色、场景、道具均用 `@[名称]` mention。参考图由系统在执行期按首次提及顺序从正文解析，同名按 product → character → scene → prop 归属
 - 一个 unit 只能承载人物发声、无归属旁白或无人声中的一种；需要切换发声归属时在规划阶段拆成相邻 unit。标记 `needs_replan` 的存量问题单元须先重新规划，生成入口会拒绝入队
 - 参考集按正文首次 mention 顺序排列，商品与角色/场景/道具同规则：每件资产有 sheet 用 sheet，没有才退到它的全部原图；不按类型排序，也不在有 sheet 时额外注入原图
 - **时长约束**：每个 unit 的 `duration_seconds` 是符合剧本模型结构约束的正整数编排时长，所有 unit 之和应贴近 `target_duration`；供应商档位由生成预检处理，不在剧本规划时量化
@@ -86,15 +86,15 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 `/video-workflow` 编排 skill 按服务端计划推进（每个动作完成后与用户确认再继续）；用户提到做视频、继续项目、查看进度时使用该 skill。涉及尚未落地的环节时如实告知用户，不要用 narration/drama 的小说流程替代。
 
-**步骤表不在这里，也不在 skill 里**：调用 `mcp__arcreel__get_workflow_plan` 取回 `steps[]` 与唯一的 `next_action`，照它路由。受控动作表、旁白交付、批量准入与状态轴读法见 `.claude/references/workflow-plan.md`。
+**步骤表不在这里，也不在 skill 里**：调用 `mcp__arcreel__get_workflow_plan` 取回 `steps[]` 与唯一的 `next_action`，照它路由。受控动作表、旁白交付、整批准入判定与状态轴读法见 `.claude/references/workflow-plan.md`。
 
 需要在这里说清、不由计划表达的 ad 专属规则：
 
 - **创作输入**：带货项目商品未登记或缺原图时，引导用户在 WebUI 初始化页或商品资产页上传商品图（原图是商品保真的验收锚点，agent 不能代传图片；通用短片见下文，不索要商品）；用户勾选「生成标准商品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（商品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入
 - **生成模式**：用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知生成模式创建后不可更改，无绕过方式；宫格装配对 ad 不开放
 - **卖点**：商品已登记但 `selling_points` 为空时，从 brief、商品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
-- **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` 子任务出资产图；轻量短片可跳过，仅靠商品参考与项目 style
-- **剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与书写层正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
+- **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` 子智能体出资产图；轻量短片可跳过，仅靠商品参考与项目 style
+- **剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与引用语法正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
 - **product sheet 过目（软门禁）**：商品生成了 `product_sheet` 时，分镜开工前（参考生视频路径为首次视频生成前）安排用户到商品资产页确认 sheet 与真品一致（见下文「商品保真」）；无 sheet（仅原图）直接进入下一步
 - **保真拦截**：分镜图生成后引导用户审核商品形象保真度，不合格的重新生成——在产生视频费用前拦截
 - **导出**：视频齐全后引导用户在 Web 端导出剪映草稿。声音归属与字幕时序由服务端 presentation 结果决定，预览、下载与剪映草稿消费同一份；agent 不自行估算字幕时序、不静音 provider 原音、也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。in-app 成片（compose-video）对 ad 不适用

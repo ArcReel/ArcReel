@@ -1253,7 +1253,7 @@ def test_resolve_supported_durations_raises_when_unset(tmp_path):
 
 
 class TestFetchVideoCapabilitiesErrorHandling:
-    """能力桶解析闸的报错不被 fallback 吞掉——写剧本与执行读同一个模型的档位。"""
+    """任务类型桶解析闸的报错不被 fallback 吞掉——写剧本与执行读同一个模型的档位。"""
 
     def _sg(self, tmp_path) -> ScriptGenerator:
         sg = ScriptGenerator.__new__(ScriptGenerator)
@@ -2042,7 +2042,7 @@ class TestAdScriptGeneration:
 
     @pytest.mark.unit
     async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path):
-        """ad + reference_video：直接输出统一书写层 video_units，不持久化旧镜头字段。"""
+        """ad + reference_video：直接输出统一引用语法 video_units，不持久化旧镜头字段。"""
         project_path = tmp_path / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
 
@@ -2177,7 +2177,7 @@ class TestAdScriptGeneration:
 
     @pytest.mark.unit
     async def test_generate_ad_reference_passes_free_range_schema(self, tmp_path):
-        """ad + reference_video：response_schema 只含 unit 时长与统一书写层正文。"""
+        """ad + reference_video：response_schema 只含 unit 时长与统一引用语法正文。"""
         from lib.script_models import AdReferenceFlatScript
 
         project_path = tmp_path / "demo"

@@ -1,4 +1,4 @@
-"""书写层扁平文本的机械校验（step1 / step2 共用）。"""
+"""引用语法扁平文本的机械校验（step1 / step2 共用）。"""
 
 import unicodedata
 

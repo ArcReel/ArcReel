@@ -189,11 +189,11 @@ class CreateProjectRequest(BaseModel):
     # ===== 新增 =====
     style_template_id: str | None = None
     video_backend: str | None = None
-    # 视频能力桶（docs/adr/0054）项目级覆盖：i2v = 图生视频 / 宫格，r2v = 参考生视频；
+    # 视频任务类型桶（docs/adr/0054）项目级覆盖：i2v = 图生视频 / 宫格，r2v = 参考生视频；
     # 空值 = 回退项目默认（video_backend）与全局层
     video_provider_i2v: str | None = None
     video_provider_r2v: str | None = None
-    # 图片能力桶（docs/adr/0054）项目级覆盖 + 项目默认模型：t2i = 文生图，i2i = 图生图；
+    # 图片任务类型桶（docs/adr/0054）项目级覆盖 + 项目默认模型：t2i = 文生图，i2i = 图生图；
     # 桶为空 = 回退项目默认（default_image_backend）与全局层
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
@@ -693,7 +693,7 @@ async def get_video_capabilities(
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except VideoBucketCapabilityError as exc:
-        # 能力桶解析闸的报错自带 errors 目录 key 与渲染参数，转成结构化 400 让用户看到修复指引，
+        # 任务类型桶解析闸的报错自带 errors 目录 key 与渲染参数，转成结构化 400 让用户看到修复指引，
         # 不被下面的通用 422 文案吞掉（ValueError 子类，须先于其捕获）
         raise BadRequestError(exc.code, **exc.params) from exc
     except ValueError as exc:

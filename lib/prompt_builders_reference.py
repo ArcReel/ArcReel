@@ -6,7 +6,7 @@
 - 字段说明给指导和示例，不堆"必须 / 禁止"清单。
 - 跨 backend 时长 / references 上限通过参数显式注入，不在文本里硬编码秒数。
 
-两级 prompt 注入的书写层语法规范取自同一份常量
+两级 prompt 注入的引用语法规范取自同一份常量
 （``lib.reference_video.writing_syntax.WRITING_SYNTAX_SPEC``）：LLM 产出与人在编辑器写的
 是同一种格式，语法只能有一份措辞，本模块不复写。
 """
@@ -82,7 +82,7 @@ def build_reference_units_split_prompt(
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
-    """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 原文锚 + 书写层正文）。
+    """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 原文锚 + 引用语法正文）。
 
     由 ``split_reference_video_units`` MCP tool 消费。step1 定的是**结构与内容契约**——
     unit 边界、时长（即计费单位）、台词落位、核心资产指认；视觉展开（景别 / 构图 / 运镜）

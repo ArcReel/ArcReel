@@ -29,7 +29,7 @@ def _frontend_action_types() -> list[str]:
 
 
 def test_generation_actions_are_all_dispatchable_next_actions() -> None:
-    """批量准入被拒时 problems[0].action 会原样成为 next_action.type，闭集必须容得下它。"""
+    """整批准入判定被拒时 problems[0].action 会原样成为 next_action.type，闭集必须容得下它。"""
 
     missing = {action.value for action in GenerationAction} - {action.value for action in WorkflowActionType}
 

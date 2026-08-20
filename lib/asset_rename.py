@@ -86,7 +86,7 @@ _LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
 def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, new_name: str) -> int:
     """就地把剧本/草稿 payload 中指向 *old_name* 的名称引用改写为 *new_name*，返回改写数。
 
-    覆盖面（与 :mod:`lib.data_validator` 的引用扫描 + 书写层派生口径对齐）：
+    覆盖面（与 :mod:`lib.data_validator` 的引用扫描 + 引用语法派生口径对齐）：
 
     - 各骨架的引用数组（``_LIST_FIELDS_BY_TYPE``，仅 str 元素）；
     - drama ``utterances[].speaker`` 与 ad ``video_prompt.dialogue[].speaker``（仅 character）；

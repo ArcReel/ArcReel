@@ -1,13 +1,13 @@
 /**
  * LayeredModelFields —— 「默认模型 + 按用途指定模型」的同源交互形态（docs/adr/0054）。
  *
- * 文本档位、图片能力桶、视频能力桶三处共用：一个常驻的默认主下拉，下方一个默认收起的
+ * 文本档位、图片任务类型桶、视频任务类型桶三处共用：一个常驻的默认主下拉，下方一个默认收起的
  * 折叠区收纳细分项。全局设置、项目设置两层复用同一组件，创建向导不传 subFields 即只剩默认层。
  *
  * 细分项留空时触发按钮显示穿透演算后的最终生效模型，用户不展开也能看到会真正执行的模型；
  * 演算结果由调用方按各层键位算好传入，本组件不持有层级知识。
  *
- * 界面文案统一用「按用途指定模型」，不出现「能力」「桶」字样（见 CONTEXT.md 能力桶词条）。
+ * 界面文案统一用「按用途指定模型」，不出现「能力」「桶」字样（见 CONTEXT.md 任务类型桶词条）。
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -51,7 +51,7 @@ export function executingImageModel(
   return effectiveModel(value.imageBackendT2I, value.imageBackendDefault, globals.imageT2I, globals.image) ?? "";
 }
 
-/** 能力桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
+/** 任务类型桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
 export function useCapabilityBucketLabels(): Record<CapabilityBucket, { label: string; caption: string }> {
   const { t } = useTranslation("templates");
   return useMemo(

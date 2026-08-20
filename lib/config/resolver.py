@@ -162,9 +162,9 @@ def _payload_model_or_default(raw_model: object, provider_id: str, media_type: s
 
 @dataclass(frozen=True)
 class _LayeredBackendKeys:
-    """「默认 + 能力桶」四级解析骨架的键位声明，媒体类型无关（见 ``docs/adr/0054``）。
+    """「默认 + 任务类型桶」四级解析骨架的键位声明，媒体类型无关（见 ``docs/adr/0054``）。
 
-    每个媒体类型的每个能力桶声明一份键位，由 ``ConfigResolver._resolve_layered_backend``
+    每个媒体类型的每个任务类型桶声明一份键位，由 ``ConfigResolver._resolve_layered_backend``
     按固定顺序消费：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。键为 None 表示该层
     不存在、直接跳过——新媒体 / 新桶接入只需补一份键位声明，不改骨架本身。
     """
@@ -210,7 +210,7 @@ _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 
 
 # 不定桶视频键位：与 ``_VIDEO_LAYERED_KEYS`` 同源同层，只去掉桶层（None 由骨架跳过）。供不承诺
-# 能力桶的调用方（费用估算、限流路由兜底、配置展示）解析，不施加桶键覆盖也不过能力闸。
+# 任务类型桶的调用方（费用估算、限流路由兜底、配置展示）解析，不施加桶键覆盖也不过能力闸。
 _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="video",
     parse_fallback=_DEFAULT_VIDEO_BACKEND,
@@ -219,7 +219,7 @@ _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
 )
 
 
-# 音频键位。音频无能力桶，桶层留空（None）由骨架直接跳过：项目默认层用 project.json 的
+# 音频键位。音频无任务类型桶，桶层留空（None）由骨架直接跳过：项目默认层用 project.json 的
 # audio_backend 字段，全局默认层用 default_audio_backend 设置键。
 _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="audio",
@@ -228,11 +228,11 @@ _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     global_default_key="default_audio_backend",
 )
 
-#: 视频能力桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考路线无参考图退化镜头的降级执行）、
+#: 视频任务类型桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考路线无参考图退化镜头的降级执行）、
 #: r2v（参考生视频的有参考图镜头）。t2v 不设桶（docs/adr/0054）。
 VideoCapability = Literal["i2v", "r2v"]
 
-#: 视频任务类型 → 能力桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
+#: 视频任务类型 → 任务类型桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
 #: 宫格生视频（task_type ``video``）→ i2v；参考生视频按镜头是否携带参考图分流
 #: （``lib.reference_video.units``），本表登记其代表桶 r2v，仅供剧本 / unit 读不到时回退。
 #: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.capability_buckets）
@@ -243,7 +243,7 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
     "reference_video": "r2v",
 }
 
-#: 生成模式 → 能力桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
+#: 生成模式 → 任务类型桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
 #: 已成形任务的 task_type 定桶，读侧（能力查询 / 时长约束收窄等）在任务成形前只有项目的
 #: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。参考
 #: 路线内无参考图退化镜头的镜头级降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
@@ -258,7 +258,7 @@ _DEFAULT_VIDEO_BUCKET: VideoCapability = "i2v"
 
 
 def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapability:
-    """项目的 generation_mode 归到哪个视频能力桶——读侧定桶的唯一入口。
+    """项目的 generation_mode 归到哪个视频任务类型桶——读侧定桶的唯一入口。
 
     project.json 是明文文件，``generation_mode`` 可能被写成非字符串，一并落默认桶。
     """
@@ -601,7 +601,7 @@ class VisionCapabilityError(ValueError):
 
 
 class VideoBucketCapabilityError(ValueError):
-    """视频解析闸报错：解析出的模型缺所属能力桶要求的能力，或配置引用已不可用。
+    """视频解析闸报错：解析出的模型缺所属任务类型桶要求的能力，或配置引用已不可用。
 
     ``code`` 是 errors 目录 key、``params`` 是其渲染参数：router 可直接
     ``_t(exc.code, **exc.params)`` 本地化，worker 落库经 ``lib.task_failure.encode_failure``
@@ -764,7 +764,7 @@ class ConfigResolver:
     ) -> ProviderModel:
         """解析视频任务应使用的 ProviderModel。
 
-        payload 恒为最高优先级：已写入能力桶键 ``video_provider_<cap>`` 的物化执行身份优先。
+        payload 恒为最高优先级：已写入任务类型桶键 ``video_provider_<cap>`` 的物化执行身份优先。
         其后按 ``capability`` 分两条路径（``docs/adr/0054``）：
 
         - ``capability`` 给定（``"i2v"`` / ``"r2v"``）：走四级骨架 项目桶（``video_provider_<cap>``）
@@ -1062,7 +1062,7 @@ class ConfigResolver:
         project: dict | None,
         keys: _LayeredBackendKeys,
     ) -> tuple[str, str]:
-        """「默认 + 能力桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
+        """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
 
         媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。项目层
         字段兼容裸 provider 覆盖（``_parse_project_provider``）；全局层要求 ``provider/model``
@@ -1099,7 +1099,7 @@ class ConfigResolver:
 
         payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider`` /
         ``image_model`` 键——按该格式序列化的任务据此解析。图片任务不锁定执行身份（任务周期
-        短，排队期间配置漂移的窗口小），故 payload 层无能力桶键。payload provider 须是已知
+        短，排队期间配置漂移的窗口小），故 payload 层无任务类型桶键。payload provider 须是已知
         provider（见
         ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
         键位见 ``_IMAGE_LAYERED_KEYS``）。
@@ -1125,7 +1125,7 @@ class ConfigResolver:
     ) -> ProviderModel:
         """payload 优先解析视频 ProviderModel；无 payload 时按 ``capability`` 走桶骨架或不定桶骨架。
 
-        payload 层只认已物化的能力桶键（``video_provider_<cap>`` 复合值，见
+        payload 层只认已物化的任务类型桶键（``video_provider_<cap>`` 复合值，见
         ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
         （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信 provider——
         供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
@@ -1321,7 +1321,7 @@ class ConfigResolver:
         *,
         capability: VideoCapability | None = None,
     ) -> dict:
-        """按能力桶（未显式给定时按项目 generation_mode 定桶）解析出会执行的那个模型，再读它的能力。
+        """按任务类型桶（未显式给定时按项目 generation_mode 定桶）解析出会执行的那个模型，再读它的能力。
 
         与执行路径共用 ``_resolve_video_provider_model``（含能力闸），读侧不留第二种口径：切换
         generation_mode 后能力查询随桶变化，模型缺该桶所需能力或引用已失效时报错、不静默换模型

@@ -29,7 +29,7 @@ interface ProviderModelSelectProps {
   /** When value is empty, show this "provider/model" as the effective fallback in the trigger */
   fallbackValue?: string;
   /**
-   * 触发按钮上生效值的前缀措辞（已 t()）。默认「跟随全局默认」；能力桶细分项回退的是同层
+   * 触发按钮上生效值的前缀措辞（已 t()）。默认「跟随全局默认」；任务类型桶细分项回退的是同层
    * 默认模型而非全局层，由调用方改写为「跟随默认」。
    */
   fallbackLabel?: string;

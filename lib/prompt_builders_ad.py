@@ -1,7 +1,7 @@
 """广告/短片模式（content_mode=ad）剧本生成 Prompt 构建器。
 
 分镜路线产出平铺 ``shots[]``，参考路线单阶段产出自包含 ``video_units[]`` 的扁平
-书写层。两条路线都按目标总时长选择带货八段框架的时长配比档位（15/30/60/90 秒，
+引用语法。两条路线都按目标总时长选择带货八段框架的时长配比档位（15/30/60/90 秒，
 经维护者审定的配比表），非四档整数取距离最小的档位按比例适配。
 ``products`` 为空时自动分流为通用短片 prompt（无带货框架）。
 
@@ -358,7 +358,7 @@ def build_ad_reference_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """广告参考路线单阶段生成 prompt；直接输出扁平书写层 unit。"""
+    """广告参考路线单阶段生成 prompt；直接输出扁平引用语法 unit。"""
     if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
     min_unit_duration, max_unit_duration = REFERENCE_UNIT_DURATION_RANGE
@@ -407,7 +407,7 @@ unit_id、references、generated_assets、needs_replan 均由系统派生，不�
 
 本片恒为第 {episode} 集。每个 unit 内只能有一种发声归属：角色台词、无归属画外音或无发声三选一；需要切换归属时拆成相邻 unit，不要在同一 unit 混写。
 
-# 统一书写层
+# 统一引用语法
 
 {WRITING_SYNTAX_SPEC}
 

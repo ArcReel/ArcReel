@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def reference_video_bucket(*, with_references: bool) -> VideoCapability:
-    """参考生视频单元的能力桶：有参考图 → r2v；无参考图 → i2v。
+    """参考生视频单元的任务类型桶：有参考图 → r2v；无参考图 → i2v。
 
     本函数只对已给定的布尔事实做纯映射。预检、报价、Agent、队列与执行层须先由
     ``ReferenceUnitRequestProjector`` 从正文派生引用并水合实际可用资产，不能自行猜测。

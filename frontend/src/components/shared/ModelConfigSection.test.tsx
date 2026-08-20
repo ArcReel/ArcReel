@@ -247,7 +247,7 @@ describe("ModelConfigSection", () => {
         expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
       }
       // 界面文案不出现内部术语
-      expect(container.textContent).not.toMatch(/能力桶|capability bucket/i);
+      expect(container.textContent).not.toMatch(/任务类型桶|capability bucket/i);
     });
 
     it("feeds each sub-field from its own filtered candidate list while the default layer stays unfiltered", async () => {

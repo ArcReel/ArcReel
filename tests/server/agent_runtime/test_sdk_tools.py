@@ -7004,7 +7004,7 @@ def _rv_source(fake_ctx: ToolContext) -> None:
 
 
 def _rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> dict:
-    """step1 的 LLM 产出形状：一层扁平（时长 + 原文锚 + 书写层正文）。"""
+    """step1 的 LLM 产出形状：一层扁平（时长 + 原文锚 + 引用语法正文）。"""
     return {"duration_seconds": duration, "source_text": source_text, "text": text}
 
 
@@ -7041,7 +7041,7 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkey
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
     assert "DRY RUN" in prompt_text
-    # 集号、资产候选与能力约束进 prompt；书写层语法规范随之注入
+    # 集号、资产候选与能力约束进 prompt；引用语法规范随之注入
     assert "第 1 集" in prompt_text
     assert "张三" in prompt_text
     assert "12 秒" in prompt_text
@@ -7292,7 +7292,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert envelope["kind"] == QUARANTINE_KIND_STEP1
     assert [v["code"] for v in envelope["violations"]] == [code]
     assert envelope["violations"][0]["label"] == "unit E1U01"
-    # 隔离草稿装的是扁平书写层产物（agent 要改的那一层），不是派生后的落盘形状
+    # 隔离草稿装的是扁平引用语法产物（agent 要改的那一层），不是派生后的落盘形状
     assert envelope["content"]["units"][0]["text"] == unit["text"]
     assert "shots" not in envelope["content"]["units"][0]
 
@@ -7394,7 +7394,7 @@ async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolContext) -> None:
-    """取回的草稿装扁平书写层，不装派生物：agent 改的是正文 / 锚 / 时长，
+    """取回的草稿装扁平引用语法，不装派生物：agent 改的是正文 / 锚 / 时长，
     unit_id 由晋升时按数组序号重新派生，放进草稿等于给漂移开口子。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身\n@[张三] 走向 @[村口]")])
@@ -7574,7 +7574,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     report = out["content"][0]["text"]
     assert "并发冲突" in report
     assert "base_fingerprint" in report
-    # 冲突报告附上盘上现值的扁平书写层，供 agent 对照合并
+    # 冲突报告附上盘上现值的扁平引用语法，供 agent 对照合并
     assert "在 @[村口] 等候" in report
     # 正式文件未被覆盖，草稿仍在场
     assert _rv_step1_path(fake_ctx).read_text(encoding="utf-8") == web_version

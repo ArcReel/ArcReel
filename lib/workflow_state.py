@@ -94,7 +94,7 @@ class WorkflowActionType(StrEnum):
     """``WorkflowNextAction.type`` 的闭集。
 
     三个来源合成同一份取值：本模块按编排阶段给出的动作、``lib.workflow_plan`` 投影时
-    额外注入的动作，以及批量准入被拒时原样交回的 ``lib.generation_result.GenerationAction``。
+    额外注入的动作，以及整批准入判定被拒时原样交回的 ``lib.generation_result.GenerationAction``。
     消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即
     自动进入各处覆盖检查，不必再手抄一份清单。
     """
@@ -123,7 +123,7 @@ class WorkflowActionType(StrEnum):
     PATCH_EPISODE_SCRIPT = "patch_episode_script"
     CHOOSE_NARRATION_DELIVERY = "choose_narration_delivery"
 
-    # ``GenerationAction`` 闭集；批量准入与任务失败把它原样交回成 next_action
+    # ``GenerationAction`` 闭集；整批准入判定与任务失败把它原样交回成 next_action
     RETRY = "retry"
     FIX_INPUT = "fix_input"
     GENERATE_DEPENDENCY = "generate_dependency"

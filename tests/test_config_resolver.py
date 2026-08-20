@@ -638,7 +638,7 @@ class TestVideoCapabilities:
 
     @pytest.mark.unit
     async def test_unknown_model_raises(self):
-        """悬空模型引用在能力桶解析闸即报错，携带可本地化的 code。"""
+        """悬空模型引用在任务类型桶解析闸即报错，携带可本地化的 code。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         factory, engine = await _make_session()
@@ -862,7 +862,7 @@ class TestVideoCapabilities:
 
     @pytest.mark.integration
     async def test_custom_disabled_model_errors_like_execution_layer(self):
-        """project 仍指向已禁用的 model 时，能力解析与执行路径同样在能力桶解析闸报悬空引用。
+        """project 仍指向已禁用的 model 时，能力解析与执行路径同样在任务类型桶解析闸报悬空引用。
 
         不静默换成该供应商的默认启用 model（``docs/adr/0054``）：宣称一个用户没选过的模型的能力，
         与执行期直接报错的行为对不上。"""
@@ -1297,7 +1297,7 @@ class TestResolveImageBackend:
 
 @pytest.mark.unit
 class TestLayeredBackendSkeleton:
-    """「默认 + 能力桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
+    """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
 
     用带全部四层键位的合成声明直测骨架契约，与各媒体的具体键位无关；媒体桶接入只补
     键位声明、不改骨架本身。
@@ -1450,7 +1450,7 @@ class TestResolveVideoBackend:
 
     @pytest.mark.unit
     async def test_payload_without_pinned_bucket_key_falls_through_to_project(self):
-        """payload 层只认锁定的能力桶键：非桶键的 provider 字段不参与解析，一律回退配置层。"""
+        """payload 层只认锁定的任务类型桶键：非桶键的 provider 字段不参与解析，一律回退配置层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
@@ -2015,7 +2015,7 @@ class TestResolveRawSupportedDurations:
 
 
 class TestPayloadPinnedVideoModel:
-    """入队锁进 payload 能力桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
+    """入队锁进 payload 任务类型桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
 
     @pytest.mark.unit
     async def test_pinned_bucket_key_wins_over_project(self):

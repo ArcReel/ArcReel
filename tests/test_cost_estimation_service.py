@@ -1852,7 +1852,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_disabled_custom_video_model_estimate_reports_unknown(self, db_factory):
-        """估算模型身份与执行同口径：项目模型被禁用后按能力桶解析闸算悬空引用，不改按该供应商
+        """估算模型身份与执行同口径：项目模型被禁用后按任务类型桶解析闸算悬空引用，不改按该供应商
         默认启用模型出价——那个模型用户没选过，执行期也不会用它（``docs/adr/0054``）。"""
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 

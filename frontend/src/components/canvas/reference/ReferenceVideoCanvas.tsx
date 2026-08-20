@@ -391,7 +391,7 @@ export function ReferenceVideoCanvas({
     episode,
     requestOptions: effectiveRequestOptions,
   });
-  /** 批量准入的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
+  /** 整批准入判定的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
   const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
 
   const enqueue = useCallback(

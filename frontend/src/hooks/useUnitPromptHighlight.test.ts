@@ -69,7 +69,7 @@ describe("tokenizePrompt", () => {
   });
 
   it("does not read curly-brace wrapping as a mention", () => {
-    // `@{名称}` 不是引用语法；花括号照书写层规则读成画外音记号，与后端 split_speech_line 同判。
+    // `@{名称}` 不是引用语法；花括号照引用语法规则读成画外音记号，与后端 split_speech_line 同判。
     const t = tokenizePrompt("@{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions.map((x) => (x.kind === "mention" ? x.name : ""))).toEqual(["角色甲（成年）"]);

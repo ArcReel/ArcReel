@@ -12,9 +12,9 @@ user-invocable: false
 
 | 工具 | 功能 | 调用者 |
 |------|------|--------|
-| `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）、顶层 settings 字段或项目概述（overview 分支） | 子任务 / 主 agent |
-| `mcp__arcreel__rename_asset`（SDK tool） | 级联重命名资产：一次改齐资产表 key、全部剧集剧本与 step1 草稿的名称引用（引用数组 / speaker / `@[名称]` mention）及关联文件与版本历史 | 子任务 / 主 agent |
-| `mcp__arcreel__get_video_capabilities`（SDK tool） | 查视频模型能力（model 粒度，按项目唯一 generation_mode 解析，全项目同一口径，无需指定剧集） | **子任务**（执行任务时自行查询） |
+| `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）、顶层 settings 字段或项目概述（overview 分支） | 子智能体 / 主 agent |
+| `mcp__arcreel__rename_asset`（SDK tool） | 级联重命名资产：一次改齐资产表 key、全部剧集剧本与 step1 草稿的名称引用（引用数组 / speaker / `@[名称]` mention）及关联文件与版本历史 | 子智能体 / 主 agent |
+| `mcp__arcreel__get_video_capabilities`（SDK tool） | 查视频模型能力（model 粒度，按项目唯一 generation_mode 解析，全项目同一口径，无需指定剧集） | **子智能体**（执行任务时自行查询） |
 
 > 分集规划（拆集/调整）由服务端工具 `mcp__arcreel__plan_episodes` / `mcp__arcreel__reset_episode_planning` 完成，调整已规划内容走「重置 + 重新规划」，流程见 video-workflow 阶段 2。
 
@@ -22,7 +22,7 @@ user-invocable: false
 
 经 `mcp__arcreel__patch_project` 工具写入（项目名由 session 绑定，无需传参）。按 table 分别调用，
 每个 entry 以 name 为键 upsert：name 不存在则新增、存在则合并改字段。**修订已有资产描述需用户显式
-意图驱动**（避免静默覆盖人工编辑过的字段）;新增提取由 analyze-assets 子任务负责并默认 skip 已存在的。
+意图驱动**（避免静默覆盖人工编辑过的字段）;新增提取由 analyze-assets 子智能体负责并默认 skip 已存在的。
 
 ```text
 mcp__arcreel__patch_project({"table": "characters", "entries": {"角色名": {"description": "...", "voice_style": "..."}}})
@@ -68,6 +68,6 @@ mcp__arcreel__get_video_capabilities({})
 
 **返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `content_mode` / `generation_mode`；narration / drama 的参考生视频项目另含 `reference_unit_durations`（`with_references` / `without_references` 两套生效档位，按 unit 有无 `@` 引用分别适用）；**ad 项目不返回该字段**——ad 的 unit 是从 `shots[]` 派生的轻量索引，镜头时长不受档位枚举管辖（规则见 `video-workflow/SKILL.ad.md`），不要等待该字段、也不要照档位重排 ad 镜头时长。
 
-**用途**：所有 generation_mode（storyboard / reference_video）的预处理子任务在执行时自查，用于决定单片段 / unit 时长。**决策优先级**（高到低）：硬约束（storyboard 时长必须取自 `supported_durations`；narration / drama 的 reference_video unit 时长必须取自该 unit 引用状态对应的 `reference_unit_durations` 档位；ad 的镜头时长按 `SKILL.ad.md` 的自由整数规则）> `default_duration` 偏好（非 null 时作默认值）> 内容需要（reference_video 按该 unit 内容实际需要的长度取档；narration / drama 长句、复杂画面可取更长值）。装不下时重拆 unit，不违约时长。
+**用途**：所有 generation_mode（storyboard / reference_video）的预处理子智能体在执行时自查，用于决定单片段 / unit 时长。**决策优先级**（高到低）：硬约束（storyboard 时长必须取自 `supported_durations`；narration / drama 的 reference_video unit 时长必须取自该 unit 引用状态对应的 `reference_unit_durations` 档位；ad 的镜头时长按 `SKILL.ad.md` 的自由整数规则）> `default_duration` 偏好（非 null 时作默认值）> 内容需要（reference_video 按该 unit 内容实际需要的长度取档；narration / drama 长句、复杂画面可取更长值）。装不下时重拆 unit，不违约时长。
 
 **错误**：项目未找到或模型能力无法解析时返回 `is_error: true`，文本中包含原因。

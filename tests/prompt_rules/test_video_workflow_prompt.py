@@ -40,7 +40,7 @@ WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
 EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
 
 # ``next_action.type`` 的闭集就是 ``WorkflowActionType``：编排动作、计划注入的动作与
-# ``GenerationAction``（批量准入被拒时原样交回）都在其中。从枚举导出而不是手抄，新增成员
+# ``GenerationAction``（整批准入判定被拒时原样交回）都在其中。从枚举导出而不是手抄，新增成员
 # 时这份契约测试会直接红。
 CONTROLLED_ACTIONS = tuple(action.value for action in WorkflowActionType)
 
@@ -133,7 +133,7 @@ def test_narration_audio_skill_covers_the_tts_actions() -> None:
         assert code in content
 
 
-# ------------------------------------------------------------------- 批量准入
+# ------------------------------------------------------------------- 整批准入判定
 
 
 def test_plan_reference_covers_every_admission_decision() -> None:

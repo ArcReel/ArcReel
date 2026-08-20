@@ -160,7 +160,7 @@ class ImageLaneRequest:
 class VideoLaneRequest:
     """声明当前任务需要 video lane。
 
-    ``capability`` 决定 i2v / r2v 能力桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
+    ``capability`` 决定 i2v / r2v 任务类型桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
     参考生视频按镜头解析后的实际参考图分流——有参考图 → r2v，无参考图的退化镜头降级
     → i2v（由 executor 判定后声明，见 ``lib.reference_video.units``）。None = 不定桶，
     走旧三级解析且不过能力闸——供 resume 等按 payload 排空、不承诺能力的路径使用。

@@ -178,7 +178,7 @@ async def resolve_video_execution_for_queued_task(
     payload: dict[str, Any] | None,
     resource_id: str | None,
 ) -> tuple[ProviderModel, VideoCapability | None]:
-    """解析队列视频任务的当前身份与能力桶，供入队 advisory 和 worker 限流共用。"""
+    """解析队列视频任务的当前身份与任务类型桶，供入队 advisory 和 worker 限流共用。"""
 
     projection = (
         await reference_projection_for_queued_task(

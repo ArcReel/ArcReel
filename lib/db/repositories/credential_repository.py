@@ -64,7 +64,7 @@ class CredentialRepository(BaseRepository):
         return await self.get_active(provider) is not None
 
     async def get_active_credentials_bulk(self) -> dict[str, ProviderCredential]:
-        """批量获取所有供应商的活跃凭证。"""
+        """批量获取所有供应商的生效凭证。"""
         stmt = select(ProviderCredential).where(
             ProviderCredential.is_active == True,  # noqa: E712
         )
@@ -113,7 +113,7 @@ class CredentialRepository(BaseRepository):
             cred.secret_key = secret_key  # type: ignore[assignment]
 
     async def delete(self, cred_id: int) -> None:
-        """删除凭证。若删除的是活跃凭证，自动将最早的另一条设为活跃。"""
+        """删除凭证。若删除的是生效凭证，自动将最早的另一条设为活跃。"""
         cred = await self.get_by_id(cred_id)
         if cred is None:
             return

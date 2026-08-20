@@ -29,7 +29,7 @@ ModelCapability = Literal[
     "text_generation",
     "structured_output",  # 消费点：文本 backend 结构化输出探测
     "vision",  # 消费点：文本解析的 vision 闸（lib/config/resolver.py）
-    "text_to_image",  # 消费点：图片能力桶判定（lib/capability_buckets.py）
+    "text_to_image",  # 消费点：图片任务类型桶判定（lib/capability_buckets.py）
     "image_to_image",  # 消费点：同上
     "generate_audio",  # 消费点：音轨开关判定（语义见 model_audio_switch_controllable 的 docstring）
     "text_to_speech",
@@ -41,7 +41,7 @@ class ModelInfo:
     display_name: str
     media_type: str
     # 能力 token（词汇表见 ModelCapability）。图片模型的 text_to_image / image_to_image 是
-    # 能力桶判定的真相源；视频模型的输入模式（t2v / i2v / r2v）与参考图上限一概不在此声明——
+    # 任务类型桶判定的真相源；视频模型的输入模式（t2v / i2v / r2v）与参考图上限一概不在此声明——
     # 它们的真相源是各 backend 的 VideoCapabilities 与请求期 gate，与请求构造同源。
     # 补一份视频输入模式或参考图上限声明即引入第二份手写来源，由
     # tests/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。

@@ -904,7 +904,7 @@ async def test_step2_violation_quarantines_instead_of_discarding(reference_proje
     envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
     assert envelope["kind"] == QUARANTINE_KIND_STEP2
     assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset"]
-    # 草稿装的是扁平书写层产物（agent 要改的那一层）
+    # 草稿装的是扁平引用语法产物（agent 要改的那一层）
     assert envelope["content"]["units"][0]["text"] == BAD_STEP2_UNIT_TEXT
 
 

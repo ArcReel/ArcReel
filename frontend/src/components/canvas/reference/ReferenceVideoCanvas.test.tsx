@@ -1100,7 +1100,7 @@ describe("ReferenceVideoCanvas", () => {
 
   // 批量的三种结局都是评估成功：admitted 已建任务，confirmation_required 与 blocked
   // 一个任务也没建，界面必须把「为什么没开始」讲全，而不是塌成一句通用错误。
-  describe("批量准入结论", () => {
+  describe("整批准入判定", () => {
     const BATCH_CONFIRM_CTA = /Generate at these lengths|按这些档位生成/;
 
     async function clickBatch() {

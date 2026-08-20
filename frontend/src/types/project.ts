@@ -155,11 +155,11 @@ export interface ProjectData {
   /** Project summary projection, injected at read time */
   status?: ProjectStatus;
   video_backend?: string | null;
-  /** 视频能力桶（docs/adr/0054）项目级覆盖；空值 = 回退 video_backend 与全局层 */
+  /** 视频任务类型桶（docs/adr/0054）项目级覆盖；空值 = 回退 video_backend 与全局层 */
   video_provider_i2v?: string | null;
   video_provider_r2v?: string | null;
   image_backend?: string | null;
-  /** 项目默认图片模型；图片能力桶留空时回退到它，再回退全局层 */
+  /** 项目默认图片模型；图片任务类型桶留空时回退到它，再回退全局层 */
   default_image_backend?: string | null;
   image_provider_t2i?: string | null;
   image_provider_i2i?: string | null;

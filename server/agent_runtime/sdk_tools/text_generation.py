@@ -1084,7 +1084,7 @@ def _render_step1_conflict_report(
 
 
 def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
-    """正式 step1 的结构化 unit 表 → 隔离草稿装的扁平书写层（``_build_reference_units_from_flat`` 的逆向）。
+    """正式 step1 的结构化 unit 表 → 隔离草稿装的扁平引用语法（``_build_reference_units_from_flat`` 的逆向）。
 
     ``unit_id`` 不进草稿：它是按数组序号机械编号的派生物，草稿是给 agent 改的那一层，带上
     派生字段等于给漂移开口子。
@@ -1113,7 +1113,7 @@ def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
 
 
 def _reference_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式参考 step1 内容 → 隔离草稿装的书写层形状；不是合法 step1 时返回 None。"""
+    """正式参考 step1 内容 → 隔离草稿装的引用语法形状；不是合法 step1 时返回 None。"""
     units = content.get("units")
     if not isinstance(units, list) or not units:
         return None
@@ -1121,7 +1121,7 @@ def _reference_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | No
 
 
 def _drama_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式 drama step1 内容 → 隔离草稿装的书写层形状；不是合法 step1 时返回 None。
+    """正式 drama step1 内容 → 隔离草稿装的引用语法形状；不是合法 step1 时返回 None。
 
     只剥 ``needs_replan``：它是按台词准入机械派生的标记，让 agent 编辑派生物等于给漂移开
     口子——晋升时照样按 ``content`` 现值重新派生。其余字段原样带过，包括 ``scene_id``：它是
@@ -1334,7 +1334,7 @@ async def _open_drama_step1_for_edit(ctx: ToolContext, episode: int, source: str
 def open_step1_for_edit_tool(ctx: ToolContext):
     @tool(
         STEP1_EDIT_TOOL_NAME,
-        "把本集已落盘的正式 step1 取回可编辑的隔离草稿（书写层：参考生视频为时长 + 原文锚 + 正文，"
+        "把本集已落盘的正式 step1 取回可编辑的隔离草稿（引用语法：参考生视频为时长 + 原文锚 + 正文，"
         "drama 为场景内容），用于修改已有产出。改完调用 "
         f"{PROMOTE_TOOL_NAME} 全量校验并晋升回正式文件。"
         "正式 step1 不可用 Write/Edit 直改——它与 Web 端保存、迁移、重生成共享一把文件锁，"
@@ -1479,7 +1479,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
 def split_reference_video_units_tool(ctx: ToolContext):
     @tool(
         "split_reference_video_units",
-        "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + 原文锚 + 书写层正文），"
+        "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + 原文锚 + 引用语法正文），"
         "保存到 drafts/episode_N/step1_reference_units.json，供 generate_episode_script"
         "（reference_video 模式）消费。unit_id 由工具按序号机械派生，"
         "并校验原文锚、正文语法、资产引用与台词量。dry_run=true 时仅返回 prompt。",
@@ -1561,7 +1561,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 }
 
             # 结构化输出：response_schema 按 supported_durations 卡死 unit 时长枚举，产出扁平
-            # unit → 时长 + 原文锚 + 书写层正文；unit_id 不进 LLM 输出、
+            # unit → 时长 + 原文锚 + 引用语法正文；unit_id 不进 LLM 输出、
             # 由下方机械派生（正文内的语法则由 parser 后校验兜底，schema 管不到）。
             schema = build_reference_units_step1_model(split_caps.durations)
             generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=ctx.project_name)
