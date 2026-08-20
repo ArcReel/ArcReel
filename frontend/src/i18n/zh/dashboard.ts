@@ -1310,6 +1310,8 @@ export default {
   'reference_step1_edit_done': '完成编辑',
   'reference_step1_quarantined_unit_hint': '本视频单元的修复由 Agent 在草稿上完成，晋升后此处更新。',
   'reference_step1_status_quarantined': '待修复草稿 — 拆分未通过校验',
+  'reference_step1_status_editable': '可编辑草稿 — 等待校验晋升',
+  'reference_step1_editable_hint': '已有修改保留在草稿中，校验晋升后才能继续',
   'reference_step1_unassigned_violations': '另有 {{count}} 条违约无法定位到具体视频单元',
   'reference_step1_unanchored_section': '无法锚定的违约',
   'reference_step1_unit_stats': '{{utterances}} 句台词',
@@ -1318,6 +1320,7 @@ export default {
   'reference_step1_duration_option': '{{seconds}} 秒',
   'reference_step1_click_to_locate': '点击定位',
   'reference_step1_request_fix': '让 Agent 修复',
+  'reference_step1_request_promote': '让 Agent 校验并晋升',
   'reference_step1_confirm_continue': '确认拆分，继续生成',
   'reference_step1_confirm_blocked_hint': '存在阻断违约，修复晋升后才能确认',
   'reference_step1_duration_out_of_tier': '档位已失效',
@@ -1326,7 +1329,7 @@ export default {
   'reference_step1_fix_request_prefill_header':
     '第 {{episode}} 集参考生视频的内容整理草稿有 {{count}} 处违约待修复，请直接编辑待修复草稿修正：',
   'reference_step1_fix_request_promote_prefill':
-    '第 {{episode}} 集参考生视频的内容整理草稿重新校验已无违约，仍是待修复草稿，请调用 validate_and_promote_draft 晋升为正式内容。',
+    '第 {{episode}} 集参考生视频的内容整理结果当前为可编辑草稿；请保留已有修改，并调用 validate_and_promote_draft 校验晋升为正式内容。',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

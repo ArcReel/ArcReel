@@ -451,6 +451,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
           .map((u) => u.key),
       );
   const allViolations = quarantine?.violations ?? [];
+  const hasDraftViolations = allViolations.length > 0;
   const unitKeys = new Set(displayUnits.map((u) => u.key));
   const unassignedViolations = allViolations.filter((v) => !unitKeys.has(unitKeyFromLabel(v.label) ?? ""));
   const violatingUnitKeys = [...new Set(allViolations.map((v) => unitKeyFromLabel(v.label)).filter((k): k is string => k != null))];
@@ -469,8 +470,10 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         style={CARD_STYLE}
       >
         <div className="flex items-center gap-2">
-          {quarantined ? (
+          {quarantined && hasDraftViolations ? (
             <OctagonAlert className="h-4 w-4 shrink-0 text-red-400" />
+          ) : quarantined ? (
+            <Clock className="h-4 w-4 shrink-0 text-amber-400" />
           ) : confirmed ? (
             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
           ) : (
@@ -479,13 +482,13 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
           <div className="flex flex-col">
             <span className="text-[12.5px] font-medium text-text">
               {quarantined
-                ? t("reference_step1_status_quarantined")
+                ? t(hasDraftViolations ? "reference_step1_status_quarantined" : "reference_step1_status_editable")
                 : confirmed
                   ? t("dashboard:review_status_confirmed")
                   : t("dashboard:review_status_pending")}
             </span>
             <span className="text-[11px] text-text-4">
-              {quarantined ? (
+              {quarantined && hasDraftViolations ? (
                 <>
                   {violatingUnitKeys.map((key, i) => (
                     <span key={key}>
@@ -504,6 +507,8 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
                   )}
                   <span> — {t("reference_step1_click_to_locate")}</span>
                 </>
+              ) : quarantined ? (
+                t("reference_step1_editable_hint")
               ) : confirmed ? (
                 t("dashboard:review_confirmed_hint")
               ) : (
@@ -516,7 +521,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         <div className="flex shrink-0 items-center gap-2">
           {quarantined && (
             <button type="button" onClick={handleRequestFix} className={GHOST_BTN_CLS}>
-              {t("reference_step1_request_fix")}
+              {t(hasDraftViolations ? "reference_step1_request_fix" : "reference_step1_request_promote")}
             </button>
           )}
           {!quarantined && dirty && (
@@ -533,7 +538,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
             style={ACCENT_BUTTON_STYLE}
             title={
               quarantined
-                ? t("reference_step1_confirm_blocked_hint")
+                ? t(hasDraftViolations ? "reference_step1_confirm_blocked_hint" : "reference_step1_editable_hint")
                 : outOfTierUnitKeys.size > 0
                   ? t("reference_step1_duration_out_of_tier_hint")
                   : undefined

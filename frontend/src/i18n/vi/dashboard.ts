@@ -1285,6 +1285,8 @@ export default {
   'reference_step1_edit_done': 'Hoàn tất chỉnh sửa',
   'reference_step1_quarantined_unit_hint': 'Đơn vị video này đang được Agent sửa trên bản nháp, giao diện sẽ cập nhật sau khi được thăng cấp.',
   'reference_step1_status_quarantined': 'Bản nháp cần sửa — chia không qua kiểm tra',
+  'reference_step1_status_editable': 'Bản nháp có thể chỉnh sửa — đang chờ kiểm tra và thăng cấp',
+  'reference_step1_editable_hint': 'Các thay đổi hiện có được giữ trong bản nháp; hãy kiểm tra và thăng cấp để tiếp tục',
   'reference_step1_unassigned_violations': 'Còn {{count}} vi phạm không xác định được đơn vị video cụ thể',
   'reference_step1_unanchored_section': 'Vi phạm không xác định được vị trí',
   'reference_step1_unit_stats': '{{utterances}} lời thoại',
@@ -1293,6 +1295,7 @@ export default {
   'reference_step1_duration_option': '{{seconds}} giây',
   'reference_step1_click_to_locate': 'nhấn để định vị',
   'reference_step1_request_fix': 'Nhờ Agent sửa',
+  'reference_step1_request_promote': 'Nhờ Agent kiểm tra và thăng cấp',
   'reference_step1_confirm_continue': 'Xác nhận chia, tiếp tục tạo',
   'reference_step1_confirm_blocked_hint': 'Còn vi phạm chặn — chỉ xác nhận được sau khi sửa và thăng cấp',
   'reference_step1_duration_out_of_tier': 'Mức thời lượng không còn hợp lệ',
@@ -1301,7 +1304,7 @@ export default {
   'reference_step1_fix_request_prefill_header':
     'Bản nháp tổ chức nội dung video từ ảnh tham chiếu của tập {{episode}} có {{count}} vi phạm cần sửa, hãy chỉnh sửa trực tiếp bản nháp cần sửa để khắc phục:',
   'reference_step1_fix_request_promote_prefill':
-    'Bản nháp tổ chức nội dung video từ ảnh tham chiếu của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn cần sửa — hãy gọi validate_and_promote_draft để thăng cấp nó.',
+    'Kết quả tổ chức nội dung video từ ảnh tham chiếu của tập {{episode}} hiện là bản nháp có thể chỉnh sửa. Hãy giữ các thay đổi hiện có, rồi gọi validate_and_promote_draft để kiểm tra và thăng cấp thành nội dung chính thức.',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

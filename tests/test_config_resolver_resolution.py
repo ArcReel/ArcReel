@@ -63,7 +63,7 @@ async def _add_custom_video_model(db_session: AsyncSession, model_id: str, resol
     return make_provider_id(provider.id)
 
 
-# --- 纯项目字典优先级（非自定义 provider，DB 默认恒 None） ---
+# --- 纯项目字典优先级（非自定义供应商，DB 默认恒 None） ---
 
 
 @pytest.mark.unit

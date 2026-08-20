@@ -405,10 +405,15 @@ describe("ReferenceStep1PreviewPanel", () => {
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "让 Agent 修复" }));
+    expect(await screen.findByText("可编辑草稿 — 等待校验晋升")).toBeInTheDocument();
+    expect(screen.queryByText("待修复草稿 — 拆分未通过校验")).not.toBeInTheDocument();
+    expect(screen.getByText("已有修改保留在草稿中，校验晋升后才能继续")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "让 Agent 校验并晋升" }));
 
     const input = useAssistantStore.getState().input;
     expect(input).toContain("validate_and_promote_draft");
+    expect(input).toContain("可编辑草稿");
     expect(input).not.toContain("1. ");
     // 禁用判据是待处置草稿文件是否在场，不是重算后的违约数量——违约为空但草稿仍在场时确认依旧禁用。
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();

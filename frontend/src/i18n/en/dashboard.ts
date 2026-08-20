@@ -1311,6 +1311,8 @@ export default {
   'reference_step1_edit_done': 'Done editing',
   'reference_step1_quarantined_unit_hint': 'This video unit is being fixed by the agent on the draft; this view updates once it is promoted.',
   'reference_step1_status_quarantined': 'Draft needing fixes — split failed validation',
+  'reference_step1_status_editable': 'Editable draft — awaiting validation and promotion',
+  'reference_step1_editable_hint': 'Existing changes are preserved in the draft; validate and promote it to continue',
   'reference_step1_unassigned_violations': '{{count}} more violation(s) could not be located to a specific video unit',
   'reference_step1_unanchored_section': 'Violations without a location',
   'reference_step1_unit_stats': '{{utterances}} spoken lines',
@@ -1319,6 +1321,7 @@ export default {
   'reference_step1_duration_option': '{{seconds}}s',
   'reference_step1_click_to_locate': 'click to locate',
   'reference_step1_request_fix': 'Ask the agent to fix it',
+  'reference_step1_request_promote': 'Ask the agent to validate and promote',
   'reference_step1_confirm_continue': 'Confirm split, continue generating',
   'reference_step1_confirm_blocked_hint': 'Blocking violations are present — confirm once they are fixed and promoted',
   'reference_step1_duration_out_of_tier': 'Tier no longer valid',
@@ -1327,7 +1330,7 @@ export default {
   'reference_step1_fix_request_prefill_header':
     'Episode {{episode}}’s reference-to-video content organization draft has {{count}} violation(s) to fix — please edit the draft needing fixes directly to correct them:',
   'reference_step1_fix_request_promote_prefill':
-    'Episode {{episode}}’s reference-to-video content organization draft now revalidates with no violations but still needs fixes — please call validate_and_promote_draft to promote it.',
+    'Episode {{episode}}’s reference-to-video content organization result is currently an editable draft. Preserve its existing changes, then call validate_and_promote_draft to validate and promote it to official content.',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

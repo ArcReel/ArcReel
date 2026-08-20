@@ -222,7 +222,7 @@ export function lookupProjectVideoResolution(
 }
 
 /** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。
- *  自定义 provider 路径需要从 endpoint 推 media_type 选标准分辨率集；该 map 由调用方
+ *  自定义供应商路径需要从 endpoint 推 media_type 选标准分辨率集；该 map 由调用方
  *  从 endpoint-catalog-store 读出注入（保持本文件无 store 副作用）。 */
 export function lookupResolutions(
   providers: ProviderInfo[],
