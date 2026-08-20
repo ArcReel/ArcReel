@@ -291,7 +291,7 @@ def _payload_video_pinned_pair(
 def caps_generation_mode(project: dict | None) -> str | None:
     """能力查询口径的 generation_mode：直读项目字段，无项目上下文时为 None。
 
-    生成路线创建即定、整个项目按同一条路径生成，能力解析因此不需要剧集上下文：定桶、声音
+    生成模式创建即定、整个项目按同一条路径生成，能力解析因此不需要剧集上下文：定桶、声音
     一致性、以及下游按 caps ``generation_mode`` 求值的分辨率与参考图约束全部按项目路线定轴。
 
     返回 None 而非默认档，是因为 ``generation_mode`` 是 caps 的对外字段（回前端与智能体）：
@@ -891,7 +891,7 @@ class ConfigResolver:
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
-              "generation_mode": str | None,       # 项目生成路线（无项目上下文时 None）
+              "generation_mode": str | None,       # 项目生成模式（无项目上下文时 None）
               "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode 二维派生
             }
 
@@ -937,7 +937,7 @@ class ConfigResolver:
         入参身份仍会再收敛一次（口径同 ``resolve_video_backend``），因此直接传字面配置也能
         拿到有效身份的能力；自定义供应商无可用默认 model 时抛 ``ValueError``。
 
-        声音一致性等二维值按 ``project`` 的生成路线派生。
+        声音一致性等二维值按 ``project`` 的生成模式派生。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project)

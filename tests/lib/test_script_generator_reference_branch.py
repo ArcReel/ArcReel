@@ -126,7 +126,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    # 参考生视频剧本 content_mode 继承项目级 narration/drama；生成路线是项目级事实，
+    # 参考生视频剧本 content_mode 继承项目级 narration/drama；生成模式是项目级事实，
     # 剧本不落盘任何路线戳。
     assert data["content_mode"] == "narration"
     assert "generation_mode" not in data

@@ -74,7 +74,7 @@ export default {
   'delete_file': 'Xóa tệp',
   'lorebook': 'Sổ tri thức',
   'no_episodes_yet': 'Chưa có tập nào',
-  'preprocessing': 'Tiền xử lý',
+  'preprocessing': 'Tổ chức nội dung',
   'confirm_delete_file': 'Bạn có chắc muốn xóa "{{name}}"?',
   'agents': 'Tác nhân AI',
   'providers': 'Nhà cung cấp',
@@ -1051,7 +1051,7 @@ export default {
   'cost_storyboard_short': 'Phân cảnh',
   'cost_video_short': 'Video',
   'cost_total_short': 'Tổng',
-  'preprocessing_tab': 'Tiền xử lý',
+  'preprocessing_tab': 'Tổ chức nội dung',
   'timeline_no_editable_segments': 'Kịch bản tập này không có cảnh quay nào để chỉnh sửa',
   'timeline_script_not_ready': 'Chưa tạo kịch bản — hãy hoàn tất xác nhận nội dung ở bước Tổ chức nội dung trước',
   'timeline_tab': 'Dòng thời gian kịch bản',
@@ -1061,8 +1061,8 @@ export default {
   'no_original_text': '(Chưa có văn bản gốc)',
   'duration_selector_aria': 'Chọn thời lượng',
 
-  'loading_preprocessing': 'Đang tải nội dung tiền xử lý...',
-  'no_preprocessing_content': 'Không có nội dung tiền xử lý',
+  'loading_preprocessing': 'Đang tải kết quả tổ chức nội dung...',
+  'no_preprocessing_content': 'Không có kết quả tổ chức nội dung',
   'reference_tab_editor': 'Kịch bản',
   'reference_tab_preview': 'Video',
   'reference_tab_aria': 'Tab bảng đơn vị tham chiếu',
@@ -1070,7 +1070,7 @@ export default {
   // ArcReel Workbench v3 — Video Tham Chiếu
   'reference_main_tab_aria': 'Tab chính của workspace',
   'reference_tab_units': 'Đơn vị video',
-  'reference_tab_preprocess': 'Tiền xử lý tách',
+  'reference_tab_preprocess': 'Tổ chức nội dung',
   'reference_batch_generate': 'Tạo hàng loạt',
   'reference_batch_nothing_to_do': 'Tất cả đơn vị đã được tạo hoặc đang xử lý',
   'reference_generate_busy': 'Đơn vị này đang được tạo, vui lòng thử lại sau',
@@ -1244,7 +1244,7 @@ export default {
   'line_placeholder': 'Câu thoại',
   'add_dialogue': 'Thêm đối thoại',
   'dialogue_remove': 'Xoá đối thoại',
-  // step1 → step2 review gate
+  // step1 → step2 content confirmation
   'utterance_kind_dialogue': 'Lời thoại',
   'utterance_kind_voiceover': 'Lời dẫn',
   'utterance_toggle_kind': 'Chuyển giữa lời thoại và lời dẫn',
@@ -1275,7 +1275,7 @@ export default {
   'review_saved': 'Đã lưu bản nháp tổ chức nội dung',
   'review_confirmed': 'Đã xác nhận — đã mở khoá tạo hình ảnh',
   'review_confirm_failed': 'Không thể xác nhận, vui lòng thử lại',
-  'review_load_failed': 'Không thể tải nội dung tiền xử lý',
+  'review_load_failed': 'Không thể tải kết quả tổ chức nội dung',
   'review_retry': 'Thử lại',
 
   // ReferenceStep1PreviewPanel (xem trước theo tập, biến thể step1 của reference_video)
@@ -1339,7 +1339,7 @@ export default {
   'grid_preview_summary': '{{batches}} đợt · {{cells}} ô · {{percent}}% sẵn sàng',
   'grid_preview_batch_card_title': 'Đợt #{{index}} · {{cellCount}} ô · {{rows}}×{{cols}}',
   'grid_preview_batch_generate': 'Tạo phân cảnh đa lưới này',
-  'grid_preview_empty_episode': 'Tập này chưa có phân cảnh — hãy chia kịch bản trong Tiền xử lý trước',
+  'grid_preview_empty_episode': 'Tập này chưa có phân cảnh — hãy tổ chức nội dung trước',
 
   // OpenClaw integration modal
   'openclaw_title': 'Hướng dẫn tích hợp OpenClaw',
@@ -1548,7 +1548,7 @@ export default {
   'source_files_drop_inline_hint': 'Thả thêm tệp để bổ sung',
   'source_open': 'Mở',
   'source_unsupported_extension': 'Loại tệp không được hỗ trợ: {{filename}}',
-  'tab_preprocessing': 'Tiền xử lý',
+  'tab_preprocessing': 'Tổ chức nội dung',
   'tab_timeline': 'Cảnh quay',
   'task_hud_subtitle': 'Queue · Worker Status',
   'task_hud_title': 'Task Radar',

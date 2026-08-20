@@ -316,7 +316,7 @@ async def resolve_generation_context(
     查询失败降级空值放行。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
     持有项目路径的事务传入，避免同步事务解析当前配置时嵌套占用默认线程池。本函数不读项目。
 
-    video lane 的定桶随 ``VideoLaneRequest.capability``：None 时按项目生成路线解析（见
+    video lane 的定桶随 ``VideoLaneRequest.capability``：None 时按项目生成模式解析（见
     ``lib.config.resolver.caps_generation_mode``）——路线创建即定、整个项目按同一条路径生成，
     声音一致性等二维派生值因此不需要集号；显式给定时按指定桶解析（参考路线内按镜头分流的
     调用方自带判定结果）。

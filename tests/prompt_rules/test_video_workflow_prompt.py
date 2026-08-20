@@ -70,14 +70,14 @@ def test_variants_route_through_the_registered_plan_tool(filename: str) -> None:
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
 def test_variants_do_not_name_the_preprocessor_subagents_themselves(filename: str) -> None:
-    """预处理 subagent 由计划的 ``next_action.args.preprocessor`` 指名，档案侧不得再推一遍。"""
+    """内容整理 subagent 由计划的 ``next_action.args.preprocessor`` 指名，档案侧不得再推一遍。"""
 
     content = _skill(filename)
 
     for rule in WORKFLOW_RULES.values():
         if rule.preprocessor is not None:
             assert rule.preprocessor not in content, (
-                f"{filename} 硬编码了预处理 subagent {rule.preprocessor}；应改读 next_action.args.preprocessor"
+                f"{filename} 硬编码了内容整理 subagent {rule.preprocessor}；应改读 next_action.args.preprocessor"
             )
 
 

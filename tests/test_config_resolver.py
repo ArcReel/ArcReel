@@ -1921,7 +1921,7 @@ class TestStyleAnalysisVisionGuard:
 
 
 class TestProjectGenerationModeCaps:
-    """能力解析按项目生成路线定轴：路线创建即定、全项目一条，能力不需要剧集上下文。"""
+    """能力解析按项目生成模式定轴：路线创建即定、全项目一条，能力不需要剧集上下文。"""
 
     async def _caps(self, project: dict) -> dict:
         factory, engine = await _make_session()

@@ -7447,7 +7447,7 @@ async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolCon
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_refuses_to_clobber_existing_draft(fake_ctx: ToolContext, monkeypatch) -> None:
-    """已有草稿在场时不覆盖：那份草稿可能已含 agent 未晋升的修改（或是待处置的违约产物），
+    """已有草稿在场时不覆盖：那份草稿可能已含 agent 未晋升的修改（或本就是待修复草稿），
     拿正式文件盖过去等于抹掉它手上的工作。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
@@ -7860,7 +7860,7 @@ async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: To
 
 @pytest.mark.unit
 async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx: ToolContext, monkeypatch) -> None:
-    """step1 未经确认时 step2 草稿不晋升：常规生成路径在工具入口就被 gate 拦，两条路不该分叉。
+    """step1 未经确认时 step2 草稿不晋升：常规生成路径在工具入口就被内容确认拦下，两条路不该分叉。
 
     草稿在场期间用户在 Web 端改过 step1 会让确认指纹失效，该集回到 pending_review——此时晋升等于
     拿一份用户没确认过的 step1 合成正式剧本。
@@ -7896,7 +7896,7 @@ async def test_validate_and_promote_draft_without_draft(fake_ctx: ToolContext, m
 async def test_split_reference_video_units_clears_stale_quarantine_on_success(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """重拆分成功即清掉上一轮的草稿——留着会让 gate 与生成侧继续阻塞在已被取代的产物上。"""
+    """重拆分成功即清掉上一轮的草稿——留着会让内容确认与生成侧继续阻塞在已被取代的产物上。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
     assert _rv_quarantine_path(fake_ctx).exists()

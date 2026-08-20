@@ -62,7 +62,7 @@ export interface ReferenceVideoCanvasProps {
   canEditTitle?: boolean;
   /** step2 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
   hasScript?: boolean;
-  /** ad 参考路线一阶段产出，不展示 step1 预处理页。 */
+  /** ad 参考路线一阶段产出，不展示 step1 内容整理页。 */
   showPreprocess?: boolean;
   /** unit 时长为自由正整数，不用供应商档位作为编排限制。 */
   freeDuration?: boolean;

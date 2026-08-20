@@ -1002,7 +1002,7 @@ class TestProjectsRouter:
             assert off.status_code == 200
             assert fake_pm.project_data["ready"]["grid_storyboard"] is False
 
-            # 生成路线创建即定：项目 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘
+            # 生成模式创建即定：项目 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘
             route = client.patch("/api/v1/projects/ready", json={"generation_mode": "reference_video"})
             assert route.status_code == 200
             assert fake_pm.project_data["ready"]["generation_mode"] == "storyboard"
@@ -2421,7 +2421,7 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_patch_project_episodes_has_no_route_field(self, tmp_path, monkeypatch):
-        """生成路线按项目定轴：集级 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘。"""
+        """生成模式按项目定轴：集级 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘。"""
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["episodes"] = [
             {"episode": 1, "title": "第一集", "script_file": "scripts/ep1.json"},

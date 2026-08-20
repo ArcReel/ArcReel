@@ -378,7 +378,7 @@ class Utterance(BaseModel):
     """drama 场景级有序发声条目：插入顺序即幕内时序（台词与画外音的先后）。
 
     判别式联合 ``{kind, speaker, text}``，``kind`` 决定下游路由与 ``kind ⇄ speaker`` 约束：
-    - ``dialogue``：人物发声（对白、内心独白、人物画外解说），必带非空 ``speaker``，
+    - ``dialogue``：角色发声（对白、内心独白、人物画外解说），必带非空 ``speaker``，
       进视频 YAML 交供应商出口型音轨；
     - ``voiceover``：无说话人的旁白解说，``speaker`` 必为 ``None``，不作视频提示词（留给字幕 / TTS）。
 
@@ -388,7 +388,7 @@ class Utterance(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    kind: UtteranceKind = Field(description="发声类型：dialogue=带角色归属的人物发声、voiceover=无角色归属的叙述旁白")
+    kind: UtteranceKind = Field(description="发声类型：dialogue=带角色归属的角色发声、voiceover=无角色归属的叙述旁白")
     speaker: str | None = Field(default=None, description="说话角色名；dialogue 必填非空、voiceover 必须为 null")
     text: str = Field(description="发声内容原文，逐字保留")
 
@@ -898,7 +898,7 @@ class ReferenceStep1Unit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
     )
-    # 逐字原文锚：拆分工具校验其为源文子串后原样落盘，供 gate 对照与失真定位。
+    # 逐字原文锚：拆分工具校验其为源文子串后原样落盘，供内容确认时对照与失真定位。
     # 默认空串：不带该字段的存量草稿照常通过校验。
     source_text: SkipJsonSchema[str] = Field(default="", description="该 unit 所依据的逐字原文摘录（追溯锚）")
 

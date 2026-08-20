@@ -177,7 +177,7 @@ class CreateProjectRequest(BaseModel):
     target_duration: int | None = Field(default=None, gt=0)
     # 仅 content_mode=ad：创作诉求短文本（可空，不走 source_loader）
     brief: str | None = None
-    # 生成路线：必填二选一、无默认值——缺失或旧三值 grid 由 Pydantic 校验返回 422，
+    # 生成模式：必填二选一、无默认值——缺失或旧三值 grid 由 Pydantic 校验返回 422，
     # 不再被默认值悄悄锁进某条路线。创建后不可更改（PATCH 模型结构上无此字段）。
     generation_mode: Literal["storyboard", "reference_video"]
     # 宫格分镜开关：只改变分镜图的生产方式，不是独立路线；仅 storyboard 路线有意义，
@@ -221,7 +221,7 @@ class UpdateProjectRequest(BaseModel):
     target_duration: int | None = Field(default=None, gt=0)
     # 仅 ad 项目：创作诉求短文本；显式 null 清为空字符串
     brief: str | None = None
-    # 生成路线创建即定、不可变，PATCH 结构上无 generation_mode 字段；宫格开关随时可切
+    # 生成模式创建即定、不可变，PATCH 结构上无 generation_mode 字段；宫格开关随时可切
     grid_storyboard: bool | None = None
     video_backend: str | None = None
     video_provider_i2v: str | None = None
@@ -625,7 +625,7 @@ async def create_project(
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
-            # 生成路线与宫格开关并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW；
+            # 生成模式与宫格开关并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW；
             # 两字段恒写显式值（grid_storyboard 默认 false 也落盘），新项目即 v5 完整形态
             extras["generation_mode"] = req.generation_mode
             extras["grid_storyboard"] = req.grid_storyboard
@@ -669,14 +669,14 @@ async def get_video_capabilities(
 
     三级模型选择（项目 > 系统设置 > 系统默认）后，读 model 的 `supported_durations`
     并派生 `max_duration`；同时带回 `project.json.default_duration`（用户偏好）。
-    两条生成路线（storyboard/reference_video）都可复用。
+    两条生成模式（storyboard/reference_video）都可复用。
 
     `video_backend`（"provider/model"）用于设置表单里尚未保存的候选模型：不带该参数时按已
-    落盘配置解析，带上则按候选模型 × 本项目的生成路线解析，使 voice_consistency 等二维派生值
+    落盘配置解析，带上则按候选模型 × 本项目的生成模式解析，使 voice_consistency 等二维派生值
     对应用户当前选中的模型而非上一次保存的模型。裸 provider（无 "/"）按其 registry
     默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
 
-    能力按项目生成路线定轴、全项目同一口径，故无需集号：路线创建即定、之后不可更改。
+    能力按项目生成模式定轴、全项目同一口径，故无需集号：路线创建即定、之后不可更改。
     """
     resolver = ConfigResolver(async_session_factory)
     try:

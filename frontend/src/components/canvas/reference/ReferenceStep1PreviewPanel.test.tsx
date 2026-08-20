@@ -208,7 +208,7 @@ describe("ReferenceStep1PreviewPanel", () => {
       duration_tiers: null,
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    await waitFor(() => expect(screen.getByText("暂无预处理内容")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("暂无内容整理结果")).toBeInTheDocument());
   });
 
   it("edits the unit body in the non-quarantined state and persists the units draft", async () => {

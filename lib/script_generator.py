@@ -186,7 +186,7 @@ class ScriptGenerator:
 
     @property
     def generation_mode(self) -> str | None:
-        """项目生成路线（project.json 顶层字段）：创建即定、之后不可变，不随集号变化。"""
+        """项目生成模式（project.json 顶层字段）：创建即定、之后不可变，不随集号变化。"""
         return self.project_json.get("generation_mode")
 
     def _episode_entry(self, episode: int) -> dict:
@@ -228,7 +228,7 @@ class ScriptGenerator:
             output_filename: 输出文件名，默认 episode_{episode}.json。剧本一律经写盘统一入口写入
                 项目 scripts/ 目录，故此参数只决定文件名、不接受目录。
             instructions: 用户输入的生成意见原文；非空时以中性「用户意见」分节追加到
-                prompt 末尾（遵循强度由正文表达），所有 content_mode / 生成路线同口径。
+                prompt 末尾（遵循强度由正文表达），所有 content_mode / 生成模式同口径。
 
         Returns:
             生成的 JSON 文件路径
@@ -900,7 +900,7 @@ class ScriptGenerator:
 
         if not step1_path.exists():
             raise FileNotFoundError(
-                f"未找到 Step 1 中间文件: {step1_path}；content_mode={self.content_mode} 期望该文件，请先完成本集预处理"
+                f"未找到 Step 1 中间文件: {step1_path}；content_mode={self.content_mode} 期望该文件，请先完成本集内容整理"
             )
 
         raw = step1_path.read_bytes()

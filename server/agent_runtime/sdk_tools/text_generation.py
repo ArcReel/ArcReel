@@ -1300,7 +1300,7 @@ async def _open_drama_step1_for_edit(ctx: ToolContext, episode: int, source: str
             episode,
             QUARANTINE_KIND_DRAMA_STEP1,
             content=draft_content,
-            # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「违约产物」，报告为空即可，
+            # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「待修复草稿」，报告为空即可，
             # 晋升时照常全量重判。
             violations=[],
             # source 键一律写出（未指定时为 null），与生成侧同口径。base_fingerprint 记下此刻
@@ -1396,7 +1396,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
             # 后写者悄悄覆盖前者的 content 与 meta.source。写临界区与 Web 端保存、迁移同一把锁，
             # 读也持锁避免取回一份写到一半的 step1。
             with script_review.step1_write_lock(project_path, episode) as step1_path:
-                # 已有草稿在场时不覆盖：那份草稿要么是违约产物、要么是上一轮取回后 agent 已改了
+                # 已有草稿在场时不覆盖：那份草稿要么是待修复草稿、要么是上一轮取回后 agent 已改了
                 # 一半，拿正式文件盖过去等于抹掉它手上的修改。两种情况的出路相同——继续改那份
                 # 草稿再晋升。
                 if quarantine_exists(project_path, episode, QUARANTINE_KIND_STEP1):
@@ -1441,7 +1441,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
                     episode,
                     QUARANTINE_KIND_STEP1,
                     content={"units": _flatten_reference_step1_units(raw_units)},
-                    # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「违约产物」，报告为空即可，
+                    # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「待修复草稿」，报告为空即可，
                     # 晋升时照常全量重判。
                     violations=[],
                     # source 键一律写出（未指定时为 null），与拆分侧同口径：晋升侧据此区分「本就按
@@ -1617,8 +1617,8 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 flat_units, project, episode=episode, max_refs=split_caps.max_refs
             )
             # 重拆分是刻意的整份重建，无基线可比对；写盘经单一出口。上一轮草稿的清除与
-            # 写盘同一临界区：正式文件已是这一份产物，旧草稿留着只会让 gate 与生成侧继续阻塞
-            # 在一份已被取代的违约产物上。
+            # 写盘同一临界区：正式文件已是这一份产物，旧草稿留着只会让内容确认与生成侧继续阻塞
+            # 在一份已被取代的待修复草稿上。
             with script_review.step1_write_lock(project_path, episode) as step1_path:
                 script_review.write_step1_locked(project_path, episode, {"units": raw_units}, basis=step1_basis)
                 clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
@@ -1645,7 +1645,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
 def validate_and_promote_draft_tool(ctx: ToolContext):
     @tool(
         PROMOTE_TOOL_NAME,
-        "重新全量校验本集的草稿（step1 产出、step2 视觉展开的违约产物，或取回编辑的正式 step1），"
+        "重新全量校验本集的草稿（step1 产出、step2 视觉展开的待修复草稿，或取回编辑的正式 step1），"
         "通过则晋升为正式文件并清除草稿，不通过则返回刷新后的违约报告。"
         "在修改过草稿的 content 之后调用；可反复调用，无轮次上限。",
         {
@@ -1703,7 +1703,7 @@ def validate_and_promote_draft_tool(ctx: ToolContext):
             if quarantine_exists(project_path, episode, QUARANTINE_KIND_STEP2):
                 # 晋升同样受 step1 内容确认约束：草稿在场期间用户在 Web 端改过 step1 会让确认指纹
                 # 失效、该集回到 pending_review，此时晋升等于拿一份用户没确认过的 step1 合成正式
-                # 剧本——常规生成路径在工具入口就被 gate 拦下，两条路不该在这一位上分叉。
+                # 剧本——常规生成路径在工具入口就被内容确认拦下，两条路不该在这一位上分叉。
                 if script_review.gate_blocks_step2(project_path, project_data, episode):
                     return {
                         "content": [

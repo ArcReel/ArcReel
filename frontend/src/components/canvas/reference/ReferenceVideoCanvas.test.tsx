@@ -476,7 +476,7 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(addSpy).toHaveBeenCalled());
   });
 
-  // 主 tab：视频单元 / 拆分预处理。默认 "视频单元"，即 UnitList 区域可见。
+  // 主 tab：视频单元 / 内容整理。默认 "视频单元"，即 UnitList 区域可见。
   it("renders the main tab bar with 'units' selected by default", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
@@ -488,16 +488,16 @@ describe("ReferenceVideoCanvas", () => {
     expect(unitsTab).toHaveAttribute("aria-selected", "true");
   });
 
-  it("switches main tab between units and preprocess", async () => {
+  it("switches main tab between units and content organization", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     const unitsTab = screen.getByRole("tab", { name: /Video units|视频单元/ });
-    const preprocTab = screen.getByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    const preprocTab = screen.getByRole("tab", { name: /Content Organization|内容整理/ });
     fireEvent.click(preprocTab);
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     expect(unitsTab).toHaveAttribute("aria-selected", "false");
-    // 拆分预处理 tab 下 UnitList 不渲染
+    // 内容整理 tab 下 UnitList 不渲染
     expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
     fireEvent.click(unitsTab);
     expect(unitsTab).toHaveAttribute("aria-selected", "true");
@@ -519,7 +519,7 @@ describe("ReferenceVideoCanvas", () => {
     expect(ta.value).toContain("first");
   });
 
-  // preproc 入口从二级页面跳转改为主 tab 切换；切到拆分预处理 tab 后 UnitList 被隐藏，
+  // preproc 入口从二级页面跳转改为主 tab 切换；切到内容整理 tab 后 UnitList 被隐藏，
   // step1 按集预览面板（ReferenceStep1PreviewPanel）inline 渲染。
   it("inline-renders the step1 preview panel via the main tab", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
@@ -538,7 +538,7 @@ describe("ReferenceVideoCanvas", () => {
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
-    const preprocTab = screen.getByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    const preprocTab = screen.getByRole("tab", { name: /Content Organization|内容整理/ });
     fireEvent.click(preprocTab);
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     // UnitList 被隐藏，改由预览面板渲染 step1 结构化中间态（只读高亮文稿）
@@ -562,7 +562,7 @@ describe("ReferenceVideoCanvas", () => {
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
-    const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    const preprocTab = await screen.findByRole("tab", { name: /Content Organization|内容整理/ });
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     await waitFor(() => expect(screen.getByText("shot text")).toBeInTheDocument());
     expect(listSpy).not.toHaveBeenCalled();
@@ -582,7 +582,7 @@ describe("ReferenceVideoCanvas", () => {
       content: { units: [] },
     });
     const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
-    const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    const preprocTab = await screen.findByRole("tab", { name: /Content Organization|内容整理/ });
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
     rerender(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={true} />);
     await waitFor(() =>

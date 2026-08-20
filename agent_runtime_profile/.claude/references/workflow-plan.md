@@ -94,7 +94,7 @@ mcp__arcreel__get_workflow_plan({
 | `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
 | `none` | 展示 `blockers` 并停止变更 |
 
-`next_action.args.preprocessor` 是权威的预处理子智能体名，**不要自己按创作类型 ×
+`next_action.args.preprocessor` 是权威的内容整理子智能体名，**不要自己按创作类型 ×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
 
 ### 整批被拒时交回的逐问题动作

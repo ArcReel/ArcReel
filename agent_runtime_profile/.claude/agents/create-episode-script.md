@@ -35,7 +35,7 @@ skills:
 - generation_mode == storyboard 且 content_mode == narration：`drafts/episode_{N}/step1_segments.json`（缺失时需先运行 `split-narration-segments`）
 - generation_mode == storyboard 且 content_mode == drama：`drafts/episode_{N}/step1_normalized_script.json`（结构化内容；缺失时需先运行 `normalize-drama-script`。旧项目残留的 `step1_normalized_script.md` 是结构化前的自由文本稿，不算有效 step1，须重跑 normalize 产出 `.json`）
 
-只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的预处理子智能体。
+只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的内容整理子智能体。
 
 > reference_video 同样走两段式：step1 已定稿的是内容契约（unit 边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做视觉展开——unit 数、unit 时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
 >
