@@ -122,7 +122,7 @@ export interface LayeredModelFieldsProps {
     /** 重试在途；置位时按钮灰化，避免慢响应下点击毫无反馈。 */
     retrying?: boolean;
   };
-  /** 折叠区之后常驻的补充说明（如文本档位的智能体边界）。 */
+  /** 折叠区之后常驻的补充说明（如文本档位的 Agent 边界）。 */
   footnote?: React.ReactNode;
 }
 

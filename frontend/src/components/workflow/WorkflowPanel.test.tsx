@@ -190,7 +190,7 @@ describe("WorkflowPanel 结构化问题与阻断", () => {
     );
     const alert = screen.getByRole("alert");
     expect(within(alert).getByText("scripts/episode_1.json")).toBeInTheDocument();
-    expect(within(alert).getByText(/请智能体修复损坏的项目文件/)).toBeInTheDocument();
+    expect(within(alert).getByText(/请 Agent 修复损坏的项目文件/)).toBeInTheDocument();
     expect(within(alert).getByText("JSONDecodeError line 3")).toBeInTheDocument();
     expect(within(alert).getByText("技术细节")).toBeInTheDocument();
   });
@@ -512,7 +512,7 @@ describe("WorkflowPanel 产品语言", () => {
     expect(screen.getByText(/多宫格分镜/)).toBeInTheDocument();
   });
 
-  it("动作短语中使用智能体而非助手", async () => {
+  it("动作短语中使用 Agent 而非助手", async () => {
     await renderExpanded(
       makePlan({
         steps: [
@@ -529,7 +529,7 @@ describe("WorkflowPanel 产品语言", () => {
         ],
       }),
     );
-    expect(screen.getByText(/请智能体修复/)).toBeInTheDocument();
+    expect(screen.getByText(/请 Agent 修复/)).toBeInTheDocument();
     expect(screen.queryByText(/请助手修复/)).not.toBeInTheDocument();
   });
 });

@@ -4,7 +4,7 @@
 验证 project.json 和 episode JSON 的数据结构完整性和引用一致性。
 
 产出的 errors / warnings 是 locale-neutral 的 ``ValidationMessage``（key + params），由各消费
-边界渲染：归档 router 按请求语言渲染，智能体与 CLI 走默认语言。
+边界渲染：归档 router 按请求语言渲染，Agent 与 CLI 走默认语言。
 """
 
 from __future__ import annotations
@@ -429,7 +429,7 @@ class DataValidator:
                 if not isinstance(episode_num, int) or isinstance(episode_num, bool):
                     errors.append(_m("val_episode_missing_num_at", prefix=prefix))
                 # title 允许空串：写入方（剧本同步/孤儿条目登记）在标题未知时即写 ""，
-                # 待用户或智能体后续命名
+                # 待用户或 Agent 后续命名
                 if not isinstance(episode.get("title"), str):
                     errors.append(_m("val_episode_missing_title_at", prefix=prefix))
 

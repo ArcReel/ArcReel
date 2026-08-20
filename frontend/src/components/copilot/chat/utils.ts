@@ -22,9 +22,9 @@ export const TERMINAL_SESSION_STATUSES = new Set(["completed", "error", "interru
 //
 // 当用户中断时，被中断的 assistant 流式内容仍存在 draftTurn 中（未完成的
 // 消息不会形成权威日志条目）。此时 turns 末尾是 interrupt_notice 系统
-// turn——若把 draft 直接附加在末尾，渲染会变成"中断 → 助手回复"，与时间
+// turn——若把 draft 直接附加在末尾，渲染会变成"中断 → Agent 回复"，与时间
 // 顺序相反。把 draft 插到 interrupt_notice 之前，让 UI 显示成
-// "助手回复 → 中断"。刷新后 draft 自然消失（服务端内存态，不入日志）。
+// "Agent 回复 → 中断"。刷新后 draft 自然消失（服务端内存态，不入日志）。
 // ---------------------------------------------------------------------------
 
 export function composeAllTurns(turns: Turn[], draftTurn: Turn | null): Turn[] {
@@ -98,7 +98,7 @@ export function canEditUserTurn(
   if (turn.type !== "user") return false;
   // 改写锚点就是条目 uuid：没有 uuid 的 turn（合成卡片、draft）无从锚定
   if (!turn.uuid) return false;
-  // 问答答复是智能体问卷的回执，不是用户自己写的消息。投影产出的 Turn 不带
+  // 问答答复是 Agent 问卷的回执，不是用户自己写的消息。投影产出的 Turn 不带
   // subtype，按内容块类型识别。
   if ((turn.content ?? []).some((block) => block.type === "question_answer")) return false;
   if (!turnPlainText(turn).trim() && turnImageAttachments(turn).length === 0) return false;

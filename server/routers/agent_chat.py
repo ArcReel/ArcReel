@@ -1,7 +1,7 @@
 """
 同步 Agent 对话端点
 
-封装现有 SSE 流式助手为同步请求-响应模式，供 OpenClaw 等外部 Agent 调用。
+封装现有的 SSE 流式 Agent 对话为同步请求-响应模式，供 OpenClaw 等外部 Agent 调用。
 """
 
 import asyncio

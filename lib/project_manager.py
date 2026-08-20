@@ -2657,7 +2657,7 @@ class ProjectManager:
     def rename_asset(
         self, project_name: str, table: str, old_name: str, new_name: str, *, dry_run: bool = False
     ) -> AssetRenameReport:
-        """资产级联重命名的单一事务入口（UI 与智能体共用，见 docs/adr/0057）。
+        """资产级联重命名的单一事务入口（UI 与 Agent 共用，见 docs/adr/0057）。
 
         在「全部剧本锁（按文件名排序）→ 草稿文件锁 → 项目锁」内一次完成：扫描全部剧集
         剧本与 step1 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」
