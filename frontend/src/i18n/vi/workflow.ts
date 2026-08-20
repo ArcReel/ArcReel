@@ -110,7 +110,7 @@ export default {
   'delivery_tts_unavailable': 'Giọng đọc tổng hợp chưa được cấu hình, hãy chọn lồng tiếng hậu kỳ để đi tiếp. Phần còn lại của quy trình không bị ảnh hưởng.',
 
   // ---- Cụm từ bước tiếp theo ----
-  'action_unknown': 'làm theo hướng dẫn của tác nhân AI',
+  'action_unknown': 'làm theo hướng dẫn của Agent',
   'action_none': 'chưa cần thao tác',
   'action_retry': 'thử lại sau ít phút',
   'action_fix_input': 'kiểm tra và sửa cấu hình tạo của đơn vị này',
@@ -122,7 +122,7 @@ export default {
   'action_confirm_request_duration': 'xác nhận mức thời lượng yêu cầu',
   'action_configure_provider': 'chọn mô hình video hoặc âm thanh trong Cài đặt',
   'action_repair_artifact_state': 'sửa trạng thái tệp của đơn vị này',
-  'action_repair_project_data': 'nhờ tác nhân AI sửa tệp dự án bị hỏng',
+  'action_repair_project_data': 'nhờ Agent sửa tệp dự án bị hỏng',
   'action_collect_project_input': 'bổ sung văn bản gốc và thiết lập dự án',
   'action_analyze_assets': 'phân tích nhân vật, bối cảnh và đạo cụ từ văn bản gốc',
   'action_reset_episode_planning': 'đặt lại kế hoạch tập để bao gồm văn bản mới',

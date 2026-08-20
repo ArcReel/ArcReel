@@ -251,6 +251,6 @@ curl {{BASE_URL}}/api/v1/projects/ghost-story \
 - 多数 API 端点返回 JSON；以下为例外：
   - `GET /skill.md` — Markdown 文本（`text/markdown`），外部 Agent 运行时拉取最新契约
   - `GET /api/v1/projects/{name}/events/stream` — 项目事件 SSE（`text/event-stream`）
-  - `POST /api/v1/assistant/sessions/{id}/stream` — 助手对话 SSE（`text/event-stream`）
+  - `POST /api/v1/assistant/sessions/{id}/stream` — Agent 对话 SSE（`text/event-stream`）
   - `GET /api/v1/projects/{name}/export` 等文件下载端点 — 二进制（`application/zip` 等）
 - 项目名称（`name`）仅支持字母、数字和连字符，建议使用英文或拼音

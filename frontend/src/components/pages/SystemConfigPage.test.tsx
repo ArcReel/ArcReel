@@ -123,7 +123,7 @@ describe("SystemConfigPage", () => {
 
   it("renders all 6 sidebar sections", () => {
     renderPage();
-    expect(screen.getByRole("button", { name: /智能体/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Agent/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /模型选择/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /用量统计/ })).toBeInTheDocument();
@@ -180,7 +180,7 @@ describe("SystemConfigPage", () => {
       expect(screen.getByText("当前配置存在以下问题，可能会影响部分功能：")).toBeInTheDocument();
     });
     expect(
-      screen.getByText(`${BRAND.name} 智能体 API Key`, { exact: false }),
+      screen.getByText(`${BRAND.name} Agent API Key`, { exact: false }),
     ).toBeInTheDocument();
   });
 
