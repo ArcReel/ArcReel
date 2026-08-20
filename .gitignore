@@ -100,3 +100,7 @@ deploy/production/pgdata/
 
 # scripts/verify_reference_video_sdks.py 的输出目录，报告是运行时快照
 docs/verification-reports/
+
+# impeccable skill 的本地运行状态：config.local.json 是本地覆盖，questions/ 是问答会话日志
+.impeccable/config.local.json
+.impeccable/questions/
