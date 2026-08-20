@@ -129,7 +129,7 @@ export default {
   'action_plan_episodes': 'lập kế hoạch các tập',
   'action_draft_selling_points': 'soạn các điểm bán hàng',
   'action_prepare_step1': 'chuẩn bị tổ chức nội dung cho tập này',
-  'action_confirm_step1': 'duyệt và xác nhận nội dung',
+  'action_confirm_step1': 'hoàn tất xác nhận nội dung',
   'action_generate_script': 'tạo kịch bản chính thức',
   'action_generate_asset_sheets': 'tạo các ảnh tài nguyên còn thiếu',
   'action_generate_storyboards': 'tạo các ảnh phân cảnh còn thiếu',

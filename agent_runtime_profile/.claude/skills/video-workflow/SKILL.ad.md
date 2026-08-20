@@ -38,7 +38,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 3. **起草卖点**：商品的 `selling_points` 为空时，根据 brief、描述与原图起草，与用户确认后用 `patch_project` 写回。
 4. **资产定义与资产图**：定义角色、场景、道具后，对每个类型取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集，调用 `mcp__arcreel__generate_assets({"type": type, "names": [该类型 requested_ids]})`。商品 sheet 在商品资产页生成。
 5. **一键生成剧本**：调用 `mcp__arcreel__generate_episode_script({"episode": 1})`。广告不走 step1；分镜图生视频直接产出 `shots[]`，参考生视频直接产出自包含 `video_units[]`。总时长偏离 `target_duration` 时提醒用户，不阻塞保存。
-6. **sheet 过目（软门禁）**：商品有 `product_sheet` 时，请用户在首次分镜或参考视频生成前确认它与真品一致；只有原图时直接继续。
+6. **sheet 过目（软门禁）**：商品有 `product_sheet` 时，请用户在首次分镜或参考生视频生成前确认它与真品一致；只有原图时直接继续。
 7. **编排与生成**：
 
    - `repair_video_units`：Read `target.script`，只处理 `requested_ids` 对应的 unit。先调用 `mcp__arcreel__get_episode_script_revision({"script": target.script_filename})`；再用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "expected_revision": revision, "operations": [{"op": "update", "id": unit_id, "fields": {"text": "...", "duration_seconds": ...}}]})` 写回全部 unit 的完整规划（每个 unit 一条有序 update）；由工具重算 `needs_replan`，不要直接编辑标记。每个 unit 保持单一发声归属，商品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_video_selected` 点名重做这些 unit，再刷新状态。

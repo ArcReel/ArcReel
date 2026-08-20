@@ -1334,7 +1334,7 @@ class API {
 
   // ==================== step1→step2 内容确认 ====================
 
-  /** 读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。 */
+  /** 读取该集 step1 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */
   static async getScriptReview(
     projectName: string,
     episode: number,
@@ -1346,7 +1346,7 @@ class API {
     );
   }
 
-  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新待审）。
+  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新等待确认）。
    *
    * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 agent 晋升）
    * 改过时服务端 409 冲突、不落盘，避免静默覆盖对方的修改；不传则不比对。 */
@@ -1569,7 +1569,7 @@ class API {
     return this.request(url, { method: "DELETE" });
   }
 
-  /** 上传参考生视频单元的成片视频。 */
+  /** 上传视频单元的成片视频。 */
   static async uploadReferenceUnitVideo(
     projectName: string,
     episode: number,
@@ -2950,7 +2950,7 @@ class API {
 
   // ==================== Reference-to-Video API ====================
 
-  /** List reference-video units for an episode. */
+  /** List video units for an episode on the reference-to-video path. */
   static async listReferenceVideoUnits(
     projectName: string,
     episode: number,
@@ -2960,7 +2960,7 @@ class API {
     );
   }
 
-  /** Create a new reference-video unit. */
+  /** Create a new video unit on the reference-to-video path. */
   static async addReferenceVideoUnit(
     projectName: string,
     episode: number,

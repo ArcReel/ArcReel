@@ -75,7 +75,7 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
     expect(screen.getByDisplayValue("阿离")).toBeInTheDocument();
     expect(screen.getByText("E1S01")).toBeInTheDocument();
-    expect(screen.getByText("待审核")).toBeInTheDocument();
+    expect(screen.getByText("待确认")).toBeInTheDocument();
     expect(screen.getByText("确认并继续")).toBeInTheDocument();
   });
 
@@ -92,7 +92,7 @@ describe("ScriptReviewGate", () => {
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1));
     await waitFor(() =>
-      expect(screen.getByText("视觉生成已放行。再次编辑将重新进入审核。")).toBeInTheDocument(),
+      expect(screen.getByText("视觉生成已放行。再次编辑将重新等待确认。")).toBeInTheDocument(),
     );
   });
 

@@ -284,7 +284,7 @@ export interface ReferenceVideoScript {
   episode: number;
   title: string;
   /**
-   * 内容类型——参考视频集继承项目级 narration/drama，决定画面比例等次级配置；
+   * 内容类型——参考生视频剧本继承项目级 narration/drama，决定画面比例等次级配置；
    * "视频来源"维度由项目的生成路线表达，不落在剧本上。
    */
   content_mode?: "narration" | "drama" | "ad";

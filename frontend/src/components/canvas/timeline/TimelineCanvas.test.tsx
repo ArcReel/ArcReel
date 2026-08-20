@@ -116,7 +116,7 @@ describe("TimelineCanvas", () => {
       />,
     );
 
-    expect(screen.getByText("脚本尚未生成，先在「预处理」中完成审阅")).toBeInTheDocument();
+    expect(screen.getByText("脚本尚未生成，先在「内容整理」中完成内容确认")).toBeInTheDocument();
     expect(screen.queryByTestId("shot-split-view")).not.toBeInTheDocument();
   });
 

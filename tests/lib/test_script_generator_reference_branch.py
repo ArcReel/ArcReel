@@ -126,7 +126,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    # 参考视频集 content_mode 继承项目级 narration/drama；生成路线是项目级事实，
+    # 参考生视频剧本 content_mode 继承项目级 narration/drama；生成路线是项目级事实，
     # 剧本不落盘任何路线戳。
     assert data["content_mode"] == "narration"
     assert "generation_mode" not in data
@@ -147,7 +147,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_script_generator_overrides_llm_duration_with_step1_confirmed_value(reference_project: Path):
-    """unit 时长的单一真相是 step1 审阅确认的值：step2 根本不产出该字段，落盘值机械取自
+    """unit 时长的单一真相是 step1 完成内容确认时的值：step2 根本不产出该字段，落盘值机械取自
     step1（时长即计费，不给 LLM 留任何改写入口）。
     """
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT))
@@ -401,11 +401,11 @@ async def test_script_generator_rejects_step2_unregistered_mention(reference_pro
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp_path: Path):
-    """drama 项目下生成的参考视频集 content_mode 必须为 drama。
+    """drama 项目下生成的参考生视频剧本 content_mode 必须为 drama。
 
     Pydantic 的 ReferenceVideoScript.content_mode 默认 "narration"，model_dump 会
     把该默认值写入 dict；_add_metadata 必须显式覆盖而非 setdefault，否则 drama 项目
-    的参考视频集会被错误标记成 narration。
+    的参考生视频剧本会被错误标记成 narration。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
@@ -743,7 +743,7 @@ def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_
     """迁移带 warnings（求和时长不在模型档位内，被取档改写）不是纯格式收编：已确认分集
     须退回待审，不能平移确认——取档后的秒数不是用户确认时看到的值。
 
-    退回待审的同时本次调用也须中止：审阅 gate 判的是迁移前状态、已按「已确认」放行，
+    退回待审的同时本次调用也须中止：内容确认判的是迁移前状态、已按「已确认」放行，
     改写发生在放行之后，继续下去就会按用户从未过目的秒数走完付费的 step2。
     """
     drafts = reference_project / "drafts" / "episode_1"
@@ -760,7 +760,7 @@ def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_
 
     gen = ScriptGenerator(reference_project)
     # 求和 4s 不是模型档位成员，取档改写为 8s——这一步产生 warning。
-    with pytest.raises(ValueError, match="尚未经审阅确认"):
+    with pytest.raises(ValueError, match="尚未完成内容确认"):
         gen._load_reference_step1(episode=1, supported_durations=[8])
 
     # 迁移本身已幂等落盘（中止的是本次生成，不是迁移）。
@@ -824,7 +824,7 @@ def test_step1_speech_violation_preserves_canonical_unit_and_locations(reference
 
 @pytest.mark.integration
 async def test_step1_dialogue_overload_is_caught_before_the_paid_step2_call(reference_project: Path):
-    """审阅 gate 上改短时长 / 补写台词绕开了拆分时的口播量校验，生成前复判把它拦下。
+    """内容确认时改短时长 / 补写台词绕开了拆分时的口播量校验，生成前复判把它拦下。
 
     step2 逐字保留台词、之后再无口播量校验：不在这里复判，念不完的 unit 会一路落盘成片。
     """

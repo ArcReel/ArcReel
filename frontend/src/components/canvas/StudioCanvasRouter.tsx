@@ -760,7 +760,7 @@ export function StudioCanvasRouter() {
             episode?.script_status === "segmented" || episode?.script_status === "generated";
           const isAd = currentProjectData?.content_mode === "ad";
 
-          // 已选集但剧本未生成：进入切片审阅视图（narration/drama 全部生成路径——
+          // 已选集但剧本未生成：进入内容整理视图（narration/drama 全部生成路径——
           // reference_video 此时 units 为空，同样没有可展示内容）；ad 恒单集无源文
           // 切片，走各自画布。
           // 演示项目没有源文可切片，缺剧本的分集直接说明「演示只做到第 1 集」

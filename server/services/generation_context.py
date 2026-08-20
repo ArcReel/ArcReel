@@ -197,7 +197,7 @@ class VideoLaneResult:
     能力字段（``supported_durations`` / ``max_duration`` / ``max_reference_images``）在能力
     查询失败时降级为空值（空元组 / None）放行：能力是已选定 provider/model 的元数据，缺失
     不代表不可调用，守卫遇空值不施加限制、把决策推给 backend。``resolution_or_fallback``
-    供需要非空档位的调用方（参考视频路径），其余语义同 :class:`ImageLaneResult`。
+    供需要非空档位的调用方（参考生视频路径），其余语义同 :class:`ImageLaneResult`。
     """
 
     provider_model: ProviderModel

@@ -472,7 +472,7 @@ export default {
   'task_type_image_edit': 'Image Edit',
   'task_type_storyboard': 'Storyboard',
   'task_type_video': 'Video',
-  'task_type_reference_video': 'Reference Video',
+  'task_type_reference_video': 'Reference-to-Video',
   'task_type_tts': 'Voiceover',
   'task_type_voice_sample': 'Voice Sample',
   'task_type_grid': 'Multi-grid storyboard',
@@ -778,7 +778,7 @@ export default {
   'prop_task_failed': 'Prop "{{id}}" generation failed: {{reason}}',
   'grid_task_failed': 'Multi-grid storyboard generation failed: {{reason}}',
   'image_edit_task_failed': 'Edit for "{{id}}" failed: {{reason}}',
-  // ========== reference-video editor ==========
+  // ========== reference-to-video editor ==========
   'reference_editor_view_aria': 'Editor view',
   'reference_editor_view_script': 'Script',
   'reference_editor_view_parse': 'Parse preview',
@@ -1085,7 +1085,7 @@ export default {
   'reference_tab_preview': 'Video',
   'reference_tab_aria': 'Reference unit panel tabs',
 
-  // ArcReel Workbench v3 — Reference Video
+  // ArcReel Workbench v3 — Reference-to-Video
   'reference_main_tab_aria': 'Workspace main tabs',
   'grid_canvas_tab_aria': 'Multi-grid storyboard workbench main tabs',
   'list_source_files_failed': 'Failed to load source files: {{message}}',
@@ -1290,10 +1290,10 @@ export default {
   'review_shots_label': 'Shots (in order)',
   'review_shot_text_placeholder': 'Shot narrative text; reference registered assets with @name',
   'review_segment_break': 'Scene break',
-  'review_status_pending': 'Awaiting review',
+  'review_status_pending': 'Awaiting confirmation',
   'review_status_confirmed': 'Confirmed',
-  'review_pending_hint': 'Review the content, then confirm to unlock visual generation.',
-  'review_confirmed_hint': 'Visual generation is unlocked. Editing reopens review.',
+  'review_pending_hint': 'Check the content, then confirm to unlock visual generation.',
+  'review_confirmed_hint': 'Visual generation is unlocked. Editing requires confirmation again.',
   'review_confirm_action': 'Confirm & continue',
   'review_save_action': 'Save fixes',
   'review_confirming': 'Confirming...',
@@ -1323,11 +1323,11 @@ export default {
   'reference_step1_confirm_blocked_hint': 'Blocking violations are present — confirm once they are fixed and promoted',
   'reference_step1_duration_out_of_tier': 'Tier no longer valid',
   'reference_step1_duration_out_of_tier_hint': 'One or more video units have a duration outside the currently valid tiers — pick a new value before confirming',
-  'reference_step1_confirm_continue_prefill': 'Episode {{episode}}’s split is confirmed — please continue generating the script and reference videos.',
+  'reference_step1_confirm_continue_prefill': 'Episode {{episode}}’s split is confirmed — please continue generating the script and reference-to-video outputs.',
   'reference_step1_fix_request_prefill_header':
-    'Episode {{episode}}’s reference-video content organization draft has {{count}} violation(s) to fix — please edit the draft needing fixes directly to correct them:',
+    'Episode {{episode}}’s reference-to-video content organization draft has {{count}} violation(s) to fix — please edit the draft needing fixes directly to correct them:',
   'reference_step1_fix_request_promote_prefill':
-    'Episode {{episode}}’s reference-video content organization draft now revalidates with no violations but still needs fixes — please call validate_and_promote_draft to promote it.',
+    'Episode {{episode}}’s reference-to-video content organization draft now revalidates with no violations but still needs fixes — please call validate_and_promote_draft to promote it.',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 
@@ -1399,7 +1399,7 @@ export default {
   'episode_header_cost_remaining': 'Remaining',
   'tab_preprocessing': 'Preprocessing',
   'tab_timeline': 'Shots',
-  'timeline_script_not_ready': 'Script not generated yet — review it in Preprocessing first',
+  'timeline_script_not_ready': 'Script not generated yet — complete content confirmation in Content Organization first',
   'timeline_no_editable_segments': "No editable shots in this episode's script",
   'tab_grid_preview': 'Multi-grid storyboards',
   'grid_preview_summary': '{{batches}} batches · {{cells}} cells · {{percent}}% ready',
@@ -1457,9 +1457,9 @@ export default {
   'tool_name_generate_video_selected': 'Generate video (selected)',
   'tool_name_generate_narration_audio': 'Generate narration audio',
   'tool_name_generate_episode_script': 'Generate script',
-  'tool_name_confirm_script_review': 'Confirm step 1 review',
+  'tool_name_confirm_script_review': 'Complete content confirmation',
   'tool_name_normalize_drama_script': 'Normalize drama script',
-  'tool_name_split_reference_video_units': 'Split reference video units',
+  'tool_name_split_reference_video_units': 'Split video units',
   'tool_name_open_step1_for_edit': 'Open formal step1 for editing',
   'tool_name_validate_and_promote_draft': 'Validate and promote the draft needing fixes',
   'tool_name_split_narration_segments': 'Split narration segments',

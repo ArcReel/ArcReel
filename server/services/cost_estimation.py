@@ -227,9 +227,9 @@ def _estimate_unit_video_cost(
     duration_seconds: int,
     video: _VideoPricing,
 ) -> CostBreakdown:
-    """一个参考视频 unit 取档后秒数的视频估值。计价失败返回空 breakdown（该 unit 不计费）。
+    """一个视频单元取档后秒数的视频估值。计价失败返回空 breakdown（该 unit 不计费）。
 
-    两条参考视频估算路径（ad 摊回镜头、narration/drama 按 unit 展示）的展示颗粒度不同，
+    两条参考生视频估算路径（ad 摊回镜头、narration/drama 按 unit 展示）的展示颗粒度不同，
     但「按取档后秒数向 provider 询价」这一步与颗粒度无关，共用同一实现避免两处漂移。
     """
     est_video: CostBreakdown = {}

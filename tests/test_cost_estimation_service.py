@@ -2061,7 +2061,7 @@ class TestCostEstimationService:
     ):
         """ad 参考路线按 unit 当前实际可用参考图分桶算价：有图 → r2v，无图 → i2v。
 
-        参考路线的集实际入队参考视频任务；执行侧对空参考镜头按 i2v 桶降级解析模型，
+        参考路线的集实际入队参考生视频任务；执行侧对空参考镜头按 i2v 桶降级解析模型，
         算价须跟着同一口径分桶。
         """
         priced_models: list[str | None] = []

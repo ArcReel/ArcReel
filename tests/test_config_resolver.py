@@ -1996,7 +1996,7 @@ class TestResolveRawSupportedDurations:
     def test_custom_provider_resolves_only_through_caps(self):
         """``custom-`` 前缀不在 registry：不带 caps 时无从解析，带 caps 时取 caps 的档位表。
 
-        这条是审阅门必须先解析 caps 的原因——同步两级链对自定义供应商恒为 None。
+        这条是内容确认必须先解析 caps 的原因——同步两级链对自定义供应商恒为 None。
         """
         project = {"video_backend": "custom-7/acme-video"}
         assert resolve_raw_supported_durations(project) is None

@@ -629,7 +629,7 @@ export function ReferenceVideoCanvas({
       setDurationSaving(unitId, true);
       try {
         await patchUnit(projectName, episode, unitId, { duration_seconds: seconds });
-        // 参考视频按申请秒数计价，SSE 的 unit 失效负责最终同步列表；费用面板仍需
+        // 参考生视频按申请秒数计价，SSE 的 unit 失效负责最终同步列表；费用面板仍需
         // 在本地写成功时主动刷新，给当前浏览器即时反馈。
         useCostStore.getState().debouncedFetch(projectName);
         return true;
@@ -762,7 +762,7 @@ export function ReferenceVideoCanvas({
 
   // Reset tab to units on project/episode change (render-time derived-state pattern).
   // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
-  // units 面板无脚本可读、请求会 404，应先落到 preproc 审阅 gate。
+  // units 面板无脚本可读、请求会 404，应先落到内容确认。
   const [tab, setTab] = useState<"units" | "preproc">(
     hasScript || !showPreprocess ? "units" : "preproc",
   );

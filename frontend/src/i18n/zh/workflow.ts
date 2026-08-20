@@ -129,7 +129,7 @@ export default {
   'action_plan_episodes': '规划分集',
   'action_draft_selling_points': '提炼卖点',
   'action_prepare_step1': '为这一集准备内容整理',
-  'action_confirm_step1': '审阅并确认内容整理',
+  'action_confirm_step1': '完成内容确认',
   'action_generate_script': '生成正式脚本',
   'action_generate_asset_sheets': '生成缺失的资产图',
   'action_generate_storyboards': '生成缺失的分镜图',

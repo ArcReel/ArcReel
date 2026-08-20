@@ -172,7 +172,7 @@ def effective_reference_durations(
     *,
     with_reference_images: bool,
 ) -> list[int]:
-    """参考视频路径实际可申请的时长档位：全集与该请求条件的约束求交。
+    """参考生视频路径实际可申请的时长档位：全集与该请求条件的约束求交。
 
     型号可能对「带参考图」与「按某分辨率下发」各自声明更窄的时长档位。按全集取档会选中
     执行期必然被拒的秒数（如 Veo 3.1 带参考图只接受 8 秒，5 秒剧本按全集取档得 6 秒），
@@ -386,7 +386,7 @@ async def execute_reference_video_task(
     #    的能力，不再出现"按旧模型裁剪、按新模型生成"的错位，原 caps.model 一致性防御分支
     #    随之消解。查询失败时 lane 会把能力降级为空值/None，公共投影把空时长集转换为
     #    结构化 blocker，避免制造无约束申请。
-    # 参考视频是唯一需要非空 resolution 档位的调用方：lane 已按 registry provider_id
+    # 参考生视频是唯一需要非空 resolution 档位的调用方：lane 已按 registry provider_id
     # 兜底（resolution 命中空档位时取 provider fallback），executor 直接取非空档位。
     resolution = video.resolution_or_fallback
 

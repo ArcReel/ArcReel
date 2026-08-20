@@ -685,7 +685,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             # Seedance 2.5：官方《视频生成 API》声明 480p/720p 两档、原生 30 秒直出。时长在此
             # 全展开为 4–30 秒离散值；官方另有 -1（模型自选时长）不登记——它会让请求时长与剧本
             # 时长指引脱钩，编排层按分镜时长排片的前提不成立。计费 ¥70/百万 token，视频输入档
-            # （参考视频转 token）另有单价，不计入本表：本表只覆盖 PerTokenVideo 消费的输出 usage。
+            # （参考生视频输入转 token）另有单价，不计入本表：本表只覆盖 PerTokenVideo 消费的输出 usage。
             "doubao-seedance-2-5-260628": ModelInfo(
                 display_name="Seedance 2.5",
                 media_type="video",

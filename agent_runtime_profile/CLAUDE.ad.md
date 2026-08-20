@@ -74,7 +74,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ### 参考生视频（reference_video）的自包含单元
 
-- 剧本生成会单阶段直接产出 `video_units[]`，不创建 step1 审阅中间态；每个 unit 对应一次生成调用与 `reference_videos/{unit_id}.mp4`
+- 剧本生成会单阶段直接产出 `video_units[]`，不创建需要内容确认的 step1 中间态；每个 unit 对应一次生成调用与 `reference_videos/{unit_id}.mp4`
 - unit 正文是一段自由文本，使用统一引用语法：`@[角色]{台词}` 表达人物发声，`{台词}` 表达无归属旁白，两者可写在行内任意位置；商品、角色、场景、道具均用 `@[名称]` mention。参考图由系统在执行期按首次提及顺序从正文解析，同名按 product → character → scene → prop 归属
 - 一个 unit 只能承载人物发声、无归属旁白或无人声中的一种；需要切换发声归属时在规划阶段拆成相邻 unit。标记 `needs_replan` 的存量问题单元须先重新规划，生成入口会拒绝入队
 - 参考集按正文首次 mention 顺序排列，商品与角色/场景/道具同规则：每件资产有 sheet 用 sheet，没有才退到它的全部原图；不按类型排序，也不在有 sheet 时额外注入原图

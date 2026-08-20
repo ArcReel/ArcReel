@@ -135,10 +135,10 @@ _KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
 
 
 def _units_use_references(units: list[dict] | None) -> bool | None:
-    """本集 step1 是否存在带 ``@[名称]`` 提及的 unit；``units`` 为 None（非参考视频路径）时返回 None。
+    """本集 step1 是否存在带 ``@[名称]`` 提及的 unit；``units`` 为 None（非参考生视频路径）时返回 None。
 
     None 的语义是「交给下游按生成模式近似判定」，与「确定不带参考图」的 False 区分开。
-    参考视频路径允许通用 unit 不带任何引用，执行层与 backend 都只在实际带图时施加
+    参考生视频路径允许通用 unit 不带任何引用，执行层与 backend 都只在实际带图时施加
     「参考图↔时长」约束——整集都无引用时按模式一刀切会收掉本可申请的档位。
     """
     if units is None:
@@ -278,7 +278,7 @@ class ScriptGenerator:
         props = self.project_json.get("props")
         props = props if isinstance(props, dict) else {}
 
-        # 参考视频路径先读 step1：本集是否真的带参考图决定要不要施加「参考图↔时长」约束，
+        # 参考生视频路径先读 step1：本集是否真的带参考图决定要不要施加「参考图↔时长」约束，
         # 故此处先按未收窄的全集校验 unit 时长，收窄后的集合在下方按引用情况解析。
         step1_units = (
             self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
@@ -334,7 +334,7 @@ class ScriptGenerator:
             # novel_text/时长/break 由 step1 透传，不进 LLM 输出，从工程上根除扩写漂移。
             schema = NarrationVisualEpisodeScript
 
-        # unit 时长的单一真相是 step1 审阅确认的值：schema 只把 duration_seconds 枚举约束到
+        # unit 时长的单一真相是 step1 完成内容确认时的值：schema 只把 duration_seconds 枚举约束到
         # supported_durations 成员，不会把它钉死在某个具体 unit 已确认的档位上，LLM 因而能在
         # 合法档位间自由改写——按 unit_id 机械传回 step1 确认值，杜绝该字段被 step2 静默漂移。
         #
@@ -776,7 +776,7 @@ class ScriptGenerator:
         """收窄前的时长全集：委托共享解析器，取不到时抛 ValueError。
 
         本路径的下游是 prompt 与动态枚举 schema，缺档位就无从生成，故把解析器的 None 提升为
-        异常；其余入口（审阅门 / 归档导入）对 None 的处置是退回结构 clamp，不共用这道提升。
+        异常；其余入口（内容确认 / 归档导入）对 None 的处置是退回结构 clamp，不共用这道提升。
         """
         durations = resolve_raw_supported_durations(self.project_json, caps)
         if durations is None:
@@ -791,7 +791,7 @@ class ScriptGenerator:
     ) -> int | None:
         """单次视频生成最长秒数；派生自 max(收窄后的 supported_durations)。
 
-        取收窄后的集合而非 caps 自带的 ``max_duration``：该值是全集最大值，参考视频模式下
+        取收窄后的集合而非 caps 自带的 ``max_duration``：该值是全集最大值，参考生视频模式下
         它是 unit 总时长上限，若不随联动约束收窄，step1 会拆出总时长超标的 unit，step2 的
         枚举 schema 再把它判非法——上限与枚举必须描述同一个收窄后的集合。
         """
@@ -922,7 +922,7 @@ class ScriptGenerator:
         drafts_path = episode_drafts_dir(self.project_path, episode)
         step1_json = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
         # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
-        # 待处置的违约产出静默换成旧内容。审阅 gate 已在工具入口按同一判据阻塞，这里是直连
+        # 待处置的违约产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞，这里是直连
         # 调用（脚本 / 测试 / 未来的其它入口）的兜底。
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP1)
         if quarantine.exists():
@@ -946,10 +946,10 @@ class ScriptGenerator:
         # 与 server.services.script_review / save_content 共享同一把 per-path 锁：
         # 迁移的读改写与 Web 端保存、重拆分写盘相互互斥。
         with pm.file_lock(step1_json):
-            # 顺序不变量：审阅 gate 的判定在更早的 step2 工具入口完成，迁移在其后运行且可能
+            # 顺序不变量：内容确认的判定在更早的 step2 工具入口完成，迁移在其后运行且可能
             # 改写时长。先记下迁移前的放行状态，供迁移后判断放行依据是否已失效。放行状态与
             # 草稿在同一临界区内读取，两者才描述同一时刻——锁外读则并发的保存/确认会让它
-            # 描述另一份草稿的审阅结果。
+            # 描述另一份草稿的内容确认结果。
             gate_passed_before = not gate_blocks_step2(
                 self.project_path, pm.load_project(self.project_path.name), episode
             )
@@ -975,16 +975,16 @@ class ScriptGenerator:
                 content_digest=sha256_file(step1_json),
             )
 
-        # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、审阅确认随之失效。而 gate
-        # 放行据的是改写前的状态：不在此处补判，生成就会拿着用户从未过目的秒数走完付费的
+        # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、内容确认随之失效。而放行
+        # 依据是改写前的状态：不在此处补判，生成就会拿着用户从未过目的秒数走完付费的
         # step2，落盘之后才在下次加载被拦下。
         if migration_warnings and migrated_project is not None and gate_passed_before:
             if gate_blocks_step2(self.project_path, migrated_project, episode):
                 raise ValueError(
                     f"第 {episode} 集 step1 时长已按当前模型档位收编改写（"
                     + "；".join(warning.render() for warning in migration_warnings)
-                    + "），改写后的内容尚未经审阅确认，step2 生成已中止；"
-                    "请在 Web 端审阅确认本集 step1 后重新生成"
+                    + "），改写后的内容尚未完成内容确认，step2 生成已中止；"
+                    "请在 Web 端完成本集 step1 的内容确认后重新生成"
                 )
 
         try:
@@ -1092,7 +1092,7 @@ class ScriptGenerator:
         或在 render/merge 阶段抛内部异常而非明确的 step1 校验错误。
         """
         # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
-        # 待处置的产出静默换成旧内容。审阅 gate 已在工具入口按同一判据阻塞，这里是直连调用
+        # 待处置的产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞，这里是直连调用
         # （脚本 / 测试 / 未来的其它入口）的兜底，与参考路线同口径。
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
         if quarantine.exists():
@@ -1145,7 +1145,7 @@ class ScriptGenerator:
                 raise ValueError(
                     f"unit {unit['unit_id']} 已确认时长 {unit['duration_seconds']}s 不在当前生效档位 "
                     f"{sorted(set(off_tiers))} 内；通常是模型或分辨率配置变化让档位收窄导致，"
-                    "请调整配置回原档位，或重新拆分该集 step1 并重新审阅确认"
+                    "请调整配置回原档位，或重新拆分该集 step1 并重新完成内容确认"
                 )
         # step2 的产出是 step1 正文逐字保留 + 画面展开，step1 正文里的语法违约必然原样复现在
         # step2 产出上。编辑器侧保存只做结构校验、语法问题仅出 warning（人写的文本有作者意图
@@ -1161,7 +1161,7 @@ class ScriptGenerator:
         避免「step1 放行、step2 必拒」的死角。此处只判、不取派生结果——参考图是执行期从正文
         派生的，落盘物只有正文本身。
 
-        台词口播时长同样在此复判：拆分工具只在产出当时判过一次，审阅 gate 上改短 unit 时长或
+        台词口播时长同样在此复判：拆分工具只在产出当时判过一次，内容确认时改短 unit 时长或
         补写台词都能绕开它，而 step2 逐字保留台词、之后再无口播量校验——不复判就会让念不完的
         unit 一路落盘。
         """
@@ -1185,7 +1185,7 @@ class ScriptGenerator:
                 enriched = [
                     DraftViolation(
                         f"{item}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
-                        "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认",
+                        "请先在 Web 端修正该 unit 的 step1 正文或时长并重新完成内容确认",
                         code=item.code,
                         label=label,
                         line=item.line,
@@ -1620,7 +1620,7 @@ class ScriptGenerator:
                 s["duration_seconds"] = target_duration
         # content_mode 严格只是"内容类型"（narration/drama/ad）；"视频来源"维度是项目级事实，
         # 剧本不落盘任何路线戳——生成分派一律读项目路线。
-        # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
+        # 参考生视频剧本必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
         # "narration"，setdefault 拿不到项目级真值；非参考集 LLM 已在 schema 中产出
         # narration/drama，setdefault 仅作 fallback。
         if self.content_mode != "ad" and gen_mode == "reference_video":

@@ -203,7 +203,7 @@ async def _resolve_video_capabilities(project_name: str) -> dict[str, Any]:
 
 
 async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
-    """就地补上参考视频路径逐 unit 的两套生效档位（非该路径的项目不补）。
+    """就地补上参考生视频路径逐 unit 的两套生效档位（非该路径的项目不补）。
 
     ``supported_durations`` 是型号声明的全集，不含「分辨率↔时长」「参考图↔时长」两条联动约束。
     参考路径的 unit 时长就是发给供应商的那个值，手工改 step1 时照全集取值会写出执行期申请不到
@@ -259,7 +259,7 @@ def get_video_capabilities_tool(ctx: ToolContext):
 
 
 def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
-    """项目是否产出参考视频 unit——草稿只在这条路径上有意义。
+    """项目是否产出视频单元——草稿只在这条路径上有意义。
 
     ad 的 unit 是广告分镜的派生索引、无 step1 拆分，即使走参考路线也不在此列。
     """
@@ -346,7 +346,7 @@ def generate_episode_script_tool(ctx: ToolContext):
 
             # 草稿在场先于「缺 step1」与内容确认报出。三者都判「未放行」，但出路各不相同：
             # 首次产出就违约时正式 step1 本就不存在，先报缺文件会把 agent 引回重跑生成——正是本
-            # 机制要避免的「丢弃重抽」；gate 阻塞则要用户去 Web 端确认，agent 自己解决不了。
+            # 机制要避免的「丢弃重抽」；内容确认阻塞则要用户去 Web 端确认，agent 自己解决不了。
             for kind in _step2_blocking_quarantine_kinds(project_data):
                 if quarantine_exists(project_path, episode, kind):
                     path = quarantine_path(project_path, episode, kind)
@@ -439,7 +439,7 @@ def confirm_script_review_tool(ctx: ToolContext):
             except ScriptReviewError as exc:
                 return {
                     "content": [
-                        {"type": "text", "text": f"❌ 无法确认 step1 审核（{exc.code}）：{exc.message or exc.code}"}
+                        {"type": "text", "text": f"❌ 无法完成 step1 内容确认（{exc.code}）：{exc.message or exc.code}"}
                     ],
                     "is_error": True,
                 }
@@ -602,7 +602,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
             step1_path = episode_drafts_dir(project_path, episode) / STEP1_FILENAMES["drama"]
             # 重新规范化是刻意的整份重建，无基线可比对；写盘经与晋升同一个持锁出口。上一轮
             # 草稿的清除与写盘同一临界区（与参考路线的重拆分同口径）：正式文件已是这一份
-            # 产物，旧草稿留着只会让审阅 gate 与 step2 继续阻塞在一份已被取代的内容上，而它
+            # 产物，旧草稿留着只会让内容确认与 step2 继续阻塞在一份已被取代的内容上，而它
             # 记下的基线指纹此刻也已对不上，晋升只会反复报冲突。
             with script_review.formal_step1_lock(project_path, episode, step1_path):
                 script_review.write_formal_step1_locked(project_path, episode, step1_path, content, basis=step1_basis)
@@ -868,7 +868,7 @@ def _reference_result_text(step1_path: Path, units: list[dict], warning_lines: l
     total_seconds = sum(int(u.get("duration_seconds") or 0) for u in units)
     max_unit_refs = max(len(extract_mentions(str(u.get("text") or ""))) for u in units)
     text = (
-        f"✅ 参考视频单元{action}（结构化 step1）已保存: {step1_path}\n"
+        f"✅ 视频单元{action}（结构化 step1）已保存: {step1_path}\n"
         f"📊 生成统计: {len(units)} 个 unit，总时长 {total_seconds} 秒；"
         f"单 unit `@` 提及最多 {max_unit_refs} 个"
     )
@@ -1324,7 +1324,7 @@ async def _open_drama_step1_for_edit(ctx: ToolContext, episode: int, source: str
                     "不在草稿里、也不要手写。增删场景即增删数组元素。\n"
                     f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
                     "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
-                    "草稿在场期间审阅门与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
+                    "草稿在场期间内容确认与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
                 ),
             }
         ]
@@ -1465,7 +1465,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
                             "增删 unit 即增删数组元素，unit_id 按新顺序重编。\n"
                             f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
                             "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
-                            "草稿在场期间审阅门与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
+                            "草稿在场期间内容确认与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
                         ),
                     }
                 ]

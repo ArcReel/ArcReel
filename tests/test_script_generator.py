@@ -1308,7 +1308,7 @@ class TestDegradedResolutionKeepsBucket:
 
     @pytest.mark.unit
     def test_max_refs_falls_back_to_bucket_model(self, tmp_path):
-        """参考视频项目降级后仍按 r2v 桶模型报上限；取项目默认层会拿到不接受参考图的 kling-v3。"""
+        """参考生视频项目降级后仍按 r2v 桶模型报上限；取项目默认层会拿到不接受参考图的 kling-v3。"""
         sg = _sg_with_project(tmp_path, dict(self._PROJECT))
         assert sg._resolve_max_refs(None) == 3
 
@@ -1391,7 +1391,7 @@ def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
 
 @pytest.mark.integration
 def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tmp_path):
-    """参考视频模式但本集单元都不带引用时不施加参考图约束。
+    """参考生视频模式但本集单元都不带引用时不施加参考图约束。
 
     通用单元允许空 references，执行层与 backend 都只在实际带图时施加该约束；按模式一刀切
     会把 720p 下本可申请的 4/6 秒收掉，改变无引用单元改动前的行为。
@@ -1414,7 +1414,7 @@ def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tm
 
 @pytest.mark.unit
 def test_units_use_references_distinguishes_none_from_no_refs():
-    """None（非参考视频路径）与「确定不带引用」区分开，前者交由下游按模式近似判定。"""
+    """None（非参考生视频路径）与「确定不带引用」区分开，前者交由下游按模式近似判定。"""
     assert _units_use_references(None) is None
     assert _units_use_references([{"unit_id": "E1U01", "text": "空镜：海面翻涌。"}]) is False
     assert (
@@ -1945,7 +1945,7 @@ class TestLoadReferenceStep1:
     @pytest.mark.integration
     def test_clamping_migration_aborts_generation_that_gate_already_let_through(self, tmp_path):
         """靠 grandfather 判据（step2 已存在、无确认指纹）放行的存量集：迁移 clamp 改写秒数
-        即令放行依据失效，生成须中止。gate 判的是迁移前状态、改写发生在放行之后——不在此
+        即令放行依据失效，生成须中止。内容确认判的是迁移前状态、改写发生在放行之后——不在此
         拦下，付费的 step2 就会按用户从未过目的秒数生成，落盘后才在下次加载被拦。
         """
         sg = self._generator(
@@ -1970,7 +1970,7 @@ class TestLoadReferenceStep1:
                 ]
             },
         )
-        with pytest.raises(ValueError, match="尚未经审阅确认"):
+        with pytest.raises(ValueError, match="尚未完成内容确认"):
             sg._load_reference_step1(1, [4, 6, 8])
 
     @pytest.mark.unit

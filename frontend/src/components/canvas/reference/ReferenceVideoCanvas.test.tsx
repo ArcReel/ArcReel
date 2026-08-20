@@ -384,7 +384,7 @@ describe("ReferenceVideoCanvas", () => {
     );
   });
 
-  // 参考视频按申请秒数计价：改档位即改估价。SSE 会让分组缓存最终一致，费用面板仍由
+  // 参考生视频按申请秒数计价：改档位即改估价。SSE 会让分组缓存最终一致，费用面板仍由
   // 本地写成功主动刷新，避免当前浏览器等待事件回环才显示新估价。
   it("refreshes cost estimates after a duration patch succeeds", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });

@@ -7557,7 +7557,7 @@ async def test_open_step1_for_edit_records_base_fingerprint(fake_ctx: ToolContex
 
 @pytest.mark.unit
 async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext, monkeypatch) -> None:
-    """「用户在审阅门编辑 + agent 改草稿并晋升」的双端并发：取回后正式文件被另一写入方
+    """「用户在内容确认界面编辑 + agent 改草稿并晋升」的双端并发：取回后正式文件被另一写入方
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
     留在原地。按报告把 meta.base_fingerprint 更新为现值（显式确认已合并）后方可重新晋升。"""
     _rv_source(fake_ctx)
@@ -8221,7 +8221,7 @@ async def test_generate_episode_script_blocked_by_drama_quarantine(fake_ctx: Too
 @pytest.mark.unit
 async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx: ToolContext, monkeypatch) -> None:
     """重新规范化是刻意的整份重建，与参考路线的重拆分同口径：正式文件换成新产物的同一临界区内
-    清掉上一轮草稿。留着它会让审阅门与 step2 一直阻塞在一份已被取代的内容上，而草稿记下的基线
+    清掉上一轮草稿。留着它会让内容确认与 step2 一直阻塞在一份已被取代的内容上，而草稿记下的基线
     指纹此刻也对不上，晋升只会反复报冲突——agent 没有第二条出路。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 

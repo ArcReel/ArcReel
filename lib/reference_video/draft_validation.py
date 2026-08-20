@@ -369,7 +369,7 @@ def validate_dialogue_load(
 def assert_dialogue_preserved(label: str, step1_text: str, step2_text: str) -> None:
     """step2 保结构 diff：发声记号的序列必须与 step1 逐字一致。
 
-    step2 的职责是视觉展开，台词属于 step1 已与用户在 gate 上确认过的内容契约。改词、增删、
+    step2 的职责是视觉展开，台词属于 step1 已由用户完成内容确认的内容契约。改词、增删、
     重排一律响亮失败，不静默接受——台词不配画面时正确的出路是报错回到 step1，而不是让 step2
     自行把台词改成好配的样子。
     """

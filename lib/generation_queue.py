@@ -71,7 +71,7 @@ def reference_video_enqueue_payload(
     *,
     script_file: str | None,
 ) -> dict[str, Any]:
-    """把新入队的参考视频载荷收窄为定位与请求选项。
+    """把新入队的参考生视频载荷收窄为定位与请求选项。
 
     prompt、references、style、duration 等可变请求事实不是任务快照；worker 开始时
     从当前 project/script/unit 重新投影。提交后的执行身份保存在专用 checkpoint，

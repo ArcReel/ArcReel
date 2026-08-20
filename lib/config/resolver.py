@@ -308,7 +308,7 @@ def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
 
     纯读 project.json、不查 DB，供 caps 解析失败（DB / migration 故障等）时的降级路径复用：
     桶键与默认键都在同一个明文文件里，降级只该丢掉 DB 那部分，不该顺带把桶口径也降成项目
-    默认层——否则配了 ``video_provider_r2v`` 的参考视频项目会拿 ``video_backend`` 的档位与
+    默认层——否则配了 ``video_provider_r2v`` 的参考生视频项目会拿 ``video_backend`` 的档位与
     参考图上限写剧本。层内取值口径与 ``_resolve_layered_backend`` 的项目层一致（含裸供应商
     覆盖）。
     """
@@ -508,7 +508,7 @@ def constrain_durations(
 def _resolution_for_constraints(
     project: dict, provider_id: str | None, model_id: str | None, *, generation_mode: str | None
 ) -> str | None:
-    """约束求值用的生效分辨率：项目已保存的档位，参考视频模式下补 provider 兜底。
+    """约束求值用的生效分辨率：项目已保存的档位，参考生视频模式下补 provider 兜底。
 
     联动约束必须按**执行期真正下发给供应商的那个档位**求值，而两条视频路径下发的值不同源：
 
@@ -516,11 +516,11 @@ def _resolution_for_constraints(
       参数」（见 ``docs/adr/0019``），供应商按自己的默认档位处理——Veo 省略时是 720p，4/6/8 全
       合法。此时按兜底档位求值会凭空收窄：未配置分辨率的 Veo 项目剧本节奏会被锁死 8 秒，而
       供应商本来就接受 4/6 秒。故未配置时返回 ``None``（不施加分辨率约束）。
-    - 参考视频路径是唯一需要非空档位的调用方，执行期取 ``resolution_or_fallback``（见
+    - 参考生视频路径是唯一需要非空档位的调用方，执行期取 ``resolution_or_fallback``（见
       ``server/services/reference_video_tasks.py``），故这里同样补 ``get_provider_fallback``，
       让约束与实际下发的档位描述同一件事。
 
-    ``get_provider_fallback`` 本身是费用估算与参考视频路径的内部口径，不是「用户没配分辨率时
+    ``get_provider_fallback`` 本身是费用估算与参考生视频路径的内部口径，不是「用户没配分辨率时
     的生效值」，不可当作后者施加到普通路径上。自定义供应商的 DB 默认档位不在此解析：该类
     供应商不声明联动约束，解析出来也不改变结果，不值得为此把纯函数变成 async。
 
@@ -570,8 +570,8 @@ def constrain_durations_for_project(
 ) -> list[int]:
     """按项目当前配置收窄时长候选：分辨率取生效档位，参考图约束按是否真的带参考图判定。
 
-    ``uses_reference_images`` 缺省时退回「生成模式即参考视频」的近似判定。调用方能看到
-    实际的参考图情况时应显式传入：参考视频路径允许单元不带任何引用，执行层与 backend 都只在
+    ``uses_reference_images`` 缺省时退回「生成模式即参考生视频」的近似判定。调用方能看到
+    实际的参考图情况时应显式传入：参考生视频路径允许单元不带任何引用，执行层与 backend 都只在
     ``reference_images`` 非空时施加该约束，按模式一刀切会把无引用单元本可申请的档位也收掉。
     """
     return constrain_durations(

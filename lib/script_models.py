@@ -718,9 +718,9 @@ class AdEpisodeScript(BaseModel):
     shots: list[AdShot] = Field(description="镜头列表")
 
 
-# ============ 参考生视频模式（Reference Video） ============
+# ============ 参考生视频模式（Reference-to-Video） ============
 
-#: 参考生视频 unit 编排时长（``ReferenceVideoUnit.duration_seconds``）的结构范围（秒）。
+#: 视频单元编排时长（``ReferenceVideoUnit.duration_seconds``）的结构范围（秒）。
 #: 静态模型只拦非正整数与量级明显失真的值；生成预检再按执行模型能力投影到申请档位并把
 #: 偏移作为 warning 呈现。上界不由镜头数推导：镜头不承载时长，unit 才是一次生成调用。
 #: 存量迁移的问题壳是唯一例外，可在 ``needs_replan`` 下保存零秒。
@@ -806,7 +806,7 @@ class ReferenceResource(BaseModel):
 
 
 class ReferenceVideoUnit(BaseModel):
-    """参考视频单元——一个视频文件的最小生成粒度。
+    """视频单元——一个视频文件的最小生成粒度。
 
     ``text`` 是这个单元的唯一持久化内容真相：一段自由书写的正文，参考图与发声归属都从它
     读时或执行期派生，不另存结构（见 ADR 0064）。unit 是一次生成调用的单元，一个 unit 一个
@@ -950,7 +950,7 @@ class ReferenceStep1FlatDraft(BaseModel):
 class ReferenceStep2FlatUnit(BaseModel):
     """step2 的 LLM 产出单元：只有展开后的引用语法正文。
 
-    时长与 unit 顺序是 step1 已定稿、用户已在审阅 gate 上确认的内容契约，不进 step2 输出——
+    时长与 unit 顺序是 step1 已定稿、用户已完成内容确认的内容契约，不进 step2 输出——
     不给 LLM 写的字段就没有漂移可校验。
     """
 

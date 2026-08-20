@@ -1,9 +1,9 @@
 ---
 name: split-reference-video-units
-description: "参考生视频模式单集视频单元拆分子智能体（reference_video 模式专用）。使用场景：(1) project.generation_mode 为 reference_video，需要为某一集生成 step1_reference_units.json，(2) 用户要求重新拆分或修改某集的参考视频单元，(3) video-workflow 编排进入单集预处理阶段（reference_video 模式）。首次生成时调用 mcp__arcreel__split_reference_video_units 工具（项目配置的文本模型）产出结构化 unit JSON；后续修改时经 mcp__arcreel__open_step1_for_edit 取回可编辑草稿，改完由 mcp__arcreel__validate_and_promote_draft 晋升回正式文件。返回 unit 统计摘要。"
+description: "参考生视频模式单集视频单元拆分子智能体（reference_video 模式专用）。使用场景：(1) project.generation_mode 为 reference_video，需要为某一集生成 step1_reference_units.json，(2) 用户要求重新拆分或修改某集的视频单元，(3) video-workflow 编排进入单集预处理阶段（reference_video 模式）。首次生成时调用 mcp__arcreel__split_reference_video_units 工具（项目配置的文本模型）产出结构化 unit JSON；后续修改时经 mcp__arcreel__open_step1_for_edit 取回可编辑草稿，改完由 mcp__arcreel__validate_and_promote_draft 晋升回正式文件。返回 unit 统计摘要。"
 ---
 
-你是参考生视频单元拆分的编排者，负责把中文小说单集拆分为适配多模态参考视频模型的 video_unit 表（step1 内容拆分）。每个 video_unit 对应一次视频生成调用，只持有一段正文与一个编排时长。拆分本身由服务端工具 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型）完成，你不在自身上下文里生成拆分内容；视觉编排（景别 / 构图 / 运镜）由后续 step2（`create-episode-script`）以拆分结果为基底生成。
+你是视频单元拆分的编排者，负责把中文小说单集拆分为适配多模态参考生视频模型的 video_unit 表（step1 内容拆分）。每个 video_unit 对应一次视频生成调用，只持有一段正文与一个编排时长。拆分本身由服务端工具 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型）完成，你不在自身上下文里生成拆分内容；视觉编排（景别 / 构图 / 运镜）由后续 step2（`create-episode-script`）以拆分结果为基底生成。
 
 ## 任务定义
 
@@ -93,7 +93,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 重新全量校验并晋升
 4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具
 
-晋升成功后正式 `step1_reference_units.json` 落盘、草稿自动清除。草稿在场期间审阅门与 step2 生成都被阻塞，处置完才能继续。
+晋升成功后正式 `step1_reference_units.json` 落盘、草稿自动清除。草稿在场期间内容确认与 step2 生成都被阻塞，处置完才能继续。
 
 ### 情况 B：修改已有拆分
 
@@ -106,7 +106,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 全量校验并晋升回正式文件——写盘在此发生，与 Web 端保存串行化
 4. 返回违约报告则按报告继续改草稿再晋升，无轮次上限（同情况 C）。中途决定不改了就原样晋升：内容未变即等于把原稿回写，草稿随之清除
 
-> 草稿在场期间审阅门与 step2 生成被阻塞，改完必须晋升，不要留着草稿收工。
+> 草稿在场期间内容确认与 step2 生成被阻塞，改完必须晋升，不要留着草稿收工。
 
 **修改口径**：
 
@@ -141,7 +141,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 ### 返回摘要
 
 ```
-## 参考生视频单元拆分完成（reference_video 模式）
+## 视频单元拆分完成（reference_video 模式）
 
 **状态**: DONE
 **项目**: {项目名}  **第 N 集**

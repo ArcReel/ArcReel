@@ -1239,7 +1239,7 @@ class ReorderShotsRequest(BaseModel):
 
 @router.post("/projects/{name}/script-shots/reorder")
 async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
-    """按给定全排列重排 ad 剧本的 shots 顺序（与参考视频 units/reorder 同语义）。"""
+    """按给定全排列重排 ad 剧本的 shots 顺序（与视频单元重排端点同语义）。"""
     try:
 
         def _sync():
