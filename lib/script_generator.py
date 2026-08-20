@@ -541,7 +541,7 @@ class ScriptGenerator:
                 else self._parse_response(response_text, episode)
             )
 
-        # 补充元数据。reference 路径同样纳入隔离：_add_metadata 按落地后的最终正文重算
+        # 补充元数据。reference 路径同样走草稿保护：_add_metadata 按落地后的最终正文重算
         # 生效档位，一个新增 / 去掉了 `@` 引用的 unit 要到合并之后才判出档——不接住的话，这份
         # 已付费产出只存在于内存里，错误却让调用方重新生成。
         try:
@@ -1303,7 +1303,7 @@ class ScriptGenerator:
 
         重判用的是 ``_merge_reference_visual`` 本身，不是它的简化副本：晋升口径与产出口径必须
         同一份代码，否则「晋升时放行、下次生成时被拒」这类分叉会重新出现。step1 一并重读——
-        隔离期间用户可能在 gate 上改过 step1，保结构 diff 要对着现值判。
+        草稿在场期间用户可能在内容确认界面改过 step1，保结构 diff 要对着现值判。
 
         仍有违约时刷新草稿里的报告快照后抛出（``DraftViolation``），草稿留在原地供继续修改；
         无收敛轮次上限。
@@ -1317,7 +1317,7 @@ class ScriptGenerator:
 
         caps = await self._fetch_video_capabilities()
         step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
-        # 与产出路径同一份 step1 预判：隔离期间 Web 端可能改过 step1（编辑器对人写正文只出
+        # 与产出路径同一份 step1 预判：草稿在场期间 Web 端可能改过 step1（编辑器对人写正文只出
         # warning），不复判就会让改短时长后念不完的台词、或未登记的 @[名称] 借晋升一路落盘。
         self._assert_reference_step1_ready(step1_units, caps=caps, gen_mode="reference_video")
         max_refs = self._resolve_max_refs(caps)

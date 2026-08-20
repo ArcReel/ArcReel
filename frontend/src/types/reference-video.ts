@@ -220,7 +220,7 @@ export interface ScriptPreview {
 }
 
 /**
- * reference_video step1 结构化中间态（审核 gate 的可审 / 可改对象）。映射后端
+ * reference_video step1 结构化中间态（内容确认的可审 / 可改对象）。映射后端
  * lib/script_models.py 的 ReferenceStep1Unit / ReferenceStep1Draft：step1 定内容层
  * （unit 边界 + unit 时长 + 单元正文），step2 视觉编排由用户确认后才触发。
  */

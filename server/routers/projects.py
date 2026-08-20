@@ -186,7 +186,6 @@ class CreateProjectRequest(BaseModel):
     # 口播语速估算（阅读单位 / 秒）项目级覆盖：空 = 回退 lib.speech_rate 的语言默认。
     # 与 TTS 的 narration_speed（供应商配音倍率）无关，两者不联动。
     speech_rate_units_per_second: SpeechRateOverride = None
-    # ===== 新增 =====
     style_template_id: str | None = None
     video_backend: str | None = None
     # 视频任务类型桶（docs/adr/0054）项目级覆盖：i2v = 图生视频 / 宫格，r2v = 参考生视频；

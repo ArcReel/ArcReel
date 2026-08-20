@@ -1012,7 +1012,7 @@ class WorkflowStateService:
             return "none"
         if script_review.step1_quarantined(project_path, project, number):
             # 草稿在场即已分段：首轮拆分失败时正式文件从未写过，报 none 会把用户
-            # 路由回源文审阅页，见不到隔离态详情与修复入口。
+            # 路由回源文审阅页，见不到草稿详情与修复入口。
             return "segmented"
         if currency is None:
             return "none"

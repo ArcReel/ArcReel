@@ -147,10 +147,10 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 **触发**：
 
-- `next_action.type == "confirm_step1"` → 先完成下述审核 gate，刷新计划后再路由
+- `next_action.type == "confirm_step1"` → 先完成下述内容确认，刷新计划后再路由
 - `next_action.type == "generate_script"` → dispatch 剧本生成
 
-**step1→step2 审核 gate（阻塞）**：`prepare_step1` 的结构化 step1 中间态须经**显式确认**才放行剧本生成（三种结构化 step1 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `step1_reference_units.json` 同样须确认，不要跳过。ad 无 step1，不纳入 gate）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 step1 又被改）时 `generate_episode_script` 会被 gate 拒绝；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
+**step1→step2 内容确认（阻塞）**：`prepare_step1` 的结构化 step1 中间态须经**显式确认**才放行剧本生成（三种结构化 step1 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `step1_reference_units.json` 同样须确认，不要跳过。ad 无 step1，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 step1 又被改）时 `generate_episode_script` 会被内容确认阻塞；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
 
 **dispatch `create-episode-script` 子智能体**：传入项目名称、项目路径、集数；可选附加说明（用户对本次生成的意见等任何需带给子智能体的临时上下文，原文透传）。
 

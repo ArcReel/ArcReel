@@ -1018,7 +1018,7 @@ async def test_step2_duration_off_tier_after_merge_quarantines(reference_project
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_promote_step2_draft_revalidates_edited_step1(reference_project: Path):
-    """晋升前按产出路径同一份预判重判 step1 现值：隔离期间 Web 端改坏 step1 不能借晋升落盘。
+    """晋升前按产出路径同一份预判重判 step1 现值：草稿在场期间 Web 端改坏 step1 不能借晋升落盘。
 
     编辑器对人写正文只出 warning，改出未登记的 @[名称] 能存下去；而保结构 diff 只比对 step2
     正文与 step1 的镜头/台词结构，不复判 step1 自身的正文合法性。
@@ -1054,7 +1054,7 @@ async def test_promote_step2_draft_without_draft(reference_project: Path):
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_step2_refuses_to_run_while_step1_quarantined(reference_project: Path):
-    """step1 还在隔离态时不跑 step2：正式 step1 仍是上一版，拿它生成等于静默换回旧内容。"""
+    """step1 草稿还在场时不跑 step2：正式 step1 仍是上一版，拿它生成等于静默换回旧内容。"""
     write_quarantine(
         reference_project,
         1,

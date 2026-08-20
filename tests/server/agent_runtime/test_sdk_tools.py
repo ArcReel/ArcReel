@@ -5324,7 +5324,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     drafts.mkdir(parents=True)
     step1 = drafts / "step1_segments.json"
     step1.write_text("step1", encoding="utf-8")
-    # step1→step2 审核 gate：须先确认才放行生成，否则 handler 早返 gate 阻塞而非调 ScriptGenerator。
+    # step1→step2 内容确认：须先确认才放行生成，否则 handler 早返阻塞而非调 ScriptGenerator。
     # 把已存确认指纹对齐当前 step1 内容指纹，模拟「用户已在 Web 确认」。
     fingerprint = script_review.content_fingerprint(step1)
     (project_path / "project.json").write_text(
@@ -7862,7 +7862,7 @@ async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: To
 async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx: ToolContext, monkeypatch) -> None:
     """step1 未经确认时 step2 草稿不晋升：常规生成路径在工具入口就被 gate 拦，两条路不该分叉。
 
-    隔离期间用户在 Web 端改过 step1 会让确认指纹失效，该集回到 pending_review——此时晋升等于
+    草稿在场期间用户在 Web 端改过 step1 会让确认指纹失效，该集回到 pending_review——此时晋升等于
     拿一份用户没确认过的 step1 合成正式剧本。
     """
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -7882,7 +7882,7 @@ async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx:
 
     out = await _promote(fake_ctx, monkeypatch)
     assert out.get("is_error") is True
-    assert "尚未经 web 审核确认" in out["content"][0]["text"]
+    assert "尚未完成内容确认" in out["content"][0]["text"]
 
 
 @pytest.mark.unit

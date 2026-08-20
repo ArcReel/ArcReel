@@ -1269,7 +1269,7 @@ export default {
   'line_placeholder': '台词',
   'add_dialogue': '添加对话',
   'dialogue_remove': '删除对话',
-  // step1 → step2 审核 gate
+  // step1 → step2 内容确认
   'utterance_kind_dialogue': '台词',
   'utterance_kind_voiceover': '画外音',
   'utterance_toggle_kind': '在台词与画外音间切换',

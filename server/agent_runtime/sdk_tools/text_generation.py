@@ -142,7 +142,7 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
     ``source`` 除工具自己产出外，也会被 ``revalidate_reference_step1_draft`` 传入草稿的
     ``meta.source``——那是 agent 可编辑的 JSON 字段，类型标注管不住运行时值。非 str/None 时
     直接抛 ValueError 而非让它落进 ``safe_join``：那里对非路径类型是 ``TypeError``，本函数
-    的调用方一律只接 ValueError，放行 TypeError 会在 web 审核 gate 的读时重算里变成未处理的
+    的调用方一律只接 ValueError，放行 TypeError 会在内容确认的读时重算里变成未处理的
     500，而不是「无法重算」这个本该有的降级态。
     """
     if source is not None and not isinstance(source, str):
@@ -154,8 +154,8 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
             raise ValueError(f"路径超出项目目录: {source}") from exc
         if not source_path.is_file():
             # 存在但不是文件（如指向目录）同样按「未找到源文件」处理：直接 read_text() 对目录
-            # 会抛 IsADirectoryError，落进本函数调用方一律只接的 ValueError 之外，在 web 审核
-            # gate 的读时重算里会变成未处理的 500。
+            # 会抛 IsADirectoryError，落进本函数调用方一律只接的 ValueError 之外，在内容确认的
+            # 读时重算里会变成未处理的 500。
             raise ValueError(f"未找到源文件: {source_path}")
         novel_text = source_path.read_text(encoding="utf-8")
     else:
@@ -344,7 +344,7 @@ def generate_episode_script_tool(ctx: ToolContext):
             except (OSError, json.JSONDecodeError):
                 project_data = {}
 
-            # 草稿在场先于「缺 step1」与审核 gate 报出。三者都判「未放行」，但出路各不相同：
+            # 草稿在场先于「缺 step1」与内容确认报出。三者都判「未放行」，但出路各不相同：
             # 首次产出就违约时正式 step1 本就不存在，先报缺文件会把 agent 引回重跑生成——正是本
             # 机制要避免的「丢弃重抽」；gate 阻塞则要用户去 Web 端确认，agent 自己解决不了。
             for kind in _step2_blocking_quarantine_kinds(project_data):
@@ -381,16 +381,16 @@ def generate_episode_script_tool(ctx: ToolContext):
                     "content": [{"type": "text", "text": f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}"}]
                 }
 
-            # step1→step2 审核 gate：drama / narration / reference_video 的结构化 step1 中间态须经
-            # web 显式确认才放行 step2 视觉生成；未确认（或确认后内容又被改）时阻塞，引导用户先在
-            # Web 端审阅确认。ad（无 step1）不适用，gate 自动放行。
+            # step1→step2 内容确认：drama / narration / reference_video 的结构化 step1 中间态须经
+            # Web 端显式确认才放行 step2 视觉生成；未确认（或确认后内容又被改）时阻塞，引导用户先在
+            # Web 端审阅确认。ad（无 step1）不要求内容确认。
             if script_review.gate_blocks_step2(project_path, project_data, episode):
                 return {
                     "content": [
                         {
                             "type": "text",
                             "text": (
-                                "⏸️ step1 结构化中间态尚未经 web 审核确认，step2 视觉生成被 gate 阻塞。"
+                                "⏸️ step1 结构化中间态尚未完成内容确认，step2 视觉生成被阻塞。"
                                 "请在 Web 端审阅并确认本集 step1 内容后再生成剧本。"
                             ),
                         }
@@ -420,7 +420,7 @@ def confirm_script_review_tool(ctx: ToolContext):
         "确认本集 step1 结构化中间态（drama / narration 的逐字口播 / 原文，reference_video 的 "
         "video_unit 拆分），放行 step2 视觉生成。仅在用户对话中明确同意进入视觉生成、或已在 Web 端审阅"
         "认可后调用——这是 step2 的显式确认动作，与 Web 端确认等价；未确认时 generate_episode_script "
-        "会被审核 gate 阻塞。",
+        "会被内容确认阻塞。",
         {
             "type": "object",
             "properties": {"episode": {"type": "integer", "description": "剧集编号"}},
@@ -899,12 +899,12 @@ async def revalidate_reference_step1_draft(
     """按产出时那套校验器全量重判 step1 草稿，只读、不写盘、不清草稿。
 
     重判走的是拆分工具用的同一个函数（``_collect_reference_flat_violations``），不是它的简化
-    副本：晋升口径、web 审核 gate 的读时重算与产出口径必须同一份代码，否则「这里放行、下次
-    生成时被拒」这类分叉会重新出现。能力与源文都重新解析——隔离期间用户可能改过模型配置或
+    副本：晋升口径、内容确认的读时重算与产出口径必须同一份代码，否则「这里放行、下次
+    生成时被拒」这类分叉会重新出现。能力与源文都重新解析——草稿在场期间用户可能改过模型配置或
     源文，重判要对着现值判。
 
     不依赖 ``ToolContext``（``project_path`` / ``project`` 由调用方传入而非从 ctx 派生）：
-    web 审核 gate 的读时重算（``server/services/script_review.py``）没有 agent 工具的 ctx，
+    内容确认的读时重算（``server/services/script_review.py``）没有 agent 工具的 ctx，
     只有 ``ProjectManager``；两处共用本函数而不各自加载 project，调用方各自加载一次即可。
 
     ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
@@ -917,7 +917,7 @@ async def revalidate_reference_step1_draft(
             "请恢复该字段（指定源文时为其相对路径，按整个 source/ 产出时为 null）后重试"
         )
     # 源文可能达数百 KB（整个 source/ 目录拼接），同步读盘直接放在这个 async 函数体里会占用
-    # 事件循环——晋升工具走的是独立会话线程不敏感，但 web 审核 gate 的读时重算（同一份代码）
+    # 事件循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）
     # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
     novel_text, _prompt_inputs, step1_basis = await asyncio.to_thread(
         _load_step1_source_with_basis,
@@ -1005,7 +1005,7 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
 
     units = _build_reference_units_from_flat(flat_units, project, episode=episode, max_refs=split_caps.max_refs)
     # 写盘经单一出口（lib.script_review.write_step1_locked）：锁、基线比对、step2 草稿清理
-    # 只存在那一处。基线指纹取自取回 / 隔离时记进 meta 的 base_fingerprint——正式文件在草稿
+    # 只存在那一处。基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint——正式文件在草稿
     # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 agent 合并，
     # 不静默覆盖对方的修改。引入基线前产出的存量草稿缺该键，按无基线晋升。
     expected = (
@@ -1689,7 +1689,7 @@ def validate_and_promote_draft_tool(ctx: ToolContext):
                     "is_error": True,
                 }
 
-            # step1 优先：step2 的保结构 diff 以正式 step1 为基底，step1 还在隔离态时判 step2
+            # step1 优先：step2 的保结构 diff 以正式 step1 为基底，step1 草稿还在场时判 step2
             # 只会拿旧基底得出误导性的结论。
             step1_draft = read_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
             if step1_draft is not None:
@@ -1701,7 +1701,7 @@ def validate_and_promote_draft_tool(ctx: ToolContext):
                 )
 
             if quarantine_exists(project_path, episode, QUARANTINE_KIND_STEP2):
-                # 晋升同样受 step1 审核 gate 约束：隔离期间用户在 Web 端改过 step1 会让确认指纹
+                # 晋升同样受 step1 内容确认约束：草稿在场期间用户在 Web 端改过 step1 会让确认指纹
                 # 失效、该集回到 pending_review，此时晋升等于拿一份用户没确认过的 step1 合成正式
                 # 剧本——常规生成路径在工具入口就被 gate 拦下，两条路不该在这一位上分叉。
                 if script_review.gate_blocks_step2(project_path, project_data, episode):
@@ -1710,7 +1710,7 @@ def validate_and_promote_draft_tool(ctx: ToolContext):
                             {
                                 "type": "text",
                                 "text": (
-                                    "⏸️ 本集 step1 尚未经 web 审核确认（或确认后内容又被改），step2 草稿暂不晋升。"
+                                    "⏸️ 本集 step1 尚未完成内容确认（或确认后内容又被改），step2 草稿暂不晋升。"
                                     "请在 Web 端审阅并确认本集 step1 内容后再调用本工具。"
                                 ),
                             }
