@@ -129,11 +129,11 @@ def test_silent_episode_injects_no_voice_style_same_as_silent_model():
         pytest.param({"voice_consistency": "none"}, id="silent_model"),
     ],
 )
-def test_silent_paths_keep_every_dialogue_shot_identical_to_audible_path(silencing: dict):
+def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencing: dict):
     """第二段与有声路径逐字同形——只有第一段的音色参考行消失。
 
-    整段（含两个镜头块）比对而非只比首个镜头：音频编号从第二个说话人起才可能出现分叉，
-    只比镜头1 会漏掉后续绑定位上的差异。两条无声路径各比一次。
+    整段正文比对而非只比第一句：音频编号从第二个说话人起才可能出现分叉，只比开头会漏掉
+    后续绑定位上的差异。两条无声路径各比一次。
     """
     settings = VoiceRenderSettings(
         voice_consistency="native",
@@ -145,13 +145,13 @@ def test_silent_paths_keep_every_dialogue_shot_identical_to_audible_path(silenci
     audible = render_unit_prompt(_TEXT, _project(), refs, settings, style="写实电影感")
     silent = render_unit_prompt(_TEXT, _project(), refs, replace(settings, **silencing), style="写实电影感")
 
-    def _shot_segments(prompt: str) -> list[str]:
-        return [seg for seg in prompt.split("\n\n") if seg.startswith("镜头")]
+    def _body(prompt: str) -> str:
+        return prompt.split("\n\n")[1]
 
     # 有声侧确实绑定了两段音频，比对才有区分度（否则两侧本就无音频，断言恒真）
     assert audible.audio_speakers == ["张三", "李四"]
-    assert len(_shot_segments(audible.prompt)) == 2
-    assert _shot_segments(silent.prompt) == _shot_segments(audible.prompt)
+    assert "你终于来了。" in _body(audible.prompt)
+    assert _body(silent.prompt) == _body(audible.prompt)
 
 
 def test_first_segment_binds_images_in_reference_order():
@@ -165,7 +165,7 @@ def test_first_segment_binds_images_in_reference_order():
 
 
 def test_speaker_position_never_produces_a_reference_image():
-    """李四只在规范台词行的 speaker 位出现：无参考图绑定，但音色声明与台词渲染照常。"""
+    """李四只在台词记号的 speaker 位出现：无参考图绑定，但音色声明与台词渲染照常。"""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
@@ -232,6 +232,38 @@ def test_voiceover_line_renders_as_offscreen_speech():
     assert "画外音说 {多年以后他仍记得这句话。}" in rendered.prompt
 
 
+def test_inline_speech_renders_the_same_official_phrasing_as_the_whole_line_form():
+    """内联记号与整行写法渲染出同一段官方句式，只是行文位置随作者所写。"""
+    legacy = render_unit_prompt(
+        "镜头1：@[张三] 推门而入。\n@[张三]：{今晚的酒，我请。}",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    inline = render_unit_prompt(
+        "镜头1：@[张三] 推门而入。@[张三]{今晚的酒，我请。}",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+
+    assert "<张三>说 {今晚的酒，我请。}" in legacy.prompt
+    assert "<张三> 推门而入。<张三>说 {今晚的酒，我请。}" in inline.prompt
+    assert inline.warnings == legacy.warnings
+    assert inline.audio_speakers == legacy.audio_speakers
+
+
+def test_inline_speech_keeps_the_description_around_it_in_place():
+    """记号就地重组，两侧描述留在原处——一行的行文顺序原样传给供应商。"""
+    rendered = render_unit_prompt(
+        "镜头1：@[张三] 推门，{夜风灌进来}，他按住 @[长剑]。",
+        _project(),
+        _refs(("character", "张三"), ("prop", "长剑")),
+        _SOFT,
+    )
+    assert "<张三> 推门，画外音说 {夜风灌进来}，他按住 <长剑>。" in rendered.prompt
+
+
 def test_unregistered_speaker_line_is_sent_verbatim_with_warning():
     rendered = render_unit_prompt("镜头1：黑场。\n@[路人]：{你好。}", _project(), [], _SOFT)
     assert "@[路人]：{你好。}" in rendered.prompt
@@ -292,8 +324,11 @@ def test_twin_guard_only_when_two_or_more_character_images():
     assert "双胞胎" in both.prompt
 
 
-def test_legacy_script_without_dialogue_still_renders_three_segments():
-    """存量文稿（无台词符号）走新管线：绑定 + 分镜 + 约束包齐备，语义不回退。"""
+def test_script_without_dialogue_still_renders_three_segments():
+    """无台词记号的正文照样出三段：绑定 + 正文 + 约束包齐备，语义不回退。
+
+    正文里的 `镜头N：` 只是普通文字，逐字进提示词，不被识别为结构。
+    """
     rendered = render_unit_prompt(
         "镜头1：@[张三] 走进 @[酒馆]。\n镜头2：他坐下。",
         _project(),
@@ -303,8 +338,7 @@ def test_legacy_script_without_dialogue_still_renders_three_segments():
     assert rendered.audio_speakers == []
     assert rendered.warnings == []
     assert "<张三>@图片1、<酒馆>@图片2。" in rendered.prompt
-    assert "镜头1：\n<张三> 走进 <酒馆>。" in rendered.prompt
-    assert "镜头2：\n他坐下。" in rendered.prompt
+    assert "镜头1：<张三> 走进 <酒馆>。\n镜头2：他坐下。" in rendered.prompt
 
 
 def test_audio_ready_overrides_field_presence(tmp_path):
@@ -353,42 +387,6 @@ def test_requires_reference_image_downgrades_offscreen_speaker_with_warning():
     assert {"key": WARN_SPEAKER_AUDIO_NEEDS_IMAGE, "params": {"name": "李四"}} in rendered.warnings
 
 
-def test_audio_speaker_image_slot_ignores_same_named_scene_or_prop():
-    """场景与角色同名时，音频不能对齐到同名场景的图——speaker 只能是角色，``references``
-    里 type=scene 的「张三」不等于会说话的角色「张三」。"""
-    project = _project(scenes={"张三": {}})
-    text = "镜头1：@[张三] 的餐厅一角。\n@[张三]：{欢迎光临。}"
-    rendered = render_unit_prompt(
-        text,
-        project,
-        _refs(("scene", "张三")),
-        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
-    )
-    assert rendered.audio_speakers == []
-    assert {"key": WARN_SPEAKER_AUDIO_NEEDS_IMAGE, "params": {"name": "张三"}} in rendered.warnings
-
-
-def test_audio_speaker_image_slot_and_binding_label_survive_same_named_type_collision():
-    """角色与同名场景/道具的图**都**随请求发出时，两者仍是不同的物理图——name 键的字典若不
-    先按类型过滤，后写入的条目会覆盖先写入的同名条目，导致音频误挂、``<X>@图片N`` 绑定标签
-    也会把两个不同的图误标成同一个编号。"""
-    project = _project(scenes={"张三": {}})
-    text = "镜头1：@[张三] 推门而入。\n@[张三]：{今晚的酒，我请。}"
-    rendered = render_unit_prompt(
-        text,
-        project,
-        # scene「张三」先于 character「张三」出现：若按名字覆盖，name 键会指向 scene 的图 1。
-        _refs(("scene", "张三"), ("character", "张三")),
-        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
-    )
-    assert rendered.audio_speakers == ["张三"]
-    # references[0]=scene 张三, references[1]=character 张三 → 音频须挂 character 的 0-based 下标 1。
-    assert rendered.audio_speaker_reference_index == [1]
-    # 两条绑定标签分别指向各自的位置编号，不因同名互相覆盖。
-    assert "<张三>@图片1" in rendered.prompt
-    assert "<张三>@图片2" in rendered.prompt
-
-
 @pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
 @pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])
 def test_combining_char_name_renders_identically_in_every_encoding_pairing(registered: str, written: str):
@@ -421,6 +419,22 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
     assert f"<{_NAME_NFC}> 推门而入" in rendered.prompt
     assert f"<{_NAME_NFC}>说 {{Tôi đến rồi.}}" in rendered.prompt
     # 书写层记号一个都不该漏进供应商请求
+    assert "@[" not in rendered.prompt
+
+
+def test_padded_mention_and_speaker_render_with_canonical_asset_name():
+    rendered = render_unit_prompt(
+        "镜头1：@[ 张三 ] 推门而入。\n@[ 张三 ]：{我来了}",
+        _project(),
+        _refs(("character", " 张三 ")),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, audio_ready={" 张三 "}),
+    )
+
+    assert rendered.audio_speakers == ["张三"]
+    assert rendered.audio_speaker_reference_index == [0]
+    assert "<张三>@图片1" in rendered.prompt
+    assert "<张三> 推门而入" in rendered.prompt
+    assert "<张三>说 {我来了}" in rendered.prompt
     assert "@[" not in rendered.prompt
 
 

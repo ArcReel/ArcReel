@@ -51,3 +51,18 @@ export function charactersFieldFor(mode: EditorContentMode): CharactersField {
   if (mode === "ad") return "characters_in_shot";
   return "characters_in_segment";
 }
+
+/**
+ * 集总时长 = 逐条目 `duration_seconds` 求和。
+ *
+ * 它是派生值，剧本不落盘一份（服务端由项目摘要按同一口径读时计算）。各画布共用这一份
+ * 实现，避免同一个数在时间线与宫格两处各写一遍、健壮度还不一致。
+ */
+export function sumItemDuration(
+  items: readonly { duration_seconds?: number | null }[],
+): number {
+  return items.reduce((sum, item) => {
+    const d = item.duration_seconds;
+    return sum + (typeof d === "number" && Number.isFinite(d) ? d : 0);
+  }, 0);
+}

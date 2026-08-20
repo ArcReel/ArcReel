@@ -1,6 +1,11 @@
+import type { TFunction } from "i18next";
+
 import type { ProjectChange } from "@/types";
 
 const GROUP_NAME_LIMIT = 5;
+
+/** 事件通知文案的翻译函数，由调用方从 `events` 命名空间取得。 */
+export type EventsT = TFunction<"events">;
 
 // 生成事件（用于刷新费用等）。
 export const GENERATION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set([
@@ -15,23 +20,6 @@ export const GENERATION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set(
 // 完成事件（action 本身即通知类别，与 entity_type 无关）——优先级查表、导航行为、通知文案均不按
 // entity_type 拆分，五类骨架/任务共用同一套判定。
 export const COMPLETION_ACTIONS: ReadonlySet<ProjectChange["action"]> = GENERATION_ACTIONS;
-
-const ENTITY_LABELS: Record<ProjectChange["entity_type"], string> = {
-  project: "项目",
-  character: "角色",
-  scene: "场景",
-  prop: "道具",
-  segment: "分镜",
-  drama_scene: "场景",
-  shot: "镜头",
-  reference_unit: "视频单元",
-  episode: "剧集",
-  overview: "项目概览",
-  draft: "预处理",
-  grid: "宫格",
-  // 任务终态是刷新信号（important=false），不进通知文案；此项只为满足映射完整性。
-  task: "任务",
-};
 
 export interface GroupedProjectChange {
   key: string;
@@ -70,26 +58,40 @@ export function groupChangesByType(
   return [...groups.values()];
 }
 
-function getEntityLabel(group: GroupedProjectChange): string {
-  if (group.action === "storyboard_ready") {
-    return "分镜图";
+// 事件携带的稳定 label_key + label_params 是文案真相源；label 是后端按默认语言渲染的兜底，
+// 只在事件来自不认识该 key 的旧发布方时兜住，不参与常规渲染。
+function resolveChangeLabel(change: ProjectChange, t: EventsT): string {
+  if (!change.label_key) {
+    return change.label;
   }
-  if (group.action === "video_ready") {
-    return "视频";
-  }
-  if (group.action === "grid_ready") {
-    return "宫格";
-  }
-  if (group.action === "tts_ready") {
-    return "旁白";
-  }
-  if (group.action === "voice_sample_ready") {
-    return "试听样本";
-  }
-  return ENTITY_LABELS[group.entityType] ?? "内容";
+  return t(`label.${change.label_key}`, {
+    ...change.label_params,
+    defaultValue: change.label,
+  });
 }
 
-function getChangeListLabel(change: ProjectChange): string {
+function getEntityLabel(group: GroupedProjectChange, t: EventsT): string {
+  if (group.action === "storyboard_ready") {
+    return t("noun.storyboard_image");
+  }
+  if (group.action === "video_ready") {
+    return t("noun.video");
+  }
+  if (group.action === "grid_ready" || group.action === "grid_split_done") {
+    return t("noun.grid");
+  }
+  if (group.action === "tts_ready") {
+    return t("noun.narration_audio");
+  }
+  if (group.action === "voice_sample_ready") {
+    return t("noun.voice_sample");
+  }
+  return t(`entity.${group.entityType}`, {
+    defaultValue: t("entity.fallback"),
+  });
+}
+
+function getChangeListLabel(change: ProjectChange, t: EventsT): string {
   if (
     change.entity_type === "character" ||
     change.entity_type === "scene" ||
@@ -101,105 +103,81 @@ function getChangeListLabel(change: ProjectChange): string {
   ) {
     return change.entity_id;
   }
-  return change.label;
+  return resolveChangeLabel(change, t);
 }
 
-function summarizeGroupNames(group: GroupedProjectChange): string {
-  const names = group.changes.slice(0, GROUP_NAME_LIMIT).map(getChangeListLabel);
-  const suffix = group.changes.length > GROUP_NAME_LIMIT ? "…等" : "";
-  return `${names.join("、")}${suffix}`;
+function summarizeGroupNames(group: GroupedProjectChange, t: EventsT): string {
+  const names = group.changes
+    .slice(0, GROUP_NAME_LIMIT)
+    .map((change) => getChangeListLabel(change, t));
+  const suffix = group.changes.length > GROUP_NAME_LIMIT ? t("list.more_suffix") : "";
+  return `${names.join(t("list.separator"))}${suffix}`;
 }
 
-function formatSingleNotificationText(change: ProjectChange): string {
-  if (change.action === "storyboard_ready") {
-    return `${change.label}的分镜图已生成`;
-  }
-  if (change.action === "video_ready") {
-    return `${change.label}的视频已生成`;
+// 单条文案的句式 key：action 决定句式，与分组文案共用同一套 action 归类。
+function singleTextKey(action: ProjectChange["action"]): string {
+  if (action === "storyboard_ready" || action === "video_ready") {
+    return action;
   }
   if (
-    change.action === "grid_ready" ||
-    change.action === "reference_video_ready" ||
-    change.action === "tts_ready" ||
-    change.action === "voice_sample_ready"
+    action === "grid_ready" ||
+    action === "reference_video_ready" ||
+    action === "tts_ready" ||
+    action === "voice_sample_ready"
   ) {
-    return `${change.label}已生成`;
+    return "generated";
   }
-  if (change.action === "created") {
-    return `${change.label}已创建`;
+  if (action === "grid_split_done") {
+    return "completed";
   }
-  if (change.action === "deleted") {
-    return `${change.label}已删除`;
+  if (action === "created" || action === "deleted") {
+    return action;
   }
-  return `${change.label}已更新`;
+  return "updated";
 }
 
-function formatSingleDeferredText(change: ProjectChange): string {
-  if (change.action === "storyboard_ready") {
-    return `AI 刚生成了 ${change.label} 的分镜图，点击查看`;
+function groupTextKey(group: GroupedProjectChange): string {
+  if (COMPLETION_ACTIONS.has(group.action)) {
+    return "generated";
   }
-  if (change.action === "video_ready") {
-    return `AI 刚生成了 ${change.label} 的视频，点击查看`;
+  if (group.action === "created" || group.action === "deleted") {
+    return group.action;
   }
-  if (
-    change.action === "grid_ready" ||
-    change.action === "reference_video_ready" ||
-    change.action === "tts_ready" ||
-    change.action === "voice_sample_ready"
-  ) {
-    return `${change.label} 已生成`;
-  }
-  if (change.action === "created") {
-    return `AI 刚新增了 ${change.label}，点击查看`;
-  }
-  if (change.action === "deleted") {
-    return `AI 刚删除了 ${change.label}，点击查看`;
-  }
-  return `AI 刚更新了 ${change.label}，点击查看`;
+  return "updated";
 }
 
 export function formatGroupedNotificationText(
   group: GroupedProjectChange,
+  t: EventsT,
 ): string {
   if (group.changes.length === 1) {
-    return formatSingleNotificationText(group.changes[0]);
+    const change = group.changes[0];
+    return t(`single.${singleTextKey(change.action)}`, {
+      label: resolveChangeLabel(change, t),
+    });
   }
 
-  const count = group.changes.length;
-  const entityLabel = getEntityLabel(group);
-  const summary = summarizeGroupNames(group);
-
-  if (COMPLETION_ACTIONS.has(group.action)) {
-    return `已生成 ${count} 个${entityLabel}：${summary}`;
-  }
-  if (group.action === "created") {
-    return `新增了 ${count} 个${entityLabel}：${summary}`;
-  }
-  if (group.action === "deleted") {
-    return `删除了 ${count} 个${entityLabel}：${summary}`;
-  }
-  return `更新了 ${count} 个${entityLabel}：${summary}`;
+  return t(`group.${groupTextKey(group)}`, {
+    count: group.changes.length,
+    entity: getEntityLabel(group, t),
+    summary: summarizeGroupNames(group, t),
+  });
 }
 
 export function formatGroupedDeferredText(
   group: GroupedProjectChange,
+  t: EventsT,
 ): string {
   if (group.changes.length === 1) {
-    return formatSingleDeferredText(group.changes[0]);
+    const change = group.changes[0];
+    return t(`deferred.${singleTextKey(change.action)}`, {
+      label: resolveChangeLabel(change, t),
+    });
   }
 
-  const count = group.changes.length;
-  const entityLabel = getEntityLabel(group);
-  const summary = summarizeGroupNames(group);
-
-  if (COMPLETION_ACTIONS.has(group.action)) {
-    return `AI 刚生成了 ${count} 个${entityLabel}：${summary}，点击查看`;
-  }
-  if (group.action === "created") {
-    return `AI 刚新增了 ${count} 个${entityLabel}：${summary}，点击查看`;
-  }
-  if (group.action === "deleted") {
-    return `AI 刚删除了 ${count} 个${entityLabel}：${summary}，点击查看`;
-  }
-  return `AI 刚更新了 ${count} 个${entityLabel}：${summary}，点击查看`;
+  return t(`group_deferred.${groupTextKey(group)}`, {
+    count: group.changes.length,
+    entity: getEntityLabel(group, t),
+    summary: summarizeGroupNames(group, t),
+  });
 }

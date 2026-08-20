@@ -31,7 +31,7 @@ ModelCapability = Literal[
     "vision",  # 消费点：文本解析的 vision 闸（lib/config/resolver.py）
     "text_to_image",  # 消费点：图片能力桶判定（lib/capability_buckets.py）
     "image_to_image",  # 消费点：同上
-    "generate_audio",  # 消费点：音轨开关判定（model_has_audio_track，语义见其上方注）
+    "generate_audio",  # 消费点：音轨开关判定（语义见 model_audio_switch_controllable 的 docstring）
     "text_to_speech",
 ]
 
@@ -46,6 +46,11 @@ class ModelInfo:
     # 补一份视频输入模式或参考图上限声明即引入第二份手写来源，由
     # tests/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。
     capabilities: list[ModelCapability]
+    # 视频模型恒有声：成片必然带音轨，且请求参数里没有可下发的音轨开关。与 generate_audio
+    # token 互斥——token 表达「开关可控」，本位表达「不可控且恒开」，两者同时声明自相矛盾。
+    # 恒有声按型号声明而非按供应商：同一供应商名下可以部分型号恒有声、部分型号可开关或无声。
+    # 仅视频模型可置 True；两条约束由 tests/test_config_registry.py 的注册表守卫锁定。
+    audio_always_on: bool = False
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
@@ -64,19 +69,37 @@ class ModelInfo:
     api_model_name: str | None = None
 
 
-#: `generate_audio` token 语义是「音轨开关可控」，不是「有无音轨」——AI Studio 的 Veo、
-#: Grok Imagine 与 DashScope 视频全家族恒有声但请求参数无法关闭该开关，故 registry 不为其
-#: 声明该 token（声明了会误导调用方以为开关生效）。`model_has_audio_track` 据此在 token 判定
-#: 之外单列这几家例外，供 voice_consistency 派生与前端能力线渲染共用，防止两处各自维护一份
-#: 漂移的判断。
-_ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS = frozenset({"gemini-aistudio", "grok", "dashscope"})
-
-
 def model_has_audio_track(provider_id: str, model_info: ModelInfo) -> bool:
-    """该视频 model 生成的成片是否带音轨（不等于「音轨开关可控」，见上方 token 语义注）。"""
+    """该视频 model 生成的成片是否带音轨（不等于「音轨开关可控」，见 generate_audio token 语义注）。
+
+    两个来源合成：`generate_audio` token 表达「开关可控」，故声明了 token 即有音轨；恒有声型号
+    （请求参数无法关闭音轨）不声明 token——声明了会误导调用方以为开关生效——其有音轨由
+    `audio_always_on` 表达。voice_consistency 派生与前端能力线渲染共用本函数，不各自维护一份
+    漂移的判断。
+
+    `provider_id` 不参与判定，保留在签名里与 :func:`model_audio_always_on` 对齐——两者同为
+    (provider, model) 对上的音轨查询，签名一致省得调用方逐个记哪个要传 provider。
+    """
     if model_info.media_type != "video":
         return False
-    return "generate_audio" in model_info.capabilities or provider_id in _ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS
+    return "generate_audio" in model_info.capabilities or model_info.audio_always_on
+
+
+def model_audio_switch_controllable(model_info: ModelInfo) -> bool:
+    """请求参数能否控制该视频 model 的音轨开关（即 `generate_audio` token 的字面语义）。
+
+    与 :func:`model_has_audio_track` 共同构成音轨的两位描述：可控 → 用户的开关有效；不可控
+    时再看有无音轨，区分「恒有声」与「恒无声」。设置界面的开关禁用态与入队前的无声请求校验
+    都读这两位，不各自解读 token。
+    """
+    if model_info.media_type != "video":
+        return False
+    return "generate_audio" in model_info.capabilities
+
+
+def model_audio_always_on(provider_id: str, model_info: ModelInfo) -> bool:
+    """成片恒有声且开关不可控——请求里没有可下发的音轨开关，关闭音频的意图必然落空。"""
+    return model_has_audio_track(provider_id, model_info) and not model_audio_switch_controllable(model_info)
 
 
 # 合法并发 lane 名，与 CapacityTable 的 image/video/audio 三条容量通道对齐。
@@ -146,7 +169,7 @@ class ProviderMeta:
         return sorted(set(c for m in self.models.values() for c in m.capabilities))
 
     def fully_covered_credential_groups(self, values: Mapping[str, str | None]) -> list[list[str]]:
-        """返回本次提交「完整覆盖」的凭证组（组内所有 key 在 values 中均非空）。
+        """返回被 ``values`` 完整覆盖的凭证组（组内所有 key 均非空）。
 
         驱动凭证创建/更新端点的切组判定：未声明 credential_groups 的 provider
         （绝大多数）该列表恒为空，调用方据此保持"不做切组处理"的原语义不变。
@@ -286,7 +309,7 @@ def _dashscope_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="CNY")
 
 
-# DashScope 视频费率（元/秒），按分辨率（音频恒开，不入计费维度）。
+# DashScope 视频费率（元/秒），按分辨率——秒价不随音轨变化，故音频不入计费维度。
 def _dashscope_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
     return PerSecondMatrix(
         rates={model_id: {(res, None): rate for res, rate in rates.items()}},
@@ -320,6 +343,20 @@ def _minimax_video_pricing(model_id: str, buckets: dict[tuple[str, int], float])
     return PerVideoBucket(rates={model_id: buckets}, default_model=model_id, currency="CNY")
 
 
+# MiniMax 视频按秒 × 分辨率计费（元/秒，CNY）。H3 时长连续取 4–15 秒，离散档表达会退化成
+# 逐秒枚举，故与海螺系列的 (分辨率, 时长) 档价分开走每秒矩阵。
+def _minimax_video_per_second_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {(res, None): rate for res, rate in rates.items()}},
+        default_model=model_id,
+        dimensions="resolution_only",
+        currency="CNY",
+        # H3 未显式指定分辨率（Auto）时，_build_v2_payload 实际下发 768P（无 720P 档位），
+        # 结算须跟随同一默认，否则回落 720P 会因该档不存在而落空至 0。
+        default_resolution="768p",
+    )
+
+
 # 可灵 Kling 视频「质量档 × 是否有声」¥/s 矩阵（官方一手核实，CNY，1 积分 = ¥1）。
 # 全部 video 模型共享同一档位矩阵（官方按维度组合定价、不分模型）：4K 档仅 v3/v3-omni 可达、
 # 有声档仅 v2-6 / v3 / v3-omni 可达；turbo 与 video-o1 仅触达 std/pro 无声档。
@@ -347,7 +384,7 @@ def _kling_image_by_resolution_pricing(model_id: str, rates: dict[str, float]) -
     return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="CNY")
 
 
-# Agnes 图片费率（美元/张），官方原价；当前促销 $0 不建模。
+# Agnes 图片费率（美元/张）按官方标准价建模，不纳入促销价。
 def _agnes_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
 
@@ -361,7 +398,7 @@ def _agnes_text_pricing(model_id: str, input_rate: float, output_rate: float) ->
     )
 
 
-# Agnes 视频费率（美元/秒），flat 按秒、与分辨率/音频无关；官方原价，当前促销 $0 不建模。
+# Agnes 视频费率（美元/秒）按官方标准价建模，flat 按秒、与分辨率/音频无关；不纳入促销价。
 def _agnes_video_pricing(model_id: str, per_second: float) -> PerSecondMatrix:
     return PerSecondMatrix(
         rates={model_id: {("", None): per_second}},
@@ -419,7 +456,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # --- video ---
-            # Veo 的分辨率↔时长、参考图↔时长约束按 Gemini API 文档（docs/google-genai-docs/veo.md
+            # Veo 的分辨率↔时长、参考图↔时长约束按 Gemini API 文档（docs/api-docs/providers/gemini-aistudio.md
             # 参数表：durationSeconds 在 reference images 与 1080p/4k 下必须为 8）逐型号声明。
             # Lite 未见于该参数表，其 4k 不支持取自 AI Studio 定价页明文；两条时长约束沿用同代
             # Veo 3.1 的行为，与 backend 的执行期拒绝保持一致。
@@ -427,6 +464,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Veo 3.1",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8], "4k": [8]},
                 reference_image_durations=[8],
@@ -437,6 +475,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Veo 3.1 Fast",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8], "4k": [8]},
                 reference_image_durations=[8],
@@ -447,6 +486,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Veo 3.1 Lite",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 default=True,
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8]},
@@ -536,7 +576,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="火山方舟",
         description="字节跳动火山方舟 AI 平台，支持 Seedance 视频生成和 Seedream 图片生成，具备音频生成和种子控制能力。",
         required_keys=["api_key"],
-        optional_keys=["video_max_workers", "image_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -642,6 +682,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                     {("default", True): 23.00, ("default", False): 23.00},
                 ),
             ),
+            # Seedance 2.5：官方《视频生成 API》声明 480p/720p 两档、原生 30 秒直出。时长在此
+            # 全展开为 4–30 秒离散值；官方另有 -1（模型自选时长）不登记——它会让请求时长与剧本
+            # 时长指引脱钩，编排层按分镜时长排片的前提不成立。计费 ¥70/百万 token，视频输入档
+            # （参考视频转 token）另有单价，不计入本表：本表只覆盖 PerTokenVideo 消费的输出 usage。
+            "doubao-seedance-2-5-260628": ModelInfo(
+                display_name="Seedance 2.5",
+                media_type="video",
+                capabilities=["generate_audio"],
+                supported_durations=list(range(4, 31)),
+                resolutions=["480p", "720p"],
+                pricing=_ark_video_pricing(
+                    "doubao-seedance-2-5-260628",
+                    {("default", True): 70.00, ("default", False): 70.00},
+                ),
+            ),
         },
         default_base_url=ARK_BASE_URL,
     ),
@@ -653,7 +708,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             # --- text ---
-            # Agent Plan 套餐价当前无独立费率表，沿用历史行为：按 Gemini 默认费率兜底（pricing=None）。
+            # Agent Plan 套餐未声明独立费率表；pricing=None 由 lookup_pricing 按 Gemini 通用默认费率处理。
             "doubao-seed-2.0-mini": ModelInfo(
                 display_name="豆包 Seed 2.0 Mini",
                 media_type="text",
@@ -794,6 +849,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="Grok Imagine Video",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 default=True,
                 supported_durations=list(range(1, 16)),
                 resolutions=["480p", "720p"],
@@ -871,11 +927,13 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # --- video ---
-            # generate_audio：官方文档明确 Sora 2 原生含对话音轨。
+            # Sora 2 原生含对话音轨，但请求参数里没有音轨开关，故不声明 generate_audio token，
+            # 有音轨由 audio_always_on 表达。
             "sora-2": ModelInfo(
                 display_name="Sora 2",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
+                audio_always_on=True,
                 default=True,
                 supported_durations=[4, 8, 12],
                 resolutions=["720p"],
@@ -884,7 +942,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "sora-2-pro": ModelInfo(
                 display_name="Sora 2 Pro",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
+                audio_always_on=True,
                 supported_durations=[4, 8, 12],
                 resolutions=["720p", "1080p"],
                 pricing=_sora_video_pricing("sora-2-pro", {"720p": 0.30, "1024p": 0.50, "1080p": 0.70}),
@@ -964,7 +1023,10 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="阿里百炼",
         description="阿里云百炼（Model Studio）全模态平台，支持 Qwen 文本、Qwen-Image / 万相图像与 HappyHorse / 万相视频（含参考生视频）。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
+        # wan3_base_url：万相 3.0 走独立 maas 域名，且域名里含地域与 workspace，
+        # 无法由通用 base_url 派生，故单列一键。仅 wan3.0-video 的请求消费它（见
+        # lib/video_backends/dashscope.py），留空则该模型回落通用 base_url。
+        optional_keys=["base_url", "wan3_base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -1054,12 +1116,41 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_dashscope_image_pricing("wan2.7-image-pro", 0.5),
             ),
             # --- video ---
+            # HappyHorse 1.1 系列：480P ¥0.45/s，720P ¥0.9/s，1080P ¥1.2/s（音频恒开）。
+            "happyhorse-1.1-i2v": ModelInfo(
+                display_name="HappyHorse 1.1 图生视频",
+                media_type="video",
+                capabilities=[],
+                audio_always_on=True,
+                default=True,
+                supported_durations=list(range(3, 16)),
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_dashscope_video_pricing("happyhorse-1.1-i2v", {"480p": 0.45, "720p": 0.9, "1080p": 1.2}),
+            ),
+            "happyhorse-1.1-t2v": ModelInfo(
+                display_name="HappyHorse 1.1 文生视频",
+                media_type="video",
+                capabilities=[],
+                audio_always_on=True,
+                supported_durations=list(range(3, 16)),
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_dashscope_video_pricing("happyhorse-1.1-t2v", {"480p": 0.45, "720p": 0.9, "1080p": 1.2}),
+            ),
+            "happyhorse-1.1-r2v": ModelInfo(
+                display_name="HappyHorse 1.1 参考生视频",
+                media_type="video",
+                capabilities=[],
+                audio_always_on=True,
+                supported_durations=list(range(3, 16)),
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_dashscope_video_pricing("happyhorse-1.1-r2v", {"480p": 0.45, "720p": 0.9, "1080p": 1.2}),
+            ),
             # HappyHorse 1.0 系列：720P ¥0.9/s，1080P ¥1.6/s（音频恒开）。
             "happyhorse-1.0-i2v": ModelInfo(
                 display_name="HappyHorse 1.0 图生视频",
                 media_type="video",
                 capabilities=[],
-                default=True,
+                audio_always_on=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-i2v", {"720p": 0.9, "1080p": 1.6}),
@@ -1068,6 +1159,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="HappyHorse 1.0 文生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-t2v", {"720p": 0.9, "1080p": 1.6}),
@@ -1076,6 +1168,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="HappyHorse 1.0 参考生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-r2v", {"720p": 0.9, "1080p": 1.6}),
@@ -1085,6 +1178,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="万相 2.7 图生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-i2v", {"720p": 0.6, "1080p": 1.0}),
@@ -1093,6 +1187,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="万相 2.7 文生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-t2v", {"720p": 0.6, "1080p": 1.0}),
@@ -1101,9 +1196,23 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="万相 2.7 参考生视频",
                 media_type="video",
                 capabilities=[],
+                audio_always_on=True,
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-r2v", {"720p": 0.6, "1080p": 1.0}),
+            ),
+            # 万相 3.0：单模型覆盖文生/图生/参考生三条路径，480P ¥0.3/s，720P ¥0.6/s，
+            # 1080P ¥1.2/s，单次最长 30 秒（出处：万相 3.0 发布说明所列的分辨率与计费档位，
+            # 非 API 参考 schema）。与 2.7 及
+            # HappyHorse 不同，音轨由请求参数控制，故声明 generate_audio token 而非
+            # audio_always_on。
+            "wan3.0-video": ModelInfo(
+                display_name="万相 3.0 视频",
+                media_type="video",
+                capabilities=["generate_audio"],
+                supported_durations=list(range(2, 31)),
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_dashscope_video_pricing("wan3.0-video", {"480p": 0.3, "720p": 0.6, "1080p": 1.2}),
             ),
             # --- audio ---
             # qwen3-tts-flash：同步 HTTP 语音合成，按字符计费（¥0.8/万字符）。
@@ -1150,13 +1259,30 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_minimax_image_pricing("image-01", 0.025),
             ),
             # --- video ---
+            # H3：多模态 v2 端点（content[] 数组），768P/2K × 4–15 秒任意整数，两档分辨率
+            # 时长范围一致故无 duration_resolution_constraints。原生立体声、请求无音轨开关，
+            # 故 audio_always_on。能力与取值出处：
+            # https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md
+            # 定价出处：https://platform.minimaxi.com/docs/guides/pricing-paygo.md
+            # （768P 0.50 元/秒、2K 0.80 元/秒）。同页另有输入素材附加费——参考图前 5 张免费、
+            # 第 6 张起 0.20 元/张——未计入本策略：附加费按输入张数而非输出秒数计，
+            # PerSecondMatrix 无该维度，估价会低于实际账单。
+            "MiniMax-H3": ModelInfo(
+                display_name="MiniMax H3",
+                media_type="video",
+                capabilities=[],
+                audio_always_on=True,
+                default=True,
+                supported_durations=list(range(4, 16)),
+                resolutions=["768p", "2k"],
+                pricing=_minimax_video_per_second_pricing("MiniMax-H3", {"768p": 0.50, "2k": 0.80}),
+            ),
             # 1080P 仅 6s（10s 仅 768P）；细粒度越界由 MiniMaxVideoBackend 抛 VideoCapabilityError，
             # duration_resolution_constraints 同步给前端做下拉门控。
             "MiniMax-Hailuo-2.3": ModelInfo(
                 display_name="MiniMax Hailuo 2.3",
                 media_type="video",
                 capabilities=[],
-                default=True,
                 supported_durations=[6, 10],
                 resolutions=["768p", "1080p"],
                 duration_resolution_constraints={"1080p": [6]},
@@ -1296,8 +1422,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
             # --- image ---
             # agnes-image-2.1-flash：OpenAI 兼容 /images/generations 单步同步，T2I + I2I。
-            # 仅注册 2.1（2.0 与其价格 / 字段实测无差异，model 目录收敛）。
-            # resolutions 为保守 UI 档位（未逐档实测）；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            # 仅注册 2.1；2.0 与 2.1 共用相同的价格和字段契约，model 目录收敛到 2.1。
+            # resolutions 是保守的 UI 档位；实际尺寸由 backend aspect_size 计算、与此无耦合。
             "agnes-image-2.1-flash": ModelInfo(
                 display_name="Agnes Image 2.1 Flash",
                 media_type="image",

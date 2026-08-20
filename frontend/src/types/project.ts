@@ -3,7 +3,7 @@
  *
  * Maps to backend models in:
  * - lib/project_manager.py (ProjectOverview, project.json structure)
- * - lib/status_calculator.py (ProjectStatus, EpisodeMeta computed fields)
+ * - lib/workflow_state.py (ProjectStatus / EpisodeMeta read-time fields, from the project summary)
  * - server/routers/projects.py (ProjectSummary list response)
  */
 
@@ -43,11 +43,11 @@ export interface Prop {
 
 export interface Product {
   description: string;
-  /** 标准多角度产品参考图（可选，生成/上传后回写）。 */
+  /** 标准多角度商品资产图（可选，生成/上传后回写）。 */
   product_sheet?: string;
   /** 品牌要素自由文本。 */
   brand?: string;
-  /** 用户上传的产品原图路径列表（保真验收锚点，系统级字段）。 */
+  /** 用户上传的商品原图路径列表（保真验收锚点，系统级字段）。 */
   reference_images?: string[];
   /** 卖点列表（agent 起草、用户可改）。 */
   selling_points?: string[];
@@ -61,11 +61,6 @@ export interface AspectRatio {
   video?: string;
 }
 
-export interface ProgressCategory {
-  total: number;
-  completed: number;
-}
-
 export interface EpisodesSummary {
   total: number;
   scripted: number;
@@ -73,23 +68,33 @@ export interface EpisodesSummary {
   completed: number;
 }
 
+/** Production state merged for the lobby, in workflow order */
 export const PHASE_ORDER = [
-  "setup",
-  "worldbuilding",
-  "scripting",
+  "preparation",
+  "script",
   "production",
   "completed",
 ] as const;
 
 export type Phase = (typeof PHASE_ORDER)[number];
 
-/** Injected by StatusCalculator.calculate_project_status at read time */
+/** One artifact group: available = current plus stale, stale counted separately */
+export interface ArtifactCount {
+  total: number;
+  available: number;
+  stale: number;
+}
+
+/** Project summary projection, injected at read time by WorkflowStateService */
 export interface ProjectStatus {
-  current_phase: Phase;
+  phase: Phase;
   phase_progress: number;
-  characters: ProgressCategory;
-  scenes: ProgressCategory;
-  props: ProgressCategory;
+  /** Schema migration (artifact backfill included) failed; generation is closed until repaired */
+  needs_repair: boolean;
+  /** The migration failure message exactly as raised, or null when not blocked */
+  repair_reason: string | null;
+  /** Asset sheet counts keyed by asset type (character / scene / prop / product) */
+  assets: Record<string, ArtifactCount>;
   episodes_summary: EpisodesSummary;
 }
 
@@ -103,20 +108,21 @@ export interface EpisodeMeta {
   source_range?: { source_file?: string; start?: number; end?: number };
   /** Written by episode_planner at split time (drama only) */
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
-  /** Injected by StatusCalculator at read time */
-  scenes_count?: number;
-  /** Injected by StatusCalculator at read time */
+  /**
+   * Per-episode fields below come from the project summary at read time, on the artifact
+   * manifest's terms — the same numbers the studio reads, never persisted to project.json.
+   * Optional because the fallback meta some canvases build has no summary behind it.
+   *
+   * item_count 是该集的内容规模：分镜图生视频是分镜数，参考生视频是视频单元数。
+   * 计数口径由项目的 generation_mode 决定，三种创作类型一致。
+   */
+  item_count?: number;
+  /** Script progress derived from the step1 and final-script artifact states */
   script_status?: "none" | "segmented" | "generated";
-  /** Injected by StatusCalculator at read time */
   status?: "draft" | "scripted" | "in_production" | "completed" | "missing";
-  /** Injected by StatusCalculator at read time */
   duration_seconds?: number;
-  /** Injected by StatusCalculator at read time */
-  storyboards?: ProgressCategory;
-  /** Injected by StatusCalculator at read time */
-  videos?: ProgressCategory;
-  /** Injected by StatusCalculator at read time (reference_video route only) */
-  units_count?: number;
+  storyboards?: ArtifactCount;
+  videos?: ArtifactCount;
 }
 
 export interface ModelSettingEntry {
@@ -144,9 +150,9 @@ export interface ProjectData {
   characters: Record<string, Character>;
   scenes?: Record<string, Scene>;
   props?: Record<string, Prop>;
-  /** 产品资产（广告/短片项目使用，v1 单产品设定，字段形态为映射）。 */
+  /** 商品资产（广告/短片项目使用，v1 单商品设定，字段形态为映射）。 */
   products?: Record<string, Product>;
-  /** Injected by StatusCalculator.enrich_project at read time */
+  /** Project summary projection, injected at read time */
   status?: ProjectStatus;
   video_backend?: string | null;
   /** 视频能力桶（docs/adr/0054）项目级覆盖；空值 = 回退 video_backend 与全局层 */
@@ -157,15 +163,19 @@ export interface ProjectData {
   default_image_backend?: string | null;
   image_provider_t2i?: string | null;
   image_provider_i2i?: string | null;
-  /** 生成路线，创建时锁定、之后不可更改。 */
+  /** 生成模式，创建时锁定、之后不可更改。 */
   generation_mode?: GenerationRoute;
-  /** 分镜板（宫格）装配开关；仅分镜路线有意义，随时可切。 */
+  /** 多宫格分镜装配开关；仅分镜图生视频模式有意义，随时可切。 */
   grid_storyboard?: boolean;
   video_generate_audio?: boolean | null;
   /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */
   audio_backend?: string | null;
   narration_voice?: string | null;
   narration_speed?: number | null;
+  /** 源文语言码（zh / en / vi），由内容分析写入；界面只读，用于口播语速的单位名词 */
+  source_language?: string | null;
+  /** 口播语速估算（阅读单位 / 秒）项目级覆盖；留空即按项目语言的默认速度估算 */
+  speech_rate_units_per_second?: number | null;
   text_backend_simple?: string | null;
   text_backend_complex?: string | null;
   default_text_backend?: string | null;

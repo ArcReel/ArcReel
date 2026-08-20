@@ -94,7 +94,7 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
                 episode_num = i
                 break
 
-        # 添加剧集信息（不包含统计字段，由 StatusCalculator 读时计算）
+        # 添加剧集信息（不包含统计字段，由项目摘要读时计算）
         episodes.append(
             {
                 "episode": episode_num,
@@ -118,7 +118,7 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
             first_script = json.load(f)
             project_title = first_script.get("novel", {}).get("title", project_name)
 
-    # 构建 project.json（不包含 status 字段，由 StatusCalculator 读时计算）
+    # 构建 project.json（不包含 status 字段，由项目摘要读时计算）
     project_data = {
         "title": project_title,
         "style": "",

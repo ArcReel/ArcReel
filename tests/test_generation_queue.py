@@ -6,7 +6,8 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
-from lib.generation_queue import GenerationQueue
+from lib.generation_admission import generation_admission_lock
+from lib.generation_queue import CompensableGenerationResult, GenerationQueue, reference_projection_for_queued_task
 from lib.task_failure import encode_failure
 
 pytestmark = pytest.mark.unit
@@ -26,6 +27,37 @@ async def queue():
 
 
 class TestGenerationQueue:
+    async def test_narration_task_admission_waits_for_the_shared_restore_guard(
+        self,
+        queue,
+        tmp_path,
+        monkeypatch,
+    ):
+        from lib.app_data_dir import _reset_for_tests
+
+        monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "app-data"))
+        _reset_for_tests()
+        async with generation_admission_lock(
+            project_name="admission-demo",
+            script_file="scripts/episode_01.json",
+            resource_id="E1S01",
+        ):
+            enqueue = asyncio.create_task(
+                queue.enqueue_task(
+                    project_name="admission-demo",
+                    task_type="tts",
+                    media_type="audio",
+                    resource_id="E1S01",
+                    script_file="episode_01.json",
+                    provider_id="audio-provider",
+                )
+            )
+            await asyncio.sleep(0.1)
+            assert not enqueue.done()
+
+        result = await enqueue
+        assert result["deduped"] is False
+
     async def test_enqueue_dedupe_claim_and_succeed(self, queue):
         first = await queue.enqueue_task(
             project_name="demo",
@@ -74,6 +106,179 @@ class TestGenerationQueue:
         )
         assert not second["deduped"]
         assert second["task_id"] != first["task_id"]
+
+    async def test_active_video_task_rejects_conflicting_narration_delivery(self, queue):
+        first = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={"narration_delivery_options": {"narration_delivery": "post_production"}},
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        with pytest.raises(RuntimeError, match="different narration delivery request"):
+            await queue.enqueue_task(
+                project_name="demo",
+                task_type="video",
+                media_type="video",
+                resource_id="E1S01",
+                payload={"narration_delivery_options": {"narration_delivery": "use_tts"}},
+                script_file="episode_01.json",
+                provider_id="video-provider",
+            )
+
+        active = await queue.get_task(first["task_id"])
+        assert active is not None
+        assert active["payload"]["narration_delivery_options"] == {"narration_delivery": "post_production"}
+
+    async def test_active_reference_video_task_rejects_a_different_confirmed_duration(self, queue):
+        await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={
+                "reference_request_options": {
+                    "narration_delivery": "use_tts",
+                    "confirmed_request_duration_seconds": 8,
+                }
+            },
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        with pytest.raises(RuntimeError, match="different narration delivery request"):
+            await queue.enqueue_task(
+                project_name="demo",
+                task_type="reference_video",
+                media_type="video",
+                resource_id="E1U1",
+                payload={
+                    "reference_request_options": {
+                        "narration_delivery": "use_tts",
+                        "confirmed_request_duration_seconds": 12,
+                    }
+                },
+                script_file="episode_01.json",
+                provider_id="video-provider",
+            )
+
+    async def test_active_video_task_still_dedupes_the_same_narration_request(self, queue):
+        payload = {
+            "narration_delivery_options": {
+                "narration_delivery": "use_tts",
+                "confirmed_request_duration_seconds": 8,
+            }
+        }
+        first = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload=payload,
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        duplicate = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload=payload,
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        assert duplicate["deduped"] is True
+        assert duplicate["task_id"] == first["task_id"]
+
+    async def test_cancel_that_wins_completion_compensates_activated_result(self, queue):
+        task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="tts",
+            media_type="audio",
+            resource_id="E1S01",
+            payload={"script_file": "episode_01.json"},
+        )
+        assert await queue.claim_next_task(media_type="audio") is not None
+        compensated: list[str] = []
+        result = CompensableGenerationResult(
+            {"file_path": "audio/segment_E1S01.wav"},
+            cancel_compensation=lambda: compensated.append("restored"),
+        )
+
+        cancelled = await queue.cancel_task(task["task_id"])
+        assert cancelled["cancelling"] == [task["task_id"]]
+        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
+
+        assert compensated == ["restored"]
+
+    async def test_cancel_compensation_failure_preserves_terminal_update_contract_and_is_not_retried(self, queue):
+        task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="tts",
+            media_type="audio",
+            resource_id="E1S01",
+            payload={"script_file": "episode_01.json"},
+        )
+        assert await queue.claim_next_task(media_type="audio") is not None
+        attempts = 0
+
+        def _fail_compensation() -> None:
+            nonlocal attempts
+            attempts += 1
+            raise RuntimeError("restore failed")
+
+        result = CompensableGenerationResult(
+            {"file_path": "audio/segment_E1S01.wav"},
+            cancel_compensation=_fail_compensation,
+        )
+        assert (await queue.cancel_task(task["task_id"]))["cancelling"] == [task["task_id"]]
+
+        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
+        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
+        assert attempts == 1
+
+    async def test_reference_rate_limit_projection_ignores_narration_delivery(self, monkeypatch, tmp_path):
+        seen_options = []
+        sentinel = object()
+
+        class _ProjectManager:
+            def load_script(self, project_name, script_file):
+                assert (project_name, script_file) == ("demo", "ep1.json")
+                return {"video_units": [{"unit_id": "E1U1"}]}
+
+            def get_project_path(self, project_name):
+                assert project_name == "demo"
+                return tmp_path
+
+        async def _project(**kwargs):
+            seen_options.append(kwargs["options"])
+            return sentinel
+
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: _ProjectManager())
+        monkeypatch.setattr("lib.reference_video.request_projection.project_reference_unit_request", _project)
+
+        projection = await reference_projection_for_queued_task(
+            project={},
+            project_name="demo",
+            payload={
+                "script_file": "ep1.json",
+                "reference_request_options": {
+                    "narration_delivery": "use_tts",
+                    "narration_duration_floor": 9.5,
+                    "duration_confirmed": True,
+                    "confirmed_request_duration_seconds": 12,
+                },
+            },
+            resource_id="E1U1",
+        )
+
+        assert projection is sentinel
+        assert seen_options[0].to_payload() == {"narration_delivery": "post_production"}
 
     async def test_worker_lease_takeover(self, queue):
         first_ok = await queue.acquire_or_renew_worker_lease(
@@ -428,7 +633,7 @@ def stub_enqueue_resolution(monkeypatch):
     """把入队解析链（视频 / 图片 / 音频三条）换成固定身份，返回一个可改写解析结果的 holder。"""
     from lib.config.resolver import ProviderModel
 
-    holder = {"resolved": ProviderModel("custom-7", "pinned-video-model")}
+    holder = {"resolved": ProviderModel("custom-7", "advisory-video-model")}
 
     class _FakeResolver:
         def __init__(self, factory):
@@ -452,10 +657,10 @@ def stub_enqueue_resolution(monkeypatch):
     return holder
 
 
-class TestPinExecutionModelOnEnqueue:
-    """入队把解析出的执行 model 锁进视频任务 payload 的能力桶键。"""
+class TestProjectExecutionProviderOnEnqueue:
+    """两条视频路线入队都只保存 advisory provider，不冻结执行 model。"""
 
-    async def test_video_task_pins_bucket_key(self, queue, stub_enqueue_resolution):
+    async def test_video_task_keeps_only_advisory_provider(self, queue, stub_enqueue_resolution):
         enqueued = await queue.enqueue_task(
             project_name="demo",
             task_type="video",
@@ -465,47 +670,42 @@ class TestPinExecutionModelOnEnqueue:
             script_file="ep1.json",
         )
         task = await queue.get_task(enqueued["task_id"])
-        assert task["payload"]["video_provider_i2v"] == "custom-7/pinned-video-model"
+        assert task["payload"] == {"prompt": "p"}
+        assert "video_provider_i2v" not in task["payload"]
         assert task["provider_id"] == "custom-7"
 
-    async def test_reference_video_task_pins_r2v_bucket_key(self, queue, stub_enqueue_resolution):
+    async def test_reference_video_task_keeps_only_advisory_provider(self, queue, stub_enqueue_resolution):
         enqueued = await queue.enqueue_task(
             project_name="demo",
             task_type="reference_video",
             media_type="video",
             resource_id="r1",
-            payload={"prompt": "p"},
+            payload={
+                "prompt": "p",
+                "references": [{"type": "character", "name": "A"}],
+                "style": "snapshot",
+                "duration_seconds": 9,
+                "reference_request_options": {
+                    "narration_delivery": "use_tts",
+                    "duration_confirmed": True,
+                    "narration_duration_floor": 9.5,
+                    "confirmed_request_duration_seconds": 12,
+                    "basis_digest": "must-not-freeze",
+                },
+            },
             script_file="ep1.json",
         )
         task = await queue.get_task(enqueued["task_id"])
-        assert task["payload"]["video_provider_r2v"] == "custom-7/pinned-video-model"
-
-    async def test_persist_execution_identity_rewrites_pinned_bucket_key(self, queue, stub_enqueue_resolution):
-        """入队锁定与执行定桶分裂时，写回把陈旧桶键换成实际执行身份——resume 解析里锁定键
-        优先于 provider_id 列注入，只刷新列锁不住轮询 backend。"""
-        from lib.config.resolver import ProviderModel
-
-        enqueued = await queue.enqueue_task(
-            project_name="demo",
-            task_type="reference_video",
-            media_type="video",
-            resource_id="r1",
-            payload={"prompt": "p"},
-            script_file="ep1.json",
-        )
-        task = await queue.get_task(enqueued["task_id"])
-        assert task["payload"]["video_provider_r2v"] == "custom-7/pinned-video-model"
-
-        await queue.persist_execution_identity(
-            enqueued["task_id"],
-            execution_model=ProviderModel("ark", "doubao-seedance-1-5-pro-251215"),
-            capability="i2v",
-        )
-        task = await queue.get_task(enqueued["task_id"])
-        assert task["payload"]["video_provider_i2v"] == "ark/doubao-seedance-1-5-pro-251215"
+        assert task["payload"] == {
+            "script_file": "ep1.json",
+            "reference_request_options": {
+                "narration_delivery": "use_tts",
+                "confirmed_request_duration_seconds": 12,
+            },
+        }
         assert "video_provider_r2v" not in task["payload"]
-        assert task["payload"]["prompt"] == "p"
-        assert task["provider_id"] == "ark"
+        assert "video_provider_i2v" not in task["payload"]
+        assert task["provider_id"] == "custom-7"
 
     async def test_non_video_task_pins_nothing(self, queue, stub_enqueue_resolution):
         """图片任务的 capability 执行时才定，入队不锁——只落 provider_id。"""
@@ -522,7 +722,7 @@ class TestPinExecutionModelOnEnqueue:
         assert task["provider_id"] == "custom-7"
 
     async def test_unresolvable_model_leaves_payload_untouched(self, queue, stub_enqueue_resolution):
-        """解析补不出 model → 不锁半截身份，payload 与 provider_id 均按原有兜底。"""
+        """解析补不出 provider → payload 不变，provider_id 保持 NULL 兜底。"""
         from lib.config.resolver import ProviderModel
 
         stub_enqueue_resolution["resolved"] = ProviderModel("", "")

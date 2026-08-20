@@ -301,10 +301,15 @@
 
 ```python
 import jwt, time
+
+
 def kling_token(ak, sk):
     return jwt.encode(
-        {"iss": ak, "exp": int(time.time())+1800, "nbf": int(time.time())-5},
-        sk, algorithm="HS256", headers={"alg":"HS256","typ":"JWT"})
+        {"iss": ak, "exp": int(time.time()) + 1800, "nbf": int(time.time()) - 5},
+        sk,
+        algorithm="HS256",
+        headers={"alg": "HS256", "typ": "JWT"},
+    )
 ```
 
 建议封装 JWT 鉴权类，30 分钟内复用 token、过期前 60 秒自动刷新。

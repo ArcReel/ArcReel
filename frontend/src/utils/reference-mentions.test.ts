@@ -1,20 +1,30 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildMentionLookup,
   extractMentions,
-  matchDialogueLine,
-  matchVoiceoverLine,
-  resolveMentionType,
-  mergeReferences,
+  lineSpeechMarks,
+  normalizeAssetName,
   splitScriptLines,
+  splitSpeechLine,
+  stripSpeechMarks,
 } from "./reference-mentions";
 import type { ProjectData } from "@/types";
-import type { ReferenceResource } from "@/types/reference-video";
 
-function mkProject(): Pick<ProjectData, "characters" | "scenes" | "props"> {
+/** 记号断言的短写法：`[speaker, text]`，speaker 为空串即画外音。 */
+function marks(line: string): [string, string][] {
+  return lineSpeechMarks(line).map((mark) => [mark.speaker, mark.text]);
+}
+
+/** 判定路径的输入来自已归一的 `splitScriptLines`；直测原语时补同一道归一。 */
+function normalize(text: string): string {
+  return splitScriptLines(text)[0] ?? "";
+}
+function mkProject(): Pick<ProjectData, "characters" | "scenes" | "props" | "products"> {
   return {
     characters: { 主角: { description: "" }, 张三: { description: "" }, "角色甲（成年）": { description: "" }, 角色乙: { description: "" } },
     scenes: { 酒馆: { description: "" }, "地点甲·版本A": { description: "" } },
     props: { 长剑: { description: "" }, 载具甲: { description: "" }, 道具甲: { description: "" } },
+    products: { 水杯: { description: "", brand: "" } },
   };
 }
 
@@ -24,7 +34,7 @@ describe("extractMentions", () => {
   });
 
   it("returns empty list when no mentions", () => {
-    expect(extractMentions("镜头1：plain text")).toEqual([]);
+    expect(extractMentions("plain text")).toEqual([]);
   });
 
   it("matches CJK characters and underscores", () => {
@@ -57,7 +67,7 @@ describe("extractMentions", () => {
 });
 
 describe("parser output is normalized", () => {
-  // 解析器承诺输出规范形（NFC + 去 BOM），与后端 shot_parser._normalize_source 同口径：
+  // 解析器承诺输出规范形（NFC + 去 BOM），与后端 text_parser._normalize_source 同口径：
   // 调用方拿到的名字可直接与已归一的资产表 key 判等，不再各自补归一。
   const nameNfc = "Hiếu".normalize("NFC");
   const nameNfd = "Hiếu".normalize("NFD");
@@ -68,29 +78,30 @@ describe("parser output is normalized", () => {
   });
 
   it("emits NFC mention names regardless of the encoding written in the text", () => {
-    expect(extractMentions(`镜头1：@[${nameNfd}] 登场`)).toEqual([nameNfc]);
+    expect(extractMentions(`@[${nameNfd}] 登场`)).toEqual([nameNfc]);
   });
 
   it("dedupes mentions across NFC / NFD spellings of the same asset", () => {
     expect(extractMentions(`@[${nameNfc}] 与 @[${nameNfd}]`)).toEqual([nameNfc]);
   });
 
+  it("strips wrapped names before lookup and deduplication", () => {
+    expect(extractMentions("@[ Hero ] 与 @[Hero] @Hero")).toEqual(["Hero"]);
+  });
+
   it("strips BOM from inside a mention name", () => {
     // `@[名<BOM>称]` 类粘贴产物：后端解析入口去 BOM，前端不去就会判未登记，预览与生成结果不一致
-    expect(extractMentions(`镜头1：@[张${BOM}三] 抬眼`)).toEqual(["张三"]);
+    expect(extractMentions(`@[张${BOM}三] 抬眼`)).toEqual(["张三"]);
     expect(extractMentions(`${BOM}@[张三] 抬眼`)).toEqual(["张三"]);
   });
 
-  it("reads a line as a normative dialogue line despite BOM and NFD", () => {
-    expect(matchDialogueLine(`${BOM}@[张${BOM}三]：{我${BOM}来了}`)).toEqual({
-      speaker: "张三",
-      text: "我来了",
-    });
-    expect(matchDialogueLine(`@[${nameNfd}]：{我来了}`)).toEqual({ speaker: nameNfc, text: "我来了" });
+  it("reads a dialogue mark despite BOM and NFD", () => {
+    expect(marks(normalize(`${BOM}@[张${BOM}三]：{我${BOM}来了}`))).toEqual([["张三", "我来了"]]);
+    expect(marks(normalize(`@[${nameNfd}]：{我来了}`))).toEqual([[nameNfc, "我来了"]]);
   });
 
-  it("reads a bare braces line as voiceover despite BOM", () => {
-    expect(matchVoiceoverLine(`${BOM}{那年冬天}`)).toBe("那年冬天");
+  it("reads bare braces as voiceover despite BOM", () => {
+    expect(marks(normalize(`${BOM}{那年冬天}`))).toEqual([["", "那年冬天"]]);
   });
 
   it("keeps a BOM-laced speaker slot out of mention extraction", () => {
@@ -99,102 +110,60 @@ describe("parser output is normalized", () => {
   });
 
   it("emits normalized script lines", () => {
-    expect(splitScriptLines(`${BOM}镜头1：中景\n@[${nameNfd}]：{我来了}`)).toEqual([
-      "镜头1：中景",
+    expect(splitScriptLines(`${BOM}中景\n@[${nameNfd}]：{我来了}`)).toEqual([
+      "中景",
       `@[${nameNfc}]：{我来了}`,
     ]);
   });
 
   it("resolves a BOM-laced mention against the registered bucket", () => {
-    const merged = mergeReferences(`镜头1：@[张${BOM}三] 抬眼`, [], mkProject());
-    expect(merged).toEqual([{ type: "character", name: "张三" }]);
+    const lookup = buildMentionLookup(mkProject());
+    expect(extractMentions(`@[张${BOM}三] 抬眼`).map((name) => lookup[name])).toEqual(["character"]);
   });
 });
 
-describe("resolveMentionType", () => {
-  const project = mkProject();
+describe("buildMentionLookup", () => {
+  it("normalizes keys and resolves cross-bucket duplicates by stable priority", () => {
+    const lookup = buildMentionLookup({
+      characters: Object.fromEntries([[" café ", {}], ["__proto__", {}]]),
+      scenes: { "cafe\u0301": {} },
+      props: { toString: {} },
+      products: { Product: {} },
+    } as never);
 
-  it("prefers character → scene → prop", () => {
-    expect(resolveMentionType(project, "主角")).toBe("character");
-    expect(resolveMentionType(project, "酒馆")).toBe("scene");
-    expect(resolveMentionType(project, "长剑")).toBe("prop");
+    expect(Object.getPrototypeOf(lookup)).toBeNull();
+    expect(lookup["café"]).toBe("character");
+    expect(lookup.__proto__).toBe("character");
+    expect(lookup.toString).toBe("prop");
+    expect(lookup.Product).toBe("product");
   });
 
-  it("returns undefined for unknown names", () => {
-    expect(resolveMentionType(project, "路人")).toBeUndefined();
-  });
-
-  // toString / constructor / __proto__ 都通得过 validate_asset_name，用 `in` 查会命中
-  // 原型链，把没登记的名字判成已登记
-  it("does not resolve prototype-chain property names as registered assets", () => {
-    for (const name of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
-      expect(resolveMentionType(project, name)).toBeUndefined();
-    }
-  });
-
-  it("resolves an asset actually named like a prototype property", () => {
-    const withOddName = { characters: { toString: { description: "" } }, scenes: {}, props: {} };
-    expect(resolveMentionType(withOddName as never, "toString")).toBe("character");
-  });
-});
-
-describe("mergeReferences", () => {
-  const project = mkProject();
-
-  it("appends new mentions at the end, preserving existing order", () => {
-    const existing: ReferenceResource[] = [
-      { type: "character", name: "张三" },
-    ];
-    const merged = mergeReferences("镜头1：@张三 @主角", existing, project);
-    expect(merged).toEqual([
-      { type: "character", name: "张三" },
-      { type: "character", name: "主角" },
-    ]);
-  });
-
-  it("removes references whose names are no longer in prompt", () => {
-    const existing: ReferenceResource[] = [
-      { type: "character", name: "张三" },
-      { type: "scene", name: "酒馆" },
-    ];
-    const merged = mergeReferences("镜头1：@张三", existing, project);
-    expect(merged).toEqual([{ type: "character", name: "张三" }]);
-  });
-
-  it("skips unknown mentions (not resolvable to any bucket)", () => {
-    const merged = mergeReferences("镜头1：@路人 @主角", [], project);
-    expect(merged).toEqual([{ type: "character", name: "主角" }]);
-  });
-
-  it("deduplicates repeated mentions", () => {
-    const merged = mergeReferences("镜头1：@主角 @主角 @主角", [], project);
-    expect(merged).toEqual([{ type: "character", name: "主角" }]);
-  });
-
-  it("merges wrapped references", () => {
-    const merged = mergeReferences("Shot 1 (8s): @[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域", [], project);
-    expect(merged).toEqual([
-      { type: "character", name: "角色甲（成年）" },
-      { type: "character", name: "角色乙" },
-      { type: "prop", name: "载具甲" },
-    ]);
-  });
-
-  it("returns empty list when prompt has no valid mentions", () => {
-    expect(mergeReferences("镜头1：plain", [], project)).toEqual([]);
-  });
-
-  it("resolves a registered name across NFC/NFD encoding mismatch", () => {
-    const nameNfc = "Hiếu".normalize("NFC");
-    const nameNfd = "Hiếu".normalize("NFD");
-    expect(nameNfc).not.toBe(nameNfd);
-    const projectWithCombining = {
-      characters: { [nameNfd]: { description: "" } },
+  it("gives products priority when a name is present in another bucket", () => {
+    const lookup = buildMentionLookup({
+      characters: { Shared: {} },
       scenes: {},
       props: {},
-    };
-    const merged = mergeReferences(`镜头1：@[${nameNfc}] 登场`, [], projectWithCombining);
-    expect(merged).toEqual([{ type: "character", name: nameNfc }]);
+      products: { Shared: {} },
+    } as never);
+
+    expect(lookup.Shared).toBe("product");
+  });
+});
+
+describe("normalizeAssetName", () => {
+  it("uses Python strip whitespace without removing U+FEFF", () => {
+    expect(normalizeAssetName("\u001c\u3000Hero\u00a0")).toBe("Hero");
+    expect(normalizeAssetName("\uFEFFHero")).toBe("\uFEFFHero");
+  });
+
+  it("does not conflate an asset starting with U+FEFF with the visible name", () => {
+    const lookup = buildMentionLookup({
+      characters: { "\uFEFFHero": { description: "" } },
+      scenes: {},
+      props: {},
+    } as never);
+    expect(Object.hasOwn(lookup, "Hero")).toBe(false);
+    expect(lookup["\uFEFFHero"]).toBe("character");
   });
 });
 
@@ -227,77 +196,101 @@ describe("MENTION_RE prefix boundary", () => {
     expect(extractMentions("prefix_@张三")).toEqual([]);
   });
 
-  it("mergeReferences drops email-shape references", () => {
-    const project = {
-      characters: { 张三: { character_sheet: "c/1.png" } },
-      scenes: {},
-      props: {},
-    } as const;
-    const refs = mergeReferences("contact a@张三", [], project as never);
-    expect(refs).toEqual([]);
-  });
 });
 
-describe("normative dialogue lines", () => {
-  it("matches `@[角色]：{台词}` with either colon, wrapped or bare", () => {
-    expect(matchDialogueLine("@[张三]：{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
-    expect(matchDialogueLine("@张三:{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
-    expect(matchDialogueLine("  @[角色甲（成年）] ： {我来了} ")).toEqual({
-      speaker: "角色甲（成年）",
-      text: "我来了",
-    });
+describe("inline speech marks", () => {
+  it("matches `@[角色]{台词}` with either colon, wrapped or bare, and no separator", () => {
+    expect(marks("@[张三]：{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(marks("@张三:{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(marks("  @[角色甲（成年）] ： {我来了} ")).toEqual([["角色甲（成年）", "我来了"]]);
+    expect(marks("@[ 张三 ]：{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(marks("@[张三]{我来了}")).toEqual([["张三", "我来了"]]);
   });
 
-  it("rejects dialogue mixed into a description line", () => {
-    expect(matchDialogueLine("中景，@[张三]：{我来了} 说完转身")).toBeNull();
-    expect(matchDialogueLine("他说 @[张三]：{我来了}")).toBeNull();
-    expect(matchDialogueLine("@[张三]：{我来了")).toBeNull();
+  it("reads speech written inline after a description", () => {
+    expect(marks("中景，@[张三] 笑着，@[张三]{我来了} 说完转身")).toEqual([["张三", "我来了"]]);
+    expect(marks("@[张三]{你来了}@[李四]{我来了}")).toEqual([
+      ["张三", "你来了"],
+      ["李四", "我来了"],
+    ]);
   });
 
-  it("reads a bare braces line as voiceover", () => {
-    expect(matchVoiceoverLine("  {那年冬天格外冷}  ")).toBe("那年冬天格外冷");
-    expect(matchVoiceoverLine("旁白：{那年冬天}")).toBeNull();
+  it("does not guess a speaker from a mention that is not adjacent to the braces", () => {
+    expect(marks("他说 @[张三] 转身，屋里传出 {我来了}")).toEqual([["", "我来了"]]);
+    expect(marks("@[张三]：{我来了")).toEqual([]);
+  });
+
+  it("reads bare braces as voiceover anywhere in the line", () => {
+    expect(marks("  {那年冬天格外冷}  ")).toEqual([["", "那年冬天格外冷"]]);
+    expect(marks("旁白：{那年冬天}")).toEqual([["", "那年冬天"]]);
+  });
+
+  it("splits a line losslessly", () => {
+    const line = "@[张三] 推门。@[张三]{我来了}屋里安静。";
+    const joined = splitSpeechLine(line)
+      .map((part) => (typeof part === "string" ? part : part.raw))
+      .join("");
+    expect(joined).toBe(line);
   });
 
   it("keeps speaker slots out of mention extraction", () => {
-    // 与后端 shot_parser.extract_mentions 同口径：给画外说话的角色附参考图会诱导它入画
-    expect(extractMentions("镜头1：@酒馆 内景。\n@张三：{我来了}\n镜头2：@张三 抬眼。")).toEqual([
+    // 与后端 text_parser.extract_mentions 同口径：给画外说话的角色附参考图会诱导它入画
+    expect(extractMentions("@酒馆 内景。\n@张三：{我来了}\n@张三 抬眼。")).toEqual([
       "酒馆",
       "张三",
     ]);
     expect(extractMentions("@张三：{我来了}")).toEqual([]);
   });
 
-  it("keeps a speaker slot written on the shot header line out of mentions", () => {
-    // 后端切分镜头时剥掉 header，这行在 shot 文本里就是规范行 —— 两侧须同判
-    expect(extractMentions("镜头1：@[张三]：{我来了}")).toEqual([]);
-    expect(extractMentions("镜头1：@酒馆 内景。\n镜头2：@张三：{我来了}")).toEqual(["酒馆"]);
+  it("keeps speaker slots out of mentions across lines", () => {
+    expect(extractMentions("@酒馆 内景。\n@张三：{我来了}")).toEqual(["酒馆"]);
   });
 
-  it("strips a shot header written with non-ASCII digits", () => {
-    // Python `\d` 认全角/阿拉伯-印度数字，后端会剥掉 header 并把这行判成台词；
-    // JS `\d` 只认 ASCII，若不对齐，前端会把说话人当成参考图留下来
-    expect(extractMentions("镜头１：@[张三]：{我来了}")).toEqual([]);
-    expect(extractMentions("镜头٣：@[张三]：{我来了}")).toEqual([]);
-    expect(extractMentions("镜头１：@酒馆 内景。")).toEqual(["酒馆"]);
+  it("does not treat a blank speaker slot as a speech mark", () => {
+    // 同后端 split_speech_line：speaker 位全为空白不成记号，否则会派生出非法 utterance
+    expect(marks("@[ ]：{我来了}")).toEqual([]);
+    expect(extractMentions("@[ ]：{我来了}")).toEqual([""]);
   });
 
-  it("does not treat a blank speaker slot as a normative line", () => {
-    // 同后端 match_dialogue_line：speaker 位全为空白不算规范行，否则会派生出非法 utterance
-    expect(matchDialogueLine("@[ ]：{我来了}")).toBeNull();
-    expect(extractMentions("@[ ]：{我来了}")).toEqual([" "]);
+  it("does not fall back to voiceover when the speaker slot is malformed", () => {
+    // 作者写的是「某人说」，静默改判画外音比不识别更难发现
+    expect(marks("@[]：{我来了}")).toEqual([]);
+  });
+
+  it("does not fall back to voiceover when the separator colon is repeated", () => {
+    // 同后端 split_speech_line：只吞一个分隔冒号，剩下的冒号说明这不是台词形态
+    expect(marks("@[张三]：：{我来了}")).toEqual([]);
+    expect(stripSpeechMarks("@[张三]：：{我来了}")).toBe("@[张三]：：{我来了}");
+    expect(marks("门开了。@[张三]:: {我来了}")).toEqual([]);
+  });
+
+  it("still binds the speaker across a single separator colon", () => {
+    expect(marks("@[张三]：{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(marks("@[张三] : {我来了}")).toEqual([["张三", "我来了"]]);
+  });
+
+  it("counts the unit separator as inline whitespace like Python", () => {
+    // JS 的 `\s` 不含 U+001F 而 Python 的 str.isspace() 含：少这一个字符，
+    // 说话人会在后端绑定、在前端派生成参考图
+    expect(marks("@[张三]\u001f{我来了}")).toEqual([["张三", "我来了"]]);
+    expect(extractMentions("@[张三]\u001f{我来了}")).toEqual([]);
+  });
+
+  it("does not read nested braces as one mark", () => {
+    // 同后端 split_speech_line：外层 `{` 不成记号，从内层重新扫描
+    expect(marks("{外层 {内层}}")).toEqual([["", "内层"]]);
   });
 
   it("does not treat blank braces as an utterance", () => {
     // 同后端：utterance 的 text 必须非空，空台词不派生
-    expect(matchVoiceoverLine("{}")).toBeNull();
-    expect(matchVoiceoverLine("{   }")).toBeNull();
-    expect(matchDialogueLine("@[张三]：{}")).toBeNull();
+    expect(marks("{}")).toEqual([]);
+    expect(marks("{   }")).toEqual([]);
+    expect(marks("@[张三]：{}")).toEqual([]);
   });
 
-  it("keeps speaker-only characters out of merged references", () => {
-    const refs = mergeReferences("镜头1：@酒馆 内景。\n@张三：{我来了}", [], mkProject());
-    expect(refs).toEqual([{ type: "scene", name: "酒馆" }]);
+  it("keeps mentions written outside the marks in the reference derivation", () => {
+    expect(extractMentions("@[酒馆] 内景。@[张三]{我来了}")).toEqual(["酒馆"]);
+    expect(extractMentions("@[张三] 推门。@[张三]{我来了}")).toEqual(["张三"]);
   });
 });
 
@@ -310,8 +303,8 @@ describe("splitScriptLines", () => {
     ["a\n\n", ["a", ""]],
     ["a\n\nb", ["a", "", "b"]],
     ["\n", [""]],
-    ["镜头1：中景\r\n", ["镜头1：中景"]],
-    ["镜头1：中景 ", ["镜头1：中景"]],
+    ["中景\r\n", ["中景"]],
+    ["中景 ", ["中景"]],
   ])("splits %j the way splitlines() does", (input, expected) => {
     expect(splitScriptLines(input)).toEqual(expected);
   });

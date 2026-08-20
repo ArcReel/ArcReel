@@ -128,4 +128,26 @@ describe("ShotDetail drama 模式", () => {
     expect(screen.getByText("添加台词").closest("button")).toBeDisabled();
     expect(screen.getByDisplayValue("你终于回来了。")).toBeDisabled();
   });
+
+  it("移除画外音后仍显示已付费旁白的只读历史", () => {
+    const scene = makeScene({
+      utterances: [{ kind: "dialogue", speaker: "阿离", text: "你终于回来了。" }],
+      generated_assets: {
+        storyboard_image: null,
+        storyboard_last_image: null,
+        grid_id: null,
+        grid_cell_index: null,
+        video_clip: null,
+        video_thumbnail: null,
+        video_uri: null,
+        narration_audio: "audio/segment_E1S01.wav",
+        status: "completed",
+      },
+    });
+
+    const { container } = render(detailElement(scene, { onGenerateNarration: vi.fn() }));
+
+    expect(container.querySelector('audio[src*="audio/segment_E1S01.wav"]')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /重新生成旁白|Regenerate narration/ })).toBeDisabled();
+  });
 });

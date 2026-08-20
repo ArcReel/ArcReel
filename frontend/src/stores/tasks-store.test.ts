@@ -1061,6 +1061,22 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
     expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
   });
 
+  it("轮询看到参考单元旁白任务转成功时失效单元缓存", async () => {
+    // SSE 是完成事件主通道；它静默失速时，任务轮询也必须让新写入剧本的旁白路径出现在
+    // reference-video-store，否则播放器会一直持有生成前的旧 unit 快照。
+    useAppStore.setState({ referenceVideoUnitsRevision: 0 });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+
+    mockFetch([task({ task_id: "tts1", task_type: "tts", media_type: "audio", status: "running" })]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+
+    vi.restoreAllMocks();
+    mockFetch([task({ task_id: "tts1", task_type: "tts", media_type: "audio", status: "succeeded" })]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+  });
+
   it("整个生命周期落在两次轮询之间的参考生视频任务也算完成", async () => {
     // 空闲档间隔较长，provider 命中缓存时任务可能在一个间隔内走完：它是首次以 succeeded
     // 出现的，若要求上一轮见过就会漏掉，画布仍看不到成片。

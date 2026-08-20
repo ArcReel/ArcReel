@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, Route } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -47,13 +47,23 @@ const FAKE_CANDIDATES = {
   provider_names: {},
 };
 
+function mockBuiltinAgentProfile() {
+  vi.spyOn(API, "getAgentProfileStatus").mockResolvedValue({
+    customized: false,
+    customized_files: [],
+  });
+}
+
 function renderAt(path: string) {
   const location = memoryLocation({ path, record: true });
-  return render(
-    <Router hook={location.hook}>
-      <Route path="/app/projects/:projectName/settings" component={ProjectSettingsPage} />
-    </Router>,
-  );
+  return {
+    ...render(
+      <Router hook={location.hook}>
+        <Route path="/app/projects/:projectName/settings" component={ProjectSettingsPage} />
+      </Router>,
+    ),
+    location,
+  };
 }
 
 describe("ProjectSettingsPage – style picker", () => {
@@ -66,6 +76,85 @@ describe("ProjectSettingsPage – style picker", () => {
     );
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+    mockBuiltinAgentProfile();
+  });
+
+  it("shows customized Agent Profile files and resets only after destructive confirmation", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", episodes: [], characters: {}, clues: {} },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    vi.spyOn(API, "getAgentProfileStatus").mockResolvedValue({
+      customized: true,
+      customized_files: ["CLAUDE.md", ".claude/agents/legacy.md"],
+    });
+    const resetSpy = vi.spyOn(API, "resetAgentProfile").mockResolvedValue({
+      customized: false,
+      customized_files: [],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    expect(await screen.findByText("CLAUDE.md")).toBeInTheDocument();
+    expect(screen.getByText(".claude/agents/legacy.md")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /重置为内置配置|Reset to built-in/ }));
+    expect(resetSpy).not.toHaveBeenCalled();
+    expect(await screen.findByText(/将丢弃|discard/)).toBeInTheDocument();
+    expect(screen.getByText(/重新连接|reconnect/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /确认重置|Confirm reset/ }));
+    await waitFor(() => expect(resetSpy).toHaveBeenCalledWith("demo"));
+    expect(await screen.findByText(/使用内置配置|Using built-in/)).toBeInTheDocument();
+  });
+
+  it("does not carry Agent Profile state or reset confirmation across projects", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", episodes: [], characters: {}, clues: {} },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    vi.spyOn(API, "getAgentProfileStatus").mockImplementation((name) => (
+      name === "project-a"
+        ? Promise.resolve({ customized: true, customized_files: ["CLAUDE.md"] })
+        : new Promise(() => {})
+    ));
+    const resetSpy = vi.spyOn(API, "resetAgentProfile");
+    const { location } = renderAt("/app/projects/project-a/settings");
+
+    expect(await screen.findByText("CLAUDE.md")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /重置为内置配置|Reset to built-in/ }));
+    expect(await screen.findByText(/将丢弃|discard/)).toBeInTheDocument();
+
+    act(() => location.navigate("/app/projects/project-b/settings"));
+
+    await waitFor(() => expect(screen.queryByText("CLAUDE.md")).not.toBeInTheDocument());
+    expect(screen.queryByText(/将丢弃|discard/)).not.toBeInTheDocument();
+    expect(resetSpy).not.toHaveBeenCalled();
+  });
+
+  it("requires another confirmation when customized files change before reset", async () => {
+    const initialStatus = { customized: true, customized_files: ["CLAUDE.md"] };
+    const changedStatus = {
+      customized: true,
+      customized_files: [".claude/agents/new.md", "CLAUDE.md"],
+    };
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", episodes: [], characters: {}, clues: {} },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    vi.spyOn(API, "getAgentProfileStatus")
+      .mockResolvedValueOnce(initialStatus)
+      .mockResolvedValueOnce(initialStatus)
+      .mockResolvedValue(changedStatus);
+    const resetSpy = vi.spyOn(API, "resetAgentProfile");
+    renderAt("/app/projects/demo/settings");
+
+    expect(await screen.findByText("CLAUDE.md")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /重置为内置配置|Reset to built-in/ }));
+    expect(await screen.findByText(/将丢弃|discard/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /确认重置|Confirm reset/ }));
+
+    expect(await screen.findAllByText(".claude/agents/new.md")).toHaveLength(2);
+    expect(resetSpy).not.toHaveBeenCalled();
   });
 
   it("loads a project with style_template_id and selects the matching template card by default", async () => {
@@ -275,7 +364,7 @@ describe("ProjectSettingsPage – style picker", () => {
     expect(screen.getByText(/生成方式创建后不可更改/)).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: /参考生视频|分镜图生视频/ })).not.toBeInTheDocument();
     // 参考路线下不呈现宫格开关
-    expect(screen.queryByRole("switch", { name: /分镜板（宫格）生视频/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /多宫格分镜生视频/ })).not.toBeInTheDocument();
   });
 
   it("saves the grid assembly toggle on the storyboard route", async () => {
@@ -297,7 +386,7 @@ describe("ProjectSettingsPage – style picker", () => {
 
     renderAt("/app/projects/demo/settings");
 
-    const toggle = await screen.findByRole("switch", { name: /分镜板（宫格）生视频/ });
+    const toggle = await screen.findByRole("switch", { name: /多宫格分镜生视频/ });
     expect(toggle).toHaveAttribute("aria-checked", "false");
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-checked", "true");
@@ -326,7 +415,7 @@ describe("ProjectSettingsPage – style picker", () => {
     renderAt("/app/projects/demo/settings");
 
     expect(await screen.findByText(/先为每个场景生成分镜图/)).toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: /分镜板（宫格）生视频/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /多宫格分镜生视频/ })).not.toBeInTheDocument();
   });
 });
 
@@ -339,6 +428,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     );
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+    mockBuiltinAgentProfile();
   });
 
   it("loads existing model_settings resolution into video/image pickers", async () => {
@@ -366,6 +456,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
             duration_resolution_constraints: {},
             resolutions: ["720p", "1080p"],
             has_audio_track: true,
+            audio_switch_controllable: true,
             voice_consistency: "soft",
           },
           "nano-banana": {
@@ -377,6 +468,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
             duration_resolution_constraints: {},
             resolutions: ["720p", "1080p"],
             has_audio_track: false,
+            audio_switch_controllable: false,
             voice_consistency: "none",
           },
         },
@@ -521,6 +613,7 @@ describe("ProjectSettingsPage – 按用途指定模型", () => {
     );
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+    mockBuiltinAgentProfile();
   });
 
   it("loads project sub-field overrides and writes each back to its own key", async () => {
@@ -560,5 +653,54 @@ describe("ProjectSettingsPage – 按用途指定模型", () => {
         }),
       );
     });
+  });
+
+  it("shows the reading unit of the project source language and saves the speech rate", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        source_language: "en",
+        speech_rate_units_per_second: 3,
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    const input = await screen.findByLabelText(/^(语速（可选）|Pace \(optional\))$/);
+    expect(input).toHaveValue(3);
+    // en 项目按词计
+    expect(screen.getByText("词/秒")).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "4.5" } });
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({ speech_rate_units_per_second: 4.5 }),
+      );
+    });
+  });
+
+  it("blocks saving while the speech rate is out of range", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", episodes: [], characters: {}, clues: {} },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+
+    renderAt("/app/projects/demo/settings");
+
+    const input = await screen.findByLabelText(/^(语速（可选）|Pace \(optional\))$/);
+    fireEvent.change(input, { target: { value: "25" } });
+
+    expect(screen.getByRole("button", { name: /^(保存|Save)$/i })).toBeDisabled();
   });
 });

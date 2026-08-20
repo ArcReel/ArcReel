@@ -2104,7 +2104,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.integration
     async def test_custom_provider_pin_survives_resume_resolution(self):
-        """自定义供应商的视频任务中断续跑：沿用入队锁定的 model，不回落项目配置换模型。"""
+        """自定义供应商的视频任务中断续跑：沿用 checkpoint 回放的 model，不回落项目配置换模型。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
         factory, engine = await _make_session()
@@ -2143,7 +2143,7 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.integration
     async def test_disabled_pinned_custom_model_raises_instead_of_switching(self):
-        """锁定的自定义 model 入队后被禁用：报错，不收敛到该供应商的默认 model。
+        """checkpoint 锁定的自定义 model 在 resume 前被禁用：报错，不收敛到默认 model。
 
         换 model 执行等于静默换模型，续跑更会拿另一个 backend 去轮原 model 的 provider_job_id。
         """

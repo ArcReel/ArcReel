@@ -14,9 +14,12 @@ from fastapi.testclient import TestClient
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
 from lib.i18n import _ as i18n_message
+from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import grids
+from server.routers import versions as versions_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 pytestmark = pytest.mark.unit
@@ -25,6 +28,7 @@ pytestmark = pytest.mark.unit
 def _narration_script(count: int = 4):
     """``count`` 个无 segment_break 的分段，凑成单组（默认 4 个，即 grid_4 恰好填满）。"""
     return {
+        "episode": 1,
         "content_mode": "narration",
         "segments": [
             {
@@ -52,6 +56,16 @@ def _narration_script(count: int = 4):
             for i in range(1, count + 1)
         ],
     }
+
+
+def _materialize_project(project_path, project: dict) -> None:
+    """把假 ProjectManager 声称的项目状态落到磁盘上。
+
+    产物清单的取证只读磁盘上的规范文件，路由的假替身不能替它作数。
+    """
+    (project_path / "scripts").mkdir(parents=True, exist_ok=True)
+    (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+    (project_path / "scripts" / "episode_1.json").write_text(json.dumps(_narration_script()), encoding="utf-8")
 
 
 class _FakeQueue:
@@ -356,6 +370,8 @@ class _FakePMGenerate:
             "style": "anime",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
         }
 
     def load_script(self, name, script_file):
@@ -363,6 +379,57 @@ class _FakePMGenerate:
 
     def get_project_path(self, name):
         return self._project_path
+
+
+class _FakePMUnboundGrid(_FakePMGenerate):
+    def load_project(self, name):
+        return {**super().load_project(name), "episodes": []}
+
+
+class _FakePMMismatchedGrid(_FakePMGenerate):
+    def load_project(self, name):
+        return {
+            **super().load_project(name),
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        }
+
+
+def test_generate_grid_rejects_an_unbound_script_before_enqueue(monkeypatch, tmp_path):
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMUnboundGrid(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+
+    with client:
+        response = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json"},
+        )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+    assert fake_queue.calls == []
+
+
+def test_generate_grid_rejects_an_episode_path_that_mismatches_the_bound_script(monkeypatch, tmp_path):
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMMismatchedGrid(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+
+    with client:
+        response = client.post(
+            "/api/v1/projects/demo/generate/grid/2",
+            json={"script_file": "episode_1.json"},
+        )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+    assert fake_queue.calls == []
 
 
 def test_generate_grid_success(monkeypatch, tmp_path):
@@ -385,7 +452,7 @@ def test_generate_grid_success(monkeypatch, tmp_path):
         assert len(body["task_ids"]) == 1
         assert body["deduped"] is False
         # message 走 i18n（默认中文），不再硬编码
-        assert body["message"] == "已提交 1 个宫格生成任务"
+        assert body["message"] == "已提交 1 个多宫格分镜生成任务"
     assert len(fake_queue.calls) == 1
     saved = json.loads((tmp_path / "grids" / f"{body['grid_ids'][0]}.json").read_text(encoding="utf-8"))
     assert saved["scene_ids"] == ["E1S01", "E1S02", "E1S03", "E1S04"]
@@ -407,7 +474,7 @@ def test_generate_grid_success_message_localized_en(monkeypatch, tmp_path):
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["message"] == "Submitted 1 grid generation tasks"
+        assert body["message"] == "Submitted 1 multi-grid storyboard generation tasks"
 
 
 class _FakePMScenes(_FakePMGenerate):
@@ -529,6 +596,7 @@ def test_list_grids_success(monkeypatch, tmp_path):
         grid_size="grid_4",
         provider="",
         model="",
+        video_aspect_ratio="9:16",
     )
     GridManager(tmp_path).save(grid)
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMPath(tmp_path))
@@ -550,6 +618,7 @@ def test_get_grid_success(monkeypatch, tmp_path):
         grid_size="grid_4",
         provider="",
         model="",
+        video_aspect_ratio="9:16",
     )
     GridManager(tmp_path).save(grid)
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMPath(tmp_path))
@@ -588,7 +657,48 @@ class _FakePMRegenerate(_FakePMPath):
             "aspect_ratio": "9:16",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
         }
+
+    def load_script(self, name, script_file):
+        return _narration_script()
+
+
+class _FakePMRegenerateUnbound(_FakePMRegenerate):
+    def load_project(self, name):
+        return {**super().load_project(name), "episodes": []}
+
+
+def test_regenerate_grid_rejects_an_unbound_script_without_mutating_the_record(monkeypatch, tmp_path):
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b", "c", "d"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="stale-provider",
+        model="stale-model",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "failed"
+    grid.error_message = "boom"
+    GridManager(tmp_path).save(grid)
+
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerateUnbound(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        response = client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate")
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+    assert fake_queue.calls == []
+    assert GridManager(tmp_path).get(grid.id) == grid
 
 
 def test_regenerate_grid_success(monkeypatch, tmp_path):
@@ -601,6 +711,7 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
         grid_size="grid_4",
         provider="stale-provider",
         model="stale-model",
+        video_aspect_ratio="9:16",
     )
     grid.status = "failed"
     grid.error_message = "boom"
@@ -624,3 +735,421 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
     assert saved.status == "pending"
     assert saved.error_message is None
     assert saved.provider == ""
+
+
+def _regenerate_with_frozen_ratio(monkeypatch, tmp_path, frozen: str | None) -> tuple[GridGeneration, dict]:
+    """按给定冻结值建档并重生成，返回落盘后的记录与入队 payload。"""
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b", "c", "d"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="p",
+        model="m",
+        video_aspect_ratio="16:9",
+    )
+    grid.video_aspect_ratio = frozen
+    grid.status = "completed"
+    GridManager(tmp_path).save(grid)
+
+    queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        get_generation_queue=lambda: queue,
+    )
+    with client:
+        assert client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate").status_code == 200
+
+    saved = GridManager(tmp_path).get(grid.id)
+    assert saved is not None
+    return saved, queue.calls[0]["payload"]
+
+
+def test_regenerate_grid_keeps_frozen_aspect_ratio(monkeypatch, tmp_path):
+    """重生成沿用记录冻结的比例，不改用项目当前比例。"""
+    saved, payload = _regenerate_with_frozen_ratio(monkeypatch, tmp_path, "16:9")
+
+    assert saved.video_aspect_ratio == "16:9"
+    assert payload["video_aspect_ratio"] == "16:9"
+    assert payload["grid_aspect_ratio"] == "16:9"
+
+
+def test_regenerate_grid_backfills_missing_aspect_ratio(monkeypatch, tmp_path):
+    """存量记录没有冻结值，重生成回落到项目当前比例并就地补齐。"""
+    saved, payload = _regenerate_with_frozen_ratio(monkeypatch, tmp_path, None)
+
+    assert saved.video_aspect_ratio == "9:16"
+    assert payload["video_aspect_ratio"] == "9:16"
+
+
+# ==================== 切分端点 ====================
+
+
+def _make_completed_grid(tmp_path, *, with_image: bool = True) -> GridGeneration:
+    _materialize_project(tmp_path, _FakePMRegenerate(tmp_path).load_project("demo"))
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b", "c", "d"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="p",
+        model="m",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "completed"
+    grid.grid_image_path = f"grids/{grid.id}.png"
+    if with_image:
+        from PIL import Image
+
+        (tmp_path / "grids").mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 100)).save(tmp_path / "grids" / f"{grid.id}.png")
+    GridManager(tmp_path).save(grid)
+    return grid
+
+
+def test_split_grid_success(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+
+    from server.services.grid_split import GridSplitResult
+
+    calls = []
+
+    async def fake_split(project_name, g):
+        calls.append((project_name, g.id))
+        g.split_at = "2026-01-01T00:00:00+00:00"
+        return GridSplitResult(
+            updated_scene_ids=["a", "b"],
+            missing_scene_ids=["c"],
+            asset_fingerprints={"storyboards/scene_a.png": 1},
+        )
+
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        apply_grid_split=fake_split,
+    )
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["success"] is True
+        assert body["updated_scene_ids"] == ["a", "b"]
+        assert body["missing_scene_ids"] == ["c"]
+        assert body["asset_fingerprints"] == {"storyboards/scene_a.png": 1}
+        assert body["split_at"] == "2026-01-01T00:00:00+00:00"
+    assert calls == [("demo", grid.id)]
+
+
+def test_split_grid_rejected_when_switch_off(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+    client = _client(monkeypatch, get_project_manager=_FakePMGridDisabled)
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("grid_storyboard_not_enabled")
+
+
+def test_split_grid_conflict_while_generating(monkeypatch, tmp_path):
+    # 生成在途的宫格拒绝切分：worker 完成时会覆写联合图，按旧图切分会被踩踏
+    grid = _make_completed_grid(tmp_path)
+    grid.status = "generating"
+    GridManager(tmp_path).save(grid)
+
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+        assert resp.status_code == 409
+
+
+def test_split_grid_image_not_ready(monkeypatch, tmp_path):
+    # 联合图缺失（未生成完成且未上传）→ 400，业务语义明确不落通用 500
+    grid = _make_completed_grid(tmp_path, with_image=False)
+
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("grid_image_not_ready", grid_id=grid.id)
+
+
+def test_split_grid_not_found(monkeypatch, tmp_path):
+    client = _client(
+        monkeypatch,
+        get_project_manager=_FakePMNarration,
+        GridManager=_FakeGMNotFound,
+    )
+    with client:
+        resp = client.post("/api/v1/projects/demo/grids/grid-missing/split")
+        assert resp.status_code == 404
+
+
+# ==================== 联合图上传 ====================
+
+
+def _png_bytes(size=(64, 64), color=(1, 2, 3)) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", size, color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _jpeg_bytes(size=(64, 64), color=(9, 9, 9)) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", size, color).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path):
+    """非 PNG 输入归一化为 PNG 并登记新版本；宫格记录复位为「联合图就绪、待切分」。"""
+    from lib.version_manager import VersionManager
+
+    grid = _make_completed_grid(tmp_path)
+    grid.status = "failed"
+    grid.error_message = "boom"
+    grid.split_at = "2026-01-01T00:00:00+00:00"
+    GridManager(tmp_path).save(grid)
+
+    monkeypatch.setattr(
+        "server.services.generation_tasks.emit_generation_success_batch",
+        lambda **kw: {f"grids/{grid.id}.png": 123},
+    )
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("photo.jpg", _jpeg_bytes(), "image/jpeg")},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["success"] is True
+        assert body["path"] == f"grids/{grid.id}.png"
+        assert body["asset_fingerprints"] == {f"grids/{grid.id}.png": 123}
+
+    # 落盘为合法 PNG
+    from io import BytesIO
+
+    from PIL import Image
+
+    saved_bytes = (tmp_path / "grids" / f"{grid.id}.png").read_bytes()
+    with Image.open(BytesIO(saved_bytes)) as img:
+        assert img.format == "PNG"
+
+    # 旧联合图补登 + 新版本登记（source=upload）
+    versions = VersionManager(tmp_path).get_versions("grids", grid.id)
+    assert len(versions["versions"]) >= 2
+
+    saved = GridManager(tmp_path).get(grid.id)
+    assert saved is not None
+    assert saved.status == "completed"
+    assert saved.error_message is None
+    assert saved.split_at is None
+    assert saved.grid_image_path == f"grids/{grid.id}.png"
+
+
+def test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim(monkeypatch, tmp_path):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from lib.artifact_activation import ArtifactCurrencyResolver
+    from lib.artifact_manifest import ArtifactKey, ArtifactStatus
+    from lib.version_manager import VersionManager
+    from server.services.upload_finalize import UPLOAD_VERSION_SOURCE
+
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata(
+        "demo",
+        "Demo",
+        "Anime",
+        "narration",
+        extras={"generation_mode": "storyboard", "grid_storyboard": True},
+    )
+    script = {"episode": 1, "title": "E1", **_narration_script()}
+    pm.save_script("demo", script, "episode_1.json", validate=False)
+    project_path = pm.get_project_path("demo")
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S01", "E1S02", "E1S03", "E1S04"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="p",
+        model="m",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "completed"
+    grid.grid_image_path = f"grids/{grid.id}.png"
+    target = project_path / grid.grid_image_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (64, 64), color=(1, 2, 3)).save(target)
+    GridManager(project_path).save(grid)
+
+    monkeypatch.setattr(grids, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
+    monkeypatch.setattr("server.services.generation_tasks.emit_generation_success_batch", lambda **_kwargs: {})
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+    app.include_router(grids.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(versions_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    register_error_handlers(app)
+
+    with TestClient(app) as client:
+        first = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("first.png", BytesIO(_png_bytes(color=(10, 20, 30))), "image/png")},
+        )
+        second = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("second.png", BytesIO(_png_bytes(color=(40, 50, 60))), "image/png")},
+        )
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+
+        uploaded = [
+            record
+            for record in VersionManager(project_path).get_versions("grids", grid.id)["versions"]
+            if record.get("source") == UPLOAD_VERSION_SOURCE
+        ]
+        assert len(uploaded) == 2
+        assert "artifact_image_basis" in uploaded[0], uploaded[0]
+        restored = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/{uploaded[0]['version']}")
+        assert restored.status_code == 200, restored.text
+
+    comparison = ArtifactCurrencyResolver(project_path).compare(
+        ArtifactKey.episode_grid(1, grid.id),
+        artifact_path=f"grids/{grid.id}.png",
+    )
+    assert comparison.status is ArtifactStatus.CURRENT
+
+
+def test_upload_grid_image_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
+    """手动补图按项目当前比例排布，记录上冻结的单格比例随之改写。
+
+    沿用旧冻结值会让改过项目比例后补的图被按旧比例中心裁切。
+    """
+    grid = _make_completed_grid(tmp_path)
+    grid.video_aspect_ratio = "16:9"
+    GridManager(tmp_path).save(grid)
+
+    monkeypatch.setattr(
+        "server.services.generation_tasks.emit_generation_success_batch",
+        lambda **kw: {},
+    )
+    # _FakePMRegenerate 的项目比例为 9:16，与记录冻结的 16:9 不同
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("a.png", _png_bytes(), "image/png")},
+        )
+        assert resp.status_code == 200, resp.text
+
+    saved = GridManager(tmp_path).get(grid.id)
+    assert saved is not None
+    assert saved.video_aspect_ratio == "9:16"
+
+
+def test_upload_grid_image_registration_failure_restores_file_version_and_record(monkeypatch, tmp_path):
+    from lib.version_manager import VersionManager
+
+    grid = _make_completed_grid(tmp_path)
+    grid.split_at = "2026-01-01T00:00:00+00:00"
+    GridManager(tmp_path).save(grid)
+    target = tmp_path / "grids" / f"{grid.id}.png"
+    old_bytes = target.read_bytes()
+    versions = VersionManager(tmp_path)
+    versions.add_version("grids", grid.id, "old", source_file=target)
+    versions_bytes = versions.versions_file.read_bytes()
+    record = tmp_path / "grids" / f"{grid.id}.json"
+    record_bytes = record.read_bytes()
+
+    monkeypatch.setattr(
+        grids,
+        "register_current_resource_artifact",
+        lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("manifest commit failed")),
+    )
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("replacement.png", _png_bytes(color=(200, 1, 2)), "image/png")},
+        )
+
+    assert resp.status_code == 500
+    assert target.read_bytes() == old_bytes
+    assert versions.versions_file.read_bytes() == versions_bytes
+    assert record.read_bytes() == record_bytes
+
+
+def test_upload_grid_image_does_not_downscale(monkeypatch, tmp_path):
+    """联合图上传不缩放：超过分镜图 2048 上限的大图原尺寸保留（4K 联合图切格不失真）。"""
+    grid = _make_completed_grid(tmp_path)
+    monkeypatch.setattr(
+        "server.services.generation_tasks.emit_generation_success_batch",
+        lambda **kw: {},
+    )
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("big.png", _png_bytes(size=(4096, 64)), "image/png")},
+        )
+        assert resp.status_code == 200, resp.text
+
+    from io import BytesIO
+
+    from PIL import Image
+
+    with Image.open(BytesIO((tmp_path / "grids" / f"{grid.id}.png").read_bytes())) as img:
+        assert img.size == (4096, 64)
+
+
+def test_upload_grid_image_rejects_invalid_image(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("bad.png", b"not-an-image", "image/png")},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("invalid_image_file")
+
+
+def test_upload_grid_image_conflict_while_generating(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+    grid.status = "pending"
+    GridManager(tmp_path).save(grid)
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("a.png", _png_bytes(), "image/png")},
+        )
+        assert resp.status_code == 409
+
+
+def test_upload_grid_image_rejected_when_switch_off(monkeypatch, tmp_path):
+    grid = _make_completed_grid(tmp_path)
+    client = _client(monkeypatch, get_project_manager=_FakePMGridDisabled)
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("a.png", _png_bytes(), "image/png")},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == i18n_message("grid_storyboard_not_enabled")

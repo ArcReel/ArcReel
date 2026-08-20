@@ -256,3 +256,13 @@ class TestImageToDataUri:
         img = tmp_path / "x.jpg"
         img.write_bytes(b"\xff\xd8\xff")
         assert image_to_data_uri(img).startswith("data:image/jpeg;base64,")
+
+    def test_heic_mime(self, tmp_path):
+        img = tmp_path / "x.heic"
+        img.write_bytes(b"\x00\x00\x00\x18ftypheic")
+        assert image_to_data_uri(img).startswith("data:image/heic;base64,")
+
+    def test_heif_mime(self, tmp_path):
+        img = tmp_path / "x.heif"
+        img.write_bytes(b"\x00\x00\x00\x18ftypmif1")
+        assert image_to_data_uri(img).startswith("data:image/heif;base64,")

@@ -20,6 +20,9 @@ import {
   type DraftMirror,
 } from "@/utils/entry-projection";
 
+/** 启动失败的来源入口——决定故障卡片的重试重放哪一处输入。 */
+export type StartupFailureOrigin = "send" | "rewrite";
+
 interface AssistantState {
   // Sessions
   sessions: SessionMeta[];
@@ -42,6 +45,11 @@ interface AssistantState {
   error: string | null;
   /** 当前面板生命周期内最近一次 Agent 启动失败观测；不做跨刷新持久化。 */
   startupFailure: FailureObservation | null;
+  /**
+   * 该次启动失败由哪条入口产生。故障卡片的重试只重放仍保留原始输入的那一处：
+   * `send` 的输入留在主输入框，`rewrite` 的留在仍开着的原地编辑器里。
+   */
+  startupFailureOrigin: StartupFailureOrigin | null;
 
   // Session status
   sessionStatus: SessionStatus | null;
@@ -54,6 +62,12 @@ interface AssistantState {
   // Skills
   skills: SkillInfo[];
   skillsLoading: boolean;
+
+  /**
+   * 正处于原地编辑态的用户消息（条目 uuid）；同一时刻至多一条。
+   * 收在 store 而非组件本地 state，才能让「至多一条」这条约束在整个时间线上成立。
+   */
+  editingTurnUuid: string | null;
 
   // Scope
   currentProject: string | null;
@@ -81,13 +95,14 @@ interface AssistantState {
   setSending: (sending: boolean) => void;
   setInterrupting: (interrupting: boolean) => void;
   setError: (error: string | null) => void;
-  setStartupFailure: (failure: FailureObservation | null) => void;
+  setStartupFailure: (failure: FailureObservation | null, origin?: StartupFailureOrigin) => void;
   setSessionStatus: (status: SessionStatus | null) => void;
   setSessionStatusDetail: (detail: string | null) => void;
   setPendingQuestion: (question: PendingQuestion | null) => void;
   setAnsweringQuestion: (answering: boolean) => void;
   setSkills: (skills: SkillInfo[]) => void;
   setSkillsLoading: (loading: boolean) => void;
+  setEditingTurnUuid: (uuid: string | null) => void;
   setCurrentProject: (project: string | null) => void;
   setIsDraftSession: (draft: boolean) => void;
 }
@@ -148,12 +163,14 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     interrupting: false,
     error: null,
     startupFailure: null,
+    startupFailureOrigin: null,
     sessionStatus: null,
     sessionStatusDetail: null,
     pendingQuestion: null,
     answeringQuestion: false,
     skills: [],
     skillsLoading: false,
+    editingTurnUuid: null,
     currentProject: null,
     isDraftSession: false,
 
@@ -232,6 +249,9 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
         turns: [],
         draftTurn: null,
         startupFailure: null,
+        startupFailureOrigin: null,
+        // 编辑态锚在被清空的那条时间线上，重建后锚点不再存在
+        editingTurnUuid: null,
       });
     },
 
@@ -240,13 +260,16 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     setSending: (sending) => set({ sending }),
     setInterrupting: (interrupting) => set({ interrupting }),
     setError: (error) => set({ error }),
-    setStartupFailure: (failure) => set({ startupFailure: failure }),
+    // origin 与 failure 同一次写入，两者不会各自漂移
+    setStartupFailure: (failure, origin = "send") =>
+      set({ startupFailure: failure, startupFailureOrigin: failure ? origin : null }),
     setSessionStatus: (status) => set({ sessionStatus: status }),
     setSessionStatusDetail: (detail) => set({ sessionStatusDetail: detail }),
     setPendingQuestion: (question) => set({ pendingQuestion: question }),
     setAnsweringQuestion: (answering) => set({ answeringQuestion: answering }),
     setSkills: (skills) => set({ skills }),
     setSkillsLoading: (loading) => set({ skillsLoading: loading }),
+    setEditingTurnUuid: (uuid) => set({ editingTurnUuid: uuid }),
     setCurrentProject: (project) => set({ currentProject: project }),
     setIsDraftSession: (draft) => set({ isDraftSession: draft }),
   };

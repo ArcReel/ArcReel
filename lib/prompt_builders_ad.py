@@ -1,9 +1,9 @@
 """广告/短片模式（content_mode=ad）剧本生成 Prompt 构建器。
 
-产出平铺 ``shots[]`` 的带货镜头脚本 prompt：按目标总时长选择带货八段框架的
-时长配比档位（15/30/60/90 秒，经维护者审定的配比表，数字依据见
-docs/research/arcreel-ad-section-timing-research.md），非四档整数取最近档位
-按比例适配。``products`` 为空时自动分流为通用短片 prompt（无带货框架）。
+分镜路线产出平铺 ``shots[]``，参考路线单阶段产出自包含 ``video_units[]`` 的扁平
+书写层。两条路线都按目标总时长选择带货八段框架的时长配比档位（15/30/60/90 秒，
+经维护者审定的配比表），非四档整数取距离最小的档位按比例适配。
+``products`` 为空时自动分流为通用短片 prompt（无带货框架）。
 
 设计原则与 narration/drama 构建器一致：
 - 不重复 schema 已声明的枚举；让 response_schema 直接约束。
@@ -21,7 +21,8 @@ from lib.prompt_builders_script import (
     _format_duration_constraint,
     _format_names,
 )
-from lib.script_models import REFERENCE_SHOT_DURATION_RANGE
+from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
+from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
 from lib.speech_rate import speech_rate_units_per_second
 from lib.text_metrics import reading_unit_noun
 
@@ -29,7 +30,7 @@ from lib.text_metrics import reading_unit_noun
 # 审定配比表（数字真相源，逐字照搬，不得修改）
 # ---------------------------------------------------------------------------
 
-#: 四个审定档位（秒）。非四档整数取最近档位按比例适配；
+#: 四个审定档位（秒）。非四档整数取距离最小的档位按比例适配；
 #: 等距时取更接近默认推荐档（30 秒）的一侧。
 AD_DURATION_TIERS: tuple[int, ...] = (15, 30, 60, 90)
 
@@ -111,7 +112,7 @@ _AD_TIER_TABLES: dict[int, str] = {
 
 
 def nearest_ad_tier(target_duration: int) -> int:
-    """取最近的审定档位；等距时取更接近默认推荐档（30 秒）的一侧。"""
+    """取距离最小的审定档位；等距时取更接近默认推荐档（30 秒）的一侧。"""
     return min(AD_DURATION_TIERS, key=lambda t: (abs(t - target_duration), abs(t - AD_DEFAULT_TIER)))
 
 
@@ -121,7 +122,7 @@ def _format_pacing_block(target_duration: int) -> str:
     parts = [_AD_GENERAL_RULES, _AD_TIER_TABLES[tier]]
     if tier != target_duration:
         parts.append(
-            f"目标总时长 {target_duration} 秒不在审定档位内，按最近档位 {tier} 秒的配比模板"
+            f"目标总时长 {target_duration} 秒不在审定档位内，按距离最小的档位 {tier} 秒的配比模板"
             f"按比例适配到 {target_duration} 秒：hook 与 cta 是绝对时长段维持原秒数，"
             "伸缩量按通用规则优先给 selling_point/demo，其次 trust。"
         )
@@ -156,15 +157,9 @@ def _format_products(products: dict) -> str:
 
 
 def _shot_duration_constraint(generation_mode: str | None, supported_durations: list[int] | None) -> str:
-    """按 generation_mode 渲染单镜头时长约束文本。
-
-    storyboard 路径：供应商 supported_durations 硬枚举（与 response_schema 的
-    enum 约束同口径）；reference_video 路径：1-15 秒自由整数（短切节奏赖此成立），
-    区间真相源与 reference 路径剧本模型同在 ``lib.script_models``。
-    """
+    """渲染分镜路线的单镜头时长约束；参考路线须走自包含 unit 构建器。"""
     if generation_mode == "reference_video":
-        low, high = REFERENCE_SHOT_DURATION_RANGE
-        return _format_duration_constraint(list(range(low, high + 1)), None)
+        raise ValueError("reference_video 路径须使用 build_ad_reference_prompt")
     if not supported_durations:
         raise ValueError("storyboard 路径必须提供 supported_durations（视频模型的合法时长集合）")
     return _format_duration_constraint(supported_durations, None)
@@ -190,20 +185,23 @@ def build_ad_prompt(
     episode: int = 1,
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
+    speech_rate_override: float | None = None,
 ) -> str:
     """构建广告/短片模式的剧本生成 prompt。
 
     ``products`` 非空走带货八段框架 + 审定配比表；为空自动分流通用短片 prompt
-    （无带货框架，不设显式子模式开关）。
+    （无带货框架，不设显式子模式开关）。``speech_rate_override`` 是项目级语速覆盖
+    （由调用方经 ``project_speech_rate_override`` 解析），None 即回退语言默认。
     """
     if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
 
     duration_constraint = _shot_duration_constraint(generation_mode, supported_durations)
-    # 口播字数→时长折算从 lib.speech_rate 单一真相源取（与 drama step1 下界、字幕派生同口径）。
-    # 语速表按语言代码（zh / en / vi）登记；target_language 是自由文本（默认「中文」），
-    # 未登记值回退默认语速（zh 口径），量词（字 / 词）由 reading_unit_noun 同源派生。
-    speech_rate = speech_rate_units_per_second(target_language)
+    # 口播字数→时长折算从 lib.speech_rate 单一真相源取（与 drama step1 下界、字幕派生同口径）：
+    # 项目级覆盖优先，否则按语言默认。语速表按语言代码（zh / en / vi）登记；target_language 是
+    # 自由文本（默认「中文」），未登记值回退默认语速（zh 口径），量词（字 / 词）由
+    # reading_unit_noun 同源派生。
+    speech_rate = speech_rate_units_per_second(target_language, speech_rate_override)
     unit_label = reading_unit_noun(target_language)
     voiceover_rate_note = f"口播长度按约 {speech_rate:g} {unit_label}/秒折算"
     character_names = list(characters.keys())
@@ -343,3 +341,78 @@ def build_ad_prompt(
 
 输出可直接驱动 AI 生成的、产品忠实、节奏紧凑的带货镜头脚本。卖点表达贴合 <products> 的 selling_points，不夸大、不虚构功效。
 """
+
+
+def build_ad_reference_prompt(
+    *,
+    project_overview: dict,
+    style: str,
+    style_description: str,
+    characters: dict,
+    scenes: dict,
+    props: dict,
+    products: dict,
+    brief: str,
+    target_duration: int,
+    episode: int = 1,
+    aspect_ratio: str = "9:16",
+    target_language: str = "中文",
+) -> str:
+    """广告参考路线单阶段生成 prompt；直接输出扁平书写层 unit。"""
+    if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
+        raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
+    min_unit_duration, max_unit_duration = REFERENCE_UNIT_DURATION_RANGE
+    product_context = _format_products(products) if products else "（无产品资产，按通用短片创作）"
+    planning = _format_pacing_block(target_duration) if products else "按开场、发展、高潮、收束组织内容。"
+    return f"""# 角色与任务
+
+你是一位资深短视频编导。根据 brief 与资产候选，直接创作可供参考生视频的一组自包含 video unit。
+
+**输出语言**：所有正文使用 {target_language}；JSON 键名保持英文。
+**输出形状**：只输出 `{{"title": "...", "units": [{{"duration_seconds": {min_unit_duration}, "text": "..."}}]}}`。
+unit_id、references、generated_assets、needs_replan 均由系统派生，不得输出。不要输出 shots、section、shot_id、逐镜头时长、voiceover_text 或 speech_mode。
+
+<overview>
+{project_overview.get("synopsis", "")}
+题材：{project_overview.get("genre", "")}
+主题：{project_overview.get("theme", "")}
+</overview>
+
+<style>
+风格：{style}
+描述：{style_description}
+画面比例：{aspect_ratio}（{_format_aspect_ratio_desc(aspect_ratio)}）
+</style>
+
+<brief>
+{brief or "（未提供，按资产信息与常识自行设计）"}
+</brief>
+
+<products>
+{product_context}
+</products>
+
+资产候选：
+- products：[{", ".join(products) or "（无）"}]
+- characters：[{", ".join(characters) or "（无）"}]
+- scenes：[{", ".join(scenes) or "（无）"}]
+- props：[{", ".join(props) or "（无）"}]
+
+# 内容规划
+
+目标总时长为 {target_duration} 秒，所有 unit.duration_seconds 之和应贴近该值；每个 unit 是一次生成调用的完整编排时长，取 {min_unit_duration}-{max_unit_duration} 的整数，不按供应商档位量化。
+下方框架只用于安排内容与节奏，不得把段落名写入 JSON 或正文：
+
+{planning}
+
+本片恒为第 {episode} 集。每个 unit 内只能有一种发声归属：角色台词、无归属画外音或无发声三选一；需要切换归属时拆成相邻 unit，不要在同一 unit 混写。
+
+# 统一书写层
+
+{WRITING_SYNTAX_SPEC}
+
+产品、角色、场景、道具都使用同一个 `@[名称]` 语法。名称只可逐字取自候选表，不要发明资产。
+"""
+
+
+__all__ = ["build_ad_prompt", "build_ad_reference_prompt", "nearest_ad_tier"]

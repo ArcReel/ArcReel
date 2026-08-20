@@ -69,3 +69,32 @@ def atomic_write_json(path: Path, data: Any) -> None:
                 tmp_path.unlink()
             except OSError:
                 pass
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """同目录 tempfile + ``os.replace`` 原子恢复文件字节。
+
+    多文件补偿事务在后续写入失败时需要逐字恢复已经替换的旧文件；重新序列化 JSON 会改变
+    空白与键序，无法证明恢复的是提交前的 durable state，因此回滚走字节快照。
+    """
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=str(path.parent),
+            prefix=".rollback.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            tmp.write(data)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass

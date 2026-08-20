@@ -20,7 +20,23 @@ def _script_path(pm, project_name, filename):
 
 
 class TestProjectManagerCompatibility:
-    def test_save_script_backfills_missing_metadata_for_narration_segments(self, pm_env):
+    def test_save_episode_script_succeeds_before_project_metadata_exists(self, tmp_path):
+        pm = ProjectManager(tmp_path)
+        project_dir = tmp_path / "demo"
+        (project_dir / "scripts").mkdir(parents=True)
+        script = {
+            "episode": 1,
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "novel_text": "旁白"}],
+        }
+
+        saved = pm.save_script("demo", script, "episode_1.json", validate=False)
+
+        assert saved == project_dir / "scripts" / "episode_1.json"
+        assert pm.load_script("demo", "episode_1.json")["episode"] == 1
+
+    def test_save_script_backfills_missing_metadata_skeleton(self, pm_env):
+        """缺 metadata 的剧本落盘后补齐时间戳与状态；条目数与总时长不落盘（读时由项目摘要计算）。"""
         pm, project_name = pm_env
         script = {
             "title": "Episode 1",
@@ -34,38 +50,11 @@ class TestProjectManagerCompatibility:
         pm.save_script(project_name, script, "episode_1.json", validate=False)  # 故意缺字段测元数据补全
         saved = pm.load_script(project_name, "episode_1.json")
 
-        assert "metadata" in saved
-        assert saved["metadata"]["total_scenes"] == 2
-        assert saved["metadata"]["estimated_duration_seconds"] == 14
         assert "created_at" in saved["metadata"]
         assert "updated_at" in saved["metadata"]
-
-    def test_save_script_uses_narration_default_duration_when_missing(self, pm_env):
-        pm, project_name = pm_env
-        script = {
-            "title": "Episode 1",
-            "content_mode": "narration",
-            "segments": [{"segment_id": "E1S01"}],
-        }
-
-        pm.save_script(project_name, script, "episode_1.json", validate=False)  # 故意缺字段测元数据补全
-        saved = pm.load_script(project_name, "episode_1.json")
-
-        assert saved["metadata"]["total_scenes"] == 1
-        assert saved["metadata"]["estimated_duration_seconds"] == 4
-
-    def test_save_script_uses_scene_default_duration_when_content_mode_missing(self, pm_env):
-        pm, project_name = pm_env
-        script = {
-            "title": "Episode 1",
-            "scenes": [{"scene_id": "001"}],
-        }
-
-        pm.save_script(project_name, script, "episode_1.json", validate=False)  # 故意缺字段测元数据补全
-        saved = pm.load_script(project_name, "episode_1.json")
-
-        assert saved["metadata"]["total_scenes"] == 1
-        assert saved["metadata"]["estimated_duration_seconds"] == 8
+        assert saved["metadata"]["status"] == "draft"
+        assert "total_scenes" not in saved["metadata"]
+        assert "estimated_duration_seconds" not in saved["metadata"]
 
     def test_update_scene_asset_backfills_generated_assets_when_missing(self, pm_env):
         pm, project_name = pm_env

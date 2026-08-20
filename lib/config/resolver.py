@@ -270,11 +270,12 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapabi
 def _payload_video_pinned_pair(
     payload: dict, capability: VideoCapability | None
 ) -> tuple[VideoCapability, tuple[str, str]] | None:
-    """读 payload 里入队时锁定的视频执行身份（桶键 ``video_provider_<cap>``），连同命中的桶一并返回。
+    """读请求 payload 里显式的视频执行身份（桶键 ``video_provider_<cap>``），连同命中的桶一并返回。
 
-    值是 ``ProviderModel.pair_key`` 形态的复合值，写入方是 ``lib.generation_queue``。入队只为任务
-    所属的那一个桶写键，故 ``capability`` 未声明（resume 等不承诺桶的调用方）时按固定桶序扫两个
-    桶键——至多命中一个，桶序不产生歧义。
+    值是 ``ProviderModel.pair_key`` 形态的复合值。正常队列执行会先移除 enqueue payload
+    中的这类旧键，再按当前配置求值；已提交视频的 resume executor 则根据 immutable
+    checkpoint 构造恰好一个桶键，用它重建原 backend。``capability`` 未声明时按固定桶序
+    扫两个桶键——至多命中一个，桶序不产生歧义。
 
     provider 不可信（见 ``_trusted_payload_provider``）不在此丢弃：视频侧身份可用性由
     ``_ensure_video_identity_resolvable`` 收口，供应商已下线时该报错，回退等于换供应商执行。
@@ -412,7 +413,7 @@ def derive_voice_consistency(
 
     native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none。soft/none
     之分不看 ``generate_audio`` token 是否声明——该 token 语义是「开关可控」而非「有无音轨」，
-    恒有声但开关不可控的 provider 经 ``model_has_audio_track`` 单独识别为有音轨。
+    恒有声但开关不可控的型号经 ``model_has_audio_track`` 单独识别为有音轨。
     """
     if reference_audio_mode == "direct" and generation_mode == "reference_video":
         return "native"
@@ -763,7 +764,7 @@ class ConfigResolver:
     ) -> ProviderModel:
         """解析视频任务应使用的 ProviderModel。
 
-        payload 恒为最高优先级：入队时锁进能力桶键 ``video_provider_<cap>`` 的执行身份优先。
+        payload 恒为最高优先级：已写入能力桶键 ``video_provider_<cap>`` 的物化执行身份优先。
         其后按 ``capability`` 分两条路径（``docs/adr/0054``）：
 
         - ``capability`` 给定（``"i2v"`` / ``"r2v"``）：走四级骨架 项目桶（``video_provider_<cap>``）
@@ -771,7 +772,7 @@ class ConfigResolver:
           （``default_video_backend``）> 自动推断，空桶回退默认层。解析结果过能力闸：模型缺该桶
           所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
           ``VideoBucketCapabilityError``，不静默换模型。payload 命中时跳过能力闸——已入队任务
-          按 payload 照常执行，不回头补校验；但入队锁定的身份仍过身份可用性校验，悬空同样抛该异常。
+          按 payload 照常执行，不回头补校验；但已物化的身份仍过身份可用性校验，悬空同样抛该异常。
         - ``capability`` 为 None：同一骨架去掉桶层，项目默认（``video_backend``）> 全局默认
           （``default_video_backend``）> 自动推断，无能力闸；自定义 provider 的 model 不存在、
           已禁用或 endpoint 的 media_type 不是 video 时，收敛到该 provider 默认启用的 video
@@ -1124,7 +1125,7 @@ class ConfigResolver:
     ) -> ProviderModel:
         """payload 优先解析视频 ProviderModel；无 payload 时按 ``capability`` 走桶骨架或不定桶骨架。
 
-        payload 层只认入队时锁定的能力桶键（``video_provider_<cap>`` 复合值，见
+        payload 层只认已物化的能力桶键（``video_provider_<cap>`` 复合值，见
         ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
         （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信 provider——
         供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
@@ -1244,7 +1245,7 @@ class ConfigResolver:
         内置 provider 的 registry 身份已是有效身份；自定义 provider 需与 loader 共用同一规则：
         model 不存在、禁用或 endpoint 已改成其它 media_type 时，回退到默认启用 video model。
 
-        入队锁定的身份不走这条收敛（见 ``_resolve_video_provider_model``）：换 model 执行等于
+        已物化的身份不走这条收敛（见 ``_resolve_video_provider_model``）：换 model 执行等于
         静默换模型。
         """
         if not is_custom_provider(selected.provider_id):

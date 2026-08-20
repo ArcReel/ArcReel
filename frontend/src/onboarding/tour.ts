@@ -69,7 +69,7 @@ const OVERLAY_INK = "oklch(0.10 0.012 265)";
  * 等到就正常高亮，等不到就降级居中气泡。够跨页导航后目标组件挂载完，又不至于让用户
  * 对着空遮罩发呆。
  */
-export const ANCHOR_WAIT_MS = 1500;
+const ANCHOR_WAIT_MS = 1500;
 
 export function anchorSelector(anchor: OnboardingAnchor): string {
   return `[data-onboarding="${anchor}"]`;

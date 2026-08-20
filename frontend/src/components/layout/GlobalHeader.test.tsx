@@ -35,7 +35,12 @@ vi.mock("./ExportScopeDialog", () => ({
     onSelect: (scope: "current" | "full") => void;
     anchorRef: React.RefObject<HTMLElement | null>;
     episodes?: unknown[];
-    onJianyingExport?: (episode: number, draftPath: string, jianyingVersion: string) => void;
+    onJianyingExport?: (
+      episode: number,
+      draftPath: string,
+      jianyingVersion: string,
+      narrationDelivery: "post_production" | "use_tts",
+    ) => void;
     jianyingExporting?: boolean;
   }) =>
     open ? (
@@ -49,7 +54,7 @@ vi.mock("./ExportScopeDialog", () => ({
         {onJianyingExport && (
           <button
             data-testid="scope-jianying"
-            onClick={() => onJianyingExport(1, "/drafts", "6")}
+            onClick={() => onJianyingExport(1, "/drafts", "6", "post_production")}
           >
             剪映草稿
           </button>
@@ -184,7 +189,7 @@ describe("GlobalHeader", () => {
     expect(useAppStore.getState().toast?.text).toContain("包含 1 条诊断");
   });
 
-  it("ad 参考直出项目导出剪映草稿前提示 stale 单元且不拦截导出", async () => {
+  it("ad 参考路线导出不做旧签名预检", async () => {
     vi.spyOn(API, "getUsageStats").mockResolvedValue({
       total_cost: 0,
       image_count: 0,
@@ -197,7 +202,7 @@ describe("GlobalHeader", () => {
       expires_in: 300,
       diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
     });
-    const listUnits = vi.spyOn(API, "listAdReferenceUnits").mockResolvedValue({
+    const listUnits = vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [
         {
           unit_id: "E1U1",
@@ -213,7 +218,7 @@ describe("GlobalHeader", () => {
           generated_assets: { video_clip: "reference_videos/E1U2.mp4", status: "completed" },
         },
       ],
-    });
+    } as never);
     const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     useProjectsStore.setState({
@@ -237,16 +242,10 @@ describe("GlobalHeader", () => {
     await waitFor(() => {
       expect(anchorClick).toHaveBeenCalled();
     });
-    expect(listUnits).toHaveBeenCalledWith("ad-demo", 1);
-    // stale 提示进通知中心留痕（单一 toast 槽位随后被「导出已开始」顶掉）
-    expect(
-      useAppStore
-        .getState()
-        .workspaceNotifications.some((n) => n.text.includes("剧本已变更")),
-    ).toBe(true);
+    expect(listUnits).not.toHaveBeenCalled();
   });
 
-  it("ad 参考直出项目 stale 预检失败仍照常导出", async () => {
+  it("ad 参考路线导出不受 unit 查询故障影响", async () => {
     vi.spyOn(API, "getUsageStats").mockResolvedValue({
       total_cost: 0,
       image_count: 0,
@@ -259,7 +258,7 @@ describe("GlobalHeader", () => {
       expires_in: 300,
       diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
     });
-    vi.spyOn(API, "listAdReferenceUnits").mockRejectedValue(new Error("boom"));
+    vi.spyOn(API, "listReferenceVideoUnits").mockRejectedValue(new Error("boom"));
     const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     useProjectsStore.setState({
@@ -299,7 +298,7 @@ describe("GlobalHeader", () => {
       expires_in: 300,
       diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
     });
-    const listUnits = vi.spyOn(API, "listAdReferenceUnits");
+    const listUnits = vi.spyOn(API, "listReferenceVideoUnits");
     const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     useProjectsStore.setState({
@@ -339,7 +338,7 @@ describe("GlobalHeader", () => {
       expires_in: 300,
       diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
     });
-    const listUnits = vi.spyOn(API, "listAdReferenceUnits");
+    const listUnits = vi.spyOn(API, "listReferenceVideoUnits");
     const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     useProjectsStore.setState({

@@ -193,6 +193,14 @@ class TestListProviders:
         assert models["veo-3.1-fast-generate-preview"]["has_audio_track"] is True
 
     @pytest.mark.unit
+    def test_always_audible_exception_reports_switch_not_controllable(self):
+        """恒有声但请求参数控制不了开关：audio_switch_controllable 须为 False，设置页据此置灰音频开关。"""
+        with _make_client(self._mock_svc_with_models()) as client:
+            resp = client.get("/api/v1/providers")
+        models = resp.json()["providers"][0]["models"]
+        assert models["veo-3.1-fast-generate-preview"]["audio_switch_controllable"] is False
+
+    @pytest.mark.unit
     def test_non_video_model_has_audio_track_false(self):
         """image model 的 has_audio_track 恒 False（音轨判定对非视频 model 无意义）。"""
         with _make_client(self._mock_svc_with_models()) as client:
@@ -391,7 +399,7 @@ class TestGetProviderConfig:
             ("openai", True),
             ("vidu", True),
             ("dashscope", True),
-            ("ark", False),
+            ("ark", True),
             ("grok", False),
             ("gemini-vertex", False),
         ],

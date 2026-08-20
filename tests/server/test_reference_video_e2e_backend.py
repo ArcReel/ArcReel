@@ -14,8 +14,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifact_manifest import (
+    ArtifactKey,
+    ProjectArtifactManifestAdapter,
+)
+from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import fake_reference_request_projector
 
 pytestmark = pytest.mark.unit
 
@@ -41,6 +48,7 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
     (proj_dir / "project.json").write_text(
         json.dumps(
             {
+                "schema_version": 7,
                 "title": "T",
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
@@ -71,14 +79,29 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
         encoding="utf-8",
     )
 
+    # 剧本的取证链（分集原文 → step1）齐备，补录才登记得出剧本这条产物。
+    (proj_dir / "source").mkdir()
+    (proj_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
+    (proj_dir / "drafts" / "episode_1").mkdir(parents=True)
+    (proj_dir / "drafts" / "episode_1" / "step1_reference_units.json").write_text(
+        json.dumps({"episode": 1, "units": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    migrate_v7_to_v8(proj_dir)
+    migrate_v8_to_v9(proj_dir)
+    assert ProjectArtifactManifestAdapter(proj_dir).get_entry(ArtifactKey.episode_script(1)) is not None
+
     from lib.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
     custom_pm = ProjectManager(projects_root)
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
-    # 视频桶预检需要 DB（system_settings）；本用例无 DB，能力闸行为由
-    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
-    monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
+    # 保留真实资产水合、定桶与时长投影，只隔离本用例不关心的 DB 能力查询。
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(4,)),
+    )
 
     from server.services import generation_tasks as gt_mod
     from server.services import reference_video_tasks as rvt_mod
@@ -101,13 +124,7 @@ async def test_end_to_end_generate_unit_to_executor(
     # 1) 建 unit
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={
-            "prompt": "Shot 1 (3s): @张三 推门进 @酒馆",
-            "references": [
-                {"type": "character", "name": "张三"},
-                {"type": "scene", "name": "酒馆"},
-            ],
-        },
+        json={"prompt": "Shot 1 (3s): @张三 推门进 @酒馆", "duration_seconds": 4},
     )
     assert resp.status_code == 201, resp.text
     uid = resp.json()["unit"]["unit_id"]
@@ -153,9 +170,10 @@ async def test_end_to_end_generate_unit_to_executor(
             backend_model="doubao-seedance-2-0-260128",
             resolution=None,
             resolution_or_fallback="1080p",
-            supported_durations=(),
-            max_duration=None,
+            supported_durations=(4,),
+            max_duration=4,
             max_reference_images=None,
+            generate_audio=True,
         ),
     )
 

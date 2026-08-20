@@ -3,6 +3,7 @@ import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GenerationRouteCards } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
+import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { GenerationRoute } from "@/utils/generation-mode";
@@ -13,16 +14,18 @@ export interface WizardStep1Value {
   /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
   sourceKind: "novel" | "screenplay";
   aspectRatio: "9:16" | "16:9";
-  /** 生成路线，创建时锁定。null = 未选：必选，未选不放行。 */
+  /** 生成模式，创建时锁定。null = 未选：必选，未选不放行。 */
   generationRoute: GenerationRoute | null;
-  /** 分镜板（宫格）装配开关，随创建写入；仅分镜路线有意义，ad 不支持。 */
+  /** 多宫格分镜装配开关，随创建写入；仅分镜图生视频模式有意义，ad 不支持。 */
   gridStoryboard: boolean;
   /** 仅 ad：目标总时长（秒）。UI 四档 15/30/60/90，默认 60。 */
   targetDuration: number;
+  /** 口播语速估算（阅读单位 / 秒）；null = 未填，按项目语言的默认速度估算。 */
+  speechRate: number | null;
 }
 
 /** 广告/短片目标总时长的 UI 档位（数据层不硬枚举，任意正整数秒合法）。 */
-export const AD_TARGET_DURATION_TIERS = [15, 30, 60, 90] as const;
+const AD_TARGET_DURATION_TIERS = [15, 30, 60, 90] as const;
 
 export interface WizardStep1BasicsProps {
   value: WizardStep1Value;
@@ -53,8 +56,10 @@ export function WizardStep1Basics({
       setTitleError(t("dashboard:project_title_required"));
       return;
     }
-    // 路线必选：无预选、未选不放行
+    // 生成模式必选：无预选、未选不放行
     if (!value.generationRoute) return;
+    // 口播语速越界不放行（区间与后端同一把尺）；未填合法
+    if (!isValidSpeechRate(value.speechRate)) return;
     onNext();
   };
 
@@ -125,7 +130,7 @@ export function WizardStep1Basics({
               value="ad"
               checked={value.contentMode === "ad"}
               onChange={() =>
-                // ad 不支持分镜板（宫格）：切到 ad 时清掉已勾选的装配开关
+                // ad 不支持多宫格分镜：切到 ad 时清掉已勾选的装配开关
                 onChange({ ...value, contentMode: "ad", gridStoryboard: false })
               }
               className="sr-only"
@@ -217,6 +222,12 @@ export function WizardStep1Basics({
         </div>
       )}
 
+      {/* 口播语速估算：项目还没有语言事实（source_language 由内容分析写入），单位按未知语言呈现 */}
+      <SpeechRateField
+        value={value.speechRate}
+        onChange={(next) => onChange({ ...value, speechRate: next })}
+      />
+
       {/* Aspect Ratio */}
       <div>
         <FieldLabel>{t("dashboard:aspect_ratio")}</FieldLabel>
@@ -273,7 +284,7 @@ export function WizardStep1Basics({
           onChange({
             ...value,
             generationRoute: next,
-            // 宫格是分镜路线内的装配选项：切到参考路线即清空
+            // 宫格是分镜图生视频模式内的装配选项：切到参考生视频模式即清空
             gridStoryboard: next === "storyboard" ? value.gridStoryboard : false,
           })
         }

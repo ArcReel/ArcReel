@@ -98,7 +98,7 @@ export default {
   bucket_i2i_label: "Image to image",
   bucket_i2i_caption: "Covers image generation with a reference image, and image editing.",
   bucket_i2v_label: "Image to video",
-  bucket_i2v_caption: "Covers video generated from storyboard or grid frames.",
+  bucket_i2v_caption: "Covers video generated from storyboard or multi-grid storyboard frames.",
   bucket_r2v_label: "Reference to video",
   bucket_r2v_caption: "Covers the reference-to-video path, including shots in it that have no reference image.",
   text_tier_default_label: "Default model",

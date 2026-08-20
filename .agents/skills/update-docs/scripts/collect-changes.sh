@@ -3,28 +3,72 @@
 # 输出供 SKILL.md 的 LLM 步骤消费（agent-facing，无需 i18n）。
 set -eu
 
-# 引擎 A 覆盖文档：高频、主题宽，参与 baseline 计算。
-ENGINE_A_DOCS=(
+# 非 Docusaurus 根目录文档保留少量枚举；website/docs 的归属由各页 frontmatter 派生。
+ENGINE_A_ROOT_DOCS=(
   "README.md"
-  "docs/getting-started.md"
 )
 
 # README 翻译对：英文版是中文版的镜像，不独立进引擎，改完后由主 agent 全文核对一致性。
 README_SOURCE="README.md"
 README_MIRROR="README.en.md"
 
-# 仅引擎 B 覆盖文档：低频、主题窄，不参与 baseline。
-ENGINE_B_ONLY_DOCS=(
-  "docs/deployment.md"
-  "docs/known-issues.md"
-  "docs/jianying-export-guide.md"
+# 非 Docusaurus 根目录中仅引擎 B 覆盖的文档。
+ENGINE_B_ONLY_ROOT_DOCS=(
   "CONTRIBUTING.md"
 )
 
 cd "$(git rev-parse --show-toplevel)"
 
+ENGINE_A_DOCS=("${ENGINE_A_ROOT_DOCS[@]}")
+ENGINE_B_ONLY_DOCS=("${ENGINE_B_ONLY_ROOT_DOCS[@]}")
+inventory="$(node website/scripts/update-docs-inventory.mjs --root "$PWD" --format tsv)"
+while IFS=$'\t' read -r ownership doc; do
+  [ -n "${doc}" ] || continue
+  case "${ownership}" in
+    engine-a) ENGINE_A_DOCS+=("${doc}") ;;
+    engine-b) ENGINE_B_ONLY_DOCS+=("${doc}") ;;
+    none) ;;
+    # 归属取值的真相源在 update-docs-inventory.mjs；新增取值而漏改这里时报错，不静默漏覆盖。
+    *)
+      echo "collect-changes: ${doc} 的归属「${ownership}」本脚本不认识，需同步 case 分支" >&2
+      exit 1
+      ;;
+  esac
+done <<< "${inventory}"
+
 # baseline：引擎 A 文档中最近一次提交时间的最早者。
 # 用 git 提交时间而非文件系统 mtime，后者在 fresh clone 后会失真。
+
+# 文档的新鲜度点：最近一次改动过正文的提交。只改 update_docs 归属声明的提交要跳过——
+# 归属迁移与日后的归属重划都是纯元数据编辑，算作新鲜会把 baseline 推到该次编辑，
+# 使编辑之前那段区间的能力变更永远不再进入引擎 A 扫描。
+content_freshness() {
+  local target="$1" history changes ts cs sha
+  # 显式判退出码，不靠 set -e：函数在命令替换里被调用时 set -e 不生效，
+  # 对象库不完整导致的 git log 失败会伪装成「该文档没有历史」，把它从 baseline 里悄悄摘掉。
+  if ! history="$(git log --format='%ct %cs %H' -- "${target}")"; then
+    echo "collect-changes: 读不到 ${target} 的提交历史，无法定新鲜度点" >&2
+    return 1
+  fi
+  while read -r ts cs sha; do
+    [ -n "${sha}" ] || continue
+    # 归属声明与其所在的 frontmatter 分隔符都不算正文：页面原本没有 frontmatter 时，
+    # 补声明的提交新增的是整块 `---` / `update_docs` / `---`。
+    # 同样显式判退出码：git show 读不到历史 blob 时管道里只会表现为「没有正文改动行」，
+    # 与元数据提交无从区分，该文档会被跳过甚至整个摘出 baseline。
+    if ! changes="$(git show --format= -U0 "${sha}" -- "${target}")"; then
+      echo "collect-changes: 读不到 ${target} 在 ${sha} 的改动，无法判定是否正文刷新" >&2
+      return 1
+    fi
+    if printf '%s\n' "${changes}" |
+      grep -E '^[+-]' | grep -qvE '^(\+\+\+ |--- |[+-](---$|update_docs:))'; then
+      echo "${ts} ${cs} ${sha}"
+      return 0
+    fi
+  done <<< "${history}"
+  return 0
+}
+
 baseline_ts=""
 baseline_sha=""
 baseline_cs=""
@@ -36,10 +80,12 @@ for doc in "${ENGINE_A_DOCS[@]}"; do
     echo "- (缺失) ${doc}"
     continue
   fi
-  # 一次取全该文档最近一次提交的时间戳、短日期、完整 sha，避免对同一文档多次 git log。
-  read -r ts cs sha < <(git log -1 --format='%ct %cs %H' -- "${doc}" 2>/dev/null) || true
+  if ! freshness="$(content_freshness "${doc}")"; then
+    exit 1
+  fi
+  read -r ts cs sha <<< "${freshness}" || true
   if [ -z "${ts}" ]; then
-    echo "- (无 git 历史) ${doc}"
+    echo "- (无正文改动历史) ${doc}"
     continue
   fi
   echo "- ${doc} 最近改动 ${cs}"

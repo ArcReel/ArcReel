@@ -2,7 +2,7 @@
 
 走原生 multimodal-generation/generation 同步端点，T2I 与 I2I 共用同一请求体，
 只差 content 是否含 image 元素。覆盖 qwen-image-2.0 融合系列、qwen-image-edit
-编辑系列与 wan2.7-image 系列。schema 依据 docs/dashscope-docs/ 一手核实快照。
+编辑系列与 wan2.7-image 系列。schema 依据 docs/api-docs/providers/dashscope.md 所列一手官方文档。
 """
 
 from __future__ import annotations

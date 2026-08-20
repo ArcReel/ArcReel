@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -14,6 +14,7 @@ from typing import Protocol
 import httpx
 from sqlalchemy.exc import InterfaceError, OperationalError
 
+from lib.data_uri import file_to_data_uri
 from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
@@ -40,21 +41,29 @@ _PERSIST_BACKOFF_SECONDS: tuple[int, ...] = (1, 2, 4)
     backoff_seconds=_PERSIST_BACKOFF_SECONDS,
     retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS),
 )
-async def _persist_with_retry(task_id: str, job_id: str, endpoint: str | None) -> None:
+async def _persist_with_retry(task_id: str, job_id: str, endpoint: str | None, base_url: str | None) -> None:
     from lib.generation_queue import get_generation_queue
 
-    await get_generation_queue().persist_provider_job_id(task_id, job_id, endpoint=endpoint)
+    await get_generation_queue().persist_provider_job_id(task_id, job_id, endpoint=endpoint, base_url=base_url)
 
 
-async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str, endpoint: str | None = None) -> None:
+async def persist_provider_job_id(
+    task_id: str,
+    job_id: str,
+    *,
+    provider: str,
+    endpoint: str | None = None,
+    base_url: str | None = None,
+) -> None:
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
-    Caller 显式传 task_id；``endpoint`` 仅自定义供应商有值（内置供应商无 endpoint 维度），
-    与 job_id 同一次写入落地，供续跑判定协议是否已被换掉。DB 瞬态错误最多重试 3 次，业务
-    异常立即抛。重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
+    Caller 显式传 task_id；``endpoint`` 是协议标识（协议维度，只有自定义供应商有，记录本笔供应商
+    任务按哪套协议提交），``base_url`` 是本次实际请求的域名（连接维度，两类供应商通用，续跑据此
+    回放原域名轮询）。两者与 job_id 同一次写入落地。DB 瞬态错误最多重试 3 次，业务异常立即抛。
+    重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
     """
     try:
-        await _persist_with_retry(task_id, job_id, endpoint)
+        await _persist_with_retry(task_id, job_id, endpoint, base_url)
         logger.info("provider_job_id 已持久化 task_id=%s provider=%s job_id=%s", task_id, provider, job_id)
     except Exception as exc:
         logger.error(
@@ -80,16 +89,33 @@ class ProviderJobIdPersistenceMixin:
     （``gemini``）不同，自动取 name 会改写持久化日志的 provider 字段。
     """
 
-    async def _persist_provider_job_id(self, request: VideoGenerationRequest, job_id: str, *, provider: str) -> None:
+    async def _persist_provider_job_id(
+        self,
+        request: VideoGenerationRequest,
+        job_id: str,
+        *,
+        provider: str,
+        endpoint: str | None = None,
+    ) -> None:
         """submit 成功后立即调：worker 路径写回 job_id，非 worker 路径（task_id=None）跳过。
 
-        同时写回 ``request.execution_endpoint``——自定义供应商的包装层在转发前注入本次执行所用
-        的 endpoint，内置供应商恒 None。持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id``
-        内重试 3 次），由 worker finally 兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
+        同时按维度分列写回本次提交所用的端点信息：协议标识取 ``request.execution_endpoint``（由
+        自定义供应商的包装层在转发前注入，内置供应商无此维度、恒 None），实际请求域名取参数
+        ``endpoint``（由提交域名随用户配置变化的 backend 传入，只有 dashscope 协议这一条线）。
+        两类供应商共用同一套写法，域名一律落 ``submitted_base_url``。持久化失败抛出（DB 瞬态错误
+        已在 ``persist_provider_job_id`` 内重试 3 次），由 worker finally 兜底 mark_failed ——
+        保持现有 fail-fast 语义（ADR 0007）。
         """
-        if request.task_id is None:
-            return
-        await persist_provider_job_id(request.task_id, job_id, provider=provider, endpoint=request.execution_endpoint)
+        if request.task_id is not None:
+            await persist_provider_job_id(
+                request.task_id,
+                job_id,
+                provider=provider,
+                endpoint=request.execution_endpoint,
+                base_url=endpoint,
+            )
+        if request.on_provider_resubmit_unsafe is not None:
+            request.on_provider_resubmit_unsafe()
 
 
 @with_retry_async(
@@ -308,6 +334,124 @@ async def submit_post(
     return resp
 
 
+class ProviderJobStatus(StrEnum):
+    """供应商异步任务状态的 canonical 分档。
+
+    ``EXPIRED`` 独立于 ``FAILED``：OpenAI / NewAPI 两条链路据其按 generate / resume 上下文
+    分流抛 ``RuntimeError`` / ``ResumeExpiredError``，后者驱动 worker 的 ``[resume_expired]``
+    前缀与「不再尝试重启自愈」判定。折进 failed 会静默吃掉这条分流。没有过期语义的端点
+    （如流派 C ``/v2/video/generations``）在本分档之上自行折叠。
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    EXPIRED = "expired"
+
+
+TERMINAL_PROVIDER_STATUSES: frozenset[ProviderJobStatus] = frozenset(
+    {ProviderJobStatus.SUCCEEDED, ProviderJobStatus.FAILED, ProviderJobStatus.EXPIRED}
+)
+
+# 跨厂商状态同义词表（lowercase + strip 后查表）。OpenAI 兼容代理网关转发非原生型号时会把
+# 底层厂商的状态串原样透传，各后端若只认自家文档里的字面量，已就绪的任务会被当成"仍在跑"
+# 一路轮询到 max_wait —— 用户侧报超时失败，供应商侧成品已生成且已计费。
+_PROVIDER_STATUS_SYNONYMS: dict[str, ProviderJobStatus] = {
+    "completed": ProviderJobStatus.SUCCEEDED,
+    "succeeded": ProviderJobStatus.SUCCEEDED,
+    "succeed": ProviderJobStatus.SUCCEEDED,
+    "success": ProviderJobStatus.SUCCEEDED,
+    "failed": ProviderJobStatus.FAILED,
+    "fail": ProviderJobStatus.FAILED,
+    "error": ProviderJobStatus.FAILED,
+    "canceled": ProviderJobStatus.FAILED,
+    "cancelled": ProviderJobStatus.FAILED,
+    "expired": ProviderJobStatus.EXPIRED,
+    "generating": ProviderJobStatus.RUNNING,
+    "in_progress": ProviderJobStatus.RUNNING,
+    "running": ProviderJobStatus.RUNNING,
+    "processing": ProviderJobStatus.RUNNING,
+    "queued": ProviderJobStatus.QUEUED,
+    "queueing": ProviderJobStatus.QUEUED,
+    "preparing": ProviderJobStatus.QUEUED,
+    "submitted": ProviderJobStatus.QUEUED,
+    "pending": ProviderJobStatus.QUEUED,
+    "created": ProviderJobStatus.QUEUED,
+}
+
+
+def normalize_provider_status(raw: object) -> ProviderJobStatus:
+    """任意供应商状态值 → canonical 分档（大小写与首尾空白无关）。
+
+    未登记的状态串一律当 ``RUNNING`` 继续轮询：把未知串判成终态，会让返回非标进行中状态
+    （如 ``NOT_START``）的网关触发"下载未就绪任务"。非字符串（缺字段 / None）同理。
+    """
+    if not isinstance(raw, str):
+        return ProviderJobStatus.RUNNING
+    return _PROVIDER_STATUS_SYNONYMS.get(raw.strip().lower(), ProviderJobStatus.RUNNING)
+
+
+def _dig(payload: object, path: tuple[str | int, ...]) -> object | None:
+    """按 path 逐层走 dict key / list 下标（int 段表 list 下标），任一层缺失返回 None。"""
+    cur: object = payload
+    for seg in path:
+        if isinstance(seg, int):
+            if not isinstance(cur, list) or seg >= len(cur):
+                return None
+            cur = cur[seg]
+        else:
+            if not isinstance(cur, dict) or seg not in cur:
+                return None
+            cur = cur[seg]
+    return cur
+
+
+def first_str_by_paths(payload: object, paths: tuple[tuple[str | int, ...], ...]) -> str | None:
+    """按优先级逐个试取第一个非空字符串值（int 容忍并 str 化）。
+
+    各家回包结构不一致时，用一张按优先级排序的路径表容错取值，而不是为每种形状写一条分支。
+    """
+    for path in paths:
+        val = _dig(payload, path)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        if isinstance(val, int) and not isinstance(val, bool):
+            return str(val)
+    return None
+
+
+def first_mapping_by_paths(payload: object, paths: tuple[tuple[str | int, ...], ...]) -> dict | None:
+    """按优先级逐个试取第一个 dict 值；取不到返回 None。
+
+    同 ``first_str_by_paths``，用于回包里成组的子结构（如 metadata）——形状随部署变化时
+    与状态、视频地址走同一张优先级表，不各写一套形状分支。
+    """
+    for path in paths:
+        val = _dig(payload, path)
+        if isinstance(val, dict):
+            return val
+    return None
+
+
+# 错误描述的常见落点：扁平 error 与包装体内的 data.error。
+_ERROR_PATHS: tuple[tuple[str | int, ...], ...] = (("error",), ("data", "error"))
+
+
+def extract_provider_error_message(state: object) -> str:
+    """从回包里尽力取供应商错误描述（dict 取 message/name，或直接是字符串）；取不到返回 unknown。"""
+    for path in _ERROR_PATHS:
+        err = _dig(state, path)
+        if isinstance(err, dict):
+            # 两个字段各自判定：message 为空白或非字符串时仍要落到 name，别把回退一并跳过。
+            for value in (err.get("message"), err.get("name")):
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        elif isinstance(err, str) and err.strip():
+            return err.strip()
+    return "unknown"
+
+
 async def poll_with_retry[T](
     *,
     poll_fn: Callable[[], Awaitable[T]],
@@ -371,7 +515,7 @@ async def download_video(url: str, output_path: Path, *, timeout: int = 120) -> 
                 await resp.aread()
             resp.raise_for_status()
             # 异步流式读取所有 chunk，然后一次 to_thread 完成整段写入，
-            # 避免对每个 64KB 分片调度一次线程池任务（评审反馈 #279）。
+            # 避免对每个 64KB 分片调度一次线程池任务。
             chunks: list[bytes] = []
             async for chunk in resp.aiter_bytes(chunk_size=65536):
                 chunks.append(chunk)
@@ -396,6 +540,30 @@ class VideoCapabilityError(RuntimeError):
         self.code = code
         self.params = params
         super().__init__(code)
+
+
+def reference_audio_to_data_uri(path: Path, *, model: str, mime_types: Mapping[str, str]) -> str:
+    """参考音频 → base64 data URI；格式不受支持或文件不可读一律抛错。
+
+    音频不能像参考图那样「缺失即跳过」：prompt 里的「音频N」按 content 数组中音频条目的
+    出现顺序编号，跳过一段会让其后所有编号整体前移，把某个角色的音色安到另一个角色头上
+    ——错得无声无息，且照常扣费。
+
+    ``mime_types`` 由各 backend 传入：同一个扩展名各家接受的 MIME 写法不一致（mp3 有
+    ``audio/mp3`` 与 ``audio/mpeg`` 两种口径），合表会让其中一家收到没验证过的 MIME。
+    """
+    mime = mime_types.get(path.suffix.lower())
+    if mime is None:
+        raise VideoCapabilityError(
+            "video_reference_audio_format_unsupported",
+            model=model,
+            name=path.name,
+            supported=", ".join(sorted(mime_types)),
+        )
+    try:
+        return file_to_data_uri(path, mime)
+    except OSError as exc:
+        raise VideoCapabilityError("video_reference_audio_unreadable", model=model, names=path.name) from exc
 
 
 class ReferenceAudioMode(StrEnum):
@@ -445,6 +613,21 @@ class VideoCapabilities:
     为字符数（中英文同权），与各家文档一致。超限的典型失败模式是静默截断而非报错：供应商照常
     扣费、成片与意图不符、用户无从知情，正是 :func:`lib.video_frame_slots.gate_video_request`
     要在付费前堵住的降级。
+
+    ``first_frame_ratio_adaptive_only``：该模型的首帧（image-to-video）任务是否只接受
+    "adaptive" 比例。声明为 True 时，:func:`lib.video_frame_slots.resolve_first_frame_aspect_ratio`
+    把带首帧的生成请求的 ``VideoGenerationRequest.aspect_ratio`` 改写为字面量 ``"adaptive"``；
+    不带首帧的请求（纯文生 / 仅参考图）与续接已发起 job 的 resume 路径不受影响。该字面量是供应商
+    侧的取值，只对认得它的 backend 有意义，故本位只由这类 backend 声明——别处（如
+    :func:`lib.aspect_size.parse_aspect_ratio`）解析不了它，会按非法值回退默认比例。
+
+    「首帧在场时用户比例不适用」这一情形另有 backend 各自的表达方式：dashscope 与 vidu 在
+    payload 组装期直接不下发 ratio（上游忽略或拒收）。三者形状相近而取值策略不同（省略 vs 改写
+    为 adaptive），未收敛到同一开关；本位表达的是"改写为 adaptive"这一支。
+
+    用户的比例意图仍完整作用于分镜图生成——首帧图本就按该比例生成，"跟随首帧"与用户所选比例
+    等价；改写只影响视频请求实际下发的值，不改调用方持有的原始 ``aspect_ratio``（记账、版本
+    元数据沿用后者）。
     """
 
     first_frame: bool = True
@@ -455,6 +638,7 @@ class VideoCapabilities:
     max_reference_audio_total_seconds: float | None = None
     reference_audio_per_image: bool = False
     max_prompt_chars: int | None = None
+    first_frame_ratio_adaptive_only: bool = False
 
 
 @dataclass
@@ -489,9 +673,20 @@ class VideoGenerationRequest:
     # 非 worker 路径（grid / 直生 / 测试）保持 None，统一点据此跳过持久化。
     task_id: str | None = None
 
-    # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的 endpoint，
-    # 与 job_id 一并持久化供续跑比对。内置供应商无 endpoint 维度，保持 None。
+    # MediaGenerator uses this one-way signal to close its compression-retry window. Resumable backends signal
+    # after the provider job handle is durable; an opaque submit-and-wait backend must signal before entering a
+    # call whose failure cannot prove that the provider rejected the request before accepting a paid job.
+    on_provider_resubmit_unsafe: Callable[[], None] | None = None
+
+    # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的协议标识，与 job_id
+    # 一并持久化到 `tasks.provider_endpoint`，记录本笔供应商任务的协议归属。内置供应商无此维度，
+    # 保持 None。续跑比对协议读的是 checkpoint 的 endpoint_guard，不读该列。
     execution_endpoint: str | None = None
+
+    # 续跑路径专用：提交本 job 时实际使用的请求域名，由 resume_executor 从 `tasks.submitted_base_url` 回放。
+    # backend 轮询时优先用它而非当下配置解析出的域名——域名是连接维度而非协议维度，
+    # 用户在途改配置后按新域名轮旧 job 会查无（404）而被误判成过期。提交路径恒 None。
+    submitted_base_url: str | None = None
 
     # Seedance 特有
     service_tier: str = "default"

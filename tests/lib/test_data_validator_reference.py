@@ -26,14 +26,7 @@ def _valid_reference_script(episode: int = 1) -> dict:
         "video_units": [
             {
                 "unit_id": f"E{episode}U1",
-                "shots": [
-                    {"text": "Shot 1 (3s): @张三 推门"},
-                    {"text": "Shot 2 (5s): @酒馆 全景"},
-                ],
-                "references": [
-                    {"type": "character", "name": "张三"},
-                    {"type": "scene", "name": "酒馆"},
-                ],
+                "text": "@[张三] 推门\n@[酒馆] 全景",
                 "duration_seconds": 8,
                 "transition_to_next": "cut",
                 "note": None,
@@ -89,8 +82,7 @@ def test_validator_accepts_nfc_reference_for_nfd_registered_character(tmp_path: 
     project = _reference_project(with_assets=False)
     project["characters"][name_nfd] = {"description": "x"}
     script = _valid_reference_script()
-    script["video_units"][0]["shots"] = [{"text": f"Shot 1 (3s): @{name_nfc} 推门"}]
-    script["video_units"][0]["references"] = [{"type": "character", "name": name_nfc}]
+    script["video_units"][0]["text"] = f"@[{name_nfc}] 推门"
 
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
@@ -101,15 +93,15 @@ def test_validator_accepts_nfc_reference_for_nfd_registered_character(tmp_path: 
 
 
 @pytest.mark.unit
-def test_validator_rejects_unknown_mention(tmp_path: Path):
+def test_validator_accepts_unregistered_mention(tmp_path: Path):
+    """未登记的 `@[名称]` 不是结构错误：参考图执行期派生，未解析的提及只在渲染侧警告。"""
+
     _write(tmp_path, "project.json", _reference_project(with_assets=False))
     _write(tmp_path, "scripts/episode_1.json", _valid_reference_script())
 
     v = DataValidator()
     result = v.validate_project_tree(tmp_path)
-    assert not result.valid
-    assert any("张三" in e for e in result.errors)
-    assert any("酒馆" in e for e in result.errors)
+    assert result.valid, result.errors
 
 
 @pytest.mark.unit
@@ -126,17 +118,17 @@ def test_validator_allows_reference_videos_dir(tmp_path: Path):
 
 
 @pytest.mark.unit
-def test_validator_rejects_non_string_reference_name(tmp_path: Path):
-    project = _reference_project(with_assets=False)
+def test_validator_rejects_non_string_unit_text(tmp_path: Path):
+    project = _reference_project()
     script = _valid_reference_script()
-    script["video_units"][0]["references"] = [{"type": "character", "name": {"bad": "dict"}}]
+    script["video_units"][0]["text"] = {"bad": "dict"}
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
 
     v = DataValidator()
     result = v.validate_project_tree(tmp_path)
     assert not result.valid
-    assert any("reference.name 必须是非空字符串" in e for e in result.errors)
+    assert any("text 必须是字符串" in e for e in result.errors)
 
 
 @pytest.mark.unit
@@ -172,24 +164,9 @@ def test_validator_rejects_duplicate_reference_video_unit_ids(tmp_path: Path):
 def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
     project = _reference_project()
     project.update({"content_mode": "ad", "target_duration": 10})
-    script = {
-        "episode": 1,
-        "title": "Ad",
-        "content_mode": "ad",
-        "shots": [
-            {
-                "shot_id": "E1S1",
-                "duration_seconds": 10,
-                "voiceover_text": "",
-                "image_prompt": "image",
-                "video_prompt": "video",
-            }
-        ],
-        "reference_units": [
-            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "references": []},
-            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "references": []},
-        ],
-    }
+    script = _valid_reference_script()
+    script.update({"title": "Ad", "content_mode": "ad"})
+    script["video_units"].append({**script["video_units"][0]})
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
 

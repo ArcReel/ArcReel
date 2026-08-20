@@ -110,6 +110,8 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "provider_id": row.provider_id,
         "provider_job_id": row.provider_job_id,
         "provider_endpoint": row.provider_endpoint,
+        "submitted_base_url": row.submitted_base_url,
+        "execution_checkpoint_json": row.execution_checkpoint_json,
         "queued_at": dt_to_iso(row.queued_at),
         "started_at": dt_to_iso(row.started_at),
         "finished_at": dt_to_iso(row.finished_at),
@@ -121,7 +123,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
 class TaskRepository(BaseRepository):
     def __init__(self, session: AsyncSession):
         super().__init__(session)
-        # 本次会话内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
+        # 该 session 内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
         # 在此收集而非各终态方法各自记账：所有终态迁移（含级联失败/级联取消、批量取消
         # 队列）都经 _record_terminal_event 收口，一处挂钩即全覆盖。
         self.terminal_events: list[dict[str, Any]] = []
@@ -206,11 +208,15 @@ class TaskRepository(BaseRepository):
             )
             existing = result.scalar_one_or_none()
             if existing:
+                # Queue-layer semantic dedupe needs the active request payload from the row that
+                # won the unique-index race. The wrapper consumes this private field before
+                # returning its public enqueue result.
                 return {
                     "task_id": existing.task_id,
                     "status": existing.status,
                     "deduped": True,
                     "existing_task_id": existing.task_id,
+                    "_existing_payload": _json_loads(existing.payload_json, {}),
                 }
             raise
 
@@ -262,6 +268,7 @@ class TaskRepository(BaseRepository):
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
+        exclude_task_ids: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
         """领取下一个 queued 任务。
 
@@ -282,8 +289,17 @@ class TaskRepository(BaseRepository):
         provider_filter = ""
         if pool_full_providers:
             # SQLite/PG 都支持 expanding bindparam：list 形式 + NOT IN (:providers)
-            provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
+            # reference_video 的 provider_id 只是入队时投影；项目配置可能已改变，必须先
+            # claim 并按当前 unit 重投影，不能让过期列值在 SQL 层永久挡住任务。
+            provider_filter = (
+                "AND (tasks.task_type = 'reference_video' "
+                "OR tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
+            )
             params["providers"] = tuple(pool_full_providers)
+        task_filter = ""
+        if exclude_task_ids:
+            task_filter = "AND tasks.task_id NOT IN :excluded_task_ids"
+            params["excluded_task_ids"] = tuple(exclude_task_ids)
 
         # Use raw SQL for the dependency join (clearer than ORM for self-join)
         raw_stmt = text(f"""
@@ -294,6 +310,7 @@ class TaskRepository(BaseRepository):
             WHERE tasks.status = 'queued'
               AND tasks.media_type = :media_type
               {provider_filter}
+              {task_filter}
               AND (
                 tasks.dependency_task_id IS NULL
                 OR dependency.status = 'succeeded'
@@ -303,6 +320,8 @@ class TaskRepository(BaseRepository):
         """)
         if "providers" in params:
             raw_stmt = raw_stmt.bindparams(sa_bindparam("providers", expanding=True))
+        if "excluded_task_ids" in params:
+            raw_stmt = raw_stmt.bindparams(sa_bindparam("excluded_task_ids", expanding=True))
 
         result = await self.session.execute(raw_stmt, params)
         row = result.first()
@@ -701,12 +720,21 @@ class TaskRepository(BaseRepository):
                 skipped_terminal=skipped_terminal,
             )
 
-    async def persist_provider_job_id(self, task_id: str, job_id: str, *, endpoint: str | None = None) -> None:
+    async def persist_provider_job_id(
+        self,
+        task_id: str,
+        job_id: str,
+        *,
+        endpoint: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
         """单独事务持久化 provider_job_id；不带 WHERE 状态守卫（worker 内调用，确定是 running）。
 
-        ``endpoint`` 是自定义供应商提交本 job 时模型行的 endpoint（内置供应商传 None）。与
-        job_id 同一次 UPDATE 落地：两者必须同时可见，否则续跑会拿到 job_id 却判不出协议是否
-        已被换掉。None 时不写该列——保留既有值比清空更安全（清空等于放弃比对）。
+        端点信息按维度分列：``endpoint`` 是协议标识（只有自定义供应商有），落 ``provider_endpoint``；
+        ``base_url`` 是本次实际请求的域名（两类供应商通用），落 ``submitted_base_url``。两者都与
+        job_id 同一次 UPDATE 落地：域名必须与 job_id 同时可见，否则续跑拿到 job_id 却无从回放原
+        域名；协议标识同批落地，这笔供应商任务的协议归属才可查。None 时不写对应列——保留既有值比
+        清空更安全（清空等于丢掉协议归属 / 放弃回放）。
 
         失败抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast：未持久化的
         submit 视为整笔失败，避免「幽灵任务」继续在 provider 端跑而 DB 已忘）。
@@ -715,21 +743,48 @@ class TaskRepository(BaseRepository):
         values: dict[str, Any] = {"provider_job_id": job_id, "updated_at": now}
         if endpoint is not None:
             values["provider_endpoint"] = endpoint
+        if base_url is not None:
+            values["submitted_base_url"] = base_url
         await self.session.execute(update(Task).where(Task.task_id == task_id).values(**values))
+        await self.session.commit()
+
+    async def persist_execution_checkpoint(self, task_id: str, checkpoint_json: str, provider_id: str) -> None:
+        """Persist the once-only pre-submit checkpoint and actual provider atomically.
+
+        The guarded transition is deliberately narrower than ordinary task metadata updates: only a running
+        video task with neither a checkpoint nor a provider job may cross the submit boundary. A
+        zero-row update is an execution conflict and must abort before the provider call.
+        """
+        result = await self.session.execute(
+            update(Task)
+            .where(
+                Task.task_id == task_id,
+                Task.task_type.in_(("video", "reference_video")),
+                Task.status == "running",
+                Task.execution_checkpoint_json.is_(None),
+                Task.provider_job_id.is_(None),
+            )
+            .values(
+                execution_checkpoint_json=checkpoint_json,
+                provider_id=provider_id,
+                updated_at=utc_now(),
+            )
+        )
+        if rowcount(result) != 1:
+            await self.session.rollback()
+            raise ValueError(f"execution checkpoint persistence guard rejected task: {task_id}")
         await self.session.commit()
 
     async def _merge_payload_field(self, task_id: str, key: str, value: Any, *, raise_if_missing: bool = True) -> None:
         """把单个字段并入 task.payload 并提交；``raise_if_missing`` 决定 task 缺失时的处置。
 
         Task.payload_json 是 TEXT 列存 JSON 字符串（非 native JSONB），故用 read-modify-write
-        模式更新。并发安全前提：写 payload 的路径在同一 task 的执行协程内串行——
-        ``persist_effective_duration`` 与 ``persist_execution_identity`` 在向 provider 提交前
-        各写一次，``persist_api_call_id`` 由 media_generator 在其后拿到 call_id 时写一次，
-        互不并发。如果未来引入真正并发写 payload 的路径，需要外层加
+        模式更新。并发安全前提：写 payload 的路径在同一 task 的执行协程内串行。
+        引入真正并发写 payload 的路径时需要外层加
         ``SELECT ... FOR UPDATE`` 或单事务串行化。
         """
-        # 用 .first() 而非 scalar_one_or_none()：Task.payload_json 允许 NULL（迁移历史/
-        # 旧任务存在 payload_json IS NULL 行），scalar_one_or_none 会把"行存在但
+        # 用 .first() 而非 scalar_one_or_none()：Task.payload_json 允许 NULL（迁移输入可含
+        # payload_json IS NULL 行），scalar_one_or_none 会把"行存在但
         # payload_json=NULL"误判成"无行"。Row 解构 row[0] 后 None 由 _json_loads 兜底为 {}。
         result = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
         row = result.first()
@@ -757,54 +812,17 @@ class TaskRepository(BaseRepository):
         """
         await self._merge_payload_field(task_id, "api_call_id", call_id)
 
-    async def persist_effective_duration(self, task_id: str, duration_seconds: int) -> None:
-        """把取档后实际申请的秒数写回 ``task.payload["duration_seconds"]``。
-
-        参考视频执行层按 model 能力取档后申请的秒数可能偏离入队时的剧本原值；
-        resume 路径读的正是这个字段（见 ``server.services.resume_executor``），
-        不写回会让 resume 时按剧本原值重新申请，与本次执行实际申请的秒数不一致。
-        task 不存在时静默跳过（不影响本次生成结果，仅是 resume 元数据，不必 fail-fast
-        阻断执行）。
-        """
-        await self._merge_payload_field(task_id, "duration_seconds", duration_seconds, raise_if_missing=False)
-
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
-        """把执行期实际解析出的 provider 写回 ``task.provider_id``。
+        """把 worker 重投影的 provider advisory 写回 ``task.provider_id``。
 
-        ``provider_id`` 列在入队/认领时按 unit 声明的参考集近似投影；参考路线的退化镜头
-        执行期按解析后的实际参考图分桶，两者可能不同（ad 声明了参考但资产全缺图时投影
-        r2v、执行 i2v）。resume 路径（``_process_resume_task``）按该列锁定 backend 轮询
-        ``provider_job_id``，不写回会拿实际执行 backend 的 job_id 去投影 backend 轮询，
-        已提交任务的恢复因此丢失。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
+        未提交的 reference_video 任务在排队期间可以改项目配置；worker 认领后如果发现
+        持久化列与当前投影分裂时，回队前刷新该列，让后续 claim 过滤与限流路由使用当前 provider。
+        它不锁定 model，也不是执行身份。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
         """
         now = utc_now()
         await self.session.execute(
             update(Task).where(Task.task_id == task_id).values(provider_id=provider_id, updated_at=now)
         )
-        await self.session.commit()
-
-    async def persist_execution_identity(self, task_id: str, provider_id: str, payload_patch: dict[str, Any]) -> None:
-        """把执行期实际解析出的身份写回 ``task.provider_id`` 列并按 ``payload_patch`` 改写 payload。
-
-        ``payload_patch`` 值为 ``None`` 表示删除该键，其余键覆盖写入；列与 payload 在同一次
-        提交内落地。task 不存在时 UPDATE 命中 0 行、静默返回，与
-        ``persist_execution_provider_id`` 同口径。写 payload 的串行前提见
-        ``_merge_payload_field`` docstring。
-        """
-        result = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
-        row = result.first()
-        values: dict[str, Any] = {"provider_id": provider_id, "updated_at": utc_now()}
-        if row is not None:
-            data = _json_loads(row[0], {})
-            if not isinstance(data, dict):
-                data = {}
-            for key, value in payload_patch.items():
-                if value is None:
-                    data.pop(key, None)
-                else:
-                    data[key] = value
-            values["payload_json"] = _json_dumps(data)
-        await self.session.execute(update(Task).where(Task.task_id == task_id).values(**values))
         await self.session.commit()
 
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:

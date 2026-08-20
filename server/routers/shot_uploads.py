@@ -6,8 +6,8 @@ asset_fingerprints 供上传方即时 cache-bust（SSE 兜底其他客户端）�
 subdir + naming 路径模型与 MetadataSetter 签名不覆盖这条管线。扩展名与大小校验共用
 upload_finalize.validate_upload。
 
-宫格模式无独立端点：拆分后的单元格图 canonical 路径与图生视频模式相同
-（storyboards/scene_{id}.png），按镜头上传即覆盖该单元格，宫格记录不动。
+宫格切分后的单元格图 canonical 路径与图生视频模式相同（storyboards/scene_{id}.png），
+按镜头上传即覆盖该单元格，宫格记录不动；联合图整图上传走 grids.py 的独立端点。
 """
 
 from __future__ import annotations
@@ -34,11 +34,10 @@ from server.services.generation_tasks import emit_generation_success_batch
 from server.services.upload_finalize import (
     UploadTooLargeError,
     UploadValidationError,
-    finalize_shot_storyboard_upload,
+    commit_manual_storyboard_upload,
     finalize_shot_video_upload,
-    record_upload_version,
-    save_uploaded_bytes,
-    save_uploaded_video_stream,
+    stage_uploaded_bytes,
+    stage_uploaded_video_stream,
     validate_upload,
 )
 
@@ -58,8 +57,8 @@ async def upload_shot_media(
 ):
     """上传分镜图或镜头视频，替换该镜头的 AI 生成资产。
 
-    与生成链路保持一致：旧文件补登版本 → 写 canonical 路径 → 登记新版本 →
-    剧本元数据回写（status 自动推导）→ SSE batch 推送。
+    与生成链路保持一致：staging → 正式选择与元数据原子提交（status 自动推导）→
+    SSE batch 推送。
     """
     try:
         max_bytes = validate_upload(file.filename, file.size, kind="image" if kind == "storyboard" else "video")
@@ -89,9 +88,6 @@ async def upload_shot_media(
         target = project_path / relative_path
 
         with project_change_source("webui"):
-            # 旧文件若从未入版本库（如历史迁移），先补登，避免被覆盖后字节丢失
-            await asyncio.to_thread(versions.ensure_current_tracked, resource_type, shot_id, target, "")
-
             if kind == "storyboard":
                 # 限定读入内存的字节数：Content-Length 缺失/被绕过时不至于 OOM
                 content = await file.read(max_bytes + 1)
@@ -101,30 +97,28 @@ async def upload_shot_media(
                     png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content)
                 except ValueError:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
-                await save_uploaded_bytes(png_bytes, target)
-            else:
-                await save_uploaded_video_stream(file.file, target, max_bytes=max_bytes)
-
-            version = await asyncio.to_thread(
-                record_upload_version,
-                versions=versions,
-                resource_type=resource_type,
-                resource_id=shot_id,
-                current_file=target,
-                original_filename=file.filename,
-            )
-
-            if kind == "storyboard":
-                await finalize_shot_storyboard_upload(
-                    project_name=project_name, script_file=script_file, shot_id=shot_id, asset_path=relative_path
+                staged_image = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
+                version = await commit_manual_storyboard_upload(
+                    project_name=project_name,
+                    script_file=script_file,
+                    shot_id=shot_id,
+                    asset_path=relative_path,
+                    staged_image=staged_image,
+                    current_image=target,
+                    versions=versions,
+                    original_filename=file.filename,
                 )
             else:
-                await finalize_shot_video_upload(
+                staged_video = await stage_uploaded_video_stream(file.file, target, max_bytes=max_bytes)
+                version = await finalize_shot_video_upload(
                     project_name=project_name,
                     script_file=script_file,
                     shot_id=shot_id,
                     project_path=project_path,
                     video_rel=relative_path,
+                    staged_video=staged_video,
+                    versions=versions,
+                    original_filename=file.filename,
                 )
 
             # emit 内部会读剧本解析 episode 并计算指纹，放线程池避免阻塞事件循环；

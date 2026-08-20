@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -60,6 +60,33 @@ class TestBackendBasics:
         # viduq3-turbo 在 /start-end2video 白名单内，last_frame 应为 True。
         backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
         assert backend.video_capabilities.last_frame is True
+
+    @pytest.mark.unit
+    async def test_marks_resubmit_unsafe_after_task_creation(self, output_path: Path):
+        backend = ViduVideoBackend(api_key="test-key")
+        client = MagicMock()
+        client_context = MagicMock()
+        client_context.__aenter__ = AsyncMock(return_value=client)
+        client_context.__aexit__ = AsyncMock(return_value=False)
+        resubmit_unsafe = MagicMock()
+        request = VideoGenerationRequest(
+            prompt="x",
+            output_path=output_path,
+            on_provider_resubmit_unsafe=resubmit_unsafe,
+        )
+
+        with (
+            patch("lib.video_backends.vidu.create_vidu_client", return_value=client_context),
+            patch.object(backend, "_create_task", new=AsyncMock(return_value={"task_id": "job-1"})),
+            patch(
+                "lib.video_backends.vidu.poll_with_retry",
+                new=AsyncMock(side_effect=RuntimeError("poll failed")),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="poll failed"):
+                await backend.generate(request)
+
+        resubmit_unsafe.assert_called_once_with()
 
 
 class TestEndpointSelection:

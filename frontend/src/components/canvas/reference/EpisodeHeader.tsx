@@ -6,7 +6,7 @@ import { formatCost, totalBreakdown } from "@/utils/cost-format";
 
 /**
  * 头部统计只需要时长与成片两项，故按结构约束而非绑定具体单元类型：
- * ReferenceVideoUnit（narration/drama）与 ad 派生分组水合后的视图对象都能直接传入。
+ * narration / drama / ad 三种内容模式的 ReferenceVideoUnit 都能直接传入。
  */
 export interface EpisodeHeaderUnit {
   duration_seconds: number;

@@ -87,7 +87,7 @@ export type UtteranceKind = "dialogue" | "voiceover";
 /**
  * Drama 场景级有序发声条目，判别式联合（discriminated union）按 kind 收窄，把 kind ⇄ speaker
  * 约束编码进类型：dialogue 必带非空 speaker、voiceover 不得带 speaker。非法组合（dialogue 缺
- * speaker、voiceover 带 speaker）编译期即被拒，与运行时 isUtterance 守卫及后端 Utterance 契约一致。
+ * speaker、voiceover 带 speaker）编译期即被拒，与后端 Utterance 契约一致。
  * 取代旧 video_prompt.dialogue + 场景 voiceover 双字段（见 ADR 0040）。
  * 富审阅 / 编辑 UI 后续提供；本阶段仅类型 / 形状守卫。
  */
@@ -264,7 +264,6 @@ export interface NarrationEpisodeScript {
   episode: number;
   title: string;
   content_mode: "narration";
-  duration_seconds: number;
   schema_version?: number;
   novel: NovelInfo;
   segments: NarrationSegment[];
@@ -274,7 +273,6 @@ export interface DramaEpisodeScript {
   episode: number;
   title: string;
   content_mode: "drama";
-  duration_seconds: number;
   schema_version?: number;
   novel: NovelInfo;
   scenes: DramaScene[];
@@ -303,7 +301,7 @@ export interface AdShot {
   characters_in_shot?: string[];
   scenes?: string[];
   props?: string[];
-  /** 产品名称引用，非空即产品镜头。 */
+  /** 商品名称引用，非空即商品镜头。 */
   products_in_shot?: string[];
   image_prompt: ImagePrompt | string;
   video_prompt: VideoPrompt | string;
@@ -322,7 +320,6 @@ export interface AdEpisodeScript {
   episode: number;
   title: string;
   content_mode: "ad";
-  duration_seconds: number;
   schema_version?: number;
   novel: NovelInfo;
   shots: AdShot[];

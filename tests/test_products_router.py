@@ -5,13 +5,17 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import products
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import FakeProjectAssetMutationMixin
 
 pytestmark = pytest.mark.unit
 
 
-class _FakePM:
+class _FakePM(FakeProjectAssetMutationMixin):
+    expected_delete_asset_table = "products"
+
     def __init__(self):
         self.projects = {
             "demo": {
@@ -57,6 +61,7 @@ def _client(monkeypatch, fake_pm):
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(products.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    register_error_handlers(app)
     return TestClient(app)
 
 

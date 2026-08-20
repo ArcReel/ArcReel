@@ -1,0 +1,25 @@
+"""Nhãn tiếng Việt cho sự kiện thay đổi dự án. Xem ``lib/i18n/zh/events.py`` để biết giao ước."""
+
+MESSAGES = {
+    "event_label_grid": 'Phân cảnh đa lưới "{id}"',
+    "event_label_grid_split": 'Tách phân cảnh đa lưới "{id}"',
+    "event_label_voice_sample": 'Mẫu giọng thử của "{id}"',
+    "event_label_asset_image_character": 'Ảnh tài sản của nhân vật "{id}"',
+    "event_label_asset_image_scene": 'Ảnh tài sản của cảnh "{id}"',
+    "event_label_asset_image_prop": 'Ảnh tài sản của đạo cụ "{id}"',
+    "event_label_asset_image_product": 'Ảnh tài sản của sản phẩm "{id}"',
+    "event_label_skeleton_segments": 'Phân cảnh "{id}"',
+    "event_label_skeleton_scenes": 'Cảnh "{id}"',
+    "event_label_skeleton_shots": 'Cú máy "{id}"',
+    "event_label_skeleton_video_units": 'Đơn vị video "{id}"',
+    "event_label_narration_audio": 'Lời dẫn "{id}"',
+    "event_label_named_entity_character": 'Nhân vật "{id}"',
+    "event_label_named_entity_scene": 'Cảnh "{id}"',
+    "event_label_named_entity_prop": 'Đạo cụ "{id}"',
+    "event_label_character_reference_audio": 'Âm thanh tham chiếu của nhân vật "{id}"',
+    "event_label_project_settings": "Cài đặt dự án",
+    "event_label_overview": "Tổng quan dự án",
+    "event_label_episode": "Tập {episode}",
+    "event_label_draft_normalized_script": "Kịch bản đã chuẩn hóa của tập {episode}",
+    "event_label_draft_segment_splitting": "Chia đoạn của tập {episode}",
+}

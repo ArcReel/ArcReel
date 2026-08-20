@@ -5,8 +5,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from PIL import Image
 
+from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ProviderModel
+from lib.project_migrations.runner import migrate_project_dir
 from server.services.generation_context import GenerationContext, ImageLaneResult
 
 pytestmark = pytest.mark.unit
@@ -37,13 +40,14 @@ def _image_ctx(generator, *, provider="openai", model="gpt-image-2", resolution=
 @pytest.fixture
 def project_with_script(tmp_path):
     p = tmp_path / "projects" / "test-project"
-    for d in ("storyboards", "grids", "scripts", "characters", "clues"):
+    for d in ("storyboards", "grids", "scripts", "characters", "clues", "source", "drafts/episode_1"):
         (p / d).mkdir(parents=True)
     (p / "project.json").write_text(
         json.dumps(
             {
                 "name": "test-project",
                 "title": "Test",
+                "schema_version": 7,
                 "content_mode": "narration",
                 "style": "realistic",
                 "generation_mode": "storyboard",
@@ -57,6 +61,7 @@ def project_with_script(tmp_path):
     (p / "scripts" / "episode_1.json").write_text(
         json.dumps(
             {
+                "episode": 1,
                 "content_mode": "narration",
                 "segments": [
                     {
@@ -86,14 +91,33 @@ def project_with_script(tmp_path):
             }
         )
     )
+    # 生产项目一律处于当前 schema，剧本与其取证链（分集原文 → step1）均已登记进产物清单
+    (p / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
+    (p / "drafts" / "episode_1" / "step1_segments.json").write_text(
+        json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
+    )
+    activate_artifact_target_state(p, bump_schema=True)
+    # 清单激活只落到清单版本，后续迁移把项目补到当前 schema，产物读路径才准入
+    migrate_project_dir(p)
     return p
+
+
+def _register_sheet(project_path, resource_type, resource_id):
+    """把已落盘的资产图登记进产物清单——未登记的图不被生产准入。"""
+    from lib.artifact_activation import register_current_resource_artifact
+
+    assert register_current_resource_artifact(
+        project_path,
+        resource_type=resource_type,
+        resource_id=resource_id,
+    )
 
 
 class TestGroupBySegmentBreak:
     def test_groups(self, project_with_script):
         from server.services.generation_tasks import _group_scenes_by_segment_break
 
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         items = script["segments"]
         groups = _group_scenes_by_segment_break(items, "segment_id")
         # E1S03 has segment_break=True, so groups: [E1S01,E1S02] and [E1S03,E1S04,E1S05,E1S06]
@@ -125,37 +149,40 @@ class TestGroupBySegmentBreak:
         assert len(groups[0]) == 3
 
 
+def _grid_reference_images(project_path, scene_ids):
+    """按生产入口调用：清单口径的 resolver 是必选参数。"""
+    from lib.artifact_activation import active_artifact_currency_resolver
+    from server.services.generation_tasks import _collect_grid_reference_images
+
+    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+    return _collect_grid_reference_images(
+        project_path,
+        {"script_file": "episode_1.json"},
+        scene_ids,
+        currency_resolver=active_artifact_currency_resolver(project_path, project),
+    )
+
+
 class TestCollectGridReferenceImages:
     def test_no_references(self, project_with_script):
-        from server.services.generation_tasks import _collect_grid_reference_images
-
-        paths, metadata = _collect_grid_reference_images(
-            project_with_script,
-            {"script_file": "episode_1.json"},
-            ["E1S01", "E1S02"],
-        )
+        paths, metadata = _grid_reference_images(project_with_script, ["E1S01", "E1S02"])
         assert paths is None
         assert metadata == []
 
     def test_with_character_sheet(self, project_with_script):
-        from server.services.generation_tasks import _collect_grid_reference_images
-
         # Add a character with a sheet
-        project_data = json.loads((project_with_script / "project.json").read_text())
-        project_data["characters"]["hero"] = {"character_sheet": "characters/hero.png"}
+        project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        project_data["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
         (project_with_script / "project.json").write_text(json.dumps(project_data))
-        (project_with_script / "characters" / "hero.png").write_bytes(b"fake-image")
+        Image.new("RGB", (4, 4)).save(project_with_script / "characters" / "hero.png")
 
         # Update script to reference the character
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         script["segments"][0]["characters_in_segment"] = ["hero"]
         (project_with_script / "scripts" / "episode_1.json").write_text(json.dumps(script))
+        _register_sheet(project_with_script, "characters", "hero")
 
-        paths, metadata = _collect_grid_reference_images(
-            project_with_script,
-            {"script_file": "episode_1.json"},
-            ["E1S01"],
-        )
+        paths, metadata = _grid_reference_images(project_with_script, ["E1S01"])
         assert paths is not None
         assert len(paths) == 1
         assert Path(str(paths[0])).name == "hero.png"
@@ -164,24 +191,19 @@ class TestCollectGridReferenceImages:
         assert metadata[0]["ref_type"] == "character"
 
     def test_deduplicates_references(self, project_with_script):
-        from server.services.generation_tasks import _collect_grid_reference_images
-
-        project_data = json.loads((project_with_script / "project.json").read_text())
-        project_data["characters"]["hero"] = {"character_sheet": "characters/hero.png"}
+        project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        project_data["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
         (project_with_script / "project.json").write_text(json.dumps(project_data))
-        (project_with_script / "characters" / "hero.png").write_bytes(b"fake-image")
+        Image.new("RGB", (4, 4)).save(project_with_script / "characters" / "hero.png")
 
         # Both segments reference same character
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         script["segments"][0]["characters_in_segment"] = ["hero"]
         script["segments"][1]["characters_in_segment"] = ["hero"]
         (project_with_script / "scripts" / "episode_1.json").write_text(json.dumps(script))
+        _register_sheet(project_with_script, "characters", "hero")
 
-        paths, metadata = _collect_grid_reference_images(
-            project_with_script,
-            {"script_file": "episode_1.json"},
-            ["E1S01", "E1S02"],
-        )
+        paths, metadata = _grid_reference_images(project_with_script, ["E1S01", "E1S02"])
         assert paths is not None
         assert len(paths) == 1  # Deduplicated
         assert len(metadata) == 1  # Deduplicated
@@ -202,6 +224,7 @@ class TestExecuteGridTask:
             grid_size="2K",
             provider="gemini-aistudio",
             model="gemini-2.0-flash-preview-image-generation",
+            video_aspect_ratio="9:16",
             prompt="test grid prompt",
         )
         grid_path = project_with_script / "grids" / f"{grid.id}.json"
@@ -232,9 +255,11 @@ class TestExecuteGridTask:
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
-            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
             mock_pm.load_script.return_value = json.loads(
-                (project_with_script / "scripts" / "episode_1.json").read_text()
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
             )
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
@@ -254,24 +279,358 @@ class TestExecuteGridTask:
         # Verify grid status was updated
         import json as json_mod
 
-        updated_grid_data = json_mod.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        updated_grid_data = json_mod.loads(
+            (project_with_script / "grids" / f"{grid.id}.json").read_text(encoding="utf-8")
+        )
         assert updated_grid_data["status"] == "completed"
         assert updated_grid_data["grid_image_path"] == f"grids/{grid.id}.png"
+        # 联合图内容更新后落格状态复位，等待显式切分
+        assert updated_grid_data["split_at"] is None
 
-        # 切割写入 canonical 分镜路径须登记版本（先补登旧文件，覆写后记新版本），
-        # 否则版本面板的「当前版本」与磁盘内容脱节
-        assert mock_generator.versions.ensure_current_tracked.called
-        add_calls = mock_generator.versions.add_version.call_args_list
-        assert add_calls
-        assert all(c.kwargs["resource_type"] == "storyboards" and c.kwargs["source"] == "grid_split" for c in add_calls)
+    async def test_grid_rejects_an_unclaimed_bound_script_before_provider(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        """剧本已在 episodes 账本里绑定但清单里没有认领 → 在触达供应商之前就拒绝。"""
+        from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+        from server.services.generation_tasks import execute_grid_task
 
-    async def test_execute_grid_task_writes_clean_filenames(self, project_with_script, grid_json):
-        """切割后 cell 文件名为 scene_{id}.png（无 _first/_last 后缀），且不再更新 storyboard_last_image。"""
+        assert ProjectArtifactManifestAdapter(project_with_script).delete_entry(ArtifactKey.episode_script(1))
+        project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock(side_effect=AssertionError("provider must remain unreachable"))
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            with pytest.raises(ValueError, match="episode script is not registered"):
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+
+        mock_generator.generate_image_async.assert_not_awaited()
+
+    async def test_grid_registers_generation_frozen_basis_when_script_changes_in_flight(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from lib.grid.layout import grid_aspect_ratio_for
+        from lib.visual_artifact_provenance import GridStoryboardVisual, build_grid_composite_visual_basis
+        from server.services.generation_tasks import execute_grid_task
+
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        captured = []
+
+        class _Generator:
+            versions = MagicMock()
+
+            async def generate_image_async(self, **_kwargs):
+                script["segments"][0]["image_prompt"] = "latest prompt"
+                return project_with_script / "grids" / f"{grid_json.id}.png", 1
+
+        def _register(*_args, **kwargs):
+            captured.append(kwargs["basis"])
+            return None
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(_Generator()),
+            ),
+            patch("server.services.generation_tasks.register_formal_task_artifact", side_effect=_register),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        members = tuple(
+            GridStoryboardVisual(
+                resource_id=f"E1S0{i}",
+                image_prompt={
+                    "scene": f"scene{i}",
+                    "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                },
+                video_prompt={
+                    "action": f"action{i}",
+                    "camera_motion": "static",
+                    "ambiance_audio": "quiet",
+                    "dialogue": [],
+                },
+            )
+            for i in range(1, 4)
+        )
+        expected = build_grid_composite_visual_basis(
+            group_id=grid_json.id,
+            members=members,
+            rows=2,
+            columns=2,
+            style="realistic",
+            grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
+        )
+        assert captured == [expected]
+
+    async def test_grid_provider_prompt_is_rebuilt_from_the_same_live_inputs_as_its_basis(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from lib.grid.layout import grid_aspect_ratio_for
+        from lib.grid.prompt_builder import build_grid_prompt
+        from lib.grid_manager import GridManager
+        from lib.visual_artifact_provenance import GridStoryboardVisual, build_grid_composite_visual_basis
+        from server.services.generation_tasks import execute_grid_task
+
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        script["segments"][0]["image_prompt"]["scene"] = "live scene prompt"
+        (project_with_script / "scripts" / "episode_1.json").write_text(
+            json.dumps(script, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        captured_prompt: list[str] = []
+        captured_basis = []
+
+        class _Generator:
+            versions = MagicMock()
+
+            async def generate_image_async(self, **kwargs):
+                captured_prompt.append(kwargs["prompt"])
+                return project_with_script / "grids" / f"{grid_json.id}.png", 1
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(_Generator()),
+            ),
+            patch(
+                "server.services.generation_tasks.register_formal_task_artifact",
+                side_effect=lambda *_args, **kwargs: captured_basis.append(kwargs["basis"]),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "stale queued prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        scenes_by_id = {scene["segment_id"]: scene for scene in script["segments"]}
+        expected = build_grid_prompt(
+            scenes=[scenes_by_id[scene_id] for scene_id in grid_json.scene_ids],
+            id_field="segment_id",
+            rows=2,
+            cols=2,
+            style="realistic",
+            aspect_ratio="9:16",
+            grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
+        )
+        assert captured_prompt == [expected]
+        assert GridManager(project_with_script).get(grid_json.id).prompt == expected
+        expected_basis = build_grid_composite_visual_basis(
+            group_id=grid_json.id,
+            members=tuple(
+                GridStoryboardVisual(
+                    resource_id=scene_id,
+                    image_prompt=scenes_by_id[scene_id]["image_prompt"],
+                    video_prompt=scenes_by_id[scene_id]["video_prompt"],
+                )
+                for scene_id in grid_json.scene_ids
+            ),
+            rows=2,
+            columns=2,
+            style="realistic",
+            grid_aspect_ratio=grid_aspect_ratio_for(2, 2, "9:16"),
+        )
+        assert captured_basis == [expected_basis]
+
+    async def test_manifest_failure_rejects_selected_grid_before_marking_failed(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from PIL import Image
+
+        from server.services.generation_tasks import execute_grid_task
+
+        grid_image_path = project_with_script / "grids" / f"{grid_json.id}.png"
+        Image.new("RGB", (400, 400), color=(128, 200, 100)).save(grid_image_path, format="PNG")
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 2))
+
+        def _reject_before_failure(*_args, **_kwargs):
+            current_grid = json.loads(
+                (project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8")
+            )
+            assert current_grid["status"] != "failed"
+            return True
+
+        mock_generator.versions.reject_current_version.side_effect = _reject_before_failure
+
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
+            ),
+            patch(
+                "server.services.generation_tasks.register_formal_task_artifact",
+                side_effect=RuntimeError("manifest commit failed"),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+            )
+            mock_pm_fn.return_value = mock_pm
+
+            with pytest.raises(RuntimeError, match="manifest commit failed"):
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+
+        mock_generator.versions.reject_current_version.assert_called_once_with(
+            "grids",
+            grid_json.id,
+            rejected_version=2,
+            current_file=grid_image_path,
+        )
+        updated_grid_data = json.loads(
+            (project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8")
+        )
+        assert updated_grid_data["status"] == "failed"
+        assert updated_grid_data["grid_image_path"] is None
+
+    async def test_terminal_cancellation_restores_grid_selection_and_preserves_later_edits(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        from lib.generation_queue import CompensableGenerationResult
+        from lib.grid_manager import GridManager
+        from lib.version_manager import VersionManager
+        from server.services.generation_tasks import execute_grid_task
+
+        grid_id = grid_json.id
+        current = project_with_script / "grids" / f"{grid_id}.png"
+        current.write_bytes(b"old-grid")
+        versions = VersionManager(project_with_script)
+        old_version = versions.add_version("grids", grid_id, "old", source_file=current)
+
+        class _Generator:
+            def __init__(self):
+                self.versions = versions
+
+            async def generate_image_async(self, **_kwargs):
+                current.write_bytes(b"cancelled-grid")
+                selected = self.versions.add_version("grids", grid_id, "new", source_file=current)
+                return current, selected
+
+        compensated: list[str] = []
+
+        class _ManifestReceipt:
+            def compensate_cancelled(self) -> None:
+                compensated.append("manifest")
+
+        generator = _Generator()
+        with (
+            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.generation_tasks.resolve_generation_context",
+                new=_image_ctx(generator),
+            ),
+            patch(
+                "server.services.generation_tasks.register_formal_task_artifact",
+                return_value=_ManifestReceipt(),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+            )
+            mock_pm_fn.return_value = mock_pm
+
+            result = await execute_grid_task(
+                "test-project",
+                grid_id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+                task_id="grid-task",
+            )
+
+        assert isinstance(result, CompensableGenerationResult)
+        GridManager(project_with_script).update(grid_id, lambda grid: setattr(grid, "provider", "later-provider"))
+
+        result.compensate_cancelled()
+
+        restored = GridManager(project_with_script).get(grid_id)
+        assert restored is not None
+        assert restored.status == "pending"
+        assert restored.grid_image_path is None
+        assert restored.reference_images is None
+        assert restored.provider == "later-provider"
+        assert versions.get_current_version("grids", grid_id) == old_version
+        assert current.read_bytes() == b"old-grid"
+        assert compensated == ["manifest"]
+
+    async def test_execute_grid_task_does_not_touch_storyboards(self, project_with_script, grid_json):
+        """生成任务只产出联合图：不写任何分镜格文件、不回写剧本、不登记分镜版本——
+        落格由独立的切分操作（apply_grid_split）显式执行。"""
         from PIL import Image
 
         from server.services.generation_tasks import execute_grid_task
 
         grid = grid_json
+
+        # 预置一个已存在的分镜格，锁定「生成完成后分镜字节不变」
+        storyboards_dir = project_with_script / "storyboards"
+        existing = storyboards_dir / "scene_E1S01.png"
+        existing.write_bytes(b"pre-existing-bytes")
 
         fake_grid_image = Image.new("RGB", (400, 400), color=(0, 0, 0))
         grid_image_path = project_with_script / "grids" / f"{grid.id}.png"
@@ -289,9 +648,11 @@ class TestExecuteGridTask:
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
-            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
             mock_pm.load_script.return_value = json.loads(
-                (project_with_script / "scripts" / "episode_1.json").read_text()
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
             )
             mock_pm_fn.return_value = mock_pm
 
@@ -302,90 +663,14 @@ class TestExecuteGridTask:
                 user_id="test-user",
             )
 
-        storyboards_dir = project_with_script / "storyboards"
-        # grid 由 fixture 配置 scene_ids=[E1S01,E1S02,E1S03]，rows=cols=2
-        for sid in ("E1S01", "E1S02", "E1S03"):
-            assert (storyboards_dir / f"scene_{sid}.png").exists(), f"missing scene_{sid}.png"
-            assert not (storyboards_dir / f"scene_{sid}_first.png").exists(), "legacy _first.png must not be written"
-            assert not (storyboards_dir / f"scene_{sid}_last.png").exists(), "legacy _last.png must not be written"
-
-        mock_pm.batch_update_scene_assets.assert_called_once()
-        updates = mock_pm.batch_update_scene_assets.call_args.kwargs["updates"]
-        asset_types = {asset_type for _, asset_type, _ in updates}
-        assert "storyboard_last_image" not in asset_types
-        # 每个有效 scene 应写入 storyboard_image / grid_id / grid_cell_index
-        sb_paths = {sid: path for sid, asset_type, path in updates if asset_type == "storyboard_image"}
-        assert sb_paths == {
-            "E1S01": "storyboards/scene_E1S01.png",
-            "E1S02": "storyboards/scene_E1S02.png",
-            "E1S03": "storyboards/scene_E1S03.png",
-        }
-
-    async def test_execute_grid_task_skips_missing_scene_ids(self, project_with_script, grid_json, caplog):
-        """grid_plan 生成后 agent 改动了剧本(删/拆分镜)→ frame_chain 中部分 next_scene_id
-        不再存在于当前剧本时:跳过该 cell 的 PNG 保存 + warning + 不让 batch_update 抛
-        KeyError 整批回滚(避免 cell PNG 已落盘但 script 无引用的 orphan PNG)。
-        """
-        import logging
-
-        from PIL import Image
-
-        from server.services.generation_tasks import execute_grid_task
-
-        grid = grid_json
-
-        fake_grid_image = Image.new("RGB", (400, 400), color=(50, 50, 50))
-        grid_image_path = project_with_script / "grids" / f"{grid.id}.png"
-        fake_grid_image.save(grid_image_path, format="PNG")
-
-        # 模拟"剧本被并发改动"——load_script 返回的剧本只含 E1S01,故 E1S02 / E1S03 应被 skip
-        script_data = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
-        script_data["segments"] = [seg for seg in script_data["segments"] if seg["segment_id"] == "E1S01"]
-
-        mock_generator = MagicMock()
-        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 1))
-
-        with (
-            patch("server.services.generation_tasks.get_project_manager") as mock_pm_fn,
-            patch(
-                "server.services.generation_tasks.resolve_generation_context",
-                new=_image_ctx(mock_generator),
-            ),
-        ):
-            mock_pm = MagicMock()
-            mock_pm.get_project_path.return_value = project_with_script
-            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
-            mock_pm.load_script.return_value = script_data
-            mock_pm_fn.return_value = mock_pm
-
-            with caplog.at_level(logging.WARNING, logger="server.services.generation_tasks"):
-                await execute_grid_task(
-                    "test-project",
-                    grid.id,
-                    {"prompt": "p", "script_file": "episode_1.json"},
-                    user_id="test-user",
-                )
-
-        storyboards_dir = project_with_script / "storyboards"
-        # E1S01 仍存在 → cell PNG 落盘
-        assert (storyboards_dir / "scene_E1S01.png").exists()
-        # E1S02 / E1S03 已不存在 → cell PNG 未落盘(避免 orphan)
-        assert not (storyboards_dir / "scene_E1S02.png").exists()
-        assert not (storyboards_dir / "scene_E1S03.png").exists()
-
-        # warning 显式列出跳过的分镜 id
-        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("E1S02" in m and "E1S03" in m for m in warnings)
-
-        # batch_update 必须被对 valid 分镜(E1S01)调用,且仅包含此 scene id ——
-        # 旧的 `if .called:` 条件分支会让「实现完全不写回」时测试静默通过,无法锁定
-        # 「有效分镜必须被回写」的契约;改为强制断言。
-        assert mock_pm.batch_update_scene_assets.called, (
-            "valid 分镜(E1S01)应触发 batch_update_scene_assets 回写,实现未调用"
-        )
-        updates = mock_pm.batch_update_scene_assets.call_args.kwargs["updates"]
-        scene_ids = {sid for sid, _, _ in updates}
-        assert scene_ids == {"E1S01"}
+        # 已有分镜格字节不变，未预置的分镜格不产生
+        assert existing.read_bytes() == b"pre-existing-bytes"
+        for sid in ("E1S02", "E1S03"):
+            assert not (storyboards_dir / f"scene_{sid}.png").exists()
+        # 不回写剧本、不登记分镜版本
+        assert not mock_pm.batch_update_scene_assets.called
+        assert not mock_generator.versions.ensure_current_tracked.called
+        assert not mock_generator.versions.add_version.called
 
     async def test_execute_grid_task_not_found(self):
         from server.services.generation_tasks import execute_grid_task
@@ -431,6 +716,7 @@ class TestGridMetadataT2II2ISlotSelection:
             grid_size="2K",
             provider="",
             model="",
+            video_aspect_ratio="9:16",
             prompt="test grid prompt",
         )
         grid_path = project_with_script / "grids" / f"{grid.id}.json"
@@ -472,9 +758,11 @@ class TestGridMetadataT2II2ISlotSelection:
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
-            mock_pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text())
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
             mock_pm.load_script.return_value = json.loads(
-                (project_with_script / "scripts" / "episode_1.json").read_text()
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
             )
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
@@ -493,21 +781,22 @@ class TestGridMetadataT2II2ISlotSelection:
 
         await self._run_grid_task(project_with_script, grid, payload)
 
-        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text(encoding="utf-8"))
         assert updated["provider"] == "openai"
         assert updated["model"] == "gpt-image-t2i"
 
     async def test_uses_i2i_slot_when_reference_images_present(self, project_with_script, grid_with_empty_metadata):
         """有 character sheet 且 segment 引用了角色 → reference_images 非空 → 写 I2I 槽配置"""
         # 给 project + script 注入 character sheet，让 _collect_grid_reference_images 返回非空
-        project_data = json.loads((project_with_script / "project.json").read_text())
-        project_data["characters"]["hero"] = {"character_sheet": "characters/hero.png"}
+        project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        project_data["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
         (project_with_script / "project.json").write_text(json.dumps(project_data))
-        (project_with_script / "characters" / "hero.png").write_bytes(b"fake-image")
+        Image.new("RGB", (4, 4)).save(project_with_script / "characters" / "hero.png")
 
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text())
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         script["segments"][0]["characters_in_segment"] = ["hero"]
         (project_with_script / "scripts" / "episode_1.json").write_text(json.dumps(script))
+        _register_sheet(project_with_script, "characters", "hero")
 
         grid = grid_with_empty_metadata
         payload = {
@@ -519,7 +808,7 @@ class TestGridMetadataT2II2ISlotSelection:
 
         await self._run_grid_task(project_with_script, grid, payload)
 
-        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text(encoding="utf-8"))
         assert updated["provider"] == "openai"
         assert updated["model"] == "gpt-image-i2i"
 
@@ -538,6 +827,6 @@ class TestGridMetadataT2II2ISlotSelection:
             resolve_override=lambda gen: _image_ctx(gen, provider="custom-1", model="m-dead", backend_model="m-live"),
         )
 
-        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text())
+        updated = json.loads((project_with_script / "grids" / f"{grid.id}.json").read_text(encoding="utf-8"))
         assert updated["provider"] == "custom-1"
         assert updated["model"] == "m-live"

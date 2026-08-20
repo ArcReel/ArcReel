@@ -8,21 +8,18 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
-import type { AttachedImage } from "@/hooks/useAssistantSession";
+import type { ImagePayload } from "@/types";
+import { MAX_ATTACHED_IMAGES, useImageAttachments } from "@/hooks/useImageAttachments";
 import { GlassPopover } from "@/components/ui/GlassPopover";
 import { ContextBanner } from "./ContextBanner";
 import { PendingQuestionWizard } from "./PendingQuestionWizard";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 import { TodoListPanel } from "./TodoListPanel";
-import { ChatMessage } from "./chat/ChatMessage";
+import { MessageRow } from "./chat/MessageRow";
 import { AgentFailureCard } from "./chat/AgentFailureCard";
-import { composeAllTurns } from "./chat/utils";
-import { uid } from "@/utils/id";
+import { canEditUserTurn, composeAllTurns } from "./chat/utils";
 import { formatShortDateTime } from "@/utils/date-format";
-
-const MAX_IMAGES = 5;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -172,74 +169,60 @@ function formatTime(isoStr: string | undefined, t: TFunction): string {
 export function AgentCopilot() {
   const { t } = useTranslation(["dashboard", "common"]);
   const {
-    turns, draftTurn, messagesLoading,
-    sending, sessionStatus, pendingQuestion, answeringQuestion, error, startupFailure,
+    turns, draftTurn, messagesLoading, editingTurnUuid, setEditingTurnUuid,
+    sending, sessionStatus, pendingQuestion, answeringQuestion, error, startupFailure, startupFailureOrigin,
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
-  const { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
+  const { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
     useAssistantSession(currentProjectName);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageGenRef = useRef(0);
   const slashMenuRef = useRef<SlashCommandMenuHandle>(null);
   const [localInput, setLocalInput] = useState("");
   const [showSlashMenu, setShowSlashMenu] = useState(false);
-  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
-  const [attachError, setAttachError] = useState<string | null>(null);
+  const {
+    images: attachedImages,
+    error: attachError,
+    isReading: isReadingImages,
+    addFiles: addImages,
+    removeImage,
+    resetImages,
+    invalidatePendingReaders,
+  } = useImageAttachments();
   const [isDragOver, setIsDragOver] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const allTurns = composeAllTurns(turns, draftTurn);
   const isRunning = sessionStatus === "running";
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
-  const attachDisabled = inputDisabled || attachedImages.length >= MAX_IMAGES;
+  const attachDisabled = inputDisabled || isReadingImages || attachedImages.length >= MAX_ATTACHED_IMAGES;
   const inputPlaceholder = pendingQuestion
     ? t("answer_above_hint")
     : isRunning
       ? t("generating_stop_hint")
       : t("input_placeholder");
 
-  const addImages = useCallback((files: File[]) => {
-    setAttachError(null);
-    const gen = imageGenRef.current;
-    for (const file of files) {
-      if (!file.type.startsWith("image/")) continue;
-      if (file.size > MAX_IMAGE_BYTES) {
-        setAttachError(t("image_too_large_hint", { name: file.name }));
-        continue;
-      }
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (imageGenRef.current !== gen) return; // stale — message already sent
-        const dataUrl = e.target?.result as string;
-        setAttachedImages((prev) => {
-          if (prev.length >= MAX_IMAGES) return prev;
-          return [...prev, { id: uid(), dataUrl, mimeType: file.type }];
-        });
-      };
-      reader.readAsDataURL(file);
-    }
-  }, [t]);
-
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (attachDisabled) return;
     const items = Array.from(e.clipboardData.items);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
     if (imageItems.length === 0) return;
     e.preventDefault();
     const files = imageItems.map((item) => item.getAsFile()).filter(Boolean) as File[];
     addImages(files);
-  }, [addImages]);
+  }, [addImages, attachDisabled]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (attachDisabled) return;
     const hasFiles = Array.from(e.dataTransfer.items).some((i) => i.kind === "file");
     if (!hasFiles) return;
     e.preventDefault();
     setIsDragOver(true);
-  }, []);
+  }, [attachDisabled]);
 
   const handleDragLeave = useCallback(() => {
     setIsDragOver(false);
@@ -248,9 +231,10 @@ export function AgentCopilot() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
+    if (attachDisabled) return;
     const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
     if (files.length > 0) addImages(files);
-  }, [addImages]);
+  }, [addImages, attachDisabled]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -258,14 +242,9 @@ export function AgentCopilot() {
     e.target.value = "";
   }, [addImages]);
 
-  const removeImage = useCallback((id: string) => {
-    setAttachedImages((prev) => prev.filter((img) => img.id !== id));
-    setAttachError(null);
-  }, []);
-
   const handleSend = useCallback(() => {
-    if (inputDisabled || (!localInput.trim() && attachedImages.length === 0)) return;
-    imageGenRef.current += 1; // invalidate pending FileReader callbacks
+    if (inputDisabled || isReadingImages || (!localInput.trim() && attachedImages.length === 0)) return;
+    invalidatePendingReaders();
     setShowSlashMenu(false);
     // 发送期间输入锁定（sending 置位）；受理成功才清空，失败保留内容供重试
     voidCall(
@@ -273,8 +252,7 @@ export function AgentCopilot() {
         (accepted) => {
           if (!accepted) return;
           setLocalInput("");
-          setAttachedImages([]);
-          setAttachError(null);
+          resetImages();
           // Reset textarea height
           if (textareaRef.current) {
             textareaRef.current.style.height = "auto";
@@ -282,7 +260,21 @@ export function AgentCopilot() {
         },
       ),
     );
-  }, [inputDisabled, localInput, attachedImages, sendMessage]);
+  }, [
+    inputDisabled,
+    isReadingImages,
+    localInput,
+    attachedImages,
+    sendMessage,
+    invalidatePendingReaders,
+    resetImages,
+  ]);
+
+  // 改写成功后由会话切换重建时间线（编辑态随 resetTimeline 清空）；失败保留编辑态，
+  // 用户可以改完再试，错误经消息区上方的错误条呈现
+  const handleSubmitEdit = useCallback((turnUuid: string, text: string, images: ImagePayload[]) => {
+    voidCall(rewriteMessage(turnUuid, text, images));
+  }, [rewriteMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Delegate to slash menu when open
@@ -503,10 +495,29 @@ export function AgentCopilot() {
           </div>
         )}
         {allTurns.map((turn, i) => (
-          <ChatMessage key={turn.uuid || `turn-${i}`} message={turn} streaming={turn === draftTurn} />
+          <MessageRow
+            key={turn.uuid || `turn-${i}`}
+            turn={turn}
+            streaming={turn === draftTurn}
+            editable={canEditUserTurn(turn, {
+              sessionStatus,
+              hasPendingQuestion: Boolean(pendingQuestion),
+              isSending: sending,
+            })}
+            editing={Boolean(turn.uuid) && turn.uuid === editingTurnUuid}
+            submitting={sending}
+            onStartEdit={setEditingTurnUuid}
+            onCancelEdit={() => setEditingTurnUuid(null)}
+            onSubmitEdit={handleSubmitEdit}
+          />
         ))}
         {startupFailure && (
-          <AgentFailureCard failure={startupFailure} onRetry={handleSend} />
+          // 改写失败时原始输入留在仍开着的编辑器里，重试由它的「重新发送」发起：
+          // 卡片这里给重试只会重放主输入框的无关内容（为空时更是毫无反应）
+          <AgentFailureCard
+            failure={startupFailure}
+            onRetry={startupFailureOrigin === "rewrite" ? undefined : handleSend}
+          />
         )}
       </div>
 
@@ -658,7 +669,7 @@ export function AgentCopilot() {
               e.currentTarget.style.background = "transparent";
               e.currentTarget.style.color = "var(--color-text-3)";
             }}
-            title={attachedImages.length >= MAX_IMAGES ? t("max_images_hint", { count: MAX_IMAGES }) : t("attach_image")}
+            title={attachedImages.length >= MAX_ATTACHED_IMAGES ? t("max_images_hint", { count: MAX_ATTACHED_IMAGES }) : t("attach_image")}
             aria-label={t("attach_image")}
           >
             <Paperclip className="h-4 w-4" />
@@ -683,7 +694,9 @@ export function AgentCopilot() {
           ) : (
             <button
               onClick={handleSend}
-              disabled={(!localInput.trim() && attachedImages.length === 0) || inputDisabled}
+              disabled={
+                (!localInput.trim() && attachedImages.length === 0) || inputDisabled || isReadingImages
+              }
               className="shrink-0 rounded-md p-1.5 transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-30"
               style={{
                 color: "oklch(0.14 0 0)",

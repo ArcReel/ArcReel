@@ -1,14 +1,17 @@
-"""音频工具：上传校验用的时长探测。"""
+"""媒体时长探测与音频上传校验工具。"""
 
 from __future__ import annotations
 
 import asyncio
 import functools
+import json
 import logging
+import math
 import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import cast
 
 from lib.path_safety import safe_resolve
 
@@ -184,12 +187,13 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
         raise ValueError("音频文件无法解析") from None
 
 
-async def _probe_existing_audio_duration_seconds(path: Path) -> float | None:
-    """探测磁盘上已落盘参考音频文件的时长（秒）。
+async def probe_existing_media_duration_seconds(path: Path) -> float | None:
+    """探测磁盘上已落盘媒体文件的容器时长（秒）。
 
     与 :func:`probe_audio_duration_seconds` 的字节输入版本不同：本函数直接对已存在文件探测，
-    不写临时文件、不做容器/音轨校验——这些文件已在上传期完成过格式校验，此处只需要时长数字。
-    ffprobe 不可用或探测失败时返回 None，与仓库既有降级口径一致（跳过校验，不阻断）。
+    不写临时文件、不做流类型校验。该通用入口返回容器时长；需要视频轨播放边界的调用方
+    应使用 :func:`probe_existing_video_duration_seconds`。
+    ffprobe 不可用或探测失败时返回 None，由调用方按业务严格度决定放行或阻断。
     """
     if not _ffprobe_available():
         return None
@@ -199,8 +203,64 @@ async def _probe_existing_audio_duration_seconds(path: Path) -> float | None:
         return None
     try:
         return float(duration_out.decode().strip())
+    except (OverflowError, ValueError):
+        return None
+
+
+def _positive_duration(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        duration = float(value)
     except ValueError:
         return None
+    return duration if math.isfinite(duration) and duration > 0 else None
+
+
+async def probe_existing_video_duration_seconds(path: Path) -> float | None:
+    """探测视频轨的可播放边界，缺少流级时长时回退到容器时长。
+
+    容器可能因音轨尾部较长而比视频轨更长；视频编辑器按视频轨时长约束 source range，
+    因此不能把容器尾部当成可用画面。部分容器不提供流级 duration，此时 format duration
+    与常见媒体解析器的通用轨 fallback 保持一致。
+    """
+
+    if not _ffprobe_available():
+        return None
+    try:
+        output = await _run_ffprobe(
+            [
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=duration:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ]
+        )
+        raw_payload: object = json.loads(output.decode())
+    except (FileNotFoundError, OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(raw_payload, dict):
+        return None
+    payload = cast(dict[str, object], raw_payload)
+    streams = payload.get("streams")
+    if not isinstance(streams, list) or not streams or not isinstance(streams[0], dict):
+        return None
+    duration = _positive_duration(cast(dict[str, object], streams[0]).get("duration"))
+    if duration is not None:
+        return duration
+    raw_format = payload.get("format")
+    if isinstance(raw_format, dict):
+        return _positive_duration(cast(dict[str, object], raw_format).get("duration"))
+    return None
+
+
+async def probe_existing_audio_duration_seconds(path: Path) -> float | None:
+    """探测正式音频时长；保留音频调用方的语义化入口。"""
+
+    return await probe_existing_media_duration_seconds(path)
 
 
 async def probe_reference_audio_total_seconds(paths: list[Path]) -> float | None:
@@ -211,7 +271,7 @@ async def probe_reference_audio_total_seconds(paths: list[Path]) -> float | None
     """
     total = 0.0
     for path in paths:
-        duration = await _probe_existing_audio_duration_seconds(path)
+        duration = await probe_existing_audio_duration_seconds(path)
         if duration is None:
             return None
         total += duration

@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from lib.artifact_activation import ArtifactCurrencyResolver
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.db.base import Base
 from lib.i18n import _ as translate_message
 from lib.project_manager import ProjectManager
@@ -590,6 +592,300 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert data["characters"]["王"]["description"] == "library desc"
 
+    @pytest.mark.integration
+    def test_overwrite_policy_registers_the_imported_formal_sheet_claim(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_scene("target", "A", "same description")
+        pm.install_asset_sheet_bytes("scene", "target", "A", "scenes/A.png", b"old-sheet")
+        project_dir = pm.get_project_path("target")
+        key = ArtifactKey.asset_sheet("scene", "A")
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        adapter.put_entry(
+            key,
+            ArtifactManifestEntry("scenes/A.png", "sha256-v1:" + "a" * 64),
+        )
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A", "description": "same description"},
+            files={"image": ("A.png", b"library-sheet", "image/png")},
+        )
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+        )
+
+        assert response.status_code == 200
+        assert (project_dir / "scenes" / "A.png").read_bytes() == b"library-sheet"
+        assert adapter.get_entry(key) is not None
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scenes/A.png").status
+            is ArtifactStatus.CURRENT
+        )
+
+    @pytest.mark.integration
+    def test_rename_policy_registers_the_imported_formal_sheet_claim(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_scene("target", "A", "existing description")
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A", "description": "library description"},
+            files={"image": ("A.png", b"library-sheet", "image/png")},
+        )
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "rename",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"] == [{"id": created.json()["asset"]["id"], "name": "A (2)"}]
+        project_dir = pm.get_project_path("target")
+        key = ArtifactKey.asset_sheet("scene", "A (2)")
+        assert (project_dir / "scenes" / "A (2).png").read_bytes() == b"library-sheet"
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scenes/A (2).png").status
+            is ArtifactStatus.CURRENT
+        )
+
+    @pytest.mark.integration
+    def test_overwrite_policy_rolls_back_when_the_sheet_claim_commit_fails(self, _assets_env, monkeypatch):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_scene("target", "A", "old description")
+        pm.install_asset_sheet_bytes("scene", "target", "A", "scenes/A.png", b"old-sheet")
+        project_dir = pm.get_project_path("target")
+        key = ArtifactKey.asset_sheet("scene", "A")
+        frozen = ArtifactManifestEntry("scenes/A.png", "sha256-v1:" + "a" * 64)
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        adapter.put_entry(key, frozen)
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A", "description": "library description"},
+            files={"image": ("A.png", b"library-sheet", "image/png")},
+        )
+
+        def _fail_claim_commit(*_args, **_kwargs):
+            raise RuntimeError("injected claim failure")
+
+        monkeypatch.setattr(assets, "register_artifact_entries_atomically", _fail_claim_commit)
+        with pytest.raises(RuntimeError, match="injected claim failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={
+                    "asset_ids": [created.json()["asset"]["id"]],
+                    "target_project": "target",
+                    "conflict_policy": "overwrite",
+                },
+            )
+
+        assert (project_dir / "scenes" / "A.png").read_bytes() == b"old-sheet"
+        assert pm.load_project("target")["scenes"]["A"]["description"] == "old description"
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == frozen
+
+    @pytest.mark.unit
+    def test_duplicate_overwrite_asset_id_is_idempotent(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A"},
+            files={"image": ("A.png", b"image", "image/png")},
+        )
+        asset_id = created.json()["asset"]["id"]
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [asset_id, asset_id],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"] == [{"id": asset_id, "name": "A"}]
+        assert (pm.projects_root / "target" / "scenes" / "A.png").read_bytes() == b"image"
+
+    @pytest.mark.integration
+    def test_overwrite_policy_rejects_cross_type_name(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_character("target", "Shared", "character", "")
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared"})
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["failed"] == [{"id": created.json()["asset"]["id"], "reason": "project_name_conflict"}]
+        assert pm.load_project("target")["scenes"] == {}
+
+    @pytest.mark.integration
+    def test_rename_policy_uses_project_wide_occupancy(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_character("target", "Shared", "character", "")
+        pm.add_prop("target", "Shared (2)", "prop")
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared"})
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "rename",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"][0]["name"] == "Shared (3)"
+        assert "Shared (3)" in pm.load_project("target")["scenes"]
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        ("locale", "localized_fragment"),
+        [("zh", "不能同名"), ("en", "unique names"), ("vi", "tên duy nhất")],
+    )
+    def test_concurrent_cross_type_conflict_returns_localized_409(
+        self, _assets_env, monkeypatch, locale, localized_fragment
+    ):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared"})
+        original_update = pm.update_project
+        original_transaction = pm.update_project_with_file_copies
+        injected = False
+
+        def racing_transaction(project_name, mutate, copies, *, on_commit=None):
+            nonlocal injected
+            if not injected:
+                injected = True
+                original_update(
+                    project_name,
+                    lambda project: project["characters"].update({"Shared": {"description": "character"}}),
+                )
+            return original_transaction(project_name, mutate, copies, on_commit=on_commit)
+
+        monkeypatch.setattr(pm, "update_project_with_file_copies", racing_transaction)
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+            headers={"Accept-Language": locale},
+        )
+
+        assert response.status_code == 409
+        assert "Shared" in response.json()["detail"]
+        assert localized_fragment in response.json()["detail"]
+        assert pm.load_project("target")["scenes"] == {}
+
+    @pytest.mark.integration
+    def test_concurrent_same_type_conflict_reapplies_skip_inside_lock(self, _assets_env, monkeypatch):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "Shared", "description": "library"})
+        original_update = pm.update_project
+        original_transaction = pm.update_project_with_file_copies
+
+        def racing_transaction(project_name, mutate, copies, *, on_commit=None):
+            original_update(
+                project_name,
+                lambda project: project["scenes"].update({"Shared": {"description": "concurrent"}}),
+            )
+            return original_transaction(project_name, mutate, copies, on_commit=on_commit)
+
+        monkeypatch.setattr(pm, "update_project_with_file_copies", racing_transaction)
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"] == []
+        assert response.json()["skipped"] == [{"id": created.json()["asset"]["id"], "name": "Shared"}]
+        assert pm.load_project("target")["scenes"]["Shared"]["description"] == "concurrent"
+
+    @pytest.mark.integration
+    def test_concurrent_same_type_conflict_reapplies_rename_inside_lock(self, _assets_env, monkeypatch):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "Shared", "description": "library"},
+            files={"image": ("Shared.png", b"library-image", "image/png")},
+        )
+        original_update = pm.update_project
+        original_transaction = pm.update_project_with_file_copies
+
+        def racing_transaction(project_name, mutate, copies, *, on_commit=None):
+            original_update(
+                project_name,
+                lambda project: project["scenes"].update({"Shared": {"description": "concurrent"}}),
+            )
+            return original_transaction(project_name, mutate, copies, on_commit=on_commit)
+
+        monkeypatch.setattr(pm, "update_project_with_file_copies", racing_transaction)
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "rename",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["succeeded"] == [{"id": created.json()["asset"]["id"], "name": "Shared (2)"}]
+        project = pm.load_project("target")
+        assert project["scenes"]["Shared"]["description"] == "concurrent"
+        assert project["scenes"]["Shared (2)"]["description"] == "library"
+        assert (pm.projects_root / "target" / "scenes" / "Shared (2).png").read_bytes() == b"library-image"
+
     @pytest.mark.unit
     def test_invalid_policy_returns_400(self, _assets_env):
         client = _assets_env["client"]
@@ -787,3 +1083,145 @@ class TestApplyToProject:
         assert (pm.projects_root / "target" / "scenes" / "A.png").exists()
         data = pm.load_project("target")
         assert data["scenes"]["A"]["scene_sheet"] == "scenes/A.png"
+
+    @pytest.mark.unit
+    def test_multi_file_copy_failure_rolls_back_batch(self, _assets_env, monkeypatch):
+        from lib import project_manager as project_manager_module
+
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        asset_ids = []
+        for name, content in (("A", b"image-a"), ("B", b"image-b")):
+            response = client.post(
+                "/api/v1/assets",
+                data={"type": "scene", "name": name},
+                files={"image": (f"{name}.png", content, "image/png")},
+            )
+            asset_ids.append(response.json()["asset"]["id"])
+
+        real_copyfile = project_manager_module.shutil.copyfile
+        calls = 0
+
+        def fail_second_copy(source, destination):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("injected second copy failure")
+            return real_copyfile(source, destination)
+
+        monkeypatch.setattr(project_manager_module.shutil, "copyfile", fail_second_copy)
+
+        with pytest.raises(OSError, match="injected second copy failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={"asset_ids": asset_ids, "target_project": "target", "conflict_policy": "skip"},
+            )
+
+        assert pm.load_project("target")["scenes"] == {}
+        target_dir = pm.projects_root / "target" / "scenes"
+        assert not (target_dir / "A.png").exists()
+        assert not (target_dir / "B.png").exists()
+        assert not list(target_dir.glob(".*.tmp"))
+        assert not list(target_dir.glob(".*.bak"))
+
+    @pytest.mark.unit
+    def test_second_file_install_failure_restores_all_overwritten_media(self, _assets_env, monkeypatch):
+        from lib import project_manager as project_manager_module
+
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        asset_ids = []
+        for name, content in (("A", b"new-a"), ("B", b"new-b")):
+            response = client.post(
+                "/api/v1/assets",
+                data={"type": "scene", "name": name, "description": f"new-{name}"},
+                files={"image": (f"{name}.png", content, "image/png")},
+            )
+            asset_ids.append(response.json()["asset"]["id"])
+
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        target_dir = pm.projects_root / "target" / "scenes"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for name, content in (("A", b"old-a"), ("B", b"old-b")):
+            (target_dir / f"{name}.png").write_bytes(content)
+        pm.update_project(
+            "target",
+            lambda project: project["scenes"].update(
+                {name: {"description": f"old-{name}", "scene_sheet": f"scenes/{name}.png"} for name in ("A", "B")}
+            ),
+        )
+
+        real_replace = project_manager_module.os.replace
+
+        def fail_second_install(source, destination):
+            source_path = project_manager_module.Path(source)
+            destination_path = project_manager_module.Path(destination)
+            if source_path.suffix == ".tmp" and destination_path.name == "B.png":
+                raise OSError("injected second install failure")
+            return real_replace(source, destination)
+
+        monkeypatch.setattr(project_manager_module.os, "replace", fail_second_install)
+
+        with pytest.raises(OSError, match="injected second install failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={"asset_ids": asset_ids, "target_project": "target", "conflict_policy": "overwrite"},
+            )
+
+        project = pm.load_project("target")
+        assert {name: project["scenes"][name]["description"] for name in ("A", "B")} == {
+            "A": "old-A",
+            "B": "old-B",
+        }
+        assert (target_dir / "A.png").read_bytes() == b"old-a"
+        assert (target_dir / "B.png").read_bytes() == b"old-b"
+        assert not list(target_dir.glob(".*.tmp"))
+        assert not list(target_dir.glob(".*.bak"))
+
+    @pytest.mark.unit
+    def test_project_json_failure_restores_overwritten_media(self, _assets_env, monkeypatch):
+        from lib import project_manager as project_manager_module
+
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "scene", "name": "A", "description": "new"},
+            files={"image": ("A.png", b"new-image", "image/png")},
+        )
+        asset_id = created.json()["asset"]["id"]
+
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        target_image = pm.projects_root / "target" / "scenes" / "A.png"
+        target_image.parent.mkdir(parents=True, exist_ok=True)
+        target_image.write_bytes(b"old-image")
+        pm.update_project(
+            "target",
+            lambda project: project["scenes"].update({"A": {"description": "old", "scene_sheet": "scenes/A.png"}}),
+        )
+        project_file = pm.projects_root / "target" / "project.json"
+        real_atomic_write = project_manager_module.atomic_write_json
+
+        def fail_project_write(path, data):
+            if path == project_file:
+                raise OSError("injected project write failure")
+            return real_atomic_write(path, data)
+
+        monkeypatch.setattr(project_manager_module, "atomic_write_json", fail_project_write)
+
+        with pytest.raises(OSError, match="injected project write failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={"asset_ids": [asset_id], "target_project": "target", "conflict_policy": "overwrite"},
+            )
+
+        project = pm.load_project("target")
+        assert project["scenes"]["A"]["description"] == "old"
+        assert project["scenes"]["A"]["scene_sheet"] == "scenes/A.png"
+        assert target_image.read_bytes() == b"old-image"
+        assert not list(target_image.parent.glob(".*.tmp"))
+        assert not list(target_image.parent.glob(".*.bak"))

@@ -4,8 +4,8 @@
     {
       "id": 1,
       "prompt": "我有一部武侠小说想做成短视频，大概3万字，帮我开始",
-      "expected_output": "应触发 manga-workflow，引导创建新项目、询问项目名称和内容模式，不直接读取小说原文",
-      "target_skills": ["manga-workflow"],
+      "expected_output": "应触发 video-workflow，引导创建新项目、询问项目名称和内容模式，不直接读取小说原文",
+      "target_skills": ["video-workflow"],
       "assertions": [
         {
           "name": "asks_project_name",
@@ -27,22 +27,22 @@
     {
       "id": 2,
       "prompt": "继续上次的项目，我记得角色已经分析完了，帮我继续",
-      "expected_output": "应触发 manga-workflow 状态检测，按检测清单顺序找到第一个缺失项，从对应阶段继续",
-      "target_skills": ["manga-workflow"],
+      "expected_output": "应触发 video-workflow，调 get_workflow_plan 取权威计划，按 next_action 从对应动作继续",
+      "target_skills": ["video-workflow"],
       "assertions": [
         {
-          "name": "reads_project_json",
-          "text": "读取 project.json 检查当前状态",
+          "name": "queries_workflow_plan",
+          "text": "调用 mcp__arcreel__get_workflow_plan 取权威计划",
           "type": "behavior"
         },
         {
-          "name": "uses_glob_check",
-          "text": "使用 Glob 检查文件系统确认各阶段文件是否存在",
-          "type": "behavior"
+          "name": "does_not_infer_stage",
+          "text": "不读 project.json、不用 Glob 探测文件系统自行推断阶段",
+          "type": "constraint"
         },
         {
-          "name": "identifies_correct_stage",
-          "text": "根据检测结果确定正确的下一阶段",
+          "name": "executes_next_action",
+          "text": "按计划交回的 next_action 执行对应受控动作",
           "type": "behavior"
         }
       ]

@@ -14,11 +14,11 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
+from lib.data_uri import image_to_data_uri as _image_to_data_uri
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -108,9 +108,7 @@ def dashscope_headers(api_key: str, *, async_mode: bool = False) -> dict[str, st
 
 def image_to_data_uri(image_path: Path) -> str:
     """本地图片 → base64 data URI（百炼 media/image 接受 URL 或 data URI）。"""
-    mime = _IMAGE_MIME_TYPES.get(image_path.suffix.lower(), "image/png")
-    b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
-    return f"data:{mime};base64,{b64}"
+    return _image_to_data_uri(image_path, _IMAGE_MIME_TYPES)
 
 
 # ── 视频异步任务状态工具 ──────────────────────────────────────────────────────

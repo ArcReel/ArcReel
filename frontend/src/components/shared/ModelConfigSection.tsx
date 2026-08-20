@@ -6,7 +6,7 @@ import {
   durationOutOfRangeReason,
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
-import { lookupCatalogVideoAudio, lookupResolutions } from "@/utils/provider-models";
+import { lookupCatalogVideoAudio, lookupResolutions, lookupVideoAudioControl } from "@/utils/provider-models";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import {
@@ -96,6 +96,11 @@ export interface ModelConfigSectionProps {
    * 与旁白配音（TTS）无关，故归在视频通道而非单列。创建项目向导不传则不渲染。
    */
   videoGenerateAudio?: boolean | null;
+  /**
+   * 全局「视频生成音频」的生效值，用于把 `videoGenerateAudio` 的 null（跟随全局）折叠成实际
+   * 生效值——矛盾提示要按生效值给，否则项目留空而全局为「关闭」时界面无从察觉。省略即按开启处理。
+   */
+  globalVideoGenerateAudio?: boolean;
   onVideoGenerateAudioChange?: (next: boolean | null) => void;
   /**
    * 当前项目是否走参考生视频（资产图直出）。部分模型在参考图路径下把时长收窄到单一取值，
@@ -142,6 +147,7 @@ export function ModelConfigSection({
   customProviders = EMPTY_CUSTOM_PROVIDERS,
   globalDefaults,
   videoGenerateAudio,
+  globalVideoGenerateAudio = true,
   onVideoGenerateAudioChange,
   usesReferenceImages,
   enable,
@@ -261,6 +267,24 @@ export function ModelConfigSection({
   const videoSpecTier: VoiceConsistencyTier | null = projectName
     ? voiceConsistency
     : (lookupCatalogVideoAudio(providers, executingVideo)?.voiceConsistency ?? null);
+
+  // 音频开关按执行模型的可控性判定：恒有声 / 恒无声的模型收不到音轨开关，置灰并展示成片的
+  // 实际音轨状态（而非存量配置值），存量的「关闭」由下方警告给一键修正入口，不静默改写配置。
+  const audioControl = lookupVideoAudioControl(providers, executingVideo);
+  const audioLocked = audioControl === "always_on" || audioControl === "always_off";
+  const audioDisplayValue = audioLocked
+    ? audioControl === "always_on"
+    : (videoGenerateAudio ?? null);
+  const audioLockedHint = audioLocked
+    ? t(
+        audioControl === "always_on"
+          ? "dashboard:audio_switch_locked_always_on"
+          : "dashboard:audio_switch_locked_always_off",
+      )
+    : null;
+  // 按生效值判矛盾：项目级 null 表示跟随全局，全局为「关闭」时同样落在恒有声模型上。
+  const audioConflict =
+    audioControl === "always_on" && (videoGenerateAudio ?? globalVideoGenerateAudio) === false;
 
   const videoResolutionOptions = lookupResolutions(
     providers,
@@ -403,7 +427,7 @@ export function ModelConfigSection({
               <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
                 {t("dashboard:generate_audio_label")}
               </div>
-              <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
+              <fieldset className="flex flex-wrap gap-x-5 gap-y-2" disabled={audioLocked}>
                 <legend className="sr-only">{t("dashboard:audio_settings_sr_label")}</legend>
                 {(
                   [
@@ -414,12 +438,14 @@ export function ModelConfigSection({
                 ).map(([val, label]) => (
                   <label
                     key={String(val)}
-                    className="inline-flex items-center gap-2 text-[12.5px] text-text-2"
+                    className={`inline-flex items-center gap-2 text-[12.5px] ${
+                      audioLocked ? "text-text-4" : "text-text-2"
+                    }`}
                   >
                     <input
                       type="radio"
                       name={generateAudioName}
-                      checked={(videoGenerateAudio ?? null) === val}
+                      checked={audioDisplayValue === val}
                       onChange={() => onVideoGenerateAudioChange(val)}
                       className="accent-[oklch(0.76_0.09_295)]"
                     />
@@ -427,6 +453,19 @@ export function ModelConfigSection({
                   </label>
                 ))}
               </fieldset>
+              {audioLockedHint && (
+                <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{audioLockedHint}</p>
+              )}
+              {audioConflict && (
+                <InlineWarning
+                  className="mt-2"
+                  message={t("dashboard:audio_switch_conflict_notice")}
+                  action={{
+                    label: t("dashboard:audio_switch_conflict_action"),
+                    onClick: () => onVideoGenerateAudioChange(true),
+                  }}
+                />
+              )}
             </div>
           )}
           </LayeredModelFields>

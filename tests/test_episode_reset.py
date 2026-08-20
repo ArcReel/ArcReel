@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     discover_episode_file_aliases,
@@ -85,6 +86,26 @@ def _write_script(project_dir: Path, num: int) -> Path:
     return path
 
 
+def _write_claimed_artifact(
+    project_dir: Path,
+    adapter: ProjectArtifactManifestAdapter,
+    key: ArtifactKey,
+    relative_path: str,
+    *,
+    digest_byte: str,
+) -> None:
+    path = project_dir / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(relative_path.encode("utf-8"))
+    adapter.put_entry(
+        key,
+        ArtifactManifestEntry(
+            artifact_path=relative_path,
+            basis_digest=f"sha256-v1:{digest_byte * 64}",
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # 全量重置：账本任意损坏都必须成功
 # ---------------------------------------------------------------------------
@@ -111,6 +132,56 @@ def test_reset_on_corrupted_ledger_clears_everything(tmp_path: Path) -> None:
     assert project["planning_cursor"] is None
     # 重置后规划起点回到第一个源文件开头（plan 可正常从头规划）
     assert EpisodePlanner(project_dir)._effective_start(project) == ("source/novel.txt", 0)
+
+
+def test_full_reset_recovers_an_unreadable_artifact_manifest(tmp_path: Path) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
+        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
+        extra={"schema_version": 8},
+    )
+    derived = project_dir / "source" / "episode_1.txt"
+    derived.write_text(SOURCE[:10], encoding="utf-8")
+    manifest = project_dir / MANIFEST_FILENAME
+    manifest.write_bytes(b"{not-json")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert _load_project(project_dir)["episodes"] == []
+    assert not derived.exists()
+    assert ProjectArtifactManifestAdapter(project_dir).snapshot_entries() == {}
+    assert manifest.read_bytes() != b"{not-json"
+
+
+def test_unreadable_manifest_recovery_failure_restores_full_reset_exactly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
+        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
+        extra={"schema_version": 8},
+    )
+    derived = project_dir / "source" / "episode_1.txt"
+    derived.write_text(SOURCE[:10], encoding="utf-8")
+    manifest = project_dir / MANIFEST_FILENAME
+    manifest.write_bytes(b"{not-json")
+    project_before = (project_dir / "project.json").read_bytes()
+
+    def fail_recovery(self, entries):
+        raise RuntimeError("manifest recovery unavailable")
+
+    monkeypatch.setattr(ProjectArtifactManifestAdapter, "replace_unreadable_entries_atomically", fail_recovery)
+
+    with pytest.raises(RuntimeError, match="manifest recovery unavailable"):
+        reset_episode_planning(project_dir, from_episode=1)
+
+    assert (project_dir / "project.json").read_bytes() == project_before
+    assert derived.read_bytes() == SOURCE[:10].encode("utf-8")
+    assert manifest.read_bytes() == b"{not-json"
 
 
 def test_reset_clears_source_fingerprints(tmp_path: Path) -> None:
@@ -1103,3 +1174,153 @@ def test_partial_reset_confirmed_keeps_downstream_products(tmp_path: Path) -> No
     assert script.is_file()
     project = _load_project(project_dir)
     assert [e["episode"] for e in project["episodes"]] == [1]
+
+
+def test_partial_reset_removes_all_unbound_episode_claims_and_preserves_retained_claims(tmp_path: Path) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(
+                2,
+                source_range={"source_file": "source/novel.txt", "start": 10, "end": 20},
+                status="consumed",
+            ),
+        ],
+        planning_cursor={"source_file": "source/novel.txt", "offset": 20},
+        extra={"schema_version": 8},
+    )
+    (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:10], encoding="utf-8")
+    (project_dir / "source" / "episode_2.txt").write_text(SOURCE[10:20], encoding="utf-8")
+    _write_script(project_dir, 1)
+    _write_script(project_dir, 2)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    retained_key = ArtifactKey.episode_step1(1)
+    _write_claimed_artifact(
+        project_dir,
+        adapter,
+        retained_key,
+        "drafts/episode_1/step1_segments.json",
+        digest_byte="1",
+    )
+    removed: dict[ArtifactKey, str] = {
+        ArtifactKey.episode_step1(2): "drafts/episode_2/step1_segments.json",
+        ArtifactKey.episode_script(2): "scripts/episode_2.json",
+        ArtifactKey.episode_grid(2, "grid_000000000002"): "grids/grid_000000000002.png",
+        ArtifactKey.episode_step1(3): "drafts/episode_3/step1_segments.json",
+    }
+    for index, key in enumerate(ArtifactKey.episode_resource_artifacts(2, "E2S01"), start=3):
+        removed[key] = f"retained-media/episode-2-{index}.bin"
+    for index, (key, relative_path) in enumerate(removed.items(), start=2):
+        if not (project_dir / relative_path).exists():
+            _write_claimed_artifact(
+                project_dir,
+                adapter,
+                key,
+                relative_path,
+                digest_byte=hex(index)[-1],
+            )
+        else:
+            adapter.put_entry(
+                key,
+                ArtifactManifestEntry(
+                    artifact_path=relative_path,
+                    basis_digest=f"sha256-v1:{hex(index)[-1] * 64}",
+                ),
+            )
+
+    result = reset_episode_planning(project_dir, from_episode=2, confirm_consumed=True)
+
+    assert isinstance(result, EpisodeResetResult)
+    entries = adapter.snapshot_entries()
+    assert retained_key in entries
+    assert not set(removed) & set(entries)
+    assert all((project_dir / relative_path).is_file() for relative_path in removed.values())
+
+
+def test_manifest_failure_restores_reset_project_and_claims_exactly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(
+                1,
+                source_range={"source_file": "source/novel.txt", "start": 0, "end": 10},
+                status="consumed",
+            )
+        ],
+        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
+        extra={"schema_version": 8},
+    )
+    derived = project_dir / "source" / "episode_1.txt"
+    derived.write_text(SOURCE[:10], encoding="utf-8")
+    remaining = project_dir / "source" / "_remaining.txt"
+    remaining.write_text("未规划余文", encoding="utf-8")
+    _write_script(project_dir, 1)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    _write_claimed_artifact(
+        project_dir,
+        adapter,
+        ArtifactKey.episode_step1(1),
+        "drafts/episode_1/step1_segments.json",
+        digest_byte="a",
+    )
+    project_before = (project_dir / "project.json").read_bytes()
+    manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
+    derived_before = derived.read_bytes()
+    remaining_before = remaining.read_bytes()
+
+    def _fail_registration(*_args, **_kwargs):
+        raise RuntimeError("manifest unavailable")
+
+    monkeypatch.setattr("lib.artifact_activation.register_artifact_entries_atomically", _fail_registration)
+
+    with pytest.raises(RuntimeError, match="manifest unavailable"):
+        reset_episode_planning(project_dir, from_episode=1, confirm_consumed=True)
+
+    assert (project_dir / "project.json").read_bytes() == project_before
+    assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
+    assert derived.read_bytes() == derived_before
+    assert remaining.read_bytes() == remaining_before
+
+
+def test_manifest_failure_restores_symlinked_episode_entry_without_touching_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(
+                1,
+                source_range={"source_file": "source/novel.txt", "start": 0, "end": 10},
+                status="consumed",
+            )
+        ],
+        extra={"schema_version": 8},
+    )
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"outside")
+    derived = project_dir / "source" / "episode_1.txt"
+    derived.symlink_to(outside)
+    _write_script(project_dir, 1)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    _write_claimed_artifact(
+        project_dir,
+        adapter,
+        ArtifactKey.episode_step1(1),
+        "drafts/episode_1/step1_segments.json",
+        digest_byte="b",
+    )
+
+    def _fail_registration(*_args, **_kwargs):
+        raise RuntimeError("manifest unavailable")
+
+    monkeypatch.setattr("lib.artifact_activation.register_artifact_entries_atomically", _fail_registration)
+
+    with pytest.raises(RuntimeError, match="manifest unavailable"):
+        reset_episode_planning(project_dir, from_episode=1, confirm_consumed=True)
+
+    assert derived.is_symlink()
+    assert derived.readlink() == outside
+    assert outside.read_bytes() == b"outside"

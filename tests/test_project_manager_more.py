@@ -1,9 +1,12 @@
 import json
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 import pytest
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.project_manager import ProjectManager
 
 
@@ -14,6 +17,56 @@ def _write(path: Path, text: str):
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _narration_script(resource_id: str) -> dict:
+    return {
+        "episode": 1,
+        "title": "Episode 1",
+        "content_mode": "narration",
+        "duration_seconds": 4,
+        "summary": "",
+        "novel": {"title": "Demo", "chapter": "Chapter 1"},
+        "segments": [
+            {
+                "segment_id": resource_id,
+                "duration_seconds": 4,
+                "segment_break": False,
+                "novel_text": "text",
+                "characters_in_segment": [],
+                "scenes": [],
+                "props": [],
+                "image_prompt": "image",
+                "video_prompt": "video",
+                "transition_to_next": "cut",
+                "generated_assets": {},
+            }
+        ],
+    }
+
+
+def _seed_episode_resource_claims(project_dir: Path, resource_id: str):
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    keys = ArtifactKey.episode_resource_artifacts(1, resource_id)
+    for index, key in enumerate(keys):
+        adapter.put_entry(
+            key,
+            ArtifactManifestEntry(
+                artifact_path=f"formal/{resource_id}-{index}.bin",
+                basis_digest=f"sha256-v1:{index:064x}",
+            ),
+        )
+    return adapter, keys
+
+
+def _claim_asset_sheet(project_dir: Path, asset_type: str, name: str, artifact_path: str) -> None:
+    ProjectArtifactManifestAdapter(project_dir).put_entry(
+        ArtifactKey.asset_sheet(asset_type, name),
+        ArtifactManifestEntry(
+            artifact_path=artifact_path,
+            basis_digest=f"sha256-v1:{'a' * 64}",
+        ),
+    )
 
 
 class _FakeTextBackend:
@@ -54,6 +107,36 @@ class _FakeTextBackend:
 
 
 class TestProjectManagerMore:
+    @pytest.mark.unit
+    def test_filesystem_script_rebinding_forgets_unbound_resource_claims(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script("demo", _narration_script("E1S01"), "old.json", validate=False)
+        (project_dir / "scripts" / "new.json").write_text(
+            json.dumps(_narration_script("E1S02")),
+            encoding="utf-8",
+        )
+        adapter, old_keys = _seed_episode_resource_claims(project_dir, "E1S01")
+
+        pm.sync_episode_from_script("demo", "new.json")
+
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/new.json"
+        assert all(adapter.get_entry(key) is None for key in old_keys)
+
+    @pytest.mark.unit
+    def test_save_script_rebinding_forgets_unbound_resource_claims(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script("demo", _narration_script("E1S01"), "old.json", validate=False)
+        adapter, old_keys = _seed_episode_resource_claims(project_dir, "E1S01")
+
+        pm.save_script("demo", _narration_script("E1S02"), "new.json", validate=False)
+
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/new.json"
+        assert all(adapter.get_entry(key) is None for key in old_keys)
+
     @pytest.mark.unit
     def test_project_and_status_lifecycle(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -182,8 +265,7 @@ class TestProjectManagerMore:
         assert path.name == "episode_1.json"
 
         loaded = pm.load_script("demo", "episode_1.json")
-        assert loaded["metadata"]["total_scenes"] == 1
-        assert loaded["metadata"]["estimated_duration_seconds"] == 4
+        assert loaded["segments"][0]["segment_id"] == "E1S01"
         assert pm.list_scripts("demo") == ["episode_1.json"]
 
         synced = pm.sync_episode_from_script("demo", "episode_1.json")
@@ -542,6 +624,7 @@ class TestProjectManagerMore:
 
         project_dir = pm.get_project_path("demo")
         (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+        _claim_asset_sheet(project_dir, "scene", "客厅", "scenes/客厅.png")
         assert pm.get_pending_project_scenes("demo") == []
 
         # prop lifecycle
@@ -550,6 +633,7 @@ class TestProjectManagerMore:
         assert pm.get_prop("demo", "玉佩")["prop_sheet"].endswith("玉佩.png")
 
         (project_dir / "props" / "玉佩.png").write_bytes(b"png")
+        _claim_asset_sheet(project_dir, "prop", "玉佩", "props/玉佩.png")
         assert pm.get_pending_project_props("demo") == []
 
         # direct add_* return bool
@@ -595,6 +679,48 @@ class TestProjectManagerMore:
             pm.get_prop("demo", "none")
         with pytest.raises(KeyError):
             pm.update_prop_sheet("demo", "none", "x")
+
+    @pytest.mark.integration
+    def test_reference_audio_cleanup_cannot_delete_a_newer_concurrent_selection(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "Alice", "hero", "soft")
+        wav_rel = "characters/refs_audio/Alice.wav"
+        mp3_rel = "characters/refs_audio/Alice.mp3"
+        pm.install_character_reference_audio("demo", "Alice", wav_rel, b"old-wav")
+
+        first_cleanup_ready = Event()
+        continue_first_cleanup = Event()
+        original_cleanup = pm._discard_stale_reference_audio_if_unreferenced
+
+        def _delay_first_cleanup(project_name: str, stale_audio: Path | None) -> None:
+            if stale_audio is not None and stale_audio.name == "Alice.wav" and not first_cleanup_ready.is_set():
+                first_cleanup_ready.set()
+                assert continue_first_cleanup.wait(timeout=2)
+            original_cleanup(project_name, stale_audio)
+
+        monkeypatch.setattr(pm, "_discard_stale_reference_audio_if_unreferenced", _delay_first_cleanup)
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            first = executor.submit(
+                pm.install_character_reference_audio,
+                "demo",
+                "Alice",
+                mp3_rel,
+                b"intermediate-mp3",
+            )
+            try:
+                assert first_cleanup_ready.wait(timeout=2)
+                pm.install_character_reference_audio("demo", "Alice", wav_rel, b"new-wav")
+            finally:
+                continue_first_cleanup.set()
+            first.result(timeout=2)
+
+        project_dir = pm.get_project_path("demo")
+        assert pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == wav_rel
+        assert (project_dir / wav_rel).read_bytes() == b"new-wav"
+        assert not (project_dir / mp3_rel).exists()
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -933,13 +1059,29 @@ class TestScenePropLifecycle:
         pending2 = pm.get_pending_project_scenes("demo")
         assert len(pending2) == 2
 
-        # 文件存在 → 不再 pending
+        # 文件与正式 claim 都存在 → 不再 pending
         project_dir = pm.get_project_path("demo")
         (project_dir / "scenes" / "客厅.png").parent.mkdir(parents=True, exist_ok=True)
         (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+        _claim_asset_sheet(project_dir, "scene", "客厅", "scenes/客厅.png")
         pending3 = pm.get_pending_project_scenes("demo")
         assert len(pending3) == 1
         assert pending3[0]["name"] == "书房"
+
+    @pytest.mark.unit
+    def test_get_pending_scenes_requires_a_manifest_claim_when_active(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_scene("demo", "客厅", "宽敞的客厅")
+        pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
+        (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
+
+        assert [item["name"] for item in pm.get_pending_project_scenes("demo")] == ["客厅"]
+
+        _claim_asset_sheet(project_dir, "scene", "客厅", "scenes/客厅.png")
+
+        assert pm.get_pending_project_scenes("demo") == []
 
     @pytest.mark.unit
     def test_get_pending_props_lists_without_sheet(self, tmp_path):
@@ -953,11 +1095,12 @@ class TestScenePropLifecycle:
         pending = pm.get_pending_project_props("demo")
         assert len(pending) == 2
 
-        # 文件存在 → 不再 pending
+        # 文件与正式 claim 都存在 → 不再 pending
         pm.update_prop_sheet("demo", "玉佩", "props/玉佩.png")
         project_dir = pm.get_project_path("demo")
         (project_dir / "props" / "玉佩.png").parent.mkdir(parents=True, exist_ok=True)
         (project_dir / "props" / "玉佩.png").write_bytes(b"png")
+        _claim_asset_sheet(project_dir, "prop", "玉佩", "props/玉佩.png")
         pending2 = pm.get_pending_project_props("demo")
         assert len(pending2) == 1
         assert pending2[0]["name"] == "宝剑"

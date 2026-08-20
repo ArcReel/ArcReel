@@ -8,7 +8,7 @@ import { GridPreviewView } from "./GridPreviewView";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds, useHasActiveTaskForScriptFile } from "@/stores/tasks-store";
-import { getScriptItemId } from "@/utils/script-shape";
+import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   EpisodeScript,
@@ -17,6 +17,7 @@ import type {
   NarrationSegment,
   DramaScene,
   ProjectData,
+  ReferenceGenerationRequestOptions,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene;
@@ -40,7 +41,11 @@ interface GridImageToVideoCanvasProps {
     scriptFile?: string,
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
-  onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateVideo?: (
+    segmentId: string,
+    scriptFile?: string,
+    requestOptions?: ReferenceGenerationRequestOptions,
+  ) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   onGenerateGrid?: (
@@ -177,14 +182,7 @@ export function GridImageToVideoCanvas({
     );
   }
 
-  const epDur = episodeScript?.duration_seconds;
-  const totalDuration =
-    typeof epDur === "number" && Number.isFinite(epDur)
-      ? epDur
-      : segments.reduce((sum, s) => {
-          const d = s.duration_seconds;
-          return sum + (typeof d === "number" && Number.isFinite(d) ? d : 0);
-        }, 0);
+  const totalDuration = sumItemDuration(segments);
 
   const currentEpisodeMeta = projectData?.episodes?.find((e) => e.episode === episode);
   const epMeta =
@@ -193,7 +191,7 @@ export function GridImageToVideoCanvas({
       episode,
       title: episodeTitle ?? episodeScript?.title ?? "",
       script_file: scriptFile ?? "",
-      scenes_count: segments.length,
+      item_count: segments.length,
       duration_seconds: totalDuration,
       status: hasScript ? "in_production" : "draft",
     } as const);
@@ -204,7 +202,10 @@ export function GridImageToVideoCanvas({
     value?: unknown,
   ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
   const handleGenSb = (segId: string) => onGenerateStoryboard?.(segId, scriptFile);
-  const handleGenVid = (segId: string) => onGenerateVideo?.(segId, scriptFile);
+  const handleGenVid = (
+    segId: string,
+    requestOptions?: ReferenceGenerationRequestOptions,
+  ) => onGenerateVideo?.(segId, scriptFile, requestOptions);
   const handleGenNarration = onGenerateNarration
     ? (segId: string) => onGenerateNarration(segId, scriptFile)
     : undefined;

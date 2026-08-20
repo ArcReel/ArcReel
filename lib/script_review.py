@@ -7,7 +7,7 @@ router / service（结构化中间态审阅 / 编辑 / 确认）。状态派生�
 重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 step2 隔离草稿清理只存在一处。
 
 真值只存「确认指纹」于 project.json ``episodes[i].step1_review``；pending / confirmed 由读时
-比对 live step1 内容指纹派生（沿 StatusCalculator「能算不存」哲学）。因此重跑 normalize、agent
+比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、agent
 改写 step1、web 手改 step1 都会让指纹漂移、自动重新待审，无需 hook 各异的 step1 写入路径
 （narration step1 由 subagent Write 落盘、无 Python chokepoint）。
 
@@ -27,24 +27,30 @@ import logging
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
+from lib.content_digest import canonical_json_digest
+from lib.draft_quarantine import (
+    QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_STEP2,
+    clear_quarantine,
+    quarantine_path,
+)
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
     STEP1_FILENAMES,
     episode_drafts_dir,
     episode_script_relpath,
 )
+from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.reference_video.duration_migration import migrate_unit_durations
-from lib.reference_video.quarantine import (
-    QUARANTINE_KIND_STEP1,
-    QUARANTINE_KIND_STEP2,
-    clear_quarantine,
-    quarantine_path,
-)
 from lib.validation_messages import ValidationMessage
+
+if TYPE_CHECKING:
+    from lib.artifact_manifest import ArtifactBasis
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +60,16 @@ ReviewStatus = Literal["not_applicable", "no_step1", "pending_review", "confirme
 
 #: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
 REVIEW_FIELD = "step1_review"
+
+#: stale 账本条目记录重规划提交时旧 step1 的内容指纹；live 指纹变化即证明 step1 已按新账本重建。
+STALE_STEP1_REVISION_FIELD = "stale_step1_revision"
+
+#: stale 分集的 step1 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
+STALE_STEP1_REBUILT_REVISION_FIELD = "stale_step1_rebuilt_revision"
+
+#: 最终剧本 metadata 记录其实际消费的 step1 内容指纹；workflow status 用它识别 step1
+#: 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 step2 已完成。
+SCRIPT_STEP1_REVISION_FIELD = "step1_revision"
 
 #: step1 变体：drama / narration（按 content_mode）+ reference_video（按项目生成路线，跨 content_mode）。
 #: 决定 step1 文件名与结构校验模型；三者共用同一审核 gate。
@@ -90,23 +106,41 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
     return episode_drafts_dir(project_path, episode) / filename
 
 
+#: step1 变体 → 该变体的隔离草稿来源。narration 尚未接入隔离草稿（其 step1 仍由 subagent
+#: 直接编辑），故不在表内——缺席即「该变体无隔离草稿位」，gate 与生成侧据此不阻塞。
+_STEP1_QUARANTINE_KIND: dict[str, str] = {
+    "reference_video": QUARANTINE_KIND_STEP1,
+    "drama": QUARANTINE_KIND_DRAMA_STEP1,
+}
+
+
+def step1_quarantine_kind(project: dict[str, Any]) -> str | None:
+    """该项目 step1 变体对应的隔离草稿来源；该变体无隔离草稿位时返回 None。"""
+    kind = step1_kind(project)
+    return _STEP1_QUARANTINE_KIND.get(kind) if kind is not None else None
+
+
 def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
-    """该集 step1 隔离草稿的路径（仅 reference_video 变体有隔离草稿）；不适用时返回 None。
+    """该集 step1 隔离草稿的路径；该变体无隔离草稿位时返回 None。
 
     只回路径、不判存在性——存在性判断在 ``step1_quarantined``，两者分开是为了让调用方在
     需要报错文案时能拿到路径。
     """
-    if step1_kind(project) != "reference_video":
+    quarantine_kind = step1_quarantine_kind(project)
+    if quarantine_kind is None:
         return None
-    return quarantine_path(project_path, episode, QUARANTINE_KIND_STEP1)
+    return quarantine_path(project_path, episode, quarantine_kind)
 
 
 def step1_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """该集 step1 是否有违约产物被隔离——gate 与 step2 的阻塞判据。
+    """该集 step1 是否有隔离草稿在场——gate 与 step2 的阻塞判据。
 
-    隔离态与「正式 step1 的内容指纹」是两件事：重新拆分违约时正式文件原封不动，指纹照旧
-    等于已确认值，只看指纹会把该集判成 confirmed 并放行 step2——用户看到的是上一版内容，
-    而 agent 手里那份刚产出的正文还躺在隔离草稿里没人处置。故隔离态独立阻塞。
+    隔离态与「正式 step1 的内容指纹」是两件事：产出违约或 agent 取回编辑时正式文件都原封
+    不动，指纹照旧等于已确认值，只看指纹会把该集判成 confirmed 并放行 step2——用户看到的是
+    上一版内容，而待处置的正文还躺在隔离草稿里。故隔离态独立阻塞。
+
+    草稿按项目当前变体解析（见 ``step1_quarantine_path``）：换过生成路线的项目上残留的另一条
+    路线的草稿不参与判定，否则该集会被一份没有写入方会清理的文件永久卡死。
     """
     path = step1_quarantine_path(project_path, project, episode)
     return path is not None and path.exists()
@@ -119,8 +153,7 @@ def content_fingerprint_of_data(data: object) -> str:
     对应调用方手里这份内容本身。与 ``content_fingerprint`` 的 JSON 分支同一套规范化逻辑，
     仅入参从路径换成已解析对象，故对同一份内容两者取值相同。
     """
-    canonical = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return canonical_json_digest(data)
 
 
 def content_fingerprint(path: Path) -> str | None:
@@ -169,6 +202,48 @@ class Step1WriteConflict(Exception):
         self.current_content = current_content
 
 
+class Step1RebuildCompletionError(ValueError):
+    """A stale step1 rebuild cannot be recorded against the current ledger state."""
+
+    def __init__(self, code: str, detail: str):
+        super().__init__(detail)
+        self.code = code
+
+
+def complete_stale_step1_rebuild(
+    pm: ProjectManager,
+    project_name: str,
+    episode: int,
+    expected_stale_revision: str | None,
+) -> str:
+    """Record preprocessing completion for a stale entry, including byte-identical rebuilds."""
+    if isinstance(episode, bool) or episode < 1:
+        raise Step1RebuildCompletionError("invalid_episode", "episode must be a positive integer")
+
+    project_path = pm.get_project_path(project_name)
+    committed: dict[str, str] = {}
+
+    def _commit(project: dict[str, Any]) -> None:
+        entry = find_episode(project, episode)
+        if entry is None or entry.get("ledger_status") != "stale":
+            raise Step1RebuildCompletionError("not_stale", "episode is not awaiting a stale step1 rebuild")
+        if STALE_STEP1_REVISION_FIELD not in entry:
+            raise Step1RebuildCompletionError("missing_baseline", "stale episode has no rebuild baseline")
+        if entry.get(STALE_STEP1_REVISION_FIELD) != expected_stale_revision:
+            raise Step1RebuildCompletionError(
+                "baseline_conflict", "stale step1 baseline changed; refresh workflow status"
+            )
+        path = step1_path(project_path, project, episode)
+        revision = content_fingerprint(path) if path is not None else None
+        if revision is None:
+            raise Step1RebuildCompletionError("step1_missing", "rebuilt step1 file is missing")
+        entry[STALE_STEP1_REBUILT_REVISION_FIELD] = revision
+        committed["revision"] = revision
+
+    pm.update_project(project_name, _commit)
+    return committed["revision"]
+
+
 def assert_base_fingerprint(path: Path, expected: str | None | _UncheckedFingerprint) -> None:
     """乐观并发比对：``expected`` 与 ``path`` 盘上现值不一致时抛 ``Step1WriteConflict``、不落盘。
 
@@ -199,19 +274,137 @@ def official_reference_step1_path(project_path: Path, episode: int) -> Path:
 
 
 @contextmanager
-def step1_write_lock(project_path: Path, episode: int) -> Iterator[Path]:
-    """参考生视频正式 step1 的写临界区：建目录 + per-path 排他锁，yield 正式文件路径。
+def formal_step1_lock(project_path: Path, episode: int, path: Path) -> Iterator[Path]:
+    """任一变体正式 step1 的写临界区：建目录 + per-path 排他锁，yield 该正式文件路径。
 
     与迁移读改写、Web 端保存、重拆分 / 晋升共用同一把 ``ProjectManager.file_lock``（per-path，
     进程间排他、不可重入）。凡要「读正式文件后据此写盘或写隔离草稿」的操作都应整段包在本
     临界区内——读与写拆开在锁外各做一次，就是并发覆盖窗口。
+
+    路径由调用方按变体传入（``step1_path`` / ``official_reference_step1_path``）：三个 step1
+    变体的正式文件名不同，锁的粒度是文件本身，不能按变体各自造一把。
     """
-    drafts_dir = episode_drafts_dir(project_path, episode)
-    drafts_dir.mkdir(parents=True, exist_ok=True)
-    path = official_reference_step1_path(project_path, episode)
+    path.parent.mkdir(parents=True, exist_ok=True)
     pm = ProjectManager(str(project_path.parent))
     with pm.file_lock(path):
         yield path
+
+
+@contextmanager
+def step1_write_lock(project_path: Path, episode: int) -> Iterator[Path]:
+    """参考生视频正式 step1 的写临界区（``formal_step1_lock`` 绑定该变体路径的具名入口）。"""
+    with formal_step1_lock(project_path, episode, official_reference_step1_path(project_path, episode)) as path:
+        yield path
+
+
+@contextmanager
+def formal_step1_write_transaction(
+    project_path: Path,
+    episode: int,
+    *paths: Path,
+    basis: ArtifactBasis | None = None,
+) -> Iterator[None]:
+    """Commit formal step1 files and their active Manifest claim as one unit.
+
+    Callers own the canonical per-path lock.  Every Python write path for a
+    drama, narration, or reference-video step1 enters this context so a
+    successful write refreshes the same typed claim, while registration
+    failure restores every supplied formal file byte-for-byte.
+    """
+
+    with project_metadata_lock(project_path), formal_write_transaction(*paths):
+        yield
+        from lib.artifact_activation import (
+            register_current_artifact,
+            register_current_artifact_if_provable,
+        )
+        from lib.artifact_manifest import ArtifactKey
+
+        # A successful no-op write can still repair a missing claim after a
+        # temporarily unavailable source made activation skip this target.
+        key = ArtifactKey.episode_step1(episode)
+        if basis is None:
+            register_current_artifact_if_provable(project_path, key)
+        else:
+            if not paths:
+                raise ValueError("a frozen step1 basis requires its formal artifact path")
+            register_current_artifact(
+                project_path,
+                key,
+                artifact_path=paths[0].relative_to(project_path).as_posix(),
+                basis=basis,
+            )
+
+
+def write_step1_json(
+    project_path: Path,
+    episode: int,
+    path: Path,
+    content: object,
+    *,
+    basis: ArtifactBasis | None = None,
+) -> None:
+    """Atomically write a structured step1 through its canonical lock and claim seam."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pm = ProjectManager(str(project_path.parent))
+    with pm.file_lock(path), formal_step1_write_transaction(project_path, episode, path, basis=basis):
+        atomic_write_json(path, content)
+
+
+def delete_step1_file(project_path: Path, episode: int, path: Path) -> bool:
+    """Delete a formal step1 and forget its active claim through the same transaction."""
+
+    pm = ProjectManager(str(project_path.parent))
+    with pm.file_lock(path):
+        if not path.exists():
+            return False
+        with formal_step1_write_transaction(project_path, episode, path):
+            path.unlink()
+    return True
+
+
+def write_formal_step1_locked(
+    project_path: Path,
+    episode: int,
+    path: Path,
+    content: dict[str, Any],
+    *,
+    expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
+    dependent_quarantine: str | None = None,
+    clear_dependent_quarantine: bool = True,
+    basis: ArtifactBasis | None = None,
+) -> bool:
+    """任一变体正式 step1 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
+    下游隔离草稿。返回内容是否发生变化。
+
+    调用方须已持有该文件的排他锁（``formal_step1_lock``，或同一路径的
+    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。有隔离
+    草稿位的两个变体（drama 与参考路线）的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、
+    迁移回写）汇入本函数；无草稿位的 narration 走 ``write_step1_json``——同一把锁、同一个
+    事务，只是不做基线比对、也没有下游草稿要清。正式 step1 之所以对 agent 写禁，正是因为
+    写盘只发生在这些持锁的出口。
+
+    ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
+    与盘上现值不一致时抛 ``Step1WriteConflict``、不落盘——后写方拿冲突报告去合并，先写方的
+    内容不被静默覆盖。传 ``UNCHECKED_FINGERPRINT`` 跳过比对：重拆分是刻意的整份重建，
+    同临界区读改写（迁移、确认）则读写之间本就无并发窗口。
+
+    ``dependent_quarantine`` 是以本文件为基底的下游隔离草稿来源（参考路线的 step2；drama
+    step1 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都按字节回滚，
+    不会留下「正式文件是旧的、草稿已被清掉」的半场。基底真的变了才作废它——迁移回写是机械
+    格式收编、不是内容编辑，调用方传 ``clear_dependent_quarantine=False`` 保留。
+    """
+    assert_base_fingerprint(path, expected_fingerprint)
+    previous = load_json_or_none(path)
+    changed = previous != content
+    quarantine = None if dependent_quarantine is None else quarantine_path(project_path, episode, dependent_quarantine)
+    paths = (path,) if quarantine is None else (path, quarantine)
+    with formal_step1_write_transaction(project_path, episode, *paths, basis=basis):
+        atomic_write_json(path, content)
+        if changed and clear_dependent_quarantine and dependent_quarantine is not None:
+            clear_quarantine(project_path, episode, dependent_quarantine)
+    return changed
 
 
 def write_step1_locked(
@@ -221,30 +414,20 @@ def write_step1_locked(
     *,
     expected_fingerprint: str | None | _UncheckedFingerprint = UNCHECKED_FINGERPRINT,
     clear_step2_quarantine: bool = True,
+    basis: ArtifactBasis | None = None,
 ) -> bool:
-    """参考生视频正式 step1 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清 step2
-    隔离草稿。返回内容是否发生变化。
-
-    调用方须已持有该文件的排他锁（``step1_write_lock``，或同一路径的 ``ProjectManager.file_lock``
-    ——锁不可重入，已在临界区内的调用方不能再套 ``step1_write_lock``）。四条写路径（Web 端
-    保存、重拆分、晋升、迁移回写）全部汇入本函数，写盘语义只存在这一处。
-
-    ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
-    与盘上现值不一致时抛 ``Step1WriteConflict``、不落盘——后写方拿冲突报告去合并，先写方的
-    内容不被静默覆盖。传 ``UNCHECKED_FINGERPRINT`` 跳过比对：重拆分是刻意的整份重建，
-    同临界区读改写（迁移、确认）则读写之间本就无并发窗口。
-
-    step2 隔离草稿的保结构 diff 以旧 step1 为基底，step1 真的变了才作废它；迁移回写是机械
-    格式收编、不是内容编辑，调用方传 ``clear_step2_quarantine=False`` 保留 step2 草稿。
-    """
-    path = official_reference_step1_path(project_path, episode)
-    assert_base_fingerprint(path, expected_fingerprint)
-    previous = load_json_or_none(path)
-    changed = previous != content
-    atomic_write_json(path, content)
-    if changed and clear_step2_quarantine:
-        clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
-    return changed
+    """参考生视频正式 step1 的写盘出口（``write_formal_step1_locked`` 绑定该变体路径与其
+    下游 step2 隔离草稿的具名入口）。"""
+    return write_formal_step1_locked(
+        project_path,
+        episode,
+        official_reference_step1_path(project_path, episode),
+        content,
+        expected_fingerprint=expected_fingerprint,
+        dependent_quarantine=QUARANTINE_KIND_STEP2,
+        clear_dependent_quarantine=clear_step2_quarantine,
+        basis=basis,
+    )
 
 
 def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:

@@ -19,4 +19,4 @@ status: accepted
 - AssistantService 不再感知任何哨兵；in-band 哨兵降为 SseChannel 内部机制。`docs/adr/0005` 在 typed 事件流落地时同步修订（表述现状，不留补丁式取代链）。
 - 访问规则测试从 monkeypatch 私有方法/环境变量转为构造参数喂入断言 allow/deny；迁移期断言逐字保留，冗余清理独立后置。
 - 供应商密钥的环境变量围堵（启动断言、空值覆盖、Bash 剥离）定性为常驻机制——「传输」（SDK 子进程只认 env 认证）与「围堵」（父进程环境是外部输入）两个成因都不随 DB 化配置消失，不得当技术债清理。
-- CONTEXT.md 随实现新增 AgentAccessPolicy、SseChannel 词条；AgentAccessPolicy 词条的 _Avoid_ 注明 SandboxPolicy。
+- CONTEXT.md 收录 AgentAccessPolicy 词条，其 _Avoid_ 注明 SandboxPolicy。

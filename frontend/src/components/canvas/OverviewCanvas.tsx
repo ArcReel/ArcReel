@@ -9,6 +9,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { costEntries, formatCost, totalBreakdown } from "@/utils/cost-format";
 import { errMsg } from "@/utils/async";
+import { itemCountKey, normalizeRoute } from "@/utils/generation-mode";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
 import { AdInitCanvas } from "./AdInitCanvas";
@@ -52,6 +53,8 @@ export function OverviewCanvas({
   tRef.current = t;
   // 广告/短片项目恒单集：界面隐藏「集」语义，区块按单视频呈现
   const isAd = projectData?.content_mode === "ad";
+  // 内容规模的口径按生成路线定，与创作类型无关：分镜路线报分镜数、参考路线报视频单元数。
+  const route = normalizeRoute(projectData?.generation_mode);
   const projectTotals = useCostStore((s) => s.costData?.project_totals);
   const getEpisodeCost = useCostStore((s) => s.getEpisodeCost);
   const costLoading = useCostStore((s) => s.loading);
@@ -279,7 +282,7 @@ export function OverviewCanvas({
   const overview = projectData.overview;
   const showWelcome = !overview && (projectData.episodes?.length ?? 0) === 0;
   // ad 项目恒单集（episodes 非空），不会落入 showWelcome；建项后素材全空时进入初始化页：
-  // 上传产品图 + 产品描述 + brief + 可选 sheet 生成。任一素材就绪即切回概览。
+  // 上传商品图 + 商品描述 + brief + 可选 sheet 生成。任一素材就绪即切回概览。
   const showAdInit =
     isAd &&
     Object.keys(projectData.products ?? {}).length === 0 &&
@@ -539,19 +542,16 @@ export function OverviewCanvas({
             {/* Asset progress — characters / scenes / props */}
             {status && (
               <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {(["characters", "scenes", "props"] as const).map((key) => {
-                  const cat = status[key] as
-                    | { total: number; completed: number }
-                    | undefined;
+                {(["character", "scene", "prop"] as const).map((key) => {
+                  const cat = status.assets?.[key];
                   if (!cat) return null;
-                  const pct = cat.total > 0 ? Math.round((cat.completed / cat.total) * 100) : 0;
+                  const pct = cat.total > 0 ? Math.round((cat.available / cat.total) * 100) : 0;
                   const labels: Record<string, string> = {
-                    characters: t("characters"),
-                    scenes: t("scenes"),
-                    props: t("props"),
+                    character: t("characters"),
+                    scene: t("scenes"),
+                    prop: t("props"),
                   };
-                  const Icon =
-                    key === "characters" ? Users : key === "scenes" ? Landmark : Package;
+                  const Icon = key === "character" ? Users : key === "scene" ? Landmark : Package;
                   return (
                     <div
                       key={key}
@@ -588,7 +588,7 @@ export function OverviewCanvas({
                           className="num text-[11px]"
                           style={{ color: "var(--color-text-2)" }}
                         >
-                          {cat.completed}
+                          {cat.available}
                           <span style={{ color: "var(--color-text-4)" }}>/{cat.total}</span>
                         </span>
                       </div>
@@ -785,8 +785,8 @@ export function OverviewCanvas({
                           {ep.title || (isAd ? projectData.title : "")}
                         </span>
                         <span style={{ color: "var(--color-text-4)" }}>
-                          {t(isAd ? "shots_and_status" : "segments_and_status", {
-                            count: ep.scenes_count ?? "?",
+                          {t(itemCountKey(route, { withStatus: true }), {
+                            count: ep.item_count ?? "?",
                             status: t(`episode_status_label_${ep.status ?? "draft"}`),
                           })}
                         </span>

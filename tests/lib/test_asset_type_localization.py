@@ -11,9 +11,9 @@ pytestmark = pytest.mark.unit
 # key 缺失，translate_message 会回退成 key 本身，用它自己再算一遍期望值会让测试对
 # 漏翻译失明，因此这里手写字面量作为 oracle。
 _EXPECTED_DISPLAY_NAMES = {
-    "zh": {"character": "角色", "scene": "场景", "prop": "道具", "product": "产品"},
-    "en": {"character": "character", "scene": "scene", "prop": "prop", "product": "product"},
-    "vi": {"character": "nhân vật", "scene": "cảnh", "prop": "đạo cụ", "product": "sản phẩm"},
+    "zh": {"character": "角色", "scene": "场景", "prop": "道具", "product": "商品"},
+    "en": {"character": "character", "scene": "scene", "prop": "prop", "product": "merchandise"},
+    "vi": {"character": "nhân vật", "scene": "cảnh", "prop": "đạo cụ", "product": "hàng hóa"},
 }
 
 

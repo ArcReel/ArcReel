@@ -1,12 +1,10 @@
 """Tests for manifest-driven profile sync via ``ProjectManager.sync_agent_profile``.
 
 历史命名 ``test_project_manager_symlink.py`` 保留（外部测试 selector 仍用此名）。
-PR fix/agent-profile-sync-manifest 起改为 manifest + sha256 同步：
+同步基于 manifest + sha256：
 - profile 升级内置 skill 自动传播到老项目（行 #4）
 - 用户主动删除内置 skill 不复活（行 #2/#11）
 - 命名碰撞 / 状态机回流 / 上游删除等 15 行决策表完整覆盖
-
-完整规格见 PR #535 描述。
 """
 
 from __future__ import annotations
@@ -205,7 +203,7 @@ class TestDecisionTable:
         assert entries[".claude/skills/demo/SKILL.md"]["source"] == "tombstone"
 
     def test_decision_8_profile_deletion_orphans_user_modified(self, env):
-        """#8：profile 上游删 + 用户改过 → 保留 dest + 清 entry，stat=orphaned。"""
+        """#8：profile 上游删 + 用户改过 → 保留 dest 与基线，供设置页标记定制。"""
         pm, profile_dir, project_dir = env
         pm.sync_agent_profile(project_dir)
         _skill_path(project_dir).write_text("user owned now")
@@ -216,7 +214,7 @@ class TestDecisionTable:
         assert _skill_path(project_dir).read_text() == "user owned now"
         assert stats["orphaned"] == 1
         entries = _read_manifest(project_dir)["entries"]
-        assert ".claude/skills/demo/SKILL.md" not in entries
+        assert entries[".claude/skills/demo/SKILL.md"]["source"] == "profile"
 
     def test_decision_9_user_only_file_untouched(self, env):
         """#9：项目独有 skill（profile 没有，manifest 无记录）→ 完全不动。"""

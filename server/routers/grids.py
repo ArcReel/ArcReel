@@ -7,53 +7,45 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from lib.api_errors import BadRequestError, NotFoundError
+from lib.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.artifact_activation import (
+    register_current_resource_artifact,
+    resolve_artifact_episode,
+    resolve_current_resource_artifact_basis,
+)
+from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
+from lib.async_thread import run_noninterruptible_sync
 from lib.generation_queue import get_generation_queue
-from lib.grid.layout import calculate_grid_layout, grid_aspect_ratio_for, max_cell_count
-from lib.grid.models import GridGeneration
+from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
+from lib.grid.models import GridGeneration, build_grid_task_payload
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
+from lib.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
 from lib.json_io import domain_error_on_value_error
-from lib.project_manager import get_project_manager, grid_storyboard_enabled
+from lib.project_change_hints import project_change_source
+from lib.project_manager import get_project_manager
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
+from lib.version_manager import VersionManager
 from server.auth import CurrentUser
+from server.services.grid_access import ensure_grid_writable
 from server.services.grid_resolution import resolve_large_grid_allowed
+from server.services.grid_split import GridImageNotReadyError, apply_grid_split
+from server.services.upload_finalize import (
+    UPLOAD_VERSION_SOURCE,
+    UploadTooLargeError,
+    UploadValidationError,
+    stage_uploaded_bytes,
+    validate_upload,
+)
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
-
-
-def _build_grid_task_payload(
-    *,
-    prompt: str | None,
-    script_file: str,
-    scene_ids: list[str],
-    grid_size: str,
-    rows: int,
-    cols: int,
-    grid_aspect_ratio: str,
-    video_aspect_ratio: str,
-) -> dict:
-    """Build a consistent payload dict for grid generation tasks.
-
-    入队不携带 provider 信息——provider 在执行时由 ConfigResolver 按当前项目配置解析
-    （见 docs/adr/0001）。
-    """
-    return {
-        "prompt": prompt,
-        "script_file": script_file,
-        "scene_ids": scene_ids,
-        "grid_size": grid_size,
-        "rows": rows,
-        "cols": cols,
-        "grid_aspect_ratio": grid_aspect_ratio,
-        "video_aspect_ratio": video_aspect_ratio,
-    }
 
 
 # ==================== 请求/响应模型 ====================
@@ -73,6 +65,26 @@ class GenerateGridResponse(BaseModel):
     message: str
 
 
+def _load_admitted_grid_script(
+    project_name: str,
+    project: dict,
+    script_file: str,
+    episode: int,
+) -> dict:
+    """Load a grid script and prove its active project/episode binding."""
+
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=script_file)):
+        script = get_project_manager().load_script(project_name, script_file)
+        script_episode = resolve_artifact_episode(
+            project=project,
+            script=script,
+            script_filename=script_file,
+        )
+        if script_episode != episode:
+            raise ValueError(f"script episode {script_episode!r} does not match requested episode {episode}")
+    return script
+
+
 # ==================== 宫格图生成 ====================
 
 
@@ -85,33 +97,22 @@ async def generate_grid(
     _t: Translator,
 ):
     """
-    提交宫格图生成任务到队列，按分段分组，每组 N>=4 个场景生成一个宫格图。
+    提交宫格图生成任务到队列，按分段分组，每组生成一张宫格图；场景数超过单张宫格
+    格数上限的分组切为多张，末张不足一档时落到更小档并由占位格补齐。
 
     立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
     """
-    # 非法项目名（路径穿越等）是坏请求，不是「不存在」；project.json 损坏（JSONDecodeError）
-    # 不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
-    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
-        project = get_project_manager().load_project(project_name)
-    # 广告/短片项目不开放宫格分镜（宫格单格分辨率与产品高保真目标冲突），
-    # 写入边界（create/PATCH 拒 ad 开启 grid_storyboard）之外在动作端点再设一道防线
-    if project.get("content_mode") == "ad":
-        raise BadRequestError("ad_grid_not_supported")
-    # 宫格开关是入队的唯一闸门，与 SDK 工具同用一个谓词：未开宫格（含 reference_video 路线）
-    # 的项目直接拒绝，不让 HTTP 直调绕过开关产生计费任务
-    if not grid_storyboard_enabled(project):
-        raise BadRequestError("grid_storyboard_not_enabled")
-    # 路径穿越等非法 script_file 是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
-    # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500
-    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=req.script_file)):
-        script = get_project_manager().load_script(project_name, req.script_file)
+    # 广告/短片项目与关闭宫格开关的项目在此一并拒绝：写入边界（create/PATCH 拒 ad 开启
+    # grid_storyboard）之外，动作端点再设一道防线，不让 HTTP 直调绕过开关产生计费任务
+    project = _load_project_for_grid_write(project_name)
+    # 路径穿越、解绑、集号失配均是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
+    # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500。
+    script = _load_admitted_grid_script(project_name, project, req.script_file, episode)
     project_path = get_project_manager().get_project_path(project_name)
 
     items, id_field, _, _, _ = get_storyboard_items(script)
-    # project.json 中 aspect_ratio/style 允许显式写入 null（Pydantic 模型为 str | None），
-    # dict.get(key, default) 遇到值为 None 的既有 key 不会回退默认值，须显式判空
-    raw_aspect_ratio = project.get("aspect_ratio")
-    aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
+    aspect_ratio = video_aspect_ratio_of(project)
+    # style 同样允许显式 null，须显式判空而非依赖 dict.get 的默认值
     raw_style = project.get("style")
     style = raw_style if raw_style is not None else ""
 
@@ -131,43 +132,23 @@ async def generate_grid(
     queue = get_generation_queue()
     gm = GridManager(project_path)
 
-    # Pre-load existing grids for cleanup
-    existing_grids = gm.list_all()
-
     for group in groups:
         all_scene_ids = [item[id_field] for item in group]
-        n = len(all_scene_ids)
-        layout = calculate_grid_layout(n, aspect_ratio, allow_large_grid=allow_large_grid)
-        if layout is None:
+        # 超上限分组切为多张宫格批次（末批不足一档时落小档 + 占位格），
+        # 切块与预览、费用估算、SDK 工具同源（plan_grid_chunks）；
+        # 空分组是唯一的空产出，此时连旧记录清理也一并跳过。
+        plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
+        if not plans:
             continue
 
-        # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid）
-        # 跳过 pending/generating 状态的记录，避免 worker 执行时找不到资源
-        group_id_set = set(all_scene_ids)
-        for old_grid in existing_grids:
-            if (
-                old_grid.script_file == req.script_file
-                and old_grid.episode == episode
-                and old_grid.status not in ("pending", "generating")
-                and old_grid.scene_ids
-                and set(old_grid.scene_ids) <= group_id_set
-            ):
-                gm.delete(old_grid.id)
+        # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid；
+        # 跳过 pending/generating 状态的记录，避免 worker 执行时找不到资源）。
+        # 规则唯一定义在 GridManager.cleanup_superseded，HTTP 路由与 SDK 工具
+        # (generate_grid) 两条路径共用同一实现。
+        gm.cleanup_superseded(req.script_file, episode, set(all_scene_ids))
 
-        # 将大分组拆分为多个宫格批次（余下不足一档的场景用小一档 + 占位符）
-        chunks: list[list] = []
-        if n > layout.cell_count:
-            for i in range(0, n, layout.cell_count):
-                chunk = group[i : i + layout.cell_count]
-                chunks.append(chunk)
-        else:
-            chunks.append(group)
-
-        for chunk in chunks:
+        for chunk, chunk_layout in plans:
             chunk_ids = [item[id_field] for item in chunk]
-            chunk_layout = calculate_grid_layout(len(chunk_ids), aspect_ratio, allow_large_grid=allow_large_grid)
-            if chunk_layout is None:
-                continue
 
             # provider/model 由 execute_grid_task 在 image lane 解析之后回填，
             # 因为只有 task 层能根据 reference_images 判断走 T2I 还是 I2I 槽
@@ -180,6 +161,7 @@ async def generate_grid(
                 grid_size=chunk_layout.grid_size,
                 provider="",
                 model="",
+                video_aspect_ratio=aspect_ratio,
             )
 
             prompt = build_grid_prompt(
@@ -200,7 +182,7 @@ async def generate_grid(
                 task_type="grid",
                 media_type="image",
                 resource_id=grid.id,
-                payload=_build_grid_task_payload(
+                payload=build_grid_task_payload(
                     prompt=prompt,
                     script_file=req.script_file,
                     scene_ids=chunk_ids,
@@ -293,34 +275,46 @@ async def get_grid(project_name: str, grid_id: str):
 # ==================== 重新生成宫格图 ====================
 
 
-@router.post("/grids/{grid_id}/regenerate")
-async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
-    """重置宫格图状态并重新入队生成任务。"""
+def _load_project_for_grid_write(project_name: str) -> dict:
+    """加载项目并校验宫格写操作闸门；判定与版本还原共用 ``ensure_grid_writable``。"""
     # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
-    # 广告/短片项目不开放宫格分镜：首次提交端点已封禁，重生成端点同样设防,
-    # 否则残留的历史 grid 记录仍可被重新入队。宫格开关关闭后同理——历史 grid 不再可重生成
-    if project.get("content_mode") == "ad":
-        raise BadRequestError("ad_grid_not_supported")
-    if not grid_storyboard_enabled(project):
-        raise BadRequestError("grid_storyboard_not_enabled")
+    ensure_grid_writable(project)
+    return project
+
+
+def _ensure_grid_idle(grid: GridGeneration) -> None:
+    """生成在途（pending/generating）的宫格拒绝切分/上传：worker 完成时会覆写联合图，
+    与刚上传的图或按旧图的切分互相踩踏。"""
+    if grid.status in ("pending", "generating"):
+        raise ConflictError("grid_generation_in_progress", grid_id=grid.id)
+
+
+@router.post("/grids/{grid_id}/regenerate")
+async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
+    """重置宫格图状态并重新入队联合图生成任务（不隐含落格，切分另行显式触发）。"""
+    project = _load_project_for_grid_write(project_name)
     project_path = get_project_manager().get_project_path(project_name)
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)
+    _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
+
+    # 重生成沿用记录上冻结的 rows/cols 与比例。Worker 在执行时从同一份当前剧本、
+    # 风格和冻结布局重建 provider prompt 与 provenance basis，队列里的 prompt 仅作
+    # 兼容字段，不能成为脱离当前 basis 的第二真相源。存量记录没有冻结比例时回落
+    # 到项目当前比例并就地补齐；想按新比例重排的用户须重跑生成规划。
+    aspect_ratio = grid.video_aspect_ratio or video_aspect_ratio_of(project)
+    grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
 
     grid.status = "pending"
     grid.error_message = None
     # 清空旧 metadata，由 execute_grid_task 按 needs_i2i 重新回填
     grid.provider = ""
     grid.model = ""
+    # 存量记录的冻结值在此补齐；已有冻结值时是恒等写入
+    grid.video_aspect_ratio = aspect_ratio
     gm.save(grid)
-
-    raw_aspect_ratio = project.get("aspect_ratio")
-    aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
-    # 重生成沿用记录自身的 rows/cols（含存量非方形记录）与冻结的 prompt，整图比例按该记录写入时的
-    # 取值给出，与 prompt 描述的画布一致，不重走档位阶梯
-    grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
 
     queue = get_generation_queue()
     task = await queue.enqueue_task(
@@ -328,7 +322,7 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
         task_type="grid",
         media_type="image",
         resource_id=grid.id,
-        payload=_build_grid_task_payload(
+        payload=build_grid_task_payload(
             prompt=grid.prompt,
             script_file=grid.script_file,
             scene_ids=grid.scene_ids,
@@ -344,3 +338,152 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     )
 
     return {"success": True, "task_id": task["task_id"], "deduped": task.get("deduped", False)}
+
+
+# ==================== 切分落格 ====================
+
+
+@router.post("/grids/{grid_id}/split")
+async def split_grid(project_name: str, grid_id: str):
+    """按当前联合图切分并覆写各分镜格——唯一覆写分镜格的操作，直接执行不设确认。
+
+    逐格覆写前旧文件补登版本、覆写后登记新版本；frame_chain 中已不在剧本内的
+    scene id 跳过（missing_scene_ids 返回）。切坏可在分镜格的版本史逐格回滚。
+    """
+    _load_project_for_grid_write(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
+    grid = _load_grid_or_404(project_path, grid_id)
+    _ensure_grid_idle(grid)
+    if not grid.grid_image_path or not GridManager(project_path).image_path(grid_id).exists():
+        raise BadRequestError("grid_image_not_ready", grid_id=grid_id)
+
+    try:
+        with project_change_source("webui"):
+            result = await apply_grid_split(project_name, grid)
+    except GridImageNotReadyError as exc:
+        # 服务侧兜底（与上方预检间存在文件被并发删除的窗口）
+        raise BadRequestError("grid_image_not_ready", grid_id=grid_id) from exc
+
+    return {
+        "success": True,
+        "split_at": grid.split_at,
+        "updated_scene_ids": result.updated_scene_ids,
+        "missing_scene_ids": result.missing_scene_ids,
+        "asset_fingerprints": result.asset_fingerprints,
+    }
+
+
+# ==================== 联合图上传 ====================
+
+
+@router.post("/grids/{grid_id}/upload")
+async def upload_grid_image(
+    project_name: str,
+    grid_id: str,
+    _t: Translator,
+    file: UploadFile = File(...),
+):
+    """上传联合图替换当前宫格图。
+
+    仅做格式归一化（转 PNG、EXIF 方向矫正，不缩放不校验 rows×cols 布局，
+    布局正确性由用户自行负责），登记为一个新的 grids 版本；不触发切分、
+    不触碰任何分镜格。
+    """
+    project = _load_project_for_grid_write(project_name)
+    project_path = get_project_manager().get_project_path(project_name)
+    grid = _load_grid_or_404(project_path, grid_id)
+    _ensure_grid_idle(grid)
+    aspect_ratio = video_aspect_ratio_of(project)
+
+    try:
+        max_bytes = validate_upload(file.filename, file.size, kind="image")
+        # 限定读入内存的字节数：Content-Length 缺失/被绕过时不至于 OOM
+        content = await file.read(max_bytes + 1)
+        if len(content) > max_bytes:
+            raise UploadTooLargeError(max_bytes)
+    except UploadValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params))
+    try:
+        png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content, max_long_edge=None)
+    except ImagePixelLimitError:
+        raise BadRequestError("image_pixels_too_large", max_megapixels=MAX_UPLOAD_PIXELS // 1_000_000)
+    except ValueError:
+        raise BadRequestError("invalid_image_file")
+
+    grid_manager = GridManager(project_path)
+    target = grid_manager.image_path(grid_id)
+    versions = VersionManager(project_path)
+
+    with project_change_source("webui"):
+        staged_file = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
+        try:
+
+            def _commit() -> int:
+                version_box: list[int] = []
+
+                def _replace_record(current_grid: GridGeneration) -> None:
+                    _ensure_grid_idle(current_grid)
+                    # 手动补图等价于一次成功的联合图产出：failed 记录就此回到就绪态；
+                    # 联合图内容已变更，split_at 清空表示「待显式切分」。
+                    current_grid.mark_composite_replaced()
+                    # 上传按项目当前比例排布，冻结值随之改写；沿用旧值会在项目比例
+                    # 改过之后把新图按旧比例中心裁切。
+                    current_grid.video_aspect_ratio = aspect_ratio
+
+                def _activate() -> None:
+                    basis = resolve_current_resource_artifact_basis(
+                        project_path,
+                        resource_type="grids",
+                        resource_id=grid_id,
+                    )
+                    metadata: dict[str, object] = {"source": UPLOAD_VERSION_SOURCE}
+                    if file.filename:
+                        metadata["original_filename"] = file.filename
+                    if basis is not None:
+                        metadata[IMAGE_ARTIFACT_BASIS_FIELD] = basis.to_evidence_dict()
+
+                    def _register() -> None:
+                        register_current_resource_artifact(
+                            project_path,
+                            resource_type="grids",
+                            resource_id=grid_id,
+                            basis=basis,
+                        )
+
+                    version_box.append(
+                        versions.commit_staged_version(
+                            resource_type="grids",
+                            resource_id=grid_id,
+                            prompt="",
+                            staged_file=staged_file,
+                            current_file=target,
+                            on_commit=_register,
+                            **metadata,
+                        )
+                    )
+
+                committed = grid_manager.update_formal(grid_id, _replace_record, on_commit=_activate)
+                if committed is None or len(version_box) != 1:
+                    raise RuntimeError("grid upload metadata commit skipped staged activation")
+                return version_box[0]
+
+            version = await run_noninterruptible_sync(_commit)
+        finally:
+            await asyncio.to_thread(staged_file.unlink, missing_ok=True)
+
+        from server.services.generation_tasks import emit_generation_success_batch
+
+        fingerprints = await asyncio.to_thread(
+            emit_generation_success_batch,
+            task_type="grid",
+            project_name=project_name,
+            resource_id=grid_id,
+            payload={"script_file": grid.script_file},
+        )
+
+    return {
+        "success": True,
+        "path": f"grids/{grid_id}.png",
+        "version": version,
+        "asset_fingerprints": fingerprints,
+    }

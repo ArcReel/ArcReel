@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Turn } from "@/types";
-import { composeAllTurns } from "./utils";
+import { canEditUserTurn, composeAllTurns, turnImageAttachments, turnPlainText } from "./utils";
 
 const userTurn: Turn = {
   type: "user",
@@ -52,5 +52,102 @@ describe("composeAllTurns", () => {
 
   it("handles empty turns with draft", () => {
     expect(composeAllTurns([], assistantDraft)).toEqual([assistantDraft]);
+  });
+});
+
+describe("turnPlainText", () => {
+  it("joins text blocks and ignores non-text blocks", () => {
+    const turn: Turn = {
+      type: "user",
+      uuid: "u-9",
+      content: [
+        { type: "text", text: "第一段" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "x" } },
+        { type: "text", text: "第二段" },
+      ],
+    };
+    expect(turnPlainText(turn)).toBe("第一段\n\n第二段");
+  });
+});
+
+describe("turnImageAttachments", () => {
+  it("takes image blocks back to the transport shape, in block order", () => {
+    const turn: Turn = {
+      type: "user",
+      uuid: "u-10",
+      content: [
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+        { type: "text", text: "按图改" },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "BBBB" } },
+      ],
+    };
+    expect(turnImageAttachments(turn)).toEqual([
+      { data: "AAAA", media_type: "image/png" },
+      { data: "BBBB", media_type: "image/jpeg" },
+    ]);
+  });
+
+  it("gives an empty list for a text-only turn", () => {
+    expect(turnImageAttachments(userTurn)).toEqual([]);
+  });
+
+  it("drops image blocks that carry no base64 payload", () => {
+    const turn: Turn = {
+      type: "user",
+      uuid: "u-11",
+      content: [
+        { type: "image" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+      ],
+    };
+    expect(turnImageAttachments(turn)).toEqual([{ data: "AAAA", media_type: "image/png" }]);
+  });
+});
+
+describe("canEditUserTurn", () => {
+  const idle = { sessionStatus: null, hasPendingQuestion: false, isSending: false } as const;
+
+  it("allows editing a settled user message", () => {
+    expect(canEditUserTurn(userTurn, idle)).toBe(true);
+  });
+
+  it("rejects assistant and system turns", () => {
+    expect(canEditUserTurn(assistantDraft, idle)).toBe(false);
+    expect(canEditUserTurn(interruptTurn, idle)).toBe(false);
+  });
+
+  it("rejects a turn without uuid — there is no anchor to rewrite from", () => {
+    expect(canEditUserTurn({ ...userTurn, uuid: undefined }, idle)).toBe(false);
+  });
+
+  it("rejects question answers — they are questionnaire receipts, not user messages", () => {
+    const answerTurn: Turn = {
+      type: "user",
+      uuid: "u-2",
+      content: [{ type: "question_answer", answers: { "格式？": "摘要" }, text: "摘要" }],
+    };
+    expect(canEditUserTurn(answerTurn, idle)).toBe(false);
+  });
+
+  it("allows a user turn with an image attachment and no plain text", () => {
+    const imageOnly: Turn = {
+      type: "user",
+      uuid: "u-3",
+      content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "x" } }],
+    };
+    expect(canEditUserTurn(imageOnly, idle)).toBe(true);
+  });
+
+  it("hides the entry while the agent is running", () => {
+    expect(canEditUserTurn(userTurn, { ...idle, sessionStatus: "running" })).toBe(false);
+  });
+
+  it("hides the entry while a question card is pending", () => {
+    expect(canEditUserTurn(userTurn, { ...idle, hasPendingQuestion: true })).toBe(false);
+  });
+
+  it("hides sibling entries while a send or rewrite is in flight", () => {
+    // 放行的话，点别处的编辑会顶掉正在提交的编辑器，草稿随之消失
+    expect(canEditUserTurn(userTurn, { ...idle, isSending: true })).toBe(false);
   });
 });

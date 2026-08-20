@@ -19,6 +19,8 @@ from typing import Any
 from server.agent_runtime.event_log import (
     ENTRY_SUBTYPE_AGENT_TURN_FAILURE,
     ENTRY_TYPE_ASSISTANT,
+    REPLAYED_USER_ECHO_ENTRY_UUID_KEY,
+    REPLAYED_USER_ECHO_KEY,
     EventLogStore,
     SdkMessageNormalizer,
     build_interrupt_entry,
@@ -291,6 +293,12 @@ class SessionEntryPipeline:
             self._broadcast({"type": "log_turn_complete", "session_id": session_id})
             return
 
+        if msg_dict.get(REPLAYED_USER_ECHO_KEY):
+            # 回放副本不产生条目（定型器直接返回空），但它是唯一携带 transcript
+            # entry 身份的地方：在此把身份映射落库，随后照常丢弃。
+            await self._record_user_message_link(session_id, msg_dict)
+            return
+
         entries = self._normalizer.normalize(
             msg_dict,
             project_name=self._project_name_provider(),
@@ -301,6 +309,26 @@ class SessionEntryPipeline:
         if not entries:
             return
         await self._append_normalized(session_id, entries)
+
+    async def _record_user_message_link(self, session_id: str, msg_dict: dict[str, Any]) -> None:
+        """落库「服务端用户消息 id ↔ SDK transcript entry uuid」映射。
+
+        两个 id 任一缺席（条目尚未分配身份、或 SDK 未在回放副本上带 uuid）时跳过：
+        映射是消息改写定位锚点的可选增强，缺失只让该条消息不可作为改写锚点，
+        不影响时间线本身。落库失败同理只记日志。
+        """
+        entry_uuid = msg_dict.get(REPLAYED_USER_ECHO_ENTRY_UUID_KEY)
+        sdk_entry_uuid = msg_dict.get("uuid")
+        if not entry_uuid or not sdk_entry_uuid:
+            return
+        try:
+            await self._store.record_user_message_link(session_id, str(entry_uuid), str(sdk_entry_uuid))
+        except Exception:
+            logger.exception(
+                "用户消息身份映射落库失败 session_id=%s user_entry_uuid=%s",
+                session_id,
+                entry_uuid,
+            )
 
     async def _append_normalized(self, session_id: str, entries: list[dict[str, Any]]) -> None:
         if not entries:

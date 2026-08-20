@@ -1,5 +1,6 @@
 """Tests for generation_queue_client async functions."""
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -12,6 +13,7 @@ from lib.generation_queue_client import (
     TaskWaitTimeoutError,
     WorkerOfflineError,
     batch_enqueue_and_wait_sync,
+    batch_enqueue_only,
     enqueue_and_wait,
     enqueue_task_only,
     wait_for_task,
@@ -34,6 +36,20 @@ class TestTaskSpecFromRequest:
         assert spec.resource_id == "S01"
         assert spec.script_file == "episode_1.json"
         assert spec.payload == {"prompt": "一个奔跑的镜头", "script_file": "episode_1.json"}
+
+    def test_blank_resource_id_is_rejected(self):
+        """纯空白的 resource_id 与空的同样不可用：它会在执行期变成一段空白文件名。"""
+
+        with pytest.raises(TaskSpecValidationError) as excinfo:
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="   ", prompt="镜头平移")
+        assert excinfo.value.code == "resource_id_required"
+
+    def test_path_like_resource_id_is_rejected(self):
+        """带路径片段的 resource_id 在结构守卫处就拒，不留到执行期拼产物路径时才发现。"""
+
+        with pytest.raises(TaskSpecValidationError) as excinfo:
+            TaskSpec.from_request(task_type="video", media_type="video", resource_id="../bad", prompt="镜头平移")
+        assert excinfo.value.code == "invalid_resource_id"
 
     def test_video_action_object_prompt_builds_spec(self):
         prompt = {"action": "转身", "camera_motion": "Static", "dialogue": [{"speaker": "甲", "line": "走"}]}
@@ -128,8 +144,8 @@ class TestTaskSpecFromRequest:
         spec = TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="一位老者")
         assert spec.payload == {"prompt": "一位老者"}
 
-    def test_reference_video_prompt_builds_spec(self):
-        # 参考生视频的 prompt 由 shots[*].text 拼接而成，走默认（非空字符串）分支。
+    def test_reference_video_validates_prompt_without_snapshotting_it(self):
+        # 当前 shots 只在入队守卫点校验；worker 从 script_file + resource_id 重读最新内容。
         spec = TaskSpec.from_request(
             task_type="reference_video",
             media_type="video",
@@ -138,7 +154,7 @@ class TestTaskSpecFromRequest:
             script_file="episode_1.json",
         )
         assert spec.task_type == "reference_video"
-        assert spec.payload == {"prompt": "Shot 1 (3s): @张三 推门", "script_file": "episode_1.json"}
+        assert spec.payload == {"script_file": "episode_1.json"}
 
     def test_reference_video_empty_prompt_rejected(self):
         # 所有 shots[*].text 拼接后只剩空白 → 守卫点拒绝，不再漏到执行层。
@@ -185,8 +201,9 @@ class TestTaskSpecFromRequest:
         assert "reserved" in str(exc.value)
 
     def test_empty_resource_id_rejected(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(TaskSpecValidationError) as excinfo:
             TaskSpec.from_request(task_type="video", media_type="video", resource_id="", prompt="跑")
+        assert excinfo.value.code == "resource_id_required"
 
     def test_extra_payload_cannot_override_reserved_keys(self):
         # extra_payload 携带保留键会绕过单一守卫点，必须拒绝。
@@ -406,6 +423,74 @@ class TestBatchEnqueueAndWaitSync:
 
     @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    def test_enqueue_itself_raising_does_not_abort_the_batch(self, mock_enqueue, mock_wait):
+        """A spec whose enqueue call raises must not orphan the specs after it.
+
+        Before the fix, an exception raised inside the sequential Phase-1 enqueue
+        loop propagated out of ``batch_enqueue_and_wait`` entirely — the caller's
+        ``await`` raised, so no result was returned and every spec in the batch
+        (including ones enqueued before the failure, and every one after it)
+        silently never got a task row, a builder entry, or a caller-visible
+        failure. This asserts the failing spec is instead captured as a
+        never-queued failure while its siblings still get enqueued and awaited.
+        """
+        mock_enqueue.side_effect = [
+            {"task_id": "t1"},
+            RuntimeError("queue backend unavailable"),
+            {"task_id": "t3"},
+        ]
+        mock_wait.side_effect = [
+            {"status": "succeeded", "result": {"file_path": "a.png"}},
+            {"status": "succeeded", "result": {"file_path": "c.png"}},
+        ]
+
+        specs = [
+            TaskSpec(task_type="clue", media_type="image", resource_id="玉佩"),
+            TaskSpec(task_type="clue", media_type="image", resource_id="老槐树"),
+            TaskSpec(task_type="clue", media_type="image", resource_id="铜镜"),
+        ]
+        successes, failures = batch_enqueue_and_wait_sync(
+            project_name="demo",
+            specs=specs,
+        )
+
+        assert {s.resource_id for s in successes} == {"玉佩", "铜镜"}
+        assert len(failures) == 1
+        assert failures[0].resource_id == "老槐树"
+        assert failures[0].task_id == ""
+        assert failures[0].status == "failed"
+        assert "queue backend unavailable" in (failures[0].error or "")
+        # The spec after the failing one is still enqueued and awaited.
+        assert mock_enqueue.call_count == 3
+        assert mock_wait.call_count == 2
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    def test_dependent_spec_skipped_when_its_dependency_fails_to_enqueue(self, mock_enqueue, mock_wait):
+        """A dependency chain must not enqueue a follower onto a never-queued task."""
+        mock_enqueue.side_effect = [RuntimeError("queue backend unavailable")]
+
+        specs = [
+            TaskSpec(task_type="storyboard", media_type="image", resource_id="S01"),
+            TaskSpec(
+                task_type="storyboard",
+                media_type="image",
+                resource_id="S02",
+                dependency_resource_id="S01",
+                dependency_group="ep1:group:1",
+                dependency_index=1,
+            ),
+        ]
+        successes, failures = batch_enqueue_and_wait_sync(project_name="demo", specs=specs)
+
+        assert successes == []
+        assert {f.resource_id for f in failures} == {"S01", "S02"}
+        # S02 never attempts an enqueue call once its dependency failed.
+        assert mock_enqueue.call_count == 1
+        assert mock_wait.call_count == 0
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
     def test_wait_exception_becomes_failure(self, mock_enqueue, mock_wait):
         mock_enqueue.return_value = {"task_id": "t1"}
         mock_wait.side_effect = RuntimeError("connection lost")
@@ -495,3 +580,145 @@ class TestBatchEnqueueAndWaitSync:
 
         assert len(success_ids) == 1
         assert len(failure_ids) == 1
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    def test_wait_timeout_is_reported_as_interrupted_not_failed(self, mock_enqueue, mock_wait):
+        """A cut-short wait (task still non-terminal on the worker side) must not
+        be indistinguishable from a provider-judged failure — that would tell a
+        caller to retry a task that may still complete, risking a duplicate paid
+        submission."""
+
+        mock_enqueue.side_effect = [{"task_id": "t1"}]
+        mock_wait.side_effect = [TaskWaitTimeoutError("timed out waiting for task 't1' after 3600.0s")]
+
+        specs = [TaskSpec(task_type="clue", media_type="image", resource_id="玉佩")]
+        successes, failures = batch_enqueue_and_wait_sync(project_name="demo", specs=specs)
+
+        assert successes == []
+        assert len(failures) == 1
+        assert failures[0].resource_id == "玉佩"
+        assert failures[0].task_id == "t1"
+        assert failures[0].status == "interrupted"
+        assert "timed out" in (failures[0].error or "")
+
+    @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    def test_worker_offline_during_wait_is_reported_as_interrupted_not_failed(self, mock_enqueue, mock_wait):
+        mock_enqueue.side_effect = [{"task_id": "t1"}]
+        mock_wait.side_effect = [WorkerOfflineError("queue worker offline while waiting for task 't1'")]
+
+        specs = [TaskSpec(task_type="clue", media_type="image", resource_id="玉佩")]
+        _successes, failures = batch_enqueue_and_wait_sync(project_name="demo", specs=specs)
+
+        assert len(failures) == 1
+        assert failures[0].status == "interrupted"
+
+
+class TestBatchEnqueueOnly:
+    """入队中断不撤销已创建的任务，没轮到的目标逐 ID 报出来。"""
+
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_creates_every_task_and_reports_dedup_per_resource(self, mock_enqueue):
+        mock_enqueue.side_effect = [
+            {"task_id": "t1", "deduped": False},
+            {"task_id": "t2", "deduped": True},
+        ]
+        specs = [
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U1"),
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U2"),
+        ]
+
+        enqueued, failures = await batch_enqueue_only(project_name="demo", specs=specs)
+
+        assert [(item.resource_id, item.task_id, item.deduped) for item in enqueued] == [
+            ("E1U1", "t1", False),
+            ("E1U2", "t2", True),
+        ]
+        assert failures == []
+
+    @patch("lib.generation_queue_client.get_generation_queue")
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_keeps_created_tasks_and_reports_the_rest_when_a_spec_fails(self, mock_enqueue, mock_queue):
+        """已创建的任务是准入通过的完整付费单元：不撤销，照常执行。"""
+
+        mock_enqueue.side_effect = [
+            {"task_id": "t1", "deduped": False},
+            RuntimeError("queue unavailable"),
+        ]
+        cancelled: list[str] = []
+
+        class _Queue:
+            async def cancel_task(self, task_id: str) -> dict[str, Any]:
+                cancelled.append(task_id)
+                return {"cancelled": [{"task_id": task_id, "status": "cancelled"}], "cancelling": []}
+
+        mock_queue.return_value = _Queue()
+        specs = [
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U1"),
+            TaskSpec(task_type="reference_video", media_type="video", resource_id="E1U2"),
+        ]
+
+        enqueued, failures = await batch_enqueue_only(project_name="demo", specs=specs)
+
+        assert cancelled == []
+        assert [item.resource_id for item in enqueued] == ["E1U1"]
+        assert [(f.resource_id, f.task_id, f.enqueue_interrupted) for f in failures] == [("E1U2", "", True)]
+        assert "queue unavailable" in (failures[0].error or "")
+
+    @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+    async def test_specs_after_the_interruption_are_reported_without_another_attempt(self, mock_enqueue):
+        """中断后不再逐个重试：同一个系统性故障会被撞 N 次，结果还是一个都建不出来。"""
+
+        mock_enqueue.side_effect = [
+            {"task_id": "t1", "deduped": False},
+            RuntimeError("queue unavailable"),
+        ]
+        specs = [
+            TaskSpec(task_type="reference_video", media_type="video", resource_id=rid)
+            for rid in ("E1U1", "E1U2", "E1U3")
+        ]
+
+        enqueued, failures = await batch_enqueue_only(project_name="demo", specs=specs)
+
+        assert mock_enqueue.await_count == 2
+        assert [item.resource_id for item in enqueued] == ["E1U1"]
+        assert [f.resource_id for f in failures] == ["E1U2", "E1U3"]
+        assert all(f.enqueue_interrupted for f in failures)
+        assert "E1U2" in (failures[1].error or "")
+
+
+@pytest.mark.unit
+async def test_batch_enqueue_only_keeps_created_tasks_when_the_caller_is_cancelled(monkeypatch):
+    """调用方在中途被取消：取消语义原样上抛，已创建的任务留在队列里照常执行。"""
+    import asyncio as _asyncio
+
+    from lib import generation_queue_client as mod
+
+    created: list[str] = []
+    cancelled: list[str] = []
+
+    async def fake_enqueue(**kwargs):
+        if kwargs["resource_id"] == "S02":
+            raise _asyncio.CancelledError
+        created.append(kwargs["resource_id"])
+        return {"task_id": f"t-{kwargs['resource_id']}", "deduped": False}
+
+    class _FakeQueue:
+        async def cancel_task(self, task_id: str):
+            cancelled.append(task_id)
+            return {"cancelled": [{"task_id": task_id}], "cancelling": [], "skipped_terminal": []}
+
+    monkeypatch.setattr(mod, "enqueue_task_only", fake_enqueue)
+    monkeypatch.setattr(mod, "get_generation_queue", lambda: _FakeQueue())
+
+    specs = [
+        TaskSpec.from_request(task_type="video", media_type="video", resource_id=rid, prompt="跑")
+        for rid in ("S01", "S02")
+    ]
+
+    with pytest.raises(_asyncio.CancelledError):
+        await mod.batch_enqueue_only(project_name="demo", specs=specs)
+
+    assert created == ["S01"]
+    assert cancelled == []

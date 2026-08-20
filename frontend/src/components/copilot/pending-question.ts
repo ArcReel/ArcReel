@@ -1,7 +1,7 @@
 import type { PendingQuestion } from "@/types";
 
-export const ASSISTANT_OTHER_OPTION_VALUE = "__assistant_option_other__";
-export const ASSISTANT_OTHER_OPTION_LABEL = "其他";
+const ASSISTANT_OTHER_OPTION_VALUE = "__assistant_option_other__";
+const ASSISTANT_OTHER_OPTION_LABEL = "其他";
 
 type Question = PendingQuestion["questions"][number];
 

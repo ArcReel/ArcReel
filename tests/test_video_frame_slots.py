@@ -6,7 +6,13 @@ import pytest
 
 from lib.reference_compression import RefRole
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
-from lib.video_frame_slots import gate_video_request, plan_frame_slots, resolve_video_capabilities
+from lib.video_frame_slots import (
+    FIRST_FRAME_ADAPTIVE_RATIO,
+    gate_video_request,
+    plan_frame_slots,
+    resolve_first_frame_aspect_ratio,
+    resolve_video_capabilities,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -301,3 +307,33 @@ class TestGateAndAssemblySeparation:
         plan = plan_frame_slots(start_image=Path("start.png"), end_image=Path("end.png"))
 
         assert (plan.start_index, plan.end_index) == (0, 1)
+
+
+class TestResolveFirstFrameAspectRatio:
+    CAPS_ADAPTIVE_ONLY = VideoCapabilities(first_frame_ratio_adaptive_only=True)
+
+    def test_declared_constraint_with_first_frame_forces_adaptive(self):
+        ratio = resolve_first_frame_aspect_ratio(
+            caps=self.CAPS_ADAPTIVE_ONLY, aspect_ratio="9:16", has_first_frame=True
+        )
+
+        assert ratio == FIRST_FRAME_ADAPTIVE_RATIO
+
+    def test_declared_constraint_without_first_frame_passes_through(self):
+        """无首帧（纯文生 / 仅参考图）不受该约束影响，原样透传用户比例。"""
+        ratio = resolve_first_frame_aspect_ratio(
+            caps=self.CAPS_ADAPTIVE_ONLY, aspect_ratio="9:16", has_first_frame=False
+        )
+
+        assert ratio == "9:16"
+
+    def test_default_caps_unaffected(self):
+        """默认 False：既有模型请求 payload 不变。"""
+        ratio = resolve_first_frame_aspect_ratio(caps=CAPS_WITH_LAST_FRAME, aspect_ratio="16:9", has_first_frame=True)
+
+        assert ratio == "16:9"
+
+    def test_none_caps_passes_through(self):
+        ratio = resolve_first_frame_aspect_ratio(caps=None, aspect_ratio="1:1", has_first_frame=True)
+
+        assert ratio == "1:1"

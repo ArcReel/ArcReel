@@ -20,6 +20,12 @@ vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
   ),
 }));
 
+vi.mock("@/components/shared/PresentationPlayer", () => ({
+  PresentationPlayer: ({ resourceId }: { resourceId: string }) => (
+    <div data-testid="presentation-player" data-resource-id={resourceId} />
+  ),
+}));
+
 function versionMachineBusy(): boolean {
   return screen.getByTestId("version-time-machine").dataset.busy === "true";
 }
@@ -27,8 +33,7 @@ function versionMachineBusy(): boolean {
 function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: "E1U1",
-    shots: [{ text: "x" }],
-    references: [],
+    text: "x",
     duration_seconds: 3,
     transition_to_next: "cut",
     note: null,
@@ -57,7 +62,7 @@ describe("UnitPreviewPanel", () => {
     expect(screen.getByText(/Not yet generated|尚未生成/)).toBeInTheDocument();
   });
 
-  it("renders <video> when video_clip is present", () => {
+  it("renders the shared presentation when video_clip is present", () => {
     const unit = mkUnit({
       generated_assets: {
         ...mkUnit().generated_assets,
@@ -65,10 +70,8 @@ describe("UnitPreviewPanel", () => {
         video_clip: "reference_videos/E1U1.mp4",
       },
     });
-    const { container } = render(
-      <UnitPreviewPanel unit={unit} projectName="proj" />,
-    );
-    expect(container.querySelector("video")).toBeInTheDocument();
+    render(<UnitPreviewPanel unit={unit} projectName="proj" />);
+    expect(screen.getByTestId("presentation-player")).toHaveAttribute("data-resource-id", "E1U1");
   });
 
   it("invokes onUploadVideo with unit id and selected file", () => {
@@ -100,6 +103,27 @@ describe("UnitPreviewPanel", () => {
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     const button = input?.nextElementSibling as HTMLButtonElement;
     expect(button).toBeDisabled();
+  });
+
+  it("keeps retained narration audio visible after the unit loses narration", () => {
+    const unit = mkUnit({
+      generated_assets: {
+        ...mkUnit().generated_assets,
+        narration_audio: "audio/segment_E1U1.wav",
+      },
+    });
+
+    const { container } = render(
+      <UnitPreviewPanel
+        unit={unit}
+        projectName="proj"
+        narrationText=""
+        onGenerateNarration={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('audio[src*="audio/segment_E1U1.wav"]')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Regenerate narration|重新生成旁白/ })).toBeDisabled();
   });
 
   // 版本恢复与生成回写同一个成片文件：占用期间恢复旧版本会显示成功、随后被在跑的

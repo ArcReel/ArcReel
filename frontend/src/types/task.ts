@@ -33,6 +33,9 @@ export interface TaskItem {
   status: TaskStatus;
   result: Record<string, unknown> | null;
   error_message: string | null;
+  /** Present when error_message was stored as a machine-encoded task failure. */
+  error_code?: string;
+  error_params?: Record<string, unknown>;
   cancelled_by: "user" | "cascade" | null;
   provider_id: string | null;
   provider_job_id: string | null;

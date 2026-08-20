@@ -9,7 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lib.path_safety import safe_join, try_safe_join
+from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script_editor import resolve_items
+from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETONS
 
 
@@ -20,6 +22,18 @@ class StoryboardTaskPlan:
     dependency_resource_id: str | None
     dependency_group: str
     dependency_index: int
+
+
+class StoryboardImageUnavailable(ValueError):
+    """The storyboard required for video input is unavailable."""
+
+
+class StoryboardImageBindingRequired(StoryboardImageUnavailable):
+    """A manifest-active project cannot infer a formal storyboard by filename."""
+
+
+class EndFrameImageUnavailable(ValueError):
+    """The optional end-frame binding is invalid or its snapshot is unavailable."""
 
 
 PREVIOUS_STORYBOARD_REFERENCE_LABEL = "上一分镜图（镜头衔接参考）"
@@ -48,12 +62,11 @@ def get_storyboard_items(script: dict) -> tuple[list[dict], str, str | None, str
     异常上冒，避免脏数据被静默吞成 ``TypeError: 'NoneType' is not iterable``。
     """
     items, id_field, kind = resolve_items(script)
-    if kind == "video_units":
-        unit = SKELETONS["video_units"]
-        return ([], unit.id_field, unit.chars_field, "scenes", "props")
-
-    # 角色引用字段名改查 SKELETONS 单一真相源（video_units→None 强制显式决策）。
+    # 角色引用字段名查 SKELETONS 单一真相源（video_units→None 强制显式决策）；id_field 由
+    # resolve_items 按同一 kind 一并给出，各分支共用。
     char_field = SKELETONS[kind].chars_field
+    if kind == "video_units":
+        return ([], id_field, char_field, "scenes", "props")
     return (items, id_field, char_field, "scenes", "props")
 
 
@@ -105,6 +118,50 @@ def resolve_storyboard_image_ref(project_path: Path, storyboard_rel: object) -> 
     return storyboard_file
 
 
+def resolve_storyboard_video_inputs(
+    *,
+    project_path: Path,
+    resource_id: str,
+    item: dict[str, object],
+) -> tuple[Path, Path | None]:
+    """Resolve the exact current storyboard and optional canonical end frame.
+
+    The recorded binding is the only evidence of which image belongs to this
+    resource; a resource without one is refused rather than matched against a
+    same-named file that nothing claims.
+    """
+
+    storyboard_rel = get_generated_assets(item).get("storyboard_image")
+    storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
+    if storyboard_file is None:
+        raise StoryboardImageBindingRequired(f"storyboard binding missing: {resource_id}")
+    if not storyboard_file.is_file():
+        raise StoryboardImageUnavailable(f"storyboard not found: {storyboard_file.name}")
+
+    end_frame_rel = item.get("end_frame_image")
+    if end_frame_rel in (None, ""):
+        return storyboard_file, None
+    if not isinstance(end_frame_rel, str):
+        raise EndFrameImageUnavailable(f"invalid end frame snapshot path: {end_frame_rel!r}")
+    normalized = end_frame_rel.strip().replace("\\", "/")
+    candidate = normalized if "/" in normalized else f"{END_FRAME_RESOURCE_TYPE}/{normalized}"
+    expected_rel = resource_relative_path(END_FRAME_RESOURCE_TYPE, resource_id)
+    end_frame_file = try_safe_join(project_path, candidate)
+    expected_file = safe_join(project_path, expected_rel)
+    canonical_path_tampered = False
+    current = project_path
+    for component in Path(expected_rel).parts:
+        current = current / component
+        if current.is_symlink() or current.is_junction():
+            canonical_path_tampered = True
+            break
+    if end_frame_file is None or end_frame_file != expected_file or canonical_path_tampered:
+        raise EndFrameImageUnavailable(f"invalid end frame snapshot path: {end_frame_rel!r}")
+    if not end_frame_file.is_file():
+        raise EndFrameImageUnavailable(f"end frame snapshot not found: {end_frame_file.name}")
+    return storyboard_file, end_frame_file
+
+
 def resolve_previous_storyboard_path(
     project_path: Path,
     items: Sequence[dict],
@@ -124,10 +181,11 @@ def resolve_previous_storyboard_path(
     if not previous_id:
         return None
 
-    previous_path = project_path / "storyboards" / f"scene_{previous_id}.png"
-    if previous_path.exists():
-        return previous_path
-    return None
+    previous_rel = get_generated_assets(previous_item).get("storyboard_image")
+    if previous_rel in (None, ""):
+        return None
+    previous_path = resolve_storyboard_image_ref(project_path, previous_rel)
+    return previous_path if previous_path is not None and previous_path.is_file() else None
 
 
 def build_previous_storyboard_reference(path: Path) -> dict:

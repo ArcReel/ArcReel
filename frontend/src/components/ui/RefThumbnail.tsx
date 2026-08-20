@@ -8,6 +8,7 @@ import type { Character, Prop, Scene } from "@/types";
 import { type AssetKind, SHEET_FIELD } from "@/types/reference-video";
 import { colorForName } from "@/utils/color";
 
+type ThumbnailAssetKind = Exclude<AssetKind, "product">;
 type Asset = Character | Scene | Prop;
 
 interface KindMeta {
@@ -20,7 +21,7 @@ interface KindMeta {
     | "segment_refs_badge_prop";
 }
 
-const KIND_META: Record<AssetKind, KindMeta> = {
+const KIND_META: Record<ThumbnailAssetKind, KindMeta> = {
   character: {
     shape: "rounded-full",
     Icon: User,
@@ -42,7 +43,7 @@ const KIND_META: Record<AssetKind, KindMeta> = {
 };
 
 export function getSheetPath(
-  kind: AssetKind,
+  kind: ThumbnailAssetKind,
   asset: Asset | undefined,
 ): string | undefined {
   if (!asset) return undefined;
@@ -58,7 +59,7 @@ function RefPopover({
   anchorRef,
   sheetFp,
 }: {
-  kind: AssetKind;
+  kind: ThumbnailAssetKind;
   name: string;
   asset: Asset;
   projectName: string;
@@ -119,7 +120,7 @@ export function RefThumbnail({
   asset,
   projectName,
 }: {
-  kind: AssetKind;
+  kind: ThumbnailAssetKind;
   name: string;
   asset: Asset | undefined;
   projectName: string;

@@ -25,6 +25,7 @@ const PROVIDERS: ProviderInfo[] = [
         duration_resolution_constraints: {},
         resolutions: [],
         has_audio_track: true,
+        audio_switch_controllable: true,
         voice_consistency: "soft",
       },
     },
@@ -48,6 +49,7 @@ const PROVIDERS: ProviderInfo[] = [
         duration_resolution_constraints: {},
         resolutions: [],
         has_audio_track: true,
+        audio_switch_controllable: true,
         voice_consistency: "soft",
       },
     },
@@ -601,6 +603,7 @@ describe("ModelConfigSection", () => {
             duration_resolution_constraints: {},
             resolutions: [],
             has_audio_track: true,
+            audio_switch_controllable: true,
             voice_consistency: "soft",
           },
         },
@@ -750,6 +753,7 @@ describe("ModelConfigSection", () => {
             duration_resolution_constraints: {},
             resolutions: [],
             has_audio_track: true,
+            audio_switch_controllable: true,
             voice_consistency: "soft",
           },
         },
@@ -801,6 +805,7 @@ describe("ModelConfigSection", () => {
           reference_image_durations: [8],
           resolutions: ["720p", "1080p", "4k"],
           has_audio_track: true,
+          audio_switch_controllable: true,
           voice_consistency: "soft",
         },
       },
@@ -875,5 +880,159 @@ describe("ModelConfigSection", () => {
     renderVeo({ videoResolution: "720p", defaultDuration: 4 });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "4 秒" })).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+describe("音频开关的模型可控性", () => {
+  const AUDIO_PROVIDERS: ProviderInfo[] = [
+    {
+      id: "ark",
+      display_name: "Ark",
+      description: "",
+      status: "ready",
+      media_types: ["video"],
+      capabilities: [],
+      configured_keys: [],
+      missing_keys: [],
+      models: {
+        seedance: {
+          display_name: "seedance",
+          media_type: "video",
+          capabilities: ["generate_audio"],
+          default: false,
+          supported_durations: [5],
+          duration_resolution_constraints: {},
+          resolutions: [],
+          has_audio_track: true,
+          audio_switch_controllable: true,
+          voice_consistency: "soft",
+        },
+      },
+    },
+    {
+      id: "dashscope",
+      display_name: "DashScope",
+      description: "",
+      status: "ready",
+      media_types: ["video"],
+      capabilities: [],
+      configured_keys: [],
+      missing_keys: [],
+      models: {
+        wan: {
+          display_name: "wan",
+          media_type: "video",
+          capabilities: [],
+          default: false,
+          supported_durations: [5],
+          duration_resolution_constraints: {},
+          resolutions: [],
+          has_audio_track: true,
+          audio_switch_controllable: false,
+          voice_consistency: "soft",
+        },
+      },
+    },
+    {
+      id: "minimax",
+      display_name: "MiniMax",
+      description: "",
+      status: "ready",
+      media_types: ["video"],
+      capabilities: [],
+      configured_keys: [],
+      missing_keys: [],
+      models: {
+        "hailuo-02": {
+          display_name: "hailuo-02",
+          media_type: "video",
+          capabilities: [],
+          default: false,
+          supported_durations: [6],
+          duration_resolution_constraints: {},
+          resolutions: [],
+          has_audio_track: false,
+          audio_switch_controllable: false,
+          voice_consistency: "none",
+        },
+      },
+    },
+  ];
+
+  function renderAudio(
+    videoBackend: string,
+    videoGenerateAudio: boolean | null,
+    onVideoGenerateAudioChange = vi.fn(),
+    globalVideoGenerateAudio = true,
+  ) {
+    render(
+      <ModelConfigSection
+        showSubFields={false}
+        value={{ ...EMPTY_VALUE, videoBackend }}
+        onChange={() => {}}
+        providers={AUDIO_PROVIDERS}
+        options={{
+          videoBackends: ["ark/seedance", "dashscope/wan", "minimax/hailuo-02"],
+          imageBackends: [],
+          textBackends: [],
+          providerNames: {},
+        }}
+        globalDefaults={EMPTY_GLOBALS}
+        videoGenerateAudio={videoGenerateAudio}
+        globalVideoGenerateAudio={globalVideoGenerateAudio}
+        onVideoGenerateAudioChange={onVideoGenerateAudioChange}
+        enable={{ image: false, text: false }}
+      />,
+    );
+    return onVideoGenerateAudioChange;
+  }
+
+  it("keeps the switch interactive for a model whose audio track is controllable", async () => {
+    const user = userEvent.setup();
+    const onChange = renderAudio("ark/seedance", null);
+    const off = screen.getByRole("radio", { name: "关闭" });
+    expect(off).toBeEnabled();
+    await user.click(off);
+    expect(onChange).toHaveBeenCalledWith(false);
+    expect(screen.queryByText(/音频开关不可调整/)).not.toBeInTheDocument();
+  });
+
+  it("locks the switch on an always-audible model and shows the film is audible", () => {
+    renderAudio("dashscope/wan", null);
+    expect(screen.getByRole("radio", { name: "关闭" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "开启" })).toBeChecked();
+    expect(screen.getByText(/始终带声音/)).toBeInTheDocument();
+  });
+
+  it("locks the switch on a model without an audio track and shows the film is silent", () => {
+    renderAudio("minimax/hailuo-02", null);
+    expect(screen.getByRole("radio", { name: "开启" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "关闭" })).toBeChecked();
+    expect(screen.getByText(/没有声音/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // 存量配置存了「关闭」而模型关不掉：置灰后仍须留一条修正路径，否则设置改不回来。
+  it("offers a one-click fix when a stored off setting contradicts an always-audible model", async () => {
+    const user = userEvent.setup();
+    const onChange = renderAudio("dashscope/wan", false);
+    expect(screen.getByRole("alert")).toHaveTextContent(/无法关闭声音/);
+    await user.click(screen.getByRole("button", { name: "改为开启" }));
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  // 项目级留空是「跟随全局」：全局为关闭时同样落在恒有声模型上，提示按生效值给，
+  // 否则界面只显示置灰的「开启」，用户要到入队被拒才知道配置有矛盾。
+  it("offers the same fix when the project follows a global off setting", async () => {
+    const user = userEvent.setup();
+    const onChange = renderAudio("dashscope/wan", null, vi.fn(), false);
+    expect(screen.getByRole("alert")).toHaveTextContent(/无法关闭声音/);
+    await user.click(screen.getByRole("button", { name: "改为开启" }));
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("stays quiet when the project follows a global on setting", () => {
+    renderAudio("dashscope/wan", null, vi.fn(), true);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

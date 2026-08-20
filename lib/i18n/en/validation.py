@@ -8,10 +8,13 @@ MESSAGES = {
     "val_missing_field_at": "{prefix}: missing required field {field}",
     "val_field_type_string": "Field type error: {field} must be a string",
     "val_field_type_bool": "Field type error: {field} must be a boolean",
+    "val_field_type_number": "Field type error: {field} must be a number",
+    "val_speech_rate_out_of_range": "{field} value {value} is out of range; it must be between {min} and {max}",
     "val_field_must_be_string": "{field} must be a string",
     "val_field_must_be_string_typed": "{field} must be a string, got {actual}",
     "val_field_must_be_array": "{field} must be an array",
     "val_field_must_be_nonempty_array": "{field} must be a non-empty array",
+    "val_field_must_be_nonempty_string": "{field} must be a non-empty string",
     "val_field_must_be_object": "{field} must be an object",
     "val_field_invalid": "{field} is invalid: {detail}",
     "val_ledger_source_file_not_relative": "source_file must be a project-relative POSIX path",
@@ -54,7 +57,7 @@ MESSAGES = {
         "Ad/short-film projects do not carry default_duration "
         "(shot durations are budgeted per shot against target_duration)"
     ),
-    "val_ad_no_grid_storyboard": "Ad/short-film projects do not support grid storyboards (grid_storyboard)",
+    "val_ad_no_grid_storyboard": "Ad/short-film projects do not support multi-grid storyboards (grid_storyboard)",
     "val_ad_episodes_single": "Ad/short-film projects must always have exactly one episode entry (episode 1)",
     "val_ad_shots_missing": "The ad script is missing the shots array, or it is empty",
     "val_ad_duration_drift": (
@@ -70,6 +73,10 @@ MESSAGES = {
     "val_asset_field_bad_timestamp": "{asset_type} '{name}'.{field} is not a valid ISO8601 timestamp: {value}",
     "val_asset_field_must_be_string_list": "{asset_type} '{name}'.{field} must be a list of strings, got {actual}",
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] must be a string, got {actual}",
+    "val_asset_name_duplicate": (
+        "Duplicate project asset name: {duplicate_type} '{duplicate_name}' conflicts with "
+        "{first_type} '{first_name}' after strip + Unicode NFC normalization"
+    ),
     # ---- item-level references ----
     "val_refs_unregistered": "{prefix}: {field} references {asset_type} entries missing from project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: {field} is missing, defaulting to an empty array",
@@ -104,18 +111,6 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: duplicate unit_id '{value}'",
     "val_video_units_missing": "The reference_video script is missing the video_units array, or it is empty",
     "val_unit_duration_range": "{prefix}: duration_seconds must be an integer between {low} and {high}",
-    "val_reference_entry_must_be_object": "{prefix}: each reference entry must be an object",
-    "val_reference_type_invalid": "{prefix}: invalid reference.type: {value}",
-    "val_reference_name_invalid": "{prefix}: reference.name must be a non-empty string: {value}",
-    "val_reference_not_in_bucket": (
-        "{prefix}: referenced {asset_type} '{name}' is not in the matching project.json bucket"
-    ),
-    "val_ref_type_invalid": "{prefix}: invalid type: {value}",
-    "val_ref_name_invalid": "{prefix}: name must be a non-empty string: {value}",
-    "val_ref_unregistered_regroup": (
-        "{prefix}: referenced {asset_type} “{name}” is not registered; regenerate the grouping"
-    ),
-    "val_reference_units_dangling_shots": ("{prefix}: referenced shots do not exist ({ids}); regenerate the grouping"),
     # ---- skeleton / route mismatch ----
     "val_skeleton_noun_segments": "segments",
     "val_skeleton_noun_scenes": "scenes",
@@ -124,25 +119,25 @@ MESSAGES = {
     "val_route_reference_video": "reference-to-video (reference_video)",
     "val_route_storyboard": "storyboard-to-video (storyboard)",
     "val_skeleton_mismatch_reference_known": (
-        "Script skeleton does not match the project generation route: the route is {route}, which requires the "
+        "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script uses {actual} ({actual_noun}). "
         "Re-run split-reference-video-units to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     "val_skeleton_mismatch_reference_none": (
-        "Script skeleton does not match the project generation route: the route is {route}, which requires the "
+        "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script has no skeleton array at all. "
         "Re-run split-reference-video-units to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     "val_skeleton_mismatch_storyboard_known": (
-        "Script skeleton does not match the project generation route: the route is {route}, which requires the "
+        "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script uses {actual} ({actual_noun}). "
         "Re-run episode splitting (step1) to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
     "val_skeleton_mismatch_storyboard_none": (
-        "Script skeleton does not match the project generation route: the route is {route}, which requires the "
+        "Script skeleton does not match the project generation mode: the mode is {route}, which requires the "
         "{expected} ({expected_noun}) skeleton, but this script has no skeleton array at all. "
         "Re-run episode splitting (step1) to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
@@ -175,8 +170,9 @@ MESSAGES = {
     "arch_missing_asset_definition": (
         "{items_key}[{index}]: {field} references {asset_type} entries missing from project.json: {names}"
     ),
-    "arch_unit_missing_asset_definition": (
-        "video_units[{index}]: references point to {asset_type} entries missing from project.json: {names}"
+    "arch_unit_unresolved_mentions": (
+        "video_units[{index}]: the body mentions asset names missing from project.json: {names}; "
+        "they will not produce reference images"
     ),
     "arch_generated_assets_defaults": "{label}[{index}].generated_assets: filled in default fields {fields}",
     "arch_missing_generated_assets": "{label}[{index}]: filled in the missing field generated_assets",
@@ -191,6 +187,7 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "Invalid conflict policy",
     "arch_conflict_policy_unsupported": "conflict_policy only supports prompt, rename or overwrite; got: {value}",
     "arch_import_validation_failed": "Import package validation failed",
+    "arch_artifact_activation_failed": "The imported project's artifact state is inconsistent",
     "arch_not_a_zip": "The uploaded file is not a valid ZIP archive",
     "arch_zip_encrypted_entry": "The ZIP contains an encrypted entry and cannot be imported: {name}",
     "arch_zip_absolute_path_entry": "The ZIP contains an absolute-path entry: {name}",
