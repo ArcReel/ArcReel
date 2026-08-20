@@ -1121,7 +1121,7 @@ def _reference_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | No
 
 
 def _drama_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式 drama step1 内容 → 隔离草稿装的引用语法形状；不是合法 step1 时返回 None。
+    """正式 drama step1 内容 → 隔离草稿装的场景形状；不是合法 step1 时返回 None。
 
     只剥 ``needs_replan``：它是按台词准入机械派生的标记，让 agent 编辑派生物等于给漂移开
     口子——晋升时照样按 ``content`` 现值重新派生。其余字段原样带过，包括 ``scene_id``：它是
@@ -1334,7 +1334,7 @@ async def _open_drama_step1_for_edit(ctx: ToolContext, episode: int, source: str
 def open_step1_for_edit_tool(ctx: ToolContext):
     @tool(
         STEP1_EDIT_TOOL_NAME,
-        "把本集已落盘的正式 step1 取回可编辑的隔离草稿（引用语法：参考生视频为时长 + 原文锚 + 正文，"
+        "把本集已落盘的正式 step1 取回可编辑的隔离草稿（草稿形状：参考生视频为时长 + 原文锚 + 引用语法正文，"
         "drama 为场景内容），用于修改已有产出。改完调用 "
         f"{PROMOTE_TOOL_NAME} 全量校验并晋升回正式文件。"
         "正式 step1 不可用 Write/Edit 直改——它与 Web 端保存、迁移、重生成共享一把文件锁，"

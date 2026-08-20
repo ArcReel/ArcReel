@@ -22,7 +22,7 @@ class CredentialRepository(BaseRepository):
         access_key: str | None = None,
         secret_key: str | None = None,
     ) -> ProviderCredential:
-        """创建凭证。若为该供应商的第一条，自动设为活跃。"""
+        """创建凭证。若为该供应商的第一条，自动设为生效。"""
         is_first = not await self.has_active_credential(provider)
         cred = ProviderCredential(
             provider=provider,
@@ -72,7 +72,7 @@ class CredentialRepository(BaseRepository):
         return {c.provider: c for c in result.scalars()}
 
     async def activate(self, cred_id: int, provider: str) -> None:
-        """激活指定凭证，同时取消同供应商的其他活跃标记。"""
+        """激活指定凭证，同时取消同供应商的其他生效标记。"""
         await self.session.execute(
             update(ProviderCredential).where(ProviderCredential.provider == provider).values(is_active=False)
         )
@@ -113,7 +113,7 @@ class CredentialRepository(BaseRepository):
             cred.secret_key = secret_key  # type: ignore[assignment]
 
     async def delete(self, cred_id: int) -> None:
-        """删除凭证。若删除的是生效凭证，自动将最早的另一条设为活跃。"""
+        """删除凭证。若删除的是生效凭证，自动将最早的另一条设为生效。"""
         cred = await self.get_by_id(cred_id)
         if cred is None:
             return
