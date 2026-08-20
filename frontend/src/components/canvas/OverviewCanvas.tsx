@@ -86,11 +86,11 @@ export function OverviewCanvas({
   useEffect(() => {
     // 只读态（如切入演示项目）不触发交接提示：同一路由复用同一个 OverviewCanvas 实例时，
     // 上一个真实项目若停在欢迎页，演示数据的 overview/episodes 一到位就会被误判成
-    // 「欢迎页 → 完成」，提示会强行打开助手面板——但演示态已卸载该面板，
-    // 离开演示项目后还会带出一个意外展开的助手。清空 ref 避免下次真实切换沿用这份脏状态。
+    // 「欢迎页 → 完成」，提示会强行打开 Agent 面板——但演示态已卸载该面板，
+    // 离开演示项目后还会带出一个意外展开的 Agent。清空 ref 避免下次真实切换沿用这份脏状态。
     // trigger 一并归零：AgentHandoffHint 按 `<storageScope>:<triggerKey>` 去重，切项目后
     // 同一个非零 trigger 会被当成新项目的新事件。若不清零，「项目 A 完成交接 → 途经演示
-    // 项目 → 进入项目 B」会让 B 凭 A 留下的 trigger 误弹提示并强行展开助手，而 B 根本没
+    // 项目 → 进入项目 B」会让 B 凭 A 留下的 trigger 误弹提示并强行展开 Agent，而 B 根本没
     // 发生过「欢迎页 → 完成」转换。只读态下 AgentHandoffHint 不渲染，此处置 0 不会与它的
     // effect 抢同一次提交。
     if (readOnly) {

@@ -13,14 +13,14 @@
  * | `settings-agent` | 设置 5 | 设置页侧栏「Agent」入口 |
  * | `lobby-demo-card` | 大厅 6 | 引导期间注入大厅的演示项目卡（进演示工作台的桥） |
  * | `workbench-overview` | 工作台 7 | 项目概览的项目概述卡 |
- * | `workbench-agent` | 工作台 8 | 演示工作台右侧的助手面板（静态演示对话） |
+ * | `workbench-agent` | 工作台 8 | 演示工作台右侧的 Agent 面板（静态演示对话） |
  * | `workbench-lorebook` | 工作台 9 | 角色集页面的卡片区 |
  * | `workbench-timeline` | 工作台 10 | 剧集分镜画布的镜头主体 |
  * | `workbench-export` | 工作台 11 | 顶栏的导出按钮 |
  *
  * 工作台五步落在演示项目的只读工作台上（见 `demo-project.ts`）。概述/角色集/分镜/导出
  * 的锚点挂在真实工作台组件上而不是演示专用的副本——演示与真实项目共用同一份实现，锚点
- * 因此对两者都成立；`workbench-agent` 是例外，真实助手面板是写路径、演示态不挂载，锚点
+ * 因此对两者都成立；`workbench-agent` 是例外，真实 Agent 面板是写路径、演示态不挂载，锚点
  * 挂在演示专用的 `DemoAssistantPanel` 上。
  *
  * 大厅第 1 步与收尾步是居中的气泡，不挂锚点。

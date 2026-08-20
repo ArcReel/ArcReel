@@ -6,9 +6,9 @@ import { ChatMessage } from "@/components/copilot/chat/ChatMessage";
 import { ONBOARDING_ANCHORS } from "./anchors";
 
 /**
- * 演示工作台的助手面板。
+ * 演示工作台的 Agent 面板。
  *
- * 真实助手面板（`AgentCopilot`）从头到尾都是写路径——建会话、SSE 订阅、跑工具，演示态
+ * 真实 Agent 面板（`AgentCopilot`）从头到尾都是写路径——建会话、SSE 订阅、跑工具，演示态
  * 一概不接。但 Agent 全程参与制作是产品核心，演示工作台不能没有它：这里用同一套消息气泡
  * （`ChatMessage`）渲染三条静态演示对话，把首次制作的时序演出来——Agent 汇报小说分析
  * 完成 → 用户发「开始制作」→ Agent 汇报推进。Agent 的每条消息都是对上一步动作的回应，

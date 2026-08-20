@@ -12,7 +12,7 @@ interface Props {
 }
 
 /**
- * 右侧助手面板的左边缘 resize 手柄。
+ * 右侧 Agent 面板的左边缘 resize 手柄。
  * 4px 宽热区跨在边线上（-translate-x-1/2），内部 1px 高亮线在 hover / 拖动时显现。
  */
 export function AssistantResizeHandle({
