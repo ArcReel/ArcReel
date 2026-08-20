@@ -138,7 +138,7 @@ def _units_use_references(units: list[dict] | None) -> bool | None:
     """本集 step1 是否存在带 ``@[名称]`` 提及的 unit；``units`` 为 None（非参考生视频路径）时返回 None。
 
     None 的语义是「交给下游按生成模式近似判定」，与「确定不带参考图」的 False 区分开。
-    参考生视频路径允许通用 unit 不带任何引用，执行层与 backend 都只在实际带图时施加
+    参考生视频路径允许通用 unit 不带任何引用，执行层与调用通道都只在实际带图时施加
     「参考图↔时长」约束——整集都无引用时按模式一刀切会收掉本可申请的档位。
     """
     if units is None:

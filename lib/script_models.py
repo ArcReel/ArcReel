@@ -378,7 +378,7 @@ class Utterance(BaseModel):
     """drama 场景级有序发声条目：插入顺序即幕内时序（台词与画外音的先后）。
 
     判别式联合 ``{kind, speaker, text}``，``kind`` 决定下游路由与 ``kind ⇄ speaker`` 约束：
-    - ``dialogue``：角色发声（对白、内心独白、人物画外解说），必带非空 ``speaker``，
+    - ``dialogue``：角色发声（对白、内心独白、角色画外解说），必带非空 ``speaker``，
       进视频 YAML 交供应商出口型音轨；
     - ``voiceover``：无说话人的旁白解说，``speaker`` 必为 ``None``，不作视频提示词（留给字幕 / TTS）。
 

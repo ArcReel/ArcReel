@@ -123,7 +123,7 @@ class ResolvedReferenceAsset:
 
 @dataclass(frozen=True)
 class ProviderProjectionCandidate:
-    """当前任务类型桶的 provider/model 与请求能力事实。"""
+    """当前任务类型桶的供应商模型组合与请求能力事实。"""
 
     capability: VideoCapability
     provider_id: str
@@ -265,7 +265,7 @@ class ReferenceAssetAvailability(Protocol):
 
 
 class ReferenceCapabilityProjection(Protocol):
-    """当前 provider/model 能力的异步适配器。"""
+    """当前供应商模型组合能力的异步适配器。"""
 
     async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
         raise NotImplementedError
