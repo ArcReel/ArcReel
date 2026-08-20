@@ -91,10 +91,10 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 mcp__arcreel__open_step1_for_edit({"episode": N, "source": "source/episode_N.txt"})
 ```
 
-正式文件保持原样，内容被取回到隔离草稿 `drafts/episode_{N}/step1_normalized_script.invalid.json`
+正式文件保持原样，内容被取回到可编辑草稿 `drafts/episode_{N}/step1_normalized_script.invalid.json`
 的 `content`。`source` 传本集源文路径——晋升时按它重取产物依据，不传则按整个 `source/` 目录解析。
 
-若工具回「已有 step1 隔离草稿在场」，说明上一轮的修改还没晋升：直接改那份草稿，不要重跑本工具
+若工具报告已有 step1 草稿在场，说明上一轮的修改还没晋升：直接改那份可编辑草稿，不要重跑本工具
 （重跑不会覆盖它，也不该覆盖——那里可能有你还没晋升的修改）。
 
 **Step 2**: 根据主 agent 传入的修改要求编辑草稿
@@ -113,10 +113,10 @@ mcp__arcreel__open_step1_for_edit({"episode": N, "source": "source/episode_N.txt
 mcp__arcreel__validate_and_promote_draft({"episode": N})
 ```
 
-全量校验通过则写回正式 `step1_normalized_script.json`、隔离草稿自动清除；不通过则返回逐条报告，
+全量校验通过则写回正式 `step1_normalized_script.json`、可编辑草稿自动清除；不通过则返回逐条报告，
 按报告继续改草稿再晋升，无轮次上限。若返回并发冲突（取回后正式文件被 Web 端保存改过），按报告
 把对方的修改合并进草稿、把 `meta.base_fingerprint` 更新为报告给出的现值指纹，再晋升。
-隔离草稿在场期间审阅门与 step2 生成都被阻塞，处置完才能继续。
+可编辑草稿在场期间审阅门与 step2 生成都被阻塞，处置完才能继续。
 
 **`screenplay` 项目的逐字保真**：本项目 `source_kind=screenplay` 时（不确定就 Read `project.json` 确认），手动修改同样受逐字约束——`utterances` 里作者写下的台词与画外音、以及 `source_text` 原文锚**一字不改**，除非用户的修改要求明确针对这些口播 / 原文文字本身。`scene_description`、运镜、景别等视觉描述可按用户意见调整，但不要借「润色」之名改动作者的对白原文。
 

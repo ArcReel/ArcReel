@@ -4,10 +4,12 @@ Background worker that consumes generation tasks from SQLite queue.
 Per-provider × media_type 调度，拆成两件独立的东西：CapacityTable（上限，来自
 ConfigService 的用户配置）+ SlotTable（运行时占用台账）。
 
-GenerationWorker 与 server 主进程始终捆绑在同一个 uvicorn 进程内，进程生命周期一致。
-cancel 信号因此走进程内的 ``dict[task_id, asyncio.Task]``，不需要跨进程通道；孤儿任务的
-唯一成因是进程重启，不存在「lease 失效但本进程仍活着」的假孤儿。多 worker 进程会同时
-推翻这两条，届时需要重审取消通道与孤儿判定（见 ``docs/adr/0006`` 与 ``docs/adr/0007``）。
+受支持的部署只启动一个 uvicorn 进程；server lifespan 在该进程内创建唯一的
+GenerationWorker，二者生命周期一致。因此 cancel 信号走进程内的
+``dict[task_id, asyncio.Task]``，孤儿任务只来自进程重启。lease 能在进程短暂重叠时防止
+重复认领，并为跨进程接管提供防御，但不让多 uvicorn worker 成为受支持部署：请求若落到
+非任务 owner 的进程，进程内 cancel 无法转发。若支持多进程，须同时重审取消通道与孤儿判定
+（见 ``docs/adr/0006`` 与 ``docs/adr/0007``）。
 """
 
 from __future__ import annotations
