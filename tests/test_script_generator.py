@@ -1946,7 +1946,7 @@ class TestLoadReferenceStep1:
     def test_clamping_migration_aborts_generation_that_gate_already_let_through(self, tmp_path):
         """靠 grandfather 判据（step2 已存在、无确认指纹）放行的存量集：迁移 clamp 改写秒数
         即令放行依据失效，生成须中止。内容确认判的是迁移前状态、改写发生在放行之后——不在此
-        拦下，付费的 step2 就会按用户从未过目的秒数生成，落盘后才在下次加载被拦。
+        拦下，付费的 step2 就会按用户从未过目的秒数生成；加载这份已落盘状态时才会被拦截。
         """
         sg = self._generator(
             tmp_path,

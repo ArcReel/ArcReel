@@ -93,7 +93,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 重新全量校验并晋升
 4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具
 
-晋升成功后正式 `step1_reference_units.json` 落盘、草稿自动清除。草稿在场期间内容确认与 step2 生成都被阻塞，处置完才能继续。
+晋升成功后正式 `step1_reference_units.json` 落盘、草稿自动清除。草稿在场期间，内容确认与 step2 生成都被阻塞，处置完才能继续。
 
 ### 情况 B：修改已有拆分
 
@@ -106,7 +106,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 全量校验并晋升回正式文件——写盘在此发生，与 Web 端保存串行化
 4. 返回违约报告则按报告继续改草稿再晋升，无轮次上限（同情况 C）。中途决定不改了就原样晋升：内容未变即等于把原稿回写，草稿随之清除
 
-> 草稿在场期间内容确认与 step2 生成被阻塞，改完必须晋升，不要留着草稿收工。
+> 草稿在场期间，内容确认与 step2 生成被阻塞，改完必须晋升，不要留着草稿收工。
 
 **修改口径**：
 
