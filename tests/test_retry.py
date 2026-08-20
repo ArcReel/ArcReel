@@ -13,8 +13,10 @@ from lib.retry import (
     RETRYABLE_STATUS_PATTERNS,
     NonRetryableError,
     _should_retry,
+    retry_async,
     with_retry_async,
 )
+from tests.fakes import bounded_poll_clock
 
 pytestmark = pytest.mark.unit
 
@@ -301,6 +303,24 @@ class TestWithRetryAsync:
         with pytest.raises(_Truncated):
             await fn()
         assert mock_fn.call_count == 1
+
+
+class TestRetryAsync:
+    async def test_clock_and_jitter_are_explicit_inputs(self):
+        operation = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
+        clock = bounded_poll_clock()
+
+        result = await retry_async(
+            operation,
+            max_attempts=3,
+            backoff_seconds=(5, 10),
+            clock=clock,
+            jitter=lambda _low, _high: 0.25,
+        )
+
+        assert result == "ok"
+        assert operation.call_count == 2
+        assert clock.sleeps == [5.25]
 
 
 class TestDownloadConstants:

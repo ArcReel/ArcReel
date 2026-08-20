@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -28,7 +29,9 @@ from lib.retry import (
     DEFAULT_MAX_ATTEMPTS,
     DOWNLOAD_BACKOFF_SECONDS,
     DOWNLOAD_MAX_ATTEMPTS,
-    with_retry_async,
+    AsyncClock,
+    SystemClock,
+    retry_async,
 )
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
@@ -208,7 +211,17 @@ def _extract_failure(state: dict) -> str | None:
 class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
     """流派 C ``/v2/video/generations`` 通用视频后端。"""
 
-    def __init__(self, *, api_key: str, base_url: str, model: str, http_timeout: float = 60.0) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model: str,
+        http_timeout: float = 60.0,
+        clock: AsyncClock | None = None,
+        poll_interval: float = _POLL_INTERVAL_SECONDS,
+        jitter: Callable[[float, float], float] | None = None,
+    ) -> None:
         if not api_key:
             raise ValueError("V2VideoGenerationsBackend 需要 api_key")
         if not base_url:
@@ -217,6 +230,9 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
         self._root = _normalize_root(base_url)
         self._model = model
         self._http_timeout = http_timeout
+        self._clock = clock if clock is not None else SystemClock()
+        self._poll_interval = poll_interval
+        self._jitter = jitter
 
     @property
     def name(self) -> str:
@@ -247,7 +263,14 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
         logger.info("调用 %s 视频接口 payload=%s", self.name, _log_fields(self._model, request))
 
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            generation_id = await self._create_task(client, body)
+            generation_id = await retry_async(
+                lambda: self._create_task(client, body),
+                max_attempts=DEFAULT_MAX_ATTEMPTS,
+                backoff_seconds=DEFAULT_BACKOFF_SECONDS,
+                retry_if=should_retry_submit,
+                clock=self._clock,
+                jitter=self._jitter,
+            )
             logger.info("V2 任务创建: generation_id=%s", generation_id)
             await self._persist_provider_job_id(request, generation_id, provider=PROVIDER_V2_VIDEO)
             return await self._poll_and_build(client, generation_id, request, is_resume=False)
@@ -257,11 +280,6 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             return await self._poll_and_build(client, job_id, request, is_resume=True)
 
-    @with_retry_async(
-        max_attempts=DEFAULT_MAX_ATTEMPTS,
-        backoff_seconds=DEFAULT_BACKOFF_SECONDS,
-        retry_if=should_retry_submit,
-    )
     async def _create_task(self, client: httpx.AsyncClient, body: dict) -> str:
         resp = await submit_post(
             lambda: client.post(f"{self._root}{_SUBMIT_PATH}", json=body, headers=self._headers()),
@@ -306,16 +324,24 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
             poll_fn=_gated_poll,
             is_done=lambda s: normalize_status(first_str_by_paths(s, _STATUS_PATHS)) is ProviderJobStatus.SUCCEEDED,
             is_failed=_extract_failure,
-            poll_interval=_POLL_INTERVAL_SECONDS,
+            poll_interval=self._poll_interval,
             max_wait=self._max_wait(request.duration_seconds),
             retry_if=should_retry_poll,
             label="V2",
+            clock=self._clock,
         )
 
         video_url = first_str_by_paths(final, _VIDEO_URL_PATHS)
         if not video_url:
             raise RuntimeError(f"V2 任务完成但未能从已知路径提取视频 URL: {final}")
-        await self._download_with_retry(video_url, request.output_path)
+        await retry_async(
+            lambda: download_video(video_url, request.output_path),
+            max_attempts=DOWNLOAD_MAX_ATTEMPTS,
+            backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
+            retry_if=should_retry_poll,
+            clock=self._clock,
+            jitter=self._jitter,
+        )
 
         return VideoGenerationResult(
             video_path=request.output_path,
@@ -326,16 +352,6 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
             seed=request.seed,
             task_id=generation_id,
         )
-
-    @staticmethod
-    @with_retry_async(
-        max_attempts=DOWNLOAD_MAX_ATTEMPTS,
-        backoff_seconds=DOWNLOAD_BACKOFF_SECONDS,
-        retry_if=should_retry_poll,
-    )
-    async def _download_with_retry(video_url: str, output_path: Path) -> None:
-        """对齐其它后端的下载重试策略（5 次、5/10/20/40 秒），与生成阶段独立。"""
-        await download_video(video_url, output_path)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}

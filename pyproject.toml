@@ -49,6 +49,7 @@ dev = [
     "python-docx>=1.2.0",
     "basedpyright>=1.39.4",
     "import-linter>=2.13",
+    "respx>=0.23.1",
 ]
 
 [build-system]

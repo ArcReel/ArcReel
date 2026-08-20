@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — 可测性 seam 形状</title>
+  <style>
+    :root { color-scheme: light; --ink:#17211d; --muted:#64716b; --paper:#f4f1ea; --card:#fffdf8; --accent:#14785d; --line:#d9d7cf; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:15px/1.55 ui-sans-serif,system-ui,sans-serif; }
+    main { width:min(980px,calc(100% - 32px)); margin:40px auto 80px; }
+    h1,h2,h3 { line-height:1.2; }
+    h1 { margin-bottom:8px; }
+    .lede { color:var(--muted); max-width:820px; }
+    .notice { border-left:4px solid var(--accent); padding:10px 14px; background:#e8f3ee; margin:24px 0; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; }
+    dl { display:grid; grid-template-columns:150px 1fr; gap:8px 14px; margin:0; }
+    dt { color:var(--muted); } dd { margin:0; font-weight:600; }
+    button { border:1px solid var(--line); border-radius:8px; background:white; color:var(--ink); padding:9px 12px; cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    button.primary { color:white; background:var(--accent); border-color:var(--accent); }
+    .buttons { display:flex; flex-wrap:wrap; gap:8px; }
+    .tabs { display:flex; gap:8px; margin-bottom:14px; }
+    .tabs button.active { background:var(--ink); color:white; }
+    .scenario { display:none; } .scenario.active { display:block; }
+    .steps button { display:block; width:100%; text-align:left; margin:8px 0; }
+    .steps button.done { opacity:.5; text-decoration:line-through; }
+    ol { margin:10px 0 0; padding-left:24px; }
+    code { background:#eceae3; padding:2px 5px; border-radius:4px; }
+    .verdict { margin-top:16px; color:var(--accent); font-weight:700; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; }
+    th { color:var(--muted); font-weight:600; }
+    @media (max-width:760px) { .grid { grid-template-columns:1fr; } dl { grid-template-columns:120px 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PROTOTYPE：可测性 seam 应该长什么形状？</h1>
+  <p class="lede">本页比较两种重试 API：A 是调用点显式执行 <code>retry_async(operation, clock=…, jitter=…)</code>；B 是保留装饰器，再用特殊关键字或 <code>self</code> 属性在运行时找时钟。请观察瞬态失败、轮询与真实 HTTP 捕获时，依赖是否看得见、测试是否仍需 patch。</p>
+  <div class="notice">可丢弃原型，不是产品功能。状态只存在内存中，刷新页面即清空。</div>
+
+  <section class="grid">
+    <div class="card">
+      <h2>当前状态</h2>
+      <dl id="state"></dl>
+      <p class="verdict" id="verdict"></p>
+    </div>
+    <div class="card">
+      <h2>自由试验</h2>
+      <div class="buttons">
+        <button data-action="choose-a" class="primary">选 A：显式调用</button>
+        <button data-action="choose-b">选 B：运行时装饰器</button>
+        <button data-action="fake-clock">传入假时钟</button>
+        <button data-action="system-clock">使用生产时钟</button>
+        <button data-action="transient-error">供应商瞬态失败</button>
+        <button data-action="poll-pending">轮询仍在进行</button>
+        <button data-action="success">供应商完成</button>
+        <button data-action="capture-http">用 respx 捕获请求</button>
+        <button data-action="reset">重置</button>
+      </div>
+      <h3>刚才发生的事</h3>
+      <ol id="events"></ol>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:16px">
+    <h2>本分支实测代价</h2>
+    <table>
+      <thead><tr><th>改造点</th><th>新增 / 删除</th><th>观察</th></tr></thead>
+      <tbody>
+        <tr><td>retry 显式执行核心</td><td>+68 / −16 行</td><td>新增 clock、jitter seam；旧装饰器变兼容壳</td></tr>
+        <tr><td>poll_with_retry 时钟</td><td>+8 / −6 行</td><td>4 个直接时间/等待调用收口到一个参数</td></tr>
+        <tr><td>v2 backend</td><td>+36 / −20 行</td><td>构造参数显式；提交、轮询、下载走同一时钟</td></tr>
+        <tr><td>BoundedPollClock</td><td>+19 / −16 行</td><td>从 patch 两个模块属性改为普通对象</td></tr>
+        <tr><td>v2 测试文件</td><td>560 → 484 行</td><td>patch 38 → 2；HTTP 流程使用真实 client + respx</td></tr>
+      </tbody>
+    </table>
+    <p class="lede">推广信号：生产代码现有 45 个 <code>@with_retry_async</code>，测试中有 48 处直接 patch retry 内部等待、抖动或计算函数；这说明核心 seam 可以小步落地，但移除兼容装饰器必须单独成批，不能混在单个 backend 的改造里。</p>
+  </section>
+
+  <section class="card" style="margin-top:16px">
+    <h2>引导场景</h2>
+    <div class="tabs">
+      <button data-tab="retry" class="active">确定化重试</button>
+      <button data-tab="signature">签名边界</button>
+      <button data-tab="http">真实 HTTP</button>
+    </div>
+    <div id="retry" class="scenario active">
+      <p>模拟一次 ConnectError 后成功。重点看等待记录是否来自显式输入，以及是否还产生 patch 目标。</p>
+      <div class="steps" data-actions="reset,choose-a,fake-clock,transient-error,success"></div>
+    </div>
+    <div id="signature" class="scenario">
+      <p>切到装饰器方案，观察测试时钟怎样穿过被装饰函数的公开签名，或依赖一个并非所有调用方都有的 <code>self</code> 约定。</p>
+      <div class="steps" data-actions="reset,choose-b,fake-clock,transient-error"></div>
+    </div>
+    <div id="http" class="scenario">
+      <p>模拟真实 <code>httpx.AsyncClient</code> 走 respx transport：请求体和鉴权头由边界设施捕获，不替换 client 实现。</p>
+      <div class="steps" data-actions="reset,choose-a,fake-clock,capture-http,poll-pending,success"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+  const labels = {
+    reset:"重置", "choose-a":"选 A：显式调用", "choose-b":"选 B：运行时装饰器",
+    "fake-clock":"传入假时钟", "system-clock":"使用生产时钟", "transient-error":"供应商瞬态失败",
+    "poll-pending":"轮询仍在进行", success:"供应商完成", "capture-http":"用 respx 捕获请求"
+  };
+
+  // 可移植的纯逻辑模块：无 DOM 依赖，页面只负责派发动作与渲染。
+  const SeamModel = (() => {
+    const initial = () => ({
+      shape:"A：retry_async 显式调用", clock:"生产 SystemClock", status:"尚未调用",
+      attempts:0, waits:[], patches:0, hiddenContract:"无", httpBoundary:"未验证", events:[]
+    });
+    const note = (state, message) => ({...state, events:[...state.events, message]});
+    function reduce(state, action) {
+      if (action === "reset") return initial();
+      if (action === "choose-a") return note({...state, shape:"A：retry_async 显式调用", hiddenContract:"无"}, "调用点列出 clock 与 jitter。 ");
+      if (action === "choose-b") return note({...state, shape:"B：运行时注入装饰器", hiddenContract:"特殊 kwarg 或 self.clock"}, "装饰器必须偷取关键字，或假设 self 的形状。 ");
+      if (action === "system-clock") return note({...state, clock:"生产 SystemClock"}, "使用真实单调时钟和 asyncio.sleep。 ");
+      if (action === "fake-clock") {
+        const patches = state.shape.startsWith("A") ? 0 : 1;
+        return note({...state, clock:"BoundedPollClock", patches}, patches ? "装饰器方案仍需魔法入口把时钟送进 wrapper。" : "假时钟作为普通参数进入同一调用路径。 ");
+      }
+      if (action === "transient-error") {
+        const wait = state.clock === "BoundedPollClock" ? 2.25 : "真实等待 2–4 秒";
+        return note({...state, status:"等待重试", attempts:state.attempts+1, waits:[...state.waits,wait]}, `第 ${state.attempts+1} 次调用失败，记录等待 ${wait}。`);
+      }
+      if (action === "poll-pending") return note({...state, status:"供应商任务进行中", attempts:state.attempts+1}, "单调时间前进，轮询间隔由 backend 构造参数决定。 ");
+      if (action === "success") return note({...state, status:"完成", attempts:state.attempts+1}, "同一真实执行路径返回供应商结果。 ");
+      if (action === "capture-http") return note({...state, httpBoundary:"真实 client + respx transport"}, "捕获 POST JSON、Authorization 与 GET query；没有 AsyncClient Mock。 ");
+      return state;
+    }
+    return {initial, reduce};
+  })();
+
+  let state = SeamModel.initial();
+  const fields = [
+    ["方案","shape"],["时钟","clock"],["供应商任务状态","status"],["调用次数","attempts"],
+    ["等待记录","waits"],["生产模块 patch 数","patches"],["隐藏约定","hiddenContract"],["HTTP 边界","httpBoundary"]
+  ];
+  function render() {
+    document.querySelector("#state").innerHTML = fields.map(([label,key]) => `<dt>${label}</dt><dd>${Array.isArray(state[key]) ? (state[key].join(", ") || "无") : state[key]}</dd>`).join("");
+    document.querySelector("#events").innerHTML = state.events.map(event => `<li>${event}</li>`).join("") || "<li>尚无动作</li>";
+    document.querySelector("#verdict").textContent = state.shape.startsWith("A") && state.clock === "BoundedPollClock" && state.patches === 0
+      ? "当前形状满足：依赖显式、等待确定、零生产模块 patch。" : "继续操作，观察依赖是否真正显式。";
+  }
+  function dispatch(action) { state = SeamModel.reduce(state, action); render(); }
+  document.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => dispatch(button.dataset.action)));
+  document.querySelectorAll(".steps").forEach(container => {
+    container.dataset.actions.split(",").forEach(action => {
+      const button = document.createElement("button"); button.textContent = labels[action];
+      button.addEventListener("click", () => { dispatch(action); button.classList.add("done"); }); container.appendChild(button);
+    });
+  });
+  document.querySelectorAll("[data-tab]").forEach(tab => tab.addEventListener("click", () => {
+    document.querySelectorAll("[data-tab],.scenario").forEach(el => el.classList.remove("active"));
+    tab.classList.add("active"); document.getElementById(tab.dataset.tab).classList.add("active");
+    document.querySelectorAll(".steps button").forEach(button => button.classList.remove("done")); dispatch("reset");
+  }));
+  render();
+</script>
+</body>
+</html>

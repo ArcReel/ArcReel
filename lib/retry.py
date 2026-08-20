@@ -12,7 +12,9 @@ import asyncio
 import functools
 import logging
 import random
-from collections.abc import Callable
+import time
+from collections.abc import Awaitable, Callable
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,24 @@ DOWNLOAD_MAX_ATTEMPTS = 5
 DOWNLOAD_BACKOFF_SECONDS: tuple[int, ...] = (5, 10, 20, 40)
 
 
+class AsyncClock(Protocol):
+    """异步等待与单调计时的显式 seam。"""
+
+    def monotonic(self) -> float: ...
+
+    async def sleep(self, delay: float) -> None: ...
+
+
+class SystemClock:
+    """生产默认时钟；无状态，调用方可按需实例化。"""
+
+    def monotonic(self) -> float:
+        return time.monotonic()
+
+    async def sleep(self, delay: float) -> None:
+        await asyncio.sleep(delay)
+
+
 def _should_retry(exc: Exception, retryable_errors: tuple[type[Exception], ...]) -> bool:
     """判断异常是否应当重试。"""
     if isinstance(exc, NonRetryableError):
@@ -87,26 +107,58 @@ def with_retry_async(
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            for attempt in range(max_attempts):
-                try:
-                    return await func(*args, **kwargs)
-                except Exception as e:
-                    is_last = attempt >= max_attempts - 1
-                    if is_last or isinstance(e, NonRetryableError) or not predicate(e):
-                        raise
-                    wait_time = _compute_wait(attempt, backoff_seconds)
-                    logger.warning("API 调用异常: %s - %s", type(e).__name__, str(e)[:200])
-                    logger.warning("重试 %d/%d, %.1f 秒后...", attempt + 1, max_attempts - 1, wait_time)
-                    await asyncio.sleep(wait_time)
-
-            raise RuntimeError(f"with_retry_async: max_attempts={max_attempts}，未执行任何尝试")
+            return await retry_async(
+                lambda: func(*args, **kwargs),
+                max_attempts=max_attempts,
+                backoff_seconds=backoff_seconds,
+                retry_if=predicate,
+            )
 
         return wrapper
 
     return decorator
 
 
-def _compute_wait(attempt: int, backoff_seconds: tuple[int, ...]) -> float:
+async def retry_async[T](
+    operation: Callable[[], Awaitable[T]],
+    *,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    backoff_seconds: tuple[int, ...] = DEFAULT_BACKOFF_SECONDS,
+    retryable_errors: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS,
+    retry_if: Callable[[Exception], bool] | None = None,
+    clock: AsyncClock | None = None,
+    jitter: Callable[[float, float], float] | None = None,
+) -> T:
+    """执行可重试异步操作；时钟与抖动在调用点显式注入。"""
+    active_clock = clock if clock is not None else SystemClock()
+    predicate = retry_if if retry_if is not None else lambda e: _should_retry(e, retryable_errors)
+
+    for attempt in range(max_attempts):
+        try:
+            return await operation()
+        except Exception as exc:
+            is_last = attempt >= max_attempts - 1
+            if is_last or isinstance(exc, NonRetryableError) or not predicate(exc):
+                raise
+            wait_time = (
+                _compute_wait(attempt, backoff_seconds)
+                if jitter is None
+                else _compute_wait(attempt, backoff_seconds, jitter=jitter)
+            )
+            logger.warning("API 调用异常: %s - %s", type(exc).__name__, str(exc)[:200])
+            logger.warning("重试 %d/%d, %.1f 秒后...", attempt + 1, max_attempts - 1, wait_time)
+            await active_clock.sleep(wait_time)
+
+    raise RuntimeError(f"retry_async: max_attempts={max_attempts}，未执行任何尝试")
+
+
+def _compute_wait(
+    attempt: int,
+    backoff_seconds: tuple[int, ...],
+    *,
+    jitter: Callable[[float, float], float] | None = None,
+) -> float:
     """计算第 attempt 次重试的等待时间（含随机抖动）。"""
     backoff_idx = min(attempt, len(backoff_seconds) - 1)
-    return backoff_seconds[backoff_idx] + random.uniform(0, 2)
+    uniform = jitter if jitter is not None else random.uniform
+    return backoff_seconds[backoff_idx] + uniform(0, 2)
