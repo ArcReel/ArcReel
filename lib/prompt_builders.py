@@ -22,7 +22,7 @@ from lib.prompt_utils import image_prompt_to_yaml, project_storyboard_image_prom
 # 内部常量：防崩 / 反向 / 布局 / 风格前缀
 # ---------------------------------------------------------------------------
 
-# 角色图采用 issue #353 的四视图 16:9 布局。
+# 角色图采用四视图 16:9 布局。
 _CHARACTER_LAYOUT = (
     "横版 16:9 四格布局，纯白 (#FFFFFF) 背景：左侧约 40% 宽为胸像特写（清晰展示面部、发型、配饰、上装），"
     "右侧三个等宽面板分别为正面 / 四分之三侧面 / 背面的 A-Pose 全身视图。"
@@ -85,7 +85,7 @@ def _style_prefix(style: str = "", style_description: str = "") -> str:
 
 
 def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """角色资产图 prompt（issue #353 四视图 16:9）。"""
+    """角色资产图 prompt（四视图 16:9）。"""
     style_block = _style_prefix(style, style_description)
     return (
         f"{style_block}"

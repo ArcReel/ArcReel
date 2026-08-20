@@ -92,7 +92,7 @@ async def update_script_review_content(
 
     保存完成后立即取 ``quarantine``，早于 ``_attach_duration_tiers`` 那次 await（视频能力
     解析）：晋升工具若恰好在这条 await 期间把草稿清掉，越晚读 quarantine 越可能读到
-    「已清除」而不是晋升前那份，响应就会落在「本次保存的内容 + quarantine: null」这一侧，
+    「已清除」而不是晋升前那份，响应就会落在「保存的内容 + quarantine: null」这一侧，
     使用户没看过的、晋升后的内容被当作可放行确认——同 GET 端点的顺序取舍，先取的一侧读到
     的是相对更旧但更保守的快照，读时序错位只会让确认被多余地拦一轮，不会误放行。
     """

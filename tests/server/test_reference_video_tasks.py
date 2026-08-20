@@ -156,10 +156,10 @@ def _wire_context(
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
 
-    executor 不触碰 MediaGenerator 私有属性、不手工重建 provider 身份——所有
+    执行器不触碰 MediaGenerator 私有属性、不手工重建 provider 身份——所有
     provider/backend 身份、能力上限、resolution 均由 GenerationContext 的 video lane 提供。
     能力上限与 resolution 的解析逻辑本身在 tests/server/test_generation_context.py 覆盖，此处
-    只需喂入 lane 值验证 executor 的下游 clamp / 守卫 / 透传行为。
+    只需喂入 lane 值验证执行器的下游 clamp / 守卫 / 透传行为。
 
     ``registry_provider_id`` 缺省与 ``backend_name`` 相同（多数供应商如此）；族别名供应商
     （如 ark-agent-plan 族复用 Ark backend）两者不同，需显式区分以覆盖 registry 查表路径。
@@ -1261,8 +1261,8 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
     monkeypatch: pytest.MonkeyPatch,
 ):
     """Regression: Grok 视频生成必须用 720p（xai_sdk 的 VideoResolutionMap 只接受 480p/720p；
-    参考生视频 executor 若回退到 MediaGenerator 默认 1080p，会在 SDK 抛 `Invalid video resolution 1080p`）。
-    executor 必须把 video lane 的 `resolution_or_fallback` 原样传给 generate_video_async——
+    参考生视频执行器若回退到 MediaGenerator 默认 1080p，会在 SDK 抛 `Invalid video resolution 1080p`）。
+    执行器必须把 video lane 的 `resolution_or_fallback` 原样传给 generate_video_async——
     档位的解析/兜底逻辑（provider fallback、model_settings 优先级）在
     tests/server/test_generation_context.py 覆盖。
     """
@@ -1313,7 +1313,7 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
     )
 
     assert captured.get("resolution") == "720p", (
-        f"Grok executor 必须显式传 720p，否则 MediaGenerator 默认 1080p 会被 xai_sdk 拒绝。"
+        f"Grok 执行器必须显式传 720p，否则 MediaGenerator 默认 1080p 会被 xai_sdk 拒绝。"
         f"实际收到: {captured.get('resolution')!r}"
     )
 
@@ -1738,7 +1738,7 @@ async def test_execute_reference_video_task_refuses_a_script_outside_the_episode
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """executor 必须走真实 MediaGenerator._get_output_path。
+    """执行器必须走真实 MediaGenerator._get_output_path。
 
     只 mock 最外层的 VideoBackend.generate ——resource_type 未注册到
     lib.resource_paths 时，这条测试会立刻爆 ValueError。
@@ -1856,7 +1856,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），压缩下沉
+    """执行器把**源 sheet 路径**直接交给 generate_video_async（单次调用），压缩下沉
     咽喉层——不预压缩到临时文件，不在 R2V 层做二次压缩重试。
     """
     proj_dir = _write_project(tmp_path)

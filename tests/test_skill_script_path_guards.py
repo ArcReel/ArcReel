@@ -183,7 +183,6 @@ def test_compose_video_rejects_output_escape(fake_project: Path) -> None:
 def test_compose_video_fails_fast_on_missing_music(fake_project: Path) -> None:
     """--music 文件不存在时应立即抛错，不要静默 warning 走完拼接。
 
-    review #8（coderabbit）：自动化场景下静默 warning 容易把失败当成功。
     校验顺序：cwd 检查 → 剧情演绎检查 → output / music 路径围栏 + 存在性，
     再开始拼接。music 不存在时应 fail-fast。
     """
@@ -205,7 +204,7 @@ def test_compose_video_fails_fast_on_missing_music(fake_project: Path) -> None:
 
 @_requires_ffmpeg
 def test_compose_video_rejects_video_clip_escape(fake_project: Path, tmp_path: Path) -> None:
-    """剧本里 `generated_assets.video_clip` 走 `..` 逃逸时拒绝（review #12）。
+    """剧本里 `generated_assets.video_clip` 走 `..` 逃逸时拒绝。
 
     `project_dir / "../escape.mp4"` 未 resolve 时字面前缀会骗过 is_relative_to。
     resolve 后才能识别为项目外。
@@ -233,7 +232,7 @@ def test_compose_video_rejects_video_clip_escape(fake_project: Path, tmp_path: P
 
 @_requires_ffmpeg
 def test_compose_video_rejects_video_clip_absolute_outside(fake_project: Path, tmp_path: Path) -> None:
-    """剧本里 `generated_assets.video_clip` 是项目外绝对路径时拒绝（review #12）。"""
+    """剧本里 `generated_assets.video_clip` 是项目外绝对路径时拒绝。"""
     outside = tmp_path / "outside.mp4"
     outside.write_bytes(b"\x00" * 16)
     (fake_project / "scripts").mkdir(exist_ok=True)
@@ -279,7 +278,7 @@ def test_compose_video_rejects_output_symlink(fake_project: Path, tmp_path: Path
 
 @_requires_ffmpeg
 def test_compose_video_rejects_music_dir(fake_project: Path) -> None:
-    """--music 指向目录时应在校验阶段拒绝（review #9）。"""
+    """--music 指向目录时应在校验阶段拒绝。"""
     script_arg = _write_drama_script(fake_project, video_clip_exists=True)
     music_dir = fake_project / "bgm-dir"
     music_dir.mkdir()

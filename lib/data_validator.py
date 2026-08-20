@@ -65,7 +65,7 @@ __all__ = [
     "validate_project",
 ]
 
-#: drama 场景说话量（台词 + 画外音）对场景时长的单向上界容差（比例）。语速估算
+#: 剧情演绎场景说话量（台词 + 画外音）对场景时长的单向上界容差（比例）。语速估算
 #: （``lib.speech_rate`` 单一真相源）是近似值，给 20% 余量只在说话量明显超过画面时长时才
 #: warn（长对白塞进固定秒数会说不完 / 语速畸快）。单向上界：只警告「说不完」，不管「说话太少」
 #: ——duration 由画面驱动、留白合法，不被此约束反向改写。仅 DataValidator 消费，与 ad 总时长
@@ -930,7 +930,7 @@ class DataValidator:
             )
 
             # utterances：场景级有序发声序列（取代旧 video_prompt.dialogue + voiceover）。
-            # 缺失放行（存量 drama 走读时迁移，旧双字段不在此层校验）；出现则校验结构与
+            # 缺失放行（存量剧情演绎走读时迁移，旧双字段不在此层校验）；出现则校验结构与
             # kind ⇄ speaker 约束，与上方 characters_in_scene 等同口径（逐项 append、不 raise）。
             self._validate_utterances(scene.get("utterances"), prefix, errors)
 
@@ -960,7 +960,7 @@ class DataValidator:
 
     @staticmethod
     def _validate_utterances(utterances: Any, prefix: str, errors: list[ValidationMessage]) -> None:
-        """校验 drama 场景级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行，存量走读时迁移）。
+        """校验剧情演绎场景级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行，存量走读时迁移）。
 
         每条须为 ``{kind, speaker, text}``：kind ∈ {dialogue, voiceover}、text 非空字符串；
         dialogue 必带非空 speaker、voiceover 不得带 speaker。逐项 append、不 raise。
@@ -1007,7 +1007,7 @@ class DataValidator:
     ) -> None:
         """场景说话量（台词 + 画外音）估算时长超 ``duration ×（1 + 容差）`` 时仅 warn（单向上界，不阻塞）。
 
-        说话时长按 ``estimate_spoken_seconds``（语速估算单一真相源）对 utterances 逐条求和，与 drama
+        说话时长按 ``estimate_spoken_seconds``（语速估算单一真相源）对 utterances 逐条求和，与剧情演绎
         字幕 span 派生同口径；空 / 纯空白 / 脏数据条目估 0 秒。duration 仍由画面驱动、不被此约束反向
         改写。单向：只警告「说不完」（估算超上界），不管「说话太少」。duration 非正整数、无 utterances
         时跳过——与 ad 总时长漂移那条同样「只 warn 不阻塞」、不推前端。
@@ -1274,7 +1274,7 @@ class DataValidator:
         if novel is not None and not isinstance(novel, dict):
             errors.append(_m("val_novel_must_be_object"))
 
-        # drama 说话量上界 warning 的语速从 lib.speech_rate 唯一真相源取：项目级覆盖优先，
+        # 剧情演绎说话量上界 warning 的语速从 lib.speech_rate 唯一真相源取：项目级覆盖优先，
         # 否则按项目 source_language 的语言默认（缺失 / 脏值回退默认语速）。
         source_language = project.get("source_language")
         scene_language = source_language if isinstance(source_language, str) else None
@@ -1282,7 +1282,7 @@ class DataValidator:
 
         # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类经规范解析统一
         # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。广告/短片的参考生视频
-        # 与其他参考生视频一样使用 video_units；广告 storyboard 路线仍使用 shots。
+        # 与其他参考生视频一样使用 video_units；广告/短片的生成模式为 `storyboard` 时仍使用 shots。
         gen_mode = project.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, gen_mode)

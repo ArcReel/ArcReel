@@ -86,7 +86,7 @@ PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
 # 生成模式（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
-# 宫格不是路线：它由独立的 grid_storyboard 布尔表达，仅 storyboard 路线有意义。
+# 宫格不是生成模式：它由独立的 grid_storyboard 布尔表达，仅 `storyboard` 生成模式有意义。
 # 存量三值 "grid" 已由 v4→v5 迁移重编码为 storyboard + grid_storyboard=true。
 VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
 _DEFAULT_GENERATION_MODE = "storyboard"
@@ -109,7 +109,7 @@ _UNSET = _Unset()
 def grid_storyboard_enabled(project: dict[str, Any]) -> bool:
     """项目是否按宫格生产分镜图。
 
-    宫格是 storyboard 路线内的分镜图生产方式：reference_video 路线无分镜图步骤，
+    宫格是分镜图生视频内的分镜图生产方式：参考生视频无分镜图步骤，
     即使残留 grid_storyboard=true 也不激活宫格分支。
     """
     return project.get("generation_mode") == "storyboard" and bool(project.get("grid_storyboard"))
@@ -158,8 +158,8 @@ def resolve_episode_script_binding(
 def is_reference_video_project(project: Mapping[str, Any]) -> bool:
     """项目是否使用参考生视频。
 
-    project.json 的 ``generation_mode`` 是该判定的唯一真相源：路线创建即定、之后不可变，
-    整个项目按同一条路径生成；ad 创作类型的剧本骨架也不携带剧本级 ``generation_mode`` 戳
+    project.json 的 ``generation_mode`` 是该判定的唯一真相源：模式创建即定、之后不可变，
+    整个项目按同一生成模式生成；广告/短片的剧本骨架也不携带剧本级 ``generation_mode`` 戳
     （见 ``script_generator``），只看剧本判不出参考生视频。
     """
     return project.get("generation_mode") == "reference_video"
@@ -2642,7 +2642,7 @@ class ProjectManager:
         """剔除旧式 type/importance 字段（schema 演进遗留），返回新 dict。"""
         return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
 
-    #: 级联重命名须一并改写的 step1 草稿文件名（结构化 JSON，含草稿——它们承载
+    #: 级联重命名须一并改写的 step1 正式内容、可编辑草稿与待修复草稿文件名（结构化 JSON——它们承载
     #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。旧版 ``.md`` 自由文本别名
     #: 不在列：读取层仅兼认浏览，写盘与生成侧已不认。
     _RENAME_DRAFT_FILENAMES = frozenset(

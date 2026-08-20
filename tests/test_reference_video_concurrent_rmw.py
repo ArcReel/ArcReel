@@ -1,8 +1,8 @@
-"""参考生视频 episode script 的并发读-改-写竞态防护测试（issue #334）。
+"""参考生视频剧本的并发读-改-写竞态防护测试。
 
 覆盖 `ProjectManager.locked_script` 在两类并发写者同时操作 `video_units` 时不丢更新：
   1. 追加新 unit（对应 router 的 add_unit）
-  2. 回写已有 unit 的 generated_assets（对应 executor 的 _update_unit_assets）
+  2. 回写已有 unit 的 generated_assets（对应执行器的 _update_unit_assets）
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class TestReferenceVideoConcurrentRMW:
                 )
 
         def _writeback(unit_id: str) -> None:
-            """模拟 executor 的 _update_unit_assets：定位 unit 写 generated_assets。"""
+            """模拟执行器的 _update_unit_assets：定位 unit 写 generated_assets。"""
             barrier.wait()
             with pm.locked_script(name, "episode_1.json", validate=False) as script:
                 for u in script["video_units"]:

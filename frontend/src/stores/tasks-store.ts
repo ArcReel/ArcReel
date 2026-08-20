@@ -370,7 +370,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
 // ---------------------------------------------------------------------------
 // 派生 selector —— 任务队列两条不变量的单一真相源
 //
-// 消费点（画布 loading 派生、视频单元状态等）此前各自重写两条隐性契约：
+// 消费点（画布 loading 派生、视频单元状态等）必须遵守以下两条契约：
 //   1.「什么算活跃」——占用与显示是两个谓词：占用判定（isOccupyingStatus）计入
 //      cancelling，与后端 dedupe 索引的 ACTIVE_TASK_STATUSES 对齐；显示判定
 //      （isActiveStatus）不计 cancelling——取消中的任务不显示为进行中。

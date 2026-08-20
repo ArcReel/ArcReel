@@ -90,7 +90,7 @@ def test_falls_back_to_storyboard_image_when_no_video_thumbnail():
 
 
 def test_reference_mode_without_generated_assets_falls_back_to_scene_sheet():
-    """参考生视频未生成任何视频：用第一张场景参考图当封面（核心 fix 场景）。"""
+    """参考生视频未生成任何视频：用第一张场景参考图当封面。"""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}},
