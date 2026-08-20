@@ -1399,10 +1399,10 @@ class TestUnexpectedErrorMapsTo500:
 
 
 class TestVideoRouteGate:
-    """逐条视频生成端点按项目生成路线定轴：参考路线在提交入口即拒绝。"""
+    """逐条视频生成端点按项目生成模式定轴：参考生视频在提交入口即拒绝。"""
 
     def _reference_pm(self, project_path: Path, *, storyboard_script: bool = False) -> _FakePM:
-        """参考路线项目。
+        """参考生视频项目。
 
         ``storyboard_script`` 为真时保留 ``_FakePM`` 的分镜族默认剧本，模拟换路线前
         留下的存量剧本与分镜图产物。
@@ -1419,7 +1419,7 @@ class TestVideoRouteGate:
 
     @pytest.mark.integration
     def test_reference_route_rejected_with_route_guidance(self, tmp_path, monkeypatch):
-        """参考路线：拒绝并指引走参考生视频流程，而非「先生成分镜图」。"""
+        """参考生视频：拒绝并指引走参考生视频流程，而非「先生成分镜图」。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = self._reference_pm(project_path)
         fake_queue = _FakeQueue()
@@ -1454,7 +1454,7 @@ class TestVideoRouteGate:
 
     @pytest.mark.integration
     def test_storyboard_route_enqueues_with_i2v_bucket(self, tmp_path, monkeypatch):
-        """分镜路线：行为不变，桶预检仍按 i2v。"""
+        """分镜图生视频：行为不变，桶预检仍按 i2v。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["generation_mode"] = "storyboard"

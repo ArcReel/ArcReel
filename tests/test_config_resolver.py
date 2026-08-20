@@ -713,7 +713,7 @@ class TestVideoCapabilities:
         """minimax S2V-01 的 max_reference_images 来自 backend 声明（=1）；
 
         编排层据此只取 1 张参考图，不会向只吃单脸的 S2V-01 拼多张。S2V-01 不支持首帧，
-        项目须是参考生视频模式才落进它所属的 r2v 桶。
+        项目须是参考生视频才落进它所属的 r2v 桶。
         """
         factory, engine = await _make_session()
         try:
@@ -1958,7 +1958,7 @@ class TestProjectGenerationModeCaps:
 
     @pytest.mark.integration
     async def test_voice_consistency_follows_project_route(self):
-        """参考路线按 native 解析，分镜路线降格 soft。"""
+        """参考生视频按 native 解析，分镜图生视频降格 soft。"""
         project = {
             "generation_mode": "reference_video",
             "video_provider_r2v": "ark/doubao-seedance-2-0-260128",
@@ -1971,7 +1971,7 @@ class TestProjectGenerationModeCaps:
 
     @pytest.mark.integration
     async def test_uses_reference_images_constraint_follows_project_route(self):
-        """caps 的 generation_mode 是下游时长约束的入参，参考路线据此施加「参考图↔时长」约束。"""
+        """caps 的 generation_mode 是下游时长约束的入参，参考生视频据此施加「参考图↔时长」约束。"""
         caps = await self._caps({"generation_mode": "reference_video", "video_provider_r2v": "minimax/S2V-01"})
         assert caps["generation_mode"] == "reference_video"
         assert caps["max_reference_images"] == 1

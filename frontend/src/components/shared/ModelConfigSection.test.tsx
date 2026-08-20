@@ -868,7 +868,7 @@ describe("ModelConfigSection", () => {
   // 警告文案按越界成因分开：模型本身仍支持 4 秒，指向「模型不支持」会把用户引去换模型。
   it.each([
     ["1080p 分辨率", { videoResolution: "1080p" }, /当前分辨率下不可用/],
-    ["参考生视频模式", { videoResolution: "720p", usesReferenceImages: true }, /参考生视频模式下不可用/],
+    ["参考生视频", { videoResolution: "720p", usesReferenceImages: true }, /参考生视频下不可用/],
   ])("warns about a saved 4s duration under %s", (_label, overrides, expected) => {
     renderVeo({ ...overrides, defaultDuration: 4 });
     expect(screen.getByRole("alert")).toHaveTextContent(expected);

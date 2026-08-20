@@ -259,7 +259,7 @@ describe("ReferenceVideoCanvas", () => {
       .mockResolvedValue({ success: true, task_id: "tts-1", deduped: false, message: "queued" });
 
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    fireEvent.click(await screen.findByRole("button", { name: /生成旁白|Generate narration/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /生成旁白配音|Generate narration audio/ }));
 
     await waitFor(() =>
       expect(generate).toHaveBeenCalledWith("proj", "E1U1", "episode_1.json"),
@@ -269,12 +269,12 @@ describe("ReferenceVideoCanvas", () => {
     useReferenceVideoStore.setState({
       unitsByEpisode: { [referenceVideoCacheKey("proj", 1)]: [unit] },
     } as never);
-    expect(await screen.findByRole("button", { name: /重新生成旁白|Regenerate narration/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /重新生成旁白配音|Regenerate narration audio/ })).toBeInTheDocument();
     expect(document.querySelector('audio[src*="audio/segment_E1U1.wav"]')).not.toBeNull();
   });
 
   // 正文是单一真相：保存把编辑器里那段文本原样送到 PATCH 的 prompt 位，
-  // 请求里不带任何参考资产字段。
+  // 请求里不带任何独立参考图字段。
   it("saves an edited body as the unit's text, with nothing else in the request", async () => {
     const unit = mkUnit("E1U1", "推门。");
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
@@ -721,7 +721,7 @@ describe("ReferenceVideoCanvas", () => {
     const generate = await screen.findByRole("button", { name: UNIT_GENERATE_CTA });
     expect(generate).not.toBeDisabled();
 
-    // 渲染之后、点击之前，另一入口（Agent 入队 / SSE 落库）已占用同一 unit
+    // 渲染之后、点击之前，另一入口（智能体入队 / SSE 落库）已占用同一 unit
     act(() => {
       useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
     });
@@ -1205,7 +1205,7 @@ describe("ReferenceVideoCanvas", () => {
       await clickBatch();
       const confirm = await screen.findByRole("button", { name: BATCH_CONFIRM_CTA });
 
-      // 弹窗停留期间 E1U1 由别处（Agent / 另一标签页）生成完成并落库
+      // 弹窗停留期间 E1U1 由别处（智能体 / 另一标签页）生成完成并落库
       act(() => {
         useReferenceVideoStore.setState({
           unitsByEpisode: {

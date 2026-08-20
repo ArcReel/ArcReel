@@ -16,7 +16,7 @@ export interface WizardStep1Value {
   aspectRatio: "9:16" | "16:9";
   /** 生成模式，创建时锁定。null = 未选：必选，未选不放行。 */
   generationRoute: GenerationRoute | null;
-  /** 多宫格分镜装配开关，随创建写入；仅分镜图生视频模式有意义，ad 不支持。 */
+  /** 多宫格分镜装配开关，随创建写入；仅分镜图生视频有意义，ad 不支持。 */
   gridStoryboard: boolean;
   /** 仅 ad：目标总时长（秒）。UI 四档 15/30/60/90，默认 60。 */
   targetDuration: number;
@@ -284,7 +284,7 @@ export function WizardStep1Basics({
           onChange({
             ...value,
             generationRoute: next,
-            // 宫格是分镜图生视频模式内的装配选项：切到参考生视频模式即清空
+            // 宫格是分镜图生视频内的装配选项：切到参考生视频即清空
             gridStoryboard: next === "storyboard" ? value.gridStoryboard : false,
           })
         }

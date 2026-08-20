@@ -122,7 +122,7 @@ function StudioWorkspace() {
 
   // 项目生命周期：清空上一个项目的 assistant 状态，再按项目类型取数据。
   // 依赖里不含 `t` —— 界面语言变化只该重灌演示常量（见下一个 effect），不该让真实项目
-  // 整条加载重跑（会先清空 store 闪一次空态，还会连带清掉助手会话状态）。
+  // 整条加载重跑（会先清空 store 闪一次空态，还会连带清掉智能体会话状态）。
   useEffect(() => {
     if (!projectName) return;
 

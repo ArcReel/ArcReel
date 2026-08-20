@@ -36,7 +36,7 @@ def _seed_project(pm: ProjectManager, name: str) -> None:
 
 
 def _make_script(episode: int, payload_size: int) -> dict:
-    """构造一个结构合法的说书模式剧本，segment 数量决定 JSON 体积。"""
+    """构造一个结构合法的旁白/解说剧本，segment 数量决定 JSON 体积。"""
     filler = "填充文本 " * (payload_size // 10 + 1)
     return {
         "episode": episode,

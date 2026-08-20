@@ -395,7 +395,7 @@ def _fake_reference_projection(
     *,
     current_tts_duration_seconds: float | None = None,
 ):
-    """Agent 工具测试用的 in-process request projection adapter。"""
+    """智能体工具测试用的 in-process request projection adapter。"""
 
     async def _project(*, project, script, unit, options=None, **_kwargs):
         from lib.reference_video.request_projection import (
@@ -454,7 +454,7 @@ def _fake_reference_projection(
 
 @pytest.fixture(autouse=True)
 def _stub_reference_request_projection(monkeypatch):
-    """Agent 工具接线测试不访问真实供应商配置、项目资产文件与任务库。"""
+    """智能体工具接线测试不访问真实供应商配置、项目资产文件与任务库。"""
     from server.services import video_batch_admission as _admission
 
     async def _no_active_tasks(**_kwargs):
@@ -552,7 +552,7 @@ def test_validate_script_filename_accepts_basename() -> None:
 
 @pytest.mark.unit
 async def test_generate_storyboards_rejects_path_in_script_arg(fake_ctx: ToolContext) -> None:
-    """Agent 传带路径分隔符的 script 名必须被 handler 拒绝（共享 validate_script_filename 防御）。"""
+    """智能体传带路径分隔符的 script 名必须被 handler 拒绝（共享 validate_script_filename 防御）。"""
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "../etc/passwd"})
     assert out.get("is_error") is True
@@ -1272,7 +1272,7 @@ async def test_generate_narration_audio_accepts_reference_narrator_unit(
 async def test_generate_video_rejects_mismatched_unit_script_on_storyboard_route(
     fake_ctx: ToolContext, tool_name: str, args: dict[str, Any]
 ) -> None:
-    """分镜路线项目下的 video_units 骨架剧本：四个入口一律结构报错 + 重拆指引。
+    """分镜图生视频项目下的 video_units 骨架剧本：四个入口一律结构报错 + 重拆指引。
 
     静默降档与悄悄换路径都不可构造——存量混排集的唯一出路是重拆重生成。
     """
@@ -1295,7 +1295,7 @@ async def test_generate_video_rejects_mismatched_unit_script_on_storyboard_route
 async def test_generate_video_episode_rejects_mismatched_storyboard_script_on_reference_route(
     fake_ctx: ToolContext,
 ) -> None:
-    """反向：参考路线项目下的分镜骨架剧本同样被拒，指引重跑 unit 拆分。"""
+    """反向：参考生视频项目下的分镜骨架剧本同样被拒，指引重跑 unit 拆分。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
@@ -1308,7 +1308,7 @@ async def test_generate_video_episode_rejects_mismatched_storyboard_script_on_re
 
 @pytest.mark.integration
 async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: ToolContext) -> None:
-    """分镜路线项目下的 video_units 骨架剧本：结构报错 + 重拆指引，不静默换路径。"""
+    """分镜图生视频项目下的 video_units 骨架剧本：结构报错 + 重拆指引，不静默换路径。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
@@ -2104,7 +2104,7 @@ async def test_generate_grid_list_only_respects_4k_gate(
     expected: str,
     forbidden: str,
 ) -> None:
-    # 非 4K 时 4×4 / 5×5 不出现在面向 agent 的分组预览里
+    # 非 4K 时 4×4 / 5×5 不出现在面向智能体的分组预览里
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
@@ -3210,7 +3210,7 @@ def _reference_video_script(**overrides: Any) -> dict[str, Any]:
 
 
 def _use_reference_route(fake_ctx: ToolContext) -> None:
-    """把 fake 项目切到参考生视频路线——路线是项目级事实，剧本不携带戳。"""
+    """把 fake 项目切到参考生视频——生成模式是项目级事实，剧本不携带戳。"""
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
 
 
@@ -3376,7 +3376,7 @@ async def test_generate_video_episode_reference_returns_structured_projection_bl
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    """Agent 失败信封保留公共投影的稳定 problem 字段，不只返回人读文本。"""
+    """智能体失败信封保留公共投影的稳定 problem 字段，不只返回人读文本。"""
     from lib.reference_video.request_projection import ProjectionProblem
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
@@ -4041,7 +4041,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
 async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
     ad_reference_ctx: ToolContext, monkeypatch
 ) -> None:
-    """ad 参考直出走同一条 unit 时长确认闸门。"""
+    """广告/短片的参考生视频走同一条视频单元时长确认闸门。"""
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
@@ -4537,7 +4537,7 @@ async def test_generate_video_scene_accepts_legacy_narration_string_prompt(fake_
 async def test_generate_video_episode_storyboard_batch_blocks_on_mixed_speech(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """分镜路线的整批入口同样过发声准入：一个混合发声条目扣下整批，零任务入队。"""
+    """分镜图生视频的整批入口同样过发声准入：一个混合发声条目扣下整批，零任务入队。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     project_dir = fake_ctx.pm.get_project_path("demo")
@@ -5121,7 +5121,7 @@ def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_pat
 
 @pytest.mark.unit
 def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
-    """unit_id 为空或键缺失（Agent 裸写 JSON 可致）在筛查处按位置记名拒收，健康的 unit 照常构造。"""
+    """unit_id 为空或键缺失（智能体裸写 JSON 可致）在筛查处按位置记名拒收，健康的 unit 照常构造。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
     from server.services.video_batch_admission import screen_script_entries
 
@@ -5250,9 +5250,9 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
 
 @pytest.mark.unit
 async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: ToolContext, monkeypatch) -> None:
-    """agent 工具与 REST 能力查询走同一个解析入口 ``ConfigResolver.video_capabilities``。
+    """智能体工具与 REST 能力查询走同一个解析入口 ``ConfigResolver.video_capabilities``。
 
-    两侧各自解析会让 agent 写剧本时看到的时长 / 参考图上限与界面显示的不是同一个模型。
+    两侧各自解析会让智能体写剧本时看到的时长 / 参考图上限与界面显示的不是同一个模型。
     """
     from lib.config.resolver import ConfigResolver
 
@@ -5315,7 +5315,7 @@ async def test_generate_episode_script_missing_step1(fake_ctx: ToolContext) -> N
 
 @pytest.mark.unit
 async def test_generate_episode_script_writes_to_default_project_scripts(fake_ctx: ToolContext, monkeypatch) -> None:
-    """output 参数已下线；写出路径必须由 ScriptGenerator 内部决定，handler 不应让 agent 控制。"""
+    """output 参数已下线；写出路径必须由 ScriptGenerator 内部决定，handler 不应让智能体控制。"""
     from lib import script_review
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -6187,7 +6187,7 @@ async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch
 
 @pytest.mark.unit
 async def test_plan_episodes_source_exhausted_includes_ledger_stats(fake_ctx: ToolContext, monkeypatch) -> None:
-    """再次调用无新内容（早退路径）：附全局核对材料供主 agent 核对结构性偏好。"""
+    """再次调用无新内容（早退路径）：附全局核对材料供主智能体核对结构性偏好。"""
     from lib.episode_planner import LedgerStats, PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
@@ -6312,7 +6312,7 @@ async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, mo
     out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1, "confirm_consumed": True})
 
     assert captured["args"][1:] == (1, True)
-    assert "未删除" in out["content"][0]["text"]  # 产物保留须对主 agent 说明
+    assert "未删除" in out["content"][0]["text"]  # 产物保留须对主智能体说明
 
 
 @pytest.mark.unit
@@ -6483,7 +6483,7 @@ async def test_generate_video_episode_reference_skips_malformed_unit_entries(
 async def test_generate_video_episode_ad_reference_enqueues_existing_video_units(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """广告参考路线直接消费自包含 video_units，不派生或写入 reference_units。"""
+    """广告/短片的参考生视频直接消费自包含 video_units，不派生或写入 reference_units。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     enqueued: list[Any] = []
@@ -6560,7 +6560,7 @@ async def test_generate_video_episode_reference_blocks_a_clip_whose_manifest_sta
     ad_reference_ctx: ToolContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """整集参考路线里某 unit 已有成片、但 Manifest 比对抛错（BLOCKED）时必须报
+    """整集参考生视频里某 unit 已有成片、但 Manifest 比对抛错（BLOCKED）时必须报
     blocked，不能让 ``artifact_is_usable`` 的 fail-loud 异常穿透成整批 tool_error——
     与 storyboard 整集路线的同一场判定必须同步处理（同一个不可读产物、两条路线）。
     """
@@ -7147,7 +7147,7 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "生效档位" in text and "[8]" in text
-    # 与其余违约类同口径落草稿：档位越界同样是 agent 改一改草稿就能修好的内容违约
+    # 与其余违约类同口径落草稿：档位越界同样是智能体改一改草稿就能修好的内容违约
     assert not _rv_step1_path(fake_ctx).exists()
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["duration_off_tier"]
 
@@ -7292,7 +7292,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert envelope["kind"] == QUARANTINE_KIND_STEP1
     assert [v["code"] for v in envelope["violations"]] == [code]
     assert envelope["violations"][0]["label"] == "unit E1U01"
-    # 草稿装的是扁平引用语法产物（agent 要改的那一层），不是派生后的落盘形状
+    # 草稿装的是扁平引用语法产物（智能体要改的那一层），不是派生后的落盘形状
     assert envelope["content"]["units"][0]["text"] == unit["text"]
     assert "shots" not in envelope["content"]["units"][0]
 
@@ -7307,7 +7307,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
 async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """报告逐条覆盖所有坏 unit，不停在第一个——否则 agent 每修一处就要再跑一轮付费拆分。"""
+    """报告逐条覆盖所有坏 unit，不停在第一个——否则智能体每修一处就要再跑一轮付费拆分。"""
     _rv_source(fake_ctx)
     units = [
         _rv_unit("@[张三] 起身"),
@@ -7320,13 +7320,13 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     envelope = _read_rv_quarantine(fake_ctx)
     assert [v["label"] for v in envelope["violations"]] == ["unit E1U02", "unit E1U03"]
     assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset", "braces_in_description"]
-    # 合法的 unit 也原样留在草稿里：agent 只需改坏的那些
+    # 合法的 unit 也原样留在草稿里：智能体只需改坏的那些
     assert len(envelope["content"]["units"]) == 3
 
 
 @pytest.mark.unit
 async def test_validate_and_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
-    """agent 修好草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
+    """智能体修好草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
 
@@ -7394,7 +7394,7 @@ async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_returns_flat_reference_syntax(fake_ctx: ToolContext) -> None:
-    """取回的草稿装扁平引用语法文本，不装派生物：agent 改的是正文 / 锚 / 时长，
+    """取回的草稿装扁平引用语法文本，不装派生物：智能体改的是正文 / 锚 / 时长，
     unit_id 由晋升时按数组序号重新派生，放进草稿等于给漂移开口子。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身\n@[张三] 走向 @[村口]")])
@@ -7447,7 +7447,7 @@ async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolCon
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_refuses_to_clobber_existing_draft(fake_ctx: ToolContext, monkeypatch) -> None:
-    """已有草稿在场时不覆盖：那份草稿可能已含 agent 未晋升的修改（或本就是待修复草稿），
+    """已有草稿在场时不覆盖：那份草稿可能已含智能体未晋升的修改（或本就是待修复草稿），
     拿正式文件盖过去等于抹掉它手上的工作。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
@@ -7463,7 +7463,7 @@ async def test_open_step1_for_edit_refuses_to_clobber_existing_draft(fake_ctx: T
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_without_official_file(fake_ctx: ToolContext) -> None:
-    """没有正式 step1 时指回首次拆分工具，而不是开一份空草稿让 agent 手写整集。"""
+    """没有正式 step1 时指回首次拆分工具，而不是开一份空草稿让智能体手写整集。"""
     _rv_source(fake_ctx)
 
     out = await _open_for_edit(fake_ctx)
@@ -7476,8 +7476,8 @@ async def test_open_step1_for_edit_without_official_file(fake_ctx: ToolContext) 
 @pytest.mark.unit
 async def test_open_step1_for_edit_keeps_malformed_duration_verbatim(fake_ctx: ToolContext) -> None:
     """盘上 unit 的字段类型不符时原样带进草稿，不归一化成合法值：``8.0`` 被改写成 ``0``
-    后，agent 从草稿里看到的是一个它没写过的时长，晋升报告说「时长不在档位内」也对不上
-    盘上的原值。原样带过则由晋升侧 schema 逐条报告，agent 看得见错在哪。"""
+    后，智能体从草稿里看到的是一个它没写过的时长，晋升报告说「时长不在档位内」也对不上
+    盘上的原值。原样带过则由晋升侧 schema 逐条报告，智能体看得见错在哪。"""
     _rv_source(fake_ctx)
     unit = _rv_saved_unit("@[张三] 起身")
     unit["duration_seconds"] = 8.0
@@ -7513,8 +7513,8 @@ async def test_open_step1_for_edit_rejects_missing_source_without_side_effect(
     fake_ctx: ToolContext,
 ) -> None:
     """`source` 指向不存在的文件时不落盘草稿：草稿一旦创建就把这个坏路径记进 meta.source，
-    晋升时 `_load_novel_source` 会反复报错，而草稿在场又挡住重新取回改正 source，agent
-    会卡在一个自己改不动的死角。校验失败时不产生持久副作用，agent 改对参数重试即可。"""
+    晋升时 `_load_novel_source` 会反复报错，而草稿在场又挡住重新取回改正 source，智能体
+    会卡在一个自己改不动的死角。校验失败时不产生持久副作用，智能体改对参数重试即可。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
 
@@ -7557,7 +7557,7 @@ async def test_open_step1_for_edit_records_base_fingerprint(fake_ctx: ToolContex
 
 @pytest.mark.unit
 async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext, monkeypatch) -> None:
-    """「用户在内容确认界面编辑 + agent 改草稿并晋升」的双端并发：取回后正式文件被另一写入方
+    """「用户在内容确认界面编辑 + 智能体改草稿并晋升」的双端并发：取回后正式文件被另一写入方
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
     留在原地。按报告把 meta.base_fingerprint 更新为现值（显式确认已合并）后方可重新晋升。"""
     _rv_source(fake_ctx)
@@ -7574,7 +7574,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     report = out["content"][0]["text"]
     assert "并发冲突" in report
     assert "base_fingerprint" in report
-    # 冲突报告附上盘上现值的扁平引用语法文本，供 agent 对照合并
+    # 冲突报告附上盘上现值的扁平引用语法文本，供智能体对照合并
     assert "在 @[村口] 等候" in report
     # 正式文件未被覆盖，草稿仍在场
     assert _rv_step1_path(fake_ctx).read_text(encoding="utf-8") == web_version
@@ -7671,7 +7671,7 @@ async def test_validate_and_promote_draft_rejects_schema_breach(
 ) -> None:
     """草稿改坏 schema 层字段同样只回报告：晋升与产出走同一份 schema，正式文件不被污染。
 
-    时长枚举在产出侧由 response_schema 卡死；晋升侧若只判内容约束，agent 把 duration_seconds
+    时长枚举在产出侧由 response_schema 卡死；晋升侧若只判内容约束，智能体把 duration_seconds
     改成非档位值或整个删掉（收成 0 秒）就能一路进正式 step1。
     """
     _rv_source(fake_ctx)
@@ -7705,7 +7705,7 @@ async def test_validate_and_promote_draft_reports_broken_outer_shape(
 ) -> None:
     """外层形状被改坏同样刷新报告，而不是抛一句裸错误。
 
-    units 整个删掉 / 改成非数组 / 清空都是 agent 编辑草稿时会犯的错。只有逐 unit 的字段违约
+    units 整个删掉 / 改成非数组 / 清空都是智能体编辑草稿时会犯的错。只有逐 unit 的字段违约
     刷新报告的话，这几种就被甩出了「按报告改完再晋升」的循环。
     """
     _rv_source(fake_ctx)
@@ -7723,7 +7723,7 @@ async def test_validate_and_promote_draft_reports_broken_outer_shape(
     assert not _rv_step1_path(fake_ctx).exists()
     refreshed = _read_rv_quarantine(fake_ctx)
     assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
-    # 草稿留在原地且原样保留 agent 写的那份内容：做收编会把它的原稿改形，它照着报告回看时
+    # 草稿留在原地且原样保留智能体写的那份内容：做收编会把它的原稿改形，它照着报告回看时
     # 反而对不上自己写的东西，改完再晋升这条路就断了
     assert _rv_quarantine_path(fake_ctx).exists()
     assert refreshed["content"] == edited_content
@@ -7749,7 +7749,7 @@ async def test_validate_and_promote_draft_requires_source_provenance(fake_ctx: T
 
 @pytest.mark.unit
 async def test_validate_and_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, monkeypatch) -> None:
-    """晋升成功的摘要要说「晋升」：说成「拆分」会让 agent 以为自己的修改被一次重抽覆盖了。"""
+    """晋升成功的摘要要说「晋升」：说成「拆分」会让智能体以为自己的修改被一次重抽覆盖了。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
     envelope = _read_rv_quarantine(fake_ctx)
@@ -7787,7 +7787,7 @@ async def test_promote_reference_step1_preserves_step2_draft_when_content_unchan
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """情况 B 中途放弃、原样晋升：取回草稿未改动即晋升，写回的 step1 与盘上原值逐字相同，
-    此时不该清在场的 step2 草稿——它的保结构 diff 仍然对得上这份没变的基底，agent
+    此时不该清在场的 step2 草稿——它的保结构 diff 仍然对得上这份没变的基底，智能体
     放弃 step1 修改不该连带销毁一份仍然有效的 step2 修复草稿。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
@@ -7980,7 +7980,7 @@ async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolConte
 
 @pytest.mark.unit
 async def test_generate_episode_script_quarantine_precedes_missing_step1(fake_ctx: ToolContext) -> None:
-    """首次拆分就违约时正式 step1 本就不存在——先报缺文件会把 agent 引回重跑拆分（丢弃重抽）。"""
+    """首次拆分就违约时正式 step1 本就不存在——先报缺文件会把智能体引回重跑拆分（丢弃重抽）。"""
     _rv_project(fake_ctx)
     _write_rv_quarantine(fake_ctx)
     assert not _rv_step1_path(fake_ctx).exists()
@@ -8013,7 +8013,7 @@ _DRAMA_NOVEL = "三年后，阿离回到山门。"
 
 
 def _drama_project(fake_ctx: ToolContext) -> None:
-    """把项目声明成 drama + 分镜路线，并铺好源文——正式 step1 的写禁与草稿通道以此为前提。"""
+    """把项目声明成 drama + 分镜图生视频，并铺好源文——正式 step1 的写禁与草稿通道以此为前提。"""
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps({"content_mode": "drama", "generation_mode": "storyboard"}, ensure_ascii=False),
         encoding="utf-8",
@@ -8089,7 +8089,7 @@ async def test_open_step1_for_edit_returns_drama_scenes(fake_ctx: ToolContext) -
     assert envelope["meta"]["source"] == "source/episode_1.txt"
     assert envelope["meta"]["base_fingerprint"]
     scene = envelope["content"]["scenes"][0]
-    # needs_replan 按台词准入派生，取回时剥掉：留在草稿里 agent 会当成可手写字段去改，
+    # needs_replan 按台词准入派生，取回时剥掉：留在草稿里智能体会当成可手写字段去改，
     # 而晋升侧无论如何都按现值重派生，两者不一致只会误导。
     assert "needs_replan" not in scene
     assert scene["scene_description"] == "阿离站在山门前。"
@@ -8195,7 +8195,7 @@ async def test_open_step1_for_edit_refuses_to_clobber_existing_drama_draft(fake_
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_rejects_variant_without_draft_channel(fake_ctx: ToolContext) -> None:
-    """narration 的 step1 没有草稿通道：报错要点名这一点，不能让 agent 以为工具坏了反复重试。"""
+    """narration 的 step1 没有草稿通道：报错要点名这一点，不能让智能体以为工具坏了反复重试。"""
     _rv_project(fake_ctx, generation_mode="storyboard")
 
     out = await _open_for_edit(fake_ctx)
@@ -8206,7 +8206,7 @@ async def test_open_step1_for_edit_rejects_variant_without_draft_channel(fake_ct
 
 @pytest.mark.unit
 async def test_generate_episode_script_blocked_by_drama_quarantine(fake_ctx: ToolContext) -> None:
-    """drama 的 step2 与参考路线同口径：草稿在场即拒绝生成，
+    """drama 的 step2 与参考生视频同口径：草稿在场即拒绝生成，
     否则会拿正式文件那份上一版内容静默顶替待处置的正文。"""
     _drama_project(fake_ctx)
     _write_drama_step1(fake_ctx, [_drama_scene()])
@@ -8220,9 +8220,9 @@ async def test_generate_episode_script_blocked_by_drama_quarantine(fake_ctx: Too
 
 @pytest.mark.unit
 async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx: ToolContext, monkeypatch) -> None:
-    """重新规范化是刻意的整份重建，与参考路线的重拆分同口径：正式文件换成新产物的同一临界区内
+    """重新规范化是刻意的整份重建，与参考生视频的重拆分同口径：正式文件换成新产物的同一临界区内
     清掉上一轮草稿。留着它会让内容确认与 step2 一直阻塞在一份已被取代的内容上，而草稿记下的基线
-    指纹此刻也对不上，晋升只会反复报冲突——agent 没有第二条出路。"""
+    指纹此刻也对不上，晋升只会反复报冲突——智能体没有第二条出路。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _drama_project(fake_ctx)
@@ -9153,7 +9153,7 @@ async def test_retired_param_rejection_does_not_preempt_the_script_filename_erro
 
 
 # ---------------------------------------------------------------------------
-# 生成分派：六种创作类型 × 生成模式组合
+# 生成分派：六种创作类型×生成模式组合
 # ---------------------------------------------------------------------------
 
 

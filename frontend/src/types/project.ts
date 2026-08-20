@@ -49,7 +49,7 @@ export interface Product {
   brand?: string;
   /** 用户上传的商品原图路径列表（保真验收锚点，系统级字段）。 */
   reference_images?: string[];
-  /** 卖点列表（agent 起草、用户可改）。 */
+  /** 卖点列表（智能体起草、用户可改）。 */
   selling_points?: string[];
 }
 
@@ -165,7 +165,7 @@ export interface ProjectData {
   image_provider_i2i?: string | null;
   /** 生成模式，创建时锁定、之后不可更改。 */
   generation_mode?: GenerationRoute;
-  /** 多宫格分镜装配开关；仅分镜图生视频模式有意义，随时可切。 */
+  /** 多宫格分镜装配开关；仅分镜图生视频有意义，随时可切。 */
   grid_storyboard?: boolean;
   video_generate_audio?: boolean | null;
   /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */

@@ -839,7 +839,7 @@ async def update_draft_content(
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
             # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 step1）。
-            # 若写入 fallback 到老文件，切模式后后续 subagent 读 step_files[step_num] 仍为空，
+            # 若写入 fallback 到老文件，切模式后后续子任务读 step_files[step_num] 仍为空，
             # 导致"前端保存成功但生成报缺少 step1"。
             return project_dir, content_mode, episode_drafts_dir(project_dir, episode) / step_files[step_num]
 
@@ -848,7 +848,7 @@ async def update_draft_content(
         if draft_path.name == REFERENCE_VIDEO_STEP1_FILENAME:
             # 参考生视频正式 step1 不走本端点的裸文本直写：它的写盘统一收敛在
             # ScriptReviewService.save_content 的单一出口（结构校验、references 重派生、
-            # per-path 锁与 step2 隔离草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
+            # per-path 锁与 step2 草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
             # 本端点无基线指纹可传，不做并发基线比对（同其余无基线的直连调用）。
             try:
                 parsed = json.loads(content)

@@ -1,6 +1,6 @@
 ---
 name: create-episode-script
-description: "单集 JSON 剧本生成子智能体。使用场景：(1) drafts/episode_N/ 中间文件已存在，需要生成最终 JSON 剧本，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和集数，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
+description: "单集 JSON 剧本生成子任务。使用场景：(1) drafts/episode_N/ 中间文件已存在，需要生成最终 JSON 剧本，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和集数，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
 skills:
   - generate-script
 ---
@@ -9,7 +9,7 @@ skills:
 
 ## 任务定义
 
-**输入**：主 agent 会在 prompt 中提供：
+**输入**：主智能体会在 prompt 中提供：
 - 项目名称（如 `my_project`）
 - 集数（如 `1`）
 
@@ -35,7 +35,7 @@ skills:
 - generation_mode == storyboard 且 content_mode == narration：`drafts/episode_{N}/step1_segments.json`（缺失时需先运行 `split-narration-segments`）
 - generation_mode == storyboard 且 content_mode == drama：`drafts/episode_{N}/step1_normalized_script.json`（结构化内容；缺失时需先运行 `normalize-drama-script`。旧项目残留的 `step1_normalized_script.md` 是结构化前的自由文本稿，不算有效 step1，须重跑 normalize 产出 `.json`）
 
-只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的内容整理子智能体。
+只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的内容整理子任务。
 
 > reference_video 同样走两段式：step1 已定稿的是内容契约（unit 边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做视觉展开——unit 数、unit 时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
 >
@@ -51,7 +51,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 若错误为 **草稿待处置**（错误文本指向 `drafts/episode_{N}/` 下的 `*.invalid.json`），先 Read 草稿并检查 `violations[]`：非空表示生成结果未满足约束，是待修复草稿；这次已付费的产出没有丢，正式文件也没被污染，按报告定位与违约类用 Edit 改 `content`——参考生视频路径改 `content.units[i].text`（step1 草稿还可改 `source_text` / `duration_seconds`），drama 路径改 `content.scenes[i]`。空数组表示它只是经 `open_step1_for_edit` 取回的可编辑草稿，不存在需要凭空修正的违约；保留其中已有修改。两种情况都调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 晋升；返回违约报告则按报告继续改再晋升，无轮次上限。不要重跑生成工具重抽。
 
-若错误为 **内容确认阻塞**（drama / narration / reference_video 的 step1 结构化中间态尚未经显式确认，或确认后内容又被改；ad 无 step1，不会遇到本错误），这不是数据错误：不要反复重试、不要改写中间文件。确认须由用户驱动——回报主 agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
+若错误为 **内容确认阻塞**（drama / narration / reference_video 的 step1 结构化中间态尚未经显式确认，或确认后内容又被改；ad 无 step1，不会遇到本错误），这不是数据错误：不要反复重试、不要改写中间文件。确认须由用户驱动——回报主智能体，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
 
 ### Step 3: 验证生成结果
 
@@ -82,7 +82,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 ✅ 数据验证通过
 
-下一步：主 agent 可继续 dispatch 资产生成子智能体（角色资产图、分镜图等）。
+下一步：主智能体可继续 dispatch 资产生成子任务（角色资产图、分镜图等）。
 ```
 
 如果生成失败：

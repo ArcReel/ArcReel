@@ -30,7 +30,7 @@ async def project_video_caps(
     由调用方各自降级。
 
     ``degraded_to`` 只用于日志，说明这次解析失败会让调用方退化成什么行为。
-    ``capability`` 未给定时按项目路线定桶；给定时按指定桶解析（参考路线内无参考图退化镜头
+    ``capability`` 未给定时按项目生成模式定桶；给定时按指定桶解析（参考生视频内无参考图视频单元
     按 i2v 桶取档 / 计价的读侧）。
     ``requested_generate_audio`` 独立于能力接口解析（见下方实现注释），双重失败时该键为 ``False``。
     """
@@ -99,7 +99,7 @@ async def resolve_project_is_silent(project: dict) -> bool:
     """这一集是否听不到声音，供 drama Voice_Profiles 注入前的判定。
 
     两条无声路径（模型不产音的 C 类档位、本集关闭音频）在产品口径上同形，判据取自
-    ``VoiceRenderSettings.is_silent``，与参考路线渲染层、执行层
+    ``VoiceRenderSettings.is_silent``，与参考生视频渲染层、执行层
     ``server.services.generation_context.VideoLaneResult.is_silent`` 同源。
 
     能力解析失败时档位按「无信号不判定为真无声」退化为 ``soft``，而无声开关由

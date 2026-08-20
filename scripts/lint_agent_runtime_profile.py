@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Static integrity checks for the materialized Agent Runtime Profile.
 
-校验范围限于能对照代码真相源的结构：frontmatter 与变体身份、按内容模式物化后的
+校验范围限于能对照代码真相源的结构：frontmatter 与变体身份、按创作类型物化后的
 Markdown 指针可达性、`mcp__arcreel__*` 工具名是否已注册、eval id 是否唯一。
 档案散文本身不做措辞校验——越界行为（如直改正式 step1）由 ``AgentAccessPolicy``
 在工具边界上拒绝，不靠对散文做黑名单。

@@ -1,6 +1,6 @@
-"""广告/短片模式（content_mode=ad）剧本生成 Prompt 构建器。
+"""广告/短片（content_mode=ad）剧本生成 Prompt 构建器。
 
-分镜路线产出平铺 ``shots[]``，参考路线单阶段产出自包含 ``video_units[]`` 的扁平
+分镜图生视频产出平铺 ``shots[]``，参考生视频单阶段产出自包含 ``video_units[]`` 的扁平
 引用语法正文。两条路线都按目标总时长选择带货八段框架的时长配比档位（15/30/60/90 秒，
 经维护者审定的配比表），非四档整数取距离最小的档位按比例适配。
 ``products`` 为空时自动分流为通用短片 prompt（无带货框架）。
@@ -54,9 +54,9 @@ _AD_GENERAL_RULES = """\
 
 - hook 与 cta 是绝对时长段（hook 2-4s、cta 3-6s），不随档位等比放大；加长的秒数优先给 selling_point/demo，其次 trust
 - price_promo 永远紧贴 cta 构成「促单收尾块」
-- 即使 hook 不是产品画面，产品也应在前 3 秒内入画（文字/局部/手持均可）
+- 即使 hook 不是商品画面，商品也应在前 3 秒内入画（文字/局部/手持均可）
 - 单 section 超过 6 秒必须拆成多个镜头；全片平均 3-5 秒/镜，开头允许 2-3 秒快切；镜头数宁多勿少（多场景多角度有平台官方数据背书）
-- 30 秒档为默认推荐档；90 秒档用「小故事」组织而非平铺卖点，仅适合高客单/需教育的产品"""
+- 30 秒档为默认推荐档；90 秒档用「小故事」组织而非平铺卖点，仅适合高客单/需教育的商品"""
 
 _AD_TIER_TABLES: dict[int, str] = {
     15: """\
@@ -70,7 +70,7 @@ _AD_TIER_TABLES: dict[int, str] = {
 | demo | 4 | 8-12 | 1-2 |
 | cta（可带一句促销词兼任 price_promo） | 3 | 12-15 | 1 |""",
     30: """\
-30 秒档（标准带货位，默认推荐，8-10 镜头；八段全保，trust 与 price_promo 压成一句话镜头；产品极低客单且无可信背书时首砍 trust、秒数还给 demo）：
+30 秒档（标准带货位，默认推荐，8-10 个分镜；八段全保，trust 与 price_promo 压成一句话分镜；商品极低客单且无可信背书时首砍 trust、秒数还给 demo）：
 
 | section | 秒数 | 累计 | 镜头数 |
 |---|---|---|---|
@@ -102,7 +102,7 @@ _AD_TIER_TABLES: dict[int, str] = {
 |---|---|---|---|
 | hook（可用悬念/故事钩） | 4 | 0-4 | 1 |
 | pain_point（人物+冲突小叙事） | 10 | 4-14 | 2-3 |
-| product_reveal（转折点：遇见产品） | 6 | 14-20 | 1-2 |
+| product_reveal（转折点：遇见商品） | 6 | 14-20 | 1-2 |
 | selling_point（3 个，逐个展开） | 20 | 20-40 | 3-4 |
 | demo（多场景使用过程，核心块） | 24 | 40-64 | 4-6 |
 | trust（证言/检测报告/销量） | 12 | 64-76 | 2-3 |
@@ -135,7 +135,7 @@ def _format_pacing_block(target_duration: int) -> str:
 
 
 def _format_products(products: dict) -> str:
-    """渲染产品信息块：名称 / 品牌 / 描述 / 卖点（selling_points）。"""
+    """渲染商品信息块：名称 / 品牌 / 描述 / 卖点（selling_points）。"""
     lines: list[str] = []
     for name, data in products.items():
         data = data if isinstance(data, dict) else {}
@@ -157,7 +157,7 @@ def _format_products(products: dict) -> str:
 
 
 def _shot_duration_constraint(generation_mode: str | None, supported_durations: list[int] | None) -> str:
-    """渲染分镜路线的单镜头时长约束；参考路线须走自包含 unit 构建器。"""
+    """渲染分镜图生视频的单分镜时长约束；参考生视频须走自包含 unit 构建器。"""
     if generation_mode == "reference_video":
         raise ValueError("reference_video 路径须使用 build_ad_reference_prompt")
     if not supported_durations:
@@ -187,7 +187,7 @@ def build_ad_prompt(
     target_language: str = "中文",
     speech_rate_override: float | None = None,
 ) -> str:
-    """构建广告/短片模式的剧本生成 prompt。
+    """构建广告/短片剧本生成 prompt。
 
     ``products`` 非空走带货八段框架 + 审定配比表；为空自动分流通用短片 prompt
     （无带货框架，不设显式子模式开关）。``speech_rate_override`` 是项目级语速覆盖
@@ -229,7 +229,7 @@ def build_ad_prompt(
 </style>
 
 <brief>
-{brief or "（未提供，按产品信息与常识自行设计）"}
+{brief or "（未提供，按商品信息与常识自行设计）"}
 </brief>
 
 <characters>
@@ -288,7 +288,7 @@ def build_ad_prompt(
   - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
   - 候选 props：[{", ".join(prop_names) or "（无）"}]
   - 不要发明候选之外的名称。
-- **products_in_shot**：本项目无产品资产，所有镜头一律填空数组。
+- **products_in_shot**：本项目无商品，所有分镜一律填空数组。
 
 {common_field_guides}
 
@@ -299,8 +299,8 @@ def build_ad_prompt(
 
     return f"""# 角色与任务
 
-你是一位资深的带货短视频编导，精通把产品卖点与创作诉求转写为可直接驱动 AI 图像 / 视频生成的结构化镜头脚本。
-你的任务：基于下方产品信息与创作 brief，按带货八段框架与时长配比，产出一支约 {target_duration} 秒的带货短视频镜头脚本（平铺 shots[]），符合 schema 的 JSON。
+你是一位资深的带货短视频编导，精通把商品卖点与创作诉求转写为可直接驱动 AI 图像 / 视频生成的结构化分镜脚本。
+你的任务：基于下方商品信息与创作 brief，按带货八段框架与时长配比，产出一支约 {target_duration} 秒的带货短视频分镜脚本（平铺 shots[]），符合 schema 的 JSON。
 
 {common_header}
 
@@ -326,7 +326,7 @@ def build_ad_prompt(
 - **section**：该镜头所属的带货框架段落标签，使用上方八值（如 hook、pain_point）；同段多镜头重复同一标签。
 - **voiceover_text**：每镜头的口播文案，必须完整可照稿配音、与画面同步；无口播的纯画面镜头填空字符串。全片口播连起来应是一篇完整流畅的带货话术，{voiceover_rate_note}。
 - **duration_seconds**：单镜头{duration_constraint}；各段合计遵循配比表，全片总和贴近 {target_duration} 秒。
-- **products_in_shot**：该镜头画面中实际出现的产品名称列表（产品入画即列出，含局部/手持/包装）；氛围镜头填空数组。
+- **products_in_shot**：该分镜画面中实际出现的商品名称列表（商品入画即列出，含局部/手持/包装）；氛围分镜填空数组。
   - 候选 products：[{", ".join(product_names)}]
   - 不要发明候选之外的名称。
 - **characters_in_shot** / **scenes** / **props**：仅列出此镜头画面中实际出现的资产。
@@ -339,7 +339,7 @@ def build_ad_prompt(
 
 # 创作目标
 
-输出可直接驱动 AI 生成的、产品忠实、节奏紧凑的带货镜头脚本。卖点表达贴合 <products> 的 selling_points，不夸大、不虚构功效。
+输出可直接驱动 AI 生成的、商品忠实、节奏紧凑的带货分镜脚本。卖点表达贴合 <products> 的 selling_points，不夸大、不虚构功效。
 """
 
 
@@ -358,11 +358,11 @@ def build_ad_reference_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """广告参考路线单阶段生成 prompt；直接输出扁平引用语法 unit。"""
+    """广告/短片的参考生视频单阶段生成 prompt；直接输出扁平引用语法 unit。"""
     if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
     min_unit_duration, max_unit_duration = REFERENCE_UNIT_DURATION_RANGE
-    product_context = _format_products(products) if products else "（无产品资产，按通用短片创作）"
+    product_context = _format_products(products) if products else "（无商品，按通用短片创作）"
     planning = _format_pacing_block(target_duration) if products else "按开场、发展、高潮、收束组织内容。"
     return f"""# 角色与任务
 
@@ -411,7 +411,7 @@ unit_id、references、generated_assets、needs_replan 均由系统派生，不�
 
 {WRITING_SYNTAX_SPEC}
 
-产品、角色、场景、道具都使用同一个 `@[名称]` 语法。名称只可逐字取自候选表，不要发明资产。
+商品、角色、场景、道具都使用同一个 `@[名称]` 语法。名称只可逐字取自候选表，不要发明资产。
 """
 
 

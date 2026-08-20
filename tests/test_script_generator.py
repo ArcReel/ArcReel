@@ -1391,7 +1391,7 @@ def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
 
 @pytest.mark.integration
 def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tmp_path):
-    """参考生视频模式但本集单元都不带引用时不施加参考图约束。
+    """参考生视频但本集单元都不带引用时不施加参考图约束。
 
     通用单元允许空 references，执行层与 backend 都只在实际带图时施加该约束；按模式一刀切
     会把 720p 下本可申请的 4/6 秒收掉，改变无引用单元改动前的行为。
@@ -1837,7 +1837,7 @@ class TestLoadReferenceStep1:
 
     @staticmethod
     def _generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
-        """参考路线项目：step1 的规范位置随 generation_mode 变，登记也据此定位。"""
+        """参考生视频项目：step1 的规范位置随 generation_mode 变，登记也据此定位。"""
         return _bare_generator(tmp_path, {"generation_mode": "reference_video", **(project_extra or {})})
 
     def _write(self, sg: ScriptGenerator, episode: int, payload: dict) -> None:

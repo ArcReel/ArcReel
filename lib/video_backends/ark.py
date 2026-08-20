@@ -220,7 +220,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         if ArkVideoBackend._is_seedance_2(model):
             # API 拒绝首帧/尾帧与参考素材混合请求（InvalidParameter: first/last frame content
             # cannot be mixed with reference media content）——参考图是与首尾帧互斥的
-            # 参考生视频模式，故在官方契约未声明支持混合时不开启首帧叠加能力。
+            # 参考生视频，故在官方契约未声明支持混合时不开启首帧叠加能力。
             # 尾帧与参考音频都单独走边界校验的已验证型号白名单：_is_seedance_2 本身只做宽松
             # 族群识别（供 service_tier 剔除复用），未验证的 2.0 系列变体不应继承这两项
             # 能力。两者覆盖同一组已上表型号（2.0 / 2.0-fast / 2.0-mini 三档官方均声明

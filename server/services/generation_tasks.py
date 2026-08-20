@@ -633,7 +633,7 @@ def collect_product_references_for_names(
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
     """按产品名列表收集产品参考集（注入二元规则的装配核心，条目语义见
-    ``_collect_shot_product_references``）。分镜图按镜头注入与 ad 参考直出
+    ``_collect_shot_product_references``）。分镜图按分镜注入与广告/短片的参考生视频
     按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
     """
     spec = ASSET_SPECS["product"]
@@ -1520,7 +1520,7 @@ def emit_generation_success_batch(
             except Exception:
                 reference_route_task = False
         if reference_route_task:
-            # 参考路线的资源身份恒为 video unit；路线来自创建后不可变的 project.json，
+            # 参考生视频的资源身份恒为 video unit；路线来自创建后不可变的 project.json，
             # 不让 ad 剧本残留的 shots[] 在 TTS 成功后把 E1U* 事件错分为 shot。
             kind = "video_units"
         else:
@@ -1724,7 +1724,7 @@ def _resolve_tts_task_items(
 
     if not reference_video_route:
         return resolve_items(script)
-    # 参考路线的骨架种类由任务开工时定死的路线给出，直接指定；取证解析只服务于路线未知的调用方。
+    # 参考生视频的骨架种类由任务开工时定死的路线给出，直接指定；取证解析只服务于路线未知的调用方。
     return resolve_items(script, kind="video_units")
 
 
@@ -2171,7 +2171,7 @@ def voice_sample_resource_id(character_name: str, task_id: str) -> str:
     """角色 TTS 试听样本在 ``audio/`` 下的资源 id（区别于旁白 segment id 命名空间）。
 
     生成产物只是待确认的预览件，落盘位置与旁白共用 ``audio/`` 目录但用固定前缀隔离，
-    不会与说书模式的 segment id 冲突；只有 confirm 步骤才把音频提升为角色 reference_audio。
+    不会与旁白/解说的 segment id 冲突；只有 confirm 步骤才把音频提升为角色 reference_audio。
 
     带 ``task_id`` 而非只用角色名：同一角色前一次成功样本尚未确认时发起重新生成会产生
     新任务，若资源 id 只按角色名固定，新任务落盘会原地覆盖前一个已成功任务引用的文件——
@@ -2309,7 +2309,7 @@ async def execute_video_task(
         raise ValueError("current script unit is missing video_prompt")
     requested_visual_prompt = copy.deepcopy(prompt)
     delivery_options = NarrationDeliveryRequestOptions.from_payload(payload)
-    # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考路线后
+    # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考生视频后
     # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免路线口径分叉。
     execution_payload = without_video_execution_identity(payload) if task_id is not None else payload
     ctx = await resolve_generation_context(

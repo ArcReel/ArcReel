@@ -138,7 +138,7 @@ class DataValidator:
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
     VALID_SOURCE_KINDS = set(_VALID_SOURCE_KINDS)
-    # 生成路线合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
+    # 生成模式合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
     VALID_GENERATION_MODES = set(_VALID_GENERATION_MODES)
     # 参考生视频 unit 时长的结构合理性区间，真相源同上（档位成员校验依赖运行时模型能力，
@@ -381,7 +381,7 @@ class DataValidator:
         if source_kind is not None and (not isinstance(source_kind, str) or source_kind not in self.VALID_SOURCE_KINDS):
             errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=_allowed(self.VALID_SOURCE_KINDS)))
 
-        # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
+        # 生成模式必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
         generation_mode = project.get("generation_mode")
         if not generation_mode:
             errors.append(_m("val_missing_field", field="generation_mode"))
@@ -468,7 +468,7 @@ class DataValidator:
                     continue
                 desc = char_data.get("description")
                 if not isinstance(desc, str) or not desc:
-                    # 必须是非空字符串：description 是 LLM 直写字段，agent 误传数字/对象
+                    # 必须是非空字符串：description 是 LLM 直写字段，智能体误传数字/对象
                     # 应在守卫点 fail-loud，否则会作为合法资产落盘、下游消费时才崩
                     errors.append(_m("val_asset_missing_description", asset_type=_asset("character"), name=char_name))
                 for field_name in char_extra_fields:
@@ -862,7 +862,7 @@ class DataValidator:
         language: str | None = None,
         speech_rate_override: float | None = None,
     ) -> None:
-        """验证 scenes（drama 模式）。
+        """验证 scenes（剧情演绎）。
 
         ``language`` 为项目 ``source_language``（说话量上界 warning 的语速按此取，与字幕派生同口径）；
         ``speech_rate_override`` 为项目级语速覆盖，None 即回退语言默认。
@@ -1053,7 +1053,7 @@ class DataValidator:
         """验证 shots（ad 模式）：平铺镜头列表，口播文案一等，产品按名字引用。
 
         storyboard 路径的时长成员校验在生成 schema 层（supported_durations 枚举，校验器
-        拿不到供应商能力、只把关正整数）。参考路线使用 ``video_units``，不经过本函数。
+        拿不到供应商能力、只把关正整数）。参考生视频使用 ``video_units``，不经过本函数。
 
         资产引用一律按 NFC 归一比对（见 ``_validate_segment_refs``），与两条生成路径的
         各收集器同口径。
@@ -1281,8 +1281,8 @@ class DataValidator:
         scene_speech_rate = project_speech_rate_override(project)
 
         # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类经规范解析统一
-        # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。广告参考路线
-        # 与其他参考路线一样使用 video_units；广告 storyboard 路线仍使用 shots。
+        # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。广告/短片的参考生视频
+        # 与其他参考生视频一样使用 video_units；广告 storyboard 路线仍使用 shots。
         gen_mode = project.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, gen_mode)

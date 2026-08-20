@@ -60,7 +60,7 @@ export function lookupSupportedDurations(
     : undefined;
 }
 
-/** 目录（非自定义供应商）里的视频音频能力：音轨是否存在 + 服务端派生的声音一致性档位。 */
+/** 目录（非自定义供应商）里的视频音轨能力：音轨是否存在 + 服务端派生的声音一致性档位。 */
 export interface CatalogVideoAudio {
   hasAudioTrack: boolean;
   /** 无项目上下文下的档位，服务端派生。有项目上下文时改用能力查询结果，不读此值。 */

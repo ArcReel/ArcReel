@@ -49,9 +49,9 @@ export interface ContentBlock {
   // skill_invocation 块字段（写入点定型，只有名与入参，无注入全文）
   skill_name?: string;
   skill_args?: string;
-  // subagent 子时间线：投影按 parent_tool_use_id 归组后挂在锚点 tool_use 块
+  // 子任务子时间线：投影按 parent_tool_use_id 归组后挂在锚点 tool_use 块
   sub_turns?: Turn[];
-  // 关联到锚点 tool_use 的子智能体状态/进度（由 task_progress 块折叠而来）
+  // 关联到锚点 tool_use 的子任务状态/进度（由 task_progress 块折叠而来）
   task_info?: ContentBlock;
   // image block fields
   source?: { type: "base64"; media_type: string; data: string };
@@ -64,7 +64,7 @@ export interface ContentBlock {
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number };
   // question_answer fields（AskUserQuestion 答复：问题 → 所选选项）
   answers?: Record<string, string>;
-  // agent_failure block（写入点定型的 Agent 故障观测）
+  // agent_failure block（写入点定型的智能体故障观测）
   failure?: FailureObservation;
 }
 
@@ -111,7 +111,7 @@ export interface TimelineEntry {
   timestamp?: string;
   /** assistant 条目携带，供 draft 按身份精确替换。 */
   message_id?: string | null;
-  /** subagent 消息标记：投影按 parent 归组为主时间线单一折叠卡片。 */
+  /** 子任务消息标记：投影按 parent 归组为主时间线单一折叠卡片。 */
   parent_tool_use_id?: string;
   // tool_result / question_answer 条目字段
   tool_use_id?: string | null;

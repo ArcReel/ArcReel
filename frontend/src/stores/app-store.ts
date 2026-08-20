@@ -92,7 +92,7 @@ interface AppState {
   gridsRevision: number;
   invalidateGrids: () => void;
 
-  // 参考视频单元失效信号：参考生视频任务终态经项目事件 SSE 推来时自增，参考生
+  // 视频单元失效信号：参考生视频任务终态经项目事件 SSE 推来时自增，参考生
   // 视频画布据此重拉单元，生成完成后无需手动刷新即可看到成片。
   referenceVideoUnitsRevision: number;
   invalidateReferenceVideoUnits: () => void;

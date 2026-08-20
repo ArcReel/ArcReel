@@ -10,11 +10,11 @@
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定（广告/短片默认 9:16 竖屏），无需在 prompt 中指定
 - **时长规划**：广告/短片项目**没有** `default_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
-  - storyboard 模式：单镜头时长必须取所选视频模型 `supported_durations` 中的值；子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
-  - reference_video 模式：每个 video unit 持有符合剧本模型结构约束的正整数编排时长，unit 内镜头不单列时长；生成预检会把编排时长投影到供应商申请档位
+  - 分镜图生视频：单分镜时长必须取所选视频模型 `supported_durations` 中的值；子任务运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
+  - 参考生视频：每个 video unit 持有符合剧本模型结构约束的正整数编排时长，unit 内不单列分镜时长；生成预检会把编排时长投影到供应商申请档位
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
-- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个镜头独立生成、以分镜图作起始帧；reference_video 模式按自包含 video unit 直出、跳过分镜（见下文「生成模式」）
+- **生成方式**：按 `generation_mode` 分两路——分镜图生视频中每个分镜独立生成、以分镜图作起始帧；参考生视频按自包含 video unit 直出、跳过分镜（见下文「生成模式」）
 
 > **关于 extend 功能**：Veo 3.1 extend 功能仅用于延长单个镜头，
 > 每次固定 +7 秒，不适合用于串联不同镜头。不同镜头之间使用 ffmpeg 拼接。
@@ -28,14 +28,14 @@
 
 ### 工具调用
 
-- **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
+- **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，智能体直接以 tool 形式调用。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script_revision`，再把其 revision 原样作为 `patch_episode_script` 的 `expected_revision`，并传有序 `operations[]`（`update` / `insert_after` / `move_after` / `remove`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，增/删/拆分镜的便捷工具也委托同一事务编辑器；角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `manage-project` / `compose-video` 这两个 skill 内还保留的 Python 脚本。
 - **敏感文件保护**：`.env` / `vertex_keys/` / `.system_config.json*` / `.arcreel.db*` / `.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
 ### 路径规范
 
-agent session 的当前工作目录（cwd）已绑定到当前项目根，**所有工具参数中的路径必须遵循以下规则**：
+智能体 session 的当前工作目录（cwd）已绑定到当前项目根，**所有工具参数中的路径必须遵循以下规则**：
 
 - **Read / Edit / Write / Glob / Grep**：`file_path` 使用**绝对路径**
 - **Bash 调用 skill 脚本**：使用**相对项目根 cwd** 的路径，例如：
@@ -43,7 +43,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   - ❌ `projects/{项目名}/scripts/episode_1.json`（双前缀，占位符替换或拼接出错就会落到 projects 根）
 - **严禁**在工具参数中出现 `projects/{...}/` 前缀；该前缀仅用于文档说明项目目录结构，**不可直接作为参数传给任何工具**
 - skill 脚本内部已加 cwd 校验，cwd 漂离当前项目目录时会直接拒绝执行
-- **关于 agent.md / SKILL.md 中的相对形式**：子智能体指引（如「读取 `project.json`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
+- **`.claude/agents/*.md` / `SKILL.md` 中的相对形式**：子任务指引（如「读取 `project.json`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
 
 ---
 
@@ -90,14 +90,14 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 需要在这里说清、不由计划表达的 ad 专属规则：
 
-- **创作输入**：带货项目商品未登记或缺原图时，引导用户在 WebUI 初始化页或商品资产页上传商品图（原图是商品保真的验收锚点，agent 不能代传图片；通用短片见下文，不索要商品）；用户勾选「生成标准商品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（商品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入
+- **创作输入**：带货项目商品未登记或缺原图时，引导用户在 WebUI 初始化页或商品资产页上传商品图（原图是商品保真的验收锚点，智能体不能代传图片；通用短片见下文，不索要商品）；用户勾选「生成标准商品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（商品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入
 - **生成模式**：用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知生成模式创建后不可更改，无绕过方式；宫格装配对 ad 不开放
 - **卖点**：商品已登记但 `selling_points` 为空时，从 brief、商品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
-- **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` 子智能体出资产图；轻量短片可跳过，仅靠商品参考与项目 style
+- **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` 子任务出资产图；轻量短片可跳过，仅靠商品参考与项目 style
 - **剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与引用语法正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
 - **product sheet 过目（软门禁）**：商品生成了 `product_sheet` 时，分镜开工前（参考生视频路径为首次视频生成前）安排用户到商品资产页确认 sheet 与真品一致（见下文「商品保真」）；无 sheet（仅原图）直接进入下一步
 - **保真拦截**：分镜图生成后引导用户审核商品形象保真度，不合格的重新生成——在产生视频费用前拦截
-- **导出**：视频齐全后引导用户在 Web 端导出剪映草稿。声音归属与字幕时序由服务端 presentation 结果决定，预览、下载与剪映草稿消费同一份；agent 不自行估算字幕时序、不静音 provider 原音、也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。in-app 成片（compose-video）对 ad 不适用
+- **导出**：视频齐全后引导用户在 Web 端导出剪映草稿。声音归属与字幕时序由服务端 presentation 结果决定，预览、下载与剪映草稿消费同一份；智能体不自行估算字幕时序、不静音供应商原音、也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。in-app 成片（compose-video）对 ad 不适用
 
 工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，中断后从那里继续。
 
@@ -131,7 +131,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ## 项目目录结构
 
-> 下面的目录树仅为说明用途，agent session 的 cwd 已在项目根。**Bash 调用 skill 脚本**时使用相对 cwd 的路径（如 `scripts/`）；**Read / Edit / Write / Glob / Grep** 的 `file_path` 仍按上文「路径规范」要求使用**绝对路径**。无论哪种工具都不可带 `projects/{项目名}/` 前缀。
+> 下面的目录树仅为说明用途，智能体 session 的 cwd 已在项目根。**Bash 调用 skill 脚本**时使用相对 cwd 的路径（如 `scripts/`）；**Read / Edit / Write / Glob / Grep** 的 `file_path` 仍按上文「路径规范」要求使用**绝对路径**。无论哪种工具都不可带 `projects/{项目名}/` 前缀。
 
 ```text
 projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的相对路径
@@ -141,9 +141,9 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ├── characters/        # 角色资产图
 ├── scenes/            # 场景资产图
 ├── props/             # 道具资产图
-├── storyboards/       # 分镜图片（storyboard 模式）
-├── videos/            # 生成的视频片段（storyboard 模式）
-├── reference_videos/  # 生成的 video_unit（reference_video 模式）
+├── storyboards/       # 分镜图（分镜图生视频）
+├── videos/            # 生成的视频片段（分镜图生视频）
+├── reference_videos/  # 生成的 video_unit（参考生视频）
 ├── thumbnails/        # 首帧缩略图
 └── output/            # 最终输出
 ```

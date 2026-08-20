@@ -7,9 +7,9 @@ MediaGenerator 中间层
 覆盖的资源类型：
 - storyboards: 分镜图 (scene_E1S01.png)
 - videos: 视频 (scene_E1S01.mp4)
-- characters: 角色设计图 (姜月茴.png)
-- scenes: 场景设计图 (庙宇.png)
-- props: 道具设计图 (玉佩.png)
+- characters: 角色资产图 (姜月茴.png)
+- scenes: 场景资产图 (庙宇.png)
+- props: 道具资产图 (玉佩.png)
 - grids: 宫格图 (grid_xxx.png)
 """
 

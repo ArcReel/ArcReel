@@ -174,7 +174,7 @@ class _FakePMGridDisabled(_FakePMPathOnly):
 
 
 class _FakePMReferenceVideo(_FakePMPathOnly):
-    """ProjectManager 替身：参考生视频路线，即使残留 grid_storyboard=true 也不激活宫格。"""
+    """ProjectManager 替身：参考生视频，即使残留 grid_storyboard=true 也不激活宫格。"""
 
     def load_project(self, name):
         return {"content_mode": "narration", "generation_mode": "reference_video", "grid_storyboard": True}

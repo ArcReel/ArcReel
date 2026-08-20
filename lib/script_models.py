@@ -14,8 +14,8 @@ from pydantic.json_schema import SkipJsonSchema
 
 from lib.script_skeleton import resolve_declared_kind
 
-# 所有剧本模型默认禁止额外字段:agent 的 `patch_episode_script` 通过 `_set_nested` 允许在
-# dict 上凭空创建叶子(为了让 agent 补 LLM 漏写的 optional 字段);若 Pydantic 走默认
+# 所有剧本模型默认禁止额外字段:智能体的 `patch_episode_script` 通过 `_set_nested` 允许在
+# dict 上凭空创建叶子(为了让智能体补 LLM 漏写的 optional 字段);若 Pydantic 走默认
 # `extra="ignore"`,任何 typo / hallucinated 字段都会被静默丢,但 dict 已被 atomic_write_json
 # 持久化,JSON 文件里垃圾字段长存,「不更坏」error-set diff 永远抓不到(before/after Pydantic
 # 都 ignore → 两边 errors 集合相同 → new_errors=∅ → 放行)。`extra="forbid"` 让 Pydantic
@@ -207,11 +207,11 @@ def get_generated_assets(item: dict) -> dict:
     return assets if isinstance(assets, dict) else {}
 
 
-# ============ 说书模式（Narration） ============
+# ============ 旁白/解说（Narration） ============
 
 
 class NarrationSegment(BaseModel):
-    """说书模式的片段
+    """旁白/解说的分镜
 
     注意：不设独立 `episode` 字段。集号已经编码在 `segment_id`（格式 E{集}S{序号}）中，
     与 `DramaScene.scene_id` / `ReferenceVideoUnit.unit_id` 保持一致。避免 AI 在每个
@@ -275,7 +275,7 @@ class NovelInfo(BaseModel):
 
 
 class NarrationEpisodeScript(BaseModel):
-    """说书模式剧集脚本
+    """旁白/解说剧本
 
     注意：`episode` 字段不在 schema 中。CLI 参数 `--episode N` 是集号的唯一真相源，
     由 `ScriptGenerator._add_metadata` 写入。不让 AI 生成该字段，避免幻觉写错集号
@@ -291,7 +291,7 @@ class NarrationEpisodeScript(BaseModel):
 
     title: str = Field(description="剧集标题")
     # content_mode 由 _add_metadata setdefault 注入项目级真值;Literal 单值让 LLM 写无意义
-    content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="内容模式")
+    content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="创作类型")
     # novel 由 _add_metadata 注入 {项目 title, f"第N集"};compose-video 用 chapter 作输出文件名,LLM 自由发挥反而不可预测
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # hook / next_episode_teaser 由 _add_metadata 从分集账本注入（账本是钩子设计的
@@ -332,7 +332,7 @@ class NarrationStep1Segment(BaseModel):
 class NarrationStep1Draft(BaseModel):
     """说书 step1 结构化中间态（``drafts/episode_N/step1_segments.json`` 的 schema）。
 
-    顶层容忍附加字段（如 ``episode`` 头）：片段拆分由 subagent 经 Write 产出、非结构化输出
+    顶层容忍附加字段（如 ``episode`` 头）：片段拆分由子任务经 Write 产出、非结构化输出
     强约束，读时按本模型校验。
     """
 
@@ -368,7 +368,7 @@ class NarrationVisualEpisodeScript(BaseModel):
     segments: list[NarrationVisualSegment] = Field(description="各片段的视觉层，按 segment_id 一一对齐 step1")
 
 
-# ============ 剧集动画模式（Drama） ============
+# ============ 剧情演绎（Drama） ============
 
 
 UtteranceKind = Literal["dialogue", "voiceover"]
@@ -414,7 +414,7 @@ class Utterance(BaseModel):
 
 
 class DramaScene(BaseModel):
-    """剧集动画模式的场景"""
+    """剧情演绎的分镜。"""
 
     model_config = _STRICT_CONFIG
 
@@ -510,7 +510,7 @@ class DramaScene(BaseModel):
 
 
 class DramaEpisodeScript(BaseModel):
-    """剧集动画模式剧集脚本
+    """剧情演绎剧本
 
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
@@ -518,7 +518,7 @@ class DramaEpisodeScript(BaseModel):
 
     title: str = Field(description="剧集标题")
     # 见 NarrationEpisodeScript.content_mode 说明
-    content_mode: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="内容模式")
+    content_mode: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="创作类型")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # 见 NarrationEpisodeScript 同名字段说明。
@@ -527,7 +527,7 @@ class DramaEpisodeScript(BaseModel):
     scenes: list[DramaScene] = Field(description="场景列表")
 
 
-# ============ 剧集动画两段式：step1 内容 / step2 视觉（见 ADR 0041） ============
+# ============ 剧情演绎两段式：step1 内容 / step2 视觉（见 ADR 0041） ============
 #
 # 内容抽取前移到 step1：场景边界、characters/scenes/props、utterances（逐字口播）、source_text
 # （逐字原文锚）、scene_description（视觉改编自由文本）一次定稿。step2 只生成视觉层
@@ -666,15 +666,15 @@ def merge_drama_visual_into_scenes(
     return merged
 
 
-# ============ 广告/短片模式（Ad） ============
+# ============ 广告/短片（Ad） ============
 
 
 class AdShot(BaseModel):
-    """广告/短片模式的镜头——平铺 shots[] 的最小单元。
+    """广告/短片的分镜——平铺 shots[] 的最小单元。
 
     ``section`` 是带货框架段落标签（hook/pain_point/product_reveal/selling_point/
     demo/trust/price_promo/cta 八值引导，不硬枚举，留给 prompt 资产约束）；
-    ``voiceover_text`` 是一等口播文案，字幕导出与后续 TTS 的单一来源。产品按名字
+    ``voiceover_text`` 是一等口播文案，字幕导出与后续 TTS 的单一来源。商品按名字
     引用 ``products_in_shot``（对应 project.json 的 products bucket），氛围镜头该列表为空。
     """
 
@@ -689,7 +689,7 @@ class AdShot(BaseModel):
     characters_in_shot: list[str] = Field(default_factory=list, description="出场角色名称列表")
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
-    products_in_shot: list[str] = Field(default_factory=list, description="出场产品名称列表，非空即产品镜头")
+    products_in_shot: list[str] = Field(default_factory=list, description="出场商品名称列表，非空即商品分镜")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
     # 见 NarrationSegment.transition_to_next 说明
@@ -704,7 +704,7 @@ class AdShot(BaseModel):
 
 
 class AdEpisodeScript(BaseModel):
-    """广告/短片模式剧集脚本（恒单集，剧本即第 1 集脚本文件）。
+    """广告/短片剧本（恒单集，剧本即第 1 集脚本文件）。
 
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
@@ -712,13 +712,13 @@ class AdEpisodeScript(BaseModel):
 
     title: str = Field(description="短片标题")
     # 见 NarrationEpisodeScript.content_mode 说明
-    content_mode: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="内容模式")
+    content_mode: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="创作类型")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     shots: list[AdShot] = Field(description="镜头列表")
 
 
-# ============ 参考生视频模式（Reference-to-Video） ============
+# ============ 参考生视频（Reference-to-Video） ============
 
 #: 视频单元编排时长（``ReferenceVideoUnit.duration_seconds``）的结构范围（秒）。
 #: 静态模型只拦非正整数与量级明显失真的值；生成预检再按执行模型能力投影到申请档位并把
@@ -737,7 +737,7 @@ def ad_shot_duration_seconds(shot: object) -> int:
     """ad 单镜头时长（秒）的脏数据归一口径：非 dict 条目、非正整数时长
     （bool 按 int 子类排除）一律按 0 计、不抛。
 
-    分镜路线的总时长偏差观察经 ``ad_script_total_duration`` 共用此口径。
+    分镜图生视频的总时长偏差观察经 ``ad_script_total_duration`` 共用此口径。
     """
     if not isinstance(shot, dict):
         return 0
@@ -760,7 +760,7 @@ def ad_script_total_duration(shots: object) -> int:
 
 
 #: 缺 duration_seconds 时按骨架种类取的兜底时长（秒）——剧本条目时长的单一真相源。
-#: segments/scenes 沿用历史默认；shots（ad）与 video_units（参考直出）无单镜头默认时长
+#: segments/scenes 沿用历史默认；shots（ad）与 video_units（参考生视频）无单分镜默认时长
 #: 偏好（按 target/预算逐条规划），缺失按 0 计，避免杜撰值污染与目标总时长的对照。
 #: 四种骨架全登记；第五种骨架加入即在 ``item_duration`` 查表 KeyError。
 _ITEM_FALLBACK_DURATIONS: dict[str, int] = {"segments": 4, "scenes": 8, "shots": 0, "video_units": 0}
@@ -802,7 +802,7 @@ class ReferenceResource(BaseModel):
     model_config = _STRICT_CONFIG
 
     type: Literal["product", "character", "scene", "prop"] = Field(description="引用的资源类型")
-    name: str = Field(description="产品/角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
+    name: str = Field(description="商品/角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
 
 
 class ReferenceVideoUnit(BaseModel):
@@ -842,7 +842,7 @@ class ReferenceVideoUnit(BaseModel):
 
 
 class ReferenceVideoScript(BaseModel):
-    """参考生视频模式剧集脚本。
+    """参考生视频剧集脚本。
 
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
@@ -969,7 +969,7 @@ class ReferenceStep2FlatScript(BaseModel):
 
 
 class AdReferenceFlatUnit(BaseModel):
-    """广告参考路线一次生成产出的自包含书写单元。"""
+    """广告/短片的参考生视频一次生成产出的自包含书写单元。"""
 
     model_config = _STRICT_CONFIG
 
@@ -982,7 +982,7 @@ class AdReferenceFlatUnit(BaseModel):
 
 
 class AdReferenceFlatScript(BaseModel):
-    """广告参考路线的单阶段 LLM 输出；ID 与状态均由机器派生。"""
+    """广告/短片的参考生视频的单阶段 LLM 输出；ID 与状态均由机器派生。"""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -1036,7 +1036,7 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     - 在 response_schema（结构化输出）里渲染为 JSON-schema ``enum``（单值时为 ``const``）→ LLM 生成层即被卡死；
     - ``model_validate`` 时强制成员校验。
 
-    服务 narration / drama / ad 三种内容模式：骨架种类经规范解析
+    服务 narration / drama / ad 三种创作类型：骨架种类经规范解析
     （``resolve_declared_kind``，未知/缺失 content_mode fail-loud 抛 ``ValueError``，不落 drama
     兜底），kind → 模型的映射留本地（行为不进注册表）。reference_video 不经此路：其 API 消费的是
     ``unit.duration_seconds``（各 shot 之和），与单 shot 枚举不对应，沿用静态 ``ReferenceVideoScript``。

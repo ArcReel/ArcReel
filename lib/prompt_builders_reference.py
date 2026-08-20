@@ -1,4 +1,4 @@
-"""参考生视频模式 Prompt 构建器。
+"""参考生视频 Prompt 构建器。
 
 设计原则与 prompt_builders_script.py 一致：
 - 不重复 schema 已声明的枚举（type 等）；让 response_schema 直接约束。
@@ -271,7 +271,7 @@ def build_reference_video_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """构建参考生视频模式 step2（视觉展开）的 LLM Prompt。
+    """构建参考生视频 step2（视觉展开）的 LLM Prompt。
 
     step2 只做一件事：把 step1 每个 unit 的正文按同一份书写语法扩写出视觉层，**保结构**——
     unit 数与顺序不变、台词逐字不变；时长不进输出（step1 定稿、机械沿用）。

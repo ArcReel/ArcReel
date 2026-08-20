@@ -53,7 +53,7 @@ def _fingerprint(value: Any) -> str:
     return hashlib.sha1(canonical_json_bytes(value)).hexdigest()
 
 
-# 同一件事在发布方与快照差分两侧的 action 命名差异：参考视频任务完成时，发布方按 task_type
+# 同一件事在发布方与快照差分两侧的 action 命名差异：参考生视频任务完成时，发布方按 task_type
 # 映射为 ``reference_video_ready``（见 generation_tasks._SKELETON_DRIVEN_TASK_ACTIONS），而快照
 # 差分表示为 ``video_ready``。两侧 entity_type/entity_id 相同，
 # 只有 action 不同，不归一会让同一次完成广播成两条。
@@ -804,7 +804,7 @@ class ProjectEventService:
         """条目出场的 (角色, 场景, 道具, 产品) 名单（各自排序、去重）。
 
         ``chars_field`` 非 ``None`` 时角色读逐条字段、场景/道具读顶层 ``scenes`` / ``props``；为
-        ``None``（video_units 无逐条实体字段的显式缺位，见 ``SKELETONS``）时一律为空——参考路线
+        ``None``（video_units 无逐条实体字段的显式缺位，见 ``SKELETONS``）时一律为空——参考生视频
         的资产引用写在正文的 ``@[名称]`` 里，正文本身已进快照，实体名单再派生一遍只是同一处
         改动的第二种说法。
         """

@@ -60,7 +60,7 @@ ActualBySegment = dict[str, dict[str, CostBreakdown]]
 ACTUAL_COST_TYPES = ("image", "video", "audio")
 
 
-#: 读侧定桶要枚举的全部视频任务类型桶。分镜路线整项目走 i2v 桶；参考路线由公共
+#: 读侧定桶要枚举的全部视频任务类型桶。分镜图生视频项目整体走 i2v 桶；参考生视频由公共
 #: request projection 按每个 unit 当前实际可用资产分桶。两个桶都在这里预解析，省去按
 #: 路线与镜头分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
@@ -368,7 +368,7 @@ class CostEstimationService:
                         bucket_provider, bucket_model = resolved_video.provider_id, resolved_video.model_id
                     except Exception:
                         bucket_provider, bucket_model = "unknown", "unknown"
-                    # 分镜路线保持既有宽容报价；参考路线逐 unit 的严格能力校验由 request projector
+                    # 分镜图生视频保持既有宽容报价；参考生视频逐 unit 的严格能力校验由 request projector
                     # 完成，能力元数据异常时不会产生 unit 报价。
                     bucket_audio = await r.video_pricing_generate_audio(bucket_provider, bucket_model, project_data)
                     try:
@@ -424,7 +424,7 @@ class CostEstimationService:
             ) in video_identity.items()
         }
         # 项目层展示的视频模型按项目 generation_mode 定桶：``models`` 回答的是「当前项目配置」
-        # 的路线主桶；参考路线内退化镜头的逐 unit 降级计价在集级估算路径内完成，不改变项目层
+        # 的生成模式主桶；参考生视频内无参考图视频单元的逐 unit 降级计价在集级估算路径内完成，不改变项目层
         # 展示身份。
         project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
@@ -497,10 +497,10 @@ class CostEstimationService:
                 proj_est[cost_type] = _merge_breakdowns(proj_est.get(cost_type, {}), ep_est.get(cost_type, {}))
                 proj_act[cost_type] = _merge_breakdowns(proj_act.get(cost_type, {}), ep_act.get(cost_type, {}))
 
-        # 参考生视频路径跳过分镜步骤，所有内容模式都按自包含 reference_unit 计费与展示。
+        # 参考生视频路径跳过分镜步骤，所有创作类型都按自包含 reference_unit 计费与展示。
         #
         # 生成路径以项目路线为唯一真相源，整个项目同一条路线、逐集不变（剧本不携带路线信息）；
-        # 参考路线内的定桶再由 request projection 按当前资产逐 unit 分流。
+        # 参考生视频内的定桶再由 request projection 按当前资产逐 unit 分流。
         for ep_meta in episodes_meta:
             script_file = ep_meta.get("script_file", "")
             script = scripts.get(script_file)
@@ -705,7 +705,7 @@ class CostEstimationService:
         meta_order = {ep_meta.get("episode"): i for i, ep_meta in enumerate(episodes_meta)}
         episodes_result.sort(key=lambda ep: meta_order.get(ep["episode"], len(meta_order)))
 
-        # Project-level actual costs (characters/scenes/props/products 资产图 —— segment_id is null)
+        # Project-level actual costs (characters/scenes/props/products 资产图—— segment_id is null)
         async with self._session_factory() as session:
             project_image_by_type = await UsageRepository(session).get_project_image_costs_by_asset_type(project_name)
         for asset_type in ("characters", "scenes", "props", "products"):
@@ -807,7 +807,7 @@ class CostEstimationService:
             projection = None
             options = (request_options or {}).get(unit_id, ReferenceRequestOptions())
             if enqueueable:
-                # agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
+                # 智能体/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
                 # 单个 unit 的无效内容不应让整个项目估算失败，因此资产解析与 request projection
                 # 的 ValueError/TypeError 只跳过该 unit。能力解析错误由 projector 转为结构化 blocker，
                 # 正常保留在该 unit 的报价结果中。

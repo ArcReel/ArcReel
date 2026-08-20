@@ -1,7 +1,7 @@
 /**
- * 生成路线工具 — mirrors lib/project_manager.py。
+ * 生成模式工具 — mirrors lib/project_manager.py。
  *
- * 路线二值 `storyboard | reference_video`，创建时锁定、之后不可更改。宫格是分镜路线内的
+ * 路线二值 `storyboard | reference_video`，创建时锁定、之后不可更改。宫格是分镜图生视频内的
  * 装配选项（`grid_storyboard` 布尔），不改变喂给视频模型的输入契约，故不是第三条路线。
  */
 
@@ -22,7 +22,7 @@ export function normalizeRoute(value: unknown): GenerationRoute {
 
 /**
  * 宫格是否生效 — mirrors lib/project_manager.py:grid_storyboard_enabled()。
- * 参考路线上残留的 `grid_storyboard=true` 不激活宫格。
+ * 参考生视频上残留的 `grid_storyboard=true` 不激活宫格。
  */
 export function gridStoryboardEnabled(
   project: { generation_mode?: GenerationRoute | null; grid_storyboard?: boolean } | null | undefined,
@@ -32,8 +32,8 @@ export function gridStoryboardEnabled(
 }
 
 /**
- * 条目数的文案 key — 名词按生成路线定，与创作类型无关：分镜路线报「分镜数」、
- * 参考路线报「视频单元数」。所有展示条目数的位置读同一份映射，不各自写三元判断。
+ * 条目数的文案 key — 名词按生成模式定，与创作类型无关：分镜图生视频报「分镜数」、
+ * 参考生视频报「视频单元数」。所有展示条目数的位置读同一份映射，不各自写三元判断。
  *
  * `withStatus` 取带状态后缀的那条（「N 分镜 · 制作中」），否则取裸计数那条。
  */

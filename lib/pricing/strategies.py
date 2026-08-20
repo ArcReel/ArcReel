@@ -118,7 +118,7 @@ def _per_image_openai_token(pricing: PerImageOpenAIToken, params: PricingParams)
 def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple[float, str]:
     model = params.model or pricing.default_model
     model_costs = pricing.rates.get(model, pricing.rates[pricing.default_model])
-    # 真实 0 秒（如参考模式全零时长聚合）保持 0；缺省（None）才按 8 秒兜底。
+    # 真实 0 秒（如参考生视频全零时长聚合）保持 0；缺省（None）才按 8 秒兜底。
     # 「无时长视为 8 秒」的默认由 calculate_cost 对单次实时调用施加，不在此处。
     duration = params.duration_seconds if params.duration_seconds is not None else 8
     if pricing.dimensions == "resolution_audio":

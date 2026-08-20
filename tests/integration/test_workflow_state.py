@@ -83,7 +83,7 @@ def _write_registered_script(
 ) -> None:
     """写剧本并登记认领——落盘本身不进读取口径，未登记的剧本一律按 missing 处理。
 
-    剧集剧本的取证以 step1 为输入，故一并登记 step1（广告模式无 step1，登记为不可取证即跳过）。
+    剧集剧本的取证以 step1 为输入，故一并登记 step1（广告/短片无 step1，登记为不可取证即跳过）。
     """
     atomic_write_json(project_path / "scripts" / filename, script)
     register_current_artifact_if_provable(project_path, ArtifactKey.episode_step1(episode))

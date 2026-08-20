@@ -295,7 +295,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           }
 
           if (entityChanges.length > 0 && payload.source !== "webui") {
-            // Draft 事件 — 自动导航到剧集预处理 Tab
+            // Draft 事件 — 自动导航到剧集内容整理 Tab
             let draftHandled = false;
             for (const change of entityChanges) {
               if (
@@ -337,7 +337,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             void useTasksStore.getState().refreshTasks();
           }
 
-          // Unit 增删改可能来自 Agent 或另一浏览器；生成完成则改变成片。两类事件都要
+          // Unit 增删改可能来自智能体或另一浏览器；生成完成则改变成片。两类事件都要
           // 作废 reference-video-store 的独立列表缓存，同一批只自增一次。
           if (
             entityChanges.some((c) => c.entity_type === "reference_unit") ||

@@ -85,7 +85,7 @@ logger = logging.getLogger(__name__)
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
-# 生成路线（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
+# 生成模式（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
 # 宫格不是路线：它由独立的 grid_storyboard 布尔表达，仅 storyboard 路线有意义。
 # 存量三值 "grid" 已由 v4→v5 迁移重编码为 storyboard + grid_storyboard=true。
 VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
@@ -156,10 +156,10 @@ def resolve_episode_script_binding(
 
 
 def is_reference_video_project(project: Mapping[str, Any]) -> bool:
-    """项目是否走参考生视频路线。
+    """项目是否使用参考生视频。
 
     project.json 的 ``generation_mode`` 是该判定的唯一真相源：路线创建即定、之后不可变，
-    整个项目按同一条路径生成；ad 内容模式的剧本骨架也不携带剧本级 ``generation_mode`` 戳
+    整个项目按同一条路径生成；ad 创作类型的剧本骨架也不携带剧本级 ``generation_mode`` 戳
     （见 ``script_generator``），只看剧本判不出参考生视频。
     """
     return project.get("generation_mode") == "reference_video"
@@ -359,7 +359,7 @@ class ProjectManager:
 
         Args:
             name: 项目标识（全局唯一，用于 URL 和文件系统）
-            content_mode: 内容模式（narration / drama），影响 profile 物化时选哪份变体
+            content_mode: 创作类型（narration / drama），影响 profile 物化时选哪份变体
 
         Returns:
             项目目录路径
@@ -524,7 +524,7 @@ class ProjectManager:
         for project_dir in sorted(self.projects_root.iterdir()):
             # 与 ``list_projects`` 同规则：跳过点开头（.git 等）和下划线开头
             # （``_global_assets`` 保留目录 — 跨项目共享 character/scene/prop 库，
-            # 不是项目，不该 sync agent profile）
+            # 不是项目，不应同步智能体 profile）
             if not project_dir.is_dir() or project_dir.name.startswith((".", "_")):
                 continue
             try:
@@ -1123,7 +1123,7 @@ class ProjectManager:
         """
         从剧本文件同步集数信息到 project.json
 
-        Agent 写入剧本后必须调用此方法以确保 WebUI 能正确显示剧集列表。
+        智能体写入剧本后必须调用此方法以确保 WebUI 能正确显示剧集列表。
 
         Args:
             project_name: 项目名称
@@ -1243,7 +1243,7 @@ class ProjectManager:
     # ==================== 角色管理 ====================
 
     def update_character_sheet(self, project_name: str, script_filename: str, name: str, sheet_path: str) -> dict:
-        """更新角色设计图路径"""
+        """更新角色资产图路径"""
         # 资产回写热路径：只动运行时字段，结构不可能因此变坏，豁免结构校验。
         with self.locked_script(project_name, script_filename, validate=False) as script:
             key = resolve_asset_key(script.get("characters"), name)
@@ -1261,7 +1261,7 @@ class ProjectManager:
         创建标准的 generated_assets 结构
 
         Args:
-            content_mode: 内容模式（'narration' 或 'drama'）
+            content_mode: 创作类型（'narration' 或 'drama'）
 
         Returns:
             标准的 generated_assets 字典
@@ -1687,7 +1687,7 @@ class ProjectManager:
         return self.get_project_path(project_name) / "source" / filename
 
     def get_character_path(self, project_name: str, filename: str) -> Path:
-        """获取角色设计图路径"""
+        """获取角色资产图路径"""
         return self._get_asset_path("character", project_name, filename)
 
     def get_storyboard_path(self, project_name: str, filename: str) -> Path:
@@ -2307,7 +2307,7 @@ class ProjectManager:
                 raise ValueError(f"extras 不允许覆盖核心字段: {sorted(forbidden)}")
             project.update(extras)
 
-        # 生成路线与宫格开关：路由层已做必填二值校验与 ad 互斥（400/422），这里再兜一道防非路由
+        # 生成模式与宫格开关：路由层已做必填二值校验与 ad 互斥（400/422），这里再兜一道防非路由
         # 调用方；未传时按数据层默认补写显式值，保证新项目落盘即含两字段（与 schema v5 形态对齐）。
         generation_mode = project.setdefault("generation_mode", _DEFAULT_GENERATION_MODE)
         if not isinstance(generation_mode, str) or generation_mode not in VALID_GENERATION_MODES:
@@ -2465,24 +2465,24 @@ class ProjectManager:
         返回**诊断 dict**（不是 project 元数据）：``added``（新建条目名列表）、``merged``
         （合并已有条目名列表）、``dropped_fields``（被白名单丢弃的非允许字段，{name: [字段名]}）、
         ``dropped_legacy``（被剔除的历史字段如 type/importance，{name: [字段名]}）。caller
-        （MCP tool 层）据此构造对 agent 的明确反馈——silent drop 是设计意图（least privilege），
-        但纯 silent 让 agent 误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
-        把忽略原因明示给 agent，避免 agent 重复尝试同样会被丢的字段。
+        （MCP tool 层）据此构造对智能体的明确反馈——silent drop 是设计意图（least privilege），
+        但纯 silent 让智能体误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
+        把忽略原因明示给智能体，避免智能体重复尝试同样会被丢的字段。
         """
         # data_validator 在模块级 import 本模块（VALID_GENERATION_MODES），故惰性 import 破环。
         from lib.data_validator import DataValidator
 
         asset_type = self._resolve_asset_type(table)
-        # 拆开两种失败 case 让 agent 错误更精确（之前合并的 "entries 不能为空" 无法区分两者）
+        # 拆开两种失败 case 让智能体错误更精确（之前合并的 "entries 不能为空" 无法区分两者）
         if not isinstance(entries, dict):
             raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
         if not entries:
             raise ValueError("entries 不能为空（至少需要一个 name → attrs 条目）")
         # 规范化 name：strip + NFC 后非空，且须是路径安全的单段组件（validate_asset_name，
-        # 名称会被拼进文件路径与单段路由参数）。agent 误传 "  李白  " 这种带空格的 name 会让
+        # 名称会被拼进文件路径与单段路由参数）。智能体误传 "  李白  " 这种带空格的 name 会让
         # 后续按 name 索引查找（角色生成等）因空格差异 mismatch。非法 name fail-loud。
         # 同时检测规范化后冲突：{"李白": {...}, "  李白  ": {...}} 或 NFC/NFD 双形态规范化后
-        # key 相同 → 后者会 silent overwrite 前者；fail-loud 让 agent 明确感知 collision 并去重。
+        # key 相同 → 后者会 silent overwrite 前者；fail-loud 让智能体明确感知 collision 并去重。
         normalized_entries: dict[str, dict] = {}
         raw_keys_by_normalized: dict[str, str] = {}
         for raw_name, attrs in entries.items():
@@ -2501,15 +2501,15 @@ class ProjectManager:
             raw_keys_by_normalized[name] = raw_name
 
         spec = ASSET_SPECS[asset_type]
-        # 字段白名单走 spec 的「agent 权限维度」`agent_editable_extra_fields`，**不复用** schema 维度
+        # 字段白名单走 spec 的「智能体权限维度」`agent_editable_extra_fields`，**不复用** schema 维度
         # `extra_string_fields`——后者包括 `reference_image` 这类系统/用户路径字段（与 sheet_field
-        # 同性质，更新走 `update_character_reference_image` 专用 API），不该被 agent patch_project 直改。
+        # 同性质，更新走 `update_character_reference_image` 专用 API），不该被智能体 patch_project 直改。
         # 不允许的字段同样含 `sheet_field`（character_sheet / scene_sheet / prop_sheet，资产生成流水线
         # 在图像就绪后通过 `_update_asset_sheet` 专用 API 回写）以及 spec 之外的任意 key。
         # `_strip_legacy_asset_fields` 处理 type/importance 等历史字段，这层再加白名单形成「最小特权」。
         allowed_fields = {"description", *spec.agent_editable_extra_fields}
-        # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示 agent。silent drop 仍是设计意图,
-        # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知 agent,避免 LLM 重复尝试。
+        # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示智能体。silent drop 仍是设计意图,
+        # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知智能体,避免 LLM 重复尝试。
         cleaned: dict[str, dict[str, Any]] = {}
         dropped_fields: dict[str, list[str]] = {}  # name → [被白名单丢的字段]
         dropped_legacy: dict[str, list[str]] = {}  # name → [被 _LEGACY_ASSET_FIELDS 剔除的字段]
@@ -2526,7 +2526,7 @@ class ProjectManager:
                 else:
                     non_allowed.append(k)
                     logger.debug(
-                        "upsert_assets: %s '%s' 的字段 %r 不在 agent 可编辑白名单 %s,已忽略",
+                        "upsert_assets: %s '%s' 的字段 %r 不在智能体可编辑白名单 %s,已忽略",
                         table,
                         name,
                         k,
@@ -2642,7 +2642,7 @@ class ProjectManager:
         """剔除旧式 type/importance 字段（schema 演进遗留），返回新 dict。"""
         return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
 
-    #: 级联重命名须一并改写的 step1 草稿文件名（结构化 JSON，含隔离草稿——它们承载
+    #: 级联重命名须一并改写的 step1 草稿文件名（结构化 JSON，含草稿——它们承载
     #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。旧版 ``.md`` 自由文本别名
     #: 不在列：读取层仅兼认浏览，写盘与生成侧已不认。
     _RENAME_DRAFT_FILENAMES = frozenset(
@@ -3007,7 +3007,7 @@ class ProjectManager:
             name: 角色名称
             description: 角色描述
             voice_style: 声音风格
-            character_sheet: 角色设计图路径
+            character_sheet: 角色资产图路径
 
         Returns:
             更新后的项目元数据
@@ -3030,7 +3030,7 @@ class ProjectManager:
         return self.update_project(project_name, _mutate)
 
     def update_project_character_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        """更新项目级角色设计图路径"""
+        """更新项目级角色资产图路径"""
         return self._update_asset_sheet("character", project_name, name, sheet_path)
 
     def update_character_reference_image(self, project_name: str, char_name: str, ref_path: str) -> dict:
@@ -3187,7 +3187,7 @@ class ProjectManager:
     # ==================== 场景管理（scene） ====================
 
     def update_scene_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        """更新场景设计图路径"""
+        """更新场景资产图路径"""
         return self._update_asset_sheet("scene", project_name, name, sheet_path)
 
     def get_scene(self, project_name: str, name: str) -> dict:
@@ -3199,13 +3199,13 @@ class ProjectManager:
         return self._get_pending_assets("scene", project_name)
 
     def get_scene_path(self, project_name: str, filename: str) -> Path:
-        """获取场景设计图路径"""
+        """获取场景资产图路径"""
         return self._get_asset_path("scene", project_name, filename)
 
     # ==================== 道具管理（prop） ====================
 
     def update_prop_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        """更新道具设计图路径"""
+        """更新道具资产图路径"""
         return self._update_asset_sheet("prop", project_name, name, sheet_path)
 
     def get_prop(self, project_name: str, name: str) -> dict:
@@ -3217,7 +3217,7 @@ class ProjectManager:
         return self._get_pending_assets("prop", project_name)
 
     def get_prop_path(self, project_name: str, filename: str) -> Path:
-        """获取道具设计图路径"""
+        """获取道具资产图路径"""
         return self._get_asset_path("prop", project_name, filename)
 
     def get_pending_characters(self, project_name: str) -> list[dict]:

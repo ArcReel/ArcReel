@@ -28,7 +28,7 @@ class ScriptEditError(ValueError):
 
     ``key``/``params`` 是给用户可见路径准备的翻译坐标：会经 HTTP 路由回传终端用户的 raise 点
     必须显式传具体 ``key``，服务端按请求 ``Accept-Language`` 渲染，而不是把固定中文的
-    ``str(self)`` 嵌进已翻译的响应模板。只被 MCP 工具与日志消费的 raise 点是 agent-facing、
+    ``str(self)`` 嵌进已翻译的响应模板。只被 MCP 工具与日志消费的 raise 点是面向智能体、
     按 CLAUDE.md 豁免 i18n，沿用默认 key 即可（渲染为通用兜底文案）。
     """
 
@@ -43,7 +43,7 @@ def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[l
 
     返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "shots", "video_units"}。
     键与 id 字段的查法委托给 `script_skeleton.resolve_kind_items`（骨架条目访问的唯一入口，
-    取证解析同源）；``kind`` 由调用方显式给定（如任务开工时已定死的生成路线）时跳过取证解析，
+    取证解析同源）；``kind`` 由调用方显式给定（如任务开工时已定死的生成模式）时跳过取证解析，
     直接按该种类取值。本函数在原样返回值上加编辑核心特有的校验策略：**键缺失**视为空数组；
     **键存在但类型非 list（含值为 null）**时 fail-loud 抛 `ScriptEditError`（不静默降级为 []，
     避免把数据损坏掩盖成「未找到 id」——`"segments": null` 这类损坏会暴露而非被当成空草稿）。
@@ -107,13 +107,13 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         raise ScriptEditError("patch_episode_script 不可改 end_frame_image；尾帧的设置/清除是独立的显式动作")
     if parts[0] in {"segment_id", "scene_id", "unit_id", "shot_id"}:
         # patch 不可改分镜 id：id 由 insert/split 从锚点派生，结构校验不查 id 唯一性，
-        # agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
+        # 智能体改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
         # 或产生重复 id 歧义。增减分镜走 insert_segment / split_segment / remove_segment 工具。
         raise ScriptEditError(
             f"patch_episode_script 不可改分镜 id 字段 ({parts[0]})；id 由 insert/split 派生，不允许直接修改"
         )
     cur: Any = obj
-    # 三类异常分别报告，让 agent 错误信息更精确（拼写错误 vs 类型错误 vs 中间节点不存在）。
+    # 三类异常分别报告，让智能体错误信息更精确（拼写错误 vs 类型错误 vs 中间节点不存在）。
     for p in parts[:-1]:
         if not isinstance(cur, dict):
             raise ScriptEditError(f"父节点非对象 (类型 {type(cur).__name__}): {field_path!r}")
@@ -125,7 +125,7 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
     if not isinstance(cur, dict):
         raise ScriptEditError(f"父节点非对象: {field_path!r}")
     # 叶子(最后一段)允许不存在:LLM 漏写的 optional 字段(video_prompt.dialogue / note 等
-    # 在 Pydantic 模型里有 default 或 default_factory,JSON 序列化时可能被省略)agent 应能补,
+    # 在 Pydantic 模型里有 default 或 default_factory,JSON 序列化时可能被省略)智能体应能补,
     # 而不是被迫走 remove+insert 重生整个分镜。父节点(中间路径段)不存在仍 fail-loud——那是
     # 真的拼写错误(如 image_prompt.scen 应为 image_prompt.scene),不该在 dict 上凭空新建
     # 中间节点。结构上的错误最终由写盘统一入口的「不更坏」结构校验兜住。
@@ -144,7 +144,7 @@ def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, An
     """在 ``after_id`` 之后插入一个新分镜，分配派生自锚点 id 的稳定新 id。
 
     新分镜的 id 字段被强制改写为 ``{after_id}_{k}``（唯一），``generated_assets`` 与
-    ``end_frame_image`` 清空。其余字段由 agent 提供，结构是否合法由写盘统一入口校验。
+    ``end_frame_image`` 清空。其余字段由智能体提供，结构是否合法由写盘统一入口校验。
     """
     if not isinstance(new_item, dict):
         raise ScriptEditError("new_item 必须是对象")
@@ -153,7 +153,7 @@ def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, An
     item = deepcopy(new_item)
     item[id_field] = _next_suffixed_id(str(after_id), _existing_ids(items, id_field))
     item["generated_assets"] = {}
-    # 尾帧快照按镜头 id 命名，新 id 名下还没有快照；agent 自带的值只会指向别人的快照或空路径。
+    # 尾帧快照按分镜 id 命名，新 id 名下还没有快照；智能体自带的值只会指向别人的快照或空路径。
     item.pop("end_frame_image", None)
     items.insert(idx + 1, item)
     return script
@@ -168,12 +168,12 @@ def remove_segment(script: dict[str, Any], item_id: str) -> dict[str, Any]:
 
 
 def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
-    """把 ``item_id`` 分镜按 agent 提供的各部分内容拆成多个。
+    """把 ``item_id`` 分镜按智能体提供的各部分内容拆成多个。
 
     首个部分保留原 id 且**保留** ``generated_assets`` 与 ``end_frame_image`` 不清空——视为
     "锚点延续",与 ``insert_segment`` 的锚点资产不动语义对齐(同族结构操作,资产作废粒度统一)。
     其余 parts 取 ``{item_id}_{k}`` 后缀的新 id 且清空 ``generated_assets`` 与
-    ``end_frame_image``(身份变化,旧资产无归属,退回 pending 待重生)。agent 想微调原分镜内容请用 ``patch_episode_script`` 改字段,
+    ``end_frame_image``(身份变化,旧资产无归属,退回 pending 待重生)。智能体想微调原分镜内容请用 ``patch_episode_script`` 改字段,
     用 split 时锚点资产被保留是为了避免误用一次 split 把已生成的图/视频全部失效。
 
     reference 模式下拆的是顶层 ``video_units``（``item_id`` 即 unit_id），每个 part 是一个完整
@@ -195,13 +195,13 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
         part = deepcopy(raw)
         if offset == 0:
             part[id_field] = str(item_id)
-            # 锚点延续:保留原分镜的 generated_assets(若 agent 在 parts[0] 自带了
-            # generated_assets,以原分镜实际值为准,不让 agent 凭空写资产路径)。
+            # 锚点延续:保留原分镜的 generated_assets(若智能体在 parts[0] 自带了
+            # generated_assets,以原分镜实际值为准,不让智能体凭空写资产路径)。
             if isinstance(anchor_assets, dict):
                 part["generated_assets"] = deepcopy(anchor_assets)
             else:
                 # 锚点 generated_assets 形态异常(非 dict,如 list/str 等脏数据)→ 退化为空 dict。
-                # agent 在 parts[0] 自带的 generated_assets(deepcopy(raw) 已拷入 part)也会被这里
+                # 智能体在 parts[0] 自带的 generated_assets(deepcopy(raw) 已拷入 part)也会被这里
                 # 覆盖丢弃。warning 让运维知道,符合 ADR-0003 增补「禁止零信号成功」原则。
                 # anchor_assets is None 视为"原本就没有"正常态,不 warn。
                 if anchor_assets is not None:
@@ -211,7 +211,7 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
                         type(anchor_assets).__name__,
                     )
                 part["generated_assets"] = {}
-            # 尾帧同锚点延续：以原分镜实际值为准，不让 agent 在 parts[0] 凭空改写快照路径。
+            # 尾帧同锚点延续：以原分镜实际值为准，不让智能体在 parts[0] 凭空改写快照路径。
             if anchor_end_frame is None:
                 part.pop("end_frame_image", None)
             else:
@@ -221,7 +221,7 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
             taken.add(new_id)
             part[id_field] = new_id
             part["generated_assets"] = {}
-            # 新 id 名下没有快照，agent 自带的值只会指向锚点的快照。
+            # 新 id 名下没有快照，智能体自带的值只会指向锚点的快照。
             part.pop("end_frame_image", None)
         new_parts.append(part)
 

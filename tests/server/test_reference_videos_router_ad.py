@@ -1,4 +1,4 @@
-"""广告参考路线复用通用 video-unit Web API。"""
+"""广告/短片的参考生视频复用通用 video-unit Web API。"""
 
 from __future__ import annotations
 

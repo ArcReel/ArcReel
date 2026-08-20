@@ -14,7 +14,7 @@
           reference 模式该字段永远为 None，自然跳过。
 
     3. 场景参考图 `scene_sheet`
-       —— reference 模式核心兜底：即使一次视频都没生成，也能用一张场景设计图
+       —— reference 模式核心兜底：即使一次视频都没生成，也能用一张场景资产图
           展现项目美术风格。scene > character 是因为环境/空间感更像"封面"。
 
     4. 角色参考图 `character_sheet`

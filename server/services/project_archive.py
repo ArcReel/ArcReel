@@ -343,7 +343,7 @@ class ProjectArchiveService:
 
                     diagnostics = self._repair_project_tree(staging_dir)
                     # 在校验前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend /
-                    # 生成路线重编码）：启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的
+                    # 生成模式重编码）：启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的
                     # 旧归档需在此补跑，否则解析链不再读 legacy 字段会让该项目静默回退全局默认，且校验器按
                     # 最新 schema 形态断言（如 generation_mode 必填二值），未迁移的旧归档会被误拒。放在安装
                     # **前** → 迁移若抛错，staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目
@@ -1017,8 +1017,8 @@ class ProjectArchiveService:
         content_mode = raw_content_mode
         generation_mode = project_payload.get("generation_mode")
 
-        # 修复分流按规范解析的骨架种类走：所有参考路线都使用 video_units，storyboard
-        # 路线按内容模式使用 segments/scenes/shots。
+        # 修复分流按规范解析的骨架种类走：所有参考生视频都使用 video_units，storyboard
+        # 路线按创作类型使用 segments/scenes/shots。
         kind = resolve_declared_kind(content_mode, generation_mode)
 
         # video_units 骨架用 references 组织资产，结构与

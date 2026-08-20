@@ -286,7 +286,7 @@ def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
     不能各自维护一份、由此产生分歧（如预检放行了入队会拒绝的空提示词 unit）。
     """
 
-    # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
+    # 用 .get 归一化：缺失 unit_id 的坏数据（智能体可裸写 script JSON）会被 from_request
     # 当作空 resource_id 拒绝，而不是在此抛 KeyError 中断整批。
     if not isinstance(unit, dict):
         raise ValueError("unit 必须是对象")
@@ -295,7 +295,7 @@ def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
         require_script_unit_admitted("video_units", unit)
     text = unit.get("text")
     if not isinstance(text, str):
-        # 容器校验落在入队校验这一处：脏值（导入 / Agent 裸写 script 产生的 dict、数字）
+        # 容器校验落在入队校验这一处：脏值（导入 / 智能体裸写 script 产生的 dict、数字）
         # 不拦就会在下游拼接提示词时抛出 TypeError，把整批打成 500，而不是让这个 unit
         # 带着自己的问题码进入准入结论。
         raise ValueError(f"text 必须是字符串，当前为 {type(text).__name__}")
@@ -813,14 +813,14 @@ async def resolve_voice_context(project: dict[str, Any], content_mode: str) -> d
 
 
 async def audio_switch_conflict(project: dict[str, Any]) -> str | None:
-    """分镜路线的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
+    """分镜图生视频的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
 
-    成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与内容模式
+    成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与创作类型
     无关，narration/ad 同样受检。
 
     调用点固定在「确有目标要请求」之后：整集已完成、或条目全被 :func:`build_storyboard_video_specs`
     过滤时本就不会产生任何请求，此时拒绝等于把一次正常的空转变成报错。
-    参考路线由公共 request projection 给出同一音频能力判定。
+    参考生视频由公共 request projection 给出同一音频能力判定。
 
     返回冲突说明文本；无冲突返回 ``None``。调用方把它折成逐目标的准入结论，与其它缺口
     一起在建任务之前一次报全。
@@ -853,10 +853,10 @@ def build_storyboard_video_specs(
     silently shrinks the batch — and, because the refusal is a ticket rather than a
     recorded block, it can hold the whole batch back before any task exists.
 
-    ``skeleton_kind`` 取路线闸门给出的剧本实际骨架种类，而不是按内容模式反推：族内的历史
+    ``skeleton_kind`` 取路线闸门给出的剧本实际骨架种类，而不是按创作类型反推：族内的历史
     形态（narration 数据落 ``scenes`` 键）按反推值去适配，合法的旧剧本会被整批判成解析失败。
 
-    发声准入在这里执行，与参考路线由 ``reference_unit_task_spec`` 承担的位置对应：
+    发声准入在这里执行，与参考生视频由 ``reference_unit_task_spec`` 承担的位置对应：
     构造 TaskSpec 的这一步是「这个 unit 能不能被请求」的唯一口径，四个 storyboard 入口
     （整集 / 全部 / 点名 / 单条）与只读的工作流计划都经由它，混合发声与 needs_replan 因此
     在任何入口都会在建任务之前扣住整批，计划预告的准入结论也与真正提交时一致。

@@ -1,20 +1,20 @@
-"""step1→step2 审核 gate 的核心逻辑：适用性判定、step1 路径、内容指纹、审核状态派生，
+"""step1→step2 内容确认的核心逻辑：适用性判定、step1 路径、内容指纹、审核状态派生，
 以及参考生视频正式 step1 的单一写盘出口（``step1_write_lock`` / ``write_step1_locked``）。
 
 gate 横跨两处消费：SDK 工具（``generate_episode_script`` 的 step2 阻塞 enforcement）与 web
 router / service（结构化中间态审阅 / 编辑 / 确认）。状态派生只依赖 step1 文件 + project dict
 的纯计算；写盘出口另持 ``ProjectManager.file_lock`` 的 per-path 锁，四条写路径（Web 端保存、
-重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 step2 隔离草稿清理只存在一处。
+重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 step2 草稿清理只存在一处。
 
 真值只存「确认指纹」于 project.json ``episodes[i].step1_review``；pending / confirmed 由读时
-比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、agent
+比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、智能体
 改写 step1、web 手改 step1 都会让指纹漂移、自动重新待审，无需 hook 各异的 step1 写入路径
-（narration step1 由 subagent Write 落盘、无 Python chokepoint）。
+（narration step1 由子任务 Write 落盘、无 Python chokepoint）。
 
 适用范围（拥有结构化 step1 中间态的三条内容/视觉两段式路径）：
 - drama / narration 的图生 / 宫格路径：step1_normalized_script.json / step1_segments.json；
 - reference_video 路径（跨 narration / drama content_mode）：step1_reference_units.json。
-三者的 step1 变体由 ``step1_kind`` 统一判定（reference_video 按项目生成路线优先）。ad 无 step1，
+三者的 step1 变体由 ``step1_kind`` 统一判定（reference_video 按项目生成模式优先）。ad 无 step1，
 不纳入 gate。
 """
 
@@ -71,8 +71,8 @@ STALE_STEP1_REBUILT_REVISION_FIELD = "stale_step1_rebuilt_revision"
 #: 重新确认后仍残留的旧剧本，避免仅凭「文件存在」误判 step2 已完成。
 SCRIPT_STEP1_REVISION_FIELD = "step1_revision"
 
-#: step1 变体：drama / narration（按 content_mode）+ reference_video（按项目生成路线，跨 content_mode）。
-#: 决定 step1 文件名与结构校验模型；三者共用同一审核 gate。
+#: step1 变体：drama / narration（按 content_mode）+ reference_video（按项目生成模式，跨 content_mode）。
+#: 决定 step1 文件名与结构校验模型；三者共用同一内容确认。
 Step1Kind = Literal["drama", "narration", "reference_video"]
 
 
@@ -80,7 +80,7 @@ def step1_kind(project: dict[str, Any]) -> Step1Kind | None:
     """项目的 step1 变体；无结构化 step1 中间态（如 ad）时返回 None。
 
     reference_video 是 generation_mode 维度、跨 content_mode（narration / drama 均可），按项目
-    生成路线优先判定；否则按 content_mode 落 drama / narration。content_mode 非
+    生成模式优先判定；否则按 content_mode 落 drama / narration。content_mode 非
     STEP1_FILENAMES 成员（ad）即无 step1，reference_video 亦不适用。变体由项目两轴唯一决定，
     不随集号变化。
     """
@@ -106,8 +106,8 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
     return episode_drafts_dir(project_path, episode) / filename
 
 
-#: step1 变体 → 该变体的隔离草稿来源。narration 尚未接入隔离草稿（其 step1 仍由 subagent
-#: 直接编辑），故不在表内——缺席即「该变体无隔离草稿位」，gate 与生成侧据此不阻塞。
+#: step1 变体 → 该变体的草稿来源。narration 尚未接入草稿（其 step1 仍由子任务
+#: 直接编辑），故不在表内——缺席即「该变体无草稿位」，gate 与生成侧据此不阻塞。
 _STEP1_QUARANTINE_KIND: dict[str, str] = {
     "reference_video": QUARANTINE_KIND_STEP1,
     "drama": QUARANTINE_KIND_DRAMA_STEP1,
@@ -115,13 +115,13 @@ _STEP1_QUARANTINE_KIND: dict[str, str] = {
 
 
 def step1_quarantine_kind(project: dict[str, Any]) -> str | None:
-    """该项目 step1 变体对应的隔离草稿来源；该变体无隔离草稿位时返回 None。"""
+    """该项目 step1 变体对应的草稿来源；该变体无草稿位时返回 None。"""
     kind = step1_kind(project)
     return _STEP1_QUARANTINE_KIND.get(kind) if kind is not None else None
 
 
 def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
-    """该集 step1 隔离草稿的路径；该变体无隔离草稿位时返回 None。
+    """该集 step1 草稿的路径；该变体无草稿位时返回 None。
 
     只回路径、不判存在性——存在性判断在 ``step1_quarantined``，两者分开是为了让调用方在
     需要报错文案时能拿到路径。
@@ -133,13 +133,13 @@ def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: 
 
 
 def step1_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """该集 step1 是否有隔离草稿在场——gate 与 step2 的阻塞判据。
+    """该集 step1 是否有草稿在场——gate 与 step2 的阻塞判据。
 
-    隔离态与「正式 step1 的内容指纹」是两件事：产出违约或 agent 取回编辑时正式文件都原封
+    隔离态与「正式 step1 的内容指纹」是两件事：产出违约或智能体取回编辑时正式文件都原封
     不动，指纹照旧等于已确认值，只看指纹会把该集判成 confirmed 并放行 step2——用户看到的是
-    上一版内容，而待处置的正文还躺在隔离草稿里。故隔离态独立阻塞。
+    上一版内容，而待处置的正文还躺在草稿里。故隔离态独立阻塞。
 
-    草稿按项目当前变体解析（见 ``step1_quarantine_path``）：换过生成路线的项目上残留的另一条
+    草稿按项目当前变体解析（见 ``step1_quarantine_path``）：换过生成模式的项目上残留的另一条
     路线的草稿不参与判定，否则该集会被一份没有写入方会清理的文件永久卡死。
     """
     path = step1_quarantine_path(project_path, project, episode)
@@ -278,7 +278,7 @@ def formal_step1_lock(project_path: Path, episode: int, path: Path) -> Iterator[
     """任一变体正式 step1 的写临界区：建目录 + per-path 排他锁，yield 该正式文件路径。
 
     与迁移读改写、Web 端保存、重拆分 / 晋升共用同一把 ``ProjectManager.file_lock``（per-path，
-    进程间排他、不可重入）。凡要「读正式文件后据此写盘或写隔离草稿」的操作都应整段包在本
+    进程间排他、不可重入）。凡要「读正式文件后据此写盘或写草稿」的操作都应整段包在本
     临界区内——读与写拆开在锁外各做一次，就是并发覆盖窗口。
 
     路径由调用方按变体传入（``step1_path`` / ``official_reference_step1_path``）：三个 step1
@@ -376,13 +376,13 @@ def write_formal_step1_locked(
     basis: ArtifactBasis | None = None,
 ) -> bool:
     """任一变体正式 step1 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
-    下游隔离草稿。返回内容是否发生变化。
+    下游草稿。返回内容是否发生变化。
 
     调用方须已持有该文件的排他锁（``formal_step1_lock``，或同一路径的
     ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。有隔离
-    草稿位的两个变体（drama 与参考路线）的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、
+    草稿位的两个变体（drama 与参考生视频）的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、
     迁移回写）汇入本函数；无草稿位的 narration 走 ``write_step1_json``——同一把锁、同一个
-    事务，只是不做基线比对、也没有下游草稿要清。正式 step1 之所以对 agent 写禁，正是因为
+    事务，只是不做基线比对、也没有下游草稿要清。正式 step1 之所以对智能体写禁，正是因为
     写盘只发生在这些持锁的出口。
 
     ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
@@ -390,7 +390,7 @@ def write_formal_step1_locked(
     内容不被静默覆盖。传 ``UNCHECKED_FINGERPRINT`` 跳过比对：重拆分是刻意的整份重建，
     同临界区读改写（迁移、确认）则读写之间本就无并发窗口。
 
-    ``dependent_quarantine`` 是以本文件为基底的下游隔离草稿来源（参考路线的 step2；drama
+    ``dependent_quarantine`` 是以本文件为基底的下游草稿来源（参考生视频的 step2；drama
     step1 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都按字节回滚，
     不会留下「正式文件是旧的、草稿已被清掉」的半场。基底真的变了才作废它——迁移回写是机械
     格式收编、不是内容编辑，调用方传 ``clear_dependent_quarantine=False`` 保留。
@@ -417,7 +417,7 @@ def write_step1_locked(
     basis: ArtifactBasis | None = None,
 ) -> bool:
     """参考生视频正式 step1 的写盘出口（``write_formal_step1_locked`` 绑定该变体路径与其
-    下游 step2 隔离草稿的具名入口）。"""
+    下游 step2 草稿的具名入口）。"""
     return write_formal_step1_locked(
         project_path,
         episode,
@@ -460,7 +460,7 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     path = step1_path(project_path, project, episode)
     if path is None:
         return "not_applicable"
-    # 隔离草稿在场先于指纹判定：违约产物尚未处置，无论正式文件是缺失、旧版还是已确认，
+    # 草稿在场先于指纹判定：未满足约束的产物尚未处置，无论正式文件是缺失、旧版还是已确认，
     # 该集都还没有一份「可放行」的 step1。判 pending_review 而非新增状态——gate 的消费方
     # （阻塞 step2、web 状态展示）要的正是「未放行」这一位，加状态会波及全部消费点。
     if step1_quarantined(project_path, project, episode):
@@ -474,7 +474,7 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     # 无确认指纹（存量 / 首次）：用 step2 产物是否已存在做 grandfather 判据。
     # 过渡态局限：存量集没有指纹基线，无法区分「step1 未动」与「step1 已重拆但未确认」——
     # 只要旧 step2 文件仍在，重拆后的 step1 也会被放行、不重新拦审。这是「不无谓阻塞存量重跑」的
-    # 取舍代价，且自愈：用户或 agent 首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
+    # 取舍代价，且自愈：用户或智能体首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
     return "confirmed" if step2_generated(project_path, project, episode) else "pending_review"
 
 
@@ -534,7 +534,7 @@ def migrate_step1_draft_in_place(
 
     调用方须已持有该文件的排他锁（``step1_write_lock`` / 同路径 ``ProjectManager.file_lock``）
     ——回写经单一写盘出口 ``write_step1_locked``，与 Web 端保存 / 重拆分写盘同一把 per-path
-    锁。迁移是机械格式收编、不是内容编辑，不作废 step2 隔离草稿；同临界区读改写也无并发
+    锁。迁移是机械格式收编、不是内容编辑，不作废 step2 草稿；同临界区读改写也无并发
     窗口，不做基线比对。未发生迁移时不回写，返回 ``(None, [])``。
 
     迁移多数情况下是机械格式收编，回写会让内容指纹漂移：经 ``update_project`` 在锁内把该集

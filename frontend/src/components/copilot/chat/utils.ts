@@ -22,9 +22,9 @@ export const TERMINAL_SESSION_STATUSES = new Set(["completed", "error", "interru
 //
 // 当用户中断时，被中断的 assistant 流式内容仍存在 draftTurn 中（未完成的
 // 消息不会形成权威日志条目）。此时 turns 末尾是 interrupt_notice 系统
-// turn——若把 draft 直接附加在末尾，渲染会变成"中断 → 助手回复"，与时间
+// turn——若把 draft 直接附加在末尾，渲染会变成"中断 → 智能体回复"，与时间
 // 顺序相反。把 draft 插到 interrupt_notice 之前，让 UI 显示成
-// "助手回复 → 中断"。刷新后 draft 自然消失（服务端内存态，不入日志）。
+// "智能体回复 → 中断"。刷新后 draft 自然消失（服务端内存态，不入日志）。
 // ---------------------------------------------------------------------------
 
 export function composeAllTurns(turns: Turn[], draftTurn: Turn | null): Turn[] {

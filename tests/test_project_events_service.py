@@ -667,7 +667,7 @@ class TestProjectEventService:
 
     @pytest.mark.unit
     def test_change_identity_normalizes_equivalent_ready_actions(self):
-        """参考视频完成在发布方与快照差分两侧的 action 命名不同，但去重身份相同。
+        """参考生视频完成在发布方与快照差分两侧的 action 命名不同，但去重身份相同。
 
         发布方按 task_type 映射为 ``reference_video_ready``，同一次落盘在 unit 差分里是
         ``video_ready``；不归一会让同一次完成既由本批广播、又被补扫广播一次。
@@ -1464,7 +1464,7 @@ class TestProjectEventService:
         """
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("ad-sb")
-        # 不设 generation_mode：非参考路线，unit 级组合不激活。
+        # 不设 generation_mode：非参考生视频，unit 级组合不激活。
         pm.create_project_metadata("ad-sb", "AdSb", "Anime", "ad")
 
         with project_change_source("filesystem"):

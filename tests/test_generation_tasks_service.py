@@ -3563,7 +3563,7 @@ class TestGenerationTasks:
     def test_emit_success_batch_reference_video_entity_type_aligns_with_frontend(self, monkeypatch, tmp_path):
         """参考生视频任务完成通知的 entity_type 需为前端联合类型认识的 "reference_unit"
         （而非仅本侧认识的 "reference_video_unit"），分组标题才能落「视频单元」而非「内容」
-        兜底；条目文案仍沿用「参考视频」措辞，不随骨架名词改动。"""
+        兜底；条目文案统一使用「视频单元」，不随骨架名词改动。"""
         captured = []
         monkeypatch.setattr(
             generation_tasks,
@@ -3630,7 +3630,7 @@ class TestGenerationTasks:
 
     @pytest.mark.unit
     def test_emit_success_batch_reference_video_tts_entity_type_not_shot(self, monkeypatch, tmp_path):
-        """TTS 任务与视频任务共用项目路线，ad 参考路线的混合骨架不能把 unit 事件分到 shot。"""
+        """TTS 任务与视频任务共用项目路线，ad 参考生视频的混合骨架不能把 unit 事件分到 shot。"""
         captured = []
         monkeypatch.setattr(
             generation_tasks,

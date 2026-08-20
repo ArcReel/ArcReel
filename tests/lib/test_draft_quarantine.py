@@ -1,4 +1,4 @@
-"""隔离草稿信封与违约收集的单元测试。
+"""草稿信封与违约收集的单元测试。
 
 覆盖的是「产物不丢弃」这条机制的底座：信封读写往返、坏 JSON 的降级口径、多条违约的收集与
 报告渲染。上层闭环（拆分 / 晋升 / gate 阻塞）的测试在 ``tests/server/agent_runtime/
@@ -81,7 +81,7 @@ class TestEnvelope:
         )
 
     def test_broken_json_reads_as_none_but_still_counts_as_present(self, tmp_path: Path):
-        """agent 手改草稿改坏 JSON 是可预期的中间态：读不出内容，但不能因此被当成「没有隔离」
+        """智能体手改草稿改坏 JSON 是可预期的中间态：读不出内容，但不能因此被当成「没有隔离」
         而放行 gate 与 step2。"""
         path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1)
         path.parent.mkdir(parents=True)
@@ -138,7 +138,7 @@ class TestEnvelope:
 
 class TestReport:
     def test_report_names_draft_field_and_promote_tool(self, tmp_path: Path):
-        """处置指引要写「改哪个文件的哪个字段、改完调什么」——agent 不知道产物还在盘上就会重抽。"""
+        """处置指引要写「改哪个文件的哪个字段、改完调什么」——智能体不知道产物还在盘上就会重抽。"""
         path = quarantine_path(tmp_path, 2, QUARANTINE_KIND_STEP1)
         text = render_report(path, QUARANTINE_KIND_STEP1, [_violation()], episode=2)
         assert str(path) in text
@@ -152,8 +152,8 @@ class TestReport:
         assert text.splitlines()[1].startswith("2. [too_many_shots] ")
 
     def test_drama_step1_report_points_at_scene_fields(self, tmp_path: Path):
-        """drama 草稿改的是场景内容表，不是参考路线的 units——指引里报错字段路径写错，
-        agent 会照着改一个不存在的字段再晋升，白跑一轮。"""
+        """drama 草稿改的是场景内容表，不是参考生视频的 units——指引里报错字段路径写错，
+        智能体会照着改一个不存在的字段再晋升，白跑一轮。"""
         path = quarantine_path(tmp_path, 3, QUARANTINE_KIND_DRAMA_STEP1)
         text = render_report(path, QUARANTINE_KIND_DRAMA_STEP1, [_violation()], episode=3)
 

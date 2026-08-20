@@ -341,7 +341,7 @@ class TestRenameAssetCascade:
         assert saved["units"][0]["text"] == "@[主角甲] 在河边"
 
     def test_sibling_with_numeric_suffix_untouched(self, pm: ProjectManager) -> None:
-        """``旧名_2`` 是合法资产名：兄弟资产的设计图不得被序号形态的 stem 匹配卷走。"""
+        """``旧名_2`` 是合法资产名：兄弟资产的资产图不得被序号形态的 stem 匹配卷走。"""
         pm.upsert_assets("demo", "characters", {"角色A_2": {"description": "副手"}})
         project_dir = _project_dir(pm)
         sibling = project_dir / "characters" / "角色A_2.png"

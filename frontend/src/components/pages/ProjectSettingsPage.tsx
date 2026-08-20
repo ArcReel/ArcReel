@@ -130,7 +130,7 @@ export function ProjectSettingsPage() {
     image: "", imageT2I: "", imageI2I: "",
     textDefault: "", textSimple: "", textComplex: "", audio: "",
   });
-  // 全局「视频生成音频」的生效值，供项目级「跟随全局」时判定与执行模型的矛盾。
+  // 全局「生成有声视频」的生效值，供项目级「跟随全局」时判定与执行模型的矛盾。
   // 未保存过时取 true，镜像后端 _DEFAULT_VIDEO_GENERATE_AUDIO。
   const [globalGenerateAudio, setGlobalGenerateAudio] = useState(true);
 
@@ -466,7 +466,7 @@ export function ProjectSettingsPage() {
     });
   }, [styleValue]);
 
-  // 宫格是分镜路线内的装配选项；参考路线与不支持宫格的 ad 项目下既不呈现也不参与保存
+  // 宫格是分镜图生视频内的装配选项；参考生视频与不支持宫格的 ad 项目下既不呈现也不参与保存
   const gridToggleVisible = generationRoute === "storyboard" && contentMode !== "ad";
 
   const handleSave = useCallback(async () => {
@@ -508,7 +508,7 @@ export function ProjectSettingsPage() {
         text_backend_complex: textComplex || null,
         aspect_ratio: aspectRatio || undefined,
         // 路线不在 PATCH 面上（创建后不可更改）；宫格装配开关随时可写，
-        // 但只在开关可见时写——参考路线与 ad 项目下该键与项目无关，ad 更会对 true 返回 400
+        // 但只在开关可见时写——参考生视频与 ad 项目下该键与项目无关，ad 更会对 true 返回 400
         ...(gridToggleVisible ? { grid_storyboard: gridStoryboard } : {}),
         // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键
         ...(contentMode === "ad" ? {} : { default_duration: defaultDuration }),

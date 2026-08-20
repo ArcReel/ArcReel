@@ -1,4 +1,4 @@
-"""Web 与 Agent 共用的整批准入判定适配层：分镜路线与参考路线的当前状态判定。"""
+"""Web 与智能体共用的整批准入判定适配层：分镜图生视频与参考生视频的当前状态判定。"""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def _preparation(*, problems=(), tts_status=NarrationTtsStatus.CURRENT, actual=9
 
 
 async def test_storyboard_post_production_admits_without_consulting_tts(monkeypatch, tmp_path: Path):
-    """后期配音在分镜路线没有 TTS 输入可查，唯一还生效的整批闸门是在途任务冲突。"""
+    """后期配音在分镜图生视频没有 TTS 输入可查，唯一还生效的整批闸门是在途任务冲突。"""
 
     probes = _stub_state(monkeypatch)
 

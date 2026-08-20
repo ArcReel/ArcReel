@@ -1,4 +1,4 @@
-"""参考视频后端端到端：路由 → queue → executor（mock backend）。
+"""参考生视频调用通道端到端：路由 → queue → executor（mock 调用通道）。
 
 本测试把路由 `POST .../generate` → GenerationQueue enqueue → 手动 claim →
 `execute_generation_task` dispatch 到 `execute_reference_video_task` 串起来。

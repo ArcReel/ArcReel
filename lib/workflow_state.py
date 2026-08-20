@@ -202,7 +202,7 @@ class EpisodeSummary(BaseModel):
     episode: int
     script_status: EpisodeScriptStatus
     status: EpisodeProductionStatus
-    # 该集的内容规模：分镜图生视频路线报分镜数、参考生视频路线报视频单元数，
+    # 该集的内容规模：分镜图生视频报分镜数、参考生视频报视频单元数，
     # 三种创作类型同一口径。读时按脚本条目数算，不落盘。
     item_count: int
     duration_seconds: int
@@ -239,7 +239,7 @@ class ProjectSummary(BaseModel):
     phase_progress: float
     needs_repair: bool
     repair_reason: str | None
-    #: 按 ``ASSET_SPECS`` 的资产类型键给出设计图计数，新增资产类型自动进入投影。
+    #: 按 ``ASSET_SPECS`` 的资产类型键给出资产图计数，新增资产类型自动进入投影。
     assets: dict[str, ArtifactCount]
     episodes_summary: EpisodesSummary
     episodes: list[EpisodeSummary]
@@ -340,7 +340,7 @@ def _episode_production_status(
 ) -> EpisodeProductionStatus:
     """分镜图与视频一起算：两者都是制作阶段的产物，缺任何一件该集都还没做完。
 
-    参考路线没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
+    参考生视频没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
     """
 
     if script_status != "generated":
@@ -355,7 +355,7 @@ def _episode_production_status(
 
 
 def _sheet_bearing_counts(assets: Mapping[str, ArtifactCount]) -> list[ArtifactCount]:
-    """产品资产没有设计图产物：与 11 值状态的 ASSET_SHEETS 判据同口径地把它排除。"""
+    """商品没有资产图产物：与 11 值状态的 ASSET_SHEETS 判据同口径地把它排除。"""
 
     return [count for asset_type, count in assets.items() if asset_type != "product"]
 
@@ -1057,7 +1057,7 @@ class WorkflowStateService:
     ) -> float:
         """脚本阶段按已生成脚本的集数算；制作阶段按可用产物占应有产物的比例算。
 
-        制作阶段的分母收全该阶段要交的三类产物——设计图、分镜图、视频——否则缺一类
+        制作阶段的分母收全该阶段要交的三类产物——资产图、分镜图、视频——否则缺一类
         产物的项目会停在 100%。
         """
 

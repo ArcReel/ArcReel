@@ -5,11 +5,11 @@ import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { GenerationRoute } from "@/utils/generation-mode";
 
 /**
- * 生成路线二选一卡（创建向导）。
+ * 生成模式二选一卡（创建向导）。
  *
  * 单框中缝分屏、无预选、必选：路线创建后不可更改，让这个不可逆决策以对比形态呈现。
- * 卡内图示画的是两条路线各自喂给视频模型的输入契约——分镜路线是单张分镜图（I2V），
- * 参考路线是角色/场景/道具参考图集合（R2V），这正是区分路线的判据。
+ * 卡内图示画的是两条路线各自喂给视频模型的输入契约——分镜图生视频是单张分镜图（I2V），
+ * 参考生视频是角色/场景/道具参考图集合（R2V），这正是区分路线的判据。
  */
 
 const ROUTE_FRAME_STYLE: CSSProperties = {
@@ -104,7 +104,7 @@ function ReferenceDiagram({ active }: { active: boolean }) {
   );
 }
 
-/** 左右两半的呈现顺序：分镜路线在左（默认路径），参考路线在右。 */
+/** 左右两半的呈现顺序：分镜图生视频在左（默认路径），参考生视频在右。 */
 const ROUTE_CARDS: readonly { route: GenerationRoute; Diagram: (props: { active: boolean }) => ReactNode }[] = [
   { route: "storyboard", Diagram: StoryboardDiagram },
   { route: "reference_video", Diagram: ReferenceDiagram },
@@ -114,7 +114,7 @@ export interface GenerationRouteCardsProps {
   /** null = 未选。必选：未选时向导不放行。 */
   value: GenerationRoute | null;
   onChange: (next: GenerationRoute) => void;
-  /** 装配条等从属内容，仅分镜路线选中时由调用方传入。 */
+  /** 装配条等从属内容，仅分镜图生视频选中时由调用方传入。 */
   children?: ReactNode;
 }
 

@@ -1,4 +1,4 @@
-"""广告参考路线共用自包含 video_units 的模型与解析契约。"""
+"""广告/短片的参考生视频共用自包含 video_units 的模型与解析契约。"""
 
 import pydantic
 import pytest

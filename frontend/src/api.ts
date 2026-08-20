@@ -382,7 +382,7 @@ export interface AgentProfileStatus {
   customized_files: string[];
 }
 
-/** 旁白/解说片段 PATCH 入参（drama 模式片段走 {@link API.updateScene}）。 */
+/** 旁白/解说片段 PATCH 入参（剧情演绎片段走 {@link API.updateScene}）。 */
 export interface SegmentUpdatePayload {
   script_file: string;
   duration_seconds?: number;
@@ -406,7 +406,7 @@ export interface CreateProjectPayload {
   aspect_ratio?: "9:16" | "16:9";
   /** 生成模式，创建时必填二选一、无默认值（后端缺失即 422）。 */
   generation_mode: GenerationRoute;
-  /** 多宫格分镜装配开关，可随创建写入；仅分镜图生视频模式有意义。 */
+  /** 多宫格分镜装配开关，可随创建写入；仅分镜图生视频有意义。 */
   grid_storyboard?: boolean;
   /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
   speech_rate_units_per_second?: number | null;
@@ -1332,7 +1332,7 @@ class API {
     );
   }
 
-  // ==================== step1→step2 内容确认 ====================
+  // ==================== step1 → step2 内容确认 ====================
 
   /** 读取该集 step1 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */
   static async getScriptReview(
@@ -1346,9 +1346,9 @@ class API {
     );
   }
 
-  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新等待确认）。
+  /** 保存手动 / 智能体编辑后的结构化中间态，返回最新状态（重新等待确认）。
    *
-   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 agent 晋升）
+   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如智能体晋升）
    * 改过时服务端 409 冲突、不落盘，避免静默覆盖对方的修改；不传则不比对。 */
   static async saveScriptReviewContent(
     projectName: string,
@@ -1396,7 +1396,7 @@ class API {
     );
   }
 
-  // ==================== 镜头管理（广告/短片模式） ====================
+  // ==================== 分镜管理（广告/短片） ====================
 
   /** 更新 ad 剧本中的单个镜头（口播文案 / section / 时长 / 引用列表等白名单字段）。 */
   static async updateShot(
@@ -2279,7 +2279,7 @@ class API {
     return response.json() as Promise<{ success: boolean; style_image: string; style_description: string; url: string }>;
   }
 
-  // ==================== 助手会话 API ====================
+  // ==================== 智能体会话 API ====================
 
   /** Build the project-scoped assistant base path. */
   private static assistantBase(projectName: string): string {
@@ -2587,7 +2587,7 @@ class API {
     return response.json() as Promise<ProviderCredential>;
   }
 
-  // ==================== Agent 配置 / 凭证 API ====================
+  // ==================== 智能体配置 / 凭证 API ====================
 
   static async listAgentPresetProviders(): Promise<PresetProvidersResponse> {
     return this.request("/agent/preset-providers");

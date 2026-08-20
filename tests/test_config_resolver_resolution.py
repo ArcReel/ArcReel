@@ -320,7 +320,7 @@ def test_constrain_durations_for_project_unset_resolution_not_constrained():
 
 @pytest.mark.unit
 def test_constrain_durations_for_project_unset_resolution_reference_mode_uses_fallback():
-    """参考视频模式是唯一按 provider 兜底档位求值的路径——它执行期确实下发非空档位。
+    """参考生视频是唯一按供应商兜底档位求值的路径——它执行期确实下发非空档位。
 
     ``reference_video_tasks`` 取 ``resolution_or_fallback``，故未配置分辨率时约束也得按那个
     档位算，否则 step1 会按全集上限拆 unit、step2 的枚举再判非法。Veo 兜底 1080p → 只剩 8 秒

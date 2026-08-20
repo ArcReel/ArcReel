@@ -761,7 +761,7 @@ def _client_with_project(
     project_generation_mode=None,
     grid_storyboard=None,
 ):
-    """构造项目 generation_mode 可控的测试 client，用于覆盖生成路线准入判定。"""
+    """构造项目 generation_mode 可控的测试 client，用于覆盖生成模式准入判定。"""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo", content_mode=content_mode)
     pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
@@ -805,10 +805,10 @@ def _ad_script(shot_id="E1S01") -> dict:
 
 
 class TestReferenceVideoRejection:
-    """项目生成路线为 reference_video 时，尾帧三端点一律拒绝。
+    """项目生成模式为 reference_video 时，尾帧三端点一律拒绝。
 
     判定只看 project.json：ad 剧本骨架不携带剧本级 generation_mode 戳（见 script_generator），
-    各内容模式共用这一口径。
+    各创作类型共用这一口径。
     """
 
     def test_ad_project_level_reference_video_rejects_all_three_endpoints(self, tmp_path, monkeypatch):
@@ -824,7 +824,7 @@ class TestReferenceVideoRejection:
         assert pm.load_script("demo", "episode_1.json")["shots"][0].get("end_frame_image") is None
 
     def test_ad_storyboard_route_allows_end_frame(self, tmp_path, monkeypatch):
-        # 分镜路线的 ad 项目照常放行。
+        # 分镜图生视频的 ad 项目照常放行。
         c, _pm = _client_with_project(
             tmp_path,
             monkeypatch,

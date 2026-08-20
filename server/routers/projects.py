@@ -805,7 +805,7 @@ async def get_agent_profile_status(name: str, _t: Translator):
     except ApiError:
         raise
     except Exception:
-        logger.exception("读取项目 Agent Profile 状态失败: project=%s", name)
+        logger.exception("读取项目智能体 profile 状态失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
@@ -831,7 +831,7 @@ async def reset_agent_profile(name: str, _t: Translator):
     except ApiError:
         raise
     except Exception:
-        logger.exception("重置项目 Agent Profile 失败: project=%s", name)
+        logger.exception("重置项目智能体 profile 失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
@@ -1064,7 +1064,7 @@ class UpdateSceneRequest(BaseModel):
 
 @router.patch("/projects/{name}/script-scenes/{scene_id}")
 async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Translator):
-    """更新 drama 模式剧本中的单个场景镜头（按 scene_id 定位）。
+    """更新剧情演绎剧本中的单个分镜（按 scene_id 定位）。
 
     路径与项目场景资产 CRUD（``/projects/{name}/scenes/{entry_name}``）做明确区分，
     避免 FastAPI 按注册顺序优先匹配本端点导致 SceneCard 保存请求被截获、Pydantic

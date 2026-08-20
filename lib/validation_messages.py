@@ -2,10 +2,10 @@
 
 校验器与归档修复产出的 errors / warnings 会同时流向两个消费边界：Web 请求（按
 ``Accept-Language`` 渲染）与智能体工具（固定中文渲染）。两者共用同一份 key 表，消息因此
-不能在产出点就定死成某种语言的裸字符串——产出结构、边界渲染。形态与参考视频取档 warning
+不能在产出点就定死成某种语言的裸字符串——产出结构、边界渲染。形态与参考生视频取档 warning
 的 ``{"key", "params"}`` 同构（见 ``lib.reference_video.duration_slots.DurationSlot.warning``）。
 
-``params`` 里的值默认按 ``str.format`` 直出；需要跟随语言变化的词（资产类别、生成路线、骨架
+``params`` 里的值默认按 ``str.format`` 直出；需要跟随语言变化的词（资产类别、生成模式、骨架
 名词）用 ``MessageRef`` 包一层，渲染时先按其自身的 key 翻译再代入。
 """
 

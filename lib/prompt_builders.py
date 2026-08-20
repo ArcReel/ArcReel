@@ -85,7 +85,7 @@ def _style_prefix(style: str = "", style_description: str = "") -> str:
 
 
 def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """角色设计图 prompt（issue #353 四视图 16:9）。"""
+    """角色资产图 prompt（issue #353 四视图 16:9）。"""
     style_block = _style_prefix(style, style_description)
     return (
         f"{style_block}"
@@ -98,7 +98,7 @@ def build_character_prompt(name: str, description: str, style: str = "", style_d
 
 
 def build_scene_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """场景设计图 prompt（主+细节）。"""
+    """场景资产图 prompt（主+细节）。"""
     style_block = _style_prefix(style, style_description)
     return (
         f"{style_block}"
@@ -111,7 +111,7 @@ def build_scene_prompt(name: str, description: str, style: str = "", style_descr
 
 
 def build_prop_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """道具设计图 prompt（三视图）。"""
+    """道具资产图 prompt（三视图）。"""
     style_block = _style_prefix(style, style_description)
     return (
         f"{style_block}"
@@ -126,7 +126,7 @@ def build_prop_prompt(name: str, description: str, style: str = "", style_descri
 def build_product_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
     """产品标准参考图（product sheet）prompt（多角度 + 保真守卫）。
 
-    产品 sheet 的使命是把用户随手拍的原图整理成标准多角度设计图，产品形象必须
+    商品资产图的使命是把用户随手拍的原图整理成标准多角度资产图，商品形象必须
     忠实于真品（原图作为参考注入），不沿用项目画风前缀——画风统一由项目级 style
     机制在分镜阶段承载，产品参考图保持写实中性。
     """

@@ -189,7 +189,7 @@ describe("GlobalHeader", () => {
     expect(useAppStore.getState().toast?.text).toContain("包含 1 条诊断");
   });
 
-  it("ad 参考路线导出不做旧签名预检", async () => {
+  it("ad 参考生视频导出不做旧签名预检", async () => {
     vi.spyOn(API, "getUsageStats").mockResolvedValue({
       total_cost: 0,
       image_count: 0,
@@ -245,7 +245,7 @@ describe("GlobalHeader", () => {
     expect(listUnits).not.toHaveBeenCalled();
   });
 
-  it("ad 参考路线导出不受 unit 查询故障影响", async () => {
+  it("ad 参考生视频导出不受 unit 查询故障影响", async () => {
     vi.spyOn(API, "getUsageStats").mockResolvedValue({
       total_cost: 0,
       image_count: 0,
@@ -285,7 +285,7 @@ describe("GlobalHeader", () => {
     expect(anchorClick).toHaveBeenCalled();
   });
 
-  it("ad 分镜路线项目导出剪映草稿不做 stale 预检", async () => {
+  it("ad 分镜图生视频项目导出剪映草稿不做 stale 预检", async () => {
     vi.spyOn(API, "getUsageStats").mockResolvedValue({
       total_cost: 0,
       image_count: 0,

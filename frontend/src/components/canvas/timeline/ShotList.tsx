@@ -47,7 +47,7 @@ function getSegmentText(seg: Segment, mode: ListContentMode): string {
     if (typeof voiceover === "string" && voiceover.trim()) return voiceover;
     return getImagePromptScene(seg);
   }
-  // drama 模式：用 image_prompt.scene 作为画面预览，与 narration 的 novel_text 对称
+  // 剧情演绎：用 image_prompt.scene 作为画面预览，与 narration 的 novel_text 对称
   return getImagePromptScene(seg);
 }
 

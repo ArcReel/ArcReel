@@ -91,13 +91,13 @@ export interface ModelConfigSectionProps {
     textComplex: string;
   };
   /**
-   * 项目级「视频生成音频」覆盖（null=跟随全局，true/false=显式覆盖）。
+   * 项目级「生成有声视频」覆盖（null=跟随全局，true/false=显式覆盖）。
    * 仅在传入 onVideoGenerateAudioChange 时于视频通道内渲染该开关——此项是视频模型的能力开关，
    * 与旁白配音（TTS）无关，故归在视频通道而非单列。创建项目向导不传则不渲染。
    */
   videoGenerateAudio?: boolean | null;
   /**
-   * 全局「视频生成音频」的生效值，用于把 `videoGenerateAudio` 的 null（跟随全局）折叠成实际
+   * 全局「生成有声视频」的生效值，用于把 `videoGenerateAudio` 的 null（跟随全局）折叠成实际
    * 生效值——矛盾提示要按生效值给，否则项目留空而全局为「关闭」时界面无从察觉。省略即按开启处理。
    */
   globalVideoGenerateAudio?: boolean;

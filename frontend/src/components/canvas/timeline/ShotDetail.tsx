@@ -112,7 +112,7 @@ interface DraftState {
   voiceover_text?: string;
   /** 仅 ad 模式：带货框架段落标签草稿 */
   section?: string;
-  /** 仅 drama 模式：场景级有序发声序列草稿（台词 + 画外音） */
+  /** 仅剧情演绎：场景级有序发声序列草稿（台词 + 画外音） */
   utterances?: Utterance[];
 }
 
@@ -557,7 +557,7 @@ export function ShotDetail({
   // 上游发声序列签名单独记忆化：dirtyPatch 随每次 keystroke 重算，
   // 但上游极少变，避免逐键重复序列化整个 upstreamUtterances。
   const upstreamUtterancesSig = useMemo(() => utterancesSig(upstreamUtterances), [upstreamUtterances]);
-  // 上游变更（保存完成 / agent 编辑）：草稿干净时静默跟随；脏时保留用户输入。
+  // 上游变更（保存完成 / 智能体编辑）：草稿干净时静默跟随；脏时保留用户输入。
   // 渲染阶段状态同步（React 推荐）：本次渲染内直接比对上游签名并校正草稿，
   // 免去 useEffect 的额外渲染周期与依赖项管理。draft 直接读当前渲染值，无需 ref 镜像。
   const [syncedUpstreamSig, setSyncedUpstreamSig] = useState(upstreamSig);

@@ -1,4 +1,4 @@
-"""参考生视频模式专用异常。"""
+"""参考生视频专用异常。"""
 
 from __future__ import annotations
 

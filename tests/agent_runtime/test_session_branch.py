@@ -140,7 +140,7 @@ async def test_unmapped_anchor_is_rejected(branching):
 
 
 async def test_anchor_pointing_at_a_non_user_entry_is_rejected(branching):
-    """身份映射表若因脏数据指向助手条目，仍按「锚点非用户消息」拒绝。"""
+    """身份映射表若因脏数据指向智能体条目，仍按「锚点非用户消息」拒绝。"""
     service, _, store, log_store, session_id, tmp_path = branching
     main = await store.load({"project_key": make_project_key(tmp_path), "session_id": session_id})
     assert main is not None
@@ -260,7 +260,7 @@ class _MetaStoreLosingTheCallerAfterCommit(SessionMetaStore):
 
 
 async def _seed_session_with_a_subagent(store, meta_store, log_store, project_key, tmp_path):
-    """一个前缀里派出过 subagent 的原会话，锚点是末轮用户消息。"""
+    """一个前缀里派出过子任务的原会话，锚点是末轮用户消息。"""
     session_id = str(uuid4())
     await meta_store.create(PROJECT_NAME, session_id)
     u1, a1, r1, u2 = (f"m{i}-{uuid4().hex[:8]}" for i in range(4))

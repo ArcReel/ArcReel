@@ -224,7 +224,7 @@ describe("MediaModelSection", () => {
     it("keeps the checkbox interactive for a model whose audio track is controllable", async () => {
       mockProviders(true, true);
       render(<MediaModelSection />);
-      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
       expect(box).toBeEnabled();
     });
 
@@ -232,7 +232,7 @@ describe("MediaModelSection", () => {
       const user = userEvent.setup();
       mockProviders(true, false);
       render(<MediaModelSection />);
-      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
       expect(box).toBeDisabled();
       expect(box).toBeChecked();
       expect(screen.getByText(/始终带声音/)).toBeInTheDocument();
@@ -255,7 +255,7 @@ describe("MediaModelSection", () => {
         videoProvider("dashscope", "wan", { has_audio_track: true, audio_switch_controllable: false }),
       ]);
       render(<MediaModelSection />);
-      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
       expect(box).toBeEnabled();
       expect(screen.getByRole("alert")).toHaveTextContent(/无法关闭声音/);
 
@@ -280,7 +280,7 @@ describe("MediaModelSection", () => {
         videoProvider("dashscope", "wan", { has_audio_track: true, audio_switch_controllable: false }),
       ]);
       render(<MediaModelSection />);
-      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
       expect(box).toBeEnabled();
       expect(box).not.toBeChecked();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -289,7 +289,7 @@ describe("MediaModelSection", () => {
     it("locks the checkbox on a model without an audio track", async () => {
       mockProviders(false, false);
       render(<MediaModelSection />);
-      const box = await screen.findByRole("checkbox", { name: /生成音频/ });
+      const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
       expect(box).toBeDisabled();
       expect(box).not.toBeChecked();
       expect(screen.getByText(/没有声音/)).toBeInTheDocument();

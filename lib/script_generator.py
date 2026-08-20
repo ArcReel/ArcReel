@@ -253,7 +253,7 @@ class ScriptGenerator:
         self._step1_input_claim = None
         gen_mode = self.generation_mode
 
-        # ad 两条路线都一键生成、不走 step1；参考路线直接产出自包含 video_units。
+        # ad 两条路线都一键生成、不走 step1；参考生视频直接产出自包含 video_units。
         if self.content_mode == "ad":
             prompt, schema = await self._compose_ad(episode, gen_mode)
             prompt = append_user_instructions(prompt, instructions)
@@ -498,7 +498,7 @@ class ScriptGenerator:
         reference_unit_durations: dict[str, int] | None = None,
         caps: dict | None = None,
     ) -> Path:
-        """调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存（各内容模式共用尾段）。
+        """调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存（各创作类型共用尾段）。
 
         ``narration_step1`` 非 None 时走两段式合并：LLM 输出视觉层，按 segment_id 合并回
         step1 已定结构（novel_text 等透传）；``reference_step1`` 非 None 时走参考路径的保结构
@@ -525,7 +525,7 @@ class ScriptGenerator:
             visual_data = self._parse_narration_visual(response_text, episode)
             script_data = self._merge_narration_visual(narration_step1, visual_data, episode)
         elif reference_step1 is not None:
-            # 违约不丢弃：把这次已付费的展开连同逐条报告落待修复草稿，由 agent 修复后经
+            # 违约不丢弃：把这次已付费的展开连同逐条报告落待修复草稿，由智能体修复后经
             # promote_reference_step2_draft 重判晋升。重抽既烧钱又不收敛——同一个模型对同一份
             # step1 大概率再犯同一类错。
             try:
@@ -587,9 +587,9 @@ class ScriptGenerator:
         return self._build_ad_prompt(episode, gen_mode, supported), schema
 
     def _build_ad_prompt(self, episode: int, gen_mode: str | None, supported: list[int] | None) -> str:
-        """构建广告/短片模式 prompt：brief + 产品信息 + 审定配比表，不读 step1 中间文件。
+        """构建广告/短片 prompt：brief + 商品信息 + 审定配比表，不读 step1 中间文件。
 
-        storyboard 路径把 supported_durations 作为单镜头时长枚举写进 prompt；参考路线
+        storyboard 路径把 supported_durations 作为单分镜时长枚举写进 prompt；参考生视频
         直接输出统一引用语法 video unit，八段式只作为内容规划而不持久化。
         """
         direct_inputs = project_ad_episode_script_inputs(episode, project=self.project_json)
@@ -791,7 +791,7 @@ class ScriptGenerator:
     ) -> int | None:
         """单次视频生成最长秒数；派生自 max(收窄后的 supported_durations)。
 
-        取收窄后的集合而非 caps 自带的 ``max_duration``：该值是全集最大值，参考生视频模式下
+        取收窄后的集合而非 caps 自带的 ``max_duration``：该值是全集最大值，参考生视频下
         它是 unit 总时长上限，若不随联动约束收窄，step1 会拆出总时长超标的 unit，step2 的
         枚举 schema 再把它判非法——上限与枚举必须描述同一个收窄后的集合。
         """
@@ -1093,7 +1093,7 @@ class ScriptGenerator:
         """
         # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
         # 待处置的产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞，这里是直连调用
-        # （脚本 / 测试 / 未来的其它入口）的兜底，与参考路线同口径。
+        # （脚本 / 测试 / 未来的其它入口）的兜底，与参考生视频同口径。
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
         if quarantine.exists():
             raise ValueError(
@@ -1214,7 +1214,7 @@ class ScriptGenerator:
         接受：台词配不上画面时正确的出路是回到 step1 重拆，而不是让 step2 自行改词。
 
         逐 unit 的违约收齐后一次抛出（``DraftViolations``），供调用方把整份产出连同报告落到
-        待修复草稿——单条抛出会让 agent 每修一个 unit 就要重跑一次付费的展开。
+        待修复草稿——单条抛出会让智能体每修一个 unit 就要重跑一次付费的展开。
 
         ``unit_id`` / ``duration_seconds`` 直接取 step1 的值，参考图不落盘、执行期再从正文
         派生——LLM 没写这些字段，也就没有对不上的可能。
@@ -1247,7 +1247,7 @@ class ScriptGenerator:
         for step1_unit, flat_unit in zip(step1_units, flat.units, strict=True):
             label = f"unit {step1_unit['unit_id']}"
             step1_text = str(step1_unit.get("text") or "")
-            # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，agent 一轮就能看全要改什么。
+            # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，智能体一轮就能看全要改什么。
             # 一个 unit 内部仍是首个违约即停——正文解析不出时，后续判定都建立在同一个问题上。
             try:
                 validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
@@ -1271,7 +1271,7 @@ class ScriptGenerator:
         """把 step2 响应还原成待修复草稿要装的扁平形状 ``{title, units: [{text}]}``。
 
         与 ``_merge_reference_visual`` 的解析前置（去代码围栏 → title 兜底 → schema 校验）
-        逐步同口径：待修复草稿装的必须是「schema 已过、只是内容违约」的那份产物，否则 agent
+        逐步同口径：待修复草稿装的必须是「schema 已过、只是内容违约」的那份产物，否则智能体
         改的正文与合并时读的正文形状不同。
         """
         data = json.loads(strip_json_code_fences(response_text))
@@ -1349,7 +1349,7 @@ class ScriptGenerator:
             ) from exc
         except ValueError as exc:
             # schema 层（DraftViolation 是 ValueError 子类，故须排在前）同样只回报告：这条路上
-            # 内容是 agent 手写的，没有 backend 可重试，与 step1 晋升的 schema_invalid 同口径。
+            # 内容是智能体手写的，没有 backend 可重试，与 step1 晋升的 schema_invalid 同口径。
             raise DraftViolation(
                 quarantine_and_report(
                     self.project_path,
@@ -1407,7 +1407,7 @@ class ScriptGenerator:
             if not (isinstance(title, str) and title.strip()):
                 data["title"] = f"第{episode}集"
 
-        # 校验模型经规范解析定骨架种类（分镜路线按内容模式，参考路线统一 video_units），
+        # 校验模型经规范解析定骨架种类（分镜图生视频按创作类型，参考生视频统一 video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
         kind = resolve_declared_kind(self.content_mode, self.generation_mode)
         schema = _KIND_PARSE_SCHEMA[kind]
@@ -1419,7 +1419,7 @@ class ScriptGenerator:
             return data
 
     def _parse_ad_reference_response(self, response_text: str, episode: int) -> dict:
-        """把广告参考路线的扁平 LLM 输出机械提升为自包含 ``video_units``。"""
+        """把广告/短片的参考生视频的扁平 LLM 输出机械提升为自包含 ``video_units``。"""
         text = strip_json_code_fences(response_text)
         try:
             data = json.loads(text)
@@ -1548,7 +1548,7 @@ class ScriptGenerator:
         # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
         ep = int(episode)
         # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + resolve_kind_items 查条目数组
-        # 与 id 字段改写（参考路线三种 content_mode 均映射到 video_units，无需按路线分支）。
+        # 与 id 字段改写（参考生视频三种 content_mode 均映射到 video_units，无需按路线分支）。
         # self.content_mode 为项目级校验值，解析不会 fail-loud。
         kind = resolve_declared_kind(self.content_mode, gen_mode)
         raw_rewrite_items, id_field, _kind = resolve_kind_items(script_data, kind=kind)

@@ -1,4 +1,4 @@
-"""v4→v5 迁移：生成路线收缩为二值，宫格降为 grid_storyboard 开关。
+"""v4→v5 迁移：生成模式收缩为二值，宫格降为 grid_storyboard 开关。
 
 四项职责：
 - ``generation_mode == "grid"`` 重编码为 ``storyboard + grid_storyboard=true``（宫格不是路线，

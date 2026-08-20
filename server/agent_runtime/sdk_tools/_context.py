@@ -116,7 +116,7 @@ async def resolve_video_caps(project: dict[str, Any], *, capability: VideoCapabi
     duration linkage constraints declared on it.
 
     能力按项目生成模式解析——生成模式创建即定、全项目同一条，智能体拿到的与执行层同口径。
-    ``capability`` 给定时按指定桶解析（参考路线内无参考图退化镜头的 i2v 读侧）。
+    ``capability`` 给定时按指定桶解析（参考生视频内无参考图视频单元的 i2v 读侧）。
     """
     resolver = ConfigResolver(async_session_factory)
     return await resolver.video_capabilities_for_project(project, capability=capability)
@@ -153,7 +153,7 @@ async def reference_unit_duration_tiers(
     caps: dict[str, Any],
     durations: list[int],
 ) -> tuple[list[int], list[int]]:
-    """参考视频路径逐 unit 的两套生效档位：``(带参考图, 不带参考图)``。
+    """参考生视频逐 unit 的两套生效档位：``(带参考图, 不带参考图)``。
 
     「参考图↔时长」约束只对实际带参考图的请求生效（执行层 ``effective_reference_durations``
     与 backend 同此判据），故 unit 的生效档位取决于该 unit 正文里有没有 ``@[名称]`` 引用。

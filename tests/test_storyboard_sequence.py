@@ -164,7 +164,7 @@ class TestStoryboardSkeletonExhaustiveness:
 
 
 class TestMismatchedScriptStaysEditable:
-    """存量失配剧本（分镜路线项目下的 video_units 骨架）：生成被拒，编辑/查看仍可用。"""
+    """存量失配剧本（分镜图生视频项目下的 video_units 骨架）：生成被拒，编辑/查看仍可用。"""
 
     def test_storyboard_items_are_empty_without_raising(self):
         from lib.storyboard_sequence import get_storyboard_items

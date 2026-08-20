@@ -161,7 +161,7 @@ class TestRouteSkeletonGate:
         assert ensure_route_skeleton(script, "narration", "storyboard") == "scenes"
 
     def test_reference_route_passes_with_residual_storyboard_array(self):
-        # 参考路线剧本残留分镜族数组：取证解析按形状优先答 segments，但生成侧读的是 video_units，
+        # 参考生视频剧本残留分镜族数组：取证解析按形状优先答 segments，但生成侧读的是 video_units，
         # 残留数组不参与投票，闸门须放行（与费用估算按 units 计价同口径）。
         script = {
             "content_mode": "narration",
@@ -171,7 +171,7 @@ class TestRouteSkeletonGate:
         assert ensure_route_skeleton(script, "narration", "reference_video") == "video_units"
 
     def test_storyboard_route_passes_with_residual_unit_array(self):
-        # 反向：分镜路线剧本残留 video_units，分镜数组在场即放行。
+        # 反向：分镜图生视频剧本残留 video_units，分镜数组在场即放行。
         script = {"content_mode": "narration", "segments": [{"segment_id": "E1S1"}], "video_units": []}
         assert ensure_route_skeleton(script, "narration", "storyboard") == "segments"
 

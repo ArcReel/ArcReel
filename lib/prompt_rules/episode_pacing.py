@@ -1,7 +1,7 @@
 """短剧 / 旁白解说节奏建议（drama / narration）。
 
 短剧体裁特征：开篇 ~4 秒钩子、中段每 ~15 秒一个情绪转折、末镜停在情绪极致瞬间。
-这不是 prompt engineering 启发，而是体裁约束，需要在 builder 与子智能体 .md 间
+这不是 prompt engineering 启发，而是体裁约束，需要在 builder 与子任务 .md 间
 共享同一份措辞，避免漂移。
 
 注意：本模块的 DRAMA_PACING_RULES / NARRATION_PACING_RULES 文本会被

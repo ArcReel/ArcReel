@@ -92,10 +92,10 @@ class EndFrameError(Exception):
 def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
     """校验该镜头可设尾帧，返回项目绝对路径；不可设时抛领域错误。
 
-    参考生视频路径无首尾帧概念，一律拒绝。该判定按 project.json 的生成路线
-    （``is_reference_video_project``）作出，不看剧本级 ``generation_mode`` 戳——ad 内容模式的
-    剧本骨架不携带该戳（见 ``script_generator``），只看剧本会放过「ad + 参考路线」组合，让用户
-    设下一个生成时永不被消费的尾帧。各内容模式共用这一口径。
+    参考生视频路径无首尾帧概念，一律拒绝。该判定按 project.json 的生成模式
+    （``is_reference_video_project``）作出，不看剧本级 ``generation_mode`` 戳——ad 创作类型的
+    剧本骨架不携带该戳（见 ``script_generator``），只看剧本会放过「ad + 参考生视频」组合，让用户
+    设下一个生成时永不被消费的尾帧。各创作类型共用这一口径。
     """
     manager = get_project_manager()
     try:

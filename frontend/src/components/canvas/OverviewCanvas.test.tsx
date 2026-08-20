@@ -54,7 +54,7 @@ describe("OverviewCanvas", () => {
   });
 
   it("reports the storyboard count per episode on the storyboard route", () => {
-    // 分镜路线上三种创作类型同一口径：广告/短片也报分镜数，不再另说一套。
+    // 分镜图生视频上三种创作类型同一口径：广告/短片也报分镜数，不再另说一套。
     render(
       <OverviewCanvas
         projectName="demo"
@@ -197,7 +197,7 @@ describe("OverviewCanvas", () => {
     );
 
     // 切到只读态（如工作台切到演示项目复用同一路由实例）——演示数据自带 overview/episodes，
-    // 之前会被误判成「欢迎页 → 完成」触发交接提示，强行打开演示态并不挂载的助手面板。
+    // 之前会被误判成「欢迎页 → 完成」触发交接提示，强行打开演示态并不挂载的智能体面板。
     rerender(
       <OverviewCanvas
         projectName="demo"

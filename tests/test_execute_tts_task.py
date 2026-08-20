@@ -645,7 +645,7 @@ class TestExecuteTtsTask:
             "shots": [
                 {
                     "shot_id": "E1S01",
-                    "voiceover_text": "不属于参考视频单元的旧广告旁白。",
+                    "voiceover_text": "不属于视频单元的旧广告旁白。",
                 }
             ],
             "video_units": [
@@ -674,14 +674,14 @@ class TestExecuteTtsTask:
             "shots": [
                 {
                     "shot_id": "E1S01",
-                    "voiceover_text": "不属于参考视频单元的旧广告旁白。",
+                    "voiceover_text": "不属于视频单元的旧广告旁白。",
                     "generated_assets": {"status": "decoy"},
                 }
             ],
             "video_units": [
                 {
                     "unit_id": "E1U2",
-                    "text": "镜头缓缓推进。\n{参考视频单元旁白。}",
+                    "text": "镜头缓缓推进。\n{视频单元旁白。}",
                     "generated_assets": copy.deepcopy(prior_assets),
                 }
             ],

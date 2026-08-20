@@ -779,7 +779,7 @@ class TestPlan:
 
     @pytest.mark.unit
     async def test_plan_drama_rejects_response_missing_story_beats(self, tmp_path: Path):
-        """drama 模式缺 story_beats 的输出被 schema 校验打回重试。"""
+        """剧情演绎缺 story_beats 的输出被 schema 校验打回重试。"""
         project_dir = _write_project(tmp_path, content_mode="drama")
         fake = _FakeTextGenerator(
             [

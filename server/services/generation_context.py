@@ -238,7 +238,7 @@ class VideoLaneResult:
 
         声音特征描述随该判据一并不注入：它虽是提示词文本而非音频负载，但描述的是听得到的
         音色，无声成片里注入只会让模型把配额花在用不上的约束上。台词不看这一位——无声视频
-        里台词文本照常下发，供应商可用作口型参考。参考路线的同名判据见
+        里台词文本照常下发，供应商可用作口型参考。参考生视频的同名判据见
         ``lib.reference_video.voice_settings.VoiceRenderSettings.is_silent``。
         """
         return self.voice_consistency == "none" or not self.requested_generate_audio
@@ -318,7 +318,7 @@ async def resolve_generation_context(
 
     video lane 的定桶随 ``VideoLaneRequest.capability``：None 时按项目生成模式解析（见
     ``lib.config.resolver.caps_generation_mode``）——路线创建即定、整个项目按同一条路径生成，
-    声音一致性等二维派生值因此不需要集号；显式给定时按指定桶解析（参考路线内按镜头分流的
+    声音一致性等二维派生值因此不需要集号；显式给定时按指定桶解析（参考生视频内按视频单元分流的
     调用方自带判定结果）。
     """
     from lib.db import async_session_factory

@@ -31,7 +31,7 @@ _OWN_TABLE_PROVIDERS = frozenset(
 )
 
 # Anthropic 不在 PROVIDER_REGISTRY（无 ModelInfo 落点），文本定价作为 registry-external 例外。
-# 助手主链路优先使用 SDK 回报的实际费用；此表仅在只拿到 token 数时兜底。费率为美元/百万 token。
+# 智能体主链路优先使用 SDK 回报的实际费用；此表仅在只拿到 token 数时兜底。费率为美元/百万 token。
 _ANTHROPIC_PRICING = PerToken(
     rates={
         "claude-sonnet-4": {"input": 3.00, "output": 15.00},

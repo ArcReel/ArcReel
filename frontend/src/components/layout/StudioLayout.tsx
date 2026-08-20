@@ -28,13 +28,13 @@ interface StudioLayoutProps {
 }
 
 /**
- * 工作台三栏布局壳：顶栏 + （侧栏 / 主区 / 助手面板）。
+ * 工作台三栏布局壳：顶栏 + （侧栏 / 主区 / 智能体面板）。
  */
 export function StudioLayout({ children }: StudioLayoutProps) {
   const { t } = useTranslation("dashboard");
   const [, setLocation] = useLocation();
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
-  // 演示项目在后端不存在：任务 / 项目事件流和助手都是真实写路径，演示态下整条都不接
+  // 演示项目在后端不存在：任务 / 项目事件流和智能体都是真实写路径，演示态下整条都不接
   const demoMode = useDemoWorkbench();
   const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
@@ -170,7 +170,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         <main className="flex-1 overflow-hidden">
           {children}
         </main>
-        {/* 真实助手是写路径（建会话、跑工具），演示态下换成静态演示对话的面板：
+        {/* 真实智能体是写路径（建会话、跑工具），演示态下换成静态演示对话的面板：
             不可收起、不可拖宽——演示里没有要腾的空间，少两个交互点。宽度封顶在默认宽度
             但随视口收缩：真实面板窄屏下还能手动收起，演示面板收不起来，引导期间底层又是
             inert 的，固定 505px 会把工作区挤没，后面几步就没东西可看了 */}
@@ -225,7 +225,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         )}
       </div>
 
-      {/* 悬浮助手球：收起时显示在右上角 */}
+      {/* 悬浮智能体球：收起时显示在右上角 */}
       {demoMode ? null : (
       <button
         type="button"

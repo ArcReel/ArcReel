@@ -210,7 +210,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
    * 参考生视频画布靠 `referenceVideoUnitsRevision` 重拉成片和旁白路径，而自增主通道是项目
    * 事件 SSE：SSE 断线、静默失速或丢掉这一条事件时，任务状态还能靠轮询兜底恢复，unit
    * 快照却一直不更新，直到画布重新挂载。这里让 reference_video / tts 的轮询成功也走同一次
-   * 失效，补上兜底路径的缺口；非参考生视频模式没有挂载该画布，多一次 revision 自增不触发请求。
+   * 失效，补上兜底路径的缺口；非参考生视频没有挂载该画布，多一次 revision 自增不触发请求。
    *
    * 判据是「这一轮成功、上一轮不成功」，其中「上一轮没见过」也算不成功——任务的入队与完成
    * 整个落在两次轮询之间时（空闲档间隔较长，provider 命中缓存时可能秒回），它是首次以
@@ -370,7 +370,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
 // ---------------------------------------------------------------------------
 // 派生 selector —— 任务队列两条不变量的单一真相源
 //
-// 消费点（画布 loading 派生、参考视频单元状态等）此前各自重写两条隐性契约：
+// 消费点（画布 loading 派生、视频单元状态等）此前各自重写两条隐性契约：
 //   1.「什么算活跃」——占用与显示是两个谓词：占用判定（isOccupyingStatus）计入
 //      cancelling，与后端 dedupe 索引的 ACTIVE_TASK_STATUSES 对齐；显示判定
 //      （isActiveStatus）不计 cancelling——取消中的任务不显示为进行中。
@@ -559,7 +559,7 @@ export function isResourceBusy(kind: ResourceKind, projectName: string, resource
 
 // 与 task-target.ts 的 stripScriptsPrefix 同一归一化规则：episode 元数据的 script_file
 // 固定带 `scripts/` 前缀（见 ProjectManager._apply_episode_sync），但任务行的 script_file
-// 由各入队调用方各自传入——router 直传 webui 表单值，Agent/SDK 工具经 validate_script_filename
+// 由各入队调用方各自传入——router 直传 webui 表单值，智能体/SDK 工具经 validate_script_filename
 // 强制裸文件名，两者格式不保证一致。此处不依赖调用方预先裁剪，自行归一化后再比较。
 function stripScriptsPrefix(path: string): string {
   return path.replace(/^scripts\//, "");

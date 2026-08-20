@@ -31,7 +31,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 - `next_action.type == "generate_videos"` → 步骤 7 的视频生成
 - `next_action.type == "export"` → 步骤 8
 
-调用工具或 dispatch 子智能体时带入 `target.episode`、`next_action.args` 与 `requested_ids`，不二次检查 `generation_mode` 或 `grid_storyboard` 来改选阶段。步骤内的商品原图与 sheet 过目规则是执行动作前的 soft gate。
+调用工具或 dispatch 子任务时带入 `target.episode`、`next_action.args` 与 `requested_ids`，不二次检查 `generation_mode` 或 `grid_storyboard` 来改选阶段。步骤内的商品原图与 sheet 过目规则是执行动作前的 soft gate。
 
 1. **确认项目状态**：按计划确认 `content_mode=ad` 与项目级 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。生成模式创建后不可更改。
 2. **创作输入**：带货项目未登记商品或缺原图时，引导用户在 WebUI 上传；原图是保真锚点。用 `mcp__arcreel__patch_project` 写商品描述、品牌与 `brief`。通用短片不索要商品。
@@ -63,13 +63,13 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
      `narration_delivery` 必填，填本次已向用户确认的那个值：省略或写错值一律返回工具错误、不入队
      任何任务，也不退回后期配音；没和用户确认过就先走 `choose_narration_delivery`，不要自己填。
      返回后按逐 ID 分账陈述结果（`succeeded` / `failed` / `blocked` / `skipped`），并把 workflow 步骤
-     状态、队列任务、provider checkpoint、产物时效四轴分开说——「任务成功」不等于「当前产物有效」；
+     状态、队列任务、供应商 checkpoint、产物时效四轴分开说——「任务成功」不等于「当前产物有效」；
      stale 产物照常可用，是否重做由用户决定，不自动删除或重生已付费产物
    - 带货项目走分镜图生视频时，先审核商品分镜保真度，再产生视频费用；通用短片没有商品分镜，不设这道审核。
    - 参考生视频按自包含 unit 生成，跳过分镜；参考图在执行期按正文 `@[名称]` 的首次提及顺序解析，商品与角色、场景、道具同规则。用户不满意时按 `unit_id` 点名重做。
 
 8. **导出剪映草稿**：视频齐全后引导用户在 Web 端导出。声音归属与字幕时序由服务端 presentation 结果
-   决定，预览、下载与剪映草稿消费同一份——**不要自行估算字幕时间轴、不要静音 provider 原音、
+   决定，预览、下载与剪映草稿消费同一份——**不要自行估算字幕时间轴、不要静音 供应商原音、
    也不要替用户判断 TTS 是否必需**。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。
    广告不走 in-app `compose-video`。
 

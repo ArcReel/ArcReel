@@ -49,7 +49,7 @@ def _run(
 def fake_project(tmp_path: Path) -> Path:
     """构造一个最小项目目录：project.json + source/。
 
-    模拟 projects/{name}/ 形态。cwd 切到此目录即等价于 agent session cwd。
+    模拟 projects/{name}/ 形态。cwd 切到此目录即等价于智能体 session cwd。
     """
     # ProjectManager 校验项目标识仅允许英文字母 / 数字 / 中划线，所以不用下划线
     projects_root = tmp_path / "projects"
@@ -82,7 +82,7 @@ def fake_project(tmp_path: Path) -> Path:
 
 
 def _write_drama_script(project_dir: Path, video_clip_exists: bool = True) -> str:
-    """构造一份最小可用的 drama 模式剧本 + 视频文件，返回剧本文件名。"""
+    """构造一份最小可用的剧情演绎剧本 + 视频文件，返回剧本文件名。"""
     (project_dir / "scripts").mkdir(exist_ok=True)
     (project_dir / "videos").mkdir(exist_ok=True)
     clip_rel = "videos/scene_1.mp4"
@@ -127,7 +127,7 @@ def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
     result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_narration.json")
     assert result.returncode != 0
     out = result.stdout + result.stderr
-    assert "仅支持 drama 模式" in out
+    assert "仅支持剧情演绎" in out
     # 不能出现裸 KeyError
     assert "KeyError" not in out
 
@@ -157,7 +157,7 @@ def test_compose_video_rejects_ad_mode(fake_project: Path) -> None:
     result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_ad.json")
     assert result.returncode != 0
     out = result.stdout + result.stderr
-    assert "仅支持 drama 模式" in out
+    assert "仅支持剧情演绎" in out
     assert "content_mode=ad" in out
     assert "剪映草稿导出" in out
     assert "KeyError" not in out
@@ -184,7 +184,7 @@ def test_compose_video_fails_fast_on_missing_music(fake_project: Path) -> None:
     """--music 文件不存在时应立即抛错，不要静默 warning 走完拼接。
 
     review #8（coderabbit）：自动化场景下静默 warning 容易把失败当成功。
-    校验顺序：cwd 检查 → drama 模式检查 → output / music 路径围栏 + 存在性，
+    校验顺序：cwd 检查 → 剧情演绎检查 → output / music 路径围栏 + 存在性，
     再开始拼接。music 不存在时应 fail-fast。
     """
     script_arg = _write_drama_script(fake_project, video_clip_exists=True)

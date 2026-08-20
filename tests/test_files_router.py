@@ -1227,7 +1227,7 @@ class TestFilesRouter:
 
     @pytest.mark.unit
     def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
-        """参考生视频模式下读/写 step1_reference_units.json，避免被按 content_mode 错误路由；
+        """参考生视频下读/写 step1_reference_units.json，避免被按 content_mode 错误路由；
         旧 .md 仅存量兼读，写入经 ScriptReviewService 单一出口做结构校验后落结构化 .json"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
@@ -1298,7 +1298,7 @@ class TestFilesRouter:
 
     @pytest.mark.unit
     def test_draft_content_routes_by_project_generation_mode(self, tmp_path, monkeypatch):
-        """草稿文件名按项目生成路线路由：参考路线全项目落 step1_reference_units.json。"""
+        """草稿文件名按项目生成模式路由：参考生视频全项目落 step1_reference_units.json。"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
@@ -1326,7 +1326,7 @@ class TestFilesRouter:
         content_mode, gen_mode = files._load_project_modes("no-such-project")
         assert content_mode == "drama"
         assert gen_mode is None
-        # demo 项目 content_mode=narration（fixture 默认），生成路线取项目字段
+        # demo 项目 content_mode=narration（fixture 默认），生成模式取项目字段
         content_mode, gen_mode = files._load_project_modes("demo")
         assert content_mode == "narration"
         assert gen_mode == "reference_video"

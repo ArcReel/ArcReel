@@ -159,7 +159,7 @@ function NarrationSegmentCard({
 }
 
 /**
- * step1→step2 web 审核 gate 面板：把 step1 结构化中间态在网页结构化呈现、可手动 / agent 编辑，
+ * step1→step2 web 内容确认面板：把 step1 结构化中间态在网页结构化呈现、可手动 / 智能体编辑，
  * 用户显式确认后才放行 step2 视觉生成。drama（utterances + source_text）与 narration
  * （novel_text）共用本面板；reference_video 变体的专属面板见 `ReferenceStep1PreviewPanel`。
  */

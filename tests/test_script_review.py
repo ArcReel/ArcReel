@@ -1,4 +1,4 @@
-"""step1→step2 审核 gate 的服务层与纯逻辑测试。
+"""step1→step2 内容确认的服务层与纯逻辑测试。
 
 只测外部可观察行为：审核状态流转（step1 产出 → pending → 阻塞 → 确认 → confirmed → 放行）、
 适用范围、内容编辑后重新待审、结构校验。
@@ -225,7 +225,7 @@ class TestDramaGateFlow:
 
     @pytest.mark.unit
     async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
-        """drama 的隔离草稿同样独立阻塞：草稿在场期间确认被拒、step2 被阻塞，即使正式 step1
+        """drama 的草稿同样独立阻塞：草稿在场期间确认被拒、step2 被阻塞，即使正式 step1
         早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未看过的上一版内容。"""
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
@@ -419,7 +419,7 @@ class TestReferenceVideoGateFlow:
 
     @pytest.mark.unit
     async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
-        """隔离草稿在场 → 确认被拒、step2 被阻塞，即使正式 step1 早已确认过。
+        """草稿在场 → 确认被拒、step2 被阻塞，即使正式 step1 早已确认过。
 
         隔离态与「正式 step1 的内容指纹」是两件事：重拆分违约时正式文件原封不动，只看指纹
         会把该集判成 confirmed 并放行，用户看到的却是上一版内容。
@@ -476,7 +476,7 @@ class TestReferenceVideoGateFlow:
 
     @pytest.mark.unit
     def test_quarantine_of_another_variant_does_not_block(self, tmp_path):
-        """换过生成路线后残留的另一条路线的草稿不参与阻塞判定。"""
+        """换过生成模式后残留的另一条路线的草稿不参与阻塞判定。"""
         pm = _make_project(tmp_path, "drama")
         project_path = pm.get_project_path("demo")
         write_quarantine(
@@ -679,7 +679,7 @@ class TestReferenceVideoStep1Migration:
         assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["duration_seconds"] == 10
 
     async def test_custom_provider_direct_confirm_takes_slot_from_caps(self, tmp_path, monkeypatch):
-        """agent / API 绕过 get_state 直接 confirm 时同样按 caps 档位收编——两个入口口径不一致
+        """智能体 / API 绕过 get_state 直接 confirm 时同样按 caps 档位收编——两个入口口径不一致
         的话，先跑的那个会把非档位秒数固化到盘上（迁移幂等一次性）。"""
         _stub_video_caps(monkeypatch, [5, 10])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -849,7 +849,7 @@ class TestReferenceVideoStep1Migration:
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
     async def test_confirm_direct_call_confirms_migrated_content(self, tmp_path, monkeypatch):
-        """agent / API 可能绕过 get_state 直接调用 confirm：迁移在 confirm 内部触发并 clamp
+        """智能体 / API 可能绕过 get_state 直接调用 confirm：迁移在 confirm 内部触发并 clamp
         时（枚举外 clamp + warning 的宽容口径），confirm 按迁移后的落盘内容确认放行。
         """
         _stub_video_caps(monkeypatch, [4, 8, 12])
@@ -944,7 +944,7 @@ class TestReferenceVideoStep1Migration:
 class TestReferenceVideoStep2Enforcement:
     @pytest.mark.unit
     async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):
-        """agent 路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""
+        """智能体路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""
         from server.agent_runtime.sdk_tools._context import ToolContext
         from server.agent_runtime.sdk_tools.text_generation import (
             confirm_script_review_tool,
@@ -1141,8 +1141,8 @@ class TestErrors:
 
     @pytest.mark.unit
     async def test_rv_save_clears_stale_step2_quarantine_on_change(self, tmp_path):
-        """web 保存改了 step1 内容 → 在场的 step2 隔离草稿作废（其保结构 diff 以旧 step1 为
-        基底）；内容未变的保存不清。与 agent 侧写盘同一出口、同一语义。"""
+        """web 保存改了 step1 内容 → 在场的 step2 草稿作废（其保结构 diff 以旧 step1 为
+        基底）；内容未变的保存不清。与智能体侧写盘同一出口、同一语义。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         project_path = pm.get_project_path("demo")
@@ -1294,7 +1294,7 @@ class TestStep2Enforcement:
 
     @pytest.mark.unit
     async def test_confirm_tool_unblocks_step2(self, tmp_path):
-        """agent 路径：confirm_script_review 工具确认后，gate 放行（既有 step1→step2 不被破坏）。"""
+        """智能体路径：confirm_script_review 工具确认后，gate 放行（既有 step1→step2 不被破坏）。"""
         from server.agent_runtime.sdk_tools._context import ToolContext
         from server.agent_runtime.sdk_tools.text_generation import confirm_script_review_tool
 
@@ -1383,7 +1383,7 @@ class TestManualSplitSelfHeal:
 
     @pytest.mark.unit
     async def test_confirm_self_heals_and_unblocks_step2(self, tmp_path):
-        """confirm（web 与 agent 工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。"""
+        """confirm（web 与智能体工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。"""
         pm = _make_manual_split_project(tmp_path, "drama")
         _write_source_text(pm, "episode_1.txt", "任意派生内容")
         _write_step1(pm, "drama", _drama_step1())

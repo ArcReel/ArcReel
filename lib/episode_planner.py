@@ -96,7 +96,7 @@ class EpisodePlanSummary:
 class LedgerStats:
     """全账本体量分布快照（机械现算，不做「多小算畸小」之类的阈值判断）。
 
-    语义判断（是否与用户结构性偏好如「一章一集」「共 32 集」有出入）留给主 agent 做——
+    语义判断（是否与用户结构性偏好如「一章一集」「共 32 集」有出入）留给主智能体做——
     这里只报分布事实。
     """
 
@@ -556,7 +556,7 @@ class EpisodePlanner:
                     draft_ep, num=num, source_rel=source_rel, start=prev, end=abs_end, status="planned"
                 )
                 # 新集号若在磁盘上已有剧本/step1/媒体产物（如重置到更早集号后重新规划、
-                # 新布局与原消费范围重叠），说明该集实际已被消费过；标 stale 提示主 agent
+                # 新布局与原消费范围重叠），说明该集实际已被消费过；标 stale 提示主智能体
                 # 需重做下游产物，产物本身不删除
                 if has_downstream_products(self.project_path, num, entry):
                     entry["ledger_status"] = "stale"
@@ -595,7 +595,7 @@ class EpisodePlanner:
             stale_episodes=list(committed["stale"]),
             total_planned=_count_planned_episodes(final_project),
             # 全局核对材料只在末批即耗尽时附上；常规批次只报「累计已规划 N 集」，
-            # 避免主 agent 上下文被逐批膨胀（工具层渲染 total_planned 的那一行）
+            # 避免主智能体上下文被逐批膨胀（工具层渲染 total_planned 的那一行）
             ledger_stats=self._compute_ledger_stats(final_project) if exhausted else None,
         )
 
@@ -1005,7 +1005,7 @@ def _build_planning_prompt(
         *(_PLAN_INTRO_SCREENPLAY if is_screenplay else _PLAN_INTRO_NOVEL),
         "",
         "# 项目信息",
-        f"- 内容模式：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
+        f"- 创作类型：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
     ]
     synopsis = overview.get("synopsis") if isinstance(overview, Mapping) else None
     if synopsis:

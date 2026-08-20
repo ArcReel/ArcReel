@@ -1,4 +1,4 @@
-"""v6→v7 广告参考路线自包含 video_units 迁移。"""
+"""v6→v7 广告/短片的参考生视频自包含 video_units 迁移。"""
 
 from __future__ import annotations
 

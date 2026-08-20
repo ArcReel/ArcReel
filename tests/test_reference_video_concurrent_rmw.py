@@ -1,4 +1,4 @@
-"""参考视频 episode script 的并发读-改-写竞态防护测试（issue #334）。
+"""参考生视频 episode script 的并发读-改-写竞态防护测试（issue #334）。
 
 覆盖 `ProjectManager.locked_script` 在两类并发写者同时操作 `video_units` 时不丢更新：
   1. 追加新 unit（对应 router 的 add_unit）

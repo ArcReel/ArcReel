@@ -22,7 +22,7 @@ interface Props {
  * - `blocked`：逐个列出全部缺口，不塌成一句通用错误。真正有问题的排在前面，被它们连带
  *   扣下的列在后面并标明原因，用户一眼分得清该去修哪几个。
  *
- * 正文与外壳分开：参考路线把它装进弹窗当场拍板，工作流面板把它就地摊在视频步骤下，
+ * 正文与外壳分开：参考生视频把它装进弹窗当场拍板，工作流面板把它就地摊在视频步骤下，
  * 两处陈述同一份结论、共用同一段判定，不各推一遍。
  */
 export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: Props) {

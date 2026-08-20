@@ -50,22 +50,22 @@ describe("NarrationAudioCard", () => {
   it("invokes onGenerate when the generate button is clicked", () => {
     const onGenerate = vi.fn();
     renderCard({ onGenerate });
-    fireEvent.click(screen.getByRole("button", { name: /生成旁白/ }));
+    fireEvent.click(screen.getByRole("button", { name: /生成旁白配音/ }));
     expect(onGenerate).toHaveBeenCalledTimes(1);
   });
 
   it("labels the button as regenerate when audio already exists", () => {
     renderCard({ assetPath: "audio/segment_E1S01.wav", onGenerate: vi.fn() });
-    expect(screen.getByRole("button", { name: /重新生成旁白/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /重新生成旁白配音/ })).toBeInTheDocument();
   });
 
   it("disables the generate button while generating", () => {
     renderCard({ onGenerate: vi.fn(), generating: true });
-    expect(screen.getByRole("button", { name: /生成旁白/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /生成旁白配音/ })).toBeDisabled();
   });
 
   it("shows the estimated cost on the generate button", () => {
     renderCard({ onGenerate: vi.fn(), estimatedCost: { CNY: 0.008 } });
-    expect(screen.getByRole("button", { name: /生成旁白/ }).textContent).toContain("¥");
+    expect(screen.getByRole("button", { name: /生成旁白配音/ }).textContent).toContain("¥");
   });
 });

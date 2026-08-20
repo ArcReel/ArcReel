@@ -80,7 +80,7 @@ class _FakePM:
 class _ScriptBackedResolver:
     """产物清单替身：剧本里 narration_audio 指向的路径视为已登记，其余一律缺失。
 
-    产物清单是读取已生成旁白的唯一口径，路由只问清单。
+    产物清单是读取已生成旁白配音的唯一口径，路由只问清单。
     """
 
     def __init__(self, fake_pm):

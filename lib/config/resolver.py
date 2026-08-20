@@ -228,7 +228,7 @@ _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     global_default_key="default_audio_backend",
 )
 
-#: 视频任务类型桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考路线无参考图退化镜头的降级执行）、
+#: 视频任务类型桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考生视频无参考图视频单元的降级执行）、
 #: r2v（参考生视频的有参考图镜头）。t2v 不设桶（docs/adr/0054）。
 VideoCapability = Literal["i2v", "r2v"]
 
@@ -508,7 +508,7 @@ def constrain_durations(
 def _resolution_for_constraints(
     project: dict, provider_id: str | None, model_id: str | None, *, generation_mode: str | None
 ) -> str | None:
-    """约束求值用的生效分辨率：项目已保存的档位，参考生视频模式下补 provider 兜底。
+    """约束求值用的生效分辨率：项目已保存的档位，参考生视频下补供应商兜底。
 
     联动约束必须按**执行期真正下发给供应商的那个档位**求值，而两条视频路径下发的值不同源：
 
@@ -915,7 +915,7 @@ class ConfigResolver:
         （例如 `ScriptGenerator` 在非标准路径实例化、或测试用 tmp_path 时，防止目录名
         与全局项目碰撞读到错误能力）。
 
-        ``capability`` 未给定时按项目 generation_mode 定桶；给定时按指定桶解析——供参考路线
+        ``capability`` 未给定时按项目 generation_mode 定桶；给定时按指定桶解析——供参考生视频
         内按镜头分流的读侧（无参考图退化镜头按 i2v 桶取档 / 计价）使用。
         """
         async with self._open_session() as (session, svc):

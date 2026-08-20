@@ -18,7 +18,7 @@ API Key 可从 ArcReel 设置页面的「API Keys」管理区获取。
 
 1. **创建项目**：`POST {{BASE_URL}}/api/v1/projects`
 2. **上传源文件并生成概述**（广告/短片项目跳过此步）：`POST {{BASE_URL}}/api/v1/projects/{name}/source`
-3. **多轮 Agent 对话**（创作剧本、分镜等）：`POST {{BASE_URL}}/api/v1/agent/chat`
+3. **多轮智能体对话**（创作剧本、分镜等）：`POST {{BASE_URL}}/api/v1/agent/chat`
 4. **查看生成结果**：`GET {{BASE_URL}}/api/v1/projects/{name}`
 
 ## 工具定义
@@ -69,7 +69,7 @@ curl {{BASE_URL}}/api/v1/projects \
 | `title` | string | 项目标题 |
 | `content_mode` | string | 选填，创作类型：`drama`（剧情演绎，角色驱动）/ `narration`（旁白/解说，旁白驱动）/ `ad`（广告/短片，商品与目标时长驱动）。默认 `narration`。创建后不可更改 |
 | `source_kind` | string | 选填，源文件类型：`novel`（小说，AI 改编为脚本）/ `screenplay`（剧本，优先保留原稿）。默认 `novel`。创建后不可更改 |
-| `generation_mode` | string | **必填**，视频生成方法二选一：`storyboard`（分镜图生视频）/ `reference_video`（参考图直接生视频，无分镜图步骤）。创建后不可更改 |
+| `generation_mode` | string | **必填**，视频生成方法二选一：`storyboard`（分镜图生视频）/ `reference_video`（参考生视频，无分镜图步骤）。创建后不可更改 |
 | `grid_storyboard` | bool | 选填，默认 `false`。按多宫格分镜批量产出分镜图，仅 `generation_mode` 为 `storyboard` 时生效；广告/短片项目不可开启。创建后可经项目 PATCH 切换 |
 | `brief` | string | 选填，仅 `content_mode` 为 `ad` 可用：创作诉求短文本，不经上传源文件接口传入。非广告/短片项目携带该字段返回 400 |
 | `target_duration` | int | 选填，仅 `content_mode` 为 `ad` 可用：成片目标总时长（秒），须为正整数。非广告/短片项目携带该字段返回 400 |
@@ -178,9 +178,9 @@ curl -X PATCH {{BASE_URL}}/api/v1/projects/my-novel \
   -d '{"title": "新标题", "grid_storyboard": true}'
 ```
 
-### 6. Agent 对话（剧本与创作）
+### 6. 智能体对话（剧本与创作）
 
-向 ArcReel AI Agent 发送消息，Agent 可执行剧本生成、分镜创作、视频生成等复杂任务。
+向 ArcReel AI 智能体发送消息，智能体可执行剧本生成、分镜创作、视频生成等复杂任务。
 
 - **端点**：`POST {{BASE_URL}}/api/v1/agent/chat`
 - **认证**：需要 Bearer Token
@@ -197,7 +197,7 @@ curl -X POST {{BASE_URL}}/api/v1/agent/chat \
 ```
 
   - `project_name`：项目 ID（必填）
-  - `message`：发送给 Agent 的消息（必填）
+  - `message`：发送给智能体的消息（必填）
   - `session_id`：会话 ID，传入已有 ID 可继续多轮对话，不传则创建新会话
 
 - **响应示例**：
@@ -233,7 +233,7 @@ curl -X POST {{BASE_URL}}/api/v1/projects/ghost-story/source \
   -F "file=@ghost-story.txt" \
   -F "generate_overview=true"
 
-# 3. 开始 Agent 对话，生成第一集剧本
+# 3. 开始智能体对话，生成第一集剧本
 curl -X POST {{BASE_URL}}/api/v1/agent/chat \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
@@ -247,10 +247,10 @@ curl {{BASE_URL}}/api/v1/projects/ghost-story \
 ## 注意事项
 
 - `source` 接口最大 200000 字符（约 10 万汉字）；超长小说建议分章节多次传入（后续调用会覆盖同名文件）
-- Agent 对话最长等待 120 秒，复杂任务可能返回 `status: "timeout"` 和部分响应，此时可继续传入同一 `session_id` 查询进度
+- 智能体对话最长等待 120 秒，复杂任务可能返回 `status: "timeout"` 和部分响应，此时可继续传入同一 `session_id` 查询进度
 - 多数 API 端点返回 JSON；以下为例外：
-  - `GET /skill.md` — Markdown 文本（`text/markdown`），外部 Agent 运行时拉取最新契约
+  - `GET /skill.md` — Markdown 文本（`text/markdown`），外部智能体运行时拉取最新契约
   - `GET /api/v1/projects/{name}/events/stream` — 项目事件 SSE（`text/event-stream`）
-  - `POST /api/v1/assistant/sessions/{id}/stream` — 助手对话 SSE（`text/event-stream`）
+  - `POST /api/v1/assistant/sessions/{id}/stream` — 智能体对话 SSE（`text/event-stream`）
   - `GET /api/v1/projects/{name}/export` 等文件下载端点 — 二进制（`application/zip` 等）
 - 项目名称（`name`）仅支持字母、数字和连字符，建议使用英文或拼音

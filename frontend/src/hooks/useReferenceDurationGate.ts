@@ -15,7 +15,7 @@ interface Options {
 
 /**
  * 该 unit 此刻是否仍该入队，由调用方按当前入口的语义提供，须实时读取而非渲染期快照：
- * 预检与用户思考都是 await 窗口，其间同一 unit 可能已被其它入口或 Agent 占用。
+ * 预检与用户思考都是 await 窗口，其间同一 unit 可能已被其它入口或智能体占用。
  *
  * 判定按入口而非按闸门统一——批量入口的作用对象是「还没有成片的单元」，弹窗停留期间
  * 完成的要剔除（任务完成后它不再 busy，队列去重也只看 queued/running/cancelling，
@@ -34,7 +34,7 @@ type ConfirmedDurations = ReadonlyMap<string, number>;
 type Commit = (unitIds: string[], confirmedDurations: ConfirmedDurations) => Promise<void>;
 
 /**
- * 参考视频生成入口的时长确认闸门：入队前预检取档，申请秒数与请求时长基准不一致时先让
+ * 参考生视频入口的时长确认闸门：入队前预检取档，申请秒数与请求时长基准不一致时先让
  * 用户确认，取消则一个都不入队。
  *
  * 批量入口聚合成一次确认（逐个弹窗会让用户为一次操作点 N 遍），单入口与批量入口共用

@@ -188,7 +188,7 @@ class TestCrossModalModelMismatch:
 
 class TestHiddenModelStillResolves:
     def test_hidden_does_not_block_lookup(self, monkeypatch):
-        # 成本快照边角：模型被下线（hidden=True）后，入队遗留任务仍需算价。
+        # 冻结费用边角：模型被下线（hidden=True）后，入队遗留任务仍需算价。
         meta = PROVIDER_REGISTRY["gemini-aistudio"]
         base = meta.models["gemini-3-flash-preview"]
         hidden_model = replace(base, hidden=True)

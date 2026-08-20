@@ -191,7 +191,7 @@ def _gemini_image_pricing(model_id: str, rates: dict[str, float]) -> PerImageByR
     return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="USD")
 
 
-# Veo 视频费率（美元/秒），按 (分辨率, 是否生成音频)。
+# Veo 视频费率（美元/秒），按 (分辨率, 是否生成有声视频)。
 def _veo_video_pricing(model_id: str, rates: dict[tuple[str, bool | None], float]) -> PerSecondMatrix:
     return PerSecondMatrix(
         rates={model_id: rates},
@@ -243,7 +243,7 @@ def _ark_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="CNY")
 
 
-# Ark 视频费率（元/百万 token），按 (service_tier, 是否生成音频)。
+# Ark 视频费率（元/百万 token），按 (service_tier, 是否生成有声视频)。
 def _ark_video_pricing(model_id: str, rates: dict[tuple[str, bool], float]) -> PerTokenVideo:
     return PerTokenVideo(rates={model_id: rates}, default_model=model_id)
 

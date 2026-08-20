@@ -140,7 +140,7 @@ describe("AppRoutes", () => {
 
   it("切换界面语言不重跑真实项目的加载", async () => {
     // 回归：演示项目的常量随 `t` 重灌，但这条依赖不能落到真实项目的加载 effect 上——
-    // 否则切语言会先清空 store 闪一次空态，还连带清掉助手会话状态。
+    // 否则切语言会先清空 store 闪一次空态，还连带清掉智能体会话状态。
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo Project",

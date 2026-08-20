@@ -1,7 +1,7 @@
 """
-同步 Agent 对话端点
+同步智能体对话端点
 
-封装现有 SSE 流式助手为同步请求-响应模式，供 OpenClaw 等外部 Agent 调用。
+封装现有 SSE 流式智能体为同步请求-响应模式，供 OpenClaw 等外部智能体调用。
 """
 
 import asyncio
@@ -153,7 +153,7 @@ async def agent_chat(
     request: Request,
     _t: Translator,
 ) -> AgentChatResponse:
-    """同步 Agent 对话端点。
+    """同步智能体对话端点。
 
     - 若不传 session_id，则新建会话
     - 若传入 session_id，则在该会话上下文中继续对话

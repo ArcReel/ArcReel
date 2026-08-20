@@ -97,7 +97,7 @@ def _build_prompt(
 def generate_storyboards_tool(ctx: ToolContext):
     @tool(
         _OPERATION,
-        "为 narration/drama 模式剧本生成分镜图。"
+        "为 narration/剧情演绎剧本生成分镜图。"
         "script 为剧本文件名（如 episode_1.json）；segment_ids 指定要重生的片段/场景 ID 列表"
         "（不传则只生成缺分镜图的项；已失效但可用的旧图不会被自动重生）。"
         "返回 requested / succeeded / failed / blocked 的逐 ID 结果，每个失败项带稳定 code 与下一步动作。",
@@ -134,7 +134,7 @@ def generate_storyboards_tool(ctx: ToolContext):
                 project_data = {}
 
             if project_data:
-                # 失配剧本在此被拒：按分镜路线该读的数组不在剧本里，继续走下去
+                # 失配剧本在此被拒：按分镜图生视频该读的数组不在剧本里，继续走下去
                 # 会落进空结果的假成功，把成因埋掉。project.json 缺失时无路线可依，
                 # 沿用上面的降级放行。
                 ensure_route_skeleton(

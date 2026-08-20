@@ -5,7 +5,7 @@
 
 **不要在 profile 里另建一张按创作类型或生成模式展开的步骤表。** 六种模式组合（narration /
 drama / ad × storyboard / reference_video）之间哪些步骤适用、顺序如何、当前停在哪一步，全部由
-计划的 `steps[]` 表达；agent 只负责执行计划交回的受控动作。
+计划的 `steps[]` 表达；智能体只负责执行计划交回的受控动作。
 
 ## 查询
 
@@ -20,7 +20,7 @@ mcp__arcreel__get_workflow_plan({
 三个字段都只属于**这一次查询**，服务端不会持久化。因此每次重新查询都要把仍然成立的选择原样
 带上；漏带等于把选择撤回。
 
-调用时机：进入工作流、用户说「继续 / 下一步 / 查看进度」、以及**每次工具或子智能体完成之后**。
+调用时机：进入工作流、用户说「继续 / 下一步 / 查看进度」、以及**每次工具或子任务完成之后**。
 `Read` / `Glob` 只用于取执行已选定动作所需的内容，不用于另建一套状态机。不得根据空资产 bucket、
 文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
@@ -75,15 +75,15 @@ mcp__arcreel__get_workflow_plan({
 |---|---|
 | `collect_project_input` | 引导用户在 Web 端补齐项目输入 |
 | `draft_selling_points` | 起草卖点后经 `mcp__arcreel__patch_project` 写回（ad） |
-| `analyze_assets` | dispatch `analyze-assets` 子智能体 |
+| `analyze_assets` | dispatch `analyze-assets` 子任务 |
 | `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`，按 `next_action.args` 传参 |
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
-| `prepare_step1` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
+| `prepare_step1` | dispatch `next_action.args.preprocessor` 指名的子任务 |
 | `confirm_step1` | `mcp__arcreel__confirm_script_review` |
-| `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
-| `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
-| `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
-| `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |
+| `generate_script` | dispatch `create-episode-script` 子任务（ad 直接调 `mcp__arcreel__generate_episode_script`） |
+| `generate_asset_sheets` | dispatch `generate-assets` 子任务，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
+| `generate_storyboards` | dispatch `generate-assets` 子任务，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
+| `generate_grid` | dispatch `generate-assets` 子任务，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |
 | `repair_video_units` | `mcp__arcreel__get_episode_script_revision` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
 | `patch_episode_script` | 计划注入：`next_action.args` 已给 `expected_revision` 与逐条 `problems`，一次批量改完 |
 | `choose_narration_delivery` | 计划注入：见「旁白交付」 |
@@ -94,7 +94,7 @@ mcp__arcreel__get_workflow_plan({
 | `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
 | `none` | 展示 `blockers` 并停止变更 |
 
-`next_action.args.preprocessor` 是权威的内容整理子智能体名，**不要自己按创作类型 ×
+`next_action.args.preprocessor` 是权威的内容整理子任务名，**不要自己按创作类型×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
 
 ### 整批被拒时交回的逐问题动作
@@ -108,7 +108,7 @@ mcp__arcreel__get_workflow_plan({
 |---|---|
 | `fix_input` | 剧本/声明本身不合法：按 `problems[].detail` 定位，经 `mcp__arcreel__patch_episode_script` 改对再重查 |
 | `replan_unit` | unit 需要重新规划：走 `repair_video_units` 那一行的改法 |
-| `generate_dependency` | 缺上游产物（参考资产等）：先补齐依赖再重查 |
+| `generate_dependency` | 缺上游产物（资产图等参考图）：先补齐依赖再重查 |
 | `generate_tts` / `regenerate_tts` | 缺旁白音频 / 依据已变：经 `generate-narration-audio` 合成后重查 |
 | `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |
 | `repair_artifact_state` | 产物状态读不出来：报为独立缺口，绝不当作缺失去重生 |
@@ -144,7 +144,7 @@ mcp__arcreel__get_workflow_plan({
 
 | `code` | `action` | 处理 |
 |---|---|---|
-| `tts_missing` | `generate_tts` | 先生成旁白音频，再重查 |
+| `tts_missing` | `generate_tts` | 先生成旁白配音，再重查 |
 | `tts_stale` | `regenerate_tts` | 依据已变，重新合成该段再重查；旧音频保留 |
 | `tts_duration_unavailable` | `regenerate_tts` | 时长读不出来，按重新合成处理 |
 | `tts_generating` | `wait_for_task` | 已有旁白任务在跑，**不要再提交一次**，等待后重查 |
@@ -160,8 +160,8 @@ mcp__arcreel__get_workflow_plan({
 ## 整批准入判定
 
 视频整批请求是**全有或全无**：`steps[].admission.decision` 为 `admitted` 时整批入队；为
-`blocked` 或 `confirmation_required` 时**一个任务都不入队**。Web 与 agent 走同一套准入和同一套
-请求选择语义（点名即强制重做 / 不传即只补缺 / 空数组非法），不存在 agent 专属的宽松通道。
+`blocked` 或 `confirmation_required` 时**一个任务都不入队**。Web 与智能体走同一套准入和同一套
+请求选择语义（点名即强制重做 / 不传即只补缺 / 空数组非法），不存在智能体专属的宽松通道。
 
 `decision != "admitted"` 时：
 
@@ -186,7 +186,7 @@ mcp__arcreel__get_workflow_plan({
 ## stale 与历史
 
 - **stale 产物照常可预览、可导出、可参与成片**，服务端会复用它，不会自动重生。
-- 是否重做由**用户明确决定**。agent 不得自动删除、覆盖或重生任何已付费产物，也不得因为
+- 是否重做由**用户明确决定**。智能体不得自动删除、覆盖或重生任何已付费产物，也不得因为
   「看起来旧」就点名重做——点名即强制重做且必然产生费用。
 - 产物状态读不出来（`blocked`）的单元报为独立缺口，绝不当作缺失去重新生成：那会把一次损坏
   变成一次重复计费。

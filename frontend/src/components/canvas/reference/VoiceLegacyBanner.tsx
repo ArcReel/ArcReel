@@ -19,7 +19,7 @@ import { dialogueSpeakers, normalizeAssetName } from "@/utils/reference-mentions
 
 /**
  * computeVoiceLegacyNotice 所需的最小 unit 形状——同时兼容 narration/drama 的
- * 所有内容模式的 `ReferenceVideoUnit`：完成态 unit
+ * 所有创作类型的 `ReferenceVideoUnit`：完成态 unit
  * 都经同一个 `apply_unit_video_assets` 落盘点戳 `video_generated_at`，横幅判定逻辑
  * 因此不关心具体画布类型。
  */

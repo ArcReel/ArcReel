@@ -311,7 +311,7 @@ async def test_current_reference_task_narration_uses_video_units_when_ad_script_
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "text": "镜头推进。\n{参考视频单元旁白。}",
+                "text": "镜头推进。\n{视频单元旁白。}",
                 "duration_seconds": 8,
             }
         ],

@@ -1479,7 +1479,7 @@ describe("StudioCanvasRouter", () => {
   });
 
   it("withholds the panel's regenerate entry on the reference route instead of wiring a dead button", async () => {
-    // 参考生视频模式的剧本是 video_units，本组件的逐单元入队回调解不出提示词。给出回调
+    // 参考生视频的剧本是 video_units，本组件的逐单元入队回调解不出提示词。给出回调
     // 只会长出一个按下去毫无反应的按钮，该路线的重生入口在单元卡上。
     const projectData = makeProjectData({ generation_mode: "reference_video" });
     useProjectsStore.setState({
@@ -1686,7 +1686,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-narration"));
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("生成旁白失败");
+      expect(useAppStore.getState().toast?.text).toContain("生成旁白配音失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });
   });
@@ -1741,7 +1741,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-episode-narration"));
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("所有分镜均已生成旁白");
+      expect(useAppStore.getState().toast?.text).toContain("所有分镜均已生成旁白配音");
       expect(useAppStore.getState().toast?.tone).toBe("success");
     });
   });

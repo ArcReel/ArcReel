@@ -1261,7 +1261,7 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
     monkeypatch: pytest.MonkeyPatch,
 ):
     """Regression: Grok 视频生成必须用 720p（xai_sdk 的 VideoResolutionMap 只接受 480p/720p；
-    参考视频 executor 若回退到 MediaGenerator 默认 1080p，会在 SDK 抛 `Invalid video resolution 1080p`）。
+    参考生视频 executor 若回退到 MediaGenerator 默认 1080p，会在 SDK 抛 `Invalid video resolution 1080p`）。
     executor 必须把 video lane 的 `resolution_or_fallback` 原样传给 generate_video_async——
     档位的解析/兜底逻辑（provider fallback、model_settings 优先级）在
     tests/server/test_generation_context.py 覆盖。

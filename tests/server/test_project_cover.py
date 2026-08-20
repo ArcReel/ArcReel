@@ -90,7 +90,7 @@ def test_falls_back_to_storyboard_image_when_no_video_thumbnail():
 
 
 def test_reference_mode_without_generated_assets_falls_back_to_scene_sheet():
-    """参考模式未生成任何视频：用第一张场景参考图当封面（核心 fix 场景）。"""
+    """参考生视频未生成任何视频：用第一张场景参考图当封面（核心 fix 场景）。"""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}},
@@ -138,7 +138,7 @@ def test_missing_script_file_does_not_break_fallback():
 
 
 def test_episode_without_script_file_is_skipped():
-    """episode 条目里没 script_file 键（预处理未完成）：跳过即可，不报错。"""
+    """episode 条目里没 script_file 键（内容整理未完成）：跳过即可，不报错。"""
     project = {
         "episodes": [{"episode": 1}],
         "characters": {"X": {"character_sheet": "characters/x.png"}},

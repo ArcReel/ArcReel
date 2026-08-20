@@ -951,7 +951,7 @@ async def _generate_reference_units(
 
 
 def _reference_episode(project: dict[str, Any], script: dict[str, Any], script_filename: str) -> int:
-    """参考路线的集号：绑定身份优先，取不到时回落到剧本 / 文件名推断。"""
+    """参考生视频的集号：绑定身份优先，取不到时回落到剧本 / 文件名推断。"""
 
     episode = resolve_artifact_episode(
         project=project,
@@ -981,7 +981,7 @@ async def _run_reference_batch(
     log: list[str],
     operation: str,
 ) -> dict[str, Any]:
-    """参考路线的共享收尾：目标状态 → 批量生成 → 准入拒绝或结果响应。
+    """参考生视频的共享收尾：目标状态 → 批量生成 → 准入拒绝或结果响应。
 
     ``reuse_existing`` 收 currency 解析器与 unit，让整集路线的复用判定与点名路线的
     「一律不复用」共用同一条缝。
@@ -1209,7 +1209,7 @@ def _video_request_context(
 
 @dataclass(frozen=True)
 class _StoryboardScreening:
-    """分镜路线的目标条目、ID 字段、骨架种类与筛查记名。"""
+    """分镜图生视频的目标条目、ID 字段、骨架种类与筛查记名。"""
 
     items: list[dict[str, Any]]
     id_field: str
@@ -1315,7 +1315,7 @@ class _CheckpointSubmission:
 
 @dataclass(frozen=True)
 class _StoryboardBatch:
-    """分镜路线一次请求的批次上下文：目标口径、准入身份与结果构造器。
+    """分镜图生视频一次请求的批次上下文：目标口径、准入身份与结果构造器。
 
     四个视频工具的目标集合与提交方式各不相同，但构造 TaskSpec、整批准入与逐目标记录
     结论这三步共用同一份口径——集中在这里，改一处判定不会只改到其中一个入口。
@@ -1343,7 +1343,7 @@ class _StoryboardBatch:
         items: list[dict[str, Any]],
         skip_ids: list[str] | None,
     ) -> tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]:
-        """按本次请求的目标条目构造分镜路线的 TaskSpec。"""
+        """按本次请求的目标条目构造分镜图生视频的 TaskSpec。"""
 
         voice_characters = await resolve_voice_context(self.sb.project, self.sb.content_mode)
         return build_storyboard_video_specs(

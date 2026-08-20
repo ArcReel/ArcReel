@@ -6,7 +6,7 @@ import { formatCost, totalBreakdown } from "@/utils/cost-format";
 
 /**
  * 头部统计只需要时长与成片两项，故按结构约束而非绑定具体单元类型：
- * narration / drama / ad 三种内容模式的 ReferenceVideoUnit 都能直接传入。
+ * narration / drama / ad 三种创作类型的 ReferenceVideoUnit 都能直接传入。
  */
 export interface EpisodeHeaderUnit {
   duration_seconds: number;
@@ -35,7 +35,7 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
       ready,
       totalDur,
       percent,
-      // 按全部费用类型聚合，而不是只取 video：参考视频集也会有旁白音频，以及已删改单元
+      // 按全部费用类型聚合，而不是只取 video：参考生视频集也会有旁白配音，以及已删改单元
       // 留下的历史支出，只看 video 桶会让这一集显示得比实际花的少。
       estimated: formatCost(totalBreakdown(epCost?.totals.estimate ?? {})),
       actual: formatCost(totalBreakdown(epCost?.totals.actual ?? {})),

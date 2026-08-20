@@ -110,7 +110,7 @@ def resolve_declared_kind(content_mode: str | None, generation_mode: str | None)
 
     输入为项目级已过校验的 content_mode 与项目声明的 generation_mode（``project.json`` 字段）。
 
-    - 任意内容模式 + ``generation_mode == "reference_video"`` → ``video_units``
+    - 任意创作类型 + ``generation_mode == "reference_video"`` → ``video_units``
     - ``ad`` + ``storyboard`` → ``shots``
     - ``narration`` → ``segments``，``drama`` → ``scenes``
     - 未知/缺失 content_mode → 抛 ``ValueError``（fail-loud，不静默默认到 drama/narration）
@@ -134,7 +134,7 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
     **只看数据形状**：本解析回答的是取证提问「这份剧本现在长什么样」，服务于编辑 / 查看 /
     导出——这些能力对任何一份磁盘上的剧本都必须成立，包括骨架与项目路线不符的失配剧本。
     若改由项目路线单向定夺，失配集通过所有 MCP 编辑工具
-    完全不可触达（``resolve_items`` 返回空列表、按 id 编辑都报"未找到"），agent 看到错误也
+    完全不可触达（``resolve_items`` 返回空列表、按 id 编辑都报"未找到"），智能体看到错误也
     无法定位成因。生成路径不走本解析：由生成入口按项目路线分派，失配由 ``ensure_route_skeleton``
     显式拒绝。
 
@@ -185,7 +185,7 @@ def resolve_kind_items(script: dict[str, Any], *, kind: str | None = None) -> tu
     return script.get(resolved_kind), SKELETONS[resolved_kind].id_field, resolved_kind
 
 
-# 路线要求的骨架族：参考生视频路线要 ``video_units``，其余路线要分镜族骨架
+# 生成模式要求的骨架族：参考生视频要 ``video_units``，其余模式要分镜族骨架
 # （``segments`` / ``scenes`` / ``shots``）。族内差异（如 narration 数据落 ``scenes`` 键的历史
 # 形态）不构成失配，只有跨族才是——跨族意味着生成侧要读的数组根本不在剧本里。
 _REFERENCE_ROUTE_SKELETON = "video_units"
@@ -193,7 +193,7 @@ _STORYBOARD_ROUTE_SKELETONS = ("segments", "scenes", "shots")
 
 
 class SkeletonRouteMismatchError(ValueError):
-    """剧本骨架与项目生成路线不属同一族——生成被拒。
+    """剧本骨架与项目生成模式不属同一族——生成被拒。
 
     失配剧本的唯一出路是重拆重生成：路线创建时锁定，剧本不可就地换族。查看 / 编辑 /
     导出不经本闸门，失配剧本仍可读可改可导出。
@@ -242,10 +242,10 @@ def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, gene
     判据是「路线要读的那个数组在不在」，不是「取证解析的答案等不等于声明值」，两个方向对称按
     键在场性判定：
 
-    - 参考路线只问 ``video_units`` 键在不在。剧本同时残留分镜族数组时取证解析会按形状优先答
-      ``segments``，但参考路线的生成侧读的就是 ``video_units``，残留数组不参与投票（费用估算
+    - 参考生视频只问 ``video_units`` 键在不在。剧本同时残留分镜族数组时取证解析会按形状优先答
+      ``segments``，但参考生视频的生成侧读的就是 ``video_units``，残留数组不参与投票（费用估算
       同此口径：``is_reference_video_project`` 定路径，形状不投票）。
-    - 分镜路线只问 ``segments`` / ``scenes`` / ``shots`` 有没有一个在场。族内的历史形态差异
+    - 分镜图生视频只问 ``segments`` / ``scenes`` / ``shots`` 有没有一个在场。族内的历史形态差异
       （narration 数据落 ``scenes`` 键）照实放行并原样返回取证解析的答案，闸门只管跨族；而
       三个键全缺时不能放行——``resolve_script_kind`` 会按 ``content_mode`` 合成一个族内答案，
       顺着走下去分镜图入队会落进"✨ 所有片段的分镜图都已生成"的假成功。

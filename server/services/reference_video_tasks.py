@@ -131,7 +131,7 @@ def _render_unit_prompt(
 
 
 def _reference_limit_warning(*, provider: str, model: str | None, count: int, max_refs: int) -> dict[str, Any]:
-    """参考图片超限 warning；通用路径与产品优先裁剪共用。"""
+    """参考图片超限 warning；通用路径与商品优先裁剪共用。"""
     if provider.lower() == "openai" and (model or "").lower().startswith("sora") and max_refs == 1:
         return {"key": "ref_sora_single_ref", "params": {}}
     return {
@@ -147,9 +147,9 @@ def _clamp_resolved_reference_images(
     provider: str,
     model: str | None,
 ) -> tuple[list[ResolvedReferenceImage], list[dict[str, Any]]]:
-    """按请求上限裁图片，并让所有产品 sheet 优先于产品原图及其它资产。
+    """按请求上限裁图片，并让所有商品资产图优先于商品原图及其它资产。
 
-    未超限时保留原始稳定顺序；只有必须裁剪时才重排，避免在容量足够时无谓改变同一产品
+    未超限时保留原始稳定顺序；只有必须裁剪时才重排，避免在容量足够时无谓改变同一商品
     sheet 与原图的邻接顺序。``max_refs == 0`` 表示模型不支持参考图，返回空集。
     """
     clamped = list(clamp_reference_assets(entries, max_refs))
@@ -213,7 +213,7 @@ async def resolve_project_duration_context(
 ) -> ProjectDurationContext:
     """一次性解析视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
 
-    ``capability`` 未给定时按项目路线定桶；给定时按指定桶解析——参考路线内按镜头分流的
+    ``capability`` 未给定时按项目生成模式定桶；给定时按指定桶解析——参考生视频内按视频单元分流的
     调用方（费用估算、逐 unit 预检）以此对无参考图退化镜头按 i2v 桶模型取档。
 
     解析失败时返回空档位，仅让新建 unit 选用兼容默认值；不代表生成可执行。
@@ -316,7 +316,7 @@ async def execute_reference_video_task(
 ) -> dict[str, Any]:
     """处理一个 reference_video unit 的生成。
 
-    resource_id 即 unit_id（E{集}U{序号}）；所有内容模式都从自包含 ``video_units`` 读取。
+    resource_id 即 unit_id（E{集}U{序号}）；所有创作类型都从自包含 ``video_units`` 读取。
     """
     # Queue rows own the frozen locator. Payload remains a compatibility fallback for direct/internal callers,
     # but production dispatch passes Task.script_file explicitly so mutable payload cannot redirect execution.
@@ -390,7 +390,7 @@ async def execute_reference_video_task(
     # 兜底（resolution 命中空档位时取 provider fallback），executor 直接取非空档位。
     resolution = video.resolution_or_fallback
 
-    # 当前执行 lane 适配成公共投影候选；引用展开、实际文件存在、产品优先裁剪、时长取档与
+    # 当前执行 lane 适配成公共投影候选；引用展开、实际文件存在、商品优先裁剪、时长取档与
     # 音频冲突都由同一 projector 给出。payload 未声明请求选项时按直接入队兼容语义视为
     # 已确认；显式选项保存在 reference_request_options 中。
     class _ExecutionCapabilities:
@@ -524,9 +524,9 @@ async def execute_reference_video_task(
         if reused is not None:
             return reused
 
-    # 4. 所有内容模式共用三段论渲染。解析条目同时携带请求路径与逻辑主体；产品的一条逻辑
+    # 4. 所有创作类型共用三段论渲染。解析条目同时携带请求路径与逻辑主体；商品的一条逻辑
     #    引用可展开成多张图片，裁剪后直接按条目传给渲染，保证 `图片N` 的 1-based 索引与
-    #    backend 实际收到的 reference_images 一一对应。产品高保真尾注也只点名仍实际发图的产品。
+    #    调用通道实际收到的 reference_images 一一对应。商品高保真尾注也只点名仍实际发图的商品。
     #    prompt 始终从执行期新读取的剧本重组（脚本可变 + 队列 dedup 不看 payload，
     #    用入队快照会丢失入队后对镜头文本的编辑）；prompt 只在入队边界用于结构校验，
     #    不写进任务 payload。
@@ -809,7 +809,7 @@ def apply_unit_video_assets(
 ) -> str | None:
     """在剧本 dict 上写回 unit.generated_assets（video_clip / video_uri / video_thumbnail / status）。
 
-    生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。所有内容模式的 unit
+    生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。所有创作类型的 unit
     都位于 ``video_units``。新结果不含 video_uri / 缩略图时清空旧值，避免指向过期 URI /
     已删除文件。写回失败必须让调用方可见、finalize 不能在剧本未更新时静默成功，
     且两种失败要可区分：unit 不存在抛 KeyError（还原侧跨集同步把它当正常跳过），

@@ -765,7 +765,7 @@ class TestDataValidator:
 
     @pytest.mark.unit
     def test_validate_episode_drama_invalid_scene_prop_refs(self, tmp_path):
-        """drama 模式：引用未定义的 scenes/props 应报错"""
+        """剧情演绎：引用未定义的 scenes/props 应报错"""
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("drama"))
         _write_json(
@@ -1211,7 +1211,7 @@ class TestAdProjectValidation:
 
 
 class TestGenerationModeValidation:
-    """生成路线（generation_mode）必填二值与宫格开关（grid_storyboard）类型校验。"""
+    """生成模式（generation_mode）必填二值与宫格开关（grid_storyboard）类型校验。"""
 
     def _validate(self, tmp_path, payload: dict):
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
@@ -1463,7 +1463,7 @@ class TestAdEpisodeValidationEdgeCases:
 
 
 class TestAdReferenceVideoUnitsValidation:
-    """ad 参考路线与其他内容模式共用自包含 video_units 校验。"""
+    """ad 参考生视频与其他创作类型共用自包含 video_units 校验。"""
 
     @staticmethod
     def _unit(**overrides) -> dict:
@@ -1711,7 +1711,7 @@ class TestRouteSkeletonMismatchValidation:
 
     @pytest.mark.unit
     def test_reference_route_script_with_residual_segments_is_not_a_mismatch(self, tmp_path):
-        """参考路线剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""
+        """参考生视频剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""
         payload = _project_payload()
         payload["generation_mode"] = "reference_video"
         project_dir = tmp_path / "projects" / "demo"
