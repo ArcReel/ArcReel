@@ -1325,7 +1325,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "快手可灵 Kling 视频与图像生成平台。API Key（Bearer）适用于全部模型；"
             "Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。"
         ),
-        # 首个需要两个 secret 字符串的内置 provider（JWT HS256 鉴权），凭证按 registry key 名
+        # 首个需要两个 secret 字符串的内置供应商（JWT HS256 鉴权），凭证按 registry key 名
         # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。api_key 复用
         # 该表已有的 api_key 定型列（其余 provider 的静态 Bearer key 同列），无需新迁移。
         required_keys=["api_key", "access_key", "secret_key"],

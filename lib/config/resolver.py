@@ -732,7 +732,7 @@ class ConfigResolver:
         优先级：项目级 `project.json.video_backend` > 系统设置 `default_video_backend` >
         系统默认 `_DEFAULT_VIDEO_BACKEND` > auto-resolve（按 registry 顺序挑第一个 ready）。
 
-        返回字面配置结果，不做自定义 provider 的身份收敛——供配置展示与「当前选的是哪个」类
+        返回字面配置结果，不做自定义供应商的身份收敛——供配置展示与「当前选的是哪个」类
         判断使用；要拿运行时实际执行的身份请用 ``resolve_video_backend()``。
         """
         async with self._open_session() as (session, svc):
@@ -774,7 +774,7 @@ class ConfigResolver:
           ``VideoBucketCapabilityError``，不静默换模型。payload 命中时跳过能力闸——已入队任务
           按 payload 照常执行，不回头补校验；但已物化的身份仍过身份可用性校验，悬空同样抛该异常。
         - ``capability`` 为 None：同一骨架去掉桶层，项目默认（``video_backend``）> 全局默认
-          （``default_video_backend``）> 自动推断，无能力闸；自定义 provider 的 model 不存在、
+          （``default_video_backend``）> 自动推断，无能力闸；自定义供应商的 model 不存在、
           已禁用或 endpoint 的 media_type 不是 video 时，收敛到该 provider 默认启用的 video
           model（**运行时有效身份**），无可用默认则抛 ``ValueError``。供不承诺能力的调用方
           （费用估算、限流路由兜底）使用。
@@ -935,7 +935,7 @@ class ConfigResolver:
         的能力去校验 payload 解析出的 model」的错配。
 
         入参身份仍会再收敛一次（口径同 ``resolve_video_backend``），因此直接传字面配置也能
-        拿到有效身份的能力；自定义 provider 无可用默认 model 时抛 ``ValueError``。
+        拿到有效身份的能力；自定义供应商无可用默认 model 时抛 ``ValueError``。
 
         声音一致性等二维值按 ``project`` 的生成路线派生。
         """
@@ -1066,7 +1066,7 @@ class ConfigResolver:
 
         媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。项目层
         字段兼容裸 provider 覆盖（``_parse_project_provider``）；全局层要求 ``provider/model``
-        完整形态。payload 层与运行时身份收敛（如视频自定义 provider 的有效身份收敛）不属于
+        完整形态。payload 层与运行时身份收敛（如视频自定义供应商的有效身份收敛）不属于
         骨架，由各媒体的调用方在骨架外处理。
         """
         if project:
@@ -1242,7 +1242,7 @@ class ConfigResolver:
     ) -> ProviderModel:
         """把选择身份收敛为 backend 构造时会实际使用的视频身份。
 
-        内置 provider 的 registry 身份已是有效身份；自定义 provider 需与 loader 共用同一规则：
+        内置供应商的 registry 身份已是有效身份；自定义供应商需与 loader 共用同一规则：
         model 不存在、禁用或 endpoint 已改成其它 media_type 时，回退到默认启用 video model。
 
         已物化的身份不走这条收敛（见 ``_resolve_video_provider_model``）：换 model 执行等于
@@ -1328,7 +1328,7 @@ class ConfigResolver:
         （``docs/adr/0054``）。payload 传 None——能力查询回答的是当前配置，不排空历史任务。
 
         只传选择身份：有效身份收敛由 ``_resolve_video_caps_for_model`` 统一做，在此先做一遍会让
-        自定义 provider 多跑一轮 model 查询。
+        自定义供应商多跑一轮 model 查询。
         """
         if capability is None:
             capability = video_bucket_for_generation_mode(caps_generation_mode(project))
@@ -1516,7 +1516,7 @@ class ConfigResolver:
         try:
             cfg = await self._resolve_provider_config(svc, session, provider_id)
         except ValueError:
-            # 未知 / 自定义 provider（_validate_provider 抛 ValueError）→ 回退保守通用默认
+            # 未知 / 自定义供应商（_validate_provider 抛 ValueError）→ 回退保守通用默认
             return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
         total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), _DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
         single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), _DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
