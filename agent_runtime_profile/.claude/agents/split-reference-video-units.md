@@ -97,7 +97,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 正式文件不可直改，改动经隔离草稿这条持锁通道落回：
 
 1. 调用 `mcp__arcreel__open_step1_for_edit({"episode": N, "source": "source/episode_N.txt"})` 把现有拆分取回为可编辑草稿 `drafts/episode_{N}/step1_reference_units.invalid.json`（正式文件保持原样）。`source` 传本集源文路径——晋升时按它重判原文锚，不传则按整个 `source/` 判、更松
-2. Read 该草稿，用 Edit 改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方**修改口径**。草稿装的是**扁平引用语法**：`unit_id` 是派生物，不在草稿里、也不要手写。增删 unit 即增删数组元素
+2. Read 该草稿，用 Edit 改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方**修改口径**。草稿装的是**扁平引用语法文本**：`unit_id` 是派生物，不在草稿里、也不要手写。增删 unit 即增删数组元素
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 全量校验并晋升回正式文件——写盘在此发生，与 Web 端保存串行化
 4. 返回违约报告则按报告继续改草稿再晋升，无轮次上限（同情况 C）。中途决定不改了就原样晋升：内容未变即等于把原稿回写，草稿随之清除
 

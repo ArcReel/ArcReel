@@ -7394,7 +7394,7 @@ async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolContext) -> None:
-    """取回的草稿装扁平引用语法，不装派生物：agent 改的是正文 / 锚 / 时长，
+    """取回的草稿装扁平引用语法文本，不装派生物：agent 改的是正文 / 锚 / 时长，
     unit_id 由晋升时按数组序号重新派生，放进草稿等于给漂移开口子。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身\n@[张三] 走向 @[村口]")])
@@ -7574,7 +7574,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     report = out["content"][0]["text"]
     assert "并发冲突" in report
     assert "base_fingerprint" in report
-    # 冲突报告附上盘上现值的扁平引用语法，供 agent 对照合并
+    # 冲突报告附上盘上现值的扁平引用语法文本，供 agent 对照合并
     assert "在 @[村口] 等候" in report
     # 正式文件未被覆盖，草稿仍在场
     assert _rv_step1_path(fake_ctx).read_text(encoding="utf-8") == web_version
