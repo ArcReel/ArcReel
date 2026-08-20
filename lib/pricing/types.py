@@ -72,7 +72,9 @@ class PerSecondMatrix:
 
     ``dimensions``：
     - ``resolution_audio`` — 键 ``(分辨率小写, 是否生成音频)``，缺失回落 ``("1080p", True)``。
-    - ``resolution_only`` — 键 ``(分辨率, None)``，缺失回落 ``("720p", None)`` 再回落 0.0。
+    - ``resolution_only`` — 键 ``(分辨率, None)``，缺失回落 ``(default_resolution, None)`` 再回落 0.0。
+      ``default_resolution`` 须与该模型在分辨率未显式指定（Auto）时实际下发的分辨率一致——
+      两者不一致会让 Auto 请求按错误档位结算，量级上可能是漏计费。
     - ``flat`` — 单一费率，键 ``("", None)``，与分辨率/音频无关。
     """
 
@@ -80,6 +82,7 @@ class PerSecondMatrix:
     default_model: str
     dimensions: Literal["resolution_audio", "resolution_only", "flat"]
     currency: str
+    default_resolution: str = "720p"
     kind: Literal["per_second_matrix"] = "per_second_matrix"
 
 

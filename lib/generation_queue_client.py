@@ -8,6 +8,7 @@ Skill scripts that run outside the event loop should use asyncio.run().
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ from lib.generation_queue import (
     read_queue_poll_interval,
 )
 from lib.prompt_utils import is_structured_image_prompt, is_structured_video_prompt
+
+logger = logging.getLogger(__name__)
 
 
 class WorkerOfflineError(RuntimeError):
@@ -36,6 +39,18 @@ class TaskCancelledError(RuntimeError):
 
 class TaskWaitTimeoutError(TimeoutError):
     """Raised when queued task does not finish before timeout."""
+
+
+def is_interrupted_wait_error(exc: BaseException) -> bool:
+    """True when *exc* means a task wait was cut short, not provider-judged failed.
+
+    Shared by every ``wait_for_task`` caller — the batch path below and any direct
+    per-task wait loop — so a queued/running task caught mid-flight by a timeout or
+    an offline worker is reported as interrupted rather than terminal-failed. Reporting
+    it failed would suggest a safe retry while the original submission may still land,
+    risking a duplicate paid generation.
+    """
+    return isinstance(exc, (TaskWaitTimeoutError, WorkerOfflineError))
 
 
 DEFAULT_TASK_WAIT_TIMEOUT_SEC: float | None = 3600.0
@@ -353,8 +368,8 @@ class TaskSpec:
 
     Construct via :meth:`from_request`, the single guard point that owns a request's
     structural validity. Validation is provider-agnostic (no provider fields here):
-    capability checks such as ``duration ↔ supported_durations`` live at the execution
-    layer, after provider resolution (see ADR-0001).
+    capability checks such as ``duration ↔ supported_durations`` live in each route's
+    provider-aware request projection and are rechecked when execution materializes the request.
     """
 
     task_type: str
@@ -389,8 +404,15 @@ class TaskSpec:
         both the WebUI routes and the SDK spec builders construct through here so the
         rules can't diverge. Raises :class:`TaskSpecValidationError` on invalid input.
         """
-        if not resource_id:
-            raise ValueError("resource_id is required")
+        # 纯空白的 id 与空 id 同样不可用：它非空、能过下面的字符检查，却会在执行期变成一段
+        # 空白文件名。判空统一按 strip 后的值，各调用点因此不必各自 strip 一遍。
+        if not resource_id.strip():
+            raise TaskSpecValidationError("resource_id_required")
+        # resource_id 在执行期是产物路径的一段：带路径分隔符或 .. 的值要到 worker 拼路径时
+        # 才被 safe_join 拒绝，那时同批健康的任务已经在跑并计费。结构守卫在这里就拒，让它
+        # 与其它结构问题一样折成该 unit 的准入问题码。
+        if any(sep in resource_id for sep in ("/", "\\", "\x00")) or resource_id.strip(".") == "":
+            raise TaskSpecValidationError("invalid_resource_id", resource_id=resource_id)
         _validate_prompt(task_type, prompt)
 
         # extra_payload 不得携带守卫点已校验的保留键，否则调用方能绕过单一守卫点
@@ -404,7 +426,10 @@ class TaskSpec:
             raise ValueError(f"extra_payload contains reserved keys: {', '.join(sorted(conflict))}")
 
         payload: dict[str, Any] = dict(extra_payload) if extra_payload else {}
-        payload["prompt"] = prompt
+        # reference_video 的 prompt 是可变剧本内容：这里只用当前文本做结构守卫，任务仅保存
+        # unit 定位与请求选项，worker 开始时按 script_file + resource_id 重读最新 shots。
+        if task_type != "reference_video":
+            payload["prompt"] = prompt
         if script_file is not None:
             payload["script_file"] = script_file
 
@@ -423,13 +448,25 @@ class TaskSpec:
 
 @dataclass
 class BatchTaskResult:
-    """Result of a single task after batch execution."""
+    """Result of a single task after batch execution.
+
+    ``task`` carries the finished task row so callers can report the provider
+    submission checkpoint separately from the queue status; it is ``None`` only
+    when the wait itself failed and no terminal row was ever read.
+
+    ``enqueue_interrupted`` marks a target that never reached the queue because
+    the sequential enqueue stopped earlier in the batch. It is reported apart
+    from an ordinary enqueue failure: nothing about this target itself was
+    refused, so the follow-up is simply to queue it again.
+    """
 
     resource_id: str
     task_id: str
-    status: str  # "succeeded" | "failed" | "cancelled"
+    status: str  # "succeeded" | "failed" | "cancelled" | "interrupted"
     result: dict[str, Any] | None = None
     error: str | None = None
+    task: dict[str, Any] | None = None
+    enqueue_interrupted: bool = False
 
 
 def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: str) -> BatchTaskResult:
@@ -440,6 +477,7 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
             task_id=task_id,
             status="failed",
             error=task.get("error_message") or "task failed",
+            task=task,
         )
     if task.get("status") == "cancelled":
         return BatchTaskResult(
@@ -447,12 +485,133 @@ def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: 
             task_id=task_id,
             status="cancelled",
             error="task cancelled",
+            task=task,
         )
     return BatchTaskResult(
         resource_id=resource_id,
         task_id=task_id,
         status="succeeded",
         result=task.get("result") or {},
+        task=task,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class EnqueuedTask:
+    """One queued member of a batch, and whether this call is what created it."""
+
+    resource_id: str
+    task_id: str
+    deduped: bool
+
+
+async def _enqueue_sequentially(
+    *,
+    project_name: str,
+    specs: list[TaskSpec],
+    stop_on_failure: bool,
+    user_id: str = DEFAULT_USER_ID,
+) -> tuple[list[EnqueuedTask], list[BatchTaskResult]]:
+    """Queue *specs* in order, resolving each dependency against its predecessor.
+
+    One spec's enqueue failure never takes down what the loop already created:
+    a queued task is a fully admitted, billable unit and runs to completion. Each
+    target that did not reach the queue is captured as its own
+    ``BatchTaskResult`` (``task_id=""`` marks "never queued", distinct from a
+    queued task that later failed) so every requested ID ends up accounted for
+    and the next missing-only sweep re-creates exactly those.
+
+    Without ``stop_on_failure`` every spec still gets its own queue attempt.
+    With it, the first failure ends the loop and the remaining specs are reported
+    as interrupted — a repeated systemic failure (queue or DB down) would
+    otherwise be retried once per remaining member.
+    """
+
+    enqueued: list[EnqueuedTask] = []
+    task_ids: dict[str, str] = {}
+    failures: list[BatchTaskResult] = []
+    failed_resource_ids: set[str] = set()
+    for index, spec in enumerate(specs):
+        if spec.dependency_resource_id and spec.dependency_resource_id in failed_resource_ids:
+            failures.append(
+                BatchTaskResult(
+                    resource_id=spec.resource_id,
+                    task_id="",
+                    status="failed",
+                    error=f"dependency {spec.dependency_resource_id} failed to enqueue",
+                )
+            )
+            failed_resource_ids.add(spec.resource_id)
+            continue
+        dep_task_id: str | None = None
+        if spec.dependency_resource_id:
+            dep_task_id = task_ids.get(spec.dependency_resource_id)
+
+        try:
+            enqueue_result = await enqueue_task_only(
+                project_name=project_name,
+                task_type=spec.task_type,
+                media_type=spec.media_type,
+                resource_id=spec.resource_id,
+                payload=spec.payload,
+                script_file=spec.script_file,
+                source=spec.source,
+                dependency_task_id=dep_task_id,
+                dependency_group=spec.dependency_group,
+                dependency_index=spec.dependency_index,
+                user_id=user_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            failures.append(
+                BatchTaskResult(
+                    resource_id=spec.resource_id,
+                    task_id="",
+                    status="failed",
+                    error=str(exc),
+                    enqueue_interrupted=stop_on_failure,
+                )
+            )
+            failed_resource_ids.add(spec.resource_id)
+            if stop_on_failure:
+                failures.extend(
+                    BatchTaskResult(
+                        resource_id=pending.resource_id,
+                        task_id="",
+                        status="failed",
+                        # detail 与 ``enqueue_problem`` 的两个默认值同为英文：它是契约字段，
+                        # 面向智能体与排障，用户可读的那句由各端按问题码本地化。
+                        error=f"batch enqueue stopped at '{spec.resource_id}'; this target was never queued",
+                        enqueue_interrupted=True,
+                    )
+                    for pending in specs[index + 1 :]
+                )
+                break
+            continue
+        deduped = bool(enqueue_result.get("deduped"))
+        task_ids[spec.resource_id] = enqueue_result["task_id"]
+        enqueued.append(EnqueuedTask(resource_id=spec.resource_id, task_id=enqueue_result["task_id"], deduped=deduped))
+    return enqueued, failures
+
+
+async def batch_enqueue_only(
+    *,
+    project_name: str,
+    specs: list[TaskSpec],
+    user_id: str = DEFAULT_USER_ID,
+) -> tuple[list[EnqueuedTask], list[BatchTaskResult]]:
+    """Create the batch's tasks without waiting for their results.
+
+    The entry that already admitted the batch as a whole uses this. Tasks
+    created before an interruption keep running — they are complete, paid-for
+    units — and the targets that never reached the queue come back as failures
+    for the caller to report per ID.
+    """
+
+    return await _enqueue_sequentially(
+        project_name=project_name,
+        specs=specs,
+        stop_on_failure=True,
+        user_id=user_id,
     )
 
 
@@ -462,43 +621,49 @@ async def batch_enqueue_and_wait(
     specs: list[TaskSpec],
     on_success: Callable[[BatchTaskResult], None] | None = None,
     on_failure: Callable[[BatchTaskResult], None] | None = None,
+    stop_on_failure: bool = False,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Async: enqueue sequentially, then gather-wait all tasks.
 
     Runs entirely within a single event loop, so all asyncpg connections
     are bound to the same loop — no cross-loop errors.
 
+    ``stop_on_failure`` ends the sequential enqueue at the first spec that
+    cannot be queued. Whatever it already created keeps running; the targets
+    that never reached the queue come back among the failures as interrupted.
+
     Returns ``(successes, failures)`` — two lists of ``BatchTaskResult``.
     """
     if not specs:
         return [], []
-    # Phase 1 — Sequential enqueue (dependency resolution requires order)
-    task_ids: dict[str, str] = {}
-    for spec in specs:
-        dep_task_id: str | None = None
-        if spec.dependency_resource_id:
-            dep_task_id = task_ids.get(spec.dependency_resource_id)
+    # Phase 1 — Sequential enqueue (dependency resolution requires order).
+    enqueued, enqueue_failures = await _enqueue_sequentially(
+        project_name=project_name,
+        specs=specs,
+        stop_on_failure=stop_on_failure,
+    )
+    task_ids = {item.resource_id: item.task_id for item in enqueued}
 
-        enqueue_result = await enqueue_task_only(
-            project_name=project_name,
-            task_type=spec.task_type,
-            media_type=spec.media_type,
-            resource_id=spec.resource_id,
-            payload=spec.payload,
-            script_file=spec.script_file,
-            source=spec.source,
-            dependency_task_id=dep_task_id,
-            dependency_group=spec.dependency_group,
-            dependency_index=spec.dependency_index,
-        )
-        task_ids[spec.resource_id] = enqueue_result["task_id"]
+    # Phase 2 — Parallel wait via asyncio.gather (single event loop), only for
+    # specs that actually reached the queue.
+    enqueued_specs = [spec for spec in specs if spec.resource_id in task_ids]
 
-    # Phase 2 — Parallel wait via asyncio.gather (single event loop)
     async def _wait_one(spec: TaskSpec) -> BatchTaskResult:
         tid = task_ids[spec.resource_id]
         try:
             task = await wait_for_task(tid)
             return _task_result_from_finished(task, spec.resource_id, tid)
+        except (TaskWaitTimeoutError, WorkerOfflineError) as exc:
+            # wait_for_task 抛出前刚确认过 task 仍非终态（未 succeeded/failed/cancelled）——
+            # 这是等待被打断，不是 provider 判定的失败，用独立 status 区分，让
+            # record_batch_outcomes 能报告 INTERRUPTED 而不是 FAILED，避免下游对一个
+            # 仍可能正常落地的任务盲目 retry 造成重复付费提交。
+            return BatchTaskResult(
+                resource_id=spec.resource_id,
+                task_id=tid,
+                status="interrupted",
+                error=str(exc),
+            )
         except Exception as exc:
             return BatchTaskResult(
                 resource_id=spec.resource_id,
@@ -507,7 +672,7 @@ async def batch_enqueue_and_wait(
                 error=str(exc),
             )
 
-    results = await asyncio.gather(*[_wait_one(s) for s in specs])
+    results = await asyncio.gather(*[_wait_one(s) for s in enqueued_specs])
 
     successes: list[BatchTaskResult] = []
     failures: list[BatchTaskResult] = []
@@ -520,6 +685,11 @@ async def batch_enqueue_and_wait(
             failures.append(br)
             if on_failure:
                 on_failure(br)
+
+    for br in enqueue_failures:
+        failures.append(br)
+        if on_failure:
+            on_failure(br)
 
     return successes, failures
 

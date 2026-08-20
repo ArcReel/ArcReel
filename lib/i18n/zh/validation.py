@@ -12,10 +12,13 @@ MESSAGES = {
     "val_missing_field_at": "{prefix}: 缺少必填字段 {field}",
     "val_field_type_string": "字段类型错误: {field} 应为字符串",
     "val_field_type_bool": "字段类型错误: {field} 应为布尔值",
+    "val_field_type_number": "字段类型错误: {field} 应为数字",
+    "val_speech_rate_out_of_range": "{field} 的值 {value} 超出范围，应在 {min} 到 {max} 之间",
     "val_field_must_be_string": "{field} 必须是字符串",
     "val_field_must_be_string_typed": "{field} 必须是字符串，当前为 {actual}",
     "val_field_must_be_array": "{field} 必须是数组",
     "val_field_must_be_nonempty_array": "{field} 必须是非空数组",
+    "val_field_must_be_nonempty_string": "{field} 必须是非空字符串",
     "val_field_must_be_object": "{field} 必须是对象",
     "val_field_invalid": "{field} 不合法: {detail}",
     "val_ledger_source_file_not_relative": "source_file 必须是项目内相对 POSIX 路径",
@@ -38,7 +41,7 @@ MESSAGES = {
     "val_deprecated_clues": "project.json 含已废弃字段 clues，请等待自动迁移或手动重启服务",
     "val_deprecated_field_removable": "{field} 字段已废弃（改为读时计算），可安全移除",
     "val_cannot_load_project_json": "无法加载 project.json: {path}",
-    "val_cannot_load_script": "无法加载剧本文件: {path}",
+    "val_cannot_load_script": "无法加载脚本文件: {path}",
     "val_unrecognized_entry": "发现未识别的附加文件/目录: {name}",
     "val_novel_must_be_object": "novel 字段必须是对象",
     # ---- 剧集条目与账本 ----
@@ -51,11 +54,11 @@ MESSAGES = {
     "val_ad_missing_target_duration": "缺少必填字段: target_duration（广告/短片项目的目标总时长，秒）",
     "val_ad_target_duration_invalid": "target_duration 值无效: {value}，必须为正整数秒",
     "val_ad_no_default_duration": "广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）",
-    "val_ad_no_grid_storyboard": "广告/短片项目不支持宫格分镜（grid_storyboard）",
+    "val_ad_no_grid_storyboard": "广告/短片项目不支持多宫格分镜（grid_storyboard）",
     "val_ad_episodes_single": "广告/短片项目 episodes 必须恒为第 1 集单条",
-    "val_ad_shots_missing": "ad 剧本缺少 shots 数组或为空",
+    "val_ad_shots_missing": "ad 脚本缺少 shots 数组或为空",
     "val_ad_duration_drift": (
-        "剧本总时长 {total} 秒与 target_duration {target} 秒偏差 {delta:.0%}，"
+        "脚本总时长 {total} 秒与 target_duration {target} 秒偏差 {delta:.0%}，"
         "超过 {threshold:.0%} 观察阈值（仅提示，不阻塞保存）"
     ),
     # ---- 资产目录 ----
@@ -65,6 +68,10 @@ MESSAGES = {
     "val_asset_field_bad_timestamp": "{asset_type} '{name}'.{field} 不是合法的 ISO8601 时间戳: {value}",
     "val_asset_field_must_be_string_list": "{asset_type} '{name}'.{field} 必须是字符串列表，当前为 {actual}",
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] 必须是字符串，当前为 {actual}",
+    "val_asset_name_duplicate": (
+        "项目资产名称重复：{duplicate_type}「{duplicate_name}」与{first_type}「{first_name}」"
+        "按 strip + Unicode NFC 判定同名"
+    ),
     # ---- 条目级引用 ----
     "val_refs_unregistered": "{prefix}: {field} 引用了不存在于 project.json 的{asset_type}: {names}",
     "val_missing_defaults_empty_array": "{prefix}: 缺少 {field}，将使用默认空数组",
@@ -95,14 +102,6 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
     "val_video_units_missing": "reference_video 脚本缺少 video_units 数组或为空",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数",
-    "val_reference_entry_must_be_object": "{prefix}: reference 条目必须是对象",
-    "val_reference_type_invalid": "{prefix}: reference.type 无效: {value}",
-    "val_reference_name_invalid": "{prefix}: reference.name 必须是非空字符串: {value}",
-    "val_reference_not_in_bucket": "{prefix}: 引用的{asset_type} '{name}' 不在 project.json 对应 bucket 中",
-    "val_ref_type_invalid": "{prefix}: type 无效: {value}",
-    "val_ref_name_invalid": "{prefix}: name 必须是非空字符串: {value}",
-    "val_ref_unregistered_regroup": "{prefix}: 引用的{asset_type}「{name}」未注册，需重新派生分组",
-    "val_reference_units_dangling_shots": "{prefix}: 引用的镜头不存在（{ids}），需重新派生分组",
     # ---- 骨架与路线失配 ----
     "val_skeleton_noun_segments": "分镜",
     "val_skeleton_noun_scenes": "场景",
@@ -111,24 +110,24 @@ MESSAGES = {
     "val_route_reference_video": "参考生视频（reference_video）",
     "val_route_storyboard": "分镜图生视频（storyboard）",
     "val_skeleton_mismatch_reference_known": (
-        "剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
-        "当前剧本是 {actual}（{actual_noun}）骨架。"
-        "请重跑 split-reference-video-units 重新拆分该集，再重新生成剧本。该剧本仍可查看、编辑与导出。"
+        "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "当前脚本是 {actual}（{actual_noun}）骨架。"
+        "请重跑 split-reference-video-units 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_reference_none": (
-        "剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
-        "当前剧本没有任何骨架数组。"
-        "请重跑 split-reference-video-units 重新拆分该集，再重新生成剧本。该剧本仍可查看、编辑与导出。"
+        "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "当前脚本没有任何骨架数组。"
+        "请重跑 split-reference-video-units 重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_known": (
-        "剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
-        "当前剧本是 {actual}（{actual_noun}）骨架。"
-        "请重跑分集拆分（step1）重新拆分该集，再重新生成剧本。该剧本仍可查看、编辑与导出。"
+        "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "当前脚本是 {actual}（{actual_noun}）骨架。"
+        "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     "val_skeleton_mismatch_storyboard_none": (
-        "剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}（{expected_noun}）骨架，"
-        "当前剧本没有任何骨架数组。"
-        "请重跑分集拆分（step1）重新拆分该集，再重新生成剧本。该剧本仍可查看、编辑与导出。"
+        "脚本骨架与项目生成模式不符：项目生成模式是{route}，要求 {expected}（{expected_noun}）骨架，"
+        "当前脚本没有任何骨架数组。"
+        "请重跑分集拆分（step1）重新拆分该集，再重新生成脚本。该脚本仍可查看、编辑与导出。"
     ),
     # ---- 参考生视频时长收编迁移 ----
     "val_unit_duration_clamped": "unit {unit_id} 时长 {target}s 超出 {low}-{high}s 合理区间，已裁剪为 {clamped}s",
@@ -138,9 +137,9 @@ MESSAGES = {
     "arch_non_standard_entry_excluded": "非标准顶层目录/文件 '{entry}' 未包含在导出中",
     "arch_invalid_project_json": "无法解析 {file}: {path}",
     "arch_script_file_repaired": "{location}: 自动修复为 {path}",
-    "arch_missing_script_file_pending": "{location}: 剧本尚未生成: {path}",
+    "arch_missing_script_file_pending": "{location}: 脚本尚未生成: {path}",
     "arch_missing_script_file": "{location}: 引用的文件不存在: {path}",
-    "arch_invalid_script_json": "无法解析剧本文件: {path}",
+    "arch_invalid_script_json": "无法解析脚本文件: {path}",
     "arch_deprecated_source_file_removed": "novel.source_file 字段已废弃，已移除",
     "arch_deprecated_field_removed": "{field} 字段已废弃（改为读时计算），已移除",
     "arch_deprecated_clue_field_removed": "{items_key}[{index}]: 废弃字段 {field} 已移除（请改用 scenes/props）",
@@ -148,8 +147,8 @@ MESSAGES = {
     "arch_missing_asset_definition": (
         "{items_key}[{index}]: {field} 引用了不存在于 project.json 的{asset_type}: {names}"
     ),
-    "arch_unit_missing_asset_definition": (
-        "video_units[{index}]: references 引用了不存在于 project.json 的{asset_type}: {names}"
+    "arch_unit_unresolved_mentions": (
+        "video_units[{index}]: 正文引用了不存在于 project.json 的资产名: {names}；这些引用不会生成参考图"
     ),
     "arch_generated_assets_defaults": "{label}[{index}].generated_assets: 补全默认字段 {fields}",
     "arch_missing_generated_assets": "{label}[{index}]: 补全缺失字段 generated_assets",
@@ -162,6 +161,7 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "无效的冲突策略",
     "arch_conflict_policy_unsupported": "conflict_policy 仅支持 prompt、rename 或 overwrite，收到: {value}",
     "arch_import_validation_failed": "导入包校验失败",
+    "arch_artifact_activation_failed": "导入项目的产物状态不一致",
     "arch_not_a_zip": "上传文件不是有效的 ZIP 归档",
     "arch_zip_encrypted_entry": "ZIP 包含加密条目，无法导入: {name}",
     "arch_zip_absolute_path_entry": "ZIP 包含绝对路径条目: {name}",

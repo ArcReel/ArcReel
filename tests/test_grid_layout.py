@@ -8,6 +8,8 @@ from lib.grid.layout import (
     grid_aspect_ratio_for,
     large_grid_allowed,
     max_cell_count,
+    plan_grid_chunks,
+    video_aspect_ratio_of,
 )
 from lib.grid.models import GridGeneration, build_frame_chain
 from lib.grid.prompt_builder import _compute_panel_aspect
@@ -129,6 +131,52 @@ class TestCalculateGridLayout:
         assert layout.grid_aspect_ratio == "16:9"
 
 
+class TestPlanGridChunks:
+    def test_empty_group_returns_no_plans(self):
+        assert plan_grid_chunks([], "16:9") == []
+
+    def test_group_within_cap_is_single_chunk(self):
+        scenes = [f"S{i}" for i in range(1, 8)]
+        plans = plan_grid_chunks(scenes, "16:9")
+        assert len(plans) == 1
+        chunk, layout = plans[0]
+        assert chunk == scenes
+        assert layout.grid_size == "grid_9"
+        assert layout.placeholder_count == 2
+
+    def test_group_above_cap_splits_into_multiple_chunks(self):
+        scenes = [f"S{i:02d}" for i in range(1, 13)]
+        plans = plan_grid_chunks(scenes, "9:16", allow_large_grid=False)
+        assert [(len(chunk), layout.grid_size) for chunk, layout in plans] == [(9, "grid_9"), (3, "grid_4")]
+        # 各块不重叠、并集等于整组、顺序保持
+        assert [s for chunk, _ in plans for s in chunk] == scenes
+
+    def test_remainder_chunk_falls_to_smaller_tier_with_placeholders(self):
+        scenes = [f"S{i:02d}" for i in range(1, 13)]
+        plans = plan_grid_chunks(scenes, "9:16")
+        _, tail_layout = plans[-1]
+        assert (tail_layout.rows, tail_layout.cols) == (2, 2)
+        assert tail_layout.placeholder_count == 1
+
+    def test_large_grid_keeps_group_in_one_chunk(self):
+        scenes = [f"S{i:02d}" for i in range(1, 13)]
+        plans = plan_grid_chunks(scenes, "16:9", allow_large_grid=True)
+        assert [(len(chunk), layout.grid_size) for chunk, layout in plans] == [(12, "grid_16")]
+
+    def test_above_25_splits_even_with_large_grid(self):
+        scenes = [f"S{i:02d}" for i in range(1, 31)]
+        plans = plan_grid_chunks(scenes, "16:9", allow_large_grid=True)
+        assert [(len(chunk), layout.grid_size) for chunk, layout in plans] == [(25, "grid_25"), (5, "grid_9")]
+        assert [s for chunk, _ in plans for s in chunk] == scenes
+
+    def test_every_chunk_fits_its_layout(self):
+        for n in (1, 4, 9, 10, 18, 27):
+            plans = plan_grid_chunks(list(range(n)), "16:9", allow_large_grid=False)
+            assert sum(len(chunk) for chunk, _ in plans) == n
+            for chunk, layout in plans:
+                assert len(chunk) <= layout.cell_count == layout.rows * layout.cols
+
+
 class TestLargeGridGate:
     @pytest.mark.parametrize("resolution", ["4K", "4k", " 4K "])
     def test_4k_allows_large_grid(self, resolution: str):
@@ -220,8 +268,22 @@ class TestGridGeneration:
             grid_size="grid_4",
             provider="test",
             model="test-m",
+            video_aspect_ratio="9:16",
         )
         assert grid.status == "pending"
         assert grid.cell_count == 4
         assert len(grid.frame_chain) == 4
         assert grid.id.startswith("grid_")
+
+
+class TestVideoAspectRatioOf:
+    def test_reads_project_value(self):
+        assert video_aspect_ratio_of({"aspect_ratio": "16:9"}) == "16:9"
+
+    def test_missing_key_falls_back(self):
+        assert video_aspect_ratio_of({}) == "9:16"
+
+    def test_explicit_null_falls_back(self):
+        # project.json 允许把 aspect_ratio 显式写为 null，dict.get 的默认值对此无效；
+        # None 漏下去会流进画布几何、prompt 与记录上冻结的比例
+        assert video_aspect_ratio_of({"aspect_ratio": None}) == "9:16"

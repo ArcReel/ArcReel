@@ -6,21 +6,7 @@ from lib.script_models import (
     ReferenceResource,
     ReferenceVideoScript,
     ReferenceVideoUnit,
-    Shot,
 )
-
-
-@pytest.mark.unit
-def test_shot_valid():
-    s = Shot(text="中远景，主角推门进酒馆")
-    assert "酒馆" in s.text
-
-
-@pytest.mark.unit
-def test_shot_rejects_duration_field():
-    """时长收编到 unit 级：镜头不再承载时长，写入即被 strict 模型拒绝。"""
-    with pytest.raises(ValidationError):
-        Shot.model_validate({"duration": 5, "text": "x"})
 
 
 @pytest.mark.unit
@@ -39,8 +25,7 @@ def test_reference_resource_rejects_clue():
 def _make_unit(**overrides):
     defaults = dict(
         unit_id="E1U1",
-        shots=[Shot(text="镜头一"), Shot(text="镜头二")],
-        references=[ReferenceResource(type="character", name="张三")],
+        text="镜头一\n镜头二",
         duration_seconds=8,
     )
     defaults.update(overrides)
@@ -51,15 +36,34 @@ def _make_unit(**overrides):
 def test_reference_video_unit_minimal():
     u = _make_unit()
     assert u.unit_id == "E1U1"
-    assert len(u.shots) == 2
+    assert u.text == "镜头一\n镜头二"
     assert u.duration_seconds == 8
     assert u.transition_to_next == "cut"
+    assert u.needs_replan is False
 
 
 @pytest.mark.unit
-def test_reference_video_unit_requires_at_least_one_shot():
+def test_reference_video_unit_rejects_legacy_shot_fields():
+    """正文是唯一持久化真相：``shots`` / ``references`` 写入即被 strict 模型拒绝。"""
     with pytest.raises(ValidationError):
-        _make_unit(shots=[])
+        _make_unit(shots=[{"text": "镜头一"}])
+    with pytest.raises(ValidationError):
+        _make_unit(references=[{"type": "character", "name": "张三"}])
+
+
+@pytest.mark.unit
+def test_reference_video_unit_empty_text_only_allowed_as_replan_shell():
+    """空正文只允许配 needs_replan=True 且 0 秒（迁移遗留的问题壳）。"""
+    shell = _make_unit(text="", duration_seconds=0, needs_replan=True)
+    assert shell.needs_replan is True
+    assert shell.duration_seconds == 0
+
+    with pytest.raises(ValidationError):
+        _make_unit(text="")
+    with pytest.raises(ValidationError):
+        _make_unit(text="  \n ", duration_seconds=0, needs_replan=False)
+    with pytest.raises(ValidationError):
+        _make_unit(text="", duration_seconds=8, needs_replan=True)
 
 
 @pytest.mark.unit
@@ -73,7 +77,6 @@ def test_reference_video_script_valid():
     script = ReferenceVideoScript(
         title="江湖夜话",
         content_mode="narration",
-        duration_seconds=8,
         novel=NovelInfo(title="江湖行", chapter="第一回"),
         video_units=[_make_unit()],
     )
@@ -107,16 +110,10 @@ def test_reference_video_script_rejects_legacy_reference_video_content_mode():
 
 
 @pytest.mark.unit
-def test_reference_video_unit_rejects_more_than_four_shots():
-    many_shots = [Shot(text=f"s{i}") for i in range(5)]
-    with pytest.raises(ValidationError):
-        _make_unit(shots=many_shots)
-
-
-@pytest.mark.unit
-def test_reference_video_unit_duration_is_independent_of_shots():
-    """unit 时长是唯一真相：不再与镜头数 / 镜头内容挂钩，取值只受结构区间约束。"""
+def test_reference_video_unit_duration_is_independent_of_text_length():
+    """unit 时长是唯一真相：不与正文长度挂钩，取值只受结构区间约束。"""
     assert _make_unit(duration_seconds=12).duration_seconds == 12
+    assert _make_unit(text="一行", duration_seconds=120).duration_seconds == 120
 
 
 @pytest.mark.unit
@@ -125,9 +122,3 @@ def test_reference_video_unit_rejects_duration_out_of_structural_range():
         _make_unit(duration_seconds=0)
     with pytest.raises(ValidationError):
         _make_unit(duration_seconds=9999)
-
-
-@pytest.mark.unit
-def test_reference_video_unit_accepts_duration_beyond_four_shots_worth():
-    """结构区间只兜脏数据量级：合法性交档位判定，不按镜头数上限推导上界。"""
-    assert _make_unit(duration_seconds=120).duration_seconds == 120

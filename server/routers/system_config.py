@@ -444,7 +444,7 @@ async def patch_system_config(
         if backend_key in patch:
             value = str(patch[backend_key] or "").strip()
             if value:
-                validate_backend_value(value, backend_key, _t)
+                validate_backend_value(value, backend_key)
             await svc.set_setting(backend_key, value)
 
     # 旁白音色：可配置字符串 id（照供应商文档填），空串 = 清除回落服务默认

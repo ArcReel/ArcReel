@@ -31,7 +31,7 @@ describe("EpisodeSourceReview", () => {
     render(<EpisodeSourceReview projectName="demo" episode={1} episodes={[makeEpisode()]} />);
 
     expect(screen.getByText("第一章：初遇")).toBeInTheDocument();
-    expect(screen.getByText("剧本未生成")).toBeInTheDocument();
+    expect(screen.getByText("脚本未生成")).toBeInTheDocument();
     expect(screen.getByText("episode_1.txt")).toBeInTheDocument();
     expect(screen.getByText("100–340")).toBeInTheDocument();
     expect(screen.getByText("约 240 字")).toBeInTheDocument();
@@ -118,7 +118,7 @@ describe("EpisodeSourceReview", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "开始创作 E1" }));
 
-    expect(useAssistantStore.getState().input).toBe("为第 1 集生成剧本");
+    expect(useAssistantStore.getState().input).toBe("为第 1 集生成脚本");
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
 
     await waitFor(() => {

@@ -146,10 +146,41 @@ class TestProviderRegistry:
             meta = PROVIDER_REGISTRY[provider_id]
             assert "text" in meta.media_types, f"{provider_id} missing 'text'"
 
+    def test_dashscope_video_models_include_happyhorse_11(self):
+        meta = PROVIDER_REGISTRY["dashscope"]
+        video_models = {mid: m for mid, m in meta.models.items() if m.media_type == "video"}
+        for mid in ("happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"):
+            assert mid in video_models
+            # supported_durations 未登记即 fail loud（ADR 0018），三模态均为 3–15s 整数
+            assert video_models[mid].supported_durations == list(range(3, 16))
+            assert video_models[mid].resolutions == ["480p", "720p", "1080p"]
+        # 默认视频模型是 1.1-i2v；1.0 三条仍在售，保留登记但非默认
+        assert video_models["happyhorse-1.1-i2v"].default is True
+        assert video_models["happyhorse-1.0-i2v"].default is False
+        for mid in ("happyhorse-1.0-t2v", "happyhorse-1.0-i2v", "happyhorse-1.0-r2v"):
+            assert video_models[mid].resolutions == ["720p", "1080p"]
+
+    def test_dashscope_video_models_include_wan3(self):
+        meta = PROVIDER_REGISTRY["dashscope"]
+        wan3 = meta.models["wan3.0-video"]
+        assert wan3.media_type == "video"
+        assert wan3.supported_durations == list(range(2, 31))
+        assert wan3.resolutions == ["480p", "720p", "1080p"]
+        # 单模型通吃三条路径，音轨由请求参数控制 —— 与同门恒有声型号相反
+        assert "generate_audio" in wan3.capabilities
+        assert wan3.audio_always_on is False
+        assert wan3.default is False
+
+    def test_dashscope_declares_wan3_base_url_key(self):
+        # wan3 专用 maas 域名单列一键：并进通用 base_url 会让其余型号也跟着改域名
+        meta = PROVIDER_REGISTRY["dashscope"]
+        assert "wan3_base_url" in meta.optional_keys
+        assert "base_url" in meta.optional_keys
+
     def test_ark_video_models_include_seedance_2(self):
         meta = PROVIDER_REGISTRY["ark"]
         video_models = {mid: m for mid, m in meta.models.items() if m.media_type == "video"}
-        assert len(video_models) == 4
+        assert len(video_models) == 5
         assert "doubao-seedance-2-0-260128" in video_models
         assert "doubao-seedance-2-0-fast-260128" in video_models
         assert "doubao-seedance-2-0-mini-260615" in video_models
@@ -167,3 +198,19 @@ class TestProviderRegistry:
         assert video_models["doubao-seedance-2-0-mini-260615"].default is True
         assert video_models["doubao-seedance-1-5-pro-251215"].default is False
         assert video_models["doubao-seedance-2-0-260128"].default is False
+
+    def test_ark_video_models_include_seedance_2_5(self):
+        meta = PROVIDER_REGISTRY["ark"]
+        seedance_25 = meta.models["doubao-seedance-2-5-260628"]
+        assert seedance_25.media_type == "video"
+        # 30 秒直出全展开为离散档；官方的 -1（模型自选时长）不登记
+        assert seedance_25.supported_durations == list(range(4, 31))
+        assert seedance_25.resolutions == ["480p", "720p"]
+        assert "generate_audio" in seedance_25.capabilities
+        # 2.0 mini 仍是默认，2.5 只是可选
+        assert seedance_25.default is False
+
+    def test_ark_agent_plan_has_no_seedance_2_5(self):
+        # agent plan 套餐未纳入 2.5，registry 不得先于套餐登记
+        meta = PROVIDER_REGISTRY["ark-agent-plan"]
+        assert not [mid for mid in meta.models if "seedance-2.5" in mid or "seedance-2-5" in mid]

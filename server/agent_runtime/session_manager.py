@@ -22,6 +22,7 @@ from lib.path_safety import PathTraversalError, safe_join
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.entry_pipeline import SessionEntryPipeline
 from server.agent_runtime.event_log import (
+    REPLAYED_USER_ECHO_ENTRY_UUID_KEY,
     REPLAYED_USER_ECHO_KEY,
     EventLogStore,
 )
@@ -31,7 +32,8 @@ from server.agent_runtime.failure_observation import (
 )
 from server.agent_runtime.message_serialization import (
     IMAGE_ONLY_SENTINEL,
-    is_duplicate_user_echo,
+    PendingUserEcho,
+    match_user_echo,
     message_to_dict,
     utc_now_iso,
 )
@@ -209,7 +211,7 @@ class ManagedSession:
     resolved_sdk_id: str | None = None  # consumer 设置，send_new_session 读取
     channel: SseChannel = field(default_factory=_make_session_channel)
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
-    pending_user_echoes: list[str] = field(default_factory=list)
+    pending_user_echoes: list[PendingUserEcho] = field(default_factory=list)
     # 事件日志写入点管道（UI 时间线唯一读源的 live 写侧）。
     entry_pipeline: SessionEntryPipeline | None = None
     # 新会话首条用户消息：sdk_session_id 就绪后由 inbox 任务写入日志（seq 0），
@@ -359,8 +361,11 @@ class SessionManager:
         )
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}
+        # 轮次终结时仍未被认领的回显登记累计数，见 _drain_pending_user_echoes。
+        self.unclaimed_user_echoes = 0
         self._disconnecting: set[str] = set()
-        self._session_actor_shutdown_timeout: float = 15.0  # total budget for send_disconnect + cancel fallback
+        # 优雅 send_disconnect 的等待上限；超时后各调用点再走无界的 cancel 兜底。
+        self._session_actor_shutdown_timeout: float = 15.0
         self._connect_locks: dict[str, asyncio.Lock] = {}
         # 实例不变量缓存：避免每次构建 access policy 都重做 path resolve。
         self._project_root_resolved = self.project_root.resolve()
@@ -448,6 +453,7 @@ class SessionManager:
         can_use_tool: Callable[[str, dict[str, Any], Any], Any] | None = None,
         locale: str = DEFAULT_LOCALE,
         stderr: Callable[[str], None] | None = None,
+        session_id: str | None = None,
     ) -> Any:
         """委派给 ``OptionsAssembler.build``——SessionManager 不再直接构建 options 与
         hook，仅调用装配器；凭证注入、prompt 装配、hook 工厂均由装配器持有。"""
@@ -457,6 +463,7 @@ class SessionManager:
             can_use_tool=can_use_tool,
             locale=locale,
             stderr=stderr,
+            session_id=session_id,
         )
 
     def _build_session_store(self):
@@ -508,10 +515,14 @@ class SessionManager:
             msg_dict = message_to_dict(raw_msg)
             if not isinstance(msg_dict, dict):
                 return
-            if is_duplicate_user_echo(managed.pending_user_echoes, msg_dict):
+            echo = match_user_echo(managed.pending_user_echoes, msg_dict)
+            if echo is not None:
                 # SDK 回放的用户消息副本：POST 受理时已写日志分配身份，
-                # 打标让事件日志写入点跳过，不产生重复条目。
+                # 打标让事件日志写入点跳过，不产生重复条目。副本携带的
+                # transcript uuid 与捎带的条目身份在写入点配成映射落库。
                 msg_dict[REPLAYED_USER_ECHO_KEY] = True
+                if echo.entry_uuid:
+                    msg_dict[REPLAYED_USER_ECHO_ENTRY_UUID_KEY] = echo.entry_uuid
                 managed._inbox.put_nowait(msg_dict)
                 return
             self._handle_special_message(managed, msg_dict)
@@ -642,22 +653,42 @@ class SessionManager:
 
             Runs send_disconnect first (which causes actor to exit and
             _on_actor_done to push the None sentinel, letting _process_inbox
-            finish naturally), then belt-and-suspenders cancels the processor
-            in case it is stuck elsewhere.
+            finish naturally), bounded by _session_actor_shutdown_timeout so an
+            SDK-side hang does not stall this error-only cleanup path on the
+            graceful wait — on timeout the actor is cancelled so it does not leak
+            with the failed session; then belt-and-suspenders cancels the
+            processor in case it is stuck elsewhere.
             """
             self.sessions.pop(temp_id, None)
             # sdk_session_id 就绪后 key swap 已把会话挂到正式 id 下，两个键都清。
             self.sessions.pop(managed.session_id, None)
             try:
-                await managed.send_disconnect()
+                await asyncio.wait_for(managed.send_disconnect(), timeout=self._session_actor_shutdown_timeout)
+            except TimeoutError:
+                logger.warning(
+                    "send_disconnect on error path 超时，走 cancel 兜底 session_id=%s",
+                    temp_id,
+                )
+                if managed.actor is not None:
+                    await managed.actor.cancel_and_wait()
             except Exception:
                 logger.exception(
                     "send_disconnect on error path failed session_id=%s",
                     temp_id,
                 )
+            # 断开成功时 send_disconnect 已把 status 落到 "closed"；失败或超时则停在
+            # "running"，而下面取消 _process_task 会让 _process_inbox 的 CancelledError
+            # 分支据此写 interrupted 终态，并把待回放登记记为未认领。启动失败既不是中断、
+            # 也无回放可言，先落 error 收口这条判断。
+            if managed.status == "running":
+                managed.status = "error"
             if managed._process_task is not None and not managed._process_task.done():
                 managed._process_task.cancel()
                 await asyncio.gather(managed._process_task, return_exceptions=True)
+            # 清理排在断开与 inbox 消化之后：actor 在断开前仍可能回放刚登记的这条
+            # 消息，提前清掉会让回放认不出自己是副本，从而二次写入事件日志。走到
+            # 这里已无回放可言，残留的登记也就不是认领失败，直接清空不记账。
+            managed.pending_user_echoes.clear()
             startup_stderr.stop()
 
         # 登记待回放的用户消息标识：SDK 会回放刚发送消息的副本，写入点凭此
@@ -665,7 +696,10 @@ class SessionManager:
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
         dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
         if dedup_key:
-            managed.pending_user_echoes.append(dedup_key)
+            entry_uuid = user_entry.get("uuid") if user_entry is not None else None
+            managed.pending_user_echoes.append(
+                PendingUserEcho(dedup_key, entry_uuid=str(entry_uuid) if entry_uuid else None)
+            )
         managed.last_user_prompt = display_text
 
         try:
@@ -736,8 +770,8 @@ class SessionManager:
             # seq 0 缺失的会话开头永远无法呈现。与常规受理路径同语义——
             # 失败显式回报（调用方收到异常）、状态回写 error、会话不再后台
             # 续跑。先清理再回写状态：inbox 处理 result 时 _finalize_turn
-            # 会写终态，清理完成后写入的 error 才不会被并发覆盖。
-            managed.pending_user_echoes.clear()
+            # 会写终态，清理完成后写入的 error 才不会被并发覆盖。回显登记留给
+            # _cleanup_on_error 在断开之后清，此刻 actor 仍可能回放。
             managed.cancel_pending_questions("initial user entry persist failed")
             # 提前置内存态为 error：_cleanup_on_error 取消 _process_task 时，
             # _process_inbox 的 CancelledError 分支会依据 status == "running"
@@ -841,7 +875,12 @@ class SessionManager:
             raise
 
     async def get_or_connect(
-        self, session_id: str, *, meta: SessionMeta | None = None, locale: str = DEFAULT_LOCALE
+        self,
+        session_id: str,
+        *,
+        meta: SessionMeta | None = None,
+        locale: str = DEFAULT_LOCALE,
+        resumable: bool = True,
     ) -> ManagedSession:
         """Get existing managed session or spin up an actor for resumed session.
 
@@ -850,6 +889,10 @@ class SessionManager:
         language regulation segment must reflect the caller's request locale. An
         already-resident session returns from cache and ``locale`` is ignored —
         the session-fixed system prompt stays unchanged.
+
+        ``resumable=False`` 用于元数据行已建、transcript 却是空的会话（改写第一条
+        消息分叉出的分支）：这类会话没有历史可 resume，改以 ``session_id=`` 预指定
+        身份开一个全新会话。首轮跑完 transcript 即存在，之后照常按 resume 复活。
         """
         if session_id in self.sessions and session_id not in self._disconnecting:
             return self.sessions[session_id]
@@ -882,10 +925,11 @@ class SessionManager:
             try:
                 options = await self._build_options(
                     meta.project_name,
-                    meta.id,  # SessionMeta.id 就是 sdk_session_id
+                    meta.id if resumable else None,  # SessionMeta.id 就是 sdk_session_id
                     can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
                     locale=locale,
                     stderr=startup_stderr,
+                    session_id=None if resumable else meta.id,
                 )
             except Exception as exc:
                 sdk_stderr = startup_stderr.render()
@@ -957,6 +1001,7 @@ class SessionManager:
         locale: str = DEFAULT_LOCALE,
         user_entry: dict[str, Any] | None = None,
         client_key: str | None = None,
+        resumable: bool = True,
     ) -> dict[str, Any] | None:
         """Send a message via the session actor.
 
@@ -967,8 +1012,10 @@ class SessionManager:
         ``user_entry`` 是本条用户消息的事件日志条目：先写日志分配身份（并发
         与容量校验之后、送入 SDK 之前），返回权威条目供受理响应回传；同一
         ``client_key`` 重试命中既有条目时不再重复送 SDK。
+
+        ``resumable`` 透传给 ``get_or_connect``，见其文档。
         """
-        managed = await self.get_or_connect(session_id, meta=meta, locale=locale)
+        managed = await self.get_or_connect(session_id, meta=meta, locale=locale, resumable=resumable)
         managed.last_activity = time.monotonic()
 
         # 幂等预检先于 running 拦截：受理已成功（响应在网络层丢失）的重试
@@ -1004,7 +1051,10 @@ class SessionManager:
         display_text = echo_text or (prompt if isinstance(prompt, str) else "")
         dedup_key = display_text or (IMAGE_ONLY_SENTINEL if echo_content else "")
         if dedup_key:
-            managed.pending_user_echoes.append(dedup_key)
+            entry_uuid = log_entry.get("uuid") if log_entry is not None else None
+            managed.pending_user_echoes.append(
+                PendingUserEcho(dedup_key, entry_uuid=str(entry_uuid) if entry_uuid else None)
+            )
             if len(managed.pending_user_echoes) > 20:
                 managed.pending_user_echoes.pop(0)
         managed.last_user_prompt = display_text
@@ -1017,6 +1067,8 @@ class SessionManager:
             await managed.send_query(prompt, sdk_session_id=session_id)
         except Exception as exc:
             logger.error("会话消息处理失败: %s", redact_diagnostic_text(exc))
+            # 同受理失败路径：投递没成功，回放副本不会来，残留不算认领失败，
+            # 因此不走 _drain_pending_user_echoes。
             managed.pending_user_echoes.clear()
             if log_entry is not None:
                 # 补偿删除受理条目：投递失败即受理失败，条目残留会让同幂等键
@@ -1078,9 +1130,32 @@ class SessionManager:
                 interrupt_requested=managed.interrupt_requested,
             )
 
+    def _drain_pending_user_echoes(self, managed: ManagedSession, reason: str) -> None:
+        """清空回显登记队列；轮次终结时仍有残留即认领失败，记一条告警。
+
+        观测点在轮次终结处而非逐条比对处：登记与回放一一对应，轮次结束时队列
+        必然已被排空，残留只可能是文本比对没认上，或回放根本没到。逐条告警做不
+        到——单看一条消息无从判定它「是回放副本却没认上」。残留的后果是同一条
+        用户消息在事件日志里重复落库，以及其身份映射缺失（改写锚点随后走恒等
+        回退，锚点若是活跃路径 mint 的 id 则解析失败）。
+        """
+        residue = len(managed.pending_user_echoes)
+        if residue:
+            self.unclaimed_user_echoes += residue
+            logger.warning(
+                "user echo replays went unclaimed at turn end",
+                extra={
+                    "session_id": managed.session_id,
+                    "residue": residue,
+                    "unclaimed_total": self.unclaimed_user_echoes,
+                    "reason": reason,
+                },
+            )
+        managed.pending_user_echoes.clear()
+
     async def _finalize_turn(self, managed: ManagedSession, result_msg: dict[str, Any]) -> None:
         """Settle session state after a result message completes a turn."""
-        managed.pending_user_echoes.clear()
+        self._drain_pending_user_echoes(managed, "turn finalized")
         managed.cancel_pending_questions("session completed")
         explicit = str(result_msg.get("session_status") or "").strip()
         final_status: SessionStatus = (
@@ -1142,7 +1217,7 @@ class SessionManager:
 
     async def _mark_session_terminal(self, managed: ManagedSession, status: SessionStatus, reason: str) -> None:
         """Set terminal status on abnormal consumer exit."""
-        managed.pending_user_echoes.clear()
+        self._drain_pending_user_echoes(managed, reason)
         managed.cancel_pending_questions(reason)
         managed.status = status
         managed.last_activity = time.monotonic()
@@ -1252,6 +1327,11 @@ class SessionManager:
             # send_message 已把 DB 写成 running；缺少此步 get_or_connect 恢复
             # 后会拒绝新消息（SessionStatus == "running"）。
             if managed.resolved_sdk_id is not None:
+                # 关停同样终结轮次：inbox 已排空，此刻还在队列里的登记不会再被认领，
+                # 与 _mark_session_terminal 同口径记账，否则同一种中断会因走关停路径
+                # 还是走 inbox 取消路径而报或不报。限定在 SDK 已就绪的会话上，启动
+                # 失败与投递失败那两条路径此前已各自清空，不会流到这里。
+                self._drain_pending_user_echoes(managed, "session evicted")
                 if managed.status == "running":
                     managed.status = "interrupted"
                 if managed.status in ("interrupted", "error"):

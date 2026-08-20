@@ -1,14 +1,14 @@
-"""分镜文稿的读时派生：utterances + 降级可见性 warning。
+"""视频单元正文的读时派生：utterances + 降级可见性 warning。
 
-分镜文稿是唯一真相，utterances 机械派生、不落盘（同 ``references`` 从 ``@mention`` 派生的
-先例）：存量文稿没有台词符号，派生结果自然为空，无迁移。
+正文是唯一真相，utterances 与参考图一样机械派生、不落盘（见 ADR 0064）。
 
-台词语法（与 :mod:`lib.reference_video.shot_parser` 的行匹配原语同源）：
+台词语法（与 :mod:`lib.reference_video.text_parser` 的行内切分原语同源）：
 
-- 规范台词行 ``@[角色]：{台词}`` 独立成行（中英冒号均可）→ ``dialogue`` utterance
-- 裸 ``{台词}`` 行 → ``voiceover`` utterance
-- 台词混写在描述行时不派生、原样保留，只出 warning——不做「行内最近 mention 猜 speaker」
-  启发式，推断错误会把台词静默绑到错误角色的参考音频上
+- ``@[角色]{台词}``（mention 与花括号之间允许空白或中英冒号）→ ``dialogue`` utterance
+- 裸 ``{台词}`` → ``voiceover`` utterance
+- 两者都可出现在行内任意位置，一行可有多条；花括号没被识别成发声记号时不派生、原样保留，
+  只出 warning——不做「行内最近 mention 猜 speaker」启发式，推断错误会把台词静默绑到
+  错误角色的参考音频上
 
 warning 是 locale-neutral 的 ``{"key", "params"}`` 条目（同 ``result.warnings`` 既有形态），
 由 router / 任务列表按请求语言渲染。
@@ -20,22 +20,21 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
-from lib.reference_video.shot_parser import (
-    match_dialogue_line,
-    match_voiceover_line,
-    parse_prompt,
-    resolve_references,
+from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
+from lib.reference_video.text_parser import (
+    derive_references_from_text,
+    speech_line_description,
+    split_speech_line,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
-from lib.script_models import ReferenceResource, Shot, Utterance
+from lib.script_models import Utterance
 
 #: 未闭合花括号 warning 里回显的原行片段长度上限。
 _EXCERPT_LEN = 30
 
 WARN_UNREGISTERED_MENTION = "ref_warn_unregistered_mention"
 WARN_UNCLOSED_BRACE = "ref_warn_unclosed_brace"
-WARN_DIALOGUE_INLINE = "ref_warn_dialogue_inline"
+WARN_BRACES_NOT_SPEECH = "ref_warn_braces_not_speech"
 WARN_UNREGISTERED_SPEAKER = "ref_warn_unregistered_speaker"
 WARN_SPEAKER_WITHOUT_AUDIO = "ref_warn_speaker_without_audio"
 WARN_SPEAKER_AUDIO_UNAVAILABLE = "ref_warn_speaker_audio_unavailable"
@@ -46,23 +45,10 @@ WARN_SPEAKER_AUDIO_NEEDS_IMAGE = "ref_warn_speaker_audio_needs_image"
 
 
 @dataclass(frozen=True)
-class ShotUtterance:
-    """镜头级发声条目：``shot_index`` 是 1-based 镜头序号，``utterance`` 复用 drama 的类型。
-
-    归属镜头级而非 unit 级：台词与镜头的时序对位由归属天然给出，渲染层无需另存位置。
-    """
-
-    shot_index: int
-    utterance: Utterance
-
-
-@dataclass(frozen=True)
 class ScriptPreview:
-    """一份分镜文稿的读时派生结果，即编辑器「解析预览面板」的内容源。"""
+    """一份视频单元正文的读时派生结果，即编辑器「解析预览面板」的内容源。"""
 
-    shots: list[Shot]
-    references: list[ReferenceResource]
-    utterances: list[ShotUtterance]
+    utterances: list[Utterance]
     warnings: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -70,29 +56,31 @@ def _warning(key: str, **params: Any) -> dict[str, Any]:
     return {"key": key, "params": params}
 
 
-def derive_utterances(shots: list[Shot]) -> tuple[list[ShotUtterance], list[dict[str, Any]]]:
-    """逐镜逐行派生 utterances，并收集语法层 warning（未闭合花括号 / 台词混写描述行）。
+def derive_utterances(text: str) -> tuple[list[Utterance], list[dict[str, Any]]]:
+    """逐行派生 utterances，并收集语法层 warning（未闭合花括号 / 未识别的花括号）。
+
+    发声记号可出现在行内任意位置，一行可派生多条 utterance，顺序即正文出现顺序。warning
+    只看**记号之外**的残余描述：行内已识别的记号不该因为同行还写着别的花括号而被吞掉；
+    ``line`` 参数是 1-based 行号，让呈现层把 warning 锚回正文的具体一行。
 
     纯语法层：不认识项目资产表，speaker 是否登记由 :func:`build_script_preview` 另行判定。
     """
-    utterances: list[ShotUtterance] = []
+    utterances: list[Utterance] = []
     warnings: list[dict[str, Any]] = []
-    for index, shot in enumerate(shots, start=1):
-        for line in shot.text.splitlines():
-            if line.count("{") != line.count("}"):
-                warnings.append(_warning(WARN_UNCLOSED_BRACE, shot=index, excerpt=line.strip()[:_EXCERPT_LEN]))
+    for index, line in enumerate(text.splitlines(), start=1):
+        parts = split_speech_line(line)
+        for part in parts:
+            if isinstance(part, str):
                 continue
-            dialogue = match_dialogue_line(line)
-            if dialogue is not None:
-                speaker, text = dialogue
-                utterances.append(ShotUtterance(index, Utterance(kind="dialogue", speaker=speaker, text=text)))
-                continue
-            voiceover = match_voiceover_line(line)
-            if voiceover is not None:
-                utterances.append(ShotUtterance(index, Utterance(kind="voiceover", text=voiceover)))
-                continue
-            if "{" in line:
-                warnings.append(_warning(WARN_DIALOGUE_INLINE, shot=index))
+            if part.speaker:
+                utterances.append(Utterance(kind="dialogue", speaker=part.speaker, text=part.text))
+            else:
+                utterances.append(Utterance(kind="voiceover", text=part.text))
+        rest = speech_line_description(parts)
+        if rest.count("{") != rest.count("}"):
+            warnings.append(_warning(WARN_UNCLOSED_BRACE, line=index, excerpt=line.strip()[:_EXCERPT_LEN]))
+        elif "{" in rest or "}" in rest:
+            warnings.append(_warning(WARN_BRACES_NOT_SPEECH, line=index))
     return utterances, warnings
 
 
@@ -111,7 +99,7 @@ class VoiceBindings:
 
 
 def derive_voice_bindings(
-    utterances: list[ShotUtterance],
+    utterances: list[Utterance],
     characters: dict,
     settings: VoiceRenderSettings,
     *,
@@ -151,17 +139,16 @@ def derive_voice_bindings(
     请求发出的参考图对应的角色名集合，仅在该位为 True 时读取。
 
     角色表与两个按名字判定的集合（``audio_ready`` / ``speakers_with_reference_image``）都先归一
-    到资产名比对坐标系（:func:`lib.asset_types.normalize_asset_name`）：说话人一侧出自解析器、
-    已是归一形式，资产表与执行层传入的名字则可能是任一形式。少归一一侧的后果不是报错而是静默
-    降级——该角色被判「未登记」而不发音色声明、或判「无可用音频」而不绑参考音频，用户拿到的是
-    一条声音不对的成片加一条非阻断 warning。
+    到资产名比对坐标系（:func:`lib.asset_types.asset_name_comparison_key`）。少归一一侧的后果不是
+    报错而是静默降级——该角色被判「未登记」而不发音色声明、或判「无可用音频」而不绑参考音频，
+    用户拿到的是一条声音不对的成片加一条非阻断 warning。
     """
     warnings: list[dict[str, Any]] = []
     characters = normalize_asset_bucket(characters)
 
     seen: list[str] = []
     for entry in utterances:
-        speaker = normalize_asset_name(entry.utterance.speaker or "")
+        speaker = asset_name_comparison_key(entry.speaker or "")
         if speaker and speaker not in seen:
             seen.append(speaker)
 
@@ -182,9 +169,11 @@ def derive_voice_bindings(
             else:
                 warnings.append(_warning(WARN_SILENT_MODEL, model=settings.model_id))
     elif settings.voice_consistency == "native":
-        image_names = {normalize_asset_name(name) for name in speakers_with_reference_image or ()}
+        image_names = {asset_name_comparison_key(name) for name in speakers_with_reference_image or ()}
         audio_ready = (
-            {normalize_asset_name(name) for name in settings.audio_ready} if settings.audio_ready is not None else None
+            {asset_name_comparison_key(name) for name in settings.audio_ready}
+            if settings.audio_ready is not None
+            else None
         )
         # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
         for speaker in registered:
@@ -215,7 +204,7 @@ def build_script_preview(
     *,
     max_reference_images: int | None = None,
 ) -> ScriptPreview:
-    """把书写文稿派生成 shots / references / utterances + 降级可见性 warning。
+    """把视频单元正文派生成 utterances + 降级可见性 warning。
 
     ``settings`` 必填无兜底（同 ``render_unit_prompt``），须与执行层拿到的同一份声音输入档同步，
     否则预览会显示音频已绑定、实际请求却不带音频段。其中 ``requires_reference_image``（目标 backend 是否
@@ -224,22 +213,22 @@ def build_script_preview(
     预览不解析文件，按角色资产的 ``reference_audio`` 字段非空判定。
 
     ``max_reference_images`` 须同步执行层的能力上限（``VideoLaneResult.max_reference_images``）：
-    执行期会把 ``unit.references`` 先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的
-    参考图严格等长，见 ``_render_unit_prompt`` docstring）。预览若按未裁剪的全量 references
-    判定 ``character_image_names``，纯画外降级会在裁剪线之外才生效——超限角色的图被裁掉后，
-    预览仍显示音频已绑定，执行时才补发 warning。``None`` 表示不裁（能力不可解析时的降级口径，
-    与 ``_apply_provider_constraints`` 的 ``max_refs=None`` 一致）。
+    执行期会把正文派生的参考图先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的参考图
+    严格等长，见 ``render_unit_prompt`` docstring）。预览若按未裁剪的全量派生结果判定
+    ``character_image_names``，纯画外降级会在裁剪线之外才生效——超限角色的图被裁掉后，预览仍
+    显示音频已绑定，执行时才补发 warning。``None`` 表示不裁（能力不可解析时的降级口径，与请求
+    投影在能力不可解析时不裁参考图的口径一致）。
+
+    未登记的 ``@[名称]`` 只发 warning、不阻断：正文是作者写的，预览没有可保护的机器契约。
     """
-    shots, mentions = parse_prompt(text)
-    references, missing = resolve_references(mentions, project)
+    references, missing = derive_references_from_text(text, project)
 
     warnings = [_warning(WARN_UNREGISTERED_MENTION, name=name) for name in missing]
-    utterances, syntax_warnings = derive_utterances(shots)
+    utterances, syntax_warnings = derive_utterances(text)
     warnings.extend(syntax_warnings)
 
-    # 音频只能对齐到「同名且类型也是 character」的图：scene/prop 可能与角色同名，image_no
-    # 若按名字判定会把「这个名字有图」误判成「这个角色有图」。同时按能力上限裁剪后再判定，
-    # 与执行层「先裁 references 再渲染」的口径对齐。
+    # 音频只能对齐到 character 参考图。同时按能力上限裁剪后再判定，
+    # 与执行层「先裁参考图再渲染」的口径对齐。
     clipped_references = references[:max_reference_images] if max_reference_images is not None else references
     character_image_names = {ref.name for ref in clipped_references if ref.type == "character"}
 
@@ -251,4 +240,4 @@ def build_script_preview(
     )
     warnings.extend(bindings.warnings)
 
-    return ScriptPreview(shots=shots, references=references, utterances=utterances, warnings=warnings)
+    return ScriptPreview(utterances=utterances, warnings=warnings)

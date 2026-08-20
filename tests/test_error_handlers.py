@@ -7,7 +7,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
+from lib.generation_queue import ActiveTaskRequestConflict
 from lib.generation_queue_client import TaskSpecValidationError
 from lib.script_editor import ScriptEditError
 from server.error_handlers import register_error_handlers
@@ -28,6 +29,10 @@ def _make_client() -> TestClient:
     async def _api_error_400():
         raise BadRequestError("audio_provider_not_configured")
 
+    @app.get("/api-error-422-with-diagnostic")
+    async def _api_error_422_with_diagnostic():
+        raise UnprocessableError("script_validation_failed").with_diagnostic("scenes[0].shots must be a list")
+
     @app.get("/api-error-custom-status")
     async def _api_error_custom():
         raise ApiError("internal_server_error", status_code=503)
@@ -35,6 +40,10 @@ def _make_client() -> TestClient:
     @app.get("/task-spec-error")
     async def _task_spec_error():
         raise TaskSpecValidationError("prompt_text_empty")
+
+    @app.get("/active-video-request-conflict")
+    async def _active_video_request_conflict():
+        raise ActiveTaskRequestConflict(resource_id="E1S01", existing_task_id="task-existing")
 
     @app.get("/script-edit-error")
     async def _script_edit_error():
@@ -90,6 +99,23 @@ class TestApiErrorHandler:
         assert resp.json()["detail"] == "Đoạn 'E1S01' không tồn tại"
 
     @pytest.mark.unit
+    def test_diagnostic_absent_when_not_supplied(self):
+        """未带诊断信息时响应体只有摘要，既有消费方读到的形状不变。"""
+        client = _make_client()
+        resp = client.get("/api-error-404")
+        assert "diagnostic" not in resp.json()
+
+    @pytest.mark.unit
+    def test_diagnostic_carries_technical_detail_beside_summary(self):
+        """字段名 / schema 这类技术信息只进 diagnostic，detail 保持产品语言摘要。"""
+        client = _make_client()
+        resp = client.get("/api-error-422-with-diagnostic")
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["detail"] == "脚本结构校验失败，请检查后重试"
+        assert body["diagnostic"] == "scenes[0].shots must be a list"
+
+    @pytest.mark.unit
     def test_custom_status_code(self):
         client = _make_client()
         resp = client.get("/api-error-custom-status")
@@ -97,6 +123,16 @@ class TestApiErrorHandler:
 
 
 class TestLibExceptionHandlers:
+    @pytest.mark.unit
+    def test_active_video_request_conflict_409(self):
+        client = _make_client()
+        resp = client.get("/active-video-request-conflict", headers={"Accept-Language": "en"})
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == (
+            "Unit 'E1S01' already has a video task using different narration delivery options; "
+            "wait for it to finish or cancel it before retrying."
+        )
+
     @pytest.mark.unit
     def test_task_spec_validation_error_400(self):
         client = _make_client()

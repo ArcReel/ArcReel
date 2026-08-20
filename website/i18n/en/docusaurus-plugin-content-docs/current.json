@@ -1,0 +1,18 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.docsSidebar.category.使用指南": {
+    "message": "User Guide",
+    "description": "The label for category '使用指南' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.部署与运维": {
+    "message": "Deployment and Operations",
+    "description": "The label for category '部署与运维' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.开发": {
+    "message": "Development",
+    "description": "The label for category '开发' in sidebar 'docsSidebar'"
+  }
+}

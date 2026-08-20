@@ -113,6 +113,12 @@ class TestResolveAssetKey:
         with pytest.raises(ValueError):
             validate_asset_name(bad)
 
+    def test_mention_delimiter_rejected(self):
+        """正文引用写作 ``@[名称]``、以首个 ``]`` 收尾，名字含 ``]`` 会让写出的引用中途截断。"""
+        with pytest.raises(ValueError, match="含非法字符"):
+            validate_asset_name("甲]乙")
+        assert validate_asset_name("甲[乙") == "甲[乙"
+
     def test_non_string_reports_type_error(self):
         with pytest.raises(ValueError, match="必须是字符串"):
             validate_asset_name(None)

@@ -23,7 +23,7 @@ const ALL_ENTITIES_REVISION_KEY = "__all__";
 export const ASSISTANT_PANEL_DEFAULT_WIDTH = 505;
 export const ASSISTANT_PANEL_MIN_WIDTH = 360;
 export const ASSISTANT_PANEL_MAX_WIDTH = 720;
-export const ASSISTANT_PANEL_WIDTH_STORAGE_KEY = "arcreel_assistant_panel_width";
+const ASSISTANT_PANEL_WIDTH_STORAGE_KEY = "arcreel_assistant_panel_width";
 
 export function clampAssistantPanelWidth(value: number): number {
   if (!Number.isFinite(value)) return ASSISTANT_PANEL_DEFAULT_WIDTH;
@@ -92,8 +92,8 @@ interface AppState {
   gridsRevision: number;
   invalidateGrids: () => void;
 
-  // 参考生视频分组失效信号：参考生视频任务终态经项目事件 SSE 推来时自增，两个参考生
-  // 视频画布据此重拉分组，生成完成后无需手动重新派生/刷新即可看到成片。
+  // 参考视频单元失效信号：参考生视频任务终态经项目事件 SSE 推来时自增，参考生
+  // 视频画布据此重拉单元，生成完成后无需手动刷新即可看到成片。
   referenceVideoUnitsRevision: number;
   invalidateReferenceVideoUnits: () => void;
 

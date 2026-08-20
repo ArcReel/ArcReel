@@ -1,12 +1,16 @@
 """旁白配音（TTS）生成端点测试：单段入队、批量补缺、未配置供应商提示。"""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.i18n import _ as i18n_message
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -29,26 +33,35 @@ class _FakeQueue:
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        self.project = {"content_mode": "narration"}
+        # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定。
+        self.project: dict[str, Any] = {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+            "content_mode": "narration",
+        }
         self.script = {
+            "episode": 1,
             "content_mode": "narration",
             "segments": [
                 {
                     "segment_id": "E1S01",
                     "duration_seconds": 4,
                     "novel_text": "夜色深沉，山道蜿蜒。",
+                    "video_prompt": {},
                     "generated_assets": {},
                 },
                 {
                     "segment_id": "E1S02",
                     "duration_seconds": 4,
                     "novel_text": "他抬头望向远方的灯火。",
+                    "video_prompt": {},
                     "generated_assets": {"narration_audio": "audio/segment_E1S02.wav"},
                 },
                 {
                     "segment_id": "E1S03",
                     "duration_seconds": 4,
                     "novel_text": "",
+                    "video_prompt": {},
                     "generated_assets": {},
                 },
             ],
@@ -64,9 +77,44 @@ class _FakePM:
         return self.script
 
 
-def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
+class _ScriptBackedResolver:
+    """产物清单替身：剧本里 narration_audio 指向的路径视为已登记，其余一律缺失。
+
+    产物清单是读取已生成旁白的唯一口径，路由只问清单。
+    """
+
+    def __init__(self, fake_pm):
+        self._fake_pm = fake_pm
+        self.observed_keys: list[ArtifactKey] = []
+
+    def _registered(self) -> set[str]:
+        paths: set[str] = set()
+        for container in ("segments", "shots", "scenes", "video_units"):
+            for item in self._fake_pm.script.get(container) or []:
+                assets = item.get("generated_assets")
+                if isinstance(assets, dict) and assets.get("narration_audio"):
+                    paths.add(assets["narration_audio"])
+        return paths
+
+    def compare(self, key, *, artifact_path):
+        self.observed_keys.append(key)
+        status = ArtifactStatus.CURRENT if artifact_path in self._registered() else ArtifactStatus.MISSING
+        return ArtifactComparison(status=status, artifact_path=artifact_path)
+
+
+def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True, currency=None):
+    monkeypatch.setattr(
+        generate,
+        "active_artifact_currency_resolver",
+        lambda *_args: currency if currency is not None else _ScriptBackedResolver(fake_pm),
+    )
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
+
+    async def _no_active_narrated_video(**_kwargs):
+        return set()
+
+    monkeypatch.setattr(generate, "active_narrated_video_resource_ids", _no_active_narrated_video)
 
     async def _resolve(self, project, payload):
         if not audio_provider_ready:
@@ -83,6 +131,22 @@ def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
 
 
 class TestGenerateTtsSingle:
+    def test_unbound_script_is_rejected_before_enqueue(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project["episodes"] = []
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts/E1S01",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert fake_queue.calls == []
+
     def test_enqueue_success(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
         fake_queue = _FakeQueue()
@@ -165,8 +229,98 @@ class TestGenerateTtsSingle:
             assert "音频" in res.json()["detail"]
             assert fake_queue.calls == []
 
+    def test_reference_video_narrator_unit_is_an_independent_explicit_tts_action(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project.update({"content_mode": "drama", "generation_mode": "reference_video"})
+        fake_pm.script = {
+            "episode": 1,
+            "content_mode": "drama",
+            "video_units": [
+                {
+                    "unit_id": "E1U1",
+                    "text": "镜头推进。\n{独立旁白。}",
+                    "generated_assets": {},
+                }
+            ],
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts/E1U1",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert len(fake_queue.calls) == 1
+        call = fake_queue.calls[0]
+        assert call["resource_id"] == "E1U1"
+        assert call["task_type"] == "tts"
+        assert call["payload"] == {"prompt": None, "script_file": "episode_1.json"}
+
+    def test_character_owned_unit_cannot_generate_narrator_tts(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project.update({"content_mode": "drama", "generation_mode": "reference_video"})
+        fake_pm.script = {
+            "episode": 1,
+            "content_mode": "drama",
+            "video_units": [
+                {
+                    "unit_id": "E1U1",
+                    "text": "@[阿离]：{快走。}",
+                    "generated_assets": {},
+                }
+            ],
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts/E1U1",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert fake_queue.calls == []
+
 
 class TestGenerateTtsBatch:
+    def test_unbound_script_is_rejected_before_enqueue(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project["episodes"] = []
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert fake_queue.calls == []
+
+    def test_episode_is_resolved_from_the_canonical_filename(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project["episodes"] = [{"episode": 2, "script_file": "scripts/episode_2.json"}]
+        fake_pm.script.pop("episode", None)
+        fake_queue = _FakeQueue()
+        currency = _ScriptBackedResolver(fake_pm)
+        client = _client(monkeypatch, fake_pm, fake_queue, currency=currency)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_2.json"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert currency.observed_keys
+        assert all(key.components[0] == 2 for key in currency.observed_keys)
+
     def test_enqueues_only_missing_segments(self, tmp_path, monkeypatch):
         """批量只补缺：已有旁白（E1S02）与无原文（E1S03）的段都跳过。"""
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
@@ -189,6 +343,85 @@ class TestGenerateTtsBatch:
             assert call["resource_id"] == "E1S01"
             assert call["task_type"] == "tts"
             assert call["media_type"] == "audio"
+
+    def test_metadata_path_without_a_manifest_entry_is_reselected(self, tmp_path, monkeypatch):
+        """metadata 里留着旁白路径但清单没有认领 → 算缺失，重新入队。"""
+
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _FakeQueue()
+
+        class _MissingResolver:
+            def compare(self, _key, *, artifact_path):
+                return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+        client = _client(monkeypatch, fake_pm, fake_queue, currency=_MissingResolver())
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert [call["resource_id"] for call in fake_queue.calls] == ["E1S01", "E1S02"]
+
+    def test_stale_entry_remains_usable_for_batch_selection(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _FakeQueue()
+        observed_keys: list[ArtifactKey] = []
+
+        class _StaleResolver:
+            def compare(self, key, *, artifact_path):
+                observed_keys.append(key)
+                return ArtifactComparison(status=ArtifactStatus.STALE, artifact_path=artifact_path)
+
+        client = _client(monkeypatch, fake_pm, fake_queue, currency=_StaleResolver())
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert [call["resource_id"] for call in fake_queue.calls] == ["E1S01"]
+        assert ArtifactKey.episode_audio(1, "E1S02") in observed_keys
+
+    def test_reference_video_batch_uses_unit_owned_narration_and_skips_character_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project.update({"content_mode": "drama", "generation_mode": "reference_video"})
+        fake_pm.script = {
+            "episode": 1,
+            "content_mode": "drama",
+            "video_units": [
+                {
+                    "unit_id": "E1U1",
+                    "text": "镜头推进。\n{独立旁白。}",
+                    "generated_assets": {},
+                },
+                {
+                    "unit_id": "E1U2",
+                    "text": "@[阿离]：{快走。}",
+                    "generated_assets": {},
+                },
+                {
+                    "unit_id": "E1U3",
+                    "text": "{已有旁白。}",
+                    "generated_assets": {"narration_audio": "audio/segment_E1U3.wav"},
+                },
+            ],
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert [call["resource_id"] for call in fake_queue.calls] == ["E1U1"]
 
     def test_none_missing_returns_empty(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")

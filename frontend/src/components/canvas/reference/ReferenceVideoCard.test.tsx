@@ -2,19 +2,16 @@ import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
+import { ReferenceVideoCard } from "./ReferenceVideoCard";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
 import type { ReferenceVideoUnit } from "@/types/reference-video";
 
-// Shapes match backend: parse_prompt strips the `镜头N：` header when it saves
-// shots[].text, and duration lives on the unit, not the shots. Keep test mocks
-// aligned so the Card's header reconstruction runs against realistic data.
+// 形状同后端：单元只有一段正文 `text`，时长单独落在单元上。
 function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: "E1U1",
-    shots: [{ text: "hi" }],
-    references: [],
+    text: "hi",
     duration_seconds: 3,
     transition_to_next: "cut",
     note: null,
@@ -44,7 +41,7 @@ function ControlledCard({
   initial?: string;
   onChange?: (next: string) => void;
 }) {
-  const [val, setVal] = useState(initial ?? unitPromptText(unit));
+  const [val, setVal] = useState(initial ?? unit.text);
   return (
     <ReferenceVideoCard
       unit={unit}
@@ -78,27 +75,24 @@ afterEach(() => {
 });
 
 describe("ReferenceVideoCard", () => {
-  it("reconstructs `镜头N：` headers around each shot's stored text", () => {
-    const unit = mkUnit({
-      shots: [
-        { text: "line1" },
-        { text: "line2" },
-      ],
-      duration_seconds: 8,
-    });
+  // 正文是唯一真相：编辑器逐字展示 `text`，不合成任何前缀。
+  it("renders the unit body verbatim, multi-line included", () => {
+    const unit = mkUnit({ text: "line1\nline2", duration_seconds: 8 });
     render(<ControlledCard unit={unit} />);
     const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
-    expect(ta.value).toBe("镜头1：line1\n镜头2：line2");
+    expect(ta.value).toBe("line1\nline2");
   });
 
-  it("renders raw text (no synthesized header) for a single-shot unit", () => {
-    const unit = mkUnit({
-      shots: [{ text: "plain text with no header" }],
-      duration_seconds: 1,
-    });
-    render(<ControlledCard unit={unit} />);
-    const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
-    expect(ta.value).toBe("plain text with no header");
+  it("highlights inline speech marks in the editor overlay", () => {
+    // 高亮层与预览（ScriptHighlight）同口径：记号原文逐字保留，只加底色与说话人 title。
+    const unit = mkUnit({ text: "门开了。@[张三]：{我来了}", duration_seconds: 3 });
+    const { container } = render(<ControlledCard unit={unit} />);
+    const dialogue = container.querySelector('[title="张三"]');
+    expect(dialogue?.textContent).toBe("@[张三]：{我来了}");
+
+    render(<ControlledCard unit={mkUnit({ text: "夜色渐深。{很久以前……}" })} />);
+    const voiceover = document.querySelector('[title="画外音"]');
+    expect(voiceover?.textContent).toBe("{很久以前……}");
   });
 
   it("fires onChange with the new prompt text on every edit", async () => {
@@ -107,10 +101,10 @@ describe("ReferenceVideoCard", () => {
     render(<ControlledCard unit={mkUnit()} onChange={onChange} />);
     const ta = screen.getByRole("combobox");
     await user.clear(ta);
-    await user.type(ta, "Shot 1 (3s): @主角");
+    await user.type(ta, "推门而入。@主角");
     const lastCall = onChange.mock.calls.at(-1)!;
-    expect(lastCall[0]).toBe("Shot 1 (3s): @主角");
-    // 新契约：Card 不再做 references 合并——那一步延后到保存时由父组件处理。
+    expect(lastCall[0]).toBe("推门而入。@主角");
+    // Card 只向上报正文：参考图在执行期从 `@[名称]` 解析，不在编辑时随行。
     expect(lastCall).toHaveLength(1);
   });
 
@@ -119,7 +113,7 @@ describe("ReferenceVideoCard", () => {
   it("does not open the picker when cursor sits after a punctuation following an orphan '@'", async () => {
     const user = userEvent.setup();
     render(
-      <ControlledCard unit={mkUnit({ shots: [{ text: "" }] })} />,
+      <ControlledCard unit={mkUnit({ text: "" })} />,
     );
     const ta = screen.getByRole("combobox");
     await user.clear(ta);
@@ -167,7 +161,7 @@ describe("ReferenceVideoCard", () => {
     const user = userEvent.setup();
     render(
       <ControlledCard
-        unit={mkUnit({ shots: [{ text: "" }] })}
+        unit={mkUnit({ text: "" })}
         onChange={onChange}
       />,
     );
@@ -199,12 +193,9 @@ describe("ReferenceVideoCard", () => {
   // Backspace 两次删除：第一次高亮整个 @mention，第二次由默认 delete-selection 完成删除。
   it("first Backspace next to a mention selects it; second deletes the whole chip", async () => {
     const user = userEvent.setup();
-    const unit = mkUnit({
-      shots: [{ text: "hi @主角" }],
-    });
+    const unit = mkUnit({ text: "hi @主角" });
     render(<ControlledCard unit={unit} />);
     const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
-    // 初始值：同 unitPromptText 重构后的 "Shot 1 (3s): hi @主角"
     expect(ta.value.endsWith("@主角")).toBe(true);
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
@@ -225,10 +216,7 @@ describe("ReferenceVideoCard", () => {
   it("renders an unknown-mention chip for names not in project", () => {
     render(
       <ControlledCard
-        unit={mkUnit({
-          shots: [{ text: "@路人" }],
-          duration_seconds: 3,
-        })}
+        unit={mkUnit({ text: "@路人", duration_seconds: 3 })}
       />,
     );
     const chip = screen.getByRole("status");
@@ -266,9 +254,7 @@ describe("ReferenceVideoCard combobox ARIA", () => {
   });
 
   it("wires aria-describedby to unknown-mentions live region", () => {
-    const unit = mkUnit({
-      shots: [{ text: "@未知人 出现" }],
-    });
+    const unit = mkUnit({ text: "@未知人 出现" });
     renderCard(unit);
     const ta = screen.getByRole("combobox");
     expect(ta).toHaveAttribute("aria-describedby", "reference-editor-unknown-desc");

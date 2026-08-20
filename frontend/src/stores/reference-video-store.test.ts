@@ -7,9 +7,7 @@ import type { ReferenceVideoUnit } from "@/types";
 function mkUnit(id: string, overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: id,
-    // 落盘的 shots[].text 只存正文——`镜头N：` header 由后端持久化时剥离，夹具照此模拟。
-    shots: [{ text: "x" }],
-    references: [],
+    text: "x",
     duration_seconds: 3,
     transition_to_next: "cut",
     note: null,
@@ -102,10 +100,7 @@ describe("reference-video-store", () => {
 
     await act(async () => {
       const load = useReferenceVideoStore.getState().loadUnits("proj", 1);
-      await useReferenceVideoStore.getState().addUnit("proj", 1, {
-        prompt: "p",
-        references: [],
-      });
+      await useReferenceVideoStore.getState().addUnit("proj", 1, { prompt: "p" });
       releases[0]([mkUnit("E1U1")]);
       await load;
     });
@@ -142,10 +137,7 @@ describe("reference-video-store", () => {
     vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValueOnce({ unit: mkUnit("E1U3") });
 
     await act(async () => {
-      await useReferenceVideoStore.getState().addUnit("proj", 1, {
-        prompt: "镜头1：new",
-        references: [],
-      });
+      await useReferenceVideoStore.getState().addUnit("proj", 1, { prompt: "new" });
     });
 
     const state = useReferenceVideoStore.getState();

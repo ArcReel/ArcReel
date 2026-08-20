@@ -11,34 +11,79 @@
 
 import asyncio
 import logging
+from pathlib import Path
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.artifact_activation import (
+    active_artifact_currency_resolver,
+    artifact_is_usable,
+    resolve_artifact_episode,
+    resolve_usable_storyboard_video_inputs,
+)
+from lib.artifact_manifest import ArtifactKey
 from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
-from lib.audio_utils import discard_stale_reference_audio, resolve_stale_reference_audio
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
 from lib.i18n import Translator
+from lib.json_io import domain_error_on_value_error
+from lib.narration_delivery import (
+    POST_PRODUCTION,
+    USE_TTS,
+    NarratedVideoDurationPreparation,
+    NarrationDelivery,
+    NarrationDeliveryRequestOptions,
+    canonical_narration_text,
+    video_request_cost_unavailable_problem,
+    video_request_requires_exact_quote,
+    video_request_reuses_current_visual,
+)
 from lib.path_safety import safe_exists, safe_join
-from lib.project_change_hints import emit_project_change_batch, project_change_source
+from lib.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager, is_reference_video_project
+from lib.reference_video.request_projection import ProjectionResolutionError
+from lib.script_editor import resolve_items
 from lib.script_models import get_generated_assets
+from lib.script_skeleton import resolve_script_kind
+from lib.speech_composition import SpeechMode, admit_script_unit
 from lib.storyboard_sequence import (
+    EndFrameImageUnavailable,
+    StoryboardImageUnavailable,
     find_storyboard_item,
     get_storyboard_items,
-    resolve_storyboard_image_ref,
 )
 from server.auth import CurrentUser
-from server.routers._validators import require_video_bucket_capability
+from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
+from server.services.cost_estimation import quote_video_request
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
-from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
+from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
+from server.services.narration_delivery_tasks import (
+    active_narrated_video_resource_ids,
+    prepare_current_storyboard_narrated_video_duration,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _resolve_request_artifact_episode(
+    project: dict,
+    script: dict,
+    script_file: str,
+) -> int:
+    """Validate the submitted script's live project binding before enqueue."""
+
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=script_file)):
+        return resolve_artifact_episode(
+            project=project,
+            script=script,
+            script_filename=script_file,
+        )
+
 
 # ==================== 请求模型 ====================
 
@@ -51,8 +96,13 @@ class GenerateStoryboardRequest(BaseModel):
 class GenerateVideoRequest(BaseModel):
     prompt: str | dict
     script_file: str
-    duration_seconds: int | None = None  # 改为 None，由服务层解析
+    duration_seconds: int | None = Field(default=None, gt=0)
     seed: int | None = None
+    # 单目标入口保留后期配音默认（docs/adr/0061）：请求由用户在这一段的界面上直接触发，
+    # 界面已呈现该段的旁白状态与费用，代价也止于这一段。必填只加在替整批选定准入判据与
+    # 时长基准的批量入口与由模型推断参数的智能体视频工具上。
+    narration_delivery: NarrationDelivery = POST_PRODUCTION
+    confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
 
 
 class GenerateTtsRequest(BaseModel):
@@ -66,6 +116,40 @@ class GenerateVoiceSampleRequest(BaseModel):
 
 class ConfirmVoiceSampleRequest(BaseModel):
     task_id: str
+
+
+async def _localized_narrated_video_payload(
+    preparation: NarratedVideoDurationPreparation,
+    _t: Translator,
+) -> dict[str, object]:
+    payload = preparation.to_payload()
+    problems = preparation.problem_payloads()
+    for item, problem in zip(problems, preparation.problems, strict=True):
+        item["message"] = _t(problem.code, **problem.parameters())
+    payload["problems"] = problems
+    if preparation.cost is not None:
+        from lib.db import async_session_factory
+
+        quote = await quote_video_request(preparation.cost, async_session_factory)
+        if quote is not None:
+            if video_request_reuses_current_visual(
+                request_duration_seconds=preparation.request_duration_seconds,
+                current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
+            ):
+                quote = quote.without_new_video_charge()
+            payload["request_cost"] = quote.to_payload()
+        elif video_request_requires_exact_quote(
+            request_duration_seconds=preparation.request_duration_seconds,
+            planned_duration_seconds=preparation.planned_duration_seconds,
+            current_visual_duration_seconds=preparation.current_visual_duration_seconds,
+            current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
+        ):
+            cost_problem = video_request_cost_unavailable_problem(preparation.cost)
+            cost_payload = cost_problem.to_payload(unit_id=preparation.narration.unit_id)
+            cost_payload["message"] = _t(cost_problem.code, **cost_problem.parameters())
+            payload["allowed"] = False
+            problems.append(cost_payload)
+    return payload
 
 
 class GenerateCharacterRequest(BaseModel):
@@ -109,8 +193,10 @@ async def generate_storyboard(
     """
 
     def _sync():
-        get_project_manager().load_project(project_name)
-        script = get_project_manager().load_script(project_name, req.script_file)
+        pm_local = get_project_manager()
+        project = pm_local.load_project(project_name)
+        script = pm_local.load_script(project_name, req.script_file)
+        _resolve_request_artifact_episode(project, script, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
@@ -168,7 +254,7 @@ async def generate_video(
     仅服务分镜图生视频路线：参考生视频路线没有分镜图这一步，在此拒绝并指引换入口。
     """
 
-    def _sync() -> dict:
+    def _sync() -> tuple[dict, Path, dict, dict]:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
@@ -179,48 +265,108 @@ async def generate_video(
         if is_reference_video_project(project):
             raise ConflictError("video_route_is_reference_video")
 
-        # 与 worker 一致：优先读取 generated_assets.storyboard_image，回退默认路径。
-        # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析。
+        # 与 worker 一致：分镜图只认 generated_assets.storyboard_image 的显式绑定，
+        # 不按同名文件推断。宫格项目指向 scene_{id}_first.png 时仍可正常解析。
         # 脚本缺失（FileNotFoundError）/ 脏脚本（分镜数组键损坏，ScriptEditError）均
         # fail-fast：不能 silently 降级走 default 路径——default 文件恰好存在时会让请求
         # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级
         # handler 统一映射为脱敏响应（404 / 400）。
         script = pm_local.load_script(project_name, req.script_file)
+        artifact_episode = _resolve_request_artifact_episode(project, script, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
-        storyboard_rel = get_generated_assets(resolved[0]).get("storyboard_image")
-
-        # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据会让下面的路径拼接抛未处理
-        # TypeError 变成通用 500；越界 / 绝对路径引用会把项目外任意文件当分镜图使用。
-        # 校验口径与 execute_video_task / SDK 工具入队预检共用同一份（resolve_storyboard_image_ref）。
+        script_kind = resolve_script_kind(script)
+        admission = admit_script_unit(script_kind, resolved[0])
+        if admission.allowed and script_kind in {"segments", "shots"}:
+            # narration / ad 的 worker 会把请求 prompt 里的 dialogue 原样下发；准入必须检查
+            # 实际入队的 prompt 与盘上旁白字段，而不能只检查可能已过时的 script prompt。
+            admission = admit_script_unit(script_kind, {**resolved[0], "video_prompt": req.prompt})
+        if not admission.allowed:
+            raise HTTPException(status_code=409, detail=admission.to_dict())
+        # 字段值来自磁盘剧本 JSON，不可信任；路径校验和 schema 激活后的显式绑定要求
+        # 与 worker / 当前基线重建共用同一解析器。
         try:
-            storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
+            resolve_usable_storyboard_video_inputs(
+                project_path=project_path,
+                project=project,
+                episode=artifact_episode,
+                resource_id=segment_id,
+                item=resolved[0],
+            )
+        except EndFrameImageUnavailable:
+            raise BadRequestError("invalid_end_frame_image_path", segment_id=segment_id) from None
+        except StoryboardImageUnavailable:
+            raise BadRequestError("generate_storyboard_first", segment_id=segment_id) from None
         except ValueError:
             raise BadRequestError("invalid_storyboard_image_path", segment_id=segment_id) from None
-        if storyboard_file is None:
-            storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
-        if not storyboard_file.is_file():
-            raise BadRequestError("generate_storyboard_first", segment_id=segment_id)
-        return project
+        return project, project_path, script, resolved[0]
 
-    project = await asyncio.to_thread(_sync)
+    project, project_path, script, item = await asyncio.to_thread(_sync)
 
     # 归桶按项目路线求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
     # 上面的路线闸门已挡掉参考路线，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
     # 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
-    await require_video_bucket_capability(project, video_bucket_for_generation_mode(project.get("generation_mode")))
+    _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
+    await require_video_bucket_capability(project, _video_bucket)
+    await require_audio_switch_supported(project, _video_bucket)
+
+    delivery_projection: NarratedVideoDurationPreparation | None = None
+    delivery_payload: dict[str, object] | None = None
+    if req.narration_delivery == USE_TTS:
+        current_planned_duration = item.get("duration_seconds")
+        if (
+            not isinstance(current_planned_duration, int)
+            or isinstance(current_planned_duration, bool)
+            or current_planned_duration <= 0
+        ):
+            current_planned_duration = None
+        try:
+            delivery_projection = await prepare_current_storyboard_narrated_video_duration(
+                project_name=project_name,
+                project=project,
+                project_path=project_path,
+                script=script,
+                script_file=req.script_file,
+                item=item,
+                visual_prompt=req.prompt,
+                seed=req.seed,
+                capability=_video_bucket,
+                # use_tts 不把请求中的 duration 持久化进队列；预检必须和 worker 一样基于
+                # 当前盘上单元重投影，否则客户端旧快照可能先通过、执行时才要求另一档确认。
+                planned_duration_seconds=current_planned_duration,
+                confirmed_request_duration_seconds=req.confirmed_request_duration_seconds,
+            )
+        except ProjectionResolutionError as exc:
+            raise BadRequestError(exc.code, **exc.params) from exc
+        delivery_payload = await _localized_narrated_video_payload(delivery_projection, _t)
+        if not delivery_payload["allowed"]:
+            raise HTTPException(
+                status_code=400,
+                detail=delivery_payload,
+            )
+
+    delivery_options = NarrationDeliveryRequestOptions(
+        narration_delivery=req.narration_delivery,
+        confirmed_request_duration_seconds=req.confirmed_request_duration_seconds,
+    )
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）。
     # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）。
+    extra_payload: dict[str, object] = {
+        "seed": req.seed,
+        "narration_delivery_options": delivery_options.to_payload(),
+    }
+    if req.narration_delivery != USE_TTS:
+        extra_payload["duration_seconds"] = req.duration_seconds
     spec = TaskSpec.from_request(
         task_type="video",
         media_type="video",
         resource_id=segment_id,
         prompt=req.prompt,
         script_file=req.script_file,
-        extra_payload={"duration_seconds": req.duration_seconds, "seed": req.seed},
+        extra_payload=extra_payload,
     )
 
     # 入队（provider 由服务层根据配置自动解析，调用方无需传递）
@@ -236,12 +382,15 @@ async def generate_video(
         user_id=user.id,
     )
 
-    return {
+    response = {
         "success": True,
         "task_id": result["task_id"],
         "deduped": result.get("deduped", False),
         "message": _t("video_task_submitted", segment_id=segment_id),
     }
+    if delivery_payload is not None:
+        response["narration_delivery"] = delivery_payload
+    return response
 
 
 # ==================== 旁白配音（TTS）生成 ====================
@@ -261,11 +410,6 @@ async def _require_audio_provider_configured(project: dict) -> str:
     except ValueError:
         raise BadRequestError("audio_provider_not_configured")
     return resolved.provider_id
-
-
-def _narration_text(segment: dict) -> str:
-    text = segment.get("novel_text")
-    return text.strip() if isinstance(text, str) else ""
 
 
 async def _enqueue_tts_segment(
@@ -305,27 +449,39 @@ async def generate_tts(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交单段旁白配音任务到队列，立即返回 task_id。
-
-    文本由执行层从剧本 segment 的 novel_text 读取；已有旁白的段允许重生成。
-    """
+    """显式提交一个 narrator-owned unit 的旁白配音任务。"""
 
     def _sync() -> tuple[dict, dict]:
         pm_local = get_project_manager()
         _project = pm_local.load_project(project_name)
         script = pm_local.load_script(project_name, req.script_file)
-        items, id_field, _, _, _ = get_storyboard_items(script)
+        _resolve_request_artifact_episode(_project, script, req.script_file)
+        items, id_field, kind = resolve_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
-        return _project, resolved[0]
+        item = resolved[0]
+        admission = admit_script_unit(kind, item)
+        narration_text = canonical_narration_text(admission.preparation)
+        if not admission.allowed:
+            if not narration_text:
+                raise BadRequestError("tts_narration_text_missing", segment_id=segment_id)
+            raise HTTPException(status_code=409, detail=admission.to_dict())
+        if admission.mode is not SpeechMode.NARRATOR_VOICEOVER or not narration_text:
+            raise BadRequestError("tts_not_applicable", segment_id=segment_id)
+        return _project, item
 
     project, segment = await asyncio.to_thread(_sync)
 
-    if not _narration_text(segment):
-        raise BadRequestError("tts_novel_text_missing", segment_id=segment_id)
-
     provider_id = await _require_audio_provider_configured(project)
+
+    active_narrated_video = await active_narrated_video_resource_ids(
+        project_name=project_name,
+        resource_ids=(segment_id,),
+        script_file=req.script_file,
+    )
+    if segment_id in active_narrated_video:
+        raise ConflictError("tts_conflicts_with_active_narrated_video", resource_id=segment_id)
 
     result = await _enqueue_tts_segment(
         project_name=project_name,
@@ -350,21 +506,28 @@ async def generate_tts_batch(
     user: CurrentUser,
     _t: Translator,
 ):
-    """批量提交旁白配音任务：只入队缺少 narration_audio 且有小说原文的段（断点补缺）。"""
+    """批量提交旁白配音任务：只入队缺少 narration_audio 的 narrator-owned 单元。"""
 
     def _sync() -> tuple[dict, list[str]]:
         pm_local = get_project_manager()
         _project = pm_local.load_project(project_name)
         script = pm_local.load_script(project_name, req.script_file)
-        items, id_field, _, _, _ = get_storyboard_items(script)
+        items, id_field, kind = resolve_items(script)
+        episode = _resolve_request_artifact_episode(_project, script, req.script_file)
+        currency = active_artifact_currency_resolver(pm_local.get_project_path(project_name), _project)
         missing: list[str] = []
         for item in items:
-            if not _narration_text(item):
+            admission = admit_script_unit(kind, item)
+            if not admission.allowed or admission.mode is not SpeechMode.NARRATOR_VOICEOVER:
                 continue
-            if get_generated_assets(item).get("narration_audio"):
+            if not canonical_narration_text(admission.preparation):
                 continue
             seg_id = item.get(id_field)
-            if seg_id:
+            if seg_id and not artifact_is_usable(
+                currency,
+                ArtifactKey.episode_audio(episode, str(seg_id)),
+                get_generated_assets(item).get("narration_audio"),
+            ):
                 missing.append(str(seg_id))
         return _project, missing
 
@@ -538,35 +701,20 @@ async def confirm_character_voice_sample(
 
     def _sync() -> dict:
         pm_local = get_project_manager()
-        project = pm_local.load_project(project_name)
-        char_key = resolve_asset_key(project.get("characters"), char_name)
-        if char_key is None:
-            raise NotFoundError("character_not_found", name=char_name)
-
         project_dir = pm_local.get_project_path(project_name)
         if not safe_exists(project_dir, sample_rel):
             raise NotFoundError("voice_sample_file_missing")
         sample_abs = safe_join(project_dir, sample_rel)
         content = sample_abs.read_bytes()
 
-        refs_audio_dir = project_dir / "characters" / "refs_audio"
-        refs_audio_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{char_name}.wav"
-        target_path = refs_audio_dir / filename
-
-        old_audio = ((project.get("characters") or {}).get(char_key) or {}).get("reference_audio")
-        stale_audio_path = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target_path)
-
-        target_path.write_bytes(content)
-
         ref_audio_rel = f"characters/refs_audio/{filename}"
+        target_path = project_dir / ref_audio_rel
         try:
             with project_change_source("webui"):
-                pm_local.update_character_reference_audio(project_name, char_name, ref_audio_rel)
+                pm_local.install_character_reference_audio(project_name, char_name, ref_audio_rel, content)
         except KeyError:
             raise NotFoundError("character_not_found", name=char_name)
-
-        discard_stale_reference_audio(stale_audio_path)
 
         # 目标文件名固定为 {char_name}.wav：重新生成后再次确认时 reference_audio 字段值
         # 不变（同一路径字符串），project.json 的字段级 diff 因此检测不到变化、不会自动
@@ -581,7 +729,7 @@ async def confirm_character_voice_sample(
                         "entity_type": "character",
                         "action": "updated",
                         "entity_id": char_name,
-                        "label": f"角色「{char_name}」参考音频",
+                        **build_change_label("character_reference_audio", id=char_name),
                         "focus": None,
                         "important": False,
                         "asset_fingerprints": {ref_audio_rel: target_path.stat().st_mtime_ns},
@@ -790,13 +938,24 @@ async def edit_image(
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
         script = pm_local.load_script(project_name, str(script_file)) if is_storyboard else None
+        artifact_episode = None
+        if script is not None:
+            artifact_episode = _resolve_request_artifact_episode(project, script, str(script_file))
         try:
-            current_rel = resolve_current_image_rel(project, req.resource_type, req.resource_id, script)
+            source = resolve_usable_image_edit_source(
+                project=project,
+                project_path=project_path,
+                resource_type=req.resource_type,
+                resource_id=req.resource_id,
+                script=script,
+                artifact_episode=artifact_episode,
+                resolver=active_artifact_currency_resolver(project_path, project),
+            )
         except KeyError:
             if is_storyboard:
                 raise NotFoundError("segment_not_found", id=req.resource_id)
             raise NotFoundError(_ASSET_GENERATE_I18N[req.resource_type]["not_found"], name=req.resource_id)
-        if not (current_rel and safe_exists(project_path, current_rel)):
+        if source is None:
             raise BadRequestError("image_edit_no_current_image", id=req.resource_id)
         return project
 

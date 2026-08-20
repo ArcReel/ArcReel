@@ -516,8 +516,10 @@ ArcReel 当前**自定义供应商接入流程已经存在且不需要重新设�
    ```python
    _BACKEND_FACTORIES: dict[str, Callable[..., VideoBackend]] = {}
 
+
    def register_backend(name: str, factory: Callable[..., VideoBackend]) -> None:
        _BACKEND_FACTORIES[name] = factory
+
 
    def create_backend(name: str, **kwargs) -> VideoBackend:
        if name not in _BACKEND_FACTORIES:
@@ -742,11 +744,7 @@ ArcReel 需要在 channel 配置层维护 model name 别名映射，或者在 `i
 
 ### ArcReel 现有设计文档（背景对齐）
 
-- `docs/superpowers/specs/2026-03-16-video-service-layer-design.md` — VideoBackend Protocol
-- `docs/superpowers/specs/2026-03-31-custom-provider-design.md` — 自定义供应商初版
-- `docs/superpowers/specs/2026-04-15-newapi-custom-provider-design.md` — NewAPI 接入
-- `docs/superpowers/specs/2026-04-26-custom-provider-model-endpoint-design.md` — endpoint 下沉到模型层
-- `docs/superpowers/specs/2026-05-04-video-duration-redesign-design.md` — duration 真相源
+- `docs/adr/` — VideoBackend 分层、自定义供应商与 endpoint、duration 真相源等架构决策
 - `CONTEXT.md` — 词汇表（backend 而非 adapter）
 
 ### 中转站文档（事实标准来源）

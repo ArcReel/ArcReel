@@ -202,7 +202,7 @@ class UpdateProviderRequest(BaseModel):
 
 
 class FullUpdateProviderRequest(BaseModel):
-    """PUT 全量更新：provider 元数据 + 模型列表在同一事务中。"""
+    """PUT 全量更新：provider 元数据与模型列表。"""
 
     display_name: str
     base_url: str

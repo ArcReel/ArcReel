@@ -44,7 +44,7 @@ describe("demo project data", () => {
     const summary = data.status?.episodes_summary;
     const count = (status: string) =>
       data.episodes.filter((e) => e.status === status).length;
-    // scripted 统计的是"有生成剧本"的分集数（对齐 lib/status_calculator.py 的 script_status
+    // scripted 统计的是"有生成剧本"的分集数（对齐 lib/workflow_state.py 的 script_status
     // 口径），不是 status 字段字面等于 "scripted" 的分集数——没剧本的分集永远只能是 draft
     const scriptedCount = data.episodes.filter((e) => e.script_file !== "").length;
 
@@ -61,14 +61,14 @@ describe("demo project data", () => {
     const scenes = Object.values(data.scenes ?? {});
     const props = Object.values(data.props ?? {});
 
-    expect(characters).toHaveLength(status.characters.total);
+    expect(characters).toHaveLength(status.assets.character.total);
     expect(characters.filter((c) => c.character_sheet).length).toBe(
-      status.characters.completed,
+      status.assets.character.available,
     );
-    expect(props).toHaveLength(status.props.total);
-    expect(props.filter((p) => p.prop_sheet).length).toBe(status.props.completed);
-    expect(scenes).toHaveLength(status.scenes.total);
-    expect(scenes.filter((s) => s.scene_sheet).length).toBe(status.scenes.completed);
+    expect(props).toHaveLength(status.assets.prop.total);
+    expect(props.filter((p) => p.prop_sheet).length).toBe(status.assets.prop.available);
+    expect(scenes).toHaveLength(status.assets.scene.total);
+    expect(scenes.filter((s) => s.scene_sheet).length).toBe(status.assets.scene.available);
   });
 
   it("scripts only the first episode", () => {
@@ -113,10 +113,10 @@ describe("demo project data", () => {
       (s) => s.generated_assets?.storyboard_image,
     );
 
-    expect(segments.length).toBe(episode.scenes_count);
+    expect(segments.length).toBe(episode.item_count);
     expect(segments.length).toBeGreaterThanOrEqual(6);
-    expect(withStoryboard.length).toBe(episode.storyboards?.completed);
-    expect(episode.videos?.completed).toBe(0);
+    expect(withStoryboard.length).toBe(episode.storyboards?.available);
+    expect(episode.videos?.available).toBe(0);
   });
 
   it("leaves video and narration unset — an SVG cannot stand in for them", () => {

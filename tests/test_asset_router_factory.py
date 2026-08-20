@@ -15,6 +15,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import characters
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.conftest import make_translator
+from tests.fakes import FakeProjectAssetMutationMixin
 
 # 兜底 500 的默认 locale 文案：测试未覆盖 get_translator，端点回落到 DEFAULT_LOCALE("zh")，
 # 与 make_translator() 默认 locale 一致。
@@ -24,16 +25,19 @@ _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
-class _FakePM:
+class _FakePM(FakeProjectAssetMutationMixin):
     def __init__(self):
-        self.projects = {"demo": {"characters": {}}}
+        self.projects = {"demo": {"characters": {}, "scenes": {}, "props": {}, "products": {}}}
 
     def _add_asset(self, asset_type, project_name, name, entry):
+        from lib.asset_types import ASSET_SPECS, ensure_project_asset_name_available
+
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)
-        bucket = self.projects[project_name].setdefault("characters", {})
+        bucket = self.projects[project_name].setdefault(ASSET_SPECS[asset_type].bucket_key, {})
         if name in bucket:
             return False
+        ensure_project_asset_name_available(self.projects[project_name], name)
         bucket[name] = entry
         return True
 
@@ -41,6 +45,31 @@ class _FakePM:
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)
         return self.projects[project_name]
+
+    def rename_asset(self, project_name, table, old_name, new_name, *, dry_run=False):
+        from lib.asset_rename import AssetRenameConflictError, AssetRenameNotFoundError, AssetRenameReport
+        from lib.asset_types import resolve_asset_key
+
+        if project_name not in self.projects:
+            raise FileNotFoundError(project_name)
+        bucket = self.projects[project_name].setdefault(table, {})
+        old_key = resolve_asset_key(bucket, old_name)
+        if old_key is None:
+            raise AssetRenameNotFoundError(old_name)
+        conflict_key = resolve_asset_key(bucket, new_name)
+        if conflict_key is not None and conflict_key != old_key:
+            raise AssetRenameConflictError(conflict_key)
+        if not dry_run:
+            bucket[new_name] = bucket.pop(old_key)
+        return AssetRenameReport(
+            table=table,
+            old_name=old_key,
+            new_name=new_name,
+            episodes=2,
+            references=5,
+            files=3,
+            dry_run=dry_run,
+        )
 
     def save_project(self, project_name, project):
         self.projects[project_name] = project
@@ -146,6 +175,21 @@ class TestAssetRouterFactory:
                 json={"name": "Alice", "description": "dup", "voice_style": ""},
             )
             assert resp.status_code == 409
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_character_post_409_on_cross_type_duplicate_is_localized(self, monkeypatch, locale):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["scenes"]["Shared"] = {"description": "scene", "scene_sheet": ""}
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/characters",
+                json={"name": "Shared", "description": "character"},
+                headers={"Accept-Language": locale},
+            )
+        assert resp.status_code == 409
+        assert "Shared" in resp.json()["detail"]
+        assert fake_pm.projects["demo"]["characters"] == {}
 
     @pytest.mark.unit
     def test_character_patch_accepts_extra_fields(self, monkeypatch):
@@ -366,3 +410,59 @@ class TestNfcConvergence:
 
         assert resp.status_code == 200
         assert fake_pm.projects["demo"]["characters"] == {}
+
+
+class TestRenameEndpoint:
+    """级联重命名端点：dry_run 预览与执行同一路由，错误按 400/404/409 映射。"""
+
+    @pytest.mark.unit
+    def test_rename_executes_and_returns_counts(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Bob"] = {"description": "hero"}
+
+        resp = client.post("/api/v1/projects/demo/characters/Bob/rename", json={"new_name": "Alice"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["dry_run"] is False
+        assert (body["episodes"], body["references"], body["files"]) == (2, 5, 3)
+        assert body["new_name"] == "Alice"
+        assert list(fake_pm.projects["demo"]["characters"]) == ["Alice"]
+
+    @pytest.mark.unit
+    def test_rename_dry_run_previews_without_writing(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Bob"] = {"description": "hero"}
+
+        resp = client.post(
+            "/api/v1/projects/demo/characters/Bob/rename",
+            json={"new_name": "Alice", "dry_run": True},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["dry_run"] is True
+        assert list(fake_pm.projects["demo"]["characters"]) == ["Bob"]
+
+    @pytest.mark.unit
+    def test_rename_missing_returns_404(self, monkeypatch):
+        client, _fake_pm = _client(monkeypatch)
+        resp = client.post("/api/v1/projects/demo/characters/Ghost/rename", json={"new_name": "Alice"})
+        assert resp.status_code == 404
+
+    @pytest.mark.unit
+    def test_rename_conflict_returns_409(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Bob"] = {"description": "hero"}
+        fake_pm.projects["demo"]["characters"][_NAME_NFD] = {"description": "existing"}
+
+        resp = client.post("/api/v1/projects/demo/characters/Bob/rename", json={"new_name": _NAME_NFC})
+
+        assert resp.status_code == 409
+        assert list(fake_pm.projects["demo"]["characters"]) == ["Bob", _NAME_NFD]
+
+    @pytest.mark.unit
+    def test_rename_invalid_new_name_returns_400(self, monkeypatch):
+        client, _fake_pm = _client(monkeypatch)
+        resp = client.post("/api/v1/projects/demo/characters/Bob/rename", json={"new_name": "bad/name"})
+        assert resp.status_code == 400

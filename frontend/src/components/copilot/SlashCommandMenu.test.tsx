@@ -6,7 +6,7 @@ import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 
 const SKILLS = [
-  { name: "manga-workflow", description: "完整工作流", scope: "project" as const, path: "/tmp/a" },
+  { name: "video-workflow", description: "完整工作流", scope: "project" as const, path: "/tmp/a" },
   { name: "generate-storyboard", description: "为剧本场景生成分镜图", scope: "project" as const, path: "/tmp/b" },
   { name: "generate-video", description: "用 Veo 生成视频片段", scope: "project" as const, path: "/tmp/c" },
 ];
@@ -21,7 +21,7 @@ describe("SlashCommandMenu", () => {
 
   it("renders all skills when filter is empty", () => {
     render(<SlashCommandMenu filter="" onSelect={onSelect} />);
-    expect(screen.getByText(/manga-workflow/)).toBeInTheDocument();
+    expect(screen.getByText(/video-workflow/)).toBeInTheDocument();
     expect(screen.getByText(/generate-storyboard/)).toBeInTheDocument();
     expect(screen.getByText(/generate-video/)).toBeInTheDocument();
   });
@@ -29,13 +29,13 @@ describe("SlashCommandMenu", () => {
   it("filters skills by name", () => {
     render(<SlashCommandMenu filter="storyboard" onSelect={onSelect} />);
     expect(screen.getByText(/generate-storyboard/)).toBeInTheDocument();
-    expect(screen.queryByText(/manga-workflow/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/video-workflow/)).not.toBeInTheDocument();
   });
 
   it("filters skills by Chinese label", () => {
     render(<SlashCommandMenu filter="分镜" onSelect={onSelect} />);
     expect(screen.getByText(/generate-storyboard/)).toBeInTheDocument();
-    expect(screen.queryByText(/manga-workflow/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/video-workflow/)).not.toBeInTheDocument();
   });
 
   it("returns null when no skills match", () => {
@@ -45,14 +45,14 @@ describe("SlashCommandMenu", () => {
 
   it("calls onSelect with command on mousedown", () => {
     render(<SlashCommandMenu filter="" onSelect={onSelect} />);
-    fireEvent.mouseDown(screen.getByText(/manga-workflow/).closest("button")!);
-    expect(onSelect).toHaveBeenCalledWith("/manga-workflow");
+    fireEvent.mouseDown(screen.getByText(/video-workflow/).closest("button")!);
+    expect(onSelect).toHaveBeenCalledWith("/video-workflow");
   });
 
   it("displays Chinese labels for known skills", () => {
     render(<SlashCommandMenu filter="" onSelect={onSelect} />);
     // 翻译来自 dashboard:skill_name_<id>（i18n setup 已切到 zh，参见 src/test/setup.ts）
-    expect(screen.getByText("视频工作流")).toBeInTheDocument();
+    expect(screen.getByText("视频创作工作流")).toBeInTheDocument();
     expect(screen.getByText("生成分镜图")).toBeInTheDocument();
     expect(screen.getByText("生成视频")).toBeInTheDocument();
   });
@@ -71,7 +71,7 @@ describe("SlashCommandMenu", () => {
       render(<SlashCommandMenu ref={ref} filter="" onSelect={onSelect} />);
 
       // Initially first item is active
-      const firstOption = screen.getByText(/manga-workflow/).closest("button")!;
+      const firstOption = screen.getByText(/video-workflow/).closest("button")!;
       expect(firstOption).toHaveAttribute("aria-selected", "true");
 
       // Arrow down → second item

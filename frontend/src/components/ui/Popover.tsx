@@ -22,7 +22,7 @@ import type { RefObject, ReactNode, CSSProperties } from "react";
 // 上下文，统一 flip/shift/外部点击/Esc 处理，保持 z-index 和背景不透明。
 
 /** 面板默认背景色（Darkroom oklch panel tone，与 bg-bg-grad-a 同源） */
-export const POPOVER_BG = "oklch(0.182 0.011 270)";
+const POPOVER_BG = "oklch(0.182 0.011 270)";
 
 type PopoverAlign = "start" | "center" | "end";
 type PopoverLayer = keyof typeof UI_LAYERS;
@@ -119,9 +119,10 @@ export function Popover({
   return (
     <FloatingPortal>
       <div
-        // `refs.setFloating` is floating-ui 的 stable 回调 ref；react-hooks/refs
-        // 规则误认为是读取 ref.current，这里安全。
-        // eslint-disable-next-line react-hooks/refs
+        // `refs.setFloating` is floating-ui 的 stable 回调 ref：react-hooks/refs
+        // 误认为是读取 ref.current；unbound-method 误认为是需要绑定 this 的原型方法，
+        // 而它是 useCallback 造的属性型函数、不访问 this。两条均安全。
+        // eslint-disable-next-line react-hooks/refs, @typescript-eslint/unbound-method
         ref={refs.setFloating}
         {...getFloatingProps()}
         className={`isolate ${width} ${UI_LAYERS[layer]} ${className}`}

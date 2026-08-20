@@ -6,6 +6,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
+import type { Phase } from "@/types";
 
 vi.mock("@/components/pages/CreateProjectModal", () => ({
   CreateProjectModal: () => <div data-testid="create-project-modal">Create Project Modal</div>,
@@ -58,11 +59,15 @@ describe("ProjectsPage", () => {
           style_template_id: "anim_kyoto",
           thumbnail: null,
           status: {
-            current_phase: "production",
+            phase: "production",
             phase_progress: 0.5,
-            characters: { total: 2, completed: 2 },
-            scenes: { total: 1, completed: 1 },
-            props: { total: 1, completed: 0 },
+            needs_repair: false,
+            repair_reason: null,
+            assets: {
+              character: { total: 2, available: 2, stale: 0 },
+              scene: { total: 1, available: 1, stale: 0 },
+              prop: { total: 1, available: 0, stale: 0 },
+            },
             episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
           },
         },
@@ -75,8 +80,169 @@ describe("ProjectsPage", () => {
     // featured "Now Editing" card — see ProjectsPage.tsx Darkroom design.
     expect((await screen.findAllByText("Demo Project")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("商业动画 京都").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("制作中").length).toBeGreaterThan(0);
+    // 阶段名与工作台同一套词：卡片胶囊、筛选胶囊、Hero 计数格都读「制作」
+    expect(screen.getAllByText("制作").length).toBeGreaterThan(0);
     expect(screen.getByText("50%")).toBeInTheDocument();
+  });
+
+  it("filters by the four merged phases and counts each pill", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "writing",
+          title: "Writing Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: {
+            phase: "script" as const,
+            phase_progress: 0.5,
+            needs_repair: false,
+            repair_reason: null,
+            assets: { character: { total: 1, available: 1, stale: 0 } },
+            episodes_summary: { total: 2, scripted: 1, in_production: 0, completed: 0 },
+          },
+        },
+        {
+          name: "shooting",
+          title: "Shooting Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: {
+            phase: "production" as const,
+            phase_progress: 0.4,
+            needs_repair: false,
+            repair_reason: null,
+            assets: { character: { total: 1, available: 1, stale: 0 } },
+            episodes_summary: { total: 2, scripted: 2, in_production: 1, completed: 0 },
+          },
+        },
+      ],
+    });
+
+    renderPage();
+
+    const scriptPill = await screen.findByRole("button", { name: /脚本/ });
+    fireEvent.click(scriptPill);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Shooting Project")).not.toBeInTheDocument();
+    });
+    expect(screen.getAllByText("Writing Project").length).toBeGreaterThan(0);
+  });
+
+  it("tells the reader how many sheets are older than the current content", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "aged",
+          title: "Aged Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: {
+            phase: "production" as const,
+            phase_progress: 0.5,
+            needs_repair: false,
+            repair_reason: null,
+            assets: {
+              character: { total: 3, available: 3, stale: 2 },
+              scene: { total: 1, available: 1, stale: 0 },
+              prop: { total: 0, available: 0, stale: 0 },
+              // 卡片的计数格只列举三类，这一行仍要把其余资产类型的 stale 算进去
+              product: { total: 1, available: 1, stale: 1 },
+            },
+            episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+          },
+        },
+      ],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("3 张资产图比当前内容旧")).toBeInTheDocument();
+    // stale 仍是可用产物：计数格照报 3 / 3，不从可用里扣
+    expect(screen.getAllByText("3 / 3").length).toBeGreaterThan(0);
+  });
+
+  it("marks a project that needs repair and shows the reason on the card", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "broken",
+          title: "Broken Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: {
+            phase: "production",
+            phase_progress: 0.5,
+            needs_repair: true,
+            repair_reason: "episode script scripts/episode_1.json item 2 has no identity",
+            assets: {
+              character: { total: 1, available: 1, stale: 0 },
+              scene: { total: 1, available: 1, stale: 0 },
+              prop: { total: 0, available: 0, stale: 0 },
+            },
+            episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+          },
+        },
+      ],
+    });
+
+    renderPage();
+
+    // 唯一项目会成为「正在编辑」卡；标记与原因在两张卡上都必须出现
+    expect((await screen.findAllByText("需要修复")).length).toBeGreaterThan(0);
+    // 原因是可见文本而非 tooltip：触摸设备打不开 title，屏幕阅读器也读不到
+    expect(
+      screen.getAllByText("episode script scripts/episode_1.json item 2 has no identity").length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("puts the repair state and reason into the library card's accessible name", async () => {
+    const brokenStatus = {
+      phase: "production" as const,
+      phase_progress: 0.5,
+      needs_repair: true,
+      repair_reason: "episode script scripts/episode_1.json item 2 has no identity",
+      assets: {
+        character: { total: 1, available: 1, stale: 0 },
+        scene: { total: 1, available: 1, stale: 0 },
+        prop: { total: 0, available: 0, stale: 0 },
+      },
+      episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+    };
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "healthy",
+          title: "Healthy Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: { ...brokenStatus, needs_repair: false, repair_reason: null, phase_progress: 0.9 },
+        },
+        {
+          name: "broken",
+          title: "Broken Project",
+          style: "Anime",
+          style_template_id: "anim_kyoto",
+          thumbnail: null,
+          status: brokenStatus,
+        },
+      ],
+    });
+
+    renderPage();
+
+    // 常规卡整张是一个 link，内部文本被 aria-label 覆盖——修复状态与原因必须写进这个名字
+    expect(
+      await screen.findByRole("link", {
+        name: /Broken Project.*需要修复.*episode script scripts\/episode_1\.json item 2 has no identity/s,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("shows 自定义风格 label when project has style_image but no template_id", async () => {
@@ -90,11 +256,15 @@ describe("ProjectsPage", () => {
           style_image: "style_reference.png",
           thumbnail: null,
           status: {
-            current_phase: "production",
+            phase: "production",
             phase_progress: 0.1,
-            characters: { total: 1, completed: 0 },
-            scenes: { total: 0, completed: 0 },
-            props: { total: 0, completed: 0 },
+            needs_repair: false,
+            repair_reason: null,
+            assets: {
+              character: { total: 1, available: 0, stale: 0 },
+              scene: { total: 0, available: 0, stale: 0 },
+              prop: { total: 0, available: 0, stale: 0 },
+            },
             episodes_summary: { total: 1, scripted: 0, in_production: 1, completed: 0 },
           },
         },
@@ -118,11 +288,15 @@ describe("ProjectsPage", () => {
           style_image: null,
           thumbnail: null,
           status: {
-            current_phase: "production",
+            phase: "production",
             phase_progress: 0,
-            characters: { total: 0, completed: 0 },
-            scenes: { total: 0, completed: 0 },
-            props: { total: 0, completed: 0 },
+            needs_repair: false,
+            repair_reason: null,
+            assets: {
+              character: { total: 0, available: 0, stale: 0 },
+              scene: { total: 0, available: 0, stale: 0 },
+              prop: { total: 0, available: 0, stale: 0 },
+            },
             episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 },
           },
         },
@@ -160,11 +334,15 @@ describe("ProjectsPage", () => {
             style: "Anime",
             thumbnail: null,
             status: {
-              current_phase: "completed",
+              phase: "completed",
               phase_progress: 1,
-              characters: { total: 1, completed: 1 },
-              scenes: { total: 1, completed: 1 },
-              props: { total: 0, completed: 0 },
+              needs_repair: false,
+              repair_reason: null,
+              assets: {
+                character: { total: 1, available: 1, stale: 0 },
+                scene: { total: 1, available: 1, stale: 0 },
+                prop: { total: 0, available: 0, stale: 0 },
+              },
               episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 },
             },
           },
@@ -265,11 +443,15 @@ describe("ProjectsPage", () => {
             style: "Anime",
             thumbnail: null,
             status: {
-              current_phase: "completed",
+              phase: "completed",
               phase_progress: 1,
-              characters: { total: 1, completed: 1 },
-              scenes: { total: 1, completed: 1 },
-              props: { total: 0, completed: 0 },
+              needs_repair: false,
+              repair_reason: null,
+              assets: {
+                character: { total: 1, available: 1, stale: 0 },
+                scene: { total: 1, available: 1, stale: 0 },
+                prop: { total: 0, available: 0, stale: 0 },
+              },
               episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 },
             },
           },
@@ -327,5 +509,42 @@ describe("ProjectsPage", () => {
     await waitFor(() => {
       expect(location.history?.at(-1)).toBe("/app/projects/demo-renamed");
     });
+  });
+
+  it("breaks the hero counts down over all four phases", async () => {
+    const project = (name: string, phase: Phase) => ({
+      name,
+      title: name,
+      style: "Anime",
+      thumbnail: null,
+      status: {
+        phase,
+        phase_progress: 0,
+        needs_repair: false,
+        repair_reason: null,
+        assets: {
+          character: { total: 0, available: 0, stale: 0 },
+          scene: { total: 0, available: 0, stale: 0 },
+          prop: { total: 0, available: 0, stale: 0 },
+        },
+        episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 },
+      },
+    });
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        project("prep-a", "preparation"),
+        project("prep-b", "preparation"),
+        project("scripted", "script"),
+        project("filming", "production"),
+        project("done", "completed"),
+      ],
+    });
+
+    renderPage();
+
+    // 每个阶段都要有自己的一格：新建项目落在「准备」，不能只汇进总数就消失。
+    const hero = await screen.findByTestId("lobby-hero-stats");
+    const cells = Array.from(hero.children).map((cell) => cell.textContent);
+    expect(cells).toEqual(["项目5", "准备2", "脚本1", "制作1", "完成1"]);
   });
 });

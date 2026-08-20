@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from lib.prompt_utils import image_prompt_to_yaml, project_storyboard_image_prompt
+
 # ---------------------------------------------------------------------------
 # 内部常量：防崩 / 反向 / 布局 / 风格前缀
 # ---------------------------------------------------------------------------
@@ -141,6 +143,30 @@ def build_product_prompt(name: str, description: str, style: str = "", style_des
 # ---------------------------------------------------------------------------
 # 分镜 / 视频 prompt 末尾增强
 # ---------------------------------------------------------------------------
+
+
+def build_storyboard_prompt(
+    image_prompt: object,
+    style: str = "",
+    style_description: str = "",
+) -> str:
+    """Render canonical storyboard semantics into the exact provider prompt."""
+
+    if not isinstance(style_description, str):
+        raise TypeError("style_description must be a string")
+    projected, normalized_style = project_storyboard_image_prompt(image_prompt, style)
+
+    style_parts: list[str] = []
+    if normalized_style and isinstance(projected, str):
+        style_parts.append(f"Style: {normalized_style}")
+    normalized_description = style_description.strip()
+    if normalized_description:
+        style_parts.append(f"Visual style: {normalized_description}")
+    style_prefix = "\n".join(style_parts) + "\n\n" if style_parts else ""
+    rendered = image_prompt_to_yaml(projected, normalized_style) if isinstance(projected, dict) else projected
+    if style_prefix and not rendered.startswith(style_prefix):
+        rendered = f"{style_prefix}{rendered}"
+    return append_image_negative_tail(rendered)
 
 
 def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | None) -> str:

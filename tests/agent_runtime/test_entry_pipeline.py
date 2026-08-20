@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from server.agent_runtime.entry_pipeline import DraftAccumulator, SessionEntryPipeline
+from server.agent_runtime.event_log import REPLAYED_USER_ECHO_ENTRY_UUID_KEY, REPLAYED_USER_ECHO_KEY
 
 pytestmark = pytest.mark.unit
 
@@ -16,6 +17,10 @@ class _RecordingStore:
 
     def __init__(self):
         self.entries: list[dict[str, Any]] = []
+        self.links: list[tuple[str, str, str]] = []
+
+    async def record_user_message_link(self, session_id: str, user_entry_uuid: str, sdk_entry_uuid: str) -> None:
+        self.links.append((session_id, user_entry_uuid, sdk_entry_uuid))
 
     async def append(self, session_id: str, entries: list[dict], *, client_key=None) -> list[dict]:
         appended = []
@@ -391,3 +396,68 @@ class TestSessionEntryPipeline:
         assert store.attempts == 2
         assert len(store.entries) == 1
         assert [b["type"] for b in broadcasts] == ["log_entry"]
+
+
+class TestReplayedUserEchoLink:
+    """回放副本落映射：外部行为不变（不产生条目、不广播），只多一行身份映射。"""
+
+    def _echo(self, **extra: Any) -> dict[str, Any]:
+        msg: dict[str, Any] = {
+            "type": "user",
+            "content": "hi",
+            "uuid": "sdk-entry-1",
+            REPLAYED_USER_ECHO_KEY: True,
+        }
+        msg.update(extra)
+        return msg
+
+    async def test_echo_records_link_without_entry_or_broadcast(self):
+        pipeline, store, broadcasts = _make_pipeline()
+
+        await pipeline.handle_message(self._echo(**{REPLAYED_USER_ECHO_ENTRY_UUID_KEY: "user-1"}))
+
+        assert store.links == [("s1", "user-1", "sdk-entry-1")]
+        assert store.entries == []
+        assert broadcasts == []
+
+    async def test_echo_without_sdk_uuid_is_skipped(self):
+        """SDK 未在回放副本上带 uuid：无从定位 transcript，跳过映射而非写半条。"""
+        pipeline, store, _ = _make_pipeline()
+
+        await pipeline.handle_message(
+            {
+                "type": "user",
+                "content": "hi",
+                REPLAYED_USER_ECHO_KEY: True,
+                REPLAYED_USER_ECHO_ENTRY_UUID_KEY: "user-1",
+            }
+        )
+
+        assert store.links == []
+        assert store.entries == []
+
+    async def test_echo_without_entry_uuid_is_skipped(self):
+        pipeline, store, _ = _make_pipeline()
+
+        await pipeline.handle_message(self._echo())
+
+        assert store.links == []
+        assert store.entries == []
+
+    async def test_link_failure_does_not_break_the_session(self):
+        class _FailingStore(_RecordingStore):
+            async def record_user_message_link(self, session_id, user_entry_uuid, sdk_entry_uuid) -> None:
+                raise RuntimeError("db busy")
+
+        store = _FailingStore()
+        broadcasts: list[dict] = []
+        pipeline = SessionEntryPipeline(
+            store,  # type: ignore[arg-type]
+            session_id_provider=lambda: "s1",
+            broadcast=broadcasts.append,
+        )
+
+        await pipeline.handle_message(self._echo(**{REPLAYED_USER_ECHO_ENTRY_UUID_KEY: "user-1"}))
+
+        await pipeline.handle_message({"type": "assistant", "uuid": "a-1", "content": [{"type": "text", "text": "x"}]})
+        assert [e["uuid"] for e in store.entries] == ["a-1"]

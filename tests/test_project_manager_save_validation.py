@@ -195,11 +195,9 @@ class TestUtterancesEditGuard:
 
 
 def _unit(unit_id: str = "E1U1", duration_seconds: int = 8) -> dict:
-    shots = [{"text": "镜头1"}, {"text": "镜头2"}]
     return {
         "unit_id": unit_id,
-        "shots": shots,
-        "references": [],
+        "text": "中景，@[角色A] 推门。\n近景，他抬眼。",
         "duration_seconds": duration_seconds,
     }
 
@@ -214,27 +212,6 @@ def _reference_script(units: list[dict] | None = None) -> dict:
         "novel": {"title": "小说", "chapter": "第一章"},
         "video_units": units if units is not None else [_unit("E1U1", 6), _unit("E1U2", 8)],
     }
-
-
-class TestMetadataRecompute:
-    def test_reference_video_metadata_counts_units(self, tmp_path: Path):
-        """reference 模式经统一入口后 total_scenes 应等于 video_units 数、时长为各 unit 之和，
-        而非落入 segments 兜底分支错算为 0。"""
-        pm = _pm(tmp_path)
-        pm.save_script("demo", _reference_script(), "episode_1.json")
-
-        saved = pm.load_script("demo", "episode_1.json")
-        assert saved["metadata"]["total_scenes"] == 2
-        # 两个 unit 取不同秒数：等长夹具下「unit 数 × 定值」的错算也会通过。
-        assert saved["metadata"]["estimated_duration_seconds"] == 14
-
-    def test_narration_metadata_unchanged(self, tmp_path: Path):
-        pm = _pm(tmp_path)
-        pm.save_script("demo", _valid_script([_segment("E1S01", 4), _segment("E1S02", 6)]), "episode_1.json")
-
-        saved = pm.load_script("demo", "episode_1.json")
-        assert saved["metadata"]["total_scenes"] == 2
-        assert saved["metadata"]["estimated_duration_seconds"] == 10
 
 
 class TestAssetWritebackExemption:
@@ -269,7 +246,7 @@ class TestAssetWritebackExemption:
 
     def _seed_corrupted_null_video_units(self, tmp_path: Path) -> None:
         """构造 video_units=null 的 reference 模式脏剧本，且事先有合理的 metadata（模拟数据
-        损坏前的状态），用于验证脏数据 fallback 时保留旧 metadata 而非重算成错值。"""
+        损坏前的状态），用于验证脏数据下资产回写不改写既有 metadata。"""
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
@@ -299,10 +276,8 @@ class TestAssetWritebackExemption:
             pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S01", "video_clip", "videos/E1S01.mp4")])
 
     def test_writeback_preserves_old_metadata_on_corrupted_list_key(self, tmp_path: Path):
-        """资产回写热路径在 reference 模式 `video_units: null` 下：metadata 重算应**跳过**而非
-        hard-pin 到 segments shell。否则 fallback 会把 total_scenes=0 / 默认时长写回，
-        把 reference 项目的 metadata 改写成 0-scene narration shell——脏数据「不更坏」的反面。
-        正确行为：保留旧 metadata 不动（即便陈旧也好过写错的），仅 updated_at 刷新。"""
+        """资产回写热路径在 reference 模式 `video_units: null` 下不改写既有 metadata：存量剧本上
+        遗留的统计键原样保留、仅 updated_at 刷新。脏数据「不更坏」——写入侧不趁机重写它读不懂的内容。"""
         pm = _pm(tmp_path)
         self._seed_corrupted_null_video_units(tmp_path)
 
@@ -428,8 +403,7 @@ class TestAssetWritebackExemption:
         assert [item["segment_id"] for item in needing] == ["E1S01"]
 
     def test_update_scene_asset_writes_with_non_dict_sibling(self, tmp_path: Path):
-        """写入侧 update_scene_asset：非 dict 兄弟元素被跳过，合法 id 正常回写，不抛 AttributeError。
-        写回触发的 metadata 重算（_duration）遍历含非 dict 元素的数组也不崩。"""
+        """写入侧 update_scene_asset：非 dict 兄弟元素被跳过，合法 id 正常回写，不抛 AttributeError。"""
         pm = _pm(tmp_path)
         self._seed_non_dict_element(tmp_path)
         pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "storyboards/E1S01.png")
@@ -438,17 +412,13 @@ class TestAssetWritebackExemption:
         assert target["generated_assets"]["storyboard_image"] == "storyboards/E1S01.png"
 
     def test_batch_update_scene_assets_writes_with_non_dict_sibling(self, tmp_path: Path):
-        """批量写入：非 dict 兄弟元素被过滤；合法 id 成功；写回触发的 metadata 重算（_duration）
-        遍历含非 dict 元素的数组也不抛 AttributeError。"""
+        """批量写入：非 dict 兄弟元素被过滤，合法 id 成功回写，不抛 AttributeError。"""
         pm = _pm(tmp_path)
         self._seed_non_dict_element(tmp_path)
         pm.batch_update_scene_assets("demo", "episode_1.json", [("E1S01", "video_clip", "videos/E1S01.mp4")])
         saved = pm.load_script("demo", "episode_1.json")
         target = next(s for s in saved["segments"] if isinstance(s, dict) and s.get("segment_id") == "E1S01")
         assert target["generated_assets"]["video_clip"] == "videos/E1S01.mp4"
-        # 非 dict 元素（"foo"）不计入 metadata：只有 1 个合法片段、4 秒，不被垃圾元素撑大
-        assert saved["metadata"]["total_scenes"] == 1
-        assert saved["metadata"]["estimated_duration_seconds"] == 4
 
     def test_batch_update_scene_assets_missing_id_fails_loud_with_non_dict_sibling(self, tmp_path: Path):
         """命中不存在 id 仍 fail-loud（KeyError）——非 dict 元素被过滤后不会被误当作 id 命中。"""

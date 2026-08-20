@@ -1,6 +1,6 @@
 """SessionActor: 每会话一个专属 asyncio task，封装 ClaudeSDKClient 的所有协议调用。
 
-设计：docs/superpowers/specs/2026-04-13-session-actor-design.md
+设计决策：docs/adr/0028-session-actor-single-task-serialization.md
 """
 
 from __future__ import annotations

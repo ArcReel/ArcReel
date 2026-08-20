@@ -144,10 +144,14 @@ _SCENE_WRITING_GUIDE = """这段文字将直接生成一张静态图：只描述
    反例（跑偏）：「林清陷入了多年前那个绝望的雨夜，画面基调：忧郁。光影设定：冷调。」——「多年前的雨夜」不在此刻画面上；「忧郁 / 冷调」是抽象标签，不是可见细节。
    反例（过短）：「林清坐在窗边发呆。」——缺少环境元素、光线方向、氛围细节，至少应覆盖主体 / 环境 / 光线 / 氛围中三层。"""
 
-# video_prompt.action 写作指导：i2v 契约（首帧已定、只写运动）+ 分层要素 + 正反例。
+# video_prompt.action 写作指导：i2v 契约（首帧已定、只写运动）+ 分层要素 + 正反例，末段收编任务类型
+# 触发词避讳。避讳写在这里而非编排层的 CLAUDE.*.md：video_prompt 由本模块驱动的文案模型产出，
+# 编排层的系统 prompt 不进那次调用，写在那边约束不到真正落笔的模型。本常量为三条 step2 路径
+# （drama / narration / ad）共用，改这一处即三路同步。
 _ACTION_WRITING_GUIDE = """首帧画面已定格主体、场景与风格，这段文字驱动它动起来：只描述该时长内发生的运动与变化，不复述画面中的静态内容；镜头运动专由 camera_motion 字段承载，action 只写主体与环境的运动。按主体动作（肢体 / 手势 / 表情过渡）、物件互动（摩挲信纸、推门带起的气流等）、环境动态（衣摆、尘埃、雨势、光影移动）分层写成连贯叙述句；动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免内心动词。优先低缓、连贯的细微动作，动作量与该镜头时长匹配：5 秒级镜头通常完成一个连贯动作 + 一个细节互动；8 秒级可承载一次动作过渡（如「抬头—对视—开口」）；更长的镜头保持单一低缓的动作主线，随时长递增动作段数（如「起身—走到窗前—驻足」），而非叠加多条并行动作。
    正例：「林清缓缓抬起头，眼角微微收紧，手指无意识地摩挲信纸边缘；窗外雨势渐大，桌面投下的雨痕影子在缓慢移动。」——主体动作、物件互动、环境动态各有一笔。
-   反例：「林清像蝴蝶般飞舞，思绪在过去与现在之间快速切换。」——「思绪切换」不是可拍摄的运动；「像蝴蝶般」是修辞，不是动作描述。"""
+   反例：「林清像蝴蝶般飞舞，思绪在过去与现在之间快速切换。」——「思绪切换」不是可拍摄的运动；「像蝴蝶般」是修辞，不是动作描述。
+   避开任务类型触发词：不要用「增加 / 删除 / 去掉 / 修改 / 替换 / 改成 / 延长 / 续写」这类祈使动词。部分模型按 prompt 措辞判定任务类型，带这些词会把参考生视频误判成视频编辑或视频延长，而误判在异步生成阶段才报错——任务已排队、已计费。直接描述目标画面本身即可：不写「把外套改成红色」，写「她穿着红色外套」。"""
 
 _LIGHTING_WRITING_GUIDE = (
     "描述具体的光源、方向、色温（如「左侧窗户透入的暖黄色晨光（约 3500K）」「头顶单点冷白色的吊灯」）。"
@@ -276,7 +280,7 @@ def build_narration_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """构建说书模式 step2（视觉层）prompt。
+    """构建旁白/解说模式 step2（视觉层）prompt。
 
     step1 已定的 novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具按 segment_id
     透传，step2 只产 image_prompt 与 video_prompt。``<segments>`` 块为只读上下文，
@@ -426,7 +430,7 @@ def build_drama_prompt(
     scenes: dict | None = None,
     props: dict | None = None,
 ) -> str:
-    """构建剧集动画模式 step2（视觉层）prompt。
+    """构建剧情演绎模式 step2（视觉层）prompt。
 
     内容抽取前移到 step1（见 ADR 0041）：场景边界、出场资产、逐字口播 utterances、原文锚
     source_text、视觉改编描述均已在 step1 定稿，``scenes_content`` 是其渲染输入
@@ -527,6 +531,7 @@ def build_normalize_prompt(
     source_kind: str = "novel",
     target_language: str = "中文",
     source_language: str | None = None,
+    speech_rate_override: float | None = None,
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
@@ -542,6 +547,8 @@ def build_normalize_prompt(
 
     ``source_language`` 供时长指引的「台词口播时长」单向下界软指引取语速（阅读单位 / 秒，来自
     ``lib.speech_rate`` 单一真相源，与保存期上界 warning、字幕派生同口径）；缺省 / 未登记回退默认语速。
+    ``speech_rate_override`` 是项目级语速覆盖（由调用方经 ``project_speech_rate_override`` 解析），
+    ``None`` 即无覆盖、回退语言默认。
     """
     char_list = _format_names(characters)
     scene_list = _format_names(scenes)
@@ -599,12 +606,13 @@ def build_normalize_prompt(
             f"从支持的秒数档位（{durations_str}）中按画面内容复杂度匹配合适时长（最长 {max_dur} 秒），不强制默认值"
         )
     # 台词口播时长单向下界软指引：模型为某场选 duration 时，不应选到装不下该场 utterances 口播的短档。
-    # 语速（阅读单位 / 秒）从 lib.speech_rate 单一真相源按 source_language 注入、不写死，与保存期上界
-    # warning、字幕派生同口径。纯软约束：只在 prompt 里下发靠模型遵守，不加生成后机械改写、不加硬阻塞。
-    # source_language 来自 project.json，可能是非字符串脏数据；非字符串回退 None，避免下游
-    # speech_rate / reading_unit_noun 的 .strip() 触发 AttributeError（与保存期上界 warning 同口径守卫）。
+    # 语速（阅读单位 / 秒）从 lib.speech_rate 单一真相源取（项目级覆盖优先、否则按 source_language 的
+    # 语言默认）、不写死，与保存期上界 warning、字幕派生同口径。纯软约束：只在 prompt 里下发靠模型遵守，
+    # 不加生成后机械改写、不加硬阻塞。source_language 来自 project.json，可能是非字符串脏数据；非字符串
+    # 回退 None，避免下游 speech_rate / reading_unit_noun 的 .strip() 触发 AttributeError
+    # （与保存期上界 warning 同口径守卫）。
     source_language = source_language if isinstance(source_language, str) else None
-    speech_rate = speech_rate_units_per_second(source_language)
+    speech_rate = speech_rate_units_per_second(source_language, speech_rate_override)
     unit_label = reading_unit_noun(source_language)
     duration_lower_bound_rule = (
         "再按台词口播长度设下界：先估算该场 utterances（台词 + 画外音）念完约需的秒数"
@@ -689,7 +697,7 @@ def build_narration_split_prompt(
     episode: int,
     target_language: str = "中文",
 ) -> str:
-    """Step-1 说书片段拆分 prompt：源文 → 结构化片段表（逐字 novel_text + 时长 + 资产登记）。
+    """Step-1 旁白/解说片段拆分 prompt：源文 → 结构化片段表（逐字 novel_text + 时长 + 资产登记）。
 
     由 ``split_narration_segments`` MCP tool 消费。输出受 response_schema（``NarrationStep1Draft``）
     约束为结构化 JSON——``novel_text`` 逐字保留原文（配音与透传真相源），视觉层由后续 step2 按
@@ -724,8 +732,8 @@ def build_narration_split_prompt(
 
     return f"""# 角色与任务
 
-你是一位专业的说书内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的片段表（step1 内容拆分）。
-说书剧本走两段式：本阶段只定内容层——逐字 `novel_text`、片段边界、时长、场景切换标记与出场资产；
+你是一位专业的旁白内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的片段表（step1 内容拆分）。
+旁白/解说脚本走两段式：本阶段只定内容层——逐字 `novel_text`、片段边界、时长、场景切换标记与出场资产；
 视觉层（image_prompt / video_prompt）由后续 step2 按 `segment_id` 对齐生成，`novel_text` 由本阶段定稿后透传、不再重出。
 
 **输出语言**：自然语言字符串值使用 {target_language}；JSON 键名保持英文。

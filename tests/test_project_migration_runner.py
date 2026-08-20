@@ -143,6 +143,15 @@ def test_corrupted_schema_version_skipped_not_abort(tmp_projects: Path):
     assert data["schema_version"] == "corrupted"  # 原样保留，待人工修复
 
 
+def test_numeric_string_schema_version_is_not_classified_as_current(tmp_projects: Path):
+    """数字字符串也是损坏的持久化版本，不能被误判为已完成迁移。"""
+    _write_project(tmp_projects, "numeric-string", {"schema_version": str(CURRENT_SCHEMA_VERSION)})
+
+    summary = run_project_migrations(tmp_projects)
+
+    assert "numeric-string" not in summary.migrated + summary.failed + summary.skipped
+
+
 def test_falsy_or_bool_schema_version_skipped_not_v0(tmp_projects: Path):
     """空串 / bool 等不可解析版本号按损坏跳过，不误当 v0 重跑迁移。"""
     for name, bad in [("empty", ""), ("bool-true", True), ("bool-false", False)]:
@@ -177,11 +186,26 @@ def test_error_isolated_not_abort(tmp_projects: Path, monkeypatch):
 
 
 def test_cleanup_old_backups(tmp_projects: Path):
-    p = _write_project(tmp_projects, "p1", {"schema_version": 1})
+    p = _write_project(
+        tmp_projects,
+        "p1",
+        {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        },
+    )
     old = p / "project.json.bak.v0-100000000"
     new = p / "project.json.bak.v0-9999999999"
     old.write_text("old", encoding="utf-8")
     new.write_text("new", encoding="utf-8")
+    old_script = p / "scripts" / "episode_1.json.bak.v7-100000000"
+    new_manifest = p / ".arcreel_artifacts.json.bak.v7-9999999999"
+    old_script.parent.mkdir()
+    old_script.write_text("old-script", encoding="utf-8")
+    new_manifest.write_text("new-manifest", encoding="utf-8")
+    user_source = p / "source" / "novel.bak.v7-final.txt"
+    user_source.parent.mkdir()
+    user_source.write_text("user-owned", encoding="utf-8")
 
     old_clues_dir = p / "clues.bak.v0-100000000"
     new_clues_dir = p / "clues.bak.v0-9999999999"
@@ -194,13 +218,45 @@ def test_cleanup_old_backups(tmp_projects: Path):
     import os
 
     os.utime(old, (eight_days_ago, eight_days_ago))
+    os.utime(old_script, (eight_days_ago, eight_days_ago))
+    os.utime(user_source, (eight_days_ago, eight_days_ago))
     os.utime(old_clues_dir, (eight_days_ago, eight_days_ago))
 
     cleanup_stale_backups(tmp_projects, max_age_days=7)
     assert not old.exists()
     assert new.exists()
+    assert not old_script.exists()
+    assert new_manifest.exists()
+    assert user_source.read_text(encoding="utf-8") == "user-owned"
     assert not old_clues_dir.exists()
     assert new_clues_dir.exists()
+
+
+def test_cleanup_retains_v7_recovery_backups_until_schema_promotion_succeeds(tmp_projects: Path) -> None:
+    import os
+
+    project_dir = _write_project(
+        tmp_projects,
+        "p1",
+        {
+            "schema_version": 7,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        },
+    )
+    backups = [
+        project_dir / "project.json.bak.v7-100000000",
+        project_dir / "scripts" / "episode_1.json.bak.v7-100000000",
+        project_dir / ".arcreel_artifacts.json.bak.v7-100000000",
+    ]
+    expired = time.time() - 8 * 86400
+    for backup in backups:
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        backup.write_text("recovery", encoding="utf-8")
+        os.utime(backup, (expired, expired))
+
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert all(backup.exists() for backup in backups)
 
 
 def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):

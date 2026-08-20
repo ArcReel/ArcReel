@@ -15,14 +15,13 @@ from lib.video_backends.base import (
     AmbiguousSubmitError,
     ResumeExpiredError,
     VideoGenerationRequest,
+    first_str_by_paths,
 )
 from lib.video_backends.v2_video_generations import (
     _TASK_ID_PATHS,
     _VIDEO_URL_PATHS,
     PROVIDER_V2_VIDEO,
-    _dig,
     _extract_failure,
-    _first_str_by_paths,
     _log_fields,
     _normalize_root,
     build_request_body,
@@ -113,21 +112,6 @@ class TestNormalizeStatus:
         assert normalize_status(raw) == expected
 
 
-class TestDig:
-    def test_walks_dict_and_list_index(self):
-        payload = {"data": {"task_result": {"videos": [{"url": "u0"}, {"url": "u1"}]}}}
-        assert _dig(payload, ("data", "task_result", "videos", 0, "url")) == "u0"
-
-    def test_missing_key_returns_none(self):
-        assert _dig({"a": 1}, ("a", "b")) is None
-
-    def test_list_index_out_of_range_returns_none(self):
-        assert _dig({"v": []}, ("v", 0)) is None
-
-    def test_type_mismatch_returns_none(self):
-        assert _dig({"v": "str"}, ("v", 0)) is None  # 期望 list 实为 str
-
-
 class TestVideoUrlExtraction:
     @pytest.mark.parametrize(
         "payload,expected",
@@ -141,18 +125,18 @@ class TestVideoUrlExtraction:
         ],
     )
     def test_extracts_first_match(self, payload, expected):
-        assert _first_str_by_paths(payload, _VIDEO_URL_PATHS) == expected
+        assert first_str_by_paths(payload, _VIDEO_URL_PATHS) == expected
 
     def test_priority_video_url_wins_over_bare_url(self):
         payload = {"video": {"url": "https://primary/v.mp4"}, "url": "https://fallback/v.mp4"}
-        assert _first_str_by_paths(payload, _VIDEO_URL_PATHS) == "https://primary/v.mp4"
+        assert first_str_by_paths(payload, _VIDEO_URL_PATHS) == "https://primary/v.mp4"
 
     def test_all_miss_returns_none(self):
-        assert _first_str_by_paths({"foo": "bar"}, _VIDEO_URL_PATHS) is None
+        assert first_str_by_paths({"foo": "bar"}, _VIDEO_URL_PATHS) is None
 
     def test_empty_string_skipped(self):
         payload = {"video": {"url": "   "}, "url": "https://fallback/v.mp4"}
-        assert _first_str_by_paths(payload, _VIDEO_URL_PATHS) == "https://fallback/v.mp4"
+        assert first_str_by_paths(payload, _VIDEO_URL_PATHS) == "https://fallback/v.mp4"
 
 
 class TestTaskIdExtraction:
@@ -169,14 +153,14 @@ class TestTaskIdExtraction:
         ],
     )
     def test_extracts(self, payload, expected):
-        assert _first_str_by_paths(payload, _TASK_ID_PATHS) == expected
+        assert first_str_by_paths(payload, _TASK_ID_PATHS) == expected
 
     def test_priority_id_wins(self):
-        assert _first_str_by_paths({"id": "primary", "task_id": "secondary"}, _TASK_ID_PATHS) == "primary"
+        assert first_str_by_paths({"id": "primary", "task_id": "secondary"}, _TASK_ID_PATHS) == "primary"
 
     def test_priority_generation_id_wins(self):
         # generation_id 是端点文档约定字段，优先级压过 id（表首）
-        assert _first_str_by_paths({"generation_id": "gen", "id": "fallback"}, _TASK_ID_PATHS) == "gen"
+        assert first_str_by_paths({"generation_id": "gen", "id": "fallback"}, _TASK_ID_PATHS) == "gen"
 
 
 class TestBuildRequestBody:

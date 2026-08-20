@@ -288,7 +288,7 @@ def _format_settings_result(updated: dict[str, tuple[str, Any]]) -> str:
 def _format_upsert_result(table: str, result: dict[str, Any]) -> str:
     """把 upsert_assets 的诊断 dict 渲染为 agent 可读文本。
 
-    区分新增/合并/无变更让 subagent 能验证策略是否符合预期(分析提取场景应预期合并/无变更=0,
+    区分新增/合并/无变更让子任务能验证策略是否符合预期(分析提取场景应预期合并/无变更=0,
     出现说明遗漏了已存在过滤);显式列出被忽略字段让 LLM 不再重复尝试同样会被丢的字段
     (reference_image 系统管理、sheet_field 资产流水线回写、type/importance 已废弃)。
     name 维度按字母序排序,渲染顺序稳定不依赖 agent 入参 dict 序。

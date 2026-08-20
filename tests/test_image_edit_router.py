@@ -1,12 +1,17 @@
 """图片指令式编辑端点（POST /projects/{name}/edit/image）的请求校验与入队行为。"""
 
+import json
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from PIL import Image
 
+from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.i18n import _ as i18n_message
+from lib.project_migrations.runner import migrate_project_dir
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -24,24 +29,57 @@ class _FakeQueue:
         return {"task_id": f"task-{len(self.calls)}", "deduped": False}
 
 
+def _project_dict() -> dict:
+    return {
+        "name": "demo",
+        "title": "Demo",
+        "schema_version": 8,
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "style": "anime",
+        "style_description": "anime style",
+        "aspect_ratio": "9:16",
+        "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+        "characters": {"Alice": {"description": "少女", "character_sheet": "characters/Alice.png"}},
+        "scenes": {"祠堂": {"description": "祠堂", "scene_sheet": "scenes/祠堂.png"}},
+        "props": {"玉佩": {"description": "玉佩", "prop_sheet": "props/玉佩.png"}},
+        "products": {"保温杯": {"description": "保温杯", "product_sheet": "products/保温杯.png"}},
+    }
+
+
+def _script_dict() -> dict:
+    def _segment(resource_id: str, storyboard_image: str | None) -> dict:
+        return {
+            "segment_id": resource_id,
+            "episode": 1,
+            "image_prompt": {
+                "scene": f"scene {resource_id}",
+                "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+            },
+            "characters_in_segment": [],
+            "scenes": [],
+            "props": [],
+            "segment_break": True,
+            "generated_assets": {"storyboard_image": storyboard_image} if storyboard_image else {},
+        }
+
+    return {
+        "episode": 1,
+        "content_mode": "narration",
+        "segments": [
+            _segment("E1S01", "storyboards/scene_E1S01.png"),
+            # 旧宫格项目的指针指向非 canonical 路径
+            _segment("E1S02", "storyboards/scene_E1S02_first.png"),
+            _segment("E1S03", None),
+        ],
+    }
+
+
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        self.project = {
-            "content_mode": "narration",
-            "characters": {"Alice": {"character_sheet": "characters/Alice.png"}},
-            "scenes": {"祠堂": {"scene_sheet": "scenes/祠堂.png"}},
-            "props": {"玉佩": {"prop_sheet": "props/玉佩.png"}},
-            "products": {"保温杯": {"product_sheet": "products/保温杯.png"}},
-        }
-        self.script = {
-            "content_mode": "narration",
-            "segments": [
-                {"segment_id": "E1S01", "generated_assets": {}},
-                {"segment_id": "E1S02", "generated_assets": {"storyboard_image": "storyboards/scene_E1S02_first.png"}},
-                {"segment_id": "E1S03", "generated_assets": {}},
-            ],
-        }
+        self.project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+        self.script = json.loads((project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
 
     def load_project(self, project_name):
         return self.project
@@ -54,15 +92,30 @@ class _FakePM:
 
 
 def _prepare_files(tmp_path: Path) -> Path:
+    """按生产形态搭一个项目：schema 当前、剧本已绑定、已落盘的图都登记进产物清单。"""
     project_path = tmp_path / "projects" / "demo"
-    for subdir in ("storyboards", "characters", "scenes", "props", "products"):
+    for subdir in ("storyboards", "characters", "scenes", "props", "products", "scripts", "source", "drafts/episode_1"):
         (project_path / subdir).mkdir(parents=True, exist_ok=True)
-    (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
-    (project_path / "storyboards" / "scene_E1S02_first.png").write_bytes(b"png")
-    (project_path / "characters" / "Alice.png").write_bytes(b"png")
-    (project_path / "scenes" / "祠堂.png").write_bytes(b"png")
-    (project_path / "props" / "玉佩.png").write_bytes(b"png")
-    (project_path / "products" / "保温杯.png").write_bytes(b"png")
+    for relative in (
+        "storyboards/scene_E1S01.png",
+        "storyboards/scene_E1S02_first.png",
+        "characters/Alice.png",
+        "scenes/祠堂.png",
+        "props/玉佩.png",
+        "products/保温杯.png",
+    ):
+        Image.new("RGB", (4, 4)).save(project_path / relative)
+    project = _project_dict()
+    project["schema_version"] = 7
+    (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+    (project_path / "scripts" / "episode_1.json").write_text(json.dumps(_script_dict()), encoding="utf-8")
+    (project_path / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
+    (project_path / "drafts" / "episode_1" / "step1_segments.json").write_text(
+        json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
+    )
+    activate_artifact_target_state(project_path, bump_schema=True)
+    # 清单激活只落到清单版本，后续迁移把项目补到当前 schema，产物读路径才准入
+    migrate_project_dir(project_path)
     return project_path
 
 
@@ -157,6 +210,58 @@ class TestEditImageEnqueue:
 
 
 class TestEditImageValidation:
+    def test_active_asset_without_a_manifest_claim_is_not_enqueued(self, tmp_path, monkeypatch):
+        from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        comparisons = []
+
+        class _Currency:
+            def compare(self, key, *, artifact_path):
+                comparisons.append((key, artifact_path))
+                return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path)
+
+            def resolve_usable_entry(self, key, *, artifact_path):
+                self.compare(key, artifact_path=artifact_path)
+                return None
+
+        monkeypatch.setattr(generate, "active_artifact_currency_resolver", lambda *_args: _Currency())
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/edit/image",
+                json={"resource_type": "character", "resource_id": "Alice", "instruction": "换发色"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert comparisons == [(ArtifactKey.asset_sheet("character", "Alice"), "characters/Alice.png")]
+        assert fake_queue.calls == []
+
+    def test_active_storyboard_rejects_an_unbound_script_before_enqueue(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["episodes"] = []
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/edit/image",
+                json={
+                    "resource_type": "storyboard",
+                    "resource_id": "E1S01",
+                    "instruction": "去掉背景里的路人",
+                    "script_file": "episode_1.json",
+                },
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert fake_queue.calls == []
+
     def test_resource_type_whitelist_400(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_queue = _FakeQueue()

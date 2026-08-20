@@ -95,7 +95,7 @@ _DURATION_RULES: dict[tuple[str, str], list[int]] = {
     ("vidu2.0", "/reference2video"): [4],
 }
 
-# 端点支持的模型集合 —— 用于早期失败提示（依据 Vidu 官方文档 docs/vidu-docs/*）
+# 端点支持的模型集合 —— 用于早期失败提示（依据 docs/api-docs/providers/vidu.md 所列官方文档）
 _ENDPOINT_MODELS: dict[str, frozenset[str]] = {
     "/text2video": frozenset({"viduq3-turbo", "viduq3-pro", "viduq2", "viduq1"}),
     "/img2video": frozenset(
@@ -230,6 +230,8 @@ class ViduVideoBackend:
         async with create_vidu_client(api_key=self._api_key, base_url=self._base_url) as client:
             payload = await self._create_task(client, endpoint, body)
             task_id = payload["task_id"]
+            if request.on_provider_resubmit_unsafe is not None:
+                request.on_provider_resubmit_unsafe()
             credits = payload.get("credits")
             logger.info(
                 "Vidu 视频任务已创建: endpoint=%s task_id=%s credits=%s model=%s",

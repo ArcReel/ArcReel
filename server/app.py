@@ -41,6 +41,7 @@ from lib.path_safety import try_safe_join
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password, get_current_user
+from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.routers import (
     agent_chat,
@@ -56,6 +57,7 @@ from server.routers import (
     generate,
     grids,
     onboarding,
+    presentations,
     products,
     project_events,
     projects,
@@ -157,7 +159,8 @@ def check_sandbox_available() -> bool:
     """启动期检测 sandbox 工具可用性。
 
     返回 ``True`` 表示沙箱可用且必须启用；返回 ``False`` 表示 SDK 不支持
-    当前平台（目前仅 Windows — sandboxing.md §"Platform support"），server
+    当前平台（仅 Windows，官方平台约束见
+    https://code.claude.com/docs/en/sandboxing#platform-and-tool-compatibility），server
     仍可启动但 sandbox 关闭，Bash 工具回退到
     ``AgentAccessPolicy.WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
     macOS / Linux 工具缺失仍硬失败（受支持平台禁止降级）。
@@ -172,7 +175,7 @@ def check_sandbox_available() -> bool:
             )
         return True
     if system == "Linux":
-        # 官方 sandboxing.md 明确 Linux 需要 bubblewrap + socat 一起装
+        # Linux 依赖见 https://code.claude.com/docs/en/sandboxing#set-up-linux-and-wsl2：需同时安装
         # （bwrap 做进程/文件隔离，socat 做网络代理转发）。
         missing = [name for name in ("bwrap", "socat") if shutil.which(name) is None]
         if missing:
@@ -567,14 +570,33 @@ app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_
 app.include_router(characters.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["角色管理"])
 app.include_router(scenes.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["场景管理"])
 app.include_router(props.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["道具管理"])
-app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["产品管理"])
+app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["商品管理"])
+app.include_router(presentations.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["成片演示"])
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
-app.include_router(generate.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["生成"])
 app.include_router(
-    script_review.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["剧本审核 gate"]
+    generate.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["生成"],
 )
-app.include_router(shot_uploads.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["镜头上传"])
-app.include_router(end_frames.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["镜头尾帧"])
+app.include_router(
+    script_review.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["剧本审核 gate"],
+)
+app.include_router(
+    shot_uploads.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["镜头上传"],
+)
+app.include_router(
+    end_frames.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["镜头尾帧"],
+)
 app.include_router(versions.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用统计"])
 app.include_router(auth_router.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["认证"])
@@ -582,7 +604,7 @@ app.include_router(
     assistant.router,
     prefix="/api/v1/projects/{project_name}/assistant",
     dependencies=[Depends(get_current_user)],
-    tags=["助手会话"],
+    tags=["智能体会话"],
 )
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
 app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
@@ -597,9 +619,17 @@ app.include_router(
 app.include_router(
     cost_estimation.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用估算"]
 )
-app.include_router(grids.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["宫格图"])
 app.include_router(
-    reference_videos.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["参考生视频"]
+    grids.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["多宫格分镜图"],
+)
+app.include_router(
+    reference_videos.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["参考生视频"],
 )
 app.include_router(assets.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["全局资产库"])
 app.include_router(onboarding.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["首次使用引导"])
@@ -613,7 +643,7 @@ app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 app.include_router(
     assistant.self_auth_router,
     prefix="/api/v1/projects/{project_name}/assistant",
-    tags=["助手会话"],
+    tags=["智能体会话"],
 )
 app.include_router(project_events.self_auth_router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])

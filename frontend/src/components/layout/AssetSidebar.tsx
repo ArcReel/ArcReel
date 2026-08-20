@@ -20,6 +20,7 @@ import { useAppStore } from "@/stores/app-store";
 import { API } from "@/api";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { isDemoProject } from "@/onboarding/demo-project";
+import { normalizeRoute } from "@/utils/generation-mode";
 import { EpisodeCard } from "./EpisodeCard";
 
 interface AssetSidebarProps {
@@ -124,7 +125,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       icon: Package,
       meta: propCount,
     },
-    // 产品资产仅广告/短片项目使用（v1 单产品设定），其余模式隐藏入口
+    // 商品资产仅广告/短片项目使用（v1 单商品设定），其余模式隐藏入口
     ...(isAd
       ? [
           {
@@ -312,6 +313,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   onClick={() => setLocation(`/episodes/${ep.episode}`)}
                   showEpisodeBadge={!isAd}
                   fallbackTitle={isAd ? currentProjectData?.title : undefined}
+                  route={normalizeRoute(currentProjectData?.generation_mode)}
                 />
               ))
             )}

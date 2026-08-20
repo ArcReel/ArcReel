@@ -1,127 +1,168 @@
 # 内嵌智能体工作流的裸文件读写依赖面盘点
 
-> Research ticket: [#1703](https://github.com/ArcReel/ArcReel/issues/1703)（属地图 [#1702](https://github.com/ArcReel/ArcReel/issues/1702)）。
-> 目的：为外部 agent 走远程 MCP 的工具面清单决策提供事实输入——逐项列出内嵌工作流哪些步骤依赖对项目目录的裸文件 Read/Write/Edit/Glob/Bash，今天是否已有结构化 MCP 工具覆盖，Spec [#1669](https://github.com/ArcReel/ArcReel/issues/1669) 落地后还剩什么缺口。
+> Research ticket: [盘点内嵌工作流的裸文件读写依赖面与结构化工具缺口](https://github.com/ArcReel/ArcReel/issues/1703)，属于 [Wayfinder: 外部智能体全流程接入（远程 MCP + Skill 手册）与 chat 对接退场](https://github.com/ArcReel/ArcReel/issues/1702)。
+>
+> 调查基线：`main@d66785d13696e65232fa2a5d3fd09044233919e0`，2026-08-20。本文只描述该基线的当前事实。
 
-## 调查范围与方法
+## 结论摘要
 
-通读以下一手材料（均为 `origin/main` 当前内容）：
+Spec [#1669](https://github.com/ArcReel/ArcReel/issues/1669) 已显著缩小裸文件依赖，但没有把它消除：
 
-- 9 个 Skill：`agent_runtime_profile/.claude/skills/` 下 8 个 SKILL.md + `manga-workflow/` 的三份内容模式变体（`SKILL.narration.md` / `SKILL.drama.md` / `SKILL.ad.md`，物化时按 content_mode 三选一）
-- 6 个 Subagent：`agent_runtime_profile/.claude/agents/*.md`
-- 三份系统 prompt 变体：`agent_runtime_profile/CLAUDE.{narration,drama,ad}.md`
-- SDK 进程内 MCP 工具集：`server/agent_runtime/sdk_tools/`（26 个工具，清单见 `__init__.py::ARCREEL_MCP_TOOL_IDS`）
-- 写禁边界的运行时真相源：`server/agent_runtime/agent_access_policy.py`（`PROTECTED_WRITE_RULES` + sandbox denyWrite/denyRead 投影）
-- Spec #1669 正文（目标态：workflow-state 服务、事务式 step1 编辑、批量完成契约、隔离草稿保留）
+- **阶段判断已经结构化**。`get_workflow_plan` 现在是工作流的唯一权威入口，返回步骤、阻断、任务、产物状态、准入结论与唯一下一动作；`Read` / `Glob` 不再承担状态机职责（`agent_runtime_profile/.claude/references/workflow-plan.md:3-8,23-25,29-40`）。
+- **生成完成性已经结构化**。生成工具统一返回逐 ID 的 `succeeded` / `failed` / `blocked` / `skipped` 与稳定问题码，理论上无需靠重读文件推断任务结果（`agent_runtime_profile/.claude/references/generation-results.md:3-5,21-47`）。但当前 profile 仍明确要求多个子任务生成后重新读取 `project.json` 或剧本 JSON 验证，所以这是**当前真实依赖**，不是已经删除的遗留说明。
+- **正式写入大多已收归事务工具**。`project.json` 与 `scripts/` 整子树禁止裸写；drama 与 reference-video 的正式 step1 也禁止裸写，改动经 `open_step1_for_edit` → 隔离草稿 → `validate_and_promote_draft` 晋升（`server/agent_runtime/agent_access_policy.py:715-750`）。
+- **仍有一个正式数据裸写面**：narration 的 `drafts/episode_N/step1_segments.json` 继续由子任务直接 `Edit`，没有 revision 检测、项目锁或结构化 patch 工具；运行时也刻意没有把它列入正式 step1 写禁，因为没有替代通道（`agent_runtime_profile/.claude/agents/split-narration-segments.md:68-85`；`lib/episode_paths.py:52-57`）。
+- **隔离草稿仍是设计内裸编辑工位**。drama、reference step1 与 reference step2 的 `.invalid.json` 都需要内置 `Read` / `Edit`，结构化工具只负责取回和晋升；远程 MCP 客户端无法访问项目盘时，这仍是最硬的闭环缺口。
+- **内容读取仍几乎没有结构化覆盖**。当前注册 32 个进程内 MCP 工具（`server/agent_runtime/sdk_tools/__init__.py:75-108`），有权威计划、资产 pending、视频能力和剧本 revision 等读模型，却没有项目内容、源文、剧本正文、step1 正文或隔离草稿正文的读取接口。
+- **compose-video 仍是本地 Bash/Python 文件工作流**：读剧本与片段/BGM，写 `output/`，没有 MCP 等价物。
 
-## 运行时写禁边界现状（真相源：`agent_access_policy.py`）
+因此，外部 agent 仅靠现有远程 MCP 工具面仍不能等价执行内嵌工作流。最低闭环需要同时解决：**内容读取、隔离草稿读取/patch、narration step1 事务编辑**；compose-video 则应在本次 Spec 中明确排除或另行服务端化。
 
-理解「哪些裸写是刻意允许的」需要先看强制层。`PROTECTED_WRITE_RULES` 声明两条规则，hook（内置 Write/Edit）与 sandbox denyWrite（Bash 子进程，内核级）同表投影：
+## 调查范围与口径
 
-| 规则 | hook 层（Write/Edit） | sandbox 层（Bash） | 收归到的 MCP 工具 |
+调查对象是内嵌 profile 的 9 个有效 Skill（`video-workflow` 三个物化变体按运行时三选一计一个）、6 个 Subagent、三份 `CLAUDE.*.md`、`server/agent_runtime/sdk_tools/` 工具目录与运行时访问策略。
+
+本文所称：
+
+- **裸读写**：工作流要求 agent 使用内置 `Read` / `Glob` / `Grep` / `Write` / `Edit`，或通过 `Bash` 在项目目录直接读写文件。
+- **结构化覆盖**：MCP 工具直接返回所需事实或在服务端持锁完成正式写入；仅返回路径、revision 或状态投影，不算正文读取覆盖。
+- **远程缺口**：外部 agent 只有远程 MCP，没有与 ArcReel 服务端共享的项目文件系统，也不能调用内嵌 harness 的文件工具。
+
+## 当前运行时写边界
+
+| 路径 | 内置 `Write` / `Edit` | Bash 子进程 | 合法写入通道 |
 |---|---|---|---|
-| `project_json` | 拒 `project.json` + `scripts/` 整子树 | 同覆盖面 | `patch_project` / `patch_episode_script` / `insert_segment` / `remove_segment` / `split_segment` / `patch_episode_meta` |
-| `reference_step1` | 只拒正式 `drafts/episode_N/step1_reference_units.json`；**同目录 `.invalid.json` 隔离草稿刻意放行**（注释原文：「隔离草稿正是留给内置 Edit 的编辑工位」） | 拒 `drafts/` 整目录 | `open_reference_step1_for_edit` → 裸 Edit 草稿 → `validate_and_promote_reference_draft` |
+| `project.json` | 拒绝 | 拒绝 | `patch_project`、`rename_asset`、规划/清单完成工具与 worker 回写 |
+| `scripts/**` | 拒绝整子树 | 拒绝整子树 | `generate_episode_script`、revision-checked `patch_episode_script` 及其便捷编辑工具 |
+| `drafts/episode_N/step1_normalized_script.json` | 拒绝 | `drafts/` 整体拒绝 | `open_step1_for_edit` → 裸改 `.invalid.json` → `validate_and_promote_draft` |
+| `drafts/episode_N/step1_reference_units.json` | 拒绝 | `drafts/` 整体拒绝 | 同上 |
+| `drafts/episode_N/step1_segments.json` | **允许** | `drafts/` 整体拒绝 | 内置 `Edit`；当前没有事务式替代 |
+| `drafts/episode_N/*.invalid.json` | **允许** | `drafts/` 整体拒绝 | 内置 `Edit`；晋升由 `validate_and_promote_draft` 持锁完成 |
+| `output/**` | 允许非代码产物 | 允许 | `compose-video` 脚本 |
 
-关键推论：**narration / drama 的 step1 文件（`step1_segments.json` / `step1_normalized_script.json`）不在任何写禁规则内**——Write/Edit 直改是当前设计内的合法路径（Bash 写被 sandbox 拒，但内置 Edit 放行）。另外 hook 拒项目内代码扩展名写入（`.py/.js/.ts/...`），读侧由 denyRead 拒敏感文件（`.env` / `vertex_keys/` / `.arcreel.db*` 等），项目根与仓库参考资料放行读取。
+正式 step1 写禁集合明确只含 drama 与 reference-video；代码注释同时说明 narration 因仍由 subagent 直接编辑、无草稿通道而不在集合内（`lib/episode_paths.py:52-57`）。访问策略对 `project.json`、`scripts/`、正式 step1 与隔离草稿的边界投影见 `server/agent_runtime/agent_access_policy.py:719-750`。
 
-## 文件依赖 → 结构化工具覆盖状态清单
-
-「覆盖」列口径：✅ 已有结构化 MCP 工具承担该读/写；⚠️ 部分覆盖；❌ 只能裸文件操作。「#1669 后」列按该 Spec 的 Implementation Decisions 判断。
+## 文件依赖 → 结构化工具覆盖状态
 
 ### 1. `project.json`
 
-| 依赖项 | 读/写 | 出处（工作流步骤） | 今日覆盖 | #1669 后 |
-|---|---|---|---|---|
-| 状态检测 / 阶段路由（modes、episodes 账本、`ledger_status`、`planning_cursor`、三类资产 sheet 缺失判定） | 读 | manga-workflow 三变体「状态检测」；CLAUDE.\*.md 路径规范；ad 工作流步骤 1 | ❌ 无读侧工具，靠 Read `project.json`（`list_pending_assets` 仅覆盖缺 sheet 判定一角） | ✅ 权威 workflow-state 服务（MCP/REST 同 schema）返回状态 + 稳定 `next_action`，明确取代文件检视（User Story 51） |
-| 资产/概述/settings 内容读取（analyze-assets 记录已有名称；split 类 subagent 核对 `@[名称]` / `characters_in_segment` 引用；ad 起草卖点读 brief/products；generate-assets subagent 验证 sheet 字段回写） | 读 | analyze-assets Step 1；split-narration-segments / normalize-drama-script / split-reference-video-units 修改口径；SKILL.ad；generate-assets subagent Step 1/3 | ❌ 无 `get_project` / 资产读取工具 | ⚠️ 未覆盖——#1669 只提供工作流状态投影与批量完成契约（验证类读取被逐 ID 结果取代），资产 description 等**内容**读取仍是裸 Read |
-| 任何写入（资产 upsert、settings、overview、账本、sheet 回写） | 写 | 全部 | ✅ `patch_project` / `plan_episodes` / `reset_episode_planning` + worker 回写；hook+sandbox 双层拒直改 | ✅ 不变 |
+| 工作流依赖 | 读/写 | 当前结构化覆盖 | 外部 MCP 缺口 |
+|---|---|---|---|
+| 阶段、目标集、阻断、产物 current/stale/missing、活动任务、下一动作 | 读 | **已覆盖**：`get_workflow_plan` 是唯一权威入口，并返回 `status.project` / `target` / `gates` / `artifacts`（`agent_runtime_profile/.claude/references/workflow-plan.md:27-40,67-98`） | 无需补通用文件读取来承担状态机 |
+| 资产名称与 description、overview/style/settings、ad 的 brief/products/selling_points | 读 | **未覆盖正文**：计划只给状态投影；`list_pending_assets` 给 pending，不给完整项目内容 | 需要受限项目内容 read model，或白名单只读文件工具 |
+| analyze-assets 读取已有名称、背景与 `source_kind` | 读 | 未覆盖；子任务明确 `Read project.json`（`agent_runtime_profile/.claude/agents/analyze-assets.md:26-40`） | 没有正文读取即无法做增量资产分析 |
+| 各预处理器核对已登记资产；ad 起草卖点；生成子任务前后验证字段 | 读 | 未覆盖；例如通用生成子任务仍要求前读、后重读（`agent_runtime_profile/.claude/agents/generate-assets.md:20-36`） | 外部工作流无法复刻当前验证与创作输入读取 |
+| 资产/settings/overview/账本/sheet 等正式写入 | 写 | **已覆盖并强制**：`patch_project`、`rename_asset`、`plan_episodes`、`reset_episode_planning`、`complete_asset_inventory` 与 worker 回写；裸写被双层拒绝 | 无通用写文件需求 |
 
-### 2. `source/*.txt`（含派生的 `source/episode_N.txt`）
+### 2. `source/*.txt` / `source/*.md` 与 `source/episode_N.txt`
 
-| 依赖项 | 读/写 | 出处 | 今日覆盖 | #1669 后 |
-|---|---|---|---|---|
-| 整部小说原文批量读取 | 读 | analyze-assets Step 2：Glob `source/` + 按序 Read 全部 `.txt/.md/.text`（唯一在 agent 上下文里装载全文的步骤；主 agent 被约束「小说原文不进主 agent」） | ❌ 无源文读取工具（split/规划类工具在服务端自行读源文，不经 agent） | ❌ 未覆盖——#1669 的 asset-inventory completion 记录「分析完成与源文修订」，但分析本身仍由 agent 读原文完成 |
-| 源文写入/派生 | 写 | 无 agent 写入路径：上传走 Web，`episode_N.txt` 由 `plan_episodes` 派生维护（CLAUDE.\*.md 明示「不要手工编辑」） | ✅（无需求） | ✅ |
+| 工作流依赖 | 读/写 | 当前结构化覆盖 | 外部 MCP 缺口 |
+|---|---|---|---|
+| 全局资产分析：列出权威 scope 内源文件并读取正文 | `Glob` + `Read` | **未覆盖**。analyze-assets 明确按 scope 枚举并读取文本（`agent_runtime_profile/.claude/agents/analyze-assets.md:33-40`）；`complete_asset_inventory` 只原子提交结果与 source revision，不提供正文 | 需要 scope-aware 源文读取，或把资产分析整体服务端化 |
+| 分集规划与首次 step1 生成 | 服务端内部读 | **已覆盖 agent 侧需求**：`plan_episodes`、`normalize_drama_script`、`split_narration_segments`、`split_reference_video_units` 接收相对 source 路径或由计划给出目标，正文不必进入主 agent | 远程调用者需要稳定获得可传入的 source 标识；计划已在 `target.source` 提供（`agent_runtime_profile/.claude/references/workflow-plan.md:69-72`） |
+| 派生 `source/episode_N.txt` | 写 | **已覆盖**：规划工具持锁派生，profile 明令主 agent 不自行切分（`agent_runtime_profile/.claude/skills/video-workflow/SKILL.narration.md:99-117`） | 无 |
 
-### 3. `drafts/episode_N/step1_segments.json`（narration）与 `step1_normalized_script.json`（drama）
+### 3. narration 正式 step1：`drafts/episode_N/step1_segments.json`
 
-| 依赖项 | 读/写 | 出处 | 今日覆盖 | #1669 后 |
-|---|---|---|---|---|
-| 首次生成后验证结构 | 读 | split-narration-segments 情况 A Step 2；normalize-drama-script 情况 A Step 3 | ⚠️ 生成走 `split_narration_segments` / `normalize_drama_script`，验证读是裸 Read | ⚠️ 逐 ID 完成契约弱化「重读验证」需求，但读侧无专用工具 |
-| **修改已有拆分（情况 B）＋「结构有问题直接用 Edit 修复」** | **写（裸 Edit）** | split-narration-segments 情况 B（「用 Edit 工具直接修改」）；normalize-drama-script 情况 B Step 2 与情况 A「直接用 Edit 工具修复」 | ❌ **今日最大的正式数据裸写面**：无事务工具、无修订冲突检测、与 Web 端保存无锁协同（写禁规则刻意未覆盖这两个文件） | ✅ #1669 新增原子、revision-checked 的 step1 patch 接口（update/insert/move/remove、整批校验 all-or-nothing、与 Web 保存同锁、编辑自然作废 step1 审核）——该裸写面被明令关闭（Out of Scope：「Allowing Agent file tools to directly edit formal project, script or step1 structures」） |
-| 状态检测按存在性判阶段 3/4 | 读（Glob） | manga-workflow 状态检测第 3 条；create-episode-script Step 1 前置检查 | ❌ 文件存在性检视 | ✅ workflow-state 服务取代 |
+| 工作流依赖 | 读/写 | 当前结构化覆盖 | 外部 MCP 缺口 |
+|---|---|---|---|
+| 首次生成 | 写 | `split_narration_segments` 服务端生成并校验 | 无 |
+| 生成后结构验证、向用户呈现、修改前读取 | 读 | **未覆盖正文**；子任务明确 `Read`（`agent_runtime_profile/.claude/agents/split-narration-segments.md:68-79`） | 需要 step1 内容读取 |
+| 修改已有拆分或修结构 | **裸 `Edit` 正式文件** | **未覆盖**；当前直接修改并以存在性分情况（`agent_runtime_profile/.claude/agents/split-narration-segments.md:54-85`） | 需要与 Web 保存同锁、revision-checked 的 narration step1 patch/open-promote 接口；否则远程 agent 无法修改，内嵌 agent 仍有丢失更新窗口 |
 
-### 4. `drafts/episode_N/step1_reference_units.json`（reference_video 正式 step1）
+这是当前唯一仍由 agent 裸写的正式结构化项目数据。
 
-| 依赖项 | 读/写 | 出处 | 今日覆盖 | #1669 后 |
-|---|---|---|---|---|
-| 生成/晋升后验证 | 读 | split-reference-video-units 情况 A Step 2 | ⚠️ 同上，验证是裸 Read | ⚠️ 同上 |
-| 修改 | 写 | **已收归**：hook 明拒直改（持锁写入路径冲突），走 `open_reference_step1_for_edit` → 草稿 → `validate_and_promote_reference_draft` | ✅（唯一已实现「事务式 step1 编辑」的变体） | ✅ 保留原机制（User Story 38） |
+### 4. drama 正式 step1 与隔离草稿
 
-### 5. `drafts/episode_N/step1_reference_units.invalid.json` / `step2_reference_script.invalid.json`（隔离草稿）
+路径：
 
-| 依赖项 | 读/写 | 出处 | 今日覆盖 | #1669 后 |
-|---|---|---|---|---|
-| 隔离草稿修复循环：Read 草稿 → 按 `violations[]` 逐条 Edit `content.units[i]` → 晋升，可无限轮次 | 读 + 写（裸 Read/Edit，**设计内**） | split-reference-video-units 情况 B/C；create-episode-script Step 2「违约产物待处置」；generate-script SKILL 前置条件 4 | ⚠️ 半结构化：开草稿与晋升是工具，中间编辑显式依赖内置 Edit（`agent_access_policy.py` 注释称其为「编辑工位」） | ⚠️ **保留为唯一合法文件编辑面**（Decision：「only tool-issued invalid isolated drafts may use file editing」）——内嵌 agent 无缺口，但这是外部 agent 的硬缺口（见下文） |
+- 正式：`drafts/episode_N/step1_normalized_script.json`
+- 草稿：`drafts/episode_N/step1_normalized_script.invalid.json`
+
+| 工作流依赖 | 读/写 | 当前结构化覆盖 | 外部 MCP 缺口 |
+|---|---|---|---|
+| 首次生成与正式写盘 | 写 | `normalize_drama_script` 服务端生成、校验、写盘 | 无 |
+| 正式内容验证与查看 | 读 | **未覆盖正文**；首次生成后仍 `Read` 正式 JSON（`agent_runtime_profile/.claude/agents/normalize-drama-script.md:55-82`） | 需要 step1 内容读取 |
+| 修改已有内容 | 正式写结构化；草稿裸读写 | `open_step1_for_edit` 持锁取回、`validate_and_promote_draft` 持锁晋升；中间仍用 `Edit content.scenes[i]`（`agent_runtime_profile/.claude/agents/normalize-drama-script.md:84-123`） | 远程侧既读不到草稿正文，也不能 patch；需要 `get_draft` + revisioned `patch_draft`，或让 open 工具返回结构化正文并提供结构化改稿 |
+
+`open_step1_for_edit` 当前明确只支持有隔离草稿位的变体；narration/ad 会返回“没有隔离草稿编辑通道”（`server/agent_runtime/sdk_tools/text_generation.py:1334-1382`）。
+
+### 5. reference-video 正式 step1 与隔离草稿
+
+路径：
+
+- 正式：`drafts/episode_N/step1_reference_units.json`
+- step1 草稿：`drafts/episode_N/step1_reference_units.invalid.json`
+- step2 草稿：`drafts/episode_N/step2_reference_script.invalid.json`
+
+| 工作流依赖 | 读/写 | 当前结构化覆盖 | 外部 MCP 缺口 |
+|---|---|---|---|
+| 首次 step1 生成与正式写盘 | 写 | `split_reference_video_units` 服务端生成；通过才写正式文件，违约则隔离 | 无 |
+| 正式 step1 验证与查看 | 读 | **未覆盖正文**；成功后仍裸 `Read`（`agent_runtime_profile/.claude/agents/split-reference-video-units.md:55-78`） | 需要 step1 内容读取 |
+| 修改已有 step1 | 正式写结构化；草稿裸读写 | `open_step1_for_edit` → `Read/Edit content.units[i]` → `validate_and_promote_draft`（`agent_runtime_profile/.claude/agents/split-reference-video-units.md:80-102`） | 同 drama：草稿正文与 patch 不可达 |
+| step1/step2 违约修复循环 | 草稿裸读写 | 仅晋升结构化；`create-episode-script` 要求 Read/Edit 草稿后反复晋升（`agent_runtime_profile/.claude/agents/create-episode-script.md:44-54`） | **硬阻断**：没有草稿访问即无法保留已付费产物并修复，重抽既违背当前语义又可能重复计费 |
+
+晋升工具确实支持 drama step1、reference step1 与 reference step2 三类草稿，但它读取的是服务端磁盘上的已修改草稿，并不提供正文传输或 patch API（`server/agent_runtime/sdk_tools/text_generation.py:1645-1725`）。
 
 ### 6. `scripts/episode_N.json`
 
-| 依赖项 | 读/写 | 出处 | 今日覆盖 | #1669 后 |
-|---|---|---|---|---|
-| 生成后验证 / 各阶段「验证方式：重新读取 scripts/episode_N.json 检查 storyboard_image / video_clip / narration_audio 字段」 | 读 | create-episode-script Step 3；manga-workflow 阶段 6/7/8 dispatch 模板；generate-narration-audio 状态检测；generate-assets subagent Step 3 | ❌ 裸 Read（且被批量任务契约缺失所迫：任务成功靠重读文件推断） | ✅ 批量逐 ID succeeded/failed/blocked 契约 + 「任务成功绝不从文件存在性推断」（Decision）取代验证性重读 |
-| 编辑前置检视：「批量编辑前先 Read 该剧本确认现状」 | 读 | CLAUDE.\*.md「编辑项目 JSON」条目 | ❌ 裸 Read | ⚠️ 未覆盖——patch 是写侧工具，读侧仍裸 |
-| 任何写入 | 写 | 全部 | ✅ `generate_episode_script` + `patch_episode_script` / `patch_episode_meta` / `insert_segment` / `remove_segment` / `split_segment`；hook+sandbox 双层拒直改（含 `scripts/` 整子树） | ✅ 不变 |
+| 工作流依赖 | 读/写 | 当前结构化覆盖 | 外部 MCP 缺口 |
+|---|---|---|---|
+| 前置检查与生成后 schema/统计验证 | 读 | **未覆盖正文**；create-episode-script 仍要求前读 `project.json`/Glob step1、后读脚本（`agent_runtime_profile/.claude/agents/create-episode-script.md:24-38,56-64`） | 需要剧本内容 read model，或清理 profile 中已被计划/结果契约替代的验证步骤 |
+| 按计划修复 `requested_ids`、人工改 prompt/正文 | 读 | 计划给路径、问题和部分动作参数；`get_episode_script_revision` 只返回 revision，不返回条目正文（`server/agent_runtime/sdk_tools/patch_script.py:139-162`） | 远程 agent 无法在不知道当前条目内容时构造安全 update |
+| 正式写入 | 写 | **已覆盖并强制**：生成工具与 revision-checked `patch_episode_script`；批量操作全量预检、原子提交（`server/agent_runtime/sdk_tools/patch_script.py:165-230`） | 无裸写需求，但读取接口必须与 revision 同快照或带 revision，避免 read→patch TOCTOU |
+| 生成后字段验证 | 读 | 逐 ID 结果契约已经给出权威结果，但当前 video-workflow 仍把“重新读取 target.script / project.json”传给生成子任务（例如 `agent_runtime_profile/.claude/skills/video-workflow/SKILL.narration.md:182-221,262-284,307-320`） | 两条选择：远程手册删除冗余验证，或提供读取接口；不能假定当前内嵌 profile 已经不读 |
 
-### 7. 媒体与产物目录（`characters/` `scenes/` `props/` `products/` `storyboards/` `grids/` `videos/` `reference_videos/` `audio/` `thumbnails/`）
+### 7. 媒体目录与产物状态
 
-| 依赖项 | 读/写 | 出处 | 今日覆盖 | #1669 后 |
-|---|---|---|---|---|
-| sheet/分镜图文件存在性检查（「`*_sheet` 字段为空或文件不存在」「sheet 文件存在」清单项） | 读 | generate-assets SKILL Pending 判定；generate-video 生成前检查（reference 模式） | ⚠️ `list_pending_assets` 覆盖资产 pending；剧本侧仍靠字段+文件检视 | ✅ artifact manifest + current/stale/missing/blocked 分类接管 |
-| 写入 | 写 | 无 agent 写入路径（worker 回写；产品原图用户上传） | ✅ | ✅（manifest 明确「runtime-owned and outside Agent direct-write permissions」） |
+路径包括 `characters/`、`scenes/`、`props/`、`products/`、`storyboards/`、`grids/`、`videos/`、`reference_videos/`、`audio/`、`thumbnails/`。
 
-### 8. `output/` 与 compose-video（唯一保留的 Bash+Python 脚本路径）
+工作流的“是否缺失/是否陈旧/是否有任务在跑”已经由 Artifact Manifest、`get_workflow_plan` 与逐 ID 生成结果结构化覆盖，agent 不应再靠文件存在性建立状态机（`agent_runtime_profile/.claude/references/workflow-plan.md:23-40`；`agent_runtime_profile/.claude/references/generation-results.md:49-63`）。媒体质量审阅与导出本来就在 WebUI；远程 MCP 如需展示，只需稳定的受鉴权产物 URL/read model，不需要开放任意文件读取。
 
-| 依赖项 | 读/写 | 出处 | 今日覆盖 | #1669 后 |
-|---|---|---|---|---|
-| `python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_N.json`：读剧本 + `videos/*.mp4`，写 `output/*.mp4`；BGM 文件读取 | 读 + 写（Bash 子进程，仅 drama） | compose-video SKILL；CLAUDE.\*.md「Bash 用途」；Bash 白名单要求脚本落在 `.claude/skills/<skill>/scripts/` | ❌ 无 MCP 等价物（刻意：其余模式走 Web 端剪映草稿导出） | ❌ 明确不收归（Out of Scope：「Replacing or productizing the compose-video media algorithm and CLI」，仅更新其 skill 文案） |
+例外是 compose-video，它直接消费本地视频与可选 BGM，见下一节。
 
-### 9. 泛用 Bash 文件浏览
+### 8. `output/` 与 compose-video
 
-CLAUDE.\*.md 把 Bash 定位为「通用排查与文件浏览（ls / cat / jq / python / curl）」。这不绑定具体工作流步骤，但被多处隐含依赖（排查生成失败、核对产物）。今日无结构化替代；#1669 通过 workflow-state 与 blocked 诊断（机器可读字段定位 + 折叠技术细节）压缩其必要性，但不消除。
+drama 的 `compose-video` 仍通过：
 
-## 今日全景小结
+```text
+python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.json
+```
 
-**写侧已基本收归**：project.json、scripts/、正式 reference step1 三类正式数据的全部写入路径都有事务式/服务端 MCP 工具，并由 hook + sandbox 双层强制。今日仅剩两块裸写面：
+脚本从 `scripts/` 读取剧本、按剧本顺序读取 `videos/*.mp4` 与可选 BGM，并把成片写入 `output/`；skill 明确要求共享项目 cwd（`agent_runtime_profile/.claude/skills/compose-video/SKILL.md:8-18,31-58`）。输出被强制约束在 `output/`（`agent_runtime_profile/.claude/skills/compose-video/scripts/compose_video.py:652-669`）。当前没有 MCP 等价物，外部 agent 无共享文件系统时不能调用。
 
-1. **narration / drama 的 step1 直改**（split-narration-segments / normalize-drama-script 情况 B 及结构修复）——无锁、无 revision 冲突检测，是 #1669 事务式 step1 patch 的靶子；
-2. **隔离草稿 `.invalid.json` 的 Edit 修复循环**——刻意设计、#1669 保留。
+### 9. 通用 Bash 文件浏览
 
-**读侧几乎全裸**：26 个 MCP 工具中只有 `list_pending_assets` 和 `get_video_capabilities` 是读侧工具。状态检测、生成结果验证、编辑前置检视、资产内容读取、源文读取全部依赖 Read/Glob（+Bash 浏览）。
+三份系统 prompt 仍允许 Bash 用于 `ls` / `cat` / `jq` / `python` / `curl` 等通用排查与文件浏览；drama 另外允许 compose-video（例如 `agent_runtime_profile/CLAUDE.drama.md:34-48`）。这不对应单一业务阶段，但意味着内嵌 agent 在诊断异常时仍可依赖共享文件系统。权威计划压缩了日常使用频率，不等于给远程 agent 提供了同等诊断能力。
 
-## #1669 落地后剩余缺口（内嵌视角）
+## 现有 MCP 读面的准确边界
 
-1. **资产/项目内容读取**（description、brief、products、overview）——workflow-state 只给状态投影，不给内容；
-2. **源文正文读取**（analyze-assets 的全文分析）——inventory completion 记录完成性，不替代读取；
-3. **step1 / 剧本正文读取**（向用户呈现、编辑前检视）——patch 系工具是写侧；
-4. **隔离草稿 Read/Edit**——保留为文件编辑工位（内嵌可用内置工具，无缺口，但见下）；
-5. **compose-video CLI**——明确不收归。
+当前 32 个工具中，与本报告的读需求直接相关的是：
 
-## 外部 agent 走远程 MCP 时缺什么
-
-外部 agent 只有 MCP 工具面，没有内嵌 harness 的 Read/Write/Edit/Glob/Bash（沙箱内文件工具）。对照上表，缺口按严重度排序：
-
-| 缺口 | 阻断的工作流 | 备注 |
+| 工具 | 返回什么 | 不返回什么 |
 |---|---|---|
-| **隔离草稿不可达**：`.invalid.json` 修复循环完全依赖内置 Read+Edit，远程侧既读不到 `violations[]` 也改不了 `content.units[i]` | reference_video 的 step1/step2 违约修复（该路线的核心纠错循环）；#1669 后依旧（Spec 保留文件编辑工位） | 需要草稿读取/patch 工具对（如 `get_reference_draft` / `patch_reference_draft`），或在工具报错里内联草稿全文并提供结构化改稿入口 |
-| **narration / drama step1 编辑不可达**（今日）：情况 B 靠裸 Edit | 说书/剧集的 step1 修改 | #1669 的事务式 step1 patch 工具落地即消解——外部工具面应直接对齐该接口，不做过渡方案 |
-| **无项目/剧本/step1 读取工具**：状态检测、编辑前检视、向用户呈现内容都无从做起 | 全部工作流的入口与确认环节 | #1669 workflow-state 工具解决「下一步做什么」，但内容读取（资产 description、剧本正文、step1 正文）仍需读侧工具或 REST 兜底；与地图既定决策「结构化专用工具为主、只读文件工具兜底」一致 |
-| **无源文读取**：analyze-assets 等价物无法在外部执行 | 阶段 1 资产提取 | 两条路：提供受限只读文件工具（源文/草稿白名单），或把资产分析像 `plan_episodes` 一样整体服务端化 |
-| **验证性重读不可达**：「重新读取 …json 检查字段」模式失效 | 各生成阶段的完成判定 | #1669 逐 ID 完成契约本就要取代该模式——外部工具面按目标态设计即可，无需补读侧 |
-| **媒体查看**：sheet/分镜图审阅无文件访问 | 各审核检查点 | 审阅本就发生在 WebUI；外部 agent 需要的最多是产物 URL（REST 静态服务已有），非 MCP 工具缺口 |
-| **compose-video 不可用**：Bash+Python CLI 无远程等价物 | drama 成片拼接 | 与「其余模式走剪映草稿导出」同口径处理：外部面明确不含 compose，或后续服务端化（超出本票范围） |
+| `get_workflow_plan` | 工作流步骤、目标、阻断、任务、产物状态、准入、下一动作 | 项目/剧本/step1/源文/草稿正文 |
+| `list_pending_assets` | 待生成资产名单及有限描述 | 完整 project 内容与任意字段查询 |
+| `get_video_capabilities` | 当前项目的视频能力与时长约束 | 项目创作内容 |
+| `get_episode_script_revision` | 剧本 canonical revision | 剧本正文 |
+| `open_step1_for_edit` | 在服务端创建隔离草稿，返回路径与摘要 | 草稿正文；且不支持 narration |
+| `validate_and_promote_draft` | 校验/晋升服务端已有草稿 | 远程 patch 草稿的能力 |
 
-## 结论
+所以“已有 32 个工具”不能解释为“远程端已有只读内容面”。它解决的是工作流决策、受控写入和生成执行，不是创作正文传输。
 
-- 内嵌工作流对裸文件的**写**依赖只剩 narration/drama step1 直改（#1669 已规划关闭）与隔离草稿工位（#1669 保留）；**读**依赖则遍布所有阶段且今日几乎零覆盖，#1669 的 workflow-state + 批量完成契约能消掉「状态检测」与「验证性重读」两大类，但**内容读取**（资产/剧本/step1/源文正文）与**隔离草稿访问**在 #1669 之后仍是裸文件面。
-- 外部工具面清单决策（后续盘问票）应聚焦四件事：隔离草稿的远程访问方案、读侧内容工具（或只读文件工具兜底）的粒度、step1 事务接口与 #1669 的对齐、compose-video 的显式排除口径。
+## 外部 agent 工具面的最小决策清单
+
+按阻断程度排序：
+
+1. **隔离草稿远程闭环**：为 drama/reference 三类 `.invalid.json` 提供受限读取与 revision-checked patch；工具必须保持“正式文件只由持锁晋升写入”的不变量。推荐专用 `get_editable_draft` / `patch_editable_draft`，不把任意文件写暴露给远程客户端。
+2. **narration step1 事务化**：把 `step1_segments.json` 纳入与 drama/reference 相同的受控编辑边界，随后再加入 `AGENT_PROTECTED_STEP1_FILENAMES`。在此之前，远程 agent 无法等价修改，内嵌 agent 也仍有并发覆盖风险。
+3. **内容读取面**：至少覆盖项目创作内容、目标集剧本、step1 与源文 scope。若采用“结构化专用工具为主、只读文件工具兜底”，只读工具必须白名单项目内业务文件、阻止敏感文件和跨项目路径，并返回稳定 revision/etag 供后续 patch 使用。
+4. **清理冗余验证依赖**：远程 skill 手册应以 `get_workflow_plan` 与逐 ID 结果为完成性真相源，删除“生成后重读 JSON 推断成功”的步骤；内容审阅仍走专用读取接口，不能与任务验证混为一谈。
+5. **compose-video 定界**：本次外部接入 Spec 明确不支持，或另立服务端合成/导出任务。不要把服务端本地 Python 路径写进远程 skill 手册。
+6. **媒体呈现**：优先暴露受鉴权的产物 URL/元数据，不开放媒体目录任意读取。
+
+## 对 Wayfinder 地图的输入
+
+- [外部工具面清单、项目参数化与 Spec #1669 依赖时序](https://github.com/ArcReel/ArcReel/issues/1707) 应以本报告的当前边界为事实输入：权威计划和逐 ID 结果已经可直接复用；工具面决策必须补上内容读取、隔离草稿闭环与 narration step1 事务编辑，并对 compose-video 作显式范围裁决。
+- 地图的“Decisions so far”应把旧的“narration/drama step1 裸 Edit”改为：**drama 正式 step1 已收归草稿晋升；仅 narration 正式 step1 仍裸 Edit；三类隔离草稿仍裸读写。**
+- 不需要新增或毕业新的 fog：这些问题已经由“外部工具面清单、项目参数化与 Spec #1669 依赖时序”精确承接；“多文件 skill 包分发”“用量/费用归因”“项目事件流”“API Key 细粒度作用域”四块现有 fog 不因本次文件依赖盘点而改变。

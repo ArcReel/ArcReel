@@ -56,11 +56,26 @@ def _setup_project(pm: ProjectManager):
     )
 
 
-def _client(monkeypatch, pm: ProjectManager) -> TestClient:
+class _DraftService:
+    def __init__(self, zip_path=None, error: Exception | None = None):
+        self.zip_path = zip_path
+        self.error = error
+        self.calls = []
+
+    async def export_episode_draft(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        return self.zip_path
+
+
+def _client(monkeypatch, pm: ProjectManager, service: _DraftService | None = None) -> TestClient:
     """创建绑定到指定 ProjectManager 的 TestClient"""
     from server.routers import projects as proj_mod
 
     monkeypatch.setattr(proj_mod, "get_project_manager", lambda: pm)
+    if service is not None:
+        monkeypatch.setattr(proj_mod, "get_jianying_draft_service", lambda: service)
 
     from server.app import app
 
@@ -74,7 +89,11 @@ class TestJianyingDraftExport:
         """正常导出返回 ZIP"""
         pm = ProjectManager(tmp_path / "projects")
         _setup_project(pm)
-        client = _client(monkeypatch, pm)
+        zip_path = tmp_path / "draft.zip"
+        with zipfile.ZipFile(zip_path, "w") as archive:
+            archive.writestr("demo/draft_info.json", "{}")
+        service = _DraftService(zip_path)
+        client = _client(monkeypatch, pm, service)
 
         token = create_download_token("testuser", "demo")
         response = client.get(
@@ -83,6 +102,7 @@ class TestJianyingDraftExport:
                 "episode": 1,
                 "draft_path": "/Users/test/drafts",
                 "download_token": token,
+                "narration_delivery": "use_tts",
             },
         )
 
@@ -96,12 +116,14 @@ class TestJianyingDraftExport:
         zf = zipfile.ZipFile(BytesIO(response.content))
         names = zf.namelist()
         assert any("draft_info.json" in n for n in names)
+        assert service.calls[0]["variant"] == "use_tts"
 
     def test_missing_episode_returns_404(self, tmp_path, monkeypatch):
         """集数不存在返回 404"""
         pm = ProjectManager(tmp_path / "projects")
         _setup_project(pm)
-        client = _client(monkeypatch, pm)
+        service = _DraftService(error=FileNotFoundError("internal path"))
+        client = _client(monkeypatch, pm, service)
 
         token = create_download_token("testuser", "demo")
         response = client.get(
@@ -145,7 +167,9 @@ class TestJianyingDraftExport:
             )
         )
 
-        client = _client(monkeypatch, pm)
+        from server.services.jianying_draft_service import NoCompletedSegmentsError
+
+        client = _client(monkeypatch, pm, _DraftService(error=NoCompletedSegmentsError("empty")))
         token = create_download_token("testuser", "empty")
         response = client.get(
             "/api/v1/projects/empty/export/jianying-draft",

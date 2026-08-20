@@ -17,6 +17,9 @@ export interface ModelInfoResponse {
   // 视频 model 是否带音轨（非视频 model 恒 false）。不等于「音轨开关可控」——AI Studio Veo /
   // Grok Imagine 恒有声但未声明 generate_audio token，仍为 true（见 capabilities 语义注）。
   has_audio_track: boolean;
+  // 请求参数能否控制音轨开关（非视频 model 恒 false）。与 has_audio_track 合起来分出
+  // 可控 / 恒有声 / 恒无声三态，见 utils/provider-models.ts::lookupVideoAudioControl。
+  audio_switch_controllable: boolean;
   // 无项目上下文时的声音一致性档位，服务端派生（generation_mode 未知，native 恒降格）。
   // 有项目上下文的页面改用 /projects/{name}/video-capabilities 的同名字段，不读这里。
   voice_consistency: VoiceConsistencyTier;

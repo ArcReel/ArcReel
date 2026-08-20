@@ -4,7 +4,7 @@
 ``text`` / ``voice`` / ``language_type``（区别于图像的 messages 结构），响应在
 ``output.audio.url`` 给出 wav 文件 URL（24kHz，24h 有效），再 HTTP GET 下载字节落盘。
 TTS 同步调用不带 X-DashScope-Async 头（该头仅图像/视频异步两步式使用）。
-schema 依据 docs/dashscope-docs/ 一手核实快照。
+schema 依据 docs/api-docs/providers/dashscope.md 所列一手官方文档。
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ DEFAULT_MODEL = "qwen3-tts-flash"
 _TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 
 
-# Qwen3-TTS 系统预设音色（``voice`` 参数取值）子集，出处见 docs/dashscope-docs/语音合成-TTS模型.md
-# 「三、系统预设音色」表格（截至 2026-06-02 核实，来源：
+# Qwen3-TTS 系统预设音色（``voice`` 参数取值）子集，出处见 docs/api-docs/providers/dashscope.md
+# 「三、系统预设音色」表格（来源：
 # https://help.aliyun.com/zh/model-studio/qwen-tts 官方文档 + 百炼控制台模型市场）。
 # 未列出的其余预设音色不在此暴露——该文档明确标注为「ArcReel 场景最相关的音色子集」，
 # 完整 48 音色列表见官方文档，未逐一核实中文名/描述不收录，避免编造。

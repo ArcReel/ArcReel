@@ -363,9 +363,10 @@ export function ProviderModelSelect({
       {open && (
         <FloatingPortal>
           <div
-            // floating-ui 的 setFloating 是 stable callback ref；hooks/refs
-            // 规则误认为是读取 ref.current，这里安全。
-            // eslint-disable-next-line react-hooks/refs
+            // floating-ui 的 setFloating 是 stable callback ref：hooks/refs 误认为是
+            // 读取 ref.current；unbound-method 误认为是需要绑定 this 的原型方法，
+            // 而它是 useCallback 造的属性型函数、不访问 this。两条均安全。
+            // eslint-disable-next-line react-hooks/refs, @typescript-eslint/unbound-method
             ref={refs.setFloating}
             className={`isolate overflow-hidden rounded-[8px] border border-hairline shadow-xl ${UI_LAYERS.modal}`}
             style={{ ...floatingStyles, ...DROPDOWN_PANEL_STYLE }}

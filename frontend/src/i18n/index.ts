@@ -24,14 +24,16 @@ export const LANGUAGE_DISPLAY_LABELS: Record<SupportedLanguage, string> = {
   vi: 'Tiếng Việt',
 };
 
-export const I18N_NAMESPACES = [
+const I18N_NAMESPACES = [
   'common',
   'auth',
   'dashboard',
   'errors',
+  'events',
   'templates',
   'assets',
   'onboarding',
+  'workflow',
 ] as const;
 
 // Replace every [[brand]] placeholder in a loaded namespace with the current

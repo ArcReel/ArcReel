@@ -20,7 +20,7 @@ const GRID_LADDER = [
 ] as const;
 
 /** 拿不到后端上限时按门控生效展示(封顶 3×3),宁可少算批次也不虚报 */
-export const FALLBACK_MAX_CELL_COUNT = 9;
+const FALLBACK_MAX_CELL_COUNT = 9;
 
 interface GridMatchRecord {
   id: string;

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.resolver import ConfigResolver, VideoCapability, constrain_durations_for_project
 from lib.db import async_session_factory
+from lib.generation_result import GenerationBatchResult, migration_problem, render_generation_result
 from lib.project_manager import ProjectManager
+from lib.project_migration_failure import MigrationFailureRecord
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,42 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
     return {"content": [{"type": "text", "text": text}], "is_error": True}
 
 
+def migration_refusal_response(failure: MigrationFailureRecord, *, text: str) -> dict[str, Any]:
+    """Envelope the migration verdict as an SDK MCP tool refusal.
+
+    Every tool that reports the verdict — the blocked ones wrapped at
+    registration and the retry tool when the rerun fails again — returns this
+    one shape, so the agent reads a single ``problem`` payload carrying the
+    named episode / file / violation instead of two envelopes for one fact.
+    """
+    problem = migration_problem(failure)
+    payload = problem.model_dump(mode="json")
+    return {
+        "content": [{"type": "text", "text": text + "\n" + json.dumps(payload, ensure_ascii=False, indent=2)}],
+        "is_error": True,
+        "problem": payload,
+    }
+
+
+def generation_result_response(
+    result: GenerationBatchResult,
+    log: list[str] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Envelope one generation batch contract for an SDK MCP tool response.
+
+    ``generation_result`` is the machine-readable payload; the text block is a
+    rendering of the same fields, so no consumer has to parse it to decide
+    whether to retry.
+    """
+    return {
+        "content": [{"type": "text", "text": render_generation_result(result, log=log or ())}],
+        "is_error": not result.ok,
+        "generation_result": result.model_dump(mode="json"),
+        **extra,
+    }
+
+
 # instructions 超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。
 # 上限对意见文本足够宽松，仅挡病态输入。
 MAX_INSTRUCTIONS_LEN = 4000
@@ -60,7 +99,8 @@ def read_instructions_arg(args: dict[str, Any]) -> tuple[str | None, dict[str, A
     if raw is None:
         return None, None
     if not isinstance(raw, str):
-        return None, _param_error(f"instructions 必须是字符串，收到 {type(raw).__name__}")
+        logger.debug("instructions 入参类型非法: %s", type(raw).__name__)
+        return None, _param_error("instructions 必须是文本")
     if len(raw) > MAX_INSTRUCTIONS_LEN:
         return None, _param_error(f"instructions 过长（{len(raw)} 字符，上限 {MAX_INSTRUCTIONS_LEN}），请精简后重试")
     text = raw.strip()
@@ -75,7 +115,7 @@ async def resolve_video_caps(project: dict[str, Any], *, capability: VideoCapabi
     this variant exposes the model identity so the caller can evaluate the
     duration linkage constraints declared on it.
 
-    能力按项目生成路线解析——路线创建即定、全项目同一条，智能体拿到的与执行层同口径。
+    能力按项目生成模式解析——生成模式创建即定、全项目同一条，智能体拿到的与执行层同口径。
     ``capability`` 给定时按指定桶解析（参考路线内无参考图退化镜头的 i2v 读侧）。
     """
     resolver = ConfigResolver(async_session_factory)

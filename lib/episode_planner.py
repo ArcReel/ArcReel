@@ -26,6 +26,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from lib import script_review
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -486,7 +487,8 @@ class EpisodePlanner:
         draft_model: type[BaseModel] = DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
         language = _language_of(project)
         # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
-        # 无指令路径的 prompt 必须逐字保持不变（CONTEXT.md 对该路径有逐字一致的承诺）。
+        # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无意见路径行为可复现，
+        # 注入全局进度会改写 prompt，因此只在有 instructions 时才计算并注入。
         progress: _PlanningProgress | None = None
         if planning_instructions:
             progress = _PlanningProgress(
@@ -558,6 +560,10 @@ class EpisodePlanner:
                 # 需重做下游产物，产物本身不删除
                 if has_downstream_products(self.project_path, num, entry):
                     entry["ledger_status"] = "stale"
+                    step1_path = script_review.step1_path(self.project_path, p, num)
+                    entry[script_review.STALE_STEP1_REVISION_FIELD] = (
+                        script_review.content_fingerprint(step1_path) if step1_path is not None else None
+                    )
                     committed["stale"].append(num)
                 episodes_list.append(entry)
                 summaries.append(
@@ -999,7 +1005,7 @@ def _build_planning_prompt(
         *(_PLAN_INTRO_SCREENPLAY if is_screenplay else _PLAN_INTRO_NOVEL),
         "",
         "# 项目信息",
-        f"- 内容模式：{'剧集动画（drama）' if content_mode == 'drama' else '说书旁白（narration）'}",
+        f"- 内容模式：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
     ]
     synopsis = overview.get("synopsis") if isinstance(overview, Mapping) else None
     if synopsis:

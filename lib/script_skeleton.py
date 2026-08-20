@@ -5,8 +5,8 @@
 
 - 窄表 ``SKELETONS``：键即剧本里的条目数组键（``segments`` / ``scenes`` / ``shots`` /
   ``video_units``），行 ``Skeleton(id_field, chars_field)``。``chars_field`` 可为 ``None``
-  ——``video_units`` 无逐条角色名单（角色以 ``references`` 中 ``type == "character"`` 的条目
-  形态存在），表如实声明缺位；消费方拿到 ``None`` 必须显式决策（自行派生或声明不适用），
+  ——``video_units`` 无逐条角色名单（角色以正文 ``text`` 里的 ``@[名称]`` 提及形态存在，
+  读时派生），表如实声明缺位；消费方拿到 ``None`` 必须显式决策（自行派生或声明不适用），
   不提供假字段名使 ``get()`` 返回空值。
 - 规范解析 ``resolve_declared_kind(content_mode, generation_mode)``：服务只有项目配置在手
   的消费方，输入为项目级已过校验的 content_mode 与项目声明的 generation_mode。**fail-loud**——未知/缺失 content_mode 抛 ``ValueError``，不静默兜底。
@@ -22,10 +22,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from lib.validation_messages import MessageRef, ValidationMessage
+
+STORYBOARD_ITEM_ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
 
 
 @dataclass(frozen=True)
@@ -48,17 +51,17 @@ SKELETONS: dict[str, Skeleton] = {
     "video_units": Skeleton("unit_id", None),
 }
 
-# 条目名词按骨架种类硬编码——驱动分镜级事件与任务完成事件共用的通知文案（如「镜头「E1S01」」）。
-# 名词 i18n 化是独立议题（与 ``_diff_named_entities`` 的「角色」/「线索」同为既有硬编码形态），
-# 不在此处收敛。两套事件路径必须读同一张表，不各自维护一份。
-SKELETON_ITEM_NOUNS: dict[str, str] = {
-    "segments": "分镜",
-    "scenes": "场景",
-    "shots": "镜头",
-    "video_units": "视频单元",
+# 条目标签的 i18n key 按骨架种类派生——驱动分镜级事件与任务完成事件共用的通知文案
+# （如「镜头「E1S01」」）。文案本身按语言存放在 lib/i18n 的 ``event_label_*``，此处只登记
+# 稳定标识。两套事件路径必须读同一张表，不各自维护一份。
+SKELETON_ITEM_LABEL_KEYS: dict[str, str] = {
+    "segments": "skeleton_segments",
+    "scenes": "skeleton_scenes",
+    "shots": "skeleton_shots",
+    "video_units": "skeleton_video_units",
 }
 
-# 事件的实体类型按骨架种类推导，与 ``SKELETON_ITEM_NOUNS`` 同源。驱动前端分组标签映射
+# 事件的实体类型按骨架种类推导，与 ``SKELETON_ITEM_LABEL_KEYS`` 同源。驱动前端分组标签映射
 # （``ENTITY_LABELS``），使四种骨架各显分镜/场景/镜头/视频单元，而非恒为「分镜」。取值与既有
 # ``entity_type`` 枚举不冲突（drama 用 ``drama_scene`` 避免与命名实体 ``scene`` 撞组）。
 SKELETON_ENTITY_TYPES: dict[str, str] = {
@@ -91,7 +94,7 @@ def _validate_registry() -> None:
         if skeleton.chars_field is not None and not skeleton.chars_field:
             raise RuntimeError(f"SKELETONS[{kind!r}].chars_field 非法：{skeleton.chars_field!r}")
     for name, table in (
-        ("SKELETON_ITEM_NOUNS", SKELETON_ITEM_NOUNS),
+        ("SKELETON_ITEM_LABEL_KEYS", SKELETON_ITEM_LABEL_KEYS),
         ("SKELETON_ENTITY_TYPES", SKELETON_ENTITY_TYPES),
         ("SKELETON_ANCHOR_TYPES", SKELETON_ANCHOR_TYPES),
     ):
@@ -107,15 +110,15 @@ def resolve_declared_kind(content_mode: str | None, generation_mode: str | None)
 
     输入为项目级已过校验的 content_mode 与项目声明的 generation_mode（``project.json`` 字段）。
 
-    - ``ad`` → ``shots``（恒定，不随生成路径变，见 ``docs/adr/0033``）
-    - ``narration`` / ``drama`` + ``generation_mode == "reference_video"`` → ``video_units``
+    - 任意内容模式 + ``generation_mode == "reference_video"`` → ``video_units``
+    - ``ad`` + ``storyboard`` → ``shots``
     - ``narration`` → ``segments``，``drama`` → ``scenes``
     - 未知/缺失 content_mode → 抛 ``ValueError``（fail-loud，不静默默认到 drama/narration）
 
     服务只有项目配置在手的消费方；手持可能缺字段的剧本 dict 的消费方走 ``resolve_script_kind``。
     """
     if content_mode == "ad":
-        return "shots"
+        return "video_units" if generation_mode == "reference_video" else "shots"
     if content_mode == "narration":
         return "video_units" if generation_mode == "reference_video" else "segments"
     if content_mode == "drama":
@@ -165,7 +168,24 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
     return "segments"
 
 
-# 路线要求的骨架族：参考生视频路线（非 ad）要 ``video_units``，其余路线要分镜族骨架
+def resolve_kind_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[Any, str, str]:
+    """按骨架种类取条目数组与其 id 字段的唯一入口：返回 ``(items, id_field, kind)``。
+
+    ``kind`` 缺省时经 ``resolve_script_kind``（取证解析）由剧本数据形状判别；调用方已持有
+    项目声明或路线闸门算出的种类（``resolve_declared_kind`` / ``ensure_route_skeleton`` 的
+    返回值）可显式传入，跳过重复判别。
+
+    返回的条目值是 ``script.get(kind)`` 原样——**不做类型校验、不把非 list 兜底为空数组**：
+    键缺失时为 ``None``，键存在但非 list（含 ``null``）时原样返回该非法值。本函数只统一
+    「查哪个键、哪个 id 字段」这一份结构事实；脏值该 fail-loud 还是降级、空数组算不算合法，
+    是各消费路径自己的策略，归调用方，不在此收口。条目内的角色引用字段（``chars_field``）
+    不属于条目访问，仍直查 ``SKELETONS``。
+    """
+    resolved_kind = kind if kind is not None else resolve_script_kind(script)
+    return script.get(resolved_kind), SKELETONS[resolved_kind].id_field, resolved_kind
+
+
+# 路线要求的骨架族：参考生视频路线要 ``video_units``，其余路线要分镜族骨架
 # （``segments`` / ``scenes`` / ``shots``）。族内差异（如 narration 数据落 ``scenes`` 键的历史
 # 形态）不构成失配，只有跨族才是——跨族意味着生成侧要读的数组根本不在剧本里。
 _REFERENCE_ROUTE_SKELETON = "video_units"

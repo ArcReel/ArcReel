@@ -47,7 +47,6 @@ function makeScript(): NarrationEpisodeScript {
     episode: 1,
     title: "EP1",
     content_mode: "narration",
-    duration_seconds: 4,
     novel: { title: "n", chapter: "1" },
     segments: [
       {
@@ -117,7 +116,7 @@ describe("TimelineCanvas", () => {
       />,
     );
 
-    expect(screen.getByText("剧本尚未生成，先在「预处理」中完成审阅")).toBeInTheDocument();
+    expect(screen.getByText("脚本尚未生成，先在「预处理」中完成审阅")).toBeInTheDocument();
     expect(screen.queryByTestId("shot-split-view")).not.toBeInTheDocument();
   });
 

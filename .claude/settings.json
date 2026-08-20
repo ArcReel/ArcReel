@@ -45,8 +45,6 @@
       "Bash(gh repo view:*)",
       "Bash(gh repo list:*)",
       "Bash(gh repo clone:*)",
-      "Bash(openspec:*)",
-      "Bash(command -v openspec)",
       "Skill(commit-commands:commit)",
       "Skill(commit-commands:commit-push-pr)",
       "Skill(claude-api)",

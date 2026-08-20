@@ -269,6 +269,19 @@ class TestPerSecondMatrix:
         )
         assert amount == pytest.approx(2.80)
 
+    def test_resolution_only_custom_default_resolution_used_for_fallback(self):
+        # 该模型未显式指定分辨率时实际下发的档位若不是通用 720p（如 MiniMax H3 是 768p），
+        # 回落须跟随 default_resolution，否则会落进不存在的 720p 档而结算为 0。
+        pricing = PerSecondMatrix(
+            rates={"h3": {("768p", None): 0.50, ("2k", None): 0.80}},
+            default_model="h3",
+            dimensions="resolution_only",
+            currency="CNY",
+            default_resolution="768p",
+        )
+        amount, _ = calculate_pricing(pricing, PricingParams(call_type="video", model="h3", duration_seconds=8))
+        assert amount == pytest.approx(4.0)
+
     def test_flat_ignores_resolution(self):
         amount, _ = calculate_pricing(
             self.flat,

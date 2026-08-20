@@ -36,7 +36,7 @@ export default {
   'copied': '已复制',
   'setup': '准备中',
   'worldbuilding': '世界观',
-  'scripting': '剧本创作',
+  'scripting': '脚本创作',
   'production': '制作中',
   'completed': '已完成',
   'workflow_phase': '工作流阶段',

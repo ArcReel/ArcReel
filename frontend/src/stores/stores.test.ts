@@ -236,6 +236,24 @@ describe("stores", () => {
     expect(state.isDraftSession).toBe(true);
   });
 
+  it("resetTimeline rebuilds the timeline and drops the in-place edit state", () => {
+    const assistant = useAssistantStore.getState();
+    assistant.resetTimeline();
+    assistant.setEntries([
+      { seq: 0, type: "user", uuid: "old-anchor", content: [{ type: "text", text: "原会话消息" }] },
+    ]);
+    assistant.setEditingTurnUuid("old-anchor");
+
+    // 切换会话（含改写后切到新分支）走的就是这条重建路径
+    assistant.resetTimeline();
+
+    const state = useAssistantStore.getState();
+    expect(state.entries).toEqual([]);
+    expect(state.turns).toEqual([]);
+    expect(state.draftTurn).toBeNull();
+    expect(state.editingTurnUuid).toBeNull();
+  });
+
   it("setEntries merges by seq instead of overwriting newer local entries", () => {
     const assistant = useAssistantStore.getState();
     assistant.resetTimeline();

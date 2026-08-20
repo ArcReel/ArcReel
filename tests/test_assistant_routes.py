@@ -232,7 +232,7 @@ class TestAssistantRoutes:
         assert response.status_code == 502
         detail = response.json()["detail"]
         assert detail["code"] == "agent_startup_failed"
-        assert detail["message"] == "Agent 启动失败"
+        assert detail["message"] == "智能体启动失败"
 
         failure = detail["failure"]
         assert failure["version"] == 1

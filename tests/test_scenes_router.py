@@ -6,11 +6,12 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import scenes
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import FakeProjectAssetMutationMixin
 
 pytestmark = pytest.mark.unit
 
 
-class _FakePM:
+class _FakePM(FakeProjectAssetMutationMixin):
     def __init__(self):
         self.projects = {
             "demo": {

@@ -4,6 +4,7 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
+import { VersionTimeMachine } from "./VersionTimeMachine";
 
 interface NarrationAudioCardProps {
   projectName: string;
@@ -59,6 +60,15 @@ export function NarrationAudioCard({
         >
           {t("media_narration_title")}
         </span>
+        <div className="ml-auto">
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType="audio"
+            resourceId={segmentId}
+            iconOnly
+            busy={Boolean(generating)}
+          />
+        </div>
       </div>
 
       {/* 只读原文 + 播放器并排 */}

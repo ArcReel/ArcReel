@@ -1,25 +1,21 @@
 """Tests for CostEstimationService."""
 
+from unittest.mock import AsyncMock
+
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.config.resolver import ConfigResolver
 from lib.cost_calculator import cost_calculator
-from lib.db.base import Base
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.narration_delivery import VideoRequestCostFacts
 from lib.providers import PROVIDER_GEMINI
+from lib.reference_video.request_projection import (
+    USE_TTS,
+    ProviderProjectionCandidate,
+    ReferenceRequestOptions,
+)
 from server.services import reference_video_tasks
-from server.services.cost_estimation import CostEstimationService
-
-
-@pytest.fixture
-async def db_factory():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
+from server.services.cost_estimation import CostEstimationService, quote_video_request
 
 
 async def _seed_call(
@@ -133,14 +129,13 @@ def _make_ad_script(shot_ids: list[str], durations: list[int]) -> dict:
 
 
 def _make_reference_video_script(episode: int, content_mode: str, unit_specs: list[tuple[str, int]]) -> dict:
-    """Helper to create a narration/drama + reference_video episode script dict (video_units[])."""
+    """Helper to create a reference_video episode script dict (video_units[])."""
     units = []
     for unit_id, duration in unit_specs:
         units.append(
             {
                 "unit_id": unit_id,
-                "shots": [{"text": "t"}],
-                "references": [],
+                "text": "t",
                 "duration_seconds": duration,
                 "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
@@ -158,6 +153,28 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
 
 
 class TestCostEstimationService:
+    @pytest.mark.integration
+    async def test_shared_video_quote_exposes_exact_amount_currency_and_request_coordinates(self, db_factory):
+        quote = await quote_video_request(
+            VideoRequestCostFacts(
+                provider_id="openai",
+                model_id="sora-2",
+                resolution="720p",
+                duration_seconds=8,
+                generate_audio=True,
+            ),
+            db_factory,
+        )
+
+        assert quote is not None
+        assert quote.to_payload() == {
+            "amount": pytest.approx(0.8),
+            "currency": "USD",
+            "provider_id": "openai",
+            "model_id": "sora-2",
+            "request_duration_seconds": 8,
+        }
+
     @pytest.mark.unit
     async def test_estimate_single_episode(self, db_factory):
         resolver = ConfigResolver(db_factory)
@@ -713,8 +730,31 @@ class TestCostEstimationService:
     @pytest.mark.unit
     async def test_grid_estimate_count_follows_4k_gate(self, db_factory, monkeypatch):
         """估算的宫格张数按 4K 门控走同一条阶梯：12 场景一组，4K 下一张 4×4 装下，
-        非 4K 下封顶 3×3 要切两张，估算总价相应翻倍。"""
+        非 4K 下封顶 3×3 要切两张，估算总价相应翻倍。
+
+        用按张定价（与分辨率无关）的自定义供应商，把张数变化与单价随档位变化的影响隔开。
+        """
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
         from server.services import cost_estimation as ce
+
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Custom",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {
+                        "model_id": "img",
+                        "display_name": "Img",
+                        "endpoint": "openai-images",
+                        "price_unit": "image",
+                        "price_input": 0.09,
+                        "currency": "USD",
+                    },
+                ],
+            )
+            await session.commit()
 
         seg_ids = [f"E1S{i:03d}" for i in range(1, 13)]
         project_data = {
@@ -722,6 +762,7 @@ class TestCostEstimationService:
             "content_mode": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
+            "image_provider_t2i": "custom-1/img",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 12)}
@@ -730,7 +771,7 @@ class TestCostEstimationService:
             async def _resolution(_r, _project):
                 return resolution
 
-            monkeypatch.setattr(ce, "resolve_grid_image_resolution", _resolution)
+            monkeypatch.setattr(ce, "resolve_image_resolution", _resolution)
             service = CostEstimationService(ConfigResolver(db_factory), db_factory)
             result = await service.compute(project_data, scripts, project_name="proj")
             return sum(seg["estimate"]["image"]["USD"] for seg in result["episodes"][0]["segments"])
@@ -740,6 +781,108 @@ class TestCostEstimationService:
         # 未配置分辨率（None）与 2K 同样落在门控内
         assert await _estimated_image_total("2K") == pytest.approx(total_4k * 2, rel=1e-4)  # 每条份额各自 round(…, 6)
         assert await _estimated_image_total(None) == pytest.approx(total_4k * 2, rel=1e-4)  # 每条份额各自 round(…, 6)
+
+    @pytest.mark.unit
+    async def test_grid_estimate_prices_at_resolved_resolution(self, db_factory, monkeypatch):
+        """宫格图按执行期生效的分辨率档计价：4K 项目按 4K 单价，未配置回落保底档。
+
+        9 场景在任何档位下都只切一张 grid_9，张数不变，差异只来自单价。
+        """
+        from lib.grid.layout import GRID_FALLBACK_RESOLUTION
+        from server.services import cost_estimation as ce
+
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            # 显式钉住按分辨率分档定价的型号：测试要验的是「计价档随解析结果走」，
+            # 不该依赖全局默认图片模型恰好是分档定价的
+            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 9)}
+
+        async def _estimated_image_total(resolution: str | None) -> float:
+            async def _resolution(_r, _project):
+                return resolution
+
+            monkeypatch.setattr(ce, "resolve_image_resolution", _resolution)
+            service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+            result = await service.compute(project_data, scripts, project_name="proj")
+            return sum(seg["estimate"]["image"]["USD"] for seg in result["episodes"][0]["segments"])
+
+        total_2k = await _estimated_image_total("2K")
+        total_4k = await _estimated_image_total("4K")
+        assert total_2k > 0
+        # 该型号 4K 单价高于 2K，估算须随之上浮而非恒按 2K
+        assert total_4k > total_2k
+        # 未配置分辨率时按保底档计价，与执行期下发的档位同源
+        assert await _estimated_image_total(None) == pytest.approx(
+            await _estimated_image_total(GRID_FALLBACK_RESOLUTION)
+        )
+
+    @pytest.mark.unit
+    async def test_plain_storyboard_estimate_prices_at_resolved_resolution(self, db_factory, monkeypatch):
+        """普通（非宫格）分镜图同样按执行期生效的分辨率档计价，未配置时按保底档。"""
+        from server.services import cost_estimation as ce
+        from server.services.cost_estimation import _IMAGE_PRICING_FALLBACK_RESOLUTION
+
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 4)]
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            # 按分辨率分档定价的型号，档位差异才可观测
+            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 3)}
+
+        async def _estimated_image_total(resolution: str | None) -> float:
+            async def _resolution(_r, _project):
+                return resolution
+
+            monkeypatch.setattr(ce, "resolve_image_resolution", _resolution)
+            service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+            result = await service.compute(project_data, scripts, project_name="proj")
+            return sum(seg["estimate"]["image"]["USD"] for seg in result["episodes"][0]["segments"])
+
+        total_fallback = await _estimated_image_total(_IMAGE_PRICING_FALLBACK_RESOLUTION)
+        assert total_fallback > 0
+        # 该型号 4K 单价高于保底档，估算须随之上浮而非恒按保底档
+        assert await _estimated_image_total("4K") > total_fallback
+        # 解析失败（未配置图像供应商）按保底档计价，不抛错
+        assert await _estimated_image_total(None) == pytest.approx(total_fallback)
+
+    @pytest.mark.unit
+    async def test_grid_estimate_duplicate_ids_across_groups_each_correct(self, db_factory):
+        """同 ID 条目落在不同分组时各自展示本组的均摊估算，不被后写的分组覆盖。"""
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        # 前 9 条一组（grid_9，每条摊 1/9 张），第 10 条 segment_break 另起一组（grid_4，独占一张）
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 9)] + ["DUP", "DUP"]
+        script = _make_script(1, seg_ids, [6] * 10)
+        script["segments"][9]["segment_break"] = True
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="proj")
+        segments = result["episodes"][0]["segments"]
+
+        unit = segments[9]["estimate"]["image"]["USD"]  # 独占一张宫格 → 满张单价
+        assert unit > 0
+        # 含末位与第 10 条同名的第 9 条：按 ID 建 key 时它会被后写的第二组覆盖成满张单价
+        for seg in segments[:9]:
+            assert seg["estimate"]["image"]["USD"] == pytest.approx(round(unit / 9, 6))
 
     @pytest.mark.unit
     async def test_project_level_actual_split_by_asset_type(self, db_factory):
@@ -932,14 +1075,9 @@ class TestCostEstimationService:
 
         assert result["episodes"][0]["segments"][0]["estimate"]["audio"] == {}
 
-    @pytest.mark.unit
-    async def test_ad_reference_video_skips_image_estimate(self, db_factory):
-        """ad + 参考生视频路径跳过分镜步骤：不产生分镜图估值，视频估值按 unit 计费后摊回镜头。
-
-        两个镜头（4s + 6s）未受供应商时长上限约束，派生分组合并为同一个 reference_unit——
-        计费颗粒度与实际生成一致（``execute_reference_video_task`` 按 unit 整体送 provider，
-        不是逐镜头分别计费），但输出仍按镜头 ID 分条，前端才索引得到。
-        """
+    @pytest.mark.integration
+    async def test_ad_reference_video_estimates_self_contained_units(self, db_factory):
+        """广告参考路线按 video_units 计费展示，并跳过分镜图与独立音频估值。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -947,250 +1085,29 @@ class TestCostEstimationService:
             "title": "Ad",
             "content_mode": "ad",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
-        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2"], [4, 6])}
+        scripts = {
+            "ep1.json": _make_reference_video_script(
+                1,
+                "ad",
+                [("E1U1", 4), ("E1U2", 6)],
+            )
+        }
 
         result = await service.compute(project_data, scripts, project_name="ad-ref")
 
         segments = result["episodes"][0]["segments"]
-        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2"]
-        assert [seg["duration_seconds"] for seg in segments] == [4, 6]
-        for seg in segments:
-            assert seg["estimate"]["image"] == {}
-            assert seg["estimate"]["video"]
+        assert [segment["segment_id"] for segment in segments] == ["E1U1", "E1U2"]
+        assert [segment["duration_seconds"] for segment in segments] == [4, 6]
+        for segment in segments:
+            assert segment["estimate"]["image"] == {}
+            assert segment["estimate"]["audio"] == {}
+            assert segment["estimate"]["video"]
         assert result["project_totals"]["estimate"].get("image", {}) == {}
         assert result["project_totals"]["estimate"]["video"]
-
-    @pytest.mark.unit
-    async def test_ad_reference_video_apportions_unit_cost_across_shots(self, db_factory, monkeypatch):
-        """unit 费用均摊到成员镜头，除不尽时余数补末镜，合计与 unit 原值分文不差。
-
-        3 个镜头分摊一笔按 8s 计的 unit 费用（USD 1.6 / 3 除不尽）：前两镜各取 6 位小数的
-        均值，末镜吃下余数，三者之和须等于按 unit 整体计费的原值——否则镜头数越多，
-        用户看到的项目总价偏离真实计费越远。
-        """
-        from server.services import cost_estimation as cost_estimation_module
-        from server.services.reference_video_tasks import ProjectDurationContext
-
-        async def _fake_ctx(project, *, capability=None):
-            return ProjectDurationContext(
-                supported_durations=(8,), resolution=None, provider_id="veo", model_name="veo-3.1"
-            )
-
-        monkeypatch.setattr(cost_estimation_module, "resolve_project_duration_context", _fake_ctx)
-
-        resolver = ConfigResolver(db_factory)
-        service = CostEstimationService(resolver, db_factory)
-
-        project_data = {
-            "title": "Ad",
-            "content_mode": "ad",
-            "generation_mode": "reference_video",
-            "target_duration": 30,
-            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
-        }
-        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2", "E1S3"], [2, 2, 2])}
-
-        result = await service.compute(project_data, scripts, project_name="ad-ref-split")
-
-        segments = result["episodes"][0]["segments"]
-        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2", "E1S3"]
-        currency = next(iter(segments[0]["estimate"]["video"]))
-        shares = [seg["estimate"]["video"][currency] for seg in segments]
-        assert shares[0] == shares[1], "除不尽时只有末镜与其它镜头不同"
-        assert shares[2] != shares[0], "余数应落在末镜上，否则合计会缺一截"
-        # 分摊后的合计 == 集合计 == 按 unit 整体计费的原值
-        ep_total = result["episodes"][0]["totals"]["estimate"]["video"][currency]
-        assert round(sum(shares), 6) == ep_total
-        assert ep_total == result["project_totals"]["estimate"]["video"][currency]
-
-    @pytest.mark.unit
-    async def test_ad_reference_video_apportions_actual_cost_across_shots(self, db_factory):
-        """实际费用同样按 unit 分摊：usage 记录的 segment_id 是 unit ID，不是镜头 ID。
-
-        ``act_by_shot`` 这条链路此前零覆盖——只断言 estimate 侧无法区分「actual 按 unit
-        正确分摊」与「actual_by_segment.get(unit_id) 查询本身有误、恒为空」。
-        """
-        resolver = ConfigResolver(db_factory)
-        service = CostEstimationService(resolver, db_factory)
-
-        await _seed_call(
-            db_factory,
-            "ad-ref-actual",
-            "video",
-            "veo-3.1",
-            provider="veo",
-            segment_id="E1U1",
-            cost_amount=1.6,
-            currency="USD",
-        )
-
-        project_data = {
-            "title": "Ad",
-            "content_mode": "ad",
-            "generation_mode": "reference_video",
-            "target_duration": 30,
-            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
-        }
-        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2", "E1S3"], [2, 2, 2])}
-
-        result = await service.compute(project_data, scripts, project_name="ad-ref-actual")
-
-        segments = result["episodes"][0]["segments"]
-        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2", "E1S3"]
-        shares = [seg["actual"]["video"]["USD"] for seg in segments]
-        assert all(shares), "actual_by_segment.get(unit_id) 查不到时分摊结果会全是空 dict"
-        assert round(sum(shares), 6) == 1.6
-        assert result["episodes"][0]["totals"]["actual"]["video"]["USD"] == pytest.approx(1.6)
-        assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(1.6)
-
-    @pytest.mark.unit
-    async def test_ad_reference_video_merges_shot_level_legacy_video_actual(self, db_factory):
-        """切换到 reference_video 前，某镜头已在 storyboard 模式产生过视频实付（按 shot_id
-        记账），切换后与 unit 分摊额是两笔独立支出，须相加而非互相替换。
-
-        只对其中一个镜头（E1S2）播历史视频费用，断言只有它的 actual.video 比其余镜头
-        多出这一截，其余镜头仍只有 unit 分摊份额——防止实现退化成「谁覆盖谁」。
-        """
-        resolver = ConfigResolver(db_factory)
-        service = CostEstimationService(resolver, db_factory)
-
-        await _seed_call(
-            db_factory,
-            "ad-ref-legacy-video",
-            "video",
-            "veo-3.1",
-            provider="veo",
-            segment_id="E1U1",
-            cost_amount=1.5,
-            currency="USD",
-        )
-        await _seed_call(
-            db_factory,
-            "ad-ref-legacy-video",
-            "video",
-            "sora-2",
-            provider="openai",
-            segment_id="E1S2",
-            cost_amount=0.4,
-            currency="USD",
-        )
-
-        project_data = {
-            "title": "Ad",
-            "content_mode": "ad",
-            "generation_mode": "reference_video",
-            "target_duration": 30,
-            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
-        }
-        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2", "E1S3"], [2, 2, 2])}
-
-        result = await service.compute(project_data, scripts, project_name="ad-ref-legacy-video")
-
-        segments = {seg["segment_id"]: seg for seg in result["episodes"][0]["segments"]}
-        apportioned_share = segments["E1S1"]["actual"]["video"]["USD"]
-        assert segments["E1S3"]["actual"]["video"]["USD"] == pytest.approx(apportioned_share)
-        assert segments["E1S2"]["actual"]["video"]["USD"] == pytest.approx(apportioned_share + 0.4)
-        # 集/项目合计须把这笔历史支出也算进去，不能因为它挂在 shot_id 下就被漏计
-        ep_total = result["episodes"][0]["totals"]["actual"]["video"]["USD"]
-        assert ep_total == pytest.approx(1.5 + 0.4)
-        assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(1.5 + 0.4)
-
-    @pytest.mark.unit
-    async def test_ad_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
-        """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。
-
-        金额必须一起断言：只断言 ``duration_seconds`` 无法区分「按 8s 计价」与「秒数传对了
-        但定价查不到、估值静默为空」——后者在本函数里被吞成 debug 日志。
-        """
-        from server.services import cost_estimation as cost_estimation_module
-        from server.services.reference_video_tasks import ProjectDurationContext
-
-        def _patch_ctx(durations: tuple[int, ...]):
-            async def _fake_ctx(project, *, capability=None):
-                return ProjectDurationContext(
-                    supported_durations=durations, resolution=None, provider_id="veo", model_name="veo-3.1"
-                )
-
-            monkeypatch.setattr(cost_estimation_module, "resolve_project_duration_context", _fake_ctx)
-
-        resolver = ConfigResolver(db_factory)
-        service = CostEstimationService(resolver, db_factory)
-
-        project_data = {
-            "title": "Ad",
-            "content_mode": "ad",
-            "generation_mode": "reference_video",
-            "target_duration": 30,
-            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
-        }
-        scripts = {"ep1.json": _make_ad_script(["E1S1"], [5])}
-
-        _patch_ctx((8,))
-        rounded = await service.compute(project_data, scripts, project_name="ad-ref-round")
-        # 对照组：无档位约束（unconstrained）时按剧本原始 5s 计，验证金额确实随取档后的秒数走
-        _patch_ctx(())
-        unconstrained = await service.compute(project_data, scripts, project_name="ad-ref-round")
-
-        seg = rounded["episodes"][0]["segments"][0]
-        base_seg = unconstrained["episodes"][0]["segments"][0]
-        # 单镜头 unit：展示的是镜头自身编排时长（取档发生在 unit 级），两次都是剧本原值 5s
-        assert seg["segment_id"] == "E1S1"
-        assert seg["duration_seconds"] == 5
-        assert base_seg["duration_seconds"] == 5
-        assert seg["estimate"]["video"], "取档后仍应算出视频估值，空 dict 说明定价路径被静默吞掉"
-        assert base_seg["estimate"]["video"]
-        # 视频按秒计价，取档到 8s 的估值须严格高于按剧本 5s 的估值（低估用户实付正是本票要修的缺陷）
-        assert sum(seg["estimate"]["video"].values()) > sum(base_seg["estimate"]["video"].values())
-        assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
-
-    @pytest.mark.unit
-    async def test_ad_reference_video_fallback_derivation_applies_max_unit_duration(self, db_factory, monkeypatch):
-        """剧本尚未派生 reference_units 时，估算现推的分组与执行侧同受供应商时长上限约束。
-
-        不施加上限会把本该分成多个 unit 的镜头并成一个，取档命中最大档位后按一次计费，
-        总估值成倍偏低。上限取自同一份能力解析（``ProjectDurationContext.max_duration``），
-        不额外触发 IO。
-        """
-        from server.services import cost_estimation as cost_estimation_module
-        from server.services.reference_video_tasks import ProjectDurationContext
-
-        async def _fake_ctx(project, *, capability=None):
-            return ProjectDurationContext(
-                supported_durations=(8,),
-                resolution=None,
-                provider_id="veo",
-                model_name="veo-3.1",
-                max_duration=8,
-            )
-
-        monkeypatch.setattr(cost_estimation_module, "resolve_project_duration_context", _fake_ctx)
-
-        resolver = ConfigResolver(db_factory)
-        service = CostEstimationService(resolver, db_factory)
-
-        project_data = {
-            "title": "Ad",
-            "content_mode": "ad",
-            "generation_mode": "reference_video",
-            "target_duration": 30,
-            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
-        }
-        # 三镜头共 18s，8s 上限下派生为 3 个 unit（6+6 超限，故逐镜一组）；无上限时会并成 1 个
-        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2", "E1S3"], [6, 6, 6])}
-
-        result = await service.compute(project_data, scripts, project_name="ad-ref-maxdur")
-
-        segments = result["episodes"][0]["segments"]
-        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2", "E1S3"]
-        # 三个单镜头 unit 各按 8s 档位计费一次；若分组不受上限约束会并成 1 个 unit、
-        # 只计一次 8s（18s 超出最大档位取 DOWN），总额恰好是这里的三分之一
-        currency = next(iter(segments[0]["estimate"]["video"]))
-        per_unit = segments[0]["estimate"]["video"][currency]
-        assert [seg["estimate"]["video"][currency] for seg in segments] == [per_unit] * 3
-        assert result["episodes"][0]["totals"]["estimate"]["video"][currency] == round(per_unit * 3, 6)
 
     @pytest.mark.integration
     async def test_narration_reference_video_produces_nonzero_video_estimate(self, db_factory):
@@ -1207,6 +1124,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1263,16 +1181,15 @@ class TestCostEstimationService:
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
         """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。"""
-        from server.services import cost_estimation as cost_estimation_module
-        from server.services.reference_video_tasks import ProjectDurationContext
+        priced_durations: list[int | None] = []
+        original = cost_calculator.calculate_cost
 
-        def _patch_ctx(durations: tuple[int, ...]):
-            async def _fake_ctx(project, *, capability=None):
-                return ProjectDurationContext(
-                    supported_durations=durations, resolution=None, provider_id="veo", model_name="veo-3.1"
-                )
+        def _spy(provider, params, **kwargs):
+            if params.call_type == "video":
+                priced_durations.append(params.duration_seconds)
+            return original(provider, params, **kwargs)
 
-            monkeypatch.setattr(cost_estimation_module, "resolve_project_duration_context", _fake_ctx)
+        monkeypatch.setattr(cost_calculator, "calculate_cost", _spy)
 
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1281,25 +1198,236 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "gemini-aistudio/veo-3.1-generate-preview",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
 
-        _patch_ctx((8,))
         rounded = await service.compute(project_data, scripts, project_name="narration-ref-round")
-        _patch_ctx(())
-        unconstrained = await service.compute(project_data, scripts, project_name="narration-ref-round")
 
         seg = rounded["episodes"][0]["segments"][0]
-        base_seg = unconstrained["episodes"][0]["segments"][0]
         assert seg["segment_id"] == "E1U1"
         assert seg["duration_seconds"] == 5
-        assert base_seg["duration_seconds"] == 5
         assert seg["estimate"]["video"]
-        assert base_seg["estimate"]["video"]
-        assert sum(seg["estimate"]["video"].values()) > sum(base_seg["estimate"]["video"].values())
+        assert seg["request_projection"]["request_duration"] == 8
+        assert priced_durations == [8]
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
+
+    @pytest.mark.integration
+    async def test_reference_video_quote_accepts_server_materialized_tts_duration(self, db_factory, monkeypatch):
+        class _TtsFloorCapabilities:
+            def __init__(self, _resolver):
+                pass
+
+            async def resolve_candidate(self, _project, capability):
+                return ProviderProjectionCandidate(
+                    capability=capability,
+                    provider_id="kling",
+                    model_id="kling-v3",
+                    supported_durations=(4, 8, 12),
+                    max_reference_images=4,
+                    resolution="1080p",
+                    generate_audio=True,
+                    requested_generate_audio=True,
+                    has_audio_track=True,
+                    audio_switch_controllable=True,
+                )
+
+        monkeypatch.setattr(
+            "server.services.cost_estimation.ConfigReferenceCapabilityProjection",
+            _TtsFloorCapabilities,
+        )
+        monkeypatch.setattr(
+            "server.services.cost_estimation.active_tts_resource_ids",
+            AsyncMock(return_value=frozenset()),
+        )
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
+
+        result = await service.compute(
+            project_data,
+            scripts,
+            project_name="narration-ref-tts-floor",
+            reference_request_options={
+                "E1U1": ReferenceRequestOptions(
+                    narration_delivery=USE_TTS,
+                    current_tts_duration_seconds=9.5,
+                )
+            },
+        )
+
+        projection = result["episodes"][0]["segments"][0]["request_projection"]
+        assert projection["duration_input"] == 9.5
+        assert projection["request_duration"] == 12
+        assert projection["problems"][0]["code"] == "reference_duration_confirmation_required"
+
+    @pytest.mark.integration
+    async def test_reference_video_tts_quote_uses_current_visual_tier_for_zero_or_incremental_cost(
+        self, db_factory, monkeypatch
+    ):
+        class _SoraCapabilities:
+            def __init__(self, _resolver):
+                pass
+
+            async def resolve_candidate(self, _project, capability):
+                return ProviderProjectionCandidate(
+                    capability=capability,
+                    provider_id="openai",
+                    model_id="sora-2",
+                    supported_durations=(4, 8, 12),
+                    max_reference_images=4,
+                    resolution="720p",
+                    generate_audio=True,
+                    requested_generate_audio=True,
+                    has_audio_track=True,
+                    audio_switch_controllable=True,
+                )
+
+        monkeypatch.setattr(
+            "server.services.cost_estimation.ConfigReferenceCapabilityProjection",
+            _SoraCapabilities,
+        )
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "video_provider_i2v": "openai/sora-2",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 4)])}
+
+        reused = await service.compute(
+            project_data,
+            scripts,
+            project_name="narration-ref-reused-quote",
+            reference_request_options={
+                "E1U1": ReferenceRequestOptions(
+                    narration_delivery=USE_TTS,
+                    current_tts_duration_seconds=8.0,
+                    current_visual_duration_seconds=8,
+                    current_reusable_visual_duration_seconds=8,
+                )
+            },
+        )
+        regenerated = await service.compute(
+            project_data,
+            scripts,
+            project_name="narration-ref-regenerated-quote",
+            reference_request_options={
+                "E1U1": ReferenceRequestOptions(
+                    narration_delivery=USE_TTS,
+                    current_tts_duration_seconds=8.0,
+                    current_visual_duration_seconds=4,
+                )
+            },
+        )
+
+        reused_segment = reused["episodes"][0]["segments"][0]
+        regenerated_segment = regenerated["episodes"][0]["segments"][0]
+        assert reused_segment["estimate"]["video"] == {}
+        assert reused_segment["request_projection"]["request_cost"] == {
+            "amount": 0.0,
+            "currency": "USD",
+            "provider_id": "openai",
+            "model_id": "sora-2",
+            "request_duration_seconds": 8,
+        }
+        assert regenerated_segment["estimate"]["video"] == {"USD": pytest.approx(0.8)}
+        assert regenerated_segment["request_projection"]["request_cost"] == {
+            "amount": pytest.approx(0.8),
+            "currency": "USD",
+            "provider_id": "openai",
+            "model_id": "sora-2",
+            "request_duration_seconds": 8,
+        }
+        assert regenerated_segment["request_projection"]["problems"][0]["code"] == (
+            "reference_duration_confirmation_required"
+        )
+
+        def _quote_unavailable(*_args, **_kwargs):
+            raise ValueError("price unavailable")
+
+        monkeypatch.setattr(
+            "server.services.cost_estimation.quote_video_request_from_price",
+            _quote_unavailable,
+        )
+        unavailable = await service.compute(
+            project_data,
+            scripts,
+            project_name="narration-ref-unavailable-quote",
+            reference_request_options={
+                "E1U1": ReferenceRequestOptions(
+                    narration_delivery=USE_TTS,
+                    current_tts_duration_seconds=8.0,
+                    current_visual_duration_seconds=4,
+                )
+            },
+        )
+        unavailable_segment = unavailable["episodes"][0]["segments"][0]
+        assert unavailable_segment["estimate"]["video"] == {}
+        assert unavailable_segment["request_projection"]["allowed"] is False
+        assert [problem["code"] for problem in unavailable_segment["request_projection"]["problems"]] == [
+            "reference_duration_confirmation_required",
+            "video_request_cost_unavailable",
+        ]
+
+    @pytest.mark.integration
+    async def test_reference_video_estimate_blocks_when_duration_metadata_is_empty(self, db_factory, monkeypatch):
+        class _MissingDurationCapabilities:
+            def __init__(self, _resolver):
+                pass
+
+            async def resolve_candidate(self, _project, capability):
+                return ProviderProjectionCandidate(
+                    capability=capability,
+                    provider_id="kling",
+                    model_id="kling-v3",
+                    supported_durations=(),
+                    max_reference_images=4,
+                    resolution="1080p",
+                    generate_audio=True,
+                    requested_generate_audio=True,
+                    has_audio_track=True,
+                    audio_switch_controllable=True,
+                )
+
+        monkeypatch.setattr(
+            "server.services.cost_estimation.ConfigReferenceCapabilityProjection",
+            _MissingDurationCapabilities,
+        )
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
+
+        result = await service.compute(project_data, scripts, project_name="missing-duration-metadata")
+
+        segment = result["episodes"][0]["segments"][0]
+        assert segment["estimate"]["video"] == {}
+        assert segment["request_projection"]["request_duration"] is None
+        assert segment["request_projection"]["problems"] == [
+            {
+                "code": "reference_supported_durations_missing",
+                "blocking": True,
+                "unit_id": "E1U1",
+                "locations": [{"path": ["duration_seconds"], "line": None}],
+                "params": {"provider": "kling", "model": "kling-v3"},
+                "action": "configure_video_model",
+            }
+        ]
 
     @pytest.mark.integration
     async def test_reference_route_gives_no_estimate_for_mismatched_storyboard_script(self, db_factory):
@@ -1315,6 +1443,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1347,6 +1476,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1384,10 +1514,10 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unenqueueable_units(self, db_factory):
-        """没有 shots 或拼接文本为空的 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
-        对没有 shots 的 unit 直接拒绝，``TaskSpec.from_request`` 对空提示词同样拒绝），这类 unit
+        """正文为空或只有空白的 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
+        对空正文直接拒绝，``TaskSpec.from_request`` 对空提示词同样拒绝），这类 unit
         不产生新预估——但 unit 整条仍要保留在结果里、纳入汇总：不可入队只影响能否产生新预估，
-        不影响该 unit 是否曾经成功生成过。已有实付的 unit（曾成功生成、之后被编辑成空 shots）
+        不影响该 unit 是否曾经成功生成过。已有实付的 unit（曾成功生成、之后被编辑成空正文）
         其历史支出不能因此从合计里消失。
         """
         resolver = ConfigResolver(db_factory)
@@ -1397,6 +1527,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1404,8 +1535,8 @@ class TestCostEstimationService:
         script["video_units"].append(
             {
                 "unit_id": "E1U2",
-                "shots": [],
-                "references": [],
+                "text": "",
+                "needs_replan": True,
                 "duration_seconds": 5,
                 "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
@@ -1414,8 +1545,7 @@ class TestCostEstimationService:
         script["video_units"].append(
             {
                 "unit_id": "E1U3",
-                "shots": [{"text": "   "}],
-                "references": [],
+                "text": "   ",
                 "duration_seconds": 5,
                 "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
@@ -1443,6 +1573,36 @@ class TestCostEstimationService:
         assert result["project_totals"]["actual"]["video"] == {"USD": 1.23}
 
     @pytest.mark.integration
+    async def test_reference_video_estimate_skips_replan_unit_but_keeps_actual(self, db_factory):
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "ad", [("E1U1", 6)])
+        script["video_units"][0]["needs_replan"] = True
+        await _seed_call(
+            db_factory,
+            "ad-replan-cost",
+            "video",
+            "veo-3.1-lite-generate-preview",
+            segment_id="E1U1",
+            cost_amount=1.23,
+            currency="USD",
+        )
+
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="ad-replan-cost")
+
+        segment = result["episodes"][0]["segments"][0]
+        assert segment["estimate"]["video"] == {}
+        assert segment["actual"]["video"] == {"USD": 1.23}
+        assert result["project_totals"]["actual"]["video"] == {"USD": 1.23}
+
+    @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unit_with_malformed_duration(self, db_factory):
         """agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（字符串、list、dict 等）。
         SDK 侧入队预检（``enqueue_videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，
@@ -1456,6 +1616,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1472,10 +1633,10 @@ class TestCostEstimationService:
         assert segments[2]["estimate"]["video"]
 
     @pytest.mark.integration
-    async def test_narration_reference_video_estimate_skips_unit_with_non_list_shots(self, db_factory):
-        """agent/外部编辑过的剧本可能把 ``shots`` 裸写成非 list 的 truthy 值（如 ``true``/``1``）。
-        ``assemble_shots_text`` 对非 list 输入遍历会抛 ``TypeError``，该异常发生在时长解析
-        之前，必须在拼接前先做类型检查，否则同样会让整个项目估算 500。
+    async def test_narration_reference_video_estimate_skips_unit_with_non_string_text(self, db_factory):
+        """agent/外部编辑过的剧本可能把 ``text`` 裸写成非字符串的 truthy 值（如 ``true``/``1``）。
+        该值参与提示词拼接会抛 ``TypeError``，必须先做类型检查，否则单条脏数据会让整个项目
+        估算 500。
         """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1484,13 +1645,14 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         script = _make_reference_video_script(1, "narration", [("E1U1", 6), ("E1U2", 8)])
-        script["video_units"][0]["shots"] = True
+        script["video_units"][0]["text"] = True
 
-        result = await service.compute(project_data, {"ep1.json": script}, project_name="narration-non-list-shots")
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="narration-non-string-text")
 
         segments = result["episodes"][0]["segments"]
         assert [seg["segment_id"] for seg in segments] == ["E1U1", "E1U2"]
@@ -1511,6 +1673,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
+            "video_provider_i2v": "kling/kling-v3",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1798,10 +1961,11 @@ class TestCostEstimationService:
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
             "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+            "characters": {"A": {"name": "A"}},
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
-        scripts["ep1.json"]["video_units"][0]["references"] = [{"type": "character", "name": "A"}]
+        scripts["ep1.json"]["video_units"][0]["text"] = "@[A] 走进房间"
 
         await service.compute(project_data, scripts, project_name="r2v-duration-slots")
 
@@ -1889,13 +2053,13 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
-        ("shot_extra", "expected_model"),
-        [({"characters_in_shot": ["A"]}, "kling-v3-omni"), ({}, "kling-v3")],
+        ("text", "expected_model"),
+        [("@[A] 走进房间", "kling-v3-omni"), ("空镜头", "kling-v3")],
     )
     async def test_ad_reference_route_prices_by_unit_reference_bucket(
-        self, db_factory, monkeypatch, shot_extra, expected_model
+        self, db_factory, monkeypatch, text, expected_model
     ):
-        """ad 参考路线按 unit 声明的参考集分桶算价：有参考图 → r2v，无参考图退化 → i2v。
+        """ad 参考路线按 unit 当前实际可用参考图分桶算价：有图 → r2v，无图 → i2v。
 
         参考路线的集实际入队参考视频任务；执行侧对空参考镜头按 i2v 桶降级解析模型，
         算价须跟着同一口径分桶。
@@ -1918,16 +2082,12 @@ class TestCostEstimationService:
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
             "video_provider_r2v": "kling/kling-v3-omni",
+            "characters": {"A": {"name": "A"}},
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
-        scripts = {
-            "ep1.json": {
-                "episode": 1,
-                "title": "Episode 1",
-                "content_mode": "ad",
-                "shots": [{"shot_id": "E1S001", "duration_seconds": 6, "visual": "v", "voiceover": "", **shot_extra}],
-            }
-        }
+        script = _make_reference_video_script(1, "ad", [("E1U1", 6)])
+        script["video_units"][0]["text"] = text
+        scripts = {"ep1.json": script}
 
         await service.compute(project_data, scripts, project_name="ad-reference-route-bucket")
 
@@ -2047,6 +2207,54 @@ class TestCostEstimationService:
             assert seg["estimate"]["image"]["USD"] == pytest.approx(round(0.09 / 9, 6))
         # 集合计 = 满张单价 0.09 USD
         assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(0.09, abs=1e-4)
+
+    @pytest.mark.unit
+    async def test_grid_estimate_counts_every_chunk_of_oversized_group(self, db_factory):
+        """超过单张格数上限的分组按切块后的张数计价，与入队实际产出的宫格张数一致。"""
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+        from lib.grid.layout import plan_grid_chunks
+
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Custom",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {
+                        "model_id": "img",
+                        "display_name": "Img",
+                        "endpoint": "openai-images",
+                        "price_unit": "image",
+                        "price_input": 0.09,
+                        "currency": "USD",
+                    },
+                ],
+            )
+            await session.commit()
+
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 13)]  # 12 scenes，非 4K 上限 9 → 切 2 张
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "aspect_ratio": "9:16",
+            "image_provider_t2i": "custom-1/img",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 12)}
+
+        result = await service.compute(project_data, scripts, project_name="test-grid-oversized")
+
+        expected_grids = len(plan_grid_chunks(seg_ids, "9:16", allow_large_grid=False))
+        assert expected_grids == 2
+        assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(
+            0.09 * expected_grids, abs=1e-4
+        )
 
     @pytest.mark.unit
     async def test_custom_provider_without_price_degrades_to_zero(self, db_factory):

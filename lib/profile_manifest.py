@@ -15,7 +15,6 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import errno
-import hashlib
 import json
 import logging
 import os
@@ -29,6 +28,7 @@ from typing import Literal, cast
 
 import portalocker
 
+from lib.content_digest import sha256_file
 from lib.path_safety import PathTraversalError, safe_join
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,6 @@ MANIFEST_FILENAME = ".arcreel_profile_manifest.json"
 LOCK_FILENAME = ".profile_sync.lock"
 MANIFEST_SCHEMA_VERSION = 1
 EXPECTED_PROFILE_ID = "arcreel/builtin"
-SHA256_CHUNK_BYTES = 64 * 1024
 LOCK_TIMEOUT_SECONDS = 10
 
 # profile 端要同步的两个根：``.claude/**`` 目录树 + 顶层 ``CLAUDE.md``
@@ -62,15 +61,6 @@ VALID_CONTENT_MODES: frozenset[str] = frozenset({"narration", "drama", "ad"})
 
 
 # ---------- 基础工具 ----------
-
-
-def sha256_file(path: Path) -> str:
-    """64KiB chunk 流式 sha256，避免大文件 OOM。"""
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        while chunk := f.read(SHA256_CHUNK_BYTES):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _is_skippable_dest(rel: str) -> bool:
@@ -258,8 +248,29 @@ def enumerate_dest_files(project_dir: Path) -> set[str]:
     files: set[str] = set()
     if (project_dir / _PROFILE_TOP_FILE).is_file():
         files.add(_PROFILE_TOP_FILE)
-    files |= {rel for rel in _walk_files(project_dir / _PROFILE_TREE_ROOT, project_dir) if not _is_skippable_dest(rel)}
+    dest_tree = project_dir / _PROFILE_TREE_ROOT
+    if dest_tree.is_symlink():
+        raise ValueError(f"profile tree is a symlink, refusing to enumerate: {dest_tree}")
+    files |= {rel for rel in _walk_files(dest_tree, project_dir) if not _is_skippable_dest(rel)}
     return files
+
+
+def _enumerate_dest_symlinks(project_dir: Path) -> set[str]:
+    """Return profile symlink entries without traversing directory targets."""
+    links: set[str] = set()
+    dest_top = project_dir / _PROFILE_TOP_FILE
+    if dest_top.is_symlink():
+        links.add(_PROFILE_TOP_FILE)
+
+    dest_tree = project_dir / _PROFILE_TREE_ROOT
+    if not dest_tree.is_dir() or dest_tree.is_symlink():
+        return links
+    for dirpath, dirnames, filenames in os.walk(dest_tree, followlinks=False):
+        for name in (*dirnames, *filenames):
+            path = Path(dirpath) / name
+            if path.is_symlink():
+                links.add(path.relative_to(project_dir).as_posix())
+    return links
 
 
 # ---------- Manifest 数据类 ----------
@@ -609,8 +620,9 @@ def _apply_decision(
                 stats["pruned"] += 1
                 stats["repaired"] += 1
             else:
-                # #8 profile 上游删，用户改过 → 保留 D + 清 entry（不是 tombstone）
-                manifest.entries.pop(rel, None)
+                # #8 profile 上游删，用户改过 → 保留 D 及旧 baseline。保留 entry
+                # 让设置页仍能识别这是从内置 profile 分叉的 legacy 定制，而不是
+                # 无来源的 project-only 文件；后续同步继续按三方语义保护它。
                 stats["orphaned"] += 1
                 stats["skipped"] += 1
         case (False, True, "none"):
@@ -727,6 +739,63 @@ def sync_profile_to_project(
         return stats
 
 
+def get_profile_status(
+    profile_dir: Path,
+    project_dir: Path,
+    content_mode: ContentMode,
+) -> dict[str, object]:
+    """Return project-local files that a full built-in reset would discard.
+
+    A customization is a tracked file whose content differs from its recorded
+    built-in baseline, a user deletion of a currently shipped file, or a
+    project-only profile file. Unmodified files removed upstream are not
+    customizations and are pruned by normal sync.
+    """
+    if not profile_dir.exists():
+        raise ProfileMissingError(f"Profile dir not found: {profile_dir}")
+    mapping = resolve_profile_files_for_mode(profile_dir, content_mode)
+    if not mapping:
+        raise ProfileEmptyError(f"Profile dir empty, likely deploy misconfig: {profile_dir}")
+
+    loaded = load_manifest(project_dir)
+    dest_files = enumerate_dest_files(project_dir)
+    dest_symlinks = _enumerate_dest_symlinks(project_dir)
+    if loaded is None:
+        # Without a trustworthy baseline, existing destination files may be
+        # customized and missing projected files may be user deletions. A full
+        # reset repairs both shapes, so keep the reset action available for the
+        # complete affected set.
+        customized_files = sorted(dest_files | dest_symlinks | mapping.keys())
+        return {"customized": bool(customized_files), "customized_files": customized_files}
+
+    manifest, _ = loaded
+    customized = set(dest_symlinks)
+    for rel in dest_files:
+        entry = manifest.entries.get(rel)
+        if entry is None:
+            customized.add(rel)
+            continue
+        if entry.get("source") == "tombstone":
+            customized.add(rel)
+            continue
+        try:
+            dest = _ensure_dest_within(project_dir, rel)
+            if sha256_file(dest) != entry.get("sha256"):
+                customized.add(rel)
+        except (OSError, ValueError):
+            customized.add(rel)
+
+    for rel in mapping:
+        if rel in dest_files:
+            continue
+        # Any missing file still shipped by the current projection is a user
+        # deletion, whether or not the manifest tracked the path yet.
+        customized.add(rel)
+
+    files = sorted(customized)
+    return {"customized": bool(files), "customized_files": files}
+
+
 def force_resync_profile(
     profile_dir: Path,
     project_dir: Path,
@@ -753,10 +822,10 @@ def force_resync_profile(
     project_dir.mkdir(parents=True, exist_ok=True)
 
     with _project_lock(project_dir):
+        if paths is None:
+            return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
         loaded = load_manifest(project_dir)
         if loaded is None:
-            if paths is None:
-                return _full_reset_from_profile(profile_dir, project_dir, mapping, content_mode=content_mode)
             manifest, original_bytes = Manifest.empty(), None
         else:
             manifest, original_bytes = loaded

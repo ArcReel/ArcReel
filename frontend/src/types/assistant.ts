@@ -19,6 +19,12 @@ export interface SessionMeta {
   updated_at: string;
 }
 
+/** 图片附件的传输形态：与 `/sessions/send`、`/sessions/{id}/rewrite` 的 `images` 元素同构。 */
+export interface ImagePayload {
+  data: string;
+  media_type: string;
+}
+
 export interface ContentBlock {
   type:
     | "text"

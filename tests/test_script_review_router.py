@@ -44,9 +44,8 @@ def _rv_step1() -> dict:
         "units": [
             {
                 "unit_id": "E1U01",
-                "shots": [{"text": "@[阿离] 立于屋檐下。"}],
+                "text": "@[阿离] 立于屋檐下。",
                 "duration_seconds": 4,
-                "references": [{"type": "character", "name": "阿离"}],
             }
         ],
     }
@@ -121,22 +120,55 @@ class TestScriptReviewRouter:
             client.post(f"{base}/confirm")
 
             edited = _drama_step1()
-            edited["scenes"][0]["utterances"][1]["text"] = "你怎么才回来。"
+            edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
             put = client.put(f"{base}/content", json=edited)
             assert put.status_code == 200
             assert put.json()["status"] == "pending_review"
 
             got = client.get(base)
-            assert got.json()["content"]["scenes"][0]["utterances"][1]["text"] == "你怎么才回来。"
+            assert got.json()["content"]["scenes"][0]["scene_description"] == "雨势渐急，阿离仍站在屋檐下"
 
     @pytest.mark.unit
-    def test_put_invalid_content_422(self, tmp_path, monkeypatch):
+    def test_editing_legacy_mixed_speech_returns_structured_atomic_rejection(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            original = _drama_step1()
+            _write_step1(pm, original)
+            edited = _drama_step1()
+            edited["scenes"][0]["utterances"][1]["text"] = "你怎么才回来。"
+
+            put = client.put(f"{base}/content", json=edited)
+
+            assert put.status_code == 409
+            detail = put.json()["detail"]
+            assert detail["unit_id"] == "E1S01"
+            assert detail["problems"][0]["code"] == "mixed_speech"
+            assert client.get(base).json()["content"] == original
+
+    @pytest.mark.unit
+    def test_put_empty_dialogue_speaker_returns_structured_409(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
             _write_step1(pm, _drama_step1())
             bad = _drama_step1()
             bad["scenes"][0]["utterances"][1] = {"kind": "dialogue", "speaker": None, "text": "无人"}
+            put = client.put(f"{base}/content", json=bad)
+            assert put.status_code == 409
+            detail = put.json()["detail"]
+            assert detail["unit_id"] == "E1S01"
+            assert detail["problems"][0]["code"] == "empty_speaker"
+            assert detail["problems"][0]["locations"] == [{"path": ["utterances", 1, "speaker"], "line": None}]
+
+    @pytest.mark.unit
+    def test_put_invalid_non_speech_content_422(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            _write_step1(pm, _drama_step1())
+            bad = _drama_step1()
+            bad["scenes"][0]["duration_seconds"] = "invalid"
             put = client.put(f"{base}/content", json=bad)
             assert put.status_code == 422
 
@@ -178,9 +210,9 @@ class TestReferenceVideoRouter:
             assert body["quarantine"] is None
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
 
-            # 编辑 shot 文本 → 重新待审
+            # 编辑单元正文 → 重新待审
             edited = _rv_step1()
-            edited["units"][0]["shots"][0]["text"] = "@[阿离] 转身离去。"
+            edited["units"][0]["text"] = "@[阿离] 转身离去。"
             put = client.put(f"{base}/content", json=edited)
             assert put.status_code == 200
             assert put.json()["status"] == "pending_review"
@@ -194,8 +226,8 @@ class TestReferenceVideoRouter:
     def test_quarantine_surfaced_with_recomputed_line_anchored_violations(self, tmp_path, monkeypatch):
         """隔离草稿在场时 GET 附带 ``quarantine`` 字段：违约按产出时那套校验器读时重算，
         不信任草稿里上一轮的快照（这里把快照消息故意写成 "stale" 来验证）。"""
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from lib.reference_video.draft_validation import DraftViolation
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from server.agent_runtime.sdk_tools import text_generation as mod
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -235,8 +267,8 @@ class TestReferenceVideoRouter:
     def test_quarantine_schema_invalid_keeps_raw_content(self, tmp_path, monkeypatch):
         """草稿 units 被改成非数组：违约报 schema_invalid，``content`` 原样回传（不做收编），
         呈现层据此退回原始文本视图而非当作 units 列表遍历。"""
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from lib.reference_video.draft_validation import DraftViolation
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from server.agent_runtime.sdk_tools import text_generation as mod
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -265,8 +297,8 @@ class TestReferenceVideoRouter:
     def test_quarantine_meta_broken_reports_recompute_failure_not_snapshot(self, tmp_path, monkeypatch):
         """``meta.source`` 缺失 → 无从重算：报「无法重算」本身，而不是退回草稿里那份上一轮
         快照——报告一律对现值负责。"""
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from lib.reference_video.draft_validation import DraftViolation
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         write_quarantine(
@@ -339,7 +371,7 @@ class TestReferenceVideoRouter:
         """存在性检查通过之后、``read_quarantine`` 真正读取之前，晋升工具把隔离文件清掉了
         （正式内容已写入、隔离态合法结束）：这不是信封损坏，这次读跨越了「清除」那一刻，应
         按「无隔离草稿」处理，不能误报成损坏——那会让刚晋升完成的集看起来还卡在隔离态。"""
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from server.services import script_review as mod
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -389,7 +421,7 @@ class TestReferenceVideoRouter:
             body = client.get(base, headers={"Accept-Language": "en"}).json()
             message = body["quarantine"]["violations"][0]["message"]
             assert message == (
-                "The quarantined draft file is corrupted or malformed and can't be read; "
+                "The draft needing fixes is corrupted or malformed and can't be read; "
                 "ask the agent to re-split this episode"
             )
 
@@ -445,7 +477,7 @@ class TestReferenceVideoRouter:
         """隔离草稿信封本身合法，但 ``meta.source`` 被改成非字符串（如数字）：重算链路要把它当作
         「无法重算」降级，而不是让 ``safe_join`` 内部的 ``TypeError`` 冒穿成未处理的 500——那样
         用户在最需要看到面板给出修复指引的时刻，看到的反而是一个空白错误页。"""
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")
@@ -469,7 +501,7 @@ class TestReferenceVideoRouter:
         """``meta.source`` 类型正确（字符串）但指向一个目录：``Path.exists()`` 对目录同样为
         True，直接 ``read_text()`` 会抛 ``IsADirectoryError``——同样要降级成 quarantine_unreadable，
         不能让这个既不是 ValueError 也不是类型错误的 OSError 子类冒穿成 500。"""
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")
@@ -494,8 +526,8 @@ class TestReferenceVideoRouter:
         """保存作用于正式草稿，隔离草稿是另一份文件——PUT 响应缺 ``quarantine`` 字段的话，
         面板 ``adopt()`` 会把它当成「无隔离草稿」而放行确认，即使这份隔离草稿在保存前后一直
         都在（这里用「保存时隔离草稿已存在」模拟，等价于「保存在途时才产出」的时序）。"""
+        from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from lib.reference_video.draft_validation import DraftViolation
-        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")
@@ -532,16 +564,16 @@ class TestReferenceVideoRouter:
             stale = client.get(base).json()["fingerprint"]
 
             other = _rv_step1()
-            other["units"][0]["shots"][0]["text"] = "@[阿离] 转身离开。"
+            other["units"][0]["text"] = "@[阿离] 转身离开。"
             assert client.put(f"{base}/content", json=other).status_code == 200
 
             mine = _rv_step1()
             resp = client.put(f"{base}/content", params={"base_fingerprint": stale}, json=mine)
             assert resp.status_code == 409
             # 冲突未覆盖：盘上仍是另一方保存的内容
-            assert client.get(base).json()["content"]["units"][0]["shots"][0]["text"] == "@[阿离] 转身离开。"
+            assert client.get(base).json()["content"]["units"][0]["text"] == "@[阿离] 转身离开。"
 
             fresh = client.get(base).json()["fingerprint"]
             resp = client.put(f"{base}/content", params={"base_fingerprint": fresh}, json=mine)
             assert resp.status_code == 200
-            assert resp.json()["content"]["units"][0]["shots"][0]["text"] == "@[阿离] 立于屋檐下。"
+            assert resp.json()["content"]["units"][0]["text"] == "@[阿离] 立于屋檐下。"

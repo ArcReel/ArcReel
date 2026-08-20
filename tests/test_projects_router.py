@@ -1,6 +1,7 @@
 import json
 import re
 import shutil
+import unicodedata
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -10,8 +11,22 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.i18n.zh import errors as zh_errors
-from lib.project_manager import EmptySourceError
+from lib.project_change_hints import get_project_change_source
+from lib.project_manager import EmptySourceError, ProjectManager
+from lib.script_batch_edit import (
+    InsertAfterOperation,
+    MoveAfterOperation,
+    RemoveOperation,
+    ScriptBatchEditLocation,
+    ScriptBatchEditProblem,
+    ScriptBatchEditResult,
+    script_revision,
+)
+from lib.script_editor import ScriptEditError, patch_field, resolve_items
+from lib.speech_composition import admit_script_unit
+from lib.workflow_state import ArtifactCount, EpisodesSummary, EpisodeSummary, ProjectSummary
 
 
 class _OverviewProbe(BaseModel):
@@ -29,6 +44,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 class _FakePM:
     def __init__(self, base: Path):
         self.base = base
+        self.projects_root = base
         self.project_data = {
             "ready": {
                 "title": "Ready",
@@ -63,7 +79,9 @@ class _FakePM:
         }
         self.created = set()
         self.generated_names = ["project-aa11bb22", "project-cc33dd44"]
+        self.profile_reset_calls: list[str] = []
         (self.base / "ready" / "storyboards").mkdir(parents=True, exist_ok=True)
+        (self.base / "ad-ready" / "scripts").mkdir(parents=True, exist_ok=True)
         (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         (self.base / "empty").mkdir(parents=True, exist_ok=True)
         (self.base / "remove-me").mkdir(parents=True, exist_ok=True)
@@ -96,11 +114,28 @@ class _FakePM:
             raise FileNotFoundError(name)
         return path
 
+    @contextmanager
+    def locked_source_mutation(self, name):
+        source_dir = self.get_project_path(name) / "source"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        yield source_dir
+
     def delete_project_directory(self, name):
         shutil.rmtree(self.get_project_path(name))
 
     def get_project_status(self, name):
         return {"current_stage": "source_ready"}
+
+    def get_agent_profile_status(self, project_dir):
+        assert project_dir == self.base / "ready"
+        return {
+            "customized": True,
+            "customized_files": ["CLAUDE.md", ".claude/agents/legacy.md"],
+        }
+
+    def force_resync_profile(self, project_dir):
+        self.profile_reset_calls.append(project_dir.name)
+        return {"repaired": 2, "errors": 0}
 
     def create_project(self, name, content_mode="narration"):
         if not name or not re.fullmatch(r"[A-Za-z0-9-]+", name):
@@ -164,6 +199,10 @@ class _FakePM:
             raise FileNotFoundError(script_file)
         return self.scripts[key]
 
+    @staticmethod
+    def normalize_script_filename(script_file):
+        return script_file.removeprefix("scripts/")
+
     def save_script(self, name, payload, script_file):
         if script_file.startswith("scripts/"):
             script_file = script_file[len("scripts/") :]
@@ -179,6 +218,9 @@ class _FakePM:
         self.save_project(name, project)
         return project
 
+    def update_project_reconciling_episode_bindings(self, name, mutate_fn):
+        return self.update_project(name, mutate_fn)
+
     @contextmanager
     def locked_script(self, name, script_file):
         # 复刻真实 ProjectManager.locked_script：load → yield → save，异常时跳过写回。
@@ -188,7 +230,7 @@ class _FakePM:
         self.save_script(name, script, script_file)
 
     @contextmanager
-    def locked_episode_script(self, name, resolve_script_file, *, validate=True):
+    def locked_episode_script(self, name, resolve_script_file, *, validate=True, on_commit=None):
         # 复刻真实 ProjectManager.locked_episode_script：解析 episode→script_file →
         # 锁内读改写脚本 → 内联把 title/script_file 镜像回 project.json episodes[]
         # （仅当脚本含 episode int，与真实 _apply_episode_sync 触发条件一致）。
@@ -207,6 +249,8 @@ class _FakePM:
             entry["title"] = script.get("title", "")
             entry["script_file"] = f"scripts/{norm}"
             self.save_project(name, project)
+        if on_commit is not None:
+            on_commit(self.base / name / "scripts" / norm)
 
     async def generate_overview(self, name):
         if name == "ready":
@@ -228,36 +272,169 @@ class _FakePM:
         raise EmptySourceError("source missing")
 
 
-class _FakeCalc:
+class _RejectedFakeEdit(Exception):
+    def __init__(self, result: ScriptBatchEditResult):
+        self.result = result
+
+
+class _FakeBatchEditor:
+    """Router-unit-test adapter; aggregate validation is covered against the real service separately."""
+
+    def __init__(self, pm: _FakePM):
+        self.pm = pm
+
+    def execute(self, project_name, command):
+        script_file = command.script
+        assert script_file is not None
+        before_revision = script_revision(self.pm.load_script(project_name, script_file))
+        if command.expected_revision != before_revision:
+            return self._failure(script_file, before_revision, "revision_conflict", None, None)
+        affected: list[str] = []
+        try:
+            with self.pm.locked_script(project_name, script_file) as script:
+                for index, operation in enumerate(command.operations):
+                    items, id_field, kind = resolve_items(script)
+                    item_id = getattr(operation, "id", None)
+                    if isinstance(operation, InsertAfterOperation):
+                        raise AssertionError("insert is not used by project router unit tests")
+                    try:
+                        item_index = next(i for i, item in enumerate(items) if item.get(id_field) == item_id)
+                    except StopIteration:
+                        raise _RejectedFakeEdit(
+                            self._failure(script_file, before_revision, "operation_invalid", index, item_id)
+                        ) from None
+                    before = admit_script_unit(kind, items[item_index])
+                    if isinstance(operation, MoveAfterOperation):
+                        item = items.pop(item_index)
+                        if operation.after_id is None:
+                            insert_at = 0
+                        else:
+                            try:
+                                insert_at = (
+                                    next(
+                                        i
+                                        for i, existing in enumerate(items)
+                                        if existing.get(id_field) == operation.after_id
+                                    )
+                                    + 1
+                                )
+                            except StopIteration:
+                                raise _RejectedFakeEdit(
+                                    self._failure(script_file, before_revision, "operation_invalid", index, item_id)
+                                ) from None
+                        items.insert(insert_at, item)
+                    elif isinstance(operation, RemoveOperation):
+                        items.pop(item_index)
+                    else:
+                        before_content = admit_script_unit(kind, items[item_index], ignore_marker=True)
+                        try:
+                            for field, value in operation.fields.items():
+                                patch_field(script, operation.id, field, value)
+                        except ScriptEditError:
+                            raise _RejectedFakeEdit(
+                                self._failure(script_file, before_revision, "operation_invalid", index, item_id)
+                            ) from None
+                        after_content = admit_script_unit(kind, items[item_index], ignore_marker=True)
+                        if before_content.preparation != after_content.preparation and after_content.allowed:
+                            items[item_index].pop("needs_replan", None)
+                    if item_id not in affected:
+                        affected.append(item_id)
+                    if not isinstance(operation, RemoveOperation):
+                        after = admit_script_unit(
+                            kind, items[next(i for i, v in enumerate(items) if v.get(id_field) == item_id)]
+                        )
+                        if after.preparation != before.preparation and not after.allowed:
+                            problems = tuple(
+                                ScriptBatchEditProblem(
+                                    code=problem.code.value,
+                                    operation_index=index,
+                                    unit_id=problem.unit_id,
+                                    locations=tuple(
+                                        ScriptBatchEditLocation(path=location.path, line=location.line)
+                                        for location in problem.locations
+                                    ),
+                                    reason=problem.reason.value,
+                                    next_action=problem.action.value,
+                                )
+                                for problem in after.problems
+                                if problem.code.value != "needs_replan"
+                                or not any(p.code.value != "needs_replan" for p in after.problems)
+                            )
+                            raise _RejectedFakeEdit(
+                                ScriptBatchEditResult(
+                                    success=False,
+                                    script=script_file,
+                                    episode=None,
+                                    before_revision=before_revision,
+                                    revision=before_revision,
+                                    problems=problems,
+                                )
+                            )
+        except _RejectedFakeEdit as exc:
+            return exc.result
+        revision = script_revision(self.pm.load_script(project_name, script_file))
+        return ScriptBatchEditResult(
+            success=True,
+            script=script_file,
+            episode=None,
+            before_revision=before_revision,
+            revision=revision,
+            affected_ids=tuple(affected),
+        )
+
+    @staticmethod
+    def _failure(script_file, revision, code, index, item_id):
+        return ScriptBatchEditResult(
+            success=False,
+            script=script_file,
+            episode=None,
+            before_revision=revision,
+            revision=revision,
+            problems=(
+                ScriptBatchEditProblem(
+                    code=code,
+                    operation_index=index,
+                    unit_id=item_id,
+                    reason="operation_invalid",
+                    next_action="fix_operation",
+                ),
+            ),
+        )
+
+
+class _FakeSummaries:
+    """项目摘要投影替身：记录列表端点是否把一次性加载的剧本 map 交给它。"""
+
     def __init__(self):
-        # 记录 list_projects 是否把一次性加载的 script map 传到 calculate_project_status，
-        # 让针对 Task 4 的集成测试能断言两路共享预加载。
         self.last_preloaded_scripts: dict | None = None
 
-    def calculate_project_status(self, name, project, *, preloaded_scripts=None):
+    def get_project_summary(self, name, *, preloaded_scripts=None) -> ProjectSummary:
         self.last_preloaded_scripts = preloaded_scripts
-        return {
-            "current_phase": "production",
-            "phase_progress": 0.5,
-            "characters": {"total": 1, "completed": 0},
-            "clues": {"total": 1, "completed": 0},
-            "episodes_summary": {"total": 1, "scripted": 1, "in_production": 1, "completed": 0},
-        }
+        return ProjectSummary(
+            phase="production",
+            phase_progress=0.5,
+            needs_repair=False,
+            repair_reason=None,
+            assets={"character": ArtifactCount(total=1, available=0, stale=0)},
+            episodes_summary=EpisodesSummary(total=1, scripted=1, in_production=1, completed=0),
+            episodes=[
+                EpisodeSummary(
+                    episode=1,
+                    script_status="generated",
+                    status="in_production",
+                    item_count=1,
+                    duration_seconds=8,
+                    storyboards=ArtifactCount(total=1, available=1, stale=0),
+                    videos=ArtifactCount(total=1, available=0, stale=0),
+                )
+            ],
+        )
 
-    def enrich_project(self, name, project):
-        project = dict(project)
-        project["status"] = self.calculate_project_status(name, project)
-        return project
 
-    def enrich_script(self, script, *, generation_mode=None):
-        script = dict(script)
-        script["metadata"] = {"total_scenes": 1, "estimated_duration_seconds": 8}
-        return script
-
-
-def _client(monkeypatch, fake_pm, fake_calc):
+def _client(monkeypatch, fake_pm, fake_summaries=None):
     monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr(projects, "get_status_calculator", lambda: fake_calc)
+    monkeypatch.setattr(projects, "get_workflow_state_service", lambda: fake_summaries or _FakeSummaries())
+    monkeypatch.setattr(projects, "get_script_batch_editor", lambda manager=None: _FakeBatchEditor(manager or fake_pm))
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -269,8 +446,128 @@ def _client(monkeypatch, fake_pm, fake_calc):
 
 class TestProjectsRouter:
     @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("project_name", "script_file", "endpoint", "script", "request_body", "kind"),
+        [
+            (
+                "ready",
+                "narration.json",
+                "/api/v1/projects/ready/segments/E1S01",
+                {
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": "E1S01",
+                            "duration_seconds": 4,
+                            "novel_text": "风吹过旷野。",
+                            "video_prompt": {},
+                        }
+                    ],
+                },
+                {"video_prompt": {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}},
+                "segments",
+            ),
+            (
+                "ready",
+                "episode_1.json",
+                "/api/v1/projects/ready/script-scenes/E1S01",
+                {
+                    "content_mode": "drama",
+                    "scenes": [{"scene_id": "E1S01", "duration_seconds": 4, "utterances": []}],
+                },
+                {
+                    "updates": {
+                        "utterances": [
+                            {"kind": "dialogue", "speaker": "Alice", "text": "快走。"},
+                            {"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"},
+                        ]
+                    }
+                },
+                "scenes",
+            ),
+            (
+                "ad-ready",
+                "episode_1.json",
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                {
+                    "content_mode": "ad",
+                    "shots": [
+                        {
+                            "shot_id": "E1S01",
+                            "duration_seconds": 4,
+                            "voiceover_text": "风吹过旷野。",
+                            "video_prompt": {},
+                        }
+                    ],
+                },
+                {"updates": {"video_prompt": {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}}},
+                "shots",
+            ),
+        ],
+    )
+    def test_three_storyboard_web_manual_edits_atomically_reject_mixed_speech_on_save(
+        self,
+        tmp_path,
+        monkeypatch,
+        project_name: str,
+        script_file: str,
+        endpoint: str,
+        script: dict,
+        request_body: dict,
+        kind: str,
+    ):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[(project_name, script_file)] = script
+        before = deepcopy(script)
+        client = _client(monkeypatch, fake_pm)
+        body = {"script_file": script_file, **request_body}
+
+        with client:
+            response = client.patch(endpoint, json=body)
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["success"] is False
+        problem = detail["problems"][0]
+        assert problem["code"] == "mixed_speech"
+        assert problem["operation_index"] == 0
+        assert problem["reason"] == "character_and_narrator_mixed"
+        assert problem["next_action"] == "replan_unit"
+        assert kind in before
+        assert fake_pm.scripts[(project_name, script_file)] == before
+
+    @pytest.mark.unit
+    def test_agent_profile_status_and_explicit_reset(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            status = client.get("/api/v1/projects/ready/agent-profile")
+            assert status.status_code == 200
+            assert status.json() == {
+                "customized": True,
+                "customized_files": ["CLAUDE.md", ".claude/agents/legacy.md"],
+            }
+
+            reset = client.post("/api/v1/projects/ready/agent-profile/reset")
+            assert reset.status_code == 200
+            assert reset.json() == {"customized": False, "customized_files": []}
+            assert fake_pm.profile_reset_calls == ["ready"]
+
+    @pytest.mark.unit
+    def test_agent_profile_endpoints_reject_invalid_project_name(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            status = client.get("/api/v1/projects/illegal-name/agent-profile")
+            reset = client.post("/api/v1/projects/illegal-name/agent-profile/reset")
+
+        assert status.status_code == 400
+        assert status.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+        assert reset.status_code == 400
+        assert reset.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+
+    @pytest.mark.unit
     def test_list_and_create_and_delete(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             listed = client.get("/api/v1/projects")
             assert listed.status_code == 200
@@ -336,7 +633,7 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_create_persists_source_kind_and_defaults_novel(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             # 显式 screenplay 持久化于 project.json 顶层
             screenplay = client.post(
@@ -374,19 +671,19 @@ class TestProjectsRouter:
             assert invalid.status_code == 422
 
     @pytest.mark.unit
-    def test_source_kind_not_editable_after_create(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+    def test_source_kind_silently_ignored_on_patch(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
         with client:
-            rejected = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
-            assert rejected.status_code == 400
-            # 不可变字段「出现即拒」：显式传 null 也不得静默通过
-            rejected_null = client.patch("/api/v1/projects/ready", json={"source_kind": None})
-            assert rejected_null.status_code == 400
+            resp = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
+            assert resp.status_code == 200
+            # 「不接受该字段」的实质保证：请求体里的值不得落进项目数据
+            assert "source_kind" not in fake_pm.project_data["ready"]
 
     @pytest.mark.unit
     def test_project_details_and_updates(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             detail = client.get("/api/v1/projects/ready")
@@ -404,11 +701,12 @@ class TestProjectsRouter:
             assert update.status_code == 200
             assert update.json()["project"]["title"] == "Updated"
 
-            rejected_mode = client.patch(
+            ignored_mode = client.patch(
                 "/api/v1/projects/ready",
                 json={"content_mode": "drama"},
             )
-            assert rejected_mode.status_code == 400
+            assert ignored_mode.status_code == 200
+            assert "content_mode" not in fake_pm.project_data["ready"]
 
             # aspect_ratio 现在允许修改（字符串），dict 类型将被 Pydantic 拒绝（422）
             rejected_ratio_dict = client.patch(
@@ -425,22 +723,147 @@ class TestProjectsRouter:
             assert updated_ratio.status_code == 200
             assert updated_ratio.json()["project"]["aspect_ratio"] == "16:9"
 
-            # 退役的 image_backend 字段在 PATCH 上也被直接拒绝
-            rejected_legacy = client.patch(
+            ignored_legacy = client.patch(
                 "/api/v1/projects/ready",
                 json={"image_backend": "gemini-aistudio/nano-banana"},
             )
-            assert rejected_legacy.status_code == 400
+            assert ignored_legacy.status_code == 200
+            assert "image_backend" not in fake_pm.project_data["ready"]
 
             get_script = client.get("/api/v1/projects/ready/scripts/episode_1.json")
             assert get_script.status_code == 200
+            assert get_script.json()["revision"].startswith("sha256-v1:")
 
             get_script_missing = client.get("/api/v1/projects/ready/scripts/missing.json")
             assert get_script_missing.status_code == 404
 
+    @pytest.mark.integration
+    def test_revisioned_batch_endpoint_returns_shared_result_and_rejects_stale_write(self, tmp_path, monkeypatch):
+        pm = ProjectManager(str(tmp_path))
+        pm.create_project("demo", content_mode="narration")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script(
+            "demo",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "summary": "摘要",
+                "novel": {"title": "小说", "chapter": "第一章"},
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "风吹过旷野。",
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                        "image_prompt": {
+                            "scene": "荒野",
+                            "composition": {
+                                "shot_type": "Medium Shot",
+                                "lighting": "暖光",
+                                "ambiance": "薄雾",
+                            },
+                        },
+                        "video_prompt": {
+                            "action": "转身",
+                            "camera_motion": "Static",
+                            "ambiance_audio": "风声",
+                        },
+                        "generated_assets": {},
+                    }
+                ],
+            },
+            "episode_1.json",
+        )
+        monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
+            id="default",
+            sub="testuser",
+            role="admin",
+        )
+        app.include_router(projects.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        register_error_handlers(app)
+        client = TestClient(app)
+        with client:
+            snapshot = client.get("/api/v1/projects/demo/scripts/episode_1.json").json()
+            command = {
+                "script": "episode_1.json",
+                "expected_revision": snapshot["revision"],
+                "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+            }
+
+            edited = client.post("/api/v1/projects/demo/script-edits", json=command)
+
+            assert edited.status_code == 200, edited.text
+            result = edited.json()
+            assert result["success"] is True
+            assert result["before_revision"] == snapshot["revision"]
+            assert result["revision"] != snapshot["revision"]
+            assert result["affected_ids"] == ["E1S01"]
+
+            command["operations"] = [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}]
+            stale = client.post("/api/v1/projects/demo/script-edits", json=command)
+
+            assert stale.status_code == 409
+            assert stale.json()["problems"][0]["code"] == "revision_conflict"
+            assert pm.load_script("demo", "episode_1.json")["segments"][0]["note"] == "first"
+
+    @pytest.mark.unit
+    def test_revisioned_batch_endpoint_tags_webui_source_across_worker_thread(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        observed_sources: list[str] = []
+        revision = f"sha256-v1:{'0' * 64}"
+
+        class CapturingEditor:
+            def execute(self, _project_name, _command):
+                observed_sources.append(get_project_change_source())
+                return ScriptBatchEditResult(
+                    success=True,
+                    script="episode_1.json",
+                    episode=1,
+                    before_revision=revision,
+                    revision=revision,
+                )
+
+        client = _client(monkeypatch, fake_pm)
+        monkeypatch.setattr(projects, "get_script_batch_editor", lambda _manager=None: CapturingEditor())
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/ready/script-edits",
+                json={
+                    "script": "episode_1.json",
+                    "expected_revision": revision,
+                    "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+                },
+            )
+
+        assert response.status_code == 200
+        assert observed_sources == ["webui"]
+
+    @pytest.mark.unit
+    def test_revisioned_batch_endpoint_rejects_invalid_project_name(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path))
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/illegal-name/script-edits",
+                json={
+                    "script": "episode_1.json",
+                    "expected_revision": f"sha256-v1:{'0' * 64}",
+                    "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "first"}}],
+                },
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+
     @pytest.mark.unit
     def test_create_ad_project(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             # 默认档位：不传 target_duration → 60；brief 可空；episodes 恒单条；无 default_duration
             created = client.post(
@@ -478,7 +901,7 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_create_ad_project_rejects_incompatible_fields(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             # ad 不暴露 default_duration
             with_default = client.post(
@@ -520,7 +943,7 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_create_requires_binary_generation_mode(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             # 缺失 generation_mode：必填无默认值，不被悄悄锁进某条路线
             missing = client.post(
@@ -547,7 +970,7 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_create_persists_grid_storyboard(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             # 缺省 false 也落盘为显式值
             default_off = client.post(
@@ -568,7 +991,7 @@ class TestProjectsRouter:
     def test_patch_toggles_grid_storyboard_but_not_route(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["generation_mode"] = "storyboard"
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             # 宫格开关创建后可随时切换
             on = client.patch("/api/v1/projects/ready", json={"grid_storyboard": True})
@@ -587,14 +1010,14 @@ class TestProjectsRouter:
     @pytest.mark.unit
     def test_patch_ad_project_fields(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
-            # content_mode 创建后不可变：补 ad 同样 400
-            rejected_mode = client.patch(
+            ignored_mode = client.patch(
                 "/api/v1/projects/ready",
                 json={"content_mode": "ad"},
             )
-            assert rejected_mode.status_code == 400
+            assert ignored_mode.status_code == 200
+            assert "content_mode" not in fake_pm.project_data["ready"]
 
             # ad 项目 target_duration 接受任意正整数秒
             updated = client.patch(
@@ -641,7 +1064,7 @@ class TestProjectsRouter:
             "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
         }
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             patch_scene = client.patch(
@@ -694,7 +1117,8 @@ class TestProjectsRouter:
             ],
         }
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
+        nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
             # 写入新引用列表
@@ -702,14 +1126,14 @@ class TestProjectsRouter:
                 "/api/v1/projects/ready/segments/E1S01",
                 json={
                     "script_file": "narration.json",
-                    "characters_in_segment": ["Bob", "Carol"],
-                    "scenes": ["Castle"],
+                    "characters_in_segment": [" Bob ", f" {nfd_cafe} "],
+                    "scenes": [" Castle "],
                     "props": [],
                 },
             )
             assert patched.status_code == 200
             seg = patched.json()["segment"]
-            assert seg["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg["characters_in_segment"] == ["Bob", "Café"]
             assert seg["scenes"] == ["Castle"]
             assert seg["props"] == []
 
@@ -721,9 +1145,67 @@ class TestProjectsRouter:
             assert untouched.status_code == 200
             seg2 = untouched.json()["segment"]
             assert seg2["duration_seconds"] == 7
-            assert seg2["characters_in_segment"] == ["Bob", "Carol"]
+            assert seg2["characters_in_segment"] == ["Bob", "Café"]
             assert seg2["scenes"] == ["Castle"]
             assert seg2["props"] == []
+
+    @pytest.mark.unit
+    def test_update_segment_allows_unchanged_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        prompt = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": prompt,
+                    "needs_replan": True,
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "narration.json", "video_prompt": prompt, "note": "保留历史媒体"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["segment"]["note"] == "保留历史媒体"
+        assert response.json()["segment"]["needs_replan"] is True
+
+    @pytest.mark.unit
+    def test_update_segment_allows_visual_prompt_edit_on_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "风吹过旷野。",
+                    "video_prompt": {"action": "转身", "dialogue": [{"speaker": "Alice", "line": "快走。"}]},
+                    "needs_replan": True,
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={
+                    "script_file": "narration.json",
+                    "video_prompt": {"action": "慢慢转身", "dialogue": [{"speaker": "Alice", "line": "快走。"}]},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["segment"]["video_prompt"]["action"] == "慢慢转身"
+        assert response.json()["segment"]["needs_replan"] is True
 
     @pytest.mark.unit
     def test_update_segment_rejects_drama_script_with_residual_segments(self, tmp_path, monkeypatch):
@@ -735,7 +1217,7 @@ class TestProjectsRouter:
             "scenes": [{"scene_id": "E1S01"}],
         }
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.patch(
@@ -761,7 +1243,7 @@ class TestProjectsRouter:
             raise ValueError("脚本内 episode=1 与文件名 episode_10 不一致")
 
         monkeypatch.setattr(fake_pm, "locked_script", _raising_locked_script)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.patch(
@@ -769,7 +1251,10 @@ class TestProjectsRouter:
                 json={"script_file": "narration.json", "duration_seconds": 7},
             )
             assert resp.status_code == 422
-            assert "不一致" in resp.json()["detail"]
+            body = resp.json()
+            # 摘要走产品语言，异常原文只进独立诊断字段
+            assert body["detail"] == "脚本结构校验失败，请检查后重试"
+            assert "不一致" in body["diagnostic"]
 
     @pytest.mark.unit
     def test_update_scene_supports_character_and_clue_refs(self, tmp_path, monkeypatch):
@@ -787,7 +1272,8 @@ class TestProjectsRouter:
             ],
         }
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
+        nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
             patched = client.patch(
@@ -795,15 +1281,15 @@ class TestProjectsRouter:
                 json={
                     "script_file": "episode_1.json",
                     "updates": {
-                        "characters_in_scene": ["Bob"],
-                        "scenes": ["Castle"],
-                        "props": ["Map"],
+                        "characters_in_scene": [f" {nfd_cafe} "],
+                        "scenes": [" Castle "],
+                        "props": [" Map "],
                     },
                 },
             )
             assert patched.status_code == 200
             scene = patched.json()["scene"]
-            assert scene["characters_in_scene"] == ["Bob"]
+            assert scene["characters_in_scene"] == ["Café"]
             assert scene["scenes"] == ["Castle"]
             assert scene["props"] == ["Map"]
 
@@ -824,8 +1310,8 @@ class TestProjectsRouter:
             assert update_overview.json()["overview"]["synopsis"] == "new synopsis"
 
     @pytest.mark.unit
-    def test_update_scene_accepts_utterances(self, tmp_path, monkeypatch):
-        # drama 分镜详情编辑场景级发声序列：utterances 在白名单内，PATCH 写回并持久化
+    def test_update_scene_atomically_rejects_mixed_utterances(self, tmp_path, monkeypatch):
+        # 人工编辑不能把一次视频请求写成角色发声 + 叙述旁白混合单元。
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
             "content_mode": "drama",
@@ -841,21 +1327,89 @@ class TestProjectsRouter:
             ],
         }
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         utterances = [
             {"kind": "dialogue", "speaker": "Alice", "text": "你来了。"},
             {"kind": "voiceover", "speaker": None, "text": "命运就此转向。"},
         ]
 
         with client:
-            patched = client.patch(
+            rejected = client.patch(
                 "/api/v1/projects/ready/script-scenes/001",
                 json={"script_file": "episode_1.json", "updates": {"utterances": utterances}},
             )
-            assert patched.status_code == 200
-            assert patched.json()["scene"]["utterances"] == utterances
-            # 落库持久化（不被白名单静默丢弃）
-            assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == utterances
+            assert rejected.status_code == 409
+            detail = rejected.json()["detail"]
+            assert detail["problems"][0]["code"] == "mixed_speech"
+            assert detail["problems"][0]["operation_index"] == 0
+            assert detail["problems"][0]["next_action"] == "replan_unit"
+            assert fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]["utterances"] == []
+
+    @pytest.mark.unit
+    def test_update_scene_allows_unchanged_legacy_mixed_utterances(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        utterances = [
+            {"kind": "dialogue", "speaker": "Alice", "text": "你来了。"},
+            {"kind": "voiceover", "speaker": None, "text": "命运就此转向。"},
+        ]
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [{"scene_id": "001", "duration_seconds": 8, "utterances": utterances}],
+        }
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/script-scenes/001",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {"utterances": utterances, "note": "保留历史媒体"},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["scene"]["note"] == "保留历史媒体"
+
+    @pytest.mark.unit
+    def test_update_scene_rejects_legacy_prompt_edit_that_introduces_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        original_prompt = {"action": "转身"}
+        fake_pm.scripts[("ready", "episode_1.json")] = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "001",
+                    "duration_seconds": 8,
+                    "video_prompt": original_prompt,
+                    "voiceover": ["命运就此转向。"],
+                }
+            ],
+        }
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/script-scenes/001",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {
+                        "video_prompt": {
+                            "action": "转身",
+                            "dialogue": [{"speaker": "Alice", "line": "跟紧我。"}],
+                        }
+                    },
+                },
+            )
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["problems"][0]["code"] == "mixed_speech"
+        assert detail["problems"][0]["locations"] == [
+            {"path": ["video_prompt", "dialogue", 0, "line"], "line": None},
+            {"path": ["voiceover", 0], "line": None},
+        ]
+        saved = fake_pm.scripts[("ready", "episode_1.json")]["scenes"][0]
+        assert saved["video_prompt"] == original_prompt
 
     @staticmethod
     def _ad_script(shot_ids: list[str]) -> dict:
@@ -867,6 +1421,7 @@ class TestProjectsRouter:
                     "section": "hook",
                     "duration_seconds": 4,
                     "voiceover_text": f"口播 {sid}",
+                    "video_prompt": {},
                     "products_in_shot": [],
                 }
                 for sid in shot_ids
@@ -877,7 +1432,7 @@ class TestProjectsRouter:
     def test_update_shot_edits_voiceover_section_duration(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01", "E1S02"])
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             patched = client.patch(
@@ -903,10 +1458,60 @@ class TestProjectsRouter:
             assert saved["voiceover_text"] == "新口播"
 
     @pytest.mark.unit
+    def test_update_shot_allows_unchanged_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        script = self._ad_script(["E1S01"])
+        script["shots"][0]["video_prompt"] = {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}
+        fake_pm.scripts[("ad-ready", "episode_1.json")] = script
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {"voiceover_text": "口播 E1S01", "note": "保留历史媒体"},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["shot"]["note"] == "保留历史媒体"
+
+    @pytest.mark.unit
+    def test_update_shot_allows_visual_prompt_edit_on_legacy_mixed_speech(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        script = self._ad_script(["E1S01"])
+        script["shots"][0]["video_prompt"] = {
+            "action": "转身",
+            "dialogue": [{"speaker": "Alice", "line": "快走。"}],
+        }
+        script["shots"][0]["needs_replan"] = True
+        fake_pm.scripts[("ad-ready", "episode_1.json")] = script
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "updates": {
+                        "video_prompt": {
+                            "action": "慢慢转身",
+                            "dialogue": [{"speaker": "Alice", "line": "快走。"}],
+                        }
+                    },
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["shot"]["video_prompt"]["action"] == "慢慢转身"
+        assert response.json()["shot"]["needs_replan"] is True
+
+    @pytest.mark.unit
     def test_update_shot_ignores_non_whitelisted_fields(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01"])
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             patched = client.patch(
@@ -925,7 +1530,7 @@ class TestProjectsRouter:
     @pytest.mark.unit
     def test_update_shot_rejects_non_ad_script(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             rejected = client.patch(
@@ -938,7 +1543,7 @@ class TestProjectsRouter:
     def test_update_shot_unknown_id_404(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01"])
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             missing = client.patch(
@@ -951,7 +1556,7 @@ class TestProjectsRouter:
     def test_reorder_shots_full_permutation(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01", "E1S02", "E1S03"])
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             reordered = client.post(
@@ -967,7 +1572,7 @@ class TestProjectsRouter:
     def test_reorder_shots_rejects_mismatched_ids(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01", "E1S02"])
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             # 数量不一致
@@ -995,7 +1600,7 @@ class TestProjectsRouter:
     @pytest.mark.unit
     def test_reorder_shots_rejects_non_ad_script(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             rejected = client.post(
@@ -1009,7 +1614,7 @@ class TestProjectsRouter:
         """shots 非列表 / 含非对象元素时返回 422，且不被 reorder 空排列覆盖成 []。"""
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = {"content_mode": "ad", "shots": "oops"}
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             # 非列表 shots：reorder 传空排列也必须 422，不得把损坏数据覆盖成空列表
@@ -1071,7 +1676,7 @@ class TestProjectsRouter:
     def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
         """项目 API 应返回 asset_fingerprints 字段"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.get("/api/v1/projects/ready")
@@ -1084,7 +1689,7 @@ class TestProjectsRouter:
     @pytest.mark.unit
     def test_create_project_with_style_template_id_expands_prompt(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -1106,7 +1711,7 @@ class TestProjectsRouter:
     @pytest.mark.unit
     def test_create_project_with_unknown_template_id_returns_400(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -1123,7 +1728,7 @@ class TestProjectsRouter:
     @pytest.mark.unit
     def test_create_project_with_model_fields_persists(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -1153,7 +1758,7 @@ class TestProjectsRouter:
     def test_create_project_with_image_default_layer(self, tmp_path, monkeypatch):
         """项目默认图片模型（default_image_backend）可在创建时写入，不必配桶。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -1175,7 +1780,7 @@ class TestProjectsRouter:
     def test_patch_image_default_layer_set_and_clear(self, tmp_path, monkeypatch):
         """项目默认图片模型可设置 / 清除；格式非法与非图片模型均 400。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             updated = client.patch(
                 "/api/v1/projects/ready",
@@ -1190,6 +1795,8 @@ class TestProjectsRouter:
 
             rejected = client.patch("/api/v1/projects/ready", json={"default_image_backend": "no-slash"})
             assert rejected.status_code == 400
+            # 校验在写盘闭包内抛出，若 router 的兜底分支不透传领域异常会退化成 500
+            assert rejected.json()["diagnostic"] == "field: default_image_backend"
 
             wrong_media = client.patch(
                 "/api/v1/projects/ready",
@@ -1201,7 +1808,7 @@ class TestProjectsRouter:
     def test_patch_text_tier_fields_set_and_clear(self, tmp_path, monkeypatch):
         """项目级档位 / 默认模型三字段可设置；空值 = 清除、继承全局。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             updated = client.patch(
                 "/api/v1/projects/ready",
@@ -1238,7 +1845,7 @@ class TestProjectsRouter:
     def test_video_bucket_fields_create_patch_and_clear(self, tmp_path, monkeypatch):
         """项目级视频桶键（video_provider_i2v/r2v）可创建时写入、PATCH 设置；空值 = 清除、回退默认层。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             created = client.post(
@@ -1273,7 +1880,7 @@ class TestProjectsRouter:
     @pytest.mark.unit
     def test_video_bucket_field_rejects_non_video_model(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             rejected = client.patch(
@@ -1283,10 +1890,10 @@ class TestProjectsRouter:
             assert rejected.status_code == 400
 
     @pytest.mark.unit
-    def test_create_project_rejects_legacy_image_backend(self, tmp_path, monkeypatch):
-        """退役的 image_backend 字段在写路径被直接 400 拒绝，避免静默错配（应改用 image_provider_t2i/i2i）。"""
+    def test_create_project_ignores_legacy_image_backend(self, tmp_path, monkeypatch):
+        """退役的 image_backend 字段已从写模型移除，传入时被静默忽略。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -1298,13 +1905,14 @@ class TestProjectsRouter:
                     "image_backend": "gemini-aistudio/nano-banana",
                 },
             )
-            assert resp.status_code == 400
-            assert "legacy-1" not in fake_pm.project_data
+            assert resp.status_code == 200
+            # 关键保证：退役字段不得落进 project.json，否则解析链会忽略它、静默错配供应商
+            assert "image_backend" not in fake_pm.project_data["legacy-1"]
 
     @pytest.mark.unit
     def test_create_project_empty_model_fields_not_written(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -1323,10 +1931,74 @@ class TestProjectsRouter:
             assert "image_backend" not in data
 
     @pytest.mark.unit
+    def test_create_project_persists_speech_rate(self, tmp_path, monkeypatch):
+        """创建时可选填口播语速估算：区间内落盘，未填不落盘（回退语言默认）。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "title": "语速项目",
+                    "name": "sr-1",
+                    "speech_rate_units_per_second": 6.5,
+                },
+            )
+            assert resp.status_code == 200
+            assert fake_pm.project_data["sr-1"]["speech_rate_units_per_second"] == 6.5
+
+            resp = client.post(
+                "/api/v1/projects",
+                json={"generation_mode": "storyboard", "title": "默认语速", "name": "sr-2"},
+            )
+            assert resp.status_code == 200
+            assert "speech_rate_units_per_second" not in fake_pm.project_data["sr-2"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("bad", [0, -1, 20.5])
+    def test_create_project_rejects_out_of_range_speech_rate(self, tmp_path, monkeypatch, bad):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "title": "越界语速",
+                    "name": "sr-bad",
+                    "speech_rate_units_per_second": bad,
+                },
+            )
+            assert resp.status_code == 422
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("value", [True, False])
+    def test_create_project_rejects_boolean_speech_rate(self, tmp_path, monkeypatch, value):
+        """JSON 布尔不得被 Pydantic 折成 1.0 / 0.0 混进语速覆盖，两个取值都应 422 且不建目录。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "title": "布尔语速",
+                    "name": "sr-bool",
+                    "speech_rate_units_per_second": value,
+                },
+            )
+            assert resp.status_code == 422
+            assert "sr-bool" not in fake_pm.project_data
+
+    @pytest.mark.unit
     def test_create_project_with_invalid_backend_returns_400(self, tmp_path, monkeypatch):
         """非法 backend 字符串应被校验器拒绝。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
 
         with client:
             resp = client.post(
@@ -1348,7 +2020,7 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
         fake_pm.project_data["ready"]["style_description"] = "old desc"
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1363,7 +2035,7 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_update_project_with_unknown_template_id_returns_400(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1378,7 +2050,7 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"]["style_template_id"] = "live_premium_drama"
         fake_pm.project_data["ready"]["style"] = "画风：真人电视剧风格，精品短剧画风，大师级构图"
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1396,7 +2068,7 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
         fake_pm.project_data["ready"]["style_description"] = "some desc"
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1411,7 +2083,7 @@ class TestProjectsRouter:
     def test_update_project_persists_narration_overrides(self, tmp_path, monkeypatch):
         """PATCH 旁白配音项目级覆盖：audio_backend / narration_voice / narration_speed 写入 project.json。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1435,7 +2107,7 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"]["narration_voice"] = "Cherry"
         fake_pm.project_data["ready"]["narration_speed"] = 1.2
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1460,24 +2132,60 @@ class TestProjectsRouter:
     def test_update_project_rejects_non_positive_narration_speed(self, tmp_path, monkeypatch):
         """语速 0/负数应 422，且不写回 project.json。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"narration_speed": 0})
             assert resp.status_code == 422
             assert "narration_speed" not in fake_pm.project_data["ready"]
 
     @pytest.mark.unit
+    def test_update_project_persists_and_clears_speech_rate(self, tmp_path, monkeypatch):
+        """PATCH 口播语速估算：区间内写入 project.json，null 清除回落语言默认。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": 6.5})
+            assert resp.status_code == 200
+            assert fake_pm.project_data["ready"]["speech_rate_units_per_second"] == 6.5
+
+            resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": None})
+            assert resp.status_code == 200
+            assert "speech_rate_units_per_second" not in fake_pm.project_data["ready"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("bad", [0, -1, 20.5, 1000])
+    def test_update_project_rejects_out_of_range_speech_rate(self, tmp_path, monkeypatch, bad):
+        """口播语速估算越界（≤0 或 >20）应 422，且不写回 project.json。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": bad})
+            assert resp.status_code == 422
+            assert "speech_rate_units_per_second" not in fake_pm.project_data["ready"]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("value", [True, False])
+    def test_update_project_rejects_boolean_speech_rate(self, tmp_path, monkeypatch, value):
+        """PATCH 同样拒布尔：否则 true 会作为 1.0 落盘、false 被当成未填静默跳过。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"speech_rate_units_per_second": value})
+            assert resp.status_code == 422
+            assert "speech_rate_units_per_second" not in fake_pm.project_data["ready"]
+
+    @pytest.mark.unit
     def test_update_project_rejects_invalid_audio_backend(self, tmp_path, monkeypatch):
         """audio_backend 非法 provider 应 400（复用 backend 格式校验）。"""
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"audio_backend": "garbage"})
             assert resp.status_code == 400
 
     @pytest.mark.unit
     def test_list_projects_shares_script_preload_with_status(self, tmp_path, monkeypatch):
-        """list_projects 一次性加载 episode scripts，传给 StatusCalculator，去除 cover + status 双重 I/O。"""
+        """list_projects 一次性加载 episode scripts，传给项目摘要投影，去除 cover + status 双重 I/O。"""
         fake_pm = _FakePM(tmp_path)
         # 统计 load_script 调用次数：共享预加载后，ready 项目应只触发一次。
         orig_load_script = fake_pm.load_script
@@ -1489,8 +2197,8 @@ class TestProjectsRouter:
 
         fake_pm.load_script = _counting_load  # type: ignore[method-assign]
 
-        fake_calc = _FakeCalc()
-        client = _client(monkeypatch, fake_pm, fake_calc)
+        fake_summaries = _FakeSummaries()
+        client = _client(monkeypatch, fake_pm, fake_summaries)
         with client:
             resp = client.get("/api/v1/projects")
             assert resp.status_code == 200
@@ -1500,9 +2208,78 @@ class TestProjectsRouter:
         ready_calls = [c for c in calls if c[0] == "ready"]
         assert len(ready_calls) == 1, f"expected 1 shared load, got {ready_calls}"
 
-        # 预加载 map 被传给 StatusCalculator
-        assert fake_calc.last_preloaded_scripts is not None
-        assert "scripts/episode_1.json" in fake_calc.last_preloaded_scripts
+        # 预加载 map 被传给项目摘要投影
+        assert fake_summaries.last_preloaded_scripts is not None
+        assert "scripts/episode_1.json" in fake_summaries.last_preloaded_scripts
+
+    @pytest.mark.unit
+    def test_list_projects_status_comes_from_the_project_summary(self, tmp_path, monkeypatch):
+        """列表页的阶段与计数一律来自项目摘要：四值阶段在，五值 current_phase 不在。"""
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get("/api/v1/projects")
+
+        assert resp.status_code == 200
+        status = next(item for item in resp.json()["projects"] if item["name"] == "ready")["status"]
+        assert status["phase"] == "production"
+        assert "current_phase" not in status
+        assert status["assets"]["character"] == {"total": 1, "available": 0, "stale": 0}
+        # 每集明细归项目详情端点，不驮在 N 个项目的列表里
+        assert "episodes" not in status
+
+    @pytest.mark.unit
+    def test_get_project_status_comes_from_the_project_summary(self, tmp_path, monkeypatch):
+        """全局头读的项目级状态与列表同源。"""
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get("/api/v1/projects/ready")
+
+        assert resp.status_code == 200
+        status = resp.json()["project"]["status"]
+        assert status["phase"] == "production"
+        assert status["needs_repair"] is False
+        assert "current_phase" not in status
+
+    @pytest.mark.unit
+    def test_get_project_episode_fields_come_from_the_project_summary(self, tmp_path, monkeypatch):
+        """剧集卡 / 剧集头读的每集字段由项目摘要提供，project.json 侧字段原样保留。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["episodes"] = [
+            {"episode": 1, "title": "第一集", "script_file": "scripts/ep1.json"},
+        ]
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            resp = client.get("/api/v1/projects/ready")
+
+        assert resp.status_code == 200
+        episode = resp.json()["project"]["episodes"][0]
+        # project.json 侧字段不被覆盖
+        assert (episode["title"], episode["script_file"]) == ("第一集", "scripts/ep1.json")
+        # 摘要侧字段按产物清单口径注入：可用 = current ∪ stale，stale 另计
+        assert episode["script_status"] == "generated"
+        assert episode["status"] == "in_production"
+        assert episode["item_count"] == 1
+        # 旧的场景数字段已退场，响应里不再出现
+        assert "scenes_count" not in episode
+        assert episode["duration_seconds"] == 8
+        assert episode["storyboards"] == {"total": 1, "available": 1, "stale": 0}
+        assert episode["videos"] == {"total": 1, "available": 0, "stale": 0}
+        # 每集明细只走 episodes[]，项目级 status 不重复驮一份
+        assert "episodes" not in resp.json()["project"]["status"]
+
+    @pytest.mark.unit
+    def test_get_project_scripts_carry_no_derived_totals(self, tmp_path, monkeypatch):
+        """剧本响应不再注入条目数 / 总时长 / 出场名单：这些派生值只有项目摘要一个来源。"""
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get("/api/v1/projects/ready")
+
+        assert resp.status_code == 200
+        script = next(iter(resp.json()["scripts"].values()))
+        assert "duration_seconds" not in script
+        assert "characters_in_episode" not in script
+        assert "total_scenes" not in script.get("metadata", {})
+        assert "estimated_duration_seconds" not in script.get("metadata", {})
 
     @pytest.mark.unit
     def test_list_projects_returns_style_image_field(self, tmp_path, monkeypatch):
@@ -1513,7 +2290,7 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"].pop("style_template_id", None)
         fake_pm.project_data["ready"]["style"] = ""
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.get("/api/v1/projects")
             assert resp.status_code == 200
@@ -1530,7 +2307,7 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
         fake_pm.project_data["ready"]["style_description"] = "some desc"
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1547,6 +2324,78 @@ class TestProjectsRouter:
     # Episodes PATCH tests
     # ---------------------------------------------------------------------------
 
+    @pytest.mark.integration
+    def test_patch_project_episode_rebinding_forgets_unbound_resource_claims(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        project_dir = pm.get_project_path("demo")
+
+        def _script(resource_id: str) -> dict:
+            return {
+                "episode": 1,
+                "title": "Episode 1",
+                "content_mode": "narration",
+                "duration_seconds": 4,
+                "summary": "",
+                "novel": {"title": "Demo", "chapter": "Chapter 1"},
+                "segments": [
+                    {
+                        "segment_id": resource_id,
+                        "duration_seconds": 4,
+                        "segment_break": False,
+                        "novel_text": "text",
+                        "characters_in_segment": [],
+                        "scenes": [],
+                        "props": [],
+                        "image_prompt": "image",
+                        "video_prompt": "video",
+                        "transition_to_next": "cut",
+                        "generated_assets": {},
+                    }
+                ],
+            }
+
+        scripts_dir = project_dir / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        (scripts_dir / "old.json").write_text(json.dumps(_script("E1S01")), encoding="utf-8")
+        (scripts_dir / "new.json").write_text(json.dumps(_script("E1S02")), encoding="utf-8")
+        pm.update_project(
+            "demo",
+            lambda project: project.__setitem__(
+                "episodes",
+                [{"episode": 1, "title": "Episode 1", "script_file": "scripts/old.json"}],
+            ),
+        )
+
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        old_keys = ArtifactKey.episode_resource_artifacts(1, "E1S01")
+        for index, key in enumerate(old_keys):
+            adapter.put_entry(
+                key,
+                ArtifactManifestEntry(
+                    artifact_path=f"formal/old-{index}.bin",
+                    basis_digest=f"sha256-v1:{index:064x}",
+                ),
+            )
+        unrelated = ArtifactKey.asset_sheet("character", "Unrelated")
+        unrelated_entry = ArtifactManifestEntry(
+            artifact_path="characters/Unrelated.png",
+            basis_digest=f"sha256-v1:{99:064x}",
+        )
+        adapter.put_entry(unrelated, unrelated_entry)
+
+        with _client(monkeypatch, pm) as client:
+            response = client.patch(
+                "/api/v1/projects/demo",
+                json={"episodes": [{"episode": 1, "script_file": "scripts/new.json"}]},
+            )
+
+        assert response.status_code == 200, response.text
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/new.json"
+        assert all(adapter.get_entry(key) is None for key in old_keys)
+        assert adapter.get_entry(unrelated) == unrelated_entry
+
     @pytest.mark.unit
     def test_patch_project_episodes_updates_script_file(self, tmp_path, monkeypatch):
         """PATCH /projects/{name} with episodes[] 只更新匹配集的白名单字段。"""
@@ -1556,7 +2405,7 @@ class TestProjectsRouter:
             {"episode": 2, "title": "第二集", "script_file": "scripts/ep2.json"},
         ]
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1578,7 +2427,7 @@ class TestProjectsRouter:
             {"episode": 1, "title": "第一集", "script_file": "scripts/ep1.json"},
         ]
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1590,13 +2439,13 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_patch_project_episodes_strips_computed_fields(self, tmp_path, monkeypatch):
-        """PATCH 不得将 StatusCalculator 注入的计算字段写回 project.json；title 也已移出白名单。"""
+        """PATCH 不得把项目摘要读时注入的每集统计字段写回 project.json；title 也不可经此端点写入。"""
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["episodes"] = [
             {"episode": 1, "title": "原标题", "script_file": "scripts/ep1.json"},
         ]
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1605,12 +2454,13 @@ class TestProjectsRouter:
                         {
                             "episode": 1,
                             "script_file": "scripts/ep1_v2.json",  # 合法白名单字段
-                            "title": "新标题",  # title 不再可经 PATCH /projects 写入（已移出白名单）
-                            # 以下为 StatusCalculator 注入的计算字段，不应写入磁盘
-                            "scenes_count": 999,
+                            "title": "新标题",  # title 不再可经 PATCH /projects 写入
+                            # 以下为项目摘要读时注入的统计字段，不应写入磁盘
+                            "item_count": 999,
+                            "scenes_count": 999,  # 已退场的旧字段，同样不得落盘
                             "status": "completed",
-                            "storyboards": {"total": 5, "completed": 3},
-                            "videos": {"total": 5, "completed": 5},
+                            "storyboards": {"total": 5, "available": 3, "stale": 0},
+                            "videos": {"total": 5, "available": 5, "stale": 1},
                             "script_status": "segmented",
                             "duration_seconds": 120,
                         }
@@ -1624,6 +2474,7 @@ class TestProjectsRouter:
             # title 不可经此端点改写，保持原值（改名走 PATCH /episodes/{episode}）
             assert ep1["title"] == "原标题"
             # 计算字段不得写入
+            assert "item_count" not in ep1
             assert "scenes_count" not in ep1
             assert "status" not in ep1
             assert "storyboards" not in ep1
@@ -1640,7 +2491,7 @@ class TestProjectsRouter:
             {"episode": 2, "title": "第二集", "script_file": "scripts/ep2.json"},
         ]
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
@@ -1661,7 +2512,7 @@ class TestProjectsRouter:
         # 剧本带 episode 字段，触发 _apply_episode_sync 镜像（与真实生成剧本一致）
         fake_pm.scripts[("ready", "episode_1.json")]["episode"] = 1
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "  新集名  "})
             assert resp.status_code == 200
@@ -1675,7 +2526,7 @@ class TestProjectsRouter:
     @pytest.mark.unit
     def test_update_episode_title_empty_rejected(self, tmp_path, monkeypatch):
         """空/纯空白标题被拒（422），不进锁。"""
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             for blank in ("", "   "):
                 resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": blank})
@@ -1684,7 +2535,7 @@ class TestProjectsRouter:
     @pytest.mark.unit
     def test_update_episode_missing_episode_404(self, tmp_path, monkeypatch):
         """不存在的 episode → 404。"""
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.patch("/api/v1/projects/ready/episodes/99", json={"title": "x"})
             assert resp.status_code == 404
@@ -1696,7 +2547,7 @@ class TestProjectsRouter:
         锁内抛出的 NotFoundError 不是 HTTPException 子类，外层 except 阶梯必须
         同时放行 ApiError，否则被兜底分支吞成 internal_server_error。
         """
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.patch("/api/v1/projects/nope/episodes/1", json={"title": "x"})
             assert resp.status_code == 404
@@ -1708,7 +2559,7 @@ class TestProjectsRouter:
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["episodes"][0]["script_file"] = "scripts/gone.json"
 
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "x"})
             assert resp.status_code == 404
@@ -1744,7 +2595,7 @@ class TestGetVideoCapabilities:
             "generation_mode": "reference_video",
         }
         self._patch_resolver(monkeypatch, return_value=fake_caps)
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 200
@@ -1764,7 +2615,7 @@ class TestGetVideoCapabilities:
         resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
         monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
 
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
@@ -1785,7 +2636,7 @@ class TestGetVideoCapabilities:
         resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
         monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
 
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             assert client.get("/api/v1/projects/ready/video-capabilities").status_code == 200
             resp = client.get(
@@ -1809,7 +2660,7 @@ class TestGetVideoCapabilities:
         resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
         monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
 
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities", params={"episode": 3})
         assert resp.status_code == 200
@@ -1818,7 +2669,7 @@ class TestGetVideoCapabilities:
     @pytest.mark.integration
     def test_malformed_video_backend_returns_400(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, return_value={})
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
@@ -1839,7 +2690,7 @@ class TestGetVideoCapabilities:
         resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
         monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
 
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
@@ -1854,7 +2705,7 @@ class TestGetVideoCapabilities:
     @pytest.mark.unit
     def test_unknown_project_returns_404(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, side_effect=FileNotFoundError("项目 'nonexistent' 不存在"))
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/nonexistent/video-capabilities")
             assert resp.status_code == 404
@@ -1862,7 +2713,7 @@ class TestGetVideoCapabilities:
     @pytest.mark.unit
     def test_resolver_value_error_returns_422(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, side_effect=ValueError("model not found: grok/unknown"))
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 422
@@ -1886,7 +2737,7 @@ class TestGetVideoCapabilities:
                 message="video model kling/kling-v3 lacks the capability required by the r2v bucket",
             ),
         )
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 400
@@ -1899,7 +2750,7 @@ class TestModelSettingsApi:
     @pytest.mark.unit
     def test_create_project_with_model_settings(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             resp = client.post(
                 "/api/v1/projects",
@@ -1923,7 +2774,7 @@ class TestModelSettingsApi:
     @pytest.mark.unit
     def test_patch_project_model_settings(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        client = _client(monkeypatch, fake_pm)
         with client:
             # 先创建（利用现有 ready 项目）
             resp = client.patch(
@@ -1967,7 +2818,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_create_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_create_project"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         # _sync 里最早命中 get_project_manager()，RuntimeError 绕过 ValueError/HTTPException 分支
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
@@ -1981,7 +2832,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_get_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_get_project"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.get("/api/v1/projects/ready")
@@ -1991,7 +2842,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_update_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_project"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"title": "X"})
@@ -2001,7 +2852,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_delete_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_delete_project"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.delete("/api/v1/projects/remove-me")
@@ -2011,7 +2862,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_get_script_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_get_script"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.get("/api/v1/projects/ready/scripts/episode_1.json")
@@ -2021,7 +2872,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_update_scene_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_scene"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch(
@@ -2034,7 +2885,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_update_shot_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_shot"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch(
@@ -2047,7 +2898,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_reorder_shots_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_reorder_shots"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.post(
@@ -2060,7 +2911,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_update_segment_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_segment"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch(
@@ -2073,7 +2924,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_update_episode_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_episode"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         # title 非空校验在 try 前；_sync 里最早命中 get_project_manager()
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
@@ -2084,7 +2935,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_set_project_source_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_set_source"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             # content 走 multipart form；get_project_manager() 在 try 内最早被调用
@@ -2099,7 +2950,7 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_set_project_source_overview_error_does_not_leak_path(self, tmp_path, monkeypatch):
         # 概览生成是上传的可选后续：失败时上传仍成功（200），错误只降级回传 overview_error。
         # 底层异常文本可能携带服务器绝对路径，该分支不得把裸 str(e) 透传给客户端。
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post(
                 "/api/v1/projects/leaky/source",
@@ -2120,7 +2971,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_generate_overview_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_generate_overview"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.post("/api/v1/projects/ready/generate-overview")
@@ -2131,7 +2982,7 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_generate_overview_corrupted_project_maps_to_500_not_provider_error(self, tmp_path, monkeypatch):
         # JSONDecodeError 是 ValueError 子类：损坏的 project.json 不能被 except ValueError
         # 误判为「未配置文本供应商」，须先于其拦截并映射为通用 500
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/corrupted/generate-overview")
             assert resp.status_code == 500
@@ -2141,7 +2992,7 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_generate_overview_schema_failure_maps_to_ai_response_invalid(self, tmp_path, monkeypatch):
         # pydantic ValidationError 也是 ValueError 子类：模型输出不合 schema 时须命中
         # 「AI 响应无效」专属分支，不能被通用 ValueError 处理误判为「未配置文本供应商」
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/bad-schema/generate-overview")
             assert resp.status_code == 400
@@ -2151,7 +3002,7 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_generate_overview_invalid_project_name_maps_to_400_not_provider_error(self, tmp_path, monkeypatch):
         # get_project_path 抛出的非法项目名 ValueError（路径穿越等）不能被 generate_overview()
         # 内部供应商解析链路的 except ValueError 误判为「未配置文本供应商」
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/illegal-name/generate-overview")
             assert resp.status_code == 400
@@ -2161,7 +3012,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_update_overview_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_overview"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch("/api/v1/projects/ready/overview", json={"synopsis": "新简介"})
@@ -2171,7 +3022,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_create_export_token_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_export_token"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         # scope 合法（默认 full）；_sync 里最早命中 get_project_manager()
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
@@ -2182,7 +3033,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_export_project_archive_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_export_archive"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         # download_token 校验先放行，再让归档服务抛 RuntimeError 落到兜底
         monkeypatch.setattr(projects, "verify_download_token", lambda token, name: {"sub": "u"})
         monkeypatch.setattr(projects, "get_archive_service", _raise(sentinel))
@@ -2194,7 +3045,7 @@ class TestUnexpectedErrorsDoNotLeak:
     @pytest.mark.unit
     def test_import_project_archive_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_import_archive"
-        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        client = _client(monkeypatch, _FakePM(tmp_path))
         # 上传副本写盘成功后，_sync 调归档服务抛 RuntimeError，落到 JSONResponse(500) 兜底
         monkeypatch.setattr(projects, "get_archive_service", _raise(sentinel))
         with client:

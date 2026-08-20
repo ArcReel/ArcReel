@@ -2,7 +2,36 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from math import gcd
+
+
+def project_grid_image_prompt(image_prompt: object) -> str | dict[str, object]:
+    """Project grid image semantics into the canonical provider/basis shape."""
+
+    if not isinstance(image_prompt, Mapping):
+        return str(image_prompt)
+    scene = image_prompt.get("scene")
+    if scene is None:
+        scene = ""
+    if not isinstance(scene, str):
+        raise ValueError("grid image_prompt.scene must be a string")
+    raw_composition = image_prompt.get("composition")
+    if raw_composition is None:
+        raw_composition = {}
+    if not isinstance(raw_composition, Mapping):
+        raise ValueError("grid image_prompt.composition must be an object")
+    if any(not isinstance(key, str) for key in raw_composition):
+        raise ValueError("grid image_prompt.composition keys must be strings")
+    composition: dict[str, str] = {}
+    for key in sorted(raw_composition):
+        raw_value = raw_composition[key]
+        if raw_value is None:
+            continue
+        value = str(raw_value)
+        if value:
+            composition[key] = value
+    return {"scene": scene, "composition": composition}
 
 
 def _extract_image_desc(scene: dict) -> str:
@@ -11,19 +40,19 @@ def _extract_image_desc(scene: dict) -> str:
     If image_prompt is a dict, join scene + composition fields.
     If string, return as-is.
     """
-    image_prompt = scene.get("image_prompt", "")
-    if isinstance(image_prompt, dict):
-        parts = []
-        scene_text = image_prompt.get("scene", "")
-        if scene_text:
-            parts.append(scene_text)
-        composition = image_prompt.get("composition", {})
-        if isinstance(composition, dict):
-            comp_parts = [f"{k}: {v}" for k, v in composition.items() if v]
-            if comp_parts:
-                parts.append("，".join(comp_parts))
-        return "；".join(parts) if parts else ""
-    return str(image_prompt)
+    image_prompt = project_grid_image_prompt(scene.get("image_prompt", ""))
+    if isinstance(image_prompt, str):
+        return image_prompt
+    parts: list[str] = []
+    scene_text = image_prompt["scene"]
+    if scene_text:
+        parts.append(str(scene_text))
+    composition = image_prompt["composition"]
+    if isinstance(composition, Mapping):
+        comp_parts = [f"{key}: {value}" for key, value in composition.items()]
+        if comp_parts:
+            parts.append("，".join(comp_parts))
+    return "；".join(parts) if parts else ""
 
 
 def _extract_action(scene: dict) -> str:
@@ -76,6 +105,10 @@ def build_grid_prompt(
     """
     total = rows * cols
     n_scenes = len(scenes)
+    if n_scenes > total:
+        # 超员场景在成图中没有对应画格，切格回填会按位置错配——调用方应先按
+        # max_cell_count 切块（见 lib.grid.layout.plan_grid_chunks），此处 fail loud。
+        raise ValueError(f"场景数 {n_scenes} 超过 {rows}×{cols} 宫格的画格数 {total}，分组应先切块再构建 prompt")
 
     # Number of content cells: first frame + (n_scenes - 1) transitions + last first frame
     # Cell 0: first scene opening

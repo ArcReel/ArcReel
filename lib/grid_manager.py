@@ -3,9 +3,15 @@
 import json
 import logging
 import re
+from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 
+import portalocker
+
+from lib.formal_write import formal_write_transaction, project_metadata_lock
 from lib.grid.models import GridGeneration
+from lib.json_io import atomic_write_json
 from lib.path_safety import safe_join
 
 logger = logging.getLogger(__name__)
@@ -18,7 +24,8 @@ class GridManager:
     """File-based CRUD for GridGeneration records, stored in {project}/grids/."""
 
     def __init__(self, project_path: Path):
-        self._dir = project_path / "grids"
+        self._project_dir = Path(project_path)
+        self._dir = self._project_dir / "grids"
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, grid_id: str, suffix: str = ".json") -> Path:
@@ -32,29 +39,120 @@ class GridManager:
             raise ValueError(f"非法宫格 ID: {grid_id!r}")
         return safe_join(self._dir, f"{grid_id}{suffix}")
 
+    def image_path(self, grid_id: str) -> Path:
+        """grids/ 下的联合图路径。调用方一律经此取路径，不自行拼接，
+        否则 ID 白名单与越界校验会被绕过。"""
+        return self._path(grid_id, ".png")
+
     def save(self, grid: GridGeneration) -> None:
         """Write grid as JSON to {grid_id}.json."""
         path = self._path(grid.id)
-        path.write_text(json.dumps(grid.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        with self._record_lock(path):
+            atomic_write_json(path, grid.to_dict())
 
     def get(self, grid_id: str) -> GridGeneration | None:
         """Read and return a GridGeneration by id, or None if not found."""
         path = self._path(grid_id)
+        with self._record_lock(path):
+            return self._get_unlocked(path)
+
+    def update(
+        self,
+        grid_id: str,
+        mutate: Callable[[GridGeneration], None],
+        *,
+        on_commit: Callable[[], None] | None = None,
+        on_miss: Callable[[], None] | None = None,
+        ignore_invalid: bool = False,
+    ) -> GridGeneration | None:
+        """Read, mutate, and save one record under its canonical file lock."""
+
+        path = self._path(grid_id)
+        with self._record_lock(path), formal_write_transaction(path):
+            try:
+                grid = self._get_unlocked(path)
+            except Exception:  # noqa: BLE001 - optional best-effort restore semantics apply only to the read
+                if not ignore_invalid:
+                    raise
+                if on_miss is not None:
+                    on_miss()
+                return None
+            if grid is None:
+                if on_miss is not None:
+                    on_miss()
+                return None
+            mutate(grid)
+            atomic_write_json(path, grid.to_dict())
+            if on_commit is not None:
+                on_commit()
+            return grid
+
+    def update_formal(
+        self,
+        grid_id: str,
+        mutate: Callable[[GridGeneration], None],
+        *,
+        on_commit: Callable[[], None] | None = None,
+        on_miss: Callable[[], None] | None = None,
+        ignore_invalid: bool = False,
+    ) -> GridGeneration | None:
+        """Commit a formal grid transition under project then record locks.
+
+        The project lock keeps schema activation outside the complete record,
+        selected-version, canonical-file, and Manifest transition supplied by
+        ``on_commit``. Callers already inside a larger project transaction use
+        :meth:`update` directly to avoid re-entering the process lock.
+        """
+
+        with project_metadata_lock(self._project_dir):
+            return self.update(
+                grid_id,
+                mutate,
+                on_commit=on_commit,
+                on_miss=on_miss,
+                ignore_invalid=ignore_invalid,
+            )
+
+    @staticmethod
+    def _get_unlocked(path: Path) -> GridGeneration | None:
         if not path.exists():
             return None
         return GridGeneration.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
+    @staticmethod
+    @contextmanager
+    def _record_lock(path: Path):
+        lock_path = path.parent / f".{path.name}.lock"
+        lock_path.touch(exist_ok=True)
+        with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+            yield
+
     def delete(self, grid_id: str) -> bool:
-        """Delete a grid record and its image file. Returns True if found and deleted."""
+        """Delete one grid record, image, and active typed claim atomically."""
         path = self._path(grid_id)
-        if not path.exists():
-            return False
-        # Also remove the grid image if it exists
-        image_path = self._path(grid_id, ".png")
-        if image_path.exists():
-            image_path.unlink()
-        path.unlink()
-        return True
+        with project_metadata_lock(self._project_dir), self._record_lock(path):
+            if not path.exists():
+                return False
+            image_file = self.image_path(grid_id)
+            try:
+                grid = self._get_unlocked(path)
+            except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
+                # Invalid legacy records were deletable before Manifest activation.
+                # They cannot carry a provable typed claim, so preserve that cleanup
+                # behavior while valid records take the guarded claim path below.
+                grid = None
+            with formal_write_transaction(path, image_file):
+                image_file.unlink(missing_ok=True)
+                path.unlink()
+                if grid is not None:
+                    from lib.artifact_activation import register_artifact_entries_atomically
+                    from lib.artifact_manifest import ArtifactKey
+
+                    register_artifact_entries_atomically(
+                        self._project_dir,
+                        {ArtifactKey.episode_grid(grid.episode, grid.id): None},
+                    )
+            return True
 
     def list_all(self) -> list[GridGeneration]:
         """Return all grids sorted by created_at ascending."""
@@ -65,3 +163,29 @@ class GridManager:
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning("Skipping invalid grid file %s: %s", p.name, e)
         return sorted(grids, key=lambda g: g.created_at)
+
+    def cleanup_superseded(self, script_file: str, episode: int, scene_ids: set[str]) -> int:
+        """Delete finished grid records superseded by a regenerate of ``scene_ids``.
+
+        A record is superseded when it belongs to the same script and episode, its
+        ``scene_ids`` are a subset of the freshly generated group, and it is not still
+        in flight (pending/generating). In-flight records are kept so the generation
+        worker can still find its resource.
+
+        This is the single cleanup rule shared by the HTTP route and the SDK tool so
+        both regenerate paths stop accumulating stale grid generations.
+
+        Returns the number of deleted records.
+        """
+        deleted = 0
+        for old in self.list_all():
+            if (
+                old.script_file == script_file
+                and old.episode == episode
+                and old.status not in ("pending", "generating")
+                and old.scene_ids
+                and set(old.scene_ids) <= scene_ids
+            ):
+                if self.delete(old.id):
+                    deleted += 1
+        return deleted

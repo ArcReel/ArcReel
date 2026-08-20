@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.profile_frontmatter import parse_profile_metadata
 from lib.profile_manifest import VALID_CONTENT_MODES
 
 pytestmark = pytest.mark.unit
@@ -28,23 +29,10 @@ DASHBOARD_TS = "frontend/src/i18n/{locale}/dashboard.ts"
 LOCALES = ("zh", "en", "vi")
 
 _SKILL_KEY_RE = re.compile(r"""['"](skill_name_[a-z0-9_]+)['"]\s*:""")
-_USER_INVOCABLE_RE = re.compile(r"^\s*user-invocable\s*:\s*(\S+)", re.MULTILINE)
 
 
 def _is_user_invocable(skill_md: Path) -> bool:
-    text = skill_md.read_text(encoding="utf-8", errors="ignore")
-    if not text.startswith("---"):
-        return True
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return True
-    match = _USER_INVOCABLE_RE.search(parts[1])
-    if not match:
-        return True  # Default when field absent
-    # YAML 允许 ``user-invocable: "false"`` / ``'false'`` —— 解析时要去掉引号
-    # 再判断，否则带引号的 false 会被误判为 truthy。
-    raw = match.group(1).strip().strip("'\"").lower()
-    return raw not in {"false", "no", "0"}
+    return parse_profile_metadata(skill_md).user_invocable
 
 
 def _find_skill_md(skill_dir: Path) -> Path | None:
@@ -89,6 +77,16 @@ def _load_skill_name_keys(locale: str) -> set[str]:
     path = REPO_ROOT / DASHBOARD_TS.format(locale=locale)
     text = path.read_text(encoding="utf-8")
     return set(_SKILL_KEY_RE.findall(text))
+
+
+def test_user_invocable_uses_shared_yaml_boolean_parser(tmp_path: Path) -> None:
+    skill = tmp_path / "SKILL.md"
+    skill.write_text(
+        "---\nname: hidden\ndescription: Hidden skill\nuser-invocable: off\n---\n",
+        encoding="utf-8",
+    )
+
+    assert _is_user_invocable(skill) is False
 
 
 @pytest.mark.parametrize("locale", LOCALES)

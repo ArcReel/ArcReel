@@ -8,6 +8,7 @@ import {
   lookupCatalogVideoAudio,
   lookupDurationConstraints,
   lookupProjectVideoResolution,
+  lookupVideoAudioControl,
 } from "./provider-models";
 
 describe("provider-models fetchers", () => {
@@ -58,6 +59,7 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         reference_image_durations: [8],
         resolutions: ["720p", "1080p", "4k"],
         has_audio_track: true,
+        audio_switch_controllable: true,
         voice_consistency: "soft",
       },
       "seedance-like": {
@@ -69,6 +71,7 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         duration_resolution_constraints: {},
         resolutions: ["720p", "1080p"],
         has_audio_track: true,
+        audio_switch_controllable: true,
         voice_consistency: "soft",
       },
     },
@@ -124,6 +127,50 @@ describe("lookupCatalogVideoAudio", () => {
       hasAudioTrack: true,
       voiceConsistency: "soft",
     });
+  });
+});
+
+describe("lookupVideoAudioControl", () => {
+  const PROVIDERS: ProviderInfo[] = [
+    {
+      ...VEO_PROVIDERS[0],
+      models: {
+        controllable: {
+          ...VEO_PROVIDERS[0].models["seedance-like"],
+          has_audio_track: true,
+          audio_switch_controllable: true,
+        },
+        "always-on": {
+          ...VEO_PROVIDERS[0].models["seedance-like"],
+          has_audio_track: true,
+          audio_switch_controllable: false,
+        },
+        "always-off": {
+          ...VEO_PROVIDERS[0].models["seedance-like"],
+          has_audio_track: false,
+          audio_switch_controllable: false,
+        },
+      },
+    },
+  ];
+
+  it.each([
+    ["controllable", "controllable"],
+    ["always-on", "always_on"],
+    ["always-off", "always_off"],
+  ])("maps %s to %s", (modelId, expected) => {
+    expect(lookupVideoAudioControl(PROVIDERS, `gemini-aistudio/${modelId}`)).toBe(expected);
+  });
+
+  // 自定义供应商无逐模型音轨声明：无信号不收紧，开关保持可控。
+  it("keeps custom backends controllable", () => {
+    expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model")).toBe("controllable");
+  });
+
+  it("returns null for unknown model, unknown provider and malformed strings", () => {
+    expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/unknown")).toBeNull();
+    expect(lookupVideoAudioControl(PROVIDERS, "bogus-provider/whatever")).toBeNull();
+    expect(lookupVideoAudioControl(PROVIDERS, "no-slash")).toBeNull();
   });
 });
 

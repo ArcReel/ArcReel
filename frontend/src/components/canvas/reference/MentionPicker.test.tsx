@@ -299,7 +299,7 @@ describe("MentionPicker", () => {
     expect(bob.getAttribute("aria-selected")).toBe("true");
   });
 
-  it("renders four tabs (all/character/scene/prop) with counts", () => {
+  it("renders five tabs (all/product/character/scene/prop) with counts", () => {
     render(
       <MentionPicker
         open
@@ -310,7 +310,7 @@ describe("MentionPicker", () => {
       />,
     );
     const tabs = screen.getAllByRole("tab");
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(5);
     // 第一个 tab 是 "全部/All"，默认选中
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     // 全部 count = 2 (chars) + 1 (scene) + 1 (prop) = 4
@@ -328,7 +328,7 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    const sceneTab = screen.getAllByRole("tab")[2]; // all/character/scene/prop
+    const sceneTab = screen.getByRole("tab", { name: /场景|Scene/i });
     await user.click(sceneTab);
     expect(sceneTab).toHaveAttribute("aria-selected", "true");
     // 场景里的"酒馆"可见；角色里的"张三"被过滤掉
@@ -396,7 +396,7 @@ describe("MentionPicker", () => {
     expect(tabEvent.defaultPrevented).toBe(true);
   });
 
-  // #368: FloatingPortal should render the listbox as a direct descendant of
+  // FloatingPortal should render the listbox as a direct descendant of
   // document.body (rather than inside the component's render container) so
   // that ancestor `overflow: hidden` / stacking contexts can never clip it.
   it("portals the listbox to document.body", () => {

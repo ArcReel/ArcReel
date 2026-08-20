@@ -279,6 +279,63 @@ class TestInferEndpoint:
             ("viduq3-turbo", "openai", "vidu-video"),
             ("viduq3-i2v", "openai", "vidu-video"),
             ("proxy/viduq3-turbo", "openai", "vidu-video"),
+            # ── 阿里百炼 wan2.x / wan3.0 → dashscope-async-video（image 变体不受影响）──
+            ("wan2.7-i2v", "openai", "dashscope-async-video"),
+            ("wan2.7-t2v", "openai", "dashscope-async-video"),
+            ("wan-2.7-i2v", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan_2.7-t2v", "openai", "dashscope-async-video"),
+            ("wan3.0-video", "openai", "dashscope-async-video"),
+            ("Wan3.0-Video", "openai", "dashscope-async-video"),  # 大小写不敏感
+            ("proxy/wan3.0-video", "openai", "dashscope-async-video"),
+            ("wan-3-turbo", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan3-turbo", "openai", "dashscope-async-video"),
+            ("wan2.7-image", "openai", "openai-images"),  # image 变体不受影响
+            ("wan-2.7-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样落图像端点
+            ("wan3.0-video-image", "openai", "openai-images"),  # 含 image 语义不受影响
+            ("wan-3-turbo-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样不受影响
+            # image-to-video 别名含 "image" 子串但本质是视频，须留在 dashscope-async-video（同
+            # kling-image2video 的"video 语义优先"原则），不能被笼统 is_image 误判成图像变体。
+            ("wan-3-turbo-image-to-video", "openai", "dashscope-async-video"),
+            ("wan3-image2video", "openai", "dashscope-async-video"),
+            ("wan-2.7-image-to-video", "openai", "dashscope-async-video"),
+            # 反向陷阱：真图像别名不保证以 "image" 结尾（版本/日期/变体后缀），不能靠"结尾是不是
+            # image"反推是不是图像——只有显式 image-to-video 续接语法才算视频例外，其余含 image
+            # 语义一律仍是图像。
+            ("wan3.0-image-edit", "openai", "openai-images"),
+            ("wan-3-turbo-image-preview", "openai", "openai-images"),
+            ("wan3.0-video-image-20260801", "openai", "openai-images"),
+            # 分隔符混用：下划线与连字符匹配宽度一致（WAN3_PATTERN 同时容忍二者）。
+            ("wan_3_turbo", "openai", "dashscope-async-video"),
+            ("wan_3.0-image", "openai", "openai-images"),
+            ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-async-video"),
+            # 标识符边界：含 "wan3"/"wan2" 子串但并非该家族的型号名不得被误判——WAN2_PATTERN /
+            # WAN3_PATTERN 两侧要求非字母数字边界，裸 "wan" 仍命中 _VIDEO_PATTERN 落回通用视频分支。
+            ("swan3", "openai", "openai-video"),
+            ("vendorwan3", "openai", "openai-video"),
+            ("wan30", "openai", "openai-video"),
+            ("swan2", "openai", "openai-video"),
+            ("vendorwan2", "openai", "openai-video"),
+            ("wan20", "openai", "openai-video"),
+            # 同一边界陷阱、但字母粘连前缀后接完整点号形态 + 版本号 + 模态后缀：_WAN_DOT_FORM_PATTERN
+            # 若不做左侧边界校验，"swan2.7-r2v" 去掉首字符即与 "wan2.7-r2v" 字面相同，会被误判命中。
+            ("swan2.7-r2v", "openai", "openai-video"),
+            ("vendorwan2.7-t2v", "openai", "openai-video"),
+            # 万相 2.x 小版本边界：WAN2_PATTERN 只认 2.7，其余 2.x（2.1/2.2 等）的连字符/下划线
+            # 形态不落原生端点——本后端固定请求的 video-generation/video-synthesis 端点与这些
+            # 小版本的实际协议不符（见 dashscope.py WAN2_PATTERN 处的说明）。点号形态另受独立的
+            # 字面量判定约束，不受 WAN2_PATTERN 的版本锚定限制。
+            ("wan-2.1-kf2v", "openai", "openai-video"),  # 连字符 + 非 2.7 → 通用端点
+            ("wan_2.2-t2v", "openai", "openai-video"),  # 下划线 + 非 2.7 → 通用端点
+            ("wan2.1-kf2v", "openai", "dashscope-async-video"),  # 点号形态走字面量判定，非本正则
+            # 2.7 家族内 videoedit 模态：命中家族正则但 DashScopeVideoBackend 未实现其请求构造，
+            # 排除出原生路由（见 _WAN_VIDEOEDIT_PATTERN 处的说明）。
+            ("wan-2.7-videoedit", "openai", "openai-video"),
+            ("wan_2.7-videoedit", "openai", "openai-video"),
+            ("wan2.7-videoedit", "openai", "openai-video"),
+            # happyhorse 同一边界要求：与 DashScopeVideoBackend._profile_for_model 的兜底子串匹配
+            # 对同一 key 保持同等边界，否则会出现"路由到本后端却拿不到对应能力档"的矛盾。
+            ("myhappyhorse-1.0-r2v", "openai", "openai-chat"),
+            ("happyhorse-1.0-r2v", "openai", "dashscope-async-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),
@@ -300,6 +357,10 @@ class TestInferEndpoint:
             ),  # 海螺 token → minimax-video（前 minimax endpoint 时代默认 openai-video）
             ("S2V-01", "openai", "minimax-video"),  # s2v 不在通用视频 pattern，须显式路由
             ("minimax-s2v-01", "openai", "minimax-video"),
+            ("MiniMax-H3", "openai", "minimax-video"),  # H3 同样不在通用视频 pattern，须显式路由
+            ("minimax-h3", "openai", "minimax-video"),
+            ("h3", "openai", "openai-chat"),  # 裸 "h3" 不应匹配——防止退化成过于宽松的子串
+            ("other-vendor-h3", "openai", "openai-chat"),  # 其它厂商恰好含 h3 子串同样不应误路由
             ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
             ("minimax/image-01", "openai", "minimax-image"),
             ("S2V-01", "google", "minimax-video"),  # minimax 路由不分 discovery_format

@@ -2,7 +2,7 @@
 
 五象限：
 - 表自洽：四行齐全、字段合法、import 期校验触发
-- 规范解析全组合：3 content_mode × storyboard/grid/reference_video（含 ad 骨架恒 shots）
+- 规范解析全组合：3 content_mode × storyboard/grid/reference_video
 - 取证阶梯逐台阶
 - fail-loud：未知/缺失 content_mode 抛 ValueError（原「未知落 drama」语义已反转）
 - 路线闸门：跨族失配拒绝、族内差异放行
@@ -19,6 +19,7 @@ from lib.script_skeleton import (
     SkeletonRouteMismatchError,
     ensure_route_skeleton,
     resolve_declared_kind,
+    resolve_kind_items,
     resolve_script_kind,
 )
 
@@ -79,14 +80,10 @@ class TestDeclaredResolver:
         assert resolve_declared_kind("drama", generation_mode) == "scenes"
         assert resolve_declared_kind("ad", generation_mode) == "shots"
 
-    def test_reference_video_routes_narration_drama_to_video_units(self):
+    def test_reference_video_routes_all_content_modes_to_video_units(self):
         assert resolve_declared_kind("narration", "reference_video") == "video_units"
         assert resolve_declared_kind("drama", "reference_video") == "video_units"
-
-    @pytest.mark.parametrize("generation_mode", [None, "storyboard", "grid_4", "reference_video"])
-    def test_ad_is_shots_regardless_of_generation_mode(self, generation_mode):
-        # ad 骨架唯一：不随生成路径变（含 reference_video）。
-        assert resolve_declared_kind("ad", generation_mode) == "shots"
+        assert resolve_declared_kind("ad", "reference_video") == "video_units"
 
     @pytest.mark.parametrize("content_mode", [None, "", "reference_video", "unknown"])
     @pytest.mark.parametrize("generation_mode", [None, "reference_video"])
@@ -148,10 +145,15 @@ class TestRouteSkeletonGate:
         script = {"content_mode": "drama", "scenes": []}
         assert ensure_route_skeleton(script, "drama", "storyboard") == "scenes"
 
-    def test_ad_reference_route_expects_shots_not_units(self):
-        # ad 骨架恒 shots，参考路线也不例外——闸门不能把 ad 参考项目误判成失配。
+    def test_ad_reference_route_expects_video_units(self):
+        script = {"content_mode": "ad", "video_units": []}
+        assert ensure_route_skeleton(script, "ad", "reference_video") == "video_units"
+
+    def test_ad_reference_route_rejects_legacy_shots_skeleton(self):
         script = {"content_mode": "ad", "shots": []}
-        assert ensure_route_skeleton(script, "ad", "reference_video") == "shots"
+        with pytest.raises(SkeletonRouteMismatchError) as exc:
+            ensure_route_skeleton(script, "ad", "reference_video")
+        assert (exc.value.expected, exc.value.actual) == ("video_units", "shots")
 
     def test_narration_data_in_scenes_key_is_not_a_mismatch(self):
         # 族内历史形态（narration 数据落 scenes 键）照实返回，不当失配拒绝。
@@ -216,7 +218,7 @@ class TestRouteSkeletonGate:
         script = {"content_mode": "ad"}
         with pytest.raises(SkeletonRouteMismatchError) as exc:
             ensure_route_skeleton(script, "ad", "reference_video")
-        assert exc.value.expected == "shots"
+        assert exc.value.expected == "video_units"
         assert exc.value.actual is None
 
     def test_empty_skeleton_array_is_present_and_passes(self):
@@ -228,3 +230,51 @@ class TestRouteSkeletonGate:
     def test_unknown_content_mode_still_fails_loud(self):
         with pytest.raises(ValueError):
             ensure_route_skeleton({"segments": []}, None, "storyboard")
+
+
+@pytest.mark.unit
+class TestKindItemsAccessor:
+    """条目访问唯一入口：种类判别的两条来路 × 条目值原样返回。"""
+
+    def test_forensic_kind_when_not_given(self):
+        # kind 缺省 → 走取证解析，与 resolve_script_kind 同一判别。
+        script = {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]}
+        items, id_field, kind = resolve_kind_items(script)
+        assert kind == "scenes"
+        assert id_field == SKELETONS["scenes"].id_field
+        assert items == [{"scene_id": "E1S01"}]
+
+    def test_explicit_kind_skips_forensics(self):
+        # 显式 kind 覆盖数据形状：取证解析会判 segments，指定 video_units 则按后者取值。
+        script = {"content_mode": "narration", "segments": [], "video_units": [{"unit_id": "E1U01"}]}
+        items, id_field, kind = resolve_kind_items(script, kind="video_units")
+        assert (kind, id_field) == ("video_units", SKELETONS["video_units"].id_field)
+        assert items == [{"unit_id": "E1U01"}]
+
+    def test_id_field_per_kind(self):
+        # 四骨架各自的条目身份不被通用化。
+        for kind, expected in (
+            ("segments", "segment_id"),
+            ("scenes", "scene_id"),
+            ("shots", "shot_id"),
+            ("video_units", "unit_id"),
+        ):
+            assert resolve_kind_items({}, kind=kind)[1] == expected
+
+    def test_items_returned_by_reference(self):
+        # 返回的是 script 内实际引用，就地编辑对调用方生效。
+        items_in_script: list[dict[str, object]] = []
+        script = {"content_mode": "narration", "segments": items_in_script}
+        items, _id_field, _kind = resolve_kind_items(script)
+        assert items is items_in_script
+
+    def test_missing_key_yields_none_not_empty_list(self):
+        # 不把缺失兜底成空数组——「键缺失」与「键在场但空」由调用方各自定策略。
+        items, id_field, kind = resolve_kind_items({"content_mode": "narration"})
+        assert (items, kind) == (None, "segments")
+        assert id_field == "segment_id"
+
+    def test_non_list_value_returned_as_is(self):
+        # 脏值原样上交，不在此 fail-loud、也不静默降级。
+        assert resolve_kind_items({"content_mode": "narration", "segments": None})[0] is None
+        assert resolve_kind_items({"content_mode": "drama", "scenes": "E1S01"})[0] == "E1S01"

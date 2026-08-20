@@ -27,6 +27,7 @@ describe("NarrationAudioCard", () => {
     expect(audio).toHaveAttribute("controls");
     expect(audio?.getAttribute("src")).toContain("audio/segment_E1S01.wav");
     expect(audio?.getAttribute("aria-label")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /版本/ })).toBeInTheDocument();
   });
 
   it("falls back to the placeholder when novel text is whitespace-only", () => {
@@ -38,6 +39,12 @@ describe("NarrationAudioCard", () => {
     const { container } = renderCard();
     expect(container.querySelector("audio")).toBeNull();
     expect(screen.getByText("尚未生成")).toBeInTheDocument();
+  });
+
+  it("keeps paid history reachable when no narration audio is currently selected", () => {
+    renderCard();
+
+    expect(screen.getByRole("button", { name: /版本/ })).toBeInTheDocument();
   });
 
   it("invokes onGenerate when the generate button is clicked", () => {

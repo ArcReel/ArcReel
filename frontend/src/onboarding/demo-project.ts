@@ -47,18 +47,22 @@ export function isDemoProject(name: string | null | undefined): boolean {
 }
 
 const DEMO_STATUS: ProjectStatus = {
-  current_phase: "production",
+  phase: "production",
   phase_progress: 0.62,
-  characters: { completed: 3, total: 4 },
-  scenes: { completed: 3, total: 3 },
-  props: { completed: 2, total: 3 },
+  needs_repair: false,
+  repair_reason: null,
+  assets: {
+    character: { total: 4, available: 3, stale: 0 },
+    scene: { total: 3, available: 3, stale: 1 },
+    prop: { total: 3, available: 2, stale: 0 },
+  },
   episodes_summary: { total: 8, scripted: 1, in_production: 1, completed: 0 },
 };
 
 /**
  * 8 集的状态分布，与 `DEMO_STATUS.episodes_summary` 的计数对齐。
  * 只有第 1 集在演示里带剧本，真实后端对没有剧本的分集只会算出 draft（见
- * `lib/status_calculator.py::_make_fallback_ep_stats`）——第 2-8 集因此不能标成
+ * `lib/workflow_state.py::_episode_production_status`）——第 2-8 集因此不能标成
  * scripted/completed，否则点进去发现只有占位说明，统计与内容对不上。
  */
 const EPISODE_STATUSES: NonNullable<EpisodeMeta["status"]>[] = [
@@ -206,16 +210,18 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
       status,
       ...(isScripted
         ? {
-            scenes_count: segmentCount,
+            script_status: "generated" as const,
+            item_count: segmentCount,
             duration_seconds: SEGMENT_SKELETONS.reduce((sum, s) => sum + s.duration, 0),
             storyboards: {
               total: segmentCount,
-              completed: SEGMENT_SKELETONS.filter((s) => s.hasStoryboard).length,
+              available: SEGMENT_SKELETONS.filter((s) => s.hasStoryboard).length,
+              stale: 0,
             },
             // 视频没有可用的占位形态（占位图只能替静态图），演示里一条都没出片
-            videos: { total: segmentCount, completed: 0 },
+            videos: { total: segmentCount, available: 0, stale: 0 },
           }
-        : {}),
+        : { script_status: "none" as const }),
     };
   });
 
@@ -296,7 +302,6 @@ export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScrip
       episode: DEMO_SCRIPTED_EPISODE,
       title: t(`demo_episode_${DEMO_SCRIPTED_EPISODE}_title`),
       content_mode: "narration",
-      duration_seconds: segments.reduce((sum, s) => sum + s.duration_seconds, 0),
       novel: {
         title: t("demo_project_title"),
         chapter: t(`demo_episode_${DEMO_SCRIPTED_EPISODE}_title`),

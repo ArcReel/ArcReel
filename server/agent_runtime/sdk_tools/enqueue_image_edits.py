@@ -13,12 +13,36 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.artifact_activation import (
+    ArtifactCurrencyResolver,
+    active_artifact_currency_resolver,
+    resolve_artifact_episode,
+)
+from lib.artifact_manifest import ArtifactManifestError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation_queue_client import TaskSpec, batch_enqueue_and_wait
-from lib.path_safety import safe_exists
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
-from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
+from lib.generation_result import (
+    GenerationAction,
+    GenerationCandidate,
+    GenerationProblem,
+    GenerationProblemCode,
+    GenerationResultBuilder,
+    GenerationSelectionMode,
+    GenerationTargetState,
+    record_batch_outcomes,
+)
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    generation_result_response,
+    tool_error,
+    validate_script_filename,
+)
+from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
+
+# 编辑始终是显式选择：一次编辑必须携带自己的指令，没有可由 Manifest 推导的
+# "缺失的编辑"，因此本工具不提供 missing-only 选择。
+_OPERATION = "edit_images"
 
 # Display label for tool output only; storyboard isn't an ASSET_SPECS member so this
 # can't reuse that dict directly (mirrors enqueue_assets._EMOJI's separate table).
@@ -26,7 +50,7 @@ _LABEL_ZH: dict[str, str] = {
     "character": "角色",
     "scene": "场景",
     "prop": "道具",
-    "product": "产品",
+    "product": "商品",
     "storyboard": "分镜图",
 }
 
@@ -44,14 +68,29 @@ async def _i2i_provider_available(project: dict[str, Any]) -> bool:
 
 
 def _build_specs(
+    *,
     project: dict[str, Any],
     project_path: Any,
     resource_type: str,
     edits: list[Any],
     script: dict[str, Any] | None,
     script_filename: str | None,
+    artifact_episode: int | None,
+    resolver: ArtifactCurrencyResolver,
     warnings: list[str],
+    builder: GenerationResultBuilder,
+    states: dict[str, GenerationTargetState],
 ) -> list[TaskSpec]:
+    """Turn the requested edits into task specs, blocking the ones that cannot run.
+
+    Malformed entries with no usable ID stay in ``warnings``: they have no unit
+    ID to report against, so they cannot enter the per-ID contract. ``states``
+    is filled in with each resolved edit source's pre-edit path so that, if the
+    edit task itself later fails, the per-ID result still reports the untouched
+    source image instead of ``None`` — the edit never landed, but the image it
+    would have overwritten is still there.
+    """
+
     label = _LABEL_ZH[resource_type]
     specs: list[TaskSpec] = []
     seen_ids: set[str] = set()
@@ -69,16 +108,60 @@ def _build_specs(
             continue
         seen_ids.add(resource_id)
         if not instruction:
-            warnings.append(f"⚠️  {label} '{resource_id}' 缺少编辑指令，跳过")
+            builder.block(
+                resource_id,
+                problem=GenerationProblem(
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"{label} '{resource_id}' 缺少编辑指令",
+                    action=GenerationAction.FIX_INPUT,
+                ),
+            )
             continue
         try:
-            current_rel = resolve_current_image_rel(project, resource_type, resource_id, script)
+            source = resolve_usable_image_edit_source(
+                project=project,
+                project_path=project_path,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                script=script,
+                artifact_episode=artifact_episode,
+                resolver=resolver,
+            )
         except KeyError:
-            warnings.append(f"⚠️  {label} '{resource_id}' 不存在，跳过")
+            builder.block(
+                resource_id,
+                problem=GenerationProblem(
+                    code=GenerationProblemCode.UNIT_NOT_FOUND,
+                    detail=f"{label} '{resource_id}' 不存在",
+                    action=GenerationAction.FIX_INPUT,
+                ),
+            )
             continue
-        if not (current_rel and safe_exists(project_path, current_rel)):
-            warnings.append(f"⚠️  {label} '{resource_id}' 没有可编辑的当前图，跳过")
+        except ArtifactManifestError as exc:
+            # Manifest 判定本条编辑的产物状态时 fail-loud：这是单条编辑自己的问题，
+            # 不该把整批已经算出的其它 ID 结果一起吞进 handler 级文本错误。
+            builder.block(
+                resource_id,
+                problem=GenerationProblem(
+                    code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
+                    detail=str(exc),
+                    action=GenerationAction.REPAIR_ARTIFACT_STATE,
+                ),
+            )
             continue
+        if source is None:
+            builder.block(
+                resource_id,
+                problem=GenerationProblem(
+                    code=GenerationProblemCode.UNIT_INPUT_UNUSABLE,
+                    detail=f"{label} '{resource_id}' 没有可编辑的当前图",
+                    action=GenerationAction.GENERATE_DEPENDENCY,
+                ),
+            )
+            continue
+        states[resource_id] = GenerationTargetState(
+            candidate=GenerationCandidate(unit_id=resource_id, artifact_path=source.artifact_path)
+        )
         specs.append(
             TaskSpec.from_request(
                 task_type="image_edit",
@@ -95,13 +178,14 @@ def _build_specs(
 def edit_images_tool(ctx: ToolContext):
     @tool(
         "edit_images",
-        "对已生成的设计图/分镜图做指令式局部编辑：保持原图大体不变，仅按指令修改不满意的部分"
+        "对已生成的资产图/分镜图做指令式局部编辑：保持原图大体不变，仅按指令修改不满意的部分"
         "（如换发色、去掉背景杂物、调整光线氛围），支持同类型批量下发。"
         "与「重新生成」的区别：编辑=保底图微调、不改变原 image_prompt，重生成会作废本次编辑效果"
         "（仍按原 prompt 重画）；重新生成=按原 prompt 整图重画，会推翻已满意的部分。"
         "用户只想改局部时用编辑；用户想推翻构图/内容重来、或原 image_prompt 本身要改时用重新生成。"
         "resource_type 支持 character/scene/prop/product/storyboard 五类，storyboard 必须带 script_file。"
-        "编辑必然走图生图（i2i）；当前项目图片供应商不支持 i2i 时直接返回错误，不创建任何任务。",
+        "编辑必然走图生图（i2i）；当前项目图片供应商不支持 i2i 时直接返回错误，不创建任何任务。"
+        "编辑始终是显式选择（每条编辑自带指令），结果按 requested / succeeded / failed / blocked 逐 ID 返回。",
         {
             "type": "object",
             "properties": {
@@ -168,49 +252,80 @@ def edit_images_tool(ctx: ToolContext):
 
             project = ctx.pm.load_project(ctx.project_name)
             project_path = ctx.project_path
-
-            if not await _i2i_provider_available(project):
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "❌ 当前项目图片供应商不支持图生图（i2i），无法执行编辑；"
-                            "请提示用户前往设置更换支持 i2i 的供应商",
-                        }
-                    ],
-                    "is_error": True,
-                }
+            artifact_episode = None
+            if script is not None and script_filename is not None:
+                artifact_episode = resolve_artifact_episode(
+                    project=project,
+                    script=script,
+                    script_filename=script_filename,
+                )
+            resolver = active_artifact_currency_resolver(project_path, project)
 
             warnings: list[str] = []
-            specs = _build_specs(project, project_path, resource_type, edits, script, script_filename, warnings)
-            if not specs:
+            builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
+            states: dict[str, GenerationTargetState] = {}
+
+            if not await _i2i_provider_available(project):
+                # 拦截在入队前：不是某个 ID 的产物问题，是整批共享的前置条件不满足，
+                # 但调用方仍按逐 ID 契约读结果，因此每个请求到的 ID 各记一条 blocked，
+                # 而不是只回一段无法编程消费的文本。
+                seen: set[str] = set()
+                for edit in edits:
+                    if not isinstance(edit, dict):
+                        continue
+                    resource_id = str(edit.get("id") or "").strip()
+                    if not resource_id or resource_id in seen:
+                        continue
+                    seen.add(resource_id)
+                    builder.block(
+                        resource_id,
+                        # 复用 lib.task_failure 已登记的 i2i 缺能力码（同一失败在
+                        # HTTP 端点的执行期路径下就是这个码），不新造未登记码。
+                        problem=GenerationProblem(
+                            code="image_capability_missing_i2i",
+                            detail="当前项目图片供应商不支持图生图（i2i），无法执行编辑；请提示用户前往设置更换支持 i2i 的供应商",
+                            action=GenerationAction.CONFIGURE_PROVIDER,
+                        ),
+                    )
+                return generation_result_response(builder.build(), warnings)
+            specs = _build_specs(
+                project=project,
+                project_path=project_path,
+                resource_type=resource_type,
+                edits=edits,
+                script=script,
+                script_filename=script_filename,
+                artifact_episode=artifact_episode,
+                resolver=resolver,
+                warnings=warnings,
+                builder=builder,
+                states=states,
+            )
+            if not specs and not builder.recorded_ids:
                 return {
                     "content": [{"type": "text", "text": "\n".join([*warnings, "没有可执行的编辑任务"])}],
                     "is_error": True,
                 }
 
-            successes, failures = await batch_enqueue_and_wait(
-                project_name=ctx.project_name,
-                specs=specs,
-            )
+            if specs:
+                successes, failures = await batch_enqueue_and_wait(
+                    project_name=ctx.project_name,
+                    specs=specs,
+                )
+                # 编辑产物不写回 Manifest（编辑意图不可推导，见模块顶部说明），
+                # 因此这里不带 resolver：产物时效轴如实留空而不是假装已知。states 只
+                # 用来在失败时把未被触碰的编辑源图路径带回结果，不参与时效判断。
+                record_batch_outcomes(
+                    builder,
+                    successes=successes,
+                    failures=failures,
+                    states=states,
+                    fallback_path=lambda rid: rid,
+                )
 
-            details: list[str] = []
-            for br in successes:
-                result = br.result or {}
-                version = result.get("version")
-                version_text = f" (v{version})" if version is not None else ""
-                file_path = result.get("file_path") or br.resource_id
-                details.append(f"  ✓ {br.resource_id} → {file_path}{version_text}")
-            for br in failures:
-                details.append(f"  ✗ {br.resource_id}: {br.error}")
-
-            header = f"edit_images summary: {len(successes)} succeeded, {len(failures)} failed"
-            return {
-                "content": [{"type": "text", "text": "\n".join([*warnings, header, *details])}],
-                "is_error": bool(failures),
-            }
+            return generation_result_response(builder.build(), warnings)
         except Exception as exc:  # noqa: BLE001
-            return tool_error("edit_images", exc)
+            return tool_error(_OPERATION, exc)
 
     return _handler
 

@@ -29,10 +29,10 @@ import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
 import { ProductsPage } from "./lorebook/ProductsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
-import { AdReferenceVideoCanvas } from "./reference/AdReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
-import { API } from "@/api";
+import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
+import { API, NarratedVideoDurationError } from "@/api";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -56,7 +56,14 @@ import {
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
 import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
-import type { Scene, Prop, Product, CustomProviderInfo, ProviderInfo } from "@/types";
+import type {
+  Scene,
+  Prop,
+  Product,
+  CustomProviderInfo,
+  ProviderInfo,
+  ReferenceGenerationRequestOptions,
+} from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
 // ---------------------------------------------------------------------------
@@ -75,6 +82,7 @@ function resolveSegmentPrompt(
   if (!resolvedFile) return null;
   const script = scripts[resolvedFile];
   if (!script) return null;
+  if ("video_units" in script) return null;
   const seg =
     script.content_mode === "narration"
       ? script.segments.find((s) => s.segment_id === segmentId)
@@ -187,8 +195,8 @@ export function StudioCanvasRouter() {
 
   // ---- Timeline action callbacks ----
   // These receive scriptFile from TimelineCanvas so they always use the active episode's script.
-  // 返回是否写入成功：本函数内部吞掉异常并转 toast，调用方（如 AdReferenceVideoCanvas
-  // 的镜头级编辑）靠返回值而非"是否抛出"判断能否清空本地草稿——不依赖此契约的调用方
+  // 返回是否写入成功：本函数内部吞掉异常并转 toast，调用方靠返回值而非
+  // "是否抛出"判断能否清空本地草稿——不依赖此契约的调用方
   // （TimelineCanvas / GridImageToVideoCanvas）按 void 用即可，多出的返回值不影响它们。
   const handleUpdatePrompt = useCallback(async (
     segmentId: string,
@@ -286,7 +294,11 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, currentScripts]);
 
-  const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
+  const handleGenerateVideo = useCallback(async (
+    segmentId: string,
+    scriptFile?: string,
+    requestOptions?: ReferenceGenerationRequestOptions,
+  ) => {
     if (!currentProjectName || !currentScripts) return;
     const resolved = resolveSegmentPrompt(currentScripts, segmentId, "video_prompt", scriptFile);
     if (!resolved) return;
@@ -297,8 +309,10 @@ export function StudioCanvasRouter() {
         resolved.prompt as string | Record<string, unknown>,
         resolved.resolvedFile,
         resolved.duration,
+        requestOptions,
       );
     } catch (err) {
+      if (err instanceof NarratedVideoDurationError) throw err;
       useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, currentScripts]);
@@ -336,6 +350,55 @@ export function StudioCanvasRouter() {
       useAppStore.getState().pushToast(tRef.current("generate_narration_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, currentScripts, ensureAudioProviderConfigured]);
+
+  // ---- Workflow panel callbacks ----
+  // 面板只陈述状态，动作交回既有入口执行：跳转复用 Agent 定位用的同一条 scrollTarget 缝，
+  // 重生复用本组件已有的入队回调。面板不自建播放器，也不自建入队路径。
+  const handleViewWorkflowUnit = useCallback((unitId: string) => {
+    useAppStore.getState().triggerScrollTo({
+      type: normalizeRoute(currentProjectData?.generation_mode) === "reference_video"
+        ? "reference_unit"
+        : "segment",
+      id: unitId,
+    });
+  }, [currentProjectData?.generation_mode]);
+
+  // 剧本文件由调用方按当前剧集给出：多集项目里 currentScripts 装着全部剧集，
+  // 取第一个键会把重生打到别集的剧本上，用户看到的是另一集被重做。
+  const handleWorkflowRegenerate = useCallback(async (
+    stepId: string,
+    unitIds: string[],
+    scriptFile: string,
+  ) => {
+    if (!currentProjectName || !currentScripts) return;
+    for (const unitId of unitIds) {
+      try {
+        if (stepId === "storyboard") {
+          await handleGenerateStoryboard(unitId, scriptFile);
+        } else if (stepId === "video") {
+          await handleGenerateVideo(unitId, scriptFile);
+        } else if (stepId === "narration_delivery") {
+          await handleGenerateNarration(unitId, scriptFile);
+        }
+      } catch (err) {
+        // 时长档位确认只在单元卡自己的确认弹窗里发生，面板不复刻这套流程——
+        // 把用户带到那张卡上完成确认，而不是甩出一句没有下文的裸错误。
+        if (err instanceof NarratedVideoDurationError) {
+          useAppStore.getState().pushToast(tRef.current("workflow_regenerate_needs_confirmation"), "error");
+          handleViewWorkflowUnit(unitId);
+          continue;
+        }
+        useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
+      }
+    }
+  }, [
+    currentProjectName,
+    currentScripts,
+    handleGenerateStoryboard,
+    handleGenerateVideo,
+    handleGenerateNarration,
+    handleViewWorkflowUnit,
+  ]);
 
   // ---- Character CRUD callbacks ----
   const handleSaveCharacter = useCallback(async (
@@ -681,8 +744,9 @@ export function StudioCanvasRouter() {
           const durationOptions =
             narrowDurations({ rawDurations, durationConstraints }, durationCtx) ?? undefined;
           // reference_video 的参考图约束是按 unit 而非按集生效（同集内不带 references 的
-          // unit 不受此约束，见 lib.reference_video.precheck_unit 的 bool(unit.references)
-          // 判据）：多备一份不叠加参考图收窄的档位，供画布按每个 unit 自己的引用状态选用。
+          // unit 不受此约束，见 lib.reference_video.request_projection 的
+          // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：多备一份不叠加
+          // 参考图收窄的档位，供画布按每个 unit 自己的引用状态选用。
           const durationOptionsNoReference =
             narrowDurations({ rawDurations, durationConstraints }, { videoResolution }) ??
             undefined;
@@ -694,11 +758,7 @@ export function StudioCanvasRouter() {
             );
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
-          // ad 剧本骨架唯一（shots[]），但两条生成路径进不同画布：storyboard 走镜头
-          // 编辑画布，reference_video 走按派生分组组织的专用画布（不提供分镜图与
-          // 逐镜头图生视频——该路径按 ADR 0033 跳过分镜步骤）。
           const isAd = currentProjectData?.content_mode === "ad";
-          const adReference = isAd && route === "reference_video";
 
           // 已选集但剧本未生成：进入切片审阅视图（narration/drama 全部生成路径——
           // reference_video 此时 units 为空，同样没有可展示内容）；ad 恒单集无源文
@@ -709,6 +769,23 @@ export function StudioCanvasRouter() {
 
           return (
             <div className="flex h-full flex-col">
+              {/* 演示态没有真实项目事实可投影，面板不挂载。 */}
+              {!demoMode && currentProjectName && (
+                <WorkflowPanel
+                  projectName={currentProjectName}
+                  episode={epNum}
+                  onViewUnit={handleViewWorkflowUnit}
+                  // 参考路线的视频入队由 ReferenceVideoCanvas 自己的批量准入路径承担，
+                  // 本组件的逐单元回调对 video_units 剧本解不出提示词、按下去毫无反应。
+                  // 该路线只给「查看」跳转，重生入口在跳过去的那张单元卡上。
+                  onRegenerate={
+                    route === "reference_video" || !scriptFile
+                      ? undefined
+                      : (stepId, unitIds) =>
+                          void handleWorkflowRegenerate(stepId, unitIds, scriptFile)
+                  }
+                />
+              )}
               <div className="min-h-0 flex-1">
                 {demoMode && !script ? (
                   <DemoEpisodePlaceholder />
@@ -717,23 +794,6 @@ export function StudioCanvasRouter() {
                     projectName={currentProjectName}
                     episode={epNum}
                     episodes={currentProjectData?.episodes ?? []}
-                  />
-                ) : adReference ? (
-                  <AdReferenceVideoCanvas
-                    // 与下方画布同理：同 epNum 跨项目不 remount 会让分组列表、
-                    // 派生态等内部 state 残留上一个项目的值。
-                    key={`${currentProjectName}::${epNum}`}
-                    projectName={currentProjectName}
-                    episode={epNum}
-                    episodeTitle={episode?.title}
-                    onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
-                    canEditTitle={Boolean(episode?.script_file)}
-                    shots={script?.content_mode === "ad" ? script.shots : []}
-                    hasScript={Boolean(script)}
-                    scriptFile={scriptFile ?? undefined}
-                    // 其余画布的演示只读靠组件内部 useDemoWorkbench() 自行收口；本画布未读取
-                    // demoMode（未提供 onUpdatePrompt 时自行降级为纯文本），故在调用点显式门控。
-                    onUpdatePrompt={demoMode ? undefined : handleUpdatePrompt}
                   />
                 ) : route === "reference_video" ? (
                   <ReferenceVideoCanvas
@@ -748,6 +808,8 @@ export function StudioCanvasRouter() {
                     onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
                     canEditTitle={Boolean(episode?.script_file)}
                     hasScript={Boolean(script)}
+                    showPreprocess={!isAd}
+                    freeDuration={isAd}
                     // unit 时长档位随所选模型能力变化（已按本集参考图路径收窄）
                     durationOptions={durationOptions}
                     durationOptionsNoReference={durationOptionsNoReference}
@@ -768,7 +830,7 @@ export function StudioCanvasRouter() {
                     durationWarningReason={durationWarningReason}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                    onGenerateVideo={voidPromise(handleGenerateVideo)}
+                    onGenerateVideo={handleGenerateVideo}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
                     onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
                     onGenerateGrid={handleGenerateGrid}
@@ -796,7 +858,7 @@ export function StudioCanvasRouter() {
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                    onGenerateVideo={voidPromise(handleGenerateVideo)}
+                    onGenerateVideo={handleGenerateVideo}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
                     onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
                     onRestoreStoryboard={handleRestoreAsset}

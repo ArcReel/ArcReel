@@ -26,10 +26,9 @@ export function EpisodeHeader({
 }: EpisodeHeaderProps) {
   const { t } = useTranslation("dashboard");
   const isActive = ep.status === "in_production";
+  // 进度与剧集卡同口径：视频产物的可用数 / 总数（可用 = current ∪ stale）。
   const progress =
-    typeof ep.scenes_count === "number" && ep.scenes_count > 0 && ep.videos
-      ? Math.round((ep.videos.completed / ep.scenes_count) * 100)
-      : 0;
+    ep.videos && ep.videos.total > 0 ? Math.round((ep.videos.available / ep.videos.total) * 100) : 0;
 
   // 费用：取 estimate / actual 总和（按货币聚合）。「已花」含历史支出，「剩余」只对当前剧本
   // 结算，故按当前剧本口径扣减。

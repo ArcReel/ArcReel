@@ -112,6 +112,8 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     assert "PreToolUse" in options.hooks
     # sandbox 启用 → sandbox settings 编译进 options
     assert options.sandbox.get("enabled") is True
+    # 用户消息回放开关：缺失则 SDK 不回放副本，身份映射无从建立
+    assert options.extra_args == {"replay-user-messages": None}
 
 
 @pytest.mark.asyncio

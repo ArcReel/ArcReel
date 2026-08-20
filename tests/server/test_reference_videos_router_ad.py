@@ -1,8 +1,4 @@
-"""ad 模式参考直出路由（reference-videos router 的 ad 分支）测试。
-
-ad 的 video_unit 是从 shots 派生的轻量索引：派生端点负责（重）派生并持久化，
-手工增删改单元被拒绝（shots 是内容唯一真相），生成端点按持久化索引入队。
-"""
+"""广告参考路线复用通用 video-unit Web API。"""
 
 from __future__ import annotations
 
@@ -14,72 +10,50 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.reference_video.ad_units import ad_unit_source_signature
+from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
-def _shot(shot_id: str, duration: int, **overrides) -> dict:
-    base = {
-        "shot_id": shot_id,
-        "section": "hook",
-        "duration_seconds": duration,
-        "voiceover_text": "口播",
-        "characters_in_shot": [],
-        "scenes": [],
-        "props": [],
-        "products_in_shot": [],
-        "image_prompt": {
-            "scene": f"{shot_id} 画面",
-            "composition": {"shot_type": "Close-up", "lighting": "自然光", "ambiance": "明亮"},
-        },
-        "video_prompt": {
-            "action": f"{shot_id} 动作",
-            "camera_motion": "Static",
-            "ambiance_audio": "",
-            "dialogue": [],
-        },
-    }
-    base.update(overrides)
-    return base
-
-
 @pytest.fixture
 def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     projects_root = tmp_path / "projects"
-    projects_root.mkdir()
-    proj_dir = projects_root / "ad-demo"
-    proj_dir.mkdir()
-    (proj_dir / "scripts").mkdir()
-    (proj_dir / "project.json").write_text(
+    project_dir = projects_root / "ad-demo"
+    (project_dir / "scripts").mkdir(parents=True)
+    (project_dir / "project.json").write_text(
         json.dumps(
             {
+                "schema_version": 7,
                 "title": "带货短片",
                 "content_mode": "ad",
                 "generation_mode": "reference_video",
-                "style": "明亮写实",
-                "target_duration": 30,
-                "brief": "卖按摩仪",
-                "characters": {"小美": {"description": "x"}},
+                "characters": {"小美": {}},
                 "scenes": {},
                 "props": {},
-                "products": {"按摩仪": {"description": "颈部按摩仪", "reference_images": []}},
+                "products": {"按摩仪": {"product_sheet": "products/按摩仪.png", "reference_images": []}},
                 "episodes": [{"episode": 1, "title": "短片", "script_file": "scripts/episode_1.json"}],
             },
             ensure_ascii=False,
         ),
         encoding="utf-8",
     )
-    (proj_dir / "scripts" / "episode_1.json").write_text(
+    (project_dir / "products").mkdir()
+    (project_dir / "products" / "按摩仪.png").write_bytes(b"image")
+    (project_dir / "scripts/episode_1.json").write_text(
         json.dumps(
             {
                 "episode": 1,
                 "title": "短片",
                 "content_mode": "ad",
-                "shots": [
-                    _shot("E1S1", 3, products_in_shot=["按摩仪"]),
-                    _shot("E1S2", 2, characters_in_shot=["小美"]),
+                "video_units": [
+                    {
+                        "unit_id": "E1U1",
+                        "text": "@[按摩仪] 放在桌面上",
+                        "duration_seconds": 5,
+                        "generated_assets": {},
+                    }
                 ],
             },
             ensure_ascii=False,
@@ -87,17 +61,21 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         encoding="utf-8",
     )
 
+    migrate_v7_to_v8(project_dir)
+    migrate_v8_to_v9(project_dir)
+
     from lib.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
-    custom_pm = ProjectManager(projects_root)
-    monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
+    monkeypatch.setattr(router_mod, "get_project_manager", lambda: ProjectManager(projects_root))
+    monkeypatch.setattr(router_mod, "tts_task_in_progress", AsyncMock(return_value=False))
+    from tests.fakes import fake_reference_request_projector
 
-    # 供应商时长上限解析与队列都打桩：路由测试只看入参与持久化结果
-    monkeypatch.setattr(router_mod, "resolve_max_unit_duration", AsyncMock(return_value=15))
-    # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
-    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
-    monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(4, 8, 12)),
+    )
     fake_queue = AsyncMock()
     fake_queue.enqueue_task = AsyncMock(return_value={"task_id": "t1", "deduped": False})
     monkeypatch.setattr(router_mod, "get_generation_queue", lambda: fake_queue)
@@ -108,237 +86,163 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="test", role="admin")
     client = TestClient(app)
     client.fake_queue = fake_queue  # type: ignore[attr-defined]
-    client.proj_dir = proj_dir  # type: ignore[attr-defined]
+    client.project_dir = project_dir  # type: ignore[attr-defined]
     return client
 
 
-def _read_script(client: TestClient) -> dict:
-    path: Path = client.proj_dir / "scripts" / "episode_1.json"  # type: ignore[attr-defined]
+def _script(client: TestClient) -> dict:
+    path: Path = client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-class TestDeriveUnits:
-    @pytest.mark.unit
-    def test_derive_persists_index_into_script(self, ad_client: TestClient):
-        resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-
-        assert resp.status_code == 200, resp.text
-        units = resp.json()["units"]
-        assert [u["shot_ids"] for u in units] == [["E1S1", "E1S2"]]
-        assert units[0]["references"][0] == {"type": "product", "name": "按摩仪"}
-
-        script = _read_script(ad_client)
-        assert script["reference_units"] == units
-
-    @pytest.mark.unit
-    def test_rederive_is_reproducible_and_keeps_assets(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        script = _read_script(ad_client)
-        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
-        path: Path = ad_client.proj_dir / "scripts" / "episode_1.json"  # type: ignore[attr-defined]
-        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-
-        resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-
-        units = resp.json()["units"]
-        assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
-
-    @pytest.mark.unit
-    def test_rederive_after_shot_change_keeps_assets_and_reports_stale(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        script = _read_script(ad_client)
-        unit = script["reference_units"][0]
-        unit["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
-        unit["generated_assets"]["source_signature"] = ad_unit_source_signature(script, unit)
-        # 新增镜头改变 E1U1 的成员集合：产物指针保留，响应按签名比较读时报 stale
-        script["shots"].append(_shot("E1S3", 4))
-        path: Path = ad_client.proj_dir / "scripts" / "episode_1.json"  # type: ignore[attr-defined]
-        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-
-        resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-
-        units = resp.json()["units"]
-        assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
-        assert units[0]["stale"] is True
-        # stale 只注入响应副本，剧本条目不落盘
-        assert "stale" not in _read_script(ad_client)["reference_units"][0]
-
-    @pytest.mark.unit
-    def test_list_reports_stale_after_script_edit_without_rederive(self, ad_client: TestClient):
-        # 剧本保存后立即读取（未重新派生）即反映最新偏离状态；无签名的存量产物不误报
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        script = _read_script(ad_client)
-        unit = script["reference_units"][0]
-        unit["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
-        unit["generated_assets"]["source_signature"] = ad_unit_source_signature(script, unit)
-        script["shots"][0]["characters_in_shot"] = ["新角色"]
-        path: Path = ad_client.proj_dir / "scripts" / "episode_1.json"  # type: ignore[attr-defined]
-        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-
-        units = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units").json()["units"]
-        assert units[0]["stale"] is True
-
-        # 回改到产物生成时的编排：签名重新一致，stale 自动回清
-        script["shots"][0]["characters_in_shot"] = []
-        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-        units = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units").json()["units"]
-        assert "stale" not in units[0]
-
-    @pytest.mark.unit
-    def test_list_does_not_flag_legacy_product_without_signature(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        script = _read_script(ad_client)
-        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
-        script["shots"][0]["characters_in_shot"] = ["新角色"]
-        path: Path = ad_client.proj_dir / "scripts" / "episode_1.json"  # type: ignore[attr-defined]
-        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-
-        units = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units").json()["units"]
-        assert "stale" not in units[0]
-
-    @pytest.mark.unit
-    def test_derive_rejected_for_non_ad_project(self, ad_client: TestClient):
-        proj_dir: Path = ad_client.proj_dir  # type: ignore[attr-defined]
-        project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
-        project["content_mode"] = "narration"
-        (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-        script = _read_script(ad_client)
-        script["content_mode"] = "narration"
-        script["generation_mode"] = "reference_video"
-        del script["shots"]
-        script["video_units"] = []
-        (proj_dir / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-
-        resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-
-        assert resp.status_code == 409
+@pytest.mark.integration
+def test_list_and_legacy_derive_removal(ad_client: TestClient) -> None:
+    response = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units")
+    assert response.status_code == 200
+    assert response.json()["units"][0]["unit_id"] == "E1U1"
+    assert ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units").status_code == 404
 
 
-class TestAdUnitListing:
-    @pytest.mark.unit
-    def test_list_returns_persisted_index(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
+@pytest.mark.integration
+def test_ad_units_support_crud_and_product_mentions(ad_client: TestClient) -> None:
+    from lib.project_manager import ProjectManager
+    from lib.reference_video.request_projection import unit_reference_declarations
 
-        resp = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units")
+    added = ad_client.post(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units",
+        json={"prompt": "@[按摩仪] 被 @[小美] 举到镜头前", "duration_seconds": 6},
+    )
+    assert added.status_code == 201, added.text
+    assert added.json()["unit"]["unit_id"] == "E1U2"
 
-        assert resp.status_code == 200
-        units = resp.json()["units"]
-        assert [u["unit_id"] for u in units] == ["E1U1"]
-        assert units[0]["shot_ids"] == ["E1S1", "E1S2"]
+    patched = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U2",
+        json={"prompt": "@[按摩仪] 正面朝向镜头"},
+    )
+    assert patched.status_code == 200, patched.text
+    project = ProjectManager(ad_client.project_dir.parent).load_project("ad-demo")  # type: ignore[attr-defined]
+    assert [(ref.type, ref.name) for ref in unit_reference_declarations(project, patched.json()["unit"])] == [
+        ("product", "按摩仪")
+    ]
 
-    @pytest.mark.unit
-    def test_list_empty_before_derive(self, ad_client: TestClient):
-        resp = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units")
-        assert resp.status_code == 200
-        assert resp.json() == {"units": []}
+    reordered = ad_client.post(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/reorder",
+        json={"unit_ids": ["E1U2", "E1U1"]},
+    )
+    assert reordered.status_code == 200
+    assert [unit["unit_id"] for unit in _script(ad_client)["video_units"]] == ["E1U2", "E1U1"]
 
-
-class TestAdMutationsRejected:
-    @pytest.mark.unit
-    def test_add_unit_rejected(self, ad_client: TestClient):
-        resp = ad_client.post(
-            "/api/v1/projects/ad-demo/reference-videos/episodes/1/units",
-            json={"prompt": "Shot 1 (3s): 画面"},
-        )
-        assert resp.status_code == 409
-
-    @pytest.mark.unit
-    def test_patch_unit_rejected(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        resp = ad_client.patch(
-            "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
-            json={"note": "x"},
-        )
-        assert resp.status_code == 409
-
-    @pytest.mark.unit
-    def test_delete_unit_rejected(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        resp = ad_client.delete("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1")
-        assert resp.status_code == 409
-
-    @pytest.mark.unit
-    def test_reorder_rejected(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        resp = ad_client.post(
-            "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/reorder",
-            json={"unit_ids": ["E1U1"]},
-        )
-        assert resp.status_code == 409
+    deleted = ad_client.delete("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U2")
+    assert deleted.status_code == 204, deleted.text
 
 
-class TestAdGenerate:
-    @pytest.mark.unit
-    def test_generate_enqueues_reference_video_task(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
+@pytest.mark.integration
+def test_generate_enqueues_self_contained_unit(ad_client: TestClient) -> None:
+    response = ad_client.post(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate",
+        json={"confirmed_request_duration_seconds": 8},
+    )
+    assert response.status_code == 202, response.text
+    kwargs = ad_client.fake_queue.enqueue_task.call_args.kwargs  # type: ignore[attr-defined]
+    assert kwargs["resource_id"] == "E1U1"
+    assert kwargs["script_file"] == "scripts/episode_1.json"
+    assert "prompt" not in kwargs["payload"]
+    assert kwargs["payload"]["reference_request_options"] == {
+        "narration_delivery": "post_production",
+        "confirmed_request_duration_seconds": 8,
+    }
 
-        resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate")
 
-        assert resp.status_code == 202, resp.text
-        assert resp.json()["task_id"] == "t1"
-        kwargs = ad_client.fake_queue.enqueue_task.call_args.kwargs  # type: ignore[attr-defined]
-        assert kwargs["task_type"] == "reference_video"
-        assert kwargs["resource_id"] == "E1U1"
+@pytest.mark.integration
+def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: TestClient) -> None:
+    script = _script(ad_client)
+    script["video_units"][0].update({"text": "", "duration_seconds": 0, "needs_replan": True})
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    @pytest.mark.unit
-    def test_generate_unknown_unit_404(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U9/generate")
-        assert resp.status_code == 404
+    response = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate")
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["allowed"] is False
+    assert detail["unit_id"] == "E1U1"
+    assert detail["problems"][0]["code"] == "needs_replan"
+    assert detail["problems"][0]["locations"] == [{"path": ["needs_replan"], "line": None}]
+    ad_client.fake_queue.enqueue_task.assert_not_awaited()  # type: ignore[attr-defined]
 
-    @pytest.mark.unit
-    def test_generate_with_blank_shot_prompts_rejected(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        proj_dir: Path = ad_client.proj_dir  # type: ignore[attr-defined]
-        script = _read_script(ad_client)
-        for shot in script["shots"]:
-            shot["image_prompt"]["scene"] = ""
-            shot["video_prompt"]["action"] = ""
-            shot["video_prompt"]["camera_motion"] = ""
-            shot["video_prompt"]["ambiance_audio"] = ""
-        (proj_dir / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-        resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate")
+@pytest.mark.integration
+def test_non_planning_patch_keeps_replan_marker_until_content_is_repaired(ad_client: TestClient) -> None:
+    script = _script(ad_client)
+    script["video_units"][0]["needs_replan"] = True
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-        assert resp.status_code == 400
+    noted = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"note": "待复核"},
+    )
+    assert noted.status_code == 200, noted.text
+    assert noted.json()["unit"]["needs_replan"] is True
 
-    @pytest.mark.integration
-    def test_precheck_rounds_up_group_total(self, ad_client: TestClient, monkeypatch: pytest.MonkeyPatch):
-        """ad 与通用路径共用取档规则：分组成员镜头求和（3+2=5）非档位成员 → 按 8 秒申请，需确认。"""
-        from server.routers import reference_videos as router_mod
-        from server.services.reference_video_tasks import ProjectDurationContext
+    repaired = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"prompt": "@[按摩仪] 正面朝向镜头"},
+    )
+    assert repaired.status_code == 200, repaired.text
+    assert "needs_replan" not in repaired.json()["unit"]
 
-        ctx = ProjectDurationContext(supported_durations=(4, 8, 12), resolution=None, provider_id="", model_name=None)
-        monkeypatch.setattr(router_mod, "resolve_project_duration_context", AsyncMock(return_value=ctx))
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
 
-        body = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/duration-precheck").json()
+@pytest.mark.integration
+def test_duration_repair_clears_an_independent_migration_marker(ad_client: TestClient) -> None:
+    script = _script(ad_client)
+    # 旧聚合时长非法时迁移会夹到结构下限并标 replan，但不会留下内容归属 provenance。
+    script["video_units"][0].update({"duration_seconds": 1, "needs_replan": True})
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-        assert body["needs_confirmation"] is True
-        assert body["script_duration"] == 5
-        assert body["request_duration"] == 8
-        assert body["adjustment"] == "up"
+    repaired = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"duration_seconds": 1},
+    )
 
-    @pytest.mark.integration
-    def test_precheck_with_stale_index_409(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        proj_dir: Path = ad_client.proj_dir  # type: ignore[attr-defined]
-        script = _read_script(ad_client)
-        script["shots"] = [s for s in script["shots"] if s["shot_id"] != "E1S2"]
-        (proj_dir / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    assert repaired.status_code == 200, repaired.text
+    assert "needs_replan" not in repaired.json()["unit"]
 
-        resp = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/duration-precheck")
 
-        assert resp.status_code == 409
+@pytest.mark.integration
+def test_empty_migration_shell_can_repair_body_and_duration_atomically(ad_client: TestClient) -> None:
+    script = _script(ad_client)
+    script["video_units"][0].update({"text": "", "duration_seconds": 0, "needs_replan": True})
+    path: Path = ad_client.project_dir / "scripts/episode_1.json"  # type: ignore[attr-defined]
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    @pytest.mark.unit
-    def test_generate_with_stale_index_409(self, ad_client: TestClient):
-        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
-        proj_dir: Path = ad_client.proj_dir  # type: ignore[attr-defined]
-        script = _read_script(ad_client)
-        script["shots"] = [s for s in script["shots"] if s["shot_id"] != "E1S2"]
-        (proj_dir / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    repaired = ad_client.patch(
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1",
+        json={"prompt": "@[按摩仪] 正面朝向镜头", "duration_seconds": 6},
+    )
 
-        resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/generate")
+    assert repaired.status_code == 200, repaired.text
+    assert "needs_replan" not in repaired.json()["unit"]
 
-        assert resp.status_code == 409
+
+@pytest.mark.integration
+def test_precheck_uses_unit_orchestration_duration(ad_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.routers import reference_videos as router_mod
+    from tests.fakes import fake_reference_request_projector
+
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(4, 8, 12)),
+    )
+    body = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/duration-precheck").json()
+    assert body["needs_confirmation"] is True
+    assert body["script_duration"] == 5
+    assert body["duration_input"] == 5
+    assert body["request_duration"] == 8
+    assert body["adjustment"] == "up"
+    assert body["declared_capability"] == "r2v"
+    assert body["hydrated_capability"] == "r2v"
+    assert body["provider_id"] == "fake"
+    assert body["model_id"] == "fake-model"
+    assert [problem["code"] for problem in body["problems"]] == ["reference_duration_confirmation_required"]

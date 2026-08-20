@@ -2,7 +2,13 @@
 
 import pytest
 
-from lib.grid.prompt_builder import _compute_panel_aspect, _extract_action, _extract_image_desc, build_grid_prompt
+from lib.grid.prompt_builder import (
+    _compute_panel_aspect,
+    _extract_action,
+    _extract_image_desc,
+    build_grid_prompt,
+    project_grid_image_prompt,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -20,6 +26,19 @@ class TestExtractImageDesc:
         assert "a hero stands" in result
         assert "medium" in result
         assert "natural" in result
+
+    def test_composition_key_order_is_a_semantic_noop(self):
+        first = self._scene_dict("a hero stands", {"shot_type": "medium", "lighting": "natural"})
+        reordered = self._scene_dict("a hero stands", {"lighting": "natural", "shot_type": "medium"})
+
+        assert _extract_image_desc(reordered) == _extract_image_desc(first)
+
+    @pytest.mark.parametrize(("raw_value", "expected"), [(0, "0"), (False, "False")])
+    def test_composition_preserves_falsy_scalar_values(self, raw_value, expected):
+        assert project_grid_image_prompt({"scene": "a hero stands", "composition": {"value": raw_value}}) == {
+            "scene": "a hero stands",
+            "composition": {"value": expected},
+        }
 
     def test_string_prompt_returns_as_is(self):
         scene = {"scene_id": "S1", "image_prompt": "plain text prompt"}
@@ -192,6 +211,12 @@ class TestBuildGridPrompt:
         for idx in range(total):
             assert f"格{idx}（row{idx // side + 1} col{idx % side + 1}）" in prompt
         assert prompt.count("空占位") == total - n_scenes
+
+    def test_more_scenes_than_cells_fails_loud(self):
+        # 超员场景在成图中没有对应画格，调用方应先按 max_cell_count 切块
+        scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 13)]
+        with pytest.raises(ValueError, match="切块"):
+            build_grid_prompt(scenes=scenes, id_field="scene_id", rows=3, cols=3, style="realistic")
 
     def test_anti_structural_constraints(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]

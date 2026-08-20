@@ -20,6 +20,7 @@ _ERROR_STATUS: dict[str, int] = {
     "episode_not_found": 404,
     "quarantined": 409,
     "conflict": 409,
+    "speech_admission": 409,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
@@ -33,7 +34,9 @@ _ERROR_I18N: dict[str, str] = {
 def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> NoReturn:
     """把 ``ScriptReviewError`` 抛成对应的 ``HTTPException``；未登记的错误码落 400。"""
     status = _ERROR_STATUS.get(exc.code, 400)
-    if exc.code == "invalid_content":
+    if exc.code == "speech_admission" and exc.admission is not None:
+        detail = exc.admission.to_dict()
+    elif exc.code == "invalid_content":
         detail = _t("script_review_invalid_content", details=exc.message)
     elif exc.code == "episode_not_found":
         detail = _t("episode_not_found", episode=episode)

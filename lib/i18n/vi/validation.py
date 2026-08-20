@@ -8,10 +8,13 @@ MESSAGES = {
     "val_missing_field_at": "{prefix}: thiếu trường bắt buộc {field}",
     "val_field_type_string": "Sai kiểu trường: {field} phải là chuỗi",
     "val_field_type_bool": "Sai kiểu trường: {field} phải là boolean",
+    "val_field_type_number": "Sai kiểu trường: {field} phải là số",
+    "val_speech_rate_out_of_range": "Giá trị {value} của {field} nằm ngoài phạm vi; phải từ {min} đến {max}",
     "val_field_must_be_string": "{field} phải là chuỗi",
     "val_field_must_be_string_typed": "{field} phải là chuỗi, hiện là {actual}",
     "val_field_must_be_array": "{field} phải là mảng",
     "val_field_must_be_nonempty_array": "{field} phải là mảng không rỗng",
+    "val_field_must_be_nonempty_string": "{field} phải là chuỗi không rỗng",
     "val_field_must_be_object": "{field} phải là đối tượng",
     "val_field_invalid": "{field} không hợp lệ: {detail}",
     "val_ledger_source_file_not_relative": "source_file phải là đường dẫn POSIX tương đối trong dự án",
@@ -54,7 +57,7 @@ MESSAGES = {
         "Dự án quảng cáo/phim ngắn không có default_duration "
         "(thời lượng từng cảnh quay được hoạch định theo ngân sách target_duration)"
     ),
-    "val_ad_no_grid_storyboard": "Dự án quảng cáo/phim ngắn không hỗ trợ storyboard dạng lưới (grid_storyboard)",
+    "val_ad_no_grid_storyboard": "Dự án quảng cáo/phim ngắn không hỗ trợ phân cảnh đa lưới (grid_storyboard)",
     "val_ad_episodes_single": "Dự án quảng cáo/phim ngắn phải luôn có đúng một mục tập (tập 1)",
     "val_ad_shots_missing": "Kịch bản ad thiếu mảng shots hoặc mảng rỗng",
     "val_ad_duration_drift": (
@@ -70,6 +73,10 @@ MESSAGES = {
     "val_asset_field_bad_timestamp": ("{asset_type} '{name}'.{field} không phải dấu thời gian ISO8601 hợp lệ: {value}"),
     "val_asset_field_must_be_string_list": ("{asset_type} '{name}'.{field} phải là danh sách chuỗi, hiện là {actual}"),
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] phải là chuỗi, hiện là {actual}",
+    "val_asset_name_duplicate": (
+        "Trùng tên tài nguyên dự án: {duplicate_type} '{duplicate_name}' xung đột với "
+        "{first_type} '{first_name}' sau khi strip + chuẩn hóa Unicode NFC"
+    ),
     # ---- tham chiếu cấp mục ----
     "val_refs_unregistered": "{prefix}: {field} tham chiếu {asset_type} không có trong project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: thiếu {field}, sẽ dùng mảng rỗng mặc định",
@@ -104,18 +111,6 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
-    "val_reference_entry_must_be_object": "{prefix}: mỗi mục reference phải là đối tượng",
-    "val_reference_type_invalid": "{prefix}: reference.type không hợp lệ: {value}",
-    "val_reference_name_invalid": "{prefix}: reference.name phải là chuỗi không rỗng: {value}",
-    "val_reference_not_in_bucket": (
-        "{prefix}: {asset_type} '{name}' được tham chiếu không nằm trong nhóm tương ứng của project.json"
-    ),
-    "val_ref_type_invalid": "{prefix}: type không hợp lệ: {value}",
-    "val_ref_name_invalid": "{prefix}: name phải là chuỗi không rỗng: {value}",
-    "val_ref_unregistered_regroup": ("{prefix}: {asset_type} “{name}” được tham chiếu chưa đăng ký; cần tạo lại nhóm"),
-    "val_reference_units_dangling_shots": (
-        "{prefix}: các cảnh quay được tham chiếu không tồn tại ({ids}); cần tạo lại nhóm"
-    ),
     # ---- khung xương và tuyến sinh video ----
     "val_skeleton_noun_segments": "phân cảnh",
     "val_skeleton_noun_scenes": "cảnh",
@@ -124,25 +119,25 @@ MESSAGES = {
     "val_route_reference_video": "sinh video từ ảnh tham chiếu (reference_video)",
     "val_route_storyboard": "sinh video từ storyboard (storyboard)",
     "val_skeleton_mismatch_reference_known": (
-        "Khung xương kịch bản không khớp tuyến sinh video của dự án: tuyến là {route}, yêu cầu khung "
+        "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản hiện dùng {actual} ({actual_noun}). "
         "Hãy chạy lại split-reference-video-units để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
     ),
     "val_skeleton_mismatch_reference_none": (
-        "Khung xương kịch bản không khớp tuyến sinh video của dự án: tuyến là {route}, yêu cầu khung "
+        "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản không có mảng khung xương nào. "
         "Hãy chạy lại split-reference-video-units để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
     ),
     "val_skeleton_mismatch_storyboard_known": (
-        "Khung xương kịch bản không khớp tuyến sinh video của dự án: tuyến là {route}, yêu cầu khung "
+        "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản hiện dùng {actual} ({actual_noun}). "
         "Hãy chạy lại bước tách tập (step1) để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
     ),
     "val_skeleton_mismatch_storyboard_none": (
-        "Khung xương kịch bản không khớp tuyến sinh video của dự án: tuyến là {route}, yêu cầu khung "
+        "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản không có mảng khung xương nào. "
         "Hãy chạy lại bước tách tập (step1) để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
@@ -175,8 +170,9 @@ MESSAGES = {
     "arch_missing_asset_definition": (
         "{items_key}[{index}]: {field} tham chiếu {asset_type} không có trong project.json: {names}"
     ),
-    "arch_unit_missing_asset_definition": (
-        "video_units[{index}]: references tham chiếu {asset_type} không có trong project.json: {names}"
+    "arch_unit_unresolved_mentions": (
+        "video_units[{index}]: nội dung tham chiếu tên tài sản không có trong project.json: {names}; "
+        "chúng sẽ không tạo ảnh tham chiếu"
     ),
     "arch_generated_assets_defaults": "{label}[{index}].generated_assets: đã bổ sung các trường mặc định {fields}",
     "arch_missing_generated_assets": "{label}[{index}]: đã bổ sung trường còn thiếu generated_assets",
@@ -191,6 +187,7 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "Chính sách xử lý xung đột không hợp lệ",
     "arch_conflict_policy_unsupported": "conflict_policy chỉ hỗ trợ prompt, rename hoặc overwrite; nhận được: {value}",
     "arch_import_validation_failed": "Kiểm tra gói nhập thất bại",
+    "arch_artifact_activation_failed": "Trạng thái sản phẩm của dự án nhập không nhất quán",
     "arch_not_a_zip": "Tệp tải lên không phải gói ZIP hợp lệ",
     "arch_zip_encrypted_entry": "ZIP chứa mục đã mã hóa nên không thể nhập: {name}",
     "arch_zip_absolute_path_entry": "ZIP chứa mục có đường dẫn tuyệt đối: {name}",

@@ -62,6 +62,7 @@ function grid(scriptFile: string, cellPath: string): GridGeneration {
     grid_size: "grid_4",
     created_at: "2026-01-01T00:00:00Z",
     error_message: null,
+    split_at: "2026-01-01T00:10:00Z",
   };
 }
 
@@ -102,10 +103,10 @@ afterEach(() => {
 });
 
 describe("EndFramePicker 项目内通道", () => {
-  it("按来源分组：本集分镜图 / 本集宫格切图", async () => {
+  it("按来源分组：本集分镜图 / 本集分镜切图", async () => {
     const { findByText, getByText, queryByRole, queryByText } = renderPicker();
 
-    await findByText("本集宫格切图");
+    await findByText("本集分镜切图");
     expect(getByText("本集分镜图")).toBeInTheDocument();
 
     // 无分镜图的镜头不出现
@@ -182,7 +183,7 @@ describe("EndFramePicker 上传通道", () => {
 
     await findByText("本集分镜图");
     await waitFor(() => {
-      expect(queryByText("本集宫格切图")).toBeNull();
+      expect(queryByText("本集分镜切图")).toBeNull();
     });
   });
 });

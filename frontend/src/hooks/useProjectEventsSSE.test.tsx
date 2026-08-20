@@ -75,7 +75,6 @@ describe("useProjectEventsSSE", () => {
           episode: 1,
           title: "第一集",
           content_mode: "narration",
-          duration_seconds: 4,
           novel: { title: "", chapter: "" },
           segments: [],
         },
@@ -107,7 +106,10 @@ describe("useProjectEventsSSE", () => {
               entity_type: "character",
               action: "created",
               entity_id: "hero",
-              label: "角色「hero」",
+              // label 是后端默认语言兜底；通知文案应由 label_key 按界面语言渲染而来。
+              label: "backend fallback",
+              label_key: "named_entity_character",
+              label_params: { id: "hero" },
               focus: {
                 pane: "characters",
                 anchor_type: "character",
@@ -306,8 +308,8 @@ describe("useProjectEventsSSE", () => {
       action: "grid_ready" as const,
       entityType: "grid" as const,
       entityId: "G01",
-      label: "宫格「G01」",
-      expectedText: "宫格「G01」已生成",
+      label: "多宫格分镜「G01」",
+      expectedText: "多宫格分镜「G01」已生成",
     },
     {
       action: "reference_video_ready" as const,
@@ -1010,6 +1012,49 @@ describe("useProjectEventsSSE", () => {
 
       renderHarness("/");
       emit(options(), [taskChange({ task_type: "reference_video" })]);
+
+      expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+    });
+
+    it.each(["created" as const, "updated" as const, "deleted" as const])(
+      "reference_unit:%s 让独立分组缓存失效",
+      async (action) => {
+        const options = openStream();
+
+        renderHarness("/");
+        emit(options(), [
+          {
+            entity_type: "reference_unit",
+            action,
+            entity_id: "E1U1",
+            label: "视频单元「E1U1」",
+            episode: 1,
+            focus: null,
+            important: false,
+          },
+        ]);
+
+        expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+      },
+    );
+
+    it("同批 unit 变更与生成成功只让分组缓存失效一次", async () => {
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+
+      renderHarness("/");
+      emit(options(), [
+        {
+          entity_type: "reference_unit",
+          action: "updated",
+          entity_id: "E1U1",
+          label: "视频单元「E1U1」",
+          episode: 1,
+          focus: null,
+          important: false,
+        },
+        taskChange({ task_type: "reference_video" }),
+      ]);
 
       expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
     });

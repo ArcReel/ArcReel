@@ -6,7 +6,7 @@ import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
-import { getScriptItemId } from "@/utils/script-shape";
+import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -19,6 +19,7 @@ import type {
   DramaScene,
   AdShot,
   ProjectData,
+  ReferenceGenerationRequestOptions,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
@@ -40,7 +41,11 @@ interface TimelineCanvasProps {
   /** ad 模式镜头顺序调整（向前/向后移动一位），resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
-  onGenerateVideo?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateVideo?: (
+    segmentId: string,
+    scriptFile?: string,
+    requestOptions?: ReferenceGenerationRequestOptions,
+  ) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   durationOptions?: number[];
@@ -184,9 +189,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     );
   }
 
-  const totalDuration =
-    episodeScript?.duration_seconds ??
-    segments.reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
+  const totalDuration = sumItemDuration(segments);
 
   const currentEpisodeMeta = projectData?.episodes?.find((e) => e.episode === episode);
   const epMeta =
@@ -195,7 +198,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       episode,
       title: episodeTitle ?? episodeScript?.title ?? "",
       script_file: scriptFile ?? "",
-      scenes_count: segments.length,
+      item_count: segments.length,
       duration_seconds: totalDuration,
       status: hasScript ? "in_production" : "draft",
     } as const);
@@ -213,7 +216,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     ? (segId: string) => onGenerateStoryboard(segId, scriptFile)
     : undefined;
   const handleGenVid = onGenerateVideo
-    ? (segId: string) => onGenerateVideo(segId, scriptFile)
+    ? (segId: string, requestOptions?: ReferenceGenerationRequestOptions) =>
+        onGenerateVideo(segId, scriptFile, requestOptions)
     : undefined;
   const handleGenNarration = onGenerateNarration
     ? (segId: string) => onGenerateNarration(segId, scriptFile)

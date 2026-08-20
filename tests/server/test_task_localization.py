@@ -47,7 +47,7 @@ class TestWarningRendering:
         zh = _localize_task(task, _translator("zh"))["result"]["warnings"]
         en = _localize_task(task, _translator("en"))["result"]["warnings"]
 
-        assert zh == ["剧本编排 7s 不在 sora 的时长档位内，已按 8s 生成，成片长于剧本编排"]
+        assert zh == ["脚本编排 7s 不在 sora 的时长档位内，已按 8s 生成，成片长于脚本编排"]
         assert en != zh
         assert "sora" in en[0]
 
@@ -83,10 +83,9 @@ class TestWarningRendering:
         en = _localize_task(task, _translator("en"))["result"]["warnings"][0]
         vi = _localize_task(task, _translator("vi"))["result"]["warnings"][0]
 
-        assert "产品" in zh and "product" not in zh
-        # en 显示名与内部标识同形，只能断言整句渲染结果，不能靠 "product" 是否出现区分
-        assert en == translate_message("ref_ad_reference_skipped", locale="en", name="小美", type="product")
-        assert "sản phẩm" in vi
+        assert "商品" in zh and "merchandise" not in zh
+        assert "merchandise" in en and "product" not in en
+        assert "hàng hóa" in vi
 
     @pytest.mark.parametrize("asset_type", sorted(ASSET_SPECS))
     @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
@@ -134,10 +133,37 @@ class TestWarningRendering:
         localized = _localize_task(task, _translator("zh"))
 
         assert not localized["error_message"].startswith("[")
+        assert localized["error_code"] == "provider_unsupported_media"
+        assert localized["error_params"] == {"provider_id": "grok", "media_type": "image"}
         assert localized["result"]["warnings"] == ["Sora 参考模式暂不支持多图，已降级为单图"]
+
+    def test_projection_failure_keeps_machine_details_while_message_tracks_locale(self):
+        task = _task(
+            status="failed",
+            error_message=encode_failure(
+                "reference_supported_durations_invalid",
+                provider="fake",
+                model="bad-model",
+            ),
+        )
+
+        localized = {locale: _localize_task(task, _translator(locale)) for locale in ("zh", "en", "vi")}
+
+        for result in localized.values():
+            assert result["error_code"] == "reference_supported_durations_invalid"
+            assert result["error_params"] == {"provider": "fake", "model": "bad-model"}
+        assert len({result["error_message"] for result in localized.values()}) == 3
 
 
 class TestWarningPassthroughAndTolerance:
+    def test_execution_checkpoint_is_removed_without_mutating_internal_task(self):
+        task = _task(execution_checkpoint_json='{"provider_id":"secret"}')
+
+        localized = _localize_task(task, _translator("zh"))
+
+        assert "execution_checkpoint_json" not in localized
+        assert task["execution_checkpoint_json"] == '{"provider_id":"secret"}'
+
     def test_task_without_result_is_returned_unchanged(self):
         task = _task()
 

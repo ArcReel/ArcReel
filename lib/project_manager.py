@@ -15,8 +15,8 @@ import secrets
 import shutil
 import time
 import unicodedata
-from collections.abc import Callable, Mapping
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -26,16 +26,39 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
+from lib.artifact_manifest import ArtifactBasisDescriptor
+from lib.asset_rename import (
+    AssetRenameConflictError,
+    AssetRenameNotFoundError,
+    AssetRenameReport,
+    plan_asset_file_renames,
+    rewrite_entry_paths,
+    rewrite_payload_references,
+)
 from lib.asset_types import (
     ASSET_SPECS,
+    ProjectAssetNameConflictError,
+    asset_name_comparison_key,
+    ensure_project_asset_name_available,
+    ensure_project_asset_namespace,
+    find_project_asset_name,
     normalize_asset_bucket,
     normalize_asset_name,
+    rekey_equivalent_entries,
     resolve_asset_key,
     validate_asset_name,
 )
+from lib.audio_utils import discard_stale_reference_audio, resolve_audio_ref_path, resolve_stale_reference_audio
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
-from lib.episode_paths import episode_script_relpath
-from lib.json_io import atomic_write_json, load_json, load_json_or_none
+from lib.episode_paths import (
+    REFERENCE_VIDEO_STEP1_FILENAME,
+    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+    STEP1_FILENAMES,
+    episode_script_relpath,
+)
+from lib.formal_write import formal_write_transaction, project_metadata_lock
+from lib.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import (
     VALID_CONTENT_MODES,
@@ -43,16 +66,19 @@ from lib.profile_manifest import (
     ProfileEmptyError,
     ProfileMisconfiguredError,
     ProfileMissingError,
+    get_profile_status,
     sync_profile_to_project,
 )
 from lib.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
 from lib.project_change_hints import emit_project_change_hint
+from lib.project_schema import parse_project_schema_version
 from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
-from lib.script_models import get_generated_assets, script_duration_total
+from lib.script_models import get_generated_assets
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
+from lib.validation_messages import ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +93,7 @@ _DEFAULT_GENERATION_MODE = "storyboard"
 
 # 源文件性质（source_kind）：与 content_mode / generation_mode 正交的第三轴，project.json
 # 顶层字段，创建时确定、之后不可变。novel（默认，现状改编链路）/ screenplay（成品剧本，
-# drama 链路翻为提取优先）。详见 docs/adr/0036 与 CONTEXT.md「剧本源」词条。
+# drama 链路翻为提取优先）。详见 docs/adr/0036 与 CONTEXT.md「源文件类型」词条。
 SourceKind = Literal["novel", "screenplay"]
 VALID_SOURCE_KINDS: frozenset[str] = frozenset({"novel", "screenplay"})
 DEFAULT_SOURCE_KIND: SourceKind = "novel"
@@ -89,7 +115,7 @@ def grid_storyboard_enabled(project: dict[str, Any]) -> bool:
     return project.get("generation_mode") == "storyboard" and bool(project.get("grid_storyboard"))
 
 
-def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any] | None:
+def find_episode(project: Mapping[str, Any], episode: int | None) -> dict[str, Any] | None:
     """返回 project.json ``episodes[]`` 中 ``episode == N`` 的条目，缺失则 None。
 
     ``episode`` 为 None（集号未知）时不匹配任何条目。
@@ -99,6 +125,33 @@ def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any]
     for ep in project.get("episodes") or []:
         if isinstance(ep, dict) and ep.get("episode") == episode:
             return ep
+    return None
+
+
+def resolve_episode_script_binding(
+    project: Mapping[str, Any],
+    episode: int,
+    expected_script_file: str,
+    *,
+    require_indexed: bool = False,
+) -> str | None:
+    """Return the live binding when it still denotes the expected episode script.
+
+    Legacy projects without an ``episodes`` index use the submitted script as
+    their binding unless ``require_indexed`` is true. Indexed projects must
+    retain a matching normalized binding; a missing episode or a concurrent
+    rebind returns ``None``.
+    """
+
+    entry = find_episode(project, episode)
+    current_binding = entry.get("script_file") if isinstance(entry, dict) else None
+    if current_binding is None and not require_indexed and not (project.get("episodes") or []):
+        return expected_script_file
+    if isinstance(current_binding, str) and (
+        ProjectManager.normalize_script_filename(current_binding)
+        == ProjectManager.normalize_script_filename(expected_script_file)
+    ):
+        return current_binding
     return None
 
 
@@ -166,6 +219,39 @@ class ProjectOverview(BaseModel):
     language: Literal["zh", "en", "vi"] = Field(description="小说源语言代码")
 
 
+def _rename_agnostic_errors(
+    result: ValidationResult, old_name: str, new_name: str
+) -> dict[tuple[str, tuple[tuple[str, str], ...]], str]:
+    """把校验错误压成与「被改名的那个身份」无关的指纹，映射到可读文本。
+
+    资产改名的「不更坏」判据是比对改写前后的错误集合，而不少校验消息会点名是哪个资产
+    （缺 description、路径字段非法等），参数位上因此带着资产名。按渲染文本直接做集合差，
+    会把一条原就存在的历史遗留错误当成改写后新增的——名字变了，文本就变了——从而拒绝
+    一次本不更坏的改名。指纹按结构化消息（key + params）构造，并把参数里的新名折回旧名。
+
+    折叠只认两种确定形态：参数值整体就是新名，以及 ``characters[新名].xxx`` 这类字段路径里
+    的方括号段。不做任意子串替换——新名若恰是某段无关文本的子串，泛化替换会把一条真正新增
+    的错误折到已有指纹上、被静默吞掉。收窄后若漏认某种嵌名形态，失败方向是保守的：历史遗留
+    错误被当作新增，改名被拒而非被放行。
+    """
+
+    def fold(value: str) -> str:
+        if normalize_asset_name(value) == normalized_new:
+            return old_name
+        return value.replace(f"[{new_name}]", f"[{old_name}]")
+
+    normalized_new = normalize_asset_name(new_name)
+    folded: dict[tuple[str, tuple[tuple[str, str], ...]], str] = {}
+    for message in result.error_messages:
+        params = tuple(
+            sorted(
+                (name, fold(value) if isinstance(value, str) else repr(value)) for name, value in message.params.items()
+            )
+        )
+        folded[(message.key, params)] = message.render()
+    return folded
+
+
 class ProjectManager:
     """视频项目管理器"""
 
@@ -180,6 +266,9 @@ class ProjectManager:
         "products",
         "storyboards",
         "videos",
+        "audio",
+        "subtitles",
+        "presentations",
         "thumbnails",
         "output",
         "grids",
@@ -305,7 +394,7 @@ class ProjectManager:
     _DELETE_RETRYABLE_ERRNOS = (errno.ENOTEMPTY, errno.EACCES)
 
     def delete_project_directory(self, name: str) -> None:
-        """删除项目目录，容忍并发扫描与本次删除竞态产生的临时性错误。"""
+        """删除项目目录，容忍并发扫描与删除操作竞态产生的临时性错误。"""
         project_dir = self.get_project_path(name)
         attempts = 5
         for attempt in range(attempts):
@@ -364,6 +453,11 @@ class ProjectManager:
             content_mode = self._resolve_content_mode(project_dir)
         profile_dir = agent_profile_dir()
         return _force_resync_profile(profile_dir, project_dir, content_mode, paths=paths)
+
+    def get_agent_profile_status(self, project_dir: Path) -> dict[str, object]:
+        """Describe project-local Agent Profile customizations for settings UI."""
+        content_mode = self._resolve_content_mode(project_dir)
+        return get_profile_status(agent_profile_dir(), project_dir, content_mode)
 
     def _resolve_content_mode(self, project_dir: Path) -> ContentMode:
         """从 project_dir/project.json 读 content_mode；缺失回退 narration。
@@ -558,8 +652,6 @@ class ProjectManager:
             "metadata": {
                 "created_at": datetime.now(UTC).isoformat(),
                 "updated_at": datetime.now(UTC).isoformat(),
-                "total_scenes": 0,
-                "estimated_duration_seconds": 0,
                 "status": "draft",
             },
         }
@@ -567,7 +659,13 @@ class ProjectManager:
         return script
 
     def save_script(
-        self, project_name: str, script: dict, filename: str | None = None, *, validate: bool = True
+        self,
+        project_name: str,
+        script: dict,
+        filename: str | None = None,
+        *,
+        validate: bool = True,
+        artifact_basis: ArtifactBasisDescriptor | None = None,
     ) -> Path:
         """
         保存分镜剧本
@@ -578,6 +676,7 @@ class ProjectManager:
             filename: 可选的文件名，默认使用章节名
             validate: 是否做「不更坏」结构校验（默认 True，fail-safe）。直连保存不持有
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
+            artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
 
         Returns:
             保存的文件路径
@@ -589,8 +688,143 @@ class ProjectManager:
             chapter = script["novel"].get("chapter", "chapter_01")
             filename = f"{chapter.replace(' ', '_')}_script.json"
 
+        episode = script.get("episode")
+
         with self._script_lock(project_name, filename):
-            return self._write_script_unlocked(project_name, script, filename, validate=validate)
+            prepare_on_commit: Callable[[], Callable[[Path], None] | None] | None = None
+            before_script: dict | None | _Unset = _UNSET
+            if type(episode) is int and episode > 0 and self.project_exists(project_name):
+                from lib.artifact_activation import prepare_episode_script_manifest_commit
+
+                project_path = self.get_project_path(project_name)
+                script_path = Path(self._safe_subpath(project_path / "scripts", filename))
+                before_script = self._load_script_or_none(script_path)
+                items, id_field, _kind = resolve_items(script)
+                resource_ids = tuple(
+                    resource_id
+                    for item in items
+                    if isinstance(item, Mapping)
+                    and isinstance((resource_id := item.get(id_field)), str)
+                    and resource_id
+                )
+                previous_resource_ids: tuple[str, ...] = ()
+                if before_script is not None:
+                    try:
+                        previous_items, previous_id_field, _previous_kind = resolve_items(before_script)
+                    except ScriptEditError:
+                        pass
+                    else:
+                        previous_resource_ids = tuple(
+                            resource_id
+                            for item in previous_items
+                            if isinstance(item, Mapping)
+                            and isinstance((resource_id := item.get(previous_id_field)), str)
+                            and resource_id
+                        )
+
+                def _prepare_manifest_commit() -> Callable[[Path], None] | None:
+                    manifest_commit = prepare_episode_script_manifest_commit(
+                        project_path,
+                        episode=episode,
+                        artifact_path=f"scripts/{filename}",
+                        resource_ids=resource_ids,
+                        removed_resource_ids=tuple(set(previous_resource_ids) - set(resource_ids)),
+                        basis=artifact_basis,
+                    )
+                    if manifest_commit is None:
+                        return None
+
+                    def _register_manifest(_script_path: Path) -> None:
+                        manifest_commit()
+
+                    return _register_manifest
+
+                prepare_on_commit = _prepare_manifest_commit
+
+            return self._commit_script_unlocked(
+                project_name,
+                script,
+                filename,
+                validate=validate,
+                before=before_script,
+                prepare_on_commit=prepare_on_commit,
+            )
+
+    def _commit_script_unlocked(
+        self,
+        project_name: str,
+        script: dict,
+        filename: str,
+        *,
+        validate: bool,
+        before: dict | None | _Unset = _UNSET,
+        on_commit: Callable[[Path], None] | None = None,
+        prepare_on_commit: Callable[[], Callable[[Path], None] | None] | None = None,
+    ) -> Path:
+        """Commit a script, its project index, and an optional sidecar hook together.
+
+        The caller holds the canonical script lock.  An episode index, or a
+        ``prepare_on_commit`` callback, also keeps the project lock through the
+        formal write and hook so rollback cannot overwrite a concurrent project
+        edit. The prepare callback runs only after that lock is held, so a
+        schema-dependent sidecar plan cannot race with project activation.
+        """
+
+        if on_commit is not None and prepare_on_commit is not None:
+            raise ValueError("on_commit and prepare_on_commit are mutually exclusive")
+
+        scripts_dir = self.get_project_path(project_name) / "scripts"
+        output_path = Path(self._safe_subpath(scripts_dir, filename))
+        project_file = self._get_project_file_path(project_name)
+        sync_project = project_file.is_file() and isinstance(script.get("episode"), int)
+        lock_project = project_file.is_file() and (sync_project or prepare_on_commit is not None)
+
+        if lock_project:
+            with self._project_lock(project_name):
+                prepared_on_commit = prepare_on_commit() if prepare_on_commit is not None else on_commit
+                transaction_paths = (output_path, project_file) if sync_project else (output_path,)
+                with formal_write_transaction(*transaction_paths):
+                    output = self._write_script_unlocked(
+                        project_name,
+                        script,
+                        filename,
+                        sync_project=False,
+                        validate=validate,
+                        before=before,
+                        emit_change=False,
+                    )
+                    if sync_project:
+                        project = self._read_project_raw_unlocked(project_name)
+                        if self._requires_unique_asset_namespace(project):
+                            ensure_project_asset_namespace(project)
+                        self._apply_episode_sync(project, script, filename)
+                        self._migrate_legacy_resolution_on_save(project)
+                        self._migrate_legacy_style(project)
+                        self._touch_metadata(project)
+                        if self._requires_unique_asset_namespace(project):
+                            ensure_project_asset_namespace(project)
+                        atomic_write_json(project_file, project)
+                    if prepared_on_commit is not None:
+                        prepared_on_commit(output)
+            changed_paths = [f"scripts/{output_path.name}", *([self.PROJECT_FILE] if sync_project else [])]
+        else:
+            prepared_on_commit = prepare_on_commit() if prepare_on_commit is not None else on_commit
+            with formal_write_transaction(output_path):
+                output = self._write_script_unlocked(
+                    project_name,
+                    script,
+                    filename,
+                    sync_project=False,
+                    validate=validate,
+                    before=before,
+                    emit_change=False,
+                )
+                if prepared_on_commit is not None:
+                    prepared_on_commit(output)
+            changed_paths = [f"scripts/{output_path.name}"]
+
+        emit_project_change_hint(project_name, changed_paths=changed_paths)
+        return output
 
     def _write_script_unlocked(
         self,
@@ -601,6 +835,7 @@ class ProjectManager:
         *,
         validate: bool = True,
         before: dict | None | _Unset = _UNSET,
+        emit_change: bool = True,
     ) -> Path:
         """剧本写盘主体：校验 + 更新元数据 + 原子写 + 同步 project.json。
 
@@ -613,7 +848,7 @@ class ProjectManager:
         再次获取 `_project_lock`，故已持有项目锁的调用方（见 `locked_episode_script`）须传 False
         以免同进程自死锁。仅写脚本内容、不改 episode 元数据的场景跳过同步无副作用。
 
-        `validate=True`（默认，fail-safe）时按「不更坏」语义做结构校验：仅当本次写入把一个
+        `validate=True`（默认，fail-safe）时按「不更坏」语义做结构校验：仅当待写数据把一个
         原本合法的剧本改成非法时才 `raise ScriptStructureValidationError`，改前就已非法的旧
         剧本照常放行。读-改-写流程（`locked_script` 一族）已持有改前剧本，应作 `before` 传入
         以零额外读盘；直连保存不传 `before`，由本函数按需读盘取改前（无改前则按严格校验）。
@@ -630,7 +865,7 @@ class ProjectManager:
 
         # 再做 filename/内部 episode 一致性校验，避免写盘后才在 sync 阶段抛错，
         # 造成"脚本文件已落盘、project.json 未同步"的部分提交。
-        self._require_filename_episode_consistency(script, filename)
+        self.require_filename_episode_consistency(script, filename)
 
         # 更新元数据（兼容旧脚本：可能缺少 metadata，或 narration 使用 segments）
         now = datetime.now(UTC).isoformat()
@@ -642,34 +877,6 @@ class ProjectManager:
         metadata.setdefault("status", "draft")
         metadata["updated_at"] = now
 
-        # 选当前剧本的分镜数组：与结构校验 `_select_model` / 编辑核心 `resolve_items` 共用同一
-        # 判别（含 reference 模式的 video_units——否则它会落入 segments 兜底分支、total_scenes 错算为 0）。
-        # `resolve_items` 对 segments/scenes/video_units 存在但非 list（含 null 这类历史脏数据）会
-        # fail-loud：`validate=True` 路径已被 `_guard_no_worse` 提前拦下（不会到这里）；只有
-        # `validate=False` 资产回写热路径才会撞上脏数据键，此时**保留旧 metadata 不重算**——
-        # 旧的 total_scenes / estimated_duration_seconds 即便陈旧，也好过把 reference 模式
-        # 改写成 0-scene narration shell（fallback hard-pin kind='segments' 那种）。资产回写本就
-        # 「整体豁免结构校验」，连带豁免 metadata 重算与「不更坏」语义一致：脏数据不更坏。
-        try:
-            items, _id_field, kind = resolve_items(script)
-        except ScriptEditError as e:
-            logger.warning(
-                "剧本 %s 数据损坏（%s），跳过 metadata 重算以保留旧值",
-                output_path.name,
-                e,
-            )
-        else:
-            # 损坏脚本可能混入非 dict 元素（如 ["foo", {...}]）——它们在读取路径
-            # （get_pending_scenes 等）与写入路径（batch_update 索引 / update_scene_asset 循环）
-            # 都被当作不存在过滤掉，metadata 重算一并排除：否则 total_scenes 会多计、
-            # estimated_duration_seconds 会被垃圾元素按 default 时长撑大，与各路径不一致。
-            scene_items = [item for item in items if isinstance(item, dict)]
-            metadata["total_scenes"] = len(scene_items)
-            # 总时长走 script_duration_total 单一真相源：脏值（None/bool/负数/字符串）按骨架
-            # 兜底时长归一、不抛（见 lib/script_models.py）。与 StatusCalculator 读时计算、
-            # ScriptGenerator 落盘估算共用同一兜底表与守卫，避免三处口径漂移。
-            metadata["estimated_duration_seconds"] = script_duration_total(kind, scene_items)
-
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
         atomic_write_json(output_path, script)
 
@@ -678,10 +885,11 @@ class ProjectManager:
         if sync_project and self.project_exists(project_name) and isinstance(script.get("episode"), int):
             self.sync_episode_from_script(project_name, filename)
 
-        emit_project_change_hint(
-            project_name,
-            changed_paths=[f"scripts/{output_path.name}"],
-        )
+        if emit_change:
+            emit_project_change_hint(
+                project_name,
+                changed_paths=[f"scripts/{output_path.name}"],
+            )
 
         return output_path
 
@@ -701,7 +909,15 @@ class ProjectManager:
         return "" if normalized == "." else normalized
 
     @contextmanager
-    def locked_script(self, project_name: str, script_filename: str, *, validate: bool = True):
+    def locked_script(
+        self,
+        project_name: str,
+        script_filename: str,
+        *,
+        validate: bool = True,
+        on_commit: Callable[[Path], None] | None = None,
+        prepare_on_commit: Callable[[dict], Callable[[Path], None] | None] | None = None,
+    ):
         """在单一 `_script_lock` 内完成剧本的 load → mutate → save 读-改-写。
 
         yield 出剧本字典供调用方就地修改；正常退出时写回，with 体内抛异常（如目标 scene/unit
@@ -710,6 +926,7 @@ class ProjectManager:
 
         `validate=True`（默认）时在 yield 前快照「改前」剧本，写回走「不更坏」结构校验（零额外
         读盘）。只动 `generated_assets` 的资产回写热路径传 `validate=False` 整体豁免。
+        ``prepare_on_commit`` 在项目锁内接收修改后的剧本，并返回正式写入后的同步 hook。
         """
         norm = self.normalize_script_filename(script_filename)
         with self._script_lock(project_name, norm):
@@ -717,7 +934,44 @@ class ProjectManager:
             script, _migrated = self._read_script_unlocked(project_name, norm)
             before = copy.deepcopy(script) if validate else None
             yield script
-            self._write_script_unlocked(project_name, script, norm, validate=validate, before=before)
+            self._commit_script_unlocked(
+                project_name,
+                script,
+                norm,
+                validate=validate,
+                before=before,
+                on_commit=on_commit,
+                prepare_on_commit=(lambda: prepare_on_commit(script)) if prepare_on_commit is not None else None,
+            )
+
+    @contextmanager
+    def locked_project_script_snapshot(self, project_name: str, script_filename: str):
+        """Yield a read-only project/script snapshot under the canonical write locks.
+
+        Artifact selection must compare execution-frozen inputs with one coherent
+        current snapshot, but a read-only comparison must not rewrite the script
+        or touch project metadata.  The lock order mirrors
+        :meth:`locked_episode_script` (script, then project), so callers can keep
+        the comparison and a guarded downstream commit serialized with both
+        source edit paths.
+        """
+
+        norm = self.normalize_script_filename(script_filename)
+        with self._script_lock(project_name, norm):
+            with self._project_lock(project_name):
+                project = self._read_project_raw_unlocked(project_name)
+                self._migrate_legacy_style(project)
+                script, _migrated = self._read_script_unlocked(project_name, norm)
+                yield project, script
+
+    @contextmanager
+    def locked_project_snapshot(self, project_name: str):
+        """Yield current project metadata under its canonical write lock."""
+
+        with self._project_lock(project_name):
+            project = self._read_project_raw_unlocked(project_name)
+            self._migrate_legacy_style(project)
+            yield project
 
     def _read_project_raw_unlocked(self, project_name: str) -> dict:
         """裸读 project.json（不取锁、不迁移）。仅供已持 `_project_lock` 的复核调用。"""
@@ -727,7 +981,12 @@ class ProjectManager:
 
     @contextmanager
     def locked_episode_script(
-        self, project_name: str, resolve_script_file: Callable[[dict], str], *, validate: bool = True
+        self,
+        project_name: str,
+        resolve_script_file: Callable[[dict], str],
+        *,
+        validate: bool = True,
+        on_commit: Callable[[Path], None] | None = None,
     ):
         """统一「脚本锁 → 项目锁」顺序下，解析 episode→script_file 并对剧本做读-改-写。
 
@@ -743,33 +1002,59 @@ class ProjectManager:
         与旧 `locked_script` → sync 路径行为一致（刷新 episodes 元数据与 `updated_at`）。
 
         若加锁前后绑定指向了不同脚本（并发改绑），抛 `EpisodeScriptReboundError` 让调用方重试。
+
+        ``on_commit`` 在脚本与 project 索引写入后、锁释放前执行，供同一领域提交追加 Artifact
+        Manifest 等最后一步。提交前逐字快照两份 JSON；脚本、project 或 hook 任一步失败都在同一
+        临界区原子恢复旧字节。hook 必须把自身写入设计为「成功后不再抛错」，否则它已经落下的
+        外部状态无法由本方法推断如何撤销。
         """
-        candidate = resolve_script_file(self.load_project(project_name))
+        # 候选解析只用于确定脚本锁身份，不得触发 load_project 的持久化迁移；命令若随后因
+        # revision / schema 等预检被拒，project.json 必须保持逐字不变。成功提交时，迁移会在
+        # 下方项目锁内与脚本、索引一起落盘并受同一份旧字节快照补偿。
+        candidate = resolve_script_file(self.load_project_readonly(project_name))
         norm = self.normalize_script_filename(candidate)
         with self._script_lock(project_name, norm):
             with self._project_lock(project_name):
                 project = self._read_project_raw_unlocked(project_name)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
                 current = resolve_script_file(project)
                 cur_norm = self.normalize_script_filename(current)
                 if cur_norm != norm:
                     raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
+                script_path = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
+                project_path = self._get_project_file_path(project_name)
                 script, _migrated = self._read_script_unlocked(project_name, norm)
                 before = copy.deepcopy(script) if validate else None
                 yield script
-                self._write_script_unlocked(
-                    project_name, script, norm, sync_project=False, validate=validate, before=before
+                with formal_write_transaction(script_path, project_path):
+                    self._write_script_unlocked(
+                        project_name,
+                        script,
+                        norm,
+                        sync_project=False,
+                        validate=validate,
+                        before=before,
+                        emit_change=False,
+                    )
+                    # 在已持项目锁内联同步 project.json（等价 update_project 写路径，但不二次取锁）
+                    if isinstance(script.get("episode"), int):
+                        self._apply_episode_sync(project, script, norm)
+                    self._migrate_legacy_resolution_on_save(project)
+                    self._migrate_legacy_style(project)
+                    self._touch_metadata(project)
+                    if self._requires_unique_asset_namespace(project):
+                        ensure_project_asset_namespace(project)
+                    atomic_write_json(project_path, project)
+                    if on_commit is not None:
+                        on_commit(script_path)
+                emit_project_change_hint(
+                    project_name,
+                    changed_paths=[f"scripts/{script_path.name}", self.PROJECT_FILE],
                 )
-                # 在已持项目锁内联同步 project.json（等价 update_project 写路径，但不二次取锁）
-                if isinstance(script.get("episode"), int):
-                    self._apply_episode_sync(project, script, norm)
-                self._migrate_legacy_resolution_on_save(project)
-                self._migrate_legacy_style(project)
-                self._touch_metadata(project)
-                atomic_write_json(self._get_project_file_path(project_name), project)
-                emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
 
     @staticmethod
-    def _require_filename_episode_consistency(script: dict, script_filename: str) -> None:
+    def require_filename_episode_consistency(script: dict, script_filename: str) -> None:
         """校验脚本内 `episode` 字段与文件名隐含的集号一致；不一致则 raise ValueError。
 
         filename 缺集号模式或脚本内无 `episode` int 时静默放行（兼容旧数据）。
@@ -796,7 +1081,7 @@ class ProjectManager:
 
     @staticmethod
     def _guard_no_worse(before: dict | None, after: dict) -> None:
-        """「不更坏」守卫：仅当本次写入引入新结构错误时拒绝。
+        """「不更坏」守卫：仅当待写数据引入新结构错误时拒绝。
 
         改后合法 → 放行；改后非法时：改前合法或无改前 → 拒绝（`raise`）；改前已非法 → 放行
         （不为历史遗留背锅）。校验器经函数内延迟 import，打破 project_manager → 校验器 →
@@ -855,7 +1140,7 @@ class ProjectManager:
         # 走 unlocked 变体：本方法被写盘统一入口在持有 `_script_lock` 时调用，
         # `load_script` 的迁移回写会二次取同一把锁而自死锁。
         script, _migrated = self._read_script_unlocked(project_name, script_filename)
-        return self.update_project(
+        return self.update_project_reconciling_episode_bindings(
             project_name, lambda project: self._apply_episode_sync(project, script, script_filename)
         )
 
@@ -867,7 +1152,7 @@ class ProjectManager:
         """
         base_name = self.normalize_script_filename(script_filename)
         # 防御纵深：SSE 扫描路径直接调用此函数（不经 save_script），同样需要校验
-        self._require_filename_episode_consistency(script, base_name)
+        self.require_filename_episode_consistency(script, base_name)
 
         script_episode = script.get("episode")
         if isinstance(script_episode, int):
@@ -884,7 +1169,7 @@ class ProjectManager:
         if episode_entry is None:
             episode_entry = {"episode": episode_num}
             episodes.append(episode_entry)
-        # 同步核心元数据（不包含统计字段，统计字段由 StatusCalculator 读时计算）
+        # 同步核心元数据（不包含统计字段，统计字段由项目摘要读时计算）
         episode_entry["title"] = episode_title
         episode_entry["script_file"] = script_file
         episodes.sort(key=lambda x: x["episode"])
@@ -917,6 +1202,12 @@ class ProjectManager:
             if migrated:
                 real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
                 atomic_write_json(real, script)
+        return script
+
+    def load_script_readonly(self, project_name: str, filename: str) -> dict:
+        """Load a script with in-memory compatibility migrations but never persist them."""
+        norm = self.normalize_script_filename(filename)
+        script, _migrated = self._read_script_unlocked(project_name, norm)
         return script
 
     def _read_script_unlocked(self, project_name: str, filename: str) -> tuple[dict, bool]:
@@ -1152,6 +1443,8 @@ class ProjectManager:
         scene_id: str,
         asset_type: str,
         asset_path: str,
+        *,
+        on_commit: Callable[[Path], None] | None = None,
     ) -> dict:
         """
         更新场景的生成资源路径
@@ -1173,41 +1466,130 @@ class ProjectManager:
         # `resolve_items` 三模式判别（narration/drama/reference_video）与 `_write_script_unlocked`
         # / 读取 helper 共用同一源——避免 `_script_items_shape` 那种 reference 模式落到 drama 兜底
         # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"场景不存在"的根因被掩盖路径。
-        with self.locked_script(project_name, script_filename, validate=False) as script:
-            content_mode = script.get("content_mode", "narration")
-            items, id_field, _kind = resolve_items(script)
-
-            for item in items:
-                # 损坏脚本的非 dict 元素跳过（镜像 script_editor._find_index 的 isinstance 守卫），
-                # 避免 item.get(id_field) 抛 AttributeError；未命中仍走下方 else 的 KeyError fail-loud。
-                if not isinstance(item, dict):
-                    continue
-                if str(item.get(id_field)) == str(scene_id):
-                    assets = item.get("generated_assets")
-                    if not isinstance(assets, dict):
-                        assets = {}
-                        item["generated_assets"] = assets
-
-                    assets_template = self.create_generated_assets(content_mode)
-                    for key, default_value in assets_template.items():
-                        if key not in assets:
-                            assets[key] = default_value
-
-                    assets[asset_type] = asset_path
-
-                    # 使用 update_scene_status 更新状态
-                    self.update_scene_status(item)
-                    break
-            else:
-                # 未命中：在锁内抛出，locked_script 跳过写回
-                raise KeyError(f"场景 '{scene_id}' 不存在")
+        with self.locked_script(
+            project_name,
+            script_filename,
+            validate=False,
+            on_commit=on_commit,
+        ) as script:
+            self._set_scene_asset_in_script(script, scene_id, asset_type, asset_path)
         return script
+
+    def _set_scene_asset_in_script(
+        self,
+        script: dict[str, Any],
+        scene_id: str,
+        asset_type: str,
+        asset_path: str,
+    ) -> dict[str, Any]:
+        """Mutate one loaded script; the caller owns its canonical script lock."""
+
+        content_mode = script.get("content_mode", "narration")
+        items, id_field, _kind = resolve_items(script)
+        for item in items:
+            # 损坏脚本的非 dict 元素跳过（镜像 script_editor._find_index 的 isinstance 守卫），
+            # 避免 item.get(id_field) 抛 AttributeError；未命中仍走下方 KeyError fail-loud。
+            if not isinstance(item, dict):
+                continue
+            if str(item.get(id_field)) != str(scene_id):
+                continue
+            assets = item.get("generated_assets")
+            if not isinstance(assets, dict):
+                assets = {}
+                item["generated_assets"] = assets
+            for key, default_value in self.create_generated_assets(content_mode).items():
+                if key not in assets:
+                    assets[key] = default_value
+            assets[asset_type] = asset_path
+            self.update_scene_status(item)
+            return item
+        raise KeyError(f"场景 '{scene_id}' 不存在")
+
+    def update_scene_asset_across_scripts(
+        self,
+        project_name: str,
+        script_filenames: Sequence[str],
+        scene_id: str,
+        asset_type: str,
+        asset_path: str,
+        *,
+        on_commit: Callable[[], None] | None = None,
+        on_miss: Callable[[], None] | None = None,
+    ) -> tuple[str, ...]:
+        """Update every matching script and a final sidecar under one lock set.
+
+        Restore operations can touch several episode scripts before registering
+        one Manifest identity.  Holding every canonical script lock plus the
+        project lock through rollback prevents a failed final registration from
+        restoring blanket snapshots over a concurrent script edit.
+        """
+
+        normalized = tuple(sorted({self.normalize_script_filename(name) for name in script_filenames}))
+        project_path = self.get_project_path(project_name)
+        scripts_dir = project_path / "scripts"
+        script_paths = [Path(self._safe_subpath(scripts_dir, name)) for name in normalized]
+        project_file = self._get_project_file_path(project_name)
+        changed: list[str] = []
+
+        with ExitStack() as locks:
+            for name in normalized:
+                locks.enter_context(self._script_lock(project_name, name))
+            locks.enter_context(self._project_lock(project_name))
+            with formal_write_transaction(*script_paths, project_file):
+                project = self._read_project_raw_unlocked(project_name)
+                for name in normalized:
+                    try:
+                        script, _migrated = self._read_script_unlocked(project_name, name)
+                        before = copy.deepcopy(script)
+                        self._set_scene_asset_in_script(script, scene_id, asset_type, asset_path)
+                    except KeyError:
+                        continue
+                    except ScriptEditError as exc:
+                        logger.warning("跨集同步元数据跳过脏脚本 %s: %s", name, exc)
+                        continue
+                    except OSError as exc:
+                        logger.warning("跨集同步元数据 sibling 集 %s IO 失败: %s", name, exc)
+                        continue
+                    self._write_script_unlocked(
+                        project_name,
+                        script,
+                        name,
+                        sync_project=False,
+                        validate=False,
+                        before=before,
+                        emit_change=False,
+                    )
+                    if isinstance(script.get("episode"), int):
+                        self._apply_episode_sync(project, script, name)
+                    changed.append(name)
+
+                if changed:
+                    self._migrate_legacy_resolution_on_save(project)
+                    self._migrate_legacy_style(project)
+                    self._touch_metadata(project)
+                    if self._requires_unique_asset_namespace(project):
+                        ensure_project_asset_namespace(project)
+                    atomic_write_json(project_file, project)
+                if changed and on_commit is not None:
+                    on_commit()
+                if not changed and on_miss is not None:
+                    on_miss()
+
+        if changed:
+            emit_project_change_hint(
+                project_name,
+                changed_paths=[*(f"scripts/{name}" for name in changed), self.PROJECT_FILE],
+            )
+        return tuple(changed)
 
     def batch_update_scene_assets(
         self,
         project_name: str,
         script_filename: str,
         updates: list[tuple[str, str, Any]],
+        *,
+        on_commit: Callable[[Path], None] | None = None,
+        prepare_on_commit: Callable[[dict], Callable[[Path], None] | None] | None = None,
     ) -> dict:
         """批量更新多个场景的生成资源路径（单次读写）。
 
@@ -1215,6 +1597,9 @@ class ProjectManager:
             project_name: 项目名称
             script_filename: 剧本文件名
             updates: 列表，每项为 (scene_id, asset_type, asset_path)
+            on_commit: 剧本与 project.json 写入后、正式事务退出前执行的同步 hook
+            prepare_on_commit: 项目锁内基于修改后剧本准备 ``on_commit`` 的回调；与
+                ``on_commit`` 互斥
 
         Returns:
             更新后的剧本
@@ -1228,7 +1613,13 @@ class ProjectManager:
         # 永远 pending。id 未命中收集一轮再统一抛，让 worker 看到完整失败集合而不是只看到首个；
         # locked_script 在 with 体内抛异常时整体不写回（与 update_scene_asset 单个版本对齐）。
         # resolve_items 让 reference 模式 worker 也能正确按 unit_id 索引 video_units。
-        with self.locked_script(project_name, script_filename, validate=False) as script:
+        with self.locked_script(
+            project_name,
+            script_filename,
+            validate=False,
+            on_commit=on_commit,
+            prepare_on_commit=prepare_on_commit,
+        ) as script:
             content_mode = script.get("content_mode", "narration")
             items, id_field, _kind = resolve_items(script)
 
@@ -1388,6 +1779,8 @@ class ProjectManager:
                 project = json.load(f)
             if self._migrate_legacy_style(project):
                 # 不走 save_project 以避免触发 _touch_metadata 污染 updated_at。
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
                 atomic_write_json(project_file, project)
                 migrated = True
         if migrated:
@@ -1395,6 +1788,16 @@ class ProjectManager:
                 project_name,
                 changed_paths=[self.PROJECT_FILE],
             )
+        return project
+
+    def load_project_readonly(self, project_name: str) -> dict:
+        """Load an in-memory migrated project snapshot without locking or persisting it."""
+        project_file = self._get_project_file_path(project_name)
+        if not project_file.exists():
+            raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
+        with open(project_file, encoding="utf-8") as f:  # noqa: PTH123
+            project = json.load(f)
+        self._migrate_legacy_style(project)
         return project
 
     @contextmanager
@@ -1405,10 +1808,22 @@ class ProjectManager:
         更换 inode 后锁失效的问题。
         """
         project_file = self._get_project_file_path(project_name)
-        lock_path = project_file.parent / f".{project_file.name}.lock"
-        lock_path.touch(exist_ok=True)
-        with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+        with project_metadata_lock(project_file.parent):
             yield
+
+    @contextmanager
+    def locked_source_mutation(self, project_name: str) -> Iterator[Path]:
+        """Serialize source-file mutations with project transactions.
+
+        Workflow facts such as asset-inventory completion compute source revisions while
+        holding the project lock. Source writers must use this context so a revision check
+        and its matching project.json commit observe one immutable source snapshot.
+        """
+        project_path = self.get_project_path(project_name)
+        with self._project_lock(project_name):
+            source_dir = project_path / "source"
+            source_dir.mkdir(parents=True, exist_ok=True)
+            yield source_dir
 
     @contextmanager
     def file_lock(self, path: Path):
@@ -1458,6 +1873,8 @@ class ProjectManager:
         self._touch_metadata(project)
 
         with self._project_lock(project_name):
+            if self._requires_unique_asset_namespace(project):
+                ensure_project_asset_namespace(project)
             atomic_write_json(project_file, project)
 
         emit_project_change_hint(
@@ -1471,6 +1888,8 @@ class ProjectManager:
         self,
         project_name: str,
         mutate_fn: Callable[[dict], None],
+        *,
+        on_commit: Callable[[Path], None] | None = None,
     ) -> dict:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
@@ -1487,20 +1906,263 @@ class ProjectManager:
         """
         project_file = self._get_project_file_path(project_name)
 
-        with self._project_lock(project_name):
+        with self._project_lock(project_name), ExitStack() as transaction:
+            if on_commit is not None:
+                transaction.enter_context(formal_write_transaction(project_file))
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
-            mutate_fn(project)
-            self._migrate_legacy_resolution_on_save(project)
-            self._migrate_legacy_style(project)
-            self._touch_metadata(project)
+            self._apply_project_mutation_unlocked(project, mutate_fn)
             atomic_write_json(project_file, project)
+            if on_commit is not None:
+                on_commit(project_file)
 
         emit_project_change_hint(
             project_name,
             changed_paths=[self.PROJECT_FILE],
         )
 
+        return project
+
+    def update_asset_entry(
+        self,
+        asset_type: str,
+        project_name: str,
+        name: str,
+        mutate_fn: Callable[[dict], None],
+    ) -> dict:
+        """Update one asset and reconcile a moved formal sheet claim.
+
+        Every asset router shares this project-lock/formal-write boundary.  A
+        metadata-only input change keeps the current sheet claim so currency
+        comparison can report it stale; clearing or replacing the canonical
+        sheet path removes the old claim in the same durable commit.
+        """
+
+        from lib.artifact_activation import reconcile_artifact_target_claims
+        from lib.artifact_manifest import ArtifactKey
+
+        spec = ASSET_SPECS[asset_type]
+        project_dir = self.get_project_path(project_name)
+        canonical_name: str | None = None
+        sheet_path_changed = False
+        result: dict[str, Any] = {}
+
+        def _mutate(project: dict) -> None:
+            nonlocal canonical_name, sheet_path_changed
+            bucket = project.get(spec.bucket_key)
+            key = resolve_asset_key(bucket, name)
+            if not isinstance(bucket, dict) or key is None:
+                raise KeyError(name)
+            entry = bucket[key]
+            if not isinstance(entry, dict):
+                raise ValueError(f"project asset {spec.bucket_key}/{key} must be an object")
+            previous_sheet_path = entry.get(spec.sheet_field)
+            mutate_fn(entry)
+            canonical_name = key
+            sheet_path_changed = entry.get(spec.sheet_field) != previous_sheet_path
+            result.update(entry)
+
+        def _reconcile_claim(_project_file: Path) -> None:
+            if not sheet_path_changed:
+                return
+            if canonical_name is None:  # pragma: no cover - mutation contract
+                raise RuntimeError("asset update did not resolve a canonical identity")
+            reconcile_artifact_target_claims(
+                project_dir,
+                (ArtifactKey.asset_sheet(asset_type, canonical_name),),
+            )
+
+        self.update_project(project_name, _mutate, on_commit=_reconcile_claim)
+        return result
+
+    def update_project_reconciling_episode_bindings(
+        self,
+        project_name: str,
+        mutate_fn: Callable[[dict], None],
+    ) -> dict:
+        """Update project metadata and forget claims unowned after rebinding.
+
+        The selected script is the ownership boundary for every episode-scoped
+        formal artifact.  When a mutation changes that binding, reconcile all
+        existing claims for the affected episode through the canonical target
+        resolver and one Manifest compare-and-swap.
+        """
+
+        from lib.artifact_activation import reconcile_artifact_target_claims
+        from lib.artifact_manifest import ProjectArtifactManifestAdapter
+
+        project_dir = self.get_project_path(project_name)
+        changed_episodes: set[int] = set()
+
+        def _bindings(project: Mapping[str, Any]) -> dict[int, str | None]:
+            raw_episodes = project.get("episodes")
+            if not isinstance(raw_episodes, list):
+                return {}
+            bindings: dict[int, str | None] = {}
+            for raw_episode in raw_episodes:
+                if not isinstance(raw_episode, Mapping):
+                    continue
+                episode = raw_episode.get("episode")
+                if type(episode) is not int or episode < 1:
+                    continue
+                script_file = raw_episode.get("script_file")
+                bindings[episode] = (
+                    self.normalize_script_filename(script_file)
+                    if isinstance(script_file, str) and script_file
+                    else None
+                )
+            return bindings
+
+        def _mutate(project: dict) -> None:
+            before = _bindings(project)
+            mutate_fn(project)
+            after = _bindings(project)
+            changed_episodes.update(
+                episode for episode in before.keys() | after.keys() if before.get(episode) != after.get(episode)
+            )
+
+        def _reconcile_claims(_project_file: Path) -> None:
+            if not changed_episodes:
+                return
+            adapter = ProjectArtifactManifestAdapter(project_dir)
+            claimed_keys = tuple(key for key in adapter.snapshot_entries() if key.episode_number in changed_episodes)
+            reconcile_artifact_target_claims(project_dir, claimed_keys, adapter=adapter)
+
+        return self.update_project(project_name, _mutate, on_commit=_reconcile_claims)
+
+    def _apply_project_mutation_unlocked(self, project: dict, mutate_fn: Callable[[dict], None]) -> None:
+        """Apply one mutation plus the canonical save-time normalizations.
+
+        The caller owns the project lock and is responsible for the durable
+        write. Keeping this sequence shared lets compound file transactions
+        make their final existence decision and project mutation under one
+        lock without re-entering :meth:`update_project`.
+        """
+
+        if self._requires_unique_asset_namespace(project):
+            ensure_project_asset_namespace(project)
+        mutate_fn(project)
+        if self._requires_unique_asset_namespace(project):
+            ensure_project_asset_namespace(project)
+        self._migrate_legacy_resolution_on_save(project)
+        self._migrate_legacy_style(project)
+        self._touch_metadata(project)
+
+    def update_project_with_file_copies(
+        self,
+        project_name: str,
+        mutate_fn: Callable[[dict], None],
+        copies: list[tuple[Path, Path]],
+        *,
+        on_commit: Callable[[Path], None] | None = None,
+    ) -> dict:
+        """在项目锁内把文件复制、project.json 与可选 sidecar hook 作为一个事务提交。"""
+
+        return self._update_project_with_files(
+            project_name,
+            mutate_fn,
+            copies=copies,
+            on_commit=on_commit,
+        )
+
+    def _update_project_with_files(
+        self,
+        project_name: str,
+        mutate_fn: Callable[[dict], None],
+        *,
+        copies: list[tuple[Path, Path]] | None = None,
+        writes: list[tuple[bytes, Path]] | None = None,
+        on_commit: Callable[[Path], None] | None = None,
+    ) -> dict:
+        """在项目锁内把文件变更与 project.json 写回作为一个可回滚事务提交。
+
+        ``mutate_fn`` 可在锁内完成最终名称规划并向两个列表追加操作。回调抛错时不会安装
+        任何文件；所有复制/字节写入先完成暂存，再逐个替换目标。安装或 JSON 写回失败时按
+        相反顺序恢复，恢复失败仅记录日志并保留原始异常；提交成功后清理备份。全部目标必须
+        互不重复，避免同一事务内操作顺序产生歧义。
+        """
+        project_file = self._get_project_file_path(project_name)
+        copies = copies if copies is not None else []
+        writes = writes if writes is not None else []
+
+        token = secrets.token_hex(8)
+        staged: list[tuple[Path, Path]] = []
+        installed: list[tuple[Path, Path | None]] = []
+        committed = False
+        with self._project_lock(project_name), ExitStack() as transaction:
+            if on_commit is not None:
+                transaction.enter_context(formal_write_transaction(project_file))
+            try:
+                with open(project_file, encoding="utf-8") as f:
+                    project = json.load(f)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
+                mutate_fn(project)
+                if self._requires_unique_asset_namespace(project):
+                    ensure_project_asset_namespace(project)
+                self._migrate_legacy_resolution_on_save(project)
+                self._migrate_legacy_style(project)
+                self._touch_metadata(project)
+
+                # mutate_fn 可在锁内完成最终名称规划并填充 copies；因此目标唯一性也必须
+                # 在回调之后、仍持有同一把项目锁时校验。
+                replacement_destinations = [destination for _source, destination in copies] + [
+                    destination for _content, destination in writes
+                ]
+                if len(set(replacement_destinations)) != len(replacement_destinations):
+                    raise ValueError("项目文件事务包含重复目标路径")
+                for index, (source, destination) in enumerate(copies):
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = destination.with_name(f".{destination.name}.{token}-{index}.tmp")
+                    shutil.copyfile(source, temporary)
+                    staged.append((temporary, destination))
+                for offset, (content, destination) in enumerate(writes, start=len(staged)):
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = destination.with_name(f".{destination.name}.{token}-{offset}.tmp")
+                    atomic_write_bytes(temporary, content)
+                    staged.append((temporary, destination))
+
+                for index, (temporary, destination) in enumerate(staged):
+                    backup: Path | None = None
+                    if destination.exists() or destination.is_symlink():
+                        backup = destination.with_name(f".{destination.name}.{token}-{index}.bak")
+                        os.replace(destination, backup)
+                    installed.append((destination, backup))
+                    os.replace(temporary, destination)
+
+                atomic_write_json(project_file, project)
+                if on_commit is not None:
+                    on_commit(project_file)
+                committed = True
+            except BaseException:
+                for destination, backup in reversed(installed):
+                    try:
+                        if destination.exists() or destination.is_symlink():
+                            destination.unlink()
+                        if backup is not None:
+                            os.replace(backup, destination)
+                    except OSError:
+                        logger.exception("恢复项目文件事务失败: %s", destination)
+                raise
+            finally:
+                for temporary, _destination in staged:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        logger.warning("清理项目文件事务暂存失败: %s", temporary)
+                if committed:
+                    for _destination, backup in installed:
+                        if backup is None:
+                            continue
+                        try:
+                            backup.unlink(missing_ok=True)
+                        except OSError:
+                            logger.warning("清理项目文件事务备份失败: %s", backup)
+
+        emit_project_change_hint(
+            project_name,
+            changed_paths=[self.PROJECT_FILE],
+        )
         return project
 
     @staticmethod
@@ -1510,6 +2172,11 @@ class ProjectManager:
             project["metadata"] = {"created_at": now, "updated_at": now}
         else:
             project["metadata"]["updated_at"] = now
+
+    @staticmethod
+    def _requires_unique_asset_namespace(project: dict) -> bool:
+        """schema v6 起禁止普通业务写继续操作已损坏的资产名称空间。"""
+        return parse_project_schema_version(project) >= 6
 
     @staticmethod
     def _migrate_legacy_resolution_on_save(project: dict) -> None:
@@ -1675,7 +2342,7 @@ class ProjectManager:
                     ep["title"] = title
                     ep["script_file"] = script_file
                     return
-            # 添加新剧集（不包含统计字段，由 StatusCalculator 读时计算）
+            # 添加新剧集（不包含统计字段，由项目摘要读时计算）
             project["episodes"].append({"episode": episode, "title": title, "script_file": script_file})
             project["episodes"].sort(key=lambda x: x["episode"])
 
@@ -1685,8 +2352,8 @@ class ProjectManager:
         """
         [已废弃] 同步项目状态
 
-        此方法已废弃。status、progress、scenes_count 等统计字段
-        现在由 StatusCalculator 读时计算，不再存储在 JSON 文件中。
+        此方法已废弃。status、progress、item_count 等统计字段
+        现在由项目摘要读时计算，不再存储在 JSON 文件中。
 
         保留此方法仅为向后兼容，实际不执行任何写入操作。
 
@@ -1694,19 +2361,19 @@ class ProjectManager:
             project_name: 项目名称
 
         Returns:
-            项目元数据（不含统计字段，统计字段由 StatusCalculator 注入）
+            项目元数据（不含统计字段，统计字段由项目摘要注入）
         """
         import warnings
 
         warnings.warn(
-            "sync_project_status() 已废弃。status 等统计字段现由 StatusCalculator 读时计算。",
+            "sync_project_status() 已废弃。status 等统计字段现由项目摘要读时计算。",
             DeprecationWarning,
             stacklevel=2,
         )
         # 仅返回项目数据，不执行任何写入
         return self.load_project(project_name)
 
-    # ==================== 项目级资产统一 API（character / scene / prop） ====================
+    # ================ 项目级资产统一 API（character / scene / prop / product） ================
     #
     # 这一节的 6 个私有方法按 lib.asset_types.ASSET_SPECS 驱动，统一处理 character /
     # scene / prop 三类项目级资产的桶级读写。下方的 public 方法（add_project_scene /
@@ -1714,10 +2381,13 @@ class ProjectManager:
     # 100% 兼容旧调用方。
 
     def _add_asset(self, asset_type: str, project_name: str, name: str, entry: dict) -> bool:
-        """新增 entry 到 project[bucket][name]。冲突时返回 False。
+        """新增 entry 到 project[bucket][name]。同类型已存在时返回 False。
 
         通过 update_project 在单一文件锁内完成 read-modify-write，避免并发新增时的
         lost-update 竞态。
+
+        Raises:
+            ProjectAssetNameConflictError: 规范化后的名称已被其它资产类型占用。
         """
         name = validate_asset_name(name)
         spec = ASSET_SPECS[asset_type]
@@ -1730,6 +2400,7 @@ class ProjectManager:
             if resolve_asset_key(bucket, name) is not None:
                 logger.debug("%s '%s' 已存在于 project.json，跳过", spec.label_zh, name)
                 return
+            ensure_project_asset_name_available(project, name, requested_asset_type=asset_type)
             bucket[name] = entry
             added = True
 
@@ -1742,7 +2413,10 @@ class ProjectManager:
         """批量新增 entries。已存在的 name 跳过，返回新增数量。
 
         通过 update_project 在单一文件锁内完成 read-modify-write，避免并发批量新增时
-        的 lost-update 竞态。
+        的 lost-update 竞态。任一名称与其它资产类型冲突时整批不落盘。
+
+        Raises:
+            ProjectAssetNameConflictError: 任一规范化后的名称已被其它资产类型占用。
         """
         spec = ASSET_SPECS[asset_type]
         # 与 upsert_assets 同口径：规范化（strip + NFC）后等价的 key（{"李白", "  李白  "}
@@ -1769,6 +2443,7 @@ class ProjectManager:
                 if resolve_asset_key(bucket, name) is not None:
                     logger.debug("%s '%s' 已存在，跳过", spec.label_zh, name)
                     continue
+                ensure_project_asset_name_available(project, name, requested_asset_type=asset_type)
                 bucket[name] = entry
                 added += 1
                 logger.info("添加%s: %s", spec.label_zh, name)
@@ -1778,10 +2453,10 @@ class ProjectManager:
         return added
 
     def upsert_assets(self, project_name: str, table: str, entries: dict[str, dict]) -> dict[str, Any]:
-        """按 table（characters/scenes/props）+ name upsert 资产：不存在则新增、存在则改字段。
+        """按 table（characters/scenes/props/products）+ name upsert 资产：不存在则新增、存在则改字段。
 
         在 `update_project` 的单一文件锁内完成 read-modify-write；apply 后、落盘前对结果
-        project dict 做 payload 级结构校验，按**「不更坏」语义**裁决：仅当本次 upsert 把原本
+        project dict 做 payload 级结构校验，按**「不更坏」语义**裁决：仅当该 upsert 把原本
         合法的 project 改成非法时才 raise 且**不落盘**（mutation 抛错时 `update_project` 不执行
         atomic_write）；改前已非法（历史遗留脏数据，如空 `style`）则照常放行——否则带历史问题的
         项目会整条 patch_project 路径不可用（旧 `add_assets.py` 报告校验错误也不阻断写入）。
@@ -1797,9 +2472,7 @@ class ProjectManager:
         # data_validator 在模块级 import 本模块（VALID_GENERATION_MODES），故惰性 import 破环。
         from lib.data_validator import DataValidator
 
-        asset_type = self._BUCKET_TO_ASSET_TYPE.get(table)
-        if asset_type is None:
-            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(self._BUCKET_TO_ASSET_TYPE)} 之一")
+        asset_type = self._resolve_asset_type(table)
         # 拆开两种失败 case 让 agent 错误更精确（之前合并的 "entries 不能为空" 无法区分两者）
         if not isinstance(entries, dict):
             raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
@@ -1878,7 +2551,10 @@ class ProjectManager:
                 raise ValueError(f"project[{spec.bucket_key!r}] 必须是对象，当前为 {type(bucket).__name__}")
             for name, attrs in cleaned.items():
                 # 存量 entry 的 key 可能是 NFD：解析真实 key 就地更新，而非按 NFC 名新建第二条
-                key = resolve_asset_key(bucket, name) or name
+                match = find_project_asset_name(project, name)
+                if match is not None and match.asset_type != asset_type:
+                    raise ProjectAssetNameConflictError(name, match, asset_type)
+                key = match.name if match is not None else name
                 existing = isinstance(bucket.get(key), dict)
                 # 仅对已存在 entry 检测 no-op:全字段被白名单/legacy strip 丢空时 update({})
                 # 实际不变,归到 noop 而非 merged 避免「合并 1 个」误报。新 entry 即使
@@ -1897,7 +2573,7 @@ class ProjectManager:
             # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
             #   - 改前合法、改后非法 → new_errors=全部 after errors → 拒
             #   - 改前已脏、改后相同脏 → new_errors=∅ → 放行（允许带历史脏数据的项目继续 patch）
-            #   - 改前已脏、改后引入新错误（如本次 entries 缺 description）→ new_errors≠∅ → 拒
+            #   - 改前已脏、改后引入新错误（如 entries 缺 description）→ new_errors≠∅ → 拒
             #   - 改前已脏、改后修复了部分 → new_errors=∅ → 放行（允许 patch 改进历史脏数据）
             # 比单纯比 valid 标志更严：堵住「带历史脏数据的项目里新 entry 的结构错误 piggyback 落盘」。
             new_errors = after_errors - before_errors
@@ -1913,8 +2589,51 @@ class ProjectManager:
             "dropped_legacy": dropped_legacy,
         }
 
-    # bucket_key（characters/scenes/props）→ 资产类型，从静态 ASSET_SPECS 派生一次，避免每次 upsert 重建。
+    def delete_asset(self, project_name: str, table: str, name: str) -> dict:
+        """Delete one project asset and its formal sheet claim in one commit.
+
+        The project entry owns the identity of an asset-sheet claim. Leaving
+        that claim behind would make a complete Manifest snapshot refer to an
+        asset that no longer exists, so every caller shares this write seam.
+        """
+
+        from lib.artifact_activation import forget_current_resource_artifact
+
+        asset_type = self._resolve_asset_type(table)
+        spec = ASSET_SPECS[asset_type]
+        project_dir = self.get_project_path(project_name)
+        deleted_name: str | None = None
+
+        def _mutate(project: dict) -> None:
+            nonlocal deleted_name
+            bucket = project.get(spec.bucket_key)
+            key = resolve_asset_key(bucket, name)
+            if not isinstance(bucket, dict) or key is None:
+                raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+            deleted_name = key
+            del bucket[key]
+
+        def _forget_claim(_project_file: Path) -> None:
+            if deleted_name is None:  # pragma: no cover - mutate contract
+                raise RuntimeError("asset deletion did not resolve a canonical identity")
+            forget_current_resource_artifact(
+                project_dir,
+                resource_type=spec.bucket_key,
+                resource_id=deleted_name,
+            )
+
+        return self.update_project(project_name, _mutate, on_commit=_forget_claim)
+
+    # bucket_key（characters/scenes/props/products）→ 资产类型，从静态 ASSET_SPECS 派生一次。
     _BUCKET_TO_ASSET_TYPE = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
+
+    @classmethod
+    def _resolve_asset_type(cls, table: str) -> str:
+        """bucket_key → 资产类型；未知表名抛 ValueError（message 列出合法取值）。"""
+        asset_type = cls._BUCKET_TO_ASSET_TYPE.get(table)
+        if asset_type is None:
+            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(cls._BUCKET_TO_ASSET_TYPE)} 之一")
+        return asset_type
 
     _LEGACY_ASSET_FIELDS = frozenset({"type", "importance"})
 
@@ -1923,7 +2642,243 @@ class ProjectManager:
         """剔除旧式 type/importance 字段（schema 演进遗留），返回新 dict。"""
         return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
 
-    def _update_asset_sheet(self, asset_type: str, project_name: str, name: str, sheet_path: str) -> dict:
+    #: 级联重命名须一并改写的 step1 草稿文件名（结构化 JSON，含隔离草稿——它们承载
+    #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。旧版 ``.md`` 自由文本别名
+    #: 不在列：读取层仅兼认浏览，写盘与生成侧已不认。
+    _RENAME_DRAFT_FILENAMES = frozenset(
+        {
+            *STEP1_FILENAMES.values(),
+            REFERENCE_VIDEO_STEP1_FILENAME,
+            REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+            REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+        }
+    )
+
+    def rename_asset(
+        self, project_name: str, table: str, old_name: str, new_name: str, *, dry_run: bool = False
+    ) -> AssetRenameReport:
+        """资产级联重命名的单一事务入口（UI 与智能体共用，见 docs/adr/0057）。
+
+        在「全部剧本锁（按文件名排序）→ 草稿文件锁 → 项目锁」内一次完成：扫描全部剧集
+        剧本与 step1 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」
+        结构校验；``dry_run=True`` 时到此为止只返回影响报告（预览与执行共用同一套扫描，
+        数字必然一致），否则按 剧本 → 草稿 → 关联文件 → 版本历史 → project.json →
+        Artifact Manifest 的顺序落盘。Manifest 以整份文件的一次 CAS 最后重键；若进程在
+        project.json 提交后退出，重跑同一次重命名会凭旧 claim 与新项目绑定完成剩余 CAS。
+        锁获取顺序与
+        ``locked_episode_script`` 的 脚本锁 → 项目锁 一致，避免 ABBA 死锁。
+
+        Raises:
+            ValueError: table 未知或新名非法（``validate_asset_name``）/ 结构校验失败。
+            AssetRenameNotFoundError: 旧名不存在（message 含幂等恢复提示）。
+            AssetRenameConflictError: 新名与既有同类型资产归一化判定冲突。
+            AssetRenameFileCollisionError: 某个关联文件的迁移目标已被孤儿文件占用。
+            AssetRenameHistoryCollisionError: 新名下已有属于别的资产的版本历史。
+        """
+        # data_validator 在模块级 import 本模块，惰性 import 破环（与 upsert_assets 同理）。
+        from lib.data_validator import DataValidator
+        from lib.version_manager import VersionManager
+
+        asset_type = self._resolve_asset_type(table)
+        spec = ASSET_SPECS[asset_type]
+        new_clean = validate_asset_name(new_name)
+        if not self.project_exists(project_name):
+            raise FileNotFoundError(f"项目不存在: {project_name}")
+        project_dir = self.get_project_path(project_name)
+
+        script_files = sorted(self.list_scripts(project_name))
+        drafts_root = project_dir / "drafts"
+        draft_files = (
+            sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
+            if drafts_root.is_dir()
+            else []
+        )
+
+        with ExitStack() as stack:
+            for filename in script_files:
+                stack.enter_context(self._script_lock(project_name, filename))
+            for path in draft_files:
+                stack.enter_context(self.file_lock(path))
+            stack.enter_context(self._project_lock(project_name))
+
+            project = self._read_project_raw_unlocked(project_name)
+            bucket = project.get(spec.bucket_key)
+            from lib.artifact_manifest import (
+                MANIFEST_FILENAME,
+                ArtifactKey,
+                ArtifactManifest,
+                ProjectArtifactManifestAdapter,
+            )
+
+            manifest_path = project_dir / MANIFEST_FILENAME
+            manifest_adapter = (
+                ProjectArtifactManifestAdapter(project_dir)
+                if manifest_path.exists() or manifest_path.is_symlink()
+                else None
+            )
+
+            def _plan_manifest_rekey(
+                source_name: str,
+                target_name: str,
+                source_sheet: object,
+                target_sheet: object,
+            ):
+                if manifest_adapter is None:
+                    return None
+                path_rewrites = (
+                    {source_sheet: target_sheet}
+                    if isinstance(source_sheet, str)
+                    and source_sheet
+                    and isinstance(target_sheet, str)
+                    and target_sheet
+                    and source_sheet != target_sheet
+                    else {}
+                )
+                return ArtifactManifest(manifest_adapter).plan_entry_rekey(
+                    ArtifactKey.asset_sheet(asset_type, source_name),
+                    ArtifactKey.asset_sheet(asset_type, target_name),
+                    artifact_path_rewrites=path_rewrites,
+                )
+
+            old_key = resolve_asset_key(bucket, old_name)
+            if old_key is None:
+                completed_key = resolve_asset_key(bucket, new_clean)
+                if completed_key is not None:
+                    completed_entry = bucket.get(completed_key) if isinstance(bucket, dict) else None
+                    source_claim = (
+                        manifest_adapter.get_entry(ArtifactKey.asset_sheet(asset_type, normalize_asset_name(old_name)))
+                        if manifest_adapter is not None
+                        else None
+                    )
+                    target_sheet = (
+                        completed_entry.get(spec.sheet_field) if isinstance(completed_entry, Mapping) else None
+                    )
+                    if source_claim is not None and isinstance(target_sheet, str) and target_sheet:
+                        recovery_plan = _plan_manifest_rekey(
+                            normalize_asset_name(old_name),
+                            completed_key,
+                            source_claim.artifact_path,
+                            target_sheet,
+                        )
+                        if not dry_run:
+                            assert recovery_plan is not None
+                            recovery_plan.commit()
+                        return AssetRenameReport(
+                            table=table,
+                            old_name=normalize_asset_name(old_name),
+                            new_name=completed_key,
+                            episodes=0,
+                            references=0,
+                            files=0,
+                            dry_run=dry_run,
+                        )
+                hint = (
+                    "；新名已存在于资产表——可能上次重命名已成功（级联重命名可安全重试）"
+                    if completed_key is not None
+                    else ""
+                )
+                raise AssetRenameNotFoundError(f"{table} 中不存在名为 {old_name!r} 的资产{hint}")
+            conflict_key = resolve_asset_key(bucket, new_clean)
+            if conflict_key is not None and conflict_key != old_key:
+                raise AssetRenameConflictError(conflict_key)
+            ensure_project_asset_name_available(
+                project,
+                new_clean,
+                requested_asset_type=asset_type,
+                exclude_asset_type=asset_type,
+                exclude_name=old_key,
+            )
+
+            # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
+            references = 0
+            changed_scripts: list[tuple[str, dict, dict]] = []
+            for filename in script_files:
+                script, _migrated = self._read_script_unlocked(project_name, filename)
+                before = copy.deepcopy(script)
+                changes = rewrite_payload_references(script, asset_type, old_key, new_clean)
+                if changes:
+                    changed_scripts.append((filename, script, before))
+                    references += changes
+            changed_drafts: list[tuple[Path, dict]] = []
+            for path in draft_files:
+                payload = load_json_or_none(path)
+                if not isinstance(payload, dict):
+                    continue
+                changes = rewrite_payload_references(payload, asset_type, old_key, new_clean)
+                if changes:
+                    changed_drafts.append((path, payload))
+                    references += changes
+            episode_ids = {Path(filename).stem for filename, _s, _b in changed_scripts} | {
+                path.parent.name for path, _p in changed_drafts
+            }
+
+            moves = plan_asset_file_renames(project_dir, spec, old_key, new_clean)
+            version_manager = VersionManager(project_dir)
+            version_files = version_manager.rename_resource(spec.bucket_key, old_key, new_clean, dry_run=True)
+
+            # project.json 变更先在副本上应用并做「不更坏」校验：校验失败整体拒绝、任何一处不落盘。
+            mutated = copy.deepcopy(project)
+            validator = DataValidator(str(self.projects_root))
+            before_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), old_key, new_clean)
+            entry = rekey_equivalent_entries(mutated[spec.bucket_key], old_key, new_clean)
+            if isinstance(entry, dict):
+                rewrite_entry_paths(entry, spec, old_key, new_clean)
+            if self._requires_unique_asset_namespace(mutated):
+                ensure_project_asset_namespace(mutated)
+            after_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), old_key, new_clean)
+            new_errors = {after_errors[fingerprint] for fingerprint in after_errors.keys() - before_errors.keys()}
+            if new_errors:
+                raise ValueError("project.json 结构校验失败: " + "; ".join(sorted(new_errors)))
+
+            manifest_rekey_plan = None
+            if manifest_adapter is not None:
+                source_asset_entry = project[spec.bucket_key][old_key]
+                old_sheet = (
+                    source_asset_entry.get(spec.sheet_field) if isinstance(source_asset_entry, Mapping) else None
+                )
+                new_sheet = entry.get(spec.sheet_field) if isinstance(entry, Mapping) else None
+                manifest_rekey_plan = _plan_manifest_rekey(old_key, new_clean, old_sheet, new_sheet)
+
+            report = AssetRenameReport(
+                table=table,
+                old_name=old_key,
+                new_name=new_clean,
+                episodes=len(episode_ids),
+                references=references,
+                files=len(moves) + version_files,
+                dry_run=dry_run,
+            )
+            if dry_run:
+                return report
+
+            # —— 落盘（每步幂等，中途失败重跑同一次重命名即可收敛）——
+            for filename, script, before in changed_scripts:
+                self._write_script_unlocked(project_name, script, filename, sync_project=False, before=before)
+            for path, payload in changed_drafts:
+                atomic_write_json(path, payload)
+            for src, dst in moves:
+                if src.exists():
+                    os.replace(src, dst)
+            version_manager.rename_resource(spec.bucket_key, old_key, new_clean)
+            self._touch_metadata(mutated)
+            project_file = self._get_project_file_path(project_name)
+            with formal_write_transaction(project_file):
+                atomic_write_json(project_file, mutated)
+                if manifest_rekey_plan is not None:
+                    manifest_rekey_plan.commit()
+
+        emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
+        return report
+
+    def _update_asset_sheet(
+        self,
+        asset_type: str,
+        project_name: str,
+        name: str,
+        sheet_path: str,
+        *,
+        on_commit: Callable[[Path], None] | None = None,
+    ) -> dict:
         """更新资产 sheet 字段路径。资产不存在抛 KeyError。
 
         通过 update_project 在单一文件锁内完成 read-modify-write，避免与并发 add /
@@ -1938,7 +2893,60 @@ class ProjectManager:
                 raise KeyError(f"{spec.label_zh} '{name}' 不存在")
             bucket[key][spec.sheet_field] = sheet_path
 
-        return self.update_project(project_name, _mutate)
+        return self.update_project(project_name, _mutate, on_commit=on_commit)
+
+    def install_asset_sheet_bytes(
+        self,
+        asset_type: str,
+        project_name: str,
+        name: str,
+        sheet_path: str,
+        content: bytes,
+        *,
+        on_commit: Callable[[Path], None] | None = None,
+    ) -> dict | None:
+        """Install sheet bytes after rechecking their asset under the project lock.
+
+        Stable sheet paths may be uploaded before an asset definition exists.
+        That case writes only unclaimed bytes while still holding the same lock
+        used by asset creation. If the definition exists by the final check,
+        the file, metadata pointer, and sidecar hook commit atomically instead.
+        """
+
+        project_dir = self.get_project_path(project_name)
+        target = safe_join(project_dir, sheet_path)
+        project_file = self._get_project_file_path(project_name)
+        spec = ASSET_SPECS[asset_type]
+
+        with self._project_lock(project_name):
+            project = self._read_project_raw_unlocked(project_name)
+            bucket = project.get(spec.bucket_key)
+            if resolve_asset_key(bucket, name) is None:
+                with formal_write_transaction(target):
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    atomic_write_bytes(target, content)
+                return None
+
+            def _mutate(locked_project: dict) -> None:
+                locked_bucket = locked_project.get(spec.bucket_key)
+                key = resolve_asset_key(locked_bucket, name)
+                if not isinstance(locked_bucket, dict) or key is None:
+                    raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+                locked_bucket[key][spec.sheet_field] = sheet_path
+
+            with formal_write_transaction(project_file, target):
+                self._apply_project_mutation_unlocked(project, _mutate)
+                atomic_write_json(project_file, project)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write_bytes(target, content)
+                if on_commit is not None:
+                    on_commit(target)
+
+        emit_project_change_hint(
+            project_name,
+            changed_paths=[self.PROJECT_FILE],
+        )
+        return project
 
     def _get_asset(self, asset_type: str, project_name: str, name: str) -> dict:
         """获取资产定义。不存在抛 KeyError。"""
@@ -1951,14 +2959,28 @@ class ProjectManager:
         return bucket[key]
 
     def _get_pending_assets(self, asset_type: str, project_name: str) -> list[dict]:
-        """无 sheet 字段或 sheet 文件不存在的资产列表。"""
+        """Return assets without a usable formal sheet, per the Artifact Manifest.
+
+        Registration is the whole verdict: a sheet whose file was deleted is
+        pending again, and an unmigrated project is refused rather than served
+        from a second reading rule.
+        """
+
+        from lib.artifact_activation import active_artifact_currency_resolver, artifact_is_usable
+        from lib.artifact_manifest import ArtifactKey
+
         spec = ASSET_SPECS[asset_type]
         project = self.load_project(project_name)
         project_dir = self.get_project_path(project_name)
+        resolver = active_artifact_currency_resolver(project_dir, project)
         pending = []
         for name, entry in (project.get(spec.bucket_key) or {}).items():
-            sheet = entry.get(spec.sheet_field)
-            if not sheet or not (project_dir / sheet).exists():
+            usable = artifact_is_usable(
+                resolver,
+                ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name)),
+                entry.get(spec.sheet_field),
+            )
+            if not usable:
                 pending.append({"name": name, **entry})
         return pending
 
@@ -1995,7 +3017,10 @@ class ProjectManager:
         def _mutate(project: dict) -> None:
             bucket = project["characters"]
             # 覆盖写也要落在存量真实 key 上（可能是 NFD），否则会残留视觉同名的旧条目
-            key = resolve_asset_key(bucket, name) or name
+            match = find_project_asset_name(project, name)
+            if match is not None and match.asset_type != "character":
+                raise ProjectAssetNameConflictError(name, match, "character")
+            key = match.name if match is not None else name
             bucket[key] = {
                 "description": description,
                 "voice_style": voice_style or "",
@@ -2051,13 +3076,109 @@ class ProjectManager:
         """
 
         def _mutate(project: dict) -> None:
+            self._set_character_reference_audio(project, char_name, ref_path)
+
+        return self.update_project(project_name, _mutate)
+
+    @staticmethod
+    def _set_character_reference_audio(project: dict, char_name: str, ref_path: str) -> None:
+        key = resolve_asset_key(project.get("characters"), char_name)
+        if key is None:
+            raise KeyError(f"角色 '{char_name}' 不存在")
+        project["characters"][key]["reference_audio"] = ref_path
+        project["characters"][key]["voice_updated_at"] = datetime.now(UTC).isoformat()
+
+    def install_character_reference_audio(
+        self,
+        project_name: str,
+        char_name: str,
+        ref_path: str,
+        content: bytes,
+    ) -> dict:
+        """Atomically install reference-audio bytes and point the character at them.
+
+        Video currency selection hashes reference-audio bytes while holding the project lock.  Keeping every
+        physical replacement in that same lock makes the project pointer and the bytes one coherent input snapshot.
+        A replaced file with a different extension is best-effort cleanup after the new pointer commits; it is no
+        longer an input then, so cleanup does not need to prolong the selection-critical section.
+        """
+
+        project_dir = self.get_project_path(project_name)
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+        target = Path(self._safe_subpath(project_dir, ref_path))
+        if os.path.realpath(target.parent) != os.path.realpath(refs_audio_dir):
+            raise ValueError("reference audio target must be inside characters/refs_audio")
+        stale_audio: Path | None = None
+
+        def _mutate(project: dict) -> None:
+            nonlocal stale_audio
             key = resolve_asset_key(project.get("characters"), char_name)
             if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
-            project["characters"][key]["reference_audio"] = ref_path
-            project["characters"][key]["voice_updated_at"] = datetime.now(UTC).isoformat()
+            old_audio = project["characters"][key].get("reference_audio")
+            stale_audio = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target)
+            self._set_character_reference_audio(project, char_name, ref_path)
 
-        return self.update_project(project_name, _mutate)
+        project = self._update_project_with_files(
+            project_name,
+            _mutate,
+            writes=[(content, target)],
+        )
+        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
+        return project
+
+    def _discard_stale_reference_audio_if_unreferenced(
+        self,
+        project_name: str,
+        stale_audio: Path | None,
+    ) -> None:
+        """Best-effort cleanup that cannot delete a newer concurrent selection of the same path."""
+
+        if stale_audio is None:
+            return
+        project_dir = self.get_project_path(project_name)
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+        stale_identity = os.path.realpath(stale_audio)
+        with self._project_lock(project_name):
+            project = self._read_project_raw_unlocked(project_name)
+            characters = project.get("characters")
+            if isinstance(characters, dict):
+                for character in characters.values():
+                    if not isinstance(character, dict):
+                        continue
+                    reference_audio = character.get("reference_audio")
+                    current = resolve_audio_ref_path(
+                        project_dir,
+                        refs_audio_dir,
+                        reference_audio if isinstance(reference_audio, str) else None,
+                    )
+                    if current is not None and os.path.realpath(current) == stale_identity:
+                        return
+            discard_stale_reference_audio(stale_audio)
+
+    def clear_character_reference_audio(self, project_name: str, char_name: str) -> dict:
+        """Clear the reference first, then best-effort delete the now-unreferenced audio file."""
+
+        project_dir = self.get_project_path(project_name)
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+        stale_audio: Path | None = None
+
+        def _mutate(project: dict) -> None:
+            nonlocal stale_audio
+            key = resolve_asset_key(project.get("characters"), char_name)
+            if key is None:
+                raise KeyError(f"角色 '{char_name}' 不存在")
+            old_audio = project["characters"][key].get("reference_audio")
+            stale_audio = resolve_audio_ref_path(
+                project_dir,
+                refs_audio_dir,
+                old_audio if isinstance(old_audio, str) else None,
+            )
+            self._set_character_reference_audio(project, char_name, "")
+
+        project = self.update_project(project_name, _mutate)
+        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
+        return project
 
     def get_project_character(self, project_name: str, name: str) -> dict:
         """获取项目级角色定义"""
@@ -2074,7 +3195,7 @@ class ProjectManager:
         return self._get_asset("scene", project_name, name)
 
     def get_pending_project_scenes(self, project_name: str) -> list[dict]:
-        """无 scene_sheet 或文件不存在的场景。"""
+        """产物清单未登记可用 scene_sheet 的场景；项目未迁移时阻断。"""
         return self._get_pending_assets("scene", project_name)
 
     def get_scene_path(self, project_name: str, filename: str) -> Path:
@@ -2092,7 +3213,7 @@ class ProjectManager:
         return self._get_asset("prop", project_name, name)
 
     def get_pending_project_props(self, project_name: str) -> list[dict]:
-        """无 prop_sheet 或文件不存在的道具。"""
+        """产物清单未登记可用 prop_sheet 的道具；项目未迁移时阻断。"""
         return self._get_pending_assets("prop", project_name)
 
     def get_prop_path(self, project_name: str, filename: str) -> Path:
@@ -2100,7 +3221,7 @@ class ProjectManager:
         return self._get_asset_path("prop", project_name, filename)
 
     def get_pending_characters(self, project_name: str) -> list[dict]:
-        """获取待生成设计图的角色列表（无 character_sheet 或文件不存在）"""
+        """产物清单未登记可用 character_sheet 的角色；项目未迁移时阻断。"""
         return self._get_pending_assets("character", project_name)
 
     # ==================== 产品管理（product） ====================
@@ -2114,7 +3235,7 @@ class ProjectManager:
         return self._get_asset("product", project_name, name)
 
     def get_pending_project_products(self, project_name: str) -> list[dict]:
-        """无 product_sheet 或文件不存在的产品。"""
+        """产物清单未登记可用 product_sheet 的产品；项目未迁移时阻断。"""
         return self._get_pending_assets("product", project_name)
 
     def get_product_path(self, project_name: str, filename: str) -> Path:
@@ -2142,7 +3263,7 @@ class ProjectManager:
 
         return self.update_project(project_name, _mutate)
 
-    # ==================== 角色/场景/道具直接写入工具 ====================
+    # ==================== 项目资产直接写入工具 ====================
 
     @staticmethod
     def _build_asset_entry(asset_type: str, description: str, source: dict | None = None) -> dict:
@@ -2168,27 +3289,27 @@ class ProjectManager:
         return entry
 
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:
-        """直接添加角色到 project.json。已存在返回 False。"""
+        """直接添加角色到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("character", description, {"voice_style": voice_style})
         return self._add_asset("character", project_name, name, entry)
 
     def add_project_scene(self, project_name: str, name: str, description: str) -> bool:
-        """直接添加场景到 project.json。已存在返回 False。"""
+        """直接添加场景到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("scene", description)
         return self._add_asset("scene", project_name, name, entry)
 
     def add_prop(self, project_name: str, name: str, description: str) -> bool:
-        """直接添加道具到 project.json。已存在返回 False。"""
+        """直接添加道具到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("prop", description)
         return self._add_asset("prop", project_name, name, entry)
 
     def add_product(self, project_name: str, name: str, description: str, brand: str = "") -> bool:
-        """直接添加产品到 project.json。已存在返回 False。"""
+        """直接添加产品到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("product", description, {"brand": brand})
         return self._add_asset("product", project_name, name, entry)
 
     def add_characters_batch(self, project_name: str, characters: dict[str, dict]) -> int:
-        """批量添加角色到 project.json。已存在的跳过，返回新增数量。"""
+        """批量添加角色；同类型已存在的跳过，跨类型冲突时整批不落盘。"""
         entries = {
             name: self._build_asset_entry("character", data.get("description", ""), data)
             for name, data in characters.items()
@@ -2196,14 +3317,14 @@ class ProjectManager:
         return self._add_assets_batch("character", project_name, entries)
 
     def add_scenes_batch(self, project_name: str, scenes: dict[str, dict]) -> int:
-        """批量添加场景到 project.json。已存在的跳过，返回新增数量。"""
+        """批量添加场景；同类型已存在的跳过，跨类型冲突时整批不落盘。"""
         entries = {
             name: self._build_asset_entry("scene", data.get("description", ""), data) for name, data in scenes.items()
         }
         return self._add_assets_batch("scene", project_name, entries)
 
     def add_props_batch(self, project_name: str, props: dict[str, dict]) -> int:
-        """批量添加道具到 project.json。已存在的跳过，返回新增数量。"""
+        """批量添加道具；同类型已存在的跳过，跨类型冲突时整批不落盘。"""
         entries = {
             name: self._build_asset_entry("prop", data.get("description", ""), data) for name, data in props.items()
         }

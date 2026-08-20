@@ -14,15 +14,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from lib.api_errors import NotFoundError
-from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
+from lib.api_errors import NotFoundError, UnprocessableError
+from lib.asset_rename import (
+    AssetRenameConflictError,
+    AssetRenameFileCollisionError,
+    AssetRenameHistoryCollisionError,
+    AssetRenameNotFoundError,
+)
+from lib.asset_types import (
+    ASSET_SPECS,
+    ProjectAssetNameConflictError,
+    localize_asset_type,
+    validate_asset_name,
+)
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
@@ -58,6 +69,20 @@ def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+def _not_a_string(field: str) -> UnprocessableError:
+    return UnprocessableError("asset_field_must_be_string").with_diagnostic(f"field '{field}' must be a string")
+
+
+def _require_string_list_fields(values: Mapping[str, Any], fields: Iterable[str]) -> None:
+    """列表字段须是字符串列表；缺省与 None 视同未提供，交由调用方各自的默认值处理。"""
+    for field in fields:
+        value = values.get(field)
+        if value is not None and not _is_string_list(value):
+            raise UnprocessableError("asset_field_must_be_string_list").with_diagnostic(
+                f"field '{field}' must be a list of strings"
+            )
+
+
 class _InvalidFieldValue(Exception):
     """PATCH 请求体中某字段的值未通过业务校验（区别于类型校验，类型错误已在边界 422）。"""
 
@@ -66,13 +91,30 @@ class _InvalidFieldValue(Exception):
         super().__init__(field)
 
 
+class _RenameRequest(BaseModel):
+    """级联重命名请求体。``dry_run=True`` 只返回影响预览（将更新的集数/引用处数/文件数）。"""
+
+    new_name: str
+    dry_run: bool = False
+
+
 class _CreateRequest(BaseModel):
-    """通用 create 请求体；额外字段（如 voice_style）通过 extra='allow' 透传。"""
+    """创建请求体。按资产类型接受不同的额外字段。"""
 
     model_config = ConfigDict(extra="allow")
 
     name: str
     description: str = ""
+
+
+def localize_project_asset_name_conflict(exc: ProjectAssetNameConflictError, translate: Translator) -> str:
+    return translate(
+        "project_asset_name_conflict",
+        name=exc.name,
+        requested_type=localize_asset_type(exc.requested_asset_type or exc.existing.asset_type, translate),
+        existing_type=localize_asset_type(exc.existing.asset_type, translate),
+        existing_name=exc.existing.name,
+    )
 
 
 def build_asset_router(
@@ -122,18 +164,15 @@ def build_asset_router(
                 # 「必为字符串」的持久化契约。
                 extras.pop(field, None)
             elif not isinstance(value, str):
-                raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
+                raise _not_a_string(field)
             elif field == "voice_notice_dismissed_at":
                 # 新建角色尚无 voice_updated_at，PATCH 侧「必须等于当前 voice_updated_at」的
                 # 校验在此处恒不成立（值不存在）；直接拒绝创建时携带该字段，防止绕过
                 # PATCH 的等值校验写入远未来时间戳，永久压制存量过渡横幅。真实用户可能
                 # 触发（如把已有角色的序列化结果整体复制进创建请求体），与 PATCH 侧的
                 # 同名校验一样须走翻译。
-                raise HTTPException(status_code=422, detail=_t("asset_voice_notice_dismissed_at_stale"))
-        for field in spec.extra_list_fields:
-            value = extras.get(field)
-            if value is not None and not _is_string_list(value):
-                raise HTTPException(status_code=422, detail=f"field '{field}' must be a list of strings")
+                raise UnprocessableError("asset_voice_notice_dismissed_at_stale")
+        _require_string_list_fields(extras, spec.extra_list_fields)
         try:
 
             def _sync():
@@ -156,6 +195,8 @@ def build_asset_router(
                 return {"success": True, result_key: data[spec.bucket_key][name]}
 
             return await asyncio.to_thread(_sync)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:
@@ -177,24 +218,15 @@ def build_asset_router(
         for field in update_fields:
             value = req.get(field)
             if value is not None and not isinstance(value, str):
-                raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
-        for field in update_list_fields:
-            value = req.get(field)
-            if value is not None and not _is_string_list(value):
-                raise HTTPException(status_code=422, detail=f"field '{field}' must be a list of strings")
+                raise _not_a_string(field)
+        _require_string_list_fields(req, update_list_fields)
 
         try:
 
             def _sync():
                 manager = pm_getter()
-                result: dict[str, Any] = {}
 
-                def _mutate(project):
-                    bucket = project.get(spec.bucket_key) or {}
-                    key = resolve_asset_key(bucket, entry_name)
-                    if key is None:
-                        raise KeyError(entry_name)
-                    entry = bucket[key]
+                def _mutate(entry: dict) -> None:
                     for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
                             # voice_notice_dismissed_at 语义是「已确认到的声音版本」，必须原样
@@ -208,13 +240,14 @@ def build_asset_router(
                             if field == "reference_audio" and req[field] != entry.get("reference_audio"):
                                 entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                             entry[field] = req[field]
-                    result.update(entry)
 
                 with project_change_source("webui"):
-                    manager.update_project(project_name, _mutate)
+                    result = manager.update_asset_entry(asset_type, project_name, entry_name, _mutate)
                 return {"success": True, result_key: result}
 
             return await asyncio.to_thread(_sync)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
         except _InvalidFieldValue as exc:
@@ -222,10 +255,65 @@ def build_asset_router(
             # 客户端主动构造非法请求即可触发——横幅渲染后声音被再次更新、用户随后才点击
             # 关闭即会触发，是真实用户可能看到的错误，须走翻译。
             if exc.field == "voice_notice_dismissed_at":
-                raise HTTPException(status_code=422, detail=_t("asset_voice_notice_dismissed_at_stale"))
-            raise HTTPException(status_code=422, detail=f"field '{exc.field}' has an invalid value")
+                raise UnprocessableError("asset_voice_notice_dismissed_at_stale")
+            raise UnprocessableError("asset_field_invalid_value").with_diagnostic(
+                f"field '{exc.field}' has an invalid value"
+            )
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("请求处理失败")
+            raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+    @router.post(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}/rename")
+    async def rename_entry(
+        project_name: str,
+        entry_name: str,
+        req: _RenameRequest,
+        _t: Translator,
+    ):
+        """级联重命名（dry_run 形态即影响预览）：预览与执行共用同一套扫描逻辑，数字必然一致。"""
+        try:
+            validate_asset_name(req.new_name)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.new_name))
+        try:
+
+            def _sync():
+                manager = pm_getter()
+                with project_change_source("webui"):
+                    report = manager.rename_asset(
+                        project_name, spec.bucket_key, entry_name, req.new_name, dry_run=req.dry_run
+                    )
+                return {
+                    "success": True,
+                    "dry_run": report.dry_run,
+                    "old_name": report.old_name,
+                    "new_name": report.new_name,
+                    "episodes": report.episodes,
+                    "references": report.references,
+                    "files": report.files,
+                }
+
+            return await asyncio.to_thread(_sync)
+        except AssetRenameNotFoundError:
+            raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
+        except AssetRenameConflictError as exc:
+            raise HTTPException(status_code=409, detail=_t(keys["exists"], name=exc.conflict_name))
+        except AssetRenameFileCollisionError as exc:
+            raise HTTPException(status_code=409, detail=_t("asset_rename_file_conflict", filename=exc.destination.name))
+        except AssetRenameHistoryCollisionError as exc:
+            raise HTTPException(status_code=409, detail=_t("asset_rename_history_conflict", name=exc.resource_id))
+        except FileNotFoundError as exc:
+            raise NotFoundError("project_not_found", name=project_name) from exc
+        except ValueError:
+            # 结构「不更坏」校验拒绝等罕见情形：整体未落盘，提示用户重试或检查项目数据。
+            logger.exception("资产重命名被校验拒绝")
+            raise HTTPException(status_code=422, detail=_t("asset_rename_rejected", name=entry_name))
         except HTTPException:
             raise
         except Exception:
@@ -239,18 +327,13 @@ def build_asset_router(
             def _sync():
                 manager = pm_getter()
 
-                def _mutate(project):
-                    bucket = project.get(spec.bucket_key) or {}
-                    key = resolve_asset_key(bucket, entry_name)
-                    if key is None:
-                        raise KeyError(entry_name)
-                    del bucket[key]
-
                 with project_change_source("webui"):
-                    manager.update_project(project_name, _mutate)
+                    manager.delete_asset(project_name, spec.bucket_key, entry_name)
                 return {"success": True, "message": _t(keys["deleted"], name=entry_name)}
 
             return await asyncio.to_thread(_sync)
+        except ProjectAssetNameConflictError as exc:
+            raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t))
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
         except FileNotFoundError as exc:

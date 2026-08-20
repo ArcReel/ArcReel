@@ -14,11 +14,11 @@
 # and the kind is validated so a typo can't silently drop an event from a recovery scan.
 #
 # USAGE
-#   bash ledger.sh <batch-id> <kind> [--issue N] [--pr M] \
+#   bash ledger.sh --repo-root <path> <batch-id> <kind> [--issue N] [--pr M] \
 #                  [--scope-spec N | --scope-issues "1,2,3"] [--detail "free text"]
 #
-#   <batch-id>  spec-<N> for a Spec batch, or a slug for an explicit-issue batch (e.g.
-#               batch-2026-06-20). Restricted to [A-Za-z0-9._-]; becomes the filename.
+#   <batch-id>  Unique to one execution: spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 hex>
+#               for a Spec, or an equivalent timestamped slug for explicit issues.
 #   <kind>      one of: decision | authorization | fault | gap | shelve | merge |
 #               retrospective | closed
 #
@@ -31,7 +31,7 @@
 #     "scope":  {"spec": <int>} | {"issues": [<int>,...]} | null,
 #                                  # the batch's membership in machine-readable form, so recovery
 #                                  # rebuilds the batch-poll input deterministically instead of parsing
-#                                  # free text. Set it on each segment's first line (the plan decision/authorization):
+#                                  # free text. Set it on the first line (the plan decision/authorization):
 #                                  # --scope-spec <N> for a Spec batch, --scope-issues <csv> for a slug batch
 #                                  # (where batch-id alone cannot recover the member set). null otherwise.
 #     "detail": "<str>"            # human-readable specifics (the argument/decision/cause)
@@ -46,20 +46,24 @@
 #   - The batch ends with a `closed` line. The file is NOT deleted — it is the
 #     retrospective/audit source, and recovery treats a `closed` line as the terminal
 #     marker (a ledger without one is a candidate for resumption).
-#   - Reopening the same batch-id after `closed` appends a new segment to the same
-#     file. Each segment's first line must carry scope (enforced below); recovery and
-#     retrospection read only the segment after the last `closed`.
+#   - A closed batch-id is terminal. A later execution uses a new batch-id.
 #
 # NOTE: .afk/ is gitignored. This ledger is local operational state, never committed.
 
 set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
+enter_repo_root "LEDGER_ERROR" "$@"
+shift "$REPO_CONTEXT_SHIFT"
 
 VALID_KINDS="decision authorization fault gap shelve merge retrospective closed"
 
 die() { echo "LEDGER_ERROR: $*" >&2; exit 1; }
 
 if [[ $# -lt 2 ]]; then
-  die "usage: bash ledger.sh <batch-id> <kind> [--issue N] [--pr M] [--detail TEXT]"
+  die "usage: bash ledger.sh [--repo-root <path>] <batch-id> <kind> [--issue N] [--pr M] [--detail TEXT]"
 fi
 
 BATCH_ID="$1"; shift
@@ -107,6 +111,9 @@ if [[ -n "$SCOPE_SPEC" && -n "$SCOPE_ISSUES_CSV" ]]; then
 fi
 if [[ -n "$SCOPE_SPEC" ]]; then
   [[ "$SCOPE_SPEC" =~ ^[0-9]+$ ]] || die "--scope-spec must be a number, got: $SCOPE_SPEC"
+  if ! [[ "$BATCH_ID" =~ ^spec-${SCOPE_SPEC}-[0-9]{8}-[0-9]{6}-[0-9A-Fa-f]{6}$ ]]; then
+    die "Spec batch-id must match spec-${SCOPE_SPEC}-<UTC YYYYMMDD-HHMMSS>-<6 hex>"
+  fi
   SCOPE_JSON=$(jq -nc --argjson spec "$SCOPE_SPEC" '{spec: $spec}')
 elif [[ -n "$SCOPE_ISSUES_CSV" ]]; then
   # same fail-loud + de-dup discipline as batch-poll.sh --issues: a silent drop here would
@@ -130,13 +137,25 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p .afk
 LEDGER_FILE=".afk/${BATCH_ID}.jsonl"
 
-# the first line of a batch must carry scope, else recovery cannot rebuild the member set;
-# a batch starts on an empty file or right after a closed line (the file holds one segment
-# per lifecycle and reopening the same batch-id appends a new segment)
+if [[ -s "$LEDGER_FILE" ]] && tail -n1 "$LEDGER_FILE" | jq -e '.kind == "closed"' >/dev/null 2>&1; then
+  die "batch-id is already closed; use a new unique batch-id: $BATCH_ID"
+fi
+if [[ -e "$LEDGER_FILE" && ! -s "$LEDGER_FILE" ]]; then
+  die "batch-id has an empty ledger reservation; use a new unique batch-id: $BATCH_ID"
+fi
+
+# The first line must carry scope so recovery can rebuild the member set.
 if [[ "$SCOPE_JSON" == "null" ]]; then
-  if [[ ! -s "$LEDGER_FILE" ]] || tail -n1 "$LEDGER_FILE" | jq -e '.kind == "closed"' >/dev/null 2>&1; then
+  if [[ ! -s "$LEDGER_FILE" ]]; then
     die "a batch's first ledger line needs --scope-spec or --scope-issues (recovery rebuilds members from it)"
   fi
+fi
+
+# The handoff directory is the batch-scoped resource shared by every stage. Reserving
+# it atomically before the first ledger append prevents concurrent sessions from
+# mixing one batch-id's ledger and handoffs.
+if [[ ! -e "$LEDGER_FILE" ]] && ! mkdir ".afk/${BATCH_ID}" 2>/dev/null; then
+  die "batch-id path is already reserved; use a new unique batch-id: $BATCH_ID"
 fi
 
 jq -nc \

@@ -1,6 +1,6 @@
 ---
 name: generate-script
-description: 调用项目配置的文本模型生成 JSON 剧本（同时产出每个分镜的 image_prompt 与 video_prompt）。由 create-episode-script subagent 调用。读取 step1 中间文件和 project.json，输出符合 Pydantic schema 的剧本。
+description: 调用项目配置的文本模型生成 JSON 剧本（同时产出每个分镜的 image_prompt 与 video_prompt）。由 create-episode-script 子任务调用。读取 step1 中间文件和 project.json，输出符合 Pydantic schema 的剧本。
 user-invocable: false
 ---
 
@@ -15,14 +15,14 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 1. 项目目录下存在 `project.json`（含 style / overview / characters / scenes / props）
 2. 已完成 Step 1 预处理（按项目 `generation_mode` 选择一种中间文件）：
-   - narration（storyboard + 说书，含 grid_storyboard）：`drafts/episode_N/step1_segments.json`（结构化片段：逐字 novel_text + 时长 + segment_break + 出场角色 / 场景 / 道具）
-   - drama（storyboard + 剧集动画，含 grid_storyboard）：`drafts/episode_N/step1_normalized_script.json`（结构化内容；step1 已定稿口播 utterances / 原文锚 source_text / 视觉改编描述，step2 透传 + 补视觉，见 ADR 0041）
+   - narration（storyboard + 旁白/解说，含 grid_storyboard）：`drafts/episode_N/step1_segments.json`（结构化片段：逐字 novel_text + 时长 + segment_break + 出场角色 / 场景 / 道具）
+   - drama（storyboard + 剧情演绎，含 grid_storyboard）：`drafts/episode_N/step1_normalized_script.json`（结构化内容；step1 已定稿口播 utterances / 原文锚 source_text / 视觉改编描述，step2 透传 + 补视觉，见 ADR 0041）
    - reference_video（参考生视频）：`drafts/episode_N/step1_reference_units.json`
    - **ad（广告/短片）例外**：不需要任何 step1 中间文件——创作输入是 `project.json` 的
      `brief` + `products`（含 selling_points）+ `target_duration`，prompt 由后端按审定的
      带货八段框架配比表构建（`products` 为空自动分流通用短片 prompt）
-3. **有 step1 的骨架（drama / narration / reference_video）须先经 web 审核 gate 确认**：step1 结构化中间态在 Web 端审阅、可手动 / agent 编辑，**显式确认后**本工具才生成 step2 视觉层。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主 agent 调用 `mcp__arcreel__confirm_script_review({"episode": N})`。未确认（或确认后内容又被改）时本工具拒绝；存量项目（已生成过本集剧本）已 grandfather 放行。reference_video 同样纳入该 gate（其 step1 是 `step1_reference_units.json`），只有 ad（无 step1）不适用。其中 reference_video 的正式 step1 **agent 不可用 Write/Edit 直改**（与 Web 端保存共享一把文件锁，agent 的文件工具取不到）：改动经 `mcp__arcreel__open_reference_step1_for_edit` 取回隔离草稿、改完由 `mcp__arcreel__validate_and_promote_reference_draft` 晋升回正式文件，详见 `split-reference-video-units` subagent。
-4. **reference_video 的违约产物走隔离草稿，不丢弃重抽**：step1 拆分或 step2 视觉展开的产出违反书写层约束时，正式文件不写，产出连同逐条违约报告落到 `drafts/episode_N/step1_reference_units.invalid.json` / `step2_reference_script.invalid.json`。隔离草稿在场期间本工具拒绝生成。处置方式是 Read 草稿 → 按 `violations[]` 的 unit 定位与违约类 Edit `content.units[i]` → 调 `mcp__arcreel__validate_and_promote_reference_draft({"episode": N})` 晋升，仍违约则继续改再晋升，无轮次上限。
+3. **有 step1 的骨架（drama / narration / reference_video）须先经 web 审核 gate 确认**：step1 结构化中间态在 Web 端审阅、可手动 / agent 编辑，**显式确认后**本工具才生成 step2 视觉层。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主 agent 调用 `mcp__arcreel__confirm_script_review({"episode": N})`。未确认（或确认后内容又被改）时本工具拒绝；存量项目（已生成过本集剧本）已 grandfather 放行。reference_video 同样纳入该 gate（其 step1 是 `step1_reference_units.json`），只有 ad（无 step1）不适用。其中 drama 与 reference_video 的正式 step1 **agent 不可用 Write/Edit 直改**（与 Web 端保存共享一把文件锁，agent 的文件工具取不到）：改动经 `mcp__arcreel__open_step1_for_edit` 取回隔离草稿、改完由 `mcp__arcreel__validate_and_promote_draft` 晋升回正式文件，详见 `normalize-drama-script` / `split-reference-video-units` 子任务。
+4. **reference_video 的违约产物走隔离草稿，不丢弃重抽**：step1 拆分或 step2 视觉展开的产出违反书写层约束时，正式文件不写，产出连同逐条违约报告落到 `drafts/episode_N/step1_reference_units.invalid.json` / `step2_reference_script.invalid.json`。隔离草稿在场期间本工具拒绝生成。处置方式是 Read 草稿 → 按 `violations[]` 的 unit 定位与违约类 Edit `content.units[i]` → 调 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 晋升，仍违约则继续改再晋升，无轮次上限。drama 的隔离草稿（`step1_normalized_script.invalid.json`）来自取回编辑而非违约产出，处置路径同上，改的是 `content.scenes[i]`。
 
 ## 用法
 
@@ -53,8 +53,8 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
    - reference_video（narration/drama 下）→ `ReferenceVideoScript`（含 `video_units[]`）
    - narration → step2 走两段式：LLM 的 `response_schema` 是 `NarrationVisualEpisodeScript`（仅 `segment_id` + image_prompt + video_prompt），后端按 `segment_id` 把视觉层合并回 step1 的结构化片段（novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具透传），得到完整 `NarrationEpisodeScript`。novel_text 不进 LLM 输出 → 不发生扩写漂移
    - drama（storyboard，含 grid_storyboard）→ **两段式**：LLM 输出 `DramaVisualScript`（仅 `scene_id` + image_prompt + video_prompt），后端按 scene_id 把视觉层合并回 step1 已定稿内容（`step1_normalized_script.json` 的 utterances / source_text / 出场资产 / 时长 / 边界透传不变），合并结果即 `DramaEpisodeScript`。非视觉字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移（见 ADR 0041）
-6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、统计信息（片段 / 场景 / unit 数、总时长）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
-   - 注：**任何骨架的剧本都不写入顶层 `generation_mode`**。生成路线是项目级事实（`project.json` 的 `generation_mode`，创建时锁定），剧本骨架种类本身即路线的体现；消费方一律读 `project.json` 分派，不得从剧本上找该字段。
+6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
+   - 注：**任何骨架的剧本都不写入顶层 `generation_mode`**。生成模式是项目级事实（`project.json` 的 `generation_mode`，创建时锁定），剧本骨架种类本身即生成模式的体现；消费方一律读 `project.json` 分派，不得从剧本上找该字段。
 
 ## 输出格式
 
@@ -64,13 +64,14 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 - `episode` / `content_mode` / `novel`（含 title、chapter）：由后端 `_add_metadata` 注入，不依赖 LLM 输出
 - narration 模式：`segments[]`（每个片段含 novel_text、duration_seconds、segment_break、出场角色 / 场景 / 道具 —— 由 step1 透传；image_prompt、video_prompt —— 由 step2 生成）
 - drama 模式：`scenes[]`（每个场景含 image_prompt、video_prompt、duration_seconds，以及 step1 透传的 utterances、source_text、characters_in_scene 等）
-- ad 模式：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等），`metadata.total_shots`；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
-- reference_video 模式：`video_units[]`（每个 unit 含 `shots[]`、`references[]`、`duration_seconds` 等），`metadata.total_units`
-- `metadata`：total_segments / total_scenes、created_at、generator
-- `duration_seconds`：全集总时长（秒），由后端按各分镜时长求和重算
+- ad 模式：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等）；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
+- reference_video 模式：`video_units[]`（每个 unit 含 `text`、`duration_seconds` 等）
+- `metadata`：created_at、updated_at、generator
+
+条目数与全集总时长不落盘：它们逐读剧本即得，由项目摘要读时计算，落一份只会与正文漂移。
 
 ## `--dry-run` 输出
 
 打印将发送给文本模型的完整 prompt 文本，不调用 API、不写文件。用于检查 prompt 质量和长度。
 
-> 两种生成模式（storyboard / reference_video）在 narration / drama 下的数据路径、预处理 subagent、schema 选择详见 `.claude/references/generation-modes.md`；ad 的路径见 `CLAUDE.ad.md`。
+> 两种生成模式（storyboard / reference_video）在 narration / drama 下的数据路径、预处理子任务、schema 选择详见 `.claude/references/generation-modes.md`；ad 的路径见 `CLAUDE.ad.md`。

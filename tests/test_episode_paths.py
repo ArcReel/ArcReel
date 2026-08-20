@@ -1,7 +1,7 @@
 """step1 / episode 路径单一真相源的行为测试。
 
 只测外部可观察契约：结构化 step1 文件名解析、旧版 .md 兼认边界、episode 剧本路径，
-以及"新增 content_mode 登记一处即被 gate / web / 状态计算共同覆盖"这一收敛不变量。
+以及"新增 content_mode 登记一处即被 gate / web / agent 写盘共同覆盖"这一收敛不变量。
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from lib import episode_paths, script_review, status_calculator
+from lib import episode_paths, script_review
 from server.agent_runtime.sdk_tools import text_generation
 from server.routers import files
 
@@ -46,8 +46,12 @@ def test_episode_drafts_dir():
     assert episode_paths.episode_drafts_dir(Path("/p"), 2) == Path("/p/drafts/episode_2")
 
 
-def test_new_content_mode_registered_once_covers_gate_web_and_status(monkeypatch, tmp_path):
-    """在 STEP1_FILENAMES 登记一处新模式，gate 路径、web 步骤文件、状态草稿探测应自动一致。"""
+def test_new_content_mode_registered_once_covers_gate_web_and_agent(monkeypatch, tmp_path):
+    """在 STEP1_FILENAMES 登记一处新模式，gate 路径、web 步骤文件、agent 写盘路径应自动一致。
+
+    该集的脚本进度（``script_status``）由项目摘要按 step1 与正式脚本的产物态派生，探测的
+    正是这里的 gate 路径，故不再有第四条独立的候选名表需要同步。
+    """
     monkeypatch.setitem(episode_paths.STEP1_FILENAMES, "docudrama", "step1_docu.json")
 
     # 审核 gate：step1_path 指向登记的结构化文件名
@@ -64,12 +68,9 @@ def test_new_content_mode_registered_once_covers_gate_web_and_status(monkeypatch
     assert resolved is not None
     assert resolved[0] == tmp_path / "drafts" / "episode_1" / "step1_docu.json"
 
-    # 状态计算：新模式的草稿探测覆盖登记的结构化文件名
-    assert "step1_docu.json" in status_calculator._draft_candidates("docudrama")
-
 
 def test_ad_has_no_structured_step1_across_web_and_agent(tmp_path):
-    """ad 不走结构化 step1：web 步骤映射为空、agent 写盘解析为 None（与状态计算显式排除同口径）。"""
+    """ad 不走结构化 step1：web 步骤映射为空、agent 写盘与 gate 路径解析均为 None。"""
     # web 草稿读写：ad 不误落 drama 文件名，返回空映射；ad 优先于 generation_mode，
     # 带 reference_video 戳同样无 step1（与 _resolve_step1_path 先判 ad 同序）
     assert files._get_step_files("ad") == {}
@@ -78,38 +79,44 @@ def test_ad_has_no_structured_step1_across_web_and_agent(tmp_path):
     assert (
         text_generation._resolve_step1_path(tmp_path, 1, {"content_mode": "ad", "episodes": [{"episode": 1}]}) is None
     )
-    # 状态计算：ad 无草稿可探测
-    assert status_calculator._draft_candidates("ad") == ()
+    # gate：ad 无结构化 step1 可探测，该集的脚本进度因此不会被判为"已分段"
+    assert script_review.step1_path(tmp_path, {"content_mode": "ad", "episodes": [{"episode": 1}]}, 1) is None
 
 
-def test_gate_only_json_status_and_web_also_md():
-    """gate 只认结构化 .json；状态计算与 web 读取兼认旧版 .md（既有语义差异）。"""
+def test_gate_only_json_and_web_also_md():
+    """gate 只认结构化 .json；web 读取兼认旧版 .md（既有语义差异，见 ADR 0041）。"""
     # gate 的登记表不含任何 .md
     assert all(name.endswith(".json") for name in episode_paths.STEP1_FILENAMES.values())
     # web 读取候选含旧 .md
     assert "step1_segments.md" in episode_paths.step1_read_candidates("narration")
-    # 状态计算：narration 旧 .md 认作已分段，drama 旧 .md 不认（见 ADR 0041）
-    assert "step1_segments.md" in status_calculator._draft_candidates("narration")
-    assert "step1_normalized_script.md" not in status_calculator._draft_candidates("drama")
+    assert "step1_normalized_script.md" in episode_paths.step1_read_candidates("drama")
 
 
-def test_draft_candidates_reference_video_across_content_modes():
-    """rv 是跨 content_mode 的 generation_mode 维度：narration/drama 项目挂 rv 后，状态计算的
-    草稿探测都应改落 rv 专属结构化文件名，而非各自 content_mode 对应名（回归：此前遗漏 generation_mode
-    参数，rv 项目的 step1_reference_units.json 永远探测不到，script_status 停留 none）。
-
-    候选名同时含正式文件与隔离草稿文件：首次拆分未过校验时只产出隔离草稿、正式文件从未写过，
-    只探正式文件名会让 script_status 停在 none，web 路由落到没有隔离态预览面板的旧视图。
+def test_step1_path_follows_reference_video_across_content_modes(tmp_path):
+    """rv 是跨 content_mode 的 generation_mode 维度：narration/drama 项目挂 rv 后，gate 路径都改落
+    rv 专属结构化文件名，而非各自 content_mode 对应名——该集脚本进度的产物态探测同走这条路径。
     """
-    assert status_calculator._draft_candidates("narration", "reference_video") == (
-        episode_paths.REFERENCE_VIDEO_STEP1_FILENAME,
-        episode_paths.REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+    for content_mode in ("narration", "drama"):
+        project = {"content_mode": content_mode, "generation_mode": "reference_video", "episodes": [{"episode": 1}]}
+        assert script_review.step1_path(tmp_path, project, 1) == (
+            episode_paths.episode_drafts_dir(tmp_path, 1) / episode_paths.REFERENCE_VIDEO_STEP1_FILENAME
+        )
+        # 首轮拆分未过校验时只产出隔离草稿、正式文件从未写过：隔离草稿另有探测位，
+        # 该集因此仍被判为"已分段"，而不是退回源文审阅。
+        assert script_review.step1_quarantine_path(tmp_path, project, 1) == (
+            episode_paths.episode_drafts_dir(tmp_path, 1) / episode_paths.REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME
+        )
+
+    # 未挂 rv 的项目沿用 content_mode 既有文件名，不受影响
+    assert script_review.step1_path(tmp_path, {"content_mode": "narration", "episodes": [{"episode": 1}]}, 1) == (
+        episode_paths.episode_drafts_dir(tmp_path, 1) / episode_paths.step1_filename("narration")
     )
-    assert status_calculator._draft_candidates("drama", "reference_video") == (
-        episode_paths.REFERENCE_VIDEO_STEP1_FILENAME,
-        episode_paths.REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+    # ad 优先于 generation_mode：即便挂 rv 也无结构化 step1（与 gate/web 同口径，见上一测试）
+    assert (
+        script_review.step1_path(
+            tmp_path,
+            {"content_mode": "ad", "generation_mode": "reference_video", "episodes": [{"episode": 1}]},
+            1,
+        )
+        is None
     )
-    # 未传 generation_mode（向后兼容）沿用 content_mode 既有候选，不受影响
-    assert status_calculator._draft_candidates("narration") == status_calculator._draft_candidates("narration", None)
-    # ad 优先于 generation_mode：即便挂 rv 也无草稿可探测（与 gate/web 同口径，见上一测试）
-    assert status_calculator._draft_candidates("ad", "reference_video") == ()

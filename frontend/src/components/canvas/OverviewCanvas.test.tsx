@@ -53,6 +53,41 @@ describe("OverviewCanvas", () => {
     expect(screen.getByText("Demo")).toBeInTheDocument();
   });
 
+  it("reports the storyboard count per episode on the storyboard route", () => {
+    // 分镜路线上三种创作类型同一口径：广告/短片也报分镜数，不再另说一套。
+    render(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({
+          content_mode: "ad",
+          brief: "一支 30 秒广告",
+          generation_mode: "storyboard",
+          episodes: [
+            { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", item_count: 3 },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/3 分镜 ·/)).toBeInTheDocument();
+  });
+
+  it("reports the video unit count per episode on the reference route", () => {
+    render(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({
+          generation_mode: "reference_video",
+          episodes: [
+            { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", item_count: 3 },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/3 视频单元 ·/)).toBeInTheDocument();
+  });
+
   it("shows welcome canvas when there is no overview and no episodes", () => {
     render(
       <OverviewCanvas
@@ -422,7 +457,7 @@ describe("OverviewCanvas", () => {
 
     render(<OverviewCanvas projectName="real-project" projectData={makeProjectData()} />);
 
-    expect(screen.getByText("历史支出（未归属当前剧本）")).toBeInTheDocument();
+    expect(screen.getByText("历史支出（未归属当前脚本）")).toBeInTheDocument();
     expect(screen.getAllByText("$1.25").length).toBeGreaterThanOrEqual(2);
   });
 

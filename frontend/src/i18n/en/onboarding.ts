@@ -22,7 +22,7 @@ export default {
   'workbench_timeline_title': 'Shot canvas',
   'workbench_timeline_body': 'Each episode\'s shots are laid out on a timeline, with their image prompt, storyboard frame, and video. Generate the storyboard frame first to confirm the composition, then generate the video; any single shot can be regenerated at any time.',
   'workbench_export_title': 'Export',
-  'workbench_export_body': 'When production is done, export a JianYing draft from the top bar to continue editing, or download the whole project as an archive. The demo project has no finished footage, so the export button is unavailable.',
+  'workbench_export_body': 'When production is done, export a Jianying draft from the top bar to continue editing, or download the whole project as an archive. The demo project has no finished footage, so the export button is unavailable.',
   'finish_title': 'Start your first project',
   'finish_body': 'Create a project and import a novel or script to start production. This tour is available any time under Settings → About.',
 

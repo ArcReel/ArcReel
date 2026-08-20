@@ -48,6 +48,7 @@ describe("AgentCopilot", () => {
   // Mocks whose callers wrap them with voidPromise must return a Promise
   // so the .catch(...) chain in voidPromise resolves instead of crashing.
   const sendMessage = vi.fn().mockResolvedValue(undefined);
+  const rewriteMessage = vi.fn().mockResolvedValue(true);
   const answerQuestion = vi.fn().mockResolvedValue(undefined);
   const interrupt = vi.fn().mockResolvedValue(undefined);
   const createNewSession = vi.fn();
@@ -63,6 +64,7 @@ describe("AgentCopilot", () => {
     useProjectsStore.getState().setCurrentProject("demo", null);
     mockedUseAssistantSession.mockReturnValue({
       sendMessage,
+      rewriteMessage,
       answerQuestion,
       interrupt,
       createNewSession,
@@ -80,7 +82,7 @@ describe("AgentCopilot", () => {
     render(<AgentCopilot />);
 
     expect(screen.getByText("需要你的选择")).toBeInTheDocument();
-    expect(screen.getByLabelText("助手输入")).toBeDisabled();
+    expect(screen.getByLabelText("智能体输入")).toBeDisabled();
     expect(screen.getByLabelText("发送消息")).toBeDisabled();
     expect(screen.getByPlaceholderText("请先回答上方问题")).toBeInTheDocument();
   });
@@ -126,7 +128,7 @@ describe("AgentCopilot", () => {
   it("does not send when Enter is used to confirm an IME composition", () => {
     render(<AgentCopilot />);
 
-    const textarea = screen.getByLabelText("助手输入");
+    const textarea = screen.getByLabelText("智能体输入");
     fireEvent.change(textarea, { target: { value: "你好" } });
 
     fireEvent.compositionStart(textarea);
@@ -158,7 +160,7 @@ describe("AgentCopilot", () => {
       useAssistantStore.getState().setInput("为第 1 集生成剧本");
     });
 
-    expect(screen.getByLabelText("助手输入")).toHaveValue("为第 1 集生成剧本");
+    expect(screen.getByLabelText("智能体输入")).toHaveValue("为第 1 集生成剧本");
 
     await waitFor(() => {
       expect(useAssistantStore.getState().input).toBe("");
