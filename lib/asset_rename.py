@@ -119,7 +119,7 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
                     count += 1
                     continue
                 if key in ("shots", "units", "video_units") and isinstance(value, list):
-                    # 参考路线的 mention 落在 unit 正文（``video_units[].text``，隔离草稿里是
+                    # 参考路线的 mention 落在 unit 正文（``video_units[].text``，草稿里是
                     # ``units[].text``）；ad 分镜的 shot 还带引用数组与 video_prompt.dialogue，
                     # 继续下钻由通用规则处理。
                     for item in value:

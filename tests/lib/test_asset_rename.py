@@ -642,7 +642,7 @@ class TestRenameAssetCascade:
         assert (chars / f"{nfc}.png").read_bytes() == b"nfc"
 
     def test_quarantine_drafts_rewritten(self, pm: ProjectManager) -> None:
-        """隔离草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。
+        """草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。
 
         草稿装的是扁平引用语法产物：mention 落在 ``content.units[].text``，结构字段（``shots`` /
         ``references``）尚未派生，按信封原形构造（见 lib/draft_quarantine.py）。

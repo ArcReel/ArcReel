@@ -102,7 +102,7 @@ def _split_pair(raw: object) -> tuple[str, str] | None:
     """解析 ``"<provider>/<model>"`` → (provider, model)；不合法返回 None。
 
     provider 或 model 为空/纯空白（如 ``"openai/"`` / ``"/m"``）均视为不合法返回 None，
-    交由调用方走裸 provider 补默认 model 或回退——避免把空 model 带到执行层。"""
+    交由调用方走裸供应商补默认 model 或回退——避免把空 model 带到执行层。"""
     if not isinstance(raw, str) or "/" not in raw:
         return None
     provider, model = raw.split("/", 1)
@@ -113,19 +113,19 @@ def _split_pair(raw: object) -> tuple[str, str] | None:
 
 
 def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | None:
-    """解析 project.json 的 provider 字段，兼容裸 provider 覆盖。
+    """解析 project.json 的 provider 字段，兼容裸供应商覆盖。
 
     - ``"provider/model"`` → (provider, model)
     - 裸 ``"provider"``（registry 中存在且有该 media_type 默认 model）→ (provider, 默认 model)
     - 其余 → None（交由全局默认解析）
 
-    裸 provider 经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
-    pin 住该 provider 并补全其默认 model，避免静默回退到全局默认的**另一**供应商。"""
+    裸供应商经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
+    pin 住该供应商并补全其默认 model，避免静默回退到全局默认的**另一**供应商。"""
     pair = _split_pair(raw)
     if pair is not None:
         return pair
     if isinstance(raw, str):
-        # 裸 provider，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该 provider 默认 model
+        # 裸供应商，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该供应商默认 model
         provider = raw.strip().rstrip("/").strip()
         if provider:
             model = default_model_for_provider(provider, media_type)
@@ -135,7 +135,7 @@ def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | N
 
 
 def _trusted_payload_provider(provider_id: object) -> str | None:
-    """返回可信任的规范 provider_id（已知 provider），否则 None。
+    """返回可信任的规范 provider_id（已知供应商），否则 None。
 
     payload 是解析链唯一绕过写边界校验的输入来源（in-flight 队列任务在旧代码入队时即序列化）。
     据此守卫：非字符串 / 空白 / 不可识别的 provider（如 legacy ``seedance``/``vertex``）一律不予
@@ -309,7 +309,7 @@ def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
     纯读 project.json、不查 DB，供 caps 解析失败（DB / migration 故障等）时的降级路径复用：
     桶键与默认键都在同一个明文文件里，降级只该丢掉 DB 那部分，不该顺带把桶口径也降成项目
     默认层——否则配了 ``video_provider_r2v`` 的参考视频项目会拿 ``video_backend`` 的档位与
-    参考图上限写剧本。层内取值口径与 ``_resolve_layered_backend`` 的项目层一致（含裸 provider
+    参考图上限写剧本。层内取值口径与 ``_resolve_layered_backend`` 的项目层一致（含裸供应商
     覆盖）。
     """
     keys = _VIDEO_LAYERED_KEYS[video_bucket_for_generation_mode(project.get("generation_mode"))]
@@ -1065,7 +1065,7 @@ class ConfigResolver:
         """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
 
         媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。项目层
-        字段兼容裸 provider 覆盖（``_parse_project_provider``）；全局层要求 ``provider/model``
+        字段兼容裸供应商覆盖（``_parse_project_provider``）；全局层要求 ``provider/model``
         完整形态。payload 层与运行时身份收敛（如视频自定义供应商的有效身份收敛）不属于
         骨架，由各媒体的调用方在骨架外处理。
         """
@@ -1099,8 +1099,8 @@ class ConfigResolver:
 
         payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider`` /
         ``image_model`` 键——按该格式序列化的任务据此解析。图片任务不锁定执行身份（任务周期
-        短，排队期间配置漂移的窗口小），故 payload 层无任务类型桶键。payload provider 须是已知
-        provider（见
+        短，排队期间配置漂移的窗口小），故 payload 层无任务类型桶键。payload 供应商须是已知
+        供应商（见
         ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
         键位见 ``_IMAGE_LAYERED_KEYS``）。
         """
@@ -1127,7 +1127,7 @@ class ConfigResolver:
 
         payload 层只认已物化的任务类型桶键（``video_provider_<cap>`` 复合值，见
         ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
-        （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信 provider——
+        （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信供应商——
         供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
         """
         if payload:
@@ -1292,7 +1292,7 @@ class ConfigResolver:
         """payload > project > 全局默认 三级解析音频 ProviderModel。
 
         payload 层服务于历史任务（携带 ``audio_provider`` + ``audio_model``）的排空。payload
-        provider 须是已知 provider（见 ``_trusted_payload_provider``），否则回退 project/global。
+        供应商须是已知供应商（见 ``_trusted_payload_provider``），否则回退 project/global。
         """
         if payload:
             provider_id = _trusted_payload_provider(payload.get("audio_provider"))

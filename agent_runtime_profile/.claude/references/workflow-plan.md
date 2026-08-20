@@ -81,9 +81,9 @@ mcp__arcreel__get_workflow_plan({
 | `prepare_step1` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
 | `confirm_step1` | `mcp__arcreel__confirm_script_review` |
 | `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
-| `generate_asset_sheets` | `mcp__arcreel__generate_assets`，逐类型传 `names` |
-| `generate_storyboards` | `mcp__arcreel__generate_storyboards`，传 `segment_ids` |
-| `generate_grid` | `mcp__arcreel__generate_grid`，传 `scene_ids` |
+| `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
+| `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
+| `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |
 | `repair_video_units` | `mcp__arcreel__get_episode_script_revision` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
 | `patch_episode_script` | 计划注入：`next_action.args` 已给 `expected_revision` 与逐条 `problems`，一次批量改完 |
 | `choose_narration_delivery` | 计划注入：见「旁白交付」 |

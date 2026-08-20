@@ -525,7 +525,7 @@ class ScriptGenerator:
             visual_data = self._parse_narration_visual(response_text, episode)
             script_data = self._merge_narration_visual(narration_step1, visual_data, episode)
         elif reference_step1 is not None:
-            # 违约不丢弃：把这次已付费的展开连同逐条报告落隔离草稿，由 agent 修复后经
+            # 违约不丢弃：把这次已付费的展开连同逐条报告落待修复草稿，由 agent 修复后经
             # promote_reference_step2_draft 重判晋升。重抽既烧钱又不收敛——同一个模型对同一份
             # step1 大概率再犯同一类错。
             try:
@@ -921,13 +921,13 @@ class ScriptGenerator:
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
         step1_json = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
-        # 隔离草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
+        # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
         # 待处置的违约产出静默换成旧内容。审阅 gate 已在工具入口按同一判据阻塞，这里是直连
         # 调用（脚本 / 测试 / 未来的其它入口）的兜底。
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP1)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集 step1 有隔离草稿待处置（{quarantine}），step2 生成已中止；"
+                f"第 {episode} 集有待修复草稿（{quarantine}），step2 生成已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 step1"
             )
         if not step1_json.exists():
@@ -1091,13 +1091,13 @@ class ScriptGenerator:
         须在此 fail-fast，否则坏 step1 会被当成空剧本静默落盘、scene_id 撞键拖到产物文件名 / 资产键才暴露，
         或在 render/merge 阶段抛内部异常而非明确的 step1 校验错误。
         """
-        # 隔离草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
+        # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
         # 待处置的产出静默换成旧内容。审阅 gate 已在工具入口按同一判据阻塞，这里是直连调用
         # （脚本 / 测试 / 未来的其它入口）的兜底，与参考路线同口径。
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集 step1 有隔离草稿待处置（{quarantine}），step2 生成已中止；"
+                f"第 {episode} 集有待修复草稿（{quarantine}），step2 生成已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 step1"
             )
         raw = self._load_step1(episode)
@@ -1134,7 +1134,7 @@ class ScriptGenerator:
     ) -> None:
         """step2 落盘前对 step1 现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
 
-        产出路径（付费调用前）与晋升路径（隔离草稿重判前）共用这一份：晋升期间用户可能在 Web
+        产出路径（付费调用前）与晋升路径（待修复草稿重判前）共用这一份：晋升期间用户可能在 Web
         端改过 step1，两处口径若分叉，就会出现「晋升放行、下次生成被拒」或反过来的死角。
         """
         for unit in step1_units:
@@ -1214,7 +1214,7 @@ class ScriptGenerator:
         接受：台词配不上画面时正确的出路是回到 step1 重拆，而不是让 step2 自行改词。
 
         逐 unit 的违约收齐后一次抛出（``DraftViolations``），供调用方把整份产出连同报告落到
-        隔离草稿——单条抛出会让 agent 每修一个 unit 就要重跑一次付费的展开。
+        待修复草稿——单条抛出会让 agent 每修一个 unit 就要重跑一次付费的展开。
 
         ``unit_id`` / ``duration_seconds`` 直接取 step1 的值，参考图不落盘、执行期再从正文
         派生——LLM 没写这些字段，也就没有对不上的可能。
@@ -1268,10 +1268,10 @@ class ScriptGenerator:
         return ReferenceVideoScript.model_validate({"title": flat.title, "video_units": video_units}).model_dump()
 
     def _step2_flat_content(self, response_text: str, episode: int) -> dict:
-        """把 step2 响应还原成隔离草稿要装的扁平形状 ``{title, units: [{text}]}``。
+        """把 step2 响应还原成待修复草稿要装的扁平形状 ``{title, units: [{text}]}``。
 
         与 ``_merge_reference_visual`` 的解析前置（去代码围栏 → title 兜底 → schema 校验）
-        逐步同口径：隔离草稿装的必须是「schema 已过、只是内容违约」的那份产物，否则 agent
+        逐步同口径：待修复草稿装的必须是「schema 已过、只是内容违约」的那份产物，否则 agent
         改的正文与合并时读的正文形状不同。
         """
         data = json.loads(strip_json_code_fences(response_text))
@@ -1282,7 +1282,7 @@ class ScriptGenerator:
         return ReferenceStep2FlatScript.model_validate(data).model_dump()
 
     def _quarantine_reference_step2(self, episode: int, response_text: str, exc: DraftViolation) -> DraftViolation:
-        """把违约的 step2 产出与报告落隔离草稿，返回携带报告的违约异常（由调用方抛出）。
+        """把违约的 step2 产出与报告落待修复草稿，返回携带报告的违约异常（由调用方抛出）。
 
         返回而不是自己抛：调用点用 ``raise ... from exc`` 保留原始违约链，异常在此被构造却在
         彼处抛出会让 traceback 指向本函数而非合并逻辑。
@@ -1299,7 +1299,7 @@ class ScriptGenerator:
         )
 
     async def promote_reference_step2_draft(self, episode: int, output_filename: str | None = None) -> Path:
-        """按产出时那套校验器全量重判 step2 隔离草稿，通过则晋升为正式剧本并清除草稿。
+        """按产出时那套校验器全量重判 step2 待修复草稿，通过则晋升为正式剧本并清除草稿。
 
         重判用的是 ``_merge_reference_visual`` 本身，不是它的简化副本：晋升口径与产出口径必须
         同一份代码，否则「晋升时放行、下次生成时被拒」这类分叉会重新出现。step1 一并重读——
@@ -1311,7 +1311,7 @@ class ScriptGenerator:
         draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
         if draft is None:
             raise FileNotFoundError(
-                f"第 {episode} 集没有可晋升的 step2 隔离草稿"
+                f"第 {episode} 集没有可晋升的 step2 待修复草稿"
                 f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)} 缺失或内容不是合法信封）"
             )
 
@@ -1358,7 +1358,7 @@ class ScriptGenerator:
                     content=draft.content,
                     violations=[
                         DraftViolation(
-                            f"隔离草稿的 content 不符合 step2 产出结构：{exc}",
+                            f"待修复草稿的 content 不符合 step2 产出结构：{exc}",
                             code="schema_invalid",
                         )
                     ],
@@ -1600,7 +1600,7 @@ class ScriptGenerator:
                 if unit_tiers is not None:
                     # 生效档位收窄到已确认值之外：不静默取档改写——用户审阅通过的时长/费用不被
                     # 换成从未过目的值落盘。抛内容违约（而非裸 ValueError）让 reference 路径把这
-                    # 份已付费产出落隔离草稿：成因通常是该次生成给这个 unit 新增/去掉了 `@` 引用，
+                    # 份已付费产出落待修复草稿：成因通常是该次生成给这个 unit 新增/去掉了 `@` 引用，
                     # 改一改草稿正文的引用即可修好，不该退回丢弃重抽。
                     raise DraftViolation(
                         f"unit {s[id_field]} 已确认时长 {target_duration}s 不在当前生效档位 "

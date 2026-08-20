@@ -6984,7 +6984,7 @@ _RV_NOVEL = "张三在村口等人"
 
 
 def _rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video") -> None:
-    """把项目声明成参考生视频路径——隔离草稿的拆分 / 晋升 / 阻塞判定都以此为前提。
+    """把项目声明成参考生视频路径——草稿的拆分 / 晋升 / 阻塞判定都以此为前提。
 
     盘上的 project.json 与 pm 的内存视图同步：生成入口从盘上读，晋升工具经 ``pm.load_project`` 读。
     """
@@ -7147,7 +7147,7 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "生效档位" in text and "[8]" in text
-    # 与其余违约类同口径落隔离草稿：档位越界同样是 agent 改一改草稿就能修好的内容违约
+    # 与其余违约类同口径落草稿：档位越界同样是 agent 改一改草稿就能修好的内容违约
     assert not _rv_step1_path(fake_ctx).exists()
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["duration_off_tier"]
 
@@ -7238,7 +7238,7 @@ async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> N
 
 
 # ---------------------------------------------------------------------------
-# 隔离草稿与修复晋升闭环（step1）
+# 草稿与修复晋升闭环（step1）
 # ---------------------------------------------------------------------------
 
 
@@ -7261,7 +7261,7 @@ async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
 
 #: 六类阻断违约的最小触发样例（违约类 → 扁平 unit），共 7 条：「``@[X]`` 未登记」一类按出现位置
 #: 拆成描述位（unregistered_asset）与台词记号 speaker 位（unregistered_speaker）两条，两处走不同入口，
-#: 合测会漏掉其中一处。逐类断言「落隔离草稿 + 正式文件干净 + 报告按类定位」，而不是只验其中
+#: 合测会漏掉其中一处。逐类断言「落草稿 + 正式文件干净 + 报告按类定位」，而不是只验其中
 #: 一两类——各类共用同一次遍历，漏测哪一类都可能在该类上退回「丢弃重抽」。
 #: ``duration_off_tier``（时长不在该 unit 引用状态的生效档位内）需要另一套 caps 才触发，
 #: 单列在 ``test_split_reference_video_units_rejects_duration_off_reference_tier``。
@@ -7281,7 +7281,7 @@ _RV_VIOLATION_CASES = [
 async def test_split_reference_video_units_quarantines_each_violation_class(
     fake_ctx: ToolContext, monkeypatch, code: str, unit: dict
 ) -> None:
-    """六类阻断违约逐类：产物落隔离草稿、正式文件不被写出、报告按违约类逐条定位。"""
+    """六类阻断违约逐类：产物落草稿、正式文件不被写出、报告按违约类逐条定位。"""
     _rv_source(fake_ctx)
     out = await _run_rv_split(fake_ctx, monkeypatch, [unit])
 
@@ -7292,7 +7292,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert envelope["kind"] == QUARANTINE_KIND_STEP1
     assert [v["code"] for v in envelope["violations"]] == [code]
     assert envelope["violations"][0]["label"] == "unit E1U01"
-    # 隔离草稿装的是扁平引用语法产物（agent 要改的那一层），不是派生后的落盘形状
+    # 草稿装的是扁平引用语法产物（agent 要改的那一层），不是派生后的落盘形状
     assert envelope["content"]["units"][0]["text"] == unit["text"]
     assert "shots" not in envelope["content"]["units"][0]
 
@@ -7326,7 +7326,7 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
 
 @pytest.mark.unit
 async def test_validate_and_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
-    """agent 修好隔离草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
+    """agent 修好草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
 
@@ -7447,7 +7447,7 @@ async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolCon
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_refuses_to_clobber_existing_draft(fake_ctx: ToolContext, monkeypatch) -> None:
-    """已有隔离草稿在场时不覆盖：那份草稿可能已含 agent 未晋升的修改（或是待处置的违约产物），
+    """已有草稿在场时不覆盖：那份草稿可能已含 agent 未晋升的修改（或是待处置的违约产物），
     拿正式文件盖过去等于抹掉它手上的工作。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
@@ -7557,7 +7557,7 @@ async def test_open_step1_for_edit_records_base_fingerprint(fake_ctx: ToolContex
 
 @pytest.mark.unit
 async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext, monkeypatch) -> None:
-    """「用户在审阅门编辑 + agent 改隔离草稿并晋升」的双端并发：取回后正式文件被另一写入方
+    """「用户在审阅门编辑 + agent 改草稿并晋升」的双端并发：取回后正式文件被另一写入方
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
     留在原地。按报告把 meta.base_fingerprint 更新为现值（显式确认已合并）后方可重新晋升。"""
     _rv_source(fake_ctx)
@@ -7635,7 +7635,7 @@ async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx
 
 @pytest.mark.unit
 async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: ToolContext, monkeypatch) -> None:
-    """拆分违约落隔离草稿时同样记基线：修好晋升前正式文件被并发改写的话按基线中止。
+    """拆分违约落草稿时同样记基线：修好晋升前正式文件被并发改写的话按基线中止。
     首拆时正式文件不存在，基线为 null——晋升时若正式文件已被另一次拆分写出，同样判冲突。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
@@ -7764,7 +7764,7 @@ async def test_validate_and_promote_draft_reports_promotion_not_split(fake_ctx: 
 
 @pytest.mark.unit
 async def test_writing_reference_step1_clears_stale_step2_quarantine(fake_ctx: ToolContext, monkeypatch) -> None:
-    """step1 一变即清掉在场的 step2 隔离草稿：它以旧 step1 为 diff 基底，留着就永远晋升不了。"""
+    """step1 一变即清掉在场的 step2 草稿：它以旧 step1 为 diff 基底，留着就永远晋升不了。"""
     _rv_source(fake_ctx)
     write_quarantine(
         fake_ctx.project_path,
@@ -7787,7 +7787,7 @@ async def test_promote_reference_step1_preserves_step2_draft_when_content_unchan
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """情况 B 中途放弃、原样晋升：取回草稿未改动即晋升，写回的 step1 与盘上原值逐字相同，
-    此时不该清在场的 step2 隔离草稿——它的保结构 diff 仍然对得上这份没变的基底，agent
+    此时不该清在场的 step2 草稿——它的保结构 diff 仍然对得上这份没变的基底，agent
     放弃 step1 修改不该连带销毁一份仍然有效的 step2 修复草稿。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
@@ -7889,14 +7889,14 @@ async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx:
 async def test_validate_and_promote_draft_without_draft(fake_ctx: ToolContext, monkeypatch) -> None:
     out = await _promote(fake_ctx, monkeypatch)
     assert out.get("is_error") is True
-    assert "没有待处置的隔离草稿" in out["content"][0]["text"]
+    assert "没有待处置的草稿" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
 async def test_split_reference_video_units_clears_stale_quarantine_on_success(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """重拆分成功即清掉上一轮的隔离草稿——留着会让 gate 与生成侧继续阻塞在已被取代的产物上。"""
+    """重拆分成功即清掉上一轮的草稿——留着会让 gate 与生成侧继续阻塞在已被取代的产物上。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
     assert _rv_quarantine_path(fake_ctx).exists()
@@ -7965,7 +7965,7 @@ def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
 
 @pytest.mark.unit
 async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolContext) -> None:
-    """隔离草稿在场时 step2 入口阻塞，且给出「改草稿再晋升」而非「去 Web 端确认」的出路。"""
+    """草稿在场时 step2 入口阻塞，且给出「改草稿再晋升」而非「去 Web 端确认」的出路。"""
     _rv_project(fake_ctx)
     step1 = _rv_step1_path(fake_ctx)
     step1.parent.mkdir(parents=True, exist_ok=True)
@@ -7974,7 +7974,7 @@ async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolConte
 
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
-    assert "隔离草稿待处置" in out["content"][0]["text"]
+    assert "草稿待处置" in out["content"][0]["text"]
     assert "validate_and_promote_draft" in out["content"][0]["text"]
 
 
@@ -7988,20 +7988,20 @@ async def test_generate_episode_script_quarantine_precedes_missing_step1(fake_ct
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
-    assert "隔离草稿待处置" in text
+    assert "草稿待处置" in text
     assert "未找到 Step 1 文件" not in text
 
 
 @pytest.mark.unit
 async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake_ctx: ToolContext) -> None:
-    """切走参考路径后残留的隔离草稿与新路径无关：非参考路径不清它们，仍判会把该集永久卡死。"""
+    """切走参考路径后残留的草稿与新路径无关：非参考路径不清它们，仍判会把该集永久卡死。"""
     _rv_project(fake_ctx, generation_mode="storyboard")
     _write_rv_quarantine(fake_ctx)
 
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
-    # 卡在「缺 narration step1」这道常规校验上，而不是参考路径的隔离草稿
-    assert "隔离草稿待处置" not in out["content"][0]["text"]
+    # 卡在「缺 narration step1」这道常规校验上，而不是参考路径的草稿
+    assert "草稿待处置" not in out["content"][0]["text"]
 
 
 # ---------------------------------------------------------------------------
@@ -8201,12 +8201,12 @@ async def test_open_step1_for_edit_rejects_variant_without_draft_channel(fake_ct
     out = await _open_for_edit(fake_ctx)
 
     assert out.get("is_error") is True
-    assert "没有隔离草稿编辑通道" in out["content"][0]["text"]
+    assert "没有草稿编辑通道" in out["content"][0]["text"]
 
 
 @pytest.mark.unit
 async def test_generate_episode_script_blocked_by_drama_quarantine(fake_ctx: ToolContext) -> None:
-    """drama 的 step2 与参考路线同口径：隔离草稿在场即拒绝生成，
+    """drama 的 step2 与参考路线同口径：草稿在场即拒绝生成，
     否则会拿正式文件那份上一版内容静默顶替待处置的正文。"""
     _drama_project(fake_ctx)
     _write_drama_step1(fake_ctx, [_drama_scene()])
@@ -8215,7 +8215,7 @@ async def test_generate_episode_script_blocked_by_drama_quarantine(fake_ctx: Too
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
 
     assert out.get("is_error") is True
-    assert "隔离草稿待处置" in out["content"][0]["text"]
+    assert "草稿待处置" in out["content"][0]["text"]
 
 
 @pytest.mark.unit

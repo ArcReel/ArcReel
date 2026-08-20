@@ -50,7 +50,7 @@ mcp__arcreel__get_video_capabilities({})
 情况 A（首次生成）时由 `mcp__arcreel__split_reference_video_units` 自行查询并注入 prompt，子智能体可不直接使用；
 情况 B（修改已有拆分）需参考这些值决定新值。
 
-工具返回 `is_error: true` 时：若错误文本指向 `*.invalid.json` 待修复草稿，按下方「情况 C：处置待修复草稿」处理；其余错误停止并把错误文本报告给主 agent。
+工具返回 `is_error: true` 时：若错误文本指向 `*.invalid.json` 草稿，按下方「情况 C：处置在场草稿」处理；其余错误停止并把错误文本报告给主 agent。
 
 ### 情况 A：首次生成拆分
 
@@ -77,18 +77,23 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 
 如果结构有问题，按下方**情况 B** 的流程修（取回草稿 → 改 → 晋升），不要用 Edit 直改正式文件。
 
-### 情况 C：处置待修复草稿
+### 情况 C：处置在场草稿
 
-**触发**：`drafts/episode_{N}/step1_reference_units.invalid.json` 存在（拆分或晋升返回了违约报告）。
+**触发**：`drafts/episode_{N}/step1_reference_units.invalid.json` 存在。先读信封里的 `violations[]` 判别用途：
 
-待修复草稿装的是**扁平引用语法产出**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。
+- 非空：它是拆分或晋升产生的待修复草稿，按违约报告逐条修复
+- 为空：它是 `open_step1_for_edit` 取回的可编辑草稿，先应用主 agent 传入的用户修改意见，再校验晋升；不得因为没有违约就原样晋升
 
-1. Read 该草稿，按 `violations[]` 的 `label`（unit 定位）与 `code`（违约类）逐条定位
-2. 用 Edit 直接改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方「修改口径」；`code` 为资产名未登记时，也可改为在 `project.json` 登记该资产、或改用已登记的名称
+同一路径刻意复用为两种草稿工位；`violations[]` 是这里的用途判据。
+
+草稿装的是**扁平引用语法产出**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。
+
+1. Read 该草稿；`violations[]` 非空时按 `label`（unit 定位）与 `code`（违约类）逐条定位，为空时按用户修改意见定位
+2. 用 Edit 直接改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方「修改口径」；处理违约且 `code` 为资产名未登记时，也可改为在 `project.json` 登记该资产、或改用已登记的名称
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 重新全量校验并晋升
 4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具
 
-晋升成功后正式 `step1_reference_units.json` 落盘、待修复草稿自动清除。待修复草稿在场期间审阅门与 step2 生成都被阻塞，处置完才能继续。
+晋升成功后正式 `step1_reference_units.json` 落盘、草稿自动清除。草稿在场期间审阅门与 step2 生成都被阻塞，处置完才能继续。
 
 ### 情况 B：修改已有拆分
 

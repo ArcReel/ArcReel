@@ -98,7 +98,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 | 类型 | 用途 | 示例 |
 |------|------|------|
 | **子智能体（聚焦任务）** | 需要大量上下文或推理分析 → 保护主 agent context | analyze-assets、split-narration-segments |
-| **Skill（在子智能体内调用）** | 确定性脚本执行 → API 调用、文件生成 | generate-script、generate-assets |
+| **Skill（在子智能体内调用）** | 确定性脚本执行 → API 调用、文件生成 | generate-script、generate-storyboard |
 | **主 Agent 直接操作** | 仅限轻量操作 | 读项目状态、简单文件操作、用户交互 |
 
 ### 关键约束

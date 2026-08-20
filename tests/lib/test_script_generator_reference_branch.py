@@ -872,7 +872,7 @@ async def test_step2_missing_title_falls_back_instead_of_failing_the_paid_call(r
 
 
 # ---------------------------------------------------------------------------
-# step2 违约的隔离草稿与修复晋升闭环
+# step2 违约的待修复草稿与修复晋升闭环
 # ---------------------------------------------------------------------------
 
 #: 违约的 step2 展开：引用了未登记的资产名（step1 正文里没有的 @[路人甲]）。
@@ -890,7 +890,7 @@ def _script_path(project: Path) -> Path:
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_step2_violation_quarantines_instead_of_discarding(reference_project: Path):
-    """step2 违约不丢弃这次已付费的展开：产物落隔离草稿、正式剧本不被写出、报告带处置指引。"""
+    """step2 违约不丢弃这次已付费的展开：产物落待修复草稿、正式剧本不被写出、报告带处置指引。"""
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
 
     with pytest.raises(DraftViolation) as excinfo:
@@ -911,7 +911,7 @@ async def test_step2_violation_quarantines_instead_of_discarding(reference_proje
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_promote_step2_draft_after_repair(reference_project: Path):
-    """修好隔离草稿后晋升：正式剧本落盘、草稿清除，结构仍由 step1 + 正文机械合成。"""
+    """修好待修复草稿后晋升：正式剧本落盘、草稿清除，结构仍由 step1 + 正文机械合成。"""
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
     with pytest.raises(DraftViolation):
         await gen.generate(episode=1)
@@ -994,7 +994,7 @@ def _tiers_by_reference_state(with_refs: list[int], without_refs: list[int]):
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_step2_duration_off_tier_after_merge_quarantines(reference_project: Path):
-    """合并之后才判出的档位越界同样落隔离草稿——这份展开已经付过费了。
+    """合并之后才判出的档位越界同样落待修复草稿——这份展开已经付过费了。
 
     step2 可以给 unit 增删 `@` 引用，生效档位随之换一套：step1 那个 4 秒的带图 unit 在展开时
     丢掉了引用，档位就从 [4] 变成 [8]。这一判在 `_add_metadata` 里、在保结构 diff 之后，
@@ -1047,7 +1047,7 @@ async def test_promote_step2_draft_revalidates_edited_step1(reference_project: P
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_promote_step2_draft_without_draft(reference_project: Path):
-    with pytest.raises(FileNotFoundError, match="没有可晋升的 step2 隔离草稿"):
+    with pytest.raises(FileNotFoundError, match="没有可晋升的 step2 待修复草稿"):
         await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
 
 
@@ -1063,5 +1063,5 @@ async def test_step2_refuses_to_run_while_step1_quarantined(reference_project: P
         violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
     )
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT))
-    with pytest.raises(ValueError, match="有隔离草稿待处置"):
+    with pytest.raises(ValueError, match="有待修复草稿"):
         await gen.generate(episode=1)

@@ -5,7 +5,7 @@ LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同�
 判定，任一违约 fail-loud 抛 :class:`DraftViolation`，不把违规产物当成功结果写盘。
 
 「不当成功结果写盘」不等于丢弃：调用侧用 :func:`collect_violations` 把逐 unit 的违约收齐成
-一份报告，产物落隔离草稿（``lib.draft_quarantine``）等 agent 修复后重判，不重抽。
+一份报告，产物落待修复草稿（``lib.draft_quarantine``）等 agent 修复后重判，不重抽。
 每条违约带 ``code``（违约类）与 ``label``（unit 定位），报告因此可逐条定位、可按类断言。
 
 与编辑器侧（人写）的容忍口径分流：``lib.reference_video.script_preview`` 对同样的文本只
@@ -88,7 +88,7 @@ class DraftViolations(DraftViolation):
 
 
 def violation_items(exc: DraftViolation) -> list[DraftViolation]:
-    """把单条或聚合的违约一律摊平成条目列表，供报告渲染与隔离草稿落盘取用。"""
+    """把单条或聚合的违约一律摊平成条目列表，供报告渲染与待修复草稿落盘取用。"""
     return list(exc.items) if isinstance(exc, DraftViolations) else [exc]
 
 
