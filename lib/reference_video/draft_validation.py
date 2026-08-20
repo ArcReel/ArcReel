@@ -5,7 +5,7 @@ LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同�
 判定，任一违约 fail-loud 抛 :class:`DraftViolation`，不把违规产物当成功结果写盘。
 
 「不当成功结果写盘」不等于丢弃：调用侧用 :func:`collect_violations` 把逐 unit 的违约收齐成
-一份报告，产物落待修复草稿（``lib.draft_quarantine``）等 agent 修复后重判，不重抽。
+一份报告，产物落待修复草稿（``lib.draft_quarantine``）等 Agent 修复后重判，不重抽。
 每条违约带 ``code``（违约类）与 ``label``（unit 定位），报告因此可逐条定位、可按类断言。
 
 与编辑器侧（人写）的容忍口径分流：``lib.reference_video.script_preview`` 对同样的文本只
@@ -43,10 +43,10 @@ SPEECH_OVERFLOW_TOLERANCE = 0.20
 
 class DraftViolation(ValueError):
     """草稿产出违约。引用语法误用只是其中一类——原文锚、台词量、台词保真与生成侧的补充
-    判定同走这个类型。消息含 unit 定位与修复出路，供工具错误信封原样回传给 agent。
+    判定同走这个类型。消息含 unit 定位与修复出路，供工具错误信封原样回传给 Agent。
 
     ``code`` 是违约类的机读标识，``label`` 是 unit 定位（``unit E1U02`` 一类的前缀）：消息本身
-    面向 agent、措辞可改，报告的分组与测试的按类断言不该挂在措辞上。两者均可为空——异常在
+    面向 Agent、措辞可改，报告的分组与测试的按类断言不该挂在措辞上。两者均可为空——异常在
     模块外被构造时（如生成侧的补充判定）只有消息。
 
     ``line`` 是该 unit 正文内 0-based 的原始行号（``text.splitlines()`` 坐标系，与前端
@@ -97,7 +97,7 @@ def collect_violations(checks: Iterable[Callable[[], Any]]) -> list[DraftViolati
 
     单个校验函数内部仍是首个违约即抛（各判定共用一次遍历、后续判定以前面的结论为前提），
     故一次调用最多贡献一条；把「每 unit 的锚 / 正文 / 台词量」三个入口分别传进来，报告就能
-    覆盖到所有 unit 而不是停在第一个坏 unit 上——agent 一轮就能看全要改什么。
+    覆盖到所有 unit 而不是停在第一个坏 unit 上——Agent 一轮就能看全要改什么。
 
     只吞 ``DraftViolation``：其余异常（解析器内部错误、脏数据引发的类型错误）照常上抛，
     不被伪装成一条内容违约。

@@ -1586,7 +1586,7 @@ export default {
   'tool_name_normalize_drama_script': 'Chuẩn hóa kịch bản',
   'tool_name_split_reference_video_units': 'Tách đơn vị video',
   'tool_name_open_step1_for_edit': 'Mở step1 chính thức để chỉnh sửa',
-  'tool_name_validate_and_promote_draft': 'Kiểm tra và thăng cấp bản nháp cần sửa',
+  'tool_name_validate_and_promote_draft': 'Kiểm tra và thăng cấp bản nháp',
   'tool_name_split_narration_segments': 'Tách phân đoạn thuyết minh',
   'tool_name_get_video_capabilities': 'Truy vấn năng lực mô hình video',
   'tool_name_plan_episodes': 'Lập kế hoạch chia tập',

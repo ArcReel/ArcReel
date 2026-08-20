@@ -1464,7 +1464,7 @@ export default {
   'tool_name_normalize_drama_script': 'Normalize drama script',
   'tool_name_split_reference_video_units': 'Split video units',
   'tool_name_open_step1_for_edit': 'Open formal step1 for editing',
-  'tool_name_validate_and_promote_draft': 'Validate and promote the draft needing fixes',
+  'tool_name_validate_and_promote_draft': 'Validate and promote draft',
   'tool_name_split_narration_segments': 'Split narration segments',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
   'tool_name_plan_episodes': 'Plan episodes',

@@ -904,7 +904,7 @@ async def test_step2_violation_quarantines_instead_of_discarding(reference_proje
     envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
     assert envelope["kind"] == QUARANTINE_KIND_STEP2
     assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset"]
-    # 草稿装的是扁平引用语法产物（agent 要改的那一层）
+    # 草稿装的是扁平引用语法产物（Agent 要改的那一层）
     assert envelope["content"]["units"][0]["text"] == BAD_STEP2_UNIT_TEXT
 
 
@@ -961,8 +961,8 @@ async def test_promote_step2_draft_reports_again_without_round_limit(reference_p
 async def test_promote_step2_draft_rejects_schema_breach_with_report(reference_project: Path):
     """草稿的 content 被改坏 schema 层同样只回报告：与 step1 晋升同口径，正式剧本不被污染。
 
-    这条路上没有 backend 可重试（content 是 agent 手写的），走 ValueError 直抛的话草稿里的
-    violations 快照不会刷新，agent 只能从工具文本里看到一段 pydantic 报错。
+    这条路上没有 backend 可重试（content 是 Agent 手写的），走 ValueError 直抛的话草稿里的
+    violations 快照不会刷新，Agent 只能从工具文本里看到一段 pydantic 报错。
     """
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
     with pytest.raises(DraftViolation):
@@ -1011,7 +1011,7 @@ async def test_step2_duration_off_tier_after_merge_quarantines(reference_project
     assert not _script_path(reference_project).exists()
     envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
     assert [v["code"] for v in envelope["violations"]] == ["duration_off_tier"]
-    # 草稿装的仍是 agent 要改的那一层正文，改回 `@` 引用即可重新晋升
+    # 草稿装的仍是 Agent 要改的那一层正文，改回 `@` 引用即可重新晋升
     assert envelope["content"]["units"][0]["text"] == no_reference_text
 
 

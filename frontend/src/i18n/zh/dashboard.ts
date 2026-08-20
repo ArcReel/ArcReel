@@ -1463,7 +1463,7 @@ export default {
   'tool_name_normalize_drama_script': '规范化脚本',
   'tool_name_split_reference_video_units': '拆分视频单元',
   'tool_name_open_step1_for_edit': '取回正式 step1 供编辑',
-  'tool_name_validate_and_promote_draft': '校验并晋升待修复草稿',
+  'tool_name_validate_and_promote_draft': '校验并晋升草稿',
   'tool_name_split_narration_segments': '拆分旁白片段',
   'tool_name_get_video_capabilities': '查询视频模型能力',
   'tool_name_plan_episodes': '分集规划',

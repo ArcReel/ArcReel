@@ -56,9 +56,9 @@ mcp__arcreel__get_video_capabilities({})
 
 **触发**：`drafts/episode_{N}/step1_reference_units.json` 与 `drafts/episode_{N}/step1_reference_units.invalid.json`
 **都不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集内容整理）。三种情况的分支以**文件存在性为准**，
-主 Agent 传入的操作类型仅作意图参考；`invalid.json` 在时一律先走情况 C，正式 JSON 不存在也不重跑工具重抽。
+主 Agent 传入的操作类型仅作意图参考；`invalid.json` 存在时一律先走情况 C，正式 JSON 不存在也不重跑工具重抽。
 
-> 注：旧项目可能残留结构化前的自由文本稿 `step1_reference_units.md`。它**不**视为有效 step1——若无 `.json`，按首次生成重跑工具产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
+> 注：旧项目可能残留结构化前的自由文本稿 `step1_reference_units.md`。它**不**视为有效 step1——正式 `.json` 与 `invalid.json` 都不存在时按首次生成产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
 
 **Step 1**: 调用工具生成结构化拆分（项目名由 session 绑定，不需要传）：
 
@@ -89,7 +89,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 草稿装的是**扁平草稿结构**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。
 
 1. Read 该草稿；`violations[]` 非空时按 `label`（unit 定位）与 `code`（违约类）逐条定位，为空时按用户修改意见定位
-2. 用 Edit 直接改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方「修改口径」；处理违约且 `code` 为资产名未登记时，也可改为在 `project.json` 登记该资产、或改用已登记的名称
+2. 用 Edit 直接改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方「修改口径」；处理违约且 `code` 为资产名未登记时，可改用已登记的名称，或调用 `mcp__arcreel__patch_project({"table": "characters", "entries": {"名称": {"description": "..."}}})` 登记资产后重新 Read `project.json`（场景 / 道具分别把 `table` 改为 `scenes` / `props`）；严禁用 Edit / Write 直改 `project.json`
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 重新全量校验并晋升
 4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具
 

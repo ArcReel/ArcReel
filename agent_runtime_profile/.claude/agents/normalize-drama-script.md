@@ -50,13 +50,14 @@ mcp__arcreel__get_video_capabilities({})
 情况 A（首次生成）时由 `mcp__arcreel__normalize_drama_script` 自行查询并注入 prompt，子任务可不直接使用；
 情况 B（修改已有剧本调整时长）需参考这些值决定新值。
 
-工具返回 `is_error: true` 时，停止并把错误文本报告给主 Agent。
+工具返回 `is_error: true` 时：若错误文本指向 `step1_normalized_script.invalid.json`，按下方「情况 C：处置在场草稿」处理；其余错误停止并把错误文本报告给主 Agent。
 
 ### 情况 A：首次生成规范化内容
 
-**触发**：`drafts/episode_{N}/step1_normalized_script.json` **不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集内容整理）。两种情况的分支以**文件存在性为准**，主 Agent 传入的操作类型仅作意图参考。
+**触发**：`drafts/episode_{N}/step1_normalized_script.json` 与 `drafts/episode_{N}/step1_normalized_script.invalid.json`
+**都不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集内容整理）。三种情况的分支以**文件存在性为准**，主 Agent 传入的操作类型仅作意图参考；invalid 草稿存在时一律先走情况 C。
 
-> 注：旧项目可能残留 step1 时代的 `step1_normalized_script.md`（结构化前的自由文本稿）。它**不**视为有效 step1——若无 `.json`，按首次生成重跑工具产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
+> 注：旧项目可能残留 step1 时代的 `step1_normalized_script.md`（结构化前的自由文本稿）。它**不**视为有效 step1——正式 `.json` 与 `invalid.json` 都不存在时按首次生成产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
 
 **Step 1**: 检查文件状态
 
@@ -80,6 +81,16 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 
 结构有问题时按情况 B 的「取回草稿 → 改草稿 → 晋升」处置：不要用 Edit 直改正式文件（会被拒），
 也不要重跑工具重抽——这次已付费的产出就在盘上，改它比重生更省也更收敛。
+
+### 情况 C：处置在场草稿
+
+**触发**：`drafts/episode_{N}/step1_normalized_script.invalid.json` 存在，不论正式 JSON 是否存在。
+
+1. Read 草稿信封。`violations[]` 非空时按其中的场景定位与违约类修复 `content.scenes[i]`；为空时保留已有修改，并应用主 Agent 传入的用户修改意见
+2. 用 Edit 只修改草稿的 `content.scenes[i]`，不得直改正式文件，也不得重跑 `normalize_drama_script`
+3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 全量校验并晋升；仍返回违约报告时继续修改同一草稿后重试
+
+晋升成功后正式 `step1_normalized_script.json` 落盘、草稿自动清除。草稿在场期间内容确认与 step2 生成均被阻塞，必须处置完成。
 
 ### 情况 B：修改已有规范化内容
 
@@ -122,7 +133,7 @@ mcp__arcreel__validate_and_promote_draft({"episode": N})
 
 **修改必重生 JSON 剧本**：内容修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新内容 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
 
-### 返回摘要（两种情况均执行）
+### 返回摘要（三种情况均执行）
 
 统计场景数和各类信息，返回：
 
@@ -143,7 +154,7 @@ mcp__arcreel__validate_and_promote_draft({"episode": N})
 - `drafts/episode_{N}/step1_normalized_script.json`
 
 下一步：首次生成（情况 A）→ 主 Agent 可 dispatch `create-episode-script` 子任务生成 JSON 剧本；
-修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
+修改或修复已有内容（情况 B/C）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
 ```
 
 ## 输出格式参考
