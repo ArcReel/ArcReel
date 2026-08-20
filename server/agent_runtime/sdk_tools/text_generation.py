@@ -350,14 +350,18 @@ def generate_episode_script_tool(ctx: ToolContext):
             for kind in _step2_blocking_quarantine_kinds(project_data):
                 if quarantine_exists(project_path, episode, kind):
                     path = quarantine_path(project_path, episode, kind)
+                    draft = read_quarantine(project_path, episode, kind)
+                    if draft is None:
+                        action = f"请修复草稿信封，再调用 {PROMOTE_TOOL_NAME} 校验晋升。"
+                    elif draft.violations:
+                        action = f"请按草稿内 violations 的定位修改 content，再调用 {PROMOTE_TOOL_NAME} 晋升。"
+                    else:
+                        action = f"这是可编辑草稿；请保留已有修改，再调用 {PROMOTE_TOOL_NAME} 校验晋升。"
                     return {
                         "content": [
                             {
                                 "type": "text",
-                                "text": (
-                                    f"⏸️ 本集有草稿待处置（{path}），step2 视觉生成已中止。"
-                                    f"请按草稿内 violations 的定位修改 content，再调用 {PROMOTE_TOOL_NAME} 晋升。"
-                                ),
+                                "text": (f"⏸️ 本集有草稿待处置（{path}），step2 视觉生成已中止。{action}"),
                             }
                         ],
                         "is_error": True,

@@ -7,9 +7,9 @@ import type { GenerationRoute } from "@/utils/generation-mode";
 /**
  * 生成模式二选一卡（创建向导）。
  *
- * 单框中缝分屏、无预选、必选：路线创建后不可更改，让这个不可逆决策以对比形态呈现。
- * 卡内图示画的是两条路线各自喂给视频模型的输入契约——分镜图生视频是单张分镜图（I2V），
- * 参考生视频是角色/场景/道具参考图集合（R2V），这正是区分路线的判据。
+ * 单框中缝分屏、无预选、必选：生成模式创建后不可更改，让这个不可逆决策以对比形态呈现。
+ * 卡内图示画的是两个生成模式各自喂给视频模型的输入契约——分镜图生视频是单张分镜图（I2V），
+ * 参考生视频是角色/场景/道具参考图集合（R2V），这正是区分生成模式的判据。
  */
 
 const ROUTE_FRAME_STYLE: CSSProperties = {
@@ -17,8 +17,8 @@ const ROUTE_FRAME_STYLE: CSSProperties = {
 };
 
 /**
- * 路线的文案与输入契约标签。向导二卡与设置页只读展示共用同一份，
- * 避免两处各自维护「路线 → 名称 / 描述 / I2V-R2V」的对应关系而漂移。
+ * 生成模式的文案与输入契约标签。向导二卡与设置页只读展示共用同一份，
+ * 避免两处各自维护「生成模式 → 名称 / 描述 / I2V-R2V」的对应关系而漂移。
  */
 export const ROUTE_META: Record<GenerationRoute, { nameKey: string; descKey: string; tag: string }> = {
   storyboard: { nameKey: "route_storyboard", descKey: "route_storyboard_desc", tag: "I2V" },

@@ -1,7 +1,7 @@
 import type enAssets from '../en/assets';
 
 export default {
-  "type.character": "人物",
+  "type.character": "角色",
   "type.scene": "场景",
   "type.prop": "道具",
   "create_title": "新增{{type}}",
@@ -31,7 +31,7 @@ export default {
   "cancel": "取消",
   "close": "关闭",
   "library_title": "资产库",
-  "library_subtitle": "跨项目复用的人物、场景与道具",
+  "library_subtitle": "跨项目复用的角色、场景与道具",
   "library_tabs_label": "资产类型",
   "back_to_projects": "返回项目",
   "add_asset": "新增资产",
@@ -47,7 +47,7 @@ export default {
   "delete_confirm": "确定删除这个{{type}}？图片也会被删除",
   "delete_confirm_with_audio": "确定删除这个{{type}}？图片与参考音频也会被删除",
   "from_library": "从资产库选择",
-  "picker_title_character": "从资产库选择人物",
+  "picker_title_character": "从资产库选择角色",
   "picker_title_scene": "从资产库选择场景",
   "picker_title_prop": "从资产库选择道具",
   "import_count": "导入 {{count}} 个",

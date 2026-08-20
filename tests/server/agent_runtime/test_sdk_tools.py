@@ -7979,6 +7979,21 @@ async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolConte
 
 
 @pytest.mark.unit
+async def test_generate_episode_script_preserves_editable_draft_without_violations(fake_ctx: ToolContext) -> None:
+    """可编辑草稿没有违约报告，step2 入口应引导校验晋升而不是要求凭空修改。"""
+    _rv_project(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit("原始内容")])
+    await _open_for_edit(fake_ctx)
+
+    out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "这是可编辑草稿" in text
+    assert "保留已有修改" in text
+    assert "按草稿内 violations" not in text
+
+
+@pytest.mark.unit
 async def test_generate_episode_script_quarantine_precedes_missing_step1(fake_ctx: ToolContext) -> None:
     """首次拆分就违约时正式 step1 本就不存在——先报缺文件会把 Agent 引回重跑拆分（丢弃重抽）。"""
     _rv_project(fake_ctx)
