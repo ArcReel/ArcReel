@@ -51,7 +51,7 @@ export interface ContentBlock {
   skill_args?: string;
   // subagent 子时间线：投影按 parent_tool_use_id 归组后挂在锚点 tool_use 块
   sub_turns?: Turn[];
-  // 关联到锚点 tool_use 的子任务状态/进度（由 task_progress 块折叠而来）
+  // 关联到锚点 tool_use 的子智能体状态/进度（由 task_progress 块折叠而来）
   task_info?: ContentBlock;
   // image block fields
   source?: { type: "base64"; media_type: string; data: string };

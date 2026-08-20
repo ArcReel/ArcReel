@@ -10,7 +10,7 @@
  * 投影分两层：
  * - 内部累积态（fold）：逐条消费条目，只做追加与按 id 回填，永不回溯重放；
  *   条目块在此层做唯一一次深拷贝。
- * - 展示视图（display）：由累积态按 turn 派生——task 折叠、滞留子任务推导
+ * - 展示视图（display）：由累积态按 turn 派生——task 折叠、滞留子智能体推导
  *   完成、subagent 子时间线挂载都在这层重算；按 turn 版本缓存，只有被新
  *   条目触达的 turn 重建视图，未触达的 turn 保持引用稳定。
  *
@@ -439,7 +439,7 @@ export function createTimelineProjector(): TimelineProjector {
 
   /**
    * 构建单个 turn 的展示视图：挂载 subagent 子时间线、把已完成 Agent 调用
-   * 的滞留 task_started 推导为完成、将 task 进度折叠进锚点 tool_use（子任务
+   * 的滞留 task_started 推导为完成、将 task 进度折叠进锚点 tool_use（子智能体
    * 卡片就地显示状态与进度，不渲染独立进度行；无锚点的 task 块保持原样）。
    * 可变块（tool_use / task_progress）逐次浅拷，累积态不被展示层污染，
    * 同一版本重复构建收敛到同一结果。

@@ -23,7 +23,7 @@ function deriveStatus(block: ContentBlock, sessionDone: boolean): CardStatus {
   const task = block.task_info;
   if (task?.task_status === "failed" || block.is_error) return "failed";
   if (task?.task_status === "completed" || block.result !== undefined) return "completed";
-  // 会话已终结而子任务无终态：随会话一起停止，不再转圈
+  // 会话已终结而子智能体无终态：随会话一起停止，不再转圈
   return sessionDone ? "stopped" : "running";
 }
 
