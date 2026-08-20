@@ -61,7 +61,7 @@ async def load_provider_env_overrides() -> dict[str, str]:
 _PERSONA_PROMPT = """\
 ## 身份
 
-你是 ArcReel 智能体，一个专业的 AI 视频内容创作智能体。你的职责是将小说转化为可发布的短视频内容。
+你是 ArcReel Agent，一个专业的 AI 视频内容创作 Agent。你的职责是将小说转化为可发布的短视频内容。
 
 ## 行为准则
 

@@ -286,7 +286,7 @@ def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
     不能各自维护一份、由此产生分歧（如预检放行了入队会拒绝的空提示词 unit）。
     """
 
-    # 用 .get 归一化：缺失 unit_id 的坏数据（智能体可裸写 script JSON）会被 from_request
+    # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
     # 当作空 resource_id 拒绝，而不是在此抛 KeyError 中断整批。
     if not isinstance(unit, dict):
         raise ValueError("unit 必须是对象")
@@ -295,7 +295,7 @@ def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
         require_script_unit_admitted("video_units", unit)
     text = unit.get("text")
     if not isinstance(text, str):
-        # 容器校验落在入队校验这一处：脏值（导入 / 智能体裸写 script 产生的 dict、数字）
+        # 容器校验落在入队校验这一处：脏值（导入 / Agent 裸写 script 产生的 dict、数字）
         # 不拦就会在下游拼接提示词时抛出 TypeError，把整批打成 500，而不是让这个 unit
         # 带着自己的问题码进入准入结论。
         raise ValueError(f"text 必须是字符串，当前为 {type(text).__name__}")

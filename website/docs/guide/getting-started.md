@@ -54,9 +54,9 @@ update_docs: engine-a
 
 ArcReel 中有两类凭据，职责不同。
 
-#### AI 智能体凭据 {#assistant-credentials}
+#### Agent 凭据 {#assistant-credentials}
 
-用于驱动项目对话、内容理解、角色提取、分集规划和工作流编排。
+Agent（智能体）用于驱动项目对话、内容理解、角色提取、分集规划和工作流编排。
 
 可使用 Anthropic 官方服务或 ArcReel 支持的兼容服务，并按需配置 Base URL 和模型名称。
 
@@ -174,11 +174,11 @@ curl http://localhost:1241/health
 
 ## 3. 完成首次配置 {#first-time-setup}
 
-登录后，建议先完成首次使用引导并打开只读演示项目。它可以帮助你认识项目大厅、工作台、AI 智能体和设置入口，而不需要先消耗模型额度。
+登录后，建议先完成首次使用引导并打开只读演示项目。它可以帮助你认识项目大厅、工作台、Agent 和设置入口，而不需要先消耗模型额度。
 
 随后进入 **设置** 页面。
 
-### 3.1 配置 AI 智能体 {#configure-assistant}
+### 3.1 配置 Agent {#configure-assistant}
 
 填写：
 
@@ -251,15 +251,15 @@ ArcReel 会按照作者提供的内容建立角色和镜头，不应把成品剧
 
 详细比较见 [创作流程与模式](./workflows.md)。
 
-## 5. 使用 AI 智能体推进工作流 {#run-workflow-with-assistant}
+## 5. 使用 Agent 推进工作流 {#run-workflow-with-assistant}
 
-打开项目工作台右侧的 AI 智能体面板。
+打开项目工作台右侧的 Agent 面板。
 
 推荐按阶段推进，而不是一次要求“直接生成全部成片”。
 
 ### 5.1 内容分析 {#content-analysis}
 
-让 AI 智能体分析：
+让 Agent 分析：
 
 - 主要角色；
 - 重要场景；

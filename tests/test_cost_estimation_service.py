@@ -1604,7 +1604,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unit_with_malformed_duration(self, db_factory):
-        """智能体/外部编辑过的剧本可能写入非数值 ``duration_seconds``（字符串、list、dict 等）。
+        """Agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（字符串、list、dict 等）。
         SDK 侧入队预检（``enqueue_videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，
         估算须跟随同一容错口径——一个 unit 的脏时长不能让整个项目估算 500，拖累其余正常集，
         其余正常 unit 仍要继续产生预估。
@@ -1634,7 +1634,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unit_with_non_string_text(self, db_factory):
-        """智能体/外部编辑过的剧本可能把 ``text`` 裸写成非字符串的 truthy 值（如 ``true``/``1``）。
+        """Agent/外部编辑过的剧本可能把 ``text`` 裸写成非字符串的 truthy 值（如 ``true``/``1``）。
         该值参与提示词拼接会抛 ``TypeError``，必须先做类型检查，否则单条脏数据会让整个项目
         估算 500。
         """
@@ -1661,7 +1661,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_rejects_non_string_unit_id(self, db_factory):
-        """智能体/外部编辑过的剧本可能把 ``unit_id`` 裸写成非字符串 truthy 值（如数字/布尔）。
+        """Agent/外部编辑过的剧本可能把 ``unit_id`` 裸写成非字符串 truthy 值（如数字/布尔）。
         入队执行时（``execute_reference_video_task``）按字符串 resource_id 与剧本原始
         （未转型）值比较定位 unit，类型不等会导致 "unit not found"；估算侧若把该值
         str() 强转后正常计费，会展示一笔实际跑不起来的费用，必须原本就是字符串才计价。

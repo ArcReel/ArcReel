@@ -1,10 +1,10 @@
-# ad 模式不接入 step1→step2 审核 gate
+# 广告/短片不接入 step1→step2 内容确认
 
-ad（广告/短片）内容模式不接入 step1→step2 两段式剧本流水线与阻塞式 web 审核 gate。gate 的适用范围维持 content_mode ∈ {drama, narration} 且 effective_mode ≠ reference_video。
+ad（广告/短片）创作类型不接入 step1→step2 两段式剧本流水线与阻塞式 Web 内容确认。内容确认的适用范围维持 content_mode ∈ {drama, narration} 且 effective_mode ≠ reference_video。
 
 ## Why this is out of scope
 
-step1→step2 审核 gate（docs/adr/0041）解决的两个核心问题在 ad 结构性不成立：
+step1→step2 内容确认（docs/adr/0041）解决的两个核心问题在 ad 结构性不成立：
 
 - **二次转写失真**：drama / narration 的逐字口播内容要穿过 step1→step2 两段生成，存在跨段改写风险；ad 剧本单次生成直接产出最终结构（平铺 `shots[]` + 一等口播文案 `voiceover_text`），不存在两段边界，也就没有跨段转写。
 - **中间态不可审**：drama / narration 在 step1 完成、step2 未跑之间用户在 web 端无感知；ad 剧本直接写入 `scripts/episode_1.json`，web 时间线全程可见可改。
@@ -20,4 +20,4 @@ step1→step2 审核 gate（docs/adr/0041）解决的两个核心问题在 ad �
 
 ## Prior requests
 
-- #987 — ad 内容模式未接入 step1→step2 审核 gate（契约空白）
+- #987 — 广告/短片未接入 step1→step2 内容确认（契约空白）

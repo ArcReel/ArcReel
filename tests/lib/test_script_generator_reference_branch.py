@@ -72,7 +72,7 @@ def _write_step1(project_dir: Path, payload: str, episode: int = 1) -> None:
 
 @pytest.fixture
 def reference_project(tmp_path: Path) -> Path:
-    """造一个 reference_video 模式的最小项目。"""
+    """造一个 参考生视频的最小项目。"""
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     (project_dir / "project.json").write_text(

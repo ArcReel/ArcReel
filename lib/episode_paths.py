@@ -42,18 +42,18 @@ REFERENCE_VIDEO_STEP1_FILENAME = "step1_reference_units.json"
 REFERENCE_VIDEO_STEP1_LEGACY_FILENAME = "step1_reference_units.md"
 
 #: 草稿文件名。与正式文件同目录、不同名：正式文件因此永远只装校验通过的内容，而待
-#: 处置的产物不被丢弃——智能体就地改草稿再调晋升工具重判。内容确认与生成侧都要认
+#: 处置的产物不被丢弃——Agent 就地改草稿再调晋升工具重判。内容确认与生成侧都要认
 #: 这些名字（草稿在场时阻塞确认与 step2），故与正式文件名收敛在同一处，避免任一侧
 #: 漏认让隔离态被静默绕过。
 REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME = "step1_reference_units.invalid.json"
 REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME = "step2_reference_script.invalid.json"
 DRAMA_STEP1_QUARANTINE_FILENAME = "step1_normalized_script.invalid.json"
 
-#: 对智能体写禁的正式 step1 文件名（见 ``AgentAccessPolicy._is_protected_formal_step1``）。
+#: 对 Agent 写禁的正式 step1 文件名（见 ``AgentAccessPolicy._is_protected_formal_step1``）。
 #: 收的是文件名而非按项目变体解析的路径：写禁在会话装配前就要成立，而项目的 content_mode /
 #: generation_mode 是运行时可变的，按项目状态分叉判定会让改过模式的项目落进无人拦的缝里。
 #: 判据是「该变体的修改已有草稿通道可走」——写禁与替代通道成对出现，只拒不给出路会
-#: 把智能体卡死。narration 的 step1 目前仍由其子任务直接编辑、无草稿通道，故不在表内。
+#: 把 Agent 卡死。narration 的 step1 目前仍由其子任务直接编辑、无草稿通道，故不在表内。
 AGENT_PROTECTED_STEP1_FILENAMES: frozenset[str] = frozenset({STEP1_FILENAMES["drama"], REFERENCE_VIDEO_STEP1_FILENAME})
 
 

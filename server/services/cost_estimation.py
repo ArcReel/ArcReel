@@ -807,7 +807,7 @@ class CostEstimationService:
             projection = None
             options = (request_options or {}).get(unit_id, ReferenceRequestOptions())
             if enqueueable:
-                # 智能体/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
+                # Agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
                 # 单个 unit 的无效内容不应让整个项目估算失败，因此资产解析与 request projection
                 # 的 ValueError/TypeError 只跳过该 unit。能力解析错误由 projector 转为结构化 blocker，
                 # 正常保留在该 unit 的报价结果中。

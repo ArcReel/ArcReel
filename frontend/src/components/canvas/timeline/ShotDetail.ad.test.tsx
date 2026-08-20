@@ -50,7 +50,7 @@ function renderDetail(props: Partial<Parameters<typeof ShotDetail>[0]> = {}) {
   );
 }
 
-describe("ShotDetail ad 模式", () => {
+describe("ShotDetail 广告/短片", () => {
   it("展示口播文案与 section，可编辑并随保存提交 patch", () => {
     const onUpdatePrompt = vi.fn();
     renderDetail({ onUpdatePrompt });
@@ -319,7 +319,7 @@ describe("ShotDetail ad 模式", () => {
     expect(screen.getByRole("button", { name: "前移镜头" })).toHaveAttribute("title", "重排进行中…");
   });
 
-  it("非 ad 模式不渲染移动按钮", () => {
+  it("非 广告/短片不渲染移动按钮", () => {
     const seg = {
       segment_id: "E1S01",
       episode: 1,

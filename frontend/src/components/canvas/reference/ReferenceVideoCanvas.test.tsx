@@ -721,7 +721,7 @@ describe("ReferenceVideoCanvas", () => {
     const generate = await screen.findByRole("button", { name: UNIT_GENERATE_CTA });
     expect(generate).not.toBeDisabled();
 
-    // 渲染之后、点击之前，另一入口（智能体入队 / SSE 落库）已占用同一 unit
+    // 渲染之后、点击之前，另一入口（Agent 入队 / SSE 落库）已占用同一 unit
     act(() => {
       useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
     });
@@ -1205,7 +1205,7 @@ describe("ReferenceVideoCanvas", () => {
       await clickBatch();
       const confirm = await screen.findByRole("button", { name: BATCH_CONFIRM_CTA });
 
-      // 弹窗停留期间 E1U1 由别处（智能体 / 另一标签页）生成完成并落库
+      // 弹窗停留期间 E1U1 由别处（Agent / 另一标签页）生成完成并落库
       act(() => {
         useReferenceVideoStore.setState({
           unitsByEpisode: {

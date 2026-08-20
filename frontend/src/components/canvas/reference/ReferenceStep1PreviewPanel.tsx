@@ -46,7 +46,7 @@ interface DisplayUnit {
   durationSeconds: number;
   sourceText: string;
   scriptText: string;
-  /** true 时可编辑（已晋升内容）；草稿的扁平产物只读，修复由智能体在草稿上完成。 */
+  /** true 时可编辑（已晋升内容）；草稿的扁平产物只读，修复由 Agent 在草稿上完成。 */
   editable: boolean;
 }
 
@@ -69,7 +69,7 @@ function structuredDisplayUnits(draft: ReferenceStep1Draft): DisplayUnit[] {
 }
 
 /**
- * 草稿 → unit 卡。schema 违约时后端原样回传智能体手改的那份 content（不做收编），`units`
+ * 草稿 → unit 卡。schema 违约时后端原样回传 Agent 手改的那份 content（不做收编），`units`
  * 可能不是数组、逐 unit 字段也可能缺失或类型不对：这里逐项收窄而非信任类型声明——渲染崩掉
  * 恰好发生在用户最需要看到面板的时候。收不成 unit 卡的内容由调用方作原始文本兜底呈现。
  */
@@ -312,7 +312,7 @@ function selectUnitsContent(state: ScriptReviewState): ReferenceStep1Draft | nul
  * 草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 step2。
  *
  * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（非隔离
- * 草稿）内容上开放；草稿的修复走智能体文件工具 + 晋升工具的既有闭环，本面板只读呈现。
+ * 草稿）内容上开放；草稿的修复走 Agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
  */
 export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: ReferenceStep1PreviewPanelProps) {
   const { t } = useTranslation("dashboard");
@@ -380,8 +380,8 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
-    // 重算已无违约、但草稿仍在场（智能体已改对内容、尚未调晋升工具）：不能报「0 处违约
-    // 待修复」再让用户去改一份已经没问题的东西，正确的下一步是请智能体直接晋升。
+    // 重算已无违约、但草稿仍在场（Agent 已改对内容、尚未调晋升工具）：不能报「0 处违约
+    // 待修复」再让用户去改一份已经没问题的东西，正确的下一步是请 Agent 直接晋升。
     const report =
       violations.length === 0
         ? t("reference_step1_fix_request_promote_prefill", { episode })
@@ -454,7 +454,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
   const unitKeys = new Set(displayUnits.map((u) => u.key));
   const unassignedViolations = allViolations.filter((v) => !unitKeys.has(unitKeyFromLabel(v.label) ?? ""));
   const violatingUnitKeys = [...new Set(allViolations.map((v) => unitKeyFromLabel(v.label)).filter((k): k is string => k != null))];
-  // schema 违约会让草稿收不成任何 unit 卡（units 不是数组 / 条目不是对象）：原样摊开智能体
+  // schema 违约会让草稿收不成任何 unit 卡（units 不是数组 / 条目不是对象）：原样摊开 Agent
   // 手里那份内容，否则用户只看得到一条「结构不符」而看不到自己要改的是什么。content 为 null
   // （信封本身损坏）时没有可摊的内容，聚合区的 quarantine_unreadable 违约已经说明情况。
   const rawFallback =

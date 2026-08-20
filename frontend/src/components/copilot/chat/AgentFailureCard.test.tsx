@@ -37,7 +37,7 @@ describe("AgentFailureCard", () => {
   it("shows observed facts, preserves raw details, and has no log download action", async () => {
     render(<AgentFailureCard failure={turnFailure} />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("智能体本轮运行失败");
+    expect(screen.getByRole("alert")).toHaveTextContent("Agent 本轮运行失败");
     expect(screen.getByText("以下为系统实际观测信息，不等同于问题根因。")).toBeInTheDocument();
     expect(screen.getByText("sdk_assistant")).toBeInTheDocument();
     expect(screen.getByText("invalid_request")).toBeInTheDocument();
@@ -55,7 +55,7 @@ describe("AgentFailureCard", () => {
       expect(copyText).toHaveBeenCalledWith(JSON.stringify(turnFailure, null, 2));
     });
 
-    expect(screen.getByRole("link", { name: "打开智能体设置" }))
+    expect(screen.getByRole("link", { name: "打开 Agent 设置" }))
       .toHaveAttribute("href", "/app/settings?section=agent");
     expect(screen.queryByText(/下载.*日志/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
@@ -68,6 +68,6 @@ describe("AgentFailureCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试启动" }));
 
     expect(onRetry).toHaveBeenCalledOnce();
-    expect(screen.getByRole("alert")).toHaveTextContent("智能体启动失败");
+    expect(screen.getByRole("alert")).toHaveTextContent("Agent 启动失败");
   });
 });

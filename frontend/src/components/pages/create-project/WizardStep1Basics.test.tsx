@@ -14,7 +14,7 @@ const baseValue = {
   speechRate: null,
 };
 
-const GRID_BAR_NAME = /多宫格分镜生视频/;
+const GRID_BAR_NAME = /多宫格分镜/;
 
 describe("WizardStep1Basics", () => {
   it("disables Next button when title is empty", () => {
@@ -406,6 +406,6 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    expect(screen.getByRole("switch", { name: /多宫格分镜生视频/ })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /多宫格分镜/ })).toBeInTheDocument();
   });
 });

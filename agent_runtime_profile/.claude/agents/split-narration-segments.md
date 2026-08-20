@@ -7,7 +7,7 @@ description: "旁白/解说单集片段拆分子任务（content_mode=narration 
 
 ## 任务定义
 
-**输入**：主智能体会在 prompt 中提供：
+**输入**：主 Agent 会在 prompt 中提供：
 - 项目名称（如 `my_project`）
 - 集数（如 `1`）
 - 本集小说文件（如 `source/episode_1.txt`）
@@ -49,11 +49,11 @@ mcp__arcreel__get_video_capabilities({})
 情况 A（首次生成）时由 `mcp__arcreel__split_narration_segments` 自行查询并注入 prompt，子任务可不直接使用；
 情况 B（修改已有拆分调整时长）需参考这些值决定新值。
 
-工具返回 `is_error: true` 时，停止并把错误文本报告给主智能体。
+工具返回 `is_error: true` 时，停止并把错误文本报告给主 Agent。
 
 ### 情况 A：首次生成拆分
 
-**触发**：`drafts/episode_{N}/step1_segments.json` **不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集内容整理）。两种情况的分支以**文件存在性为准**，主智能体传入的操作类型仅作意图参考。
+**触发**：`drafts/episode_{N}/step1_segments.json` **不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集内容整理）。两种情况的分支以**文件存在性为准**，主 Agent 传入的操作类型仅作意图参考。
 
 > 注：旧项目可能残留结构化前的自由文本稿 `step1_segments.md`。它**不**视为有效 step1——若无 `.json`，按首次生成重跑工具产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
 
@@ -74,7 +74,7 @@ mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_
 
 ### 情况 B：修改已有拆分
 
-**触发**：`drafts/episode_{N}/step1_segments.json` **已存在**，且主智能体传入了用户的修改意见（用户驱动，不经计划路由）。
+**触发**：`drafts/episode_{N}/step1_segments.json` **已存在**，且主 Agent 传入了用户的修改意见（用户驱动，不经计划路由）。
 
 使用 Read 工具读取现有 JSON，按修改要求用 Edit 工具直接修改，遵循**修改口径**：
 
@@ -84,7 +84,7 @@ mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_
 - `characters_in_segment` / `scenes` / `props` 只引用 `project.json` 已登记名称（不确定就 Read `project.json` 确认），无对应资产时显式写空数组 `[]`
 - `segment_break` 只在真正的场景切换点（时间跳跃 / 空间转换 / 情节转折）标 `true`
 
-**修改必重生 JSON 剧本**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主智能体必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新拆分 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
+**修改必重生 JSON 剧本**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新拆分 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
 
 ## 输出格式参考
 
@@ -136,6 +136,6 @@ mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_
 
 **文件已保存**: `drafts/episode_{N}/step1_segments.json`
 
-下一步：首次生成（情况 A）→ 主智能体可 dispatch `create-episode-script` 子任务生成 JSON 剧本（step2 视觉层）；
-修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主智能体 **必须**重新 dispatch `create-episode-script` 重生 JSON。
+下一步：首次生成（情况 A）→ 主 Agent 可 dispatch `create-episode-script` 子任务生成 JSON 剧本（step2 视觉层）；
+修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
 ```

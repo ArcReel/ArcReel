@@ -109,7 +109,7 @@ export default {
   text_tier_simple_caption: "覆盖项目概述、风格图分析；此档模型需支持图像输入。",
   text_tier_complex_label: "复杂任务",
   text_tier_complex_caption: "覆盖脚本生成、分集规划、内容抽取与拆分。",
-  text_tier_agent_boundary: "智能体对话与子任务推理由智能体供应商配置决定。",
+  text_tier_agent_boundary: "Agent 对话与子任务推理由 Agent 供应商配置决定。",
   duration_label: "默认时长",
   duration_auto: "auto",
   duration_unsupported_notice: "已保存的时长 {{value}} 秒不再受当前模型支持，请重新选择。",

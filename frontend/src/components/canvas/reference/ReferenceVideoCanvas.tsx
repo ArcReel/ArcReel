@@ -123,7 +123,7 @@ function toastError(e: unknown, format?: (msg: string) => string): void {
 }
 
 /**
- * 提交时刻的占用复核：按钮渲染期捕获的占用态未必是最新的（批量循环、智能体入队、
+ * 提交时刻的占用复核：按钮渲染期捕获的占用态未必是最新的（批量循环、Agent 入队、
  * SSE 落库都可能在渲染之后、点击之前占用同一 unit），故一律用 getState() 新鲜读。
  * 入队动作层在请求发出前就打乐观标记，因此同一 tick 内的连点也会被这一读拦下。
  */
@@ -401,7 +401,7 @@ export function ReferenceVideoCanvas({
       options: ReferenceRequestOptions,
     ) => {
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
-      // （批量循环、智能体入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
+      // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
       // 时长确认弹窗打开期间同样会经过这段窗口，故复核落在入队这一刻。
       if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
@@ -570,7 +570,7 @@ export function ReferenceVideoCanvas({
       return;
     }
     setStackTab("preview");
-    // 实时复核而非用渲染期快照：其它入口（单元按钮、智能体入队、SSE 落库）可能已占用
+    // 实时复核而非用渲染期快照：其它入口（单元按钮、Agent 入队、SSE 落库）可能已占用
     // 同一 unit。命中即跳过，不当作错误提示——批量入口的语义是「把还能生成的都排上」，
     // 逐个报错只会刷屏。
     const targets = batchTargets.map((u) => u.unit_id).filter(canEnqueueBatchUnit);
@@ -621,7 +621,7 @@ export function ReferenceVideoCanvas({
   // 时长与正文分开提交：时长不是文本的一部分，改档位立即落盘，不牵连未保存的正文草稿。
   const handleDurationChange = useCallback(
     async (unitId: string, seconds: number): Promise<boolean> => {
-      // 渲染期的禁用态未必最新（SSE / 智能体入队可能刚占用），提交时刻再复核一次
+      // 渲染期的禁用态未必最新（SSE / Agent 入队可能刚占用），提交时刻再复核一次
       if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return false;

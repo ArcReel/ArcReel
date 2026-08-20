@@ -352,7 +352,7 @@ export function StudioCanvasRouter() {
   }, [currentProjectName, currentScripts, ensureAudioProviderConfigured]);
 
   // ---- Workflow panel callbacks ----
-  // 面板只陈述状态，动作交回既有入口执行：跳转复用智能体定位用的同一条 scrollTarget 缝，
+  // 面板只陈述状态，动作交回既有入口执行：跳转复用 Agent 定位用的同一条 scrollTarget 缝，
   // 重生复用本组件已有的入队回调。面板不自建播放器，也不自建入队路径。
   const handleViewWorkflowUnit = useCallback((unitId: string) => {
     useAppStore.getState().triggerScrollTo({

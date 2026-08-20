@@ -376,12 +376,12 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 4; i++) click(".driver-popover-next-btn"); // → 配置智能体
-    await waitFor(() => expect(popoverTitle()).toBe("配置智能体"));
+    for (let i = 0; i < 4; i++) click(".driver-popover-next-btn"); // → 配置 Agent
+    await waitFor(() => expect(popoverTitle()).toBe("配置 Agent"));
     expect(history.at(-1)).toBe("/app/settings?section=agent");
 
     // 两步同在 /app/settings，退回时 pathname 不变——内容区必须靠 section 参数切回
-    // 供应商，否则讲供应商时右边还摆着智能体（正向同理）。
+    // 供应商，否则讲供应商时右边还摆着 Agent（正向同理）。
     click(".driver-popover-prev-btn");
 
     await waitFor(() => expect(popoverTitle()).toBe("配置供应商"));
@@ -483,10 +483,10 @@ describe("OnboardingTour", () => {
       ["新建项目", "/app/projects"],
       ["设置", "/app/projects"],
       ["配置供应商", "/app/settings?section=providers"],
-      ["配置智能体", "/app/settings?section=agent"],
+      ["配置 Agent", "/app/settings?section=agent"],
       ["演示项目", "/app/projects"],
       ["项目概览", DEMO_WORKBENCH],
-      ["智能体", DEMO_WORKBENCH],
+      ["Agent", DEMO_WORKBENCH],
       ["角色、场景与道具", `${DEMO_WORKBENCH}/characters`],
       ["分镜画布", DEMO_EPISODE],
       ["导出", DEMO_EPISODE],

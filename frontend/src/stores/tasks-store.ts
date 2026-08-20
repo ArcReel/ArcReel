@@ -559,7 +559,7 @@ export function isResourceBusy(kind: ResourceKind, projectName: string, resource
 
 // 与 task-target.ts 的 stripScriptsPrefix 同一归一化规则：episode 元数据的 script_file
 // 固定带 `scripts/` 前缀（见 ProjectManager._apply_episode_sync），但任务行的 script_file
-// 由各入队调用方各自传入——router 直传 webui 表单值，智能体/SDK 工具经 validate_script_filename
+// 由各入队调用方各自传入——router 直传 webui 表单值，Agent/SDK 工具经 validate_script_filename
 // 强制裸文件名，两者格式不保证一致。此处不依赖调用方预先裁剪，自行归一化后再比较。
 function stripScriptsPrefix(path: string): string {
   return path.replace(/^scripts\//, "");

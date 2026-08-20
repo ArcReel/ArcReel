@@ -805,7 +805,7 @@ async def get_agent_profile_status(name: str, _t: Translator):
     except ApiError:
         raise
     except Exception:
-        logger.exception("读取项目智能体 profile 状态失败: project=%s", name)
+        logger.exception("读取项目 Agent profile 状态失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
@@ -831,7 +831,7 @@ async def reset_agent_profile(name: str, _t: Translator):
     except ApiError:
         raise
     except Exception:
-        logger.exception("重置项目智能体 profile 失败: project=%s", name)
+        logger.exception("重置项目 Agent profile 失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
@@ -1181,7 +1181,7 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
 
 @router.patch("/projects/{name}/script-shots/{shot_id}")
 async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Translator):
-    """更新 ad 模式剧本中的单个镜头（按 shot_id 定位）。
+    """更新 广告/短片剧本中的单个镜头（按 shot_id 定位）。
 
     路径风格与 ``script-scenes`` 对齐；口播文案 / section / 时长 / 引用列表等
     白名单字段可改，结构合法性由写盘统一入口的「不更坏」校验兜底。

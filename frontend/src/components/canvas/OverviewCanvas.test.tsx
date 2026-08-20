@@ -197,7 +197,7 @@ describe("OverviewCanvas", () => {
     );
 
     // 切到只读态（如工作台切到演示项目复用同一路由实例）——演示数据自带 overview/episodes，
-    // 之前会被误判成「欢迎页 → 完成」触发交接提示，强行打开演示态并不挂载的智能体面板。
+    // 之前会被误判成「欢迎页 → 完成」触发交接提示，强行打开演示态并不挂载的 Agent 面板。
     rerender(
       <OverviewCanvas
         projectName="demo"

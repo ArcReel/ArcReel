@@ -1346,9 +1346,9 @@ class API {
     );
   }
 
-  /** 保存手动 / 智能体编辑后的结构化中间态，返回最新状态（重新等待确认）。
+  /** 保存手动 / Agent 编辑后的结构化中间态，返回最新状态（重新等待确认）。
    *
-   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如智能体晋升）
+   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 Agent 晋升）
    * 改过时服务端 409 冲突、不落盘，避免静默覆盖对方的修改；不传则不比对。 */
   static async saveScriptReviewContent(
     projectName: string,
@@ -2279,7 +2279,7 @@ class API {
     return response.json() as Promise<{ success: boolean; style_image: string; style_description: string; url: string }>;
   }
 
-  // ==================== 智能体会话 API ====================
+  // ==================== Agent 会话 API ====================
 
   /** Build the project-scoped assistant base path. */
   private static assistantBase(projectName: string): string {
@@ -2587,7 +2587,7 @@ class API {
     return response.json() as Promise<ProviderCredential>;
   }
 
-  // ==================== 智能体配置 / 凭证 API ====================
+  // ==================== Agent 配置 / 凭证 API ====================
 
   static async listAgentPresetProviders(): Promise<PresetProvidersResponse> {
     return this.request("/agent/preset-providers");

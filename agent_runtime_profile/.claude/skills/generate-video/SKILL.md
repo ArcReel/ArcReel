@@ -88,7 +88,7 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 ### 整批准入判定与档位确认
 
 视频整批请求是**全有或全无**：准入 `admitted` 时整批入队，`blocked` 或 `confirmation_required` 时
-**一个任务都不入队**。Web 与智能体走同一套准入与同一套请求选择语义，没有智能体专属的宽松通道。
+**一个任务都不入队**。Web 与 Agent 走同一套准入与同一套请求选择语义，没有 Agent 专属的宽松通道。
 
 按 unit 的引用状态选择生效档位，把编排时长投影到能容纳内容的申请档位。申请档位不同于当前视觉时长时
 预检返回 `reference_duration_confirmation_required`，逐档位向用户说明涉及的 unit、编排秒数、申请秒数

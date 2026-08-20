@@ -862,7 +862,7 @@ export function ProjectSettingsPage() {
                 />
               </SectionCard>
 
-              {/* 旁白配音（TTS）：仅 narration 模式消费——TTS 绑定 segment.novel_text，drama/ad 无该字段，
+              {/* 旁白配音（TTS）：仅 旁白/解说消费——TTS 绑定 segment.novel_text，drama/ad 无该字段，
                   故与两个画布的批量旁白按钮（contentMode === "narration"）同口径门控，避免对无效模式展示配音卡 */}
               {contentMode === "narration" && (
               <SectionCard kicker="Audio Channel" title={t("media_narration_title")}>

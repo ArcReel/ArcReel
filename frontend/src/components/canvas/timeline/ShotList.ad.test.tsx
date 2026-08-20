@@ -47,7 +47,7 @@ function renderList(shots: AdShot[]) {
   );
 }
 
-describe("ShotList ad 模式", () => {
+describe("ShotList 广告/短片", () => {
   it("列表预览展示口播文案与 section 标签", () => {
     renderList([makeShot()]);
     expect(screen.getByText("还在等杯子干？")).toBeInTheDocument();

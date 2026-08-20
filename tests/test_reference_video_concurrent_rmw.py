@@ -20,7 +20,7 @@ pytestmark = pytest.mark.unit
 
 
 def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -> None:
-    """创建项目 + 一个 reference_video 模式的 episode_1 剧本，预置 n_units 个 unit。"""
+    """创建项目 + 一个 参考生视频的 episode_1 剧本，预置 n_units 个 unit。"""
     pm.create_project(name)
     pm.save_project(
         name,

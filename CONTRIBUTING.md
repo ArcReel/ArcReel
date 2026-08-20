@@ -8,7 +8,7 @@
 # 前置要求：Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
 # 文档站 website/ 另需 Node 24（版本固定于 website/.node-version）
 # 操作系统：Linux / macOS / Windows WSL2；Windows 原生可运行项目创建与基础流程，
-# 智能体沙箱在 Windows 上降级为命令前缀白名单（见 docs/adr/0025），生产部署推荐 WSL2/Docker
+# Agent 沙箱在 Windows 上降级为命令前缀白名单（见 docs/adr/0025），生产部署推荐 WSL2/Docker
 
 # 安装依赖
 uv sync

@@ -1429,8 +1429,7 @@ class _StoryboardBatch:
 def generate_video_episode_tool(ctx: ToolContext):
     @tool(
         "generate_video_episode",
-        "为剧本对应的整集生成所有场景视频。resume=true 时从 checkpoint 续传。"
-        "reference_video 模式会自动按 video_units 处理。",
+        "为剧本对应的整集生成所有场景视频。resume=true 时从 checkpoint 续传。参考生视频会自动按 video_units 处理。",
         _EPISODE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1626,7 +1625,7 @@ def generate_video_scene_tool(ctx: ToolContext):
 def generate_video_all_tool(ctx: ToolContext):
     @tool(
         "generate_video_all",
-        "为剧本批量生成所有缺视频的场景/片段（独立模式，不拼接）。reference_video 模式等同 episode 模式。",
+        "为剧本批量生成所有缺视频的场景/片段（独立模式，不拼接）。参考生视频等同 episode 模式。",
         _ALL_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:

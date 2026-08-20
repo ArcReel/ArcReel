@@ -1,25 +1,25 @@
 """step1 / step2 产出的草稿：落盘信封、违约报告与晋升口径。
 
 生成一次要付费，产物违约时丢弃重抽既烧钱又不收敛（同一个模型对同一份原文大概率再犯同一
-类错）。改为：正式文件一步不动，未满足约束的产物连同逐条违约报告落到同目录的草稿，智能体用文件
+类错）。改为：正式文件一步不动，未满足约束的产物连同逐条违约报告落到同目录的草稿，Agent 用文件
 工具就地修 ``content``（或去补登记资产、改用登记名），再调晋升工具按**同一个校验器**全量重判
 ——过则晋升为正式文件、草稿随之清除，不过则报告刷新、继续改。无收敛轮次上限：每一轮都
-由智能体带着具体定位在改，不是重抽碰运气。
+由 Agent 带着具体定位在改，不是重抽碰运气。
 
 同一个草稿位还承担第二种用途：**编辑工位**。正式 step1 不可用 Write/Edit 直改（它与 Web 端
-保存、迁移读改写、重拆分共享一把 per-path 锁，而智能体的文件工具取不到这把锁），要改已定稿的
+保存、迁移读改写、重拆分共享一把 per-path 锁，而 Agent 的文件工具取不到这把锁），要改已定稿的
 step1 就先取回一份草稿、改完走同一条晋升通道写盘。两种用途共用一套信封与晋升口径：来路不同，
 但「正文在草稿里、写盘只发生在持锁的晋升侧」这一位相同，分两套只会让 gate 与生成侧各认一半。
 
 草稿装的是**该步模型输出那一层的形状**（LLM 面的形状），不是落盘形状：机器派生的字段
 （参考生视频的 ``unit_id`` / ``shots`` / ``references``、drama 的 ``needs_replan``）一律不进草稿，
-让智能体编辑派生物等于给漂移开口子。
+让 Agent 编辑派生物等于给漂移开口子。
 
 信封形状::
 
     {"kind": ..., "episode": N, "meta": {...}, "violations": [{"code","label","message"}, ...], "content": {...}}
 
-``violations`` 是上一轮判定的快照，只供智能体阅读定位——晋升时一律按 ``content`` 现值重判，
+``violations`` 是上一轮判定的快照，只供 Agent 阅读定位——晋升时一律按 ``content`` 现值重判，
 不信任草稿里的这份记录。``meta`` 存重判所需、又无法从项目状态重新导出的上下文：step1 的源文
 路径（晋升时按整个 ``source/`` 目录重解析会让原文锚的子串判定比产出时更松），以及产出 / 取回
 时正式文件的内容指纹（``base_fingerprint``，晋升前的乐观并发基线）。
@@ -55,7 +55,7 @@ _QUARANTINE_FILENAMES: dict[str, str] = {
 }
 
 #: 报告里「改哪个字段」的指引按来源分流：草稿正文的形状各不相同，指引落到不存在的字段名
-#: 会把智能体引到它改不动的地方。与文件名同表登记，新增一种来源只在本模块加一行。
+#: 会把 Agent 引到它改不动的地方。与文件名同表登记，新增一种来源只在本模块加一行。
 _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
     QUARANTINE_KIND_STEP1: ("step1 拆分", "units[i].text / source_text / duration_seconds"),
     QUARANTINE_KIND_STEP2: ("step2 视觉展开", "units[i].text"),
@@ -69,7 +69,7 @@ _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
 PROMOTE_TOOL_NAME = "validate_and_promote_draft"
 
 #: 取回正式 step1 供编辑的工具名。正式 step1 与 Web 端保存、迁移、重拆分共享一把 per-path 锁，
-#: 智能体的 Write/Edit 在沙箱内跑、取不到这把锁，故对它的修改一律改走「取回草稿 → 改 → 晋升」：
+#: Agent 的 Write/Edit 在沙箱内跑、取不到这把锁，故对它的修改一律改走「取回草稿 → 改 → 晋升」：
 #: 写盘只发生在晋升侧，与另三条路径同一把锁。写禁策略的拒绝消息也要指名它，故同样收在这里。
 STEP1_EDIT_TOOL_NAME = "open_step1_for_edit"
 
@@ -122,7 +122,7 @@ def write_quarantine(
 ) -> Path:
     """把未满足约束的产物与报告写入草稿（原子写，整份覆盖），返回草稿路径。
 
-    整份覆盖而非合并：重抽或重跑晋升产生的是一份新产物，与上一轮的残留合并只会让智能体对着
+    整份覆盖而非合并：重抽或重跑晋升产生的是一份新产物，与上一轮的残留合并只会让 Agent 对着
     半新半旧的正文改。目录可能尚不存在（该集从未产出过 step1），故先建目录。
     """
     path = quarantine_path(project_path, episode, kind)
@@ -143,7 +143,7 @@ def write_quarantine(
 def read_quarantine(project_path: Path, episode: int, kind: str) -> QuarantinedDraft | None:
     """读回草稿；文件缺失 / 非法 JSON / 信封形状坏时返回 None。
 
-    形状坏按「无草稿」处理而非抛错：这份文件正是给智能体手改的，改坏 JSON 是可预期的
+    形状坏按「无草稿」处理而非抛错：这份文件正是给 Agent 手改的，改坏 JSON 是可预期的
     中间态。调用方据此给出「重新拆分」而非内部错误——但 ``exists`` 仍为真，gate 与生成侧照常
     阻塞，坏掉的草稿不会被当成「没有草稿」而放行。
 
@@ -189,10 +189,10 @@ def clear_quarantine(project_path: Path, episode: int, kind: str) -> None:
 
 
 def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, episode: int) -> str:
-    """渲染回给智能体的违约报告：逐条定位 + 按处置路径写的修复指引。
+    """渲染回给 Agent 的违约报告：逐条定位 + 按处置路径写的修复指引。
 
     指引写「改哪个文件的哪个字段、改完调什么」而非泛泛的「请修正」：处置路径是本机制的全部
-    要点，智能体若不知道产物还在盘上，就会退回重抽。
+    要点，Agent 若不知道产物还在盘上，就会退回重抽。
     """
     stage, field = _QUARANTINE_REPORT_HINTS[kind]
     return (
@@ -214,7 +214,7 @@ def quarantine_and_report(
     violations: list[DraftViolation],
     meta: dict[str, Any] | None = None,
 ) -> str:
-    """违约处置的单一出口：落草稿 + 渲染报告，返回回给智能体的报告文本。
+    """违约处置的单一出口：落草稿 + 渲染报告，返回回给 Agent 的报告文本。
 
     落盘与报告成对出现——报告要指名草稿路径，路径由落盘决定；两步分开写在各调用点，迟早会
     出现「报告说去改某个文件、而那个文件没被写出来」的分叉。

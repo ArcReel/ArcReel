@@ -1,5 +1,5 @@
 MESSAGES = {
-    "project_migration_failed": "项目 '{name}' 的数据升级未完成，暂时无法生成内容。原因：{reason}。请在智能体对话中修复后重试升级",
+    "project_migration_failed": "项目 '{name}' 的数据升级未完成，暂时无法生成内容。原因：{reason}。请在 Agent 对话中修复后重试升级",
     "project_not_found": "项目 '{name}' 不存在或未初始化",
     "resource_not_found": "请求的资源不存在",
     "overview_ai_response_invalid": "AI 返回内容无法解析为项目概述，请重试或更换模型/供应商",
@@ -145,10 +145,10 @@ MESSAGES = {
     "draft_invalid_json": "内容整理草稿的结构不合法，请检查后重试",
     "script_review_not_applicable": "该集不适用内容确认（该模式没有可确认的内容整理结果）",
     "script_review_no_step1": "尚无可确认的内容整理结果，请先完成内容整理",
-    "script_review_quarantined": "本集有待修复草稿，请让智能体修改并晋升后再确认",
+    "script_review_quarantined": "本集有待修复草稿，请让 Agent 修改并晋升后再确认",
     "script_review_conflict": "内容整理草稿在编辑期间已被其他编辑方修改，本次保存未覆盖；请刷新查看最新内容，合并后再保存",
     "script_review_invalid_content": "内容确认草稿结构校验失败，请检查后重试",
-    "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请让智能体重新拆分该集",
+    "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请让 Agent 重新拆分该集",
     # Source loader
     "source_unsupported_format": "不支持的源文件格式：{ext}（支持 .txt / .md / .docx / .epub / .pdf）",
     "source_decode_failed": "源文件「{filename}」解码失败（已尝试：{tried}）",
@@ -175,8 +175,8 @@ MESSAGES = {
     "session_not_found": "会话 '{session_id}' 不存在",
     "session_or_project_not_found": "会话或项目不存在",
     "sdk_session_timeout": "SDK 会话创建超时",
-    "agent_startup_failed": "智能体启动失败：\n{details}",
-    "agent_startup_failed_title": "智能体启动失败",
+    "agent_startup_failed": "Agent 启动失败：\n{details}",
+    "agent_startup_failed_title": "Agent 启动失败",
     "interface_offline": "该接口已下线，请使用推荐的接口",
     "answers_required": "answers 不能为空",
     # Custom Providers
@@ -208,7 +208,7 @@ MESSAGES = {
     "unknown_style_template": "未知的风格模版: {template_id}",
     "ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",
     "ad_no_default_duration": "广告/短片项目不支持默认时长，镜头时长按目标总时长规划",
-    "ad_grid_not_supported": "广告/短片项目不支持多宫格分镜生视频",
+    "ad_grid_not_supported": "广告/短片项目不支持多宫格分镜",
     "grid_storyboard_not_enabled": "项目未启用多宫格分镜，无法生成多宫格分镜",
     "ad_target_duration_required": "广告/短片项目必须设置目标总时长（正整数秒）",
     "project_deleted": "项目 '{name}' 已删除",
@@ -231,7 +231,7 @@ MESSAGES = {
     "jwt_auth_required": "API Key 无权执行此操作，请使用 JWT 认证",
     "api_key_name_exists": "名称 '{name}' 已存在",
     "api_key_not_found": "API Key {key_id} 不存在",
-    # 智能体对话
+    # Agent 对话
     "session_project_mismatch": "会话 '{session_id}' 属于项目 '{session_project}'，与请求项目 '{request_project}' 不符",
     # Cost Estimation
     "cost_estimation_failed": "费用估算失败，请稍后重试",
@@ -326,7 +326,7 @@ MESSAGES = {
     "video_request_conflicts_with_active_task": "单元「{resource_id}」已有使用不同旁白交付方式或确认时长的视频任务在处理中；请等待完成或取消任务后重试",
     "tts_conflicts_with_active_narrated_video": "单元「{resource_id}」已有使用当前 TTS 的视频任务在处理中；请等待完成或取消任务后再重新生成旁白配音",
     "audio_restore_conflicts_with_active_task": "单元「{resource_id}」的旁白正在生成或被视频任务使用；请等待完成或取消任务后再切换音频版本",
-    # 智能体凭证
+    # Agent 凭证
     "agent_preset_unknown": "未知预设供应商: {preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",
     "agent_no_fields_to_update": "没有需要更新的字段",

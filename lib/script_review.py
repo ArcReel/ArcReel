@@ -7,7 +7,7 @@ router / service（结构化中间态审阅 / 编辑 / 确认）。状态派生�
 重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 step2 草稿清理只存在一处。
 
 真值只存「确认指纹」于 project.json ``episodes[i].step1_review``；pending / confirmed 由读时
-比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、智能体
+比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、Agent
 改写 step1、web 手改 step1 都会让指纹漂移、自动重新待审，无需 hook 各异的 step1 写入路径
 （narration step1 由子任务 Write 落盘、无 Python chokepoint）。
 
@@ -135,7 +135,7 @@ def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: 
 def step1_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
     """该集 step1 是否有草稿在场——gate 与 step2 的阻塞判据。
 
-    隔离态与「正式 step1 的内容指纹」是两件事：产出违约或智能体取回编辑时正式文件都原封
+    隔离态与「正式 step1 的内容指纹」是两件事：产出违约或 Agent 取回编辑时正式文件都原封
     不动，指纹照旧等于已确认值，只看指纹会把该集判成 confirmed 并放行 step2——用户看到的是
     上一版内容，而待处置的正文还躺在草稿里。故隔离态独立阻塞。
 
@@ -382,7 +382,7 @@ def write_formal_step1_locked(
     ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。有隔离
     草稿位的两个变体（drama 与参考生视频）的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、
     迁移回写）汇入本函数；无草稿位的 narration 走 ``write_step1_json``——同一把锁、同一个
-    事务，只是不做基线比对、也没有下游草稿要清。正式 step1 之所以对智能体写禁，正是因为
+    事务，只是不做基线比对、也没有下游草稿要清。正式 step1 之所以对 Agent 写禁，正是因为
     写盘只发生在这些持锁的出口。
 
     ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
@@ -474,7 +474,7 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     # 无确认指纹（存量 / 首次）：用 step2 产物是否已存在做 grandfather 判据。
     # 过渡态局限：存量集没有指纹基线，无法区分「step1 未动」与「step1 已重拆但未确认」——
     # 只要旧 step2 文件仍在，重拆后的 step1 也会被放行、不重新拦审。这是「不无谓阻塞存量重跑」的
-    # 取舍代价，且自愈：用户或智能体首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
+    # 取舍代价，且自愈：用户或 Agent 首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
     return "confirmed" if step2_generated(project_path, project, episode) else "pending_review"
 
 

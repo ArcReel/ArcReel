@@ -21,7 +21,7 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
    - **ad（广告/短片）例外**：不需要任何 step1 中间文件——创作输入是 `project.json` 的
      `brief` + `products`（含 selling_points）+ `target_duration`，prompt 由后端按审定的
      带货八段框架配比表构建（`products` 为空自动分流通用短片 prompt）
-3. **有 step1 的骨架（drama / narration / reference_video）须先完成内容确认**：step1 结构化中间态在 Web 端审阅、可手动 / 智能体编辑，**显式确认后**本工具才生成 step2 视觉层。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主智能体调用 `mcp__arcreel__confirm_script_review({"episode": N})`。未确认（或确认后内容又被改）时本工具拒绝；存量项目（已生成过本集剧本）已 grandfather 放行。reference_video 同样需要内容确认（其 step1 是 `step1_reference_units.json`），只有 ad（无 step1）不适用。其中 drama 与 reference_video 的正式 step1 **智能体不可用 Write/Edit 直改**（与 Web 端保存共享一把文件锁，智能体的文件工具取不到）：改动经 `mcp__arcreel__open_step1_for_edit` 取回可编辑草稿、改完由 `mcp__arcreel__validate_and_promote_draft` 晋升回正式文件，详见 `normalize-drama-script` / `split-reference-video-units` 子任务。
+3. **有 step1 的骨架（drama / narration / reference_video）须先完成内容确认**：step1 结构化中间态在 Web 端审阅、可手动 / Agent 编辑，**显式确认后**本工具才生成 step2 视觉层。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主 Agent 调用 `mcp__arcreel__confirm_script_review({"episode": N})`。未确认（或确认后内容又被改）时本工具拒绝；存量项目（已生成过本集剧本）已 grandfather 放行。reference_video 同样需要内容确认（其 step1 是 `step1_reference_units.json`），只有 ad（无 step1）不适用。其中 drama 与 reference_video 的正式 step1 **Agent 不可用 Write/Edit 直改**（与 Web 端保存共享一把文件锁，Agent 的文件工具取不到）：改动经 `mcp__arcreel__open_step1_for_edit` 取回可编辑草稿、改完由 `mcp__arcreel__validate_and_promote_draft` 晋升回正式文件，详见 `normalize-drama-script` / `split-reference-video-units` 子任务。
 4. **reference_video 的约束失败产出保留为待修复草稿，不丢弃重抽**：step1 拆分或 step2 视觉展开的产出违反内容约束时，正式文件不写，产出连同逐条违约报告落到 `drafts/episode_N/step1_reference_units.invalid.json` / `step2_reference_script.invalid.json`。待修复草稿在场期间本工具拒绝生成。处置方式是 Read 草稿 → 按 `violations[]` 的 unit 定位与违约类 Edit `content.units[i]` → 调 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 晋升，仍违约则继续改再晋升，无轮次上限。drama 的可编辑草稿（`step1_normalized_script.invalid.json`）来自取回编辑，不是约束失败产出；处置路径同上，改的是 `content.scenes[i]`。
 
 ## 用法
@@ -62,10 +62,10 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 
 - `title`：LLM 写入的剧集标题
 - `episode` / `content_mode` / `novel`（含 title、chapter）：由后端 `_add_metadata` 注入，不依赖 LLM 输出
-- narration 模式：`segments[]`（每个片段含 novel_text、duration_seconds、segment_break、出场角色 / 场景 / 道具 —— 由 step1 透传；image_prompt、video_prompt —— 由 step2 生成）
+- 旁白/解说：`segments[]`（每个片段含 novel_text、duration_seconds、segment_break、出场角色 / 场景 / 道具 —— 由 step1 透传；image_prompt、video_prompt —— 由 step2 生成）
 - 剧情演绎：`scenes[]`（每个场景含 image_prompt、video_prompt、duration_seconds，以及 step1 透传的 utterances、source_text、characters_in_scene 等）
-- ad 模式：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等）；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
-- reference_video 模式：`video_units[]`（每个 unit 含 `text`、`duration_seconds` 等）
+- 广告/短片：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等）；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
+- 参考生视频：`video_units[]`（每个 unit 含 `text`、`duration_seconds` 等）
 - `metadata`：created_at、updated_at、generator
 
 条目数与全集总时长不落盘：它们逐读剧本即得，由项目摘要读时计算，落一份只会与正文漂移。

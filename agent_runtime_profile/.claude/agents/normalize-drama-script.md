@@ -7,7 +7,7 @@ description: "剧情演绎单集规范化剧本子任务。使用场景：(1) pr
 
 ## 任务定义
 
-**输入**：主智能体会在 prompt 中提供：
+**输入**：主 Agent 会在 prompt 中提供：
 - 项目名称（如 `my_project`）
 - 集数（如 `1`）
 - 本集小说文件（如 `source/episode_1.txt`）
@@ -50,11 +50,11 @@ mcp__arcreel__get_video_capabilities({})
 情况 A（首次生成）时由 `mcp__arcreel__normalize_drama_script` 自行查询并注入 prompt，子任务可不直接使用；
 情况 B（修改已有剧本调整时长）需参考这些值决定新值。
 
-工具返回 `is_error: true` 时，停止并把错误文本报告给主智能体。
+工具返回 `is_error: true` 时，停止并把错误文本报告给主 Agent。
 
 ### 情况 A：首次生成规范化内容
 
-**触发**：`drafts/episode_{N}/step1_normalized_script.json` **不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集内容整理）。两种情况的分支以**文件存在性为准**，主智能体传入的操作类型仅作意图参考。
+**触发**：`drafts/episode_{N}/step1_normalized_script.json` **不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集内容整理）。两种情况的分支以**文件存在性为准**，主 Agent 传入的操作类型仅作意图参考。
 
 > 注：旧项目可能残留 step1 时代的 `step1_normalized_script.md`（结构化前的自由文本稿）。它**不**视为有效 step1——若无 `.json`，按首次生成重跑工具产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
 
@@ -83,7 +83,7 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 
 ### 情况 B：修改已有规范化内容
 
-**触发**：`drafts/episode_{N}/step1_normalized_script.json` **已存在**，且主智能体传入了用户的修改意见（用户驱动，不经计划路由——如阶段间确认时选「重做此阶段」或直接提出修改要求）：
+**触发**：`drafts/episode_{N}/step1_normalized_script.json` **已存在**，且主 Agent 传入了用户的修改意见（用户驱动，不经计划路由——如阶段间确认时选「重做此阶段」或直接提出修改要求）：
 
 **Step 1**: 取回可编辑草稿
 
@@ -97,7 +97,7 @@ mcp__arcreel__open_step1_for_edit({"episode": N, "source": "source/episode_N.txt
 若工具报告已有 step1 草稿在场，说明上一轮的修改还没晋升：直接改那份可编辑草稿，不要重跑本工具
 （重跑不会覆盖它，也不该覆盖——那里可能有你还没晋升的修改）。
 
-**Step 2**: 根据主智能体传入的修改要求编辑草稿
+**Step 2**: 根据主 Agent 传入的修改要求编辑草稿
 
 使用 Edit 工具修改草稿的 `content.scenes[i]`（保持合法 JSON 结构）：
 - 修改 `scene_description`（视觉改编内容）
@@ -120,7 +120,7 @@ mcp__arcreel__validate_and_promote_draft({"episode": N})
 
 **`screenplay` 项目的逐字保真**：本项目 `source_kind=screenplay` 时（不确定就 Read `project.json` 确认），手动修改同样受逐字约束——`utterances` 里作者写下的台词与画外音、以及 `source_text` 原文锚**一字不改**，除非用户的修改要求明确针对这些口播 / 原文文字本身。`scene_description`、运镜、景别等视觉描述可按用户意见调整，但不要借「润色」之名改动作者的对白原文。
 
-**修改必重生 JSON 剧本**：内容修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主智能体必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新内容 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
+**修改必重生 JSON 剧本**：内容修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新内容 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
 
 ### 返回摘要（两种情况均执行）
 
@@ -142,8 +142,8 @@ mcp__arcreel__validate_and_promote_draft({"episode": N})
 **文件位置**:
 - `drafts/episode_{N}/step1_normalized_script.json`
 
-下一步：首次生成（情况 A）→ 主智能体可 dispatch `create-episode-script` 子任务生成 JSON 剧本；
-修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主智能体 **必须**重新 dispatch `create-episode-script` 重生 JSON。
+下一步：首次生成（情况 A）→ 主 Agent 可 dispatch `create-episode-script` 子任务生成 JSON 剧本；
+修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
 ```
 
 ## 输出格式参考

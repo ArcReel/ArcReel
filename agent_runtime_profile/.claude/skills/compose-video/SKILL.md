@@ -83,7 +83,7 @@ python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.j
 
 下列能力**未实现**，请使用 Web 端剪映草稿导出：
 
-- narration / ad / reference_video 模式（脚本只识别 `scenes[]`）
+- 旁白/解说、广告/短片与参考生视频（脚本只识别 `scenes[]`）
 - 多集合并 / 单集分片裁剪
 - BGM 音量调节、独立 BGM 时间轴
 - 片头片尾 intro/outro

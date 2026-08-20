@@ -66,7 +66,7 @@ flowchart LR
     F --> H["剪映草稿导出"]
 ```
 
-每个阶段都可以由 AI 智能体编排，也可以由用户在工作台中审核、调整或重新生成。详细模式选择见 [创作流程与模式](https://docs.arc-reel.com/guide/workflows)。
+每个阶段都可以由 Agent（智能体）编排，也可以由用户在工作台中审核、调整或重新生成。详细模式选择见 [创作流程与模式](https://docs.arc-reel.com/guide/workflows)。
 
 ## 快速开始
 
@@ -84,7 +84,7 @@ docker compose up -d
 
 > 默认 Compose 会将 `1241` 端口发布到宿主机所有网络接口。请勿将服务直接暴露到公网；远程访问前请配置认证，并使用 HTTPS、VPN 或安全隧道，详见 [反向代理与 HTTPS](https://docs.arc-reel.com/ops/deployment#reverse-proxy-and-https)。
 
-登录后进入 **设置** 页面，配置 ArcReel AI 智能体以及文本、图像、视频等生成能力，再创建项目开始制作。
+登录后进入 **设置** 页面，配置 ArcReel Agent 以及文本、图像、视频等生成能力，再创建项目开始制作。
 
 完整的首次使用流程见 [完整入门教程](https://docs.arc-reel.com/guide/getting-started)；生产部署、升级、备份和反向代理见 [部署与运维](https://docs.arc-reel.com/ops/deployment)。
 
@@ -95,12 +95,12 @@ docker compose up -d
 | [文档首页](https://docs.arc-reel.com/) | 按使用者、运维者和开发者进入文档 |
 | [完整入门教程](https://docs.arc-reel.com/guide/getting-started) | 从首次部署到生成第一条视频 |
 | [创作流程与模式](https://docs.arc-reel.com/guide/workflows) | 小说、剧本、广告/短片以及三种视频制作方式 |
-| [供应商与模型配置](https://docs.arc-reel.com/guide/providers) | 智能体、文本、图像、视频、TTS 供应商的选择和配置 |
+| [供应商与模型配置](https://docs.arc-reel.com/guide/providers) | Agent、文本、图像、视频、TTS 供应商的选择和配置 |
 | [剪映草稿导出](https://docs.arc-reel.com/guide/jianying-export) | 将 ArcReel 生成结果交给剪映继续编辑 |
 | [常见问题](https://docs.arc-reel.com/guide/faq) | 部署、费用、模型、数据和许可证问题 |
 | [部署与运维](https://docs.arc-reel.com/ops/deployment) | SQLite、PostgreSQL、升级、备份和反向代理 |
 | [从 SQLite 迁移到 PostgreSQL](https://docs.arc-reel.com/ops/migrate-to-postgres) | 数据迁移、验证与回滚流程 |
-| [架构说明](https://docs.arc-reel.com/dev/architecture) | 智能体运行时、任务队列、供应商抽象和数据层 |
+| [架构说明](https://docs.arc-reel.com/dev/architecture) | Agent Runtime、任务队列、供应商抽象和数据层 |
 | [贡献指南](https://docs.arc-reel.com/dev/contributing) | 本地开发、测试、代码规范和 PR 流程 |
 
 ## 交流群

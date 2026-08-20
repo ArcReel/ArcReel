@@ -1,7 +1,7 @@
 """step1→step2 web 内容确认路由。
 
 暴露结构化中间态的审阅 / 编辑 / 确认：step1 产出后中间态在 web 可见可改，用户显式确认后才放行
-step2 视觉生成（step2 由智能体的 generate_episode_script 执行，读时经内容确认校验阻塞到确认）。
+step2 视觉生成（step2 由 Agent 的 generate_episode_script 执行，读时经内容确认校验阻塞到确认）。
 drama（utterances + source_text）与 narration（结构化 novel_text）共用本机制。
 """
 
@@ -54,7 +54,7 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
 
     ``quarantine`` 字段单独合并（reference_video 变体、草稿在场时才非 None）：它按产出时
     那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。
-    先取 ``quarantine`` 再取 ``state``：智能体的晋升工具在两次读之间把草稿清掉、正式
+    先取 ``quarantine`` 再取 ``state``：Agent 的晋升工具在两次读之间把草稿清掉、正式
     step1 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的
     违约报告」这一侧——面板会误判成仍在隔离态、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
     让响应落在「content 仍是旧的、quarantine 已经是 None」这一侧，面板会误判成干净态放行确认，
@@ -81,13 +81,13 @@ async def update_script_review_content(
     content: dict = Body(...),
     base_fingerprint: str | None = None,
 ):
-    """保存手动 / 智能体编辑后的结构化中间态，并使该集重新进入待审。
+    """保存手动 / Agent 编辑后的结构化中间态，并使该集重新进入待审。
 
     ``base_fingerprint``（query）是编辑方 GET 时拿到的内容指纹：给定时服务端在锁内比对，
     编辑期间 step1 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。
 
     ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与草稿是两份独立文件，保存在途时
-    智能体可能已经另外产出一份新的草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
+    Agent 可能已经另外产出一份新的草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
     「无草稿」，面板显示干净态、放行确认，而 confirm() 仍会按隔离文件存在性 409。
 
     保存完成后立即取 ``quarantine``，早于 ``_attach_duration_tiers`` 那次 await（视频能力

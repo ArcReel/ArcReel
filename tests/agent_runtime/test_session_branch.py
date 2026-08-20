@@ -140,7 +140,7 @@ async def test_unmapped_anchor_is_rejected(branching):
 
 
 async def test_anchor_pointing_at_a_non_user_entry_is_rejected(branching):
-    """身份映射表若因脏数据指向智能体条目，仍按「锚点非用户消息」拒绝。"""
+    """身份映射表若因脏数据指向 Agent 条目，仍按「锚点非用户消息」拒绝。"""
     service, _, store, log_store, session_id, tmp_path = branching
     main = await store.load({"project_key": make_project_key(tmp_path), "session_id": session_id})
     assert main is not None

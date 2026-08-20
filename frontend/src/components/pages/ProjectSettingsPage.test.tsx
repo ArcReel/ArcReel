@@ -364,7 +364,7 @@ describe("ProjectSettingsPage – style picker", () => {
     expect(screen.getByText(/生成方式创建后不可更改/)).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: /参考生视频|分镜图生视频/ })).not.toBeInTheDocument();
     // 参考生视频下不呈现宫格开关
-    expect(screen.queryByRole("switch", { name: /多宫格分镜生视频/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /多宫格分镜/ })).not.toBeInTheDocument();
   });
 
   it("saves the grid assembly toggle on the storyboard route", async () => {
@@ -386,7 +386,7 @@ describe("ProjectSettingsPage – style picker", () => {
 
     renderAt("/app/projects/demo/settings");
 
-    const toggle = await screen.findByRole("switch", { name: /多宫格分镜生视频/ });
+    const toggle = await screen.findByRole("switch", { name: /多宫格分镜/ });
     expect(toggle).toHaveAttribute("aria-checked", "false");
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-checked", "true");
@@ -415,7 +415,7 @@ describe("ProjectSettingsPage – style picker", () => {
     renderAt("/app/projects/demo/settings");
 
     expect(await screen.findByText(/先为每个场景生成分镜图/)).toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: /多宫格分镜生视频/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /多宫格分镜/ })).not.toBeInTheDocument();
   });
 });
 

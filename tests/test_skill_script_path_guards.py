@@ -2,7 +2,7 @@
 
 约束：
 - cwd 必须含 project.json，否则脚本拒绝执行
-- compose_video：narration / ad / reference_video 模式给友好错误，不是 KeyError
+- compose_video：旁白/解说、广告/短片与参考生视频给友好错误，不是 KeyError
 - compose_video：--output 不能逃逸到 output/ 之外
 """
 
@@ -49,7 +49,7 @@ def _run(
 def fake_project(tmp_path: Path) -> Path:
     """构造一个最小项目目录：project.json + source/。
 
-    模拟 projects/{name}/ 形态。cwd 切到此目录即等价于智能体 session cwd。
+    模拟 projects/{name}/ 形态。cwd 切到此目录即等价于 Agent session cwd。
     """
     # ProjectManager 校验项目标识仅允许英文字母 / 数字 / 中划线，所以不用下划线
     projects_root = tmp_path / "projects"
@@ -111,7 +111,7 @@ def test_compose_video_rejects_non_project_cwd(tmp_path: Path) -> None:
 
 @_requires_ffmpeg
 def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
-    """narration 模式（顶层 segments[] 无 scenes[]）应给友好错误，不是 KeyError。"""
+    """旁白/解说（顶层 segments[] 无 scenes[]）应给友好错误，不是 KeyError。"""
     (fake_project / "scripts").mkdir(exist_ok=True)
     (fake_project / "scripts" / "ep_narration.json").write_text(
         json.dumps(
@@ -134,7 +134,7 @@ def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
 
 @_requires_ffmpeg
 def test_compose_video_rejects_ad_mode(fake_project: Path) -> None:
-    """ad 模式（顶层 shots[] 无 scenes[]）应给友好错误并指引剪映草稿导出，不是 KeyError。"""
+    """广告/短片（顶层 shots[] 无 scenes[]）应给友好错误并指引剪映草稿导出，不是 KeyError。"""
     (fake_project / "scripts").mkdir(exist_ok=True)
     (fake_project / "scripts" / "ep_ad.json").write_text(
         json.dumps(

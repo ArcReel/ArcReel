@@ -1247,7 +1247,7 @@ class ProjectArchiveService:
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
     ) -> bool:
-        """修复 reference_video 模式剧本的 video_units，返回 script_changed。
+        """修复 参考生视频剧本的 video_units，返回 script_changed。
 
         单元的引用不落盘，正文才是真相，因此本方法只碰结构与产物字段：per-unit 时长收编、
         generated_assets 补全、video_clip / video_thumbnail 路径规范化与版本回溯。正文里

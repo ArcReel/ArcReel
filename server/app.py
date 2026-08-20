@@ -193,7 +193,7 @@ def check_sandbox_available() -> bool:
         # 2) 新 net namespace 内 loopback 配置被拒：容器缺 CAP_NET_ADMIN
         #    → "loopback: Failed RTM_NEWADDR: Operation not permitted"
         # 用与 SDK 实际调用接近的 unshare 参数试跑，启动期就拦下来，
-        # 避免智能体第一次调 Bash 才神秘失败。
+        # 避免 Agent 第一次调 Bash 才神秘失败。
         probe_cmd = [
             "bwrap",
             "--unshare-user",
@@ -604,15 +604,15 @@ app.include_router(
     assistant.router,
     prefix="/api/v1/projects/{project_name}/assistant",
     dependencies=[Depends(get_current_user)],
-    tags=["智能体会话"],
+    tags=["Agent 会话"],
 )
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
 app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
 app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
 app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])
-app.include_router(agent_chat.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["智能体对话"])
-app.include_router(agent_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["智能体配置"])
+app.include_router(agent_chat.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 对话"])
+app.include_router(agent_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 配置"])
 app.include_router(
     custom_providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义供应商"]
 )
@@ -643,7 +643,7 @@ app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 app.include_router(
     assistant.self_auth_router,
     prefix="/api/v1/projects/{project_name}/assistant",
-    tags=["智能体会话"],
+    tags=["Agent 会话"],
 )
 app.include_router(project_events.self_auth_router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])

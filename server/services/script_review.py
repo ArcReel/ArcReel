@@ -3,7 +3,7 @@
 纯 gate 逻辑（适用性 / 指纹 / 状态派生）在 ``lib.script_review``；本层叠加 ProjectManager
 持久化（确认指纹落 project.json ``episodes[i].step1_review``）与结构化内容的 Pydantic 校验、落盘。
 
-确认触发 step2 的语义是「放行」而非「服务端 launcher」：step2（剧本视觉生成）由智能体的
+确认触发 step2 的语义是「放行」而非「服务端 launcher」：step2（剧本视觉生成）由 Agent 的
 ``generate_episode_script`` 工具执行，本服务只负责把审核状态翻到 confirmed；该工具读时经
 ``lib.script_review.gate_blocks_step2`` 校验，pending 时拒绝、confirmed 后放行。
 """
@@ -279,7 +279,7 @@ class ScriptReviewService:
         合并两者的返回。
 
         ``content`` 校验通过时返回收编后的扁平产出（时长已按当前档位收编），未通过时返回草稿
-        原样内容 + 违约列表，供呈现层原样展示智能体手改的那份文本。meta 被改坏以致无从重算
+        原样内容 + 违约列表，供呈现层原样展示 Agent 手改的那份文本。meta 被改坏以致无从重算
         时，把「无法重算」本身作为一条违约返回，而不是退回草稿里那份上一轮快照——报告一律
         对现值负责，读时重算失败也是现值的一部分。
 
@@ -298,7 +298,7 @@ class ScriptReviewService:
         draft = await asyncio.to_thread(read_quarantine, project_path, episode, QUARANTINE_KIND_STEP1)
         if draft is None:
             if not quarantine_path.exists():
-                # 存在性检查与读取之间的窗口内，智能体的晋升/重拆分工具把文件清掉了（正式内容
+                # 存在性检查与读取之间的窗口内，Agent 的晋升/重拆分工具把文件清掉了（正式内容
                 # 已写入、隔离态合法结束）：不是信封损坏，是这次读跨越了「清除」那一刻，按「无
                 # 草稿」处理，不误报损坏。
                 return None
@@ -376,7 +376,7 @@ class ScriptReviewService:
     async def save_content(
         self, project_name: str, episode: int, content: object, base_fingerprint: str | None = None
     ) -> dict[str, Any]:
-        """校验并落盘编辑后的结构化中间态（手动或智能体编辑后回写），返回最新状态（重新待审）。
+        """校验并落盘编辑后的结构化中间态（手动或 Agent 编辑后回写），返回最新状态（重新待审）。
 
         内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
 
@@ -459,12 +459,12 @@ class ScriptReviewService:
             raise ScriptReviewError("not_applicable")
         project = self._require_episode(project_name, project, episode)
         # 草稿在场时拒绝确认：正式 step1 此刻仍是上一版（或不存在），确认它等于替用户
-        # 认可一份他没看过的内容，而刚产出的那份违约正文还在草稿里等智能体处置。校验
+        # 认可一份他没看过的内容，而刚产出的那份违约正文还在草稿里等 Agent 处置。校验
         # 口径与生成侧同一把尺——晋升工具用的正是产出时那套校验器，这里只判「是否还在隔离」。
         quarantine = script_review.step1_quarantine_path(project_path, project, episode)
         if quarantine is not None and quarantine.exists():
             raise ScriptReviewError("quarantined", f"step1 草稿待处置: {quarantine}")
-        # 存量草稿先做时长收编再校验：智能体 / 直连调用可能不经 get_state 就确认。同一把
+        # 存量草稿先做时长收编再校验：Agent / 直连调用可能不经 get_state 就确认。同一把
         # per-path 锁覆盖读改写全程（含下方 reference_video 分支自己的落盘），避免中途被
         # save_content 或迁移的写入插队——_read_step1_migrated 要求调用方已持锁。
         with self.pm.file_lock(path):

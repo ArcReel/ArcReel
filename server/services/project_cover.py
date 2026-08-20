@@ -4,13 +4,13 @@
 在项目大厅列出项目时，按偏好顺序挑一个可用作封面的相对资源路径：
 
     1. 已生成视频的首帧 `video_thumbnail`
-       —— storyboard 模式写在 `segments[*].generated_assets.video_thumbnail`，
+       —— 分镜图生视频写在 `segments[*].generated_assets.video_thumbnail`，
           reference 模式写在 `video_units[*].generated_assets.video_thumbnail`，
           均由 `lib/thumbnail.extract_video_thumbnail` 在生成完成后抽出并落盘。
        最能代表"项目当前产出进度"的资产，优先级最高。
 
     2. 已生成的分镜图 `storyboard_image`
-       —— storyboard 模式还没完成视频、但已出分镜图时的次优选择；
+       —— 分镜图生视频还没完成视频、但已出分镜图时的次优选择；
           reference 模式该字段永远为 None，自然跳过。
 
     3. 场景参考图 `scene_sheet`

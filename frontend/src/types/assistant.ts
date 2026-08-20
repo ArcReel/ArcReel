@@ -64,7 +64,7 @@ export interface ContentBlock {
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number };
   // question_answer fields（AskUserQuestion 答复：问题 → 所选选项）
   answers?: Record<string, string>;
-  // agent_failure block（写入点定型的智能体故障观测）
+  // agent_failure block（写入点定型的 Agent 故障观测）
   failure?: FailureObservation;
 }
 

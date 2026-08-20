@@ -524,7 +524,7 @@ class ProjectManager:
         for project_dir in sorted(self.projects_root.iterdir()):
             # 与 ``list_projects`` 同规则：跳过点开头（.git 等）和下划线开头
             # （``_global_assets`` 保留目录 — 跨项目共享 character/scene/prop 库，
-            # 不是项目，不应同步智能体 profile）
+            # 不是项目，不应同步 Agent profile）
             if not project_dir.is_dir() or project_dir.name.startswith((".", "_")):
                 continue
             try:
@@ -1123,7 +1123,7 @@ class ProjectManager:
         """
         从剧本文件同步集数信息到 project.json
 
-        智能体写入剧本后必须调用此方法以确保 WebUI 能正确显示剧集列表。
+        Agent 写入剧本后必须调用此方法以确保 WebUI 能正确显示剧集列表。
 
         Args:
             project_name: 项目名称
@@ -2465,24 +2465,24 @@ class ProjectManager:
         返回**诊断 dict**（不是 project 元数据）：``added``（新建条目名列表）、``merged``
         （合并已有条目名列表）、``dropped_fields``（被白名单丢弃的非允许字段，{name: [字段名]}）、
         ``dropped_legacy``（被剔除的历史字段如 type/importance，{name: [字段名]}）。caller
-        （MCP tool 层）据此构造对智能体的明确反馈——silent drop 是设计意图（least privilege），
-        但纯 silent 让智能体误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
-        把忽略原因明示给智能体，避免智能体重复尝试同样会被丢的字段。
+        （MCP tool 层）据此构造对 Agent 的明确反馈——silent drop 是设计意图（least privilege），
+        但纯 silent 让 Agent 误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
+        把忽略原因明示给 Agent，避免 Agent 重复尝试同样会被丢的字段。
         """
         # data_validator 在模块级 import 本模块（VALID_GENERATION_MODES），故惰性 import 破环。
         from lib.data_validator import DataValidator
 
         asset_type = self._resolve_asset_type(table)
-        # 拆开两种失败 case 让智能体错误更精确（之前合并的 "entries 不能为空" 无法区分两者）
+        # 拆开两种失败 case 让 Agent 错误更精确（之前合并的 "entries 不能为空" 无法区分两者）
         if not isinstance(entries, dict):
             raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
         if not entries:
             raise ValueError("entries 不能为空（至少需要一个 name → attrs 条目）")
         # 规范化 name：strip + NFC 后非空，且须是路径安全的单段组件（validate_asset_name，
-        # 名称会被拼进文件路径与单段路由参数）。智能体误传 "  李白  " 这种带空格的 name 会让
+        # 名称会被拼进文件路径与单段路由参数）。Agent 误传 "  李白  " 这种带空格的 name 会让
         # 后续按 name 索引查找（角色生成等）因空格差异 mismatch。非法 name fail-loud。
         # 同时检测规范化后冲突：{"李白": {...}, "  李白  ": {...}} 或 NFC/NFD 双形态规范化后
-        # key 相同 → 后者会 silent overwrite 前者；fail-loud 让智能体明确感知 collision 并去重。
+        # key 相同 → 后者会 silent overwrite 前者；fail-loud 让 Agent 明确感知 collision 并去重。
         normalized_entries: dict[str, dict] = {}
         raw_keys_by_normalized: dict[str, str] = {}
         for raw_name, attrs in entries.items():
@@ -2501,15 +2501,15 @@ class ProjectManager:
             raw_keys_by_normalized[name] = raw_name
 
         spec = ASSET_SPECS[asset_type]
-        # 字段白名单走 spec 的「智能体权限维度」`agent_editable_extra_fields`，**不复用** schema 维度
+        # 字段白名单走 spec 的「Agent 权限维度」`agent_editable_extra_fields`，**不复用** schema 维度
         # `extra_string_fields`——后者包括 `reference_image` 这类系统/用户路径字段（与 sheet_field
-        # 同性质，更新走 `update_character_reference_image` 专用 API），不该被智能体 patch_project 直改。
+        # 同性质，更新走 `update_character_reference_image` 专用 API），不该被 Agent patch_project 直改。
         # 不允许的字段同样含 `sheet_field`（character_sheet / scene_sheet / prop_sheet，资产生成流水线
         # 在图像就绪后通过 `_update_asset_sheet` 专用 API 回写）以及 spec 之外的任意 key。
         # `_strip_legacy_asset_fields` 处理 type/importance 等历史字段，这层再加白名单形成「最小特权」。
         allowed_fields = {"description", *spec.agent_editable_extra_fields}
-        # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示智能体。silent drop 仍是设计意图,
-        # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知智能体,避免 LLM 重复尝试。
+        # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示 Agent。silent drop 仍是设计意图,
+        # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知 Agent,避免 LLM 重复尝试。
         cleaned: dict[str, dict[str, Any]] = {}
         dropped_fields: dict[str, list[str]] = {}  # name → [被白名单丢的字段]
         dropped_legacy: dict[str, list[str]] = {}  # name → [被 _LEGACY_ASSET_FIELDS 剔除的字段]
@@ -2526,7 +2526,7 @@ class ProjectManager:
                 else:
                     non_allowed.append(k)
                     logger.debug(
-                        "upsert_assets: %s '%s' 的字段 %r 不在智能体可编辑白名单 %s,已忽略",
+                        "upsert_assets: %s '%s' 的字段 %r 不在 Agent 可编辑白名单 %s,已忽略",
                         table,
                         name,
                         k,
@@ -2657,7 +2657,7 @@ class ProjectManager:
     def rename_asset(
         self, project_name: str, table: str, old_name: str, new_name: str, *, dry_run: bool = False
     ) -> AssetRenameReport:
-        """资产级联重命名的单一事务入口（UI 与智能体共用，见 docs/adr/0057）。
+        """资产级联重命名的单一事务入口（UI 与 Agent 共用，见 docs/adr/0057）。
 
         在「全部剧本锁（按文件名排序）→ 草稿文件锁 → 项目锁」内一次完成：扫描全部剧集
         剧本与 step1 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」

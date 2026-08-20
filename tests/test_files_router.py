@@ -1232,7 +1232,7 @@ class TestFilesRouter:
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
-        # 设置项目为 reference_video 模式（content_mode 仍是 narration 测试正交性）
+        # 设置项目为 参考生视频（content_mode 仍是 narration 测试正交性）
         project_json = project_dir / "project.json"
         payload = json.loads(project_json.read_text(encoding="utf-8"))
         payload["generation_mode"] = "reference_video"

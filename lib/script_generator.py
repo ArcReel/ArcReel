@@ -525,7 +525,7 @@ class ScriptGenerator:
             visual_data = self._parse_narration_visual(response_text, episode)
             script_data = self._merge_narration_visual(narration_step1, visual_data, episode)
         elif reference_step1 is not None:
-            # 违约不丢弃：把这次已付费的展开连同逐条报告落待修复草稿，由智能体修复后经
+            # 违约不丢弃：把这次已付费的展开连同逐条报告落待修复草稿，由 Agent 修复后经
             # promote_reference_step2_draft 重判晋升。重抽既烧钱又不收敛——同一个模型对同一份
             # step1 大概率再犯同一类错。
             try:
@@ -1214,7 +1214,7 @@ class ScriptGenerator:
         接受：台词配不上画面时正确的出路是回到 step1 重拆，而不是让 step2 自行改词。
 
         逐 unit 的违约收齐后一次抛出（``DraftViolations``），供调用方把整份产出连同报告落到
-        待修复草稿——单条抛出会让智能体每修一个 unit 就要重跑一次付费的展开。
+        待修复草稿——单条抛出会让 Agent 每修一个 unit 就要重跑一次付费的展开。
 
         ``unit_id`` / ``duration_seconds`` 直接取 step1 的值，参考图不落盘、执行期再从正文
         派生——LLM 没写这些字段，也就没有对不上的可能。
@@ -1247,7 +1247,7 @@ class ScriptGenerator:
         for step1_unit, flat_unit in zip(step1_units, flat.units, strict=True):
             label = f"unit {step1_unit['unit_id']}"
             step1_text = str(step1_unit.get("text") or "")
-            # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，智能体一轮就能看全要改什么。
+            # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，Agent 一轮就能看全要改什么。
             # 一个 unit 内部仍是首个违约即停——正文解析不出时，后续判定都建立在同一个问题上。
             try:
                 validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
@@ -1271,7 +1271,7 @@ class ScriptGenerator:
         """把 step2 响应还原成待修复草稿要装的扁平形状 ``{title, units: [{text}]}``。
 
         与 ``_merge_reference_visual`` 的解析前置（去代码围栏 → title 兜底 → schema 校验）
-        逐步同口径：待修复草稿装的必须是「schema 已过、只是内容违约」的那份产物，否则智能体
+        逐步同口径：待修复草稿装的必须是「schema 已过、只是内容违约」的那份产物，否则 Agent
         改的正文与合并时读的正文形状不同。
         """
         data = json.loads(strip_json_code_fences(response_text))
@@ -1349,7 +1349,7 @@ class ScriptGenerator:
             ) from exc
         except ValueError as exc:
             # schema 层（DraftViolation 是 ValueError 子类，故须排在前）同样只回报告：这条路上
-            # 内容是智能体手写的，没有 backend 可重试，与 step1 晋升的 schema_invalid 同口径。
+            # 内容是 Agent 手写的，没有 backend 可重试，与 step1 晋升的 schema_invalid 同口径。
             raise DraftViolation(
                 quarantine_and_report(
                     self.project_path,

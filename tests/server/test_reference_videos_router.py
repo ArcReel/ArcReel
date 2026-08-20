@@ -1072,7 +1072,7 @@ def test_add_unit_unknown_episode_returns_404(client: TestClient):
 
 @pytest.mark.unit
 def test_write_endpoint_rejects_non_reference_video_mode(client: TestClient, tmp_path: Path):
-    """episode 非 reference_video 模式时，写端点应返回 409。"""
+    """episode 非 参考生视频时，写端点应返回 409。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["generation_mode"] = "image"

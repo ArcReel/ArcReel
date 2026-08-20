@@ -1,7 +1,7 @@
 """校验消息的结构化载体（locale-neutral 的 ``key + params``）。
 
 校验器与归档修复产出的 errors / warnings 会同时流向两个消费边界：Web 请求（按
-``Accept-Language`` 渲染）与智能体工具（固定中文渲染）。两者共用同一份 key 表，消息因此
+``Accept-Language`` 渲染）与 Agent 工具（固定中文渲染）。两者共用同一份 key 表，消息因此
 不能在产出点就定死成某种语言的裸字符串——产出结构、边界渲染。形态与参考生视频取档 warning
 的 ``{"key", "params"}`` 同构（见 ``lib.reference_video.duration_slots.DurationSlot.warning``）。
 
@@ -55,7 +55,7 @@ class ValidationMessage:
         return cls(LITERAL_KEY, {"text": text})
 
     def render(self, translate: Callable[..., str] | None = None) -> str:
-        """按 ``translate`` 渲染成文本；缺省用默认语言（中文）渲染，供智能体与 CLI 边界消费。"""
+        """按 ``translate`` 渲染成文本；缺省用默认语言（中文）渲染，供 Agent 与 CLI 边界消费。"""
         tr = translate or _default_translate()
         resolved = {name: _resolve_param(value, tr) for name, value in self.params.items()}
         return tr(self.key, **resolved)
@@ -66,7 +66,7 @@ class ValidationResult:
     """验证结果。
 
     ``error_messages`` / ``warning_messages`` 是结构化真相；``errors`` / ``warnings`` 是它们
-    按默认语言渲染出的只读视图，供智能体、CLI 与不带请求上下文的内部比对使用。Web 边界改用
+    按默认语言渲染出的只读视图，供 Agent、CLI 与不带请求上下文的内部比对使用。Web 边界改用
     ``render_errors`` / ``render_warnings`` 传入请求语言的 translator。
     """
 

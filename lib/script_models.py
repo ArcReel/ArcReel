@@ -14,8 +14,8 @@ from pydantic.json_schema import SkipJsonSchema
 
 from lib.script_skeleton import resolve_declared_kind
 
-# 所有剧本模型默认禁止额外字段:智能体的 `patch_episode_script` 通过 `_set_nested` 允许在
-# dict 上凭空创建叶子(为了让智能体补 LLM 漏写的 optional 字段);若 Pydantic 走默认
+# 所有剧本模型默认禁止额外字段:Agent 的 `patch_episode_script` 通过 `_set_nested` 允许在
+# dict 上凭空创建叶子(为了让 Agent 补 LLM 漏写的 optional 字段);若 Pydantic 走默认
 # `extra="ignore"`,任何 typo / hallucinated 字段都会被静默丢,但 dict 已被 atomic_write_json
 # 持久化,JSON 文件里垃圾字段长存,「不更坏」error-set diff 永远抓不到(before/after Pydantic
 # 都 ignore → 两边 errors 集合相同 → new_errors=∅ → 放行)。`extra="forbid"` 让 Pydantic

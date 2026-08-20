@@ -1378,7 +1378,7 @@ def test_resolve_supported_durations_respects_project_resolution(tmp_path):
 
 @pytest.mark.integration
 def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
-    """reference_video 模式触发「参考图↔时长」约束，即便分辨率本身无声明。"""
+    """参考生视频触发「参考图↔时长」约束，即便分辨率本身无声明。"""
     sg = _sg_with_project(
         tmp_path,
         {

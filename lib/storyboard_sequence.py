@@ -43,7 +43,7 @@ PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
 
 
 def get_storyboard_items(script: dict) -> tuple[list[dict], str, str | None, str, str]:
-    """返回 narration/drama/ad 模式剧本的分镜列表 + 各引用字段名。
+    """返回 旁白/解说、剧情演绎与广告/短片剧本的分镜列表 + 各引用字段名。
 
     ``video_units`` 骨架没有 storyboard 一说（视频按 unit 直出，见
     ``server/agent_runtime/sdk_tools/enqueue_videos.py`` 的参考生视频分支），这里硬返回空列表是

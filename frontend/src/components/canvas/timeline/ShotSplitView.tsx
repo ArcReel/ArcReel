@@ -26,7 +26,7 @@ interface ShotSplitViewProps {
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
   ) => void | Promise<void>;
-  /** ad 模式镜头顺序调整，resolve 为是否移动成功 */
+  /** 广告/短片镜头顺序调整，resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (

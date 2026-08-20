@@ -679,7 +679,7 @@ class TestReferenceVideoStep1Migration:
         assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["duration_seconds"] == 10
 
     async def test_custom_provider_direct_confirm_takes_slot_from_caps(self, tmp_path, monkeypatch):
-        """智能体 / API 绕过 get_state 直接 confirm 时同样按 caps 档位收编——两个入口口径不一致
+        """Agent / API 绕过 get_state 直接 confirm 时同样按 caps 档位收编——两个入口口径不一致
         的话，先跑的那个会把非档位秒数固化到盘上（迁移幂等一次性）。"""
         _stub_video_caps(monkeypatch, [5, 10])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -849,7 +849,7 @@ class TestReferenceVideoStep1Migration:
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
     async def test_confirm_direct_call_confirms_migrated_content(self, tmp_path, monkeypatch):
-        """智能体 / API 可能绕过 get_state 直接调用 confirm：迁移在 confirm 内部触发并 clamp
+        """Agent / API 可能绕过 get_state 直接调用 confirm：迁移在 confirm 内部触发并 clamp
         时（枚举外 clamp + warning 的宽容口径），confirm 按迁移后的落盘内容确认放行。
         """
         _stub_video_caps(monkeypatch, [4, 8, 12])
@@ -944,7 +944,7 @@ class TestReferenceVideoStep1Migration:
 class TestReferenceVideoStep2Enforcement:
     @pytest.mark.unit
     async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):
-        """智能体路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""
+        """Agent 路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""
         from server.agent_runtime.sdk_tools._context import ToolContext
         from server.agent_runtime.sdk_tools.text_generation import (
             confirm_script_review_tool,
@@ -1142,7 +1142,7 @@ class TestErrors:
     @pytest.mark.unit
     async def test_rv_save_clears_stale_step2_quarantine_on_change(self, tmp_path):
         """web 保存改了 step1 内容 → 在场的 step2 草稿作废（其保结构 diff 以旧 step1 为
-        基底）；内容未变的保存不清。与智能体侧写盘同一出口、同一语义。"""
+        基底）；内容未变的保存不清。与 Agent 侧写盘同一出口、同一语义。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         project_path = pm.get_project_path("demo")
@@ -1294,7 +1294,7 @@ class TestStep2Enforcement:
 
     @pytest.mark.unit
     async def test_confirm_tool_unblocks_step2(self, tmp_path):
-        """智能体路径：confirm_script_review 工具确认后，gate 放行（既有 step1→step2 不被破坏）。"""
+        """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 step1→step2 不被破坏）。"""
         from server.agent_runtime.sdk_tools._context import ToolContext
         from server.agent_runtime.sdk_tools.text_generation import confirm_script_review_tool
 
@@ -1383,7 +1383,7 @@ class TestManualSplitSelfHeal:
 
     @pytest.mark.unit
     async def test_confirm_self_heals_and_unblocks_step2(self, tmp_path):
-        """confirm（web 与智能体工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。"""
+        """confirm（web 与 Agent 工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。"""
         pm = _make_manual_split_project(tmp_path, "drama")
         _write_source_text(pm, "episode_1.txt", "任意派生内容")
         _write_step1(pm, "drama", _drama_step1())

@@ -96,7 +96,7 @@ class EpisodePlanSummary:
 class LedgerStats:
     """全账本体量分布快照（机械现算，不做「多小算畸小」之类的阈值判断）。
 
-    语义判断（是否与用户结构性偏好如「一章一集」「共 32 集」有出入）留给主智能体做——
+    语义判断（是否与用户结构性偏好如「一章一集」「共 32 集」有出入）留给主 Agent 做——
     这里只报分布事实。
     """
 
@@ -556,7 +556,7 @@ class EpisodePlanner:
                     draft_ep, num=num, source_rel=source_rel, start=prev, end=abs_end, status="planned"
                 )
                 # 新集号若在磁盘上已有剧本/step1/媒体产物（如重置到更早集号后重新规划、
-                # 新布局与原消费范围重叠），说明该集实际已被消费过；标 stale 提示主智能体
+                # 新布局与原消费范围重叠），说明该集实际已被消费过；标 stale 提示主 Agent
                 # 需重做下游产物，产物本身不删除
                 if has_downstream_products(self.project_path, num, entry):
                     entry["ledger_status"] = "stale"
@@ -595,7 +595,7 @@ class EpisodePlanner:
             stale_episodes=list(committed["stale"]),
             total_planned=_count_planned_episodes(final_project),
             # 全局核对材料只在末批即耗尽时附上；常规批次只报「累计已规划 N 集」，
-            # 避免主智能体上下文被逐批膨胀（工具层渲染 total_planned 的那一行）
+            # 避免主 Agent 上下文被逐批膨胀（工具层渲染 total_planned 的那一行）
             ledger_stats=self._compute_ledger_stats(final_project) if exhausted else None,
         )
 
@@ -617,7 +617,7 @@ class EpisodePlanner:
         每批集数）后转为 :class:`EpisodePlanningError` 冒泡（见 docs/adr/0044）。
 
         后端结构化输出降级链耗尽的 :class:`StructuredOutputExhaustedError` 同样短路本循环，
-        转为 :class:`EpisodePlanningError`，让智能体拿到「供应商结构化输出能力不足」的可读
+        转为 :class:`EpisodePlanningError`，让 Agent 拿到「供应商结构化输出能力不足」的可读
         话术而非后端内部异常原文。
         """
         if self.generator is None:

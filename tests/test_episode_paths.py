@@ -1,7 +1,7 @@
 """step1 / episode 路径单一真相源的行为测试。
 
 只测外部可观察契约：结构化 step1 文件名解析、旧版 .md 兼认边界、episode 剧本路径，
-以及"新增 content_mode 登记一处即被 gate / web / 智能体写盘共同覆盖"这一收敛不变量。
+以及"新增 content_mode 登记一处即被 gate / web / Agent 写盘共同覆盖"这一收敛不变量。
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def test_episode_drafts_dir():
 
 
 def test_new_content_mode_registered_once_covers_gate_web_and_agent(monkeypatch, tmp_path):
-    """在 STEP1_FILENAMES 登记一处新模式，gate 路径、web 步骤文件、智能体写盘路径应自动一致。
+    """在 STEP1_FILENAMES 登记一处新模式，gate 路径、web 步骤文件、Agent 写盘路径应自动一致。
 
     该集的脚本进度（``script_status``）由项目摘要按 step1 与正式脚本的产物态派生，探测的
     正是这里的 gate 路径，故不再有第四条独立的候选名表需要同步。
@@ -63,19 +63,19 @@ def test_new_content_mode_registered_once_covers_gate_web_and_agent(monkeypatch,
     # web 草稿读写：_get_step_files 返回同一文件名
     assert files._get_step_files("docudrama") == {1: "step1_docu.json"}
 
-    # 智能体写盘：_resolve_step1_path 指向同一结构化文件名，不因 == "drama" 硬编码误落 narration
+    # Agent 写盘：_resolve_step1_path 指向同一结构化文件名，不因 == "drama" 硬编码误落 narration
     resolved = text_generation._resolve_step1_path(tmp_path, 1, project)
     assert resolved is not None
     assert resolved[0] == tmp_path / "drafts" / "episode_1" / "step1_docu.json"
 
 
 def test_ad_has_no_structured_step1_across_web_and_agent(tmp_path):
-    """ad 不走结构化 step1：web 步骤映射为空、智能体写盘与 gate 路径解析均为 None。"""
+    """ad 不走结构化 step1：web 步骤映射为空、Agent 写盘与 gate 路径解析均为 None。"""
     # web 草稿读写：ad 不误落 drama 文件名，返回空映射；ad 优先于 generation_mode，
     # 带 reference_video 戳同样无 step1（与 _resolve_step1_path 先判 ad 同序）
     assert files._get_step_files("ad") == {}
     assert files._get_step_files("ad", generation_mode="reference_video") == {}
-    # 智能体写盘：ad 不依赖 step1
+    # Agent 写盘：ad 不依赖 step1
     assert (
         text_generation._resolve_step1_path(tmp_path, 1, {"content_mode": "ad", "episodes": [{"episode": 1}]}) is None
     )

@@ -71,7 +71,7 @@ curl http://localhost:1241/health
 | `deploy/projects/` | `/app/projects` | 项目数据、生成资产和默认 SQLite 数据库 |
 | `deploy/logs/` | `/app/logs` | 应用日志 |
 | `deploy/vertex_keys/` | `/app/vertex_keys` | Google Vertex AI 凭据文件 |
-| `deploy/claude_data/` | `/root/.claude` | 智能体运行时相关数据 |
+| `deploy/claude_data/` | `/root/.claude` | Agent 运行时相关数据 |
 
 默认 SQLite 数据库位于应用数据目录下的 `.arcreel.db`，在 Docker 默认部署中会随 `projects/` 一起持久化。
 
@@ -136,7 +136,7 @@ curl http://localhost:1241/health
 | `deploy/production/projects/` | 项目和媒体资产 |
 | `deploy/production/logs/` | 应用日志 |
 | `deploy/production/vertex_keys/` | Vertex AI 凭据 |
-| `deploy/production/claude_data/` | 智能体运行时数据 |
+| `deploy/production/claude_data/` | Agent 运行时数据 |
 | `deploy/production/.env` | 认证和数据库配置 |
 
 `pgdata/` 只保存 PostgreSQL 集群数据，`projects/` 保存项目元数据和媒体资产，两者都必须持久化且配套备份。生产部署通过 `DATABASE_URL` 使用 PostgreSQL，不会使用 `deploy/production/projects/.arcreel.db`；不要把 SQLite 文件复制进 `pgdata/`，也不要把两个目录当成可相互替代的数据库备份。
@@ -439,7 +439,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # ArcReel 使用 SSE 推送智能体回复和项目事件
+        # ArcReel 使用 SSE 推送 Agent 回复和项目事件
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 3600s;
@@ -450,9 +450,9 @@ server {
 
 证书配置取决于你的基础设施，可以使用 ACME/Let's Encrypt 或云平台托管证书。
 
-## 8. 容器权限与智能体沙箱 {#container-permissions-and-sandbox}
+## 8. 容器权限与 Agent 沙箱 {#container-permissions-and-sandbox}
 
-ArcReel 在 Linux 和 macOS 启动时会严格检查智能体沙箱，所需工具缺失或不可用时会拒绝启动。Windows 原生环境没有 `bwrap`，会自动降级为受限的 Bash 命令白名单；该模式只保证项目创建与基础流程，生产部署建议使用 WSL2 或 Docker Desktop。
+ArcReel 在 Linux 和 macOS 启动时会严格检查 Agent 沙箱，所需工具缺失或不可用时会拒绝启动。Windows 原生环境没有 `bwrap`，会自动降级为受限的 Bash 命令白名单；该模式只保证项目创建与基础流程，生产部署建议使用 WSL2 或 Docker Desktop。
 
 | 环境 | 工具 | 安装 |
 |---|---|---|
@@ -461,7 +461,7 @@ ArcReel 在 Linux 和 macOS 启动时会严格检查智能体沙箱，所需工�
 | Docker | `bwrap` + `socat` | 官方镜像已包含 |
 | Windows 原生 | 无 `bwrap` 沙箱 | 自动降级为 Bash 命令白名单；推荐 WSL2 / Docker Desktop |
 
-官方 Compose 为智能体 Bash 沙箱配置了：
+官方 Compose 为 Agent Bash 沙箱配置了：
 
 - `seccomp:unconfined`
 - `apparmor:unconfined`
@@ -476,7 +476,7 @@ ArcReel 在 Linux 和 macOS 启动时会严格检查智能体沙箱，所需工�
 - 不额外挂载不必要的宿主机目录；
 - 限制管理页面访问范围；
 - 及时更新 ArcReel 和基础镜像；
-- 只为智能体配置必要的网络和文件访问权限；
+- 只为 Agent 配置必要的网络和文件访问权限；
 - 对未知来源的项目输入保持谨慎。
 
 Docker 镜像虽然已包含 `bwrap` 和 `socat`，宿主机的 user namespace 或 AppArmor 策略仍可能阻止沙箱启动。启动失败时应根据服务输出的 `SANDBOX_*` 诊断修复，不要改成特权模式绕过检查，也不要在不了解影响的情况下删除官方 Compose 的沙箱配置。
@@ -529,9 +529,9 @@ docker compose logs --tail=300 arcreel
 - 如果首次启动时密码留空，查看是否已被回写；
 - 修改 `AUTH_TOKEN_SECRET` 后需要重新登录。
 
-### 智能体请求失败 {#agent-request-fails}
+### Agent 请求失败 {#agent-request-fails}
 
-- 验证 AI 智能体凭据；
+- 验证 Agent 凭据；
 - 检查 Base URL 和模型名称；
 - 检查网络和代理；
 - 查看供应商是否限流；

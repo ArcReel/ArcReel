@@ -23,7 +23,7 @@ pytestmark = pytest.mark.unit
 
 
 def _seed(pm: ProjectManager, name: str) -> None:
-    """创建项目 + 一个 reference_video 模式的 episode_1 剧本。"""
+    """创建项目 + 一个 参考生视频的 episode_1 剧本。"""
     pm.create_project(name)
     pm.save_project(
         name,

@@ -4,7 +4,7 @@
 验证 project.json 和 episode JSON 的数据结构完整性和引用一致性。
 
 产出的 errors / warnings 是 locale-neutral 的 ``ValidationMessage``（key + params），由各消费
-边界渲染：归档 router 按请求语言渲染，智能体与 CLI 走默认语言。
+边界渲染：归档 router 按请求语言渲染，Agent 与 CLI 走默认语言。
 """
 
 from __future__ import annotations
@@ -429,7 +429,7 @@ class DataValidator:
                 if not isinstance(episode_num, int) or isinstance(episode_num, bool):
                     errors.append(_m("val_episode_missing_num_at", prefix=prefix))
                 # title 允许空串：写入方（剧本同步/孤儿条目登记）在标题未知时即写 ""，
-                # 待用户或智能体后续命名
+                # 待用户或 Agent 后续命名
                 if not isinstance(episode.get("title"), str):
                     errors.append(_m("val_episode_missing_title_at", prefix=prefix))
 
@@ -468,7 +468,7 @@ class DataValidator:
                     continue
                 desc = char_data.get("description")
                 if not isinstance(desc, str) or not desc:
-                    # 必须是非空字符串：description 是 LLM 直写字段，智能体误传数字/对象
+                    # 必须是非空字符串：description 是 LLM 直写字段，Agent 误传数字/对象
                     # 应在守卫点 fail-loud，否则会作为合法资产落盘、下游消费时才崩
                     errors.append(_m("val_asset_missing_description", asset_type=_asset("character"), name=char_name))
                 for field_name in char_extra_fields:
@@ -769,7 +769,7 @@ class DataValidator:
         *,
         project_dir: Path | None = None,
     ) -> None:
-        """验证 segments（narration 模式）"""
+        """验证 segments（旁白/解说）"""
         if not isinstance(segments, list):
             errors.append(_m("val_field_must_be_array", field="segments"))
             return
@@ -1050,7 +1050,7 @@ class DataValidator:
         *,
         project_dir: Path | None = None,
     ) -> None:
-        """验证 shots（ad 模式）：平铺镜头列表，口播文案一等，产品按名字引用。
+        """验证 shots（广告/短片）：平铺镜头列表，口播文案一等，产品按名字引用。
 
         storyboard 路径的时长成员校验在生成 schema 层（supported_durations 枚举，校验器
         拿不到供应商能力、只把关正整数）。参考生视频使用 ``video_units``，不经过本函数。
@@ -1193,7 +1193,7 @@ class DataValidator:
         *,
         project_dir: Path | None = None,
     ) -> None:
-        """验证 video_units（reference_video 模式）"""
+        """验证 video_units（参考生视频）"""
         if not isinstance(video_units, list) or not video_units:
             errors.append(_m("val_video_units_missing"))
             return

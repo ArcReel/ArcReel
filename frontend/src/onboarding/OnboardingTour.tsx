@@ -76,7 +76,7 @@ export function OnboardingTour() {
   const requiredQuery = steps[stepIndex]?.query;
   // 该步声明的查询参数是否已满足。同一 pathname 下按查询参数切分区的页面（设置页的
   // `section`），pathname 相同不代表内容区落对了地方——设置页两步之间就靠这个判定
-  // 触发导航，把内容区从供应商切到智能体（以及退回时切回来）。
+  // 触发导航，把内容区从供应商切到 Agent（以及退回时切回来）。
   const querySatisfied =
     !requiredQuery ||
     Object.entries(requiredQuery).every(([key, value]) => new URLSearchParams(search).get(key) === value);

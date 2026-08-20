@@ -49,7 +49,7 @@ export interface Product {
   brand?: string;
   /** 用户上传的商品原图路径列表（保真验收锚点，系统级字段）。 */
   reference_images?: string[];
-  /** 卖点列表（智能体起草、用户可改）。 */
+  /** 卖点列表（Agent 起草、用户可改）。 */
   selling_points?: string[];
 }
 

@@ -94,7 +94,7 @@ def test_read_other_project_denied(policy: AgentAccessPolicy) -> None:
 
 
 def test_read_lib_passes(policy: AgentAccessPolicy) -> None:
-    """cwd 外的非 projects 路径允许读（用于智能体查 docs/lib 等参考资料）。"""
+    """cwd 外的非 projects 路径允许读（用于 Agent 查 docs/lib 等参考资料）。"""
     cwd = _cwd(policy)
     allowed, _ = policy.check_path_access(str(policy.project_root / "lib" / "foo.py"), "Read", cwd)
     assert allowed
@@ -147,7 +147,7 @@ def test_write_protected_project_json_denied(policy: AgentAccessPolicy, tool: st
 def test_write_formal_step1_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """正式 step1（drama 与参考生视频）不可用 Write/Edit 直改：它另有几条持同一把 per-path 锁的
     写入路径（迁移 / Web 端保存 / 晋升），沙箱内的 Write/Edit 取不到锁，直改即丢失更新窗口。
-    报错要指向取回草稿的工具，否则智能体只知被拒、不知改道哪里。"""
+    报错要指向取回草稿的工具，否则 Agent 只知被拒、不知改道哪里。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -179,7 +179,7 @@ def test_protected_step1_filenames_match_shared_constant() -> None:
     ],
 )
 def test_write_near_formal_step1_allowed(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """写禁只覆盖那两个正式文件，不外溢到同目录邻居：草稿 (.invalid.json) 正是给智能体用
+    """写禁只覆盖那两个正式文件，不外溢到同目录邻居：草稿 (.invalid.json) 正是给 Agent 用
     文件工具改的编辑工位，连它一起拦会把「取回草稿 → 改 → 晋升」这条替代路径也堵死；
     narration 的 step1 尚无草稿通道，只拒不给出路会把它的子任务卡死，故不在写禁表内。"""
     cwd = _cwd(policy)
@@ -190,7 +190,7 @@ def test_write_near_formal_step1_allowed(policy: AgentAccessPolicy, tool: str, r
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 def test_write_protected_scripts_dir_itself_denied(policy: AgentAccessPolicy, tool: str) -> None:
     """`scripts/` 目录路径本身（不带 trailing sep）也该拒：defense-in-depth，
-    不依赖 OS 兜底智能体把目录名当文件路径的 typo。"""
+    不依赖 OS 兜底 Agent 把目录名当文件路径的 typo。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / "scripts"), tool, cwd)
     assert not allowed
@@ -204,7 +204,7 @@ def test_write_protected_scripts_dir_itself_denied(policy: AgentAccessPolicy, to
 )
 def test_write_protected_scripts_non_json_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """`scripts/` 下任意文件类型都该拒（不只 .json）：sandbox denyWrite 把整个 scripts/ 列入
-    内核级 deny，hook 层须保持一致，避免智能体用 Write 污染剧本目录。"""
+    内核级 deny，hook 层须保持一致，避免 Agent 用 Write 污染剧本目录。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -219,7 +219,7 @@ def test_write_protected_scripts_non_json_denied(policy: AgentAccessPolicy, tool
 def test_write_protected_case_variants_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """大小写变体（PROJECT.JSON / Scripts/x.json）在 Windows NTFS / macOS APFS 默认卷
     上指向同一物理文件，Path 字符串比较 case-sensitive 会漏判——`_is_protected_project_json`
-    用 casefold 比较后这类变体也应被拒，否则智能体可改大小写绕过收口。"""
+    用 casefold 比较后这类变体也应被拒，否则 Agent 可改大小写绕过收口。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
@@ -356,7 +356,7 @@ def test_agent_profile_settings_denied(policy: AgentAccessPolicy, tool: str) -> 
 
 
 def test_arcreel_db_in_sensitive_list(policy: AgentAccessPolicy) -> None:
-    """入队链路已迁到 in-process MCP tool，sandbox 内智能体不再需要直读 db。"""
+    """入队链路已迁到 in-process MCP tool，sandbox 内 Agent 不再需要直读 db。"""
     cwd = _cwd(policy)
     db = policy.projects_root / ".arcreel.db"
     db.parent.mkdir(parents=True, exist_ok=True)
@@ -394,10 +394,10 @@ def test_sensitive_glob_pattern_does_not_overmatch(policy: AgentAccessPolicy) ->
 
 
 def test_logs_dir_is_sensitive_prefix(tmp_path: Path) -> None:
-    """log_dir 必须落在 sensitive prefixes 里，智能体不能 Read/Grep 全局日志。
+    """log_dir 必须落在 sensitive prefixes 里，Agent 不能 Read/Grep 全局日志。
 
     背景：服务器日志含 HTTP 请求路径、provider 探测、异常栈；_check_read_access
-    的 "仓库根内参考资料放行" 分支会把 repo 内的全局日志当成参考资料放给智能体。
+    的 "仓库根内参考资料放行" 分支会把 repo 内的全局日志当成参考资料放给 Agent。
     规则 0 的 sensitive-path 拒绝必须在前面截住，所以 log_dir 要进 prefixes。
     """
     root = tmp_path / "repo"
@@ -518,7 +518,7 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
 
     # 不存在的 system_config.json 不应出现（SDK 会跳过 non-existent path）
     assert all(".system_config.json" not in p for p in paths)
-    # .arcreel.db + WAL 辅助文件在敏感清单（入队走 MCP tool，智能体不直读 db）
+    # .arcreel.db + WAL 辅助文件在敏感清单（入队走 MCP tool，Agent 不直读 db）
     assert str(root.resolve() / "projects" / ".arcreel.db") in paths
     assert str(root.resolve() / "projects" / ".arcreel.db-shm") in paths
 
@@ -649,7 +649,7 @@ def test_wrap_bash_command_passthrough_when_no_command(tmp_path: Path) -> None:
 
 def test_logs_dir_outside_repo_is_sensitive(tmp_path: Path) -> None:
     """log_dir 在 repo 外（用户自定义日志位置）时，敏感前缀必须跟着指过去——
-    硬编码 repo/logs 会让智能体仍能 Read/Grep 真实 log_dir 下的日志。"""
+    硬编码 repo/logs 会让 Agent 仍能 Read/Grep 真实 log_dir 下的日志。"""
     repo = tmp_path / "repo"
     repo.mkdir()
     external_logs = tmp_path / "external" / "arcreel_logs"

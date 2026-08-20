@@ -6,13 +6,13 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 # 视频工作流编排
 
-你（主智能体）是编排中枢。你**不直接**处理小说原文或生成剧本，而是：
+你（主 Agent）是编排中枢。你**不直接**处理小说原文或生成剧本，而是：
 1. 检测项目状态 → 2. 读计划的 `next_action` → 3. dispatch 合适的子任务 → 4. 展示结果 → 5. 获取用户确认 → 6. 循环
 
 **核心约束**：
-- 小说原文**永远不加载到主智能体 context**，由子任务自行读取
+- 小说原文**永远不加载到主 Agent context**，由子任务自行读取
 - 每次 dispatch 只传**文件路径和关键参数**，不传大块内容
-- 每个子任务完成一个聚焦目标就返回，主智能体负责动作间衔接
+- 每个子任务完成一个聚焦目标就返回，主 Agent 负责动作间衔接
 
 > 两种生成模式（分镜图生视频 storyboard，含 grid_storyboard 宫格开关 / 参考生视频 reference_video）的数据结构与 schema 差异详见 `.claude/references/generation-modes.md`；步骤适用性由计划表达，参考文档不重复。
 
@@ -20,11 +20,11 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ## `collect_project_input`：项目设置
 
-**重要**：项目目录的创建由 Web 端 `POST /api/v1/projects` 触发 `ProjectManager.create_project()` 完成（包括所有子目录与 `project.json`、按 content_mode 物化对应的智能体 profile）。**主智能体不创建目录、不写入 project.json 初始字段**——session 启动时 cwd 已绑定到已存在的项目根。
+**重要**：项目目录的创建由 Web 端 `POST /api/v1/projects` 触发 `ProjectManager.create_project()` 完成（包括所有子目录与 `project.json`、按 content_mode 物化对应的 Agent profile）。**主 Agent 不创建目录、不写入 project.json 初始字段**——session 启动时 cwd 已绑定到已存在的项目根。
 
 ### 新项目
 
-1. 提示用户在 Web 端先创建项目，**创建时指定 content_mode（narration / drama）与 generation_mode（storyboard / reference_video）**；两者创建后均不可变更，智能体无对应写入权限。session 启动后 cwd 已绑定到对应项目根
+1. 提示用户在 Web 端先创建项目，**创建时指定 content_mode（narration / drama）与 generation_mode（storyboard / reference_video）**；两者创建后均不可变更，Agent 无对应写入权限。session 启动后 cwd 已绑定到对应项目根
 2. 使用 Read 工具读取 `project.json`，确认 `title`、`content_mode`、`generation_mode` 字段（本 session 当前 content_mode 为 `drama`，创建后不可变更）
 3. 请用户将小说文本放入 `source/`
 4. **上传后自动生成项目概述**（synopsis、genre、theme、world_setting）
@@ -61,7 +61,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ## 动作间确认协议
 
-**每个子任务返回后**，主智能体执行：
+**每个子任务返回后**，主 Agent 执行：
 
 1. **展示摘要**：将子任务返回的摘要展示给用户
 2. **获取确认**：使用 AskUserQuestion 提供选项：
@@ -100,7 +100,7 @@ expected source revision：{next_action.args.expected_source_revision}
 
 **触发**：`next_action.type == "plan_episodes"`
 
-分集规划由服务端工具完成：工具内部从 `planning_cursor` 起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集（标题/钩子/原文范围 + 分集大纲：故事节点与下集预告），在同一把项目锁内写账本、派生 `source/episode_{N}.txt` 并清理残留派生文件。**主智能体只调一次工具、只收摘要**——不读小说原文、不自行选切分点：
+分集规划由服务端工具完成：工具内部从 `planning_cursor` 起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集（标题/钩子/原文范围 + 分集大纲：故事节点与下集预告），在同一把项目锁内写账本、派生 `source/episode_{N}.txt` 并清理残留派生文件。**主 Agent 只调一次工具、只收摘要**——不读小说原文、不自行选切分点：
 
 1. 规划前快速核对 `project.json`：
    - `source_language` 是否与源文实际语言一致。优先级：**用户显式配置 > 自动推断**（正常路径由 overview 生成自动落盘）；发现不一致时**提醒用户（WARN）、说明后果并建议修正**（错误配置会使规划的体量度量与语言前提失真），用户未修正时按显式配置继续，不阻塞流程。字段缺失或经用户确认有误时，走 `mcp__arcreel__patch_project({"settings": {"source_language": "en"|"vi"|"zh"}})` 写入
@@ -132,7 +132,7 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 （两个内容整理子任务会自行读 project.json + 调用
 `mcp__arcreel__get_video_capabilities({})`
-拿到模型能力与用户偏好；主智能体不需要预先注入角色/场景/道具列表或
+拿到模型能力与用户偏好；主 Agent 不需要预先注入角色/场景/道具列表或
 `supported_durations` / `max_duration` / `max_reference_images` / `default_duration` 等数据。）
 
 **中间文件变更必重生剧本 JSON**：`prepare_step1` 的中间文件被修改或重拆后（无论哪种生成模式、无论首次还是重做），即使 `scripts/episode_{N}.json` 已存在，也必须重新执行 `generate_script`——剧本 JSON 不会自动跟随中间文件更新，跳过会留下"新中间文件 + 旧 JSON"的陈旧组合。
@@ -222,7 +222,7 @@ dispatch `generate-assets` 子任务：
 ## `generate_storyboards` / `generate_grid`：分镜图生成
 
 **触发**：`next_action.type` 为 `"generate_storyboards"` 或 `"generate_grid"`；服务端不会在
-reference_video 模式返回这两个动作。
+参考生视频返回这两个动作。
 
 按动作直接选择工具，不二次检查 `generation_mode` 或 `grid_storyboard`：
 
