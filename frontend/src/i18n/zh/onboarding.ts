@@ -3,21 +3,21 @@ import type enOnboarding from '@/i18n/en/onboarding';
 export default {
   // 引导步骤
   'welcome_title': '欢迎使用 [[brand]]',
-  'welcome_body': '[[brand]] 将小说或剧本制作成短视频：智能体负责分析原文、编写分集脚本、生成分镜和视频，过程中的每一步都可以人工调整。本引导介绍主要界面和基本流程。',
+  'welcome_body': '[[brand]] 将小说或剧本制作成短视频：Agent（智能体）负责分析原文、编写分集脚本、生成分镜和视频，过程中的每一步都可以人工调整。本引导介绍主要界面和基本流程。',
   'lobby_create_title': '新建项目',
   'lobby_create_body': '在这里新建项目，设置项目的基本信息、使用的模型和画面风格。',
   'lobby_settings_title': '设置',
   'lobby_settings_body': '开始制作前需要完成两项配置。按钮上的红点表示还有必填项未配置。',
   'settings_providers_title': '配置供应商',
   'settings_providers_body': '图像和视频由这里配置的供应商生成。至少配置一个供应商：填入 API Key，通过「测试连接」确认可用。',
-  'settings_agent_title': '配置智能体',
-  'settings_agent_body': '智能体负责分析原文、编写脚本和执行制作，在这里配置它使用的模型服务。',
+  'settings_agent_title': '配置 Agent',
+  'settings_agent_body': 'Agent（智能体）负责分析原文、编写脚本和执行制作，在这里配置它使用的模型服务。',
   'lobby_demo_title': '演示项目',
   'lobby_demo_body': '点击卡片打开演示工作台，查看项目的制作界面。',
   'workbench_overview_title': '项目概览',
-  'workbench_overview_body': '工作台首页是项目概览，包含智能体生成的项目概述和分集列表，每一集的制作状态和进度都在这里查看。',
-  'workbench_agent_title': '智能体',
-  'workbench_agent_body': '右侧是智能体，制作由它执行并汇报进度。新项目进入工作台后先导入小说或剧本，分析完成后发送「开始制作」，它会依次生成项目概述、角色形象图和每一集的分镜与视频。',
+  'workbench_overview_body': '工作台首页是项目概览，包含 Agent 生成的项目概述和分集列表，每一集的制作状态和进度都在这里查看。',
+  'workbench_agent_title': 'Agent',
+  'workbench_agent_body': '右侧是 Agent，制作由它执行并汇报进度。新项目进入工作台后先导入小说或剧本，分析完成后发送「开始制作」，它会依次生成项目概述、角色形象图和每一集的分镜与视频。',
   'workbench_lorebook_title': '角色、场景与道具',
   'workbench_lorebook_body': '角色、场景和道具在左侧统一管理，每项资产都可以生成资产图。资产图会作为分镜图生成和参考生视频的参考图，用于保持画面一致。',
   'workbench_timeline_title': '分镜画布',
@@ -47,8 +47,8 @@ export default {
   'demo_action_unavailable': '演示中不可用',
   'demo_episode_placeholder': '演示内容只到第 {{episode}} 集：这一集只有标题，没有脚本和分镜。',
 
-  // 演示工作台智能体面板的静态对话：智能体汇报分析结果 → 用户发起制作 → 智能体汇报推进，
-  // 演的是首次制作的完整时序（智能体的每条消息都是对上一步动作的回应，不主动发起对话）
+  // 演示工作台 Agent 面板的静态对话：Agent 汇报分析结果 → 用户发起制作 → Agent 汇报推进，
+  // 演的是首次制作的完整时序（Agent 的每条消息都是对上一步动作的回应，不主动发起对话）
   'demo_chat_agent_analyzed': '小说已分析完成，剧集、角色和场景都已拆解出来。随时可以开始制作。',
   'demo_chat_user_start': '开始制作',
   'demo_chat_agent_progress': '好的。项目概述已生成，正在生成角色形象图，之后会逐集生成分镜和视频，进度会在这里同步。',

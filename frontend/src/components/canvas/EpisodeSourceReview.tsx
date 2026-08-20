@@ -8,7 +8,7 @@ import type { EpisodeMeta } from "@/types";
 
 /**
  * 已选集但剧本未生成时的画布视图：呈现分集拆分结果供审阅——
- * 源文切片全文 + 拆分元信息（边界、节拍、尾钩子），CTA 唤起智能体起草剧本。
+ * 源文切片全文 + 拆分元信息（边界、节拍、尾钩子），CTA 唤起 Agent 起草剧本。
  * 适用 narration/drama 全部生成路径；ad 恒单集无源文切片，由 StudioCanvasRouter 排除。
  */
 

@@ -115,7 +115,7 @@ async def resolve_video_caps(project: dict[str, Any], *, capability: VideoCapabi
     this variant exposes the model identity so the caller can evaluate the
     duration linkage constraints declared on it.
 
-    能力按项目生成模式解析——生成模式创建即定、全项目同一条，智能体拿到的与执行层同口径。
+    能力按项目生成模式解析——生成模式创建即定、全项目同一条，Agent 拿到的与执行层同口径。
     ``capability`` 给定时按指定桶解析（参考路线内无参考图退化镜头的 i2v 读侧）。
     """
     resolver = ConfigResolver(async_session_factory)

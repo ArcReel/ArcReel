@@ -2279,7 +2279,7 @@ class API {
     return response.json() as Promise<{ success: boolean; style_image: string; style_description: string; url: string }>;
   }
 
-  // ==================== 助手会话 API ====================
+  // ==================== Agent 会话 API ====================
 
   /** Build the project-scoped assistant base path. */
   private static assistantBase(projectName: string): string {

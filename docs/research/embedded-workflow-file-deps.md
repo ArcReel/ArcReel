@@ -2,7 +2,7 @@
 
 > Research ticket: [盘点内嵌工作流的裸文件读写依赖面与结构化工具缺口](https://github.com/ArcReel/ArcReel/issues/1703)，属于 [Wayfinder: 外部智能体全流程接入（远程 MCP + Skill 手册）与 chat 对接退场](https://github.com/ArcReel/ArcReel/issues/1702)。
 >
-> 调查基线：`main@d66785d13696e65232fa2a5d3fd09044233919e0`，2026-08-20。本文只描述该基线的当前事实。
+> 调查基线：`main@2b057ae7052c569c08d20b775cd436749c2b76b6`，2026-08-20。本文只描述该基线的当前事实。
 
 ## 结论摘要
 

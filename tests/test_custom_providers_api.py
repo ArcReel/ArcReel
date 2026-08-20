@@ -1583,7 +1583,7 @@ def test_check_unique_defaults_text_still_media_type_exclusive():
 
 
 # ---------------------------------------------------------------------------
-# Anthropic discovery (智能体配置专用)
+# Anthropic discovery (Agent 配置专用)
 # ---------------------------------------------------------------------------
 
 

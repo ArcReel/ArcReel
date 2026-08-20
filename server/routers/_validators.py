@@ -35,7 +35,7 @@ async def require_audio_switch_supported(project: dict, capability: VideoCapabil
     显式拒绝并说明修复路径，比让请求带着不可能实现的意图执行下去更可用。
 
     设置界面已按同一判据禁用开关，此处覆盖存量配置里已存「关闭」的项目。判据取自
-    :func:`server.services.video_caps.resolve_audio_switch_conflict`，与智能体入队路径同源；
+    :func:`server.services.video_caps.resolve_audio_switch_conflict`，与 Agent 入队路径同源；
     解析失败一律放行（与 :func:`require_video_bucket_capability` 同口径），不把配置解析问题
     升级为提交期拒绝。
     """

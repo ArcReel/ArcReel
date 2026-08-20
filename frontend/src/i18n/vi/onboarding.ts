@@ -3,21 +3,21 @@ import type enOnboarding from '@/i18n/en/onboarding';
 export default {
   // Các bước hướng dẫn
   'welcome_title': 'Chào mừng đến với [[brand]]',
-  'welcome_body': '[[brand]] biến tiểu thuyết hoặc kịch bản thành video ngắn: tác nhân AI phụ trách phân tích nguyên tác, viết kịch bản từng tập, tạo phân cảnh và video, và mỗi bước đều có thể chỉnh sửa thủ công. Phần hướng dẫn này giới thiệu giao diện chính và quy trình cơ bản.',
+  'welcome_body': '[[brand]] biến tiểu thuyết hoặc kịch bản thành video ngắn: Agent phụ trách phân tích nguyên tác, viết kịch bản từng tập, tạo phân cảnh và video, và mỗi bước đều có thể chỉnh sửa thủ công. Phần hướng dẫn này giới thiệu giao diện chính và quy trình cơ bản.',
   'lobby_create_title': 'Tạo dự án',
   'lobby_create_body': 'Tạo dự án tại đây, thiết lập thông tin cơ bản, mô hình sử dụng và phong cách hình ảnh của dự án.',
   'lobby_settings_title': 'Cài đặt',
   'lobby_settings_body': 'Trước khi bắt đầu sản xuất cần hoàn tất hai mục cấu hình. Chấm đỏ trên nút nghĩa là còn mục bắt buộc chưa được cấu hình.',
   'settings_providers_title': 'Cấu hình nhà cung cấp',
   'settings_providers_body': 'Hình ảnh và video do các nhà cung cấp cấu hình tại đây tạo ra. Cấu hình ít nhất một nhà cung cấp: nhập API Key và xác nhận khả dụng bằng "Kiểm tra kết nối".',
-  'settings_agent_title': 'Cấu hình tác nhân AI',
-  'settings_agent_body': 'Tác nhân AI phụ trách phân tích nguyên tác, viết kịch bản và thực hiện sản xuất; cấu hình dịch vụ mô hình mà nó sử dụng tại đây.',
+  'settings_agent_title': 'Cấu hình Agent',
+  'settings_agent_body': 'Agent phụ trách phân tích nguyên tác, viết kịch bản và thực hiện sản xuất; cấu hình dịch vụ mô hình mà nó sử dụng tại đây.',
   'lobby_demo_title': 'Dự án minh hoạ',
   'lobby_demo_body': 'Nhấp vào thẻ để mở bàn làm việc minh hoạ và xem giao diện sản xuất của dự án.',
   'workbench_overview_title': 'Tổng quan dự án',
-  'workbench_overview_body': 'Trang đầu của bàn làm việc là tổng quan dự án, gồm phần tổng quan do tác nhân AI tạo và danh sách các tập; trạng thái và tiến độ sản xuất của từng tập đều xem tại đây.',
-  'workbench_agent_title': 'Tác nhân AI',
-  'workbench_agent_body': 'Bên phải là tác nhân AI — nó thực hiện sản xuất và báo cáo tiến độ. Với dự án mới, vào bàn làm việc rồi nhập tiểu thuyết hoặc kịch bản trước; phân tích xong, gửi "Bắt đầu sản xuất" và nó sẽ lần lượt tạo tổng quan dự án, ảnh tạo hình nhân vật cùng phân cảnh và video cho từng tập.',
+  'workbench_overview_body': 'Trang đầu của bàn làm việc là tổng quan dự án, gồm phần tổng quan do Agent tạo và danh sách các tập; trạng thái và tiến độ sản xuất của từng tập đều xem tại đây.',
+  'workbench_agent_title': 'Agent',
+  'workbench_agent_body': 'Bên phải là Agent — nó thực hiện sản xuất và báo cáo tiến độ. Với dự án mới, vào bàn làm việc rồi nhập tiểu thuyết hoặc kịch bản trước; phân tích xong, gửi "Bắt đầu sản xuất" và nó sẽ lần lượt tạo tổng quan dự án, ảnh tạo hình nhân vật cùng phân cảnh và video cho từng tập.',
   'workbench_lorebook_title': 'Nhân vật, bối cảnh và đạo cụ',
   'workbench_lorebook_body': 'Nhân vật, bối cảnh và đạo cụ được quản lý thống nhất ở cột trái, mỗi tài sản đều có thể tạo ảnh tài sản. Ảnh tài sản dùng làm ảnh tham chiếu cho việc tạo ảnh phân cảnh và tạo video từ tham chiếu, giúp giữ hình ảnh nhất quán.',
   'workbench_timeline_title': 'Bảng phân cảnh',
@@ -47,7 +47,7 @@ export default {
   'demo_action_unavailable': 'Không khả dụng trong bản minh hoạ',
   'demo_episode_placeholder': 'Bản minh hoạ chỉ đến tập {{episode}}: tập này chỉ có tiêu đề, chưa có kịch bản và phân cảnh.',
 
-  // Hội thoại tĩnh trong bảng tác nhân AI của bàn làm việc minh hoạ (do người dùng mở lời)
+  // Hội thoại tĩnh trong bảng Agent của bàn làm việc minh hoạ (do người dùng mở lời)
   'demo_chat_agent_analyzed': 'Đã phân tích xong tiểu thuyết — các tập, nhân vật và bối cảnh đều đã được tách ra. Bạn có thể bắt đầu sản xuất bất cứ lúc nào.',
   'demo_chat_user_start': 'Bắt đầu sản xuất',
   'demo_chat_agent_progress': 'Được. Tổng quan dự án đã được tạo, đang tạo ảnh tạo hình nhân vật; tiếp theo sẽ lần lượt tạo phân cảnh và video cho từng tập, tiến độ sẽ được cập nhật tại đây.',
