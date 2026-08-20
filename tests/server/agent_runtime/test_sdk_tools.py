@@ -7393,7 +7393,7 @@ async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
 
 
 @pytest.mark.unit
-async def test_open_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolContext) -> None:
+async def test_open_step1_for_edit_returns_flat_reference_syntax(fake_ctx: ToolContext) -> None:
     """取回的草稿装扁平引用语法文本，不装派生物：agent 改的是正文 / 锚 / 时长，
     unit_id 由晋升时按数组序号重新派生，放进草稿等于给漂移开口子。"""
     _rv_source(fake_ctx)

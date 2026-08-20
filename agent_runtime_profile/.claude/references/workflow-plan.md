@@ -97,7 +97,7 @@ mcp__arcreel__get_workflow_plan({
 `next_action.args.preprocessor` 是权威的预处理子智能体名，**不要自己按创作类型 ×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
 
-### 批量被拒时交回的逐问题动作
+### 整批被拒时交回的逐问题动作
 
 视频整批准入判定被拒时，计划把**第一个问题的 `action`** 直接当成 `next_action.type` 交回，
 `next_action.args.admission` 带完整准入结论。因此上表之外还可能收到下面这些动作——它们与
@@ -159,7 +159,7 @@ mcp__arcreel__get_workflow_plan({
 
 ## 整批准入判定
 
-视频批量请求是**全有或全无**：`steps[].admission.decision` 为 `admitted` 时整批入队；为
+视频整批请求是**全有或全无**：`steps[].admission.decision` 为 `admitted` 时整批入队；为
 `blocked` 或 `confirmation_required` 时**一个任务都不入队**。Web 与 agent 走同一套准入和同一套
 请求选择语义（点名即强制重做 / 不传即只补缺 / 空数组非法），不存在 agent 专属的宽松通道。
 

@@ -63,7 +63,7 @@ _Avoid_: 把它当成一个自定义供应商。
 ### 任务与取消
 
 **生成任务（task）**：
-ArcReel 为完成一次媒体生成而排队和跟踪的工作单元，状态机为 `queued → running → succeeded | failed | cancelling → cancelled`；其中 `cancelling` 是取消信号已发出、尚未走完收尾的中间态（见 `docs/adr/0006`）。
+ArcReel 为完成一次媒体生成而排队和跟踪的工作单元，状态机为 `queued → running → succeeded | failed`，取消路径为 `queued | running → cancelling → cancelled`；其中 `cancelling` 是取消信号已发出、尚未走完收尾的中间态（见 `docs/adr/0006`）。
 _Avoid_: 作业、供应商调用。
 
 **供应商调用（api_call）**：
