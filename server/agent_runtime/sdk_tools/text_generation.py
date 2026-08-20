@@ -1084,7 +1084,7 @@ def _render_step1_conflict_report(
 
 
 def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
-    """正式 step1 的结构化 unit 表 → 隔离草稿装的扁平引用语法（``_build_reference_units_from_flat`` 的逆向）。
+    """正式 step1 的结构化 unit 表 → 隔离草稿装的扁平引用语法文本（``_build_reference_units_from_flat`` 的逆向）。
 
     ``unit_id`` 不进草稿：它是按数组序号机械编号的派生物，草稿是给 agent 改的那一层，带上
     派生字段等于给漂移开口子。
