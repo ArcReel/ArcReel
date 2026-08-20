@@ -3,6 +3,11 @@ Background worker that consumes generation tasks from SQLite queue.
 
 Per-provider × media_type 调度，拆成两件独立的东西：CapacityTable（上限，来自
 ConfigService 的用户配置）+ SlotTable（运行时占用台账）。
+
+GenerationWorker 与 server 主进程始终捆绑在同一个 uvicorn 进程内，进程生命周期一致。
+cancel 信号因此走进程内的 ``dict[task_id, asyncio.Task]``，不需要跨进程通道；孤儿任务的
+唯一成因是进程重启，不存在「lease 失效但本进程仍活着」的假孤儿。多 worker 进程会同时
+推翻这两条，届时需要重审取消通道与孤儿判定（见 ``docs/adr/0006`` 与 ``docs/adr/0007``）。
 """
 
 from __future__ import annotations
@@ -287,6 +292,9 @@ class SlotTable:
 
     被动纯内存数据结构，**容量无关**：``has_room`` 由 caller 传入 ``capacity``。
     不写 DB、不解析 provider、不决定孤儿策略、不碰状态机守卫。
+
+    ``capacity`` 的 ``0`` 只有一个含义——该 lane 不受支持，是内部哨兵值。用户契约面的
+    并发上限是「≥1 的整数或留空」，``0`` 不可由用户输入抵达（见 ``docs/adr/0043``）。
 
     **空 bucket 不残留（by design）**：``release`` / ``drain_finished`` 移除最后一个
     占用时一并删掉该 ``(provider,media)`` bucket，保证 ``occupied_providers`` 永不
