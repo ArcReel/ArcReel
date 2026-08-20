@@ -77,7 +77,7 @@ export function OverviewCanvas({
     resolve: (d: ConflictResolution) => void;
   } | null>(null);
 
-  // 在「欢迎页 → 概览页」首次切换时触发一次智能体引导动画。
+  // 在「欢迎页 → 概览页」首次切换时触发一次 Agent 引导动画。
   // 仅当本次会话内 showWelcome 由 true 变为 false 才递增 trigger，
   // 加载已有概览的项目不会触发；AgentHandoffHint 内还有 sessionStorage
   // 防 reload 重复。

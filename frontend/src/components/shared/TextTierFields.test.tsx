@@ -27,7 +27,7 @@ describe("TextTierFields", () => {
     // 默认模型主下拉常驻
     expect(screen.getByRole("combobox", { name: "默认模型" })).toBeInTheDocument();
     // Agent 供应商边界说明在折叠区之外常驻
-    expect(screen.getByText(/智能体供应商/)).toBeInTheDocument();
+    expect(screen.getByText(/Agent 供应商/)).toBeInTheDocument();
 
     await expandTiers(user);
     expect(screen.getByRole("combobox", { name: "简单任务" })).toBeInTheDocument();

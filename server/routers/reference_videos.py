@@ -117,7 +117,7 @@ class AddUnitRequest(BaseModel):
 class GenerateUnitRequest(BaseModel):
     # 单目标入口保留后期配音默认（docs/adr/0061）：请求由用户在这条 unit 的界面上直接触发，
     # 界面已呈现该 unit 的旁白状态与费用，代价也止于这一条视频。必填只加在替整批选定准入判据
-    # 与时长基准的入口（``GenerateUnitsBatchRequest``）与由模型推断参数的智能体视频工具上。
+    # 与时长基准的入口（``GenerateUnitsBatchRequest``）与由模型推断参数的 Agent 视频工具上。
     narration_delivery: NarrationDelivery = POST_PRODUCTION
     confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
 
@@ -676,7 +676,7 @@ def _admission_payload(admission: BatchAdmission, _t: Translator) -> dict[str, A
 def _enqueue_failure_payload(failure: BatchTaskResult, _t: Translator) -> dict[str, Any]:
     """一个没能入队的目标，按共享契约的问题形状转述给浏览器。
 
-    问题码与下一步动作与智能体侧同源，只多一句本地化说明。原始异常文本（`detail`）来自数据库与
+    问题码与下一步动作与 Agent 侧同源，只多一句本地化说明。原始异常文本（`detail`）来自数据库与
     队列层，可能带出连接串或内部拓扑，因此只落服务端日志，不进浏览器响应体——与 `_admission_payload`
     只转述受控问题码的姿态一致。
     """

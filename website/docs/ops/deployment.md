@@ -531,7 +531,7 @@ docker compose logs --tail=300 arcreel
 
 ### Agent 请求失败 {#agent-request-fails}
 
-- 验证 AI 助手凭据；
+- 验证 Agent 凭据；
 - 检查 Base URL 和模型名称；
 - 检查网络和代理；
 - 查看供应商是否限流；

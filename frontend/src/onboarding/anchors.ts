@@ -10,7 +10,7 @@
  * | `lobby-create-project` | 大厅 2 | 项目大厅顶栏的「新建项目」按钮 |
  * | `lobby-settings` | 大厅 3 | 项目大厅顶栏的设置图标（未配置齐全时带红点） |
  * | `settings-providers` | 设置 4 | 设置页侧栏「供应商」入口 |
- * | `settings-agent` | 设置 5 | 设置页侧栏「智能体」入口 |
+ * | `settings-agent` | 设置 5 | 设置页侧栏「Agent」入口 |
  * | `lobby-demo-card` | 大厅 6 | 引导期间注入大厅的演示项目卡（进演示工作台的桥） |
  * | `workbench-overview` | 工作台 7 | 项目概览的项目概述卡 |
  * | `workbench-agent` | 工作台 8 | 演示工作台右侧的助手面板（静态演示对话） |

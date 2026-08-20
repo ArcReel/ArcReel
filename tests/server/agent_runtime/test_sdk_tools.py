@@ -4772,7 +4772,7 @@ def test_asset_description_gate_rejects_invalid_description() -> None:
 
 @pytest.mark.unit
 def test_asset_requested_ids_resolve_nfd_registered_key() -> None:
-    """智能体给的名字与桶 key 形态可以不同：按坐标系解析后落到真实落盘 key 的 unit ID。"""
+    """Agent 给的名字与桶 key 形态可以不同：按坐标系解析后落到真实落盘 key 的 unit ID。"""
     import unicodedata
 
     from lib.asset_types import ASSET_SPECS

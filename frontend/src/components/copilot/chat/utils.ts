@@ -98,7 +98,7 @@ export function canEditUserTurn(
   if (turn.type !== "user") return false;
   // 改写锚点就是条目 uuid：没有 uuid 的 turn（合成卡片、draft）无从锚定
   if (!turn.uuid) return false;
-  // 问答答复是智能体问卷的回执，不是用户自己写的消息。投影产出的 Turn 不带
+  // 问答答复是 Agent 问卷的回执，不是用户自己写的消息。投影产出的 Turn 不带
   // subtype，按内容块类型识别。
   if ((turn.content ?? []).some((block) => block.type === "question_answer")) return false;
   if (!turnPlainText(turn).trim() && turnImageAttachments(turn).length === 0) return false;

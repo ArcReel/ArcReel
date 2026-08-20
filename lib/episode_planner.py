@@ -617,7 +617,7 @@ class EpisodePlanner:
         每批集数）后转为 :class:`EpisodePlanningError` 冒泡（见 docs/adr/0044）。
 
         后端结构化输出降级链耗尽的 :class:`StructuredOutputExhaustedError` 同样短路本循环，
-        转为 :class:`EpisodePlanningError`，让智能体拿到「供应商结构化输出能力不足」的可读
+        转为 :class:`EpisodePlanningError`，让 Agent 拿到「供应商结构化输出能力不足」的可读
         话术而非后端内部异常原文。
         """
         if self.generator is None:
