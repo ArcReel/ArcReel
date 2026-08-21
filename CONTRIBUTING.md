@@ -186,6 +186,8 @@ cd website && pnpm format         # prettier 写入
 
 ### 各页职责
 
+上站页面另在 frontmatter 用 `update_docs` 声明文档刷新流程的引擎归属，判据见 `.agents/skills/update-docs/SKILL.md`。
+
 | 页面 | 应该包含 | 不应该包含 |
 |---|---|---|
 | `README.md` | 产品定位、核心价值、最短上手路径 | 完整模型清单、所有环境变量、内部实现细节 |

@@ -13,6 +13,8 @@ in-scope 文档分两组：
 - **引擎 A 组**：高频、主题宽的文档。两个引擎都覆盖，并参与 baseline 计算。
 - **仅引擎 B 组**：低频、主题窄的文档。只做事实核对，不参与 baseline。
 
+归属判据看两条：页面要有能力性正文（新能力能落笔成段）才具备进入引擎 A 的资格，纯导航、索引页即便主题宽也归仅引擎 B；baseline 取引擎 A 组内正文最久未改的一页，纳入低频页会把扫描区间长期钉在旧时间点、放大每轮候选 commit 噪声。
+
 `website/docs/` 下每个 `.md` / `.mdx` 页面在 frontmatter 用 `update_docs` 声明归属：`engine-a`、`engine-b` 或 `none`（明确不参与）。新增页面必须声明，否则收集脚本与 CI 一致性检查都会失败。`README.md` / `CONTRIBUTING.md` 等非 Docusaurus 根目录文件仍在收集脚本内少量枚举。CONTRIBUTING「各页职责」须登记全部上站源页面，包括声明为 `none` 的页面；CI 双向校验缺页和多页。
 
 README.en.md 是 README.md 的镜像，中文为源：不独立进引擎，改完后随中文做全文一致性核对（第 6 步）。

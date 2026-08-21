@@ -25,6 +25,10 @@ function walkMarkdown(root, directory) {
   });
 }
 
+// Forward mapping registers English targets only, while the orphan scan walks every locale
+// directory under website/i18n/. Extend this mapping before adding another documentation
+// locale — otherwise every file of the new locale is reported as an unregistered orphan
+// and `record` refuses to run.
 function targetForSource(source) {
   if (source === "CONTRIBUTING.md") return `${DOCS_TRANSLATION_ROOT}/dev/contributing.md`;
   if (source === "README.md") return "README.en.md";
