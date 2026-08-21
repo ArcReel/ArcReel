@@ -73,10 +73,10 @@ mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_
 
 **Step 2**: 验证输出
 
-先看工具的返回：`is_error: true` 且错误文本里出现「已保存为待修复草稿」时，正式 `step1_segments.json`
-**不存在**（首次产出就违约，正式文件一步没动），不要去 Read 它。改为 Read
-`drafts/episode_{N}/step1_segments.invalid.json`，按情况 B 的 Step 2 / Step 3 就地改
-`content.segments[i]` 再晋升，不要重跑本工具重抽。其余错误停止并把错误文本报告给主 Agent。
+分支判据是**文件存在性**（与情况 A / B 的触发同口径），不是错误文案：`drafts/episode_{N}/step1_segments.invalid.json`
+存在时，说明这次产出违约已落待修复草稿、正式 `step1_segments.json` 一步没动、并不存在——不要去 Read 正式文件，
+改为 Read 该草稿，按情况 B 的 Step 2 / Step 3 就地改 `content.segments[i]` 再晋升，不要重跑本工具重抽。
+两个文件都不存在而工具报了 `is_error: true` 的，停止并把错误文本原样报告给主 Agent（错误文本只用于上报）。
 
 工具正常返回时，使用 Read 工具读取生成的 `drafts/episode_{N}/step1_segments.json`，
 确认为合法 JSON 且每个分镜含 segment_id / novel_text / duration_seconds / segment_break / characters_in_segment / scenes / props。
@@ -89,7 +89,7 @@ mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_
 **触发**（两条，任一成立即走本情况）：
 
 - `drafts/episode_{N}/step1_segments.json` **已存在**，且主 Agent 传入了用户的修改意见（用户驱动，不经计划路由）；
-- `drafts/episode_{N}/step1_segments.invalid.json` **已存在**（上一轮拆分或晋升返回了违约报告，或已取回过草稿尚未晋升）。此时**跳过 Step 1**——草稿已在盘上，直接从 Step 2 开始按其 `violations[]` 就地改 `content.segments[i]`。
+- `drafts/episode_{N}/step1_segments.invalid.json` **已存在**（上一轮拆分或晋升返回了违约报告，或已取回过草稿尚未晋升）。此时**跳过 Step 1**——草稿已在盘上、其中可能有还没晋升的修改，取回会被拒也不该覆盖它。直接从 Step 2 开始，两件事叠加做、不是二选一：主 Agent 本轮传入了修改要求的，先把它应用到草稿上；草稿 `violations[]` 非空的，再在这些修改之上按报告逐条修复（`violations[]` 为空不等于无事可做——那只说明上一轮判定无违约，本轮的用户修改照样要落进草稿）。
 
 **Step 1**: 取回可编辑草稿（仅正式文件已存在、且盘上还没有草稿时）
 
