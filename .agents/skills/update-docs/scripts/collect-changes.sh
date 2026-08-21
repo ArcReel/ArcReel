@@ -39,29 +39,45 @@ done <<< "${inventory}"
 # baseline：全量组文档中最近一次提交时间的最早者。
 # 用 git 提交时间而非文件系统 mtime，后者在 fresh clone 后会失真。
 
-# 文档的新鲜度点：最近一次改动过正文的提交。只改 update_docs 声明的提交要跳过——
-# 档位迁移与日后的档位重划都是纯元数据编辑，算作新鲜会把 baseline 推到该次编辑，
-# 使编辑之前那段区间的能力变更永远不再进入缺漏扫描。
+# 文档的新鲜度点：最近一次改动过正文的提交。只动 frontmatter 的提交要跳过——
+# 档位迁移、title / sidebar_position 调整都是元数据编辑，算作新鲜会把 baseline
+# 推到该次编辑，使编辑之前那段区间的能力变更永远不再进入缺漏扫描。
+# 判定方式是比较提交前后剥离 frontmatter 的正文，而非匹配 diff 行：
+# 逐行正则枚举不尽 frontmatter 字段，漏枚举的字段会被误判成正文。
+
+# 剥掉文件开头的 frontmatter 块（首行 `---` 到下一个 `---`，含两条分隔符），只留正文。
+strip_frontmatter() {
+  awk 'NR == 1 && $0 == "---" { fm = 1; next } fm { if ($0 == "---") fm = 0; next } { print }'
+}
+
+# 输出 <rev>:<path> 的文件内容；该版本没有这个文件（含 root commit 取不到父提交）时输出空。
+# 显式判退出码，不靠 set -e：函数在命令替换里被调用时 set -e 不生效，
+# 对象库不完整导致的 git show 失败会伪装成「该版本没有正文」。
+blob_content() {
+  local blob
+  if ! blob="$(git rev-parse -q --verify "$1" 2>/dev/null)"; then
+    return 0
+  fi
+  git show "${blob}"
+}
+
 content_freshness() {
-  local target="$1" history changes ts cs sha
-  # 显式判退出码，不靠 set -e：函数在命令替换里被调用时 set -e 不生效，
-  # 对象库不完整导致的 git log 失败会伪装成「该文档没有历史」，把它从 baseline 里悄悄摘掉。
+  local target="$1" history ts cs sha current parent
   if ! history="$(git log --format='%ct %cs %H' -- "${target}")"; then
     echo "collect-changes: 读不到 ${target} 的提交历史，无法定新鲜度点" >&2
     return 1
   fi
   while read -r ts cs sha; do
     [ -n "${sha}" ] || continue
-    # 档位声明与其所在的 frontmatter 分隔符都不算正文：页面原本没有 frontmatter 时，
-    # 补声明的提交新增的是整块 `---` / `update_docs` / `---`。
-    # 同样显式判退出码：git show 读不到历史 blob 时管道里只会表现为「没有正文改动行」，
-    # 与元数据提交无从区分，该文档会被跳过甚至整个摘出 baseline。
-    if ! changes="$(git show --format= -U0 "${sha}" -- "${target}")"; then
-      echo "collect-changes: 读不到 ${target} 在 ${sha} 的改动，无法判定是否正文刷新" >&2
+    if ! current="$(blob_content "${sha}:${target}")"; then
+      echo "collect-changes: 读不到 ${target} 在 ${sha} 的内容，无法判定是否正文刷新" >&2
       return 1
     fi
-    if printf '%s\n' "${changes}" |
-      grep -E '^[+-]' | grep -qvE '^(\+\+\+ |--- |[+-](---$|update_docs:))'; then
+    if ! parent="$(blob_content "${sha}^:${target}")"; then
+      echo "collect-changes: 读不到 ${target} 在 ${sha} 父提交的内容，无法判定是否正文刷新" >&2
+      return 1
+    fi
+    if [ "$(printf '%s\n' "${current}" | strip_frontmatter)" != "$(printf '%s\n' "${parent}" | strip_frontmatter)" ]; then
       echo "${ts} ${cs} ${sha}"
       return 0
     fi
