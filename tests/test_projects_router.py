@@ -1700,12 +1700,21 @@ class TestProjectsRouter:
                 "/api/v1/projects/ready/segments/E1S01",
                 {"script_file": "narration.json"},
             ),
+            (
+                "patch",
+                "ready",
+                "/api/v1/projects/ready/episodes/1",
+                {"title": "新集名"},
+            ),
         ],
     )
     def test_script_edit_routes_refuse_on_a_migration_blocked_project(
         self, tmp_path, monkeypatch, method: str, project_name: str, endpoint: str, body: dict
     ):
-        """入口守卫先于内层 ScriptBatchEditor 裁决：四条手动编辑路由与同文件其它写入路由同守卫。
+        """写剧本的路由一律在入口层被拒：五条手动编辑路由与同文件其它写入路由同守卫。
+
+        阻断由入口声明，不指望内层兜底：其中四条经 ScriptBatchEditor 另有一道内部裁决，
+        改分集标题那条走 locked_episode_script，全程不读裁决，入口守卫是它唯一的一道。
 
         409 的 detail 要同时带项目名与迁移失败原因——阻断回执得让人知道该修哪个项目的什么。
         """

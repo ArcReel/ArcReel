@@ -1380,7 +1380,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
-@router.patch("/projects/{name}/episodes/{episode}")
+@router.patch("/projects/{name}/episodes/{episode}", dependencies=[Depends(require_project_migration_ok)])
 async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t: Translator):
     """更新分集顶层元数据（当前仅标题）。
 
