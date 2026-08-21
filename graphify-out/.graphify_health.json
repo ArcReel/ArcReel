@@ -1,0 +1,201 @@
+{
+  "node_count": 3133,
+  "unverified_node_count": 0,
+  "raw_edge_count": 9750,
+  "non_object_edges": 0,
+  "missing_endpoint_edges": 0,
+  "dangling_endpoint_edges": 1314,
+  "self_loop_edges": 0,
+  "valid_candidate_edges": 8436,
+  "exact_duplicate_edges": 39,
+  "directed_unique_endpoint_pairs": 8297,
+  "directed_same_endpoint_collapsed_edges": 139,
+  "undirected_unique_endpoint_pairs": 8292,
+  "undirected_same_endpoint_collapsed_edges": 144,
+  "same_endpoint_group_count": 109,
+  "relation_variant_groups": 57,
+  "source_file_variant_groups": 0,
+  "source_location_variant_groups": 33,
+  "context_variant_groups": 22,
+  "post_build_graph_type": "Graph",
+  "post_build_node_count": 3133,
+  "post_build_edge_count": 8292,
+  "post_build_error": "",
+  "producer_suppression": {
+    "path": "/Volumes/storage/home/.local/share/uv/tools/graphifyy/lib/python3.11/site-packages/graphify/extract.py",
+    "total_sites": 12,
+    "sites": [
+      {
+        "line": 1154,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1420,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1422,
+        "name": "seen_doc_refs",
+        "tuple_arity": 0,
+        "sample": "seen_doc_refs: set[str] = set()"
+      },
+      {
+        "line": 1782,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1929,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n.get(\"id\") for n in nodes}"
+      },
+      {
+        "line": 2460,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 2629,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 4035,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4143,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4222,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4737,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4738,
+        "name": "seen_edges",
+        "tuple_arity": 4,
+        "sample": "seen_edges: set[tuple[str, str, str, str | None]] = set()"
+      }
+    ],
+    "error": ""
+  },
+  "examples": [
+    {
+      "source": "frontend_src_components_agent_preseticon",
+      "target": "color",
+      "edge_count": 20,
+      "relations": [
+        "dynamic_import"
+      ],
+      "source_files": [
+        "frontend/src/components/agent/PresetIcon.tsx"
+      ],
+      "source_locations": [
+        ""
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "frontend_src_components_agent_preseticon",
+      "target": "mono",
+      "edge_count": 7,
+      "relations": [
+        "dynamic_import"
+      ],
+      "source_files": [
+        "frontend/src/components/agent/PresetIcon.tsx"
+      ],
+      "source_locations": [
+        ""
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "agents_skills_afk_team_workflow_scripts_test_repo_context_sh__entry",
+      "target": "agents_skills_afk_team_workflow_scripts_ledger_sh__entry",
+      "edge_count": 6,
+      "relations": [
+        "calls"
+      ],
+      "source_files": [
+        ".agents/skills/afk-team-workflow/scripts/test_repo_context.sh"
+      ],
+      "source_locations": [
+        "L12",
+        "L22",
+        "L27",
+        "L37",
+        "L46",
+        "L55"
+      ],
+      "contexts": [
+        "script_invocation"
+      ]
+    },
+    {
+      "source": "frontend_src_components_canvas_timeline_shotdetail",
+      "target": "frontend_src_types_index",
+      "edge_count": 3,
+      "relations": [
+        "imports_from"
+      ],
+      "source_files": [
+        "frontend/src/components/canvas/timeline/ShotDetail.tsx"
+      ],
+      "source_locations": [
+        "L15",
+        "L24",
+        "L50"
+      ],
+      "contexts": [
+        "import"
+      ]
+    },
+    {
+      "source": "frontend_src_hooks_useunitprompthighlight",
+      "target": "frontend_src_utils_reference_mentions",
+      "edge_count": 3,
+      "relations": [
+        "imports_from",
+        "re_exports"
+      ],
+      "source_files": [
+        "frontend/src/hooks/useUnitPromptHighlight.ts"
+      ],
+      "source_locations": [
+        "L3",
+        "L33"
+      ],
+      "contexts": [
+        "export",
+        "import",
+        "re-export"
+      ]
+    }
+  ]
+}

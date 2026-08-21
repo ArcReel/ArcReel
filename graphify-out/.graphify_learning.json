@@ -1,0 +1,175 @@
+{
+  "generated_at": "2026-08-21T04:46:14.440885+00:00",
+  "nodes": {
+    "frontend_public_style_thumbnails_live_kdrama_soft_light_k_drama": {
+      "code_fingerprint": "e65e5177736680b3708de000df5dab9a3e38eac9f8dd2466e6a647d2e4bc5e41",
+      "label": "Soft-Light K-Drama",
+      "last": "2026-08-21T03:30:24.541523+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T03:30:24.541523+00:00",
+          "outcome": "useful",
+          "q": "如果我选择韩剧偶像 具体的完整的风格提示词是什么样的"
+        }
+      ],
+      "score": 0.998784015,
+      "source_file": "frontend/public/style-thumbnails/live_kdrama.png",
+      "status": "tentative",
+      "uses": 1
+    },
+    "frontend_src_api_api": {
+      "code_fingerprint": "719d5e43156c598047cf654e564a8607f1ad5bcfe9392122ac1c581060e2be8c",
+      "label": "API",
+      "last": "2026-08-21T03:20:44.522208+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T03:20:44.522208+00:00",
+          "outcome": "useful",
+          "q": "当前在创建项目的时候，需要去选择一个风格的，它的对应的这个文档在哪呢？我想看一看，就是选择了，比如说具体的这个风格之后，它是怎么样去做后续的这个链路的一个嵌入的，这个风格是怎么嵌套进去的？那具体的风格文件在哪？"
+        }
+      ],
+      "score": 0.998629108,
+      "source_file": "frontend/src/api.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "frontend_src_components_pages_projectsettingspage": {
+      "code_fingerprint": "60075e80be8a4771e8cd1301e5effac78645f9f385aef5afda7c8355086b0e53",
+      "label": "ProjectSettingsPage.tsx",
+      "last": "2026-08-21T04:27:04.256503+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T04:27:04.256503+00:00",
+          "outcome": "useful",
+          "q": "在项目设置中实现自定义风格图片或手填 Style Description，并由图片上的按钮按需解析回填文本框"
+        },
+        {
+          "date": "2026-08-21T04:12:37.429522+00:00",
+          "outcome": "useful",
+          "q": "用户能否在项目创建后部分调整自定义风格？"
+        }
+      ],
+      "score": 1.999153228,
+      "source_file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
+      "status": "preferred",
+      "uses": 2
+    },
+    "frontend_src_components_pages_projectspage": {
+      "code_fingerprint": "9a9d043d1b01bb5c906b0208c5f0c53a331f4ee46f37cdb72d89f69a464bc647",
+      "label": "ProjectsPage.tsx",
+      "last": "2026-08-21T04:27:04.256503+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T04:27:04.256503+00:00",
+          "outcome": "useful",
+          "q": "在项目设置中实现自定义风格图片或手填 Style Description，并由图片上的按钮按需解析回填文本框"
+        }
+      ],
+      "score": 0.999692467,
+      "source_file": "frontend/src/components/pages/ProjectsPage.tsx",
+      "status": "tentative",
+      "uses": 1
+    },
+    "frontend_src_components_shared_stylepicker": {
+      "code_fingerprint": "5a6884c095f293141a75b82a5b804ed2300251950a7675ff3beebe67cb4576f7",
+      "label": "StylePicker.tsx",
+      "last": "2026-08-21T04:27:04.256503+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T04:27:04.256503+00:00",
+          "outcome": "useful",
+          "q": "在项目设置中实现自定义风格图片或手填 Style Description，并由图片上的按钮按需解析回填文本框"
+        },
+        {
+          "date": "2026-08-21T04:12:37.429522+00:00",
+          "outcome": "useful",
+          "q": "用户能否在项目创建后部分调整自定义风格？"
+        },
+        {
+          "date": "2026-08-21T04:10:37.028489+00:00",
+          "outcome": "useful",
+          "q": "自定义风格图分析是后台任务还是独立请求内流程？"
+        },
+        {
+          "date": "2026-08-21T03:47:49.693279+00:00",
+          "outcome": "useful",
+          "q": "新建项目上传自定义风格参考图后，解析格式、系统提示词和完整处理流程是什么？"
+        }
+      ],
+      "score": 3.997645016,
+      "source_file": "frontend/src/components/shared/StylePicker.tsx",
+      "status": "preferred",
+      "uses": 4
+    },
+    "frontend_src_data_style_templates_style_templates": {
+      "code_fingerprint": "4b27cb7003f336d6e43ed74109a717394608bdf0890956d21e044df330b015f4",
+      "label": "STYLE_TEMPLATES",
+      "last": "2026-08-21T03:30:24.541523+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T03:30:24.541523+00:00",
+          "outcome": "useful",
+          "q": "如果我选择韩剧偶像 具体的完整的风格提示词是什么样的"
+        },
+        {
+          "date": "2026-08-21T03:20:44.522208+00:00",
+          "outcome": "useful",
+          "q": "当前在创建项目的时候，需要去选择一个风格的，它的对应的这个文档在哪呢？我想看一看，就是选择了，比如说具体的这个风格之后，它是怎么样去做后续的这个链路的一个嵌入的，这个风格是怎么嵌套进去的？那具体的风格文件在哪？"
+        }
+      ],
+      "score": 1.997413124,
+      "source_file": "frontend/src/data/style-templates.ts",
+      "status": "preferred",
+      "uses": 2
+    },
+    "lib_script_models_dramascenevisual": {
+      "code_fingerprint": "d45fbb5d202e4de8078f5e0702cfe69880faf1546edfa7502c19b319cfaa96e9",
+      "label": "DramaSceneVisual",
+      "last": "2026-08-21T03:37:08.131022+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T03:37:08.131022+00:00",
+          "outcome": "useful",
+          "q": "分镜 image_prompt 中 scene、composition.shot_type、lighting、ambiance 在哪个阶段产生，style 如何嵌入？"
+        }
+      ],
+      "score": 0.998891817,
+      "source_file": "lib/script_models.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "lib_script_models_narrationvisualsegment": {
+      "code_fingerprint": "d45fbb5d202e4de8078f5e0702cfe69880faf1546edfa7502c19b319cfaa96e9",
+      "label": "NarrationVisualSegment",
+      "last": "2026-08-21T03:37:08.131022+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T03:37:08.131022+00:00",
+          "outcome": "useful",
+          "q": "分镜 image_prompt 中 scene、composition.shot_type、lighting、ambiance 在哪个阶段产生，style 如何嵌入？"
+        }
+      ],
+      "score": 0.998891817,
+      "source_file": "lib/script_models.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "lib_text_backends_base_textgenerationrequest": {
+      "code_fingerprint": "db68f92c32bbaa9853b7b3f80b43c32474a15eaa2c2fcd44e4d9320ca97ed980",
+      "label": "TextGenerationRequest",
+      "last": "2026-08-21T03:47:49.693279+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T03:47:49.693279+00:00",
+          "outcome": "useful",
+          "q": "新建项目上传自定义风格参考图后，解析格式、系统提示词和完整处理流程是什么？"
+        }
+      ],
+      "score": 0.999063207,
+      "source_file": "lib/text_backends/base.py",
+      "status": "tentative",
+      "uses": 1
+    }
+  },
+  "version": 1
+}

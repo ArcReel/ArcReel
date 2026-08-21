@@ -54,6 +54,16 @@ CLAUDE.local.md
 # Local Codex runtime metadata
 .codex/
 
+# Graphify team artifacts live in the repository-level graphify-out/. Keep
+# machine-local runtime state, caches, and safety backups out of Git.
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+graphify-out/cost.json
+graphify-out/cache/
+graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+.agents/graphify-out/
+frontend/graphify-out/
+
 # Frontend build artifacts
 frontend/node_modules/
 frontend/dist/
