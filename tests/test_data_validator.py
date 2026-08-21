@@ -621,7 +621,7 @@ class TestDataValidator:
 
     @pytest.mark.unit
     def test_validate_episode_drama_no_warning_when_speech_far_under_duration(self, tmp_path):
-        # 单向上界：说话量远少于场景时长不警告（duration 由画面驱动、留白合法，不管「说话太少」）
+        # 单向上界：说话量远少于分镜时长不警告（duration 由画面驱动、留白合法，不管「说话太少」）
         result = self._drama_episode_with_scene(
             tmp_path,
             {

@@ -124,7 +124,7 @@ def episode_outline_context(
 
     大纲 dict 含 ``title`` / ``hook`` / ``story_beats`` / ``next_episode_teaser``。条目无任何
     规划数据（旧式条目，规划工具尚未写入）时对应项为 None；末集无下集，第二项为 None。
-    内容抽取前移后由 step1（normalize）消费——剧本内容（场景边界 / 口播）须覆盖故事节点、
+    内容抽取前移后由 step1（normalize）消费——剧本内容（分镜边界 / 口播）须覆盖故事节点、
     末场落地集尾钩子；step2 仅出视觉、不再需要大纲。
     """
 

@@ -164,7 +164,7 @@ def _pm_drama(tmp_path: Path) -> ProjectManager:
 
 
 class TestUtterancesEditGuard:
-    """分镜详情编辑 drama 场景级 utterances 走 locked_script → 「不更坏」guard 的写盘校验。"""
+    """分镜详情编辑 drama 分镜级 utterances 走 locked_script → 「不更坏」guard 的写盘校验。"""
 
     def test_valid_utterances_edit_persists(self, tmp_path: Path):
         """合法 utterances 编辑（dialogue 带 speaker、voiceover 无 speaker）落库。"""

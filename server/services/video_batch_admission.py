@@ -781,7 +781,7 @@ def storyboard_video_prompt(
         # utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
         prompt = strip_voice_profiles(prompt)
         if content_mode == "drama":
-            # drama 口型台词单一真相源在场景级有序 utterances：取 dialogue-kind 注入 video YAML 的
+            # drama 口型台词单一真相源在分镜级有序 utterances：取 dialogue-kind 注入 video YAML 的
             # dialogue 出口（drama video_prompt 已不带 dialogue）。utterances 迁移前的存量剧本
             # （load_script 按原始 JSON 读盘不过 pydantic，不会被 DramaScene._migrate_legacy
             # 自动补齐）台词仍留在 video_prompt.dialogue，改走 legacy 出口。

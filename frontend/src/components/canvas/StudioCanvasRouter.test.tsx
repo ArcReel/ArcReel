@@ -622,9 +622,8 @@ describe("StudioCanvasRouter", () => {
     expect(providersSpy).not.toHaveBeenCalled();
   });
 
-  // 逐个分镜的时长候选须按项目分辨率与生效 generation_mode 收窄——用户在设置里选了 1080p 却仍能把
-  // 单个分镜改成 4 秒，入队时才被 backend 拒。反向用例守住「未受约束的分辨率下与改动前一致」：
-  // 全集原样呈现，不因为接了收窄管线而误缩。
+  // 逐个分镜的时长候选须按项目分辨率与生效 generation_mode 收窄：受约束的分辨率只呈现匹配档位，
+  // 没有匹配约束的分辨率保留完整时长集合。
   it.each([
     ["1080p", "8"],
     ["720p", "4,6,8"],

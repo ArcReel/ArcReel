@@ -152,7 +152,7 @@ class TestReport:
         assert text.splitlines()[1].startswith("2. [too_many_shots] ")
 
     def test_drama_step1_report_points_at_scene_fields(self, tmp_path: Path):
-        """drama 草稿改的是场景内容表，不是参考生视频的 units——指引里报错字段路径写错，
+        """drama 草稿改的是分镜内容表，不是参考生视频的 units——指引里报错字段路径写错，
         Agent 会照着改一个不存在的字段再晋升，白跑一轮。"""
         path = quarantine_path(tmp_path, 3, QUARANTINE_KIND_DRAMA_STEP1)
         text = render_report(path, QUARANTINE_KIND_DRAMA_STEP1, [_violation()], episode=3)

@@ -2376,7 +2376,7 @@ async def execute_video_task(
     if isinstance(prompt, dict):
         prompt = strip_voice_profiles(prompt)
 
-    # drama 口型台词单一真相源在场景级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
+    # drama 口型台词单一真相源在分镜级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
     # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad
     # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
     if isinstance(item, dict) and isinstance(prompt, dict) and content_mode == "drama":

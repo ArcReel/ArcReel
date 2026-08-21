@@ -167,7 +167,7 @@ _AMBIANCE_AUDIO_WRITING_GUIDE = (
 # ---------------------------------------------------------------------------
 # 两段式分层文案（见 ADR 0041）：step1（normalize）= 内容、step2（drama）= 视觉。
 #
-# 内容抽取前移到 step1：场景边界、出场资产、逐字口播 utterances、原文锚 source_text、
+# 内容抽取前移到 step1：分镜边界、出场资产、逐字口播 utterances、原文锚 source_text、
 # 视觉改编描述 scene_description 一次定稿，并按 source_kind 切「改编 / 提取」口径。
 # step2 只补视觉层（image_prompt / video_prompt），按 scene_id 透传内容、不再识别口播、
 # 不分 source_kind——故 step2 文案无 novel/screenplay 分支。
@@ -175,44 +175,44 @@ _AMBIANCE_AUDIO_WRITING_GUIDE = (
 
 # step1（build_normalize_prompt）开篇任务句
 _NORMALIZE_TASK_NOVEL = (
-    "你的任务是将小说原文**改编**为结构化的分镜场景内容（含视觉改编描述、逐字口播 utterances "
+    "你的任务是将小说原文**改编**为结构化的分镜内容（含视觉改编描述、逐字口播 utterances "
     "与原文锚 source_text），用于后续 AI 视频生成。"
 )
 _NORMALIZE_TASK_SCREENPLAY = (
-    "你的任务是从作者已写好的剧本中**提取**结构化的分镜场景内容："
-    "逐字保留台词与画外音（落在 utterances）、摘录原文锚 source_text、把视觉层转写为场景描述，"
+    "你的任务是从作者已写好的剧本中**提取**结构化的分镜内容："
+    "逐字保留台词与画外音（落在 utterances）、摘录原文锚 source_text、把视觉层转写为分镜视觉描述，"
     "用于后续 AI 视频生成。这是成品剧本、不是待加工的素材——只做提取、不做再创作。"
 )
 
 # step1 scene_description（视觉改编自由文本）填写规则——只承载视觉内容，口播不内嵌
 _NORMALIZE_SCENE_RULE_NOVEL = (
     "改编后的视觉化描述：角色动作、神态、环境、光影氛围，适合画面呈现。"
-    "以本场景当下的单一时空落笔——原文的回忆、闪回、心理活动，改编为此刻可见的载体"
+    "以本分镜当下的单一时空落笔——原文的回忆、闪回、心理活动，改编为此刻可见的载体"
     "（人物神态、手中物件、环境痕迹）；这段描述是后续单帧分镜画面的内容来源。"
     "**台词 / 画外音不要写进这里**——口播统一落在 utterances。"
 )
 _NORMALIZE_SCENE_RULE_SCREENPLAY = (
-    "把作者写下的运镜、景别、舞台提示、视觉场景转写为画面视觉描述。"
+    "把作者写下的运镜、景别、舞台提示、视觉场面转写为画面视觉描述。"
     "**台词 / 画外音不要写进这里**——逐字落在 utterances；"
     "排版符号（markdown、△、各类标签、表格、emoji）一律剥离，只留干净文本。"
 )
 
-# step1 utterances（场景级有序发声序列）填写规则。条目形状与 kind ⇄ speaker 约束
+# step1 utterances（分镜级有序发声序列）填写规则。条目形状与 kind ⇄ speaker 约束
 # （dialogue 必带非空 speaker、voiceover 必无 speaker）由 Utterance schema 强制，此处只写内容指导。
 _NORMALIZE_UTTERANCES_NOVEL = (
     "按口播出现顺序产出发声序列，台词（dialogue）的 speaker 必须出现在 characters_in_scene。"
     "叙述、心理独白等不靠画面演出的内容，可按剧情语境判断写为画外音（voiceover）——"
-    "是否产出由你依语境创作判断，自然需要则产出。场景无口播则留空。"
+    "是否产出由你依语境创作判断，自然需要则产出。分镜无口播则留空。"
 )
 _NORMALIZE_UTTERANCES_SCREENPLAY = (
-    "把作者写下的台词与画外音**逐字照搬**为有序发声序列，按它们在场景中的先后排列："
+    "把作者写下的台词与画外音**逐字照搬**为有序发声序列，按它们在分镜中的先后排列："
     "台词（dialogue）的 speaker 填原文说话人——命名角色应来自 characters_in_scene，"
     "路人群演如「老人甲」「村民若干」照填原文称呼即可、可不在 characters_in_scene；"
-    "画外音 / 旁白写为 voiceover。不改写、不润色、不删减、不补写。场景无口播则留空。"
+    "画外音 / 旁白写为 voiceover。不改写、不润色、不删减、不补写。分镜无口播则留空。"
 )
 
 # step1 source_text（逐字原文锚）填写规则——两源共用
-_NORMALIZE_SOURCE_TEXT_GUIDE = "逐字摘录本场景对应的原文片段，尽量与原文一致、宁缺毋造（无把握可留空）。"
+_NORMALIZE_SOURCE_TEXT_GUIDE = "逐字摘录本分镜对应的原文片段，尽量与原文一致、宁缺毋造（无把握可留空）。"
 
 # step1 segment_break 规则。novel 分支无增量判断标准（「是否为场景切换点」由 schema
 # description 表达），不再单列；screenplay 分支保留「沿用作者场次、不重新切碎」的实质指导。
@@ -225,7 +225,7 @@ _NORMALIZE_BREAK_RULE_SCREENPLAY = (
 
 # step2（build_drama_prompt）开篇角色定位 + 收尾目标——视觉层专责，无 source_kind 分支
 _DRAMA_VISUAL_ROLE = (
-    "你是一位资深的短剧分镜摄影 / 动作设计师。下方分镜内容（场景边界、出场资产、逐字口播、"
+    "你是一位资深的短剧分镜摄影 / 动作设计师。下方分镜内容（分镜边界、出场资产、逐字口播、"
     "原文锚、视觉改编描述）均已定稿，你的唯一职责是为每个分镜补全视觉生产层："
     "image_prompt（画面）与 video_prompt（动作 / 运镜 / 环境音）。"
     "**不要改写或重述口播、不要新增 / 删除 / 重排分镜、不要改动分镜内容**——只按 scene_id 逐条产出视觉字段。"
@@ -363,7 +363,7 @@ segments 表每个片段已定稿（segment_id、逐字原文、时长、出场�
 
 
 def render_drama_content_for_step2(content_scenes: list) -> str:
-    """把 step1 已定稿的场景内容渲染为 step2 视觉生成的输入块（每分镜一段）。
+    """把 step1 已定稿的分镜内容渲染为 step2 视觉生成的输入块（每分镜一段）。
 
     口播 / 原文锚仅供 LLM 理解戏剧节奏——「不要复制进视觉字段」由 ``build_drama_prompt`` 在
     ``<shots>`` 块前一次性声明，分镜条目内不逐条重复；它们由后端按 scene_id 透传
@@ -432,7 +432,7 @@ def build_drama_prompt(
 ) -> str:
     """构建剧情演绎 step2（视觉层）prompt。
 
-    内容抽取前移到 step1（见 ADR 0041）：场景边界、出场资产、逐字口播 utterances、原文锚
+    内容抽取前移到 step1（见 ADR 0041）：分镜边界、出场资产、逐字口播 utterances、原文锚
     source_text、视觉改编描述均已在 step1 定稿，``scenes_content`` 是其渲染输入
     （``render_drama_content_for_step2``）。step2 仅产出视觉层（image_prompt / video_prompt），
     LLM 输出按 scene_id 与 step1 内容对齐、由后端合并；不再按 source_kind 分支、不再识别口播、
@@ -663,7 +663,7 @@ def build_normalize_prompt(
 
 {outline_block}# 字段写作指引
 
-把源文拆为有序分镜，逐条产出结构化场景内容。当前正在生成第 {episode} 集。
+把源文拆为有序分镜，逐条产出结构化分镜内容。当前正在生成第 {episode} 集。
 
 ## 基础字段
 

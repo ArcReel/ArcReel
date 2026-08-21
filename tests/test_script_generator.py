@@ -408,7 +408,7 @@ class TestScriptGenerator:
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = 4
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
             await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
@@ -429,7 +429,7 @@ class TestScriptGenerator:
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = raw
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
             await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
@@ -443,7 +443,7 @@ class TestScriptGenerator:
         content = _drama_step1_content()
         del content["scenes"][0]["duration_seconds"]
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
             await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
@@ -458,7 +458,7 @@ class TestScriptGenerator:
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = None
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
             await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
@@ -1365,7 +1365,7 @@ def test_resolve_supported_durations_unset_resolution_not_narrowed(tmp_path):
 
 @pytest.mark.integration
 def test_resolve_supported_durations_respects_project_resolution(tmp_path):
-    """项目显式配了无声明的分辨率时不收窄，行为与改动前一致。"""
+    """项目显式配置了无时长约束声明的分辨率时保留完整时长集合。"""
     sg = _sg_with_project(
         tmp_path,
         {
@@ -1394,7 +1394,7 @@ def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tm
     """参考生视频但本集单元都不带引用时不施加参考图约束。
 
     通用单元允许空 references，执行层与 backend 都只在实际带图时施加该约束；按模式一刀切
-    会把 720p 下本可申请的 4/6 秒收掉，改变无引用单元改动前的行为。
+    会错误收掉 720p 下无引用单元可申请的 4/6 秒。
     """
     sg = _sg_with_project(
         tmp_path,

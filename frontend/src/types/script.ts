@@ -85,7 +85,7 @@ export interface Dialogue {
 export type UtteranceKind = "dialogue" | "voiceover";
 
 /**
- * Drama 场景级有序发声条目，判别式联合（discriminated union）按 kind 收窄，把 kind ⇄ speaker
+ * Drama 分镜级有序发声条目，判别式联合（discriminated union）按 kind 收窄，把 kind ⇄ speaker
  * 约束编码进类型：dialogue 必带非空 speaker、voiceover 不得带 speaker。非法组合（dialogue 缺
  * speaker、voiceover 带 speaker）编译期即被拒，与后端 Utterance 契约一致。
  * 取代旧 video_prompt.dialogue + 场景 voiceover 双字段（见 ADR 0040）。
@@ -121,7 +121,7 @@ export interface DramaSceneContent {
   props: string[];
   /** 视觉改编自由文本（供 step2 生成画面，不内嵌口播）。 */
   scene_description: string;
-  /** 场景级有序发声序列：台词 / 画外音按时序排列（内容确认的富编辑对象）。 */
+  /** 分镜级有序发声序列：台词 / 画外音按时序排列（内容确认的富编辑对象）。 */
   utterances: Utterance[];
   /** 逐字原文摘录（追溯锚，不朗读、不出音）。 */
   source_text: string;
@@ -239,7 +239,7 @@ export interface DramaScene {
   image_prompt: ImagePrompt | string;
   video_prompt: VideoPrompt | string;
   /**
-   * 场景级有序发声序列：角色台词与画外音按时序排列。新结构（drama）；
+   * 分镜级有序发声序列：角色台词与画外音按时序排列。新结构（drama）；
    * 存量 drama 走后端读时迁移，前端读到时此字段可能缺省。
    */
   utterances?: Utterance[];

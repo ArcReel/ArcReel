@@ -112,7 +112,7 @@ interface DraftState {
   voiceover_text?: string;
   /** 仅 广告/短片：带货框架段落标签草稿 */
   section?: string;
-  /** 仅剧情演绎：场景级有序发声序列草稿（台词 + 画外音） */
+  /** 仅剧情演绎：分镜级有序发声序列草稿（台词 + 画外音） */
   utterances?: Utterance[];
 }
 
@@ -463,7 +463,7 @@ export function ShotDetail({
   const upstreamSection = adShot?.section ?? "";
   const isDrama = contentMode === "drama";
   const dramaScene = isDrama ? (segment as DramaScene) : null;
-  // drama 场景级发声序列（迁移后存量数据可能缺省，读到空即无发声）。
+  // drama 分镜级发声序列（迁移后存量数据可能缺省，读到空即无发声）。
   const upstreamUtterances = dramaScene?.utterances ?? EMPTY_UTTERANCES;
 
   // 草稿：本地编辑直到用户点击 Save。父级 ShotSplitView 通过 key={segmentId}
@@ -788,7 +788,7 @@ export function ShotDetail({
         disabled={dirty || saving || refsReadOnly}
         disabledHint={dirty ? dirtyHint : undefined}
       />
-      {/* 对白编辑：narration / ad 编辑扁平 video_prompt.dialogue；drama 使用场景级
+      {/* 对白编辑：narration / ad 编辑扁平 video_prompt.dialogue；drama 使用分镜级
           utterances（判别式台词 + 画外音），此处直接编辑 scene.utterances 并双向保存同步。 */}
       {isDrama ? (
         <div>

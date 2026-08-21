@@ -65,7 +65,7 @@ __all__ = [
     "validate_project",
 ]
 
-#: 剧情演绎场景说话量（台词 + 画外音）对场景时长的单向上界容差（比例）。语速估算
+#: 剧情演绎分镜说话量（台词 + 画外音）对分镜时长的单向上界容差（比例）。语速估算
 #: （``lib.speech_rate`` 单一真相源）是近似值，给 20% 余量只在说话量明显超过画面时长时才
 #: warn（长对白塞进固定秒数会说不完 / 语速畸快）。单向上界：只警告「说不完」，不管「说话太少」
 #: ——duration 由画面驱动、留白合法，不被此约束反向改写。仅 DataValidator 消费，与 ad 总时长
@@ -929,12 +929,12 @@ class DataValidator:
                 asset_type="prop",
             )
 
-            # utterances：场景级有序发声序列（取代旧 video_prompt.dialogue + voiceover）。
+            # utterances：分镜级有序发声序列（取代旧 video_prompt.dialogue + voiceover）。
             # 缺失放行（存量剧情演绎走读时迁移，旧双字段不在此层校验）；出现则校验结构与
             # kind ⇄ speaker 约束，与上方 characters_in_scene 等同口径（逐项 append、不 raise）。
             self._validate_utterances(scene.get("utterances"), prefix, errors)
 
-            # 说话量（台词 + 画外音）对场景时长的单向上界 warning：估算说话时长超 duration × 容差
+            # 说话量（台词 + 画外音）对分镜时长的单向上界 warning：估算说话时长超 duration × 容差
             # 时仅提示「说不完」，不阻塞、不改写 duration（duration 由画面驱动）。
             self._warn_scene_speech_overflow(scene, prefix, language, speech_rate_override, warnings)
 
@@ -960,7 +960,7 @@ class DataValidator:
 
     @staticmethod
     def _validate_utterances(utterances: Any, prefix: str, errors: list[ValidationMessage]) -> None:
-        """校验剧情演绎场景级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行，存量走读时迁移）。
+        """校验剧情演绎分镜级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行，存量走读时迁移）。
 
         每条须为 ``{kind, speaker, text}``：kind ∈ {dialogue, voiceover}、text 非空字符串；
         dialogue 必带非空 speaker、voiceover 不得带 speaker。逐项 append、不 raise。

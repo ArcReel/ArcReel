@@ -1280,7 +1280,7 @@ export default {
   'utterance_remove': '删除发声',
   'utterance_add_dialogue': '添加台词',
   'utterance_add_voiceover': '添加画外音',
-  'utterance_empty': '本场景暂无发声内容。',
+  'utterance_empty': '本分镜暂无发声内容。',
   'review_utterances_label': '发声内容（按时序）',
   'review_source_text_label': '原文锚（仅供追溯，不朗读）',
   'review_source_text_placeholder': '逐字原文摘录，供追溯对照',

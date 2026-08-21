@@ -87,7 +87,7 @@ MESSAGES = {
     "val_utterance_dialogue_speaker": "{prefix} dialogue 必须带非空 speaker",
     "val_utterance_voiceover_speaker": "{prefix} voiceover 不得带 speaker",
     "val_scene_speech_overflow": (
-        "{prefix}: 估算说话时长 {spoken:.1f} 秒超过场景时长 {duration} 秒逾 {tolerance:.0%}"
+        "{prefix}: 估算说话时长 {spoken:.1f} 秒超过分镜时长 {duration} 秒逾 {tolerance:.0%}"
         "（容差上界 {budget:.1f} 秒），长对白可能说不完或语速畸快（仅提示，不阻塞保存）"
     ),
     # ---- ad 分镜 ----

@@ -61,7 +61,7 @@ _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
     QUARANTINE_KIND_STEP2: ("step2 视觉展开", "units[i].text"),
     QUARANTINE_KIND_DRAMA_STEP1: (
         "step1 规范化",
-        "scenes[i].scene_description / utterances / source_text / duration_seconds",
+        "content（分镜级字段位于 content.scenes[i]）",
     ),
 }
 

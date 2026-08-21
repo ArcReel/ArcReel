@@ -2920,7 +2920,7 @@ class TestGenerationTasks:
 
     @pytest.mark.unit
     async def test_execute_video_task_drama_dialogue_from_utterances(self, monkeypatch, tmp_path):
-        """drama 口型台词从场景级 dialogue-kind utterances 取（覆盖 payload 已不带的
+        """drama 口型台词从分镜级 dialogue-kind utterances 取（覆盖 payload 已不带的
         video_prompt.dialogue）；voiceover-kind 不进视频 YAML。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

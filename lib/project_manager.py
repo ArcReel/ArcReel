@@ -1286,7 +1286,7 @@ class ProjectManager:
 
         Args:
             scene_id: 分镜 ID（如 "E1S01"），集号已编码在 ID 中
-            duration_seconds: 场景时长（秒）
+            duration_seconds: 分镜时长（秒）
 
         Returns:
             标准的场景字典

@@ -4930,7 +4930,7 @@ async def test_generate_video_scene_generated_assets_non_dict_readable_rejection
 
 @pytest.mark.unit
 def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
-    """drama：_get_video_prompt 从场景级 dialogue-kind utterances 派生 video YAML 台词，
+    """drama：_get_video_prompt 从分镜级 dialogue-kind utterances 派生 video YAML 台词，
     voiceover-kind 不进；narration / ad（无 utterances 字段）原样渲染既有 video_prompt.dialogue。"""
     import yaml
 
@@ -8090,7 +8090,7 @@ async def _promote_drama(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_returns_drama_scenes(fake_ctx: ToolContext) -> None:
-    """drama 取回的草稿装场景内容表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
+    """drama 取回的草稿装分镜内容表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
     _drama_project(fake_ctx)
     _write_drama_step1(fake_ctx, [_drama_scene(needs_replan=True)])
     before = _drama_step1_path(fake_ctx).read_text(encoding="utf-8")

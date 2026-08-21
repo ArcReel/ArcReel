@@ -500,7 +500,7 @@ async def _fetch_caps_with_fallback(project: dict[str, Any], episode: int) -> tu
 def normalize_drama_script_tool(ctx: ToolContext):
     @tool(
         "normalize_drama_script",
-        "把 source/ 小说原文（或指定 source 文件）抽取为结构化分镜内容（场景边界、出场资产、"
+        "把 source/ 小说原文（或指定 source 文件）抽取为结构化分镜内容（分镜边界、出场资产、"
         "逐字口播 utterances、原文锚 source_text、视觉改编描述），保存到 "
         "drafts/episode_N/step1_normalized_script.json，供 generate_episode_script 透传消费。"
         "dry_run=true 时仅返回 prompt。",
@@ -1125,13 +1125,13 @@ def _reference_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | No
 
 
 def _drama_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式 drama step1 内容 → 可编辑草稿装的场景结构；不是合法 step1 时返回 None。
+    """正式 drama step1 内容 → 可编辑草稿装的分镜结构；不是合法 step1 时返回 None。
 
     只剥 ``needs_replan``：它是按台词准入机械派生的标记，让 Agent 编辑派生物等于给漂移开
     口子——晋升时照样按 ``content`` 现值重新派生。其余字段原样带过，包括 ``scene_id``：它是
     step2 视觉层的对齐锚，草稿里写坏了要由晋升侧的 schema 逐条报出来，不能在这一层替它填。
-    非 dict 的场景项同样原样带过而非丢弃：跳过会让数组变短，若剩余场景恰好都能过校验，晋升
-    会悄悄覆盖正式文件、丢掉这一场而无人知晓。
+    非 dict 的分镜项同样原样带过而非丢弃：跳过会让数组变短，若剩余分镜恰好都能过校验，晋升
+    会悄悄覆盖正式文件、丢掉这一分镜而无人知晓。
     """
     scenes = content.get("scenes")
     if not isinstance(scenes, list) or not scenes:
@@ -1235,7 +1235,7 @@ async def _promote_drama_step1(ctx: ToolContext, episode: int, draft: Quarantine
             "is_error": True,
         }
     replan = sum(1 for scene in raw_scenes if scene.get("needs_replan") is True)
-    replan_note = f"；其中 {replan} 个场景被标记为需重新规划（台词量未过准入）" if replan else ""
+    replan_note = f"；其中 {replan} 个分镜被标记为需重新规划（台词量未过准入）" if replan else ""
     return {
         "content": [
             {
@@ -1339,7 +1339,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
     @tool(
         STEP1_EDIT_TOOL_NAME,
         "把本集已落盘的正式 step1 取回可编辑草稿（草稿结构：参考生视频为时长 + 原文锚 + 引用语法正文，"
-        "drama 为场景内容），用于修改已有产出。改完调用 "
+        "drama 为分镜内容），用于修改已有产出。改完调用 "
         f"{PROMOTE_TOOL_NAME} 全量校验并晋升回正式文件。"
         "正式 step1 不可用 Write/Edit 直改——它与 Web 端保存、迁移、重生成共享一把文件锁，"
         "只能经工具写盘。",

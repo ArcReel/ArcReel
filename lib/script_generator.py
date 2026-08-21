@@ -414,7 +414,7 @@ class ScriptGenerator:
         return output_path
 
     async def _assert_drama_step1_durations(self, content_scenes: list, *, episode: int, gen_mode: str | None) -> None:
-        """校验 drama step1 已定场景时长在当前能力集合内，越界 fail-loud。
+        """校验 drama step1 已定分镜时长在当前能力集合内，越界 fail-loud。
 
         与 narration（``_load_narration_step1``）、reference_video（``_load_reference_step1``）
         对称：drama 的时长同样由 step1 定稿、step2 只出视觉层并原样透传，而落盘前的静态校验只
@@ -441,7 +441,7 @@ class ScriptGenerator:
         bad = sorted(seen - allowed)
         if bad:
             raise ValueError(
-                f"step1 已定场景时长非法（不在 {sorted(allowed)} 内）: {bad}；"
+                f"step1 已定分镜时长非法（不在 {sorted(allowed)} 内）: {bad}；"
                 f"当前分辨率与型号下这些时长不可用，请重跑 normalize-drama-script 按当前能力规范化"
             )
 
