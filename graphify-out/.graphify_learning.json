@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T04:46:14.440885+00:00",
+  "generated_at": "2026-08-21T11:12:05.243908+00:00",
   "nodes": {
     "frontend_public_style_thumbnails_live_kdrama_soft_light_k_drama": {
       "code_fingerprint": "e65e5177736680b3708de000df5dab9a3e38eac9f8dd2466e6a647d2e4bc5e41",
@@ -12,13 +12,13 @@
           "q": "如果我选择韩剧偶像 具体的完整的风格提示词是什么样的"
         }
       ],
-      "score": 0.998784015,
+      "score": 0.992619706,
       "source_file": "frontend/public/style-thumbnails/live_kdrama.png",
       "status": "tentative",
       "uses": 1
     },
     "frontend_src_api_api": {
-      "code_fingerprint": "719d5e43156c598047cf654e564a8607f1ad5bcfe9392122ac1c581060e2be8c",
+      "code_fingerprint": "c5578b174aefcb496b8214439d1800d4d6d94431ecc619bdc58120c2b7a00b74",
       "label": "API",
       "last": "2026-08-21T03:20:44.522208+00:00",
       "provenance": [
@@ -28,8 +28,61 @@
           "q": "当前在创建项目的时候，需要去选择一个风格的，它的对应的这个文档在哪呢？我想看一看，就是选择了，比如说具体的这个风格之后，它是怎么样去做后续的这个链路的一个嵌入的，这个风格是怎么嵌套进去的？那具体的风格文件在哪？"
         }
       ],
-      "score": 0.998629108,
+      "score": 0.992465755,
       "source_file": "frontend/src/api.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "frontend_src_components_assets_assetformmodal": {
+      "code_fingerprint": "450f4a00ef89a3ba945c8b7872555fb19faf38c3bb91c03692c79eb033ed2ac5",
+      "label": "AssetFormModal.tsx",
+      "last": "2026-08-21T09:56:39.909608+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T09:56:39.909608+00:00",
+          "outcome": "useful",
+          "q": "你看一下角色拉取的这一块，就是拉取到本地的这个角色，比如说布爸，他还有一些其他的这种数据吗？就比如说鳄鱼爸爸，是吧？他的一些这个形象的一些设定，这个是有的吗？如果有的话，我就需要补充一下这个到他的描述里面去，或者到他的一些这个他的一些meta data里面去。这样的话，后续去做这种角色匹配的时候，他能够匹配到鳄鱼爸爸上面去。你先查看一下具体拉取的数据。"
+        },
+        {
+          "date": "2026-08-21T06:20:28.015302+00:00",
+          "outcome": "useful",
+          "q": "参考声音的Dropdown选择 也需要能够preview"
+        }
+      ],
+      "score": 1.994122434,
+      "source_file": "frontend/src/components/assets/AssetFormModal.tsx",
+      "status": "preferred",
+      "uses": 2
+    },
+    "frontend_src_components_assets_charactercatalogsyncmonitor_test": {
+      "code_fingerprint": "5b0577401b25acd7a1af0f36a49f7ceaeb1ac9639fb0b9546cbceaac69c1aee0",
+      "label": "CharacterCatalogSyncMonitor.test.tsx",
+      "last": "2026-08-21T10:53:48.073811+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:53:48.073811+00:00",
+          "outcome": "useful",
+          "q": "然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。"
+        }
+      ],
+      "score": 0.99970664,
+      "source_file": "frontend/src/components/assets/CharacterCatalogSyncMonitor.test.tsx",
+      "status": "tentative",
+      "uses": 1
+    },
+    "frontend_src_components_copilot_agentcopilot": {
+      "code_fingerprint": "4c3aa93c02ce21998ad9e0c225d9385552d13e0a7d079324677c5fc90f334aaa",
+      "label": "AgentCopilot.tsx",
+      "last": "2026-08-21T10:53:48.073811+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:53:48.073811+00:00",
+          "outcome": "useful",
+          "q": "然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。"
+        }
+      ],
+      "score": 0.99970664,
+      "source_file": "frontend/src/components/copilot/AgentCopilot.tsx",
       "status": "tentative",
       "uses": 1
     },
@@ -49,7 +102,7 @@
           "q": "用户能否在项目创建后部分调整自定义风格？"
         }
       ],
-      "score": 1.999153228,
+      "score": 1.986814825,
       "source_file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
       "status": "preferred",
       "uses": 2
@@ -65,7 +118,7 @@
           "q": "在项目设置中实现自定义风格图片或手填 Style Description，并由图片上的按钮按需解析回填文本框"
         }
       ],
-      "score": 0.999692467,
+      "score": 0.993522551,
       "source_file": "frontend/src/components/pages/ProjectsPage.tsx",
       "status": "tentative",
       "uses": 1
@@ -96,7 +149,7 @@
           "q": "新建项目上传自定义风格参考图后，解析格式、系统提示词和完整处理流程是什么？"
         }
       ],
-      "score": 3.997645016,
+      "score": 3.972972292,
       "source_file": "frontend/src/components/shared/StylePicker.tsx",
       "status": "preferred",
       "uses": 4
@@ -117,10 +170,127 @@
           "q": "当前在创建项目的时候，需要去选择一个风格的，它的对应的这个文档在哪呢？我想看一看，就是选择了，比如说具体的这个风格之后，它是怎么样去做后续的这个链路的一个嵌入的，这个风格是怎么嵌套进去的？那具体的风格文件在哪？"
         }
       ],
-      "score": 1.997413124,
+      "score": 1.98508546,
       "source_file": "frontend/src/data/style-templates.ts",
       "status": "preferred",
       "uses": 2
+    },
+    "frontend_src_stores_character_catalog_sync_store": {
+      "code_fingerprint": "b5f7b549c3247c1b21ebca49b05decb87176246fa90380cd69b255fedcc65f41",
+      "label": "character-catalog-sync-store.ts",
+      "last": "2026-08-21T10:53:48.073811+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:53:48.073811+00:00",
+          "outcome": "useful",
+          "q": "然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。"
+        }
+      ],
+      "score": 0.99970664,
+      "source_file": "frontend/src/stores/character-catalog-sync-store.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "frontend_src_utils_ui_layers_ui_layers": {
+      "code_fingerprint": "aa2b463a904632fc2ae640dff3f682d13b069b94a2f320ccc9e1b3a8e299b3b0",
+      "label": "UI_LAYERS",
+      "last": "2026-08-21T10:53:48.073811+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:53:48.073811+00:00",
+          "outcome": "useful",
+          "q": "然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。"
+        }
+      ],
+      "score": 0.99970664,
+      "source_file": "frontend/src/utils/ui-layers.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "lib_background_job_worker_backgroundjobworker": {
+      "code_fingerprint": "503413a3efaf39f1a2706f8520248ccda93330001ea9fa42e3a8d62388aa5880",
+      "label": "BackgroundJobWorker",
+      "last": "2026-08-21T10:52:22.684970+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:52:22.684970+00:00",
+          "outcome": "useful",
+          "q": "为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？"
+        }
+      ],
+      "score": 0.999683813,
+      "source_file": "lib/background_job_worker.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "lib_character_catalog": {
+      "code_fingerprint": "3711d603094232f697055a0aa6b205be4445ac7f159ea2e90bfd555046a7be75",
+      "label": "lib/character_catalog.py",
+      "last": "2026-08-21T10:41:39.019792+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:41:39.019792+00:00",
+          "outcome": "useful",
+          "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
+        }
+      ],
+      "score": 0.999511754,
+      "source_file": "lib/character_catalog.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "lib_character_catalog_sync_character_catalog": {
+      "code_fingerprint": "3711d603094232f697055a0aa6b205be4445ac7f159ea2e90bfd555046a7be75",
+      "label": "sync_character_catalog()",
+      "last": "2026-08-21T10:52:22.684970+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:52:22.684970+00:00",
+          "outcome": "useful",
+          "q": "为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？"
+        },
+        {
+          "date": "2026-08-21T10:41:39.019792+00:00",
+          "outcome": "useful",
+          "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
+        }
+      ],
+      "score": 1.999195567,
+      "source_file": "lib/character_catalog.py",
+      "status": "preferred",
+      "uses": 2
+    },
+    "lib_db_repositories_asset_resource_repo_assetresourcerepository": {
+      "code_fingerprint": "f5788d3862d4d979158083417ad59457d98e63df2563e234d47911109d26b4f9",
+      "label": "AssetResourceRepository",
+      "last": "2026-08-21T10:41:39.019792+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:41:39.019792+00:00",
+          "outcome": "useful",
+          "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
+        }
+      ],
+      "score": 0.999511754,
+      "source_file": "lib/db/repositories/asset_resource_repo.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "lib_db_repositories_background_job_repo_backgroundjobrepository": {
+      "code_fingerprint": "756ec6b8ca6316b68fdfb7a44684ce1290c5fd5cd08f62c3bb0ddfca0c5bdf37",
+      "label": "BackgroundJobRepository",
+      "last": "2026-08-21T10:52:22.684970+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:52:22.684970+00:00",
+          "outcome": "useful",
+          "q": "为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？"
+        }
+      ],
+      "score": 0.999683813,
+      "source_file": "lib/db/repositories/background_job_repo.py",
+      "status": "tentative",
+      "uses": 1
     },
     "lib_script_models_dramascenevisual": {
       "code_fingerprint": "d45fbb5d202e4de8078f5e0702cfe69880faf1546edfa7502c19b319cfaa96e9",
@@ -133,7 +303,7 @@
           "q": "分镜 image_prompt 中 scene、composition.shot_type、lighting、ambiance 在哪个阶段产生，style 如何嵌入？"
         }
       ],
-      "score": 0.998891817,
+      "score": 0.992726842,
       "source_file": "lib/script_models.py",
       "status": "tentative",
       "uses": 1
@@ -149,7 +319,7 @@
           "q": "分镜 image_prompt 中 scene、composition.shot_type、lighting、ambiance 在哪个阶段产生，style 如何嵌入？"
         }
       ],
-      "score": 0.998891817,
+      "score": 0.992726842,
       "source_file": "lib/script_models.py",
       "status": "tentative",
       "uses": 1
@@ -165,8 +335,72 @@
           "q": "新建项目上传自定义风格参考图后，解析格式、系统提示词和完整处理流程是什么？"
         }
       ],
-      "score": 0.999063207,
+      "score": 0.992897174,
       "source_file": "lib/text_backends/base.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "server_routers_assets": {
+      "code_fingerprint": "3933200642ac41aab2df9e7fa9831fe502013ce87959d0440b17eebe9abcbe22",
+      "label": "routers/assets.py",
+      "last": "2026-08-21T10:41:39.019792+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:41:39.019792+00:00",
+          "outcome": "useful",
+          "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
+        }
+      ],
+      "score": 0.999511754,
+      "source_file": "server/routers/assets.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "server_routers_character_catalog_sync_catalog_status": {
+      "code_fingerprint": "c5dbe4b431a5bb8e9ba208fe6c81c03bee01e47e1576e6acbc988b2dbd46836d",
+      "label": "sync_catalog_status()",
+      "last": "2026-08-21T10:52:22.684970+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:52:22.684970+00:00",
+          "outcome": "useful",
+          "q": "为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？"
+        }
+      ],
+      "score": 0.999683813,
+      "source_file": "server/routers/character_catalog.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "tests_test_character_catalog": {
+      "code_fingerprint": "55bb67010365960bce004b66858e48eb7e3989b7cbccd923cbe6aaa0911080c7",
+      "label": "test_character_catalog.py",
+      "last": "2026-08-21T10:41:39.019792+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T10:41:39.019792+00:00",
+          "outcome": "useful",
+          "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
+        }
+      ],
+      "score": 0.999511754,
+      "source_file": "tests/test_character_catalog.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "tests_test_character_catalog_catalog": {
+      "code_fingerprint": "55bb67010365960bce004b66858e48eb7e3989b7cbccd923cbe6aaa0911080c7",
+      "label": "_catalog()",
+      "last": "2026-08-21T09:56:39.909608+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-21T09:56:39.909608+00:00",
+          "outcome": "useful",
+          "q": "你看一下角色拉取的这一块，就是拉取到本地的这个角色，比如说布爸，他还有一些其他的这种数据吗？就比如说鳄鱼爸爸，是吧？他的一些这个形象的一些设定，这个是有的吗？如果有的话，我就需要补充一下这个到他的描述里面去，或者到他的一些这个他的一些meta data里面去。这样的话，后续去做这种角色匹配的时候，他能够匹配到鳄鱼爸爸上面去。你先查看一下具体拉取的数据。"
+        }
+      ],
+      "score": 0.998790577,
+      "source_file": "tests/test_character_catalog.py",
       "status": "tentative",
       "uses": 1
     }

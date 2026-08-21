@@ -1,16 +1,16 @@
 # Graph Report - ArcReel  (2026-08-21)
 
 ## Corpus Check
-- 2077 files · ~2,594,762 words
+- 2096 files · ~2,603,658 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 37172 nodes · 98630 edges · 1197 communities (972 shown, 225 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 5206 edges (avg confidence: 0.93)
+- 37293 nodes · 99053 edges · 1191 communities (963 shown, 228 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 5249 edges (avg confidence: 0.93)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d7ac2f35`
+- Built from commit: `521edbf5`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -18,101 +18,101 @@
 - API
 - .claude/skills/impeccable/scripts/hook-lib.mjs
 - .claude/skills/impeccable/scripts/live-browser.js
-- ._open_session
-- ProjectArtifactManifestAdapter
-- api.ts
+- resolver.py
+- ProjectsPage.tsx
+- errMsg
 - .agents/skills/impeccable/scripts/live-browser.js
-- test_artifact_activation_schema_gate.py
-- useProjectsStore
-- AgentCopilot.tsx
+- SessionManager
+- api.ts
+- types/index.ts
 - render_report.py
 - STYLE_TEMPLATES
-- useAppStore
+- CurrentUserInfo
 - dependencies
 - test_reference_video_tasks.py
 - devDependencies
-- projects.py
+- MediaCard.tsx
 - ProjectSettingsPage.tsx
-- darkroom-tokens.ts
-- CurrentUserInfo
-- format_kwargs_for_log
-- with_retry_async
+- custom_providers.py
+- enqueue_videos.py
+- DraftViolation
+- poll_with_retry
 - ArtifactKey
-- text_generation.py
-- resolve_generation_context
-- safe_join
-- CustomProviderForm.tsx
-- Path
+- get_project_manager
+- ProviderModel
+- ScriptEditError
+- useAppStore
+- ProjectManager
 - ToolContext
-- types/index.ts
+- ReferenceVideoCanvas.tsx
 - useProjectEventsSSE.ts
 - .claude/skills/impeccable/scripts/detector/rules/checks.mjs
-- audio_utils.py
+- ._validate
 - VideoGenerationRequest
 - .agents/skills/impeccable/scripts/detector/rules/checks.mjs
 - compilerOptions
-- SessionMetaStore
+- FakeSDKClient
 - EpisodePlanner
-- TtsSynthesisSettings
-- OverviewCanvas.tsx
+- TestExecuteCharacterVoiceSampleTask
+- .agents/skills/impeccable/scripts/hook-before-edit.mjs
 - ProjectEventService
 - AssistantService
 - test_project_migration_v7_v8.py
 - MiniMaxVideoBackend
-- test_dashscope_video_backend.py
+- unit
 - .agents/skills/impeccable/scripts/hook-lib.mjs
-- session_manager.py
+- unit
 - types/workflow.ts
 - DataValidator
 - .claude/skills/impeccable/scripts/lib/impeccable-paths.mjs
-- test_workflow_state.py
+- WorkflowStateService
 - Narrow Effect Dependencies
 - wait.sh
-- unit
+- ViduVideoBackend
 - test_episode_reset.py
 - ConfigResolver
 - VersionManager
 - test_sdk_tools.py
-- event_log.py
+- DraftAccumulator
 - test_text_parser.py
 - TestClient
 - KlingImageBackend
-- make_provider_id
-- .from_request
+- normalize_base_url
+- admit_script_unit
 - template.sh
 - _client
 - EventLogStore
 - GenerationQueue
-- ArtifactComparison
+- CustomProviderForm.tsx
 - ValidationMessage
-- TextGenerationRequest
+- episode_planner.py
 - TaskRepository
 - check-consistency.mjs
 - .session
 - _should_retry
 - test_script_generator_reference_branch.py
 - unit
-- create_download_token
+- resolve_items
 - Skill
 - Independent Promise Parallelism
-- ProjectManager
+- _seed_unit
 - unit
-- test_project_migration_blocking.py
+- ConfigService
 - ProjectArchiveService
 - dashscope_shared.py
 - compilerOptions
-- PresentationPlayer.tsx
-- normalize_base_url
+- workflow_state.py
+- create_custom_backend
 - DbSessionStore
-- PendingUserEcho
+- session_manager.py
 - _client
 - UsageRepository
-- GridManager
-- _rv_source
-- get_project_manager
+- TargetStatePlanner
+- test_artifact_activation_schema_gate.py
+- server/auth.py
 - GenerationWorker
-- VisualReference
-- speech_artifact_provenance.py
+- projects.py
+- generation_worker.py
 - ledger.sh script
 - .claude/skills/impeccable/scripts/context.mjs
 - scripts
@@ -120,22 +120,22 @@
 - Domain Modeling
 - Specification Synthesis
 - SdkTranscriptAdapter
-- custom_providers.py
+- endpoints.py
 - test_profile_manifest.py
-- test_instructor_support.py
+- SampleModel
 - Path
 - Skill
 - .agents/skills/impeccable/scripts/context.mjs
 - ScriptGenerator
-- instructor_support.py
+- utc_now
 - frontend/package.json
 - PricingParams
 - infer_endpoint
-- artifact_activation.py
+- services/cost_estimation.py
 - unit
 - AI Reviewer Decision Rules
 - overrides
-- SessionRepository
+- project_manager.py
 - db/base.py
 - .claude/skills/impeccable/scripts/live-server.mjs
 - Codebase Design
@@ -145,11 +145,11 @@
 - test_wait.sh
 - .agents/skills/impeccable/scripts/live/svelte-component.mjs
 - resumeSession
-- SourceScope
+- AssetRepository
 - test_accounting_characterization.py
 - routers/providers.py
 - Agent Document Design
-- validate_dialogue_load
+- OpenAIVideoBackend
 - VoiceRenderSettings
 - types.ts
 - Skill
@@ -181,7 +181,7 @@
 - resumeSession
 - system-config-draft-utils.ts
 - icons.tsx
-- BaseModel
+- script_models.py
 - Documentation Fact Checker
 - Stable Event Handler References
 - API Route Parallelism
@@ -199,10 +199,10 @@
 - test_quota_alerts.sh
 - test_review_body_flags.sh
 - find-polluter.sh
-- enqueue_videos.py
+- ArtifactStatus
 - AudioSynthesisRequest
 - test_config_resolver_resolution.py
-- structured_fallback_reason
+- ReferenceRequestOptions
 - NewAPIVideoBackend
 - vitest.config.ts
 - Openai
@@ -271,7 +271,7 @@
 - Romantic Hong Kong Noir Preview
 - setLiveState
 - test_media_generator_resume.py
-- TextGenerationResult
+- Ledger
 - test_task_failure_capability.py
 - CustomProviderRepository
 - SseChannel
@@ -281,30 +281,30 @@
 - MiniMaxImageBackend
 - test_reference_compression.py
 - _unit
-- ._validate
+- assistant.py
 - .claude/skills/impeccable/scripts/live/svelte-component.mjs
-- workflow_state.py
+- build_workflow_plan
 - _request
 - .claude/skills/impeccable/scripts/detector/detect-antipatterns-browser.js
 - TestStoryboardGateEntersAdmission
 - AgnesImageBackend
-- create_custom_backend
-- lookup_pricing
-- resolve_kind_items
+- load_custom_backend
+- config/registry.py
+- ensure_route_skeleton
 - normalize_block
-- SystemSettingRepository
+- config/service.py
 - .agents/skills/impeccable/scripts/live-server.mjs
 - GeminiVideoBackend
 - test_project_manager_symlink.py
-- discover_sources
-- config/registry.py
+- .agents/skills/impeccable/scripts/live/roots.mjs
+- event_log.py
 - unit
 - discover_models
 - AgentAccessPolicy
 - unit
 - get_provider_spec
-- extract_video_last_frame
-- MediaGenerator
+- extract_video_thumbnail
+- StudioCanvasRouter.tsx
 - test_logging_persistence.py
 - test_project_migration_swap_recovery.py
 - unit
@@ -312,27 +312,27 @@
 - _extract_provider
 - SlotTable
 - migrate_unit_durations
-- ArkTextBackend
+- demo-project.ts
 - agent_config.py
 - _make_app
-- reference_video_tasks.py
+- presentation_read_model.py
 - test_capability_overrides_api.py
 - OptionsAssembler
 - .agents/skills/impeccable/scripts/detector/browser/injected/index.mjs
 - test_grids_router.py
-- unit
-- endpoint_to_media_type
+- ProviderMeta
+- ImageGenerationRequest
 - test_anthropic_probe.py
 - .agents/skills/impeccable/scripts/detector/design-system.mjs
 - _make_mock_svc
-- ArkImageBackend
+- test_workflow_planner.py
 - CostCalculator
-- test_v2_video_generations_backend.py
+- TestV2BackendHttp
 - .claude/skills/impeccable/scripts/detector/browser/injected/index.mjs
 - .claude/skills/impeccable/scripts/detector/design-system.mjs
 - test_prompt_builders_reference.py
-- test_startup_assertions.py
-- TestGenerationTasks
+- app.py
+- _prepare_files
 - _make_project
 - .claude/skills/impeccable/scripts/doctor.mjs
 - agnes_base_url
@@ -342,15 +342,15 @@
 - _client
 - .agents/skills/impeccable/scripts/lib/impeccable-paths.mjs
 - test_prefix_fork.py
-- _seed_current_storyboard
+- ._write
 - .agents/skills/impeccable/scripts/doctor.mjs
 - _localize_task
-- ImageGenerationRequest
-- test_prompt_builders_ad.py
-- GrokVideoBackend
+- with_retry_async
+- ._caps
+- TestGenerationTasks
 - TestRenameAssetCascade
 - test_reference_videos_router.py
-- _make_client
+- _FakeSessionManager
 - el
 - lint_profile
 - test_project_manager_migration.py
@@ -359,44 +359,44 @@
 - el
 - setLiveState
 - .claude/skills/impeccable/scripts/live-accept.mjs
-- generation_tasks.py
-- _FakePM
+- ensure_anthropic_base_url
+- _FakeLedger
 - _make_manager
 - TestForceResync
 - .claude/skills/impeccable/scripts/live-wrap.mjs
 - initPageChat
-- routers/system_config.py
-- OpenAIVideoBackend
-- v5_to_v6_asset_namespace.py
-- speech_rate_units_per_second
+- encode_failure
+- CrocoVideoBackend
+- _asset_router_factory.py
+- ViduImageBackend
 - .agents/skills/impeccable/scripts/live/manual-apply.mjs
-- TestRegistry
-- CrocoClient
+- generate.py
+- Any
 - initPageChat
-- Ledger
+- instructor_support.py
 - _client
 - test_usage_extraction.py
-- SdkMessageNormalizer
+- darkroom-tokens.ts
 - .agents/skills/impeccable/scripts/concept-seed.mjs
 - .agents/skills/impeccable/scripts/detector/detect-antipatterns-browser.js
-- endpoints.py
-- strip_json_code_fences
+- prompt_builders_script.py
+- TestPromptLengthGating
 - test_drama_pipeline_split.py
 - lib/system_config.py
-- VideoCapabilities
-- _build_client
-- engine.py
+- _build_generator
+- test_agent_chat_router.py
+- get_async_session
 - 测试
 - .claude/skills/impeccable/scripts/concept-seed.mjs
 - .claude/skills/impeccable/scripts/live/manual-apply.mjs
-- create_ark_client
-- Path
-- _FakePM
+- v5_to_v6_asset_namespace.py
+- test_project_migration_blocking.py
+- test_generate_router_voice_sample.py
 - .agents/skills/impeccable/scripts/modern-screenshot.umd.js
-- apply_grid_split
+- make_session_meta
 - build_episode_script_model
 - count_reading_units
-- SessionManager
+- GridManager
 - TestBuildXfadeFilterComplex
 - _FakePM
 - .claude/skills/impeccable/scripts/modern-screenshot.umd.js
@@ -404,51 +404,51 @@
 - .agents/skills/impeccable/scripts/live/insert-ui.mjs
 - .claude/skills/impeccable/scripts/live/insert-ui.mjs
 - _FakeEntrySessionManager
-- ._caps
-- unit
-- _prepare_files
+- PendingQuestionWizard
+- require_audio_switch_supported
+- test_image_edit_router.py
 - parseAnyColor
 - .agents/skills/impeccable/scripts/detector/engines/static-html/css-cascade.mjs
-- KlingVideoBackend
-- project_manager.py
+- _rewrite
+- .__init__
 - .claude/skills/impeccable/scripts/detector/engines/static-html/css-cascade.mjs
-- validate_unit_text
+- initGlobalBar
 - Frequently Asked Questions {#faq}
-- test_jianying_draft_service.py
+- create_download_token
 - .claude/skills/impeccable/reference/new-work.md
 - .claude/skills/impeccable/scripts/live-commit-manual-edits.mjs
-- resolve_items
+- lookup_pricing
 - .agents/skills/impeccable/scripts/detector/detect-antipatterns.mjs
-- encode_failure
+- _RenderQueue
 - .claude/skills/impeccable/scripts/detector/engines/regex/detect-text.mjs
 - test_speech_composition.py
 - resolve_project_cover
-- test_agent_access_policy.py
+- TestRegistry
 - parseAnyColor
 - .agents/skills/impeccable/scripts/detector/engines/regex/detect-text.mjs
 - .agents/skills/impeccable/scripts/lib/impeccable-config.mjs
 - compress_image_bytes
-- TestPromptBuildersScript
-- .claude/skills/impeccable/scripts/live/roots.mjs
+- _nr_source_and_call
+- SdkMessageNormalizer
 - _make_client
 - test_project_manager_concurrent_save.py
 - compose_video.py
 - _run
 - .claude/skills/impeccable/scripts/lib/impeccable-config.mjs
-- .agents/skills/impeccable/scripts/hook-before-edit.mjs
+- .agents/skills/impeccable/scripts/live-manual-edit-evidence.mjs
 - .agents/skills/impeccable/scripts/hook-admin.mjs
 - migrate_v3_to_v4
 - ScriptReviewService
 - test_project_summary.py
 - .claude/skills/impeccable/scripts/context-signals.mjs
-- execute_image_edit_task
+- test_session_manager_sandbox.py
 - .agents/skills/impeccable/scripts/live-wrap.mjs
 - .agents/skills/impeccable/scripts/live-copy-edit-agent.mjs
 - .claude/skills/impeccable/scripts/live-copy-edit-agent.mjs
 - migrate_v4_to_v5
 - test_project_migration_v6_v7.py
-- test_resolve_project_is_silent_covers_both_paths
-- CredentialRepository
+- create_ark_client
+- .from_request
 - _FakeQueue
 - 架构说明 {#architecture}
 - 供应商与模型配置 {#providers}
@@ -456,104 +456,104 @@
 - .agents/skills/impeccable/reference/new-work.md
 - .agents/skills/impeccable/scripts/live-poll.mjs
 - ShotDetail.tsx
-- specs.py
+- speech_rate_units_per_second
 - migrate_project_dict
 - test_project_events_router.py
-- test_agent_provider_catalog.py
+- GrokImageBackend
 - TestApiKeyCache
 - test_auth_kill_switch.py
 - _client
 - 完整入门教程 {#getting-started}
 - Complete Getting Started Guide {#getting-started}
 - .claude/skills/impeccable/scripts/live-poll.mjs
-- runner.py
+- checkHtmlPatterns
 - .agents/skills/impeccable/scripts/lib/design-parser.mjs
 - .claude/skills/impeccable/scripts/lib/design-parser.mjs
-- DashScopeVideoBackend
+- Path
 - Nielsen's 10 Heuristics
 - handleManualEditActivity
 - .claude/skills/impeccable/scripts/detector/detect-antipatterns.mjs
 - diagnostics.py
 - Manifest
 - test_project_migration_v2_v3.py
-- .claude/skills/impeccable/scripts/detector/engines/static-html/detect-html.mjs
-- TestPromptLengthGating
-- GenerationResultBuilder
+- detectHtml
+- CredentialRepository
+- text_generation.py
 - preserve_sqlite_indexes
-- split_narration_segments_tool
-- .agents/skills/impeccable/scripts/live.mjs
+- ._make_manager
+- .test_plain_step1_save_registers_active_manifest_and_rolls_back_on_registration_failure
 - scanCssTextForPulsingDot
 - scanCssTextForPulsingDot
-- ._model
-- migrate_v0_to_v1
+- model_has_audio_track
+- load_json
 - .load
 - .agents/skills/impeccable/scripts/context-signals.mjs
-- ProviderMeta
+- prompt_builders.py
 - 常见问题 {#faq}
 - 部署与运维 {#deployment}
 - Deployment and Operations {#deployment}
 - initGlobalBar
-- checkHtmlPatterns
+- _open_drama_for_edit
 - Responsive Design
-- test_video_frame_slots.py
-- _reset_for_tests
+- test_agent_provider_catalog.py
+- safe_join
 - test_agent_config_router.py
 - .agents/skills/impeccable/SKILL.md
-- test_files_router.py
+- VisionCapabilityError
 - TestGenerationQueue
 - _ad_pm
 - _create_reference_video_project
 - TestStep2PromptGuards
 - _build_generator
 - .agents/skills/impeccable/scripts/generate-image.mjs
-- test_ad_reference_video_units_v7.py
+- ReferenceVideoScript
 - .agents/skills/impeccable/reference/live.md
 - .claude/skills/impeccable/reference/live.md
 - migrate_v8_to_v9
-- artifact_provenance.py
-- .agents/skills/impeccable/scripts/detector/engines/static-html/detect-html.mjs
+- normalize_sdk_message_to_entries
+- detectHtml
 - .agents/skills/impeccable/scripts/live-inject.mjs
 - parseRgb
-- api_keys.py
-- ConfigService
-- make_client
+- checkHtmlPatterns
+- PlanResult
+- test_prompt_builders_ad.py
 - test_openai_video_resolution.py
-- GrokImageBackend
+- video_capabilities_for_model
 - .claude/skills/impeccable/scripts/hook-admin.mjs
-- VideoBackend
-- .claude/skills/impeccable/scripts/hook-before-edit.mjs
-- .agents/skills/impeccable/scripts/live/roots.mjs
+- unit
+- ._call
+- _patch_empty_db
 - parseRgb
 - test_i18n_consistency.py
-- runHook
+- Path
 - test_provider_registry.py
-- TestUploadPixelBudget
+- strip_json_code_fences
 - resolveLengthPx
-- .claude/skills/impeccable/scripts/live-manual-edit-evidence.mjs
-- ViduImageBackend
+- .agents/skills/impeccable/scripts/live/tanstack-adapter.mjs
+- test_system_version_api.py
 - devDependencies
-- episode_planner.py
-- generation_queue_client.py
+- episode_ledger.py
+- TaskSpec
 - SourceDecodeError
 - Responsive Design
-- unit
+- artifact_provenance.py
 - TestAuthIntegration
 - reload_app_with_env
 - _FakePM
 - _raise
-- .agents/skills/impeccable/scripts/live-manual-edit-evidence.mjs
+- AgentCredentialRepository
 - Provider and Model Configuration {#providers}
 - AI 视频生成工作空间
 - AI 视频生成工作空间
 - providers/README.md
 - parseAnyColor
-- initGlobalBar
-- PendingQuestionWizard
-- _write_rv_step1
+- handleManualEditActivity
+- .agents/skills/impeccable/scripts/live/svelte-ast.mjs
+- test_script_review.py
 - .agents/skills/impeccable/reference/document.md
 - collectBrowserFindings
-- .agents/skills/impeccable/scripts/live/svelte-ast.mjs
-- GrokTextBackend
+- GrokVideoBackend
+- TestPromptBuildersScript
 - split_grid_image
 - .claude/skills/impeccable/reference/document.md
 - _wav_bytes
@@ -562,8 +562,8 @@
 - 创作流程与模式 {#workflows}
 - Workflows and Modes {#workflows}
 - .claude/skills/impeccable/scripts/live-inject.mjs
-- .claude/skills/impeccable/scripts/live/svelte-ast.mjs
-- routers/auth.py
+- options_assembler.py
+- TestLoginRoute
 - .agents/skills/impeccable/reference/critique.md
 - .agents/skills/impeccable/reference/onboard.md
 - .agents/skills/impeccable/scripts/detector/engines/browser/detect-url.mjs
@@ -571,20 +571,20 @@
 - migrate_v5_to_v6
 - Nielsen's 10 Heuristics
 - .claude/skills/impeccable/reference/onboard.md
-- aspect_size
+- test_reference_videos_router_ad.py
 - TestDataValidatorEndFramePath
-- TestGenerate
+- .generate
 - Testing {#testing}
 - 2. 各项详述与引用
 - .agents/skills/impeccable/scripts/live/sveltekit-adapter.mjs
-- .agents/skills/impeccable/scripts/live/tanstack-adapter.mjs
+- applyEditing
 - .claude/skills/impeccable/reference/critique.md
 - parseAnyColor
 - .claude/skills/impeccable/scripts/detector/engines/browser/detect-url.mjs
 - .claude/skills/impeccable/scripts/live/sveltekit-adapter.mjs
-- KeyedLocks
+- test_model_candidates_api.py
 - The Toolkit
-- TextTaskType
+- test_video_workflow_prompt.py
 - resolveLengthPx
 - .agents/skills/impeccable/scripts/serve-question.mjs
 - createLiveBrowserDomHelpers
@@ -593,31 +593,31 @@
 - AI 视频生成工作空间
 - .claude/skills/impeccable/scripts/serve-question.mjs
 - createLiveBrowserDomHelpers
-- app_data_dir
+- _format_duration_constraint
 - mountSvelteComponentVariant
-- applyEditing
+- capability_buckets.py
 - collectBrowserFindings
-- .create
+- mountSvelteComponentVariant
 - resolve_source_kind
 - TestProviderJobIdPersistenceMixin
 - applyEditing
-- captureElementToBlob
+- app_data_dir
 - test_alembic_custom_provider_capability_overrides.py
 - test_alembic_custom_provider_max_workers.py
 - test_frontend_mount.py
-- _FakePMRegenerate
+- CrocoClient
 - .claude/skills/impeccable/scripts/live/tanstack-adapter.mjs
-- _register_asset_sheet
+- failure_observation.py
 - ._amount
-- TestResolverReturnsEffectiveCapabilities
+- onAnnotDown
 - endpoints/README.md
 - 二、逐家摘录（官方来源 + 关键结论）
 - sampleCssBackground
 - sampleCssBackground
-- _client
+- _FakePMGenerate
 - createLiveBrowserSessionState
-- .agents/skills/impeccable/scripts/live/frameworks/detect-utils.mjs
-- .agents/skills/impeccable/scripts/live/frameworks/tag-strategy.mjs
+- TestStructuredModeChainSync
+- test_env_keys.py
 - createLiveBrowserSessionState
 - .agents/skills/impeccable/reference/animate.md
 - Handle `generate`
@@ -627,7 +627,7 @@
 - test_alembic_collapse_image_backend_buckets.py
 - test_alembic_task_endpoint_base_url_split.py
 - test_app_data_dir.py
-- test_reference_videos_router_ad.py
+- .video_capabilities_for_model
 - checkHeadingRhythmDOM
 - .claude/skills/impeccable/reference/animate.md
 - MonkeyPatch
@@ -637,44 +637,44 @@
 - Handle `generate`
 - checkQuality
 - checkHeadingRhythmDOM
-- run_project_migrations
+- runner.py
 - Generate Report
 - compute_asset_fingerprints
-- test_project_manager_save_validation.py
-- _FakeAudioBackend
-- _is_413
+- _FakePMRegenerate
+- test_locked_episode_script_toctou.py
+- addVisualContrastFindings
 - TestReferenceVideoGateFlow
 - source_loader/errors.py
 - Generate Report
-- episode_reset.py
-- test_script_batch_edit.py
+- rewrite_payload_references
+- .claude/skills/impeccable/scripts/generate-image.mjs
 - test_presentations_router.py
 - _Acceptance
 - captureElementToBlob
 - _interleave_across_critical_section
-- TestEnumDriftNormalization
-- assemble_backend
-- test_locked_episode_script_toctou.py
-- TestUpdateProjectAtomicity
+- asset_unit_id
+- ProjectionProblem
+- routers/auth.py
+- test_providers_api.py
 - 生成资产图
 - Veo 3.1 视频生成提示词指南
 - 视频工作流编排
 - ArcReel TTS（旁白配音）选型与接入调研报告
 - 二、逐产品 / 逐模型 findings
-- resolve_script_kind
+- test_onboarding_router.py
 - Impeccable Asset Producer
 - .agents/skills/impeccable/reference/optimize.md
 - Impeccable Asset Producer
 - .claude/skills/impeccable/reference/optimize.md
-- TestListProviders
-- test_options_assembler.py
-- test_custom_provider_models.py
+- _make_managed
+- unit
+- test_vidu_video_backend.py
 - project_status_sync.py
 - test_alembic_resource_type_dedupe_downgrade.py
 - TestCoerceNumericDuration
-- AgnesTextBackend
+- test_style_templates.py
 - StaticElement
-- TestExecuteCharacterVoiceSampleTask
+- tasks.py
 - 操作步骤 {#steps}
 - Steps {#steps}
 - translation-lock.mjs
@@ -686,37 +686,37 @@
 - dependencies
 - .claude/skills/impeccable/scripts/pin.mjs
 - _FakeGenerator
-- _FakePMGenerate
+- styles.py
 - TestOrphanOnceAndLeaseFlap
-- resolve_raw_supported_durations
-- onAnnotDown
+- TestInstructorFallbackSync
+- SourceRange
 - Simplify the Design
 - Hardening Dimensions
 - unit
-- TestLastFrameGating
+- _plan
 - 3.1 旁白/解说 {#narration-mode}
 - 3.1 Narration/Commentary {#narration-mode}
 - 视频工作流编排
 - Changelog
-- .agents/skills/impeccable/scripts/live/frameworks/index.mjs
+- onAnnotDown
 - Simplify the Design
 - Hardening Dimensions
 - Product
-- mountSvelteComponentVariant
+- TestPersistJobIdRetry
 - .agents/skills/impeccable/reference/clarify.md
 - New visual work
 - .agents/skills/impeccable/reference/polish.md
 - .agents/skills/impeccable/reference/quieter.md
 - test_end_frames_router.py
 - .agents/skills/impeccable/scripts/detect-csp.mjs
-- test_kling_video_backend.py
+- .claude/skills/impeccable/scripts/live/frameworks/detect-utils.mjs
 - _fail_first_persist
 - test_alembic_split_default_image_backend.py
 - _seed_nfd_character
 - TestEnsureAuthPassword
 - .agents/skills/impeccable/scripts/palette.mjs
-- batch_enqueue_and_wait_sync
-- ensure_route_skeleton
+- DocxExtractor
+- .claude/skills/impeccable/scripts/live/frameworks/tag-strategy.mjs
 - _make_manual_split_project
 - .claude/skills/impeccable/reference/clarify.md
 - New visual work
@@ -728,15 +728,15 @@
 - .claude/skills/impeccable/scripts/palette.mjs
 - ExtractedText
 - build_grid_prompt
-- .claude/skills/impeccable/scripts/live/frameworks/detect-utils.mjs
-- .claude/skills/impeccable/scripts/live/frameworks/tag-strategy.mjs
-- classify_wan_model
-- Any
-- test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim
+- generation_admission_lock
+- test_subagent_md_sync.py
+- instructor_api_call_exhausted
+- Path
+- _narration_script
 - v6_to_v7_ad_reference_video_units.py
-- ._resolve_content_mode
+- test_workflow_status_adapters.py
 - test_frontend_skill_i18n.py
-- test_artifact_version_restore.py
+- _client
 - _pm
 - _pm
 - test_project_manager_legacy_migration.py
@@ -746,58 +746,58 @@
 - 生成视频
 - 3.2 调研但尚未接入的官方平台
 - Runware 图像生成接入调研报告
-- addVisualContrastFindings
+- TestAdQualityProbe
 - Init flow
 - Init flow
-- addVisualContrastFindings
+- _ref_client
 - iOS platform
 - Operate mode depth (and Read notes)
 - Shape
-- .agents/skills/impeccable/scripts/live/frameworks/nuxt.mjs
+- compute_source_revision
 - iOS platform
-- batch_enqueue_only
-- build_anthropic_env_dict
+- b7f2c41d9a30_collapse_image_backend_buckets_to_default.py
+- setup_logging
 - .claude/skills/impeccable/SKILL.md
 - Shape
-- generate_color_refs
+- dependencies.py
 - unit
-- ProjectDurationContext
+- _FakeClaudeClient
 - test_alembic_custom_provider_endpoint.py
 - alembic_cfg
 - test_alembic_tasks_index_preservation.py
 - test_alembic_tasks_submitted_base_url.py
 - TestResolveFps
-- ensure_google_base_url
+- _test_openai
 - TestMixinApplicationToModels
-- logging_config.py
+- video_batch_admission.py
 - _FakePMPathOnly
 - test_project_archive_ad_reference.py
-- syncEditBadgeHitProxies
-- test_request_logging_middleware.py
-- ProjectAssetNameConflictError
+- test_api_keys_router.py
+- TestProjectExecutionProviderOnEnqueue
+- .agents/skills/impeccable/scripts/live/generation-preflight.mjs
 - 迁移步骤 {#migration-steps}
 - Migration Steps {#migration-steps}
 - normalize-drama-script.md
 - split-reference-video-units.md
 - TestProjectManagerCreationEntryPoints
-- test_script_review.py
-- TestSourceMultiFormatUpload
+- checkElementGptBorderShadowDOM
+- test_asset_repo.py
 - Android platform
 - Android platform
-- _test_openai
-- TestLayeredBackendSkeleton
-- session_store_flush_mode
-- segment_id_for
-- setup_logging
+- .test_execute_video_task_without_end_frame_image_passes_none
+- episode_outline_context
+- test_alembic_asset_aliases.py
+- media_generator.py
+- make_provider_id
 - Generate Report
-- Impeccable Finish Reviewer
+- _generate_with_gate
 - Impeccable Manual Edit Applier
 - checkHeadingRhythmDOM
 - Generate Report
 - Impeccable Finish Reviewer
-- _FakePM
+- Q: 你看一下角色拉取的这一块，就是拉取到本地的这个角色，比如说布爸，他还有一些其他的这种数据吗？就比如说鳄鱼爸爸，是吧？他的一些这个形象的一些设定，这个是有的吗？如果有的话，我就需要补充一下这个到他的描述里面去，或者到他的一些这个他的一些meta data里面去。这样的话，后续去做这种角色匹配的时候，他能够匹配到鳄鱼爸爸上面去。你先查看一下具体拉取的数据。
 - Impeccable Manual Edit Applier
-- test_generation_worker_module.py
+- TestScreenplaySourceKind
 - 工作流程
 - split-narration-segments.md
 - 工作流计划契约
@@ -806,19 +806,19 @@
 - 三、四档配比表（已审定）
 - ArcReel Security Threat Model
 - _resolve_param
-- _StubSessionManager
-- test_minimax_integration.py
-- _generate_with_gate
-- .claude/skills/impeccable/reference/bolder.md
-- b7f2c41d9a30_collapse_image_backend_buckets_to_default.py
-- _validate_provider_specs
-- renderGroupedTemplate
-- AssetRepository
+- Q: How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?
+- integration
+- _reset_for_tests
+- _coerce_duration
+- .test_create_project_rejects_boolean_speech_rate
+- test_instructor_support.py
+- ._normalize_path_for_protected_compare
+- lib/character_catalog.py
 - Installation, deployment, and updates {#install-deploy-update}
 - Agent Runtime 与 Agent 配置
+- generation_tasks.py
 - .claude/skills/impeccable/scripts/live/frameworks/index.mjs
-- .from_caps
-- PresentationReadModelService
+- video_caps.py
 - alembic_cfg
 - test_compose_video_filter_graph.py
 - workflow-plan.md
@@ -826,46 +826,45 @@
 - 生成分镜图
 - 8. 关键风险与坑点汇总
 - 10. Attack surfaces and abuse cases
-- ImageInput
-- TestProviderRegistry
-- .agents/skills/impeccable/scripts/live/generation-preflight.mjs
-- model_validator
+- entry_service
+- _narration_script
+- specs.py
+- prompt_utils.py
 - migrate_project_source_encoding
 - ArcReel
 - checkHeadingRhythmDOM
-- _client
-- checkElementGptBorderShadowDOM
+- _make_app
 - Path
 - .agents/skills/impeccable/scripts/detect.mjs
-- checkElementRadialSpotlightDOM
+- _FakePM
 - development
-- agent_access_policy.py
-- test_env_keys.py
+- _FakePM
+- session_store_flush_mode
 - .claude/skills/impeccable/scripts/detect.mjs
-- video_capabilities_for_model
+- test_minimax_integration.py
 - test_alembic_tasks_provider_endpoint.py
-- episode_outline_context
-- _migrate_source_encoding_on_startup
+- segment_id_for
+- build_overview_prompt
 - Q: 在项目设置中实现自定义风格图片或手填 Style Description，并由图片上的按钮按需解析回填文本框
 - .__init__
-- .test_create_project_rejects_boolean_speech_rate
-- ._build_asset_entry
-- TestBuildNarrationSplitPrompt
-- _seed_reference_video_project
-- TestSessionMetaStore
+- _derived_references
+- test_discover_anthropic_fallback.py
+- _validate_provider_specs
+- TestReferenceAudioGating
+- test_env_scrub_collects_pattern_matched_keys
 - _FailureRecorder
-- test_generation_tasks_dispatch.py
+- .agents/skills/impeccable/scripts/lib/template-extensions.mjs
 - 工作流程
 - 工作流程
 - 6. Threat actors and capabilities
 - 9. Current security controls
-- [0.13.0](https://github.com/ArcReel/ArcReel/compare/v0.12.0...v0.13.0) (2026-05-10)
+- TestSystemConfigMigration
 - provider-capabilities.md
 - windows-compat.md
 - vidu-video.md
 - gemini-aistudio.md
-- .agents/skills/impeccable/scripts/lib/staleness-notice.mjs
-- ensure_anthropic_base_url
+- GenerationBatchResult
+- anthropic_probe.py
 - en/events.py
 - vi/events.py
 - zh/events.py
@@ -873,49 +872,50 @@
 - .release-please-config.json
 - test_alembic_tasks_execution_checkpoint.py
 - TestDownloadToken
-- TestGetOrCreateAudioBackend
+- Q: 为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？
 - TestGridRouterExists
 - test_module_imports_first_in_fresh_process
 - _client_with_project
-- test_usage_router.py
+- Q: 然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。
 - getSiteTitle
 - generate-script
 - _drop_dedup_index_if_exists
-- TestCharactersRouter
-- .claude/skills/impeccable/scripts/live/frameworks/nuxt.mjs
+- _FakePM
+- httpx_shared.py
 - [0.14.0](https://github.com/ArcReel/ArcReel/compare/v0.13.0...v0.14.0) (2026-05-18)
 - Translate Docs
 - Security Policy
-- GeneratedAssets
-- .test_execute_video_task_without_end_frame_image_passes_none
-- _FakeClaudeClient
-- TestNormalizeProviderStatus
-- TestSlotAssembly
-- TestReferenceAudioGating
-- httpx_shared.py
-- _FakeLedger
-- post-commit
-- _ad
-- migrate_project
 - TestReferenceImageGating
-- post-checkout
 - TestReferenceAudioDurationGating
-- .__init__
+- GeneratedAssets
+- .claude/skills/impeccable/scripts/live/frameworks/nuxt.mjs
+- narration_delivery_tasks.py
+- TestRegistryBackendConsistency
+- Impeccable Finish Reviewer
 - _BackendCache
-- .get_stats_grouped_by_provider
-- TestGetCurrentUser
+- post-commit
 - ProviderUnsupportedFeatureError
+- TestSaveUploadedVideoStream
+- TestBuildNarrationSplitPrompt
+- _parse_normalized_content
+- post-checkout
+- _regenerate_with_frozen_ratio
+- 4.1 Choose a Project Source {#choose-project-source}
+- model_validator
+- _FakeTextBackend
+- TestGetCurrentUser
+- .create
 - test_frontend_mcp_tool_i18n.py
 - post-merge
-- TestReferenceUnitsStep1Model
-- warn_if_truncated
-- SPAShellNoCacheMiddleware
-- _FakeTextBackend
-- TestEndFrameImageField
+- TestSessionMetaStore
+- TestEndpointSelection
+- /impeccable hooks
+- ._download_audio
+- TestWhitelistAndExport
 - 供应商、模型与 API {#providers-models-api}
 - 10. 常见故障 {#troubleshooting}
-- _set_source_style
-- 4. Six Dimensions for Choosing a Provider {#six-selection-dimensions}
+- TestInstructorExceptionShape
+- .agents/skills/impeccable/scripts/hook.mjs
 - 生成模式参考
 - 生成旁白配音
 - 广告/短片工作流
@@ -925,34 +925,34 @@
 - 前端异步竞态防护
 - 消息改写由应用层前缀分叉实现，不依赖 SDK 原生 fork
 - Domain Docs
-- 10. Common Problems {#troubleshooting}
+- _build_prompt
 - ArcReel 视频 API 协议适配调研报告
 - 2. 中转站协议生态格局（事实标准归纳）
 - 6. 协议优先级建议
 - 7.5 运行时 Plugin 机制调研（功能规划支撑材料）
 - 4. Sensitive assets
+- ._is_allowed_python_skill_command
+- _delete
+- .test_update_project_persists_and_clears_speech_rate
+- Q: 参考声音的Dropdown选择 也需要能够preview
+- _FakeTextBackend
+- checkElementRadialSpotlightDOM
+- ad_script_total_duration
 - isScreenReaderOnlyTextStyle
-- normalizeGitHubEvent
-- env_init.py
-- _render_unit_prompt
-- TestRegistryShape
-- FakeTextBackend
-- _reset_for_tests
-- _build_prompt
-- TestExtractReplyFromEntries
-- TestExtractTextFromAssistantMessage
+- VideoRequestQuote
+- [0.15.2](https://github.com/ArcReel/ArcReel/compare/v0.15.1...v0.15.2) (2026-05-26)
 - migrate_project
 - test_frontend_task_type_i18n.py
 - TestProductSpec
 - TestCheckCredentials
 - TestPasswordHash
-- _regenerate_with_frozen_ratio
-- TestLoginRoute
-- .test_v2_never_auto_inferred
+- TestEndFrameImageField
+- .__init__
+- .filter_allowed_tools
 - 画面、视频与声音 {#visuals-video-audio}
 - 4.1 选择项目来源 {#choose-project-source}
 - Costs, data, and export {#cost-data-export}
-- ._ctx_env
+- test_normalize_drama_script_rejects_empty_scenes
 - 生成宫格分镜图
 - 项目管理工具集
 - 3649100774fa_drop_task_events_table.py
@@ -985,20 +985,20 @@
 - Q: 新建项目上传自定义风格参考图后，解析格式、系统提示词和完整处理流程是什么？
 - Q: 自定义风格图分析是后台任务还是独立请求内流程？
 - Q: 用户能否在项目创建后部分调整自定义风格？
-- _FakeVersions
+- test_generate_batch_refuses_a_path_like_unit_id_before_enqueue
 - ad 模式不接入 step1→step2 审核 gate
-- TestSaveUploadedVideoStream
-- TestTextTaskTiers
-- .claude/skills/impeccable/scripts/hook.mjs
+- .format_bash_whitelist_deny_message
+- .test_cache_control_immutable_with_version_param
+- .test_draft_content_reference_video_mode
 - test_auth.py
 - TestTokenSecret
-- _render_segment_one
+- .test_draft_content_routes_by_project_generation_mode
 - TestCreateAndVerifyToken
 - unit
-- _FakeConfigResolver
-- .test_update_project_persists_and_clears_speech_rate
-- 4.1 Choose a Project Source {#choose-project-source}
-- _FakeKlingResponse
+- .test_draft_event_emission
+- .test_global_asset_path_traversal_rejected
+- .test_delete_character_reference_audio_ignores_out_of_project_path
+- SessionMetaStore
 - sync_to_thread
 - website/package.json
 - update-docs-inventory.test.mjs
@@ -1037,21 +1037,18 @@
 - openai-tts.md
 - 10. 参考资料
 - 9. 后续 PRD / 设计文档需要解决的问题
-- test_subagent_md_sync.py
-- _Wired
-- TestDownloadVideo
+- .test_character_audio_ref_replace_ignores_out_of_project_old_path
+- .test_character_audio_ref_replace_ignores_stale_path_outside_refs_audio
+- .test_product_ref_upload_preserves_original_bytes
 - Alternative Agent Runtime Backends
 - Product-Enforced Creative Limits
-- ._is_allowed_python_skill_command
-- TestPrepareImageParam
+- _FakePMCorrupted
+- reference_videos.py
 - PDF Fixture 来源
-- is_interrupted_wait_error
 - _FakeGMNotFound
 - _FakePMInvalidName
 - _FakePMInvalidScriptFile
 - test_i18n_assets_namespace.py
-- TestWhitelistAndExport
-- _delete
 - Use useRef for Transient Values
 - _require_project_cwd
 - `collect_project_input`：项目设置
@@ -1094,9 +1091,7 @@
 - 认证要求由路由注册处单点声明
 - 供应商 API 文档索引维护
 - runware.md
-- .request_cancel
-- _FakePMCorrupted
-- .video_capabilities
+- TestGetOrCreateAudioBackend
 - Frontend Design Apache License
 - Handoff Agent Interface
 - Implementation Agent Interface
@@ -1129,6 +1124,7 @@
 - lib/prompt_rules/__init__.py
 - bootstrap_new_project.sh
 - server/agent_runtime/__init__.py
+- TextGenerationRequest
 - docusaurus.config.ts
 - @types/react
 - typescript
@@ -1136,15 +1132,13 @@
 - .prettierrc.json
 - sidebars.ts
 - arcreel
-- WorkflowStateService
-- _FakeWorker
 
 ## God Nodes (most connected - your core abstractions)
-1. `ProjectManager` - 638 edges
-2. `ToolContext` - 521 edges
+1. `ProjectManager` - 646 edges
+2. `ToolContext` - 530 edges
 3. `ArtifactKey` - 367 edges
-4. `VideoGenerationRequest` - 317 edges
-5. `API` - 312 edges
+4. `API` - 319 edges
+5. `VideoGenerationRequest` - 317 edges
 6. `ConfigResolver` - 308 edges
 7. `ProjectArtifactManifestAdapter` - 290 edges
 8. `VersionManager` - 264 edges
@@ -1152,14 +1146,14 @@
 10. `ArtifactBasis` - 180 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Rendering Conditional Render` --conceptually_related_to--> `ReferenceStep1PreviewPanel()`  [INFERRED]
-  .agents/skills/vercel-react-best-practices/rules/rendering-conditional-render.md → frontend/src/components/canvas/reference/ReferenceStep1PreviewPanel.tsx
-- `Client Passive Event Listeners` --conceptually_related_to--> `VersionTimeMachine()`  [INFERRED]
-  .agents/skills/vercel-react-best-practices/rules/client-passive-event-listeners.md → frontend/src/components/canvas/timeline/VersionTimeMachine.tsx
 - `Client Swr Dedup` --conceptually_related_to--> `useAssistantSession()`  [INFERRED]
   .agents/skills/vercel-react-best-practices/rules/client-swr-dedup.md → frontend/src/hooks/useAssistantSession.ts
+- `Client Passive Event Listeners` --conceptually_related_to--> `VersionTimeMachine()`  [INFERRED]
+  .agents/skills/vercel-react-best-practices/rules/client-passive-event-listeners.md → frontend/src/components/canvas/timeline/VersionTimeMachine.tsx
 - `Client Event Listeners` --conceptually_related_to--> `useEscapeClose()`  [INFERRED]
   .agents/skills/vercel-react-best-practices/rules/client-event-listeners.md → frontend/src/hooks/useEscapeClose.ts
+- `Rendering Conditional Render` --conceptually_related_to--> `ReferenceStep1PreviewPanel()`  [INFERRED]
+  .agents/skills/vercel-react-best-practices/rules/rendering-conditional-render.md → frontend/src/components/canvas/reference/ReferenceStep1PreviewPanel.tsx
 - `Js Early Exit` --conceptually_related_to--> `matchGridsForGroup()`  [INFERRED]
   .agents/skills/vercel-react-best-practices/rules/js-early-exit.md → frontend/src/utils/grid-layout.ts
 
@@ -1188,47 +1182,47 @@
 - **AI Reviewer Parsing Fixture Matrix** — _agents_skills_pr_ai_review_loop_scripts_testdata_coderabbit_inline_review_pr1767_inline_actionable_fixture, _agents_skills_pr_ai_review_loop_scripts_testdata_codex_body_finding_pr1727_codex_body_finding_fixture, _agents_skills_pr_ai_review_loop_scripts_testdata_gemini_actionable_pr1244_gemini_actionable_fixture, _agents_skills_pr_ai_review_loop_references_reviewers_reviewer_decision_rules [INFERRED 0.95]
 - **Server-Side Performance Rules** — _agents_skills_vercel_react_best_practices_rules_server_after_nonblocking_nonblocking_after_work, _agents_skills_vercel_react_best_practices_rules_server_auth_actions_server_action_authentication, _agents_skills_vercel_react_best_practices_rules_server_cache_lru_cross_request_lru_cache, _agents_skills_vercel_react_best_practices_rules_server_cache_react_per_request_react_cache, _agents_skills_vercel_react_best_practices_rules_server_parallel_fetching_component_fetch_parallelism, _agents_skills_vercel_react_best_practices_rules_server_serialization_minimal_rsc_serialization [INFERRED 0.95]
 
-## Communities (1197 total, 225 thin omitted)
+## Communities (1191 total, 228 thin omitted)
 
 ### Community 0 - "API"
-Cohesion: 0.02
-Nodes (63): Client Swr Dedup, enqueueCharacter(), enqueueCharacterVoiceSample(), enqueueEpisodeNarration(), enqueueGrid(), enqueueGridRegenerate(), enqueueImageEdit(), enqueueNarration() (+55 more)
+Cohesion: 0.03
+Nodes (33): Client Swr Dedup, API, handleUnauthorized(), isNarratedVideoDurationAdmission(), isReferenceProjectionAdmission(), isSpeechAdmission(), messageFromDetail(), referenceRequestQuery() (+25 more)
 
 ### Community 1 - ".claude/skills/impeccable/scripts/hook-lib.mjs"
-Cohesion: 0.06
-Nodes (57): ACK_EXTS, ADVISORY_RULES, applyConfigSource(), applyDetectorConfigSource(), canonicalPathCache, clampByte(), cleanIgnoreValueDisplay(), cloneDefaultConfig() (+49 more)
+Cohesion: 0.03
+Nodes (151): allow(), bumpCursorDenial(), cursorBlockMessage(), deny(), detectProposedHtml(), done(), escapeRegExp(), findingSignature() (+143 more)
 
 ### Community 2 - ".claude/skills/impeccable/scripts/live-browser.js"
 Cohesion: 0.03
-Nodes (129): addManualContextText(), applyGlobalBarLabelState(), applyParamValue(), applyPlaceholderSizingStyles(), bufferToBase64(), buildCollapsible(), buildColorModels(), buildDesignHeader() (+121 more)
+Nodes (137): applyGlobalBarLabelState(), applyParamValue(), applyPlaceholderSizingStyles(), averageRgb01(), bindEditBadgeProxy(), bufferToBase64(), buildCollapsible(), buildColorModels() (+129 more)
 
-### Community 3 - "._open_session"
-Cohesion: 0.04
-Nodes (41): _parse_bool(), _payload_video_pinned_pair(), async_sessionmaker, AsyncSession, VideoCapability, 仅全局层解析视频默认 backend：全局默认键 > 自动推断。 走四级骨架但不带项目（project=None…, 三级解析当前项目应使用的 video backend：项目默认 > 全局默认 > 自动推断。…, 「默认 + 能力桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。 媒体类型无关，各层键位由… (+33 more)
+### Community 3 - "resolver.py"
+Cohesion: 0.03
+Nodes (78): caps_generation_mode(), _ensure_text_model_vision_capable(), _LayeredBackendKeys, _parse_bool(), _parse_project_provider(), _payload_model_or_default(), _payload_video_pinned_pair(), project_video_backend_ids() (+70 more)
 
-### Community 4 - "ProjectArtifactManifestAdapter"
+### Community 4 - "ProjectsPage.tsx"
 Cohesion: 0.05
-Nodes (115): CurrentBasisResolver, ArtifactBasis, ArtifactManifest, ArtifactStatus, InMemoryArtifactManifestAdapter, ProjectArtifactManifestAdapter, Self, Canonical, immutable evidence describing an artifact's direct inputs. (+107 more)
+Nodes (58): ArcReel C App Icon, Black Square Background, White C Mark, asProjectStatus(), assetCount(), EMPTY_COUNT, episodeDotColor(), EpisodeStrip() (+50 more)
 
-### Community 5 - "api.ts"
+### Community 5 - "errMsg"
 Cohesion: 0.02
-Nodes (189): ASSET_TYPE_PATH, EpisodeScriptSnapshot, extractProjectName(), formatScriptEditResult(), formatSpeechAdmission(), handleUnauthorized(), ImportErrorPayload, isAgentFailureDetail() (+181 more)
+Nodes (177): Client Passive Event Listeners, ProjectAssetType, VersionInfo, AddToLibraryButton(), Props, AssetCard, AssetCardImpl(), Props (+169 more)
 
 ### Community 6 - ".agents/skills/impeccable/scripts/live-browser.js"
 Cohesion: 0.03
 Nodes (128): addManualContextText(), applyGlobalBarLabelState(), applyParamValue(), applyPlaceholderSizingStyles(), bindEditBadgeProxy(), bufferToBase64(), buildCollapsible(), buildColorModels() (+120 more)
 
-### Community 7 - "test_artifact_activation_schema_gate.py"
-Cohesion: 0.67
-Nodes (6): Path, test_formal_write_gate_rejects_a_future_schema_version(), test_formal_write_gate_rejects_a_numeric_string_schema_version(), test_runtime_resolver_rejects_a_future_schema_version(), test_runtime_resolver_rejects_a_numeric_string_schema_version(), _write_project()
-
-### Community 8 - "useProjectsStore"
-Cohesion: 0.01
-Nodes (203): ArcReel C App Icon, Black Square Background, White C Mark, ArcReel Maskable App Icon, Black Maskable Icon Field, White C Mark, ArcReel Favicon, Black Square Background (+195 more)
-
-### Community 9 - "AgentCopilot.tsx"
+### Community 7 - "SessionManager"
 Cohesion: 0.02
-Nodes (150): Client Localstorage Schema, Js Set Map Lookups, AgentFailureDetail, AgentFailureError, AgentCopilot(), formatTime(), SessionSelector(), AgentFailureCard() (+142 more)
+Nodes (96): 完整保留诊断文本，只遮蔽可直接用于认证或签名的值。, redact_diagnostic_text(), AgentStartupError, _make_agent_startup_error(), Any, BaseException, Path, Queue (+88 more)
+
+### Community 8 - "api.ts"
+Cohesion: 0.03
+Nodes (69): AgentFailureError, AgentProfileStatus, ApiRequestError, ASSET_TYPE_PATH, AssetRenameResult, EpisodeScriptSnapshot, ErrorResponse, extractProjectName() (+61 more)
+
+### Community 9 - "types/index.ts"
+Cohesion: 0.02
+Nodes (151): Client Localstorage Schema, Js Set Map Lookups, AgentFailureDetail, EpisodeSourceReview(), AgentFailureCard(), AgentFailureCardProps, display(), turnFailure (+143 more)
 
 ### Community 10 - "render_report.py"
 Cohesion: 0.26
@@ -1238,145 +1232,141 @@ Nodes (21): build_report_data(), default_output(), expect_list(), expect_mapping
 Cohesion: 0.05
 Nodes (37): Arcane-Inspired Painterly Animation, Industrial Crystal City, Red-Haired Fantasy Warrior, Chinese Cinematic 3D, Hanfu Woman, Rainy Jiangnan Canal Town, Felt Boy Character, Felt Stop-Motion Animation (+29 more)
 
-### Community 12 - "useAppStore"
-Cohesion: 0.02
-Nodes (171): Client Passive Event Listeners, Js Early Exit, Js Tosorted Immutable, occupied(), AssetRenameResult, ConflictError, ProjectAssetType, AddToLibraryButton() (+163 more)
+### Community 12 - "CurrentUserInfo"
+Cohesion: 0.04
+Nodes (45): CurrentUserInfo, BaseModel, Current authenticated user info., FastAPI, 注册全部 app 级异常处理器。测试中对 bare ``FastAPI()`` 同样适用。…, register_error_handlers(), _assets_env(), fixture (+37 more)
 
 ### Community 13 - "dependencies"
 Cohesion: 0.06
 Nodes (35): @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities, driver.js, @floating-ui/react, framer-motion, dependencies, @dnd-kit/core (+27 more)
 
 ### Community 14 - "test_reference_video_tasks.py"
-Cohesion: 0.09
-Nodes (87): Immutable submit identity for a reference-video unit., ReferenceSubmissionCheckpoint, ProviderProjectionCandidate, 当前能力桶的 provider/model 与请求能力事实。, execute_reference_video_task(), 处理一个 reference_video unit 的生成。 resource_id 即 unit_id（E{集}U{序号}）；所有内容模式都从自包含…, Any, asyncio (+79 more)
+Cohesion: 0.03
+Nodes (180): CurrentReferenceAssets, Path, Manifest-aware selection and recheck evidence for reference-video images., Select reference images through filesystem and active-Manifest ownership.…, Freeze formal sheets against their source or exact staged bytes., Immutable submit identity for a reference-video unit., ReferenceSubmissionCheckpoint, _asset_key() (+172 more)
 
 ### Community 15 - "devDependencies"
 Cohesion: 0.06
 Nodes (35): devDependencies, eslint, eslint-plugin-jsx-a11y, eslint-plugin-react, eslint-plugin-react-hooks, globals, jsdom, tailwindcss (+27 more)
 
-### Community 16 - "projects.py"
-Cohesion: 0.01
-Nodes (353): FastAPIPath, File, FileResponse, Form, ge, JSONResponse, True when ARCREEL_SDK_SESSION_STORE is anything but 'off' (case-insensitive).…, session_store_enabled() (+345 more)
+### Community 16 - "MediaCard.tsx"
+Cohesion: 0.02
+Nodes (102): CreateProjectPayload, presentationEndpoint(), EditableEpisodeTitle(), EditableEpisodeTitleProps, OverviewCanvas(), EpisodeHeader(), EpisodeHeaderProps, EpisodeHeaderUnit (+94 more)
 
 ### Community 17 - "ProjectSettingsPage.tsx"
 Cohesion: 0.02
-Nodes (162): ADR-0018, AgentProfileStatus, CreateProjectPayload, CustomStyle, AD_TARGET_DURATION_TIERS, baseValue, WizardStep1Basics(), WizardStep1BasicsProps (+154 more)
+Nodes (138): ADR-0018, CustomStyle, baseValue, mockData, WizardStep2Data, WizardStep2Models(), WizardStep2ModelsProps, baseValue (+130 more)
 
-### Community 18 - "darkroom-tokens.ts"
+### Community 18 - "custom_providers.py"
+Cohesion: 0.05
+Nodes (91): 把稀疏的音频覆盖补齐成完整的（模式, 段数上限）二元组，未覆盖的维度取系统判定。…, 剔除合并后违反音频两维不变式的覆盖键。 :func:`enforce_audio_capability_invariant` 只把执行期能力降到…, resolve_audio_pair(), strip_incoherent_audio_overrides(), ValueError, discovery_format 取值不在受支持集合内，与 SDK 调用期的凭证/网络类 ValueError 区分。, UnsupportedDiscoveryFormatError, _check_duplicate_model_ids() (+83 more)
+
+### Community 19 - "enqueue_videos.py"
+Cohesion: 0.05
+Nodes (84): _admit_storyboard_specs(), _apply_delivery_payload(), _batch_admission_response(), BatchAdmissionRefused, _blocked_lines(), _checkpoint_progress(), _CheckpointSubmission, _clear_checkpoint_at() (+76 more)
+
+### Community 20 - "DraftViolation"
 Cohesion: 0.02
-Nodes (134): Client Event Listeners, LoginResponse, Props, AgentPageIntro(), CredentialList(), Props, ICON_LOADERS, IconLoader (+126 more)
+Nodes (93): 渲染回给 agent 的违约报告：逐条定位 + 按处置路径写的修复指引。…, render_report(), assert_dialogue_preserved(), _assert_line_syntax(), collect_violations(), dialogue_speakers(), DraftViolation, DraftViolations (+85 more)
 
-### Community 19 - "CurrentUserInfo"
-Cohesion: 0.01
-Nodes (325): AdShot, DramaScene, Project-local artifact identity, provenance, and manifest storage., _parse_project_provider(), _payload_model_or_default(), project_video_backend_ids(), ProviderModel, ValueError (+317 more)
-
-### Community 20 - "format_kwargs_for_log"
-Cohesion: 0.09
-Nodes (40): format_kwargs_for_log(), _is_sensitive_key(), Any, 把任意对象转成单行、安全可读的字符串，供 logger 输出。 - 长字符串截断到 500 字 - bytes/bytearray 替换为…, 清洗 JSON 兼容诊断载荷：不截断未知字段，只完整遮蔽秘密值。, sanitize_diagnostic_payload(), _summarize_image_like(), _to_safe() (+32 more)
-
-### Community 21 - "with_retry_async"
-Cohesion: 0.01
-Nodes (229): 统一「比例优先、清晰度其次」的尺寸计算。 媒体生成的输出比例只有一个来源——项目的 ``aspect_ratio``，永远优先；分辨率…, Croco GPU 共享工具模块（统一任务协议客户端）。 供 image_backends / video_backends / audio_backends…, file_to_data_uri(), image_to_data_uri(), Path, 出站请求侧的 base64 data URI 编码。 各供应商的图像/视频接口普遍接受 `data:<mime>;base64,<内容>` 形态的内联素材，走…, 本地文件 → base64 data URI；读不到时 OSError 向上冒泡由调用方决定语义。, 本地图片 → base64 data URI，按 `mime_types` 查扩展名，未登记时回落 `image/png`。… (+221 more)
+### Community 21 - "poll_with_retry"
+Cohesion: 0.02
+Nodes (90): _build_v2_video_generations(), 轮询至终态（succeed/failed）：复用 base.poll_with_retry，注入 Kling 终态/失败/重试谓词。, AmbiguousSubmitError, _dig(), extract_provider_error_message(), first_mapping_by_paths(), first_str_by_paths(), is_retryable_http_status() (+82 more)
 
 ### Community 22 - "ArtifactKey"
 Cohesion: 0.02
-Nodes (139): active_artifact_currency_resolver(), artifact_is_usable(), ArtifactCurrencyResolver, decode_script_content_snapshot(), Any, Return the exact registered entry selected through canonical admission., Compare the current formal claim with one provider-selected entry., Return the resolver, refusing a project short of the current schema. The… (+131 more)
+Nodes (343): activate_artifact_target_state(), _assert_preflight_unchanged(), _assert_project_unchanged(), _backup_activation_inputs(), _commit_schema_version(), _ensure_activation_backup(), ensure_imported_artifact_target_state(), _plan_artifact_claim_reconciliation() (+335 more)
 
-### Community 23 - "text_generation.py"
+### Community 23 - "get_project_manager"
+Cohesion: 0.03
+Nodes (126): localize_asset_type(), 把资产类型内部标识（如 ``"product"``）替换为当前语言显示名。 未登记的类型值（不在 ``ASSET_SPECS`` 中）原样透传，不做语义映射。, max_cell_count(), Any, 单张宫格的格数上限；分组超出时由调用方按此切块。, 项目的视频比例，宫格画布与冻结在记录上的单格比例共用同一取值。 project.json 中 aspect_ratio 允许显式写入…, video_aspect_ratio_of(), domain_error_on_value_error() (+118 more)
+
+### Community 24 - "ProviderModel"
+Cohesion: 0.02
+Nodes (140): ProviderModel, provider 解析的结果值对象：一对 (规范 provider_id, model_id)。 见…, 复合键形态 ``"<provider>/<model>"``，与 ``_split_pair`` 互逆。 配置层与 payload 层的 provider…, AudioLaneRequest, AudioLaneResult, GenerationContext, _get_or_create_audio_backend(), _get_or_create_backend() (+132 more)
+
+### Community 25 - "ScriptEditError"
+Cohesion: 0.06
+Nodes (60): BinaryIO, ValueError, 剧本编辑操作非法（id 未命中、数组越界、拆分份数不足、字段路径不存在等）。 ``key``/``params`` 是给用户可见路径准备的翻译坐标：会经…, ScriptEditError, ManualVideoMetadataCommit, ``ScriptEditError`` → 用户可见 detail 的单点映射。 reason 走 ``exc.key``/``exc.params``…, script_edit_detail(), delete_end_frame() (+52 more)
+
+### Community 26 - "useAppStore"
+Cohesion: 0.02
+Nodes (166): occupied(), scriptFileOccupied(), ConflictError, AdInitCanvasProps, FIELD_STYLE, ConflictModal(), ConflictResolution, FIELD_STYLE (+158 more)
+
+### Community 27 - "ProjectManager"
 Cohesion: 0.01
-Nodes (282): Counter, clear_quarantine(), Any, Path, quarantine_and_report(), quarantine_exists(), quarantine_path(), QuarantinedDraft (+274 more)
-
-### Community 24 - "resolve_generation_context"
-Cohesion: 0.05
-Nodes (60): get_provider_fallback(), 纯查表：对 registry ID（如 ``gemini-aistudio``）归一化到短前缀后查 fallback。不触 DB。, AudioLaneRequest, _get_or_create_audio_backend(), _get_or_create_backend(), _get_or_create_image_backend(), _get_or_create_video_backend(), ImageLaneRequest (+52 more)
-
-### Community 25 - "safe_join"
-Cohesion: 0.01
-Nodes (246): args, BinaryIO, kwargs, Finish one synchronous transaction even if its awaiting task is cancelled. A…, run_noninterruptible_sync(), convert_image_bytes_to_png(), _ensure_pixel_budget(), _fit_long_edge() (+238 more)
-
-### Community 26 - "CustomProviderForm.tsx"
-Cohesion: 0.04
-Nodes (73): Selection, STATUS_MAP, CapabilityOverrideRow(), CapabilityOverrideRowProps, OverrideState, overrideToState(), SEGMENT_ORDER, stateToOverride() (+65 more)
-
-### Community 27 - "Path"
-Cohesion: 0.04
-Nodes (57): ensure_project_asset_namespace(), 断言项目四类资产全局唯一，报告第一个稳定冲突。, emit_project_change_hint(), Notify listeners that project files were just written., ArtifactBasisDescriptor, Path, ValueError, 哨兵：区分「未传 before」（写盘统一入口自行读盘取改前）与「显式传 None」（无改前）。 (+49 more)
+Nodes (192): KeyError, agent_profile_dir(), Path, ensure_project_asset_namespace(), 断言项目四类资产全局唯一，报告第一个稳定冲突。, formal_write_transaction(), Restore exact pre-write bytes when a formal multi-file commit fails. Callers…, emit_project_change_hint() (+184 more)
 
 ### Community 28 - "ToolContext"
-Cohesion: 0.03
-Nodes (105): Path, ProjectManager, Reject any agent-provided ``script`` arg that is not a bare basename. Agents…, Bind a tool handler to one agent session's project + projects_root. The agent…, ToolContext, validate_script_filename(), patch_episode_meta_tool(), SDK MCP tool for editing an episode script's **top-level** metadata fields.… (+97 more)
+Cohesion: 0.04
+Nodes (93): Path, ProjectManager, Bind a tool handler to one agent session's project + projects_root. The agent…, ToolContext, patch_episode_meta_tool(), patch_project_tool(), insert_segment_tool(), patch_episode_script_tool() (+85 more)
 
-### Community 29 - "types/index.ts"
+### Community 29 - "ReferenceVideoCanvas.tsx"
 Cohesion: 0.02
-Nodes (161): Js Combine Iterations, Js Flatmap Filter, Rendering Conditional Render, ApiRequestError, ErrorResponse, ReferenceProjectionError, referenceRequestQuery(), SpeechAdmissionError (+153 more)
+Nodes (152): Js Combine Iterations, Js Flatmap Filter, Rendering Conditional Render, ASSET_COLORS, assetColor(), AssetColorPalette, MentionKind, FlatItem (+144 more)
 
 ### Community 30 - "useProjectEventsSSE.ts"
 Cohesion: 0.09
-Nodes (29): ADR-0053, buildNotificationTarget(), CHANGE_PRIORITY, getChangePriority(), getGroupPriority(), getPrimaryGroupTarget(), isNavigableChange(), isWorkspaceEditing() (+21 more)
+Nodes (28): ADR-0053, buildNotificationTarget(), CHANGE_PRIORITY, getChangePriority(), getGroupPriority(), getPrimaryGroupTarget(), isNavigableChange(), isWorkspaceEditing() (+20 more)
 
 ### Community 31 - ".claude/skills/impeccable/scripts/detector/rules/checks.mjs"
-Cohesion: 0.04
-Nodes (102): ANIMATION_VALUE_KEYWORDS, borderColorsFromStyle(), borderWidthsFromStyle(), checkClippedOverflow(), checkEdgeFlushCardsDOM(), checkElementBlinkingCursorDOM(), checkElementClippedOverflow(), checkElementClippedOverflowDOM() (+94 more)
+Cohesion: 0.03
+Nodes (121): ANIMATION_VALUE_KEYWORDS, borderColorsFromStyle(), borderWidthsFromStyle(), checkBorders(), checkClippedOverflow(), checkEdgeFlushCardsDOM(), checkElementBlinkingCursorDOM(), checkElementBorders() (+113 more)
 
-### Community 32 - "audio_utils.py"
-Cohesion: 0.08
-Nodes (34): discard_stale_reference_audio(), _ffprobe_available(), _positive_duration(), probe_audio_duration_seconds(), probe_existing_audio_duration_seconds(), probe_existing_media_duration_seconds(), probe_existing_video_duration_seconds(), probe_reference_audio_total_seconds() (+26 more)
+### Community 32 - "._validate"
+Cohesion: 0.07
+Nodes (17): _ad_project_payload(), 广告/短片项目的 project.json 校验：target_duration/brief 字段与恒单集约束。, 广告/短片剧本（平铺 shots[]）的结构与引用完整性校验。, products_in_shot 与其收集器（collect_product_references_for_names）同口径归一： NFC/NFD…, storyboard 路径的资产引用同样按 NFC 归一比对：该路径的图片收集…, storyboard 路径的成员校验在生成 schema 层（supported_durations 枚举）； 校验器只把关正整数，16 秒不按…, 剧本总时长与 target_duration 偏差超阈值仅 warn，不阻塞。, ad 参考路线与其他内容模式共用自包含 video_units 校验。 (+9 more)
 
 ### Community 33 - "VideoGenerationRequest"
-Cohesion: 0.03
-Nodes (117): AgnesVideoBackend, _coerce_duration(), _duration_to_num_frames(), _extract_duration_seconds(), _extract_task_id(), _failure_reason(), _image_to_bare_base64(), AsyncClient (+109 more)
+Cohesion: 0.02
+Nodes (125): AgnesVideoBackend, _coerce_duration(), _duration_to_num_frames(), _extract_duration_seconds(), _extract_task_id(), _failure_reason(), _image_to_bare_base64(), AsyncClient (+117 more)
 
 ### Community 34 - ".agents/skills/impeccable/scripts/detector/rules/checks.mjs"
 Cohesion: 0.03
-Nodes (126): ANIMATION_VALUE_KEYWORDS, borderColorsFromStyle(), borderWidthsFromStyle(), buildHtmlPatternCorpora(), checkBorders(), checkClippedOverflow(), checkEdgeFlushCardsDOM(), checkElementBlinkingCursorDOM() (+118 more)
+Nodes (121): ANIMATION_VALUE_KEYWORDS, borderColorsFromStyle(), borderWidthsFromStyle(), checkBorders(), checkClippedOverflow(), checkEdgeFlushCardsDOM(), checkElementBlinkingCursorDOM(), checkElementBorders() (+113 more)
 
 ### Community 35 - "compilerOptions"
 Cohesion: 0.07
 Nodes (28): compilerOptions, allowJs, esModuleInterop, forceConsistentCasingInFileNames, isolatedModules, jsx, lib, module (+20 more)
 
-### Community 36 - "SessionMetaStore"
-Cohesion: 0.02
-Nodes (140): ClientFactory, OnMessage, _ActorClosed, Any, BaseException, Exception, SessionActor: 每会话一个专属 asyncio task，封装 ClaudeSDKClient 的所有协议调用。…, 在同一 task 内交织消费 receive_response 与新命令。 返回：从队列取出但本轮未消化的命令（交给 _command_loop 下一轮）。 (+132 more)
+### Community 36 - "FakeSDKClient"
+Cohesion: 0.03
+Nodes (101): ClientFactory, OnMessage, _ActorClosed, Any, BaseException, Exception, SessionActor: 每会话一个专属 asyncio task，封装 ClaudeSDKClient 的所有协议调用。…, 在同一 task 内交织消费 receive_response 与新命令。 返回：从队列取出但本轮未消化的命令（交给 _command_loop 下一轮）。 (+93 more)
 
 ### Community 37 - "EpisodePlanner"
 Cohesion: 0.05
-Nodes (83): EpisodePlanner, 分集规划器。``generator`` 为 None 时仅可构造，调用 plan() 会报错。, _end_of(), _entry(), _FakeTextGenerator, _load_project(), _plan_response(), _planned_three() (+75 more)
+Nodes (84): EpisodePlanner, 分集规划器。``generator`` 为 None 时仅可构造，调用 plan() 会报错。, _end_of(), _entry(), _FakeTextGenerator, _load_project(), _plan_response(), _planned_three() (+76 more)
 
-### Community 38 - "TtsSynthesisSettings"
-Cohesion: 0.05
-Nodes (67): Identify one storyboard item or reference-video unit's narration audio., build_narration_audio_basis(), build_narration_audio_basis_from_canonical_text(), NarrationAudioEvidence, NarrationTtsStatus, prepare_current_narration_delivery(), prepare_narration_delivery(), NarrationDelivery (+59 more)
-
-### Community 39 - "OverviewCanvas.tsx"
-Cohesion: 0.04
-Nodes (63): EditableEpisodeTitle(), EditableEpisodeTitleProps, FIELD_STYLE, OverviewCanvas(), OverviewCanvasProps, OverviewDraft, EpisodeHeader(), EpisodeHeaderProps (+55 more)
+### Community 39 - ".agents/skills/impeccable/scripts/hook-before-edit.mjs"
+Cohesion: 0.08
+Nodes (62): allow(), bumpCursorDenial(), cursorBlockMessage(), deny(), detectProposedHtml(), done(), escapeRegExp(), findingSignature() (+54 more)
 
 ### Community 40 - "ProjectEventService"
-Cohesion: 0.04
-Nodes (63): emit_project_change_batch(), ProjectChangeBatch, Notify listeners with a ready-to-broadcast project change batch., _change_identity(), _fingerprint(), _ProjectChannel, ProjectEventService, Any (+55 more)
+Cohesion: 0.03
+Nodes (70): Counter, emit_project_change_batch(), project_change_source(), ProjectChangeBatch, ProjectChangeSource, Notify listeners with a ready-to-broadcast project change batch., Temporarily tag project mutations with a source label., 按 narration step1 读取契约做后校验：segment_id 唯一 + novel_text 非空白 + duration ∈… (+62 more)
 
 ### Community 41 - "AssistantService"
-Cohesion: 0.03
-Nodes (74): 跨会话按幂等键定位新会话的受理条目（seq 0），返回 (session_id, 权威条目)。 client_key 唯一索引按 (session_id,…, AssistantService, Any, Path, Request, ServerSentEvent, SessionMeta, Load skill metadata from SKILL.md frontmatter. Parsed fields: name,… (+66 more)
+Cohesion: 0.05
+Nodes (40): AssistantService, Any, Path, Request, ServerSentEvent, SessionMeta, Shutdown service gracefully., List available skills. (+32 more)
 
 ### Community 42 - "test_project_migration_v7_v8.py"
-Cohesion: 0.12
-Nodes (57): _episode_number(), _non_empty(), Identify one rendition variant's mechanical subtitle artifact., migrate_project_dir(), 将单个项目目录逐级升级到 CURRENT_SCHEMA_VERSION，返回是否实际迁移。 供启动期 ``run_project_migrations``…, migrate_v7_to_v8(), Path, delete_step1_file() (+49 more)
+Cohesion: 0.11
+Nodes (59): _episode_number(), _non_empty(), Identify one rendition variant's mechanical subtitle artifact., Identify one independently current final-presentation variant., _rendition_variant(), project_metadata_lock(), Path, Serialize project metadata and formal-artifact transactions across processes. (+51 more)
 
 ### Community 43 - "MiniMaxVideoBackend"
-Cohesion: 0.03
-Nodes (79): _minimax_text_base_url(), Path, 把 image_generation 响应落地为本地文件，返回远端 URL（base64 路径返回 None）。 先查 base_resp 业务错误（200…, 下载已签发的结果图 URL（幂等 GET），独立的下载重试范围。 瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST；4xx（URL 失效等确定性错误）…, 解码 base64 图片并写盘（解码 + 写盘 offload 到线程，避免事件循环内做 CPU 密集解码）。 容忍少数中转返回 data…, _write_base64_image(), _as_dict(), _base_resp_error() (+71 more)
+Cohesion: 0.02
+Nodes (81): _minimax_text_base_url(), Path, 把 image_generation 响应落地为本地文件，返回远端 URL（base64 路径返回 None）。 先查 base_resp 业务错误（200…, 下载已签发的结果图 URL（幂等 GET），独立的下载重试范围。 瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST；4xx（URL 失效等确定性错误）…, 解码 base64 图片并写盘（解码 + 写盘 offload 到线程，避免事件循环内做 CPU 密集解码）。 容忍少数中转返回 data…, _write_base64_image(), _as_dict(), _base_resp_error() (+73 more)
 
-### Community 44 - "test_dashscope_video_backend.py"
-Cohesion: 0.14
-Nodes (27): _client(), _http_error(), _http_error_503_in_message(), _patches(), HTTPStatusError, Path, DashScopeVideoBackend 单元测试（mock httpx，异步两步式）。, 提交时把实际使用的域名与 job_id 一并落库——续跑要靠它回放。 (+19 more)
+### Community 44 - "unit"
+Cohesion: 0.04
+Nodes (83): classify_wan_model(), DashScopeVideoBackend, _find_known_profile_key(), _is_wan3(), _normalize_wan27_alias(), _profile_for_model(), Path, VideoCapabilities (+75 more)
 
 ### Community 45 - ".agents/skills/impeccable/scripts/hook-lib.mjs"
 Cohesion: 0.04
-Nodes (108): cursorBlockMessage(), ACK_EXTS, ADVISORY_RULES, appendDesignSystemNote(), appendDesignSystemNoteOnce(), applyConfigSource(), applyDetectorConfigSource(), applyPatchText() (+100 more)
+Nodes (87): ACK_EXTS, ADVISORY_RULES, ALLOWED_EXTS, appendDesignSystemNote(), applyConfigSource(), applyDetectorConfigSource(), applyPatchText(), canonicalPath() (+79 more)
 
-### Community 46 - "session_manager.py"
-Cohesion: 0.02
-Nodes (140): make_project_key(), Path, Derive the SessionStore project_key for a project cwd. Thin wrapper around…, Heartbeat, LiveMessage, BaseModel, Agent runtime data models., 会话消息流的首个事件：订阅已原子建立的屏障标记。 消费方消费到该事件后，可确信其后的直播广播无缝隙——entry 流以此为界… (+132 more)
+### Community 46 - "unit"
+Cohesion: 0.03
+Nodes (167): fake_reference_caps_fetcher(), 假 ``_fetch_reference_caps_with_fallback``：返回一份 ``ReferenceSplitCaps`` 的 async…, _derived_reference_names(), _open_for_edit(), _promote(), unit, edit_images 必须同时进 MCP 工具 id 集（前端 chip 三语校验依赖它）。, drama：_get_video_prompt 从场景级 dialogue-kind utterances 派生 video YAML 台词，… (+159 more)
 
 ### Community 47 - "types/workflow.ts"
 Cohesion: 0.04
@@ -1387,12 +1377,12 @@ Cohesion: 0.04
 Nodes (46): DataValidator, validate_episode(), validate_project(), _episode_for_kind(), _project_payload(), integration, parametrize, Path (+38 more)
 
 ### Community 49 - ".claude/skills/impeccable/scripts/lib/impeccable-paths.mjs"
-Cohesion: 0.07
-Nodes (58): resolveProjectRoot(), CRITIQUE_DIR, firstExisting(), getDesignSidecarCandidates(), getDesignSidecarPath(), getImpeccableDir(), getLegacyLiveAnnotationsDir(), getLegacyLiveConfigPath() (+50 more)
+Cohesion: 0.04
+Nodes (101): resolveProjectRoot(), resolveTargetSelection(), CRITIQUE_DIR, firstExisting(), getDesignSidecarCandidates(), getDesignSidecarPath(), getImpeccableDir(), getLegacyLiveAnnotationsDir() (+93 more)
 
-### Community 50 - "test_workflow_state.py"
-Cohesion: 0.10
-Nodes (94): atomic_write_json(), Any, 同目录 tempfile + os.replace 原子写入 JSON。, apply_confirmation(), complete_stale_step1_rebuild(), content_fingerprint(), step1 内容指纹：合法 JSON 取规范化 dump 的 sha256（键序 / 空白重排不改指纹、语义变更才改）， 非 JSON 退化为原始字节…, Record preprocessing completion for a stale entry, including byte-identical… (+86 more)
+### Community 50 - "WorkflowStateService"
+Cohesion: 0.12
+Nodes (91): atomic_write_json(), 同目录 tempfile + os.replace 原子写入 JSON。, apply_confirmation(), content_fingerprint(), step1 内容指纹：合法 JSON 取规范化 dump 的 sha256（键序 / 空白重排不改指纹、语义变更才改）， 非 JSON 退化为原始字节…, 就地把确认记录写入 project ``episodes[i].step1_review``；集条目不存在返回 False。 供 service 层在…, Calculate the first unmet workflow condition from durable project facts., WorkflowStateService (+83 more)
 
 ### Community 51 - "Narrow Effect Dependencies"
 Cohesion: 0.33
@@ -1402,49 +1392,49 @@ Nodes (6): Narrow Effect Dependencies, Calculate Derived State During Rendering,
 Cohesion: 0.16
 Nodes (17): classify_commits.sh script, poll.sh script, query.sh script, usage(), enter_repo_root(), repo-context.sh script, classify_failure(), fetch_json() (+9 more)
 
-### Community 53 - "unit"
-Cohesion: 0.04
-Nodes (41): _coerce_duration(), _coerce_resolution(), VideoCapabilities, 该 model 除 /reference2video 外不派发到任何端点。 是无请求上下文时能否按 r2v 的窄 prompt 上限静态声明的判据：多端点…, Vidu 视频生成后端，按 request 字段分派到不同端点。, 按 model_id 纯计算 caps —— 不构造 client。first_frame/last_frame/reference_images 直接查…, 按 (model, endpoint) 的合法集合，把请求时长校正到最近值。, 白名单内透传，否则降级到模型默认 720p（viduq1 默认 1080p）。 (+33 more)
+### Community 53 - "ViduVideoBackend"
+Cohesion: 0.14
+Nodes (9): Vidu 视频生成后端，按 request 字段分派到不同端点。, ViduVideoBackend, patch, Path, _build_request 是核心串联函数：endpoint 选择 + duration/resolution/aspect_ratio/audio…, create 阶段按「请求是否确定送达」收窄重试，避免重复建任务 + 重复计费。, TestBackendBasics, TestBuildRequest (+1 more)
 
 ### Community 54 - "test_episode_reset.py"
 Cohesion: 0.06
 Nodes (126): discover_episode_files(), 枚举派生集文件 source/episode_N.txt → {集号: 路径}（每号取一个可读的代表路径）。…, EpisodeResetConflictError, EpisodeResetError, EpisodeResetResult, RuntimeError, 重置分集规划账本。 ``from_episode=1``：全量重置，零前置校验，账本处于任何损坏状态都必须执行成功…, 重置期间账本被并发修改（出现确认清单之外的已消费集），提交被拒绝。 (+118 more)
 
 ### Community 55 - "ConfigResolver"
-Cohesion: 0.05
-Nodes (69): ConfigResolver, 运行时配置解析器。 作为 ConfigService 的上层薄封装，提供： - 唯一的默认值定义点 - 类型化输出（bool / tuple / dict）…, CostEstimationService, async_sessionmaker, AsyncSession, Path, db_factory(), Create an async session factory backed by an isolated in-memory database. (+61 more)
+Cohesion: 0.04
+Nodes (72): ConfigResolver, 运行时配置解析器。 作为 ConfigService 的上层薄封装，提供： - 唯一的默认值定义点 - 类型化输出（bool / tuple / dict）…, CostEstimationService, db_factory(), Create an async session factory backed by an isolated in-memory database., video_pricing_generate_audio：能力接口解析不出时的计价降级口径。, 注册表已下线的 veo model id 仍按含音档出价，不因能力解析失败被低估为静音档。, 非恒含音 provider 解析不出能力时保留请求值——价目仍回落 Gemini 家族的含音费率。 (+64 more)
 
 ### Community 56 - "VersionManager"
-Cohesion: 0.04
-Nodes (46): _create_rollback_backup(), _get_versions_file_lock(), Any, BaseException, OSError, Path, 确保“当前文件”至少有一个版本记录 用于升级/迁移场景：磁盘上已有 current_file，但 versions.json 还没有记录。…, 为既有版本记录补写元数据键（覆盖同名键）。 供生成 finalize 在版本入库后回填只有 finalize 阶段才确定的元数据（如参考… (+38 more)
+Cohesion: 0.03
+Nodes (84): CurrentBasisResolver, _pattern(), 资源路径解析器 — 「资源类型 → 项目内相对路径」的唯一真相源。 纯函数，不读盘、不持有项目状态。独家拥有各资源类型的子目录、文件名模板、 扩展名，以及…, 返回资源在项目内的相对路径（posix，正斜杠）。 storyboards/end_frames/videos 形如…, 返回资源类型的文件扩展名（含点，如 ``.png``）。未知类型抛 ``ValueError``。, resource_extension(), resource_relative_path(), ResourcePattern (+76 more)
 
 ### Community 57 - "test_sdk_tools.py"
-Cohesion: 0.01
-Nodes (431): EpisodePlanSummary, PlanResult, 单集摘要：标题 + 钩子 + 体量（按 source_language 计的阅读单位）。, BatchTaskResult, Result of a single task after batch execution. ``task`` carries the finished…, GenerationCandidate, One addressable generation unit and the formal artifact it would write., DurationSlot (+423 more)
-
-### Community 58 - "event_log.py"
 Cohesion: 0.02
-Nodes (96): IntegrityError, _coerce_index(), DraftAccumulator, Any, Live 写入点管道：SDK 消息流 → 事件日志条目 + 流式预览态（draft）。 - 条目：normalize 后落库分配 seq，再以…, 权威条目落库后按同 message_id 精确清除对应 draft。, 轮次终结（result / 中断）：预览态随内存丢弃。, 重连首帧快照：当前累积态（无活跃 draft 时为 None）。 ``tool_json`` 携带各 tool_use 块已累积的原始 partial… (+88 more)
+Nodes (298): batch_enqueue_and_wait(), BatchTaskResult, Result of a single task after batch execution. ``task`` carries the finished…, Async: enqueue sequentially, then gather-wait all tasks. Runs entirely within a…, DurationSlot, 取档结果。``seconds`` 是向 backend 申请的秒数，``total_seconds`` 是请求时长基准。, 申请秒数与请求时长基准不一致时需用户确认。, 取档偏移了请求时长基准时的任务 warning（i18n key + 参数）；未偏移返回 None。 (+290 more)
+
+### Community 58 - "DraftAccumulator"
+Cohesion: 0.04
+Nodes (41): _coerce_index(), DraftAccumulator, Any, Live 写入点管道：SDK 消息流 → 事件日志条目 + 流式预览态（draft）。 - 条目：normalize 后落库分配 seq，再以…, 权威条目落库后按同 message_id 精确清除对应 draft。, 轮次终结（result / 中断）：预览态随内存丢弃。, 重连首帧快照：当前累积态（无活跃 draft 时为 None）。 ``tool_json`` 携带各 tool_use 块已累积的原始 partial…, 每会话一个：消费 inbox 消息，产出日志条目写入与 log_entry / log_delta 广播。 (+33 more)
 
 ### Community 59 - "test_text_parser.py"
 Cohesion: 0.04
-Nodes (81): extract_mentions(), Collection, 去掉全部发声记号后剩下的画面描述文本（归一形）。 参考图派生与产物依据都按此文本判定：只在花括号前出现的角色只绑声音、不进画面参考， 而同一行里写在记号之外的…, 提取正文中的 ``@`` 引用名（保持首次出现顺序、去重）。 顺序即执行期参考图的编号顺序：正文是唯一真相，没有另一份可以与它分叉的引用列表。…, 把 prompt 中的 ``@[X]`` / ``@X`` 替换为三段论的主体记号 ``<X>``。 ``names``…, 按 project.json 四类资产把 mention 名字分派成 ReferenceResource。…, render_mentions_as_subjects(), resolve_references() (+73 more)
+Nodes (100): Collection, 单元正文段：画面描述做 mention 替换，发声记号就地重组为官方句式。 ``subjects`` 是已登记的 mention…, _render_segment_two(), extract_mentions(), find_malformed_mention(), _is_ascii_word_char(), _is_legacy_mention_char(), _iter_mentions() (+92 more)
 
 ### Community 60 - "TestClient"
 Cohesion: 0.02
-Nodes (83): ValueError, discovery_format 取值不在受支持集合内，与 SDK 调用期的凭证/网络类 ValueError 区分。, UnsupportedDiscoveryFormatError, DiscoverResponse, app(), client(), db_engine(), asyncio (+75 more)
+Nodes (80): DiscoverResponse, app(), client(), db_engine(), asyncio, AsyncSession, FastAPI, fixture (+72 more)
 
 ### Community 61 - "KlingImageBackend"
 Cohesion: 0.04
-Nodes (46): ImageBackend, Protocol, KlingImageBackend, ReferenceImage, 构建图像请求体。无参考图 → 文生图；有参考图 → 图生图（image 数组）。, 参考图 → 纯 base64 列表（无 data URI 前缀）；超上限截断，缺失/不可读 fail-loud。, 预脱敏标量视图，直接喂 logger（避开 format_kwargs_for_log sink）。 base64 参考图 / prompt…, 可灵 Kling 图像后端（异步轮询，JWT / Bearer 双模式）。 (+38 more)
+Nodes (43): ImageBackend, Protocol, KlingImageBackend, ReferenceImage, 构建图像请求体。无参考图 → 文生图；有参考图 → 图生图（image 数组）。, 参考图 → 纯 base64 列表（无 data URI 前缀）；超上限截断，缺失/不可读 fail-loud。, 预脱敏标量视图，直接喂 logger（避开 format_kwargs_for_log sink）。 base64 参考图 / prompt…, 可灵 Kling 图像后端（异步轮询，JWT / Bearer 双模式）。 (+35 more)
 
-### Community 62 - "make_provider_id"
-Cohesion: 0.07
-Nodes (39): make_provider_id(), parse_provider_id(), 从 'custom-3' 格式的 provider_id 提取数据库 ID。 Raises: ValueError: 如果格式不正确, 构造自定义供应商的 provider_id 字符串，如 'custom-3'。, load_custom_backend(), AsyncSession, 装载并构造自定义供应商 backend。 media_type 用于校验请求 model 的 endpoint 是否相符、以及回退默认时分组；实际派发以…, fixture (+31 more)
+### Community 62 - "normalize_base_url"
+Cohesion: 0.03
+Nodes (46): ImageBackendMode, is_official_openai_base_url(), normalize_base_url(), 判断 OpenAI 兼容 base_url 是否指向官方 api.openai.com。 官方端点上 max_tokens 已弃用且被推理模型（o 系列 /…, 确保 base_url 以 / 结尾。 Google genai SDK 的 http_options.base_url 要求尾部带 /，…, get_shared_rate_limiter(), _rate_limiter_limits_from_env(), RateLimiter (+38 more)
 
-### Community 63 - ".from_request"
-Cohesion: 0.11
-Nodes (5): ValueError, Validate a request structurally and build a :class:`TaskSpec`. Single source of…, 纯空白的 resource_id 与空的同样不可用：它会在执行期变成一段空白文件名。, 带路径片段的 resource_id 在结构守卫处就拒，不留到执行期拼产物路径时才发现。, TestTaskSpecFromRequest
+### Community 63 - "admit_script_unit"
+Cohesion: 0.03
+Nodes (123): AbstractEventLoop, AudioManifestEntryResolver, compose_video_artifact_basis(), Compose independently owned video inputs into one manifest basis. The resulting…, asset_name_comparison_key(), 项目级资产名判等键：去除两端空白后收敛到 Unicode NFC。 这一坐标系仅用于名称空间判等，不做 case-fold；项目资产名大小写敏感。, EventLoopBridge, Any (+115 more)
 
 ### Community 64 - "template.sh"
 Cohesion: 0.22
@@ -1456,27 +1446,27 @@ Nodes (43): _client(), _FakeDedupeHitQueue, _FakePM, _FakeQueue, _noop_bucket_pr
 
 ### Community 66 - "EventLogStore"
 Cohesion: 0.03
-Nodes (71): build_user_entry(), EventLogService, EventLogStore, 构造用户消息受理时的权威条目（POST 先写日志分配身份再回显）。, 事件日志 DB 访问：seq 单调分配（append-only）+ 幂等键查重。, 补偿删除单条条目（仅限受理失败回滚：SDK 投递失败时撤销刚写入的 用户条目，否则同幂等键重试会短路而永不投递）。, 按事件日志用户条目 uuid 查回 SDK transcript entry uuid；无映射返回 None。, _FakeAdapter (+63 more)
+Nodes (73): build_user_entry(), EventLogService, EventLogStore, 构造用户消息受理时的权威条目（POST 先写日志分配身份再回显）。, 事件日志 DB 访问：seq 单调分配（append-only）+ 幂等键查重。, 补偿删除单条条目（仅限受理失败回滚：SDK 投递失败时撤销刚写入的 用户条目，否则同幂等键重试会短路而永不投递）。, 按事件日志用户条目 uuid 查回 SDK transcript entry uuid；无映射返回 None。, FakeSessionManager (+65 more)
 
 ### Community 67 - "GenerationQueue"
-Cohesion: 0.10
-Nodes (9): GenerationQueue, Any, Async queue manager wrapping TaskRepository., Attach in-process worker cancel callback. Must be called before worker.start()…, 打开一条 TaskRepository 会话，退出时把落地的任务终态发上项目事件总线。 发布放在会话退出之后而非 repo 内部：repo…, Returns rows_affected (0 = 已被外部翻成非 running 终/中间态，worker 走 0-rows-cancelled 协议)., Returns rows_affected (0 = 已被外部翻状态，worker 走 0-rows-cancelled 协议)., Worker finally 0-rows-cancelled 协议兜底入口（SQL 守卫 status IN queued|cancelling）。… (+1 more)
+Cohesion: 0.07
+Nodes (23): ActiveTaskRequestConflict, _derive_execution_model_for_enqueue(), DispatchProviderChanged, GenerationQueue, Any, RuntimeError, VideoCapability, 视频任务的定桶口径，入队派生与 worker 限流投影共用、与执行侧同步（docs/adr/0054）。 图生视频 / 宫格 → i2v；参考生视频调公共… (+15 more)
 
-### Community 68 - "ArtifactComparison"
-Cohesion: 0.09
-Nodes (24): ArtifactComparison, 选中的产物连同 key 与登记路径一并留证，供应商提交前复核的就是同一条认领。, test_formal_input_selection_retains_identity_for_the_provider_recheck(), 产物清单替身：剧本里 narration_audio 指向的路径视为已登记，其余一律缺失。 产物清单是读取已生成旁白的唯一口径，路由只问清单。, _ScriptBackedResolver, _candidate(), ArtifactStatus, parametrize (+16 more)
+### Community 68 - "CustomProviderForm.tsx"
+Cohesion: 0.04
+Nodes (73): DurationPill(), CapabilityOverrideRow(), CapabilityOverrideRowProps, OverrideState, overrideToState(), SEGMENT_ORDER, stateToOverride(), CustomProviderForm() (+65 more)
 
 ### Community 69 - "ValidationMessage"
 Cohesion: 0.04
-Nodes (56): _allowed(), _asset(), _custom_error_key(), _is_parseable_iso_timestamp(), _m(), Any, Path, ValidationError (+48 more)
+Nodes (51): _allowed(), _asset(), _custom_error_key(), _is_parseable_iso_timestamp(), _m(), Any, Path, ValidationError (+43 more)
 
-### Community 70 - "TextGenerationRequest"
-Cohesion: 0.04
-Nodes (52): 通用文本生成请求。各 Backend 忽略不支持的字段。, TextGenerationRequest, OpenAITextBackend, OpenAI 文本生成后端，支持 Chat Completions API。, patch, 隐患 3 回归：dashscope 文本复用 OpenAI 后端必须以 'dashscope' 记账，否则计费命中 USD。, TestTextProviderBilling, _text_response() (+44 more)
+### Community 70 - "episode_planner.py"
+Cohesion: 0.05
+Nodes (55): parse_episode_num(), 宽松解析条目集号：int（排除 bool——True 会与第 1 集同键碰撞）或纯数字 字符串（历史手编数据），其余返回…, _build_planning_prompt(), _context_entries(), _count_planned_episodes(), _DraftRejected, DramaEpisodeDraft, DramaPlanDraft (+47 more)
 
 ### Community 71 - "TaskRepository"
-Cohesion: 0.02
-Nodes (78): ColumnElement, utc_now(), Any, SQLAlchemy AsyncResult.rowcount 在当前 stub 中是 Any，统一在此 narrow。, rowcount(), 撤回指向 ``superseded_by`` 的取代指针；指针已指向别的会话时不动。, 标记会话已被取代；已有指针时不改写，返回 False 让调用方按分叉冲突处理。, _active_dedupe_clauses() (+70 more)
+Cohesion: 0.03
+Nodes (70): ColumnElement, _active_dedupe_clauses(), _json_dumps(), _json_loads(), Any, AsyncSession, 查询命中 ``idx_tasks_dedupe_active`` 去重键、当前处于活动态的任务。 match 条件与 :meth:`enqueue` 的…, 领取下一个 queued 任务。 ``pool_full_providers`` 为本 cycle 已知池满的 provider_id 集合（黑名单语义）：… (+62 more)
 
 ### Community 72 - "check-consistency.mjs"
 Cohesion: 0.09
@@ -1484,99 +1474,99 @@ Nodes (30): checkAnchors(), checkDocInventory(), checkUiJsonKeys(), docRoots(), 
 
 ### Community 73 - ".session"
 Cohesion: 0.02
-Nodes (114): _parse_int(), 打开共享 session，返回绑定到该 session 的 ConfigResolver。, 将配置值解析为正整数；空串 / 非数字 / 非正一律回 default（容错，不抛）。, CustomProvider, CustomProviderModel, 种一个自定义供应商：目标 model 已禁用、默认 model 存活（带 resolution 与时长表）。, _seed_custom_video_provider(), _FakeConfigService (+106 more)
+Nodes (137): _parse_int(), 收窄前的时长全集：caps → registry 两级解析。 两级都取不到时返回 None，表示「该项目尚未配置可解析的视频型号」。``caps``…, 打开共享 session，返回绑定到该 session 的 ConfigResolver。, 将配置值解析为正整数；空串 / 非数字 / 非正一律回 default（容错，不抛）。, resolve_raw_supported_durations(), CustomProvider, CustomProviderModel, 种一个自定义供应商：目标 model 已禁用、默认 model 存活（带 resolution 与时长表）。 (+129 more)
 
 ### Community 74 - "_should_retry"
-Cohesion: 0.07
-Nodes (22): AioRpcError, grok_should_retry(), Exception, Grok 专用重试谓词：精确匹配 gRPC 瞬态状态码，其余回退默认模式匹配。, Exception, _should_retry(), StatusCode, _make_aio_rpc_error() (+14 more)
+Cohesion: 0.06
+Nodes (25): AioRpcError, grok_should_retry(), Exception, Grok 专用重试谓词：精确匹配 gRPC 瞬态状态码，其余回退默认模式匹配。, NonRetryableError, Exception, RuntimeError, 标记基类：命中此类型的异常始终不重试。 _should_retry… (+17 more)
 
 ### Community 75 - "test_script_generator_reference_branch.py"
-Cohesion: 0.08
-Nodes (66): step2 的 LLM 产出顶层形状：标题 + 与 step1 等长、同序的 unit 正文列表。, ReferenceStep2FlatScript, _fake_step2_generator(), asyncio, integration, Path, ScriptGenerator reference_video 分支测试。, 晋升前按产出路径同一份预判重判 step1 现值：隔离期间 Web 端改坏 step1 不能借晋升落盘。 编辑器对人写正文只出 warning，改出未登记的… (+58 more)
+Cohesion: 0.06
+Nodes (87): _activate_project_artifacts(), _fake_step2_generator(), asyncio, fixture, integration, parametrize, Path, unit (+79 more)
 
 ### Community 76 - "unit"
-Cohesion: 0.03
-Nodes (61): _is_ark_not_found(), Any, BaseException, VideoCapabilities, 按 model_id 子串识别已验证的 seedance-2-0 / seedance-2.0 系列（含 fast 变体）。 只匹配 2-0 与 2.0…, 按 model_id 子串识别 seedance-2-5 / seedance-2.5 系列。 与 _is_seedance_2 同为宽松族群识别（供…, 按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。 resolver…, 识别 Ark 任务「不存在 / 已过期」响应。 精确匹配官方稳定 ``task_not_found`` 错误码；移除宽泛的 ``"not found"``… (+53 more)
+Cohesion: 0.02
+Nodes (78): _is_ark_not_found(), Any, BaseException, VideoCapabilities, 按 model_id 子串识别已验证的 seedance-2-0 / seedance-2.0 系列（含 fast 变体）。 只匹配 2-0 与 2.0…, 按 model_id 子串识别 seedance-2-5 / seedance-2.5 系列。 与 _is_seedance_2 同为宽松族群识别（供…, 按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。 resolver…, 识别 Ark 任务「不存在 / 已过期」响应。 精确匹配官方稳定 ``task_not_found`` 错误码；移除宽泛的 ``"not found"``… (+70 more)
 
-### Community 77 - "create_download_token"
-Cohesion: 0.10
-Nodes (31): create_download_token(), create_token(), get_token_secret(), 创建 JWT token Args: username: 用户名 Returns: JWT token 字符串, 签发短时效下载 token，用于浏览器原生下载认证, 获取 JWT 签名密钥 优先使用 AUTH_TOKEN_SECRET 环境变量，否则自动生成并缓存。, NoCompletedSegmentsError, The episode has no selected video presentation to export. (+23 more)
+### Community 77 - "resolve_items"
+Cohesion: 0.05
+Nodes (98): EpisodeScriptReboundError, RuntimeError, 加锁前后 episode→script_file 绑定发生变化（并发 PATCH 改绑），调用方应重试。, _AbortEdit, _admission_for(), _admissions(), _apply_operation(), _candidate_validation_errors() (+90 more)
 
 ### Community 78 - "Skill"
 Cohesion: 0.67
 Nodes (3): Phase Boundaries, Skill, Skill
 
-### Community 80 - "ProjectManager"
-Cohesion: 0.02
-Nodes (90): ProjectManager, 「不更坏」守卫：仅当待写数据引入新结构错误时拒绝。 改后合法 → 放行；改后非法时：改前合法或无改前 → 拒绝（`raise`）；改前已非法 → 放行…, 从剧本解析集号。 优先使用 script 顶层 `episode` 字段（真相源），fallback 到文件名正则…, 创建标准场景对象模板 Args: scene_id: 场景 ID（如 "E1S01"），集号已编码在 ID 中 duration_seconds:…, 向剧本添加场景 Args: project_name: 项目名称 script_filename: 剧本文件名 scene: 场景字典 Returns:…, 获取待处理的场景/片段列表 Args: project_name: 项目名称 script_filename: 剧本文件名 asset_type: 资源类型…, 获取需要生成分镜图的场景/片段列表（两种模式统一逻辑） Args: project_name: 项目名称 script_filename: 剧本文件名…, 向项目添加剧集 Args: project_name: 项目名称 episode: 集数 title: 剧集标题 script_file: 剧本文件相对路径… (+82 more)
+### Community 80 - "_seed_unit"
+Cohesion: 0.08
+Nodes (44): _patch_batch_admission(), 把批量准入的当前状态查询接到进程内替身，返回入队记录。 准入要读任务库、TTS 在途状态与报价；路由测试不带这些依赖，逐个注入替身。…, 入队中断不撤销已创建的任务：它们是准入通过的完整付费单元，照常执行。 没轮到的 unit 逐 ID 报出来，界面据此只释放它自己的占用标记。, 下次「缺失即生成」只补没入队的那个：已建任务产出的成片是现行产物，不重复付费。, 一个单元有问题即整批不成立，另一个单元如实报告是被谁扣下的。, UI 要一次看到全部缺口；只报第一个会让用户逐轮试错。, 只确认了一半的档位不算通过：剩下那个仍在等用户拍板。, 后期配音不以 TTS 为输入：未配置或过期都不该拦住这批。 (+36 more)
 
 ### Community 81 - "unit"
-Cohesion: 0.12
-Nodes (13): _jwt_backend(), integration, Path, unit, 有请求上下文（service_tier）时的 last_frame 收窄——供 media_generator 转发 end_image 前调用。, 生成时防御：能力不匹配的请求 fail-loud，不发出必然报错且照常计费的调用。, _request(), TestAudioGating (+5 more)
+Cohesion: 0.05
+Nodes (40): KlingVideoBackend, _KlingVideoModelCaps, _lookup_video_caps(), VideoCapabilities, 按 model 取能力位：剥厂商前缀后 + 去首尾空白 + lower 归一化，再做【精确】命中 _KLING_VIDEO_CAPS。…, 可灵 Kling 视频后端（异步轮询，JWT / Bearer 双模式）。 鉴权 / base_url 装配 / submit-poll 骨架由…, 无逐请求档位上下文时，返回默认执行档真正生效的音频计价参数。 有声受 1080P 约束的 model（v2-6）无从得知调用方将选哪档质量档，保守返回…, 按实际请求档位收窄的 last_frame 声明，供有请求上下文的调用方使用。 `video_capabilities_for_model(model)`… (+32 more)
 
-### Community 82 - "test_project_migration_blocking.py"
-Cohesion: 0.10
-Nodes (41): APIRouter, Project 文件级 schema 迁移框架。 约定：project.json 顶层 schema_version。缺失视为 v0。当前版本 = 9。…, _append_error_log(), _backup_project_json(), _hardlink_backup_clues(), migrate_project_with_verdict(), _numeric_backup_candidates(), Path (+33 more)
+### Community 82 - "ConfigService"
+Cohesion: 0.03
+Nodes (88): mask_secret(), Mask a secret value, showing first 4 and last 4 chars., 解析旁白语速：project.json 顶层 ``narration_speed`` > 全局 setting > None（不传给 backend）。…, ConfigService, ProviderConfigValueError, ProviderStatus, ValueError, Get raw config for ALL providers in a single query. (+80 more)
 
 ### Community 83 - "ProjectArchiveService"
 Cohesion: 0.09
-Nodes (38): MigrationSummary, ProjectArchiveService, _activate_artifact_manifest(), _add_agent_runtime_symlinks(), _build_episode_payload(), _create_project(), _make_manual_zip(), integration (+30 more)
+Nodes (37): ProjectArchiveService, _activate_artifact_manifest(), _add_agent_runtime_symlinks(), _build_episode_payload(), _create_project(), _make_manual_zip(), integration, parametrize (+29 more)
 
 ### Community 84 - "dashscope_shared.py"
-Cohesion: 0.03
-Nodes (56): _dashscope_text_base_url(), _as_dict(), dashscope_failure_reason(), dashscope_headers(), _dashscope_host(), dashscope_native_base_url(), dashscope_text_base_url(), extract_billing_duration() (+48 more)
+Cohesion: 0.04
+Nodes (47): _dashscope_text_base_url(), _as_dict(), dashscope_failure_reason(), dashscope_headers(), _dashscope_host(), dashscope_native_base_url(), dashscope_text_base_url(), extract_billing_duration() (+39 more)
 
 ### Community 85 - "compilerOptions"
 Cohesion: 0.12
 Nodes (15): compilerOptions, esModuleInterop, forceConsistentCasingInFileNames, isolatedModules, lib, module, moduleResolution, noEmit (+7 more)
 
-### Community 86 - "PresentationPlayer.tsx"
-Cohesion: 0.07
-Nodes (31): presentationEndpoint(), ExportScope, ExportScopeDialog(), ExportScopeDialogProps, SCOPE_PALETTE, ScopeTone, formatNotificationTime(), getToneIcon() (+23 more)
+### Community 86 - "workflow_state.py"
+Cohesion: 0.05
+Nodes (73): EpisodeProductionStatus, EpisodeScriptStatus, migration_problem(), The single blocking problem every consumer reports for a broken project.…, load_migration_verdict(), MigrationFailureDetail, MigrationFailureRecord, pending_migration_record() (+65 more)
 
-### Community 87 - "normalize_base_url"
-Cohesion: 0.03
-Nodes (45): is_official_openai_base_url(), normalize_base_url(), 判断 OpenAI 兼容 base_url 是否指向官方 api.openai.com。 官方端点上 max_tokens 已弃用且被推理模型（o 系列 /…, 确保 base_url 以 / 结尾。 Google genai SDK 的 http_options.base_url 要求尾部带 /，…, _build_gemini_image(), get_shared_rate_limiter(), _rate_limiter_limits_from_env(), RateLimiter (+37 more)
+### Community 87 - "create_custom_backend"
+Cohesion: 0.11
+Nodes (16): create_custom_backend(), 按 endpoint 查 ENDPOINT_REGISTRY 并构造 Backend。 视频后端额外注入生效能力（endpoint spec 系统判定 ⊕…, _make_provider(), patch, create_custom_backend(provider, model_id, endpoint) 单元测试。, 已带显式路径（/api/v3）→ 原样信任，不重复叠加。, 纯域名（无 scheme）→ 补 https:// 再挂载 /api/v3。, 空 base_url → _ensure_url_path_suffix 归一化为 None 下传（不强行补挂载路径）。 (+8 more)
 
 ### Community 88 - "DbSessionStore"
 Cohesion: 0.03
-Nodes (97): migrate_local_transcripts_to_store(), Any, Path, Startup hook: import local SDK jsonl transcripts into DbSessionStore. Uses only…, Replay all on-disk SDK transcripts into ``store``. Idempotent via the marker…, DbSessionStore, _entry_type(), _entry_uuid() (+89 more)
+Nodes (93): migrate_local_transcripts_to_store(), Any, Path, Startup hook: import local SDK jsonl transcripts into DbSessionStore. Uses only…, Replay all on-disk SDK transcripts into ``store``. Idempotent via the marker…, DbSessionStore, _entry_type(), _entry_uuid() (+85 more)
 
-### Community 89 - "PendingUserEcho"
-Cohesion: 0.04
-Nodes (55): build_runtime_status_message(), infer_message_type(), match_user_echo(), message_to_dict(), PendingUserEcho, Any, Pure functions serializing SDK messages into broadcastable dicts. These cover…, Build runtime-only status message for SSE wake-up. (+47 more)
+### Community 89 - "session_manager.py"
+Cohesion: 0.03
+Nodes (64): build_runtime_status_message(), infer_message_type(), match_user_echo(), message_to_dict(), PendingUserEcho, Any, Pure functions serializing SDK messages into broadcastable dicts. These cover…, Build runtime-only status message for SSE wake-up. (+56 more)
 
 ### Community 91 - "_client"
 Cohesion: 0.05
 Nodes (27): _client(), unit, shots 非列表 / 含非对象元素时返回 422，且不被 reorder 空排列覆盖成 []。, 项目默认图片模型（default_image_backend）可在创建时写入，不必配桶。, 项目默认图片模型可设置 / 清除；格式非法与非图片模型均 400。, 项目级档位 / 默认模型三字段可设置；空值 = 清除、继承全局。, 项目级视频桶键（video_provider_i2v/r2v）可创建时写入、PATCH 设置；空值 = 清除、回退默认层。, 退役的 image_backend 字段已从写模型移除，传入时被静默忽略。 (+19 more)
 
 ### Community 92 - "UsageRepository"
-Cohesion: 0.06
-Nodes (36): _classify_asset_output_path(), 两条快照路径共享的结算函数：输入 ApiCall 行与申报值，输出生效计费时长、 生效有声标志、duration_ms、费用与币种（含 OpenAI 图片…, Resume 路径专用：按 call_id 精准翻 pending → success/failed。 Repo WHERE 子句包含…, 仓储写侧的申报值对象：承载 caller 在快照时刻提交的原始计费维度。 这些是"申报时刻"的原始值——``billed_duration_seconds``…, ``_settle`` 输出：两条快照路径共用的生效结算值，各自 UPDATE 直接取用。, 按 segment_id + call_type + currency 汇总实际费用。 Returns: {segment_id: {call_type:…, project-level（segment_id is null）的 image 成本按 output_path 前缀分拆。 Returns:…, 从 api_call.output_path 推断资产类型（characters/scenes/props/products/other）。 v0→v1… (+28 more)
-
-### Community 93 - "GridManager"
-Cohesion: 0.02
-Nodes (129): GridLayout, Grid layout utilities for grid-image-to-video feature., grid_aspect_ratio_for(), GridLayout, large_grid_allowed(), max_cell_count(), _orientation_of(), plan_grid_chunks() (+121 more)
-
-### Community 94 - "_rv_source"
 Cohesion: 0.05
-Nodes (112): split_reference_video_units_tool(), fake_reference_caps_fetcher(), 假 ``_fetch_reference_caps_with_fallback``：返回一份 ``ReferenceSplitCaps`` 的 async…, _derived_reference_names(), _open_for_edit(), _promote(), 构造返回指定扁平 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。, 把项目声明成参考生视频路径——隔离草稿的拆分 / 晋升 / 阻塞判定都以此为前提。 盘上的 project.json 与 pm… (+104 more)
+Nodes (48): ApiCall, _classify_asset_output_path(), Any, datetime, 两条快照路径共享的结算函数：输入 ApiCall 行与申报值，输出生效计费时长、 生效有声标志、duration_ms、费用与币种（含 OpenAI 图片…, Resume 路径专用：按 call_id 精准翻 pending → success/failed。 Repo WHERE 子句包含…, 仓储写侧的申报值对象：承载 caller 在快照时刻提交的原始计费维度。 这些是"申报时刻"的原始值——``billed_duration_seconds``…, ``_settle`` 输出：两条快照路径共用的生效结算值，各自 UPDATE 直接取用。 (+40 more)
 
-### Community 95 - "get_project_manager"
-Cohesion: 0.01
-Nodes (311): ActualBySegment, Resolve the Manifest episode identity of one bound script. A positive identity…, resolve_artifact_episode(), model_has_audio_track(), model_info_for(), 返回该 (provider, model) 的 ``ModelInfo``；provider 或 model 未登记时 None。 供 backend…, 该视频 model 生成的成片是否带音轨（不等于「音轨开关可控」，见 generate_audio token 语义注）。…, 项目的 generation_mode 归到哪个视频能力桶——读侧定桶的唯一入口。 project.json… (+303 more)
+### Community 93 - "TargetStatePlanner"
+Cohesion: 0.06
+Nodes (41): _EpisodeBinding, _EpisodeState, _FormalStep1State, normalize_script_binding(), Any, GridGeneration, Path, PresentationMedia (+33 more)
+
+### Community 94 - "test_artifact_activation_schema_gate.py"
+Cohesion: 0.67
+Nodes (6): Path, test_formal_write_gate_rejects_a_future_schema_version(), test_formal_write_gate_rejects_a_numeric_string_schema_version(), test_runtime_resolver_rejects_a_future_schema_version(), test_runtime_resolver_rejects_a_numeric_string_schema_version(), _write_project()
+
+### Community 95 - "server/auth.py"
+Cohesion: 0.03
+Nodes (100): Item, get_translator(), Request, Translate a message key to the given locale., Dependency to get a translator function for the current request., oauth2_scheme_optional, _anonymous_user(), check_credentials() (+92 more)
 
 ### Community 96 - "GenerationWorker"
-Cohesion: 0.05
-Nodes (61): GenerationWorker, Queue worker with per-provider image/video/audio lanes and single-active lease., _cap(), _FakeQueue, Any, asyncio, integration, unit (+53 more)
-
-### Community 97 - "VisualReference"
-Cohesion: 0.07
-Nodes (66): project_storyboard_image_prompt(), Project one script prompt into the canonical semantics shared by rendering and…, build_asset_sheet_visual_basis(), build_grid_composite_visual_basis(), build_grid_member_storyboard_visual_basis(), build_reference_video_artifact_visual_basis(), build_stale_grid_member_storyboard_visual_basis(), build_storyboard_image_visual_basis() (+58 more)
-
-### Community 98 - "speech_artifact_provenance.py"
 Cohesion: 0.04
-Nodes (92): _basis_descriptor(), build_mechanical_subtitle_basis(), build_presentation_basis(), build_video_speech_basis(), _canonical_text(), CharacterVoiceEvidence, media_content_digest(), project_subtitle_utterances() (+84 more)
+Nodes (66): GenerationWorker, Queue worker with per-provider image/video/audio lanes and single-active lease., In-process cancel 信号：把 task 对应 asyncio.Task cancel()，返回是否找到。 由…, _cap(), _FakeQueue, _phase_ids(), Any, asyncio (+58 more)
+
+### Community 97 - "projects.py"
+Cohesion: 0.02
+Nodes (189): FastAPIPath, File, FileResponse, Form, ge, JSONResponse, ApiError, BadRequestError (+181 more)
+
+### Community 98 - "generation_worker.py"
+Cohesion: 0.06
+Nodes (28): _non_resumable_video_providers(), _Occupant, _parse_lane_max(), Any, Future, Background worker that consumes generation tasks from SQLite queue. Per-…, Best-effort cleanup when either video route becomes terminal outside normal…, 重启自愈：扫 running + cancelling 孤儿，按"是否可安全 resume"分流。 原则——**不主动产生额外扣费**：只要 worker… (+20 more)
 
 ### Community 99 - "ledger.sh script"
 Cohesion: 0.25
@@ -1584,7 +1574,7 @@ Nodes (7): batch-poll.sh script, usage(), die(), ledger.sh script, enter_repo_ro
 
 ### Community 100 - ".claude/skills/impeccable/scripts/context.mjs"
 Cohesion: 0.04
-Nodes (104): appendAutonomyCounterDirective(), appendBuildPathDirective(), appendDetectorFallback(), appendImageGenDirective(), appendImageToolsDirective(), appendStalenessDirective(), appendSubagentAuthorizationDirective(), appendSurfaceBriefContext() (+96 more)
+Nodes (101): appendAutonomyCounterDirective(), appendBuildPathDirective(), appendDetectorFallback(), appendImageGenDirective(), appendImageToolsDirective(), appendStalenessDirective(), appendSubagentAuthorizationDirective(), appendSurfaceBriefContext() (+93 more)
 
 ### Community 101 - "scripts"
 Cohesion: 0.18
@@ -1592,7 +1582,7 @@ Nodes (11): scripts, build, check, dev, lint, lint:fix, preview, test (+3 more)
 
 ### Community 102 - "kling_shared.py"
 Cohesion: 0.04
-Nodes (48): 轮询至终态（succeed/failed）：复用 base.poll_with_retry，注入 Kling 终态/失败/重试谓词。, _as_dict(), _as_str(), _code_error(), extract_kling_image_urls(), extract_kling_task_id(), extract_kling_video_url(), _extract_task_result_urls() (+40 more)
+Nodes (47): _as_dict(), _as_str(), _code_error(), extract_kling_image_urls(), extract_kling_task_id(), extract_kling_video_url(), _extract_task_result_urls(), is_kling_task_terminal() (+39 more)
 
 ### Community 103 - "Domain Modeling"
 Cohesion: 0.20
@@ -1604,39 +1594,39 @@ Nodes (10): Questionnaire Agent Interface, Questionnaire Synthesis, Specificatio
 
 ### Community 105 - "SdkTranscriptAdapter"
 Cohesion: 0.05
-Nodes (38): _first_tool_result_use_id(), Any, Path, Build uuid -> raw payload index by reading store payloads. SDK's…, 读取 subagent 子时间线，按主线 Task tool_use id 锚定归组。 锚定依据主 transcript 原始载荷中 Task…, 读取单个 subagent 的子时间线；无锚点或读取失败时返回 (None, None)。, agent_id → 主线 Task tool_use id 锚定映射。, Filesystem fallback for ARCREEL_SDK_SESSION_STORE=off. (+30 more)
+Nodes (37): _first_tool_result_use_id(), Any, Path, Load raw transcript payload dicts via store.load() (empty on failure)., Build uuid -> raw payload index by reading store payloads. SDK's…, 读取 subagent 子时间线，按主线 Task tool_use id 锚定归组。 锚定依据主 transcript 原始载荷中 Task…, 读取单个 subagent 的子时间线；无锚点或读取失败时返回 (None, None)。, agent_id → 主线 Task tool_use id 锚定映射。 (+29 more)
 
-### Community 106 - "custom_providers.py"
-Cohesion: 0.05
-Nodes (84): _check_duplicate_model_ids(), _check_model_capability_overrides(), _check_unique_defaults(), _cleanup_project_refs(), ConnectionTestResponse, create_provider(), CreateProviderRequest, CredentialsResponse (+76 more)
+### Community 106 - "endpoints.py"
+Cohesion: 0.03
+Nodes (62): ensure_openai_base_url(), 自动补全 OpenAI 兼容 API 的 /v1 路径后缀。 用户可能只填了 ``https://api.example.com``，但 OpenAI SDK…, CustomImageBackend, CustomTextBackend, CustomVideoBackend, VideoCapabilities, 自定义供应商视频生成后端包装类。 ``video_capabilities`` 可被工厂注入生效能力（系统判定 ⊕ 用户覆盖），此时不再转发被包装…, 构造本 backend 所用的 endpoint（ENDPOINT_REGISTRY 键），由工厂注入。 endpoint 决定协议，是 backend… (+54 more)
 
 ### Community 107 - "test_profile_manifest.py"
 Cohesion: 0.06
 Nodes (85): load_manifest(), 读 manifest 并返回 ``(manifest, raw_bytes)``。 任一情况返回 None（触发首次迁移分支）： - 文件不存在 - JSON…, _fresh_project(), _make_profile(), LogCaptureFixture, MonkeyPatch, parametrize, Path (+77 more)
 
-### Community 108 - "test_instructor_support.py"
-Cohesion: 0.04
-Nodes (58): ResponseParsingError, instructor_api_call_exhausted(), Exception, InstructorRetryException, 构造「API 调用失败」形态的 Instructor 异常，供结构化输出降级链的判据测试使用。 API 调用本身抛的异常（参数被拒、瞬态…, _bad_request(), _completion(), _no_tool_call_error() (+50 more)
+### Community 108 - "SampleModel"
+Cohesion: 0.10
+Nodes (18): BaseModel, SimpleNamespace, 正确返回 JSON 文本和 token 统计。, 正确传递 mode 和 max_retries 参数。, completion.usage 为 None 时返回 None token 统计。, 默认 token_param 下 max_tokens 值以 max_tokens 为参数名上线。, 显式 token_param 时以 max_completion_tokens 为参数名上线。, 解析失败一次后再撞上 API 层错误：failed_attempts 保留旧记录，终止原因只在 __cause__。 判据若拿 failed_attempts… (+10 more)
 
 ### Community 109 - "Path"
-Cohesion: 0.05
-Nodes (26): ArchiveDiagnostic, ArchiveDiagnostics, ArchiveMember, ProjectArchiveValidationError, ProjectImportResult, Any, Exception, Path (+18 more)
+Cohesion: 0.06
+Nodes (24): ArchiveDiagnostics, ArchiveMember, ProjectArchiveValidationError, ProjectImportResult, Any, Exception, Path, ProjectManager (+16 more)
 
 ### Community 110 - "Skill"
 Cohesion: 0.56
 Nodes (9): Handoff, Herdr Teammate, Implementer, Local Reviewer, Model Selection, Recovery, Review Looper, Spawn Prompts (+1 more)
 
 ### Community 111 - ".agents/skills/impeccable/scripts/context.mjs"
-Cohesion: 0.05
-Nodes (94): appendAutonomyCounterDirective(), appendBuildPathDirective(), appendDetectorFallback(), appendImageGenDirective(), appendImageToolsDirective(), appendSubagentAuthorizationDirective(), appendSurfaceBriefContext(), automaticHookMode() (+86 more)
+Cohesion: 0.04
+Nodes (104): appendAutonomyCounterDirective(), appendBuildPathDirective(), appendDetectorFallback(), appendImageGenDirective(), appendImageToolsDirective(), appendStalenessDirective(), appendSubagentAuthorizationDirective(), appendSurfaceBriefContext() (+96 more)
 
 ### Community 112 - "ScriptGenerator"
-Cohesion: 0.02
-Nodes (143): 剧本生成器 读取 Step 1/2 的 Markdown 中间文件，调用 TextBackend 生成最终 JSON 剧本, 初始化生成器 Args: project_path: 项目目录路径，如 projects/test0205 generator: TextGenerator…, ScriptGenerator, AdReferenceFlatScript, DramaVisualMergeError, step2 视觉层与 step1 内容层按 scene_id 合并失败（缺覆盖 / 悬空 / 重复 scene_id）。, 广告参考路线的单阶段 LLM 输出；ID 与状态均由机器派生。, _activate_project_artifacts() (+135 more)
+Cohesion: 0.03
+Nodes (108): 本集 step1 是否存在带 ``@[名称]`` 提及的 unit；``units`` 为 None（非参考视频路径）时返回 None。 None…, 剧本生成器 读取 Step 1/2 的 Markdown 中间文件，调用 TextBackend 生成最终 JSON 剧本, 初始化生成器 Args: project_path: 项目目录路径，如 projects/test0205 generator: TextGenerator…, ScriptGenerator, _units_use_references(), _activate_project_artifacts(), _ad_shot(), _bare_generator() (+100 more)
 
-### Community 113 - "instructor_support.py"
-Cohesion: 0.04
-Nodes (60): IncompleteOutputException, merge_billed_tokens(), 把降级路径上被丢弃的那次调用的 token 并入保留结果的计量。 降级前的调用只要拿到过 HTTP 200 就已被计费，不并账会系统性漏记用量与成本。…, _api_call_failure(), _billed_usage(), _classify_mode_failure(), _failure_reason(), generate_structured_via_instructor() (+52 more)
+### Community 113 - "utc_now"
+Cohesion: 0.02
+Nodes (98): BackgroundJobWorker, Any, dt_to_iso(), datetime, Serialize database timestamps as unambiguous UTC ISO strings. SQLite discards…, utc_now(), Agent Anthropic 凭证 Repository。, ApiKeyRepository (+90 more)
 
 ### Community 114 - "frontend/package.json"
 Cohesion: 0.25
@@ -1644,19 +1634,19 @@ Nodes (7): engines, node, name, packageManager, private, type, version
 
 ### Community 115 - "PricingParams"
 Cohesion: 0.06
-Nodes (19): calculate_pricing(), PricingParams, Pricing, 按 ``pricing`` 的运行时类型派发到对应策略，返回 ``(金额, 币种)``。, 承载一次计费所需的全部维度；各 kind 策略按需取用。, TestPricing, TestLookupPricing, TestPricing (+11 more)
+Nodes (19): 聚合参考模式一集的视频费用：sum over units of (duration × 单价)。 token 计费的视频（Ark）按 duration ×…, calculate_pricing(), PricingParams, Pricing, 按 ``pricing`` 的运行时类型派发到对应策略，返回 ``(金额, 币种)``。, 承载一次计费所需的全部维度；各 kind 策略按需取用。, TestPricing, TestPricing (+11 more)
 
 ### Community 116 - "infer_endpoint"
-Cohesion: 0.05
-Nodes (74): infer_supported_durations(), 根据 model_id 启发式推导 supported_durations。 返回值始终是非空升序去重的正整数列表，且为独立 list（caller…, infer_endpoint(), 根据模型 id 与 discovery_format 推默认 endpoint（content-first）。 model id 内容优先于…, 轻量 smoke check：确认 infer_endpoint 仍可从 endpoints 模块导入并返回合理值。, TestInferEndpointSmoke, _build(), parametrize (+66 more)
+Cohesion: 0.04
+Nodes (84): infer_supported_durations(), 自定义供应商 model_id → supported_durations 启发式预设表。 数据来源：lmarena 视频模型排行榜 Top…, 根据 model_id 启发式推导 supported_durations。 返回值始终是非空升序去重的正整数列表，且为独立 list（caller…, infer_endpoint(), 根据模型 id 与 discovery_format 推默认 endpoint（content-first）。 model id 内容优先于…, 返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。 视频类…, parametrize, v2-video-generations 命名碎片化无法可靠识别，永不自动推断，留用户手选。 (+76 more)
 
-### Community 117 - "artifact_activation.py"
-Cohesion: 0.03
-Nodes (107): activate_artifact_target_state(), _assert_preflight_unchanged(), _assert_project_unchanged(), _backup_activation_inputs(), _commit_schema_version(), _ensure_activation_backup(), ensure_imported_artifact_target_state(), _plan_artifact_claim_reconciliation() (+99 more)
+### Community 117 - "services/cost_estimation.py"
+Cohesion: 0.04
+Nodes (57): ActualBySegment, large_grid_allowed(), plan_grid_chunks(), T, 把一个场景分组按单张宫格的格数上限切块，返回各块及其布局。 「分组 → 按 :func:`max_cell_count` 切块 →…, 4×4 / 5×5 是否可用：仅当宫格实际生效的图像分辨率档为 4K。 ``None`` 表示调用时不传 SDK resolution 参数（见…, Whether the current selected video can satisfy this exact request without a…, Whether a known replacement request must fail closed when its exact quote is… (+49 more)
 
 ### Community 118 - "unit"
-Cohesion: 0.05
-Nodes (43): ConnectionTestResponse, override_auth(), FastAPI, 放行 mini app 的认证，等价于测试用户已登录。 给不关心认证、只测业务行为的用例用；断言 401 的用例不要调它。, _make_app(), _make_mock_svc(), _make_patch_app(), _make_session_app() (+35 more)
+Cohesion: 0.04
+Nodes (43): ConnectionTestResponse, _FakeKlingResponse, _make_client(), _make_session_app(), parametrize, TestClient, unit, 非 JSON 响应体（如网关错误页）跳过业务错误解析，走 raise_for_status 兜底暴露 HTTP 状态。 (+35 more)
 
 ### Community 119 - "AI Reviewer Decision Rules"
 Cohesion: 0.29
@@ -1666,17 +1656,17 @@ Nodes (7): PR Review Loop Interface, Review Convergence Retrospective, AI Review
 Cohesion: 0.29
 Nodes (7): esbuild, lodash-es, mermaid, pnpm, onlyBuiltDependencies, overrides, esbuild
 
-### Community 121 - "SessionRepository"
-Cohesion: 0.11
-Nodes (11): Any, _row_to_dict(), SessionRepository, _dict_to_session(), SessionMeta, Convert a repository dict to a SessionMeta dataclass., db_session(), engine() (+3 more)
+### Community 121 - "project_manager.py"
+Cohesion: 0.01
+Nodes (204): Resolve the agent_runtime_profile directory. Default:…, AssetRenameConflictError, AssetRenameHistoryCollisionError, AssetRenameNotFoundError, AssetRenameReport, ValueError, 旧名在资产桶中不存在。message 含恢复导向提示（可能上次重命名已成功）。, 目标名与既有同类型资产归一化判定冲突，整体拒绝、不落盘。 (+196 more)
 
 ### Community 122 - "db/base.py"
-Cohesion: 0.02
-Nodes (138): DeclarativeBase, is_known_session_store_mode(), Agent SessionStore — SDK transcript mirror to project DB., Return the raw normalized mode string (`db`, `off`, or other)., session_store_mode(), AgentSessionEntry, AgentSessionSummary, SessionStore ORM models — SDK transcript mirror tables. (+130 more)
+Cohesion: 0.03
+Nodes (90): DeclarativeBase, Agent SessionStore — SDK transcript mirror to project DB., AgentSessionEntry, AgentSessionSummary, SessionStore ORM models — SDK transcript mirror tables., SDK transcript mirror — one row per SessionStoreEntry., Per-session summary maintained by SDK fold_session_summary()., Base (+82 more)
 
 ### Community 123 - ".claude/skills/impeccable/scripts/live-server.mjs"
 Cohesion: 0.05
-Nodes (81): assembleLiveBrowserScript(), assertLiveBrowserScriptParts(), LIVE_BROWSER_SCRIPT_PARTS, readLiveBrowserScriptParts(), resolveLiveBrowserScriptParts(), buildGenerationPreflight(), compactError(), execFileAsync (+73 more)
+Nodes (80): assembleLiveBrowserScript(), assertLiveBrowserScriptParts(), LIVE_BROWSER_SCRIPT_PARTS, readLiveBrowserScriptParts(), resolveLiveBrowserScriptParts(), buildGenerationPreflight(), compactError(), execFileAsync (+72 more)
 
 ### Community 124 - "Codebase Design"
 Cohesion: 0.40
@@ -1700,19 +1690,19 @@ Nodes (5): fail(), reset_case(), run_wait(), test_wait.sh script, TMPDIR
 
 ### Community 129 - ".agents/skills/impeccable/scripts/live/svelte-component.mjs"
 Cohesion: 0.06
-Nodes (81): bakeParamValues(), collectAllSelectors(), collectSelectorsFromNodes(), collectUnusedSelectors(), escapeRegExp(), formatBody(), isToggleOn(), normalizeSelector() (+73 more)
+Nodes (80): bakeParamValues(), collectAllSelectors(), collectSelectorsFromNodes(), collectUnusedSelectors(), escapeRegExp(), formatBody(), isToggleOn(), normalizeSelector() (+72 more)
 
 ### Community 130 - "resumeSession"
 Cohesion: 0.06
 Nodes (85): abortSvelteComponentInjection(), applyParamDefaults(), applyPlaceholderDimensions(), applySavedSessionMeta(), buildInsertPlaceholderSnapshotFromDom(), buildPickedAnchorSnapshot(), captureAndEmit(), checkpointPayload() (+77 more)
 
-### Community 131 - "SourceScope"
-Cohesion: 0.08
-Nodes (73): AssetInventoryCompletion, AssetInventoryError, AssetInventoryInvalidRequest, AssetInventoryRevisionConflict, AssetInventorySourceBlocked, complete_asset_inventory(), _prepare_entries(), Any (+65 more)
+### Community 131 - "AssetRepository"
+Cohesion: 0.06
+Nodes (60): Asset, AssetInventoryCompletion, AssetInventoryError, AssetInventoryInvalidRequest, AssetInventoryRevisionConflict, AssetInventorySourceBlocked, complete_asset_inventory(), _prepare_entries() (+52 more)
 
 ### Community 132 - "test_accounting_characterization.py"
-Cohesion: 0.10
-Nodes (31): 组合 TextBackend + Ledger，统一封装文本生成 + 记账。, TextGenerator, _AccountingDb, _assert_full_row(), _expected_pending_row(), _expected_resume_row(), _expected_row(), _expected_video_row() (+23 more)
+Cohesion: 0.07
+Nodes (41): _AccountingDb, acct(), _assert_full_row(), _expected_pending_row(), _expected_resume_row(), _expected_row(), _expected_video_row(), _FakeConfigResolver (+33 more)
 
 ### Community 133 - "routers/providers.py"
 Cohesion: 0.06
@@ -1722,13 +1712,13 @@ Nodes (76): derive_voice_consistency(), VoiceConsistency, 三级声音一致性�
 Cohesion: 0.40
 Nodes (5): Wayfinder Skill Interface, Wayfinder Decision Ticket Map, Writing for Agents Skill Interface, Agent Document Design, Skill Invocation Mechanics
 
-### Community 135 - "validate_dialogue_load"
-Cohesion: 0.07
-Nodes (22): assert_dialogue_preserved(), _normalize_for_anchor(), normative_lines(), Unicode NFC 归一后把连续空白折叠为单个空格，只消除编码与空白差异，不删除空白本身。 与 narration 覆盖校验的…, 校验 ``source_text`` 是源文的逐字子串（空白归一后）。 step1 的 unit…, 按出现顺序取出全部发声记号：``(kind, speaker, 台词)``，``kind`` 为 dialogue / voiceover。 step2…, 校验该 unit 的台词量念得完：口播估算超出 unit 时长（含宽容系数）即违约。 时长就是计费，unit 时长在 step1…, step2 保结构 diff：发声记号的序列必须与 step1 逐字一致。 step2 的职责是视觉展开，台词属于 step1 已与用户在 gate… (+14 more)
+### Community 135 - "OpenAIVideoBackend"
+Cohesion: 0.06
+Nodes (40): _encode_start_image(), _is_openai_not_found(), OpenAIVideoBackend, BaseException, Path, VideoCapabilities, 按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。 Sora input_reference…, 接续已 submit 的 OpenAI job：仅 poll + 下载，不调 videos.create。 (+32 more)
 
 ### Community 136 - "VoiceRenderSettings"
-Cohesion: 0.06
-Nodes (69): build_script_preview(), derive_utterances(), derive_voice_bindings(), Any, Collection, 从 utterances 机械派生声音绑定：说话人顺序、参考音频编号与降级 warning。 ``settings`` 收口本次渲染的声音输入档（见…, 把视频单元正文派生成 utterances + 降级可见性 warning。 ``settings`` 必填无兜底（同…, 逐行派生 utterances，并收集语法层 warning（未闭合花括号 / 未识别的花括号）。 发声记号可出现在行内任意位置，一行可派生多条… (+61 more)
+Cohesion: 0.04
+Nodes (92): 参考生视频路径的三段论渲染：unit 内容 + 资产表 + 能力档 → 发给视频模型的 prompt。 第一段（主体绑定 + 声音声明）与第三段（风格锚定 +…, 声音声明行：``<X>的台词音色参考 @音频N，声音特征：…``。剧集与 ad 路径共用——两者的 主体绑定行统一使用 mention 派生的…, 主体绑定 + 声音声明。 官方三段论第一段即参考来源声明区（人脸 / 运镜 / 音色参考同位），故音色参考与声音特征…, _render_segment_one(), _render_voice_declarations(), build_script_preview(), derive_utterances(), derive_voice_bindings() (+84 more)
 
 ### Community 138 - "Skill"
 Cohesion: 0.67
@@ -1743,12 +1733,12 @@ Cohesion: 0.83
 Nodes (3): capture(), hitl-loop.template.sh script, step()
 
 ### Community 142 - "Path"
-Cohesion: 0.08
-Nodes (29): _invalid_script(), _pm(), LogCaptureFixture, parametrize, Path, 不显式传 validate 时默认开启校验（fail-safe）。, 资产回写（validate=False）在剧本本就非法时仍能成功写入。, 直接落盘构造 segments=null 的脏剧本，绕过 save_script 模拟历史遗留。 (+21 more)
+Cohesion: 0.06
+Nodes (46): ValueError, 剧本结构校验失败。携带 `ValidationResult`，供 router 转 i18n 4xx 响应。, ScriptStructureValidationError, _drama_scene(), _invalid_script(), _pm(), _pm_drama(), LogCaptureFixture (+38 more)
 
 ### Community 143 - "test_verify_reference_video_sdks.py"
-Cohesion: 0.07
-Nodes (63): Args, clamp_refs_for_backend(), _extract_data_rows(), main(), parse_args(), _positive_int(), Provider, datetime (+55 more)
+Cohesion: 0.04
+Nodes (82): Protocol, 接续 provider 上已发起的 job：轮询 + 下载，不重新 submit（ADR 0007）。 未实现的 backend 抛…, VideoBackend, create_backend(), get_registered_backends(), Any, register_backend(), generate_color_refs() (+74 more)
 
 ### Community 144 - "Codebase Architecture Deepening Workflow"
 Cohesion: 0.67
@@ -1830,29 +1820,29 @@ Nodes (3): Retro Crime Cinema Style Thumbnail, Saturated Red Diner Interior, Sui
 Cohesion: 0.06
 Nodes (85): abortSvelteComponentInjection(), applyParamDefaults(), applyPlaceholderDimensions(), applySavedSessionMeta(), buildInsertPlaceholderSnapshotFromDom(), buildPickedAnchorSnapshot(), captureAndEmit(), checkpointPayload() (+77 more)
 
-### Community 173 - "BaseModel"
-Cohesion: 0.06
-Nodes (50): AdEpisodeScript, AdReferenceFlatUnit, AdShot, Composition, Dialogue, DramaEpisodeScript, DramaScene, ImagePrompt (+42 more)
+### Community 173 - "script_models.py"
+Cohesion: 0.04
+Nodes (83): AdShot, DramaScene, AdEpisodeScript, AdReferenceFlatScript, AdReferenceFlatUnit, AdShot, _canon_enum_key(), Composition (+75 more)
 
-### Community 191 - "enqueue_videos.py"
-Cohesion: 0.01
-Nodes (306): BatchAdmission, BatchAdmissionDecision, BatchConfirmationTier, _cost_amount(), _cost_currency(), GenerationProblem, StrEnum, All-or-nothing pre-request admission for batch video generation. A batch video… (+298 more)
+### Community 191 - "ArtifactStatus"
+Cohesion: 0.02
+Nodes (147): GridLayout, ArtifactBlocker, ArtifactStatus, StrEnum, Currency of a formal artifact relative to its current direct-input basis., artifact_is_reusable(), artifact_state_problem(), _encode_key() (+139 more)
 
 ### Community 192 - "AudioSynthesisRequest"
-Cohesion: 0.02
-Nodes (88): AudioBackend, AudioCapability, AudioSynthesisRequest, AudioSynthesisResult, Protocol, StrEnum, 音色目录条目。``id`` 是合成请求携带的 ``voice`` 参数值，``label`` 是给人看的展示名。, 通用语音合成请求。各 Backend 忽略不支持的字段。 (+80 more)
+Cohesion: 0.03
+Nodes (56): AudioBackend, AudioCapability, AudioSynthesisRequest, AudioSynthesisResult, Protocol, StrEnum, 音色目录条目。``id`` 是合成请求携带的 ``voice`` 参数值，``label`` 是给人看的展示名。, 通用语音合成请求。各 Backend 忽略不支持的字段。 (+48 more)
 
 ### Community 193 - "test_config_resolver_resolution.py"
-Cohesion: 0.09
-Nodes (52): constrain_durations(), constrain_durations_for_project(), 按型号声明的「分辨率↔时长」「参考图↔时长」约束收窄候选。 两条约束各自独立触发、可同时生效，取交集。无声明、型号不在注册表（自定义供应商不表达…, 按项目当前配置收窄时长候选：分辨率取生效档位，参考图约束按是否真的带参考图判定。 ``uses_reference_images``…, _add_custom_video_model(), db_session(), asyncio, AsyncSession (+44 more)
+Cohesion: 0.08
+Nodes (54): constrain_durations(), constrain_durations_for_project(), get_provider_fallback(), 纯查表：对 registry ID（如 ``gemini-aistudio``）归一化到短前缀后查 fallback。不触 DB。, 按型号声明的「分辨率↔时长」「参考图↔时长」约束收窄候选。 两条约束各自独立触发、可同时生效，取交集。无声明、型号不在注册表（自定义供应商不表达…, 按项目当前配置收窄时长候选：分辨率取生效档位，参考图约束按是否真的带参考图判定。 ``uses_reference_images``…, _add_custom_video_model(), db_session() (+46 more)
 
-### Community 194 - "structured_fallback_reason"
-Cohesion: 0.16
-Nodes (7): is_valid_json(), 判断字符串是否为合法 JSON。 一些原生结构化通道（OpenAI 兼容代理、自定义供应商常见情况）会静默忽略结构化输出…, 判断原生结构化调用 HTTP 200 的返回是否需要降级到带校验的路径。 与 provider / client 类型 / 原生 API…, structured_fallback_reason(), 共享复验纯函数：openai/ark/gemini 复用同一实现。, TestIsValidJson, TestStructuredFallbackReason
+### Community 194 - "ReferenceRequestOptions"
+Cohesion: 0.07
+Nodes (43): ProviderProjectionCandidate, Protocol, VideoCapability, 当前能力桶的 provider/model 与请求能力事实。, 当前 provider/model 能力的异步适配器。, 校验并按当前请求条件收窄时长；缺失或矛盾一律 fail loud。, 影响当前 unit 请求投影、但不属于剧本内容的调用选项。…, 把当前 unit 意图投影成所有读侧共用的规范请求事实。 (+35 more)
 
 ### Community 195 - "NewAPIVideoBackend"
 Cohesion: 0.07
-Nodes (35): NewAPIVideoBackend, VideoCapabilities, 按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。 中转端点不接受参考图；当前全系模型能力一致，不按…, bounded_poll_clock(), 把 ``poll_with_retry`` 的时钟换成假表：sleep 不真等，每读一次表推进 step 秒。…, _fake_download_factory(), _make_http_error(), _make_response() (+27 more)
+Nodes (36): NewAPIVideoBackend, AsyncClient, VideoCapabilities, 按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。 中转端点不接受参考图；当前全系模型能力一致，不按…, bounded_poll_clock(), 把 ``poll_with_retry`` 的时钟换成假表：sleep 不真等，每读一次表推进 step 秒。…, _fake_download_factory(), _make_http_error() (+28 more)
 
 ### Community 262 - "setLiveState"
 Cohesion: 0.09
@@ -1862,29 +1852,29 @@ Nodes (64): abandonForeignSession(), cancelEditing(), cancelEditingToPicking(), 
 Cohesion: 0.05
 Nodes (51): _build_generator(), _FailingResumeLedger, _FakeConfigResolver, _FakeLedger, _FakeLedgerCall, _FakeVersions, _FakeVideoBackend, _FakeVideoResult (+43 more)
 
-### Community 264 - "TextGenerationResult"
-Cohesion: 0.03
-Nodes (80): _build_gemini_generate(), NonRetryableError, RuntimeError, 标记基类：命中此类型的异常始终不重试。 _should_retry…, AgnesTextBackend — Agnes 文本生成后端（OpenAI 兼容 /v1/chat/completions）。 Agnes 经 apihub…, ArkTextBackend — 火山方舟文本生成后端。, 单次 chat.completions 调用：日志、发请求、解析与截断处理，瞬态错误重试。, check_truncation() (+72 more)
+### Community 264 - "Ledger"
+Cohesion: 0.06
+Nodes (32): Ledger, Any, resume 成功补账：按 call_id 精准翻 pending → success，返回受影响行数（幂等 0/1）。 finalize…, resume 过期/失败补账：翻 pending → failed，零费用不重扣（幂等 0/1）。, 成功通道 union 分发：按 call_type 从 backend 结果对象提取计费维度。 两处语义转写的唯一落点： - audio 的…, 声明成功并递交 backend 结果对象；union 分发在此完成，结算在括号退出时执行。, _settlement_from_result(), 构造期成对不变量：媒体/文本 backend 与其解析层 registry provider_id 必须同在同缺。 记账 provider 一律取解析层… (+24 more)
 
 ### Community 265 - "test_task_failure_capability.py"
 Cohesion: 0.05
-Nodes (74): Call, expr, _encode_bounded_cascade_failure(), _encode_task_failure_message(), Exception, 把任务执行异常编码为落库的 error_message：ScriptEditError 与结构化执行拒绝走 code/params 结构化，其余异常沿用…, Module, _enclosing_function() (+66 more)
+Nodes (74): Call, expr, 视频解析闸报错：解析出的模型缺所属能力桶要求的能力，或配置引用已不可用。 ``code`` 是 errors 目录 key、``params``…, VideoBucketCapabilityError, _encode_task_failure_message(), Exception, 把任务执行异常编码为落库的 error_message：ScriptEditError 与结构化执行拒绝走 code/params 结构化，其余异常沿用…, Module (+66 more)
 
 ### Community 266 - "CustomProviderRepository"
 Cohesion: 0.04
-Nodes (45): CustomProviderPrice, CustomProviderRepository, NamedTuple, 删除旧模型，插入新列表。返回新创建的模型。, 跨所有供应商获取指定媒体类型的已启用模型。 通过 ENDPOINT_KEYS_BY_MEDIA_TYPE 查表得到对应的 endpoint 集合，再按…, 根据供应商 ID 和模型 ID 获取模型。, 自定义供应商价格三元组，作为 ``calculate_cost`` 的 ``custom_price_*`` 入参来源。 三字段全 ``None``…, 解析自定义供应商的声明价格，供记账与预估两侧共用，杜绝同源复刻的口径漂移。 非自定义供应商 / 畸形 provider id / 查询异常 /… (+37 more)
+Nodes (42): CustomProviderPrice, CustomProviderRepository, NamedTuple, 删除旧模型，插入新列表。返回新创建的模型。, 跨所有供应商获取指定媒体类型的已启用模型。 通过 ENDPOINT_KEYS_BY_MEDIA_TYPE 查表得到对应的 endpoint 集合，再按…, 根据供应商 ID 和模型 ID 获取模型。, 自定义供应商价格三元组，作为 ``calculate_cost`` 的 ``custom_price_*`` 入参来源。 三字段全 ``None``…, 获取指定供应商 + 媒体类型的默认已启用模型。 通过 ENDPOINT_KEYS_BY_MEDIA_TYPE 查表得到对应的 endpoint 集合，再按… (+34 more)
 
 ### Community 267 - "SseChannel"
 Cohesion: 0.05
 Nodes (31): _make_session_channel(), 会话订阅广播通道：溢出策略为「逐出非关键消息 + 溢出信号」。…, DropSubscriber, EvictNonCriticalAndSignal, _IdleMarker, Any, Queue, 参数化订阅广播组件：订阅/退订、广播、空闲心跳、溢出处理。… (+23 more)
 
 ### Community 268 - "test_resume_executor.py"
-Cohesion: 0.07
-Nodes (72): execute_resume_video_task(), Any, 提交本供应商任务时的请求域名，供 backend 回放轮询；未记录时 None。 域名不分供应商类型，一律落…, 重启自愈入口：worker `_process_resume_task` 直接调。 1. 解析项目 + 构造 MediaGenerator（受…, _submitted_base_url(), _validate_resolved_checkpoint_identity(), fake_pm(), _fake_video_context() (+64 more)
+Cohesion: 0.02
+Nodes (187): _normalize_json(), canonical_json(), canonical_json_bytes(), canonical_json_digest(), digest_stream(), prefixed(), prefixed_canonical_json_digest(), prefixed_sha256_file() (+179 more)
 
 ### Community 269 - "render_unit_prompt"
-Cohesion: 0.10
-Nodes (51): _number_audio_speakers(), Collection, 把一个 unit 的书写文稿渲染成三段论 backend prompt。 ``references``…, ``@音频N`` 编号与「每段音频对应哪张参考图」的下标，两条路径共用同一份派生口径。 编号即 ``audio_speakers`` 的位置（speaker…, 单元正文段：画面描述做 mention 替换，发声记号就地重组为官方句式。 ``subjects`` 是已登记的 mention…, _render_segment_two(), render_unit_prompt(), _project() (+43 more)
+Cohesion: 0.06
+Nodes (68): _character_bucket(), _number_audio_speakers(), Any, Path, 把一个 unit 的书写文稿渲染成三段论 backend prompt。 ``references``…, Render the exact reference-video prompt from one current projected unit., ``@音频N`` 编号与「每段音频对应哪张参考图」的下标，两条路径共用同一份派生口径。 编号即 ``audio_speakers`` 的位置（speaker…, 风格锚定 + 画质/稳定/字幕/水印约束包；两个及以上角色参考图时补双胞胎兜底。 (+60 more)
 
 ### Community 270 - "_cost"
 Cohesion: 0.05
@@ -1892,7 +1882,7 @@ Nodes (15): _cost(), 统一入口 ``calculate_cost`` 的费用对拍：金额数
 
 ### Community 271 - "MiniMaxImageBackend"
 Cohesion: 0.12
-Nodes (23): _build_minimax_image(), MiniMaxImageBackend, MiniMax 图像后端（单步同步 image_generation 端点）。, _b64_response(), _biz_error_response(), _error_response(), _http_error(), _img_response() (+15 more)
+Nodes (22): MiniMaxImageBackend, MiniMax 图像后端（单步同步 image_generation 端点）。, _b64_response(), _biz_error_response(), _error_response(), _http_error(), _img_response(), _make_ref() (+14 more)
 
 ### Community 272 - "test_reference_compression.py"
 Cohesion: 0.10
@@ -1900,155 +1890,155 @@ Nodes (62): compress_single_at_step(), compressed_reference_payload(), Compresse
 
 ### Community 273 - "_unit"
 Cohesion: 0.09
-Nodes (28): _existing_ids(), _find_index(), insert_segment(), _next_suffixed_id(), patch_field(), Any, 按 id 定位一个分镜，设置其（可嵌套的）字段。纯 setter，不触碰 generated_assets。, 在 ``after_id`` 之后插入一个新分镜，分配派生自锚点 id 的稳定新 id。 新分镜的 id 字段被强制改写为… (+20 more)
+Nodes (29): _existing_ids(), _find_index(), insert_segment(), _next_suffixed_id(), patch_field(), Any, 按 id 定位一个分镜，设置其（可嵌套的）字段。纯 setter，不触碰 generated_assets。, 在 ``after_id`` 之后插入一个新分镜，分配派生自锚点 id 的稳定新 id。 新分镜的 id 字段被强制改写为… (+21 more)
 
-### Community 274 - "._validate"
-Cohesion: 0.07
-Nodes (17): _ad_project_payload(), 广告/短片项目的 project.json 校验：target_duration/brief 字段与恒单集约束。, 广告/短片剧本（平铺 shots[]）的结构与引用完整性校验。, products_in_shot 与其收集器（collect_product_references_for_names）同口径归一： NFC/NFD…, storyboard 路径的资产引用同样按 NFC 归一比对：该路径的图片收集…, storyboard 路径的成员校验在生成 schema 层（supported_durations 枚举）； 校验器只把关正整数，16 秒不按…, 剧本总时长与 target_duration 偏差超阈值仅 warn，不阻塞。, ad 参考路线与其他内容模式共用自包含 video_units 校验。 (+9 more)
+### Community 274 - "assistant.py"
+Cohesion: 0.03
+Nodes (110): ConflictError, ServiceUnavailableError, get_locale(), Get locale from Accept-Language header., Heartbeat, LiveMessage, BaseModel, Agent runtime data models. (+102 more)
 
 ### Community 275 - ".claude/skills/impeccable/scripts/live/svelte-component.mjs"
-Cohesion: 0.06
-Nodes (81): bakeParamValues(), collectAllSelectors(), collectSelectorsFromNodes(), collectUnusedSelectors(), escapeRegExp(), formatBody(), isToggleOn(), normalizeSelector() (+73 more)
+Cohesion: 0.05
+Nodes (101): bakeParamValues(), collectAllSelectors(), collectSelectorsFromNodes(), collectUnusedSelectors(), escapeRegExp(), formatBody(), isToggleOn(), normalizeSelector() (+93 more)
 
-### Community 276 - "workflow_state.py"
-Cohesion: 0.03
-Nodes (155): _admission_action(), _admission_problems(), _baseline_step_state(), build_workflow_plan(), _current_rule_index(), _problem_unit_ids(), Any, BaseModel (+147 more)
+### Community 276 - "build_workflow_plan"
+Cohesion: 0.07
+Nodes (67): ProviderCheckpoint, BaseModel, Provider submission facts, reported apart from task and artifact state., _admission_action(), _admission_problems(), _baseline_step_state(), build_workflow_plan(), _current_rule_index() (+59 more)
 
 ### Community 277 - "_request"
 Cohesion: 0.09
-Nodes (24): 安全日志视图：白名单标量 + prompt 截断；素材字段一律折叠，不展开 base64。 v2 的 content[] 里图片与音频都是 base64…, _safe_body_for_log(), _backend(), _client(), _h3(), _png(), parametrize, Path (+16 more)
+Nodes (22): _backend(), _client(), _h3(), _png(), parametrize, Path, _query(), MiniMaxVideoBackend 单元测试（mock httpx，异步两步取 URL，不打真实 HTTP）。 (+14 more)
 
 ### Community 278 - ".claude/skills/impeccable/scripts/detector/detect-antipatterns-browser.js"
-Cohesion: 0.06
-Nodes (56): browserColorsClose(), browserDesignSystemConfig(), browserHasDirectText(), browserPrimaryFont(), browserRadiusTokens(), browserSampleText(), buildSelectorSegment(), checkBrowserDesignSystemSources() (+48 more)
+Cohesion: 0.05
+Nodes (71): addBrowserFindings(), addVisualContrastFindings(), addVisualContrastResult(), analyzeVisualContrast(), browserColorsClose(), browserDesignSystemConfig(), browserHasDirectText(), browserPrimaryFont() (+63 more)
 
 ### Community 279 - "TestStoryboardGateEntersAdmission"
 Cohesion: 0.06
 Nodes (27): _ctx(), _EpisodePM, _FakePM, Any, Path, unit, 整集工具够用的 pm 替身：一集一个 segment，分镜图有无由调用方决定。 项目按生产形态构造：当前 schema、剧本在 episodes…, 把基线项目落盘并激活产物清单，等价于生产的迁移补录。 (+19 more)
 
 ### Community 280 - "AgnesImageBackend"
-Cohesion: 0.10
-Nodes (27): AgnesImageBackend, _extract_first_str(), Path, 把 images/generations 响应落地为本地文件，返回远端 URL（base64 路径返回 None）。 优先 URL（立即下载）；URL…, 下载已签发的结果图 URL（幂等 GET），独立的下载重试范围。 瞬态失败在本层重试，绝不回退到重跑非幂等的生成 POST；4xx 快速失败。, 解码 base64 图片并写盘（解码 + 写盘 offload 到线程）。 容忍少数中转返回 data…, 从 OpenAI 兼容响应 ``data[].<key>`` 取首个非空字符串（url / b64_json 共用）；无则 None。, Agnes 图像后端（单步同步 OpenAI 兼容 images/generations 端点）。 (+19 more)
+Cohesion: 0.13
+Nodes (20): AgnesImageBackend, Agnes 图像后端（单步同步 OpenAI 兼容 images/generations 端点）。, _b64_response(), _error_response(), _img_response(), _make_ref(), _mock_client(), _patches() (+12 more)
 
-### Community 281 - "create_custom_backend"
-Cohesion: 0.11
-Nodes (16): create_custom_backend(), 按 endpoint 查 ENDPOINT_REGISTRY 并构造 Backend。 视频后端额外注入生效能力（endpoint spec 系统判定 ⊕…, _make_provider(), patch, create_custom_backend(provider, model_id, endpoint) 单元测试。, 已带显式路径（/api/v3）→ 原样信任，不重复叠加。, 纯域名（无 scheme）→ 补 https:// 再挂载 /api/v3。, 空 base_url → _ensure_url_path_suffix 归一化为 None 下传（不强行补挂载路径）。 (+8 more)
+### Community 281 - "load_custom_backend"
+Cohesion: 0.18
+Nodes (13): load_custom_backend(), AsyncSession, 装载并构造自定义供应商 backend。 media_type 用于校验请求 model 的 endpoint 是否相符、以及回退默认时分组；实际派发以…, fixture, integration, patch, unit, 自定义 backend DB 装载（lib.custom_provider.loader）单测：内存 SQLite + 真… (+5 more)
 
-### Community 282 - "lookup_pricing"
+### Community 282 - "config/registry.py"
+Cohesion: 0.06
+Nodes (63): _agnes_image_pricing(), _agnes_text_pricing(), _agnes_video_pricing(), _ark_image_pricing(), _ark_text_pricing(), _ark_video_pricing(), _dashscope_audio_pricing(), _dashscope_image_pricing() (+55 more)
+
+### Community 283 - "ensure_route_skeleton"
 Cohesion: 0.05
-Nodes (29): _dashscope_audio_pricing(), _gemini_default_pricing_for(), lookup_pricing(), Pricing, 按 ``(provider, model, media_type)`` 查出该调用应使用的 ``Pricing`` 声明。 回落次序复刻历史计费行为：未知…, 非 ark/grok/openai/vidu/anthropic 的 provider（含裸 ``gemini`` / 未知 provider / Agent…, 返回该调用的定价声明。``media_type`` 即 call_type（``text`` / ``image`` / ``video`` /…, PerCharacter (+21 more)
-
-### Community 283 - "resolve_kind_items"
-Cohesion: 0.09
-Nodes (13): Any, 按骨架种类取条目数组与其 id 字段的唯一入口：返回 ``(items, id_field, kind)``。 ``kind`` 缺省时经…, 某个骨架种类的结构事实：每项 id 字段名 / 每项角色名单字段名（可缺位）。 键（骨架种类）本身即剧本里的条目数组键，故不再单列…, resolve_kind_items(), Skeleton, parametrize, unit, 剧本骨架注册表与规范/取证双解析器的集中矩阵测试。 五象限： - 表自洽：四行齐全、字段合法、import 期校验触发 - 规范解析全组合：3… (+5 more)
+Nodes (28): ensure_route_skeleton(), Any, ValueError, 规范解析：由项目声明的 ``(content_mode, generation_mode)`` 定骨架种类。 输入为项目级已过校验的 content_mode…, 取证解析：由剧本 dict 判别当前的分镜数组种类。 返回 ``"video_units"`` / ``"scenes"`` / ``"segments"``…, 按骨架种类取条目数组与其 id 字段的唯一入口：返回 ``(items, id_field, kind)``。 ``kind`` 缺省时经…, 剧本骨架与项目生成路线不属同一族——生成被拒。 失配剧本的唯一出路是重拆重生成：路线创建时锁定，剧本不可就地换族。查看 / 编辑 /…, 结构化形态，供校验器把失配事实按请求语言报告给用户。 (+20 more)
 
 ### Community 284 - "normalize_block"
 Cohesion: 0.06
 Nodes (20): infer_block_type(), normalize_block(), normalize_content(), Any, Shared content-block normalization contract. All code paths that persist or…, Normalize message content to always be ``list[dict]``., Ensure tool_result content is always a string. The Claude SDK may send…, Infer content block type when SDK omits explicit ``type``. (+12 more)
 
-### Community 285 - "SystemSettingRepository"
-Cohesion: 0.08
-Nodes (39): migrate_json_to_db(), migrate_text_tier_settings(), AsyncSession, Path, 全局 system_settings 旧任务级文本键 → 档位键的一次性启动迁移。 映射：script → complex；overview / style…, ProviderConfigRepository, AsyncSession, Fetch configured keys for ALL providers in a single query. (+31 more)
+### Community 285 - "config/service.py"
+Cohesion: 0.06
+Nodes (51): migrate_json_to_db(), migrate_text_tier_settings(), AsyncSession, Path, 全局 system_settings 旧任务级文本键 → 档位键的一次性启动迁移。 映射：script → complex；overview / style…, ProviderConfigRepository, AsyncSession, Fetch configured keys for ALL providers in a single query. (+43 more)
 
 ### Community 286 - ".agents/skills/impeccable/scripts/live-server.mjs"
 Cohesion: 0.06
 Nodes (71): assembleLiveBrowserScript(), assertLiveBrowserScriptParts(), LIVE_BROWSER_SCRIPT_PARTS, readLiveBrowserScriptParts(), resolveLiveBrowserScriptParts(), eventPriority(), selectAvailablePendingEvent(), acknowledgePendingEvent() (+63 more)
 
 ### Community 287 - "GeminiVideoBackend"
-Cohesion: 0.06
-Nodes (25): _format_durations(), GeminiVideoBackend, _is_gemini_not_found(), Any, BaseException, Image, Path, VideoCapabilities (+17 more)
+Cohesion: 0.05
+Nodes (30): _format_durations(), GeminiVideoBackend, _is_gemini_not_found(), Any, BaseException, Image, Path, VideoCapabilities (+22 more)
 
 ### Community 288 - "test_project_manager_symlink.py"
 Cohesion: 0.06
 Nodes (32): _profile_skill_path(), Tests for manifest-driven profile sync via…, #2：profile 存在 + dest 缺失 + manifest active → 转 tombstone，不补回。, #3：三态一致 → no-op，manifest 字节不变（写前比对生效）。, #4：用户未改 + profile 升级 → 覆盖，manifest 刷 hash。这是方案 C 的核心价值。, #5：用户改完恰好 = profile 当前版 → 状态机回流刷 manifest，下轮归 #3。, #6：用户改 + profile 升级 → 保留用户版。, #7：profile 上游删 + 用户未改 → 同步删除 dest + tombstone。 (+24 more)
 
-### Community 289 - "discover_sources"
-Cohesion: 0.13
-Nodes (25): discover_sources(), mismatched_source_fingerprints(), Path, 候选源文件：项目根相对 POSIX 路径 + 归一化全文。, 读取文本文件；不可读/非 UTF-8 返回 None（容错降级，不让单个坏文件拖垮整次枚举）。, 枚举 source/ 直下一级的候选源文件（.txt/.md），按文件名排序。…, 比对记录指纹与当前源文，返回不一致的源文相对路径（按路径排序）。 只比对「已记录」的文件：``recorded`` 非 ``Mapping``…, 为磁盘上有派生集文件、账本却无条目的集号补建条目。纯函数：不修改入参，对文件系统只读。 只做登记（``episode`` / ``title`` /… (+17 more)
+### Community 289 - ".agents/skills/impeccable/scripts/live/roots.mjs"
+Cohesion: 0.07
+Nodes (51): parseTargetOptions(), parseTargetPath(), TargetArgError, __dirname, ensureServerRunning(), globToRegex(), globToRegex(), resolveFiles() (+43 more)
 
-### Community 290 - "config/registry.py"
-Cohesion: 0.06
-Nodes (56): _agnes_image_pricing(), _agnes_text_pricing(), _agnes_video_pricing(), _ark_image_pricing(), _ark_text_pricing(), _ark_video_pricing(), _dashscope_image_pricing(), _dashscope_text_pricing() (+48 more)
+### Community 290 - "event_log.py"
+Cohesion: 0.05
+Nodes (47): IntegrityError, Lock, _assistant_tool_use_ids(), _blocks_text(), build_failure_entry(), _build_turn_failure_entry(), _copy_parent(), _extract_parent() (+39 more)
 
 ### Community 291 - "unit"
-Cohesion: 0.04
-Nodes (61): 按请求档位收窄能力：以被包装 backend（如 Kling）的档位感知查询为基底—— `getattr` 探测是否实现（与…, audio_capability_pair_is_coherent(), capability_type_name(), capability_value_matches(), enforce_audio_capability_invariant(), filter_valid_overrides(), merge_overrides(), VideoCapabilities (+53 more)
+Cohesion: 0.05
+Nodes (57): 按请求档位收窄能力：以被包装 backend（如 Kling）的档位感知查询为基底—— `getattr` 探测是否实现（与…, audio_capability_pair_is_coherent(), capability_type_name(), capability_value_matches(), enforce_audio_capability_invariant(), filter_valid_overrides(), merge_overrides(), VideoCapabilities (+49 more)
 
 ### Community 292 - "discover_models"
-Cohesion: 0.07
-Nodes (32): _discover_anthropic(), _discover_google(), discover_models(), _discover_openai(), 自定义供应商模型发现（按 discovery_format 选 SDK；返回 endpoint）。, 查询供应商可用模型列表，每项标注 endpoint。 Returns: list of dict: model_id, display_name,…, Anthropic Messages 协议 GET /v1/models 发现可用模型。 返回 dict 与 OpenAI/Google 路径同形态，但…, asyncio (+24 more)
+Cohesion: 0.05
+Nodes (38): ensure_google_base_url(), 规范化 Google genai SDK 的 base_url。 Google genai SDK 会自动在 base_url 后拼接…, _build_result_list(), _discover_anthropic(), _discover_google(), discover_models(), _discover_openai(), 自定义供应商模型发现（按 discovery_format 选 SDK；返回 endpoint）。 (+30 more)
 
 ### Community 293 - "AgentAccessPolicy"
-Cohesion: 0.07
-Nodes (43): AgentAccessPolicy, Windows 回退 Bash 白名单拒绝文案。从 WINDOWS_BASH_PREFIX_WHITELIST 派生 allowed…, 按沙箱可用性过滤 allowed_tools：sandbox 关闭（Windows 回退）时剥离 Bash 系列，让命令落到 can_use_tool 走…, 「agent 能碰什么」的单一规则真相源，同一份规则做两种投影： - 内核沙箱层：编译 SandboxSettings（denyRead /…, _cwd(), parametrize, scripts/*.json 与 project.json 不可用 Write/Edit 直改，报错指向 MCP 工具。, 正式 step1（drama 与参考生视频）不可用 Write/Edit 直改：它另有几条持同一把 per-path 锁的 写入路径（迁移 / Web 端保存… (+35 more)
+Cohesion: 0.08
+Nodes (52): AgentAccessPolicy, ProtectedWriteRule, 一类受保护写路径的完整声明：hook 谓词、拒绝文案与 sandbox denyWrite 投影同处一行。…, 「agent 能碰什么」的单一规则真相源，同一份规则做两种投影： - 内核沙箱层：编译 SandboxSettings（denyRead /…, _cwd(), parametrize, AgentAccessPolicy 纯规则测试：构造参数喂入，断言 allow/deny，无 env/私有方法 monkeypatch。…, scripts/*.json 与 project.json 不可用 Write/Edit 直改，报错指向 MCP 工具。 (+44 more)
 
 ### Community 294 - "unit"
-Cohesion: 0.06
-Nodes (16): integration, parametrize, unit, asset.audio_path 有值但磁盘文件缺失时记 failed，不中断整批（与 image_path 同口径）。, 端到端：from-project → 资产库 → apply-to-project 把音频也随图一起复制回项目。, End-to-end: from-project → asset library → apply-to-project copies the image…, If new upload fails validation, old image must NOT be deleted., character 的 reference_audio 随 character_sheet 一起复制到全局资产库。 (+8 more)
+Cohesion: 0.05
+Nodes (17): integration, parametrize, unit, If asset.image_path is set but the file on disk is gone, record as failed., asset.audio_path 有值但磁盘文件缺失时记 failed，不中断整批（与 image_path 同口径）。, 端到端：from-project → 资产库 → apply-to-project 把音频也随图一起复制回项目。, End-to-end: from-project → asset library → apply-to-project copies the image…, If new upload fails validation, old image must NOT be deleted. (+9 more)
 
 ### Community 295 - "get_provider_spec"
-Cohesion: 0.09
-Nodes (21): get_provider_spec(), _loaded(), patch, 内置 ProviderSpec 表 + _build_simple 闭包的 sync 构造单测。 镜像…, gemini 特例族：backend_type 按 provider_id 分叉（aistudio/vertex 各一行），image/video 对等透传…, kling 特例族：双模式鉴权二选一（api_key 优先 → auth_mode=bearer；否则 access_key+secret_key →…, 单填 api_key（无 access_key/secret_key）→ auth_mode=bearer，不透传 access_key/secret_key。, image 侧 bearer 模式同样叠加 api_model_name 解耦（两栖别名键）。 (+13 more)
+Cohesion: 0.08
+Nodes (24): LoadedConfig, LoadedConfig — 内置 backend 构造缝的 async 装载段产物、sync 构造段唯一输入。 承载三样东西：① 凭证…, get_provider_spec(), _loaded(), patch, 内置 ProviderSpec 表 + _build_simple 闭包的 sync 构造单测。 镜像…, gemini 特例族：backend_type 按 provider_id 分叉（aistudio/vertex 各一行），image/video 对等透传…, kling 特例族：双模式鉴权二选一（api_key 优先 → auth_mode=bearer；否则 access_key+secret_key →… (+16 more)
 
-### Community 296 - "extract_video_last_frame"
+### Community 296 - "extract_video_thumbnail"
 Cohesion: 0.07
-Nodes (37): _extract_frame_at_index(), extract_video_last_frame(), _ffprobe_available(), _probe_frame_count(), Path, 提取视频最后一帧作为 PNG 图片。 通过 ffprobe 获取精确总帧数，再用 select 滤镜定位最后一帧， 避免 ``-sseof``…, ffprobe 可执行文件是否在 PATH 中（独立检查：精简容器可能只装了 ffmpeg）。, test helper — 清缓存让 monkeypatch shutil.which 立刻生效。 (+29 more)
+Nodes (42): _extract_frame_at_index(), extract_video_last_frame(), extract_video_thumbnail(), _ffmpeg_available(), _ffprobe_available(), _probe_frame_count(), Path, ffmpeg 可执行文件是否在 PATH 中（结果缓存，避免每次调用重复 shutil.which）。 (+34 more)
 
-### Community 297 - "MediaGenerator"
-Cohesion: 0.11
-Nodes (25): _is_junction(), MediaGenerator, Any, Image, Path, Remove a formal-output staging file whenever the guarded operation aborts., 接续 provider 上已发起的 video job：调 backend.resume_video 而非 generate。 与…, 媒体生成器中间层 封装 GeminiClient + VersionManager，提供自动版本管理。 (+17 more)
+### Community 297 - "StudioCanvasRouter.tsx"
+Cohesion: 0.14
+Nodes (39): enqueueCharacter(), enqueueCharacterVoiceSample(), enqueueEpisodeNarration(), enqueueGrid(), enqueueGridRegenerate(), enqueueImageEdit(), enqueueNarration(), enqueueProduct() (+31 more)
 
 ### Community 298 - "test_logging_persistence.py"
 Cohesion: 0.10
-Nodes (40): migrate_legacy_log_dir(), 将旧默认位置的日志迁到新位置；只在 ARCREEL_LOG_DIR 未显式覆盖时进行。 策略： - 用户显式设了 ARCREEL_LOG_DIR →…, isolated_data_dir(), isolated_log_dir(), fixture, LogCaptureFixture, MonkeyPatch, parametrize (+32 more)
+Nodes (42): migrate_legacy_log_dir(), 将旧默认位置的日志迁到新位置；只在 ARCREEL_LOG_DIR 未显式覆盖时进行。 策略： - 用户显式设了 ARCREEL_LOG_DIR →…, isolated_data_dir(), isolated_log_dir(), fixture, LogCaptureFixture, MonkeyPatch, parametrize (+34 more)
 
 ### Community 299 - "test_project_migration_swap_recovery.py"
-Cohesion: 0.08
-Nodes (55): cleanup_stale_backups(), 删除超过 max_age_days、且可归属到迁移输入的版本化备份与目录交换中间目录。, _candidate_dirs(), cleanup_completed_swap_dirs(), ensure_disk_headroom(), MigrationDiskSpaceError, new_rollback_dir(), new_staging_dir() (+47 more)
+Cohesion: 0.09
+Nodes (53): _candidate_dirs(), cleanup_completed_swap_dirs(), ensure_disk_headroom(), MigrationDiskSpaceError, new_rollback_dir(), new_staging_dir(), _project_name_from_swap_dir(), OSError (+45 more)
 
 ### Community 300 - "unit"
-Cohesion: 0.06
-Nodes (22): unit, 带 ?v= 参数时应返回 immutable 缓存头, versions/ 路径下的文件应返回 immutable 缓存头, 无 ?v= 参数且非 versions 路径时不应有 immutable 头, narration step1 缺 .json 时优先回落自家旧 .md，不被跨模式遗留 reference_units.md 抢占。, 参考生视频模式下读/写 step1_reference_units.json，避免被按 content_mode 错误路由； 旧 .md 仅存量兼读，写入经…, content_mode=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到, 草稿文件名按项目生成路线路由：参考路线全项目落 step1_reference_units.json。 (+14 more)
+Cohesion: 0.07
+Nodes (16): _img_bytes(), unit, 无 ?v= 参数且非 versions 路径时不应有 immutable 头, narration step1 缺 .json 时优先回落自家旧 .md，不被跨模式遗留 reference_units.md 抢占。, 目录角色以 catalog/<角色>/<文件> 存放时仍能由公开媒体路由读取。, 在 _global_assets/character/ 里放一个指向外部文件的 symlink,应被 resolve-relative 检查拦截为 403。, 简单档模型不支持 vision 时，400 detail 走 i18n 翻译，不透出裸中文技术消息。, 非 vision 校验的后端构造 ValueError（如凭证文件路径缺失 project_id）不得原样透出为 400。 (+8 more)
 
 ### Community 301 - "validate_script_structure"
-Cohesion: 0.13
-Nodes (17): 校验剧本 dict 的结构是否良构，返回 `ValidationResult`。 纯函数：不读磁盘、不查文件引用、不查跨 project.json…, validate_script_structure(), _drama(), _narration(), 剧本结构校验器（纯函数）测试。 只断言外部行为：喂入纯 dict，断言返回的 ValidationResult。逐条覆盖三种模式的合法/非法…, partial migration:generation_mode='reference_video' 但数据还在 segments, 应按数据形状走…, 历史脏数据：narration 脚本被误塞游离 video_units。video_units 与 segments 并存且无 显式 reference…, 空场景 drama（scenes=[]，结构合法）应按 content_mode 判到 Drama，而非靠列表真值落回 Narration。 scenes 无… (+9 more)
+Cohesion: 0.08
+Nodes (28): ErrorDetails, _format_error(), Any, BaseModel, 剧本结构校验器（纯函数）。 把「一个剧本 dict 是否结构良构」这个判断收敛到唯一一处：喂入 dict、返回…, 按模式判别该用哪个剧本模型，判别逻辑收归 `script_skeleton.resolve_script_kind`（取证解析，…, 校验剧本 dict 的结构是否良构，返回 `ValidationResult`。 纯函数：不读磁盘、不查文件引用、不查跨 project.json…, _select_model() (+20 more)
 
 ### Community 302 - "_extract_provider"
-Cohesion: 0.05
-Nodes (34): _extract_provider(), Any, Best-effort cleanup when either video route becomes terminal outside normal…, 重启自愈：扫 running + cancelling 孤儿，按"是否可安全 resume"分流。 原则——**不主动产生额外扣费**：只要 worker…, 结构化编码失败原因，编不出来返回 None 交调用方降级。 编码异常绝不能打断 mark_task_failed，否则任务会卡死在 running。, 后台 dispatcher：按 provider 分桶并发，受 video 容量约束分批入 inflight。 - 不同 provider 之间无容量耦合 →…, 同 provider 桶并发跑 resume task，pending/inflight 用 phase 标志精确容量与 cancel 跟踪。 - ``cap…, Extract a provider_id from a claimed task, used **only** for rate-limit slot… (+26 more)
+Cohesion: 0.06
+Nodes (26): _extract_provider(), Extract a provider_id from a claimed task, used **only** for rate-limit slot…, 返回当前 cycle ``media_type`` 已满的 provider_id 集合（黑名单，用于 claim SQL）。 黑名单源是**有占用的…, Claim tasks from queue and route to per-provider slots. 池满 task 不再 claim →…, Put a claimed (running) task back to queued status. 正常路径下大多数池满任务通过…, Run a generation task with 0-rows-cancelled finally protocol (ADR 0006). 所有 DB…, _patch_pm(), parametrize (+18 more)
 
 ### Community 303 - "SlotTable"
-Cohesion: 0.06
-Nodes (31): _Occupant, Future, 一条占用：执行体 + phase 标志。 ``pending=True`` 仅由 video 的 sem-throttled dispatcher 在…, 占用台账：``(provider_id, media_type)`` → ``{task_id: _Occupant}``。…, 登记占用；幂等覆盖。bucket 不存在时自动创建。, PENDING→INFLIGHT：sem.acquire 成功后调用，只翻 ``pending`` 标志。 占用对象已是同一 sub-…, 释放，不论 phase；幂等；清空后移除该 ``(provider,media)`` bucket。, ``capacity>0`` 且 占用数（含 pending）< capacity。 (+23 more)
+Cohesion: 0.07
+Nodes (24): 占用台账：``(provider_id, media_type)`` → ``{task_id: _Occupant}``。…, PENDING→INFLIGHT：sem.acquire 成功后调用，只翻 ``pending`` 标志。 占用对象已是同一 sub-…, 释放，不论 phase；幂等；清空后移除该 ``(provider,media)`` bucket。, ``capacity>0`` 且 占用数（含 pending）< capacity。, 该 ``media`` 下有占用(≥1)的 provider；空 bucket 不计（黑名单源，含未知 provider）。, 所有占用的 task_id（pending+inflight）：self-active 扫描用。, SlotTable, _done_future() (+16 more)
 
 ### Community 304 - "migrate_unit_durations"
-Cohesion: 0.06
-Nodes (39): migrate_script_unit_durations(), migrate_unit_durations(), _positive_int(), 剧集脚本级入口：仅对参考生视频骨架（含 ``video_units``）生效。 按数据形状而非 ``generation_mode``…, 只认真正的正整数（bool 按 int 子类排除），其余按无值——与剧本条目时长的脏数据口径一致。, 剥掉各镜头的 ``duration``，返回 ``(时长之和, 是否剥掉过字段)``。 和为 None…, 就地把 units 的 per-shot 时长收编到 unit 级。返回 ``(是否发生变更, warnings)``。 warnings 是 locale-…, _strip_legacy_shot_durations() (+31 more)
+Cohesion: 0.09
+Nodes (23): migrate_unit_durations(), _positive_int(), 只认真正的正整数（bool 按 int 子类排除），其余按无值——与剧本条目时长的脏数据口径一致。, 剥掉各镜头的 ``duration``，返回 ``(时长之和, 是否剥掉过字段)``。 和为 None…, 就地把 units 的 per-shot 时长收编到 unit 级。返回 ``(是否发生变更, warnings)``。 warnings 是 locale-…, _strip_legacy_shot_durations(), _legacy_unit(), integration (+15 more)
 
-### Community 305 - "ArkTextBackend"
-Cohesion: 0.05
-Nodes (22): ArkTextBackend, Instructor / json_object 降级路径。 instructor_fallback_sync…, 生成文本回复。 本方法不带重试装饰器：瞬态错误重试在单次调用层（:meth:`_call_chat_completions` 与…, mock_ark(), fixture, 创建一个模型不支持原生 structured_output 的 backend。, 创建一个模型支持原生 structured_output 的 backend（模拟）。, 模型不支持原生时走 Instructor 降级路径。 (+14 more)
+### Community 305 - "demo-project.ts"
+Cohesion: 0.02
+Nodes (116): ArcReel Maskable App Icon, Black Maskable Icon Field, White C Mark, ArcReel Favicon, Black Square Background, White C Mark, setApiReadOnly(), APP_PROJECT_WORKSPACE_PATTERN (+108 more)
 
 ### Community 306 - "agent_config.py"
-Cohesion: 0.14
-Nodes (33): mask_secret(), Mask a secret value, showing first 4 and last 4 chars., ProbeResultDC, activate_credential(), ActivateResponse, create_credential(), CreateCredentialRequest, _cred_to_response() (+25 more)
+Cohesion: 0.16
+Nodes (31): ProbeResultDC, activate_credential(), ActivateResponse, create_credential(), CreateCredentialRequest, _cred_to_response(), CredentialListResponse, CredentialResponse (+23 more)
 
 ### Community 307 - "_make_app"
 Cohesion: 0.08
 Nodes (23): _fake_cred(), _fake_kling_cred(), _make_app(), FastAPI, ProviderCredential, 凭证切组自动清空：完整覆盖某组即视为切组，自动清空其它组字段。, 先存 api_key，再完整提交 access_key+secret_key → api_key 被清空。, 反向切换：完整提交 api_key → access_key/secret_key 被清空。 (+15 more)
 
-### Community 308 - "reference_video_tasks.py"
+### Community 308 - "presentation_read_model.py"
 Cohesion: 0.02
-Nodes (213): AbstractEventLoop, AudioManifestEntryResolver, ArtifactBasisDescriptor, _coerce_artifact_basis_descriptor(), _coerce_optional_artifact_basis_descriptor(), compose_video_artifact_basis(), Strict, portable identity for a canonical basis used as source evidence., Compose independently owned video inputs into one manifest basis. The resulting… (+205 more)
+Nodes (192): ContentDigest, DurationProbe, _basis_descriptor(), build_mechanical_subtitle_basis(), build_presentation_basis(), _canonical_text(), CharacterVoiceEvidence, media_content_digest() (+184 more)
 
 ### Community 309 - "test_capability_overrides_api.py"
 Cohesion: 0.06
 Nodes (47): app(), client(), _create_provider(), db_engine(), _post_provider(), FastAPI, fixture, integration (+39 more)
 
 ### Community 310 - "OptionsAssembler"
-Cohesion: 0.15
-Nodes (13): OptionsAssembler, Any, Path, DB 凭证注入入口。默认走模块级 ``load_provider_env_overrides``（现取 module global 以便测试…, Build the append portion for SystemPromptPreset. Combines the ArcReel persona,…, Build session-invariant project context for the system prompt. Holds only facts…, Build ClaudeAgentOptions for a session. ``stderr`` 在 SDK 子进程退出非 0 时是唯一拿到真实错误的途径…, Required keep-alive hook for Python can_use_tool callback. (+5 more)
+Cohesion: 0.11
+Nodes (17): is_known_session_store_mode(), Return the raw normalized mode string (`db`, `off`, or other)., session_store_mode(), OptionsAssembler, Any, Path, DB 凭证注入入口。默认走模块级 ``load_provider_env_overrides``（现取 module global 以便测试…, Build the append portion for SystemPromptPreset. Combines the ArcReel persona,… (+9 more)
 
 ### Community 311 - ".agents/skills/impeccable/scripts/detector/browser/injected/index.mjs"
 Cohesion: 0.06
@@ -2058,37 +2048,37 @@ Nodes (69): addBrowserFindings(), addVisualContrastFindings(), addVisualContrast
 Cohesion: 0.17
 Nodes (21): _client(), 宫格图路由测试：成功路径 + 「未预期异常 → 通用 500 且不泄露内部细节」回归测试。 未预期异常场景：每个端点内最早调用…, test_generate_grid_corrupted_project_maps_to_500_not_invalid_name(), test_generate_grid_invalid_project_name(), test_generate_grid_invalid_script_file(), test_generate_grid_unexpected_error_no_leak(), test_get_grid_invalid_project_name(), test_get_grid_not_found() (+13 more)
 
-### Community 313 - "unit"
-Cohesion: 0.07
-Nodes (27): ModelInfo, parametrize, unit, 所有预置视频模型必须声明 supported_durations。, 非视频模型的 supported_durations 应为空列表。, 两侧 Veo 模型每个可选高分辨率档都声明「仅 8s」，UI 才能据此收窄时长选项。, Veo 带参考图时只接受 8s，两侧全系声明，与 backend 的执行期拒绝对齐。, 4k 仅 Veo 3.1 Standard 两侧 + AI Studio 的 Fast 支持；Lite 与 Vertex Fast 不支持。 (+19 more)
+### Community 313 - "ProviderMeta"
+Cohesion: 0.04
+Nodes (38): ModelInfo, ProviderMeta, 返回被 ``values`` 完整覆盖的凭证组（组内所有 key 均非空）。 驱动凭证创建/更新端点的切组判定：未声明 credential_groups 的…, parametrize, Test ProviderMeta with ModelInfo structure., TestModelInfo, TestProviderMeta, TestProviderRegistry (+30 more)
 
-### Community 314 - "endpoint_to_media_type"
-Cohesion: 0.06
-Nodes (36): builtin_model_buckets(), custom_model_buckets(), _image_buckets_from_capabilities(), ModelInfo, 能力桶（t2i / i2i / i2v / r2v）归属判定 —— 把既有能力声明翻译成桶，不新增第二份声明。 判定来源逐桶固定： -…, 内置模型具备的能力桶；文本 / 音频模型恒为空集。, 自定义供应商模型具备的能力桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。, _video_buckets() (+28 more)
+### Community 314 - "ImageGenerationRequest"
+Cohesion: 0.02
+Nodes (104): ArkImageBackend, Ark (火山方舟) Seedream 图片生成后端。, ImageGenerationRequest, 通用图片生成请求。各 Backend 忽略不支持的字段。, ReferenceImage, DashScopeImageBackend, 阿里百炼图像后端（同步 multimodal 端点）。, size 是否超出标准档总像素预算（2048×2048）。 docs 口径：超出 2048×2048 的输出仅 wan2.7-image-pro… (+96 more)
 
 ### Community 315 - "test_anthropic_probe.py"
-Cohesion: 0.08
-Nodes (59): classify_probe_failure(), DiagnosisCode, _post(), probe_discovery(), probe_messages(), ProbeResult, Any, Response (+51 more)
+Cohesion: 0.11
+Nodes (44): classify_probe_failure(), DiagnosisCode, probe_discovery(), probe_messages(), ProbeResult, StrEnum, 把失败 ProbeResult 映射到 DiagnosisCode。, GET {discovery_root}/v1/models 体检模型发现端点 (warn 级，仅供参考)。 (+36 more)
 
 ### Community 316 - ".agents/skills/impeccable/scripts/detector/design-system.mjs"
 Cohesion: 0.06
-Nodes (71): addClampEndpoints(), addColorObject(), addDesignColor(), addFontSizeStep(), addRoundedScale(), addRoundedToken(), addSidecarColors(), addSidecarRadii() (+63 more)
+Nodes (72): addClampEndpoints(), addColorObject(), addDesignColor(), addFontSizeStep(), addRoundedScale(), addRoundedToken(), addSidecarColors(), addSidecarRadii() (+64 more)
 
 ### Community 317 - "_make_mock_svc"
-Cohesion: 0.06
-Nodes (42): get_onboarding_status(), mark_onboarding_seen(), OnboardingStatusResponse, AsyncSession, BaseModel, Depends, Onboarding 引导状态 APIs. 首次使用引导的「已看过」标记。刻意与 `/system/config` 分开：那条路由是配置面板的…, 引导是否已看过。未设置视为未看过 —— 前端据此决定是否自动弹出。 (+34 more)
+Cohesion: 0.11
+Nodes (17): db_session(), _make_app_with_mock(), _make_mock_svc(), FastAPI, fixture, unit, Tests for the refactored system_config router. Uses an in-memory SQLite…, registry 的 hidden 语义是「从下拉剔除、条目保留供算价」，options 是那个下拉。 (+9 more)
 
-### Community 318 - "ArkImageBackend"
-Cohesion: 0.08
-Nodes (21): ArkImageBackend, Ark (火山方舟) Seedream 图片生成后端。, _FakeImageData, _FakeImagesResponse, _make_client_mock(), fixture, MonkeyPatch, Path (+13 more)
+### Community 318 - "test_workflow_planner.py"
+Cohesion: 0.10
+Nodes (39): field_validator, Transient choices used to plan one request without changing project workflow…, WorkflowPlanRequest, get_workflow_planner(), Any, GenerationProblem, ProjectManager, WorkflowPlanRequest (+31 more)
 
 ### Community 319 - "CostCalculator"
 Cohesion: 0.07
-Nodes (25): CostCalculator, 费用计算器。 统一入口 ``calculate_cost`` 按 ``lookup_pricing``…, 根据调用方预查的价格信息计算自定义供应商费用。, 费用计算器：按定价声明的 ``kind`` 派发，不含 provider 分支。, 统一费用计算入口。调用方直接构造 ``PricingParams`` 传入，返回 ``(amount, currency)``。 自定义供应商的价格信息通过…, 聚合参考模式一集的视频费用：sum over units of (duration × 单价)。 token 计费的视频（Ark）按 duration ×…, calc(), fixture (+17 more)
+Nodes (23): CostCalculator, 根据调用方预查的价格信息计算自定义供应商费用。, 费用计算器：按定价声明的 ``kind`` 派发，不含 provider 分支。, 统一费用计算入口。调用方直接构造 ``PricingParams`` 传入，返回 ``(amount, currency)``。 自定义供应商的价格信息通过…, calc(), fixture, test_estimate_all_zero_durations_returns_zero(), test_estimate_ark_reference_video_requires_token_estimate() (+15 more)
 
-### Community 320 - "test_v2_video_generations_backend.py"
-Cohesion: 0.04
-Nodes (50): _build_v2_video_generations(), _dig(), extract_provider_error_message(), first_str_by_paths(), 按 path 逐层走 dict key / list 下标（int 段表 list 下标），任一层缺失返回 None。, 按优先级逐个试取第一个非空字符串值（int 容忍并 str 化）。 各家回包结构不一致时，用一张按优先级排序的路径表容错取值，而不是为每种形状写一条分支。, 从回包里尽力取供应商错误描述（dict 取 message/name，或直接是字符串）；取不到返回 unknown。, build_request_body() (+42 more)
+### Community 320 - "TestV2BackendHttp"
+Cohesion: 0.20
+Nodes (16): _fake_download_factory(), _make_http_error(), _make_response(), _mock_client(), asyncio, HTTPStatusError, Path, V2 backend HTTP 流程（submit → poll → 提取 → 下载 / resume），全程 mock httpx，不跑真实网络。 (+8 more)
 
 ### Community 321 - ".claude/skills/impeccable/scripts/detector/browser/injected/index.mjs"
 Cohesion: 0.06
@@ -2102,85 +2092,85 @@ Nodes (72): addClampEndpoints(), addColorObject(), addDesignColor(), addFontSize
 Cohesion: 0.07
 Nodes (46): build_reference_units_split_prompt(), build_reference_video_prompt(), _candidate_block(), _format_asset_names(), _format_outline_block(), 参考生视频模式 Prompt 构建器。 设计原则与 prompt_builders_script.py 一致： - 不重复 schema…, 把 step1 units 渲染为 step2 prompt 的输入文本。 机械渲染、无 LLM 参与：按 step1 的落盘顺序逐 unit 输出序号 +…, 构建参考生视频模式 step2（视觉展开）的 LLM Prompt。 step2 只做一件事：把 step1 每个 unit… (+38 more)
 
-### Community 324 - "test_startup_assertions.py"
-Cohesion: 0.09
-Nodes (48): Logger, assert_no_provider_secrets_in_environ(), check_sandbox_available(), detect_docker_environment(), _log_profile_sync_outcome(), 启动期检测 sandbox 工具可用性。 返回 ``True`` 表示沙箱可用且必须启用；返回 ``False`` 表示 SDK 不支持 当前平台（仅…, 启动期一次性检测当前是否在 Docker / Podman 容器内。 用于决定是否启用…, 根据 ``sync_all_agent_profiles`` 返回的 stats 决定打 info 还是 warning。… (+40 more)
+### Community 324 - "app.py"
+Cohesion: 0.03
+Nodes (92): True when ARCREEL_SDK_SESSION_STORE is anything but 'off' (case-insensitive).…, session_store_enabled(), is_provider_env_key(), 集中维护 provider / AUTH 相关的环境变量 key 清单。 唯一真相源 — 凡是涉及 os.environ 名单的代码都从这里 import。, 判断给定 env key 是否属于 provider 相关。, get_generation_queue(), Logger, Receive (+84 more)
 
-### Community 325 - "TestGenerationTasks"
-Cohesion: 0.10
+### Community 325 - "_prepare_files"
+Cohesion: 0.08
 Nodes (23): _fake_resolve_ctx(), _persist_active_fake_project(), _prepare_files(), integration, lane 感知的假 resolve_generation_context：按调用方声明的 lane 拼装 frozen dataclass 产物。…, lane 归桶按项目路线求值，不再无条件 i2v——与提交入口口径同源。, 宫格项目 storyboard_image 指向 scene_{id}_first.png（非 canonical 文件名），只要登记在 产物清单里且落在…, storyboard_image 字段指向的文件缺失时硬失败，不调用后端生成。 (+15 more)
 
 ### Community 326 - "_make_project"
-Cohesion: 0.12
-Nodes (22): _drama_step1(), _make_project(), unit, 适用 gate 但分集未登记 project.json → episode_not_found（而非误报 no_step1）。, 给未登记分集保存 → episode_not_found，且不落 drafts/episode_99 孤儿 step1 文件。, rv 并发编辑：保存携带的基线指纹与盘上现值不一致（编辑期间另一方已保存）→ conflict、 不落盘不覆盖；拿最新指纹（等价于刷新合并后）重试放行。, drama/narration 的 web 保存同样受基线比对保护：同一个 conflict 错误码。, 不带基线指纹的直连调用维持原语义：不比对、直接落盘。 (+14 more)
+Cohesion: 0.11
+Nodes (23): _drama_step1(), _make_project(), unit, 适用 gate 但分集未登记 project.json → episode_not_found（而非误报 no_step1）。, 给未登记分集保存 → episode_not_found，且不落 drafts/episode_99 孤儿 step1 文件。, rv 并发编辑：保存携带的基线指纹与盘上现值不一致（编辑期间另一方已保存）→ conflict、 不落盘不覆盖；拿最新指纹（等价于刷新合并后）重试放行。, drama/narration 的 web 保存同样受基线比对保护：同一个 conflict 错误码。, 不带基线指纹的直连调用维持原语义：不比对、直接落盘。 (+15 more)
 
 ### Community 327 - ".claude/skills/impeccable/scripts/doctor.mjs"
 Cohesion: 0.07
-Nodes (62): applyFixes(), cli(), collect(), parseArgs(), readProjectRootPatterns(), rel(), renderText(), safeRead() (+54 more)
+Nodes (65): extractPlatform(), loadContext(), applyFixes(), cli(), collect(), parseArgs(), readProjectRootPatterns(), rel() (+57 more)
 
 ### Community 328 - "agnes_base_url"
 Cohesion: 0.10
 Nodes (14): agnes_base_url(), agnes_headers(), agnes_host(), Agnes 共享工具模块。 供 image_backends / video_backends / text_backends / config /…, 从配置的 base_url 提取 host 段（剥除 `/v1` 后缀），缺省回落默认 host。 网关并非所有端点都挂在 `/v1` 下——成片查询…, OpenAI 兼容 base：{host}/v1。, Bearer 鉴权头。 复用 resolve_agnes_api_key 校验：空串 / 纯空白即本地 raise，避免拼出 ``Authorization:…, resolve_agnes_api_key() (+6 more)
 
 ### Community 329 - "CapacityTable"
-Cohesion: 0.06
-Nodes (25): CapacityTable, _parse_lane_max(), 逐 key 容错解析单条 lane 的并发上限。 解析失败回退默认值并告警，不让单个坏值（写入校验上线前的存量脏数据）拖垮 整表加载；可解析的负数沿用…, Per-provider concurrency limits keyed by ``provider_id × media_type``.…, 返回 ``(provider, media)`` 的并发上限。 - provider 已知 + lane 在表 → 登记值（可能 0=不支持该 lane） -…, 按 provider 支持的 media_types 把上限投影成 lane 字典；不支持的 lane → 0。 容量装载的单一映射点：新增 lane…, 某条 lane 在用户未配时的回退默认：供应商注册表声明默认（若有）→ 否则全局默认。 三层回退的中间层单点：from_env / from_db…, 从环境变量 / 默认值构造（DB 不可用前或测试用）。 (+17 more)
+Cohesion: 0.07
+Nodes (22): CapacityTable, Per-provider concurrency limits keyed by ``provider_id × media_type``.…, 返回 ``(provider, media)`` 的并发上限。 - provider 已知 + lane 在表 → 登记值（可能 0=不支持该 lane） -…, 按 provider 支持的 media_types 把上限投影成 lane 字典；不支持的 lane → 0。 容量装载的单一映射点：新增 lane…, 某条 lane 在用户未配时的回退默认：供应商注册表声明默认（若有）→ 否则全局默认。 三层回退的中间层单点：from_env / from_db…, 从环境变量 / 默认值构造（DB 不可用前或测试用）。, 从 ConfigService + PROVIDER_REGISTRY + 自定义供应商加载容量表。, 容量表：provider × media_type → 上限，三态 get + reload 只换数字。 (+14 more)
 
 ### Community 330 - "profile_manifest.py"
 Cohesion: 0.09
 Nodes (47): _apply_decision(), _ensure_dest_within(), enumerate_dest_files(), _enumerate_dest_symlinks(), enumerate_profile_files(), force_resync_profile(), _full_reset_from_profile(), get_profile_status() (+39 more)
 
 ### Community 331 - "_client"
-Cohesion: 0.11
-Nodes (14): _client(), _FakeDedupeHitQueue, _FakeFirstHitQueue, _FakePM, _FakeQueue, Path, 已有旁白的段也允许重新生成（换音色/语速迭代）。, 批量只补缺：已有旁白（E1S02）与无原文（E1S03）的段都跳过。 (+6 more)
+Cohesion: 0.10
+Nodes (17): _client(), _FakeDedupeHitQueue, _FakeFirstHitQueue, _FakePM, _FakeQueue, Path, 旁白配音（TTS）生成端点测试：单段入队、批量补缺、未配置供应商提示。, 已有旁白的段也允许重新生成（换音色/语速迭代）。 (+9 more)
 
 ### Community 332 - "_client"
 Cohesion: 0.10
 Nodes (27): _client(), _drama_step1(), integration, Path, ProjectManager, TestClient, unit, 未在 project.json 登记的分集 → GET 返回 404，而非误报 no_step1 的 200。 (+19 more)
 
 ### Community 333 - ".agents/skills/impeccable/scripts/lib/impeccable-paths.mjs"
-Cohesion: 0.06
-Nodes (63): CRITIQUE_DIR, firstExisting(), getDesignSidecarCandidates(), getDesignSidecarPath(), getImpeccableDir(), getLegacyLiveConfigPath(), getLegacyLiveServerPath(), getLegacyLiveSessionsDir() (+55 more)
+Cohesion: 0.07
+Nodes (57): resolveProjectRoot(), CRITIQUE_DIR, firstExisting(), getDesignSidecarCandidates(), getDesignSidecarPath(), getImpeccableDir(), getLegacyLiveAnnotationsDir(), getLegacyLiveConfigPath() (+49 more)
 
 ### Community 334 - "test_prefix_fork.py"
-Cohesion: 0.06
-Nodes (48): _carries_tool_result(), copy_session_prefix(), _entry_type(), InvalidAnchorError, _matches_subagent(), _now_iso(), _prefix_agent_ids(), _prefix_before_anchor() (+40 more)
+Cohesion: 0.08
+Nodes (44): _carries_tool_result(), copy_session_prefix(), _entry_type(), InvalidAnchorError, _matches_subagent(), _now_iso(), _prefix_agent_ids(), _prefix_before_anchor() (+36 more)
 
-### Community 335 - "_seed_current_storyboard"
-Cohesion: 0.07
-Nodes (24): _async_return(), _patch_video_path(), Create an async function that always returns the given value (ignoring args)., 合法 duration 通过守卫，正常进入后端生成。, 剧本身份只认 project.json 的 episodes 账本：未绑定的剧本文件一律拒绝，不猜集号。, 镜头设置了 end_frame_image 时，生成视频请求携带 end_image；快照路径取自 镜头持久字段拼接的项目内固定相对路径。, 尾帧字段是裸文件名（无 `end_frames/` 前缀）时按校验侧 data_validator._resolve_existing_path 的…, 视频重生成无需额外操作即自动沿用尾帧：字段是镜头持久属性，每次执行都从剧本重新加载。 (+16 more)
+### Community 335 - "._write"
+Cohesion: 0.09
+Nodes (27): integration, caps 解析失败后的降级路径仍按 generation_mode 定桶读 project.json，只丢 DB 那一层。, 参考视频项目降级后仍按 r2v 桶模型报上限；取项目默认层会拿到不接受参考图的 kling-v3。, 只为 _resolve_* 系列造一个不走 __init__ 的 ScriptGenerator（不需要 TextGenerator）。, 项目保存了 1080p 时收窄到该档位声明的集合——Veo 1080p 只接受 8 秒。 这是验收标准第 1 条的正例：不收窄的话剧本产出 4/6…, 项目未配分辨率时不收窄：普通视频路径此时省略 resolution 参数，Veo 按默认 720p 接受 4/6/8。 按 provider…, 项目显式配了无声明的分辨率时不收窄，行为与改动前一致。, reference_video 模式触发「参考图↔时长」约束，即便分辨率本身无声明。 (+19 more)
 
 ### Community 336 - ".agents/skills/impeccable/scripts/doctor.mjs"
 Cohesion: 0.07
 Nodes (62): applyFixes(), cli(), collect(), parseArgs(), readProjectRootPatterns(), rel(), renderText(), safeRead() (+54 more)
 
 ### Community 337 - "_localize_task"
-Cohesion: 0.15
-Nodes (16): _localize_task(), _localize_warning_params(), Any, 把 params 中裸的资产类型标识（如 ``"product"``）替换为当前语言显示名。 只处理已登记 warning key…, 把 ``result.warnings`` 的 ``{key, params}`` 条目渲染成当前语言文本。 形态不符的条目跳过而非报错：warnings…, Return ``task`` with its stored failure reason and warnings rendered for the…, _render_warnings(), Any (+8 more)
+Cohesion: 0.18
+Nodes (11): _localize_task(), Return ``task`` with its stored failure reason and warnings rendered for the…, Any, parametrize, `server.routers.tasks._localize_task` 的渲染行为：失败原因 + 生成警示。, 畸形持久化值（非字符串）不该让整个任务列表 500，与本模块其余容错口径一致。, 新增资产类型时若漏加 ``asset_type_*``，i18n 会回落成 key 本身，比原样透传更糟。, _task() (+3 more)
 
-### Community 338 - "ImageGenerationRequest"
-Cohesion: 0.03
-Nodes (94): ImageBackendMode, ImageGenerationRequest, 通用图片生成请求。各 Backend 忽略不支持的字段。, ReferenceImage, DashScopeImageBackend, 按「比例优先、清晰度其次」算出 宽*高。 比例永远来自 aspect_ratio；image_size（档位词 / 自定义 宽*高 /…, 阿里百炼图像后端（同步 multimodal 端点）。, size 是否超出标准档总像素预算（2048×2048）。 docs 口径：超出 2048×2048 的输出仅 wan2.7-image-pro… (+86 more)
+### Community 338 - "with_retry_async"
+Cohesion: 0.01
+Nodes (272): aspect_size(), parse_aspect_ratio(), 统一「比例优先、清晰度其次」的尺寸计算。 媒体生成的输出比例只有一个来源——项目的 ``aspect_ratio``，永远优先；分辨率…, 把分辨率规范化成「短边像素」。 - ``None`` / 空串 → ``default_short`` - 档位词（大小写不敏感，如 ``"2K"`` /…, 把 ``"9:16"`` 解析成约简互质的 ``(9, 16)``；非法值回退 ``(9, 16)`` 并 warn。, 按比例 + 短边目标算出精确遵循比例、且被 ``round_to`` 整除的 ``(宽, 高)``。 合法尺寸 = ``(aw·round_to·t,…, resolution_to_short_edge(), DashScopeAudioBackend — 阿里百炼 Qwen3-TTS 语音合成后端（同步）。 走原生 multimodal-… (+264 more)
 
-### Community 339 - "test_prompt_builders_ad.py"
-Cohesion: 0.06
-Nodes (22): 渲染分镜路线的单镜头时长约束；参考路线须走自包含 unit 构建器。, _shot_duration_constraint(), _format_duration_constraint(), 生成时长约束描述。连续整数集 ≥5 用区间表达，否则枚举。, _build(), MonkeyPatch, parametrize, 广告/短片模式剧本生成 prompt 构建器测试。 (+14 more)
+### Community 339 - "._caps"
+Cohesion: 0.05
+Nodes (25): integration, 可灵 v2-5-turbo 无音频开关 → none。, MiniMax 真无声模型 → none。, 能力解析按项目生成路线定轴：路线创建即定、全项目一条，能力不需要剧集上下文。, 无项目上下文时为 None（未声明 ≠ 显式选了某条路线）。, 参考路线按 native 解析，分镜路线降格 soft。, caps 的 generation_mode 是下游时长约束的入参，参考路线据此施加「参考图↔时长」约束。, 读侧按 generation_mode 定桶：能力查询回答的是当前配置真正会执行的那个模型。 (+17 more)
 
-### Community 340 - "GrokVideoBackend"
-Cohesion: 0.04
-Nodes (39): create_grok_client(), 创建 xAI AsyncClient，统一校验和构造。, GrokVideoBackend, VideoCapabilities, 通过不可判定收单边界的 SDK 调用生成视频。, 按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。 当前全系模型能力一致，不按 model_id…, _is_h3_model(), VideoCapabilities (+31 more)
+### Community 340 - "TestGenerationTasks"
+Cohesion: 0.09
+Nodes (22): _async_return(), Create an async function that always returns the given value (ignoring args)., 合法 duration 通过守卫，正常进入后端生成。, 剧本身份只认 project.json 的 episodes 账本：未绑定的剧本文件一律拒绝，不猜集号。, 镜头设置了 end_frame_image 时，生成视频请求携带 end_image；快照路径取自 镜头持久字段拼接的项目内固定相对路径。, 尾帧字段是裸文件名（无 `end_frames/` 前缀）时按校验侧 data_validator._resolve_existing_path 的…, 视频重生成无需额外操作即自动沿用尾帧：字段是镜头持久属性，每次执行都从剧本重新加载。, drama 口型台词从场景级 dialogue-kind utterances 取（覆盖 payload 已不带的… (+14 more)
 
 ### Community 341 - "TestRenameAssetCascade"
-Cohesion: 0.07
-Nodes (28): _ad_script(), _drama_script(), _load_script(), _narration_script(), pm(), _project_dir(), Any, fixture (+20 more)
+Cohesion: 0.11
+Nodes (17): pm(), _project_dir(), fixture, Path, ProjectManager, ``旧名_2`` 是合法资产名：兄弟资产的设计图不得被序号形态的 stem 匹配卷走。, 大小写不敏感的文件系统上目标解析回源文件自身，那不是占用。 文件系统区分大小写时（多数 Linux）走不到该豁免分支，改名照样通过，断言仍成立。, 两个视觉同名的存量文件（NFC / NFD）会撞到同一目标，后一次迁移吃掉前一次的成果。 (+9 more)
 
 ### Community 342 - "test_reference_videos_router.py"
-Cohesion: 0.04
-Nodes (159): Exact current price for one projected provider video request., VideoRequestQuote, client(), _derived_references(), _patch_batch_admission(), _patch_supported_durations(), _patch_video_caps(), _precheck() (+151 more)
+Cohesion: 0.10
+Nodes (43): TestClient, unit, episode 非 reference_video 模式时，写端点应返回 409。, 无 header 的 prompt → override=True，duration_seconds 直接生效。, 长度匹配但含重复 ID → 命中 duplicate 校验分支。, 长度匹配、无重复，但 ID 集合与现有不一致 → set mismatch 分支。, 加锁前后 episode→script_file 被并发改绑 → 写端点返回 409（前端可重试）。, 正文是单元的唯一内容真相：空正文的单元不可执行，创建时即以 needs_replan 拒绝。 (+35 more)
 
-### Community 343 - "_make_client"
-Cohesion: 0.08
-Nodes (23): _fake_session(), _make_client(), TestClient, send_or_create 抛出未被专门捕获的异常（如事件日志写入失败）时， 端点须显式回报 500 而非让异常穿透——与 /sessions/send…, send_or_create 抛 SessionCapacityError：并发槽位占满 -> 503。, send_or_create 抛 SessionBusyError：会话正在处理中的并发冲突 -> 409。, send_or_create 抛普通 ValueError（如空消息内容）-> 400，不与会话忙冲突。, 直播收集为空时，从事件日志按本轮用户条目 seq 之后提取回复。 (+15 more)
+### Community 343 - "_FakeSessionManager"
+Cohesion: 0.07
+Nodes (24): 跨会话按幂等键定位新会话的受理条目（seq 0），返回 (session_id, 权威条目)。 client_key 唯一索引按 (session_id,…, _FakeEventLogService, _FakeMetaStore, _FakePM, _FakeSessionManager, _MultiProjectPM, asyncio, Continuation (existing session) must forward the request locale so a cold-… (+16 more)
 
 ### Community 344 - "el"
 Cohesion: 0.07
@@ -2191,36 +2181,36 @@ Cohesion: 0.11
 Nodes (41): FrontmatterError, parse_profile_metadata(), ProfileMetadata, Path, ValueError, Safe parsing and validation for Agent Profile Markdown frontmatter., The Markdown frontmatter is missing, malformed, or has invalid metadata., Parse validated YAML metadata from a Skill or Subagent Markdown file. (+33 more)
 
 ### Community 346 - "test_project_manager_migration.py"
-Cohesion: 0.09
-Nodes (33): Register a listener. Returns an unregister callback., register_project_change_listener(), is_known_template(), list_templates_by_category(), 风格模版注册表（单一真相源）。 模版 id 命名规则：{category}_{slug}，category ∈ {live, anim}。 prompt…, 查表取 prompt。未知 id 抛 KeyError（交给调用方转成 HTTPException）。, 按 category 分组，返回列表保持定义顺序。 每项形如 {'id': 'live_xxx', 'prompt': '...'}。, resolve_template_prompt() (+25 more)
+Cohesion: 0.22
+Nodes (20): pm(), fixture, Path, ProjectManager, ProjectManager 懒迁移测试。, 迁移写回后应触发 project change hint，供 SSE 订阅者感知。, 两线程同时触发迁移应该保持一致，不会产生竞态。, 若 project 已经带 style_template_id，即使 style 值还是 legacy 标签也不再动。 (+12 more)
 
 ### Community 347 - ".agents/skills/impeccable/scripts/live-commit-manual-edits.mjs"
 Cohesion: 0.07
-Nodes (75): scrubManualEditsAgainstFile(), scrubManualEditsAgainstOriginalBlock(), allEntryIds(), argVal(), buildRepairBatch(), candidatesForEntry(), changedFilesSinceSnapshot(), clearAppliedEntries() (+67 more)
+Nodes (70): allEntryIds(), argVal(), buildRepairBatch(), candidatesForEntry(), changedFilesSinceSnapshot(), clearAppliedEntries(), collectApplyOwnedFiles(), collectRollbackFiles() (+62 more)
 
 ### Community 348 - "ArcReel 三家厂商接入调研报告（阿里百炼 / 可灵 Kling / MiniMax）"
 Cohesion: 0.05
 Nodes (42): 0. 调研范围与定位, ① kling-v3 / kling-v3-omni（旗舰，多镜头 + 4K + 主体控制）, ① MiniMax-Hailuo-2.3（T2V + I2V，高质量）, ① Qwen-Image 系列（通义千问团队，文字渲染 + 漫画分镜 SOTA）, 1. 结论先行：推荐评估的模型清单, 2.1 横向对比, 2.2 关键边界, 2.3 网文场景 R2V 适配 (+34 more)
 
 ### Community 349 - "el"
-Cohesion: 0.06
-Nodes (67): actionLabel(), agentStatusText(), barPaletteForTheme(), bindConfigureCountPillTooltip(), bindConfigureInlineControlHover(), bindConfigureModifierPillHover(), buildConfigureActionControl(), buildConfigureCountControl() (+59 more)
+Cohesion: 0.08
+Nodes (50): actionLabel(), bindConfigureCountPillTooltip(), bindConfigureInlineControlHover(), bindConfigureModifierPillHover(), buildConfigureActionControl(), buildConfigureCountControl(), buildConfigureRow(), buildConfigureSubmitButton() (+42 more)
 
 ### Community 350 - "setLiveState"
 Cohesion: 0.09
 Nodes (64): abandonForeignSession(), cancelEditing(), cancelEditingToPicking(), cancelInsertConfigure(), cleanup(), cleanupAcceptedSession(), clearAnnotations(), clearInsertPicking() (+56 more)
 
 ### Community 351 - ".claude/skills/impeccable/scripts/live-accept.mjs"
-Cohesion: 0.07
-Nodes (59): IMPECCABLE_DIR, isLiveServerPidReachable(), extensionCache, LIVE_TEMPLATE_EXTENSIONS, matchesTemplateExtension(), mergeExtensions(), normalizeExtensionEntries(), readLiveTemplateExtensions() (+51 more)
+Cohesion: 0.10
+Nodes (45): isLiveServerPidReachable(), acceptCli(), acceptReceiptPath(), argVal(), buildAcceptedWrappedSource(), buildCarbonizeReplacement(), decodeHtmlAttr(), deindentContent() (+37 more)
 
-### Community 352 - "generation_tasks.py"
-Cohesion: 0.02
-Nodes (197): normalize_asset_bucket(), Any, 把资产桶读成 key 已归一到比对坐标系的字典；非 dict 的畸形值按空桶处理。 资产名的比对总是「文本里的名字 × 资产表的…, DispatchProviderChanged, RuntimeError, 执行投影与 worker 已占用的 provider 槽不一致，需要回队重认领。, 移除 payload 中的 enqueue-time 视频身份，使未提交任务按当前配置投影。, without_video_execution_identity() (+189 more)
+### Community 352 - "ensure_anthropic_base_url"
+Cohesion: 0.31
+Nodes (4): ensure_anthropic_base_url(), 规范化 Anthropic base_url。 @anthropic-ai/sdk 内部会拼接 /v1/messages、/v1/models 等，所以…, parametrize, TestEnsureAnthropicBaseUrl
 
-### Community 353 - "_FakePM"
-Cohesion: 0.08
-Nodes (36): ad_reference_ctx(), _drama_project(), _drama_quarantine_path(), _drama_scene(), _drama_step1_path(), fake_ctx(), _FakePM, _open_drama_for_edit() (+28 more)
+### Community 353 - "_FakeLedger"
+Cohesion: 0.29
+Nodes (3): _FakeLedger, _FakeLedgerCall, 记账账本假实现：捕获记账括号入参（started）与终态结果（outcomes）——新主缝。 括号语义与真 Ledger 一致：CancelledError…
 
 ### Community 354 - "_make_manager"
 Cohesion: 0.10
@@ -2231,60 +2221,60 @@ Cohesion: 0.06
 Nodes (24): env(), fixture, MonkeyPatch, parametrize, Path, 构造标准测试环境：profile_dir + projects_root + 单个项目目录。 profile 内置一个 demo skill 和顶层…, ``paths`` 来自外部输入 → 必须拒绝绝对路径 / `..` / manifest 自身， 否则会逃逸出 profile / 项目根目录，读写任意文件。, ``paths=["X"]`` + manifest 缺失 → 只回填 X，不能调 _full_reset 把 .claude 整个清空覆盖其他内置文件。… (+16 more)
 
 ### Community 356 - ".claude/skills/impeccable/scripts/live-wrap.mjs"
-Cohesion: 0.13
-Nodes (38): hasGeneratedHeader(), HEADER_MARKERS, isGeneratedFile(), isGitIgnored(), resolveSourceTraits(), argVal(), buildInsertWrapperLines(), computeInsertLine() (+30 more)
+Cohesion: 0.08
+Nodes (51): IMPECCABLE_DIR, hasGeneratedHeader(), HEADER_MARKERS, isGeneratedFile(), isGitIgnored(), extensionCache, LIVE_TEMPLATE_EXTENSIONS, matchesTemplateExtension() (+43 more)
 
 ### Community 357 - "initPageChat"
 Cohesion: 0.07
 Nodes (57): applyConfigureBarChrome(), armPageChatForTyping(), attachSteerFocusDebug(), attachSteerFocusGuard(), buildSteerProcessingDots(), buildSteerQueueHint(), clearSteerAwaitTimer(), clearSteerFocusRecoverTimer() (+49 more)
 
-### Community 358 - "routers/system_config.py"
-Cohesion: 0.11
-Nodes (29): get_http_client(), AsyncClient, get_config_service(), AsyncSession, _build_latest_release_payload(), _get_latest_release(), get_model_candidates(), get_system_config() (+21 more)
+### Community 358 - "encode_failure"
+Cohesion: 0.08
+Nodes (36): _encode_bounded_cascade_failure(), _as_shrinkable(), bound_reason(), collapse_cascade_reason(), encode_failure(), parse_failure(), Any, Structured task-failure encoding for the generation worker. The worker (lib… (+28 more)
 
-### Community 359 - "OpenAIVideoBackend"
-Cohesion: 0.05
-Nodes (44): _encode_start_image(), _is_openai_not_found(), OpenAIVideoBackend, BaseException, Path, VideoCapabilities, 按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。 Sora input_reference…, 接续已 submit 的 OpenAI job：仅 poll + 下载，不调 videos.create。 (+36 more)
+### Community 359 - "CrocoVideoBackend"
+Cohesion: 0.12
+Nodes (13): CrocoVideoBackend, VideoCapabilities, H3 能力：首帧 + 参考图 ≤9 + 参考音频 ≤3（DIRECT），提示词 ≤20000 字符。, 按请求素材判定 mode，并上传素材构建 inputs 列表。 优先级：有参考图/参考音频 → r2v；否则有首帧 → i2v；否则 t2v（H3…, ArcReel 分辨率 + 画幅 → Croco H3 quality；未显式选档时走中枢 0.7M 默认。, Croco 视频后端（MiniMax H3，统一任务协议异步三阶段）。, _resolve_quality(), parametrize (+5 more)
 
-### Community 360 - "v5_to_v6_asset_namespace.py"
-Cohesion: 0.19
-Nodes (32): _assert_migration_write_roots(), _assert_migration_write_target(), _AssetOccurrence, _confined_version_path(), _contextual_targets(), _declared_media_owners(), _execute_moves(), _managed_media_roots() (+24 more)
+### Community 360 - "_asset_router_factory.py"
+Cohesion: 0.09
+Nodes (21): build_asset_router(), _CreateRequest, _InvalidFieldValue, _is_string_list(), _not_a_string(), Any, BaseModel, Exception (+13 more)
 
-### Community 361 - "speech_rate_units_per_second"
-Cohesion: 0.07
-Nodes (17): estimate_spoken_seconds(), is_valid_speech_rate(), project_speech_rate_override(), Any, 估算 ``text`` 以 ``language`` 朗读所需秒数。 口径：阅读单位数 ÷ 语速（阅读单位计法见…, 该数值是否落在项目级语速覆盖的硬区间内（``0.001 <= value <= 20``）。…, 从 project.json 解析项目级语速覆盖，未填 / 脏值 / 越界一律返回 ``None``。 返回 ``None``…, 返回生效语速（阅读单位 / 秒）：``override`` 优先，否则按语言取默认。 ``override`` 是项目级覆盖（由… (+9 more)
+### Community 361 - "ViduImageBackend"
+Cohesion: 0.10
+Nodes (11): ViduImageBackend, output_path(), fixture, Path, ViduImageBackend 单元测试 — 重点校验 prompt/aspect_ratio/resolution 白名单兜底逻辑。, 413 规整：_create_task 透出保留状态码的 httpx.HTTPStatusError（咽喉层据此降档）。, 避免运行时调用，先把配置常量当 spec 钉死，防止误改。, TestCapabilityMismatchRaises (+3 more)
 
 ### Community 362 - ".agents/skills/impeccable/scripts/live/manual-apply.mjs"
 Cohesion: 0.09
 Nodes (49): addOpToManualApplyChunk(), APPLY_EVENT_HARD_TIMEOUT_MS, APPLY_EVENT_SOFT_DEADLINE_MS, buildManualApplyAgentAction(), clearManualApplyTransaction(), collectManualApplyFiles(), compactManualApplyBatch(), compactManualApplyCandidates() (+41 more)
 
-### Community 363 - "TestRegistry"
-Cohesion: 0.09
-Nodes (13): import 期校验参考图上限来源：caps_fn 若声明必须可调用；每个 video endpoint 必须「int cap」 XOR「caps_fn 非…, _validate_video_caps_declarations(), MonkeyPatch, dashscope-async-video 的 caps_fn 是纯函数：按 model_id 返回真实参考图上限 （happyhorse-r2v=9 /…, minimax-video 的 caps_fn 是纯函数：S2V-01 单脸参考 max_ref=1，海螺系列走首帧无参考…, kling-video 的 caps_fn 是纯函数：v3-omni / video-o1 多图主体 R2V max_ref=4，turbo 等其余档…, import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。, import 期不变式拒绝非 callable 的 video_caps_for_model：否则误填字符串/整数会放行到 request 期才在… (+5 more)
+### Community 363 - "generate.py"
+Cohesion: 0.08
+Nodes (49): ProjectionResolutionError, 生产适配器解析失败；``code`` 可直接进入结构化 problem。, confirm_character_voice_sample(), ConfirmVoiceSampleRequest, EditImageRequest, _enqueue_asset_generation(), _enqueue_tts_segment(), generate_character() (+41 more)
 
-### Community 364 - "CrocoClient"
-Cohesion: 0.05
-Nodes (33): croco_base_url(), croco_headers(), CrocoClient, _extract_asset_id(), Exception, Path, Croco 统一任务客户端。所有模型（H3 / Image / Music / FlashVSR）共用同一套提交-轮询-下载。, 上传本地素材（multipart file），返回 asset_id。kind 为 images 或 audio。 (+25 more)
+### Community 364 - "Any"
+Cohesion: 0.06
+Nodes (33): _build_reference_specs(), Build the reference-route specs, refusing each unit that cannot be requested., _activated_project(), fake_ctx(), _FakePM, Any, fixture, Path (+25 more)
 
 ### Community 365 - "initPageChat"
 Cohesion: 0.07
-Nodes (60): agentHasWorkInFlight(), applyConfigureBarChrome(), armPageChatForTyping(), attachSteerFocusDebug(), attachSteerFocusGuard(), buildSteerProcessingDots(), buildSteerQueueHint(), clearSteerAwaitTimer() (+52 more)
+Nodes (57): applyConfigureBarChrome(), armPageChatForTyping(), attachSteerFocusDebug(), attachSteerFocusGuard(), buildSteerProcessingDots(), buildSteerQueueHint(), clearSteerAwaitTimer(), clearSteerFocusRecoverTimer() (+49 more)
 
-### Community 366 - "Ledger"
-Cohesion: 0.07
-Nodes (24): Ledger, LedgerCall, Any, BaseException, 记账括号：进入落 pending，块内 ``call.success(result)`` 声明成功。 退出语义：``CancelledError`` 穿透留…, resume 成功补账：按 call_id 精准翻 pending → success，返回受影响行数（幂等 0/1）。 finalize…, resume 过期/失败补账：翻 pending → failed，零费用不重扣（幂等 0/1）。, 事后补录：一次调用写入终态行（agent 会话用量含 SDK 直报费用）。 无 backend 结果对象 union —— 用量与 SDK… (+16 more)
+### Community 366 - "instructor_support.py"
+Cohesion: 0.08
+Nodes (41): IncompleteOutputException, _api_call_failure(), _billed_usage(), _classify_mode_failure(), _failure_reason(), generate_structured_via_instructor(), generate_structured_via_instructor_async(), _handle_mode_failure() (+33 more)
 
 ### Community 367 - "_client"
-Cohesion: 0.10
-Nodes (15): _client(), parametrize, unit, 创建即携带 reference_audio 时同样须机械戳 voice_updated_at，与 PATCH/上传/…, 新建角色尚无 voice_updated_at，PATCH 侧的等值校验在创建时恒不成立；创建 端点直接拒绝携带该字段，防止绕过 PATCH…, 名字含路径分隔符须在 HTTP 边界拒绝：这类名字会让生成（嵌套文件路径） 与后续单段路由（PATCH/DELETE/{name}）全部失效。, reference_audio 本应只经 update_character_reference_audio 写入，但该字段仍在通用 PATCH…, voice_notice_dismissed_at 只能确认到角色当前实际的 voice_updated_at，不接受任意… (+7 more)
+Cohesion: 0.09
+Nodes (16): _client(), _FakePM, parametrize, unit, 创建即携带 reference_audio 时同样须机械戳 voice_updated_at，与 PATCH/上传/…, 新建角色尚无 voice_updated_at，PATCH 侧的等值校验在创建时恒不成立；创建 端点直接拒绝携带该字段，防止绕过 PATCH…, 名字含路径分隔符须在 HTTP 边界拒绝：这类名字会让生成（嵌套文件路径） 与后续单段路由（PATCH/DELETE/{name}）全部失效。, reference_audio 本应只经 update_character_reference_audio 写入，但该字段仍在通用 PATCH… (+8 more)
 
 ### Community 368 - "test_usage_extraction.py"
 Cohesion: 0.12
 Nodes (17): extract_assistant_cost(), extract_float(), extract_int(), extract_model_usage_tokens(), extract_text_token_usage(), first_int(), Any, Pure functions extracting token usage and cost from SDK result messages. These… (+9 more)
 
-### Community 369 - "SdkMessageNormalizer"
-Cohesion: 0.06
-Nodes (21): normalize_sdk_message_to_entries(), 写入点定型器：把 SDK 消息 dict 规范化为零或多个日志条目。 - assistant(error) → 暂存到 result 后定型为单条…, 一次性定型单条消息（skill 注入/AskUserQuestion 的跨消息关联需持有 SdkMessageNormalizer 实例）。, SdkMessageNormalizer, 只有整条内容即中断回显才定型；正文中途出现同字样不误判。, 同一 tick 内两个后台任务的通知被批到一条消息时，两条都要保留成条目。, 消息本身没有 uuid 时，批量通知不能都退化成同一个 "None-tn{i}"——否则 与单条场景一样会在前端归并/查找时互相覆盖。, subagent 内产生的后台任务通知需带 parent_tool_use_id，前端时间线才能 把它路由进对应 subagent… (+13 more)
+### Community 369 - "darkroom-tokens.ts"
+Cohesion: 0.02
+Nodes (132): Client Event Listeners, LoginResponse, AddCredentialModal(), Props, AgentPageIntro(), CredentialList(), Props, ICON_LOADERS (+124 more)
 
 ### Community 370 - ".agents/skills/impeccable/scripts/concept-seed.mjs"
 Cohesion: 0.07
@@ -2292,35 +2282,35 @@ Nodes (53): API_BASE, API_TIMEOUT_MS, apiBudgetMs(), dealCompositions(), driveSe
 
 ### Community 371 - ".agents/skills/impeccable/scripts/detector/detect-antipatterns-browser.js"
 Cohesion: 0.06
-Nodes (51): browserColorsClose(), browserDesignSystemConfig(), browserHasDirectText(), browserPrimaryFont(), browserRadiusTokens(), browserSampleText(), buildSelectorSegment(), checkBrowserDesignSystemSources() (+43 more)
+Nodes (56): browserColorsClose(), browserDesignSystemConfig(), browserHasDirectText(), browserPrimaryFont(), browserRadiusTokens(), browserSampleText(), buildSelectorSegment(), checkBrowserDesignSystemSources() (+48 more)
 
-### Community 372 - "endpoints.py"
-Cohesion: 0.11
-Nodes (18): ensure_openai_base_url(), 自动补全 OpenAI 兼容 API 的 /v1 路径后缀。 用户可能只填了 ``https://api.example.com``，但 OpenAI SDK…, _build_ark_seedance(), _build_kling_image(), _build_kling_video(), _build_newapi_video(), _build_openai_chat(), _build_openai_images() (+10 more)
+### Community 372 - "prompt_builders_script.py"
+Cohesion: 0.08
+Nodes (42): build_ad_prompt(), build_ad_reference_prompt(), _format_pacing_block(), _format_products(), nearest_ad_tier(), 广告/短片模式（content_mode=ad）剧本生成 Prompt 构建器。 分镜路线产出平铺 ``shots[]``，参考路线单阶段产出自包含…, 取距离最小的审定档位；等距时取更接近默认推荐档（30 秒）的一侧。, 渲染配比段：通用规则 + 命中档位的审定表；非四档整数附按比例适配说明。 (+34 more)
 
-### Community 373 - "strip_json_code_fences"
-Cohesion: 0.06
-Nodes (34): 把 step2 响应还原成隔离草稿要装的扁平形状 ``{title, units: [{text}]}``。 与…, 把广告参考路线的扁平 LLM 输出机械提升为自包含 ``video_units``。, 解析 step2 视觉层 LLM 响应（NarrationVisualEpisodeScript）。 严格校验 + model_dump：视觉 schema…, 解析 step2 视觉层 LLM 响应为 scene 视觉 dict 列表（scene_id + image_prompt + video_prompt）。…, build_drama_normalized_script_model(), _coerce_digit_string(), _constrained_duration_item(), _duration_literal() (+26 more)
+### Community 373 - "TestPromptLengthGating"
+Cohesion: 0.17
+Nodes (5): 计量口径是字符数，中英文同权——按字节算会把中文 prompt 误拒。, caps 未声明上限：任意长度都放行，未声明不等于上限为 0。, 能力未查询（caps=None）时不拦 prompt——无从得知上限，拒绝反成误伤。, prompt 违约先于尾帧等可选路径报出，用户一次只看到最先命中的那条。, TestPromptLengthGating
 
 ### Community 374 - "test_drama_pipeline_split.py"
-Cohesion: 0.11
-Nodes (16): DramaSceneContent, DramaSceneVisual, DramaVisualScript, merge_drama_visual_into_scenes(), step1（normalize）产出的场景内容层：除视觉层（image_prompt / video_prompt）外的全部字段。 作为 step2…, step2（generate-script）产出的场景视觉层：仅 scene_id（对齐锚）+ 视觉字段。 ``scene_id`` 必须等于 step1…, step2 视觉层剧本：各场景视觉字段（按 scene_id 与 step1 内容对齐）。 顶层不走 ``extra="forbid"`` 同…, 把 step2 视觉层按 ``scene_id`` 合并回 step1 内容层，产出最终 ``DramaScene`` dict 列表。 工程透传（见 ADR… (+8 more)
+Cohesion: 0.09
+Nodes (20): DramaNormalizedScript, DramaSceneContent, DramaSceneVisual, DramaVisualMergeError, DramaVisualScript, merge_drama_visual_into_scenes(), step1（normalize）产出的场景内容层：除视觉层（image_prompt / video_prompt）外的全部字段。 作为 step2…, step1 规范化剧本：场景内容列表。作为 step2 视觉生成与后续 web 审阅 / 编辑的唯一基底。 顶层不走 ``extra="forbid"``（同… (+12 more)
 
 ### Community 375 - "lib/system_config.py"
-Cohesion: 0.11
-Nodes (24): get_system_config_manager(), init_and_apply_system_config(), _is_blank(), _iso_now_millis(), parse_bool_env(), _project_root_key(), Any, Path (+16 more)
+Cohesion: 0.13
+Nodes (21): get_system_config_manager(), init_and_apply_system_config(), _is_blank(), _iso_now_millis(), parse_bool_env(), _project_root_key(), Any, Path (+13 more)
 
-### Community 376 - "VideoCapabilities"
+### Community 376 - "_build_generator"
+Cohesion: 0.04
+Nodes (55): cleanup_staged_video_output(), _is_413(), BaseException, 识别请求体超限（HTTP 413）。 先从异常通用属性提取状态码：``status_code``（OpenAI/xai SDK + 规整后的…, Compatibility name for video task staging., Remove the deterministic interrupted output owned by one video task., task_video_staging_path(), Path (+47 more)
+
+### Community 377 - "test_agent_chat_router.py"
 Cohesion: 0.05
-Nodes (51): cleanup_staged_video_output(), Compatibility name for video task staging., Remove the deterministic interrupted output owned by one video task., task_video_staging_path(), Declares what a video backend supports. ``first_frame`` / ``last_frame``…, VideoCapabilities, Build the minimal paid-video formal commit callback used by generator tests., select_formal_video() (+43 more)
+Nodes (32): _fake_session(), _make_client(), TestClient, 同步 Agent 对话端点测试 测试 POST /api/v1/agent/chat 端点的核心逻辑。, send_or_create 抛出未被专门捕获的异常（如事件日志写入失败）时， 端点须显式回报 500 而非让异常穿透——与 /sessions/send…, send_or_create 抛 SessionCapacityError：并发槽位占满 -> 503。, send_or_create 抛 SessionBusyError：会话正在处理中的并发冲突 -> 409。, send_or_create 抛普通 ValueError（如空消息内容）-> 400，不与会话忙冲突。 (+24 more)
 
-### Community 377 - "_build_client"
-Cohesion: 0.10
-Nodes (21): ImageRequest, BaseModel, model_validator, RewriteRequest, SendRequest, _image(), parametrize, Assistant image attachment request-size contract. (+13 more)
-
-### Community 378 - "engine.py"
-Cohesion: 0.08
-Nodes (25): _compare_type(), do_run_migrations(), Alembic environment configuration. Supports async engines (aiosqlite / asyncpg)…, Run migrations in 'offline' mode (no DB connection required)., Suppress VARCHAR ↔ DateTime drift on SQLite. We intentionally keep datetime…, Run migrations using an async engine., Run migrations in 'online' mode., run_async_migrations() (+17 more)
+### Community 378 - "get_async_session"
+Cohesion: 0.07
+Nodes (29): _compare_type(), do_run_migrations(), Alembic environment configuration. Supports async engines (aiosqlite / asyncpg)…, Run migrations in 'offline' mode (no DB connection required)., Suppress VARCHAR ↔ DateTime drift on SQLite. We intentionally keep datetime…, Run migrations using an async engine., Run migrations in 'online' mode., run_async_migrations() (+21 more)
 
 ### Community 379 - "测试"
 Cohesion: 0.04
@@ -2331,40 +2321,40 @@ Cohesion: 0.07
 Nodes (53): API_BASE, API_TIMEOUT_MS, apiBudgetMs(), dealCompositions(), driveSelection(), fetchRoll(), here, loadLocal() (+45 more)
 
 ### Community 381 - ".claude/skills/impeccable/scripts/live/manual-apply.mjs"
-Cohesion: 0.08
-Nodes (55): addOpToManualApplyChunk(), APPLY_EVENT_HARD_TIMEOUT_MS, APPLY_EVENT_SOFT_DEADLINE_MS, buildManualApplyAgentAction(), clearManualApplyTransaction(), collectManualApplyFiles(), compactManualApplyBatch(), compactManualApplyCandidates() (+47 more)
+Cohesion: 0.04
+Nodes (97): getLiveDir(), args, buffer, cwd, pageUrlFilter, remaining, addOpToManualApplyChunk(), APPLY_EVENT_HARD_TIMEOUT_MS (+89 more)
 
-### Community 382 - "create_ark_client"
+### Community 382 - "v5_to_v6_asset_namespace.py"
 Cohesion: 0.10
-Nodes (19): ark_base_url(), create_ark_client(), Ark (火山方舟) 共享工具模块 供 text_backends / image_backends / video_backends / providers…, 归一化用户填入的 base_url：strip + 去尾斜杠，缺省回落 ARK_BASE_URL。 不像 dashscope/minimax/agnes…, 创建 Ark 客户端；base_url 缺省走 ARK_BASE_URL（即 /api/v3），经 ark_base_url 归一化。, resolve_ark_api_key(), resolve_grok_api_key(), 根据 PROVIDER_REGISTRY 中的模型声明构建能力集合。 (+11 more)
+Nodes (50): AssetRenameFileCollisionError, plan_asset_file_renames(), Path, 资产级联重命名的纯函数层：剧本/草稿引用改写、关联文件迁移规划与结果报告。 资产以 name 为身份（见…, 按「文件 stem = 资产名」不变式推导改名后的 stem；与旧名无关时返回 None。 默认只认 stem 归一后**精确等于**旧名（sheet /…, 把路径字段值中的文件 stem 从旧名改为新名；stem 与旧名无关时返回 None。, 就地同步资产 entry 内按名命名的路径字段（sheet / 参考图 / 参考音频 / 多图序列），返回改写数。 改写范围与…, 扫描该资产类型的落盘目录，规划 stem 命中旧名的文件迁移，返回 ``(src, dst)`` 列表。 覆盖设计图目录本级与其上传子目录（``refs``… (+42 more)
 
-### Community 383 - "Path"
-Cohesion: 0.07
-Nodes (20): Any, Path, 敏感路径表 ``(files, prefixes, globs)``：``files`` 为精确路径、 ``prefixes`` 为子树根、``globs``…, 判断已 resolve 的路径是否命中敏感文件清单。 覆盖 ``.env`` / ``.env.*`` / ``vertex_keys/`` 子树 /…, 检查 file_path 是否允许给定工具访问，返回 ``(allowed, deny_reason)``。 三步 dispatch： - 规则…, 构造 SandboxSettings dict（SDK Python TypedDict 未声明 filesystem 子结构，但 CLI 运行时透传…, Bash 子进程写禁清单（绝对路径）：``PROTECTED_WRITE_RULES`` 各规则 ``sandbox_subpaths``…, 构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。 SDK CLI 会跳过不存在的 deny… (+12 more)
+### Community 383 - "test_project_migration_blocking.py"
+Cohesion: 0.11
+Nodes (42): APIRouter, clear_migration_failure(), load_migration_failure(), migration_failure_details(), migration_failure_path(), BaseException, Path, Project one exception onto the structured detail list. Only… (+34 more)
 
-### Community 384 - "_FakePM"
-Cohesion: 0.14
-Nodes (9): _client(), _FakePM, _FakeQueue, Path, 整段粘贴的长文案在入队前就被挡住，不产生「先计费合成、再因超时长落 failed」。, 任务已 succeeded 且 result.file_path 非空，但样本文件在磁盘上不存在。, 角色已有 reference_audio 指向不同扩展名的旧文件：确认后新文件写入且旧文件被清理。, TestConfirmCharacterVoiceSample (+1 more)
+### Community 384 - "test_generate_router_voice_sample.py"
+Cohesion: 0.12
+Nodes (12): _app(), _client(), _FakePM, _FakeQueue, Path, 角色 TTS 参考音频试听样本端点测试：音色列表 / 生成入队 / confirm 落资产。, 整段粘贴的长文案在入队前就被挡住，不产生「先计费合成、再因超时长落 failed」。, 任务已 succeeded 且 result.file_path 非空，但样本文件在磁盘上不存在。 (+4 more)
 
 ### Community 385 - ".agents/skills/impeccable/scripts/modern-screenshot.umd.js"
 Cohesion: 0.09
 Nodes (55): ae(), be(), bt(), Ce(), s(), Ct(), de(), dt() (+47 more)
 
-### Community 386 - "apply_grid_split"
-Cohesion: 0.09
-Nodes (18): apply_grid_split(), GridGeneration, 按 ``grid`` 当前联合图切割并覆写各分镜格。 - 每格覆写前旧文件先补登版本、覆写后登记新版本（source="grid_split"）； -…, MonkeyPatch, 重生成清理规则：同脚本同集、scene_ids 是当前组子集、非在途的旧记录被删。 HTTP 路由与 SDK 工具 (generate_grid) 共用…, pending/generating 的记录必须保留：worker 执行时还要找得到资源。, scene_ids 不是当前组子集的记录属于其它组/代，不得误删。, 反复重生成后，同一组只留下最新一批（在途记录除外）。 (+10 more)
+### Community 386 - "make_session_meta"
+Cohesion: 0.07
+Nodes (23): make_session_meta(), make_task_params(), make_transcript_entry(), SessionMeta, Test data factories — reduce boilerplate when constructing common objects., Build a SessionMeta with sensible defaults. Any keyword argument overrides the…, Build a dict of parameters suitable for ``GenerationQueue.enqueue_task()``. Any…, Build a single transcript JSONL entry dict. ``msg_type`` is one of ``"user"``,… (+15 more)
 
 ### Community 387 - "build_episode_script_model"
-Cohesion: 0.10
-Nodes (18): _ad_episode_model(), build_episode_script_model(), 构造 ``duration_seconds`` 被 ``supported_durations`` 枚举硬约束的剧集脚本模型。…, ad 剧集脚本的动态包装骨架：两条生成路径共用，仅 ``duration_seconds`` 约束类型不同。, _duration_enum(), _duration_field_schema(), BaseModel, duration_seconds 枚举硬约束：剧本生成时把每个分镜时长卡在视频模型 supported_durations 内。 剧本生成器把… (+10 more)
+Cohesion: 0.06
+Nodes (29): _ad_episode_model(), build_episode_script_model(), build_reference_units_step1_model(), _coerce_digit_string(), _constrained_duration_item(), _duration_literal(), 把 supported_durations 去重排序后构造成数字字符串可强转的 ``Literal[...]``。 多值在…, 在 ``item_base`` 上把 ``duration_seconds`` 收紧为 ``duration_type``（三工厂共用的字段约束骨架）。 (+21 more)
 
 ### Community 388 - "count_reading_units"
 Cohesion: 0.07
 Nodes (17): count_reading_units(), find_reading_unit_offset(), _pattern_for(), Pattern, 按源文语言计『阅读单位』的轻量度量工具。 `count_reading_units` 是语义级、按源文语言裁剪的「阅读单位」计数器,贴合用户 「N…, 按源文语言数『阅读单位』。 zh: 汉字 + CJK 标点 / 全角符号 en / vi: unicode word-boundary…, 该语言『阅读单位』的中文量词：词（按词计的 en / vi 等）/ 字（zh 及未知语言按字计）。 量词名直接由 ``_pattern_for``…, 返回第 ``target_units`` 个阅读单位末尾的字符偏移（含尾）。 与 ``count_reading_units``… (+9 more)
 
-### Community 389 - "SessionManager"
-Cohesion: 0.02
-Nodes (117): 完整保留诊断文本，只遮蔽可直接用于认证或签名的值。, redact_diagnostic_text(), _make_agent_startup_error(), Any, BaseException, Path, Queue, RuntimeError (+109 more)
+### Community 389 - "GridManager"
+Cohesion: 0.03
+Nodes (75): Grid layout utilities for grid-image-to-video feature., grid_aspect_ratio_for(), GridLayout, _orientation_of(), Grid layout calculator for grid-image-to-video feature., Describes the layout of a grid composed of multiple scene images., Return (width, height) in pixels based on grid_aspect_ratio., Determine orientation by comparing width and height numerically. (+67 more)
 
 ### Community 390 - "TestBuildXfadeFilterComplex"
 Cohesion: 0.06
@@ -2379,8 +2369,8 @@ Cohesion: 0.09
 Nodes (55): ae(), be(), bt(), Ce(), s(), Ct(), de(), dt() (+47 more)
 
 ### Community 393 - ".agents/skills/impeccable/scripts/live-accept.mjs"
-Cohesion: 0.08
-Nodes (51): IMPECCABLE_DIR, safeSessionId(), extensionCache, LIVE_TEMPLATE_EXTENSIONS, matchesTemplateExtension(), mergeExtensions(), normalizeExtensionEntries(), readLiveTemplateExtensions() (+43 more)
+Cohesion: 0.10
+Nodes (45): isLiveServerPidReachable(), acceptCli(), acceptReceiptPath(), argVal(), buildAcceptedWrappedSource(), buildCarbonizeReplacement(), decodeHtmlAttr(), deindentContent() (+37 more)
 
 ### Community 394 - ".agents/skills/impeccable/scripts/live/insert-ui.mjs"
 Cohesion: 0.05
@@ -2394,117 +2384,113 @@ Nodes (39): AGENT_PHASE_SET, FORBIDDEN_MANUAL_EDIT_TEXT_CHARS, INSERT_POSITIONS,
 Cohesion: 0.09
 Nodes (12): _build_client(), _collect(), _CursorCapturingService, _FakeEntrySessionManager, ServerSentEvent, TestClient, 携带 cursor 订阅只收到其后的条目，重连不整帧重算。, 末条 log_entry 晚于原始 result 广播到达（inbox 落库延迟）时仍须送达。 终态由 log_turn_complete 触发，不在原始… (+4 more)
 
-### Community 397 - "._caps"
-Cohesion: 0.05
-Nodes (35): caps_generation_mode(), 能力查询口径的 generation_mode：直读项目字段，无项目上下文时为 None。…, integration, 可灵 v2-5-turbo 无音频开关 → none。, MiniMax 真无声模型 → none。, video_pricing_generate_audio：能力接口解析不出时的计价降级口径。, 注册表已下线的 veo model id 仍按含音档出价，不因能力解析失败被低估为静音档。, 非恒含音 provider 解析不出能力时保留请求值——价目仍回落 Gemini 家族的含音费率。 (+27 more)
+### Community 397 - "PendingQuestionWizard"
+Cohesion: 0.15
+Nodes (14): buildAnswersPayload(), buildQuestionOptions(), getNextVisitedSteps(), getQuestionKey(), isOtherOptionLabel(), isOtherOptionValue(), isOtherSelected(), isQuestionAnswerReady() (+6 more)
 
-### Community 398 - "unit"
-Cohesion: 0.08
-Nodes (23): parametrize, unit, wan3.0-video：单模型通吃三条路径，首尾帧 + 独立参考音频条目 + 可控音轨。, discovery 返回的连字符/下划线别名（endpoints.py 已路由到本后端）须认作 wan3.0，不落回默认档案。 与…, 含 "wan3" 子串但两侧非字母数字边界不成立的型号名，不得被误判为万相 3.0 家族。, 通吃型号的图生/文生请求没有参考图，不能按 r2v 专用型号那样判 required。, 恒有声型号收到该参数会被上游当非法参数拒。, 别名同样按可控音轨型号分派，不落回恒有声默认档案。 (+15 more)
+### Community 398 - "require_audio_switch_supported"
+Cohesion: 0.16
+Nodes (12): 视频生成入口预检：成片恒有声的模型不接受「关闭音频」的配置。…, require_audio_switch_supported(), _make_factory(), integration, unit, 视频生成入口预检 ``require_audio_switch_supported`` 的行为：…, 恒有声模型已解析出来，但读音频开关时数据库故障——同样放行。, 项目覆盖优先于全局：全局开着、项目关掉，同样在入口拒绝。 (+4 more)
 
-### Community 399 - "_prepare_files"
+### Community 399 - "test_image_edit_router.py"
 Cohesion: 0.14
-Nodes (15): _client(), _FakePM, _FakeQueue, _prepare_files(), _project_dict(), Path, generated_assets.storyboard_image 指向非 canonical 路径（旧宫格项目）也可编辑。, script_file 为纯空白字符串时应等同未提供，不能绕过必填校验。 (+7 more)
+Nodes (16): _client(), _FakePM, _FakeQueue, _prepare_files(), _project_dict(), Path, 图片指令式编辑端点（POST /projects/{name}/edit/image）的请求校验与入队行为。, generated_assets.storyboard_image 指向非 canonical 路径（旧宫格项目）也可编辑。 (+8 more)
 
 ### Community 400 - "parseAnyColor"
-Cohesion: 0.08
-Nodes (62): checkColors(), checkElementAIPaletteDOM(), checkElementColors(), checkElementColorsDOM(), checkElementGlow(), checkElementGlowDOM(), checkElementHoverContrast(), checkElementIconTile() (+54 more)
+Cohesion: 0.10
+Nodes (46): checkColors(), checkElementAIPaletteDOM(), checkElementColors(), checkElementColorsDOM(), checkElementGlowDOM(), checkElementHoverContrast(), checkElementIconTile(), checkElementIconTileDOM() (+38 more)
 
 ### Community 401 - ".agents/skills/impeccable/scripts/detector/engines/static-html/css-cascade.mjs"
 Cohesion: 0.07
 Nodes (35): applyStaticDeclaration(), buildBorderOverrideMap(), parseShorthand(), resolveVar(), buildStaticStyleMap(), buildStaticWindow(), collectStaticCssRules(), compareStaticPriority() (+27 more)
 
-### Community 402 - "KlingVideoBackend"
-Cohesion: 0.09
-Nodes (18): _encode_job_id(), KlingVideoBackend, _KlingVideoModelCaps, _lookup_video_caps(), Path, VideoCapabilities, 按 model 取能力位：剥厂商前缀后 + 去首尾空白 + lower 归一化，再做【精确】命中 _KLING_VIDEO_CAPS。…, 把生成类型子路径 + 有声标志编进持久化 job_id（``subpath:task_id:audio``）。 可灵查询端点按生成类型分路径（``GET… (+10 more)
-
-### Community 403 - "project_manager.py"
-Cohesion: 0.01
-Nodes (222): encode_artifact_manifest_payload(), Encode complete claims and their formal-byte evidence for an archive., AssetRenameConflictError, AssetRenameFileCollisionError, AssetRenameHistoryCollisionError, AssetRenameNotFoundError, AssetRenameReport, plan_asset_file_renames() (+214 more)
+### Community 402 - "_rewrite"
+Cohesion: 0.07
+Nodes (20): _collect_prompt(), _image_block(), Any, 多模态 prompt 是 async generator——把它投递出的 wire 消息收下来。, 新会话的事件日志 = 改写点之前的历史 + 改写后的消息，顺序与 seq 都对。 SSE 与冷读共用这份日志、按 seq…, 空前缀分支没有历史可 resume，派发时须告知运行时以预指定 id 起新会话。, AC：会话 running 时改写——中断、等终态、分叉、派发一气呵成。, AC：改写带图消息——分支会话首条用户消息含原图与编辑后文本，agent 可见图片。 (+12 more)
 
 ### Community 404 - ".claude/skills/impeccable/scripts/detector/engines/static-html/css-cascade.mjs"
 Cohesion: 0.07
-Nodes (34): applyStaticDeclaration(), buildBorderOverrideMap(), parseShorthand(), resolveVar(), buildStaticStyleMap(), buildStaticWindow(), collectStaticCssRules(), compareStaticPriority() (+26 more)
+Nodes (35): applyStaticDeclaration(), buildBorderOverrideMap(), parseShorthand(), resolveVar(), buildStaticStyleMap(), buildStaticWindow(), collectStaticCssRules(), compareStaticPriority() (+27 more)
 
-### Community 405 - "validate_unit_text"
-Cohesion: 0.07
-Nodes (20): _has_description_line(), Any, 该单元是否有画面描述：某一行剥掉全部发声记号后仍有非空文本。, 校验一个 unit 的正文并机械派生参考图引用。 覆盖四类阻断违约：正文为空或只有发声记号、书写层语法误用（花括号、写坏的引用、缺花…, validate_unit_text(), parametrize, 没被识别成发声记号的花括号仍判违约：空台词会派生出没有内容的发声。, 台词与画外音写在同一行的画面描述之后照常放行；说话人位不进参考图。 (+12 more)
+### Community 405 - "initGlobalBar"
+Cohesion: 0.08
+Nodes (39): agentHasWorkInFlight(), agentStatusText(), barPaletteForTheme(), brandMarkSvg(), buildDesignHeader(), buildParamsPanel(), designPanelCss(), detectPageTheme() (+31 more)
 
 ### Community 406 - "Frequently Asked Questions {#faq}"
 Cohesion: 0.07
 Nodes (28): Best practices for quality and cost {#quality-and-cost-best-practices}, Does ArcReel support voice-over? {#voice-over-support}, Frequently Asked Questions {#faq}, How can I improve character consistency? {#character-consistency}, How can I make adjacent shots more continuous? {#shot-continuity}, How do I connect a custom provider? {#custom-provider-setup}, How do I make the AI assistant start or resume production? {#start-or-resume-assistant}, How do I submit an actionable issue? {#how-to-report-issue} (+20 more)
 
-### Community 407 - "test_jianying_draft_service.py"
-Cohesion: 0.04
-Nodes (79): Item, EpisodePresentationReader, JianyingDraftService, Any, Path, ProjectManager, Protocol, RenditionVariant (+71 more)
+### Community 407 - "create_download_token"
+Cohesion: 0.11
+Nodes (27): create_download_token(), create_token(), 创建 JWT token Args: username: 用户名 Returns: JWT token 字符串, 签发短时效下载 token，用于浏览器原生下载认证, _client(), _DraftService, Exception, ProjectManager (+19 more)
 
 ### Community 408 - ".claude/skills/impeccable/reference/new-work.md"
 Cohesion: 0.06
 Nodes (31): 1. Accessibility (VoiceOver / TalkBack), 2. Performance, 3. Appearance & Theming, 4. Platform Conformance (CRITICAL), 5. Adaptivity, Diagnostic Scan, Recommended Actions, Craft (deprecated alias) (+23 more)
 
 ### Community 409 - ".claude/skills/impeccable/scripts/live-commit-manual-edits.mjs"
-Cohesion: 0.07
-Nodes (65): allEntryIds(), argVal(), buildRepairBatch(), candidatesForEntry(), changedFilesSinceSnapshot(), clearAppliedEntries(), collectApplyOwnedFiles(), collectRollbackFiles() (+57 more)
+Cohesion: 0.10
+Nodes (51): allEntryIds(), argVal(), buildRepairBatch(), candidatesForEntry(), changedFilesSinceSnapshot(), clearAppliedEntries(), collectApplyOwnedFiles(), collectRollbackFiles() (+43 more)
 
-### Community 410 - "resolve_items"
-Cohesion: 0.04
-Nodes (87): KeyError, _audio_settings(), _image_basis_matches_resource(), is_typed_media_resource(), parse_image_version_basis(), parse_typed_audio_settings(), parse_typed_media_version_target(), Any (+79 more)
+### Community 410 - "lookup_pricing"
+Cohesion: 0.05
+Nodes (22): _gemini_default_pricing_for(), lookup_pricing(), Pricing, 非 ark/grok/openai/vidu/anthropic 的 provider（含裸 ``gemini`` / 未知 provider / Agent…, 返回该调用的定价声明。``media_type`` 即 call_type（``text`` / ``image`` / ``video`` /…, parametrize, DashScope 跨层集成测试：文本记账 provider、定价查表、自定义 endpoint 派发、能力 fallthrough。, 三档分辨率都要有价：任一档缺键会让该档的用量记账断链。 (+14 more)
 
 ### Community 411 - ".agents/skills/impeccable/scripts/detector/detect-antipatterns.mjs"
-Cohesion: 0.09
-Nodes (42): confirm(), detectCli(), detectLocalFile(), dim(), fileUrlToLocalPath(), formatAdvisorySection(), formatFindings(), formatFindingsBody() (+34 more)
+Cohesion: 0.08
+Nodes (47): confirm(), detectCli(), detectLocalFile(), dim(), fileUrlToLocalPath(), formatAdvisorySection(), formatFindings(), formatFindingsBody() (+39 more)
 
-### Community 412 - "encode_failure"
-Cohesion: 0.07
-Nodes (31): _as_shrinkable(), bound_reason(), encode_failure(), Any, Encode a known failure code (+ params) into the stored machine string.…, 把容器参数值换成自身的 JSON 文本，好让裁剪逻辑能收窄它。 截断一个容器的字符串形态比截断 JSON 字面量安全——后者会留下不闭合的括号。嵌套过深到…, 把 ``reason`` 裁剪到 ``limit`` 字符内，供级联失败编码前调用。 直接按字符截断合法的 ``[code] {params}``…, Render a stored failure reason for display via the request Translator.… (+23 more)
+### Community 412 - "_RenderQueue"
+Cohesion: 0.30
+Nodes (3): Queue stub serving fresh task copies per call so in-place rendering does not…, _RenderQueue, TestTaskErrorLocalization
 
 ### Community 413 - ".claude/skills/impeccable/scripts/detector/engines/regex/detect-text.mjs"
 Cohesion: 0.07
 Nodes (42): blankCssComments(), BLOCK_BRACE_PREFIX_KEYWORDS, CSS_IN_JS_EXTENSIONS, detectText(), extFromFilePath(), extractCSSinJS(), extractStyleBlocks(), findCSSinJSTemplates() (+34 more)
 
 ### Community 414 - "test_speech_composition.py"
-Cohesion: 0.08
-Nodes (62): Reconstruct only the speech facts actually frozen into subtitle cues., adapt_ad_shot(), adapt_drama_scene(), adapt_narration_segment(), adapt_video_unit(), _append_structured_entry(), _append_video_prompt_dialogue(), _empty_speaker_problem() (+54 more)
+Cohesion: 0.06
+Nodes (74): Reconstruct only the speech facts actually frozen into subtitle cues., ``split_speech_line`` 结果里记号之外的残余文本，即这一行的画面描述。 收在此处而不是各调用侧就地…, speech_line_description(), adapt_ad_shot(), adapt_drama_scene(), adapt_narration_segment(), adapt_video_unit(), _append_structured_entry() (+66 more)
 
 ### Community 415 - "resolve_project_cover"
 Cohesion: 0.11
-Nodes (32): ProjectManager, 按偏好顺序挑第一个可用的封面路径，返回 `/api/v1/files/...` URL；全无则 None。 ``preloaded_scripts``…, resolve_project_cover(), _mk_manager(), parametrize, 项目封面选择器单测：验证 fallback 链的优先级与鲁棒性。, generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，回退到 scene_sheet，不抛异常。, scripts/episode_N.json 缺失 / 损坏时仍应走到资产 fallback。 (+24 more)
+Nodes (33): ProjectManager, 项目封面选择器（读时计算）。 在项目大厅列出项目时，按偏好顺序挑一个可用作封面的相对资源路径： 1. 已生成视频的首帧 `video_thumbnail`…, 按偏好顺序挑第一个可用的封面路径，返回 `/api/v1/files/...` URL；全无则 None。 ``preloaded_scripts``…, resolve_project_cover(), _mk_manager(), parametrize, 项目封面选择器单测：验证 fallback 链的优先级与鲁棒性。, generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，回退到 scene_sheet，不抛异常。 (+25 more)
 
-### Community 416 - "test_agent_access_policy.py"
-Cohesion: 0.08
-Nodes (42): _make_policy(), policy(), fixture, Path, AgentAccessPolicy 纯规则测试：构造参数喂入，断言 allow/deny，无 env/私有方法 monkeypatch。…, 以 tmp 根路径纯构造 policy：repo 布局与旧 SessionManager fixture 一致。, project_cwd 本身是个 symlink 指向真实项目目录时(macOS /var↔/private/var、Linux symlinked…, Windows ``\\\\?\\`` 扩展长度前缀（resolve 在长路径/UNC 下返回）与常规形态 须归一化为同一比较键，否则 bases… (+34 more)
+### Community 416 - "TestRegistry"
+Cohesion: 0.09
+Nodes (13): import 期校验参考图上限来源：caps_fn 若声明必须可调用；每个 video endpoint 必须「int cap」 XOR「caps_fn 非…, _validate_video_caps_declarations(), MonkeyPatch, dashscope-async-video 的 caps_fn 是纯函数：按 model_id 返回真实参考图上限 （happyhorse-r2v=9 /…, minimax-video 的 caps_fn 是纯函数：S2V-01 单脸参考 max_ref=1，海螺系列走首帧无参考…, kling-video 的 caps_fn 是纯函数：v3-omni / video-o1 多图主体 R2V max_ref=4，turbo 等其余档…, import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。, import 期不变式拒绝非 callable 的 video_caps_for_model：否则误填字符串/整数会放行到 request 期才在… (+5 more)
 
 ### Community 417 - "parseAnyColor"
-Cohesion: 0.07
-Nodes (63): checkBorders(), checkColors(), checkElementAIPaletteDOM(), checkElementBorders(), checkElementBordersDOM(), checkElementColors(), checkElementColorsDOM(), checkElementGlowDOM() (+55 more)
+Cohesion: 0.10
+Nodes (46): checkColors(), checkElementAIPaletteDOM(), checkElementColors(), checkElementColorsDOM(), checkElementGlowDOM(), checkElementHoverContrast(), checkElementIconTile(), checkElementIconTileDOM() (+38 more)
 
 ### Community 418 - ".agents/skills/impeccable/scripts/detector/engines/regex/detect-text.mjs"
 Cohesion: 0.07
-Nodes (41): blankCssComments(), BLOCK_BRACE_PREFIX_KEYWORDS, CSS_IN_JS_EXTENSIONS, detectText(), extFromFilePath(), extractCSSinJS(), extractStyleBlocks(), findCSSinJSTemplates() (+33 more)
+Nodes (42): blankCssComments(), BLOCK_BRACE_PREFIX_KEYWORDS, CSS_IN_JS_EXTENSIONS, detectText(), extFromFilePath(), extractCSSinJS(), extractStyleBlocks(), findCSSinJSTemplates() (+34 more)
 
 ### Community 419 - ".agents/skills/impeccable/scripts/lib/impeccable-config.mjs"
 Cohesion: 0.10
 Nodes (46): applyDetectionConfigSource(), clampByte(), cleanIgnoreValueDisplay(), cloneDetectionConfig(), cloneRawDetectionConfig(), COLOR_CHANNEL_FORMATS, colorIgnoreKey(), DEFAULT_DETECTION_CONFIG (+38 more)
 
 ### Community 420 - "compress_image_bytes"
-Cohesion: 0.11
-Nodes (17): compress_image_bytes(), 将任意图片字节压缩为 JPEG：等比缩放到长边不超过 max_long_edge， quality 控制 JPEG 压缩质量。 subsampling 控制…, _make_big_png(), 批量压缩 9 张 4K 图，检查每张输出尺寸与体积都符合预期。, test_compress_batch_nine_images_memory_ok(), test_compress_fallback_long_edge_1024_smaller_bytes(), test_compress_rejects_invalid_bytes(), test_compress_single_image_under_long_edge_2048() (+9 more)
+Cohesion: 0.06
+Nodes (41): compress_image_bytes(), convert_image_bytes_to_png(), _ensure_pixel_budget(), _fit_long_edge(), ImagePixelLimitError, normalize_storyboard_upload(), normalize_uploaded_image(), _open_oriented() (+33 more)
 
-### Community 421 - "TestPromptBuildersScript"
-Cohesion: 0.13
-Nodes (8): step2 只补视觉层：含 image_prompt / video_prompt 指引与渲染内容，不再生成口播 / 资产 / 时长。, step1→step2 透传契约：utterances / source_text 逐字渲染进上下文。, 降级 / 手改 step1 的脏数据鲁棒性：非字符串资产项被过滤（不抛 TypeError），逐字内容里的 尖括号经中和，避免打散嵌入它的 step2…, 非 list 的资产 / utterances 字段（手改 step1：字符串会被逐字符迭代、数字会抛 TypeError）按空处理，…, 带 utterances / source_text 的内容块喂进 step2 prompt：内容透传供理解，仍是视觉专责、不复制进视觉字段。, step2（视觉层）drama prompt；内容已在 step1 定稿，只收渲染好的内容块。, schema 已声明枚举不在 prompt 中重复列举。, TestPromptBuildersScript
+### Community 421 - "_nr_source_and_call"
+Cohesion: 0.09
+Nodes (39): _nr_caps(), _nr_generator_returning(), _nr_project(), _nr_segment(), _nr_source(), _nr_source_and_call(), 构造返回指定 segments JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。, instructions 原样进 prompt 末尾的中性「用户意见」分节，不附加强度措辞。 (+31 more)
 
-### Community 422 - ".claude/skills/impeccable/scripts/live/roots.mjs"
-Cohesion: 0.07
-Nodes (51): parseTargetOptions(), parseTargetPath(), TargetArgError, __dirname, ensureServerRunning(), globToRegex(), globToRegex(), resolveFiles() (+43 more)
+### Community 422 - "SdkMessageNormalizer"
+Cohesion: 0.10
+Nodes (18): 写入点定型器：把 SDK 消息 dict 规范化为零或多个日志条目。 - assistant(error) → 暂存到 result 后定型为单条…, SdkMessageNormalizer, build_subagent_snapshot(), _content(), _normalized_subagent_entries(), Any, Persistent projection for independently running SDK subagents. The parent Agent…, Project main transcript anchors plus child transcripts into task cards. (+10 more)
 
 ### Community 423 - "_make_client"
 Cohesion: 0.13
 Nodes (12): _make_client(), _make_cors_client(), integration, TestClient, unit, 未带诊断信息时响应体只有摘要，既有消费方读到的形状不变。, 字段名 / schema 这类技术信息只进 diagnostic，detail 保持产品语言摘要。, 带 key/params 的 ScriptEditError（如 resolve_items 抛出的那种）en 请求下， reason… (+4 more)
 
 ### Community 424 - "test_project_manager_concurrent_save.py"
-Cohesion: 0.13
-Nodes (23): _make_script(), Path, ProjectManager, 剧本并发写入竞态防护测试。 覆盖 `save_script` 在并发 PATCH 下的原子性，以及 lock 文件命名不会泄露到…, script lock 文件应以 `.` 开头并不出现在 list_scripts 结果中。, project.json 的 lock 文件也应为隐藏命名（与注释一致）。, `./episode_1.json`、`episode_1.json`、`scripts/episode_1.json` 必须解析到同一把锁文件。, 并发 save_script 后 project.json 的 episode 条目应与 script 一致。 (+15 more)
+Cohesion: 0.11
+Nodes (25): _make_script(), Path, ProjectManager, 剧本并发写入竞态防护测试。 覆盖 `save_script` 在并发 PATCH 下的原子性，以及 lock 文件命名不会泄露到…, script lock 文件应以 `.` 开头并不出现在 list_scripts 结果中。, project.json 的 lock 文件也应为隐藏命名（与注释一致）。, `./episode_1.json`、`episode_1.json`、`scripts/episode_1.json` 必须解析到同一把锁文件。, 导出 ZIP 的隐藏成员判定应覆盖 lock 与原子写入的 tmp 残留。 (+17 more)
 
 ### Community 425 - "compose_video.py"
 Cohesion: 0.12
@@ -2518,41 +2504,41 @@ Nodes (30): CompletedProcess, _requires_ffmpeg, fake_project(), fixture, Path, �
 Cohesion: 0.10
 Nodes (46): applyDetectionConfigSource(), clampByte(), cleanIgnoreValueDisplay(), cloneDetectionConfig(), cloneRawDetectionConfig(), COLOR_CHANNEL_FORMATS, colorIgnoreKey(), DEFAULT_DETECTION_CONFIG (+38 more)
 
-### Community 428 - ".agents/skills/impeccable/scripts/hook-before-edit.mjs"
-Cohesion: 0.09
-Nodes (43): allow(), bumpCursorDenial(), deny(), detectProposedHtml(), done(), escapeRegExp(), findingSignature(), firstMatch() (+35 more)
+### Community 428 - ".agents/skills/impeccable/scripts/live-manual-edit-evidence.mjs"
+Cohesion: 0.15
+Nodes (26): analyzeSourceHint(), buildCandidatesForOp(), buildContextHintsByRef(), buildManualEditEvidence(), collectSearchFiles(), countOps(), decodeBasicHtml(), escapeRegExp() (+18 more)
 
 ### Community 429 - ".agents/skills/impeccable/scripts/hook-admin.mjs"
-Cohesion: 0.11
-Nodes (45): ACTIONS, addIgnoreFile(), addIgnoreRule(), addIgnoreValue(), DETECTOR_CONFIG_KEYS, detectorSection(), fileHasImpeccableHookMarker(), HOOK_MANIFEST_TARGETS (+37 more)
+Cohesion: 0.12
+Nodes (44): ACTIONS, addIgnoreFile(), addIgnoreRule(), addIgnoreValue(), DETECTOR_CONFIG_KEYS, detectorSection(), fileHasImpeccableHookMarker(), HOOK_MANIFEST_TARGETS (+36 more)
 
 ### Community 430 - "migrate_v3_to_v4"
-Cohesion: 0.14
-Nodes (16): _clean_str(), migrate_project_dict(), migrate_v3_to_v4(), Path, 非空字符串原样返回，其余（缺失 / null / 空串 / 非字符串脏值）视为未设置。, 纯函数：把 v3 形态的 project dict 转为 v4 形态。幂等。 档位键已有值时不覆盖（避免重试时回退用户后配的新值）。 不改…, v3→v4 文件级迁移。单次原子写，崩溃可重试（要么旧值要么新值，无半态）。, _load() (+8 more)
+Cohesion: 0.13
+Nodes (17): _clean_str(), migrate_project_dict(), migrate_v3_to_v4(), Path, v3→v4 迁移：旧任务级文本 backend 键 → 任务档位键（docs/adr/0051）。 映射：text_backend_script →…, 非空字符串原样返回，其余（缺失 / null / 空串 / 非字符串脏值）视为未设置。, 纯函数：把 v3 形态的 project dict 转为 v4 形态。幂等。 档位键已有值时不覆盖（避免重试时回退用户后配的新值）。 不改…, v3→v4 文件级迁移。单次原子写，崩溃可重试（要么旧值要么新值，无半态）。 (+9 more)
 
 ### Community 431 - "ScriptReviewService"
 Cohesion: 0.11
 Nodes (20): Any, BaseModel, Path, gate 适用时校验该集已在 project.json ``episodes[]`` 登记，返回（必要时已自愈的）project。 与 ``confirm``…, 在项目锁内运行一次 ``register_orphan_episode_entries`` 并落盘，返回自愈后的 project。 落盘走…, 视频能力查询，解析失败时退回空 caps 而非冒穿。 缺 caps 只是让下游退到 registry / 不收窄这两个既有降级口径，而解析异常直接冒穿会让用户…, 收窄前的时长档位全集；非 reference_video 变体或解析不到型号时 None。 caps 先解析、再交…, 读结构化 step1，并对参考生视频草稿做一次性时长收编迁移；返回 ``(内容, 最新 project)``。 草稿是 gate 的三个入口（读状态 / 保存… (+12 more)
 
 ### Community 432 - "test_project_summary.py"
-Cohesion: 0.13
-Nodes (33): _add_character_with_sheet(), _episode_with_media(), _plan_one_episode(), MonkeyPatch, Path, ProjectManager, 项目摘要投影：广度视图（项目列表、卡片、全局头）读到的阶段与产物计数。 断言的是投影的外部输出——阶段归并、可用 / stale…, 分镜图生视频路线报分镜数——广告/短片的 shots 与旁白/解说的 segments 同一口径。 (+25 more)
+Cohesion: 0.11
+Nodes (38): _add_character_with_sheet(), _episode_with_media(), _plan_one_episode(), MonkeyPatch, Path, ProjectManager, 项目摘要投影：广度视图（项目列表、卡片、全局头）读到的阶段与产物计数。 断言的是投影的外部输出——阶段归并、可用 / stale…, 分镜图生视频路线报分镜数——广告/短片的 shots 与旁白/解说的 segments 同一口径。 (+30 more)
 
 ### Community 433 - ".claude/skills/impeccable/scripts/context-signals.mjs"
 Cohesion: 0.10
 Nodes (37): cli(), COMMON_DEV_PORTS, devServerSignals(), gatherSignals(), gitSignals(), hasCode(), isVendoredPath(), latestCritique() (+29 more)
 
-### Community 434 - "execute_image_edit_task"
-Cohesion: 0.11
-Nodes (18): edit_version_resource_type(), execute_image_edit_task(), API 契约的单数 resource_type → VersionManager / 事件层的复数资源类型。, 执行图片编辑任务：读 current 图 → i2i → 新版本覆盖 current → 按资源类型写回。 编辑必然 i2i（唯一入队即知…, _FakeGenerator, _FakePM, _patch_common(), _prepare_files() (+10 more)
+### Community 434 - "test_session_manager_sandbox.py"
+Cohesion: 0.14
+Nodes (27): _make_session_manager(), asyncio, fixture, MonkeyPatch, parametrize, Path, SessionManager sandbox 接线测试：options 装配、hook 返回格式、权限链顺序。 纯规则断言（路径裁决 / settings…, hook 把 policy 的包装结果塞进 ``updatedInput.command``，且不返回… (+19 more)
 
 ### Community 435 - ".agents/skills/impeccable/scripts/live-wrap.mjs"
-Cohesion: 0.13
-Nodes (38): hasGeneratedHeader(), HEADER_MARKERS, isGeneratedFile(), isGitIgnored(), resolveSourceTraits(), argVal(), buildInsertWrapperLines(), computeInsertLine() (+30 more)
+Cohesion: 0.09
+Nodes (49): IMPECCABLE_DIR, hasGeneratedHeader(), HEADER_MARKERS, isGeneratedFile(), isGitIgnored(), matchesTemplateExtension(), resolveLiveTemplateExtensions(), findSessionFile() (+41 more)
 
 ### Community 436 - ".agents/skills/impeccable/scripts/live-copy-edit-agent.mjs"
 Cohesion: 0.12
-Nodes (41): applyMockWrites(), buildCopyEditBatchPrompt(), checkFrameworkSourceSyntax(), chooseCopyEditAgent(), COMMAND_AUTH_CACHE, commandAuthed(), commandExists(), compactBatchCandidates() (+33 more)
+Nodes (42): applyMockWrites(), buildCopyEditBatchPrompt(), checkFrameworkSourceSyntax(), chooseCopyEditAgent(), COMMAND_AUTH_CACHE, commandAuthed(), commandExists(), compactBatchCandidates() (+34 more)
 
 ### Community 437 - ".claude/skills/impeccable/scripts/live-copy-edit-agent.mjs"
 Cohesion: 0.12
@@ -2563,16 +2549,16 @@ Cohesion: 0.13
 Nodes (15): migrate_project_dict(), migrate_v4_to_v5(), Path, v4→v5 迁移：生成路线收缩为二值，宫格降为 grid_storyboard 开关。 四项职责： - ``generation_mode ==…, 纯函数：把 v4 形态的 project dict 转为 v5 形态。幂等。 不改 schema_version（由文件级 migrate 提交时写入）。, v4→v5 文件级迁移。单次原子写，崩溃可重试（要么旧值要么新值，无半态）。, _load(), parametrize (+7 more)
 
 ### Community 439 - "test_project_migration_v6_v7.py"
-Cohesion: 0.28
-Nodes (31): migrate_v6_to_v7(), 先预检所有剧本，再逐文件原子替换，最后提交 ``project.json`` 版本。, 参考生视频模式剧集脚本。 注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。 详见…, ReferenceVideoScript, _project(), MonkeyPatch, parametrize, Path (+23 more)
+Cohesion: 0.31
+Nodes (29): migrate_v6_to_v7(), 先预检所有剧本，再逐文件原子替换，最后提交 ``project.json`` 版本。, _project(), MonkeyPatch, parametrize, Path, v6→v7 广告参考路线自包含 video_units 迁移。, 成员数不再有上限：多成员旧 unit 的全部画面文本拼进同一段正文，不因数量判问题壳。 (+21 more)
 
-### Community 440 - "test_resolve_project_is_silent_covers_both_paths"
-Cohesion: 0.29
-Nodes (9): MonkeyPatch, parametrize, unit, 无声判据合并模型档与本集开关两条路径，入队层据此决定是否注入 Voice_Profiles。, 能力解析失败时，独立解析出的 requested_generate_audio 仍随项目覆盖走，不回退成 True。, 独立解析也失败（双重故障）时收紧到 False，同 text_generation.py 的同款兜底口径。, test_project_video_caps_degrades_silent_on_double_failure(), test_project_video_caps_preserves_silent_intent_on_capability_failure() (+1 more)
+### Community 440 - "create_ark_client"
+Cohesion: 0.10
+Nodes (18): ark_base_url(), create_ark_client(), Ark (火山方舟) 共享工具模块 供 text_backends / image_backends / video_backends / providers…, 归一化用户填入的 base_url：strip + 去尾斜杠，缺省回落 ARK_BASE_URL。 不像 dashscope/minimax/agnes…, 创建 Ark 客户端；base_url 缺省走 ARK_BASE_URL（即 /api/v3），经 ark_base_url 归一化。, resolve_ark_api_key(), resolve_grok_api_key(), MonkeyPatch (+10 more)
 
-### Community 441 - "CredentialRepository"
-Cohesion: 0.12
-Nodes (10): CredentialRepository, ProviderCredential, 删除凭证。若删除的是活跃凭证，自动将最早的另一条设为活跃。, 创建凭证。若为该供应商的第一条，自动设为活跃。, 激活指定凭证，同时取消同供应商的其他活跃标记。, 更新凭证字段。省略参数（保持 _UNSET）表示不修改；api_key/base_url/access_key/ secret_key 显式传 None…, AsyncSession, ProviderCredential Repository 测试。 (+2 more)
+### Community 441 - ".from_request"
+Cohesion: 0.10
+Nodes (6): Validate a request structurally and build a :class:`TaskSpec`. Single source of…, 可入队 unit 的替身 spec：只用于让逐桶去重判定「这条要入队」。, _unit_spec(), 纯空白的 resource_id 与空的同样不可用：它会在执行期变成一段空白文件名。, 带路径片段的 resource_id 在结构守卫处就拒，不留到执行期拼产物路径时才发现。, TestTaskSpecFromRequest
 
 ### Community 442 - "_FakeQueue"
 Cohesion: 0.15
@@ -2595,16 +2581,16 @@ Cohesion: 0.06
 Nodes (31): 1. Accessibility (VoiceOver / TalkBack), 2. Performance, 3. Appearance & Theming, 4. Platform Conformance (CRITICAL), 5. Adaptivity, Diagnostic Scan, Recommended Actions, Craft (deprecated alias) (+23 more)
 
 ### Community 447 - ".agents/skills/impeccable/scripts/live-poll.mjs"
-Cohesion: 0.10
-Nodes (38): completionAckForAcceptResult(), completionTypeForAcceptResult(), PREVIEW_MODES_WITHOUT_SOURCE_MARKERS, acceptInstructions(), bootInstructions(), deferredWrapperInstructions(), generateInstructions(), insertScaffoldInstructions() (+30 more)
+Cohesion: 0.14
+Nodes (29): completionAckForAcceptResult(), completionTypeForAcceptResult(), PREVIEW_MODES_WITHOUT_SOURCE_MARKERS, augmentEventWithAcceptHandling(), buildAcceptScriptArgs(), buildPollReplyPayload(), completeAcceptHandling(), DEFAULT_EVENT_LEASE_MS (+21 more)
 
 ### Community 448 - "ShotDetail.tsx"
 Cohesion: 0.02
-Nodes (158): ADR-0040, NarratedVideoDurationError, GridImageToVideoCanvas(), GridImageToVideoCanvasProps, GridTab, Segment, LOOKUP, DialogueListEditor() (+150 more)
+Nodes (162): Js Early Exit, Js Tosorted Immutable, ADR-0040, GridImageToVideoCanvas(), GridImageToVideoCanvasProps, GridTab, Segment, getSegmentId() (+154 more)
 
-### Community 449 - "specs.py"
-Cohesion: 0.13
-Nodes (32): assemble_backend — 「provider config + model → backend」统一构造入口。 按…, backend_assembly — 「provider config + model → backend」的统一构造缝。 暴露唯一入口…, LoadedConfig, LoadedConfig — 内置 backend 构造缝的 async 装载段产物、sync 构造段唯一输入。 承载三样东西：① 凭证…, _build_gemini_image(), _build_gemini_video(), _build_kling(), _build_simple() (+24 more)
+### Community 449 - "speech_rate_units_per_second"
+Cohesion: 0.07
+Nodes (18): estimate_spoken_seconds(), is_valid_speech_rate(), project_speech_rate_override(), Any, 语速估算单一真相源。 把「一段口播文本朗读需多少秒」收敛到一处，供 drama 成片字幕定时与说话量对场景…, 估算 ``text`` 以 ``language`` 朗读所需秒数。 口径：阅读单位数 ÷ 语速（阅读单位计法见…, 该数值是否落在项目级语速覆盖的硬区间内（``0.001 <= value <= 20``）。…, 从 project.json 解析项目级语速覆盖，未填 / 脏值 / 越界一律返回 ``None``。 返回 ``None``… (+10 more)
 
 ### Community 450 - "migrate_project_dict"
 Cohesion: 0.12
@@ -2612,11 +2598,11 @@ Nodes (13): migrate_project_dict(), migrate_v1_to_v2(), _normalize_field(), Path
 
 ### Community 451 - "test_project_events_router.py"
 Cohesion: 0.12
-Nodes (24): get_project_event_service(), _project_events_service(), CurrentUserFlexible, Request, ServerSentEvent, SSE stream for project data changes inside the workspace., Resolve the service and validate the project exists before streaming starts.…, stream_project_events() (+16 more)
+Nodes (23): get_project_event_service(), _project_events_service(), CurrentUserFlexible, Request, ServerSentEvent, Resolve the service and validate the project exists before streaming starts.…, stream_project_events(), _FakePM (+15 more)
 
-### Community 452 - "test_agent_provider_catalog.py"
-Cohesion: 0.14
-Nodes (21): get_preset(), list_presets(), PresetProvider, 预设 Anthropic 兼容供应商目录。 每条 PresetProvider 提供 messages_url + discovery_url + 「获取…, 返回内置 provider 的默认文本模型与可见文本目录，供 Agent 预设复用同一真相源。, _visible_text_catalog(), 每条预设都必须有「获取 API Key」链接(便于用户跳转)., ArcReel 是用户表格中唯一标推荐的预设;其他全部不推荐. (+13 more)
+### Community 452 - "GrokImageBackend"
+Cohesion: 0.06
+Nodes (30): Configuration management package., GrokImageBackend, 校验 aspect_ratio 是否在 Grok 支持列表中，不支持则 warning 并透传。, xAI Grok (Aurora) 图片生成后端，支持 T2I 和 I2I。, _validate_aspect_ratio(), build_prompt(), generate_one(), load_grok_api_key() (+22 more)
 
 ### Community 453 - "TestApiKeyCache"
 Cohesion: 0.08
@@ -2639,12 +2625,12 @@ Cohesion: 0.07
 Nodes (29): 1.1 System Requirements {#system-requirements}, 1.2 Prepare Model Credentials {#prepare-credentials}, 1. Prepare Your Environment {#prepare-environment}, 2.1 Clone the Repository {#clone-repository}, 2.2 Use the Default SQLite Deployment {#deploy-with-sqlite}, 2.3 Use the PostgreSQL Production Deployment {#deploy-with-postgresql}, 2. Deploy ArcReel {#deploy-arcreel}, 3.1 Configure the AI Assistant {#configure-assistant} (+21 more)
 
 ### Community 458 - ".claude/skills/impeccable/scripts/live-poll.mjs"
-Cohesion: 0.14
-Nodes (29): completionAckForAcceptResult(), completionTypeForAcceptResult(), PREVIEW_MODES_WITHOUT_SOURCE_MARKERS, augmentEventWithAcceptHandling(), buildAcceptScriptArgs(), buildPollReplyPayload(), completeAcceptHandling(), DEFAULT_EVENT_LEASE_MS (+21 more)
+Cohesion: 0.11
+Nodes (37): completionAckForAcceptResult(), completionTypeForAcceptResult(), PREVIEW_MODES_WITHOUT_SOURCE_MARKERS, acceptInstructions(), deferredWrapperInstructions(), generateInstructions(), insertScaffoldInstructions(), instructionsForEvent() (+29 more)
 
-### Community 459 - "runner.py"
-Cohesion: 0.10
-Nodes (37): clear_migration_failure(), load_migration_failure(), load_migration_verdict(), migration_failure_details(), migration_failure_path(), MigrationFailureDetail, MigrationFailureRecord, pending_migration_record() (+29 more)
+### Community 459 - "checkHtmlPatterns"
+Cohesion: 0.12
+Nodes (30): buildHtmlPatternCorpora(), checkGlow(), checkHtmlPatterns(), collectCssCustomProps(), collectMarqueeKeyframes(), collectPulseKeyframes(), cssLengthToPx(), cssTextHasDarkRootBg() (+22 more)
 
 ### Community 460 - ".agents/skills/impeccable/scripts/lib/design-parser.mjs"
 Cohesion: 0.13
@@ -2654,9 +2640,9 @@ Nodes (39): assessCoverage(), buildColor(), CANONICAL_SECTIONS, collectBullets()
 Cohesion: 0.13
 Nodes (39): assessCoverage(), buildColor(), CANONICAL_SECTIONS, collectBullets(), collectColorValues(), collectParagraphs(), detectFormat(), extractColors() (+31 more)
 
-### Community 462 - "DashScopeVideoBackend"
-Cohesion: 0.07
-Nodes (17): DashScopeVideoBackend, _profile_for_model(), VideoCapabilities, 按 model_id 解析能力档：先精确命中，再容忍代理中转的前后缀装饰。 infer_endpoint 用 classify_wan_model…, 阿里百炼视频后端（异步 video-synthesis 端点）。, 按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。 resolver…, 本型号请求实际走的域名。 提交与轮询共用同一个：任务 id 只在创建它的 endpoint 上可查，两者分家会让 wan3.0 任务提交成功后轮询到 404。, endpoint 不声明 video_max_reference_images → resolver fallthrough 到 backend… (+9 more)
+### Community 462 - "Path"
+Cohesion: 0.09
+Nodes (15): _default_claude_projects_dir(), Any, Path, 敏感路径表 ``(files, prefixes, globs)``：``files`` 为精确路径、 ``prefixes`` 为子树根、``globs``…, 判断已 resolve 的路径是否命中敏感文件清单。 覆盖 ``.env`` / ``.env.*`` / ``vertex_keys/`` 子树 /…, 检查 file_path 是否允许给定工具访问，返回 ``(allowed, deny_reason)``。 三步 dispatch： - 规则…, SDK 存放 per-project 会话数据的基准目录。, 构造 SandboxSettings dict（SDK Python TypedDict 未声明 filesystem 子结构，但 CLI 运行时透传… (+7 more)
 
 ### Community 463 - "Nielsen's 10 Heuristics"
 Cohesion: 0.05
@@ -2667,12 +2653,12 @@ Cohesion: 0.18
 Nodes (25): clearStoredManualApplyState(), fetchPendingCount(), handleManualEditActivity(), hidePendingApplyDock(), manualApplyLoadingText(), manualApplyStateKey(), manualEditEventForCurrentPage(), numberOrNull() (+17 more)
 
 ### Community 465 - ".claude/skills/impeccable/scripts/detector/detect-antipatterns.mjs"
-Cohesion: 0.09
-Nodes (42): confirm(), detectCli(), detectLocalFile(), dim(), fileUrlToLocalPath(), formatAdvisorySection(), formatFindings(), formatFindingsBody() (+34 more)
+Cohesion: 0.08
+Nodes (47): confirm(), detectCli(), detectLocalFile(), dim(), fileUrlToLocalPath(), formatAdvisorySection(), formatFindings(), formatFindingsBody() (+39 more)
 
 ### Community 466 - "diagnostics.py"
-Cohesion: 0.22
-Nodes (15): 返回凭证的遮蔽显示值：仅保留首尾各 4 字符供人工识别，短值整体替换。 命名刻意不含 secret/key 等敏感词：返回值是脱敏产物，避免日志静态分析…, _redact_value(), _app_version(), collect_diagnostics(), _data_dir(), _db_url(), _log_dir(), _log_level() (+7 more)
+Cohesion: 0.15
+Nodes (21): 日志目录解析：ARCREEL_LOG_DIR > PROJECT_ROOT/logs。 相对路径基于 PROJECT_ROOT。 日志目录刻意不放在…, resolve_log_dir(), 返回凭证的遮蔽显示值：仅保留首尾各 4 字符供人工识别，短值整体替换。 命名刻意不含 secret/key 等敏感词：返回值是脱敏产物，避免日志静态分析…, _redact_value(), download_logs(), Translator, 打包返回 logs/ 目录所有文件 + diagnostics.txt。, _app_version() (+13 more)
 
 ### Community 467 - "Manifest"
 Cohesion: 0.12
@@ -2682,57 +2668,57 @@ Nodes (24): Manifest, deterministic 序列化：sort_keys + indent + UTF-8，用
 Cohesion: 0.15
 Nodes (26): migrate_v2_to_v3(), Path, v2→v3 迁移：分集账本版本盖章。 只写 schema_version，episodes 内容逐字不动。v2 项目的分集条目没有位置记录…, v2→v3 文件级迁移。单次原子写，天然崩溃可重试（要么旧值要么新值，无半态）。, _load(), no_write_guard(), fixture, MonkeyPatch (+18 more)
 
-### Community 469 - ".claude/skills/impeccable/scripts/detector/engines/static-html/detect-html.mjs"
-Cohesion: 0.10
-Nodes (25): collectStaticCssText(), checkStaticPageTypography(), detectHtml(), STATIC_ELEMENT_RULES, checkCreamPalette(), checkElementGlow(), checkPageLayout(), checkPageQualityDOM() (+17 more)
+### Community 469 - "detectHtml"
+Cohesion: 0.18
+Nodes (17): checkStaticPageTypography(), detectHtml(), checkCreamPalette(), checkPageQualityDOM(), checkPageQualityFromDoc(), creamFromClassList(), isCreamColor(), scopedIgnoreActive() (+9 more)
 
-### Community 470 - "TestPromptLengthGating"
-Cohesion: 0.17
-Nodes (5): 计量口径是字符数，中英文同权——按字节算会把中文 prompt 误拒。, caps 未声明上限：任意长度都放行，未声明不等于上限为 0。, 能力未查询（caps=None）时不拦 prompt——无从得知上限，拒绝反成误伤。, prompt 违约先于尾帧等可选路径报出，用户一次只看到最先命中的那条。, TestPromptLengthGating
+### Community 470 - "CredentialRepository"
+Cohesion: 0.12
+Nodes (10): CredentialRepository, ProviderCredential, 删除凭证。若删除的是活跃凭证，自动将最早的另一条设为活跃。, 创建凭证。若为该供应商的第一条，自动设为活跃。, 激活指定凭证，同时取消同供应商的其他活跃标记。, 更新凭证字段。省略参数（保持 _UNSET）表示不修改；api_key/base_url/access_key/ secret_key 显式传 None…, AsyncSession, ProviderCredential Repository 测试。 (+2 more)
 
-### Community 471 - "GenerationResultBuilder"
+### Community 471 - "text_generation.py"
 Cohesion: 0.02
-Nodes (117): Report every target as blocked, because zero tasks were created. A unit that…, LedgerStats, 全账本体量分布快照（机械现算，不做「多小算畸小」之类的阈值判断）。 语义判断（是否与用户结构性偏好如「一章一集」「共 32 集」有出入）留给主 agent…, batch_enqueue_and_wait(), Async: enqueue sequentially, then gather-wait all tasks. Runs entirely within a…, GenerationResultBuilder, GenerationTargetState, A candidate paired with its observed artifact standing. (+109 more)
+Nodes (201): clear_quarantine(), Any, Path, quarantine_and_report(), quarantine_exists(), quarantine_path(), QuarantinedDraft, step1 / step2 产出的隔离草稿：落盘信封、违约报告与晋升口径。… (+193 more)
 
 ### Community 472 - "preserve_sqlite_indexes"
 Cohesion: 0.11
 Nodes (14): downgrade(), Downgrade schema. 本迁移自己建的索引在重建表之外先删——``preserve_sqlite_indexes`` 分不清有意删除与静默丢失，…, downgrade(), downgrade(), downgrade(), downgrade(), Downgrade schema. tasks 上自己建的索引在重建表之外先删——``preserve_sqlite_indexes`` 分不清有意删除与静默…, downgrade() (+6 more)
 
-### Community 473 - "split_narration_segments_tool"
-Cohesion: 0.10
-Nodes (40): split_narration_segments_tool(), _nr_caps(), _nr_generator_returning(), _nr_project(), _nr_segment(), _nr_source(), _nr_source_and_call(), 构造返回指定 segments JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。 (+32 more)
+### Community 473 - "._make_manager"
+Cohesion: 0.08
+Nodes (23): Edit whose new_string contains curly quotes is denied even when old_string…, If only old_string has curly quotes but new_string is clean, don't block (edit…, Edit with straight-quote old_string that matches file but curly-quote…, Tests for the PostToolUse JSON validation hook (safety net)., PostToolUse returns empty when file is valid JSON after edit., PostToolUse restores backup when file is invalid JSON after edit., PostToolUse reports error when file is corrupt and no backup exists., PostToolUse ignores non-.json files. (+15 more)
 
-### Community 474 - ".agents/skills/impeccable/scripts/live.mjs"
-Cohesion: 0.11
-Nodes (30): parseCliOptions(), resolveProjectRoot(), resolveTargetSelection(), getLegacyLiveAnnotationsDir(), getSurfaceBriefDir(), listSurfaceBriefs(), normalizeRouteTarget(), normalizeSurfaceTarget() (+22 more)
+### Community 474 - ".test_plain_step1_save_registers_active_manifest_and_rolls_back_on_registration_failure"
+Cohesion: 0.15
+Nodes (7): integration, MonkeyPatch, Path, max_bytes 是通用请求体闸门：登记了上限的类型无论 content_check 为何都应拒收超限请求。, name 会被拼进落盘路径：含分隔符 / .. / 控制字符的名字在所有上传类型下都应被 400 拒绝。, 校验谓词会 strip 名字，落盘路径与元数据都应使用规范化后的值。, 空串 name 等同未提供：校验只对真值生效，落盘仍回退到原文件名 stem。
 
 ### Community 475 - "scanCssTextForPulsingDot"
 Cohesion: 0.10
-Nodes (37): buildHtmlPatternCorpora(), checkColors(), checkElementAIPaletteDOM(), checkElementGlow(), checkGlow(), checkHtmlPatterns(), checkRadialSpotlight(), collectCssCustomProps() (+29 more)
+Nodes (36): buildHtmlPatternCorpora(), checkElementGlow(), checkElementRadialSpotlight(), checkElementRadialSpotlightDOM(), checkGlow(), checkHtmlPatterns(), checkRadialSpotlight(), collectCssCustomProps() (+28 more)
 
 ### Community 476 - "scanCssTextForPulsingDot"
 Cohesion: 0.10
-Nodes (36): buildHtmlPatternCorpora(), checkElementGlow(), checkElementRadialSpotlight(), checkElementRadialSpotlightDOM(), checkGlow(), checkHtmlPatterns(), checkRadialSpotlight(), collectCssCustomProps() (+28 more)
+Nodes (37): buildHtmlPatternCorpora(), checkColors(), checkElementAIPaletteDOM(), checkElementGlow(), checkGlow(), checkHtmlPatterns(), checkRadialSpotlight(), collectCssCustomProps() (+29 more)
 
-### Community 477 - "._model"
-Cohesion: 0.07
-Nodes (19): model_audio_always_on(), model_audio_switch_controllable(), 成片恒有声且开关不可控——请求里没有可下发的音轨开关，关闭音频的意图必然落空。, 请求参数能否控制该视频 model 的音轨开关（即 `generate_audio` token 的字面语义）。 与…, 声明了 generate_audio token 的模型直接判定有音轨。, AI Studio Veo 恒有声但请求参数不可控，未声明 token 也须判定有音轨（不得直推无声）。, Grok Imagine 同 AI Studio Veo：恒有声、开关不可控、不补 token，仍判定有音轨。, DashScope 视频全家族恒有声：_build_payload 不下传音频开关，故不声明 token， 由各型号的 audio_always_on… (+11 more)
+### Community 477 - "model_has_audio_track"
+Cohesion: 0.09
+Nodes (24): model_audio_always_on(), model_audio_switch_controllable(), model_has_audio_track(), 成片恒有声且开关不可控——请求里没有可下发的音轨开关，关闭音频的意图必然落空。, 该视频 model 生成的成片是否带音轨（不等于「音轨开关可控」，见 generate_audio token 语义注）。…, 请求参数能否控制该视频 model 的音轨开关（即 `generate_audio` token 的字面语义）。 与…, ModelInfo, model_has_audio_track —— voice_consistency 派生所依据的音轨判定。 (+16 more)
 
-### Community 478 - "migrate_v0_to_v1"
-Cohesion: 0.18
-Nodes (21): _migrate_scripts(), migrate_v0_to_v1(), Path, v0→v1 迁移：拆分 clues → scenes + props；删除 importance；级联剧本 JSON。, 从 v1 schema 反推 old_clues（用于半迁移项目的自愈补跑）。 scene → type=location，prop →…, v0→v1 迁移。幂等 + 半迁移自愈。 顺序：先搬文件 → 再改剧本 → 最后升 schema_version。这样任一步崩溃时…, 把剧本里每条 scene/segment 的 clues[] 拆为 scenes[] + props[], _reconstruct_old_clues_from_v1() (+13 more)
+### Community 478 - "load_json"
+Cohesion: 0.15
+Nodes (24): load_json(), Any, 严格加载 JSON。异常直接抛出，调用方按业务需要做 try/except。, _migrate_scripts(), migrate_v0_to_v1(), Path, v0→v1 迁移：拆分 clues → scenes + props；删除 importance；级联剧本 JSON。, 从 v1 schema 反推 old_clues（用于半迁移项目的自愈补跑）。 scene → type=location，prop →… (+16 more)
 
 ### Community 479 - ".load"
 Cohesion: 0.15
 Nodes (25): OnConflict, Path, replace 冲突策略下，清掉同 stem 的旧 raw 备份。 若不清理，当新上传为纯 UTF-8 .txt（不产生 raw）而旧上传留下…, 返回 (has_conflict, suggested_stem). 冲突条件： - dst_dir/<stem>.txt 存在 -…, 规范化上传文件为 UTF-8 .txt 并按"决策 7"备份原始字节。 Args: src: 临时文件路径（上传层已落盘）。 dst_dir: 目标项目的…, SourceLoader, Path, stem_1 已占用时 suggested_stem 递增到 stem_2，锁 Task 11 预期的递增语义。 (+17 more)
 
 ### Community 480 - ".agents/skills/impeccable/scripts/context-signals.mjs"
-Cohesion: 0.13
-Nodes (26): cli(), COMMON_DEV_PORTS, devServerSignals(), gatherSignals(), gitSignals(), hasCode(), isVendoredPath(), latestCritique() (+18 more)
+Cohesion: 0.10
+Nodes (37): cli(), COMMON_DEV_PORTS, devServerSignals(), gatherSignals(), gitSignals(), hasCode(), isVendoredPath(), latestCritique() (+29 more)
 
-### Community 481 - "ProviderMeta"
-Cohesion: 0.09
-Nodes (13): ModelInfo, ProviderMeta, 返回被 ``values`` 完整覆盖的凭证组（组内所有 key 均非空）。 驱动凭证创建/更新端点的切组判定：未声明 credential_groups 的…, parametrize, Test ProviderMeta with ModelInfo structure., TestModelInfo, TestProviderMeta, 凭证「二选一」分组声明的 fail-fast 校验。 (+5 more)
+### Community 481 - "prompt_builders.py"
+Cohesion: 0.10
+Nodes (23): append_image_negative_tail(), append_product_fidelity_tail(), append_video_negative_tail(), build_character_prompt(), build_product_prompt(), build_prop_prompt(), build_scene_prompt(), 图像 / 视频 / 资产 prompt 的统一真相源。 WebUI（server/services/generation_tasks.py）和… (+15 more)
 
 ### Community 482 - "常见问题 {#faq}"
 Cohesion: 0.07
@@ -2743,28 +2729,28 @@ Cohesion: 0.07
 Nodes (27): 11. 上线检查清单 {#go-live-checklist}, 1.1 启动 {#sqlite-start}, 1.2 持久化目录 {#sqlite-volumes}, 1. 默认部署：SQLite {#sqlite-deployment}, 2.1 启动 {#postgresql-start}, 2.2 PostgreSQL 持久化目录 {#postgresql-volumes}, 2.3 数据库迁移 {#database-migrations}, 2. 生产部署：PostgreSQL {#postgresql-deployment} (+19 more)
 
 ### Community 484 - "Deployment and Operations {#deployment}"
-Cohesion: 0.07
-Nodes (27): 11. Go-Live Checklist {#go-live-checklist}, 1.1 Start {#sqlite-start}, 1.2 Persistent Directories {#sqlite-volumes}, 1. Default Deployment: SQLite {#sqlite-deployment}, 2.1 Start {#postgresql-start}, 2.2 PostgreSQL Persistent Directories {#postgresql-volumes}, 2.3 Database Migrations {#database-migrations}, 2. Production Deployment: PostgreSQL {#postgresql-deployment} (+19 more)
+Cohesion: 0.06
+Nodes (34): 10. Common Problems {#troubleshooting}, 11. Go-Live Checklist {#go-live-checklist}, 1.1 Start {#sqlite-start}, 1.2 Persistent Directories {#sqlite-volumes}, 1. Default Deployment: SQLite {#sqlite-deployment}, 2.1 Start {#postgresql-start}, 2.2 PostgreSQL Persistent Directories {#postgresql-volumes}, 2.3 Database Migrations {#database-migrations} (+26 more)
 
 ### Community 485 - "initGlobalBar"
 Cohesion: 0.09
 Nodes (38): agentHasWorkInFlight(), agentStatusText(), barPaletteForTheme(), brandMarkSvg(), buildDesignHeader(), buildParamsPanel(), designPanelCss(), detectPageTheme() (+30 more)
 
-### Community 486 - "checkHtmlPatterns"
-Cohesion: 0.13
-Nodes (27): buildHtmlPatternCorpora(), checkHtmlPatterns(), collectCssCustomProps(), collectMarqueeKeyframes(), collectPulseKeyframes(), cssLengthToPx(), cssTextHasDarkRootBg(), enclosingCssSelector() (+19 more)
+### Community 486 - "_open_drama_for_edit"
+Cohesion: 0.21
+Nodes (25): _drama_project(), _drama_quarantine_path(), _drama_scene(), _drama_step1_path(), _open_drama_for_edit(), _promote_drama(), 把项目声明成 drama + 分镜路线，并铺好源文——正式 step1 的写禁与草稿通道以此为前提。, drama 取回的草稿装场景内容表，正式文件一步不动——写盘只发生在持锁的晋升侧。 (+17 more)
 
 ### Community 487 - "Responsive Design"
 Cohesion: 0.06
 Nodes (32): Assess Adaptation Challenge, Breakpoints: Content-Driven, Content Adaptation, Desktop Adaptation (Mobile → Desktop), Detect Input Method, Not Just Screen Size, Email Adaptation (Web → Email), Implement Adaptations, Layout Adaptation Patterns (+24 more)
 
-### Community 488 - "test_video_frame_slots.py"
-Cohesion: 0.09
-Nodes (24): FrameSlotPlan, gate_video_request(), plan_frame_slots(), Path, Protocol, VideoCapabilities, 视频生成的请求期能力校验（``gate_video_request``）与帧槽位组装（``plan_frame_slots``）。 从…, 统一的请求期能力前置校验：违约抛 ``VideoCapabilityError``，通过则静默返回。 三条可选输入路径（尾帧 / 参考图 /… (+16 more)
+### Community 488 - "test_agent_provider_catalog.py"
+Cohesion: 0.14
+Nodes (21): get_preset(), list_presets(), PresetProvider, 预设 Anthropic 兼容供应商目录。 每条 PresetProvider 提供 messages_url + discovery_url + 「获取…, 返回内置 provider 的默认文本模型与可见文本目录，供 Agent 预设复用同一真相源。, _visible_text_catalog(), 每条预设都必须有「获取 API Key」链接(便于用户跳转)., ArcReel 是用户表格中唯一标推荐的预设;其他全部不推荐. (+13 more)
 
-### Community 489 - "_reset_for_tests"
-Cohesion: 0.15
-Nodes (18): Clear the cached value so tests can monkeypatch env between cases., _reset_for_tests(), MonkeyPatch, Path, diagnostics.collect_diagnostics 行为测试。, test_collect_masks_db_password(), test_collect_masks_db_query_secrets(), test_collect_returns_log_dir_matching_logging_config() (+10 more)
+### Community 489 - "safe_join"
+Cohesion: 0.03
+Nodes (119): Parse complete portable evidence and verify its canonical digest., _audio_settings(), _image_basis_matches_resource(), is_typed_media_resource(), parse_image_version_basis(), parse_typed_audio_settings(), parse_typed_media_version_target(), Any (+111 more)
 
 ### Community 490 - "test_agent_config_router.py"
 Cohesion: 0.14
@@ -2774,37 +2760,37 @@ Nodes (25): TestConnectionResponse, authed_client(), _make_app(), asyncio, FastA
 Cohesion: 0.06
 Nodes (26): Before you finish, Scope is sovereign, The amplification, The skeleton test, Why it reads flat, Craft floor, Refuse, Verify (+18 more)
 
-### Community 492 - "test_files_router.py"
-Cohesion: 0.13
-Nodes (8): _client_with_pm_raising(), _fake_generate_without_ledger(), _FakeTextBackend, 构造一个最小 app，其 get_project_manager 调用即抛 RuntimeError。 RuntimeError 不属于…, 未预期异常应映射为通用 500，且不在响应体泄露内部异常细节。, 简单档模型不支持 vision 时，400 detail 走 i18n 翻译，不透出裸中文技术消息。, 路由测试只验证解析结果，不依赖用量账本或数据库。, TestFilesUnexpectedErrorsMapTo500
+### Community 492 - "VisionCapabilityError"
+Cohesion: 0.27
+Nodes (6): 解析出的文本模型不支持图像输入（vision），无法执行需要 vision 的任务。 携带结构化字段供调用方（如面向用户的…, VisionCapabilityError, _client_with_pm_raising(), 构造一个最小 app，其 get_project_manager 调用即抛 RuntimeError。 RuntimeError 不属于…, 未预期异常应映射为通用 500，且不在响应体泄露内部异常细节。, TestFilesUnexpectedErrorsMapTo500
 
 ### Community 493 - "TestGenerationQueue"
-Cohesion: 0.07
+Cohesion: 0.08
 Nodes (7): persist_provider_job_id 是 wrapper,只验证不抛(行为细节在 repo 层测过)。, mark_task_cancelled wrapper → repo.finalize_cancelled,SQL 守卫接住…, cancel_task 把 cancelling 列表派发给 worker_cancel_callback(秒级响应)。, mark_task_cancelled(finalize 入口) 把级联出的 running 子任务派发给 callback。…, callback 抛异常不影响 cancel_task 返回(best-effort 信号)。, get_cancel_preview wrapper → repo.get_cancel_preview。, TestGenerationQueue
 
 ### Community 494 - "_ad_pm"
 Cohesion: 0.13
-Nodes (14): _ad_pm(), _currency_resolver(), ad 项目 fixture：产品镜头 E1S02（引用保温杯）+ 氛围镜头 E1S01/E1S03。, 有确认 sheet 的产品镜头：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。, 无 sheet 的产品镜头：原图直注、仍排首位；声明但缺失的原图跳过。, 指令点名的产品与实际注入参考的产品一致：图全缺的产品不被指令点名（避免指向不存在的参考）。, 氛围镜头（products_in_shot 为空）：零产品图，场景/角色 sheet 照常注入，prompt 无保真指令。, products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零产品参考（str 不得被逐字符迭代）。 (+6 more)
+Nodes (14): _ad_pm(), _currency_resolver(), _patch_video_path(), ad 项目 fixture：产品镜头 E1S02（引用保温杯）+ 氛围镜头 E1S01/E1S03。, 有确认 sheet 的产品镜头：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。, 无 sheet 的产品镜头：原图直注、仍排首位；声明但缺失的原图跳过。, 指令点名的产品与实际注入参考的产品一致：图全缺的产品不被指令点名（避免指向不存在的参考）。, 氛围镜头（products_in_shot 为空）：零产品图，场景/角色 sheet 照常注入，prompt 无保真指令。 (+6 more)
 
 ### Community 495 - "_create_reference_video_project"
 Cohesion: 0.24
 Nodes (14): _build_reference_episode(), _build_unit(), _create_reference_video_project(), _make_manual_zip(), integration, Path, ProjectManager, unit (+6 more)
 
 ### Community 496 - "TestStep2PromptGuards"
-Cohesion: 0.08
-Nodes (14): parametrize, source_kind 分支在 step1（normalize）：novel 改编 + 画外音语境放开、screenplay 提取 + 逐字保留。…, step2（视觉层）prompt 骨架守卫：节奏建议始终注入、schema 枚举不重复列举、 无字数硬限制、episode 约束在场且 scene_id…, schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。, LLM 无法精确数字数，prompt 不写硬性字数上限。, drama prompt 必须明确告知 LLM 当前 episode，避免 ID 跨集污染。, step2 视觉层 scene_id 须逐字保留 step1 原 ID（含拆分/编辑后缀如 E2S02_1）； 不得施加 E{集}S{两位序号}…, narration prompt 须告知 episode；step1 已分配 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。 (+6 more)
+Cohesion: 0.12
+Nodes (12): parametrize, step2（视觉层）prompt 骨架守卫：节奏建议始终注入、schema 枚举不重复列举、 无字数硬限制、episode 约束在场且 scene_id…, schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。, LLM 无法精确数字数，prompt 不写硬性字数上限。, drama prompt 必须明确告知 LLM 当前 episode，避免 ID 跨集污染。, step2 视觉层 scene_id 须逐字保留 step1 原 ID（含拆分/编辑后缀如 E2S02_1）； 不得施加 E{集}S{两位序号}…, narration prompt 须告知 episode；step1 已分配 E{N}S 前缀，prompt 渲染该 segment_id 并要求逐字对齐。, step2 资产块携带外观描述并声明取材口径，视觉字段写细节时从登记描述取材、不自行发明。 (+4 more)
 
 ### Community 497 - "_build_generator"
 Cohesion: 0.14
 Nodes (9): _build_generator(), _FakeLedger, _FakeLedgerCall, _FakeVersions, BaseException, parametrize, Path, 记账账本假实现：捕获记账括号入参与递交的 backend 结果对象（新主缝）。 (+1 more)
 
 ### Community 498 - ".agents/skills/impeccable/scripts/generate-image.mjs"
-Cohesion: 0.09
-Nodes (26): crc32(), hash32(), hslToRgb(), out, palette(), pngChunk(), pngFake(), promptFile (+18 more)
+Cohesion: 0.18
+Nodes (13): crc32(), hash32(), hslToRgb(), out, palette(), pngChunk(), pngFake(), promptFile (+5 more)
 
-### Community 499 - "test_ad_reference_video_units_v7.py"
-Cohesion: 0.13
-Nodes (28): NovelInfo, 小说来源信息 title/chapter 都带 default,以便 SkipJsonSchema[NovelInfo] 的…, 参考视频单元——一个视频文件的最小生成粒度。 ``text`` 是这个单元的唯一持久化内容真相：一段自由书写的正文，参考图与发声归属都从它…, ReferenceVideoUnit, 广告参考路线共用自包含 video_units 的模型与解析契约。, test_ad_reference_route_declares_video_units_while_storyboard_stays_shots(), test_only_replan_shell_may_be_empty_and_zero_duration(), test_product_label_before_colon_is_not_misparsed_as_character_speech() (+20 more)
+### Community 499 - "ReferenceVideoScript"
+Cohesion: 0.18
+Nodes (23): NovelInfo, 小说来源信息 title/chapter 都带 default,以便 SkipJsonSchema[NovelInfo] 的…, 参考视频单元——一个视频文件的最小生成粒度。 ``text`` 是这个单元的唯一持久化内容真相：一段自由书写的正文，参考图与发声归属都从它…, 参考生视频模式剧集脚本。 注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。 详见…, ReferenceVideoScript, ReferenceVideoUnit, _make_unit(), unit (+15 more)
 
 ### Community 500 - ".agents/skills/impeccable/reference/live.md"
 Cohesion: 0.06
@@ -2815,104 +2801,104 @@ Cohesion: 0.06
 Nodes (29): Apply at system scale, Audit before choosing, Choose a strategy, Contrast and perception, Live-mode signature params, Verify, Visitor mode, Cleanup (+21 more)
 
 ### Community 502 - "migrate_v8_to_v9"
-Cohesion: 0.31
-Nodes (23): _located(), migrate_v8_to_v9(), 把预检抛出的结构违约补成带定位事实的迁移错误。 「需要修复」裁决按 ``(episode, file)`` 给用户与 Agent…, 启动扫描与归档导入共用的单一入口（经 ``migrate_project_dir`` 调用）。, _draft_path(), _project(), parametrize, Path (+15 more)
+Cohesion: 0.15
+Nodes (38): _ensure_backup(), _episode_entries(), _located(), migrate_reference_script(), migrate_reference_step1_draft(), _migrate_unit(), migrate_v8_to_v9(), Any (+30 more)
 
-### Community 503 - "artifact_provenance.py"
-Cohesion: 0.08
-Nodes (48): build_ad_episode_script_basis(), build_episode_script_basis(), build_step1_basis(), build_step1_request(), _content_axes(), _freeze_ad_prompt_table_order(), _freeze_reference_outline(), _freeze_step1_prompt_inputs() (+40 more)
+### Community 503 - "normalize_sdk_message_to_entries"
+Cohesion: 0.09
+Nodes (12): normalize_sdk_message_to_entries(), 一次性定型单条消息（skill 注入/AskUserQuestion 的跨消息关联需持有 SdkMessageNormalizer 实例）。, 只有整条内容即中断回显才定型；正文中途出现同字样不误判。, 同一 tick 内两个后台任务的通知被批到一条消息时，两条都要保留成条目。, 消息本身没有 uuid 时，批量通知不能都退化成同一个 "None-tn{i}"——否则 与单条场景一样会在前端归并/查找时互相覆盖。, subagent 内产生的后台任务通知需带 parent_tool_use_id，前端时间线才能 把它路由进对应 subagent…, 归属键的大小写变体走既有归一化 helper，与其它分支同口径。, 同一消息批多条通知时，每条都带同一 parent。 (+4 more)
 
-### Community 504 - ".agents/skills/impeccable/scripts/detector/engines/static-html/detect-html.mjs"
-Cohesion: 0.10
-Nodes (34): mergeDesignSystemFindings(), runTextContentAnalyzers(), collectStaticCssText(), checkStaticPageTypography(), detectHtml(), STATIC_ELEMENT_RULES, checkCreamPalette(), checkElementHeroEyebrow() (+26 more)
+### Community 504 - "detectHtml"
+Cohesion: 0.18
+Nodes (17): checkStaticPageTypography(), detectHtml(), checkCreamPalette(), checkPageQualityDOM(), checkPageQualityFromDoc(), creamFromClassList(), isCreamColor(), scopedIgnoreActive() (+9 more)
 
 ### Community 505 - ".agents/skills/impeccable/scripts/live-inject.mjs"
-Cohesion: 0.13
-Nodes (28): describeInjectArtifacts(), frameworkIgnorePatterns(), PATCH_UNDOERS, resolveFramework(), clearInjectJournal(), healArtifact(), healInjectJournal(), INJECT_JOURNAL_RELPATH (+20 more)
+Cohesion: 0.05
+Nodes (74): astro, detectAstroProject(), fileExists(), findConfigFile(), firstExistingFile(), hasAnyDependency(), literalConfigFiles(), readPackageDeps() (+66 more)
 
 ### Community 506 - "parseRgb"
 Cohesion: 0.13
-Nodes (32): checkColors(), checkElementAIPaletteDOM(), checkElementColors(), checkElementColorsDOM(), checkElementGlowDOM(), checkElementHoverContrast(), checkElementIconTile(), checkElementIconTileDOM() (+24 more)
+Nodes (30): checkCreamPalette(), checkElementColors(), checkElementColorsDOM(), checkElementGlowDOM(), checkElementHoverContrast(), checkElementIconTile(), checkElementIconTileDOM(), checkHoverContrast() (+22 more)
 
-### Community 507 - "api_keys.py"
-Cohesion: 0.08
-Nodes (35): ApiKeyRepository, Any, datetime, Update last_used_at for the given key hash., Create a new API key record., Return all API keys (metadata only, no hashes)., Look up a key by its SHA-256 hash. Returns full row including hash., Look up a key by its primary key ID. Includes key_hash for cache invalidation. (+27 more)
+### Community 507 - "checkHtmlPatterns"
+Cohesion: 0.12
+Nodes (30): buildHtmlPatternCorpora(), checkGlow(), checkHtmlPatterns(), collectCssCustomProps(), collectMarqueeKeyframes(), collectPulseKeyframes(), cssLengthToPx(), cssTextHasDarkRootBg() (+22 more)
 
-### Community 508 - "ConfigService"
-Cohesion: 0.04
-Nodes (42): 解析旁白语速：project.json 顶层 ``narration_speed`` > 全局 setting > None（不传给 backend）。…, ConfigService, ProviderConfigValueError, ProviderStatus, ValueError, Get raw config for ALL providers in a single query., Get all system settings in a single query., 旁白语速（全局 setting）。未设置/损坏值返回 None，由各 audio backend 按自身能力处理。 (+34 more)
+### Community 508 - "PlanResult"
+Cohesion: 0.09
+Nodes (30): EpisodePlanSummary, LedgerStats, PlanResult, 单集摘要：标题 + 钩子 + 体量（按 source_language 计的阅读单位）。, 全账本体量分布快照（机械现算，不做「多小算畸小」之类的阈值判断）。 语义判断（是否与用户结构性偏好如「一章一集」「共 32 集」有出入）留给主 agent…, _format_summary(), 全局核对材料：累计集数、最小体量集、中位数、目标体量，附一句面向主 agent 的核对指令。, 账本摘要：每集标题 + 钩子 + 体量（阅读单位）。 常规批次只加「累计已规划 N 集」一行；末批/耗尽时 ``result.ledger_stats`` 非… (+22 more)
 
-### Community 509 - "make_client"
-Cohesion: 0.20
-Nodes (7): make_client(), fixture, integration, _seed_custom_models(), session_factory(), TestBuiltinBucketFiltering, TestCustomProviderBucketFiltering
+### Community 509 - "test_prompt_builders_ad.py"
+Cohesion: 0.10
+Nodes (14): 渲染分镜路线的单镜头时长约束；参考路线须走自包含 unit 构建器。, _shot_duration_constraint(), _build(), MonkeyPatch, parametrize, 广告/短片模式剧本生成 prompt 构建器测试。, 口播字数→时长折算语速由 lib.speech_rate 注入，不写死数字；带货与通用短片两分支同源。, 项目级语速覆盖生效时注入覆盖值；量词仍随语言。 (+6 more)
 
 ### Community 510 - "test_openai_video_resolution.py"
 Cohesion: 0.18
 Nodes (24): _capture_size(), _make_backend(), asyncio, parametrize, 测试 OpenAIVideoBackend 的 size 解析：按 model+分辨率档吸附 sora 合法枚举，比例优先。 sora-2（base）仅…, sora-2-pro 自定义分辨率（短边 1000，更近 1080）选最近档 1080p，不被「向下取整」误降到 720p。, sora-2（base）不支持 1080p：请求 1080p 仍降级为 720x1280（清晰度让位模型能力）。, 1024x1792 / 1792x1024（4:7）已从合法档移除——比例优先不再产出 4:7 视频。 (+16 more)
 
-### Community 511 - "GrokImageBackend"
-Cohesion: 0.06
-Nodes (30): Configuration management package., GrokImageBackend, 校验 aspect_ratio 是否在 Grok 支持列表中，不支持则 warning 并透传。, xAI Grok (Aurora) 图片生成后端，支持 T2I 和 I2I。, _validate_aspect_ratio(), build_prompt(), generate_one(), load_grok_api_key() (+22 more)
+### Community 511 - "video_capabilities_for_model"
+Cohesion: 0.11
+Nodes (19): VideoCapabilities, 读某后端对某 model 声明的视频能力 —— 纯查表，不构造实例（无需 api_key）。 ``name`` 是 registry 名（内置侧由…, video_capabilities_for_model(), _backend_video_caps(), VideoCapabilities, 视频能力位与参考图上限的唯一声明处是 backend，registry ModelInfo 不带这些字段。, AsyncSession, patch (+11 more)
 
 ### Community 512 - ".claude/skills/impeccable/scripts/hook-admin.mjs"
+Cohesion: 0.11
+Nodes (46): ACTIONS, addIgnoreFile(), addIgnoreRule(), addIgnoreValue(), DETECTOR_CONFIG_KEYS, detectorSection(), fileHasImpeccableHookMarker(), HOOK_MANIFEST_TARGETS (+38 more)
+
+### Community 513 - "unit"
+Cohesion: 0.05
+Nodes (22): _is_h3_model(), VideoCapabilities, H3 判定：大小写不敏感、容忍命名空间前缀（如中转站可能把型号存成 "proxy/minimax-h3"）。 与…, 海螺图生视频走 first_frame_image 首帧；S2V-01 走 subject_reference 单脸参考生视频。 S2V-01…, VideoCapabilities, 按 model_id 纯计算 caps —— 不构造 client。保留 `model` 形参仅为跨 backend 接口统一， generic…, TestVideoRegistry, H3 走 v2 多模态端点：能力声明按官方《创建视频生成任务 (V2)》逐维度锁定。 (+14 more)
+
+### Community 514 - "._call"
 Cohesion: 0.12
-Nodes (42): ACTIONS, addIgnoreFile(), addIgnoreRule(), addIgnoreValue(), DETECTOR_CONFIG_KEYS, detectorSection(), fileHasImpeccableHookMarker(), HOOK_MANIFEST_TARGETS (+34 more)
+Nodes (15): InstructorRetryException, ValidationError, 上游拒收 tools 参数：Instructor 把这次 API 调用异常包起来后才到达降级链。, 首档是 TOOLS：成功即返回，不触碰约束更弱的 MD_JSON。, 上游拒收 tools 参数（wire 层）→ 降档到 MD_JSON 并产出合规结果。, TOOLS 档校验类耗尽不降档：上游确实回了 tool call，换更弱的档只会更差。, 末档耗尽同样收敛为终局异常，不把 InstructorRetryException 原文透出去。, 瞬态错误既不降档也不收敛为终局异常，原样冒泡交调用方的重试装饰器判定。 (+7 more)
 
-### Community 513 - "VideoBackend"
-Cohesion: 0.12
-Nodes (12): Protocol, 接续 provider 上已发起的 job：轮询 + 下载，不重新 submit（ADR 0007）。 未实现的 backend 抛…, VideoBackend, create_backend(), get_registered_backends(), Any, register_backend(), TestRegistration (+4 more)
-
-### Community 514 - ".claude/skills/impeccable/scripts/hook-before-edit.mjs"
-Cohesion: 0.08
-Nodes (48): allow(), bumpCursorDenial(), cursorBlockMessage(), deny(), detectProposedHtml(), done(), escapeRegExp(), findingSignature() (+40 more)
-
-### Community 515 - ".agents/skills/impeccable/scripts/live/roots.mjs"
-Cohesion: 0.15
-Nodes (27): CANDIDATE_SCAN_IGNORED, consumeTargetArg(), CONTEXT_FALLBACK_DIRS, DESIGN_NAMES, DEV_CONFIG_MARKERS, discoverAppCandidates(), enterLiveRoot(), exists() (+19 more)
+### Community 515 - "_patch_empty_db"
+Cohesion: 0.67
+Nodes (3): _patch_empty_db(), fixture, 把全局 async_session_factory 换成空内存库，隔离掉真实数据库。 无 project_name 的 _extract_provider…
 
 ### Community 516 - "parseRgb"
-Cohesion: 0.15
-Nodes (27): checkElementColors(), checkElementColorsDOM(), checkElementGlowDOM(), checkElementHoverContrast(), checkElementIconTile(), checkElementIconTileDOM(), checkHoverContrast(), checkIconTile() (+19 more)
+Cohesion: 0.13
+Nodes (32): checkColors(), checkElementAIPaletteDOM(), checkElementColors(), checkElementColorsDOM(), checkElementGlowDOM(), checkElementHoverContrast(), checkElementIconTile(), checkElementIconTileDOM() (+24 more)
 
 ### Community 517 - "test_i18n_consistency.py"
 Cohesion: 0.08
 Nodes (20): _event_label_keys(), Verify that i18n translation dictionaries are consistent across locales., SUPPORTED_LOCALES must match the locales in MESSAGES., Both locales must use the same format placeholders for each key., Every problem code a batch admission can surface must read as prose. The…, 事件载荷可能携带的 label_key 全部有翻译，且没有无人使用的残留 key。, 界面按同一组 label_key 渲染文案，两侧 key 集合不得漂移。, Every locale must define the exact same set of merged keys. (+12 more)
 
-### Community 518 - "runHook"
-Cohesion: 0.14
-Nodes (29): appendDesignSystemNote(), appendDesignSystemNoteOnce(), bumpEditCount(), coLocatedStylesheets(), commitFooterShown(), consumeSessionNoticeFlag(), dedupeAgainstCache(), depthIsSet() (+21 more)
+### Community 518 - "Path"
+Cohesion: 0.08
+Nodes (35): _make_policy(), policy(), fixture, Path, 以 tmp 根路径纯构造 policy：repo 布局与旧 SessionManager fixture 一致。, log_dir 必须落在 sensitive prefixes 里，agent 不能 Read/Grep 全局日志。 背景：服务器日志含 HTTP…, sandbox_enabled=False（Windows 回退）时只返回 {"enabled": False}。, sandbox_enabled=True（默认）依然返回完整 dict（含 network / filesystem）。 (+27 more)
 
 ### Community 519 - "test_provider_registry.py"
-Cohesion: 0.09
-Nodes (15): PROVIDER_REGISTRY 字段与注册完整性单元测试。, 可灵覆盖 image + video 两条 lane，optional_keys 须声明两者的并发上限字段。, JWT 直连视频默认模型 kling-v2-5-turbo，能力声明齐备。, 可灵视频后端在 video registry 自注册（JWT 直连）。, 复用现有 ark backend 类支持 ark-agent-plan provider。, 可灵三键 required/secret key（api_key 单键 / access_key+secret_key 双键二选一）+ 默认…, 凭证二选一分组：api_key 单键，或 access_key+secret_key 双键。, 未声明 credential_groups 的 provider（绝大多数）保持空列表默认，语义不变。 (+7 more)
+Cohesion: 0.08
+Nodes (17): PROVIDER_REGISTRY 字段与注册完整性单元测试。, 可灵覆盖 image + video 两条 lane，optional_keys 须声明两者的并发上限字段。, JWT 直连视频默认模型 kling-v2-5-turbo，能力声明齐备。, 图像模型：默认 kling-image-o1（按张 flat ¥0.2），v3-omni 别名键按分辨率（4K ¥0.4）。, 可灵视频后端在 video registry 自注册（JWT 直连）。, 复用现有 ark backend 类支持 ark-agent-plan provider。, 可灵三键 required/secret key（api_key 单键 / access_key+secret_key 双键二选一）+ 默认…, 凭证二选一分组：api_key 单键，或 access_key+secret_key 双键。 (+9 more)
 
-### Community 520 - "TestUploadPixelBudget"
-Cohesion: 0.22
-Nodes (6): 解码后像素总数上限：字节上限与 PIL 自带的 bomb 检查都覆盖不到的区间。, 超出上限的图片被拒绝，且不与「无法解析」混为一谈。 用 monkeypatch 压低上限：真正触界的图需上亿像素，构造代价过高，…, 恰好等于上限的图片放行（边界不多拦一格）。, 继承 ValueError：未单独处理该类型的调用方仍收口为无效图片。, 4K 见方的联合图在默认上限内，不被误拦。, TestUploadPixelBudget
+### Community 520 - "strip_json_code_fences"
+Cohesion: 0.11
+Nodes (18): 把 step2 响应还原成隔离草稿要装的扁平形状 ``{title, units: [{text}]}``。 与…, 解析并验证 TextBackend 响应 Args: response_text: API 返回的 JSON 文本 episode: 剧集编号…, 解析 step2 视觉层 LLM 响应（NarrationVisualEpisodeScript）。 严格校验 + model_dump：视觉 schema…, 解析 step2 视觉层 LLM 响应为 scene 视觉 dict 列表（scene_id + image_prompt + video_prompt）。…, 剥离 LLM 输出最外层的 markdown 代码栅栏，返回可交给 json.loads 的纯文本。 两端去空白后：剥离开头的 ``` 栅栏（可带空白与可选的…, strip_json_code_fences(), parametrize, strip_json_code_fences 单元测试：覆盖大小写变体、裸 JSON、仅开/闭栏、空白等输入。 (+10 more)
 
 ### Community 521 - "resolveLengthPx"
 Cohesion: 0.10
 Nodes (27): checkElementHeroEyebrow(), checkElementHeroEyebrowDOM(), checkHeroEyebrow(), checkKickerAboveHeading(), checkKickerAboveHeadingDOM(), checkKickerAboveHeadingFromDoc(), checkNumberedSectionLabels(), checkNumberedSectionLabelsDOM() (+19 more)
 
-### Community 522 - ".claude/skills/impeccable/scripts/live-manual-edit-evidence.mjs"
-Cohesion: 0.15
-Nodes (26): analyzeSourceHint(), buildCandidatesForOp(), buildContextHintsByRef(), buildManualEditEvidence(), collectSearchFiles(), countOps(), decodeBasicHtml(), escapeRegExp() (+18 more)
+### Community 522 - ".agents/skills/impeccable/scripts/live/tanstack-adapter.mjs"
+Cohesion: 0.16
+Nodes (20): tanstackStart, applyTanStackLiveAdapter(), buildTanStackLiveRootComponent(), detectTanStackStartProject(), escapeRegExp(), findRootRouteFile(), insertAfterLastImport(), isManagedComponent() (+12 more)
 
-### Community 523 - "ViduImageBackend"
-Cohesion: 0.10
-Nodes (11): ViduImageBackend, output_path(), fixture, Path, ViduImageBackend 单元测试 — 重点校验 prompt/aspect_ratio/resolution 白名单兜底逻辑。, 413 规整：_create_task 透出保留状态码的 httpx.HTTPStatusError（咽喉层据此降档）。, 避免运行时调用，先把配置常量当 spec 钉死，防止误改。, TestCapabilityMismatchRaises (+3 more)
+### Community 523 - "test_system_version_api.py"
+Cohesion: 0.12
+Nodes (17): _parse_version(), _make_app(), datetime, FastAPI, parametrize, GitHub 真实场景：v0.10.0-rc1 这类 tag 不应触发 update_check_error。, 远端 tag 解析失败时退化为 has_update=False，不报错。, 5 分钟 TTL 内重复调用应只命中 HTTP 一次。 (+9 more)
 
 ### Community 524 - "devDependencies"
 Cohesion: 0.09
 Nodes (23): @docusaurus/module-type-aliases, @docusaurus/tsconfig, @docusaurus/types, prettier, devDependencies, @docusaurus/module-type-aliases, @docusaurus/tsconfig, @docusaurus/types (+15 more)
 
-### Community 525 - "episode_planner.py"
-Cohesion: 0.04
-Nodes (71): EpisodeOutline, has_downstream_products(), normalize_source_text(), parse_episode_num(), PlanningCursor, BaseModel, field_validator, model_validator (+63 more)
+### Community 525 - "episode_ledger.py"
+Cohesion: 0.06
+Nodes (64): compute_source_fingerprints(), discover_episode_file_aliases(), discover_product_episode_nums(), discover_sources(), episodes_without_source_range(), has_downstream_products(), mismatched_source_fingerprints(), normalize_source_text() (+56 more)
 
-### Community 526 - "generation_queue_client.py"
-Cohesion: 0.15
-Nodes (20): enqueue_and_wait(), enqueue_task_only(), is_worker_online(), RuntimeError, Helper utilities for skills to enqueue-and-wait generation tasks. All public…, Raised when queue worker is offline., Raised when queued task finishes as failed., Raised when queued task is cancelled by user. (+12 more)
+### Community 526 - "TaskSpec"
+Cohesion: 0.05
+Nodes (68): dispose_pool(), Dispose the connection pool so a fresh event loop gets fresh connections.…, batch_enqueue_and_wait_sync(), batch_enqueue_only(), enqueue_and_wait(), enqueue_and_wait_sync(), _enqueue_sequentially(), enqueue_task_only() (+60 more)
 
 ### Community 527 - "SourceDecodeError"
 Cohesion: 0.16
@@ -2922,9 +2908,9 @@ Nodes (19): SourceDecodeError, decode_txt(), Path, TXT/MD 文本解码：4 层�
 Cohesion: 0.06
 Nodes (32): Assess Adaptation Challenge, Breakpoints: Content-Driven, Content Adaptation, Desktop Adaptation (Mobile → Desktop), Detect Input Method, Not Just Screen Size, Email Adaptation (Web → Email), Implement Adaptations, Layout Adaptation Patterns (+24 more)
 
-### Community 529 - "unit"
-Cohesion: 0.08
-Nodes (26): OperationalError, _activate_project_artifacts(), fixture, parametrize, unit, drama 项目下生成的参考视频集 content_mode 必须为 drama。 Pydantic 的…, caps 缺失时退到 project.json.video_backend → registry，与 _resolve_supported_durations…, project.json 缺 video_backend 且 caps 不可解析时，build_prompt 应抛 ValueError。… (+18 more)
+### Community 529 - "artifact_provenance.py"
+Cohesion: 0.14
+Nodes (26): build_step1_request(), _content_axes(), _freeze_ad_prompt_table_order(), _freeze_reference_outline(), _freeze_step1_prompt_inputs(), _mapping_or_empty(), _optional_string(), project_ad_episode_script_inputs() (+18 more)
 
 ### Community 530 - "TestAuthIntegration"
 Cohesion: 0.10
@@ -2935,20 +2921,20 @@ Cohesion: 0.13
 Nodes (11): fixture, MonkeyPatch, Tests for env-driven CORS / network binding configuration., `.env` 误写 `LISTEN_PORT=`（空值）不应让 `int("")` 抛 ValueError。, Reload server.app under controlled env so module-level CORS config rebuilds., The CORS middleware values come from CORS_ORIGINS at module import time., `*` 出现在白名单里时，整体降级为通配 + credentials=False， 避免 Starlette `RuntimeError` (CORS…, ``LISTEN_HOST`` / ``LISTEN_PORT`` 的解析仅在 ``__main__`` 块被 uvicorn 消费， 导入… (+3 more)
 
 ### Community 532 - "_FakePM"
-Cohesion: 0.08
-Nodes (9): _FakePM, 任务只声明自己用到的 lane：图片类任务不声明 video/audio（只配置图片供应商的项目 不因视频供应商缺配置失败，未声明 lane 不解析见…, ad 剧本骨架恒为 shots[]，reference_video 路径派生的 video_unit 索引与 shots 同存于一份剧本…, TTS 任务与视频任务共用项目路线，ad 参考路线的混合骨架不能把 unit 事件分到 shot。, 骨架判定拿不到剧本（脚本缺失/损坏）时兜底 segments/「分镜」，不让通知发送中断。, 剧本文件内容损坏成非 dict（如顶层数组）时兜底 segments/「分镜」，不让 resolve_script_kind 内部的 .get() 调用抛…, 骨架驱动的完成事件须挂 script_file 与 episode（供 episode 作用域消费方使用）—— 锁死这条挂载，防将来改动 emit…, Register every asset sheet the fake project already has on disk. A sheet is… (+1 more)
+Cohesion: 0.07
+Nodes (11): _FakePM, product sheet 生成把用户上传原图作为参考注入（标准化整理的输入），缺失文件跳过； 完成后回写 product_sheet。, 任务只声明自己用到的 lane：图片类任务不声明 video/audio（只配置图片供应商的项目 不因视频供应商缺配置失败，未声明 lane 不解析见…, 生成成功事件应携带 asset_fingerprints, 参考生视频任务完成通知的 entity_type 需为前端联合类型认识的 "reference_unit" （而非仅本侧认识的…, ad 剧本骨架恒为 shots[]，reference_video 路径派生的 video_unit 索引与 shots 同存于一份剧本…, 骨架判定拿不到剧本（脚本缺失/损坏）时兜底 segments/「分镜」，不让通知发送中断。, 骨架驱动的完成事件须挂 script_file 与 episode（供 episode 作用域消费方使用）—— 锁死这条挂载，防将来改动 emit… (+3 more)
 
 ### Community 533 - "_raise"
 Cohesion: 0.22
 Nodes (4): _raise(), 返回一个「一调用即抛 RuntimeError(sentinel)」的可调用，用于替换 try 块内最早被命中的内部函数。 RuntimeError…, 未预期异常统一映射为通用 500，且响应体不得回显内部异常文本（不泄露）。 每个端点用独一无二的哨兵串替换 try 块内最早被调用的内部函数，再断言： 响应…, TestUnexpectedErrorsDoNotLeak
 
-### Community 534 - ".agents/skills/impeccable/scripts/live-manual-edit-evidence.mjs"
-Cohesion: 0.16
-Nodes (24): analyzeSourceHint(), buildCandidatesForOp(), buildContextHintsByRef(), collectSearchFiles(), decodeBasicHtml(), escapeRegExp(), findContextMatches(), findLiteralMatches() (+16 more)
+### Community 534 - "AgentCredentialRepository"
+Cohesion: 0.17
+Nodes (17): AgentAnthropicCredential, 用户保存的多套 Anthropic 凭证；可在 UI 上一键切换 active。, AgentCredentialRepository, 删除非 active 凭证。 Returns: True: 删除成功；False: 凭证不存在。 Raises: ValueError: 试图删除当前…, 凭证 CRUD + active 互斥切换。 NOTE: 调用方需在合适的边界 commit。本类只 flush，不 commit。, 互斥切 active：先把同 user 全置 False，再把目标置 True。 Raises: ValueError: cred_id 不存在或不属于该…, asyncio, AgentCredentialRepository 单元测试。 (+9 more)
 
 ### Community 535 - "Provider and Model Configuration {#providers}"
-Cohesion: 0.09
-Nodes (23): 10. Custom Providers {#custom-providers}, 11. Multiple API Keys {#multiple-api-keys}, 12. Cost Tracking {#cost-tracking}, 13. Troubleshooting {#troubleshooting}, 14. Documentation Update Principles {#doc-update-principles}, 1.1 AI Assistant Providers {#assistant-providers}, 1.2 Media and Text Providers {#media-and-text-providers}, 1. Start by Distinguishing Two Provider Categories {#two-provider-categories} (+15 more)
+Cohesion: 0.07
+Nodes (30): 10. Custom Providers {#custom-providers}, 11. Multiple API Keys {#multiple-api-keys}, 12. Cost Tracking {#cost-tracking}, 13. Troubleshooting {#troubleshooting}, 14. Documentation Update Principles {#doc-update-principles}, 1.1 AI Assistant Providers {#assistant-providers}, 1.2 Media and Text Providers {#media-and-text-providers}, 1. Start by Distinguishing Two Provider Categories {#two-provider-categories} (+22 more)
 
 ### Community 536 - "AI 视频生成工作空间"
 Cohesion: 0.09
@@ -2966,17 +2952,17 @@ Nodes (12): agnes, ark-agent-plan, ark, croco, 代码入口, dashscope, gemini-v
 Cohesion: 0.11
 Nodes (25): checkCreamPalette(), checkTextOcclusionDOM(), clamp01(), colorFunctionToRgb(), creamFromClassList(), decodeSrgbChannel(), elementDirectText(), encodeSrgbChannel() (+17 more)
 
-### Community 540 - "initGlobalBar"
-Cohesion: 0.11
-Nodes (39): brandMarkSvg(), clearStoredManualApplyState(), fetchAgentPollingStatus(), fetchPendingCount(), handleManualEditActivity(), hideAgentPollTooltip(), hidePendingApplyDock(), initGlobalBar() (+31 more)
+### Community 540 - "handleManualEditActivity"
+Cohesion: 0.19
+Nodes (24): clearStoredManualApplyState(), fetchPendingCount(), handleManualEditActivity(), hidePendingApplyDock(), manualApplyLoadingText(), manualApplyStateKey(), manualEditEventForCurrentPage(), numberOrNull() (+16 more)
 
-### Community 541 - "PendingQuestionWizard"
-Cohesion: 0.15
-Nodes (14): buildAnswersPayload(), buildQuestionOptions(), getNextVisitedSteps(), getQuestionKey(), isOtherOptionLabel(), isOtherOptionValue(), isOtherSelected(), isQuestionAnswerReady() (+6 more)
+### Community 541 - ".agents/skills/impeccable/scripts/live/svelte-ast.mjs"
+Cohesion: 0.21
+Nodes (20): Analysis, analyzeAttributes(), analyzeFragment(), analyzeNode(), analyzeSvelteMarkup(), applyReplacements(), classifyEachKey(), classifyRoots() (+12 more)
 
-### Community 542 - "_write_rv_step1"
-Cohesion: 0.09
-Nodes (26): fixture, MonkeyPatch, 本模块默认让能力查询解析不到型号：不碰 DB，也不让系统级默认模型的档位漂进断言。 需要具体档位表的用例用 ``_stub_video_caps`` 就地覆盖。, 写出 reference_video 的结构化 step1（``step1_reference_units.json``）。, 存量 step1 草稿（per-shot 时长）在 gate 侧的一次性收编迁移。, 收编前形状：正文已是 v9 形态，但仍带着退役的 ``duration_override`` 标记。, 审阅门迁移落盘的秒数必是档位成员，不能只是「落在结构区间内」。 迁移幂等一次性、谁先跑谁定终局，而正常产品流程是先开审阅门再生成：审阅门若按结构…, 自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：档位表只有 caps 给得出。 审阅门若不解析… (+18 more)
+### Community 542 - "test_script_review.py"
+Cohesion: 0.08
+Nodes (29): fixture, MonkeyPatch, step1→step2 审核 gate 的服务层与纯逻辑测试。 只测外部可观察行为：审核状态流转（step1 产出 → pending → 阻塞 → 确认 →…, 本模块默认让能力查询解析不到型号：不碰 DB，也不让系统级默认模型的档位漂进断言。 需要具体档位表的用例用 ``_stub_video_caps`` 就地覆盖。, 写出 reference_video 的结构化 step1（``step1_reference_units.json``）。, 写出 step2 产物（生成的剧本 JSON），模拟「已产 step2」。, 存量 step1 草稿（per-shot 时长）在 gate 侧的一次性收编迁移。, 收编前形状：正文已是 v9 形态，但仍带着退役的 ``duration_override`` 标记。 (+21 more)
 
 ### Community 543 - ".agents/skills/impeccable/reference/document.md"
 Cohesion: 0.08
@@ -2986,13 +2972,13 @@ Nodes (23): Component translation rules, Narrative mapping, Pitfalls, Scan mode 
 Cohesion: 0.13
 Nodes (24): browserFindingsFromMap(), checkBorders(), checkEdgeFlushCardsDOM(), checkElementBlinkingCursorDOM(), checkElementBorders(), checkElementBordersDOM(), checkElementPseudoStripeDOM(), checkElementTextOverflowDOM() (+16 more)
 
-### Community 545 - ".agents/skills/impeccable/scripts/live/svelte-ast.mjs"
-Cohesion: 0.21
-Nodes (20): Analysis, analyzeAttributes(), analyzeFragment(), analyzeNode(), analyzeSvelteMarkup(), applyReplacements(), classifyEachKey(), classifyRoots() (+12 more)
+### Community 545 - "GrokVideoBackend"
+Cohesion: 0.13
+Nodes (15): GrokVideoBackend, VideoCapabilities, 按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。 当前全系模型能力一致，不按 model_id…, _async_context_manager(), _async_iter(), output_path(), fixture, parametrize (+7 more)
 
-### Community 546 - "GrokTextBackend"
-Cohesion: 0.11
-Nodes (9): GrokTextBackend, mock_xai(), fixture, GrokTextBackend tests., 结构化输出被截断时抛 TextOutputTruncatedError（见 docs/adr/0044）。, 自由文本（无 response_schema）被截断时维持 log-only 告警，不抛错。, max_output_tokens 透传为 xai_sdk chat.create(max_tokens=)。, TestGenerate (+1 more)
+### Community 546 - "TestPromptBuildersScript"
+Cohesion: 0.13
+Nodes (8): step2 只补视觉层：含 image_prompt / video_prompt 指引与渲染内容，不再生成口播 / 资产 / 时长。, step1→step2 透传契约：utterances / source_text 逐字渲染进上下文。, 降级 / 手改 step1 的脏数据鲁棒性：非字符串资产项被过滤（不抛 TypeError），逐字内容里的 尖括号经中和，避免打散嵌入它的 step2…, 非 list 的资产 / utterances 字段（手改 step1：字符串会被逐字符迭代、数字会抛 TypeError）按空处理，…, 带 utterances / source_text 的内容块喂进 step2 prompt：内容透传供理解，仍是视觉专责、不复制进视觉字段。, step2（视觉层）drama prompt；内容已在 step1 定稿，只收渲染好的内容块。, schema 已声明枚举不在 prompt 中重复列举。, TestPromptBuildersScript
 
 ### Community 547 - "split_grid_image"
 Cohesion: 0.15
@@ -3003,8 +2989,8 @@ Cohesion: 0.08
 Nodes (23): Component translation rules, Narrative mapping, Pitfalls, Scan mode (approach C: auto-extract, then confirm descriptive language), Schema, Seed mode, Step 1: Find the design assets, Step 1: Route through new-work's workshop (+15 more)
 
 ### Community 549 - "_wav_bytes"
-Cohesion: 0.08
-Nodes (18): 纯 stdlib 生成 wav 字节（不依赖 ffmpeg），供不要求真实音频编解码的用例使用。, _wav_bytes(), _m4a_bytes(), integration, skipif, unit, 把无音轨的视频文件改名为 .wav 上传时，容器/时长校验会通过，但应无音频流可用而拒绝。, m4a 有音轨也能探出时长，但容器不是 wav，改名上传应被拒绝而非当作 wav 收下。 (+10 more)
+Cohesion: 0.07
+Nodes (23): test helper —— 清缓存让 monkeypatch shutil.which 立刻生效。, _reset_for_tests(), 纯 stdlib 生成 wav 字节（不依赖 ffmpeg），供不要求真实音频编解码的用例使用。, _wav_bytes(), _m4a_bytes(), fixture, integration, skipif (+15 more)
 
 ### Community 550 - "test_auth_coverage.py"
 Cohesion: 0.11
@@ -3026,13 +3012,9 @@ Nodes (22): 10. Definition of Done {#definition-of-done}, 1. Two Dimensions to C
 Cohesion: 0.13
 Nodes (28): describeInjectArtifacts(), frameworkIgnorePatterns(), PATCH_UNDOERS, resolveFramework(), clearInjectJournal(), healArtifact(), healInjectJournal(), INJECT_JOURNAL_RELPATH (+20 more)
 
-### Community 555 - ".claude/skills/impeccable/scripts/live/svelte-ast.mjs"
-Cohesion: 0.21
-Nodes (20): Analysis, analyzeAttributes(), analyzeFragment(), analyzeNode(), analyzeSvelteMarkup(), applyReplacements(), classifyEachKey(), classifyRoots() (+12 more)
-
-### Community 556 - "routers/auth.py"
-Cohesion: 0.12
-Nodes (22): OAuth2PasswordRequestForm, check_credentials(), _get_password_hash(), is_auth_enabled(), 验证下载 token Returns: 成功返回 payload dict Raises: jwt.ExpiredSignatureError: token…, 校验用户名密码（使用哈希比对） 从 AUTH_USERNAME（默认 admin）和 AUTH_PASSWORD 环境变量读取。…, ``AUTH_ENABLED`` env 解析。默认 ``true``，保持现有部署行为；空值也按默认。 ``false`` / ``0`` / ``no``…, verify_download_token() (+14 more)
+### Community 555 - "options_assembler.py"
+Cohesion: 0.16
+Nodes (21): agent 访问规则真相源：内核 sandbox settings 编译与应用层 hook 裁决共用同一份规则。 零…, load_provider_env_overrides(), SDK options 装配器：持依赖、允许 I/O，异步 build 产出 ClaudeAgentOptions。 从 SessionManager…, 构造 options.env 注入字典。 - ANTHROPIC_* 从 DB active credential 取真值 - 其他 provider env…, _make_assembler(), _make_policy(), asyncio, Path (+13 more)
 
 ### Community 557 - ".agents/skills/impeccable/reference/critique.md"
 Cohesion: 0.09
@@ -3043,7 +3025,7 @@ Cohesion: 0.09
 Nodes (22): Assess Onboarding Needs, Context Over Ceremony, Contextual Help, Design Onboarding Experiences, Documentation & Help, Empty State Design, Feature Discovery & Adoption, Guided Tours & Walkthroughs (+14 more)
 
 ### Community 559 - ".agents/skills/impeccable/scripts/detector/engines/browser/detect-url.mjs"
-Cohesion: 0.20
+Cohesion: 0.22
 Nodes (19): createBrowserDetector(), detectUrl(), launchBrowser(), measureContentHiddenAfterReveal(), runVisualContrastFallback(), serializeDesignSystemForBrowser(), captureVisualContrastCandidate(), compareScreenshotContrast() (+11 more)
 
 ### Community 560 - "calculate_vidu_cost"
@@ -3062,17 +3044,17 @@ Nodes (11): 10. Help and Documentation, 1. Visibility of System Status, 2. Match
 Cohesion: 0.09
 Nodes (22): Assess Onboarding Needs, Context Over Ceremony, Contextual Help, Design Onboarding Experiences, Documentation & Help, Empty State Design, Feature Discovery & Adoption, Guided Tours & Walkthroughs (+14 more)
 
-### Community 564 - "aspect_size"
-Cohesion: 0.11
-Nodes (32): aspect_size(), parse_aspect_ratio(), 把分辨率规范化成「短边像素」。 - ``None`` / 空串 → ``default_short`` - 档位词（大小写不敏感，如 ``"2K"`` /…, 把 ``"9:16"`` 解析成约简互质的 ``(9, 16)``；非法值回退 ``(9, 16)`` 并 warn。, 按比例 + 短边目标算出精确遵循比例、且被 ``round_to`` 整除的 ``(宽, 高)``。 合法尺寸 = ``(aw·round_to·t,…, resolution_to_short_edge(), 按「比例优先、清晰度其次」算出 (宽, 高)。 比例永远来自 aspect_ratio；image_size（档位词 / 自定义 宽*高 /…, _clamp_edge() (+24 more)
+### Community 564 - "test_reference_videos_router_ad.py"
+Cohesion: 0.18
+Nodes (22): fake_reference_request_projector(), 构造使用真实资产水合与投影规则、仅替换 provider 能力查询的 async 测试入口。, fixture, MonkeyPatch, Path, three_bucket_client(), ad_client(), fixture (+14 more)
 
 ### Community 565 - "TestDataValidatorEndFramePath"
-Cohesion: 0.27
-Nodes (5): 指向 end_frames/ 之外目录内确实存在的文件也须拒绝——字段只认服务层写出的快照路径， 否则等于绕过快照复制直接引用源图，重新引入源图耦合。, `end_frames/../storyboards/x.png` 表面以 end_frames 前缀开头，实际逃出该目录，同样拒绝。, 指向 end_frames/ 下确实存在的目录须拒绝——校验只认普通文件，不认目录。, TestDataValidatorEndFramePath, _write_png()
+Cohesion: 0.14
+Nodes (12): _projects_client(), integration, parametrize, ProjectManager, TestClient, 通用剧本 PATCH 白名单不含 end_frame_image：设置尾帧只能走专用端点。, 指向 end_frames/ 之外目录内确实存在的文件也须拒绝——字段只认服务层写出的快照路径， 否则等于绕过快照复制直接引用源图，重新引入源图耦合。, `end_frames/../storyboards/x.png` 表面以 end_frames 前缀开头，实际逃出该目录，同样拒绝。 (+4 more)
 
-### Community 566 - "TestGenerate"
-Cohesion: 0.06
-Nodes (23): mock_genai(), _OverviewModel, BaseModel, fixture, SimpleNamespace, 自由文本（无 response_schema）被截断时维持 log-only 告警，不抛错。, 传入 Pydantic 类时解析为 dict 走 response_schema（wire 字段 responseSchema）。…, 区分 const 出现的三种位置：schema 关键字（归一）、字段名（值仍是子 schema）、实例数据（不动）。 本仓库 const 只来自单值时长… (+15 more)
+### Community 566 - ".generate"
+Cohesion: 0.13
+Nodes (11): 异步生成剧集剧本 Args: episode: 剧集编号 output_filename: 输出文件名，默认…, 校验 drama step1 已定场景时长在当前能力集合内，越界 fail-loud。 与…, ad 分支的 (prompt, response_schema) 构造，generate/build_prompt 共用。 reference…, 构建 Prompt（用于 dry-run 模式） 与 `generate()` 同样先 await `_fetch_video_capabilities()`…, 从 ConfigResolver 解析视频模型能力；失败时返 None，由 _resolve_* fallback 到 project.json 直读。 使用…, 当前视频模型身份：caps → project.json 自报身份；都拿不到为 (None, None)。…, 从 caps → registry 两级解析，再按联动约束收窄；都拿不到抛 ValueError。 收窄发生在交给 prompt / 动态 schema…, 收窄前的时长全集：委托共享解析器，取不到时抛 ValueError。 本路径的下游是 prompt 与动态枚举 schema，缺档位就无从生成，故把解析器的… (+3 more)
 
 ### Community 567 - "Testing {#testing}"
 Cohesion: 0.07
@@ -3086,17 +3068,17 @@ Nodes (19): 0. 「happyhorse」是不是别名?, 1. 结论摘要表, 2.1 文生�
 Cohesion: 0.18
 Nodes (20): applySvelteKitLiveAdapter(), buildSvelteLiveRootComponent(), defaultSvelteLayout(), detectSvelteKitProject(), ensureSvelteLiveRootComponent(), escapeRegExp(), fileIncludes(), findSvelteKitAppHtml() (+12 more)
 
-### Community 570 - ".agents/skills/impeccable/scripts/live/tanstack-adapter.mjs"
-Cohesion: 0.16
-Nodes (20): tanstackStart, applyTanStackLiveAdapter(), buildTanStackLiveRootComponent(), detectTanStackStartProject(), escapeRegExp(), findRootRouteFile(), insertAfterLastImport(), isManagedComponent() (+12 more)
+### Community 570 - "applyEditing"
+Cohesion: 0.19
+Nodes (15): applyEditing(), buildLocatorForLeaf(), copyEditContainerContext(), copyEditLeafContext(), documentRefForElement(), extractContext(), forbiddenManualTextChars(), maybeShowFirstSaveToast() (+7 more)
 
 ### Community 571 - ".claude/skills/impeccable/reference/critique.md"
 Cohesion: 0.09
 Nodes (21): Action Summary, Ask the User, Assessment A: Design Review, Assessment B: Detector + Browser Evidence, Assessment Orchestration, Deliver the Report, Design Health Score, Design Specificity Verdict (+13 more)
 
 ### Community 572 - "parseAnyColor"
-Cohesion: 0.11
-Nodes (25): checkCreamPalette(), checkTextOcclusionDOM(), clamp01(), colorFunctionToRgb(), creamFromClassList(), decodeSrgbChannel(), elementDirectText(), encodeSrgbChannel() (+17 more)
+Cohesion: 0.13
+Nodes (22): checkTextOcclusionDOM(), clamp01(), colorFunctionToRgb(), decodeSrgbChannel(), elementDirectText(), encodeSrgbChannel(), hslToRgb(), hwbToRgb() (+14 more)
 
 ### Community 573 - ".claude/skills/impeccable/scripts/detector/engines/browser/detect-url.mjs"
 Cohesion: 0.22
@@ -3106,17 +3088,17 @@ Nodes (19): createBrowserDetector(), detectUrl(), launchBrowser(), measureConten
 Cohesion: 0.18
 Nodes (20): applySvelteKitLiveAdapter(), buildSvelteLiveRootComponent(), defaultSvelteLayout(), detectSvelteKitProject(), ensureSvelteLiveRootComponent(), escapeRegExp(), fileIncludes(), findSvelteKitAppHtml() (+12 more)
 
-### Community 575 - "KeyedLocks"
-Cohesion: 0.13
-Nodes (9): Lock, KeyedLocks, 按字符串键分配 asyncio.Lock 的弱引用注册表（进程内互斥的共享原语）。, 同键请求共享同一把锁；无协程持有/等待时锁对象随弱引用自动回收。 适用于按 key 串行化的临界区（如会话懒生成、同幂等键的新会话创建）： 调用方在…, 取该键的锁，不存在时创建；并发调用者拿到同一实例。, 主动清除键的锁引用；已持有锁对象的等待者不受影响。, KeyedLocks — 按键弱引用锁注册表。, 无协程持有/等待时锁对象自动回收，不为每个键永久驻留内存。 (+1 more)
+### Community 575 - "test_model_candidates_api.py"
+Cohesion: 0.17
+Nodes (10): _make_app(), make_client(), FastAPI, fixture, integration, 能力桶候选模型过滤 API：GET /system/config/model-candidates。 只断言外部行为——给定 ready…, _seed_custom_models(), session_factory() (+2 more)
 
 ### Community 576 - "The Toolkit"
 Cohesion: 0.10
 Nodes (20): Animate complex properties, Assess What "Extraordinary" Means Here, For data-heavy interfaces, For functional UI, For performance-critical UI, For visual/marketing surfaces, Implement with Discipline, Interact with the device (+12 more)
 
-### Community 577 - "TextTaskType"
-Cohesion: 0.14
-Nodes (23): 异步工厂方法，自动从 DB 加载供应商配置创建 TextGenerator。, TextTaskType, create_text_backend_for_task(), 文本 backend 工厂。 provider/model 解析仍在此（resolver.text_backend_for_task），backend…, 从 DB 配置创建文本 backend，随 backend 返回解析层 registry provider_id。 provider_id 是记账…, 工厂方法：根据任务类型创建对应的 backend + ledger。, _make_mock_resolver(), Text backend factory tests. 工厂构造已收口到 assemble_backend（media_type=text）：文本工厂只解析… (+15 more)
+### Community 577 - "test_video_workflow_prompt.py"
+Cohesion: 0.12
+Nodes (26): GenerationItemState, The exclusive per-ID outcome of one generation request., parametrize, Path, Contract coverage for the video-workflow Agent Profile. 档案是…, 预处理 subagent 由计划的 ``next_action.args.preprocessor`` 指名，档案侧不得再推一遍。, _reference(), _skill() (+18 more)
 
 ### Community 578 - "resolveLengthPx"
 Cohesion: 0.13
@@ -3150,41 +3132,41 @@ Nodes (17): browserOpenCommand(), openSystemBrowser(), answerFile(), esc(), flip
 Cohesion: 0.12
 Nodes (16): collectEditableTextRows(), visit(), createLiveBrowserDomHelpers(), cssId(), liveUiRoot(), makeFrozenAnchor(), own(), pickable() (+8 more)
 
-### Community 586 - "app_data_dir"
-Cohesion: 0.06
-Nodes (51): app_data_dir(), Path, Application data root resolution. Centralizes where ArcReel stores per-…, Return the configured application data root (cached)., _normalize_json(), canonical_json(), canonical_json_bytes(), canonical_json_digest() (+43 more)
+### Community 586 - "_format_duration_constraint"
+Cohesion: 0.19
+Nodes (8): _format_duration_constraint(), 生成时长约束描述。连续整数集 ≥5 用区间表达，否则枚举。, 验证 _format_duration_constraint 按连续性切换文案，且不允许空 supported_durations。, default_duration 不在 supported 集合时应抛错，避免 prompt 自相矛盾。, 长度 ≥5 且连续整数时压缩为只包含边界的区间。, 删除 fallback 后，传 None / 空 list 不应再被静默回填。, TestBuildersRequireDurations, TestFormatDurationConstraint
 
 ### Community 587 - "mountSvelteComponentVariant"
 Cohesion: 0.15
 Nodes (20): acceptedDomAlreadyClean(), applyOriginalAttrsToSvelteAnchor(), commitAcceptedSvelteComponentToDom(), componentModuleCandidates(), describeMountFailure(), detectDevServerBase(), ensureAcceptedDomClean(), findAcceptedRuntimeWrappers() (+12 more)
 
-### Community 588 - "applyEditing"
-Cohesion: 0.19
-Nodes (15): applyEditing(), buildLocatorForLeaf(), copyEditContainerContext(), copyEditLeafContext(), documentRefForElement(), extractContext(), forbiddenManualTextChars(), maybeShowFirstSaveToast() (+7 more)
+### Community 588 - "capability_buckets.py"
+Cohesion: 0.14
+Nodes (15): builtin_model_buckets(), custom_model_buckets(), _image_buckets_from_capabilities(), ModelInfo, 能力桶（t2i / i2i / i2v / r2v）归属判定 —— 把既有能力声明翻译成桶，不新增第二份声明。 判定来源逐桶固定： -…, 内置模型具备的能力桶；文本 / 音频模型恒为空集。, 自定义供应商模型具备的能力桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。, _video_buckets() (+7 more)
 
 ### Community 589 - "collectBrowserFindings"
-Cohesion: 0.13
-Nodes (24): browserFindingsFromMap(), checkBorders(), checkEdgeFlushCardsDOM(), checkElementBlinkingCursorDOM(), checkElementBorders(), checkElementBordersDOM(), checkElementPseudoStripeDOM(), checkElementTextOverflowDOM() (+16 more)
+Cohesion: 0.16
+Nodes (20): browserFindingsFromMap(), checkBorders(), checkEdgeFlushCardsDOM(), checkElementBlinkingCursorDOM(), checkElementBorders(), checkElementBordersDOM(), checkElementPseudoStripeDOM(), checkElementTextOverflowDOM() (+12 more)
 
-### Community 590 - ".create"
-Cohesion: 0.11
-Nodes (15): Create a new GridGeneration with a generated id and pending status., project_with_script(), fixture, Create a grid JSON file., 模拟 route 层修复后的状态：grid 创建时 provider/model 为空，由 task 层回填。, TestGridGeneration, grid_with_image(), project_with_script() (+7 more)
+### Community 590 - "mountSvelteComponentVariant"
+Cohesion: 0.15
+Nodes (20): acceptedDomAlreadyClean(), applyOriginalAttrsToSvelteAnchor(), commitAcceptedSvelteComponentToDom(), componentModuleCandidates(), describeMountFailure(), detectDevServerBase(), ensureAcceptedDomClean(), findAcceptedRuntimeWrappers() (+12 more)
 
 ### Community 591 - "resolve_source_kind"
 Cohesion: 0.15
 Nodes (10): 项目源文件性质（novel / screenplay），缺失或非法值回退默认 novel，兼容脏数据。, resolve_source_kind(), SourceKind, _pm(), Path, ProjectManager, 项目创建写入源文件性质（source_kind）：持久化、缺省 novel、非法值拒绝。 只断言外部行为：调用 create_project_metadata…, 统一回退入口：合法值原样返回，缺失 / 非法 / 脏数据一律回退 novel 不抛异常。 (+2 more)
 
 ### Community 592 - "TestProviderJobIdPersistenceMixin"
-Cohesion: 0.23
-Nodes (8): 提交-轮询型 video backend 的持久化收口点：单一统一调用点承接 None 判断 + 写回 + fail-fast。, worker 路径（task_id 非空）经统一点转调模块级 persist_provider_job_id。, 自定义供应商包装层注入的 endpoint 与 job_id 一并落库，供续跑比对协议是否被换掉。, 内置供应商由 backend 传入实际请求域名 → 落域名列供续跑回放，协议标识位保持空。, 自定义供应商：协议标识走 endpoint 位供比对，域名走 base_url 位供回放，互不覆盖。, 非 worker 路径（grid / 直生 / 测试，task_id=None）跳过持久化，不触碰 DB。, 持久化失败抛出原异常，由 worker finally 兜底 mark_failed（fail-fast，不吞）。, TestProviderJobIdPersistenceMixin
+Cohesion: 0.18
+Nodes (11): OperationalError, _make_operational_error(), 构造 sqlalchemy OperationalError（params/orig/connection 仅签名形式占位）。, 提交-轮询型 video backend 的持久化收口点：单一统一调用点承接 None 判断 + 写回 + fail-fast。, worker 路径（task_id 非空）经统一点转调模块级 persist_provider_job_id。, 自定义供应商包装层注入的 endpoint 与 job_id 一并落库，供续跑比对协议是否被换掉。, 内置供应商由 backend 传入实际请求域名 → 落域名列供续跑回放，协议标识位保持空。, 自定义供应商：协议标识走 endpoint 位供比对，域名走 base_url 位供回放，互不覆盖。 (+3 more)
 
 ### Community 593 - "applyEditing"
-Cohesion: 0.19
-Nodes (15): applyEditing(), buildLocatorForLeaf(), copyEditContainerContext(), copyEditLeafContext(), documentRefForElement(), extractContext(), forbiddenManualTextChars(), maybeShowFirstSaveToast() (+7 more)
+Cohesion: 0.10
+Nodes (27): addManualContextText(), applyEditing(), buildLocatorForLeaf(), canRestoreManualEditElement(), collectManualContextPieces(), walk(), contextElementForManualEdit(), copyEditContainerContext() (+19 more)
 
-### Community 594 - "captureElementToBlob"
-Cohesion: 0.09
-Nodes (34): averageRgb01(), beginEditPin(), buildAnnotationsForCapture(), buildPinElement(), cancelEditingPin(), captureChromeNodes(), captureElementFromRenderedAncestor(), captureElementToBlob() (+26 more)
+### Community 594 - "app_data_dir"
+Cohesion: 0.13
+Nodes (15): app_data_dir(), Path, Application data root resolution. Centralizes where ArcReel stores per-…, Return the configured application data root (cached)., 初始化验证器 Args: projects_root: 项目根目录；默认走 ``app_data_dir()`` （兼顾…, init_environment(), 环境初始化模块 加载 .env 文件。 provider 密钥的真相源是 DB。如果 .env 残留 provider key 写入 os.environ，…, 初始化项目环境：定位项目根 + load .env。 在 Agent Bash 沙箱子进程里，``.env`` 会被沙箱拒读（macOS sandbox-… (+7 more)
 
 ### Community 595 - "test_alembic_custom_provider_capability_overrides.py"
 Cohesion: 0.16
@@ -3198,25 +3180,25 @@ Nodes (18): alembic_cfg(), _columns(), Config, Engine, fixture, MonkeyPatch, par
 Cohesion: 0.17
 Nodes (18): fixture, MonkeyPatch, Path, 前端构建产物挂载行为测试（server/app.py 的 frontend_dist_dir 分支）。, 构建产物目录缺 index.html 时跳过前端挂载，应用仍能正常启动且 API 不受影响。, SPA 外壳（无论走 spa_deep_link 还是 app.frontend 原生 fallback）都不能被浏览器缓存，…, 还原 lib.PROJECT_ROOT 并重新 reload server.app，恢复成真实构建产物路径。 setup（写…, 构建产物存在时，带扩展名的 SPA 深链应回退到 index.html 而非被当作静态资源返回 404。 (+10 more)
 
-### Community 598 - "_FakePMRegenerate"
-Cohesion: 0.20
-Nodes (16): _FakePMRegenerate, _jpeg_bytes(), _make_completed_grid(), _png_bytes(), 手动补图按项目当前比例排布，记录上冻结的单格比例随之改写。 沿用旧冻结值会让改过项目比例后补的图被按旧比例中心裁切。, 联合图上传不缩放：超过分镜图 2048 上限的大图原尺寸保留（4K 联合图切格不失真）。, ProjectManager 替身：驱动 regenerate_grid 成功路径。, 非 PNG 输入归一化为 PNG 并登记新版本；宫格记录复位为「联合图就绪、待切分」。 (+8 more)
+### Community 598 - "CrocoClient"
+Cohesion: 0.14
+Nodes (11): CrocoClient, _extract_asset_id(), Exception, Path, Croco 统一任务客户端。所有模型（H3 / Image / Music / FlashVSR）共用同一套提交-轮询-下载。, 上传本地素材（multipart file），返回 asset_id。kind 为 images 或 audio。, 提交统一任务，返回任务投影（含 job_id）。, 轮询直到终态，返回终态任务投影。超时抛 TimeoutError。 (+3 more)
 
 ### Community 599 - ".claude/skills/impeccable/scripts/live/tanstack-adapter.mjs"
 Cohesion: 0.16
 Nodes (20): tanstackStart, applyTanStackLiveAdapter(), buildTanStackLiveRootComponent(), detectTanStackStartProject(), escapeRegExp(), findRootRouteFile(), insertAfterLastImport(), isManagedComponent() (+12 more)
 
-### Community 600 - "_register_asset_sheet"
-Cohesion: 0.13
-Nodes (22): ResolvedReferenceImage, _clamp_resolved_reference_images(), Any, 参考图片超限 warning；通用路径与产品优先裁剪共用。, 按请求上限裁图片，并让所有产品 sheet 优先于产品原图及其它资产。 未超限时保留原始稳定顺序；只有必须裁剪时才重排，避免在容量足够时无谓改变同一产品…, _reference_limit_warning(), _load_project_and_unit(), 商品与其它资产同一条规则：有资产图就只用资产图，且不排到提及顺序之前。 (+14 more)
+### Community 600 - "failure_observation.py"
+Cohesion: 0.21
+Nodes (17): build_startup_failure_observation(), build_turn_failure_observation(), _format_exception(), _message_text(), Any, BaseException, Agent 故障观测：从明确的 runtime/SDK 证据构造最小通用外壳。, 从 SDK 已序列化的 assistant/result 消息构造轮次观测。 (+9 more)
 
 ### Community 601 - "._amount"
 Cohesion: 0.17
 Nodes (3): 各可灵视频模型经 registry 真实 pricing 触达 per_second_tiered 档位。 验证 4K 档（¥3/s，仅 v3/v3-omni…, TestKlingRegistryPricingReachability, TestPerSecondTiered
 
-### Community 602 - "TestResolverReturnsEffectiveCapabilities"
-Cohesion: 0.21
-Nodes (10): AsyncSession, patch, /video-capabilities 走的 resolver 必须回生效能力，且与执行层同源。, AC：对自定义模型写入覆盖后，该接口返回值随之变化。, openai-video 的 delegate 不下传 end_image：即便存量行/非 API 写入把 last_frame 写成 True，…, 展示层与执行层出自同一合成函数：逐字段比对 resolver 与装载出的 backend。, 请求的 model 被禁用时,与执行层同一条回退规则:改用该 provider 的默认启用 video model,而不是报错——否则 /video-…, 请求的 model 仍启用,但它的 endpoint 不是 video 类型时,与执行层同样 回退到该 provider 的默认启用 video… (+2 more)
+### Community 602 - "onAnnotDown"
+Cohesion: 0.16
+Nodes (20): beginEditPin(), buildAnnotationsForCapture(), buildPinElement(), cancelEditingPin(), clampPlaceholderSize(), finalizeEditingPin(), initAnnotOverlay(), localCoords() (+12 more)
 
 ### Community 603 - "endpoints/README.md"
 Cohesion: 0.10
@@ -3234,21 +3216,21 @@ Nodes (18): analyzeVisualContrastCandidate(), blendRgba(), clampByte(), firstCss
 Cohesion: 0.16
 Nodes (18): analyzeVisualContrastCandidate(), blendRgba(), clampByte(), firstCssUrl(), getLayerValue(), loadVisualContrastImage(), parseObjectPosition(), parsePositionPair() (+10 more)
 
-### Community 607 - "_client"
-Cohesion: 0.26
-Nodes (7): _client(), _query(), _resp(), _submit(), TestAudioGatingResult, TestGenerateHappyPath, TestResume
+### Community 607 - "_FakePMGenerate"
+Cohesion: 0.13
+Nodes (11): _FakePMGenerate, _FakePMMismatchedGrid, _FakePMRegenerateUnbound, _FakePMUnboundGrid, _FakeQueue, ProjectManager 替身：驱动 generate_grid 成功路径，script/project_path 落 tmp_path。, test_generate_grid_rejects_an_episode_path_that_mismatches_the_bound_script(), test_generate_grid_rejects_an_unbound_script_before_enqueue() (+3 more)
 
 ### Community 608 - "createLiveBrowserSessionState"
 Cohesion: 0.20
 Nodes (14): createLiveBrowserSessionState(), clearHandled(), clearScrollY(), clearSession(), isHandled(), loadSession(), markHandled(), nextCheckpointRevision() (+6 more)
 
-### Community 609 - ".agents/skills/impeccable/scripts/live/frameworks/detect-utils.mjs"
-Cohesion: 0.27
-Nodes (13): astro, detectAstroProject(), fileExists(), findConfigFile(), firstExistingFile(), hasAnyDependency(), literalConfigFiles(), readPackageDeps() (+5 more)
+### Community 609 - "TestStructuredModeChainSync"
+Cohesion: 0.15
+Nodes (12): _no_tool_call_error(), Exception, 构造 Instructor 档内重试耗尽异常，终止原因 inner 挂在 __cause__ 上（与真实形态一致）。 prompt_tokens /…, TOOLS → MD_JSON 降级链（同步版）。, 上游收下 tools 却不回 tool call（wire 层）→ 降档到 MD_JSON。, 降档触发点以 warning 记录截断后的模型原始输出。, 上游回了 tool call 但 arguments 不可用：属校验类，不降到约束更弱的 MD_JSON。, TOOLS 档拿到过 HTTP 200（已计费）后才降档，这部分 token 并入最终结果。 (+4 more)
 
-### Community 610 - ".agents/skills/impeccable/scripts/live/frameworks/tag-strategy.mjs"
-Cohesion: 0.21
-Nodes (16): appendOriginToDirective(), buildTagBlock(), commentClose(), commentOpen(), detectLineEnding(), findCspMetaTags(), getAttr(), insertTag() (+8 more)
+### Community 610 - "test_env_keys.py"
+Cohesion: 0.22
+Nodes (8): 密钥集合必须在「其他 provider env」的并集中（防漏列）。, OpenAI 是内置 provider，其 SDK 在 api_key 缺省时回落读 OPENAI_API_KEY， 因此该密钥必须进入 fail-fast…, OpenAI SDK 在 client 未显式传值时会回落读的非密钥 env 旋钮（base_url / org / project / custom…, ANTHROPIC_ENV_KEYS 必须覆盖 SDK 子进程读取的全部 ANTHROPIC_* + CLAUDE_CODE_*。, test_anthropic_keys_complete(), test_openai_api_key_in_secret_lists(), test_openai_nonsecret_env_fallbacks_in_override_list(), test_provider_secret_keys_is_subset_of_all_provider_keys()
 
 ### Community 611 - "createLiveBrowserSessionState"
 Cohesion: 0.20
@@ -3263,12 +3245,12 @@ Cohesion: 0.12
 Nodes (16): 1. Read the screenshot (if present), 2. Wrap the element, 3. Load the action's reference, 4. Plan three variants: identity first, then mode, then axes, 5. Apply the freeform prompt (if present), 6. Deliver variants, 7. Parameters (composition-sized, 0-4 per variant), 8. Signal done (+8 more)
 
 ### Community 614 - "epub.py"
-Cohesion: 0.12
-Nodes (19): EpubBook, EpubExtractor, Path, EPUB 抽取：按 spine 顺序遍历章节，注入 # 标题 标记。, 三级退化：toc → nav.xhtml → "第 N 章"。, _resolve_titles(), docx_factory(), epub_factory() (+11 more)
+Cohesion: 0.22
+Nodes (10): EpubBook, EpubExtractor, Path, EPUB 抽取：按 spine 顺序遍历章节，注入 # 标题 标记。, 三级退化：toc → nav.xhtml → "第 N 章"。, _resolve_titles(), Nav filter must work regardless of nav item id (some tools use 'navdoc' /…, test_epub_excludes_nav_with_nonstandard_id() (+2 more)
 
 ### Community 615 - "checkQuality"
 Cohesion: 0.14
-Nodes (16): checkElementOversizedH1(), checkElementOversizedH1DOM(), checkElementQuality(), checkElementQualityDOM(), checkOversizedH1(), checkQuality(), colorsNearlyMatch(), cssColorAlpha() (+8 more)
+Nodes (18): borderColorsFromStyle(), borderWidthsFromStyle(), checkElementGptBorderShadow(), checkElementGptBorderShadowDOM(), checkElementQualityDOM(), checkGptThinBorderWideShadow(), checkQuality(), colorsNearlyMatch() (+10 more)
 
 ### Community 616 - "test_data_validator_reference.py"
 Cohesion: 0.37
@@ -3286,9 +3268,9 @@ Nodes (17): alembic_cfg(), _insert_task(), fixture, Path, Alembic b3f9c07ae214�
 Cohesion: 0.29
 Nodes (17): app_data_dir_fn(), _import_fresh(), fixture, MonkeyPatch, Path, Tests for lib.app_data_dir env resolution., `ARCREEL_DATA_DIR=` (empty) should not be treated as a path., Re-import the module fresh — `@functools.cache` traps env values. (+9 more)
 
-### Community 620 - "test_reference_videos_router_ad.py"
-Cohesion: 0.20
-Nodes (20): 视频单元正文 → 本次生成的逻辑参考图引用，按首次提及顺序。 正文是唯一真相：引用不落盘，读侧一律经本函数派生，商品与其它资产走同一条规则、…, unit_reference_declarations(), ad_client(), fixture, integration, MonkeyPatch, Path, TestClient (+12 more)
+### Community 620 - ".video_capabilities_for_model"
+Cohesion: 0.13
+Nodes (10): VideoCapabilities, 该 model 除 /reference2video 外不派发到任何端点。 是无请求上下文时能否按 r2v 的窄 prompt 上限静态声明的判据：多端点…, 按 model_id 纯计算 caps —— 不构造 client。first_frame/last_frame/reference_images 直接查…, _serves_only_reference2video(), prompt 超限一律拒绝，不再客户端静默截断。, viduq3 只跑 /reference2video，静态声明取该端点的窄值。, viduq3-turbo 还能跑 t2v/i2v，静态声明取宽值——否则会误拒其合法的长 prompt。, 未登记 model（中转自定义命名）取宽值：能力不明时误拒是更糟的降级。 (+2 more)
 
 ### Community 621 - "checkHeadingRhythmDOM"
 Cohesion: 0.18
@@ -3320,15 +3302,15 @@ Nodes (16): 1. Read the screenshot (if present), 2. Wrap the element, 3. Load th
 
 ### Community 628 - "checkQuality"
 Cohesion: 0.14
-Nodes (18): borderColorsFromStyle(), borderWidthsFromStyle(), checkElementGptBorderShadow(), checkElementGptBorderShadowDOM(), checkElementQualityDOM(), checkGptThinBorderWideShadow(), checkQuality(), colorsNearlyMatch() (+10 more)
+Nodes (16): checkElementOversizedH1(), checkElementOversizedH1DOM(), checkElementQuality(), checkElementQualityDOM(), checkOversizedH1(), checkQuality(), colorsNearlyMatch(), cssColorAlpha() (+8 more)
 
 ### Community 629 - "checkHeadingRhythmDOM"
 Cohesion: 0.18
 Nodes (16): checkHeadingRhythmDOM(), clusterTop(), edgeAbove(), edgeBelow(), hasOwnTopBoundary(), insideSmallCard(), isVisibleFlow(), overlapsX() (+8 more)
 
-### Community 630 - "run_project_migrations"
-Cohesion: 0.14
-Nodes (31): MigrationSummary, 扫 projects_root 下每个项目目录，升级到 CURRENT_SCHEMA_VERSION。, run_project_migrations(), fixture, Path, 迁移 runner：版本检测、幂等、错误隔离、备份清理。, 单项目入口（供导入路径复用）：v1 项目走完整链升到 v2 并归一化 legacy 名。, schema_version 不可解析的项目按损坏跳过：不盖戳、不中断其他项目迁移。 (+23 more)
+### Community 630 - "runner.py"
+Cohesion: 0.08
+Nodes (50): parse_positive_episode_num(), 在 :func:`parse_episode_num` 基础上再要求正整数。 0 与负数虽能被 ``parse_episode_num``…, Project 文件级 schema 迁移框架。 约定：project.json 顶层 schema_version。缺失视为 v0。当前版本 = 9。…, _append_error_log(), _backup_project_json(), _bound_script_sources(), cleanup_stale_backups(), _hardlink_backup_clues() (+42 more)
 
 ### Community 631 - "Generate Report"
 Cohesion: 0.13
@@ -3338,37 +3320,37 @@ Nodes (14): 1. Accessibility (A11y), 2. Performance, 3. Theming, 4. Responsive D
 Cohesion: 0.20
 Nodes (7): compute_asset_fingerprints(), Path, 资产文件指纹计算 — 基于 mtime 的内容寻址缓存支持, 扫描单个媒体子目录及其一级子目录（跳过 versions/ 目录）。, 扫描项目目录下所有媒体文件，返回 {相对路径: mtime_ns_int} 映射。 mtime_ns 为纳秒级整数，用作 URL cache-bust…, _scan_subdir(), TestComputeAssetFingerprints
 
-### Community 633 - "test_project_manager_save_validation.py"
-Cohesion: 0.13
-Nodes (17): ValueError, 剧本结构校验失败。携带 `ValidationResult`，供 router 转 i18n 4xx 响应。, ScriptStructureValidationError, _drama_scene(), _pm_drama(), ProjectManager, 写盘统一入口「不更坏」结构校验守卫测试。 只断言外部行为：构造 before/after 剧本，断言写盘是否 raise…, 显式 validate=False 时即便引入非法结构也放行。 (+9 more)
+### Community 633 - "_FakePMRegenerate"
+Cohesion: 0.20
+Nodes (16): _FakePMRegenerate, _jpeg_bytes(), _make_completed_grid(), _png_bytes(), 手动补图按项目当前比例排布，记录上冻结的单格比例随之改写。 沿用旧冻结值会让改过项目比例后补的图被按旧比例中心裁切。, 联合图上传不缩放：超过分镜图 2048 上限的大图原尺寸保留（4K 联合图切格不失真）。, ProjectManager 替身：驱动 regenerate_grid 成功路径。, 非 PNG 输入归一化为 PNG 并登记新版本；宫格记录复位为「联合图就绪、待切分」。 (+8 more)
 
-### Community 634 - "_FakeAudioBackend"
-Cohesion: 0.11
-Nodes (10): acct(), _FakeAudioBackend, frozen_clock(), Any, BaseException, datetime, fixture, MonkeyPatch (+2 more)
+### Community 634 - "test_locked_episode_script_toctou.py"
+Cohesion: 0.22
+Nodes (16): MonkeyPatch, Path, ProjectManager, `ProjectManager.locked_episode_script` 的跨锁竞态（TOCTOU）防护测试。 覆盖： 1. 写脚本不经会二次取项目锁的…, 加锁前后解析出的 script_file 不同（并发改绑）→ 抛 EpisodeScriptReboundError，不误写。, 写剧本顶层 title → 内联 _apply_episode_sync 把镜像同步进 project.json episodes[].title；…, 正常写入路径不挂起（sync 自死锁回归）：写入在超时内完成且生效。, 创建项目 + 一个 reference_video 模式的 episode_1 剧本。 (+8 more)
 
-### Community 635 - "_is_413"
-Cohesion: 0.26
-Nodes (4): _is_413(), BaseException, 识别请求体超限（HTTP 413）。 先从异常通用属性提取状态码：``status_code``（OpenAI/xai SDK + 规整后的…, TestIs413
+### Community 635 - "addVisualContrastFindings"
+Cohesion: 0.16
+Nodes (16): addBrowserFindings(), addVisualContrastFindings(), addVisualContrastResult(), analyzeVisualContrast(), clearOverlays(), detachOverlay(), disconnectLazyVisualContrastObserver(), postExtensionError() (+8 more)
 
 ### Community 636 - "TestReferenceVideoGateFlow"
-Cohesion: 0.09
-Nodes (17): integration, 对同一份内容，从已解析对象取的指纹须与对文件路径取的指纹相同——两者共用同一套 规范化逻辑，调用方才能安全地用前者替代"读入内存后再对路径复核一次"的二次读盘。, 编辑单元正文 → 重新待审；正文是落盘的唯一内容，参考图不随之落一份副本。, 隔离草稿在场 → 确认被拒、step2 被阻塞，即使正式 step1 早已确认过。 隔离态与「正式 step1…, 草稿按项目当前变体解析：两条路线各认自己的文件名，narration 尚无草稿通道返回 None。…, 换过生成路线后残留的另一条路线的草稿不参与阻塞判定。, 损坏的 step1（unit 时长越界）→ 确认被结构校验拒绝，不放行 step2。, 正文引用的资产未登记不阻断确认：参考图执行期才从正文解析，缺登记只意味着这一处 不出参考图，不是内容层的规划问题。 (+9 more)
+Cohesion: 0.08
+Nodes (19): integration, 对同一份内容，从已解析对象取的指纹须与对文件路径取的指纹相同——两者共用同一套 规范化逻辑，调用方才能安全地用前者替代"读入内存后再对路径复核一次"的二次读盘。, 编辑单元正文 → 重新待审；正文是落盘的唯一内容，参考图不随之落一份副本。, 隔离草稿在场 → 确认被拒、step2 被阻塞，即使正式 step1 早已确认过。 隔离态与「正式 step1…, 草稿按项目当前变体解析：两条路线各认自己的文件名，narration 尚无草稿通道返回 None。…, 换过生成路线后残留的另一条路线的草稿不参与阻塞判定。, 损坏的 step1（unit 时长越界）→ 确认被结构校验拒绝，不放行 step2。, 正文引用的资产未登记不阻断确认：参考图执行期才从正文解析，缺登记只意味着这一处 不出参考图，不是内容层的规划问题。 (+11 more)
 
 ### Community 637 - "source_loader/errors.py"
-Cohesion: 0.15
-Nodes (18): ConflictError, CorruptFileError, FileSizeExceededError, Exception, SourceLoader 异常体系。 路由层根据异常类型映射到不同 HTTP 状态： - UnsupportedFormatError → 400 -…, SourceLoaderError, UnsupportedFormatError, 源文件解析与规范化层。 上传路由调用 SourceLoader.load() 把 .txt/.md/.docx/.epub/.pdf 转成 UTF-8… (+10 more)
+Cohesion: 0.22
+Nodes (10): ConflictError, FileSizeExceededError, Exception, SourceLoader 异常体系。 路由层根据异常类型映射到不同 HTTP 状态： - UnsupportedFormatError → 400 -…, SourceLoaderError, UnsupportedFormatError, 源文件解析与规范化层。 上传路由调用 SourceLoader.load() 把 .txt/.md/.docx/.epub/.pdf 转成 UTF-8…, test_conflict_error_carries_existing_and_suggested() (+2 more)
 
 ### Community 638 - "Generate Report"
 Cohesion: 0.13
 Nodes (14): 1. Accessibility (A11y), 2. Performance, 3. Theming, 4. Responsive Design, 5. Implementation Integrity (CRITICAL), Audit Health Score, Detailed Findings by Severity, Diagnostic Scan (+6 more)
 
-### Community 639 - "episode_reset.py"
-Cohesion: 0.09
-Nodes (30): discover_episode_file_aliases(), discover_product_episode_nums(), episodes_without_source_range(), parse_source_range(), Any, 枚举派生集文件的全部别名 source/episode_N.txt → {集号: [路径, ...]}（按文件名排序）。 同一集号可能因命名 padding…, 枚举磁盘上有下游产物（剧本 JSON / step1 草稿目录）的集号，不依赖账本条目。 账本丢失条目（写坏/手工误删）但…, 解析条目的 ``source_range`` 坐标，结构不完整时返回 None。 「这一集有没有位置记录」的唯一判据，plan 与重置两侧共用：只查字段类型… (+22 more)
+### Community 639 - "rewrite_payload_references"
+Cohesion: 0.19
+Nodes (7): 就地把剧本/草稿 payload 中指向 *old_name* 的名称引用改写为 *new_name*，返回改写数。 覆盖面（与…, rewrite_payload_references(), _ad_script(), _drama_script(), 内嵌镜像里 NFC / NFD 并存时一并收编，留一条会顶着旧名带失效 sheet 路径残留。, 纯改编码形式的改名：胜出 key 已等于新名，另一条等价 key 仍须一并收编。, TestRewritePayloadReferences
 
-### Community 640 - "test_script_batch_edit.py"
-Cohesion: 0.11
-Nodes (54): field_validator, model_validator, Return the canonical JSON optimistic-concurrency token for a script aggregate., Preflight and commit ordered script operations through one deep public…, Transport-neutral ordered edit command. Exactly one target coordinate is…, script_revision(), ScriptBatchEditCommand, ScriptBatchEditor (+46 more)
+### Community 640 - ".claude/skills/impeccable/scripts/generate-image.mjs"
+Cohesion: 0.18
+Nodes (13): crc32(), hash32(), hslToRgb(), out, palette(), pngChunk(), pngFake(), promptFile (+5 more)
 
 ### Community 641 - "test_presentations_router.py"
 Cohesion: 0.20
@@ -3386,21 +3368,21 @@ Nodes (19): averageRgb01(), captureChromeNodes(), captureElementFromRenderedAnce
 Cohesion: 0.33
 Nodes (6): _interleave_across_critical_section(), _InterleavedResponses, NamedTuple, Response, `_interleave_across_critical_section` 的两个请求各自的响应。, 让 `first` 停在剧本锁临界区内，确认 `second` 被锁挡在外面后再放行，返回两者的响应。…
 
-### Community 645 - "TestEnumDriftNormalization"
-Cohesion: 0.10
-Nodes (12): item_duration(), 单条剧本条目时长（秒）的脏数据归一口径——沿 ``ad_shot_duration_seconds`` 先例推广到四骨架。 非 dict 条目无时长语义按 0…, 按骨架种类求剧本条目总时长（秒）——脏数据稳健、不抛（见 ``item_duration``）。 ``items`` 非 list（含 null…, script_duration_total(), parametrize, 剧本条目时长的脏数据归一——单一真相源，读时计算/写盘重算/落盘估算三处共用。 校验失败降级保存的原始 dict 会把…, 非约束解码通道（代理网关等）下的枚举风格漂移归一。 schema 的 enum 只有在供应商执行约束解码时才是硬约束；代理网关/兼容通道放任模型…, 词表外值不做语义近义映射（穷举不全），一律降级默认并 warn 保留原值。 (+4 more)
+### Community 645 - "asset_unit_id"
+Cohesion: 0.20
+Nodes (12): asset_name_of(), asset_unit_id(), _description_of(), Any, Qualify an asset name so IDs stay unique across asset types., The bare asset name inside a qualified unit ID — inverse of…, Resolve caller-supplied names to canonical qualified unit IDs. Unresolvable…, _requested_unit_ids() (+4 more)
 
-### Community 646 - "assemble_backend"
-Cohesion: 0.18
-Nodes (13): assemble_backend(), _load_builtin_config(), Any, 内置侧 async 装载段：查 DB/config 产出 LoadedConfig 信封。 凭证 overlay 来自…, 统一构造入口。按 provider_id 是否自定义分流；未登记的内置 provider × media fail-loud。, fixture, patch, assemble_backend 内置（简单族）async 装载段单测：内存 SQLite + 真 ConfigResolver。 镜像… (+5 more)
+### Community 646 - "ProjectionProblem"
+Cohesion: 0.14
+Nodes (14): ProjectionProblem, 跨 Web、Agent 与队列可比较的结构化问题。, 返回 Web、Agent 与报价共用的问题信封。, client(), _projection_with_durations(), fixture, 选了「使用当前 TTS」就按当前 TTS 取档：整批一次探明在途 TTS，逐 unit 按该口径投影。, 公共投影返回 r2v 能力 blocker 时提交入口不入队。 (+6 more)
 
-### Community 647 - "test_locked_episode_script_toctou.py"
-Cohesion: 0.22
-Nodes (16): MonkeyPatch, Path, ProjectManager, `ProjectManager.locked_episode_script` 的跨锁竞态（TOCTOU）防护测试。 覆盖： 1. 写脚本不经会二次取项目锁的…, 加锁前后解析出的 script_file 不同（并发改绑）→ 抛 EpisodeScriptReboundError，不误写。, 写剧本顶层 title → 内联 _apply_episode_sync 把镜像同步进 project.json episodes[].title；…, 正常写入路径不挂起（sync 自死锁回归）：写入在超时内完成且生效。, 创建项目 + 一个 reference_video 模式的 episode_1 剧本。 (+8 more)
+### Community 647 - "routers/auth.py"
+Cohesion: 0.17
+Nodes (15): OAuth2PasswordRequestForm, auth_status(), AuthStatusResponse, login_for_access_token(), BaseModel, CurrentUser, Depends, Translator (+7 more)
 
-### Community 648 - "TestUpdateProjectAtomicity"
-Cohesion: 0.18
-Nodes (11): _make_project(), Path, Test that concurrent update_project calls do not lose each other's writes., update_project should bump the updated_at timestamp., update_project 应在单次调用内应用读时迁移并返回最终 dict（无需二次 load_project）。 覆盖读时迁移…, Create a minimal project.json and return the project name., Verify update_project serialises concurrent writes correctly., Two sequential updates should both be visible. (+3 more)
+### Community 648 - "test_providers_api.py"
+Cohesion: 0.25
+Nodes (11): override_auth(), FastAPI, 放行 mini app 的认证，等价于测试用户已登录。 给不关心认证、只测业务行为的用例用；断言 401 的用例不要调它。, _make_app(), _make_mock_svc(), _make_patch_app(), FastAPI, 供应商配置管理 API 测试。 通过 TestClient + dependency_overrides 测试 GET/PATCH/POST… (+3 more)
 
 ### Community 649 - "生成资产图"
 Cohesion: 0.12
@@ -3422,9 +3404,9 @@ Nodes (15): 0. 调研范围与定位, 1.1 分层推荐, 1.2 本期决策（v1）
 Cohesion: 0.12
 Nodes (15): 1. OpenAI Sora（Sora 2 / storyboard）, 2. Vidu（生数科技 / Shengshu）, 3. 可灵 Kling（快手）, 4. 即梦 Dreamina / Seedance（字节跳动）, 5. 海螺 Hailuo（MiniMax）, 6. Pika, 7. Runway, 8. Google Veo / Flow (+7 more)
 
-### Community 654 - "resolve_script_kind"
-Cohesion: 0.14
-Nodes (11): ErrorDetails, 取证解析：由剧本 dict 判别当前的分镜数组种类。 返回 ``"video_units"`` / ``"scenes"`` / ``"segments"``…, resolve_script_kind(), _format_error(), Any, BaseModel, 剧本结构校验器（纯函数）。 把「一个剧本 dict 是否结构良构」这个判断收敛到唯一一处：喂入 dict、返回…, 按模式判别该用哪个剧本模型，判别逻辑收归 `script_skeleton.resolve_script_kind`（取证解析，… (+3 more)
+### Community 654 - "test_onboarding_router.py"
+Cohesion: 0.22
+Nodes (18): authed_client(), _make_app(), asyncio, FastAPI, fixture, integration, 零副作用：标记引导只落一个 setting，不碰其他配置。, No dependency override → real auth applies → expects 401/403. (+10 more)
 
 ### Community 655 - "Impeccable Asset Producer"
 Cohesion: 0.14
@@ -3442,17 +3424,17 @@ Nodes (12): Core Rule, Decision Comps, Impeccable Asset Producer, Input Contract
 Cohesion: 0.14
 Nodes (13): Animation Performance, Assess Performance Issues, Core Web Vitals Optimization, Cumulative Layout Shift (CLS < 0.1), Interaction to Next Paint (INP < 200ms), Largest Contentful Paint (LCP < 2.5s), Loading Performance, Network Optimization (+5 more)
 
-### Community 659 - "TestListProviders"
-Cohesion: 0.15
-Nodes (10): _make_client(), 构造带 models 字段的 ProviderStatus，用于校验 ModelInfoResponse 透传。, ModelInfoResponse 必须包含 resolutions 字段（即便为空列表）。, resolutions 的具体值应按原样透传到 response。, gemini-aistudio 的 veo-3.1-fast-generate-preview 未声明 generate_audio token，…, 恒有声但请求参数控制不了开关：audio_switch_controllable 须为 False，设置页据此置灰音频开关。, image model 的 has_audio_track 恒 False（音轨判定对非视频 model 无意义）。, mock 里的 model_id 若不在真实 PROVIDER_REGISTRY 中（如本测试的 imagen-4.0-generate-001），… (+2 more)
+### Community 659 - "_make_managed"
+Cohesion: 0.19
+Nodes (7): _make_managed(), For sessions with resolved_sdk_id already set, it's a no-op., _process_inbox drains messages and calls _on_sdk_session_id_received +…, Construct a ManagedSession with a dummy actor that is never started., For new sessions, _on_sdk_session_id_received creates DB record and signals…, StreamEvent, TestSessionManagerSdkSessionId
 
-### Community 660 - "test_options_assembler.py"
-Cohesion: 0.20
-Nodes (19): load_provider_env_overrides(), 构造 options.env 注入字典。 - ANTHROPIC_* 从 DB active credential 取真值 - 其他 provider env…, _make_assembler(), _make_policy(), asyncio, Path, OptionsAssembler 单元测试：以注入假依赖驱动，不 monkeypatch 私有方法。 装配器持依赖、允许 I/O，异步 build 产出…, can_use_tool 存在时，keep-alive hook 排在 file access hook 之前。 (+11 more)
+### Community 660 - "unit"
+Cohesion: 0.19
+Nodes (6): unit, 端点支持模型集合是 spec，钉死，避免误改。, 直接钉死 _DURATION_RULES 关键条目，避免误改。, /img2video 官方为 1–10；1–8 是 /start-end2video 的值，两端点不同。, TestDurationRulesSpec, TestEndpointModelMatrix
 
-### Community 661 - "test_custom_provider_models.py"
-Cohesion: 0.15
-Nodes (7): engine(), fixture, Tests for CustomProvider and CustomProviderModel ORM models., session(), TestCustomProviderModelTable, TestCustomProviderRoundTrip, TestCustomProviderTable
+### Community 661 - "test_vidu_video_backend.py"
+Cohesion: 0.17
+Nodes (8): _coerce_resolution(), 白名单内透传，否则降级到模型默认 720p（viduq1 默认 1080p）。, output_path(), fixture, ViduVideoBackend 单元测试 — 重点：endpoint 选择、duration 强制、resolution 白名单、build_request…, 413 规整：_create_task 透出保留状态码的 httpx.HTTPStatusError（咽喉层据此降档）。, TestCoerceResolution, TestCreateTask413
 
 ### Community 662 - "project_status_sync.py"
 Cohesion: 0.31
@@ -3466,9 +3448,13 @@ Nodes (15): alembic_cfg(), _insert_task(), migration_revisions(), Config, Connec
 Cohesion: 0.12
 Nodes (4): nan 会让 `nan <= transition_duration` 是 False，绕过短片段降级， 把 nan 喂给 xfade offset。必须在…, duration=0 没意义，回退到 format.duration 试一次。, ffprobe duration 字段的容错解析。 ffprobe 对部分 webm / 流式封装会返回 `stream.duration="N/A"`，…, TestCoerceNumericDuration
 
-### Community 665 - "AgnesTextBackend"
-Cohesion: 0.18
-Nodes (9): AgnesTextBackend, Agnes 文本后端：复用 OpenAITextBackend 的原生 + Instructor 降级逻辑，仅替换鉴权与默认值。, _make_mock_response(), _PersonSchema, BaseModel, AgnesTextBackend 单元测试（OpenAI 兼容 chat/completions，mock SDK 客户端）。…, 构造 mock ChatCompletion 响应。, TestConstruction (+1 more)
+### Community 665 - "test_style_templates.py"
+Cohesion: 0.17
+Nodes (10): is_known_template(), list_templates_by_category(), 风格模版注册表（单一真相源）。 模版 id 命名规则：{category}_{slug}，category ∈ {live, anim}。 prompt…, 查表取 prompt。未知 id 抛 KeyError（交给调用方转成 HTTPException）。, 按 category 分组，返回列表保持定义顺序。 每项形如 {'id': 'live_xxx', 'prompt': '...'}。, resolve_template_prompt(), lib.style_templates 的测试。, test_list_templates_by_category() (+2 more)
+
+### Community 667 - "tasks.py"
+Cohesion: 0.23
+Nodes (15): cancel_all_preview(), cancel_all_queued(), cancel_preview(), cancel_task(), get_task(), get_task_queue(), get_task_stats(), list_project_tasks() (+7 more)
 
 ### Community 668 - "操作步骤 {#steps}"
 Cohesion: 0.12
@@ -3508,23 +3494,23 @@ Nodes (11): CODEX_HARNESSES, commandPrefixForSkillsDir(), __dirname, findHarness
 
 ### Community 678 - "_FakeGenerator"
 Cohesion: 0.13
-Nodes (5): _FakeGenerator, Path, product sheet 生成把用户上传原图作为参考注入（标准化整理的输入），缺失文件跳过； 完成后回写 product_sheet。, 执行层在解析出 ProviderModel 后，对越界 duration 以明确错误拒绝。, 视频解析失败即任务失败：异常原样上抛留痕，无硬编码 provider/model 兜底，后端不被调用。
+Nodes (4): _FakeGenerator, Path, 执行层在解析出 ProviderModel 后，对越界 duration 以明确错误拒绝。, 视频解析失败即任务失败：异常原样上抛留痕，无硬编码 provider/model 兜底，后端不被调用。
 
-### Community 679 - "_FakePMGenerate"
-Cohesion: 0.13
-Nodes (11): _FakePMGenerate, _FakePMMismatchedGrid, _FakePMRegenerateUnbound, _FakePMUnboundGrid, _FakeQueue, ProjectManager 替身：驱动 generate_grid 成功路径，script/project_path 落 tmp_path。, test_generate_grid_rejects_an_episode_path_that_mismatches_the_bound_script(), test_generate_grid_rejects_an_unbound_script_before_enqueue() (+3 more)
+### Community 679 - "styles.py"
+Cohesion: 0.24
+Nodes (14): apply_style_to_project(), ApplyStyleRequest, _copy_project_style_image(), _delete_library_image(), list_styles(), BaseModel, Translator, 用户自定义风格库路由。 风格卡片复用现有 ``assets`` 表的通用字段，但使用独立 ``type=style`` 与 API，… (+6 more)
 
 ### Community 680 - "TestOrphanOnceAndLeaseFlap"
 Cohesion: 0.22
 Nodes (7): orphan 一次性扫描 + lease flap 阈值。, 构造 worker；返回 (worker, queue, scan_count)。scan_count 记录扫描次数。, 稳定持 lease 多拍主循环：扫描仅 1 次。, lease flap < lease_ttl：不重扫。, lease_ttl < lost < 3×lease_ttl：仍不重扫（边界）。, lost > 3×lease_ttl：清零开关，下次重扫。, TestOrphanOnceAndLeaseFlap
 
-### Community 681 - "resolve_raw_supported_durations"
-Cohesion: 0.23
-Nodes (7): 收窄前的时长全集：caps → registry 两级解析。 两级都取不到时返回 None，表示「该项目尚未配置可解析的视频型号」。``caps``…, resolve_raw_supported_durations(), 收窄前的时长全集：caps → registry 两级解析。, caps 是 DB 驱动的当下真相，压过 project.json 自报身份查到的静态声明。, ``custom-`` 前缀不在 registry：不带 caps 时无从解析，带 caps 时取 caps 的档位表。 这条是审阅门必须先解析 caps…, project.json 不是档位来源：无生产写入者的字段不得再被当作一级回退读取， 否则伪造 / 陈旧的项目字段会盖过 registry 的真实声明。, TestResolveRawSupportedDurations
+### Community 681 - "TestInstructorFallbackSync"
+Cohesion: 0.14
+Nodes (8): instructor_fallback_sync 高层函数测试。, Pydantic schema 走 instructor 路径，返回正确的 TextGenerationResult。, dict schema 走 json_object 路径。, Pydantic 分支把 token_param 转发给 generate_structured_via_instructor。, dict 分支默认以 max_tokens 为参数名上线。, dict 分支显式 token_param 时以 max_completion_tokens 为参数名上线。, dict schema（response_schema 非空，无 Pydantic 模型）截断同样升级为硬错误。, TestInstructorFallbackSync
 
-### Community 682 - "onAnnotDown"
-Cohesion: 0.16
-Nodes (20): beginEditPin(), buildAnnotationsForCapture(), buildPinElement(), cancelEditingPin(), clampPlaceholderSize(), finalizeEditingPin(), initAnnotOverlay(), localCoords() (+12 more)
+### Community 682 - "SourceRange"
+Cohesion: 0.18
+Nodes (10): EpisodeOutline, PlanningCursor, BaseModel, field_validator, model_validator, ``source_file`` 的路径语义：项目根相对 POSIX 路径，拒绝绝对路径 / ``..`` / 反斜杠。…, 集对应的原文素材范围。 偏移量落在 ``normalize_source_text`` 的归一化坐标系内（narration 为精确切分点， drama…, drama 分集大纲：故事节点 + 下集预告语（由规划工具产出）。 (+2 more)
 
 ### Community 683 - "Simplify the Design"
 Cohesion: 0.17
@@ -3535,12 +3521,12 @@ Cohesion: 0.17
 Nodes (11): Accessibility Resilience, Assess Hardening Needs, Edge Cases & Boundary Conditions, Error Handling, Hardening Dimensions, Input Validation & Sanitization, Internationalization (i18n), Performance Resilience (+3 more)
 
 ### Community 685 - "unit"
-Cohesion: 0.09
-Nodes (15): FastAPI, fixture, unit, 验证 UpdateProjectRequest 不暴露服务端必然拒绝的字段。, 验证枚举类型的取值集合与 CONTEXT.md 一致。, 验证 skill.md.template 描述了全部取值与语义。, ad 专用请求字段须出现在模板里，否则外部 Agent 无从发现广告项目的入口。, ad 的脚本由 brief 驱动、不读源文件，模板须按创作类型说清 /source 的适用范围。 (+7 more)
+Cohesion: 0.06
+Nodes (33): LogRecord, middleware, Request, Response, 动态渲染 skill.md 模板，将 {{BASE_URL}} 替换为实际服务地址（无需认证）。, request_logging_middleware(), serve_skill_md(), CreateProjectRequest (+25 more)
 
-### Community 686 - "TestLastFrameGating"
-Cohesion: 0.13
-Nodes (7): 不支持尾帧 × 携带尾帧：硬失败，不静默降级。, 不支持尾帧 × 不携带尾帧：正常放行，无尾帧槽位。, 支持尾帧 × 携带尾帧：尾帧进入槽位（first_last 模式）。, 尾帧单独出现同样受 gating——不因缺首帧而绕过。, caps=None（调用方未查询能力）× 三条路径都不走：无需能力声明即可放行。, caps=None × 携带尾帧：未经能力核实的尾帧一律拒绝，不按"支持"放行。, TestLastFrameGating
+### Community 686 - "_plan"
+Cohesion: 0.11
+Nodes (13): _plan(), 数组参考图恒排在首/尾帧之后，调用方按起始索引切片还原。, 空列表与 None 同义：不设起始索引，调用方回落原字段保留 [] / None 语义。, PIL.Image 首帧不入压缩器，维持 request.start_image=None 的原行为。, 沿用「先校验再组装」的生产调用序：组装是纯函数，不再自行判定能力。, 不支持尾帧 × 携带尾帧：硬失败，不静默降级。, 不支持尾帧 × 不携带尾帧：正常放行，无尾帧槽位。, 支持尾帧 × 携带尾帧：尾帧进入槽位（first_last 模式）。 (+5 more)
 
 ### Community 687 - "3.1 旁白/解说 {#narration-mode}"
 Cohesion: 0.13
@@ -3556,11 +3542,11 @@ Nodes (14): `analyze_assets`：全局角色/场景/道具提取, `confirm_step1`
 
 ### Community 690 - "Changelog"
 Cohesion: 0.14
-Nodes (13): [0.11.1](https://github.com/ArcReel/ArcReel/compare/v0.11.0...v0.11.1) (2026-04-28), [0.15.2](https://github.com/ArcReel/ArcReel/compare/v0.15.1...v0.15.2) (2026-05-26), [0.19.1](https://github.com/ArcReel/ArcReel/compare/v0.19.0...v0.19.1) (2026-06-24), [0.20.1](https://github.com/ArcReel/ArcReel/compare/v0.20.0...v0.20.1) (2026-07-03), 🐛 Bug 修复, 🐛 Bug 修复, 🐛 Bug 修复, 🐛 Bug 修复 (+5 more)
+Nodes (13): [0.11.1](https://github.com/ArcReel/ArcReel/compare/v0.11.0...v0.11.1) (2026-04-28), [0.13.0](https://github.com/ArcReel/ArcReel/compare/v0.12.0...v0.13.0) (2026-05-10), [0.19.1](https://github.com/ArcReel/ArcReel/compare/v0.19.0...v0.19.1) (2026-06-24), [0.20.1](https://github.com/ArcReel/ArcReel/compare/v0.20.0...v0.20.1) (2026-07-03), 🐛 Bug 修复, 🐛 Bug 修复, 🐛 Bug 修复, 🐛 Bug 修复 (+5 more)
 
-### Community 691 - ".agents/skills/impeccable/scripts/live/frameworks/index.mjs"
-Cohesion: 0.18
-Nodes (10): COMMENT_SYNTAXES, FRAMEWORKS, INJECT_KINDS, PREVIEW_MODES, SOURCE_TRAIT_DEFAULTS, STYLE_MODES, TAG_PATCH_KIND, staticHtml (+2 more)
+### Community 691 - "onAnnotDown"
+Cohesion: 0.16
+Nodes (20): beginEditPin(), buildAnnotationsForCapture(), buildPinElement(), cancelEditingPin(), clampPlaceholderSize(), finalizeEditingPin(), initAnnotOverlay(), localCoords() (+12 more)
 
 ### Community 692 - "Simplify the Design"
 Cohesion: 0.17
@@ -3574,9 +3560,9 @@ Nodes (11): Accessibility Resilience, Assess Hardening Needs, Edge Cases & Bound
 Cohesion: 0.17
 Nodes (11): Accessibility & Inclusion, Brand Commitments, Capabilities and Constraints, Evidence on Hand, Operating Context, Platform, Positioning, Product (+3 more)
 
-### Community 695 - "mountSvelteComponentVariant"
-Cohesion: 0.15
-Nodes (20): acceptedDomAlreadyClean(), applyOriginalAttrsToSvelteAnchor(), commitAcceptedSvelteComponentToDom(), componentModuleCandidates(), describeMountFailure(), detectDevServerBase(), ensureAcceptedDomClean(), findAcceptedRuntimeWrappers() (+12 more)
+### Community 695 - "TestPersistJobIdRetry"
+Cohesion: 0.20
+Nodes (6): persist_provider_job_id 在 DB 瞬态错误下重试 + 结构化日志。, 前 2 次 OperationalError → 第 3 次成功；retry 实际执行 3 次。, 全部重试失败 → logger.error 记录 task_id / provider / job_id 三键 + 重抛。, ValueError 不在 retryable_errors 内 → 立即抛出，retry 仅尝试 1 次。, 业务异常即使消息含 ``timed out`` / ``503`` 等串，也不该被字符串兜底吞掉重试。 默认 `_should_retry` 在…, TestPersistJobIdRetry
 
 ### Community 696 - ".agents/skills/impeccable/reference/clarify.md"
 Cohesion: 0.18
@@ -3602,9 +3588,9 @@ Nodes (17): _build_client(), client(), fixture, ProjectManager, TestClient, 镜�
 Cohesion: 0.20
 Nodes (10): detectCsp(), INLINE_HEADER_SIGNALS, LAYOUT_EXTS, MONOREPO_HELPER_SIGNALS, NUXT_ROUTE_RULES_SIGNALS, NUXT_SECURITY_SIGNALS, SCAN_EXTS, SKIP_DIRS (+2 more)
 
-### Community 702 - "test_kling_video_backend.py"
-Cohesion: 0.13
-Nodes (8): effective_generate_audio_for_model(), 读 backend 对默认执行档声明的有效 ``generate_audio`` 计价参数。 未声明专属规则的 backend 沿用请求值；需要按 model…, _bearer_backend(), KlingVideoBackend 单元测试（mock httpx，异步轮询，不打真实 HTTP）。 覆盖：JWT / Bearer…, 预估消费的 backend 能力接口与真实请求的 `_effective_audio` 对参考模型给出同一静音档。, TestAuthHeaders, TestPerModelCapabilities, TestSafeLogView
+### Community 702 - ".claude/skills/impeccable/scripts/live/frameworks/detect-utils.mjs"
+Cohesion: 0.27
+Nodes (13): astro, detectAstroProject(), fileExists(), findConfigFile(), firstExistingFile(), hasAnyDependency(), literalConfigFiles(), readPackageDeps() (+5 more)
 
 ### Community 703 - "_fail_first_persist"
 Cohesion: 0.18
@@ -3626,17 +3612,17 @@ Nodes (7): AUTH_PASSWORD 已存在时直接返回现有密码, AUTH_PASSWORD 为
 Cohesion: 0.24
 Nodes (7): args, buildWeights(), hashUnit(), pickSeed(), seed, SEEDS, weightedPick()
 
-### Community 708 - "batch_enqueue_and_wait_sync"
-Cohesion: 0.23
-Nodes (8): batch_enqueue_and_wait_sync(), Batch-enqueue all tasks then wait for all of them to complete. Phase 1 —…, patch, Tests for batch_enqueue_and_wait_sync (mocked async functions)., A spec whose enqueue call raises must not orphan the specs after it. Before the…, A dependency chain must not enqueue a follower onto a never-queued task., A cut-short wait (task still non-terminal on the worker side) must not be…, TestBatchEnqueueAndWaitSync
+### Community 708 - "DocxExtractor"
+Cohesion: 0.19
+Nodes (13): DocxExtractor, docx_factory(), epub_factory(), pdf_factory(), fixture, Path, 共享 fixtures：尽量在运行期构造测试样本，避免二进制入库。 例外：PDF 因 pdf_oxide 暂无稳定的 Python 创建 API，改用…, 构造一个含两段文本的 .docx；无 python-docx 时跳过。 (+5 more)
 
-### Community 709 - "ensure_route_skeleton"
-Cohesion: 0.20
-Nodes (4): ensure_route_skeleton(), 生成入口的路线闸门：确认剧本骨架属于项目路线要求的族，返回剧本实际骨架种类。…, 路线闸门：剧本骨架与项目路线跨族即拒，族内差异放行。, TestRouteSkeletonGate
+### Community 709 - ".claude/skills/impeccable/scripts/live/frameworks/tag-strategy.mjs"
+Cohesion: 0.21
+Nodes (16): appendOriginToDirective(), buildTagBlock(), commentClose(), commentOpen(), detectLineEnding(), findCspMetaTags(), getAttr(), insertTag() (+8 more)
 
 ### Community 710 - "_make_manual_split_project"
-Cohesion: 0.18
-Nodes (11): _make_manual_split_project(), 孤儿派生文件 → 自愈登记条目（不写 source_range），get_state 不再 episode_not_found。, confirm（web 与 agent 工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。, 派生文件内容即使能在原文中精确匹配，自愈也只登记不锚定：位置记录只由规划工具写入。, 自愈一次登记账本中所有孤儿集号的派生文件，不只是当前请求的那一集。, 已带 ledger_status 的条目（规划工具写入）不因其他集号的自愈触发被改写。, 账本为空且该集派生文件也不存在（真正缺失的集号）→ 仍抛 episode_not_found，不自愈。, 重复触发自愈（同集反复读状态）不产生重复集号条目，也不重复改写已登记条目。 (+3 more)
+Cohesion: 0.13
+Nodes (15): _make_manual_split_project(), _narration_step1(), ProjectManager, 孤儿派生文件 → 自愈登记条目（不写 source_range），get_state 不再 episode_not_found。, confirm（web 与 agent 工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。, 派生文件内容即使能在原文中精确匹配，自愈也只登记不锚定：位置记录只由规划工具写入。, 自愈一次登记账本中所有孤儿集号的派生文件，不只是当前请求的那一集。, 已带 ledger_status 的条目（规划工具写入）不因其他集号的自愈触发被改写。 (+7 more)
 
 ### Community 711 - ".claude/skills/impeccable/reference/clarify.md"
 Cohesion: 0.18
@@ -3671,48 +3657,48 @@ Cohesion: 0.24
 Nodes (7): args, buildWeights(), hashUnit(), pickSeed(), seed, SEEDS, weightedPick()
 
 ### Community 719 - "ExtractedText"
-Cohesion: 0.16
-Nodes (15): ExtractedText, FormatExtractor, NormalizeResult, Path, Protocol, DocxExtractor, Path, DOCX 抽取：docx2txt 主路径 + mammoth 兜底。 (+7 more)
+Cohesion: 0.14
+Nodes (19): ExtractedText, FormatExtractor, NormalizeResult, Path, Protocol, Path, DOCX 抽取：docx2txt 主路径 + mammoth 兜底。, _strip_markdown_marks() (+11 more)
 
 ### Community 720 - "build_grid_prompt"
 Cohesion: 0.06
 Nodes (22): calculate_grid_layout(), Calculate the appropriate grid layout for the given number of scenes. Args:…, build_grid_prompt(), _compute_panel_aspect(), _extract_action(), _extract_image_desc(), project_grid_image_prompt(), Grid prompt builder for grid-image-to-video feature. (+14 more)
 
-### Community 721 - ".claude/skills/impeccable/scripts/live/frameworks/detect-utils.mjs"
-Cohesion: 0.27
-Nodes (13): astro, detectAstroProject(), fileExists(), findConfigFile(), firstExistingFile(), hasAnyDependency(), literalConfigFiles(), readPackageDeps() (+5 more)
+### Community 721 - "generation_admission_lock"
+Cohesion: 0.23
+Nodes (11): generation_admission_lock(), generation_admission_lock_sync(), _lock_path(), Path, Cross-process admission guard for generation and media selection., Serialize task admission with guarded media selection for one unit. Non-…, Blocking counterpart for synchronous compensation after the async guard is…, test_admission_guard_closes_its_file_when_unlock_fails() (+3 more)
 
-### Community 722 - ".claude/skills/impeccable/scripts/live/frameworks/tag-strategy.mjs"
-Cohesion: 0.21
-Nodes (16): appendOriginToDirective(), buildTagBlock(), commentClose(), commentOpen(), detectLineEnding(), findCspMetaTags(), getAttr(), insertTag() (+8 more)
+### Community 722 - "test_subagent_md_sync.py"
+Cohesion: 0.60
+Nodes (4): _normalize(), 漂移防御：lib.prompt_rules.episode_pacing 的常量必须出现在对应 subagent .md 中。 用首尾 60 字符锚点做…, test_drama_pacing_in_normalize_drama_md(), test_narration_pacing_in_split_narration_md()
 
-### Community 723 - "classify_wan_model"
-Cohesion: 0.12
-Nodes (14): 自定义供应商 model_id → supported_durations 启发式预设表。 数据来源：lmarena 视频模型排行榜 Top…, classify_wan_model(), _find_known_profile_key(), _normalize_wan27_alias(), model_id 在万相/happyhorse 家族判定链上的结构化结论。 唯一判定入口——家族归属、分隔符归一化、标识符边界、image-to-video…, 对 model_id 做一次判定，供路由/能力档/时长档复用同一结论。, 把 WAN2_PATTERN 命中的 wan2.7 别名折成 _MODEL_PROFILES key 固定使用的形态：…, 在 normalized 里按标识符边界查找 keys 中出现的第一个已知 key，均未命中则 None。 两侧边界要求非字母数字：左侧避免… (+6 more)
-
-### Community 724 - "Any"
-Cohesion: 0.13
-Nodes (17): dispose_pool(), Dispose the connection pool so a fresh event loop gets fresh connections.…, enqueue_and_wait_sync(), enqueue_task_only_sync(), Any, Run *coro* with ``asyncio.run()``, disposing stale pool connections first., Run an async coroutine from synchronous code., Sync wrapper for enqueue_task_only(). (+9 more)
-
-### Community 725 - "test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim"
+### Community 723 - "instructor_api_call_exhausted"
 Cohesion: 0.17
-Nodes (7): _FakePMScenes, _materialize_project(), _narration_script(), ``count`` 个无 segment_break 的分段，凑成单组（默认 4 个，即 grid_4 恰好填满）。, ``_FakePMGenerate`` 的变体：剧本分段数可指定，用于跨档位的阶梯断言。, 把假 ProjectManager 声称的项目状态落到磁盘上。 产物清单的取证只读磁盘上的规范文件，路由的假替身不能替它作数。, test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim()
+Nodes (8): instructor_api_call_exhausted(), Exception, InstructorRetryException, 构造「API 调用失败」形态的 Instructor 异常，供结构化输出降级链的判据测试使用。 API 调用本身抛的异常（参数被拒、瞬态…, _bad_request(), 瞬态错误剥掉 Instructor 包装后冒泡，保住类型供调用方的重试装饰器判定。, 与 tools 无关的 400（如上下文超限）原样冒泡：无 STRUCTURED_OUTPUT 能力位的模型 不经原生档直接进本链，把这类 400 当…, 代理的拒收文案大小写不统一，判据须归一后再匹配，否则降档路径形同虚设。
+
+### Community 724 - "Path"
+Cohesion: 0.17
+Nodes (13): parametrize, Path, project.json 残留指向已删除文件的 script_file 时，写端点应返回 404 而非 500。, 确认的档位是秒数，0 / 负数在边界拒绝，不落到请求选项构造里变成 500。, 显式非正时长须在请求边界被拒，不静默改写成 1 秒。, 显式非正时长须在请求边界被拒，不静默改写成 1 秒。, test_add_unit_rejects_non_positive_duration(), test_add_unit_stale_script_file_returns_404() (+5 more)
+
+### Community 725 - "_narration_script"
+Cohesion: 0.18
+Nodes (6): _FakePMScenes, _materialize_project(), _narration_script(), ``count`` 个无 segment_break 的分段，凑成单组（默认 4 个，即 grid_4 恰好填满）。, ``_FakePMGenerate`` 的变体：剧本分段数可指定，用于跨档位的阶梯断言。, 把假 ProjectManager 声称的项目状态落到磁盘上。 产物清单的取证只读磁盘上的规范文件，路由的假替身不能替它作数。
 
 ### Community 726 - "v6_to_v7_ad_reference_video_units.py"
 Cohesion: 0.21
 Nodes (16): _ensure_script_backup(), migrate_ad_reference_script(), _migration_note(), _positive_seconds(), Any, Path, v6→v7：把广告参考路线迁移为自包含 ``video_units``。 产出的是当前的单元形状（一段 ``text`` + 编排时长，见 ADR…, 把不能写入自包含正文的旧成员证据留在可见备注中。 (+8 more)
 
-### Community 727 - "._resolve_content_mode"
-Cohesion: 0.18
-Nodes (9): agent_profile_dir(), Path, ContentMode, 创建新项目 Args: name: 项目标识（全局唯一，用于 URL 和文件系统） content_mode: 内容模式（narration /…, 同步 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。 ``content_mode=None`` 时从…, 强制按 profile 覆盖项目内对应文件并刷新 manifest。 用于 UI"恢复内置 skill"按钮等显式触发的场景。``paths=None``…, Describe project-local Agent Profile customizations for settings UI., 从 project_dir/project.json 读 content_mode；缺失回退 narration。 ``project.json``… (+1 more)
+### Community 727 - "test_workflow_status_adapters.py"
+Cohesion: 0.37
+Nodes (12): _project(), Exception, integration, MonkeyPatch, parametrize, Path, ProjectManager, test_complete_step1_rebuild_mcp_forwards_explicit_baseline() (+4 more)
 
 ### Community 728 - "test_frontend_skill_i18n.py"
 Cohesion: 0.28
 Nodes (12): _find_skill_md(), _is_user_invocable(), _load_skill_name_keys(), parametrize, Path, Cross-check that every user-invocable agent skill has a frontend display name.…, Frontend skill_name_* keys 必须都对应 user-invocable SKILL.md —— 防止过时翻译堆积。, 优先 SKILL.md；否则任一 SKILL.<mode>.md 变体。 双变体同时存在时，要求所有变体的 user-invocable… (+4 more)
 
-### Community 729 - "test_artifact_version_restore.py"
-Cohesion: 0.29
-Nodes (16): Path, ProjectManager, Restore a typed version as one script/media/pointer/Manifest transition.…, restore_typed_media_version(), _add_audio_version(), _descriptor(), _project(), ArtifactBasisDescriptor (+8 more)
+### Community 729 - "_client"
+Cohesion: 0.20
+Nodes (7): _client(), _fake_generate_without_ledger(), versions/ 路径下的文件应返回 immutable 缓存头, content_mode=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到, 路由测试只验证解析结果，不依赖用量账本或数据库。, TestSourceMultiFormatUpload, _upload_source()
 
 ### Community 730 - "_pm"
 Cohesion: 0.24
@@ -3727,8 +3713,8 @@ Cohesion: 0.15
 Nodes (11): pm_tmp(), fixture, 测试 project.video_model_settings[model].resolution 在写 model_settings 时自动迁移。, 若本次保存未改动 model_settings，legacy 字段保留（读路径仍然兼容）。, 迁移只影响命中的 model_id，未命中的 legacy 条目保留。, legacy dict 完全为空时整个字段被删除（干净）。, 新 model_settings 里的 resolution 为空串/None 视为未配置，不触发迁移。, test_empty_resolution_in_new_does_not_migrate_legacy() (+3 more)
 
 ### Community 733 - "test_task_terminal_events.py"
-Cohesion: 0.08
-Nodes (23): Register a batch listener. Returns an unregister callback., register_project_change_batch_listener(), build_task_terminal_change(), emit_task_terminal_events(), Any, 任务终态 → 项目事件的转换与发布。 任务队列的终态迁移（succeeded / failed / cancelled）复用既有的项目事件通道推送，…, 把一条终态记录转成项目变更 dict；状态非终态时返回 None。, 按项目分组发布任务终态事件。 发布失败不向上抛：任务状态本身已落库，事件只是实时性优化，前端轮询兜底。 (+15 more)
+Cohesion: 0.09
+Nodes (20): build_task_terminal_change(), emit_task_terminal_events(), Any, 任务终态 → 项目事件的转换与发布。 任务队列的终态迁移（succeeded / failed / cancelled）复用既有的项目事件通道推送，…, 把一条终态记录转成项目变更 dict；状态非终态时返回 None。, 按项目分组发布任务终态事件。 发布失败不向上抛：任务状态本身已落库，事件只是实时性优化，前端轮询兜底。, captured_batches(), fixture (+12 more)
 
 ### Community 734 - "4.1 分镜图生视频 {#storyboard-image-route}"
 Cohesion: 0.15
@@ -3750,9 +3736,9 @@ Nodes (12): 3.1 已被 ArcReel 接入的平台, 3.2 调研但尚未接入的官�
 Cohesion: 0.17
 Nodes (11): 0. 结论先行, 1.1 端点与认证, 1.2 图像生成（imageInference）, 1.3 模型标识（AIR ID）, 1.4 OpenAI 兼容范围, 1. 协议细节（官方文档一手）, 2.1 尺寸档位（关键差异，实测）, 2. 已确认项（2026-08-19 实测） (+3 more)
 
-### Community 739 - "addVisualContrastFindings"
-Cohesion: 0.16
-Nodes (16): addBrowserFindings(), addVisualContrastFindings(), addVisualContrastResult(), analyzeVisualContrast(), clearOverlays(), detachOverlay(), disconnectLazyVisualContrastObserver(), postExtensionError() (+8 more)
+### Community 739 - "TestAdQualityProbe"
+Cohesion: 0.22
+Nodes (6): 能力桶解析闸的报错不被 fallback 吞掉——写剧本与执行读同一个模型的档位。, 桶模型缺能力 / 引用失效时上抛：退到 project.json 会拿项目默认模型的时长与参考图 上限写剧本，写出来的镜头执行期照样被同一道闸拒掉。, DB 未 migration / 缺能力元数据等环境故障仍走 fallback，裸环境下 generate() 照常跑通。, ad 总时长偏差探针：仅日志 WARN，不阻断、不推前端。, TestAdQualityProbe, TestFetchVideoCapabilitiesErrorHandling
 
 ### Community 740 - "Init flow"
 Cohesion: 0.20
@@ -3762,9 +3748,9 @@ Nodes (10): Completion gate, Init flow, Step 1: Load current state, Step 2: Expl
 Cohesion: 0.20
 Nodes (10): Completion gate, Init flow, Step 1: Load current state, Step 2: Explore the project, Step 3: Interview for product truth, Step 4: Write PRODUCT.md, Step 5: Record workflow defaults, Step 6: Wrap up or resume (+2 more)
 
-### Community 742 - "addVisualContrastFindings"
-Cohesion: 0.16
-Nodes (16): addBrowserFindings(), addVisualContrastFindings(), addVisualContrastResult(), analyzeVisualContrast(), clearOverlays(), detachOverlay(), disconnectLazyVisualContrastObserver(), postExtensionError() (+8 more)
+### Community 742 - "_ref_client"
+Cohesion: 0.29
+Nodes (6): 项目不存在 → 404，不退化成 500。 _load_episode_script 抛出的 NotFoundError 不是 HTTPException…, project.json 指向的剧本文件已丢失（stale 绑定）→ 404 而非 500。, emit 在 project_change_source("webui") 上下文内被调用（SSE source 由 contextvar 决定）。, _ref_client(), TestReferenceUnitVideoUpload, _upload_unit()
 
 ### Community 743 - "iOS platform"
 Cohesion: 0.22
@@ -3778,41 +3764,37 @@ Nodes (9): Color, Components, Layout, Motion, Operate mode depth (and Read notes
 Cohesion: 0.22
 Nodes (8): Cadence, Confirm and stop, Phase 1: Discovery interview, Phase 2: Resolve the design direction, Phase 3: Write the brief, Round 1: purpose, people, and outcome, Round 2: material, behavior, and boundaries, Shape
 
-### Community 746 - ".agents/skills/impeccable/scripts/live/frameworks/nuxt.mjs"
-Cohesion: 0.31
-Nodes (7): applyNuxtLiveAdapter(), buildNuxtPlugin(), nuxt, NUXT_PLUGIN_MARKER, NUXT_PLUGIN_NAME, removeNuxtLiveAdapter(), buildLiveScriptSrc()
+### Community 746 - "compute_source_revision"
+Cohesion: 0.13
+Nodes (34): _all_source_paths(), _blocked(), _canonical_relative_path(), compute_source_revision(), Any, BaseModel, Path, Deterministic revisions for the source text covered by asset analysis. (+26 more)
 
 ### Community 747 - "iOS platform"
 Cohesion: 0.22
 Nodes (9): Color & materials, Components & controls, iOS platform, Layout & structure, Motion, The iOS slop test, Touch targets, Typography (+1 more)
 
-### Community 748 - "batch_enqueue_only"
-Cohesion: 0.15
-Nodes (13): batch_enqueue_only(), _enqueue_sequentially(), EnqueuedTask, One queued member of a batch, and whether this call is what created it., Queue *specs* in order, resolving each dependency against its predecessor. One…, Create the batch's tasks without waiting for their results. The entry that…, unit, 入队中断不撤销已创建的任务，没轮到的目标逐 ID 报出来。 (+5 more)
+### Community 748 - "b7f2c41d9a30_collapse_image_backend_buckets_to_default.py"
+Cohesion: 0.32
+Nodes (11): _configured(), _delete(), downgrade(), Connection, 有效配置值 = 形如 ``provider/model``；空串与无斜杠的残值都不构成配置。, 把图片 t2i / i2i 从强制槽位收敛为可选覆盖桶，默认层升为 default_image_backend。…, 还原「桶即权威」形态：默认层有配置而两桶皆无有效值时，把默认值复制回两桶。 先按 upgrade…, _read() (+3 more)
 
-### Community 749 - "build_anthropic_env_dict"
-Cohesion: 0.23
-Nodes (12): build_anthropic_env_dict(), AsyncSession, 从 DB 读 active credential，返回 {ENV_KEY: value} dict，**不写 os.environ**。 返回值由…, asyncio, MonkeyPatch, build_anthropic_env_dict 行为测试 — 只读 DB、返回 dict、不写 environ。, spec §6.3 红线：build 函数不能写 os.environ。, 双轨期兼容：无 active credential 时从 system_settings legacy key 读取。 (+4 more)
+### Community 749 - "setup_logging"
+Cohesion: 0.26
+Nodes (4): 配置根 logger。 Args: level: 日志级别字符串（DEBUG/INFO/WARNING/ERROR）。 如未提供，从环境变量…, setup_logging(), 每个测试后清理 root logger handlers。, TestSetupLogging
 
 ### Community 750 - ".claude/skills/impeccable/SKILL.md"
 Cohesion: 0.06
-Nodes (30): Craft floor, Refuse, Verify, Extract Flow, Step 1: Discover the Design System, Step 2: Identify Patterns, Step 3: Plan Extraction, Step 4: Extract & Enrich (+22 more)
+Nodes (29): Before you finish, Scope is sovereign, The amplification, The skeleton test, Why it reads flat, Craft floor, Refuse, Verify (+21 more)
 
 ### Community 751 - "Shape"
 Cohesion: 0.22
 Nodes (8): Cadence, Confirm and stop, Phase 1: Discovery interview, Phase 2: Resolve the design direction, Phase 3: Write the brief, Round 1: purpose, people, and outcome, Round 2: material, behavior, and boundaries, Shape
 
-### Community 752 - "generate_color_refs"
-Cohesion: 0.33
-Nodes (7): generate_color_refs(), Path, 生成 SDK 验证用的纯色参考图（跨平台、无外部资产依赖）。, 在 out_dir 下生成 count 张等间距色相的 PNG，返回路径列表。, Path, test_generate_color_refs_creates_n_pngs(), test_generate_color_refs_distinct_colors()
+### Community 752 - "dependencies.py"
+Cohesion: 0.21
+Nodes (10): assert_project_migration_ok(), project_migration_failure(), ProjectManager, Refuse work on a project whose schema migration has not finished. The verdict…, Return the blocking verdict for a project, or ``None`` when it is healthy.…, Raise the shared refusal when the project's migration verdict is a failure., Request, Shared FastAPI dependency factories. (+2 more)
 
 ### Community 753 - "unit"
-Cohesion: 0.08
-Nodes (17): unit, drama 用无-dialogue 变体：video_prompt 不携带 dialogue 字段（台词迁入 utterances）。, 新数据（utterances 已在）不再迁移：video_prompt 残留 dialogue 触发 extra='forbid'。, extra='forbid' 守卫仍生效：utterances 不放松未知字段拒绝。, LLM 看到的 JSON schema 必须排除 note / generated_assets / duration_override / 顶层…, 遍历 schema 树，yield (path, key) 对所有 properties 键。, 虽然 LLM 看不到，但 Python 端仍能 model_validate 含这些字段的旧数据（向后兼容）。, LLM 不该看到 scene_type / summary / content_mode / novel / transition_to_next。 前 4… (+9 more)
-
-### Community 754 - "ProjectDurationContext"
-Cohesion: 0.15
-Nodes (16): default_unit_duration(), effective_reference_durations(), ProjectDurationContext, 参考视频路径实际可申请的时长档位：全集与该请求条件的约束求交。 型号可能对「带参考图」与「按某分辨率下发」各自声明更窄的时长档位。按全集取档会选中…, 项目视频能力的一次性 IO 解析结果：档位全集（未按单个 unit 条件收窄）+ 分辨率 + provider/model 身份。 供新建 unit…, 新建 unit 的默认时长（秒）：项目偏好 > 收窄后的最短档位 > 兜底。…, 参考图约束只在确实带图时施加：backend 同样只在 reference_images 非空时施加它。, 项目能力与分辨率各只解析一次：批量预检把这次结果复用给每个 unit。 (+8 more)
+Cohesion: 0.05
+Nodes (29): item_duration(), 单条剧本条目时长（秒）的脏数据归一口径——沿 ``ad_shot_duration_seconds`` 先例推广到四骨架。 非 dict 条目无时长语义按 0…, 按骨架种类求剧本条目总时长（秒）——脏数据稳健、不抛（见 ``item_duration``）。 ``items`` 非 list（含 null…, script_duration_total(), parametrize, unit, drama 用无-dialogue 变体：video_prompt 不携带 dialogue 字段（台词迁入 utterances）。, 新数据（utterances 已在）不再迁移：video_prompt 残留 dialogue 触发 extra='forbid'。 (+21 more)
 
 ### Community 755 - "test_alembic_custom_provider_endpoint.py"
 Cohesion: 0.23
@@ -3830,17 +3812,17 @@ Nodes (11): alembic_cfg(), fixture, parametrize, Path, SQLite 上 tasks 表重�
 Cohesion: 0.23
 Nodes (11): alembic_cfg(), fixture, Path, Alembic d4f8b1c73a20（tasks.submitted_base_url）双向迁移测试。, 升级加列；存量任务该列为 NULL —— 提交时未记域名，续跑退回按当下配置的域名轮询。, 降级重建表后去重索引仍在——反射不出的表达式 partial 索引丢了等于去重闸失效。, _tasks_columns(), _tasks_indexes() (+3 more)
 
-### Community 760 - "ensure_google_base_url"
-Cohesion: 0.23
-Nodes (4): ensure_google_base_url(), 规范化 Google genai SDK 的 base_url。 Google genai SDK 会自动在 base_url 后拼接…, ensure_google_base_url 剥离版本路径，防止 SDK 重复拼接。, TestEnsureGoogleBaseUrl
+### Community 760 - "_test_openai"
+Cohesion: 0.27
+Nodes (7): 通过 models.list() 验证 OpenAI API Key。, _test_openai(), _make_model(), API 异常应向上传播（由调用方 test_provider_connection 统一捕获）。, 所有模型都不匹配关键词时，返回空列表但仍成功。, 传入 base_url 时应转发到 OpenAI 客户端。, TestTestOpenAI
 
 ### Community 761 - "TestMixinApplicationToModels"
 Cohesion: 0.17
 Nodes (7): Verify Mixin columns are present on ORM models after refactoring., Task model should have user_id from UserOwnedMixin., ApiCall should have created_at (NOT NULL), updated_at, and user_id from Mixins., ApiKey should have updated_at and user_id from Mixins., AgentSession should have created_at, updated_at, and user_id from Mixins., WorkerLease should NOT have user_id — it was not given UserOwnedMixin., TestMixinApplicationToModels
 
-### Community 762 - "logging_config.py"
-Cohesion: 0.20
-Nodes (12): attach_file_handler(), _file_logging_disabled(), legacy_log_dir(), Path, 为 root logger 挂 TimedRotatingFileHandler（默认开启，按天切，保留 7 份）。 幂等：已挂则直接返回。被…, 日志目录解析：ARCREEL_LOG_DIR > PROJECT_ROOT/logs。 相对路径基于 PROJECT_ROOT。 日志目录刻意不放在…, 旧默认路径（app_data_dir()/logs），用于一次性启动迁移。, resolve_log_dir() (+4 more)
+### Community 762 - "video_batch_admission.py"
+Cohesion: 0.04
+Nodes (121): BatchAdmission, BatchAdmissionDecision, BatchConfirmationTier, _cost_amount(), _cost_currency(), GenerationProblem, StrEnum, All-or-nothing pre-request admission for batch video generation. A batch video… (+113 more)
 
 ### Community 763 - "_FakePMPathOnly"
 Cohesion: 0.17
@@ -3850,17 +3832,17 @@ Nodes (8): _FakePMGridDisabled, _FakePMNarration, _FakePMPathOnly, _FakePMRefere
 Cohesion: 0.36
 Nodes (9): _create_ad_reference_project(), _import_via_manual_zip(), _make_manual_zip(), Path, ProjectManager, 归档导入针对 ad + 参考生视频自包含 video_units 的修复测试。, TestProjectArchiveAdReference, _write_bytes() (+1 more)
 
-### Community 765 - "syncEditBadgeHitProxies"
-Cohesion: 0.27
-Nodes (10): bindEditBadgeProxy(), editBadgeProxyTargets(), initEditBadge(), initEditBadgeHitProxies(), positionEditBadge(), proxyMouseEvent(), setImportantStyle(), styleEditBadgeProxy() (+2 more)
-
-### Community 766 - "test_request_logging_middleware.py"
-Cohesion: 0.29
-Nodes (13): LogRecord, middleware, Request, request_logging_middleware(), _access_log_records(), _build_app_with_ok_routes(), asyncio, FastAPI (+5 more)
-
-### Community 767 - "ProjectAssetNameConflictError"
+### Community 765 - "test_api_keys_router.py"
 Cohesion: 0.24
-Nodes (15): ProjectAssetNameConflictError, ValueError, pm(), fixture, parametrize, Path, ProjectManager, test_batch_conflict_is_atomic() (+7 more)
+Nodes (6): _make_client(), TestClient, API Key 管理路由集成测试 通过 TestClient 测试 POST/GET/DELETE /api/v1/api-keys 端点。, TestCreateApiKey, TestDeleteApiKey, TestListApiKeys
+
+### Community 766 - "TestProjectExecutionProviderOnEnqueue"
+Cohesion: 0.17
+Nodes (6): 两条视频路线入队都只保存 advisory provider，不冻结执行 model。, 图片任务的 capability 执行时才定，入队不锁——只落 provider_id。, 解析补不出 provider → payload 不变，provider_id 保持 NULL 兜底。, 解析出 provider 但补不出 model → 只落 provider_id，不锁半截桶键。, 锁入走新 dict：调用方常复用同一份 payload 批量入队。, TestProjectExecutionProviderOnEnqueue
+
+### Community 767 - ".agents/skills/impeccable/scripts/live/generation-preflight.mjs"
+Cohesion: 0.35
+Nodes (9): buildGenerationPreflight(), compactError(), execFileAsync, insertTarget(), normalizeTarget(), replaceTarget(), runGenerationPreflight(), sourceResolutionCache (+1 more)
 
 ### Community 768 - "迁移步骤 {#migration-steps}"
 Cohesion: 0.17
@@ -3878,9 +3860,13 @@ Nodes (10): Step 0: 查视频模型能力与用户偏好, 任务定义, 分集�
 Cohesion: 0.18
 Nodes (10): Step 0: 查视频模型能力与用户偏好, 书写层语法（概览）, 任务定义, 工作流程, 情况 A：首次生成拆分, 情况 B：修改已有拆分, 情况 C：处置隔离草稿, 核心原则 (+2 more)
 
-### Community 773 - "test_script_review.py"
-Cohesion: 0.15
-Nodes (10): _narration_step1(), ProjectManager, step1→step2 审核 gate 的服务层与纯逻辑测试。 只测外部可观察行为：审核状态流转（step1 产出 → pending → 阻塞 → 确认 →…, 写出 step2 产物（生成的剧本 JSON），模拟「已产 step2」。, agent 路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。, reference_video（跨 content_mode）纳入 gate，step1 变体判为 reference_video。, TestApplicability, TestNarrationGateFlow (+2 more)
+### Community 773 - "checkElementGptBorderShadowDOM"
+Cohesion: 0.38
+Nodes (7): borderColorsFromStyle(), borderWidthsFromStyle(), checkElementGptBorderShadow(), checkElementGptBorderShadowDOM(), checkGptThinBorderWideShadow(), shadowLayerAlpha(), shadowMaxBlurPx()
+
+### Community 774 - "test_asset_repo.py"
+Cohesion: 0.20
+Nodes (4): fixture, AssetRepository 异步 CRUD 测试。, repo(), session()
 
 ### Community 775 - "Android platform"
 Cohesion: 0.25
@@ -3890,33 +3876,33 @@ Nodes (8): Android platform, Color & theming, Components & motion, Layout & stru
 Cohesion: 0.25
 Nodes (8): Android platform, Color & theming, Components & motion, Layout & structure, The Android slop test, Touch targets, Typography, Verifying the build
 
-### Community 777 - "_test_openai"
-Cohesion: 0.24
-Nodes (8): 通过 models.list() 验证 OpenAI API Key。, _test_openai(), _make_model(), OpenAI 连接测试 (_test_openai) 单元测试。, API 异常应向上传播（由调用方 test_provider_connection 统一捕获）。, 所有模型都不匹配关键词时，返回空列表但仍成功。, 传入 base_url 时应转发到 OpenAI 客户端。, TestTestOpenAI
+### Community 777 - ".test_execute_video_task_without_end_frame_image_passes_none"
+Cohesion: 0.18
+Nodes (6): parametrize, 剧本是磁盘 JSON，storyboard_image 字段不可信：越界 / 绕开 storyboards 目录 / 脏数据…, 未设置尾帧的镜头行为不变：字段缺失或显式空字符串，end_image 均为 None。, 剧本是磁盘 JSON，尾帧字段不可信：越界 / 绕开 end_frames 快照目录 / 脏数据一律硬失败， 不把任意服务器文件送进视频请求。约束与写侧…, 完成事件携带稳定 label_key 与参数，界面据此按用户语言成文；label 只是默认语言兜底。, storyboard/video 任务完成通知与分镜级事件同口径：实体类型与名词按项目剧本骨架 种类解析，不恒为 narration 的…
 
-### Community 778 - "TestLayeredBackendSkeleton"
-Cohesion: 0.23
-Nodes (7): _LayeredBackendKeys, 「默认 + 能力桶」四级解析骨架的键位声明，媒体类型无关（见 ``docs/adr/0054``）。 每个媒体类型的每个能力桶声明一份键位，由…, 「默认 + 能力桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。…, 键位为 None 的层直接跳过——项目默认层未声明时项目里的同名字段不生效。, 全局桶键存在但无有效值 → 回退全局默认层（docs/adr/0054）。, 项目层兼容裸 provider 覆盖（补该 provider 默认 model），与既有图片/视频项目字段语义一致。, TestLayeredBackendSkeleton
+### Community 778 - "episode_outline_context"
+Cohesion: 0.36
+Nodes (4): episode_outline_context(), 从分集账本提取 ``(本集大纲, 下集大纲)`` 作为剧本内容生成（step1）的规划输入。 大纲 dict 含 ``title`` / ``hook`` /…, 内容抽取前移后，分集大纲（故事节点 / 钩子）作为 step1 内容生成的规划输入。, TestEpisodeOutlineContext
 
-### Community 779 - "session_store_flush_mode"
-Cohesion: 0.29
-Nodes (10): FlushMode, Return SDK ClaudeAgentOptions.session_store_flush value. Defaults to "eager" so…, session_store_flush_mode(), ARCREEL_SDK_SESSION_STORE_FLUSH env parser., test_case_insensitive(), test_default_is_eager(), test_eager_explicit(), test_empty_treated_as_eager() (+2 more)
+### Community 779 - "test_alembic_asset_aliases.py"
+Cohesion: 0.33
+Nodes (6): alembic_cfg(), fixture, Path, Alembic coverage for structured global-asset aliases., _tables(), test_upgrade_and_downgrade_asset_aliases()
 
-### Community 780 - "segment_id_for"
-Cohesion: 0.31
-Nodes (5): 按记账调用类型与资源类型判定 segment_id；audio 无白名单，无条件透传。, segment_id_for(), parametrize, segment_id_for 是 image/video/audio 三条记账路径共用的单点判定函数。, TestSegmentIdFor
+### Community 780 - "media_generator.py"
+Cohesion: 0.07
+Nodes (42): _is_junction(), MediaGenerator, Any, Image, Path, MediaGenerator 中间层 封装 GeminiClient + VersionManager，提供"调用方无感"的版本管理。 调用方只需传入…, Remove a formal-output staging file whenever the guarded operation aborts., 接续 provider 上已发起的 video job：调 backend.resume_video 而非 generate。 与… (+34 more)
 
-### Community 781 - "setup_logging"
-Cohesion: 0.21
-Nodes (6): 配置根 logger。 Args: level: 日志级别字符串（DEBUG/INFO/WARNING/ERROR）。 如未提供，从环境变量…, setup_logging(), 每个测试后清理 root logger handlers。, TestSetupLogging, attach_file_handler() 多次调用只挂一个 file handler。, test_attach_file_handler_is_idempotent()
+### Community 781 - "make_provider_id"
+Cohesion: 0.05
+Nodes (54): assemble_backend(), _load_builtin_config(), Any, assemble_backend — 「provider config + model → backend」统一构造入口。 按…, 内置侧 async 装载段：查 DB/config 产出 LoadedConfig 信封。 凭证 overlay 来自…, 统一构造入口。按 provider_id 是否自定义分流；未登记的内置 provider × media fail-loud。, backend_assembly — 「provider config + model → backend」的统一构造缝。 暴露唯一入口…, make_provider_id() (+46 more)
 
 ### Community 782 - "Generate Report"
 Cohesion: 0.29
 Nodes (7): Audit Health Score, Detailed Findings by Severity, Executive Summary, Generate Report, Patterns & Systemic Issues, Platform Conformance Verdict, Positive Findings
 
-### Community 783 - "Impeccable Finish Reviewer"
-Cohesion: 0.29
-Nodes (6): Checks, in order, Disposition, Impeccable Finish Reviewer, Input Contract, Output Contract, Verdict Pass
+### Community 783 - "_generate_with_gate"
+Cohesion: 0.24
+Nodes (11): _assert_grid_switch_rejected(), _generate_with_gate(), parametrize, 断言响应是宫格开关专属的拒绝，且拒绝发生在入队之前（不产生计费任务）。, 跑一次 generate_grid，返回入队 payload 列表。4K 门控结果直接注入。, test_generate_grid_5_and_6_scenes_use_grid_9(), test_generate_grid_above_25_chunks_at_25(), test_generate_grid_caps_at_9_without_4k() (+3 more)
 
 ### Community 784 - "Impeccable Manual Edit Applier"
 Cohesion: 0.29
@@ -3934,17 +3920,13 @@ Nodes (7): Audit Health Score, Detailed Findings by Severity, Executive Summary,
 Cohesion: 0.29
 Nodes (6): Checks, in order, Disposition, Impeccable Finish Reviewer, Input Contract, Output Contract, Verdict Pass
 
-### Community 788 - "_FakePM"
-Cohesion: 0.27
-Nodes (3): _client(), _FakePM, TestProductsRouter
+### Community 788 - "Q: 你看一下角色拉取的这一块，就是拉取到本地的这个角色，比如说布爸，他还有一些其他的这种数据吗？就比如说鳄鱼爸爸，是吧？他的一些这个形象的一些设定，这个是有的吗？如果有的话，我就需要补充一下这个到他的描述里面去，或者到他的一些这个他的一些meta data里面去。这样的话，后续去做这种角色匹配的时候，他能够匹配到鳄鱼爸爸上面去。你先查看一下具体拉取的数据。"
+Cohesion: 0.40
+Nodes (4): Answer, Outcome, Q: 你看一下角色拉取的这一块，就是拉取到本地的这个角色，比如说布爸，他还有一些其他的这种数据吗？就比如说鳄鱼爸爸，是吧？他的一些这个形象的一些设定，这个是有的吗？如果有的话，我就需要补充一下这个到他的描述里面去，或者到他的一些这个他的一些meta data里面去。这样的话，后续去做这种角色匹配的时候，他能够匹配到鳄鱼爸爸上面去。你先查看一下具体拉取的数据。, Source Nodes
 
 ### Community 789 - "Impeccable Manual Edit Applier"
 Cohesion: 0.29
 Nodes (6): Checks, Entry Atomicity, Impeccable Manual Edit Applier, Input Contract, Output Contract, Workflow
-
-### Community 790 - "test_generation_worker_module.py"
-Cohesion: 0.19
-Nodes (9): _read_int_env(), _patch_empty_db(), _phase_ids(), fixture, lease 重夺时旧 dispatcher 仍在跑：本轮直接覆盖句柄，不 await（liveness）也不 cancel （避免错误中断 in-flight…, 把全局 async_session_factory 换成空内存库，隔离掉真实数据库。 无 project_name 的 _extract_provider…, 白盒辅助：返回某 (provider, media) bucket 的 (inflight_ids, pending_ids)。 等价于旧测对…, TestOrphanDispatcherNonBlockingOverride (+1 more)
 
 ### Community 791 - "工作流程"
 Cohesion: 0.20
@@ -3978,37 +3960,37 @@ Nodes (10): 12. Out of scope, accepted trust, and non-findings, 13. Security rev
 Cohesion: 0.29
 Nodes (6): _default_translate(), Any, 把参数值里的嵌套翻译标记解析成当前语言的文本，其余值原样返回。, 默认语言的 translator。惰性 import：``lib.i18n`` 依赖 fastapi，不让它进本模块导入期。, 按 ``translate`` 渲染成文本；缺省用默认语言（中文）渲染，供 Agent 与 CLI 边界消费。, _resolve_param()
 
-### Community 799 - "_StubSessionManager"
-Cohesion: 0.19
-Nodes (6): A SessionManager whose stream_messages yields a scripted event sequence.…, 持续 <idle_timeout 间隔的消息流下,deadline 仍被每轮检查 → timeout。 回归保护:若 deadline…, 订阅队列溢出以流结束表达:流结束 → 显式收尾为 error,不傻等超时。, 心跳事件上判会话状态:非 running 即收尾,不等 deadline。, _StubSessionManager, TestCollectReply
+### Community 799 - "Q: How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
+Cohesion: 0.40
+Nodes (4): Answer, Outcome, Q: How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?, Source Nodes
 
-### Community 800 - "test_minimax_integration.py"
-Cohesion: 0.20
-Nodes (5): MiniMax 跨层集成测试：内置 provider 注册、文本记账 provider、定价查表、env keys。, provider=minimax 经 text 工厂 → assemble_backend → OpenAI 后端，base_url 派生…, TestFactoryWiring, TestProviderConstantsDistinct, TestRegistry
+### Community 800 - "integration"
+Cohesion: 0.13
+Nodes (33): _patch_supported_durations(), _patch_video_caps(), _precheck(), _preview(), integration, MonkeyPatch, 档位集为空时 fail loud，不返回伪可执行的 unconstrained 结果。, 预览只回发声派生：utterances 按正文顺序 1-based 编号，另加降级 warning。 (+25 more)
 
-### Community 801 - "_generate_with_gate"
-Cohesion: 0.19
-Nodes (13): _assert_grid_switch_rejected(), _generate_with_gate(), parametrize, 断言响应是宫格开关专属的拒绝，且拒绝发生在入队之前（不产生计费任务）。, 跑一次 generate_grid，返回入队 payload 列表。4K 门控结果直接注入。, grid_id 直接来自 URL 路径参数：格式非法一律 404，不落到文件系统读越界文件。, test_generate_grid_5_and_6_scenes_use_grid_9(), test_generate_grid_above_25_chunks_at_25() (+5 more)
+### Community 801 - "_reset_for_tests"
+Cohesion: 0.14
+Nodes (18): Clear the cached value so tests can monkeypatch env between cases., _reset_for_tests(), MonkeyPatch, Path, diagnostics.collect_diagnostics 行为测试。, test_collect_masks_db_password(), test_collect_masks_db_query_secrets(), test_collect_returns_log_dir_matching_logging_config() (+10 more)
 
-### Community 802 - ".claude/skills/impeccable/reference/bolder.md"
+### Community 802 - "_coerce_duration"
 Cohesion: 0.33
-Nodes (5): Before you finish, Scope is sovereign, The amplification, The skeleton test, Why it reads flat
+Nodes (3): _coerce_duration(), 按 (model, endpoint) 的合法集合，把请求时长校正到最近值。, TestCoerceDuration
 
-### Community 803 - "b7f2c41d9a30_collapse_image_backend_buckets_to_default.py"
-Cohesion: 0.32
-Nodes (11): _configured(), _delete(), downgrade(), Connection, 有效配置值 = 形如 ``provider/model``；空串与无斜杠的残值都不构成配置。, 把图片 t2i / i2i 从强制槽位收敛为可选覆盖桶，默认层升为 default_image_backend。…, 还原「桶即权威」形态：默认层有配置而两桶皆无有效值时，把默认值复制回两桶。 先按 upgrade…, _read() (+3 more)
+### Community 803 - ".test_create_project_rejects_boolean_speech_rate"
+Cohesion: 0.22
+Nodes (4): parametrize, JSON 布尔不得被 Pydantic 折成 1.0 / 0.0 混进语速覆盖，两个取值都应 422 且不建目录。, 口播语速估算越界（≤0 或 >20）应 422，且不写回 project.json。, PATCH 同样拒布尔：否则 true 会作为 1.0 落盘、false 被当成未填静默跳过。
 
-### Community 804 - "_validate_provider_specs"
-Cohesion: 0.27
-Nodes (6): import 期校验内置表自身不变式，misconfig fail-fast（镜像…, _validate_provider_specs(), MonkeyPatch, import 期不变式：build 可调用、键与 spec 字段一致、media_type 合法。misconfig fail-fast。, registry 名都在对应后端 registry 里 —— 归单测（import 全部后端无碍），不进 import 期。, TestValidateProviderSpecs
+### Community 804 - "test_instructor_support.py"
+Cohesion: 0.22
+Nodes (8): ResponseParsingError, _completion(), instructor_support 模块测试。, 异步版显式 token_param 时以 max_completion_tokens 为参数名上线。, 构造一个 completion，供诊断日志断言取原始输出、供判据看有无 tool call。, 上游回了 tool call 但 arguments 不可用：属校验类，不是 wire 层不兼容。, TestGenerateStructuredViaInstructorAsync, _tool_call_args_invalid_error()
 
-### Community 805 - "renderGroupedTemplate"
-Cohesion: 0.29
-Nodes (12): clampGroupedToBudget(), clampLastLine(), clampToBudget(), directiveFooter(), footerFallbacks(), formatDedupedFindingLine(), isFindingLine(), relativize() (+4 more)
+### Community 805 - "._normalize_path_for_protected_compare"
+Cohesion: 0.20
+Nodes (7): 把路径字符串归一化为受保护区比对用的统一键。 三步处理，覆盖三类形态漂移： - Windows ``\\\\?\\``…, 命中受保护的项目 JSON（``scripts/`` 下任意 .json，或根 ``project.json``）。 caller…, 命中受写禁的正式 step1（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_STEP1_FILENAMES``）。 与…, 写禁清单只认 lib.episode_paths 那一份常量：判定表与文件名真相源分开声明时，…, NFC/NFD 与大小写混合形式都须命中：macOS HFS+ 按 NFD 存储文件名，resolve 返回的 target 与 NFC 形式的 base…, test_protected_json_predicate_normalizes_nfd_and_case(), test_protected_step1_filenames_match_shared_constant()
 
-### Community 806 - "AssetRepository"
-Cohesion: 0.04
-Nodes (72): Asset, BackgroundJobWorker, Any, Worker for durable, non-generation background jobs., _atomic_write(), _available_name(), _CatalogAsset, _CatalogCharacter (+64 more)
+### Community 806 - "lib/character_catalog.py"
+Cohesion: 0.06
+Nodes (52): Worker for durable, non-generation background jobs., _atomic_write(), _available_name(), _CatalogAsset, _CatalogCharacter, _CatalogVoice, _CharacterCatalog, CharacterCatalogSyncError (+44 more)
 
 ### Community 807 - "Installation, deployment, and updates {#install-deploy-update}"
 Cohesion: 0.33
@@ -4018,17 +4000,17 @@ Nodes (6): How do I update Docker? Will an update delete my projects? {#docker-u
 Cohesion: 0.40
 Nodes (4): Agent Runtime 与 Agent 配置, Agent 配置源, Claude Agent SDK 开发依据, 运行时不变量
 
-### Community 809 - ".claude/skills/impeccable/scripts/live/frameworks/index.mjs"
+### Community 809 - "generation_tasks.py"
+Cohesion: 0.02
+Nodes (221): args, kwargs, Finish one synchronous transaction even if its awaiting task is cancelled. A…, run_noninterruptible_sync(), freeze_image_references(), FrozenImageReferences, Path, Task-owned snapshots for provider-facing image references. Formal visual… (+213 more)
+
+### Community 810 - ".claude/skills/impeccable/scripts/live/frameworks/index.mjs"
 Cohesion: 0.18
 Nodes (10): COMMENT_SYNTAXES, FRAMEWORKS, INJECT_KINDS, PREVIEW_MODES, SOURCE_TRAIT_DEFAULTS, STYLE_MODES, TAG_PATCH_KIND, staticHtml (+2 more)
 
-### Community 810 - ".from_caps"
-Cohesion: 0.18
-Nodes (10): Any, Collection, 从解析出的视频能力 dict 取值构造。 能力解析失败时调用方传空 dict，各字段落到本类的字段默认（``soft`` 档、无参考音频）——…, parametrize, 渲染层声音输入档值对象：能力 dict 取值与无声判据。, 能力 dict 的 key 名与字段名的对应只在 from_caps 一处：漏取一位会让某个调用点 （解析预览路由 / SDK…, 能力解析失败时调用方传空 dict：落到 soft / 无参考音频，只少发几条提示，不阻断渲染。, test_from_caps_degrades_to_soft_on_unresolvable_capabilities() (+2 more)
-
-### Community 811 - "PresentationReadModelService"
-Cohesion: 0.08
-Nodes (46): ContentDigest, DurationProbe, Identify one independently current final-presentation variant., _rendition_variant(), MediaCurrency, PresentationBundleService, ProjectManager, Package unchanged selected media plus editable model/subtitle files. (+38 more)
+### Community 811 - "video_caps.py"
+Cohesion: 0.12
+Nodes (22): assert_audio_switch_supported(), project_video_caps(), VideoCapability, 项目级视频能力解析的共享出口。 按「项目当前配置的视频后端」解析 model 粒度能力，供入队前的预检使用（时长取档、 Voice_Profiles…, 项目视频后端的 model 粒度能力；解析失败返回部分 dict（可能仅含 ``requested_generate_audio``）， 由调用方各自降级。…, 项目的「关闭音频」意图是否落在一个收不到音轨开关的模型上；冲突时返回 ``(provider, model)``。…, Agent 视频入队前的音频开关预检，冲突时抛 ``ValueError``。 与 WebUI 入口的…, 这一集是否听不到声音，供 drama Voice_Profiles 注入前的判定。 两条无声路径（模型不产音的 C… (+14 more)
 
 ### Community 812 - "alembic_cfg"
 Cohesion: 0.22
@@ -4058,37 +4040,37 @@ Nodes (9): 8.1 OpenAI Sora 2 Deprecation, 8.2 NewAPI metadata 透传完整度不
 Cohesion: 0.22
 Nodes (9): 10.1 Authentication and bearer tokens, 10.2 Public and self-authenticating routes, 10.3 Provider configuration and outbound requests, 10.4 Imports, uploads, and project data, 10.5 Agent runtime and prompt injection, 10.6 Media processing and workers, 10.7 Frontend rendering and same-origin content, 10.8 Deployment and container boundary (+1 more)
 
-### Community 819 - "ImageInput"
+### Community 819 - "entry_service"
 Cohesion: 0.20
-Nodes (6): ImageInput, vision 路径走 chat.completions.create，与 plain 共用响应解析。, vision 请求构建 image_url 格式的多模态消息。, TestVision, TestImageInput, TestTextGenerationRequest
+Nodes (4): entry_service(), _FakeAdapter, _FakeMetaStore, fixture
 
-### Community 821 - ".agents/skills/impeccable/scripts/live/generation-preflight.mjs"
-Cohesion: 0.35
-Nodes (9): buildGenerationPreflight(), compactError(), execFileAsync, insertTarget(), normalizeTarget(), replaceTarget(), runGenerationPreflight(), sourceResolutionCache (+1 more)
+### Community 820 - "_narration_script"
+Cohesion: 0.33
+Nodes (5): _load_script(), _narration_script(), Any, 新名下的孤儿文件没有对应资产，资产桶冲突检查看不见它，须在迁移前独立拦下。, _reference_script()
 
-### Community 822 - "model_validator"
-Cohesion: 0.20
-Nodes (5): model_validator, ValueError, 读时迁移：剥离已废弃字段，并把旧口播双字段（``video_prompt.dialogue`` + ``voiceover``） 合成为有序…, 从旧 ``video_prompt.dialogue`` + 场景 ``voiceover`` 合成有序 utterances（dialogue 段在前）。, 全悬空迁移壳可为空且为 0 秒；其余单元仍须可执行。
+### Community 821 - "specs.py"
+Cohesion: 0.14
+Nodes (28): _build_gemini_image(), _build_gemini_video(), _build_kling(), _build_simple(), _build_text_gemini_aistudio(), _build_text_gemini_vertex(), _build_text_openai_compat(), _build_text_simple() (+20 more)
+
+### Community 822 - "prompt_utils.py"
+Cohesion: 0.05
+Nodes (47): normalize_asset_bucket(), Any, 把资产桶读成 key 已归一到比对坐标系的字典；非 dict 的畸形值按空桶处理。 资产名的比对总是「文本里的名字 × 资产表的…, _attach_voice_profiles(), build_drama_video_prompt(), build_drama_video_prompt_from_legacy_dialogue(), _build_voice_profiles(), image_prompt_to_yaml() (+39 more)
 
 ### Community 823 - "migrate_project_source_encoding"
-Cohesion: 0.40
-Nodes (9): migrate_project_source_encoding(), Path, 历史项目源文件编码迁移。 启动时由 server/app.py lifespan 调用：扫描…, _make_project(), Path, test_migration_no_source_dir_is_noop(), test_migration_records_failures_without_raising(), test_migration_rewrites_non_utf8_txt_in_place() (+1 more)
+Cohesion: 0.36
+Nodes (10): migrate_project_source_encoding(), MigrationSummary, Path, 历史项目源文件编码迁移。 启动时由 server/app.py lifespan 调用：扫描…, _make_project(), Path, test_migration_no_source_dir_is_noop(), test_migration_records_failures_without_raising() (+2 more)
 
 ### Community 824 - "ArcReel"
-Cohesion: 0.14
-Nodes (12): Agent skills, ArcReel, 工具链与校验, 开发与维护流程, 最优开发 / 修复原则, 架构, 通用规范, 1. 使用独立 Feature Worktree (+4 more)
+Cohesion: 0.12
+Nodes (14): Agent skills, ArcReel, 工具链与校验, 开发与维护流程, 最优开发 / 修复原则, 架构, 通用规范, 1. 需求澄清与执行确认 (+6 more)
 
 ### Community 825 - "checkHeadingRhythmDOM"
-Cohesion: 0.31
-Nodes (11): checkHeadingRhythmDOM(), clusterTop(), edgeAbove(), edgeBelow(), hasOwnTopBoundary(), insideSmallCard(), isVisibleFlow(), overlapsX() (+3 more)
+Cohesion: 0.62
+Nodes (7): checkHeadingRhythmDOM(), clusterTop(), edgeAbove(), edgeBelow(), hasOwnTopBoundary(), isVisibleFlow(), overlapsX()
 
-### Community 826 - "_client"
-Cohesion: 0.11
-Nodes (12): _client(), _img_bytes(), integration, MonkeyPatch, Path, max_bytes 是通用请求体闸门：登记了上限的类型无论 content_check 为何都应拒收超限请求。, 非 vision 校验的后端构造 ValueError（如凭证文件路径缺失 project_id）不得原样透出为 400。, 宿主资产的存量 key 可能是 NFD：上传入口按坐标系解析存在性， 否则闸口把 name 归一到 NFC 后会先返回 404，写回侧的解析根本走不到。 (+4 more)
-
-### Community 827 - "checkElementGptBorderShadowDOM"
+### Community 827 - "_make_app"
 Cohesion: 0.38
-Nodes (7): borderColorsFromStyle(), borderWidthsFromStyle(), checkElementGptBorderShadow(), checkElementGptBorderShadowDOM(), checkGptThinBorderWideShadow(), shadowLayerAlpha(), shadowMaxBlurPx()
+Nodes (4): _make_app(), _mock_pm(), Create a mock to replace the ``get_project_manager()`` singleton getter., TestCostEstimationRouter
 
 ### Community 828 - "Path"
 Cohesion: 0.42
@@ -4098,69 +4080,73 @@ Nodes (4): Path, 基线一致放行；``None`` 基线表示「取基线时文件
 Cohesion: 0.50
 Nodes (3): candidates, detectorPath, __dirname
 
-### Community 830 - "checkElementRadialSpotlightDOM"
-Cohesion: 0.67
-Nodes (4): checkElementRadialSpotlight(), checkElementRadialSpotlightDOM(), elementGradientValue(), spotlightLabel()
+### Community 830 - "_FakePM"
+Cohesion: 0.29
+Nodes (3): _client(), _FakePM, TestPropsRouter
 
 ### Community 831 - "development"
 Cohesion: 0.22
 Nodes (9): >0.5%, last 3 chrome version, last 3 firefox version, last 5 safari version, not dead, not op_mini all, browserslist, development (+1 more)
 
-### Community 832 - "agent_access_policy.py"
-Cohesion: 0.12
-Nodes (13): _default_claude_projects_dir(), ProtectedWriteRule, agent 访问规则真相源：内核 sandbox settings 编译与应用层 hook 裁决共用同一份规则。 零…, SDK 存放 per-project 会话数据的基准目录。, 一类受保护写路径的完整声明：hook 谓词、拒绝文案与 sandbox denyWrite 投影同处一行。…, 汇总要从 Bash 子进程剥离的 env 变量名。 来源三路：固定清单（ANTHROPIC + OTHER provider）+ 模式匹配（扫…, ``env -u VAR1 -u VAR2 ... sh -c `` 前缀。命中清单由 ``_collect_env_keys_to_scrub``…, Bash 密钥剥离的纯变换：返回包装后的命令，None 表示不包装。 SDK 子进程持有真值的 ANTHROPIC_*（认证需要），及空值… (+5 more)
+### Community 832 - "_FakePM"
+Cohesion: 0.29
+Nodes (3): _client(), _FakePM, TestScenesRouter
 
-### Community 833 - "test_env_keys.py"
-Cohesion: 0.22
-Nodes (8): 密钥集合必须在「其他 provider env」的并集中（防漏列）。, OpenAI 是内置 provider，其 SDK 在 api_key 缺省时回落读 OPENAI_API_KEY， 因此该密钥必须进入 fail-fast…, OpenAI SDK 在 client 未显式传值时会回落读的非密钥 env 旋钮（base_url / org / project / custom…, ANTHROPIC_ENV_KEYS 必须覆盖 SDK 子进程读取的全部 ANTHROPIC_* + CLAUDE_CODE_*。, test_anthropic_keys_complete(), test_openai_api_key_in_secret_lists(), test_openai_nonsecret_env_fallbacks_in_override_list(), test_provider_secret_keys_is_subset_of_all_provider_keys()
+### Community 833 - "session_store_flush_mode"
+Cohesion: 0.29
+Nodes (10): FlushMode, Return SDK ClaudeAgentOptions.session_store_flush value. Defaults to "eager" so…, session_store_flush_mode(), ARCREEL_SDK_SESSION_STORE_FLUSH env parser., test_case_insensitive(), test_default_is_eager(), test_eager_explicit(), test_empty_treated_as_eager() (+2 more)
 
 ### Community 834 - ".claude/skills/impeccable/scripts/detect.mjs"
 Cohesion: 0.50
 Nodes (3): candidates, detectorPath, __dirname
 
-### Community 835 - "video_capabilities_for_model"
-Cohesion: 0.22
-Nodes (9): VideoCapabilities, 读某后端对某 model 声明的视频能力 —— 纯查表，不构造实例（无需 api_key）。 ``name`` 是 registry 名（内置侧由…, video_capabilities_for_model(), _backend_video_caps(), VideoCapabilities, 视频能力位与参考图上限的唯一声明处是 backend，registry ModelInfo 不带这些字段。, unit, 每个能承载视频模型的内置 provider 都要能被纯函数问出布尔能力位。 (+1 more)
+### Community 835 - "test_minimax_integration.py"
+Cohesion: 0.20
+Nodes (5): MiniMax 跨层集成测试：内置 provider 注册、文本记账 provider、定价查表、env keys。, provider=minimax 经 text 工厂 → assemble_backend → OpenAI 后端，base_url 派生…, TestFactoryWiring, TestProviderConstantsDistinct, TestRegistry
 
 ### Community 836 - "test_alembic_tasks_provider_endpoint.py"
 Cohesion: 0.28
 Nodes (8): alembic_cfg(), fixture, Path, Alembic c4a91f7d2b18（tasks.provider_endpoint）双向迁移测试。, 升级加列；存量任务该列为 NULL —— 无从比对 endpoint，续跑照常接续。, _tasks_columns(), test_downgrade_drops_column(), test_upgrade_adds_nullable_provider_endpoint()
 
-### Community 837 - "episode_outline_context"
-Cohesion: 0.36
-Nodes (4): episode_outline_context(), 从分集账本提取 ``(本集大纲, 下集大纲)`` 作为剧本内容生成（step1）的规划输入。 大纲 dict 含 ``title`` / ``hook`` /…, 内容抽取前移后，分集大纲（故事节点 / 钩子）作为 step1 内容生成的规划输入。, TestEpisodeOutlineContext
+### Community 837 - "segment_id_for"
+Cohesion: 0.31
+Nodes (5): 按记账调用类型与资源类型判定 segment_id；audio 无白名单，无条件透传。, segment_id_for(), parametrize, segment_id_for 是 image/video/audio 三条记账路径共用的单点判定函数。, TestSegmentIdFor
 
-### Community 838 - "_migrate_source_encoding_on_startup"
-Cohesion: 0.27
-Nodes (10): _diagnose_bwrap_failure(), _migrate_source_encoding_on_startup(), Path, 根据 host sysctl 状态给出 bwrap 失败的精确修复路径。 procfs 是宿主机共享的，容器内同样能读到 host sysctl 值，所以这套…, 对每个项目执行幂等编码迁移。失败被捕获并写日志，不阻塞启动。, _read_sysctl(), Path, test_startup_migration_creates_marker_after_run() (+2 more)
+### Community 838 - "build_overview_prompt"
+Cohesion: 0.33
+Nodes (4): build_overview_prompt(), 构建项目概述（overview）生成 prompt。 ``source_kind="screenplay"``…, source_kind=screenplay 下 overview prompt 翻为「提取优先」：作者写下的创作方案前言优先照用、…, TestOverviewPrompt
 
 ### Community 839 - "Q: 在项目设置中实现自定义风格图片或手填 Style Description，并由图片上的按钮按需解析回填文本框"
 Cohesion: 0.40
 Nodes (4): Answer, Outcome, Q: 在项目设置中实现自定义风格图片或手填 Style Description，并由图片上的按钮按需解析回填文本框, Source Nodes
 
-### Community 841 - ".test_create_project_rejects_boolean_speech_rate"
+### Community 841 - "_derived_references"
 Cohesion: 0.22
-Nodes (4): parametrize, JSON 布尔不得被 Pydantic 折成 1.0 / 0.0 混进语速覆盖，两个取值都应 422 且不建目录。, 口播语速估算越界（≤0 或 >20）应 422，且不写回 project.json。, PATCH 同样拒布尔：否则 true 会作为 1.0 落盘、false 被当成未填静默跳过。
+Nodes (9): _derived_references(), Any, 执行期会用到的参考图引用：正文的唯一派生出口，不落盘。, 时长与正文互不牵连；正文换掉后参考图按新正文重新派生。, 资产以 NFD 形式登记、正文写的是 NFC 名字：派生须按归一形式比对判「已登记」。, test_add_nonblank_unit_derives_registered_references_from_text(), test_patch_unit_derives_nfc_reference_for_nfd_registered_name(), test_patch_unit_derives_non_character_references_before_speech_admission() (+1 more)
 
-### Community 842 - "._build_asset_entry"
-Cohesion: 0.13
-Nodes (10): 新增 entry 到 project[bucket][name]。同类型已存在时返回 False。 通过 update_project 在单一文件锁内完成…, 批量新增 entries。已存在的 name 跳过，返回新增数量。 通过 update_project 在单一文件锁内完成 read-modify-…, 按 ASSET_SPECS 构造 entry：description + sheet 字段为空 + extra 字段从 source 取或默认。 source…, 直接添加角色到 project.json；同类型已存在返回 False，跨类型冲突则抛错。, 直接添加场景到 project.json；同类型已存在返回 False，跨类型冲突则抛错。, 直接添加道具到 project.json；同类型已存在返回 False，跨类型冲突则抛错。, 直接添加产品到 project.json；同类型已存在返回 False，跨类型冲突则抛错。, 批量添加角色；同类型已存在的跳过，跨类型冲突时整批不落盘。 (+2 more)
+### Community 842 - "test_discover_anthropic_fallback.py"
+Cohesion: 0.29
+Nodes (9): authed_client(), _engine(), _make_app(), asyncio, FastAPI, fixture, /custom-providers/discover-anthropic 回退到 active credential 的回归测试。, test_discover_falls_back_to_active_credential() (+1 more)
 
-### Community 843 - "TestBuildNarrationSplitPrompt"
-Cohesion: 0.36
-Nodes (3): step1 说书片段拆分 prompt（源文 → 结构化片段表）。, default 漂移到 supported_durations 之外时按 null 处理、不 fail-loud（软偏好口径）。, TestBuildNarrationSplitPrompt
+### Community 843 - "_validate_provider_specs"
+Cohesion: 0.27
+Nodes (6): import 期校验内置表自身不变式，misconfig fail-fast（镜像…, _validate_provider_specs(), MonkeyPatch, import 期不变式：build 可调用、键与 spec 字段一致、media_type 合法。misconfig fail-fast。, registry 名都在对应后端 registry 里 —— 归单测（import 全部后端无碍），不进 import 期。, TestValidateProviderSpecs
 
-### Community 844 - "_seed_reference_video_project"
-Cohesion: 0.33
-Nodes (6): Path, ProjectManager, 创建项目 + 一个 reference_video 模式的 episode_1 剧本，预置 n_units 个 unit。, 并发追加新 unit 与回写已有 unit 资产，二者都不丢。, _seed_reference_video_project(), TestReferenceVideoConcurrentRMW
+### Community 844 - "TestReferenceAudioGating"
+Cohesion: 0.22
+Nodes (3): 无音色输入能力的模型收到音频：硬失败，不静默丢弃后照常扣费生成随机音色。, 空列表与 None 同义：没有音频诉求就不该被音频能力挡住。, TestReferenceAudioGating
+
+### Community 846 - "test_env_scrub_collects_pattern_matched_keys"
+Cohesion: 0.22
+Nodes (6): 汇总要从 Bash 子进程剥离的 env 变量名。 来源三路：固定清单（ANTHROPIC + OTHER provider）+ 模式匹配（扫…, ``env -u VAR1 -u VAR2 ... sh -c `` 前缀。命中清单由 ``_collect_env_keys_to_scrub``…, Bash 密钥剥离的纯变换：返回包装后的命令，None 表示不包装。 SDK 子进程持有真值的 ANTHROPIC_*（认证需要），及空值…, MonkeyPatch, unset 清单除了固定名单还要动态命中 *_API_KEY / *_AUTH_TOKEN 等模式。, test_env_scrub_collects_pattern_matched_keys()
 
 ### Community 847 - "_FailureRecorder"
 Cohesion: 0.29
 Nodes (4): _FailureRecorder, Path, Records storyboard failures to ``storyboards/generation_failures.json``., Append a failure entry. ``resource_type`` is ``segment`` (narration) or…
 
-### Community 848 - "test_generation_tasks_dispatch.py"
-Cohesion: 0.33
-Nodes (10): asyncio, parametrize, unit, 能力类异常原样上抛，dispatch 层不做本地化——渲染留到读侧 Translator。 此前这里按 DEFAULT_LOCALE 烘焙成中文再包…, test_execute_generation_task_passes_claimed_provider_to_reference_proxy(), test_execute_generation_task_propagates_capability_errors_unrendered(), test_execute_generation_task_propagates_other_exceptions(), test_execute_generation_task_rejects_unknown_type() (+2 more)
+### Community 848 - ".agents/skills/impeccable/scripts/lib/template-extensions.mjs"
+Cohesion: 0.36
+Nodes (6): extensionCache, LIVE_TEMPLATE_EXTENSIONS, mergeExtensions(), normalizeExtensionEntries(), readLiveTemplateExtensions(), safeReadJson()
 
 ### Community 849 - "工作流程"
 Cohesion: 0.25
@@ -4178,17 +4164,17 @@ Nodes (8): 6.1 Anonymous network attacker, 6.2 Attacker with a stolen JWT or API
 Cohesion: 0.25
 Nodes (8): 9.1 Authentication and authorization, 9.2 Secret handling, 9.3 Path and project controls, 9.4 Project archive controls, 9.5 Agent controls, 9.6 Frontend and browser controls, 9.7 CORS and logging, 9. Current security controls
 
-### Community 853 - "[0.13.0](https://github.com/ArcReel/ArcReel/compare/v0.12.0...v0.13.0) (2026-05-10)"
-Cohesion: 0.67
-Nodes (3): [0.13.0](https://github.com/ArcReel/ArcReel/compare/v0.12.0...v0.13.0) (2026-05-10), 🐛 Bug 修复, ✨ 新功能
+### Community 853 - "TestSystemConfigMigration"
+Cohesion: 0.47
+Nodes (3): Path, AI Studio 的 001 后缀应迁移为 preview。, TestSystemConfigMigration
 
-### Community 859 - ".agents/skills/impeccable/scripts/lib/staleness-notice.mjs"
-Cohesion: 0.38
-Nodes (9): appendStalenessDirective(), buildStalenessDirective(), cachePath(), filterFreshFindings(), pruneCache(), readCache(), readJson(), stalenessCheckDisabled() (+1 more)
+### Community 859 - "GenerationBatchResult"
+Cohesion: 0.29
+Nodes (4): GenerationBatchResult, model_validator, Self, Shared response model serialized unchanged by REST and MCP adapters.
 
-### Community 860 - "ensure_anthropic_base_url"
-Cohesion: 0.31
-Nodes (4): ensure_anthropic_base_url(), 规范化 Anthropic base_url。 @anthropic-ai/sdk 内部会拼接 /v1/messages、/v1/models 等，所以…, parametrize, TestEnsureAnthropicBaseUrl
+### Community 860 - "anthropic_probe.py"
+Cohesion: 0.17
+Nodes (15): _post(), Any, Response, Anthropic 兼容端点的连通性体检 + 诊断分类。 messages + discovery 都走 httpx 直调（不走 Claude SDK…, SuggestionAction, AnthropicEndpoints, derive_anthropic_endpoints(), Anthropic base_url 派生：把用户填的 URL 拆为 messages_root + discovery_root。 各国内代理网关把… (+7 more)
 
 ### Community 864 - "website/tsconfig.json"
 Cohesion: 0.25
@@ -4206,6 +4192,10 @@ Nodes (7): alembic_cfg(), _columns(), fixture, Path, Alembic migration for the r
 Cohesion: 0.25
 Nodes (3): 过期 token 应抛出 ExpiredSignatureError, purpose 不匹配应抛出 ValueError, TestDownloadToken
 
+### Community 868 - "Q: 为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？"
+Cohesion: 0.40
+Nodes (4): Answer, Outcome, Q: 为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？, Source Nodes
+
 ### Community 870 - "test_module_imports_first_in_fresh_process"
 Cohesion: 0.29
 Nodes (7): integration, parametrize, unit, Import smoke test — catches circular deps and import-time side effects. 参数化遍历…, 该模块作为解释器里第一个被导入的项目模块时也能成功。 ``lib.config`` 与 ``lib.custom_provider`` 互相引用（后者装配…, test_module_imports_cleanly(), test_module_imports_first_in_fresh_process()
@@ -4214,9 +4204,9 @@ Nodes (7): integration, parametrize, unit, Import smoke test — catches circula
 Cohesion: 0.27
 Nodes (7): _ad_script(), _assert_reference_video_rejected(), _client_with_project(), 构造项目 generation_mode 可控的测试 client，用于覆盖生成路线准入判定。, 断言响应是参考生视频专属的拒绝，而非碰巧同为 400 的其他错误。, 项目生成路线为 reference_video 时，尾帧三端点一律拒绝。 判定只看 project.json：ad 剧本骨架不携带剧本级…, TestReferenceVideoRejection
 
-### Community 872 - "test_usage_router.py"
-Cohesion: 0.20
-Nodes (7): get_calls(), get_projects_list(), get_stats(), API 调用统计路由 提供调用记录查询和统计摘要接口。, fixture, TestUsageRouter, _usage_env()
+### Community 872 - "Q: 然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。"
+Cohesion: 0.40
+Nodes (4): Answer, Outcome, Q: 然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。, Source Nodes
 
 ### Community 873 - "getSiteTitle"
 Cohesion: 0.46
@@ -4230,13 +4220,13 @@ Nodes (6): `--dry-run` 输出, generate-script, 前置条件, 生成流程, 用�
 Cohesion: 0.38
 Nodes (6): downgrade(), _drop_dedup_index_if_exists(), 跨方言安全 drop：DB 可能因历史迁移漂移而没建过该索引，避免 OperationalError。, Recreate idx_tasks_dedupe_active with 'cancelling' in the partial WHERE. 需要扩到…, Restore original WHERE clause without 'cancelling'., upgrade()
 
-### Community 876 - "TestCharactersRouter"
+### Community 876 - "_FakePM"
 Cohesion: 0.27
-Nodes (6): TestCharactersRouter, _grid_reference_images(), 把已落盘的资产图登记进产物清单——未登记的图不被生产准入。, 按生产入口调用：清单口径的 resolver 是必选参数。, _register_sheet(), TestCollectGridReferenceImages
+Nodes (3): _client(), _FakePM, TestProductsRouter
 
-### Community 877 - ".claude/skills/impeccable/scripts/live/frameworks/nuxt.mjs"
-Cohesion: 0.31
-Nodes (7): applyNuxtLiveAdapter(), buildNuxtPlugin(), nuxt, NUXT_PLUGIN_MARKER, NUXT_PLUGIN_NAME, removeNuxtLiveAdapter(), buildLiveScriptSrc()
+### Community 877 - "httpx_shared.py"
+Cohesion: 0.43
+Nodes (6): 共享 httpx AsyncClient 单例。 由 server/app.py 的 lifespan 在启动时初始化、关闭时释放，避免每次外部请求…, shutdown_http_client(), startup_http_client(), main(), Smoke 测试：真实跑 probe，看每种错误 status / 错误体 / 诊断映射。 ⚠️ 开发期手动工具，不是 CI 测试，**不应**加入…, _run_cases()
 
 ### Community 878 - "[0.14.0](https://github.com/ArcReel/ArcReel/compare/v0.13.0...v0.14.0) (2026-05-18)"
 Cohesion: 0.29
@@ -4250,85 +4240,85 @@ Nodes (6): 1. Discover the batch, 2. Load terminology, 3. Translate every dirty 
 Cohesion: 0.29
 Nodes (5): Reporting a vulnerability, Response and coordinated disclosure, Security Policy, Supported deployment boundary, Supported versions
 
-### Community 881 - "GeneratedAssets"
+### Community 881 - "TestReferenceImageGating"
+Cohesion: 0.25
+Nodes (4): VideoCapabilities, 超出上限硬失败：静默截断会让用户以为所有参考图都生效了。, caps=None × 携带参考图：与尾帧同理，未经能力核实不放行。, TestReferenceImageGating
+
+### Community 882 - "TestReferenceAudioDurationGating"
+Cohesion: 0.25
+Nodes (3): 探测失败（total=None）按仓库既有降级口径跳过校验，不当作超限拒绝。, caps 未声明总时长约束（None）：即便传了很大的 total 也不拦——该维度对这个后端不适用。, TestReferenceAudioDurationGating
+
+### Community 883 - "GeneratedAssets"
 Cohesion: 0.28
 Nodes (5): GeneratedAssets, GeneratedAssets 模型与 create_generated_assets() dict 模板必须保持字段一致。 模型开…, reference_video_tasks 在视频生成后会写 ga['video_thumbnail'],模型必须接受。, TestGeneratedAssetsTemplateContract, TestGeneratedAssetsNarrationAudio
 
-### Community 882 - ".test_execute_video_task_without_end_frame_image_passes_none"
-Cohesion: 0.22
-Nodes (5): parametrize, 未设置尾帧的镜头行为不变：字段缺失或显式空字符串，end_image 均为 None。, 剧本是磁盘 JSON，尾帧字段不可信：越界 / 绕开 end_frames 快照目录 / 脏数据一律硬失败， 不把任意服务器文件送进视频请求。约束与写侧…, 完成事件携带稳定 label_key 与参数，界面据此按用户语言成文；label 只是默认语言兜底。, storyboard/video 任务完成通知与分镜级事件同口径：实体类型与名词按项目剧本骨架 种类解析，不恒为 narration 的…
+### Community 884 - ".claude/skills/impeccable/scripts/live/frameworks/nuxt.mjs"
+Cohesion: 0.31
+Nodes (7): applyNuxtLiveAdapter(), buildNuxtPlugin(), nuxt, NUXT_PLUGIN_MARKER, NUXT_PLUGIN_NAME, removeNuxtLiveAdapter(), buildLiveScriptSrc()
 
-### Community 884 - "TestNormalizeProviderStatus"
-Cohesion: 0.33
-Nodes (4): parametrize, 跨厂商状态串归一：OpenAI 兼容代理会把底层厂商的状态串原样透传。, expired 不得折进 failed：caller 据其按 generate / resume 分流抛不同异常。, TestNormalizeProviderStatus
+### Community 885 - "narration_delivery_tasks.py"
+Cohesion: 0.03
+Nodes (134): Identify one storyboard item or reference-video unit's narration audio., build_narration_audio_basis(), build_narration_audio_basis_from_canonical_text(), canonical_narration_text(), NarratedVideoDurationBlockedError, NarratedVideoDurationPreparation, NarrationAudioEvidence, NarrationDeliveryBlockedError (+126 more)
 
-### Community 885 - "TestSlotAssembly"
-Cohesion: 0.22
-Nodes (4): 数组参考图恒排在首/尾帧之后，调用方按起始索引切片还原。, 空列表与 None 同义：不设起始索引，调用方回落原字段保留 [] / None 语义。, PIL.Image 首帧不入压缩器，维持 request.start_image=None 的原行为。, TestSlotAssembly
+### Community 886 - "TestRegistryBackendConsistency"
+Cohesion: 0.39
+Nodes (3): registry 的 vidu2.0 声明与 backend 执行期白名单须无分歧（两侧同一份官方文档核实）。, 8 秒档只出 720p——360p / 1080p 须声明仅 4 秒可选，UI 才不会给出无效的时长×分辨率组合。, TestRegistryBackendConsistency
 
-### Community 886 - "TestReferenceAudioGating"
-Cohesion: 0.22
-Nodes (3): 无音色输入能力的模型收到音频：硬失败，不静默丢弃后照常扣费生成随机音色。, 空列表与 None 同义：没有音频诉求就不该被音频能力挡住。, TestReferenceAudioGating
-
-### Community 887 - "httpx_shared.py"
-Cohesion: 0.43
-Nodes (6): 共享 httpx AsyncClient 单例。 由 server/app.py 的 lifespan 在启动时初始化、关闭时释放，避免每次外部请求…, shutdown_http_client(), startup_http_client(), main(), Smoke 测试：真实跑 probe，看每种错误 status / 错误体 / 诊断映射。 ⚠️ 开发期手动工具，不是 CI 测试，**不应**加入…, _run_cases()
-
-### Community 888 - "_FakeLedger"
+### Community 887 - "Impeccable Finish Reviewer"
 Cohesion: 0.29
-Nodes (3): _FakeLedger, _FakeLedgerCall, 记账账本假实现：捕获记账括号入参（started）与终态结果（outcomes）——新主缝。 括号语义与真 Ledger 一致：CancelledError…
+Nodes (6): Checks, in order, Disposition, Impeccable Finish Reviewer, Input Contract, Output Contract, Verdict Pass
+
+### Community 888 - "_BackendCache"
+Cohesion: 0.29
+Nodes (4): _CacheKey, _BackendCache, Any, Backend 实例缓存：按 (media_type, provider_name, model) 复用实例，避免每次任务重建 API 客户端。…
 
 ### Community 889 - "post-commit"
 Cohesion: 0.40
 Nodes (4): post-commit script, GRAPHIFY_CHANGED, GRAPHIFY_REBUILD_LOG, PYTHONHASHSEED
 
-### Community 890 - "_ad"
+### Community 890 - "ProviderUnsupportedFeatureError"
+Cohesion: 0.38
+Nodes (4): ProviderUnsupportedFeatureError, Exception, 供应商不支持某项能力（如 Sora 多参考图）。, test_provider_unsupported_feature_error_carries_feature()
+
+### Community 892 - "TestBuildNarrationSplitPrompt"
 Cohesion: 0.36
-Nodes (4): _ad(), _ad_shot(), ad 剧本按 AdEpisodeScript 校验，不落 narration/drama 模型。, TestAdScripts
+Nodes (3): step1 说书片段拆分 prompt（源文 → 结构化片段表）。, default 漂移到 supported_durations 之外时按 null 处理、不 fail-loud（软偏好口径）。, TestBuildNarrationSplitPrompt
 
-### Community 891 - "migrate_project"
-Cohesion: 0.60
-Nodes (4): main(), migrate_project(), ProjectManager, 迁移单个项目 Args: pm: ProjectManager 实例 project_name: 项目名称 dry_run: 是否只预览不执行…
-
-### Community 892 - "TestReferenceImageGating"
-Cohesion: 0.25
-Nodes (4): VideoCapabilities, 超出上限硬失败：静默截断会让用户以为所有参考图都生效了。, caps=None × 携带参考图：与尾帧同理，未经能力核实不放行。, TestReferenceImageGating
+### Community 893 - "_parse_normalized_content"
+Cohesion: 0.33
+Nodes (7): _parse_normalized_content(), _parse_step1_json(), BaseModel, 解析并校验 step1 结构化响应为 dict；校验失败 fail-loud 抛 ValueError，不返回未校验内容。 ``model`` 取自调用处用…, drama step1（normalize）响应解析：见 ``_parse_step1_json``。, _parse_normalized_content 复用按 supported_durations 构造的动态 schema：合法 duration 经模型…, test_parse_normalized_content_uses_dynamic_duration_schema()
 
 ### Community 894 - "post-checkout"
 Cohesion: 0.50
 Nodes (3): post-checkout script, GRAPHIFY_REBUILD_LOG, PYTHONHASHSEED
 
-### Community 895 - "TestReferenceAudioDurationGating"
-Cohesion: 0.25
-Nodes (3): 探测失败（total=None）按仓库既有降级口径跳过校验，不当作超限拒绝。, caps 未声明总时长约束（None）：即便传了很大的 total 也不拦——该维度对这个后端不适用。, TestReferenceAudioDurationGating
-
-### Community 897 - "_BackendCache"
+### Community 895 - "_regenerate_with_frozen_ratio"
 Cohesion: 0.29
-Nodes (4): _CacheKey, _BackendCache, Any, Backend 实例缓存：按 (media_type, provider_name, model) 复用实例，避免每次任务重建 API 客户端。…
+Nodes (7): GridGeneration, 按给定冻结值建档并重生成，返回落盘后的记录与入队 payload。, 重生成沿用记录冻结的比例，不改用项目当前比例。, 存量记录没有冻结值，重生成回落到项目当前比例并就地补齐。, _regenerate_with_frozen_ratio(), test_regenerate_grid_backfills_missing_aspect_ratio(), test_regenerate_grid_keeps_frozen_aspect_ratio()
 
-### Community 898 - ".get_stats_grouped_by_provider"
-Cohesion: 0.57
-Nodes (3): Any, datetime, case()
+### Community 896 - "4.1 Choose a Project Source {#choose-project-source}"
+Cohesion: 0.33
+Nodes (6): 4.1 Choose a Project Source {#choose-project-source}, 4.2 Choose a Content Mode {#choose-content-mode}, 4. Create Your First Project {#create-first-project}, Ad or Short Video {#source-ad}, Finished Screenplay {#source-screenplay}, Novel {#source-novel}
 
-### Community 900 - "ProviderUnsupportedFeatureError"
-Cohesion: 0.38
-Nodes (4): ProviderUnsupportedFeatureError, Exception, 供应商不支持某项能力（如 Sora 多参考图）。, test_provider_unsupported_feature_error_carries_feature()
+### Community 897 - "model_validator"
+Cohesion: 0.20
+Nodes (5): model_validator, ValueError, 读时迁移：剥离已废弃字段，并把旧口播双字段（``video_prompt.dialogue`` + ``voiceover``） 合成为有序…, 从旧 ``video_prompt.dialogue`` + 场景 ``voiceover`` 合成有序 utterances（dialogue 段在前）。, 全悬空迁移壳可为空且为 0 秒；其余单元仍须可执行。
+
+### Community 900 - ".create"
+Cohesion: 0.13
+Nodes (13): Create a new GridGeneration with a generated id and pending status., TestGridGeneration, grid_with_image(), project_with_script(), fixture, 联合图已就绪（completed、grid_image_path 指向落盘 PNG）的宫格记录。, _FakePMPath, ProjectManager 替身：仅提供 get_project_path，指向 tmp_path。 (+5 more)
 
 ### Community 901 - "test_frontend_mcp_tool_i18n.py"
 Cohesion: 0.38
 Nodes (6): _load_tool_name_keys(), parametrize, Cross-check that every backend ArcReel MCP tool has a frontend display name.…, Frontend tool_name_* keys 必须都对应 backend tool id —— 防止过时翻译堆积。, test_every_backend_tool_has_frontend_display_name(), test_no_orphan_tool_name_keys_in_any_locale()
 
-### Community 904 - "warn_if_truncated"
-Cohesion: 0.43
-Nodes (3): 检测模型响应是否因 token 上限被截断，若是则 logger.warning。 返回 True 表示被截断（供调用方用于进一步处理）。自由文本（无…, warn_if_truncated(), TestWarnIfTruncated
+### Community 905 - "/impeccable hooks"
+Cohesion: 0.33
+Nodes (6): Constraints, Failure modes, Flow, /impeccable hooks, Routing, Triage findings
 
-### Community 905 - "SPAShellNoCacheMiddleware"
-Cohesion: 0.29
-Nodes (5): Receive, Scope, Send, SPA 入口 HTML 外壳禁止浏览器缓存。 覆盖 spa_deep_link 与 app.frontend 原生 fallback 两条路径共用的响应特征…, SPAShellNoCacheMiddleware
-
-### Community 907 - "TestEndFrameImageField"
-Cohesion: 0.38
-Nodes (4): _BUILDERS, unit, 存量剧本没有该键：extra=forbid 下仍须放行并落回默认空。, TestEndFrameImageField
+### Community 906 - "._download_audio"
+Cohesion: 0.33
+Nodes (5): _EmptyDownloadError, Path, RuntimeError, 下载合成音频（非计费段，可独立多次重试）。, 200 但空响应体（瞬时代理/CDN 异常），视为瞬态触发下载重试。
 
 ### Community 909 - "供应商、模型与 API {#providers-models-api}"
 Cohesion: 0.29
@@ -4338,13 +4328,13 @@ Nodes (7): ArcReel 支持哪些供应商和模型？ {#supported-providers}, Bas
 Cohesion: 0.29
 Nodes (7): 10. 常见故障 {#troubleshooting}, Agent 请求失败 {#agent-request-fails}, 任务一直排队 {#tasks-stuck-in-queue}, 健康检查失败 {#health-check-fails}, 无法登录 {#cannot-log-in}, 服务无法启动 {#service-wont-start}, 磁盘快速增长 {#disk-growth}
 
-### Community 912 - "_set_source_style"
-Cohesion: 0.43
-Nodes (4): ProjectManager, unit, _set_source_style(), TestCustomStylesRouter
+### Community 912 - "TestInstructorExceptionShape"
+Cohesion: 0.33
+Nodes (4): 钉住降级链判据所依赖的 Instructor 异常形态。 判据要区分「API 调用被拒」与「模型输出不合规」，靠的是 Instructor 把终止原因挂在…, 判据靠「终止原因是否属解析 / 校验类」区分模型问题与 API 问题，集合须与 Instructor 一致。…, 对照组：模型输出不合规时失败记进 failed_attempts，而非挂在 __cause__ 上。, TestInstructorExceptionShape
 
-### Community 913 - "4. Six Dimensions for Choosing a Provider {#six-selection-dimensions}"
-Cohesion: 0.29
-Nodes (7): 4.1 Quality {#dimension-quality}, 4.2 Controllability {#dimension-controllability}, 4.3 Reliability {#dimension-reliability}, 4.4 Cost {#dimension-cost}, 4.5 Speed {#dimension-speed}, 4.6 Compliance and Regional Availability {#dimension-compliance-and-region}, 4. Six Dimensions for Choosing a Provider {#six-selection-dimensions}
+### Community 913 - ".agents/skills/impeccable/scripts/hook.mjs"
+Cohesion: 0.70
+Nodes (4): isStopEvent(), writeAuditLog(), main(), readStdin()
 
 ### Community 914 - "生成模式参考"
 Cohesion: 0.33
@@ -4382,9 +4372,9 @@ Nodes (5): Consequences, 发布靠补偿，不靠事务, 明确不采用, 消息
 Cohesion: 0.33
 Nodes (5): Before exploring, read these, Domain Docs, File structure, Flag ADR conflicts, Use the glossary's vocabulary
 
-### Community 923 - "10. Common Problems {#troubleshooting}"
-Cohesion: 0.29
-Nodes (7): 10. Common Problems {#troubleshooting}, Agent Requests Fail {#agent-request-fails}, Cannot Log In {#cannot-log-in}, Health Check Fails {#health-check-fails}, Rapid Disk Growth {#disk-growth}, Service Fails to Start {#service-wont-start}, Tasks Remain Queued {#tasks-stuck-in-queue}
+### Community 923 - "_build_prompt"
+Cohesion: 0.50
+Nodes (3): _build_prompt(), Any, TestBuildPrompt
 
 ### Community 924 - "ArcReel 视频 API 协议适配调研报告"
 Cohesion: 0.33
@@ -4406,29 +4396,25 @@ Nodes (6): 7.5.1 ArcReel 现有注册机制现状（运行时 plugin 的改造�
 Cohesion: 0.33
 Nodes (6): 4.1 Credentials and authentication material, 4.2 Project and user content, 4.3 Persistent system data, 4.4 Availability and financial assets, 4.5 Runtime and host assets, 4. Sensitive assets
 
-### Community 929 - "isScreenReaderOnlyTextStyle"
+### Community 932 - "Q: 参考声音的Dropdown选择 也需要能够preview"
+Cohesion: 0.40
+Nodes (4): Answer, Outcome, Q: 参考声音的Dropdown选择 也需要能够preview, Source Nodes
+
+### Community 934 - "checkElementRadialSpotlightDOM"
+Cohesion: 0.67
+Nodes (4): checkElementRadialSpotlight(), checkElementRadialSpotlightDOM(), elementGradientValue(), spotlightLabel()
+
+### Community 935 - "ad_script_total_duration"
+Cohesion: 0.50
+Nodes (4): ad_script_total_duration(), ad_shot_duration_seconds(), ad 单镜头时长（秒）的脏数据归一口径：非 dict 条目、非正整数时长 （bool 按 int 子类排除）一律按 0 计、不抛。 分镜路线的总时长偏差观察经…, ad 剧本 shots 总时长（秒）。 与 target_duration 偏差观察的求和口径单一真相源（``ScriptGenerator`` 探针与…
+
+### Community 936 - "isScreenReaderOnlyTextStyle"
 Cohesion: 0.47
 Nodes (6): clippedByInset(), clippedByRect(), expandBoxShorthand(), firstMetricLengthPx(), isScreenReaderOnlyTextStyle(), metricLengthPx()
 
-### Community 930 - "normalizeGitHubEvent"
-Cohesion: 0.47
-Nodes (6): applyPatchText(), envProjectDir(), looksLikeApplyPatch(), normalizeGitHubEvent(), normalizeHookEvent(), parseGitHubToolArgs()
-
-### Community 931 - "env_init.py"
-Cohesion: 0.33
-Nodes (4): Resolve the agent_runtime_profile directory. Default:…, init_environment(), 环境初始化模块 加载 .env 文件。 provider 密钥的真相源是 DB。如果 .env 残留 provider key 写入 os.environ，…, 初始化项目环境：定位项目根 + load .env。 在 Agent Bash 沙箱子进程里，``.env`` 会被沙箱拒读（macOS sandbox-…
-
-### Community 932 - "_render_unit_prompt"
-Cohesion: 0.33
-Nodes (6): 把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.reference_video.prompt_render``）。…, _render_unit_prompt(), 执行层保留一道防御性空检查：提示词源是可变 script、执行期重读，结构校验上移到 入队守卫点后仍需挡住「入队后被改空 /…, test_render_unit_prompt_binds_all_product_images_and_adds_fidelity_guard(), test_render_unit_prompt_binds_subjects_in_first_mention_order(), test_render_unit_prompt_rejects_empty_text()
-
-### Community 935 - "_reset_for_tests"
-Cohesion: 0.40
-Nodes (4): test helper —— 清缓存让 monkeypatch shutil.which 立刻生效。, _reset_for_tests(), fixture, _reset_ffprobe_cache()
-
-### Community 936 - "_build_prompt"
-Cohesion: 0.50
-Nodes (3): _build_prompt(), Any, TestBuildPrompt
+### Community 938 - "[0.15.2](https://github.com/ArcReel/ArcReel/compare/v0.15.1...v0.15.2) (2026-05-26)"
+Cohesion: 0.67
+Nodes (3): [0.15.2](https://github.com/ArcReel/ArcReel/compare/v0.15.1...v0.15.2) (2026-05-26), 🐛 Bug 修复, 📚 文档
 
 ### Community 939 - "migrate_project"
 Cohesion: 0.47
@@ -4438,13 +4424,9 @@ Nodes (5): main(), migrate_project(), Path, 清理现有项目中的冗余字段
 Cohesion: 0.38
 Nodes (6): _load_task_type_keys(), parametrize, Cross-check that every backend task_type has a frontend display name.…, Frontend task_type_* keys 必须都对应已知 task_type —— 防止过时翻译堆积。, test_every_task_type_has_frontend_display_name(), test_no_orphan_task_type_keys_in_any_locale()
 
-### Community 944 - "_regenerate_with_frozen_ratio"
-Cohesion: 0.29
-Nodes (7): GridGeneration, 按给定冻结值建档并重生成，返回落盘后的记录与入队 payload。, 重生成沿用记录冻结的比例，不改用项目当前比例。, 存量记录没有冻结值，重生成回落到项目当前比例并就地补齐。, _regenerate_with_frozen_ratio(), test_regenerate_grid_backfills_missing_aspect_ratio(), test_regenerate_grid_keeps_frozen_aspect_ratio()
-
-### Community 946 - ".test_v2_never_auto_inferred"
-Cohesion: 0.50
-Nodes (3): parametrize, v2-video-generations 命名碎片化无法可靠识别，永不自动推断，留用户手选。, TestInferEndpoint
+### Community 944 - "TestEndFrameImageField"
+Cohesion: 0.38
+Nodes (4): _BUILDERS, unit, 存量剧本没有该键：extra=forbid 下仍须放行并落回默认空。, TestEndFrameImageField
 
 ### Community 947 - "画面、视频与声音 {#visuals-video-audio}"
 Cohesion: 0.33
@@ -4457,10 +4439,6 @@ Nodes (6): 4.1 选择项目来源 {#choose-project-source}, 4.2 选择内容模�
 ### Community 949 - "Costs, data, and export {#cost-data-export}"
 Cohesion: 0.33
 Nodes (6): Can I use ArcReel commercially or build derivative software? {#commercial-use}, Costs, data, and export {#cost-data-export}, Is there a mobile app? Which platforms are supported? {#mobile-app-support}, What is the difference between a project ZIP and a full-instance backup? {#project-zip-vs-full-backup}, Where can I view costs and Tokens? How can I control spending? {#view-and-control-cost}, Why is my Jianying draft missing or missing clips? {#jianying-draft-issues}
-
-### Community 950 - "._ctx_env"
-Cohesion: 0.40
-Nodes (4): fixture, 真实内存 DB：建全部 ORM 表，把 lib.db.async_session_factory 指向它。 供 image_size 解析等价用例的真实…, 真 ProjectManager（demo 项目目录）+ 回声 assemble 缝，避免 backend 构造触网。, session_factory()
 
 ### Community 951 - "生成宫格分镜图"
 Cohesion: 0.40
@@ -4590,21 +4568,13 @@ Nodes (4): Answer, Outcome, Q: 用户能否在项目创建后部分调整自定�
 Cohesion: 0.40
 Nodes (4): ad 模式不接入 step1→step2 审核 gate, Prior requests, Why this is out of scope, 重访条件
 
-### Community 987 - ".claude/skills/impeccable/scripts/hook.mjs"
-Cohesion: 0.83
-Nodes (3): isStopEvent(), main(), readStdin()
-
-### Community 990 - "_render_segment_one"
-Cohesion: 0.50
-Nodes (4): 声音声明行：``<X>的台词音色参考 @音频N，声音特征：…``。剧集与 ad 路径共用——两者的 主体绑定行统一使用 mention 派生的…, 主体绑定 + 声音声明。 官方三段论第一段即参考来源声明区（人脸 / 运镜 / 音色参考同位），故音色参考与声音特征…, _render_segment_one(), _render_voice_declarations()
-
 ### Community 992 - "unit"
-Cohesion: 0.10
-Nodes (9): assert_duration_supported(), 执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。 这是 `duration ↔…, unit, reference_images 中的绝对路径与 `..` 穿越值不得越出项目目录读取宿主机文件；目录路径同样跳过。, 生成成功事件应携带 asset_fingerprints, 参考生视频任务完成通知的 entity_type 需为前端联合类型认识的 "reference_unit" （而非仅本侧认识的…, 宫格指纹应包含切割覆写的 canonical 分镜图（cache-bust），但拒绝越出项目目录的路径, TestAssertDurationSupported (+1 more)
+Cohesion: 0.11
+Nodes (8): assert_duration_supported(), 执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。 这是 `duration ↔…, unit, reference_images 中的绝对路径与 `..` 穿越值不得越出项目目录读取宿主机文件；目录路径同样跳过。, TTS 任务与视频任务共用项目路线，ad 参考路线的混合骨架不能把 unit 事件分到 shot。, 剧本文件内容损坏成非 dict（如顶层数组）时兜底 segments/「分镜」，不让 resolve_script_kind 内部的 .get() 调用抛…, TestAssertDurationSupported, TestGetAspectRatio
 
-### Community 995 - "4.1 Choose a Project Source {#choose-project-source}"
-Cohesion: 0.33
-Nodes (6): 4.1 Choose a Project Source {#choose-project-source}, 4.2 Choose a Content Mode {#choose-content-mode}, 4. Create Your First Project {#create-first-project}, Ad or Short Video {#source-ad}, Finished Screenplay {#source-screenplay}, Novel {#source-novel}
+### Community 996 - "SessionMetaStore"
+Cohesion: 0.03
+Nodes (98): make_project_key(), Path, Derive the SessionStore project_key for a project cwd. Thin wrapper around…, Protocol, 本模块用到的 SessionStore 子集。, SessionStoreLike, SDK-based transcript adapter using public SessionStore helpers. Reads…, Path (+90 more)
 
 ### Community 997 - "sync_to_thread"
 Cohesion: 0.40
@@ -4738,14 +4708,6 @@ Nodes (4): 10. 参考资料, ArcReel 现有设计文档（背景对齐）, 一�
 Cohesion: 0.50
 Nodes (4): 9.1 架构对齐评估（先于具体协议接入决策）, 9.2 协议实现层（P0 协议接入的具体问题）, 9.3 运行时 Plugin 层, 9. 后续 PRD / 设计文档需要解决的问题
 
-### Community 1035 - "test_subagent_md_sync.py"
-Cohesion: 0.60
-Nodes (4): _normalize(), 漂移防御：lib.prompt_rules.episode_pacing 的常量必须出现在对应 subagent .md 中。 用首尾 60 字符锚点做…, test_drama_pacing_in_normalize_drama_md(), test_narration_pacing_in_split_narration_md()
-
-### Community 1036 - "_Wired"
-Cohesion: 0.50
-Nodes (3): fixture, 记账写侧注入 Ledger，读侧直连 UsageRepository，共享同一内存库。, _Wired
-
 ### Community 1038 - "Alternative Agent Runtime Backends"
 Cohesion: 0.50
 Nodes (3): Alternative Agent Runtime Backends, Prior requests, Why this is out of scope
@@ -4754,13 +4716,13 @@ Nodes (3): Alternative Agent Runtime Backends, Prior requests, Why this is out o
 Cohesion: 0.50
 Nodes (3): Prior requests, Product-Enforced Creative Limits, Why this is out of scope
 
+### Community 1041 - "reference_videos.py"
+Cohesion: 0.05
+Nodes (78): 按任务定位信息读取当前 unit，并生成 claim/限流共用的 current-state 投影。, reference_projection_for_queued_task(), enqueue_problem(), Report a target that never reached the queue, for Web and Agent alike. Nothing…, project_reference_unit_request(), 一个 unit 在调用瞬间的规范请求投影。, 序列化跨入口可比较的 current-state 投影事实。, 生产入口：从当前项目文件与配置直接构造一次 advisory 投影。 (+70 more)
+
 ### Community 1043 - "PDF Fixture 来源"
 Cohesion: 0.50
 Nodes (3): PDF Fixture 来源, sample_scanned.pdf, sample_text.pdf
-
-### Community 1044 - "is_interrupted_wait_error"
-Cohesion: 0.67
-Nodes (3): is_interrupted_wait_error(), BaseException, True when *exc* means a task wait was cut short, not provider-judged failed.…
 
 ### Community 1051 - "Use useRef for Transient Values"
 Cohesion: 0.67
@@ -4774,40 +4736,38 @@ Nodes (3): ProjectManager, cwd 必须含 project.json，否则拒绝执行。 �
 Cohesion: 0.67
 Nodes (3): `collect_project_input`：项目设置, 新项目, 现有项目
 
-### Community 1212 - "WorkflowStateService"
-Cohesion: 0.10
-Nodes (29): EpisodeProductionStatus, EpisodeScriptStatus, compute_source_fingerprints(), 按源文件记录归一化文本的 sha256 指纹（源文相对路径 → hexdigest）。 ``sources`` 取自…, _asset_bucket_total(), _empty_collection(), _episode_production_status(), _new_source_precedes_cursor() (+21 more)
-
-### Community 1222 - "_FakeWorker"
-Cohesion: 0.19
-Nodes (6): _FakeWorker, _noop_async(), asyncio, No-op coroutine for mocking async functions in tests., fix #647 #7：lifespan 应先 worker.stop()（drain inflight + callback 仍可用）， 再清掉…, TestAppModule
+### Community 1160 - "TextGenerationRequest"
+Cohesion: 0.01
+Nodes (212): AgnesTextBackend, AgnesTextBackend — Agnes 文本生成后端（OpenAI 兼容 /v1/chat/completions）。 Agnes 经 apihub…, Agnes 文本后端：复用 OpenAITextBackend 的原生 + Instructor 降级逻辑，仅替换鉴权与默认值。, ArkTextBackend, ArkTextBackend — 火山方舟文本生成后端。, Instructor / json_object 降级路径。 instructor_fallback_sync…, 根据 PROVIDER_REGISTRY 中的模型声明构建能力集合。, 生成文本回复。 本方法不带重试装饰器：瞬态错误重试在单次调用层（:meth:`_call_chat_completions` 与… (+204 more)
 
 ## Knowledge Gaps
-- **3300 isolated node(s):** `repo-context.sh script`, `here`, `API_BASE`, `API_TIMEOUT_MS`, `localStates` (+3295 more)
+- **3318 isolated node(s):** `Answer`, `Outcome`, `Source Nodes`, `AddCharacterFormProps`, `OnboardingState` (+3313 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **225 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **228 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Work-memory lessons
 
 **Preferred sources** — corroborated by past sessions; start here.
-- `StylePicker.tsx` (4× useful, score=3.997645016)
-- `ProjectSettingsPage.tsx` (2× useful, score=1.999153228)
-- `STYLE_TEMPLATES` (2× useful, score=1.997413124)
+- `StylePicker.tsx` (4× useful, score=3.973460886)
+- `sync_character_catalog()` (2× useful, score=1.999441427)
+- `AssetFormModal.tsx` (2× useful, score=1.994367671)
+- `ProjectSettingsPage.tsx` (2× useful, score=1.987059162)
+- `STYLE_TEMPLATES` (2× useful, score=1.985329585)
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ProjectManager` connect `ProjectManager` to `ProjectArtifactManifestAdapter`, `episode_planner.py`, `projects.py`, `CurrentUserInfo`, `ArtifactKey`, `text_generation.py`, `resolve_generation_context`, `safe_join`, `Path`, `_require_project_cwd`, `ToolContext`, `_write_rv_step1`, `EpisodePlanner`, `_img_bytes`, `ProjectEventService`, `AssistantService`, `test_project_migration_v7_v8.py`, `session_manager.py`, `DataValidator`, `test_workflow_state.py`, `test_episode_reset.py`, `VersionManager`, `test_sdk_tools.py`, `EventLogStore`, `TestGetVideoCapabilities`, `app_data_dir`, `create_download_token`, `resolve_source_kind`, `test_project_migration_blocking.py`, `ProjectArchiveService`, `_client`, `GridManager`, `get_project_manager`, `VisualReference`, `test_profile_manifest.py`, `test_reference_videos_router_ad.py`, `ScriptGenerator`, `artifact_activation.py`, `test_project_manager_save_validation.py`, `episode_reset.py`, `test_script_batch_edit.py`, `_Acceptance`, `SourceScope`, `test_accounting_characterization.py`, `_interleave_across_critical_section`, `test_locked_episode_script_toctou.py`, `TestUpdateProjectAtomicity`, `Path`, `BaseModel`, `WorkflowStateService`, `test_end_frames_router.py`, `enqueue_videos.py`, `_fail_first_persist`, `_seed_nfd_character`, `_make_manual_split_project`, `test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim`, `._resolve_content_mode`, `test_artifact_version_restore.py`, `_pm`, `_pm`, `test_project_manager_legacy_migration.py`, `test_project_archive_ad_reference.py`, `ProjectAssetNameConflictError`, `test_script_review.py`, `workflow_state.py`, `test_project_manager_symlink.py`, `AssetRepository`, `PresentationReadModelService`, `migrate_unit_durations`, `reference_video_tasks.py`, `test_grids_router.py`, `_client`, `TestGenerationTasks`, `_make_project`, `.__init__`, `profile_manifest.py`, `._build_asset_entry`, `_seed_reference_video_project`, `_client`, `TestRenameAssetCascade`, `test_reference_videos_router.py`, `lint_profile`, `test_project_manager_migration.py`, `generation_tasks.py`, `TestForceResync`, `_client_with_project`, `TestCharactersRouter`, `GeneratedAssets`, `migrate_project`, `apply_grid_split`, `_FakePM`, `_set_source_style`, `project_manager.py`, `test_jianying_draft_service.py`, `resolve_items`, `resolve_project_cover`, `test_project_manager_concurrent_save.py`, `compose_video.py`, `ScriptReviewService`, `test_project_summary.py`, `execute_image_edit_task`, `._ctx_env`, `runner.py`, `GenerationResultBuilder`, `_create_reference_video_project`?**
-  _High betweenness centrality (0.071) - this node is a cross-community bridge._
-- **Why does `ConfigResolver` connect `ConfigResolver` to `._open_session`, `test_accounting_characterization.py`, `assemble_backend`, `CustomProviderRepository`, `TestLayeredBackendSkeleton`, `._caps`, `_prepare_files`, `projects.py`, `CurrentUserInfo`, `test_generation_worker_module.py`, `text_generation.py`, `resolve_generation_context`, `safe_join`, `ToolContext`, `MediaGenerator`, `_extract_provider`, `reference_video_tasks.py`, `test_capability_overrides_api.py`, `CredentialRepository`, `test_sdk_tools.py`, `make_provider_id`, `specs.py`, `TextTaskType`, `test_config_resolver_resolution.py`, `.session`, `_client`, `GenerationResultBuilder`, `TestResolverReturnsEffectiveCapabilities`, `GridManager`, `get_project_manager`, `TestGetOrCreateAudioBackend`, `routers/system_config.py`, `test_alembic_collapse_image_backend_buckets.py`, `ScriptGenerator`, `ConfigService`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
-- **Why does `VersionManager` connect `VersionManager` to `apply_grid_split`, `ProjectArtifactManifestAdapter`, `test_media_generator_resume.py`, `test_reference_video_tasks.py`, `projects.py`, `project_manager.py`, `workflow_state.py`, `CurrentUserInfo`, `ArtifactKey`, `safe_join`, `resolve_items`, `Path`, `MediaGenerator`, `test_project_migration_v7_v8.py`, `PresentationReadModelService`, `test_workflow_state.py`, `execute_image_edit_task`, `reference_video_tasks.py`, `test_grids_router.py`, `test_sdk_tools.py`, `WorkflowStateService`, `test_end_frames_router.py`, `enqueue_videos.py`, `TestGenerationTasks`, `_client`, `ProjectManager`, `ProjectArchiveService`, `TestRenameAssetCascade`, `test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim`, `_FakePMRegenerate`, `test_artifact_version_restore.py`, `GridManager`, `get_project_manager`, `generation_tasks.py`, `VisualReference`, `_build_generator`, `artifact_activation.py`, `VideoCapabilities`?**
+- **Why does `ProjectManager` connect `ProjectManager` to `CurrentUserInfo`, `episode_ledger.py`, `reference_videos.py`, `enqueue_videos.py`, `DraftViolation`, `ArtifactKey`, `get_project_manager`, `ProviderModel`, `ScriptEditError`, `_require_project_cwd`, `ToolContext`, `test_script_review.py`, `EpisodePlanner`, `_img_bytes`, `ProjectEventService`, `AssistantService`, `test_project_migration_v7_v8.py`, `DataValidator`, `WorkflowStateService`, `test_reference_videos_router_ad.py`, `TestDataValidatorEndFramePath`, `test_episode_reset.py`, `VersionManager`, `test_sdk_tools.py`, `admit_script_unit`, `episode_planner.py`, `TestGetVideoCapabilities`, `resolve_items`, `resolve_source_kind`, `_seed_unit`, `ProjectArchiveService`, `workflow_state.py`, `_client`, `server/auth.py`, `projects.py`, `test_profile_manifest.py`, `ScriptGenerator`, `project_manager.py`, `test_locked_episode_script_toctou.py`, `_Acceptance`, `AssetRepository`, `_interleave_across_critical_section`, `ProjectionProblem`, `Path`, `script_models.py`, `test_end_frames_router.py`, `ArtifactStatus`, `_fail_first_persist`, `_seed_nfd_character`, `_make_manual_split_project`, `test_workflow_status_adapters.py`, `_client`, `_pm`, `_pm`, `test_project_manager_legacy_migration.py`, `dependencies.py`, `test_project_archive_ad_reference.py`, `Ledger`, `assistant.py`, `test_project_manager_symlink.py`, `lib/character_catalog.py`, `generation_tasks.py`, `migrate_unit_durations`, `presentation_read_model.py`, `_narration_script`, `test_grids_router.py`, `test_workflow_planner.py`, `_prepare_files`, `_make_project`, `.__init__`, `profile_manifest.py`, `_client`, `TestGenerationTasks`, `TestRenameAssetCascade`, `test_reference_videos_router.py`, `lint_profile`, `test_project_manager_migration.py`, `TestForceResync`, `_client_with_project`, `_asset_router_factory.py`, `GeneratedAssets`, `narration_delivery_tasks.py`, `test_project_migration_blocking.py`, `GridManager`, `_FakePM`, `create_download_token`, `resolve_project_cover`, `test_project_manager_concurrent_save.py`, `compose_video.py`, `ScriptReviewService`, `test_project_summary.py`, `text_generation.py`, `test_generate_batch_refuses_a_path_like_unit_id_before_enqueue`, `SessionMetaStore`, `safe_join`, `_create_reference_video_project`?**
+  _High betweenness centrality (0.086) - this node is a cross-community bridge._
+- **Why does `ConfigResolver` connect `ConfigResolver` to `test_generate_router_voice_sample.py`, `resolver.py`, `test_accounting_characterization.py`, `CustomProviderRepository`, `media_generator.py`, `make_provider_id`, `test_reference_video_tasks.py`, `test_image_edit_router.py`, `reference_videos.py`, `ProviderModel`, `ToolContext`, `generation_tasks.py`, `video_caps.py`, `_extract_provider`, `unit`, `test_capability_overrides_api.py`, `.generate`, `test_sdk_tools.py`, `ArtifactStatus`, `admit_script_unit`, `test_config_resolver_resolution.py`, `GenerationQueue`, `.session`, `_client`, `ConfigService`, `._caps`, `CredentialRepository`, `text_generation.py`, `server/auth.py`, `TestGetOrCreateAudioBackend`, `projects.py`, `generation_worker.py`, `GenerationWorker`, `TestAdQualityProbe`, `test_alembic_collapse_image_backend_buckets.py`, `generate.py`, `ScriptGenerator`, `services/cost_estimation.py`, `narration_delivery_tasks.py`, `project_manager.py`, `db/base.py`, `video_capabilities_for_model`?**
   _High betweenness centrality (0.022) - this node is a cross-community bridge._
-- **Are the 227 inferred relationships involving `ProjectManager` (e.g. with `resolve_artifact_episode()` and `resolve_usable_episode_script_input()`) actually correct?**
-  _`ProjectManager` has 227 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 357 inferred relationships involving `ToolContext` (e.g. with `complete_asset_inventory_tool()` and `ProjectManager`) actually correct?**
-  _`ToolContext` has 357 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `TextGenerationRequest` connect `TextGenerationRequest` to `projects.py`, `test_minimax_integration.py`, `test_accounting_characterization.py`, `episode_planner.py`, `Ledger`, `endpoints.py`, `with_retry_async`, `DraftViolation`, `text_generation.py`, `project_manager.py`, `lookup_pricing`, `ProjectManager`?**
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
+- **Are the 230 inferred relationships involving `ProjectManager` (e.g. with `resolve_artifact_episode()` and `resolve_usable_episode_script_input()`) actually correct?**
+  _`ProjectManager` has 230 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 362 inferred relationships involving `ToolContext` (e.g. with `complete_asset_inventory_tool()` and `ProjectManager`) actually correct?**
+  _`ToolContext` has 362 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 213 inferred relationships involving `ArtifactKey` (e.g. with `_plan_artifact_claim_reconciliation()` and `prepare_episode_script_manifest_commit()`) actually correct?**
   _`ArtifactKey` has 213 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `repo-context.sh script`, `here`, `API_BASE` to the rest of the system?**
-  _3300 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **What connects `Answer`, `Outcome`, `Source Nodes` to the rest of the system?**
+  _3318 weakly-connected nodes found - possible documentation gaps or missing edges._
