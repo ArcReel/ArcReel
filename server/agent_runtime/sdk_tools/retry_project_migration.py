@@ -20,7 +20,8 @@ def retry_project_migration_tool(ctx: ToolContext):
         "重跑本项目的数据升级链（含产物补录）。升级失败时项目被阻断，阻断期仍可用的写入工具只有"
         "patch_project / patch_episode_meta / rename_asset；patch_episode_script / insert_segment / "
         "remove_segment / split_segment 一律被拒。按失败明细用前三个修好被点名的集 / 文件，再调用"
-        "本工具。幂等：已是最新版本时直接返回成功。成功返回新的制作计划；失败返回结构化明细"
+        "本工具；这三个工具改不到的位置（如剧本正文类违约）如实报告卡点给用户，不要反复重试。"
+        "幂等：已是最新版本时直接返回成功。成功返回新的制作计划；失败返回结构化明细"
         "（episode / file / violation）。",
         {"type": "object", "properties": {}},
     )
