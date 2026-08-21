@@ -612,12 +612,12 @@ def compose_video(
     # 加载剧本（pm.load_script 内部已用 _safe_subpath 过滤 ../ 等逃逸尝试）
     script = pm.load_script(project_name, script_filename)
 
-    # 仅支持剧情演绎（顶层 scenes[]）；narration/ad/reference_video 给友好错误
+    # 合成器只接受顶层 scenes[] 骨架；其他已知骨架返回带实际结构的指引。
     if "scenes" not in script:
         content_mode = script.get("content_mode") or "unknown"
         actual_keys = [k for k in ("segments", "shots", "video_units") if k in script]
         raise RuntimeError(
-            f"compose_video.py 目前仅支持剧情演绎（剧本顶层需有 scenes[]）；"
+            f"compose_video.py 只支持顶层 scenes[] 的剧本；"
             f"当前剧本 content_mode={content_mode}，实际结构含 {actual_keys or ['无法识别']}，"
             "请使用 Web 端剪映草稿导出"
         )

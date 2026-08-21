@@ -55,7 +55,7 @@ class DurationSlot:
 def resolve_duration_slot(total_seconds: int | float, supported_durations: Sequence[int]) -> DurationSlot:
     """按容量语义为请求时长基准选择申请档位。
 
-    档位集为空时保留历史纯函数语义，原样透传总时长。可执行的参考生视频请求不得
+    档位集为空时原样透传总时长。可执行的参考生视频请求不得
     依赖该分支：``ReferenceUnitRequestProjector`` 对缺失、空或无效的档位先返回结构化
     blocker。非空档位集不要求有序、允许重复。
 

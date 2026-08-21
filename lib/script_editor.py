@@ -6,7 +6,7 @@
 统一入口的 `_write_script_unlocked`（「不更坏」+ Pydantic 模型）兜底，本模块只负责数组手术、
 id 分配与资产作废。MCP 工具与测试都复用它。
 
-三种内容/生成模式（narration/drama/reference_video）的分镜数组与 id 字段判别委托给
+四种剧本骨架（segments/scenes/shots/video_units）的条目数组与 id 字段判别委托给
 `script_skeleton.resolve_kind_items`（骨架条目访问的唯一入口），`resolve_items` 在其上叠加
 编辑核心特有的 fail-loud 校验策略；与 `script_structure_validator._select_model`、写盘统一
 入口的 metadata 重算共用同一取证解析，避免多处漂移。
@@ -39,7 +39,7 @@ class ScriptEditError(ValueError):
 
 
 def resolve_items(script: dict[str, Any], *, kind: str | None = None) -> tuple[list[dict[str, Any]], str, str]:
-    """按内容/生成模式选出当前剧本的分镜数组、其 id 字段名与种类。
+    """按剧本骨架选出当前剧本的条目数组、其 id 字段名与种类。
 
     返回 ``(items, id_field, kind)``：``kind`` ∈ {"segments", "scenes", "shots", "video_units"}。
     键与 id 字段的查法委托给 `script_skeleton.resolve_kind_items`（骨架条目访问的唯一入口，

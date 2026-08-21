@@ -94,7 +94,7 @@ docker compose up -d
 |---|---|
 | [文档首页](https://docs.arc-reel.com/) | 按使用者、运维者和开发者进入文档 |
 | [完整入门教程](https://docs.arc-reel.com/guide/getting-started) | 从首次部署到生成第一条视频 |
-| [创作流程与模式](https://docs.arc-reel.com/guide/workflows) | 小说、剧本、广告/短片以及三种视频制作方式 |
+| [创作流程与模式](https://docs.arc-reel.com/guide/workflows) | 小说、剧本与创作构想，三种创作类型及两种生成模式 |
 | [供应商与模型配置](https://docs.arc-reel.com/guide/providers) | Agent、文本、图像、视频、TTS 供应商的选择和配置 |
 | [剪映草稿导出](https://docs.arc-reel.com/guide/jianying-export) | 将 ArcReel 生成结果交给剪映继续编辑 |
 | [常见问题](https://docs.arc-reel.com/guide/faq) | 部署、费用、模型、数据和许可证问题 |
