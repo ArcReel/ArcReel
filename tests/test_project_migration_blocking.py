@@ -236,10 +236,11 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
 async def test_script_edit_mcp_tools_refuse_at_registration_on_a_migration_blocked_project(
     tmp_path: Path, monkeypatch, tool_factory
 ) -> None:
-    """四个受控剧本编辑工具经 MIGRATION_BLOCKED_TOOL_IDS 在注册期挡下——不落到
+    """四个受控剧本编辑工具登记在 MIGRATION_BLOCKED_TOOL_IDS 里，注册期包上守卫后直接拒。
 
-    ScriptBatchEditor.execute 的内层裁决（那条仍在，作兜底，但这里不该是命中路径：
-    命中内层会返回 ``script_edit`` 信封而不是 ``problem``，与本测试的形状断言矛盾）。
+    断言两件事：工具 id 在阻断集内（``build_arcreel_mcp_server`` 就按这个集合决定包不包守卫），
+    以及包上后的回执是 problem 形状。不落到 ScriptBatchEditor.execute 的内层裁决——那条仍在，
+    作兜底，但命中它会返回 ``script_edit`` 信封而不是 ``problem``，与这里的形状断言矛盾。
     """
 
     import lib.project_migration_guard as guard

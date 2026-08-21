@@ -1674,40 +1674,46 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
-        ("method", "endpoint", "body"),
+        ("method", "project_name", "endpoint", "body"),
         [
             (
                 "patch",
+                "ready",
                 "/api/v1/projects/ready/script-scenes/001",
                 {"script_file": "episode_1.json", "updates": {}},
             ),
             (
                 "patch",
+                "ad-ready",
                 "/api/v1/projects/ad-ready/script-shots/E1S01",
                 {"script_file": "episode_1.json", "updates": {}},
             ),
             (
                 "post",
+                "ad-ready",
                 "/api/v1/projects/ad-ready/script-shots/reorder",
                 {"script_file": "episode_1.json", "shot_ids": ["E1S01"]},
             ),
             (
                 "patch",
+                "ready",
                 "/api/v1/projects/ready/segments/E1S01",
                 {"script_file": "narration.json"},
             ),
         ],
     )
     def test_script_edit_routes_refuse_on_a_migration_blocked_project(
-        self, tmp_path, monkeypatch, method: str, endpoint: str, body: dict
+        self, tmp_path, monkeypatch, method: str, project_name: str, endpoint: str, body: dict
     ):
-        """入口守卫先于内层 ScriptBatchEditor 裁决：四条手动编辑路由与同文件其它写入路由同守卫。"""
+        """入口守卫先于内层 ScriptBatchEditor 裁决：四条手动编辑路由与同文件其它写入路由同守卫。
+
+        409 的 detail 要同时带项目名与迁移失败原因——阻断回执得让人知道该修哪个项目的什么。
+        """
 
         import lib.project_migration_guard as guard
         from lib.project_migration_failure import record_migration_failure
 
         fake_pm = _FakePM(tmp_path)
-        project_name = endpoint.split("/projects/")[1].split("/")[0]
         record_migration_failure(fake_pm.base / project_name, ValueError("坏数据"), schema_version=7)
         monkeypatch.setattr(guard, "get_project_manager", lambda: fake_pm)
         client = _client(monkeypatch, fake_pm)
@@ -1716,7 +1722,9 @@ class TestProjectsRouter:
             response = getattr(client, method)(endpoint, json=body)
 
         assert response.status_code == 409
-        assert project_name in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert project_name in detail
+        assert "坏数据" in detail
 
     @pytest.mark.unit
     def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
