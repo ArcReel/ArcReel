@@ -359,6 +359,11 @@ def downgrade() -> None:
     MySQL 不支持 partial index，本降级在 MySQL 上会因后续迁移的 drop 失败而
     不可达——生成列方案是 MySQL 上的目标态，无法降级。
     """
+    if is_mysql():
+        raise NotImplementedError(
+            "MySQL 不支持 partial index，本迁移无法降级。生成列方案是 MySQL 上的目标态。"
+            " 请从备份恢复，而不是执行 downgrade。"
+        )
     # drop 生成列 + 普通索引（SQLite 上 drop 生成列同样需 batch mode）
     op.drop_index("ix_agent_event_log_client_key", table_name="agent_session_event_log")
     op.drop_index("uq_agent_event_log_client_key", table_name="agent_session_event_log")

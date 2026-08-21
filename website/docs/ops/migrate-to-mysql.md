@@ -119,9 +119,9 @@ DATABASE_URL=mysql+aiomysql://... uv run alembic upgrade head
 
 用下面的 Python 脚本逐表迁移（反射读取、按 head schema 写入，只导数据不动表结构）。
 
-#### 把脚本保存为 `_migrate_sqlite_to_mysql.py` {#python-fallback}
+#### 把脚本保存为 `_migrate_to_mysql.py` {#python-script}
 
-使用方式：设置 `SOURCE_DB_URL`（源 SQLite）与 `DATABASE_URL`（目标 MySQL）后执行 `uv run python _migrate_sqlite_to_mysql.py`：
+使用方式：设置 `SOURCE_DB_URL`（源 SQLite）与 `DATABASE_URL`（目标 MySQL）后执行 `uv run python _migrate_to_mysql.py`：
 
 ```python
 """一次性脚本：SQLite → MySQL 数据迁移（已存在表结构时只导数据）。
@@ -245,12 +245,12 @@ pg_dump -U arcreel -d arcreel --format=c -f /tmp/arcreel_pg.dump
 
 ### 3. 用 Python 脚本做异构迁移 {#pg-migrate}
 
-PostgreSQL → MySQL 没有开箱即用的单向迁移工具（`pgloader` 仅支持向 PostgreSQL 导入，不能作为 MySQL 目标）。使用上面 [SQLite 路径的 Python 备选脚本](#python-fallback)，将 `SOURCE_DB_URL` 设为 PostgreSQL 连接串即可——脚本按表反射读取、逐表写入，BOOLEAN / 时间戳由 SQLAlchemy 方言层自动转换：
+PostgreSQL → MySQL 没有开箱即用的单向迁移工具（`pgloader` 仅支持向 PostgreSQL 导入，不能作为 MySQL 目标）。使用上面 [SQLite 路径的 Python 迁移脚本](#python-script)，将 `SOURCE_DB_URL` 设为 PostgreSQL 连接串即可——脚本按表反射读取、逐表写入，BOOLEAN / 时间戳由 SQLAlchemy 方言层自动转换：
 
 ```bash
 SOURCE_DB_URL=postgresql+asyncpg://arcreel:***@pg-host:5432/arcreel \
 DATABASE_URL=mysql+aiomysql://arcreel:***@mysql:3306/arcreel \
-  uv run python _migrate_sqlite_to_mysql.py
+  uv run python _migrate_to_mysql.py
 ```
 
 ### 4. 校验并启动（同 SQLite 路径的 [6](#verify-data)、[7](#start-all)） {#pg-verify}
