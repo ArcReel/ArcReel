@@ -38,7 +38,7 @@ export default {
   'source_kind_novel': 'Tiểu thuyết',
   'source_kind_screenplay': 'Kịch bản gốc',
   'source_kind_novel_desc': 'Tải lên tiểu thuyết; AI sẽ chuyển thể thành kịch bản.',
-  'source_kind_screenplay_desc': 'Tải lên kịch bản hoàn chỉnh; lời thoại và lời dẫn được giữ nguyên từng chữ, không chuyển thể.',
+  'source_kind_screenplay_desc': 'Tải lên kịch bản gốc hoàn chỉnh; lời thoại và lời dẫn được giữ nguyên từng chữ, không chuyển thể.',
   'optional': 'Tùy chọn',
   'creating': 'Đang tạo...',
   'rebirth_empress_example': 'Ví dụ: Trùng sinh vĩ đại Hoàng hậu',
