@@ -1361,6 +1361,48 @@ describe("ReferenceVideoCanvas", () => {
       expect(batchSpy).toHaveBeenCalledTimes(1);
     });
 
+    it("首个目标就中断时不说成部分排上", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1"), mkUnit("E1U2")],
+      });
+      vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue(
+        // 中断落在第一个目标上：decision 仍是 admitted，但一个任务也没建成。
+        mkAdmission({
+          task_ids: [],
+          task_ids_by_unit: {},
+          enqueue_failures: [
+            {
+              unit_id: "E1U1",
+              problem: { code: "queue_unavailable", action: "retry", message: "队列暂时不可用", params: {} },
+            },
+            {
+              unit_id: "E1U2",
+              problem: {
+                code: "generation_enqueue_interrupted",
+                action: "retry",
+                message: "入队已中断，这个目标没有排上",
+                params: {},
+              },
+            },
+          ],
+        }),
+      );
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      await clickBatch();
+
+      const dialog = within(await screen.findByRole("dialog"));
+      // 缺口明细照旧逐个列出
+      expect(dialog.getByText("E1U1")).toBeInTheDocument();
+      expect(dialog.getByText("E1U2")).toBeInTheDocument();
+      // 一个任务都没建时不能说「部分」，也不能说已提交的任务照常执行
+      expect(
+        dialog.getByText(/没有任务排上队列|No task from this batch was queued/),
+      ).toBeInTheDocument();
+      expect(dialog.queryByText(/部分单元未排上队列|Some units were not queued/)).not.toBeInTheDocument();
+      expect(dialog.getByText(/没有任务在执行|nothing from this batch is running/)).toBeInTheDocument();
+    });
+
     it("批量请求失败时提示错误且不留下结论面板", async () => {
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
       vi.spyOn(API, "generateReferenceVideoBatch").mockRejectedValue(new Error("offline"));

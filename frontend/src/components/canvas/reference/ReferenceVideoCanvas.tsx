@@ -543,9 +543,9 @@ export function ReferenceVideoCanvas({
   );
 
   /**
-   * 一次请求走服务端的全有或全无准入，{@link referenceBatchOutcome} 的四种结局都是评估
-   * 成功。只有整批干净入队那一种由动作层那句提示收尾，其余三种都留下结论面板：档位待拍板、
-   * 一个任务也没建的缺口，以及少排上几个时是哪几个、各自为什么。
+   * 一次请求走服务端的全有或全无准入，{@link referenceBatchOutcome} 的五种结局都是评估
+   * 成功。只有整批干净入队那一种由动作层那句提示收尾，其余四种都留下结论面板：档位待拍板、
+   * 准入受阻，以及没排上队列的是哪几个、各自为什么。
    */
   const runBatch = useCallback(
     async (unitIds: string[], confirmedDurations?: Record<string, number>) => {

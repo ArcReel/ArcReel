@@ -9,18 +9,26 @@ import { ProblemList } from "@/components/workflow/ProblemList";
 import { enqueueFailureViews } from "@/components/workflow/problem-views";
 import { WARM_TONE } from "@/utils/severity-tone";
 import type { ReferenceBatchAdmission } from "@/types";
-import { referenceBatchOutcome } from "./batch-outcome";
+import { referenceBatchOutcome, type ReferenceBatchOutcome } from "./batch-outcome";
 
 interface Props {
   /**
-   * 整批入队成功时不展示——那一路的结局由 toast 反馈。其余三种结局都要当场说清楚：
-   * 需确认、受阻，以及入队中断后哪几个单元没排上。
+   * 整批入队成功时不展示——那一路的结局由 toast 反馈。其余四种结局都要当场说清楚：
+   * 需确认、受阻，以及入队中断后哪几个单元没排上（一个都没排上时另说一句）。
    */
   admission: ReferenceBatchAdmission | null;
   /** 按 confirmation.tiers 的档位重发批量请求 */
   onConfirm: () => void;
   onClose: () => void;
 }
+
+/** 要陈述的四种结局各自的标题。`queued` 不开弹窗，不在表内。 */
+const TITLE_KEYS: Record<Exclude<ReferenceBatchOutcome, "queued">, string> = {
+  confirm: "reference_batch_confirm_title",
+  blocked: "reference_batch_blocked_title",
+  interrupted: "reference_batch_enqueue_interrupted_title",
+  none_queued: "reference_batch_enqueue_none_queued_title",
+};
 
 /**
  * 批量视频生成的结论弹窗。
@@ -29,7 +37,7 @@ interface Props {
  * 陈述，两处不各推一遍判定。入队中断是准入之后的结局，正文在本组件就地给出：准入已经
  * 通过，缺口不在单元自身，工作流面板那份「这一批一个任务也没建」的陈述套不上它。
  *
- * 三种形态共用一套外壳：标题、抢焦与按钮。只有需确认那一种要用户拍板，另两种都只是
+ * 四种形态共用一套外壳：标题、抢焦与按钮。只有需确认那一种要用户拍板，其余都只是
  * 陈述已经发生的事，收尾按钮统一是「知道了」——列出的问题该怎么办属于各单元自己的
  * 步骤，弹窗不替用户推断下一步。
  */
@@ -41,10 +49,12 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
   const descId = useId();
 
   const outcome = admission && referenceBatchOutcome(admission);
-  const interrupted = outcome === "interrupted";
+  // 入队留下缺口的两路正文相同——都是逐个列出没排上的单元，只有标题与开场白分开：
+  // 还有任务在跑，与一个任务也没建成，对用户不是同一件事。
+  const enqueueGap = outcome === "interrupted" || outcome === "none_queued";
   const open = outcome !== null && outcome !== "queued";
   // 受阻与入队中断都是已经发生的坏消息，共用暖色外壳；需确认那一种还没出事，用强调色。
-  const warned = interrupted || outcome === "blocked";
+  const warned = enqueueGap || outcome === "blocked";
 
   return (
     <GlassModal
@@ -78,20 +88,19 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
               className="display-serif text-[17px] font-semibold tracking-tight"
               style={{ color: "var(--color-text)" }}
             >
-              {interrupted
-                ? t("reference_batch_enqueue_interrupted_title")
-                : outcome === "blocked"
-                  ? t("reference_batch_blocked_title")
-                  : t("reference_batch_confirm_title")}
+              {outcome && outcome !== "queued" && t(TITLE_KEYS[outcome])}
             </h2>
             <div id={descId} className="mt-1">
               {admission &&
-                (interrupted ? (
+                (enqueueGap ? (
                   <div className="space-y-2 text-[12.5px] leading-relaxed">
                     <p style={{ color: "var(--color-text-3)" }}>
-                      {t("reference_batch_enqueue_interrupted_intro", {
-                        count: admission.enqueue_failures.length,
-                      })}
+                      {t(
+                        outcome === "interrupted"
+                          ? "reference_batch_enqueue_interrupted_intro"
+                          : "reference_batch_enqueue_none_queued_intro",
+                        { count: admission.enqueue_failures.length },
+                      )}
                     </p>
                     <ProblemList
                       problems={enqueueFailureViews(tWorkflow, admission.enqueue_failures)}

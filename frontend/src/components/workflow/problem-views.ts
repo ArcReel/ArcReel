@@ -166,8 +166,8 @@ export function admissionUnitViews(
  * 用户要知道的是哪几个没排上、各自为什么，档位在这里只是噪声。
  *
  * 参数取结构而非具体类型：这层是通用问题行的归一处，不反向依赖某条路线的回执类型。
- * 服务端已把文案本地化进 `message`，与准入缺口同一形状；`detail` 目前不进响应体，
- * 兜底只为接住将来带上它的回执。
+ * 服务端已把文案本地化进 `message`，与准入缺口同一形状；`detail` 是可选字段，缺省时
+ * 问题行不带折叠详情。
  */
 export function enqueueFailureViews(
   t: Translate,
