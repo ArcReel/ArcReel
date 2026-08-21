@@ -356,8 +356,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     """回滚到 partial index 方案（字段长度与 MEDIUMTEXT 变更不回滚）。
 
-    MySQL 不支持 partial index，本降级在 MySQL 上会因后续迁移的 drop 失败而
-    不可达——生成列方案是 MySQL 上的目标态，无法降级。
+    MySQL 不支持 partial index，本迁移的降级操作会在入口处被直接拒绝。
+    生成列方案是 MySQL 上的目标态，无法降级——请从备份恢复。
     """
     if is_mysql():
         raise NotImplementedError(
