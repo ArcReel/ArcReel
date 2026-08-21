@@ -175,7 +175,21 @@ async def main() -> int:
                 md = sa.MetaData()
                 md.reflect(sync_conn, only=[name])
                 t = md.tables[name]
-                return list(sync_conn.execute(sa.select(t)))
+                # 分批读取（每批 1000 行），避免大表一次性加载内存
+                stmt = sa.select(t)
+                batch_size = 1000
+                offset = 0
+                all_rows = []
+                while True:
+                    batch_stmt = stmt.offset(offset).limit(batch_size)
+                    batch = list(sync_conn.execute(batch_stmt))
+                    if not batch:
+                        break
+                    all_rows.extend(batch)
+                    offset += batch_size
+                    print(f"[READ] {tbl_name}: {len(all_rows)} rows fetched...", end='\r')
+                print()
+                return all_rows
 
             rows = await sconn.run_sync(read)
             if not rows:
@@ -186,7 +200,11 @@ async def main() -> int:
                 md = sa.MetaData()
                 md.reflect(sync_conn, only=[name])
                 t = md.tables[name]
-                sync_conn.execute(sa.insert(t).values(rs))
+                # 分批插入（每批 1000 行），避免大表一次性加载内存
+                batch_size = 1000
+                for i in range(0, len(rs), batch_size):
+                    batch = rs[i:i + batch_size]
+                    sync_conn.execute(sa.insert(t).values(batch))
 
             await dconn.run_sync(write)
             print(f"[OK]   {tbl_name}: {len(rows)} rows")
