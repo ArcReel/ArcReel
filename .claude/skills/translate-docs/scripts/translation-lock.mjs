@@ -2,28 +2,17 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, resolve } from "node:path";
+
+// 与页面库存、锚点扫描共用同一个遍历器，三道 CI 闸门对「哪些文件算文档」给同一答案。
+// 该模块零 npm 依赖，本脚本仍可用 node 直接运行；代价是耦合仓库文件布局——本脚本
+// 本就硬编码 website/i18n 等仓库路径，不追求脱库复用。
+import { walkMarkdownFiles } from "../../../../website/scripts/markdown-scan.mjs";
 
 const I18N_ROOT = "website/i18n";
 const DOCS_TRANSLATION_SUBDIRECTORY = "docusaurus-plugin-content-docs/current";
 const DOCS_TRANSLATION_ROOT = `${I18N_ROOT}/en/${DOCS_TRANSLATION_SUBDIRECTORY}`;
 const LOCK_PATH = "website/i18n/translation.lock.json";
-
-function toPosix(path) {
-  return path.split(sep).join("/");
-}
-
-function walkMarkdown(root, directory) {
-  const absoluteDirectory = resolve(root, directory);
-  if (!existsSync(absoluteDirectory)) return [];
-
-  return readdirSync(absoluteDirectory, { withFileTypes: true }).flatMap((entry) => {
-    const path = resolve(absoluteDirectory, entry.name);
-    if (entry.isDirectory()) return walkMarkdown(root, toPosix(relative(root, path)));
-    if (!entry.isFile() || !/\.mdx?$/.test(entry.name)) return [];
-    return [toPosix(relative(root, path))];
-  });
-}
 
 // Forward mapping registers English targets only, while the orphan scan walks every locale
 // directory under website/i18n/. Extend this mapping before adding another documentation
@@ -50,7 +39,7 @@ function sourceTargets(root) {
   const mappings = [
     ["CONTRIBUTING.md", targetForSource("CONTRIBUTING.md")],
     ["README.md", targetForSource("README.md")],
-    ...walkMarkdown(root, "website/docs")
+    ...walkMarkdownFiles(root, "website/docs")
       .filter((source) => source !== "website/docs/dev/contributing.md")
       .map((source) => [source, targetForSource(source)]),
   ];
@@ -65,7 +54,7 @@ function documentTranslationTargets(root) {
 
   return readdirSync(absoluteI18nRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .flatMap((entry) => walkMarkdown(root, `${I18N_ROOT}/${entry.name}/${DOCS_TRANSLATION_SUBDIRECTORY}`))
+    .flatMap((entry) => walkMarkdownFiles(root, `${I18N_ROOT}/${entry.name}/${DOCS_TRANSLATION_SUBDIRECTORY}`))
     .sort((left, right) => left.localeCompare(right));
 }
 
