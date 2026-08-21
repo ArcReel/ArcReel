@@ -89,7 +89,7 @@ Every backend test belongs to exactly one tier; CI runs `-m "not e2e"` by defaul
 ### File size and naming {#test-file-size}
 
 - One test file corresponds to one subject under test; when a single subject outgrows readable size, split by behavior area using semantic topic suffixes.
-- Two gates: the split-naming suffixes `_more` / `_full` / `_coverage` / `_extra` / `_additional` are forbidden; a 3000-line circuit breaker per file (its meaning is stopping unbounded growth, not a line-count standard).
+- Two gates: the split-naming suffixes `_more` / `_full` / `_coverage` / `_extra` / `_additional` are forbidden; a 3000-line circuit breaker per file (it exists to stop unbounded file growth, not as a size standard).
 
 ### Test doubles {#test-doubles}
 
@@ -121,8 +121,8 @@ Four audit criteria rely on review and dedicated audits, not gates: weakened dup
 ### Timing and flakiness {#timing-and-flakiness}
 
 - Waiting, retry, and timeout logic is always driven through a clock seam or event handshake—no real `time.sleep` wall-clock waits.
-- Flaky failures are ordinary defects: fix them in place (clock seam / event handshake), or delete them under the meaningless-test criteria if a fix is impractical or not worthwhile. No automatic retries (pytest-rerunfailures, CI job-level retry)—automatic retry turns a visible signal into an invisible tax.
-- Probabilistic stress tests (real concurrency + real time) must be explicitly registered here. The sole registered exemption: the atomic-write stress test in `tests/test_project_manager_concurrent_save.py` (`integration` tier).
+- Flaky failures are ordinary defects: fix them in place (clock seam / event handshake), or delete them under the meaningless-test criteria if a fix is impractical or not worthwhile. No automatic retries (pytest-rerunfailures, CI job-level retry)—automatic retry hides failures that should stay visible.
+- Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/test_project_manager_concurrent_save.py` (`integration` tier).
 
 ### Coverage {#coverage}
 
@@ -132,14 +132,14 @@ Coverage is a signal, not a gate: CI never fails on a coverage number, and Codec
 
 - Single entry point: `uv run python scripts/audit_tests.py --check`, the same command locally and in CI (a standalone `test-lint` step); output is `rule-id file:line fix guidance`.
 - Zero tolerance: the violation count is always 0—no baseline, no ratchet, no exemption annotations; a script false positive is fixed in the script, never by tagging the test as an exception; a new rule ships in the same PR that clears its existing violations.
-- Division of labor: the AST script owns code structure; pytest collection time does only tier-related checks; no new runtime checks. Frontend semantic rules belong to eslint; structural rules (naming bans, the 3000-line circuit breaker) are scanned by the same script over `frontend/src/**/*.test.*`.
+- Division of labor: the AST script owns code structure; pytest collection time does only tier-related checks; no new runtime checks. Frontend semantic rules belong to eslint; structural rules are scanned by the same script over `frontend/src/**/*.test.*`.
 
 ### Frontend tests (vitest) {#frontend-vitest}
 
-- **API stubbing**: `vi.spyOn(API, method)` is the canonical boundary (the `API` class is the frontend's only outbound gateway); tests of `api.ts` itself use handwritten fetch/Response stubs; msw is not introduced. Whole-module `vi.mock("@/api")` and `vi.mock("react-i18next")` are forbidden (enforced by eslint; the global setup already loads the real Chinese i18n, and mocking it hides missing translations).
+- **API stubbing**: `vi.spyOn(API, method)` is the standard stubbing boundary (the `API` class is the frontend's only outbound gateway); tests of `api.ts` itself use handwritten fetch/Response stubs; msw is not introduced. Whole-module `vi.mock("@/api")` and `vi.mock("react-i18next")` are forbidden (enforced by eslint; the global setup already loads the real Chinese i18n, and mocking it hides missing translations).
 - **SSE stubbing**: use the shared `FakeEventSource` in `src/test/`, returned from a spy on `API.openProjectEventStream`.
 - **Mocking internal child components** requires one of three categories: heavyweight (virtualization/animation/canvas), side-effecting (sends requests/starts timers), or pure display irrelevant to the test; a component mocked in ≥3 files moves up to `src/__mocks__/`.
-- **Shared infrastructure**: cross-cutting utilities unrelated to the subject under test (`createDeferred`, `FakeEventSource`, factories) appearing in ≥3 files move up to `src/test/`; API spy combinations are exempt from consolidation (each file's combination differs; consolidation would only produce a god helper); local `renderXxx` helpers move up only when ≥3 files repeat the same shape.
+- **Shared infrastructure**: cross-cutting utilities unrelated to the subject under test (`createDeferred`, `FakeEventSource`, factories) appearing in ≥3 files move up to `src/test/`; API spy combinations are exempt from consolidation (each file spies a different combination of methods; there is no common shape to extract); local `renderXxx` helpers move up only when ≥3 files repeat the same shape.
 - **Layout and size**: test files sit next to their source files, without `__tests__/` directories; "one file, one subject", the split-naming ban, and the 3000-line circuit breaker match the backend, with semantic topic suffixes allowed (such as `ShotDetail.drama.test.tsx`).
 - **Testability rework**: no production behavior changes; structural extraction at the pure-function or hook level is allowed.
 - **Configuration and lint**: `testTimeout` stays at the vitest default of 5s, with individual slow tests overriding it explicitly with an explanation; eslint enables the vitest, testing-library, and jest-dom plugins (`expect-expect` catches zero-assertion tests); bare `toHaveBeenCalled` has no ban—assertion strength is a review concern.
