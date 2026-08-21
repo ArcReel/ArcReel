@@ -295,7 +295,13 @@ export function ModelConfigSection({
     endpointToMediaType,
   ).options;
 
-  const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
+  const renderVideoOptionMeta = videoOptionMetaRenderer({
+    t,
+    providers,
+    customProviders,
+    endpointToMediaType,
+    route: usesReferenceImages ? "r2v" : "i2v",
+  });
 
   const handleVideoChange = (next: string) => applyVideoLayer({ videoBackend: next });
 

@@ -3,9 +3,13 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { formatDurationsLabel } from "@/utils/duration_format";
 import { catalogDurations } from "@/hooks/useModelCapabilities";
-import { lookupCatalogVideoAudio, lookupResolutions } from "@/utils/provider-models";
+import {
+  lookupCatalogVideoAudio,
+  lookupResolutions,
+  lookupVideoAudioControl,
+} from "@/utils/provider-models";
 import type { CustomProviderInfo } from "@/types/custom-provider";
-import type { MediaType, ProviderInfo, VoiceConsistencyTier } from "@/types";
+import type { MediaType, ProviderInfo, VideoRoute, VoiceConsistencyTier } from "@/types";
 
 // ---------------------------------------------------------------------------
 // 声音一致性档位元数据。
@@ -71,11 +75,16 @@ export function videoOptionMetaRenderer({
   providers,
   customProviders,
   endpointToMediaType,
+  route,
 }: {
   t: TFunction;
   providers: ProviderInfo[];
   customProviders: CustomProviderInfo[];
   endpointToMediaType?: Record<string, MediaType>;
+  /** 执行路径；有路线上下文的调用点须传入，音轨格按路径取值，与该屏其余控件同口径
+   *  （见 ModelConfigSection.tsx 的 audioControl）。省略时回退目录 i2v 位——全局设置页
+   *  无路线上下文，这是其现行正确口径。 */
+  route?: VideoRoute;
 }) {
   return (fullValue: string) => {
     const durations = catalogDurations(providers, customProviders, fullValue);
@@ -85,15 +94,22 @@ export function videoOptionMetaRenderer({
       customProviders,
       endpointToMediaType,
     ).options;
-    const audio = lookupCatalogVideoAudio(providers, fullValue);
+    const hasAudioTrack = route
+      ? nullableBool(lookupVideoAudioControl(providers, fullValue, route), (c) => c !== "always_off")
+      : (lookupCatalogVideoAudio(providers, fullValue)?.hasAudioTrack ?? null);
     const parts: string[] = [];
     if (durations?.length) parts.push(formatDurationsLabel(durations));
     if (resolutions.length) parts.push(resolutions.join(" / "));
-    if (audio) {
-      parts.push(t(audio.hasAudioTrack ? "dashboard:video_spec_audio_has" : "dashboard:video_spec_audio_none"));
+    if (hasAudioTrack !== null) {
+      parts.push(t(hasAudioTrack ? "dashboard:video_spec_audio_has" : "dashboard:video_spec_audio_none"));
     }
     return parts.length > 0 ? parts.join(" · ") : t("dashboard:video_option_caps_unknown");
   };
+}
+
+/** `value` 为 null 时短路为 null，否则套用 `map`——查表结果向布尔态收窄的通用写法。 */
+function nullableBool<T>(value: T | null, map: (value: T) => boolean): boolean | null {
+  return value === null ? null : map(value);
 }
 
 export interface VideoModelSpecBarProps {
