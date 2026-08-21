@@ -73,10 +73,15 @@ mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_
 
 **Step 2**: 验证输出
 
-使用 Read 工具读取生成的 `drafts/episode_{N}/step1_segments.json`，
+先看工具的返回：`is_error: true` 且错误文本里出现「已保存为待修复草稿」时，正式 `step1_segments.json`
+**不存在**（首次产出就违约，正式文件一步没动），不要去 Read 它。改为 Read
+`drafts/episode_{N}/step1_segments.invalid.json`，按情况 B 的 Step 2 / Step 3 就地改
+`content.segments[i]` 再晋升，不要重跑本工具重抽。其余错误停止并把错误文本报告给主 Agent。
+
+工具正常返回时，使用 Read 工具读取生成的 `drafts/episode_{N}/step1_segments.json`，
 确认为合法 JSON 且每个分镜含 segment_id / novel_text / duration_seconds / segment_break / characters_in_segment / scenes / props。
 
-结构有问题时按情况 B 的「取回草稿 → 改草稿 → 晋升」处置：不要用 Edit 直改正式文件（会被拒），
+此时结构仍有问题的，按情况 B 的「取回草稿 → 改草稿 → 晋升」处置：不要用 Edit 直改正式文件（会被拒），
 也不要重跑工具重抽。
 
 ### 情况 B：修改已有拆分
