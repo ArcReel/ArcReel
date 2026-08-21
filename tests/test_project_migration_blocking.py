@@ -201,7 +201,7 @@ def _assert_list_pending_assets_unblocked(unblocked: dict, ctx: ToolContext) -> 
 
 def _assert_get_episode_script_revision_unblocked(unblocked: dict, ctx: ToolContext) -> None:
     assert unblocked["script"] == "episode_1.json"
-    assert unblocked["revision"] == script_revision(ctx.pm.load_script_readonly("demo", "episode_1.json"))
+    assert unblocked["revision"] == script_revision(ctx.pm.load_script_readonly(ctx.project_name, "episode_1.json"))
 
 
 @pytest.mark.parametrize(
