@@ -160,3 +160,27 @@ export function admissionUnitViews(
   }
   return views;
 }
+
+/**
+ * 入队中断时没轮到的目标。准入已经通过，缺口不在单元自身，所以不带档位对比——
+ * 用户要知道的是哪几个没排上、各自为什么，档位在这里只是噪声。
+ *
+ * 参数取结构而非具体类型：这层是通用问题行的归一处，不反向依赖某条路线的回执类型。
+ * 服务端已把文案本地化进 `message`，与准入缺口同一形状；`detail` 是可选字段，缺省时
+ * 问题行不带折叠详情。
+ */
+export function enqueueFailureViews(
+  t: Translate,
+  failures: readonly { unit_id: string; problem: AdmissionProblem }[],
+): ProblemView[] {
+  return failures.map((failure, index) => ({
+    key: `enqueue-${failure.unit_id}-${index}`,
+    unitId: failure.unit_id,
+    field: problemField(failure.problem),
+    summary:
+      failure.problem.message ??
+      localizedSummary(t, failure.problem.code, failure.problem.detail ?? ""),
+    nextStep: nextStepFor(t, failure.problem.action),
+    detail: failure.problem.detail ?? null,
+  }));
+}
