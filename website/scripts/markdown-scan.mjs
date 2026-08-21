@@ -15,8 +15,7 @@ function toPosix(path) {
 /**
  * 递归列出 `root` 下 `directory` 里的全部 Markdown 文件（.md / .mdx），返回相对 `root` 的
  * POSIX 路径并按字典序排序；目录不存在时返回空数组。
- * 排除规则（如 Docusaurus 的 `_` 前缀 partial）若将来引入，在这里加调用方参数，
- * 不在各闸门自行过滤。
+ * 「哪些文件算文档」的取舍（含一切排除规则）只属于本函数，调用方不得在结果上自行过滤。
  *
  * @param {string} root 绝对路径基准，返回值相对它
  * @param {string} directory 相对 `root` 的目录
