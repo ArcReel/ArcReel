@@ -398,23 +398,18 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect([...select.options].map((o) => o.value)).toEqual(["8"]);
   });
 
-  it("asks the assistant to promote instead of reporting violations when the quarantine has none", async () => {
+  it("shows a non-interactive processing state when the draft has no violations", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       ...quarantinedState(),
       quarantine: { content: quarantinedState().quarantine!.content, violations: [] },
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    expect(await screen.findByText("可编辑草稿 — 等待校验晋升")).toBeInTheDocument();
+    expect(await screen.findByText("草稿处理中")).toBeInTheDocument();
     expect(screen.queryByText("待修复草稿 — 拆分未通过校验")).not.toBeInTheDocument();
-    expect(screen.getByText("已有修改保留在草稿中，校验晋升后才能继续")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "让 Agent 校验并晋升" }));
-
-    const input = useAssistantStore.getState().input;
-    expect(input).toContain("validate_and_promote_draft");
-    expect(input).toContain("可编辑草稿");
-    expect(input).not.toContain("1. ");
+    expect(screen.getByText("Agent 正在完成草稿处理，完成后此处会自动更新")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Agent/ })).not.toBeInTheDocument();
+    expect(useAssistantStore.getState().input).toBe("");
     // 禁用判据是待处置草稿文件是否在场，不是重算后的违约数量——违约为空但草稿仍在场时确认依旧禁用。
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });

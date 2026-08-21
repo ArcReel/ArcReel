@@ -380,15 +380,10 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
-    // 重算已无违约、但草稿仍在场（Agent 已改对内容、尚未调晋升工具）：不能报「0 处违约
-    // 待修复」再让用户去改一份已经没问题的东西，正确的下一步是请 Agent 直接晋升。
-    const report =
-      violations.length === 0
-        ? t("reference_step1_fix_request_promote_prefill", { episode })
-        : [
-            t("reference_step1_fix_request_prefill_header", { episode, count: violations.length }),
-            ...violations.map((v, i) => `${i + 1}. ${v.message}`),
-          ].join("\n");
+    const report = [
+      t("reference_step1_fix_request_prefill_header", { episode, count: violations.length }),
+      ...violations.map((v, i) => `${i + 1}. ${v.message}`),
+    ].join("\n");
     useAssistantStore.getState().setInput(report);
     useAppStore.getState().setAssistantPanelOpen(true);
   }, [state, episode, t]);
@@ -519,9 +514,9 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {quarantined && (
+          {quarantined && hasDraftViolations && (
             <button type="button" onClick={handleRequestFix} className={GHOST_BTN_CLS}>
-              {t(hasDraftViolations ? "reference_step1_request_fix" : "reference_step1_request_promote")}
+              {t("reference_step1_request_fix")}
             </button>
           )}
           {!quarantined && dirty && (

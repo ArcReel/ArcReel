@@ -45,9 +45,12 @@ def test_drama_repair_scope_covers_entire_draft_content() -> None:
 def test_step1_draft_repair_combines_user_intent_with_violation_repair(relative_path: str) -> None:
     md = (REPO / relative_path).read_text(encoding="utf-8")
 
-    assert ("保留草稿中已有修改，并应用主 Agent 本轮传入的用户修改意见；`violations[]` 非空时，在上述修改基础上") in md
+    assert (
+        "保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上"
+    ) in md
     assert "为空时保留已有修改" not in md
     assert "为空时按用户修改意见定位" not in md
+    assert "不得因为没有违约就原样晋升" not in md
 
 
 def test_narration_pacing_in_split_narration_md() -> None:
