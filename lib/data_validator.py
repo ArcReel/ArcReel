@@ -1050,7 +1050,7 @@ class DataValidator:
         *,
         project_dir: Path | None = None,
     ) -> None:
-        """验证 shots（广告/短片）：平铺镜头列表，口播文案一等，商品按名字引用。
+        """验证 shots（广告/短片）：平铺分镜列表，口播文案一等，商品按名字引用。
 
         storyboard 路径的时长成员校验在生成 schema 层（supported_durations 枚举，校验器
         拿不到供应商能力、只把关正整数）。参考生视频使用 ``video_units``，不经过本函数。

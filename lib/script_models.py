@@ -715,7 +715,7 @@ class AdEpisodeScript(BaseModel):
     content_mode: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="创作类型")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
-    shots: list[AdShot] = Field(description="镜头列表")
+    shots: list[AdShot] = Field(description="分镜列表")
 
 
 # ============ 参考生视频（Reference-to-Video） ============
@@ -1089,7 +1089,7 @@ def _ad_episode_model(duration_type: object, description: str) -> type[BaseModel
     return create_model(
         "AdEpisodeScript",
         __base__=AdEpisodeScript,
-        shots=(list[shot], Field(description="镜头列表")),
+        shots=(list[shot], Field(description="分镜列表")),
     )
 
 

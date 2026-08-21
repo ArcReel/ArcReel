@@ -239,7 +239,7 @@ export interface ReferenceStep1Draft {
 }
 
 /**
- * step1 的引用语法扁平结构（草稿装的是这个，不是落盘的 `ReferenceStep1Draft`）：
+ * step1 的扁平草稿结构（草稿装的是这个，不是落盘的 `ReferenceStep1Draft`）：
  * `unit_id` 机器派生，落盘前才有——草稿中只有时长 + 原文锚 + 一段引用语法正文。
  * Mirrors lib/script_models.py ReferenceStep1FlatUnit / ReferenceStep1FlatDraft。
  */
