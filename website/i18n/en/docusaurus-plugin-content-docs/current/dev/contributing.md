@@ -202,6 +202,8 @@ This file is the source of truth for the contributing guide. During builds, it i
 
 ### Page responsibilities {#page-responsibilities}
 
+Published pages also declare their documentation-refresh coverage tier via the `update_docs` frontmatter key; the criteria live in `.agents/skills/update-docs/SKILL.md`.
+
 | Page | Should contain | Should not contain |
 |---|---|---|
 | `README.md` | Product positioning, core value, and the shortest path to getting started | A complete model list, every environment variable, or internal implementation details |

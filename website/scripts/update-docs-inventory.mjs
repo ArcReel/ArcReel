@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// update-docs 的上站页面库存：frontmatter 决定引擎归属，CONTRIBUTING「各页职责」必须与库存一致。
+// update-docs 的上站页面库存：frontmatter 声明覆盖档位，CONTRIBUTING「各页职责」必须与库存一致。
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 
 import { readFrontMatterScalar, scanMarkdownLines } from "./markdown-scan.mjs";
 
-const UPDATE_DOCS_VALUES = new Set(["engine-a", "engine-b", "none"]);
+const UPDATE_DOCS_VALUES = new Set(["full", "fact-check", "none"]);
 // CONTRIBUTING 的中文副本由 sync-contributing 在构建期生成，真相源不在 website/docs，不能进入库存。
 const GENERATED_DOCS = new Set(["website/docs/dev/contributing.md"]);
 
@@ -70,10 +70,10 @@ export function checkUpdateDocsInventory(repoRoot) {
 
   for (const entry of entries) {
     if (entry.updateDocs === null) {
-      problems.push(`${entry.path} 未声明 frontmatter 的 update_docs（可选 engine-a / engine-b / none）`);
+      problems.push(`${entry.path} 未声明 frontmatter 的 update_docs（可选 full / fact-check / none）`);
     } else if (!UPDATE_DOCS_VALUES.has(entry.updateDocs)) {
       problems.push(
-        `${entry.path} 的 frontmatter update_docs 值「${entry.updateDocs}」无效（可选 engine-a / engine-b / none）`,
+        `${entry.path} 的 frontmatter update_docs 值「${entry.updateDocs}」无效（可选 full / fact-check / none）`,
       );
     }
   }
@@ -123,7 +123,7 @@ function main() {
   if (format === "tsv") {
     for (const entry of entries) console.log(`${entry.updateDocs}\t${entry.path}`);
   } else {
-    console.log(`update-docs 文档库存检查通过：${entries.length} 个上站页面均已声明归属且各页职责清单一致。`);
+    console.log(`update-docs 文档库存检查通过：${entries.length} 个上站页面均已声明覆盖档位且各页职责清单一致。`);
   }
 }
 

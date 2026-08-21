@@ -57,6 +57,8 @@ Apply these invariants to every file:
 - Preserve explicit anchor IDs such as `{#deployment}` exactly. Translate their headings.
 - Keep product names, command names, paths, configuration keys, environment variables, identifiers, and version constraints unchanged.
 
+The lock pipeline currently registers English targets only: `targetForSource` in `translation-lock.mjs` maps every source into `website/i18n/en/`. Before adding another documentation locale, extend that forward mapping first — otherwise every file of the new locale is reported as an unregistered orphan and `record` refuses to run.
+
 `README.md` maps to `README.en.md`. `CONTRIBUTING.md` maps to `website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md`; base that target on the synchronized `website/docs/dev/contributing.md` so its generated frontmatter and `{#contributing}` anchor remain intact. The lockfile records `CONTRIBUTING.md` as the source key but fingerprints that synchronized copy's content, not the root file's, so a `sync-contributing.mjs` change alone can also mark the target stale. Other Markdown sources use the exact targets printed by `status`.
 
 Finish this step only when every `missing` or `stale` target is a complete English rendering and every `orphan` target is gone.

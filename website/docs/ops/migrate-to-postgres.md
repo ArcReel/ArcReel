@@ -2,7 +2,7 @@
 id: migrate-to-postgres
 title: 从 SQLite 迁移到 PostgreSQL
 sidebar_position: 2
-update_docs: engine-b
+update_docs: fact-check
 ---
 
 # 从 SQLite 迁移到 PostgreSQL {#migrate-to-postgres}
