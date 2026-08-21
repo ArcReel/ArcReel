@@ -49,6 +49,8 @@ SQLite 存文本 / PostgreSQL native JSON / MySQL 8 native JSON，三者读写�
 
 每个受影响迁移须通过 offline 与 online 两套标准，并对每个 revision 独立执行闭环与幂等升级。
 
+> 下列命令中的 `URL_ENCODED_PASSWORD` 为占位符（不含 `<>` 等 shell 元字符，故整条 URL 用单引号包裹后可直接复制）。执行前替换为真实密码；密码含 URL 保留字符（如 `@ : / ?`）时须先做 URL 编码。切勿将真实密码写入本文档。
+
 ### offline（不连库，逐 revision 生成 SQL）
 
 ```text
@@ -68,18 +70,25 @@ DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?c
 ### online（真实 MySQL，每个 revision 独立闭环 + 幂等）
 
 ```text
-DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4'
+export DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4'
 
 # 7a8b9c0d1e2f 独立闭环
 alembic upgrade 7a8b9c0d1e2f
-alembic downgrade f6a41746c0de        # 回到父 revision
+alembic downgrade 7a8b9c0d1e2f~1      # 回到本迁移的 down_revision
 alembic upgrade 7a8b9c0d1e2f          # 幂等升级：与首次升级后 schema 一致
 
 # bcaaa615ff38 独立闭环
 alembic upgrade bcaaa615ff38
-alembic downgrade 7a8b9c0d1e2f        # 回到父 revision
+alembic downgrade bcaaa615ff38~1      # 回到本迁移的 down_revision
 alembic upgrade bcaaa615ff38          # 幂等升级
+
+# head 级幂等：DB 已在 head 时再次 upgrade head 须无副作用
+alembic upgrade head                  # 第一次
+alembic upgrade head                  # 第二次（应为 no-op）
+# 比较：两次 upgrade head 后的 schema 一致（建议用 alembic current + dump DDL 比对）
 ```
+
+> 上述 `f6a41746c0de` 为本调研时的父 revision 占位符；`b3f9c07ae214` 为 PR #1985 当前迁移链 head。落地时请将两处 downgrade 命令替换为迁移文件各自实际的 `down_revision`（可用 `grep down_revision alembic/versions/<file>.py` 确认）。
 
 | 迁移 | Revision | 影响内容 | 验证范围 |
 |---|---|---|---|
@@ -88,9 +97,9 @@ alembic upgrade bcaaa615ff38          # 幂等升级
 
 | 模式 | 定义 | 验证标准 |
 |---|---|---|
-| offline | 只渲染 SQL、不连接数据库 | upgrade/downgrade 脚本语法正确、降级路径可逆 |
-| online | 连真实 MySQL 实例执行 | 每个 revision 独立执行 `upgrade → downgrade → upgrade` 闭环无错、最终 schema 与首次升级一致 |
-| online（数据） | 加载代表性 legacy 数据后执行 | 既有数据经迁移后保持语义等价（如 provider_credential 的多条 inactive 记录仍能共存） |
+|| offline | 只渲染 SQL、不连接数据库 | upgrade/downgrade 脚本语法正确、降级路径可逆 |
+|| online | 连真实 MySQL 实例执行 | 每个 revision 独立执行 `upgrade → downgrade → upgrade` 闭环无错、最终 schema 与首次升级一致；所有 revision 闭环后连续两次 `upgrade head`，第二次为 no-op 且两次最终 schema 一致 |
+|| online（数据） | 加载代表性 legacy 数据后执行 | 既有数据经迁移后保持语义等价（如 provider_credential 的多条 inactive 记录仍能共存） |
 
 
 ## 后续
