@@ -47,15 +47,24 @@ SQLite 存文本 / PostgreSQL native JSON / MySQL 8 native JSON，三者读写�
 
 ## 迁移验证计划
 
-每个受影响迁移须通过完整闭环（offline 与 online 两种模式，`alembic/env.py` 均已配置）：
+每个受影响迁移须通过 offline 与 online 两套标准：
 
-```
-upgrade head → downgrade <n> → upgrade head   # 幂等性：降级后再次升级必须成功且状态一致
+```text
+# offline：SQL 生成与内容检查（不连库）
+alembic upgrade <start>:<end> --sql > upgrade.sql
+alembic downgrade <end>:<start> --sql > downgrade.sql
+# 检查生成的 SQL：方言差异、类型转换逻辑、降级回滚路径
+
+# online：真实数据库执行闭环（需受控 MySQL 实例）
+alembic upgrade head
+alembic downgrade <n>
+alembic upgrade head   # 幂等性：降级后再次升级必须成功且状态一致
 ```
 
-- 起止范围：单步迁移（受影响 revision 各自）+ head→base 全链
-- 断言项：表达式索引存在性、JSON 列可读写、`server_default` 生效值、部分索引替代方案的行为
-- 通过标准：降级后再次升级无错、schema 与首次升级一致
+| 模式 | 定义 | 验证标准 |
+|---|---|---|
+| offline | 只渲染 SQL、不连接数据库 | upgrade/downgrade 脚本语法正确、降级路径可逆 |
+| online | 连真实 MySQL 实例执行 | `upgrade → downgrade → upgrade` 闭环无错、最终 schema 与首次升级一致 |
 
 ## 后续
 
