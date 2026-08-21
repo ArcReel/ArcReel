@@ -1318,7 +1318,7 @@ export default {
   'review_fix_request_prefill_header':
     '第 {{episode}} 集的内容整理草稿有 {{count}} 处违约待修复，请直接编辑待修复草稿修正：',
   'review_fix_request_promote_prefill':
-    '第 {{episode}} 集的内容整理草稿重新校验已无违约，仍是待修复草稿，请调用 validate_and_promote_draft 晋升为正式内容。',
+    '第 {{episode}} 集的内容整理草稿重新校验已无违约，但尚未晋升为正式内容，请调用 validate_and_promote_draft 晋升。',
 
   // ReferenceStep1PreviewPanel（reference_video 变体 step1 按集预览）
   'reference_step1_source_text_label': '原文',

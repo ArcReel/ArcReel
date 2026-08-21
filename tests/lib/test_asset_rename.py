@@ -31,7 +31,10 @@ from lib.asset_rename import (
     rewrite_payload_references,
 )
 from lib.asset_types import ASSET_SPECS
+from lib.draft_quarantine import QUARANTINE_FILENAMES
 from lib.episode_paths import (
+    DRAMA_STEP1_QUARANTINE_FILENAME,
+    NARRATION_STEP1_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
 )
@@ -644,8 +647,10 @@ class TestRenameAssetCascade:
     def test_quarantine_drafts_rewritten(self, pm: ProjectManager) -> None:
         """草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。
 
-        草稿装的是扁平草稿结构：mention 使用 ``content.units[].text`` 中的引用语法，结构字段
-        （``shots`` / ``references``）尚未派生，按信封原形构造（见 lib/draft_quarantine.py）。
+        三条路线的草稿位逐一覆盖：漏改哪一条，那条路线的草稿就带着旧名走进晋升重判，被判
+        「引用未登记」卡住，直到人工改草稿才解得开。草稿装的是扁平草稿结构：mention 使用
+        ``content.units[].text`` 中的引用语法，结构字段（参考生视频的 ``shots`` / ``references``、
+        drama 的 ``needs_replan``）尚未派生，按信封原形构造（见 lib/draft_quarantine.py）。
         """
         draft_dir = _project_dir(pm) / "drafts" / "episode_1"
         draft_dir.mkdir(parents=True)
@@ -664,17 +669,65 @@ class TestRenameAssetCascade:
                 "violations": [],
                 "content": {"title": "标题", "units": [{"text": "@[角色A] 抬头"}]},
             },
+            DRAMA_STEP1_QUARANTINE_FILENAME: {
+                "kind": "drama_step1",
+                "episode": 1,
+                "meta": {},
+                "violations": [],
+                "content": {
+                    "title": "标题",
+                    "scenes": [
+                        {
+                            "scene_id": "E1S01",
+                            "duration_seconds": 8,
+                            "segment_break": False,
+                            "characters_in_scene": ["角色A"],
+                            "scenes": [],
+                            "props": [],
+                            "scene_description": "河边",
+                            "utterances": [{"kind": "dialogue", "speaker": "角色A", "text": "我来了"}],
+                            "source_text": "原文",
+                        }
+                    ],
+                },
+            },
+            NARRATION_STEP1_QUARANTINE_FILENAME: {
+                "kind": "narration_step1",
+                "episode": 1,
+                "meta": {},
+                "violations": [],
+                "content": {
+                    "segments": [
+                        {
+                            "segment_id": "E1S01",
+                            "novel_text": "原文",
+                            "duration_seconds": 8,
+                            "segment_break": False,
+                            "characters_in_segment": ["角色A"],
+                            "scenes": [],
+                            "props": [],
+                        }
+                    ]
+                },
+            },
         }
+        assert set(drafts) == QUARANTINE_FILENAMES, "新增一种隔离草稿来源要在本用例一并覆盖"
         for filename, payload in drafts.items():
             atomic_write_json(draft_dir / filename, payload)
 
         report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
 
-        step1 = json.loads((draft_dir / REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME).read_text(encoding="utf-8"))
-        step2 = json.loads((draft_dir / REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME).read_text(encoding="utf-8"))
-        assert step1["content"]["units"][0]["text"] == "@[主角甲] 在河边"
-        assert step2["content"]["units"][0]["text"] == "@[主角甲] 抬头"
-        assert report.references == 2
+        rewritten = {filename: json.loads((draft_dir / filename).read_text(encoding="utf-8")) for filename in drafts}
+        rv_step1 = rewritten[REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME]
+        rv_step2 = rewritten[REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME]
+        drama = rewritten[DRAMA_STEP1_QUARANTINE_FILENAME]
+        narration = rewritten[NARRATION_STEP1_QUARANTINE_FILENAME]
+        assert rv_step1["content"]["units"][0]["text"] == "@[主角甲] 在河边"
+        assert rv_step2["content"]["units"][0]["text"] == "@[主角甲] 抬头"
+        assert drama["content"]["scenes"][0]["characters_in_scene"] == ["主角甲"]
+        assert drama["content"]["scenes"][0]["utterances"][0]["speaker"] == "主角甲"
+        assert narration["content"]["segments"][0]["characters_in_segment"] == ["主角甲"]
+        assert report.references == 5
         assert report.episodes == 1
 
     def test_history_under_new_name_rejected_atomically(self, pm: ProjectManager) -> None:

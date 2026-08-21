@@ -1293,7 +1293,7 @@ export default {
   'review_fix_request_prefill_header':
     'Bản nháp tổ chức nội dung của tập {{episode}} có {{count}} vi phạm cần sửa, hãy chỉnh sửa trực tiếp bản nháp cần sửa để khắc phục:',
   'review_fix_request_promote_prefill':
-    'Bản nháp tổ chức nội dung của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn cần sửa — hãy gọi validate_and_promote_draft để thăng cấp nó.',
+    'Bản nháp tổ chức nội dung của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn chưa được thăng cấp — hãy gọi validate_and_promote_draft để thăng cấp nó.',
 
   // ReferenceStep1PreviewPanel (xem trước theo tập, biến thể step1 của reference_video)
   'reference_step1_source_text_label': 'Văn bản gốc',

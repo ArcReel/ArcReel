@@ -1319,7 +1319,7 @@ export default {
   'review_fix_request_prefill_header':
     'Episode {{episode}}’s content organization draft has {{count}} violation(s) to fix — please edit the draft needing fixes directly to correct them:',
   'review_fix_request_promote_prefill':
-    'Episode {{episode}}’s content organization draft now revalidates with no violations but still needs fixes — please call validate_and_promote_draft to promote it.',
+    'Episode {{episode}}’s content organization draft now revalidates with no violations but has not been promoted yet — please call validate_and_promote_draft to promote it.',
 
   // ReferenceStep1PreviewPanel (reference_video variant step1 per-episode preview)
   'reference_step1_source_text_label': 'Source text',

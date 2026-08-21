@@ -58,6 +58,11 @@ _QUARANTINE_FILENAMES: dict[str, str] = {
     QUARANTINE_KIND_NARRATION_STEP1: NARRATION_STEP1_QUARANTINE_FILENAME,
 }
 
+#: 全部隔离草稿文件名，供不关心 kind、只需按文件名定位草稿的消费方取用（如资产级联重命名的
+#: 改写清单）。从上表派生而非另列一份：新增一种来源只在上表加一行，漏登记会让草稿在改写清单
+#: 外静默漂移——草稿承载引用数组与 ``@[名称]`` 正文，漏改后晋升会卡在「引用未登记」上。
+QUARANTINE_FILENAMES: frozenset[str] = frozenset(_QUARANTINE_FILENAMES.values())
+
 #: 报告里「改哪个字段」的指引按来源分流：草稿正文的形状各不相同，指引落到不存在的字段名
 #: 会把 Agent 引到它改不动的地方。与文件名同表登记，新增一种来源只在本模块加一行。
 _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {

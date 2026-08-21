@@ -49,11 +49,10 @@ from lib.asset_types import (
     validate_asset_name,
 )
 from lib.audio_utils import discard_stale_reference_audio, resolve_audio_ref_path, resolve_stale_reference_audio
+from lib.draft_quarantine import QUARANTINE_FILENAMES
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
-    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
     STEP1_FILENAMES,
     episode_script_relpath,
 )
@@ -2643,14 +2642,15 @@ class ProjectManager:
         return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
 
     #: 级联重命名须一并改写的 step1 正式内容、可编辑草稿与待修复草稿文件名（结构化 JSON——它们承载
-    #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。旧版 ``.md`` 自由文本别名
+    #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。草稿部分取
+    #: ``lib.draft_quarantine`` 的登记表全集而非逐个列举：漏一种来源就会让那条路线的草稿留着
+    #: 旧名，晋升时被「引用未登记」判违约、直到人工改草稿才解得开。旧版 ``.md`` 自由文本别名
     #: 不在列：读取层仅兼认浏览，写盘与生成侧已不认。
     _RENAME_DRAFT_FILENAMES = frozenset(
         {
             *STEP1_FILENAMES.values(),
             REFERENCE_VIDEO_STEP1_FILENAME,
-            REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
-            REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+            *QUARANTINE_FILENAMES,
         }
     )
 

@@ -597,7 +597,9 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
     activation_thread.start()
     assert activation_ready.wait(timeout=5)
     writer_thread.start()
-    writer_done.wait(timeout=0.2)
+    # 写入方必须还卡在锁上：它若在 activation 放行前就跑完，说明这把锁没拦住迁移期间的正式写入，
+    # 而末尾那几条内容断言在「先写后迁」的顺序下同样成立，丢弃这个返回值就判不出来。
+    assert not writer_done.wait(timeout=0.2)
     release_activation.set()
     activation_thread.join(timeout=5)
     writer_thread.join(timeout=5)

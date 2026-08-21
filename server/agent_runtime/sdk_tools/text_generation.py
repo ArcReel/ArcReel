@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
@@ -1394,8 +1395,24 @@ def _narration_segment_label(segment: dict[str, Any], index: int) -> str:
 
 
 def _normalize_for_coverage(text: str) -> str:
-    """把连续空白折叠为单个空格，不删除空白本身，仅消除空白的类型 / 数量差异。"""
-    return re.sub(r"\s+", " ", text).strip()
+    """Unicode NFC 归一后把连续空白折叠为单个空格，只消除编码与空白差异，不删除空白本身。
+
+    NFC 与 ``lib.episode_ledger.normalize_source_text`` 定义的源文坐标系一致，也与参考路线
+    ``_normalize_for_anchor`` 同口径：带组合附加符的语种（如 vi）源文可能以 NFD 落盘、模型
+    回写 NFC，不归一会把纯编码形式差异判成删字改字，而覆盖违约会落成隔离草稿、堵住 gate
+    确认与 step2 生成。
+    """
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
+
+
+def _coverage_source_scope(source: str | None) -> str:
+    """覆盖判定所依据的源文范围的人话描述，供违约消息指名。
+
+    覆盖判定是「片段拼接 == 整份源文」的全等式，判定结果因此既取决于片段正文、也取决于源文
+    范围本身：范围取宽了（如按整个 ``source/`` 判一集的片段表），片段一个字没改也判不过。不把
+    范围写进消息，agent 只会反复去改片段正文，而问题不在那里。
+    """
+    return f"源文件 {source}" if source else "整个 source/ 目录（未指定单个源文件）"
 
 
 def _collect_narration_violations(
@@ -1406,6 +1423,7 @@ def _collect_narration_violations(
     scenes: dict[str, Any],
     props: dict[str, Any],
     novel_text: str,
+    source_scope: str,
 ) -> list[DraftViolation]:
     """逐片段收齐 narration step1 产出的全部违约（不在首个违约处中断）。
 
@@ -1416,6 +1434,10 @@ def _collect_narration_violations(
 
     抛的是内容违约而非 ``ValueError``：这些都是 agent 改一改草稿就能修好的，走隔离草稿的修复
     闭环，不该退回丢弃重抽。
+
+    ``source_scope`` 是 ``novel_text`` 那份文本的来源描述（见 :func:`_coverage_source_scope`），
+    只落进覆盖违约的消息里：覆盖判定同时取决于源文范围，范围本身不写出来就没法从报告里判断
+    该改片段还是该改范围。
     """
     violations: list[DraftViolation] = []
 
@@ -1485,7 +1507,8 @@ def _collect_narration_violations(
         violations.append(
             DraftViolation(
                 "各片段的 novel_text 未按序、逐字、完整覆盖小说原文（存在删减、改写或重排）；"
-                "片段正文须原样复制原文、不要转述，且按序拼接后即是整篇原文",
+                "片段正文须原样复制原文、不要转述，且按序拼接后即是整篇原文。"
+                f"本次判定依据的源文范围：{source_scope}",
                 code="novel_text_coverage",
             )
         )
@@ -1554,6 +1577,15 @@ async def revalidate_narration_step1_draft(
         scenes=cast(dict[str, Any], prompt_inputs["scenes"]),
         props=cast(dict[str, Any], prompt_inputs["props"]),
         novel_text=novel_text,
+        # 重判用的源文范围来自草稿自己的 meta.source，它是 agent 可改的字段：取回时未指定 source
+        # 的草稿记的是 null（整个 source/），若本集正式 step1 当初是按单个源文件产出的，这里会把
+        # 一份原样取回、一字未改的草稿判成覆盖不全。把范围与改法一并写进消息，agent 才走得出去
+        # ——草稿在场时不能重新取回，改 meta.source 是它唯一的出路。
+        source_scope=(
+            f"{_coverage_source_scope(cast(str | None, draft.meta['source']))}"
+            "，取自草稿的 meta.source；若该范围与产出本集正式 step1 时不同，"
+            "请把 meta.source 改为当初那个源文件的相对路径后重试"
+        ),
     )
     return SingleStep1DraftRevalidation(violations, content, schema_failed=False, basis=step1_basis)
 
@@ -1692,6 +1724,8 @@ async def _open_narration_step1_for_edit(ctx: ToolContext, episode: int, source:
         "characters_in_segment / scenes / props；segment_id 是 step2 视觉层的对齐锚，改动后须保持"
         "全集唯一。增删片段即增删数组元素。\n"
         "novel_text 逐字取自原文：全部片段按序拼接后须与源文逐字相同，晋升时按此机械重判。\n"
+        f"晋升重判的源文范围：{_coverage_source_scope(source)}（记在草稿 meta.source）；"
+        "本集正式 step1 当初若按别的源文件产出，请先把 meta.source 改成那个路径，否则一字未改也判不过。\n"
         f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
         "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
         "草稿在场期间审阅门与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
@@ -2287,6 +2321,7 @@ def split_narration_segments_tool(ctx: ToolContext):
                 scenes=scenes,
                 props=props,
                 novel_text=novel_text,
+                source_scope=_coverage_source_scope(source),
             )
             step1_path = _narration_step1_path(project_path, episode)
             if violations:

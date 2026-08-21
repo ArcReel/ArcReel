@@ -12,6 +12,7 @@ import copy
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -8491,6 +8492,30 @@ async def test_promote_narration_step1_revalidates_against_current_source(fake_c
 
 
 @pytest.mark.unit
+async def test_promote_narration_step1_names_source_scope_on_coverage_violation(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """取回时未指定 source、而 source/ 下不止一集：一字未改的草稿也判不过，报告须指名范围与出路。
+
+    草稿在场时不能重新取回，改 meta.source 是 agent 唯一的出路；报告只说「片段正文须原样复制
+    原文」的话，它只会去改一份本来就正确的片段表。
+    """
+    _nr_source(fake_ctx)
+    (fake_ctx.project_path / "source" / "episode_2.txt").write_text("李四走进院子", encoding="utf-8")
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    await _open_nr_for_edit(fake_ctx)
+    assert _read_nr_quarantine(fake_ctx)["meta"]["source"] is None
+
+    out = await _promote_nr(fake_ctx, monkeypatch)
+
+    text = out["content"][0]["text"]
+    assert out.get("is_error") is True
+    assert "[novel_text_coverage]" in text
+    assert "整个 source/ 目录" in text
+    assert "meta.source" in text
+
+
+@pytest.mark.unit
 async def test_generate_episode_script_blocked_by_narration_quarantine(fake_ctx: ToolContext) -> None:
     """narration 草稿在场时 step2 生成被拦：正式文件此刻仍是上一版，拿它跑 step2 等于静默换回旧内容。"""
     _nr_source(fake_ctx)
@@ -8983,6 +9008,24 @@ async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: Too
     assert out.get("is_error") is True
     assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
+@pytest.mark.unit
+async def test_split_narration_segments_accepts_unicode_form_difference(fake_ctx: ToolContext, monkeypatch) -> None:
+    """源文以 NFD 落盘、模型回写 NFC：纯编码形式差异不是删字改字，覆盖校验不该误判。
+
+    带组合附加符的语种（如 vi）两种形式都在真实语料里出现，误判会把一份逐字正确的片段表
+    挡在正式文件外、连带堵住 gate 确认与 step2 生成。
+    """
+    text = "Ngu\u1eddi \u0111\u00e0n \u00f4ng \u0111i v\u1ec1 ph\u00eda c\u1ed5ng l\u00e0ng."
+    out = await _nr_source_and_call(
+        fake_ctx,
+        monkeypatch,
+        unicodedata.normalize("NFD", text),
+        [_nr_segment("E1S01", 4, unicodedata.normalize("NFC", text))],
+    )
+    assert out.get("is_error") is not True, out
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
 @pytest.mark.unit
