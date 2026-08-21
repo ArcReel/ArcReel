@@ -2473,7 +2473,7 @@ class ProjectManager:
         from lib.data_validator import DataValidator
 
         asset_type = self._resolve_asset_type(table)
-        # 拆开两种失败 case 让 Agent 错误更精确（之前合并的 "entries 不能为空" 无法区分两者）
+        # entries 类型错误与空对象需要不同提示，便于 Agent 精确修正输入。
         if not isinstance(entries, dict):
             raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
         if not entries:
@@ -3224,35 +3224,35 @@ class ProjectManager:
         """产物清单未登记可用 character_sheet 的角色；项目未迁移时阻断。"""
         return self._get_pending_assets("character", project_name)
 
-    # ==================== 产品管理（product） ====================
+    # ==================== 商品管理（product） ====================
 
     def update_product_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        """更新产品标准参考图（product sheet）路径"""
+        """更新商品标准参考图（product sheet）路径"""
         return self._update_asset_sheet("product", project_name, name, sheet_path)
 
     def get_product(self, project_name: str, name: str) -> dict:
-        """获取产品定义"""
+        """获取商品定义"""
         return self._get_asset("product", project_name, name)
 
     def get_pending_project_products(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 product_sheet 的产品；项目未迁移时阻断。"""
+        """产物清单未登记可用 product_sheet 的商品；项目未迁移时阻断。"""
         return self._get_pending_assets("product", project_name)
 
     def get_product_path(self, project_name: str, filename: str) -> Path:
-        """获取产品图片路径"""
+        """获取商品图片路径"""
         return self._get_asset_path("product", project_name, filename)
 
     def add_product_reference_image(self, project_name: str, product_name: str, ref_path: str) -> dict:
-        """向产品的 reference_images 列表追加一张原图路径（已存在则不重复追加）。
+        """向商品的 reference_images 列表追加一张原图路径（已存在则不重复追加）。
 
-        原图是产品保真的验收锚点，只增不改；删除/重排走资产 PATCH 通道。
+        原图是商品保真的验收锚点，只增不改；删除/重排走资产 PATCH 通道。
         """
 
         def _mutate(project: dict) -> None:
             bucket = project.get("products")
             key = resolve_asset_key(bucket, product_name)
             if not isinstance(bucket, dict) or key is None:
-                raise KeyError(f"产品 '{product_name}' 不存在")
+                raise KeyError(f"商品 '{product_name}' 不存在")
             refs = bucket[key].setdefault("reference_images", [])
             if not isinstance(refs, list):
                 raise ValueError(
@@ -3304,7 +3304,7 @@ class ProjectManager:
         return self._add_asset("prop", project_name, name, entry)
 
     def add_product(self, project_name: str, name: str, description: str, brand: str = "") -> bool:
-        """直接添加产品到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
+        """直接添加商品到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("product", description, {"brand": brand})
         return self._add_asset("product", project_name, name, entry)
 

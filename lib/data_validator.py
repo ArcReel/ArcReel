@@ -1050,7 +1050,7 @@ class DataValidator:
         *,
         project_dir: Path | None = None,
     ) -> None:
-        """验证 shots（广告/短片）：平铺镜头列表，口播文案一等，产品按名字引用。
+        """验证 shots（广告/短片）：平铺镜头列表，口播文案一等，商品按名字引用。
 
         storyboard 路径的时长成员校验在生成 schema 层（supported_durations 枚举，校验器
         拿不到供应商能力、只把关正整数）。参考生视频使用 ``video_units``，不经过本函数。
@@ -1300,14 +1300,14 @@ class DataValidator:
                 # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
                 kind = ensure_route_skeleton(episode, content_mode, gen_mode)
             except SkeletonRouteMismatchError as exc:
-                # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
+                # 失配剧本（骨架与项目生成模式跨族）：生成模式要求的数组根本不在剧本里，
                 # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
                 # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
                 errors.append(exc.to_validation_message())
                 return
         else:
-            # 编辑/查看流程必须能修正路线失配的存量剧本；引用校验按磁盘实际骨架分派，生成入口
-            # 仍通过默认开启的路线闸门拒绝将这类剧本投入生产。
+            # 编辑/查看流程必须能修正生成模式失配的存量剧本；引用校验按磁盘实际骨架分派，
+            # 生成入口仍通过默认开启的生成模式闸门拒绝将这类剧本投入生产。
             kind = resolve_script_kind(episode)
         artifact_root = project_dir if validate_artifacts else None
         if kind == "video_units":
