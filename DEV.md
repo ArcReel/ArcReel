@@ -44,16 +44,25 @@ ArcReel 的 graph 位于 `graphify-out/`。Graphify 是代码库导航和关系�
 当前仓库已安装 Graphify 的 Git hook：
 
 ```bash
+git config core.hooksPath .githooks
 graphify hook status
 ```
 
-`post-commit` 会在 commit 完成后后台更新代码 graph；`post-checkout` 会在切换分支后更新 graph。Graphify 输出不加入 `.gitignore`，因此 hook 完成后 `graphify-out/` 可能出现新的 Git 变更，这些变更可以在后续 commit 中统一提交。
+`post-commit` 会在 commit 完成后后台更新代码 graph；`post-checkout` 会在切换分支后更新 graph；仓库内的 `.githooks/post-merge` 会在主工作树完成 merge（包括 fast-forward merge）后执行 `graphify update .`。Graphify 输出不加入 `.gitignore`，因此 hook 完成后 `graphify-out/` 可能出现新的 Git 变更，这些变更可以在后续 commit 中统一提交。
 
-通常不需要每次编辑后手动运行更新。只有以下情况才手动执行：
+`graphify hook install` 只负责安装 Graphify 自己的 `post-commit`/`post-checkout`，不会安装 `post-merge`。因此新 clone 或尚未配置 hooksPath 的 clone 需要先执行上面的 `git config`，再执行：
+
+```bash
+graphify hook install
+```
+
+`.githooks/post-merge` 会主动跳过 linked Worktree，只允许主工作树更新根目录的 `graphify-out/`。如果 hook 未安装、`graphify` 不在 PATH，或 hook 执行失败，在主工作树中补跑：
 
 ```bash
 graphify update .
 ```
+
+通常不需要每次编辑后手动运行更新。除上述 merge 兜底外，以下情况也需要手动执行：
 
 - hook 没有安装或执行失败；
 - 需要在提交前让 graph 包含当前未提交代码；
@@ -76,6 +85,9 @@ graphify explain "<concept>"
 用户确认后，在主工作树中完成 merge，然后清理 worktree 和本地分支：
 
 ```bash
+git merge <type>-<name>
+# post-merge hook 会自动执行；若 hook 未安装或失败，手动补跑：
+graphify update .
 git worktree remove .worktrees/<name>
 git branch -d <type>-<name>
 ```
@@ -83,6 +95,7 @@ git branch -d <type>-<name>
 如果是新的 clone，或当前 clone 的 hook 状态显示未安装，执行：
 
 ```bash
+git config core.hooksPath .githooks
 graphify hook install
 ```
 

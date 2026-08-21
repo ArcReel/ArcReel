@@ -1,0 +1,26 @@
+#!/bin/sh
+# Keep the primary checkout's Graphify graph current after a worktree merge.
+# Graphify intentionally skips linked worktrees and does not install post-merge,
+# so a fast-forward merge otherwise has no hook event that can rebuild the graph.
+
+if [ "${GRAPHIFY_SKIP_HOOK:-0}" = "1" ]; then
+    exit 0
+fi
+
+# Only the primary checkout owns graphify-out/. A merge performed in a linked
+# worktree must not create a second graph or race the primary checkout.
+_GFY_GITDIR=$(cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd)
+_GFY_COMMONDIR=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd)
+if [ -n "$_GFY_COMMONDIR" ] && [ "$_GFY_GITDIR" != "$_GFY_COMMONDIR" ]; then
+    exit 0
+fi
+
+if ! command -v graphify >/dev/null 2>&1; then
+    echo "[graphify post-merge] graphify is not on PATH; run 'graphify update .' manually." >&2
+    exit 0
+fi
+
+echo "[graphify post-merge] updating graphify-out/"
+if ! graphify update .; then
+    echo "[graphify post-merge] update failed; run 'graphify update .' manually." >&2
+fi
