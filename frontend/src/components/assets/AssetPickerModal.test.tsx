@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AssetPickerModal } from "./AssetPickerModal";
 import { API } from "@/api";
@@ -27,6 +28,27 @@ const fixtures = [
 describe("AssetPickerModal", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("keeps only one selection when used for linking", async () => {
+    vi.spyOn(API, "listAssets").mockResolvedValue({ items: fixtures });
+    const onImport = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AssetPickerModal
+        type="character"
+        existingNames={new Set()}
+        mode="link"
+        onClose={() => {}}
+        onImport={onImport}
+      />,
+    );
+
+    await user.click(await screen.findByText("王小明"));
+    await user.click(screen.getByText("小师妹"));
+    await user.click(screen.getByRole("button", { name: "confirm_link" }));
+
+    expect(onImport).toHaveBeenCalledWith(["2"]);
   });
 
   it("multi-selects and calls onImport", async () => {

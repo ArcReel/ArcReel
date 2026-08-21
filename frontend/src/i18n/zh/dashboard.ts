@@ -1460,6 +1460,7 @@ export default {
   // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
   // 会校验缺漏，新增 backend tool 必须同步补全 zh/en/vi)
   'tool_name_list_pending_assets': '查询待生成资产',
+  'tool_name_list_global_assets': '读取全局资产上下文',
   'tool_name_complete_asset_inventory': '完成资产清单分析',
   'tool_name_complete_step1_rebuild': '完成第一阶段重建',
   'tool_name_get_workflow_plan': '查询完整工作流计划',

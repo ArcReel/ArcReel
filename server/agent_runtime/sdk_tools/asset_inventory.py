@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
+from collections.abc import Mapping
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -16,6 +18,9 @@ from lib.asset_inventory import (
     AssetInventorySourceBlocked,
     complete_asset_inventory,
 )
+from lib.asset_types import ASSET_SPECS, MATCHED_GLOBAL_ASSET_ID_FIELD, asset_name_comparison_key
+from lib.db import async_session_factory
+from lib.db.repositories.asset_repo import AssetRepository
 from lib.source_revision import SourceScope
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
@@ -27,6 +32,34 @@ def _json_response(payload: dict[str, Any], *, is_error: bool = False) -> dict[s
     if is_error:
         response["is_error"] = True
     return response
+
+
+async def _attach_exact_global_asset_matches(entries: object) -> object:
+    """Attach one same-type, same-name match without asking the model to score candidates."""
+
+    if not isinstance(entries, Mapping) or not any(isinstance(value, Mapping) and value for value in entries.values()):
+        return entries
+    async with async_session_factory() as session:
+        assets = await AssetRepository(session).list(type=None, q=None, limit=10_000, offset=0)
+    matches = {(asset.type, asset_name_comparison_key(asset.name)): asset.id for asset in assets}
+    enriched = copy.deepcopy(entries)
+    if not isinstance(enriched, dict):
+        return entries
+    for asset_type, spec in ASSET_SPECS.items():
+        if not spec.in_global_library:
+            continue
+        bucket = enriched.get(spec.bucket_key)
+        if not isinstance(bucket, dict):
+            continue
+        for name, attrs in bucket.items():
+            if not isinstance(name, str) or not isinstance(attrs, dict):
+                continue
+            # 匹配 ID 只能来自服务端全局库查询，忽略模型自行提交或提示注入伪造的 ID。
+            attrs.pop(MATCHED_GLOBAL_ASSET_ID_FIELD, None)
+            matched_id = matches.get((asset_type, asset_name_comparison_key(name)))
+            if matched_id is not None:
+                attrs[MATCHED_GLOBAL_ASSET_ID_FIELD] = matched_id
+    return enriched
 
 
 def complete_asset_inventory_tool(ctx: ToolContext):
@@ -58,13 +91,14 @@ def complete_asset_inventory_tool(ctx: ToolContext):
         try:
             scope = SourceScope.model_validate(args.get("scope"))
             expected = args["expected_source_revision"]
+            entries = await _attach_exact_global_asset_matches(args.get("entries"))
             completed = await asyncio.to_thread(
                 complete_asset_inventory,
                 ctx.pm,
                 ctx.project_name,
                 scope,
                 expected,
-                args.get("entries"),
+                entries,
             )
             return _json_response(
                 {

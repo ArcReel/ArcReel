@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from lib.asset_types import (
     ASSET_SPECS,
+    PROJECT_ASSET_LINK_FIELDS,
     asset_name_comparison_key,
     normalize_asset_name,
     project_asset_name_conflicts,
@@ -496,6 +497,18 @@ class DataValidator:
                                 value=repr(val),
                             )
                         )
+                for field_name in PROJECT_ASSET_LINK_FIELDS:
+                    val = char_data.get(field_name)
+                    if val is not None and not isinstance(val, str):
+                        errors.append(
+                            _m(
+                                "val_asset_field_must_be_string",
+                                asset_type=_asset("character"),
+                                name=char_name,
+                                field=field_name,
+                                actual=type(val).__name__,
+                            )
+                        )
                 # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，故意不开放
                 # 通用 PATCH 覆写），但仍需校验类型与值：外部编辑/导入的 project.json 若把它写成
                 # 非字符串或不可解析的字符串，会在前端 computeVoiceLegacyNotice 的日期解析处
@@ -545,6 +558,7 @@ class DataValidator:
         spec = ASSET_SPECS.get(asset_type)
         extra_fields = spec.extra_string_fields if spec else ()
         extra_list_fields = spec.extra_list_fields if spec else ()
+        link_fields = PROJECT_ASSET_LINK_FIELDS if spec and spec.in_global_library else ()
         kind = _asset(asset_type)
         for name, data in catalog.items():
             if not isinstance(data, dict):
@@ -555,6 +569,18 @@ class DataValidator:
                 # 同 characters：description 须为非空字符串，避免数字/对象被 truthy 判通过
                 errors.append(_m("val_asset_missing_description", asset_type=kind, name=name))
             for field_name in extra_fields:
+                val = data.get(field_name)
+                if val is not None and not isinstance(val, str):
+                    errors.append(
+                        _m(
+                            "val_asset_field_must_be_string",
+                            asset_type=kind,
+                            name=name,
+                            field=field_name,
+                            actual=type(val).__name__,
+                        )
+                    )
+            for field_name in link_fields:
                 val = data.get(field_name)
                 if val is not None and not isinstance(val, str):
                     errors.append(

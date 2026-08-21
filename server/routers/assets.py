@@ -19,7 +19,9 @@ from lib.artifact_activation import register_artifact_entries_atomically, resolv
 from lib.artifact_manifest import ArtifactKey
 from lib.asset_types import (
     BUCKET_KEY,
+    GLOBAL_ASSET_ID_FIELD,
     GLOBAL_LIBRARY_ASSET_TYPES,
+    MATCHED_GLOBAL_ASSET_ID_FIELD,
     SHEET_KEY,
     ProjectAssetNameConflictError,
     asset_name_comparison_key,
@@ -33,6 +35,7 @@ from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.db.repositories.asset_resource_repo import AssetResourceRepository
 from lib.i18n import Translator
+from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager, get_project_manager
 from server.routers._asset_router_factory import localize_project_asset_name_conflict
 
@@ -122,6 +125,71 @@ async def list_assets(
     async with async_session_factory() as s:
         items = await AssetRepository(s).list(type=type, q=q, limit=limit, offset=offset)
         return {"items": [_serialize(a) for a in items]}
+
+
+class ProjectAssetLinkRequest(BaseModel):
+    project_name: str
+    resource_type: str
+    resource_id: str
+    asset_id: str
+
+
+@router.post("/project-links")
+async def link_project_asset(req: ProjectAssetLinkRequest, _t: Translator):
+    """Confirm one logical link without copying or replacing either asset."""
+
+    if req.resource_type not in GLOBAL_LIBRARY_ASSET_TYPES:
+        raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
+    async with async_session_factory() as session:
+        asset = await AssetRepository(session).get_by_id(req.asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail=_t("asset_not_found", name=req.asset_id))
+    if asset.type != req.resource_type:
+        raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
+
+    def _sync() -> dict:
+        manager = get_project_manager()
+
+        def _mutate(entry: dict) -> None:
+            entry[GLOBAL_ASSET_ID_FIELD] = asset.id
+            entry[MATCHED_GLOBAL_ASSET_ID_FIELD] = asset.id
+
+        with project_change_source("webui"):
+            return manager.update_asset_entry(req.resource_type, req.project_name, req.resource_id, _mutate)
+
+    try:
+        entry = await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("asset_target_project_not_found", project=req.project_name) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=_t("asset_not_found", name=req.resource_id)) from exc
+    return {"success": True, "project_asset": entry, "asset": _serialize(asset)}
+
+
+@router.delete("/project-links/{project_name}/{resource_type}/{resource_id}")
+async def unlink_project_asset(project_name: str, resource_type: str, resource_id: str, _t: Translator):
+    """Remove both the confirmed link and its stale extraction match."""
+
+    if resource_type not in GLOBAL_LIBRARY_ASSET_TYPES:
+        raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
+
+    def _sync() -> dict:
+        manager = get_project_manager()
+
+        def _mutate(entry: dict) -> None:
+            entry.pop(GLOBAL_ASSET_ID_FIELD, None)
+            entry.pop(MATCHED_GLOBAL_ASSET_ID_FIELD, None)
+
+        with project_change_source("webui"):
+            return manager.update_asset_entry(resource_type, project_name, resource_id, _mutate)
+
+    try:
+        entry = await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("asset_target_project_not_found", project=project_name) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=_t("asset_not_found", name=resource_id)) from exc
+    return {"success": True, "project_asset": entry}
 
 
 @router.get("/{asset_id}")

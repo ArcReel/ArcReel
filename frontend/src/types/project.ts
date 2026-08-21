@@ -20,6 +20,10 @@ export interface ProjectOverview {
 
 export interface Character {
   description: string;
+  /** 资产提取时按同类型、同名称找到的全局资产。 */
+  matched_global_asset_id?: string;
+  /** 用户确认建立的全局资产逻辑关联。 */
+  global_asset_id?: string;
   character_sheet?: string;
   voice_style?: string;
   /** 由人物资产库导入的供应商音色标识；项目角色卡只读展示。 */
@@ -35,11 +39,15 @@ export interface Character {
 
 export interface Scene {
   description: string;
+  matched_global_asset_id?: string;
+  global_asset_id?: string;
   scene_sheet?: string;
 }
 
 export interface Prop {
   description: string;
+  matched_global_asset_id?: string;
+  global_asset_id?: string;
   prop_sheet?: string;
 }
 

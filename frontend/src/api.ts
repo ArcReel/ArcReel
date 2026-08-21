@@ -2937,6 +2937,25 @@ class API {
     return this.request<{ asset: Asset }>(`/assets/${encodeURIComponent(id)}`);
   }
 
+  static async linkProjectAsset(payload: {
+    project_name: string;
+    resource_type: AssetType;
+    resource_id: string;
+    asset_id: string;
+  }) {
+    return this.request<{ success: true; project_asset: Record<string, unknown>; asset: Asset }>(
+      "/assets/project-links",
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  static async unlinkProjectAsset(projectName: string, resourceType: AssetType, resourceId: string) {
+    return this.request<{ success: true; project_asset: Record<string, unknown> }>(
+      `/assets/project-links/${encodeURIComponent(projectName)}/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`,
+      { method: "DELETE" },
+    );
+  }
+
   static async createAsset(payload: AssetCreatePayload & { image?: File }) {
     const form = new FormData();
     form.append("type", payload.type);

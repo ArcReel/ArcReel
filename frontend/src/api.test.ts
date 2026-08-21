@@ -1305,6 +1305,32 @@ describe("API", () => {
     });
   });
 
+  describe("project asset links", () => {
+    it("links and unlinks a project asset", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(mockResponse({ jsonData: { success: true } }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await API.linkProjectAsset({
+        project_name: "demo",
+        resource_type: "scene",
+        resource_id: "客厅",
+        asset_id: "asset-1",
+      });
+      await API.unlinkProjectAsset("demo", "scene", "客厅");
+
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining("/api/v1/assets/project-links"),
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining("/api/v1/assets/project-links/demo/scene/%E5%AE%A2%E5%8E%85"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+  });
+
   describe("applyAssetsToProject", () => {
     it("POSTs /api/v1/assets/apply-to-project", async () => {
       const fetchMock = vi.fn().mockResolvedValue(

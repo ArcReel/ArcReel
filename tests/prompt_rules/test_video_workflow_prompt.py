@@ -203,6 +203,8 @@ def test_asset_analysis_subagent_names_its_registered_tool() -> None:
 
     assert "complete_asset_inventory" in ARCREEL_MCP_TOOL_IDS
     assert "mcp__arcreel__complete_asset_inventory" in content
+    assert "list_global_assets" in ARCREEL_MCP_TOOL_IDS
+    assert "mcp__arcreel__list_global_assets" in content
 
 
 # ------------------------------------ Profile 物化：每个模式都拿到工作流 skill

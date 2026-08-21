@@ -39,6 +39,7 @@ from server.agent_runtime.sdk_tools.episode_planning import (
     plan_episodes_tool,
     reset_episode_planning_tool,
 )
+from server.agent_runtime.sdk_tools.global_assets import list_global_assets_tool
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
@@ -73,6 +74,7 @@ __all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
 # here has a translation in all locales, so adding a tool without wiring up
 # i18n fails CI.
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
+    "list_global_assets",
     "complete_asset_inventory",
     "complete_step1_rebuild",
     "get_workflow_plan",
@@ -162,6 +164,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
     """Build the per-session in-process MCP server with all ArcReel tools."""
     ctx = ToolContext(project_name=project_name, projects_root=projects_root)
     tools = [
+        list_global_assets_tool(ctx),
         complete_asset_inventory_tool(ctx),
         complete_step1_rebuild_tool(ctx),
         get_workflow_plan_tool(ctx),

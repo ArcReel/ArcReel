@@ -117,6 +117,69 @@ class TestAssetsCRUD:
         assert r.status_code == 200
         assert len(r.json()["items"]) == 1
 
+
+class TestAssetsCRUDAndProjectLinks:
+    @pytest.mark.unit
+    def test_link_and_unlink_preserve_project_asset(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_character("target", "鳄鱼爸爸", "项目内描述", "沉稳")
+        asset = client.post(
+            "/api/v1/assets",
+            data={"type": "character", "name": "鳄鱼爸爸", "description": "全局描述"},
+        ).json()["asset"]
+
+        linked = client.post(
+            "/api/v1/assets/project-links",
+            json={
+                "project_name": "target",
+                "resource_type": "character",
+                "resource_id": "鳄鱼爸爸",
+                "asset_id": asset["id"],
+            },
+        )
+
+        assert linked.status_code == 200, linked.text
+        character = pm.load_project("target")["characters"]["鳄鱼爸爸"]
+        assert character["global_asset_id"] == asset["id"]
+        assert character["matched_global_asset_id"] == asset["id"]
+
+        unlinked = client.delete(
+            "/api/v1/assets/project-links/target/character/%E9%B3%84%E9%B1%BC%E7%88%B8%E7%88%B8"
+        )
+
+        assert unlinked.status_code == 200, unlinked.text
+        character = pm.load_project("target")["characters"]["鳄鱼爸爸"]
+        assert character["description"] == "项目内描述"
+        assert "global_asset_id" not in character
+        assert "matched_global_asset_id" not in character
+
+    @pytest.mark.unit
+    def test_link_rejects_wrong_asset_type(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_scene("target", "客厅", "项目场景")
+        character = client.post(
+            "/api/v1/assets",
+            data={"type": "character", "name": "鳄鱼爸爸"},
+        ).json()["asset"]
+
+        response = client.post(
+            "/api/v1/assets/project-links",
+            json={
+                "project_name": "target",
+                "resource_type": "scene",
+                "resource_id": "客厅",
+                "asset_id": character["id"],
+            },
+        )
+
+        assert response.status_code == 400
+
     @pytest.mark.unit
     def test_create_conflict_does_not_leave_orphan_file(self, _assets_env):
         client = _assets_env["client"]

@@ -8,10 +8,12 @@ from threading import Event
 import pytest
 
 from lib.asset_inventory import AssetInventoryInvalidRequest, AssetInventoryRevisionConflict, complete_asset_inventory
+from lib.db.repositories.asset_repo import AssetRepository
 from lib.project_manager import ProjectManager
 from lib.source_revision import SourceScope, compute_source_revision
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
+from server.agent_runtime.sdk_tools.global_assets import list_global_assets_tool
 
 
 def _make_project(tmp_path: Path) -> tuple[ProjectManager, Path]:
@@ -134,6 +136,82 @@ def test_extracted_assets_and_marker_commit_together(tmp_path: Path) -> None:
     assert saved["scenes"]["竹林"]["description"] == "雨后竹林"
     assert saved["workflow"]["asset_inventory"]["source_revision"] == expected
     assert completed.counts == {"characters": 1, "scenes": 1, "props": 0}
+
+
+@pytest.mark.integration
+async def test_inventory_tool_records_one_exact_same_type_global_match(
+    tmp_path: Path,
+    db_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pm, project_path = _make_project(tmp_path)
+    async with db_factory() as session:
+        global_character = await AssetRepository(session).create(
+            type="character",
+            name="鳄鱼爸爸",
+            description="全局角色",
+        )
+        global_scene = await AssetRepository(session).create(
+            type="scene",
+            name="鳄鱼爸爸",
+            description="同名但不同类型",
+        )
+        await session.commit()
+        character_id = global_character.id
+        scene_id = global_scene.id
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.asset_inventory.async_session_factory", db_factory)
+    expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert expected is not None
+    tool = complete_asset_inventory_tool(
+        ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    )
+
+    result = await tool.handler(
+        {
+            "scope": {"kind": "all", "files": []},
+            "expected_source_revision": expected,
+            "entries": {
+                "characters": {
+                    "鳄鱼爸爸": {
+                        "description": "项目角色",
+                        "voice_style": "沉稳",
+                        "matched_global_asset_id": "agent-forged-id",
+                    }
+                },
+                "scenes": {},
+                "props": {},
+            },
+        }
+    )
+
+    assert "is_error" not in result
+    character = pm.load_project("demo")["characters"]["鳄鱼爸爸"]
+    assert character["matched_global_asset_id"] == character_id
+    assert character["matched_global_asset_id"] != scene_id
+
+
+@pytest.mark.integration
+async def test_global_asset_context_tool_returns_compact_grouped_assets(
+    tmp_path: Path,
+    db_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with db_factory() as session:
+        await AssetRepository(session).create(
+            type="prop",
+            name="景泰蓝花瓶",
+            description="蓝色铜胎珐琅器",
+        )
+        await session.commit()
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.global_assets.async_session_factory", db_factory)
+    tool = list_global_assets_tool(ToolContext(project_name="demo", projects_root=tmp_path / "projects"))
+
+    result = await tool.handler({})
+
+    body = json.loads(result["content"][0]["text"])
+    assert body["props"] == [{"name": "景泰蓝花瓶", "description": "蓝色铜胎珐琅器"}]
+    assert body["characters"] == []
+    assert body["scenes"] == []
 
 
 @pytest.mark.integration

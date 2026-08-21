@@ -15,11 +15,12 @@ interface Props {
   existingNames: Set<string>;
   onClose: () => void;
   onImport: (assetIds: string[]) => void;
+  mode?: "import" | "link";
 }
 
 const PAGE_SIZE = 50;
 
-export function AssetPickerModal({ type, existingNames, onClose, onImport }: Props) {
+export function AssetPickerModal({ type, existingNames, onClose, onImport, mode = "import" }: Props) {
   const { t } = useTranslation(["assets", "dashboard"]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [q, setQ] = useState("");
@@ -86,6 +87,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
   const toggle = (a: Asset, disabled: boolean) => {
     if (disabled) return;
     setSelected((prev) => {
+      if (mode === "link") return new Map([[a.id, a]]);
       const next = new Map(prev);
       if (next.has(a.id)) next.delete(a.id);
       else next.set(a.id, a);
@@ -279,11 +281,8 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
           className="flex items-center gap-2 px-5 py-3"
           style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
         >
-          <span
-            className="num flex-1 text-[11px]"
-            style={{ color: "var(--color-text-4)" }}
-          >
-            {t("import_count", { count: selected.size })}
+          <span className="num flex-1 text-[11px]" style={{ color: "var(--color-text-4)" }}>
+            {mode === "import" ? t("import_count", { count: selected.size }) : null}
           </span>
           <SecondaryButton size="sm" onClick={onClose}>
             {t("cancel")}
@@ -293,8 +292,8 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
             disabled={selected.size === 0}
             onClick={() => onImport(Array.from(selected.keys()))}
           >
-            <span>{t("confirm_import")}</span>
-            {selected.size > 0 && (
+            <span>{t(mode === "link" ? "confirm_link" : "confirm_import")}</span>
+            {mode === "import" && selected.size > 0 && (
               <span
                 className="num ml-1.5 rounded px-1.5 py-px text-[10.5px]"
                 style={{

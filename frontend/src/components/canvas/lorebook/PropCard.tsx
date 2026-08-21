@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Package, Upload } from "lucide-react";
 import { API } from "@/api";
 import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
+import { ProjectAssetLinkControl } from "@/components/assets/ProjectAssetLinkControl";
 import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
@@ -217,6 +218,18 @@ export function PropCard({
         </div>
         )}
       </div>
+
+      {readOnly ? null : (
+        <ProjectAssetLinkControl
+          projectName={projectName}
+          resourceType="prop"
+          resourceId={name}
+          matchedAssetId={prop.matched_global_asset_id}
+          linkedAssetId={prop.global_asset_id}
+          onReload={onReload}
+          busy={generating || uploadingSheet}
+        />
+      )}
 
       {/* ---- Image area ---- */}
       <div className="mb-4">

@@ -30,6 +30,10 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并�
 - overview、style 字段（理解项目背景）
 - `source_kind` 字段（`novel` / `screenplay`，缺失按 `novel`）——决定 Step 3 角色提取走「推断」还是「提取」分支
 
+随后调用一次 `mcp__arcreel__list_global_assets`，读取全局角色、场景和道具的名称与描述 Context。
+如果原文实体明确对应同类型全局资产，优先沿用其准确名称；不要做模糊评分，也不要输出置信度或匹配理由。
+提交资产时，服务端会按同类型、同名称机械记录唯一匹配，Agent 不需要提交全局资产 ID。
+
 ### Step 2: 读取源文本
 
 使用 Glob 工具列出 `source/` 目录下的文本文件（`source_kind=novel` 为小说原文，`screenplay` 为成品剧本），
