@@ -56,9 +56,9 @@ alembic downgrade <end>:<start> --sql > downgrade.sql
 # 检查生成的 SQL：方言差异、类型转换逻辑、降级回滚路径
 
 # online：真实数据库执行闭环（需受控 MySQL 实例）
-DATABASE_URL=mysql+aiomysql://arcreel:<password>@mysql:3306/arcreel alembic upgrade head
-DATABASE_URL=mysql+aiomysql://arcreel:<password>@mysql:3306/arcreel alembic downgrade -1
-DATABASE_URL=mysql+aiomysql://arcreel:<password>@mysql:3306/arcreel alembic upgrade head
+DATABASE_URL='mysql+aiomysql://arcreel:example_password@mysql:3306/arcreel?charset=utf8mb4' alembic upgrade head
+DATABASE_URL='mysql+aiomysql://arcreel:example_password@mysql:3306/arcreel?charset=utf8mb4' alembic downgrade -1
+DATABASE_URL='mysql+aiomysql://arcreel:example_password@mysql:3306/arcreel?charset=utf8mb4' alembic upgrade head
 ```
 
 | 迁移 | Revision | 影响内容 | 验证范围 |
