@@ -71,6 +71,8 @@ describe("AssetFormModal", () => {
 
   it("lets a synced character choose primary image and reference voice", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
     render(
       <AssetFormModal
         type="character"
@@ -80,8 +82,8 @@ describe("AssetFormModal", () => {
           resources: [
             { id: "img-1", key: "avatarUrl", origin: "catalog", media_type: "image", mime_type: "image/png", path: "_global_assets/character/avatar.png", byte_size: 1, is_primary: true },
             { id: "img-2", key: "fullBodyImageUrl", origin: "catalog", media_type: "image", mime_type: "image/png", path: "_global_assets/character/full.png", byte_size: 1, is_primary: false },
-            { id: "audio-1", key: "voice1", origin: "catalog", media_type: "audio", mime_type: "audio/wav", path: "voice1.wav", byte_size: 1, is_primary: true },
-            { id: "audio-2", key: "voice2", origin: "catalog", media_type: "audio", mime_type: "audio/wav", path: "voice2.wav", byte_size: 1, is_primary: false },
+            { id: "audio-1", key: "voice1", origin: "catalog", media_type: "audio", mime_type: "audio/wav", path: "_global_assets/character/voices/voice1.wav", byte_size: 1, is_primary: true },
+            { id: "audio-2", key: "voice2", origin: "catalog", media_type: "audio", mime_type: "audio/wav", path: "_global_assets/character/voices/voice2.wav", byte_size: 1, is_primary: false },
           ],
         }}
         onClose={() => {}}
@@ -97,7 +99,21 @@ describe("AssetFormModal", () => {
     expect(screen.getByAltText("resource_image_full_body").getAttribute("src"))
       .toContain("/api/v1/global-assets/character/full.png");
     fireEvent.click(fullBodyOption);
-    fireEvent.change(screen.getByLabelText("field.primary_audio"), { target: { value: "audio-2" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "play_audio_preview" }));
+    expect(play).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("pause_audio_preview")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("pause_audio_preview"));
+    expect(pause).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "select_primary_audio" }));
+    const previewButtons = screen.getAllByRole("button", { name: "play_audio_preview" });
+    fireEvent.click(previewButtons[2]);
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(document.querySelector("audio")?.getAttribute("src"))
+      .toContain("/api/v1/global-assets/character/voices/voice2.wav");
+    const voiceOptions = screen.getAllByRole("button", { name: "resource_audio_option" });
+    fireEvent.click(voiceOptions[1]);
     fireEvent.click(screen.getByRole("button", { name: "save" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
