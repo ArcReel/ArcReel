@@ -187,7 +187,7 @@ async def main() -> int:
                         break
                     all_rows.extend(batch)
                     offset += batch_size
-                    print(f"[READ] {tbl_name}: {len(all_rows)} rows fetched...", end='\r')
+                    print(f"[READ] {tbl_name}: {len(all_rows)} rows fetched...", end="\r")
                 print()
                 return all_rows
 
@@ -203,7 +203,7 @@ async def main() -> int:
                 # 分批插入（每批 1000 行），避免大表一次性加载内存
                 batch_size = 1000
                 for i in range(0, len(rs), batch_size):
-                    batch = rs[i:i + batch_size]
+                    batch = rs[i : i + batch_size]
                     sync_conn.execute(sa.insert(t).values(batch))
 
             await dconn.run_sync(write)
