@@ -18,6 +18,7 @@ import { deriveUnitStatus } from "./unit-status";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
+import { referenceBatchOutcome } from "./batch-outcome";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
@@ -542,8 +543,9 @@ export function ReferenceVideoCanvas({
   );
 
   /**
-   * 一次请求走服务端的全有或全无准入。三种结局都是评估成功：admitted 已建任务（动作层
-   * 弹提示），另两种一个任务也没建，交给结论面板陈述档位或缺口。
+   * 一次请求走服务端的全有或全无准入，{@link referenceBatchOutcome} 的五种结局都是评估
+   * 成功。只有整批干净入队那一种由动作层那句提示收尾，其余四种都留下结论面板：档位待拍板、
+   * 准入受阻，以及没排上队列的是哪几个、各自为什么。
    */
   const runBatch = useCallback(
     async (unitIds: string[], confirmedDurations?: Record<string, number>) => {
@@ -555,7 +557,7 @@ export function ReferenceVideoCanvas({
           narration_delivery: narrationDelivery,
           ...(confirmedDurations ? { confirmed_request_durations: confirmedDurations } : {}),
         });
-        setBatchAdmission(admission.decision === "admitted" ? null : admission);
+        setBatchAdmission(referenceBatchOutcome(admission) === "queued" ? null : admission);
       } catch (e) {
         setBatchAdmission(null);
         toastError(e, (msg) => t("reference_batch_request_failed", { error: msg }));

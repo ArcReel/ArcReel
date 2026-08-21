@@ -116,6 +116,9 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
 
         中转端点不接受参考图；当前全系模型能力一致，不按 model_id 分支。
         instance property 委托至此，保持 backend 为单一真相源。
+
+        音轨形态取默认值（开关可控）：中转端点的上游 model 由用户填写、协议本身不约定音轨语义，
+        没有可依据的判据。按「无信号不收紧」处理，不把能力不明的 model 谎报成开关失效。
         """
         return VideoCapabilities(max_reference_images=0)
 

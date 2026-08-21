@@ -230,6 +230,8 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """按 model_id 纯计算 caps —— 不构造 client。保留 `model` 形参仅为跨 backend 接口统一，
         generic 端点跨多模型无单一供应商真相，当前取保守默认 `_DEFAULT_MAX_REFERENCE_IMAGES`。
+
+        音轨形态同理取默认值（开关可控）：generic 协议不约定音轨语义，按「无信号不收紧」处理。
         """
         return VideoCapabilities(
             first_frame=True,

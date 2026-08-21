@@ -15,4 +15,4 @@ status: accepted
 ## Consequences
 
 - 能力、计费、校验类判定的取值路径须可追溯到请求体字段，或与请求构造共用同一变换函数；review 时对「读配置推断执行行为」的写法按本原则质疑。
-- 声明层同构：视频能力真相源按字段归 backend 声明（`VideoCapabilities`）、与请求构造同源（见 `docs/adr/0054`），是本原则在静态声明侧的对应；图片等其余能力字段的声明层真相源另见 `AGENTS.md`「供应商能力数据」。
+- 声明层同构：视频能力真相源按字段归 backend 声明（`VideoCapabilities`）、与请求构造同源（见 `docs/adr/0054`），是本原则在静态声明侧的对应。图片等其余能力字段的声明层真相源另见 `.claude/rules/provider-capabilities.md`「供应商能力与契约」。

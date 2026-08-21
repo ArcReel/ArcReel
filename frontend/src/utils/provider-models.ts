@@ -1,5 +1,12 @@
 import { API } from "@/api";
-import type { CustomProviderInfo, MediaType, ProviderInfo, VoiceConsistencyTier } from "@/types";
+import type {
+  CustomProviderInfo,
+  MediaType,
+  ProviderInfo,
+  VideoAudioControl,
+  VideoRoute,
+  VoiceConsistencyTier,
+} from "@/types";
 
 const CUSTOM_PREFIX = "custom-";
 
@@ -86,20 +93,19 @@ export function lookupCatalogVideoAudio(
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[modelId];
   if (!model) return null;
-  return { hasAudioTrack: model.has_audio_track, voiceConsistency: model.voice_consistency };
+  return { hasAudioTrack: model.audio_track !== "always_off", voiceConsistency: model.voice_consistency };
 }
 
 /**
- * 音频开关对该模型的可控性：可控 / 恒有声 / 恒无声。
+ * 查该 `provider/model` 在某条执行路径上的音频开关可控性；查不到模型返回 null（调用方按可控
+ * 处理，不收紧）。
  *
- * 两位声明都由服务端派生（`audio_switch_controllable` 与 `has_audio_track`），前端只做三态
- * 归并，不解读 capabilities token。恒有声与恒无声的成片音轨不随开关变化，设置界面据此禁用
- * 开关——否则用户的关闭意图到不了供应商，却会让编排层按无声裁掉全部音色约束。
- */
-export type VideoAudioControl = "controllable" | "always_on" | "always_off";
-
-/**
- * 查该 `provider/model` 的音频开关可控性；查不到模型返回 null（调用方按可控处理，不收紧）。
+ * 三态由服务端从 backend 的 VideoCapabilities 派生，前端只按路径取对应字段，不解读
+ * capabilities token、也不自行合成三态。恒有声与恒无声的成片音轨不随开关变化，设置界面据此
+ * 禁用开关——否则用户的关闭意图到不了供应商，却会让编排层按无声裁掉全部音色约束。
+ *
+ * `route` 必传：同一 model 的两条子路径可以给出不同答案（可灵 v3-omni 图生可控、参考生无
+ * 开关），按无路径上下文的值渲染会让参考路线的用户开了音频却拿到无声成片。
  *
  * 自定义供应商目录无逐模型音轨声明，与服务端 `_resolve_video_caps_for_model` 同口径按「无
  * 信号不收紧」处理，保持开关可控。
@@ -107,6 +113,7 @@ export type VideoAudioControl = "controllable" | "always_on" | "always_off";
 export function lookupVideoAudioControl(
   providers: ProviderInfo[],
   videoBackend: string,
+  route: VideoRoute,
 ): VideoAudioControl | null {
   const slashIdx = videoBackend.indexOf("/");
   if (slashIdx === -1) return null;
@@ -116,8 +123,7 @@ export function lookupVideoAudioControl(
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[videoBackend.slice(slashIdx + 1)];
   if (!model) return null;
-  if (model.audio_switch_controllable) return "controllable";
-  return model.has_audio_track ? "always_on" : "always_off";
+  return route === "r2v" ? model.reference_route_audio_track : model.audio_track;
 }
 
 // ---------------------------------------------------------------------------

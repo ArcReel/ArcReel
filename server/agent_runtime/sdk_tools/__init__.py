@@ -11,15 +11,17 @@ different project via prompt injection.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server
 
-from lib.project_migration_guard import project_migration_failure
-from server.agent_runtime.sdk_tools._context import ToolContext, migration_refusal_response
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    migration_failure_for,
+    migration_refusal_response,
+)
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
@@ -107,10 +109,22 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "retry_project_migration",
 )
 
-# Tools refused outright while the project's schema migration verdict is a failure.
-# Everything that generates output or writes formal content is closed; the read-only
-# tools stay open so the agent can still diagnose what needs repairing, and the
-# controlled script/project editors stay open because repairing is done through them.
+# Tools wrapped at registration so they report the verdict instead of running while the
+# project's schema migration verdict is a failure. Everything that generates output or
+# writes script content is named here; the controlled project/metadata editors
+# (``patch_project``, ``patch_episode_meta``, ``rename_asset``) are not, because
+# repairing is done through them. The script batch editors are named here even though
+# their shared ``ScriptBatchEditor.execute`` already refuses internally on the same
+# verdict: the entry declares the block, the inner check is only a fallback, and an
+# entry never skips declaring the block just because some callee happens to check too.
+#
+# The read-only tools are outside this set on purpose — they answer the verdict inside
+# their own handlers, so this frozenset stays exactly the registration-time blocks.
+# ``list_pending_assets`` and ``get_episode_script_revision`` read it via
+# ``migration_failure_for`` and return the same ``migration_refusal_response`` envelope
+# the wrapper does; ``get_workflow_plan`` carries it as the plan's single problem rather
+# than refusing; ``get_video_capabilities`` reads model capability only, never the
+# project's artifacts, and stays fully available.
 MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
         "complete_asset_inventory",
@@ -133,6 +147,10 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "split_narration_segments",
         "plan_episodes",
         "reset_episode_planning",
+        "patch_episode_script",
+        "insert_segment",
+        "remove_segment",
+        "split_segment",
     }
 )
 
@@ -147,7 +165,7 @@ def _refuse_while_migration_failed(sdk_tool: Any, ctx: ToolContext) -> Any:
     inner = sdk_tool.handler
 
     async def _guarded(args: Any) -> dict[str, Any]:
-        failure = await asyncio.to_thread(project_migration_failure, ctx.project_name, ctx.pm)
+        failure = await migration_failure_for(ctx)
         if failure is not None:
             return migration_refusal_response(
                 failure,

@@ -56,18 +56,90 @@ pnpm sync-contributing
 pnpm check-consistency
 ```
 
-## 运行测试
+## 测试
 
 ```bash
-# 后端测试；单文件：uv run python -m pytest path/to/test.py，-k 关键字筛选，--cov 覆盖率，-v 详细输出
+# 后端测试；单文件：uv run python -m pytest path/to/test.py，-k 关键字筛选，-v 详细输出
 uv run python -m pytest
 
 # 前端 typecheck + lint + 测试
 cd frontend && pnpm check
 ```
 
-- pytest `asyncio_mode = "auto"`，CI 覆盖率 ≥80%
-- 共用 fixtures 在 `tests/conftest.py`，跨文件共用的测试替身在 `tests/fakes.py`（收录边界见其模块 docstring）
+pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
+
+> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（存量的目录与档位、前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、覆盖率与 eslint 强制项的现行 CI/lint 配置、`testTimeout` 等 vitest 配置、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线；目录迁移与 marker 自动注入落地前，分类 marker 仍需手写（收集期强制恰好一个，语义见下文分层表）。整改完成后删除本段。
+
+### 分层与目录
+
+后端每个用例恰好属于一个档位，CI 默认执行 `-m "not e2e"`：
+
+| 档位 | 语义 | 边界 |
+|---|---|---|
+| `unit` | 快速、隔离 | 禁真实 DB、子进程、网络；允许 `tmp_path` 本地文件系统 |
+| `integration` | 跨模块真实协作 | 真实 DB、文件系统、ffmpeg 子进程；使用真实 DB 的用例（含全部 alembic 迁移测试）一律归此档 |
+| `e2e` | 端到端 | 依赖真实外部服务（远程 API、大模型调用）；CI 默认跳过，本地按需运行 |
+
+- 目录为 `tests/unit|integration|e2e/<源码顶层包镜像>`（如 `tests/unit/lib/…`、`tests/integration/server/…`）。档位 marker 由 conftest 按路径自动注入，无需手写；同时命中 `uses_db` 与 `unit` 的用例在收集期报错。镜像的正确性靠 review，不设机械校验。
+- alembic 迁移测试保持每个迁移脚本一个文件，位于 `tests/integration/lib/db/migrations/`，共享该目录 conftest 的 `alembic_cfg`；迁移测试维持 SQLite，PostgreSQL 侧由 CI workflow 的 alembic 升降级命令兜底。
+
+### 体量与命名
+
+- 一个测试文件对应一个被测对象；同一被测对象超出可读体量时按行为域拆分，用语义化主题后缀命名子文件。
+- 闸门两条：禁 `_more` / `_full` / `_coverage` / `_extra` / `_additional` 分裂后缀；单文件 3000 行熔断（用于阻止文件无界膨胀，不作为体量标准）。
+
+### 测试替身
+
+- **优先级**：真实对象（内存 SQLite、`tmp_path`）＞ `tests/fakes.py` 手写替身（收录边界见其模块 docstring）＞ 带 `spec`/`autospec` 的 Mock ＞ 裸 `MagicMock`/`AsyncMock`。Mock 只替换仓库边界（第三方 SDK、网络传输、子进程、文件系统、时钟）；仓库内协作者用真实对象或手写 fake。
+- **禁止 patch 生产代码私有符号**（闸门，无豁免）：`patch("lib.x._y")`、`monkeypatch.setattr(mod, "_y")`、`patch.object(Cls, "_y")` 三种形式一律禁止。需要控制内部行为时走 seam。
+- **seam 即显式参数注入**：构造参数或关键字参数，带生产默认值，不改变生产行为，如 `retry_async(operation, *, clock=..., jitter=...)`；不引入模块级可替换全局。适用范围：轮询时钟/间隔/退避、能力解析器、HTTP 探测客户端、文件系统与子进程。
+- **出站 HTTP 断言用 respx**：保留真实 httpx 客户端，在 transport 层拦截（`AsyncOpenAI` 流量同样被捕获），断言真实序列化后的请求。
+- **patch 收编**（闸门）：同一 patch 目标字符串出现在 ≥3 个测试文件时收编为共享 fixture / helper，各文件不再各自定义；FastAPI 路由依赖优先 `app.dependency_overrides` 而非 patch。
+
+### 无意义测试判据
+
+无意义测试是负价值，删除优于保留。三条机械判据（闸门）：
+
+1. **断言全部落在替身调用记录上**——测试对象变成 mock 本身。改为断言真实产出：返回对象的类型与属性、respx 捕获的真实请求、可观察状态。
+2. **patch 被测单元自身的逻辑步骤后再测该单元**——integration 用例 mock 被测 module 的公共入口是其特例。
+3. **零断言用例**——能明确要保护的行为则补上断言，否则删除。
+
+命中后处置固定三步，不逐条自由裁量：① 行为已有其他用例实质覆盖 → 删除，不做覆盖补偿；② 无覆盖但行为不值得保护（无真实分支或契约约束）→ 删除；③ 值得保护 → 改造，需要在生产代码中加 seam 的转入 seam 收编批次。
+
+四条审计标准靠 review 与专项审计判断，不落闸门：重复弱化（与其他用例覆盖同一路径且断言更弱）、过度表征（断言日志文本、字典键序、私有属性等实现细节而非契约）、setup 与断言严重失衡、断言辅助函数内部只断言替身调用记录。
+
+### 共享设施
+
+- **三角色**：`tests/conftest.py` 只放 fixture 与收集期钩子，禁止被 import（闸门）；`tests/fakes.py` 放替身实现，不含 fixture；`tests/factories.py` 放测试输入构造器（数据与媒体文件 builder）。专题共享模块（如 `tests/auth_deps.py`）允许存在；fakes / factories / 专题模块的公开符号须被 ≥2 个测试文件使用（闸门），仅单个文件使用的移回该文件。
+- **局部 conftest**：只为本目录提供 fixture；不得与根 conftest 的 fixture 同名；跨目录共用的 fixture 上提到根 conftest；conftest 之间不互相 import（闸门）。
+- **fixture 覆写与重复**（闸门）：测试文件不得定义与任一 conftest 同名的 fixture；同名 fixture 在 ≥3 个测试文件重复定义时上提 conftest。
+- **DB fixture**：一律派生自唯一的方言感知 engine fixture，由此自动获得 `uses_db` 标记与 PostgreSQL 兼容选集。
+
+### 时序与偶发失败
+
+- 等待、重试、超时逻辑一律经时钟 seam 或事件握手驱动，不使用 `time.sleep` 之类的真实时间等待。
+- 偶发失败（flaky）视同普通缺陷：就地修复（时钟 seam / 事件握手），无法修复或不值得修复的按无意义测试判据删除。不引入自动重试（pytest-rerunfailures、CI job 级 retry）——自动重试会掩盖本应暴露的失败。
+- 概率性 stress 用例（真实并发 + 真实时间）须在本节显式登记。当前唯一登记的豁免：`tests/test_project_manager_concurrent_save.py` 的原子写压力用例（`integration` 档）。
+
+### 覆盖率
+
+覆盖率是信号，不是闸门：CI 不因覆盖率数字失败，Codecov 为唯一信号载体（PR 覆盖评论与趋势图，status 一律 informational）。不为覆盖率数字写测试；删除无意义测试允许覆盖率下降。
+
+### 闸门
+
+- 入口唯一：`uv run python scripts/audit_tests.py --check`，本地与 CI（独立 `test-lint` 步骤）同一条命令；输出 `规则号 file:line 修复指引`。
+- 零容忍：违规数恒为 0，无基线、无棘轮、无豁免标注；脚本误报通过修改脚本解决，不为用例添加豁免；新增规则与其存量清零同 PR 上线。
+- 分工：AST 脚本负责代码结构；pytest 收集期只做档位相关校验；运行期不新增检查。前端语义类规则归 eslint，结构类规则由同一脚本扫描 `frontend/src/**/*.test.*`。
+
+### 前端测试（vitest）
+
+- **API 打桩**：`vi.spyOn(API, method)` 是标准打桩边界（`API` class 是前端唯一出站口）；`api.ts` 本体测试用手写 fetch/Response stub；不引入 msw。禁止整模块 `vi.mock("@/api")` 与 `vi.mock("react-i18next")`（eslint 强制；全局 setup 已加载真实中文 i18n，整体 mock 后无法发现翻译缺失）。
+- **SSE 打桩**：统一使用 `src/test/` 的共享 `FakeEventSource`，由 `API.openProjectEventStream` 的 spy 返回其实例。
+- **mock 内部子组件**须属三类之一：重量级（虚拟化/动画/canvas）、有副作用（发起请求/启动定时器）、与本测试无关的纯展示；同一组件被 ≥3 个文件 mock 时上提 `src/__mocks__/`。
+- **共享设施**：与被测对象无关的横切工具（`createDeferred`、`FakeEventSource`、factories）重复出现在 ≥3 个文件时上提 `src/test/`；API spy 组合豁免收编（各文件 spy 的方法组合互不相同，没有可提取的公共形状）；本地 `renderXxx` 仅在同一形状重复出现于 ≥3 个文件时上提。
+- **目录与体量**：测试文件与源文件同级并放，不使用 `__tests__/` 目录；「一文件一被测对象」、分裂命名禁令与 3000 行熔断三条与后端一致，允许语义化主题后缀（如 `ShotDetail.drama.test.tsx`）。
+- **可测性改造**：不得改变生产行为；允许抽纯函数、抽 hook 级的结构性抽取。
+- **配置与 lint**：`testTimeout` 用 vitest 默认 5s，个别慢用例显式覆写并说明；eslint 启用 vitest、testing-library、jest-dom 插件（`expect-expect` 检出零断言用例）；裸 `toHaveBeenCalled` 不设禁令，断言强度归 review。
 
 ## 代码质量
 
@@ -159,25 +231,6 @@ cd website && pnpm format         # prettier 写入
 
 - TypeScript 版本锁：`typescript-eslint` 的 peer 范围限制 TypeScript 上限；升级 TypeScript 前先核对锁定版本的 peer 范围，必要时同步升级 `typescript-eslint`
 
-### Pytest markers 规范
-
-每个测试用例必须恰好带一个类型标记，CI 默认执行 `-m "not e2e"`：
-
-| Marker | 含义 | 禁止 |
-|--------|------|------|
-| `unit` | 快速、隔离，不涉及真实 I/O 或外部服务 | — |
-| `integration` | 跨模块协作，使用真实依赖（in-memory DB、tmp 文件系统等） | **禁止 mock 被测 module 的公共入口**（例如测 `MediaGenerator` 的集成测试不能 mock `MediaGenerator.generate`，否则测试对象变成 mock 本身） |
-| `e2e` | 端到端，依赖真实外部资源（远程 API、大模型调用、重量级 ffmpeg 处理） | CI 默认跳过，本地按需运行 |
-
-标记可打在用例、类或模块（`pytestmark`）任一层，三层叠加后仍须恰好命中一个分类。
-
-标记由 pytest 收集期强制校验，不依赖人工 review：
-
-- 漏标或多标的用例导致收集失败（`tests/conftest.py::_enforce_classification_markers`），报错列出具体 nodeid
-- `--strict-markers` 使未在 `pyproject.toml` 注册的 marker 同样在收集期失败
-
-现有 `unit`/`integration` 分类由批量规则得出（真实调用 ffmpeg 生成测试音视频资源、命中 `uses_db` 的归 `integration`，其余归 `unit`），不保证逐条语义精确；新增测试按上表语义选择。用真实 ffmpeg 生成测试夹具不属于 `e2e` 定义的重量级 ffmpeg 处理：前者是调用 ffmpeg 产出测试输入，后者指端到端场景中的完整 ffmpeg 处理链路。
-
 ## 文档维护
 
 用户文档的唯一发布位置是 [docs.arc-reel.com](https://docs.arc-reel.com)，源文件在 `website/docs/`（本地构建与预览见上文「文档站」）。中文是唯一写作源，英文译文由 AI 生成，人工仅审校中文源。内部文档（ADR、`CONTEXT.md`、`AGENTS.md`、安全威胁模型、供应商 API 文档索引等）不上站，留在仓库 `docs/` 下；`SECURITY.md` 因 GitHub Security 选项卡依赖也留在仓库根。
@@ -185,6 +238,8 @@ cd website && pnpm format         # prettier 写入
 本文件是贡献指南的真相源，构建时复制为站点的开发区页面（`website/scripts/sync-contributing.mjs`），中文副本不入库。
 
 ### 各页职责
+
+上站页面另在 frontmatter 用 `update_docs` 声明文档刷新流程的覆盖档位，判据见 `.agents/skills/update-docs/SKILL.md`。
 
 | 页面 | 应该包含 | 不应该包含 |
 |---|---|---|

@@ -1098,7 +1098,8 @@ describe("ReferenceVideoCanvas", () => {
   });
 
   // 批量的三种结局都是评估成功：admitted 已建任务，confirmation_required 与 blocked
-  // 一个任务也没建，界面必须把「为什么没开始」讲全，而不是塌成一句通用错误。
+  // 一个任务也没建，界面必须把「为什么没开始」讲全，而不是塌成一句通用错误。admitted
+  // 自身还分两路，入队中断那一路同样要讲全「哪几个没排上、为什么」。
   describe("整批准入判定", () => {
     const BATCH_CONFIRM_CTA = /Generate at these lengths|按这些档位生成/;
 
@@ -1303,6 +1304,102 @@ describe("ReferenceVideoCanvas", () => {
       fireEvent.click(dialog.getByRole("button", { name: /Got it|知道了/ }));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       expect(batchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("入队中断时逐个列出没排上队列的单元与原因", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1"), mkUnit("E1U2"), mkUnit("E1U3")],
+      });
+      const batchSpy = vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue(
+        // 入队中断不撤销已建的任务：decision 仍是 admitted，没轮到的单元逐个进
+        // enqueue_failures，各带一条已本地化的原因。
+        mkAdmission({
+          task_ids: ["t1"],
+          task_ids_by_unit: { E1U1: "t1" },
+          skipped_unit_ids: ["E1U4"],
+          enqueue_failures: [
+            {
+              unit_id: "E1U2",
+              problem: { code: "queue_unavailable", action: "retry", message: "队列暂时不可用", params: {} },
+            },
+            {
+              unit_id: "E1U3",
+              problem: { code: "generation_task_create_failed", action: "retry", message: "任务创建失败", params: {} },
+            },
+          ],
+        }),
+      );
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      await clickBatch();
+
+      const dialog = within(await screen.findByRole("dialog"));
+      // 逐个 unit 与各自原因都在，不塌成一句计数
+      expect(dialog.getByText("E1U2")).toBeInTheDocument();
+      expect(dialog.getByText("E1U3")).toBeInTheDocument();
+      expect(dialog.getByText("队列暂时不可用")).toBeInTheDocument();
+      expect(dialog.getByText("任务创建失败")).toBeInTheDocument();
+      // 已排上的单元不混进未排上的清单
+      expect(dialog.queryByText("E1U1")).not.toBeInTheDocument();
+      // 已建任务照常执行这一点要说明，否则用户读不出这批是「部分成功」
+      expect(
+        dialog.getByText(/再次批量生成就会补上|generate the batch again/),
+      ).toBeInTheDocument();
+      // 已有产物而跳过的单元与没排上的不是一回事，这一路同样要交代
+      expect(
+        dialog.getByText(/已有视频，本次跳过|already had a video and is skipped/),
+      ).toBeInTheDocument();
+      // 动作层那条计数提示仍在，两处说的是同一件事
+      await waitFor(() => {
+        expect(useAppStore.getState().toast?.text).toMatch(/入队中断|Enqueue was interrupted/);
+      });
+
+      // 陈述型结局：关闭不重发
+      fireEvent.click(dialog.getByRole("button", { name: /Got it|知道了/ }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(batchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("首个目标就中断时不说成部分排上", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1"), mkUnit("E1U2")],
+      });
+      vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue(
+        // 中断落在第一个目标上：decision 仍是 admitted，但一个任务也没建成。
+        mkAdmission({
+          task_ids: [],
+          task_ids_by_unit: {},
+          enqueue_failures: [
+            {
+              unit_id: "E1U1",
+              problem: { code: "queue_unavailable", action: "retry", message: "队列暂时不可用", params: {} },
+            },
+            {
+              unit_id: "E1U2",
+              problem: {
+                code: "generation_enqueue_interrupted",
+                action: "retry",
+                message: "入队已中断，这个目标没有排上",
+                params: {},
+              },
+            },
+          ],
+        }),
+      );
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      await clickBatch();
+
+      const dialog = within(await screen.findByRole("dialog"));
+      // 缺口明细照旧逐个列出
+      expect(dialog.getByText("E1U1")).toBeInTheDocument();
+      expect(dialog.getByText("E1U2")).toBeInTheDocument();
+      // 一个任务都没建时不能说「部分」，也不能说已提交的任务照常执行
+      expect(
+        dialog.getByText(/没有任务排上队列|No task from this batch was queued/),
+      ).toBeInTheDocument();
+      expect(dialog.queryByText(/部分单元未排上队列|Some units were not queued/)).not.toBeInTheDocument();
+      expect(dialog.getByText(/没有任务在执行|nothing from this batch is running/)).toBeInTheDocument();
     });
 
     it("批量请求失败时提示错误且不留下结论面板", async () => {

@@ -56,6 +56,7 @@ from lib.retry import (
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ReferenceAudioMode,
+    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -201,9 +202,13 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         H3 的 content[] 数组按 role 同时承载首帧、尾帧、参考图与参考音频，各维度上限取官方
         《创建视频生成任务 (V2)》声明值。首帧任务只接受 ratio=adaptive（官方 ratio 枚举含
         adaptive，图生视频示例即用它），故声明 first_frame_ratio_adaptive_only。
+
+        音轨形态按走哪条端点分：H3 走 v2 多模态端点，原生立体声、请求体没有音轨开关，故恒有声；
+        其余型号走 v1 端点，请求与响应都不涉及音轨，成片恒无声。两条端点都没有可下发的开关，
+        故这里不存在开关可控的型号。
         """
         if model == _S2V:
-            return VideoCapabilities(first_frame=False, max_reference_images=1)
+            return VideoCapabilities(first_frame=False, max_reference_images=1, audio_track=VideoAudioMode.ALWAYS_OFF)
         if _is_h3_model(model):
             return VideoCapabilities(
                 first_frame=True,
@@ -215,8 +220,9 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
                 max_reference_audio_total_seconds=_H3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS,
                 max_prompt_chars=_H3_MAX_PROMPT_CHARS,
                 first_frame_ratio_adaptive_only=True,
+                audio_track=VideoAudioMode.ALWAYS_ON,
             )
-        return VideoCapabilities(first_frame=True)
+        return VideoCapabilities(first_frame=True, audio_track=VideoAudioMode.ALWAYS_OFF)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

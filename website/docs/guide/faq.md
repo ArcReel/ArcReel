@@ -2,7 +2,7 @@
 id: faq
 title: 常见问题
 sidebar_position: 5
-update_docs: engine-b
+update_docs: fact-check
 ---
 
 # 常见问题 {#faq}

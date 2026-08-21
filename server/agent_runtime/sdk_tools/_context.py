@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -14,6 +15,7 @@ from lib.db import async_session_factory
 from lib.generation_result import GenerationBatchResult, migration_problem, render_generation_result
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import MigrationFailureRecord
+from lib.project_migration_guard import project_migration_failure
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,17 @@ class ToolContext:
     @property
     def project_path(self) -> Path:
         return self.pm.get_project_path(self.project_name)
+
+
+async def migration_failure_for(ctx: ToolContext) -> MigrationFailureRecord | None:
+    """This session's project migration verdict, or ``None`` when it is healthy.
+
+    The registration-time write guard and the read-only tools that answer the
+    verdict inside their own handlers both go through here, so every refusal in
+    the tool layer rests on the same persisted record read the same way, off the
+    event loop.
+    """
+    return await asyncio.to_thread(project_migration_failure, ctx.project_name, ctx.pm)
 
 
 def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> dict[str, Any]:

@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib.artifact_planner import ARTIFACT_MANIFEST_SCHEMA_VERSION
+from lib.artifact_activation import ARTIFACT_MANIFEST_SCHEMA_VERSION
 from lib.episode_ledger import parse_positive_episode_num
 from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME, episode_drafts_dir
 from lib.path_safety import try_safe_join

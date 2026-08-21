@@ -24,8 +24,8 @@ const PROVIDERS: ProviderInfo[] = [
         supported_durations: [4, 6, 8],
         duration_resolution_constraints: {},
         resolutions: [],
-        has_audio_track: true,
-        audio_switch_controllable: true,
+        audio_track: "controllable",
+        reference_route_audio_track: "controllable",
         voice_consistency: "soft",
       },
     },
@@ -48,8 +48,8 @@ const PROVIDERS: ProviderInfo[] = [
         supported_durations: [5, 8, 10],
         duration_resolution_constraints: {},
         resolutions: [],
-        has_audio_track: true,
-        audio_switch_controllable: true,
+        audio_track: "controllable",
+        reference_route_audio_track: "controllable",
         voice_consistency: "soft",
       },
     },
@@ -602,8 +602,8 @@ describe("ModelConfigSection", () => {
             supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             duration_resolution_constraints: {},
             resolutions: [],
-            has_audio_track: true,
-            audio_switch_controllable: true,
+            audio_track: "controllable",
+            reference_route_audio_track: "controllable",
             voice_consistency: "soft",
           },
         },
@@ -752,8 +752,8 @@ describe("ModelConfigSection", () => {
             supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             duration_resolution_constraints: {},
             resolutions: [],
-            has_audio_track: true,
-            audio_switch_controllable: true,
+            audio_track: "controllable",
+            reference_route_audio_track: "controllable",
             voice_consistency: "soft",
           },
         },
@@ -804,8 +804,8 @@ describe("ModelConfigSection", () => {
           duration_resolution_constraints: { "1080p": [8], "4k": [8] },
           reference_image_durations: [8],
           resolutions: ["720p", "1080p", "4k"],
-          has_audio_track: true,
-          audio_switch_controllable: true,
+          audio_track: "controllable",
+          reference_route_audio_track: "controllable",
           voice_consistency: "soft",
         },
       },
@@ -898,13 +898,38 @@ describe("音频开关的模型可控性", () => {
         seedance: {
           display_name: "seedance",
           media_type: "video",
-          capabilities: ["generate_audio"],
+          capabilities: [],
           default: false,
           supported_durations: [5],
           duration_resolution_constraints: {},
           resolutions: [],
-          has_audio_track: true,
-          audio_switch_controllable: true,
+          audio_track: "controllable",
+          reference_route_audio_track: "controllable",
+          voice_consistency: "soft",
+        },
+      },
+    },
+    {
+      // 可灵 v3-omni 的形状：图生子路径带音轨开关，参考生子路径的原生 schema 不含该字段。
+      id: "kling",
+      display_name: "Kling",
+      description: "",
+      status: "ready",
+      media_types: ["video"],
+      capabilities: [],
+      configured_keys: [],
+      missing_keys: [],
+      models: {
+        "v3-omni": {
+          display_name: "v3-omni",
+          media_type: "video",
+          capabilities: [],
+          default: false,
+          supported_durations: [5],
+          duration_resolution_constraints: {},
+          resolutions: [],
+          audio_track: "controllable",
+          reference_route_audio_track: "always_off",
           voice_consistency: "soft",
         },
       },
@@ -927,8 +952,8 @@ describe("音频开关的模型可控性", () => {
           supported_durations: [5],
           duration_resolution_constraints: {},
           resolutions: [],
-          has_audio_track: true,
-          audio_switch_controllable: false,
+          audio_track: "always_on",
+          reference_route_audio_track: "always_on",
           voice_consistency: "soft",
         },
       },
@@ -951,8 +976,8 @@ describe("音频开关的模型可控性", () => {
           supported_durations: [6],
           duration_resolution_constraints: {},
           resolutions: [],
-          has_audio_track: false,
-          audio_switch_controllable: false,
+          audio_track: "always_off",
+          reference_route_audio_track: "always_off",
           voice_consistency: "none",
         },
       },
@@ -964,6 +989,7 @@ describe("音频开关的模型可控性", () => {
     videoGenerateAudio: boolean | null,
     onVideoGenerateAudioChange = vi.fn(),
     globalVideoGenerateAudio = true,
+    usesReferenceImages = false,
   ) {
     render(
       <ModelConfigSection
@@ -971,8 +997,9 @@ describe("音频开关的模型可控性", () => {
         value={{ ...EMPTY_VALUE, videoBackend }}
         onChange={() => {}}
         providers={AUDIO_PROVIDERS}
+        usesReferenceImages={usesReferenceImages}
         options={{
-          videoBackends: ["ark/seedance", "dashscope/wan", "minimax/hailuo-02"],
+          videoBackends: ["ark/seedance", "dashscope/wan", "minimax/hailuo-02", "kling/v3-omni"],
           imageBackends: [],
           textBackends: [],
           providerNames: {},
@@ -1034,5 +1061,20 @@ describe("音频开关的模型可控性", () => {
   it("stays quiet when the project follows a global on setting", () => {
     renderAudio("dashscope/wan", null, vi.fn(), true);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // 音轨形态按执行路径分叉：同一模型在图生路线可控、在参考路线没有开关可下发。按模型（而非
+  // 按路径）取值会让参考路线的用户开着音频却拿到无声成片，且全程无提示。
+  it("keeps the switch interactive for a route-split model on the first-frame route", () => {
+    renderAudio("kling/v3-omni", null);
+    expect(screen.getByRole("radio", { name: "关闭" })).toBeEnabled();
+    expect(screen.queryByText(/没有声音/)).not.toBeInTheDocument();
+  });
+
+  it("locks the switch for the same model on the reference route and shows the film is silent", () => {
+    renderAudio("kling/v3-omni", null, vi.fn(), true, true);
+    expect(screen.getByRole("radio", { name: "开启" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "关闭" })).toBeChecked();
+    expect(screen.getByText(/没有声音/)).toBeInTheDocument();
   });
 });

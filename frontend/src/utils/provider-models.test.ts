@@ -58,8 +58,8 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         duration_resolution_constraints: { "1080p": [8], "4k": [8] },
         reference_image_durations: [8],
         resolutions: ["720p", "1080p", "4k"],
-        has_audio_track: true,
-        audio_switch_controllable: true,
+        audio_track: "controllable",
+        reference_route_audio_track: "controllable",
         voice_consistency: "soft",
       },
       "seedance-like": {
@@ -70,8 +70,8 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         supported_durations: [5, 8, 10],
         duration_resolution_constraints: {},
         resolutions: ["720p", "1080p"],
-        has_audio_track: true,
-        audio_switch_controllable: true,
+        audio_track: "controllable",
+        reference_route_audio_track: "controllable",
         voice_consistency: "soft",
       },
     },
@@ -107,7 +107,7 @@ describe("lookupDurationConstraints", () => {
 });
 
 describe("lookupCatalogVideoAudio", () => {
-  it("reads has_audio_track / voice_consistency off the model declaration", () => {
+  it("derives hasAudioTrack / voiceConsistency off the model declaration", () => {
     expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "gemini-aistudio/veo-3.1-generate-preview")).toEqual({
       hasAudioTrack: true,
       voiceConsistency: "soft",
@@ -137,18 +137,24 @@ describe("lookupVideoAudioControl", () => {
       models: {
         controllable: {
           ...VEO_PROVIDERS[0].models["seedance-like"],
-          has_audio_track: true,
-          audio_switch_controllable: true,
+          audio_track: "controllable",
+          reference_route_audio_track: "controllable",
         },
         "always-on": {
           ...VEO_PROVIDERS[0].models["seedance-like"],
-          has_audio_track: true,
-          audio_switch_controllable: false,
+          audio_track: "always_on",
+          reference_route_audio_track: "always_on",
         },
         "always-off": {
           ...VEO_PROVIDERS[0].models["seedance-like"],
-          has_audio_track: false,
-          audio_switch_controllable: false,
+          audio_track: "always_off",
+          reference_route_audio_track: "always_off",
+        },
+        // 可灵 v3-omni 的形状：图生子路径带音轨开关，参考生子路径的原生 schema 不含该字段。
+        "route-split": {
+          ...VEO_PROVIDERS[0].models["seedance-like"],
+          audio_track: "controllable",
+          reference_route_audio_track: "always_off",
         },
       },
     },
@@ -158,19 +164,27 @@ describe("lookupVideoAudioControl", () => {
     ["controllable", "controllable"],
     ["always-on", "always_on"],
     ["always-off", "always_off"],
-  ])("maps %s to %s", (modelId, expected) => {
-    expect(lookupVideoAudioControl(PROVIDERS, `gemini-aistudio/${modelId}`)).toBe(expected);
+  ])("maps %s to %s on both routes", (modelId, expected) => {
+    expect(lookupVideoAudioControl(PROVIDERS, `gemini-aistudio/${modelId}`, "i2v")).toBe(expected);
+    expect(lookupVideoAudioControl(PROVIDERS, `gemini-aistudio/${modelId}`, "r2v")).toBe(expected);
+  });
+
+  // 逐路径取值：按模型取会让参考路线放行一个执行期必然被丢弃的开关（用户开了音频拿到无声成片）。
+  it("reads the reference-route declaration for r2v", () => {
+    expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/route-split", "i2v")).toBe("controllable");
+    expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/route-split", "r2v")).toBe("always_off");
   });
 
   // 自定义供应商无逐模型音轨声明：无信号不收紧，开关保持可控。
   it("keeps custom backends controllable", () => {
-    expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model")).toBe("controllable");
+    expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model", "i2v")).toBe("controllable");
+    expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model", "r2v")).toBe("controllable");
   });
 
   it("returns null for unknown model, unknown provider and malformed strings", () => {
-    expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/unknown")).toBeNull();
-    expect(lookupVideoAudioControl(PROVIDERS, "bogus-provider/whatever")).toBeNull();
-    expect(lookupVideoAudioControl(PROVIDERS, "no-slash")).toBeNull();
+    expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/unknown", "i2v")).toBeNull();
+    expect(lookupVideoAudioControl(PROVIDERS, "bogus-provider/whatever", "i2v")).toBeNull();
+    expect(lookupVideoAudioControl(PROVIDERS, "no-slash", "i2v")).toBeNull();
   });
 });
 

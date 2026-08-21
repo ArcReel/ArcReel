@@ -2,7 +2,7 @@
 id: architecture
 title: 架构说明
 sidebar_position: 1
-update_docs: engine-b
+update_docs: fact-check
 ---
 
 # 架构说明 {#architecture}

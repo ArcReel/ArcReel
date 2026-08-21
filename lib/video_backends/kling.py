@@ -39,10 +39,12 @@ from lib.retry import (
 )
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
+    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
+    VideoRoute,
     download_video,
     should_retry_download,
 )
@@ -78,6 +80,8 @@ class _KlingVideoModelCaps:
     max_reference_images: int
     # 能产出视频内人声（官方能力地图的「音画同出」列）：v2-6 / v3 / v3-omni ✅。该位同时决定请求体
     # 是否携带音频开关 sound——官方各档默认 off，无此能力的 model 不发该字段而非发 "off" 压制。
+    # 对外的音轨形态（VideoCapabilities.audio_track）由 `_audio_track_for` 从本位投影，展示层与
+    # 入队预检读那一份，不直接读本位。
     generate_audio: bool
     # 有声仅在 1080P 下可用（官方 v2-6 明文「生成有声视频时，仅支持生成 1080P」）。可灵请求体没有
     # 分辨率字段——输出档位只由 mode 决定，故执行期判据落在 mode 上（见 `_effective_audio`）。
@@ -135,6 +139,18 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         audio_requires_1080p=False,
     ),
 }
+
+
+def _audio_track_for(caps: _KlingVideoModelCaps) -> VideoAudioMode:
+    """文生 / 图生子路径的成片音轨形态。
+
+    这两条子路径的请求体带 ``sound`` 开关，故有音频能力的 model 音轨可控；无音频能力的 model
+    不发该字段，可灵各档默认 off，成片恒无声。``audio_requires_1080p`` 不在此处收窄——它是逐
+    请求档位（mode）维度的约束，本函数没有档位上下文，按最宽档如实声明「开关可控」，实际是否
+    产出人声由 ``_effective_audio`` 在请求期定夺（计价侧另见
+    ``effective_generate_audio_for_model``）。
+    """
+    return VideoAudioMode.CONTROLLABLE if caps.generate_audio else VideoAudioMode.ALWAYS_OFF
 
 
 def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
@@ -235,6 +251,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             first_frame=True,
             last_frame=caps.last_frame and not caps.last_frame_requires_pro,
             max_reference_images=caps.max_reference_images,
+            audio_track=_audio_track_for(caps),
+            reference_route_audio_track=VideoAudioMode.ALWAYS_OFF,
         )
 
     @staticmethod
@@ -272,6 +290,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             first_frame=True,
             last_frame=last_frame,
             max_reference_images=caps.max_reference_images,
+            audio_track=_audio_track_for(caps),
+            reference_route_audio_track=VideoAudioMode.ALWAYS_OFF,
         )
 
     # ── request building ────────────────────────────────────────────────
@@ -300,12 +320,16 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         ``subpath`` 必传而非由 ``request.reference_images`` 推断：resume 请求重建时不带图字段
         （见 ``media_generator.resume_video_async``），按参考图推断会把旧格式 job_id 的多图主体
         任务判成有声。generate 侧由 ``_build_payload`` 给出，resume 侧由 job_id 解码得出。
+
+        「该子路径有没有音轨开关」不在此处二次实现，直接读 ``video_capabilities_for_model`` 的
+        逐路径声明——那份声明就是展示层与入队预检读到的同一份（multi-image2video 原生 schema 不
+        含 sound，故参考路线声明为恒无声）。两处各写一遍的话，界面会继续放行一个执行期必然丢弃
+        的开关，也会让该请求因标志进 ledger 而按有声价出账。
         """
-        if not (request.generate_audio and self._caps.generate_audio):
+        route: VideoRoute = "r2v" if subpath == _MULTI_IMAGE2VIDEO else "i2v"
+        if self.video_capabilities_for_model(self._model).audio_track_for_route(route) != VideoAudioMode.CONTROLLABLE:
             return False
-        # multi-image2video 原生 schema 不含音频开关，``_build_payload`` 不会携带 sound，成片必然
-        # 无声。此处必须一并返回 False：否则该请求会因标志进 ledger 而按有声价出账。
-        if subpath == _MULTI_IMAGE2VIDEO:
+        if not request.generate_audio:
             return False
         if self._caps.audio_requires_1080p:
             # 官方约束的维度是分辨率（v2-6「生成有声视频时，仅支持生成 1080P」），但可灵请求体没有

@@ -1,29 +1,15 @@
 #!/usr/bin/env node
-// update-docs 的上站页面库存：frontmatter 决定引擎归属，CONTRIBUTING「各页职责」必须与库存一致。
+// update-docs 的上站页面库存：frontmatter 声明覆盖档位，CONTRIBUTING「各页职责」必须与库存一致。
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { readFrontMatterScalar, scanMarkdownLines } from "./markdown-scan.mjs";
+import { readFrontMatterScalar, scanMarkdownLines, walkMarkdownFiles } from "./markdown-scan.mjs";
 
-const UPDATE_DOCS_VALUES = new Set(["engine-a", "engine-b", "none"]);
+const UPDATE_DOCS_VALUES = new Set(["full", "fact-check", "none"]);
 // CONTRIBUTING 的中文副本由 sync-contributing 在构建期生成，真相源不在 website/docs，不能进入库存。
 const GENERATED_DOCS = new Set(["website/docs/dev/contributing.md"]);
-
-function toPosix(path) {
-  return path.split(sep).join("/");
-}
-
-function walkMarkdownFiles(directory) {
-  if (!existsSync(directory)) return [];
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) return walkMarkdownFiles(path);
-    if (!entry.isFile() || !/\.mdx?$/.test(entry.name)) return [];
-    return [path];
-  });
-}
 
 function responsibilityDocPaths(content) {
   const scannedLines = [...scanMarkdownLines(content)];
@@ -57,23 +43,21 @@ function responsibilityDocPaths(content) {
  * @returns {{ entries: Array<{ path: string, updateDocs: string }>, problems: string[] }}
  */
 export function checkUpdateDocsInventory(repoRoot) {
-  const docsDir = resolve(repoRoot, "website/docs");
-  const entries = walkMarkdownFiles(docsDir)
+  // walkMarkdownFiles 已按 POSIX 相对路径排序，清单顺序在各平台一致。
+  const entries = walkMarkdownFiles(repoRoot, "website/docs")
     .map((path) => ({
-      path: toPosix(relative(repoRoot, path)),
-      updateDocs: readFrontMatterScalar(readFileSync(path, "utf8"), "update_docs"),
+      path,
+      updateDocs: readFrontMatterScalar(readFileSync(resolve(repoRoot, path), "utf8"), "update_docs"),
     }))
-    .filter((entry) => !GENERATED_DOCS.has(entry.path))
-    // 按 POSIX 相对路径排序：目录分隔符已归一，清单顺序在各平台一致。
-    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+    .filter((entry) => !GENERATED_DOCS.has(entry.path));
   const problems = [];
 
   for (const entry of entries) {
     if (entry.updateDocs === null) {
-      problems.push(`${entry.path} 未声明 frontmatter 的 update_docs（可选 engine-a / engine-b / none）`);
+      problems.push(`${entry.path} 未声明 frontmatter 的 update_docs（可选 full / fact-check / none）`);
     } else if (!UPDATE_DOCS_VALUES.has(entry.updateDocs)) {
       problems.push(
-        `${entry.path} 的 frontmatter update_docs 值「${entry.updateDocs}」无效（可选 engine-a / engine-b / none）`,
+        `${entry.path} 的 frontmatter update_docs 值「${entry.updateDocs}」无效（可选 full / fact-check / none）`,
       );
     }
   }
@@ -123,7 +107,7 @@ function main() {
   if (format === "tsv") {
     for (const entry of entries) console.log(`${entry.updateDocs}\t${entry.path}`);
   } else {
-    console.log(`update-docs 文档库存检查通过：${entries.length} 个上站页面均已声明归属且各页职责清单一致。`);
+    console.log(`update-docs 文档库存检查通过：${entries.length} 个上站页面均已声明覆盖档位且各页职责清单一致。`);
   }
 }
 

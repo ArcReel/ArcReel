@@ -127,7 +127,7 @@ def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
     result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_narration.json")
     assert result.returncode != 0
     out = result.stdout + result.stderr
-    assert "仅支持剧情演绎" in out
+    assert "只支持顶层 scenes[] 的剧本" in out
     # 不能出现裸 KeyError
     assert "KeyError" not in out
 
@@ -157,7 +157,7 @@ def test_compose_video_rejects_ad_mode(fake_project: Path) -> None:
     result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_ad.json")
     assert result.returncode != 0
     out = result.stdout + result.stderr
-    assert "仅支持剧情演绎" in out
+    assert "只支持顶层 scenes[] 的剧本" in out
     assert "content_mode=ad" in out
     assert "剪映草稿导出" in out
     assert "KeyError" not in out

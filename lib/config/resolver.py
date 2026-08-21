@@ -26,7 +26,6 @@ from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     default_model_for_provider,
-    model_has_audio_track,
     model_info_for,
 )
 from lib.config.service import (
@@ -333,6 +332,33 @@ def video_capability_satisfied(*, capability: VideoCapability, first_frame: bool
     return first_frame if capability == "i2v" else max_reference_images > 0
 
 
+def builtin_video_audio_track(provider_id: str, model_id: str, *, capability: VideoCapability) -> str | None:
+    """内置视频 model 在该能力桶上的成片音轨形态；无法解析时 None（调用方按「无信号不收紧」处理）。
+
+    真相源是 backend 的 ``VideoCapabilities``——backend 是执行期真正构造请求的一方，「请求体里
+    有没有音轨开关」就是这一位的字面含义，也只有它表达得了「同一 model 内按执行子路径分叉」
+    （可灵 v3-omni 走多图主体子路径时请求体不含 ``sound``，成片必然无声）。展示层、入队预检与
+    声音一致性派生共读本函数，不各自解读一份声明。
+
+    返回值是 ``lib.video_backends.base.VideoAudioMode`` 的字面量。此处不导入该枚举：分层契约以
+    lib.config 为最底层，与 ``derive_voice_consistency`` 按字面量比较 ``ReferenceAudioMode`` 同一
+    做法（``StrEnum`` 与字面量可直接 ``==``）。
+
+    None 的三种成因都归到「无信号」：供应商不在注册表（自定义供应商走
+    ``synthesize_video_capabilities``，不经本函数）、该 model 不是视频模型、backend 未声明能力。
+    """
+    provider_meta = PROVIDER_REGISTRY.get(provider_id)
+    model_info = provider_meta.models.get(model_id) if provider_meta is not None else None
+    if model_info is None or model_info.media_type != "video":
+        return None
+    try:
+        spec = get_provider_spec(provider_id, "video")
+        caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+    except ValueError:
+        return None
+    return caps.audio_track_for_route(capability).value
+
+
 # 档位 → 设置键。全局（system_settings）与项目级（project.json）同名同构。
 _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
     TextTaskTier.SIMPLE: "text_backend_simple",
@@ -411,9 +437,9 @@ def derive_voice_consistency(
     ``reference_audio_mode`` 按字面量比较（``ReferenceAudioMode`` 是 ``StrEnum``，两者可
     直接 ``==``），不在 lib.config 层导入 lib.video_backends（分层契约，config 是最底层）。
 
-    native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none。soft/none
-    之分不看 ``generate_audio`` token 是否声明——该 token 语义是「开关可控」而非「有无音轨」，
-    恒有声但开关不可控的型号经 ``model_has_audio_track`` 单独识别为有音轨。
+    native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none。``has_audio``
+    问的是「成片有没有音轨」而非「开关可不可控」，故恒有声（开关不可控）的型号同样算有音轨；
+    调用方由 :func:`builtin_video_audio_track` 得出该位，不各自解读一份声明。
     """
     if reference_audio_mode == "direct" and generation_mode == "reference_video":
         return "native"
@@ -926,6 +952,8 @@ class ConfigResolver:
         provider_id: str,
         model_id: str,
         project: dict | None = None,
+        *,
+        capability: VideoCapability | None = None,
     ) -> dict:
         """读取指定 provider/model 的视频能力，不再二次解析 provider。
 
@@ -937,10 +965,14 @@ class ConfigResolver:
         入参身份仍会再收敛一次（口径同 ``resolve_video_backend``），因此直接传字面配置也能
         拿到有效身份的能力；自定义供应商无可用默认 model 时抛 ``ValueError``。
 
-        声音一致性等二维值按 ``project`` 的生成模式派生。
+        声音一致性等二维值按 ``project`` 的生成模式派生；``capability`` 显式给定时按该任务类型桶派生
+        逐路径的能力位（音轨形态按执行子路径分叉，见 :func:`builtin_video_audio_track`）——
+        执行层已知任务落在哪个桶，传进来才能拿到与实际请求同形的结果。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project)
+            return await self._resolve_video_caps_for_model(
+                svc, session, provider_id, model_id, project, capability=capability
+            )
 
     async def video_pricing_generate_audio(
         self,
@@ -1333,7 +1365,9 @@ class ConfigResolver:
         if capability is None:
             capability = video_bucket_for_generation_mode(caps_generation_mode(project))
         selected = await self._resolve_video_provider_model(svc, session, project, None, capability)
-        return await self._resolve_video_caps_for_model(svc, session, selected.provider_id, selected.model_id, project)
+        return await self._resolve_video_caps_for_model(
+            svc, session, selected.provider_id, selected.model_id, project, capability=capability
+        )
 
     async def _resolve_video_caps_for_model(
         self,
@@ -1342,7 +1376,14 @@ class ConfigResolver:
         provider_id: str,
         model_id: str,
         project: dict | None,
+        *,
+        capability: VideoCapability | None = None,
     ) -> dict:
+        # 音轨形态按执行子路径分叉（可灵 v3-omni 的多图主体子路径不带音轨开关），故能力解析需要
+        # 知道落哪个桶；未显式给定时按项目路线定桶，与 `_resolve_video_capabilities_from_project`
+        # 同一条规则。
+        if capability is None:
+            capability = video_bucket_for_generation_mode(caps_generation_mode(project))
         effective = await self._resolve_effective_video_provider_model(session, ProviderModel(provider_id, model_id))
         provider_id, model_id = effective.provider_id, effective.model_id
         if is_custom_provider(provider_id):
@@ -1382,8 +1423,11 @@ class ConfigResolver:
             # 自定义供应商按声明单价计费（`CustomProviderPrice` 无音频维度），计价参数不因
             # 默认执行档收窄，故沿用项目请求值。
             default_tier_generates_audio = True
-            # 自定义供应商无 generate_audio 目录声明，与上一行 default_tier_generates_audio
-            # 同口径：无信号时假定有声，不凭空判定为真无声模型。
+            # 自定义供应商的音轨形态不参与派生（docs/adr/0054）：设置界面拿不到自定义模型的
+            # 逐模型音轨目录（它们不在 /providers 里），服务端单方面派生会让界面与入队预检各
+            # 说一套；且 endpoint 背后的上游 model 由用户填写、无从核实，误判恒有声会把合法配置
+            # 挡在入队之外。与上一行 default_tier_generates_audio 同口径：无信号时假定有声、
+            # 开关保持可控，不凭空判定为真无声模型。
             has_audio = True
             raw_durations = model.supported_durations
             supported_durations: list[int] = []
@@ -1419,7 +1463,9 @@ class ConfigResolver:
             reference_audio_mode = builtin_caps.reference_audio_mode
             max_reference_audio_count = builtin_caps.max_reference_audio_count
             reference_audio_per_image = builtin_caps.reference_audio_per_image
-            has_audio = model_has_audio_track(provider_id, model_info)
+            # 音轨与上面几维同源同一个 VideoCapabilities，只是要按 capability 落的桶取路径分支：参考
+            # 路线无音轨的子路径（可灵 v3-omni 多图主体）据此如实派生出 voice_consistency=none。
+            has_audio = builtin_caps.audio_track_for_route(capability) != "always_off"
             try:
                 default_tier_generates_audio = builtin_effective_generate_audio_for_model(
                     spec.registry_backend, model_id
