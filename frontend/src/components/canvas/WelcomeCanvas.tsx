@@ -9,6 +9,7 @@ import {
   Loader2,
   CheckCircle2,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -53,11 +54,17 @@ export function WelcomeCanvas({
   const [isDragging, setIsDragging] = useState(false);
   const [phase, setPhase] = useState<UploadPhase>("loading");
   const [sourceFiles, setSourceFiles] = useState<string[]>([]);
+  const sourceFilesRef = useRef(sourceFiles);
   const [fileName, setFileName] = useState("");
+  const [deletingSource, setDeletingSource] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
   const displayProjectTitle = getProjectDisplayName(projectTitle, t("untitled_project"));
+
+  useEffect(() => {
+    sourceFilesRef.current = sourceFiles;
+  }, [sourceFiles]);
 
   // 拉取已有源文件，决定初始 phase
   useEffect(() => {
@@ -97,8 +104,6 @@ export function WelcomeCanvas({
       setFileName(file.name);
       setError(null);
 
-      const wasIdle = sourceFiles.length === 0;
-
       setPhase("uploading");
       try {
         await onUpload(file);
@@ -111,22 +116,31 @@ export function WelcomeCanvas({
       // 后端会规范化 .docx/.epub/.pdf → .txt，可能改名；触发 invalidate 让
       // useEffect 用服务端真实列表回填。
       useAppStore.getState().invalidateSourceFiles();
-
-      if (wasIdle && onAnalyze) {
-        setPhase("analyzing");
-        try {
-          await onAnalyze();
-          setPhase("done");
-        } catch (err) {
-          setError(t("analysis_failed", { message: errMsg(err) }));
-          setPhase("has_sources");
-        }
-        return;
-      }
-
       setPhase("has_sources");
     },
-    [onUpload, onAnalyze, sourceFiles.length, t],
+    [onUpload, sourceFiles.length, t],
+  );
+
+  const deleteSource = useCallback(
+    async (sourcePath: string) => {
+      if (deletingSource) return;
+      const filename = sourcePath.replace(/^source\//, "");
+      setDeletingSource(sourcePath);
+      setError(null);
+      try {
+        await API.deleteSourceFile(projectName, filename);
+        const remaining = sourceFilesRef.current.filter((item) => item !== sourcePath);
+        sourceFilesRef.current = remaining;
+        setSourceFiles(remaining);
+        setPhase(remaining.length > 0 ? "has_sources" : "idle");
+        useAppStore.getState().invalidateSourceFiles();
+      } catch (err) {
+        setError(t("delete_failed", { message: errMsg(err) }));
+      } finally {
+        setDeletingSource(null);
+      }
+    },
+    [deletingSource, projectName, t],
   );
 
   const startAnalysis = useCallback(async () => {
@@ -405,9 +419,25 @@ export function WelcomeCanvas({
                     className="h-3.5 w-3.5 shrink-0"
                     style={{ color: "var(--color-text-4)" }}
                   />
-                  <span className="truncate">
+                  <span className="min-w-0 flex-1 truncate">
                     {f.replace(/^source\//, "")}
                   </span>
+                  <button
+                    type="button"
+                    aria-label={t("delete_source_file_aria_label", {
+                      filename: f.replace(/^source\//, ""),
+                    })}
+                    disabled={deletingSource !== null}
+                    onClick={() => voidCall(deleteSource(f))}
+                    className="focus-ring grid h-6 w-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.07)] disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ color: "var(--color-text-4)" }}
+                  >
+                    {deletingSource === f ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
                 </div>
               ))}
             </div>

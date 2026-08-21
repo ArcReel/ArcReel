@@ -40,14 +40,19 @@ function renderWelcome(props: Partial<Parameters<typeof WelcomeCanvas>[0]>) {
   );
 }
 
-describe("WelcomeCanvas auto-analyze on first upload", () => {
+describe("WelcomeCanvas manual analysis", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     vi.restoreAllMocks();
     vi.spyOn(API, "listFiles").mockResolvedValue({ files: { source: [] } });
   });
 
-  it("triggers onAnalyze automatically after first upload from idle", async () => {
+  it("waits for an explicit click after the first upload", async () => {
+    vi.mocked(API.listFiles)
+      .mockResolvedValueOnce({ files: { source: [] } })
+      .mockResolvedValue({
+        files: { source: [{ name: "novel.txt", size: 1, url: "/novel" }] },
+      });
     const onUpload = vi.fn().mockResolvedValue(undefined);
     const onAnalyze = vi.fn().mockResolvedValue(undefined);
     renderWelcome({ onUpload, onAnalyze });
@@ -57,6 +62,9 @@ describe("WelcomeCanvas auto-analyze on first upload", () => {
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => expect(onUpload).toHaveBeenCalledWith(file));
+    expect(onAnalyze).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole("button", { name: "开始 AI 分析" }));
     await waitFor(() => expect(onAnalyze).toHaveBeenCalledTimes(1));
   });
 
@@ -74,6 +82,36 @@ describe("WelcomeCanvas auto-analyze on first upload", () => {
 
     await waitFor(() => expect(onUpload).toHaveBeenCalled());
     expect(onAnalyze).not.toHaveBeenCalled();
+  });
+});
+
+describe("WelcomeCanvas source deletion", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.restoreAllMocks();
+    vi.spyOn(API, "listFiles")
+      .mockResolvedValueOnce({
+        files: {
+          source: [
+            { name: "first.txt", size: 10, url: "/first" },
+            { name: "second.txt", size: 20, url: "/second" },
+          ],
+        },
+      })
+      .mockResolvedValue({
+        files: { source: [{ name: "second.txt", size: 20, url: "/second" }] },
+      });
+  });
+
+  it("deletes a source file from the remove button at the end of its row", async () => {
+    const deleteSpy = vi.spyOn(API, "deleteSourceFile").mockResolvedValue({ success: true });
+    renderWelcome({});
+
+    fireEvent.click(await screen.findByRole("button", { name: "删除源文件 first.txt" }));
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("p", "first.txt"));
+    await waitFor(() => expect(screen.queryByText("first.txt")).not.toBeInTheDocument());
+    expect(screen.getByText("second.txt")).toBeInTheDocument();
   });
 });
 
