@@ -1367,7 +1367,7 @@ async def _open_drama_step1_for_edit(ctx: ToolContext, episode: int, source: str
                     "不在草稿里、也不要手写。增删分镜即增删数组元素。\n"
                     f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
                     "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
-                    "草稿在场期间内容确认与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
+                    "草稿在场期间，内容确认与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
                 ),
             }
         ]
@@ -1756,7 +1756,7 @@ async def _open_narration_step1_for_edit(ctx: ToolContext, episode: int, source:
         "本集正式 step1 当初若按别的源文件产出，请先把 meta.source 改成那个路径，否则一字未改也判不过。\n"
         f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
         "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
-        "草稿在场期间内容确认与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
+        "草稿在场期间，内容确认与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
     )
     return {"content": [{"type": "text", "text": guide}]}
 
@@ -1899,7 +1899,7 @@ async def _open_reference_step1_for_edit(ctx: ToolContext, episode: int, source:
                     "增删 unit 即增删数组元素，unit_id 按新顺序重编。\n"
                     f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
                     "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
-                    "草稿在场期间内容确认与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
+                    "草稿在场期间，内容确认与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
                 ),
             }
         ]

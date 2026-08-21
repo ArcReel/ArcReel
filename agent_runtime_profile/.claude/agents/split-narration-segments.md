@@ -108,7 +108,7 @@ mcp__arcreel__open_step1_for_edit({"episode": N, "source": "source/episode_N.txt
 
 使用 Edit 工具修改草稿的 `content.segments[i]`（保持合法 JSON 结构），遵循**修改口径**：
 
-- `novel_text` 逐字保留原文（含标点），除非用户的修改要求明确针对原文文字本身；对话分镜含完整说话内容与引导语。全部分镜按序拼接后须与源文逐字相同——晋升时按此机械重判，删减 / 改写 / 重排一律拒
+- `novel_text` 必须逐字保留原文（含标点），对话分镜含完整说话内容与引导语。全部分镜按序拼接后须与源文逐字相同——晋升时按此机械重判，删减 / 改写 / 重排一律拒。用户的修改要求若针对原文文字本身，本子智能体改不动：晋升会一律判它覆盖不全，改草稿只是白跑一轮。停下来把这一点报告给主 Agent，由其决定是否先改 `source/episode_N.txt` 再重跑拆分
 - `duration_seconds` 必须取 Step 0 查得的 `supported_durations` 中的值
 - `segment_id` 保持 `E{集数}S{两位序号}` 格式（如 `E1S01`）、全集唯一，前缀须为当前集号
 - `characters_in_segment` / `scenes` / `props` 只引用 `project.json` 已登记名称（不确定就 Read `project.json` 确认），无对应资产时显式写空数组 `[]`
@@ -125,7 +125,7 @@ mcp__arcreel__validate_and_promote_draft({"episode": N})
 全量校验通过则写回正式 `step1_segments.json`、草稿自动清除；不通过则返回逐条报告，
 按报告继续改草稿再晋升，无轮次上限。若返回并发冲突（取回后正式文件被 Web 端保存改过），按报告
 把对方的修改合并进草稿、把 `meta.base_fingerprint` 更新为报告给出的现值指纹，再晋升。
-草稿在场期间内容确认与 step2 生成都被阻塞，处置完才能继续。
+草稿在场期间，内容确认与 step2 生成都被阻塞，处置完才能继续。
 
 **修改必重生 JSON 剧本**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 Agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新拆分 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
 
