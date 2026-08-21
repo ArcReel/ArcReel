@@ -1495,7 +1495,7 @@ export default {
   'migration_repair_title': '本项目需要修复',
   'migration_repair_body': '数据升级未完成，生成功能暂时关闭。已有的脚本与画面照常可以查看。点「重试升级」把修复请求带到 Agent 对话，确认后发送。',
   'migration_repair_action': '重试升级',
-  'migration_repair_prefill': '这个项目的数据升级失败了，请按失败明细逐条说明是哪一集、哪个文件、违了什么约，用受控编辑工具修好后调用 retry_project_migration 重试升级。',
+  'migration_repair_prefill': '这个项目的数据升级失败了，请按失败明细逐条说明是哪一集、哪个文件、违了什么约，用 patch_project / patch_episode_meta / rename_asset 修好后调用 retry_project_migration 重试升级。',
   // Skill display names (single source of truth: agent_runtime_profile/.claude/skills/*/SKILL.md
   // 中 user-invocable: true 的 skill；tests/test_frontend_skill_i18n.py 校验三语齐全)
   'skill_name_video_workflow': '视频创作工作流',

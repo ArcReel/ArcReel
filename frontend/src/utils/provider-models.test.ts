@@ -169,7 +169,7 @@ describe("lookupVideoAudioControl", () => {
     expect(lookupVideoAudioControl(PROVIDERS, `gemini-aistudio/${modelId}`, "r2v")).toBe(expected);
   });
 
-  // 逐路径取值：按模型取会让参考路线放行一个执行期必然被丢弃的开关（用户开了音频拿到无声成片）。
+  // 逐路径取值：按模型取会让参考生视频放行一个执行期必然被丢弃的开关（用户开了音频拿到无声成片）。
   it("reads the reference-route declaration for r2v", () => {
     expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/route-split", "i2v")).toBe("controllable");
     expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/route-split", "r2v")).toBe("always_off");

@@ -333,7 +333,7 @@ def video_capability_satisfied(*, capability: VideoCapability, first_frame: bool
 
 
 def builtin_video_audio_track(provider_id: str, model_id: str, *, capability: VideoCapability) -> str | None:
-    """内置视频 model 在该能力桶上的成片音轨形态；无法解析时 None（调用方按「无信号不收紧」处理）。
+    """内置视频 model 在该任务类型桶上的成片音轨形态；无法解析时 None（调用方按「无信号不收紧」处理）。
 
     真相源是 backend 的 ``VideoCapabilities``——backend 是执行期真正构造请求的一方，「请求体里
     有没有音轨开关」就是这一位的字面含义，也只有它表达得了「同一 model 内按执行子路径分叉」

@@ -1496,7 +1496,7 @@ export default {
   'migration_repair_title': 'This project needs repair',
   'migration_repair_body': 'The data upgrade did not finish, so generation is turned off for now. Existing scripts and visuals remain viewable. Click "Retry upgrade" to bring the repair request into the agent conversation, then send it yourself.',
   'migration_repair_action': 'Retry upgrade',
-  'migration_repair_prefill': "This project's data upgrade failed. Walk me through the failure details one by one — which episode, which file, what was violated — then repair them with the controlled editing tools and call retry_project_migration.",
+  'migration_repair_prefill': "This project's data upgrade failed. Walk me through the failure details one by one — which episode, which file, what was violated — then repair them with patch_project / patch_episode_meta / rename_asset and call retry_project_migration.",
   // Skill display names (single source of truth: user-invocable SKILL.md files
   // under agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py enforces parity)
   'skill_name_video_workflow': 'Video creation workflow',
