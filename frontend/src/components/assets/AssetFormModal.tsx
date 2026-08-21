@@ -1,6 +1,18 @@
 import { useEffect, useId, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Check, ChevronDown, Image as ImageIcon, ImagePlus, Landmark, Package, User } from "lucide-react";
+import {
+  AlertTriangle,
+  AudioLines,
+  Check,
+  ChevronDown,
+  Image as ImageIcon,
+  ImagePlus,
+  Landmark,
+  Package,
+  Pause,
+  Play,
+  User,
+} from "lucide-react";
 import { API } from "@/api";
 import type { Asset, AssetResource, AssetType } from "@/types/asset";
 import { GlassModal } from "@/components/ui/GlassModal";
@@ -327,24 +339,14 @@ export function AssetFormModal({
             )}
 
             {isCharacter && mode === "edit" && audioResources.length > 0 && (
-              <FieldLabel label={t("field.primary_audio")}>
-                <select
+              <FieldGroup label={t("field.primary_audio")}>
+                <AudioResourcePicker
+                  resources={audioResources}
                   value={primaryAudioResourceId}
-                  onChange={(event) => setPrimaryAudioResourceId(event.target.value)}
-                  className="focus-ring rounded-lg px-3 py-2 text-[13px] outline-none"
-                  style={{
-                    background: "oklch(0.16 0.010 265 / 0.6)",
-                    border: "1px solid var(--color-hairline)",
-                    color: "var(--color-text)",
-                  }}
-                >
-                  {audioResources.map((resource, index) => (
-                    <option key={resource.id} value={resource.id}>
-                      {t("resource_audio_option", { index: index + 1 })}
-                    </option>
-                  ))}
-                </select>
-              </FieldLabel>
+                  fingerprint={initialData?.updated_at}
+                  onChange={setPrimaryAudioResourceId}
+                />
+              </FieldGroup>
             )}
           </div>
         </div>
@@ -496,6 +498,163 @@ function ImageResourcePicker({
                 <span className="min-w-0 flex-1 truncate text-[12px] text-text-2">{label}</span>
                 {selectedOption && <Check aria-hidden className="h-4 w-4 shrink-0 text-accent" />}
               </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AudioResourcePicker({
+  resources,
+  value,
+  fingerprint,
+  onChange,
+}: {
+  resources: AssetResource[];
+  value: string;
+  fingerprint?: string | null;
+  onChange: (resourceId: string) => void;
+}) {
+  const { t } = useTranslation("assets");
+  const [open, setOpen] = useState(false);
+  const [playingResourceId, setPlayingResourceId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const panelId = useId();
+  const selectedIndex = Math.max(0, resources.findIndex((resource) => resource.id === value));
+  const selected = resources[selectedIndex];
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => () => audioRef.current?.pause(), []);
+
+  const labelFor = (_resource: AssetResource, index: number) => (
+    t("resource_audio_option", { index: index + 1 })
+  );
+
+  const urlFor = (resource: AssetResource) => (
+    API.getGlobalAssetUrl(resource.path, fingerprint)
+  );
+
+  const togglePreview = (resource: AssetResource) => {
+    const audio = audioRef.current;
+    const url = urlFor(resource);
+    if (!audio || !url) return;
+
+    if (playingResourceId === resource.id) {
+      audio.pause();
+      setPlayingResourceId(null);
+      return;
+    }
+
+    audio.src = url;
+    audio.currentTime = 0;
+    setPlayingResourceId(resource.id);
+    void audio.play().catch(() => setPlayingResourceId(null));
+  };
+
+  const previewButton = (resource: AssetResource, label: string) => {
+    const playing = playingResourceId === resource.id;
+    const previewLabel = playing
+      ? t("pause_audio_preview", { label })
+      : t("play_audio_preview", { label });
+    return (
+      <button
+        type="button"
+        aria-label={previewLabel}
+        title={previewLabel}
+        disabled={!urlFor(resource)}
+        onClick={() => togglePreview(resource)}
+        className="focus-ring grid h-9 w-9 shrink-0 place-items-center rounded-md outline-none transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+        style={{ color: playing ? "var(--color-accent-2)" : "var(--color-text-3)" }}
+      >
+        {playing
+          ? <Pause aria-hidden className="h-4 w-4 fill-current" />
+          : <Play aria-hidden className="h-4 w-4 fill-current" />}
+      </button>
+    );
+  };
+
+  if (!selected) return null;
+  const selectedLabel = labelFor(selected, selectedIndex);
+
+  return (
+    <div ref={rootRef} className="relative">
+      {/* Catalog voice samples do not include caption tracks. */}
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio
+        ref={audioRef}
+        className="hidden"
+        preload="none"
+        onEnded={() => setPlayingResourceId(null)}
+        onError={() => setPlayingResourceId(null)}
+      />
+      <div
+        className="flex w-full items-center gap-1 rounded-lg p-1"
+        style={{
+          background: "oklch(0.16 0.010 265 / 0.6)",
+          border: "1px solid var(--color-hairline)",
+          color: "var(--color-text)",
+        }}
+      >
+        {previewButton(selected, selectedLabel)}
+        <button
+          type="button"
+          aria-label={t("select_primary_audio", { label: selectedLabel })}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? panelId : undefined}
+          onClick={() => setOpen((current) => !current)}
+          className="focus-ring flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1 text-left outline-none"
+        >
+          <AudioLines aria-hidden className="h-4 w-4 shrink-0 text-text-4" />
+          <span className="min-w-0 flex-1 truncate text-[12px]">{selectedLabel}</span>
+          <ChevronDown aria-hidden className={`h-4 w-4 shrink-0 text-text-4 transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
+      </div>
+      {open && (
+        <div
+          id={panelId}
+          role="dialog"
+          aria-label={t("field.primary_audio")}
+          className="absolute inset-x-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border p-1 shadow-2xl"
+          style={{ background: "oklch(0.17 0.010 265)", borderColor: "var(--color-hairline)" }}
+        >
+          {resources.map((resource, index) => {
+            const label = labelFor(resource, index);
+            const selectedOption = resource.id === value;
+            return (
+              <div key={resource.id} className="flex items-center gap-1 rounded-md hover:bg-white/5">
+                {previewButton(resource, label)}
+                <button
+                  type="button"
+                  aria-pressed={selectedOption}
+                  onClick={() => {
+                    onChange(resource.id);
+                    setOpen(false);
+                  }}
+                  className="focus-ring flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-2 text-left outline-none"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-text-2">{label}</span>
+                  {selectedOption && <Check aria-hidden className="h-4 w-4 shrink-0 text-accent" />}
+                </button>
+              </div>
             );
           })}
         </div>
