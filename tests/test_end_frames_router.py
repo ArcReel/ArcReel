@@ -1,4 +1,4 @@
-"""镜头尾帧设置/清除端点测试。
+"""分镜尾帧设置/清除端点测试。
 
 覆盖两条设置通道（上传 / 项目内选图）落到同一快照路径、换图原地覆盖、清除语义、
 越界与缺失拒绝，以及快照与源图的解耦（源图被改写/删除不影响已定尾帧）。
@@ -441,7 +441,7 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
     """模拟「回滚重新过锁前，另一个并发请求已抢先完整地执行完自己的一次操作」。
 
     回滚判定的是「操作代次」而非文件内容（见 end_frame.py 模块 docstring 的退化值说明），
-    所以这里不能只改文件字节，还要推进该镜头的代次，否则复现不出代次判定要拦截的场景。
+    所以这里不能只改文件字节，还要推进该分镜的代次，否则复现不出代次判定要拦截的场景。
     `content=None` 表示并发的那一次是清除（文件被删）；否则表示并发的那一次是设置。
 
     补偿回滚会再发起一次 `locked_script`，其剧本读取即回滚临界区的起点——在其第 n 次被
@@ -510,7 +510,7 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.read_bytes() == before
 
     def test_set_failure_skips_restore_when_concurrent_write_supersedes(self, client, monkeypatch):
-        """回滚重新过锁时若该镜头的操作代次已前移，说明并发请求已经接管，
+        """回滚重新过锁时若该分镜的操作代次已前移，说明并发请求已经接管，
         必须跳过回滚——否则会用陈旧字节覆盖对方刚成功落盘的内容。"""
         c, pm = client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL

@@ -122,14 +122,14 @@ _REQUEST_SCHEMA_PROPERTIES = {
 
 
 #: 已退役的入参名 → 该怎么写。键都是曾经真实存在、或与视频单元旧结构同名的写法：
-#: 前三个是点名目标的旧 id 参数，后两个是视频单元已删除的镜头与参考清单字段。
+#: 前三个是点名目标的旧 id 参数，后两个是视频单元已删除的 ``shots`` 与参考清单字段。
 #: 视频单元现在只持有 ``text`` 与 ``duration_seconds``，参考图在执行期从正文的
 #: ``@[名称]`` 首次提及顺序派生，两者都不再经工具入参传入。
 _RETIRED_PARAMS: dict[str, str] = {
     "shot_ids": "改用点名参数 scene_id（单个）/ scene_ids（批量）",
     "unit_id": "改用点名参数 scene_id——参考生视频项目在该参数里直接传 unit_id",
     "unit_ids": "改用点名参数 scene_ids——参考生视频项目在该参数里直接传 unit_id 列表",
-    "shots": "视频单元不再有镜头数组；正文写在剧本的 text 字段里，经 patch_episode_script 修改",
+    "shots": "视频单元不再有 shots 数组；正文写在剧本的 text 字段里，经 patch_episode_script 修改",
     "references": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
     "reference_images": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
 }
@@ -1580,7 +1580,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     if screened is not None and screened.problems
                     else GenerationProblem(
                         code=GenerationProblemCode.UNIT_NOT_FOUND,
-                        detail=f"场景/片段 '{scene_id}' 不存在",
+                        detail=f"分镜 '{scene_id}' 不存在",
                         action=GenerationAction.FIX_INPUT,
                     ),
                 )
@@ -1713,7 +1713,7 @@ def generate_video_all_tool(ctx: ToolContext):
 def generate_video_selected_tool(ctx: ToolContext):
     @tool(
         "generate_video_selected",
-        "生成指定多个场景的视频。storyboard 项目用按 scene_ids 哈希的独立 checkpoint，支持 resume 续传。"
+        "生成指定多个分镜的视频。storyboard 项目用按 scene_ids 哈希的独立 checkpoint，支持 resume 续传。"
         "reference_video 项目传 unit_id 列表即对这些 unit 重新生成（覆盖已有成片），"
         "不落批次进度 checkpoint、忽略此处 resume 参数；已入队任务的 provider 提交恢复由队列独立处理。",
         _SELECTED_TOOL_SCHEMA,
@@ -1761,7 +1761,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             refused: list[UnitAdmissionTicket] = []
             seen_canonical: set[str] = set()
             # ``items_by_id`` 同时按 ``id_field`` 与 ``scene_id`` 索引同一个 item，
-            # 调用方若把两个值都列入 ``scene_ids`` 会让同一场景重复入队——必须按
+            # 调用方若把两个值都列入 ``scene_ids`` 会让同一分镜重复入队——必须按
             # 规范 ``id_field`` 再去一次重。
             screened_ids = {ticket.unit_id for ticket in screen_refused}
             for sid in scene_ids:
@@ -1788,7 +1788,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 return generation_result_response(builder.build(), log)
 
             # checkpoint hash 用 ``selected`` 解析出的规范 ID 集合，让同一批
-            # 场景无论用别名 ``scene_id`` 还是规范 ``id_field`` 调用都落到同一
+            # 分镜无论用别名 ``scene_id`` 还是规范 ``id_field`` 调用都落到同一
             # checkpoint 文件（否则 resume 会因 hash 不同读到空 ``completed_scenes``，
             # 已生成的视频被 ``_scan_completed_items`` 漏判，重复入队）。
             canonical_scene_ids = sorted(seen_canonical)

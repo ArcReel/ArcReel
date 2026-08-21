@@ -1,4 +1,4 @@
-"""镜头级分镜图/视频自主上传路由。
+"""分镜级分镜图/视频自主上传路由。
 
 与通用资产上传（files.py）分离，不是 UPLOAD_SPECS 的表项：本路由按 script_file + shot_id
 定位剧本条目、纳入版本管理（VersionManager）、经 finalize_shot_* 回写剧本元数据，并返回
@@ -7,7 +7,7 @@ subdir + naming 路径模型与 MetadataSetter 签名不覆盖这条管线。扩
 upload_finalize.validate_upload。
 
 宫格切分后的单元格图 canonical 路径与分镜图生视频相同（storyboards/scene_{id}.png），
-按镜头上传即覆盖该单元格，宫格记录不动；联合图整图上传走 grids.py 的独立端点。
+按分镜上传即覆盖该单元格，宫格记录不动；联合图整图上传走 grids.py 的独立端点。
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ async def upload_shot_media(
     _t: Translator,
     file: UploadFile = File(...),
 ):
-    """上传分镜图或镜头视频，替换该镜头的 AI 生成资产。
+    """上传分镜图或分镜视频，替换该分镜的 AI 生成资产。
 
     与生成链路保持一致：staging → 正式选择与元数据原子提交（status 自动推导）→
     SSE batch 推送。

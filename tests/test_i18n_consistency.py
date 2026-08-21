@@ -59,6 +59,27 @@ def test_tts_lifecycle_messages_name_the_narration_audio_artifact(locale: str, t
         assert term.casefold() in MESSAGES[locale][key].casefold(), f"{locale}.{key} must name {term}"
 
 
+def test_zh_script_entry_messages_use_storyboard_entry_term():
+    """脚本 segment / scene / shot 条目统一称分镜，不能随机器骨架名漂移。"""
+    keys = (
+        "event_label_skeleton_segments",
+        "event_label_skeleton_scenes",
+        "event_label_skeleton_shots",
+        "scene_updated",
+        "shot_not_found",
+        "shot_ids_length_mismatch",
+        "shot_ids_mismatch",
+        "ad_no_default_duration",
+        "video_last_frame_unsupported",
+        "val_ad_no_default_duration",
+        "val_skeleton_noun_scenes",
+        "val_skeleton_noun_shots",
+    )
+    for key in keys:
+        assert "分镜" in MESSAGES["zh"][key], f"zh.{key} must name 分镜"
+        assert "镜头" not in MESSAGES["zh"][key], f"zh.{key} must reserve 镜头 for cinematography"
+
+
 def test_errors_module_keys_match():
     """en/errors.py and zh/errors.py must have identical key sets."""
     en_keys = set(en_errors.MESSAGES.keys())

@@ -327,7 +327,7 @@ export interface VersionInfo {
   source?: string;
 }
 
-/** 镜头/单元媒体上传的统一响应。 */
+/** 分镜/视频单元媒体上传的统一响应。 */
 export interface ShotUploadResult {
   success: boolean;
   path: string;
@@ -1398,7 +1398,7 @@ class API {
 
   // ==================== 分镜管理（广告/短片） ====================
 
-  /** 更新 ad 剧本中的单个镜头（口播文案 / section / 时长 / 引用列表等白名单字段）。 */
+  /** 更新 ad 剧本中的单个分镜（口播文案 / section / 时长 / 引用列表等白名单字段）。 */
   static async updateShot(
     projectName: string,
     shotId: string,
@@ -1414,7 +1414,7 @@ class API {
     );
   }
 
-  /** 按给定全排列重排 ad 剧本的镜头顺序。 */
+  /** 按给定全排列重排 ad 剧本的分镜顺序。 */
   static async reorderShots(
     projectName: string,
     scriptFile: string,
@@ -1508,7 +1508,7 @@ class API {
     return (await response.json()) as T;
   }
 
-  /** 上传分镜图或镜头视频，替换该镜头的 AI 生成资产（storyboard/grid 模式）。 */
+  /** 上传分镜图或分镜视频，替换该分镜的 AI 生成资产（storyboard/grid 模式）。 */
   static async uploadShotMedia(
     projectName: string,
     scriptFile: string,
@@ -1522,13 +1522,13 @@ class API {
     return API.postFileUpload<ShotUploadResult>(url, file);
   }
 
-  // ==================== 镜头尾帧 ====================
+  // ==================== 分镜尾帧 ====================
   //
   // 三个端点同一落点：设置走上传或项目内选图两条通道，都归一为 PNG 快照写到
   // end_frames/scene_{id}.png（原地覆盖），清除删快照并置空字段。返回的
   // end_frame_image 是项目内相对路径；换图后路径不变，靠资产指纹 cache-bust。
 
-  /** 上传任意图片作为该镜头的尾帧。 */
+  /** 上传任意图片作为该分镜的尾帧。 */
   static async uploadEndFrame(
     projectName: string,
     shotId: string,
@@ -1541,7 +1541,7 @@ class API {
     return API.postFileUpload<{ success: boolean; end_frame_image: string }>(url, file);
   }
 
-  /** 选项目内已有图片作为该镜头的尾帧（快照复制，不建立引用）。 */
+  /** 选项目内已有图片作为该分镜的尾帧（快照复制，不建立引用）。 */
   static async selectEndFrame(
     projectName: string,
     shotId: string,
@@ -1557,7 +1557,7 @@ class API {
     });
   }
 
-  /** 清除该镜头的尾帧。 */
+  /** 清除该分镜的尾帧。 */
   static async clearEndFrame(
     projectName: string,
     shotId: string,

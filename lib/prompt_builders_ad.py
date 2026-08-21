@@ -55,14 +55,14 @@ _AD_GENERAL_RULES = """\
 - hook 与 cta 是绝对时长段（hook 2-4s、cta 3-6s），不随档位等比放大；加长的秒数优先给 selling_point/demo，其次 trust
 - price_promo 永远紧贴 cta 构成「促单收尾块」
 - 即使 hook 不是商品画面，商品也应在前 3 秒内入画（文字/局部/手持均可）
-- 单 section 超过 6 秒必须拆成多个镜头；全片平均 3-5 秒/镜，开头允许 2-3 秒快切；镜头数宁多勿少（多场景多角度有平台官方数据背书）
+- 单 section 超过 6 秒必须拆成多个分镜；全片平均 3-5 秒/分镜，开头允许 2-3 秒快切；分镜数宁多勿少（多场景多角度有平台官方数据背书）
 - 30 秒档为默认推荐档；90 秒档用「小故事」组织而非平铺卖点，仅适合高客单/需教育的商品"""
 
 _AD_TIER_TABLES: dict[int, str] = {
     15: """\
-15 秒档（冲动型/投流款，5-6 镜头；只保五段：pain_point 并入 hook、trust 砍掉、price_promo 并入 cta）：
+15 秒档（冲动型/投流款，5-6 个分镜；只保五段：pain_point 并入 hook、trust 砍掉、price_promo 并入 cta）：
 
-| section | 秒数 | 累计 | 镜头数 |
+| section | 秒数 | 累计 | 分镜数 |
 |---|---|---|---|
 | hook（兼任 pain_point） | 3 | 0-3 | 1 |
 | product_reveal | 2 | 3-5 | 1 |
@@ -72,7 +72,7 @@ _AD_TIER_TABLES: dict[int, str] = {
     30: """\
 30 秒档（标准带货位，默认推荐，8-10 个分镜；八段全保，trust 与 price_promo 压成一句话分镜；商品极低客单且无可信背书时首砍 trust、秒数还给 demo）：
 
-| section | 秒数 | 累计 | 镜头数 |
+| section | 秒数 | 累计 | 分镜数 |
 |---|---|---|---|
 | hook | 3 | 0-3 | 1 |
 | pain_point | 4 | 3-7 | 1-2 |
@@ -83,9 +83,9 @@ _AD_TIER_TABLES: dict[int, str] = {
 | price_promo | 2 | 25-27 | 1 |
 | cta | 3 | 27-30 | 1 |""",
     60: """\
-60 秒档（完整说服链，13-16 镜头；八段全保各自成块，增量给 selling_point+demo）：
+60 秒档（完整说服链，13-16 个分镜；八段全保各自成块，增量给 selling_point+demo）：
 
-| section | 秒数 | 累计 | 镜头数 |
+| section | 秒数 | 累计 | 分镜数 |
 |---|---|---|---|
 | hook | 3 | 0-3 | 1 |
 | pain_point（1-2 个具体情境） | 7 | 3-10 | 2 |
@@ -96,9 +96,9 @@ _AD_TIER_TABLES: dict[int, str] = {
 | price_promo（原价锚定→到手价→限时） | 5 | 50-55 | 1-2 |
 | cta（行动指令+重申核心利益） | 5 | 55-60 | 1 |""",
     90: """\
-90 秒档（叙事型/高客单，18-22 镜头；八段全保，增量给 demo/selling_point/trust/pain_point）：
+90 秒档（叙事型/高客单，18-22 个分镜；八段全保，增量给 demo/selling_point/trust/pain_point）：
 
-| section | 秒数 | 累计 | 镜头数 |
+| section | 秒数 | 累计 | 分镜数 |
 |---|---|---|---|
 | hook（可用悬念/故事钩） | 4 | 0-4 | 1 |
 | pain_point（人物+冲突小叙事） | 10 | 4-14 | 2-3 |
@@ -260,20 +260,20 @@ def build_ad_prompt(
 - **video_prompt.action**：{_ACTION_WRITING_GUIDE}
 - **video_prompt.camera_motion**：按画面内容自行选择。
 - **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
-- **video_prompt.dialogue**：仅当镜头内有出镜人物开口说话时填写（口播旁白写在 voiceover_text，不要重复进 dialogue）；speaker 必须出现在 characters_in_shot。"""
+- **video_prompt.dialogue**：仅当分镜内有出镜人物开口说话时填写（口播旁白写在 voiceover_text，不要重复进 dialogue）；speaker 必须出现在 characters_in_shot。"""
 
     if not products:
         return f"""# 角色与任务
 
-你是一位资深的短视频编导，精通把一段创作诉求转写为可直接驱动 AI 图像 / 视频生成的结构化镜头脚本。
-你的任务：基于下方创作 brief，产出一支约 {target_duration} 秒的通用短片镜头脚本（平铺 shots[]），符合 schema 的 JSON。
+你是一位资深的短视频编导，精通把一段创作诉求转写为可直接驱动 AI 图像 / 视频生成的结构化分镜脚本。
+你的任务：基于下方创作 brief，产出一支约 {target_duration} 秒的通用短片分镜脚本（平铺 shots[]），符合 schema 的 JSON。
 
 {common_header}
 
 # 时长与节奏
 
-- 全片目标总时长 {target_duration} 秒，各镜头 duration_seconds 之和应贴近该值。
-- 单镜头{duration_constraint}；全片平均 3-5 秒/镜，按内容节奏自行切分。
+- 全片目标总时长 {target_duration} 秒，各分镜 duration_seconds 之和应贴近该值。
+- 单个分镜{duration_constraint}；全片平均 3-5 秒/分镜，按内容节奏自行切分。
 
 {common_constraints}
 
@@ -281,9 +281,9 @@ def build_ad_prompt(
 
 ## 基础字段
 
-- **section**：本片无带货框架，按内容自拟简短英文段落标签（如 opening/development/climax/ending），用于标记镜头在叙事中的位置。
-- **voiceover_text**：每镜头的口播文案，必须完整可照稿配音；无口播的纯画面镜头填空字符串。{voiceover_rate_note}。
-- **characters_in_shot** / **scenes** / **props**：仅列出此镜头画面中实际出现的资产。
+- **section**：本片无带货框架，按内容自拟简短英文段落标签（如 opening/development/climax/ending），用于标记分镜在叙事中的位置。
+- **voiceover_text**：每个分镜的口播文案，必须完整可照稿配音；无口播的纯画面分镜填空字符串。{voiceover_rate_note}。
+- **characters_in_shot** / **scenes** / **props**：仅列出此分镜画面中实际出现的资产。
   - 候选 characters：[{", ".join(character_names) or "（无）"}]
   - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
   - 候选 props：[{", ".join(prop_names) or "（无）"}]
@@ -311,7 +311,7 @@ def build_ad_prompt(
 # 带货八段框架与时长配比
 
 带货短视频按八个段落组织：{" → ".join(AD_SECTION_VALUES)}。
-下方配比表经审定，是各段时长与镜头数的执行标准：
+下方配比表经审定，是各段时长与分镜数的执行标准：
 
 {_format_pacing_block(target_duration)}
 
@@ -319,17 +319,17 @@ def build_ad_prompt(
 
 # 字段写作指引
 
-对每个镜头，按下列章节填写字段。
+对每个分镜，按下列章节填写字段。
 
 ## 基础字段
 
-- **section**：该镜头所属的带货框架段落标签，使用上方八值（如 hook、pain_point）；同段多镜头重复同一标签。
-- **voiceover_text**：每镜头的口播文案，必须完整可照稿配音、与画面同步；无口播的纯画面镜头填空字符串。全片口播连起来应是一篇完整流畅的带货话术，{voiceover_rate_note}。
-- **duration_seconds**：单镜头{duration_constraint}；各段合计遵循配比表，全片总和贴近 {target_duration} 秒。
+- **section**：该分镜所属的带货框架段落标签，使用上方八值（如 hook、pain_point）；同段多个分镜重复同一标签。
+- **voiceover_text**：每个分镜的口播文案，必须完整可照稿配音、与画面同步；无口播的纯画面分镜填空字符串。全片口播连起来应是一篇完整流畅的带货话术，{voiceover_rate_note}。
+- **duration_seconds**：单个分镜{duration_constraint}；各段合计遵循配比表，全片总和贴近 {target_duration} 秒。
 - **products_in_shot**：该分镜画面中实际出现的商品名称列表（商品入画即列出，含局部/手持/包装）；氛围分镜填空数组。
   - 候选 products：[{", ".join(product_names)}]
   - 不要发明候选之外的名称。
-- **characters_in_shot** / **scenes** / **props**：仅列出此镜头画面中实际出现的资产。
+- **characters_in_shot** / **scenes** / **props**：仅列出此分镜画面中实际出现的资产。
   - 候选 characters：[{", ".join(character_names) or "（无）"}]
   - 候选 scenes：[{", ".join(scene_names) or "（无）"}]
   - 候选 props：[{", ".join(prop_names) or "（无）"}]
@@ -358,7 +358,7 @@ def build_ad_reference_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """广告/短片的参考生视频单阶段生成 prompt；直接输出扁平引用语法 unit。"""
+    """广告/短片的参考生视频单阶段生成 prompt；直接输出含引用语法正文的扁平 unit。"""
     if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
         raise ValueError(f"target_duration 必须为正整数秒，当前为 {target_duration!r}")
     min_unit_duration, max_unit_duration = REFERENCE_UNIT_DURATION_RANGE
@@ -370,7 +370,7 @@ def build_ad_reference_prompt(
 
 **输出语言**：所有正文使用 {target_language}；JSON 键名保持英文。
 **输出形状**：只输出 `{{"title": "...", "units": [{{"duration_seconds": {min_unit_duration}, "text": "..."}}]}}`。
-unit_id、references、generated_assets、needs_replan 均由系统派生，不得输出。不要输出 shots、section、shot_id、逐镜头时长、voiceover_text 或 speech_mode。
+unit_id、references、generated_assets、needs_replan 均由系统派生，不得输出。不要输出 shots、section、shot_id、逐分镜时长、voiceover_text 或 speech_mode。
 
 <overview>
 {project_overview.get("synopsis", "")}

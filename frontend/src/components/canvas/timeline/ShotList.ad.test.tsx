@@ -54,7 +54,7 @@ describe("ShotList 广告/短片", () => {
     expect(screen.getByText("hook")).toBeInTheDocument();
   });
 
-  it("无口播的纯画面镜头退回画面描述", () => {
+  it("无口播的纯画面分镜退回画面描述", () => {
     renderList([makeShot({ voiceover_text: "" })]);
     expect(screen.getByText("速干杯特写")).toBeInTheDocument();
   });

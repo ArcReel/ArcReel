@@ -110,7 +110,7 @@ async def video_bucket_for_queued_task(
     """视频任务的定桶口径，入队派生与 worker 限流投影共用、与执行侧同步（docs/adr/0054）。
 
     图生视频 / 宫格 → i2v；参考生视频调公共 request projection 按当前实际可用资产分流——
-    无参考图的退化镜头 → i2v，其余 → r2v。剧本 / unit / 能力读不到时回退代表桶 r2v；
+    无参考图的视频单元 → i2v，其余 → r2v。剧本 / unit / 能力读不到时回退代表桶 r2v；
     回退只影响 claim 池过滤与限流槽路由的精度，执行层仍在处理开始时重新投影。
     表外任务类型返回 None（不定桶）。
     """

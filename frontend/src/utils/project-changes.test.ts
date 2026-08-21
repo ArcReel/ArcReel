@@ -124,15 +124,15 @@ describe("project-changes utils", () => {
   });
 
   it("labels each skeleton kind's group title and item nouns consistently", () => {
-    // 四种骨架 created 分组的标题名词须与条目名词一致：分镜/场景/镜头/视频单元。
+    // 四种骨架 created 分组的标题名词须与条目名词一致：三种分镜骨架 / 视频单元。
     const cases: Array<{
       entityType: ProjectChange["entity_type"];
       labelKey: string;
       noun: string;
     }> = [
       { entityType: "segment", labelKey: "skeleton_segments", noun: "分镜" },
-      { entityType: "drama_scene", labelKey: "skeleton_scenes", noun: "场景" },
-      { entityType: "shot", labelKey: "skeleton_shots", noun: "镜头" },
+      { entityType: "drama_scene", labelKey: "skeleton_scenes", noun: "分镜" },
+      { entityType: "shot", labelKey: "skeleton_shots", noun: "分镜" },
       {
         entityType: "reference_unit",
         labelKey: "skeleton_video_units",

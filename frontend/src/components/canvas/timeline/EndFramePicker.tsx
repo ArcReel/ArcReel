@@ -36,7 +36,7 @@ interface EndFramePickerProps {
   onPickUpload: (file: File) => void;
   /** 设置请求在途：禁用确认，避免重复提交。 */
   submitting?: boolean;
-  /** 弹窗打开后占用态发生变化（如本镜头被入队）：与提交在途一并禁用写入通道。 */
+  /** 弹窗打开后占用态发生变化（如本分镜被入队）：与提交在途一并禁用写入通道。 */
   disabled?: boolean;
 }
 

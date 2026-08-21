@@ -151,7 +151,7 @@ def generate_grid_tool(ctx: ToolContext):
         "为已开启宫格装配的 storyboard 项目（generation_mode=storyboard 且 grid_storyboard=true）"
         "生成宫格联合图（按 segment_break 分组），并在每张生成完成后自动执行切分落格，"
         "端到端产出各场景起始分镜图。"
-        "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些场景的分组；"
+        "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些分镜的分组；"
         "不传 scene_ids 时只生成仍缺分镜图的分组，已失效但可用的旧图会被复用而不重生。"
         "结果按 requested / succeeded / failed / blocked 逐场景 ID 返回"
         "（同一分组的场景共享一张宫格，该宫格的结果投影到它覆盖的每个场景）。",
@@ -213,7 +213,7 @@ def generate_grid_tool(ctx: ToolContext):
             style = project.get("style", "")
             resolver = active_artifact_currency_resolver(project_path, project)
             groups = group_scenes_by_segment_break(items, id_field)
-            # 失败落回场景时用来带上旧图路径与状态（见 ``_fail_scenes`` docstring）；
+            # 失败落回分镜时用来带上旧图路径与状态（见 ``_fail_scenes`` docstring）；
             # 与选择阶段的候选路径同源，取自剧本已登记的 storyboard_image。
             scene_artifact_paths = {
                 str(item.get(id_field)): path

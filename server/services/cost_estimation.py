@@ -62,7 +62,7 @@ ACTUAL_COST_TYPES = ("image", "video", "audio")
 
 #: 读侧定桶要枚举的全部视频任务类型桶。分镜图生视频项目整体走 i2v 桶；参考生视频由公共
 #: request projection 按每个 unit 当前实际可用资产分桶。两个桶都在这里预解析，省去按
-#: 生成模式与镜头分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
+#: 生成模式与分镜分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
 
 #: 普通分镜图取不到分辨率档时的计价档。执行侧此路径把 ``None`` 原样下发给 backend、由其自行定档
@@ -208,7 +208,7 @@ def _split_cost_across(cost: CostBreakdown, parts: int) -> list[CostBreakdown]:
     """把一笔按整体计费的费用均摊成 ``parts`` 份，除不尽的余数补给最后一份。
 
     补余数是为了让分摊结果的合计与原值分文不差：调用方按分摊后的份额累加集/项目合计，
-    若每份都独立 round，误差会随镜头数放大到用户可见的总价上。
+    若每份都独立 round，误差会随分镜数放大到用户可见的总价上。
     """
     if parts <= 0:
         return []
@@ -229,7 +229,7 @@ def _estimate_unit_video_cost(
 ) -> CostBreakdown:
     """一个视频单元取档后秒数的视频估值。计价失败返回空 breakdown（该 unit 不计费）。
 
-    两条参考生视频估算路径（ad 摊回镜头、narration/drama 按 unit 展示）的展示颗粒度不同，
+    两条参考生视频估算路径（ad 按分镜摊回、narration/drama 按视频单元展示）的展示颗粒度不同，
     但「按取档后秒数向 provider 询价」这一步与颗粒度无关，共用同一实现避免两处漂移。
     """
     est_video: CostBreakdown = {}

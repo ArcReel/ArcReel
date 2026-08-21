@@ -1027,7 +1027,7 @@ class TestCostEstimationService:
 
     @pytest.mark.unit
     async def test_ad_storyboard_estimates_per_shot(self, db_factory):
-        """ad 项目（分镜路径）：逐镜头返回分镜图 + 视频估值，聚合进集/项目两级合计。"""
+        """ad 项目（分镜图生视频路径）：逐个分镜返回分镜图 + 视频估值，聚合进集/项目两级合计。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1047,7 +1047,7 @@ class TestCostEstimationService:
         for seg in segments:
             assert seg["estimate"]["image"], seg
             assert seg["estimate"]["video"], seg
-        # 视频估值随镜头时长变化（单镜头级估值非整集平摊）
+        # 视频估值随分镜时长变化（单个分镜级估值非整集平摊）
         assert segments[0]["estimate"]["video"] != segments[1]["estimate"]["video"]
         assert result["episodes"][0]["totals"]["estimate"]["image"]
         assert result["project_totals"]["estimate"]["video"]

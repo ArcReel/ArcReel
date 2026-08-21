@@ -9,10 +9,10 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 | generation_mode | content_mode | 数据主结构 | 内容整理子智能体 | step1 中间文件 | 脚本 schema | 视觉参考来源 |
 |---|---|---|---|---|---|---|
 | `storyboard` | `narration` | `segments[]` | split-narration-segments | `step1_segments.json` | NarrationEpisodeScript | 每片段一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
-| `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `step1_normalized_script.json` | DramaNormalizedScript（step1）→ DramaVisualScript（step2）→ DramaEpisodeScript（合并） | 每场景一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
+| `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `step1_normalized_script.json` | DramaNormalizedScript（step1）→ DramaVisualScript（step2）→ DramaEpisodeScript（合并） | 每个分镜一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
 | `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `step1_reference_units.json` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
 
-> drama 走两段式（见 ADR 0041）：step1（normalize-drama-script）产出**结构化内容** `step1_normalized_script.json`（场景边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述）；step2（create-episode-script）LLM 只出视觉层 `DramaVisualScript`（scene_id + image_prompt + video_prompt），后端按 scene_id 合并回 step1 内容得 `DramaEpisodeScript`、透传非视觉字段。
+> drama 走两段式（见 ADR 0041）：step1（normalize-drama-script）产出**结构化内容** `step1_normalized_script.json`（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述）；step2（create-episode-script）LLM 只出视觉层 `DramaVisualScript`（scene_id + image_prompt + video_prompt），后端按 scene_id 合并回 step1 内容得 `DramaEpisodeScript`、透传非视觉字段。
 >
 > step1 中间文件统一位于 `drafts/episode_{N}/`。状态检测与剧本生成**只认当前项目 generation_mode 对应的那一个文件**：目录中出现其他模式的 `step1_*` 文件属历史残留，既不作为内容整理已完成的依据，也不能当作剧本生成的代替输入。drama 旧项目残留的 `step1_normalized_script.md`（结构化前自由文本稿）不算有效 step1，须重跑 normalize 产出 `.json`。
 

@@ -76,7 +76,7 @@ class AssetRenameReport:
 
 
 #: 各资产类型在剧本/草稿骨架里的「名称列表」引用字段。列表内只有 str 元素才是名称引用——
-#: drama 顶层 ``scenes`` 是场景 dict 列表，与 narration 分段里的场景名列表同 key 不同形，
+#: drama 顶层 ``scenes`` 是分镜 dict 列表，与 narration 分镜里的场景名列表同 key 不同形，
 #: 按元素类型即可区分，无需骨架特例。
 _LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
     asset_type: frozenset(spec.reference_list_fields) for asset_type, spec in ASSET_SPECS.items()

@@ -339,7 +339,7 @@ class TestProjectManagerMore:
 
     @pytest.mark.unit
     def test_batch_update_scene_assets_persists_all(self, tmp_path):
-        """batch_update_scene_assets 单次锁内写多个场景，命中全部 id 时持久化所有更新。"""
+        """batch_update_scene_assets 单次锁内写多个分镜，命中全部 id 时持久化所有更新。"""
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "drama")

@@ -1,4 +1,4 @@
-"""引用语法扁平文本的机械校验（step1 / step2 共用）。"""
+"""参考生视频扁平草稿结构的机械校验（step1 / step2 共用）。"""
 
 import unicodedata
 

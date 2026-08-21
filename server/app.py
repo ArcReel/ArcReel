@@ -589,13 +589,13 @@ app.include_router(
     shot_uploads.router,
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
-    tags=["镜头上传"],
+    tags=["分镜上传"],
 )
 app.include_router(
     end_frames.router,
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
-    tags=["镜头尾帧"],
+    tags=["分镜尾帧"],
 )
 app.include_router(versions.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用统计"])

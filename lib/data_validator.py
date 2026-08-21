@@ -326,7 +326,7 @@ class DataValidator:
         """广告/短片项目的专属字段与恒单集约束。
 
         target_duration / brief 仅 ad 项目持有；ad 项目不持有 default_duration
-        （镜头按目标总时长预算逐个规划，单镜头偏好无意义），episodes 恒为第 1 集单条。
+        （分镜按目标总时长预算逐个规划，单个分镜偏好无意义），episodes 恒为第 1 集单条。
         """
         if content_mode != "ad":
             if project.get("target_duration") is not None:
@@ -618,7 +618,7 @@ class DataValidator:
         field_label: str,
         asset_type: str,
     ) -> None:
-        """校验可缺省的镜头资产引用字段：缺失给 warning，非数组或引用未登记给 error。"""
+        """校验可缺省的分镜资产引用字段：缺失给 warning，非数组或引用未登记给 error。"""
         if refs is None:
             warnings.append(_m("val_missing_defaults_empty_array", prefix=prefix, field=field_label))
             return
@@ -743,7 +743,7 @@ class DataValidator:
         item: dict[str, Any],
         errors: list[ValidationMessage],
     ) -> None:
-        """校验镜头条目的尾帧快照路径：越界、缺失、目录外均报 error（缺失即悬空引用，不容忍）。
+        """校验分镜条目的尾帧快照路径：越界、缺失、目录外均报 error（缺失即悬空引用，不容忍）。
 
         与 generated_assets 内的路径字段不同：尾帧字段只接受服务层写出的 `end_frames/`
         快照路径（`confine_to_default_dir`），不接受指向 storyboards/scripts 等其它目录

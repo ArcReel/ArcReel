@@ -1285,7 +1285,7 @@ class ProjectManager:
         创建标准场景对象模板
 
         Args:
-            scene_id: 场景 ID（如 "E1S01"），集号已编码在 ID 中
+            scene_id: 分镜 ID（如 "E1S01"），集号已编码在 ID 中
             duration_seconds: 场景时长（秒）
 
         Returns:
@@ -1452,7 +1452,7 @@ class ProjectManager:
         Args:
             project_name: 项目名称
             script_filename: 剧本文件名
-            scene_id: 场景/片段 ID
+            scene_id: 分镜 ID
             asset_type: 资源类型 ('storyboard_image' 或 'video_clip')
             asset_path: 资源路径
 
@@ -1465,7 +1465,7 @@ class ProjectManager:
         # 看不到任何回写。让 ScriptEditError 上冒，worker 层负责降级（记 task 失败、人工修复）。
         # `resolve_items` 三模式判别（narration/drama/reference_video）与 `_write_script_unlocked`
         # / 读取 helper 共用同一源——避免 `_script_items_shape` 那种 reference 模式落到 drama 兜底
-        # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"场景不存在"的根因被掩盖路径。
+        # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"分镜不存在"的根因被掩盖路径。
         with self.locked_script(
             project_name,
             script_filename,
@@ -1503,7 +1503,7 @@ class ProjectManager:
             assets[asset_type] = asset_path
             self.update_scene_status(item)
             return item
-        raise KeyError(f"场景 '{scene_id}' 不存在")
+        raise KeyError(f"分镜 '{scene_id}' 不存在")
 
     def update_scene_asset_across_scripts(
         self,
@@ -2248,7 +2248,7 @@ class ProjectManager:
         # 数据层守卫：模式专属字段互斥。路由层已返回 400，这里再兜一道防非路由调用方。
         if resolved_mode == "ad":
             if default_duration is not None:
-                raise ValueError("广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）")
+                raise ValueError("广告/短片项目不持有 default_duration（分镜时长按 target_duration 预算逐个分镜规划）")
             if target_duration is not None and (
                 not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0
             ):

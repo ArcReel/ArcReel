@@ -142,7 +142,7 @@ export function StudioCanvasRouter() {
   // currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
   const capabilitiesEnabled = !demoMode && !isDemoProject(currentProjectName);
 
-  // 逐镜头时长编辑器的候选取经联动约束收窄后的集合，用户就选不到入队后必然被拒的组合；
+  // 逐个分镜的时长编辑器候选取经联动约束收窄后的集合，用户就选不到入队后必然被拒的组合；
   // 已保存的越界值不改写，由 ShotDetail 按成因给警告并引导重选。
   // 后端未配置时能力管线退回服务端解析出的 model（与生成路径同一套规则，避免 FE/BE 漂移）。
   //
@@ -238,8 +238,8 @@ export function StudioCanvasRouter() {
     [handleUpdatePrompt],
   );
 
-  // ad 镜头重排：把目标镜头向前/向后移动一位，提交整列全排列。
-  // 返回是否移动成功，供编辑器把选中态跟随到镜头的新位置。
+  // ad 分镜重排：把目标分镜向前/向后移动一位，提交整列全排列。
+  // 返回是否移动成功，供编辑器把选中态跟随到分镜的新位置。
   const handleMoveShot = useCallback(async (
     shotId: string,
     direction: "earlier" | "later",
@@ -258,7 +258,7 @@ export function StudioCanvasRouter() {
     try {
       await API.reorderShots(currentProjectName, resolvedFile, ids);
       // 仅在本地 store 已写回新顺序时报告成功：刷新失败时 segments 仍是旧序，
-      // 此时推进 selectedIndex 会让详情面板静默切到相邻镜头。
+      // 此时推进 selectedIndex 会让详情面板静默切到相邻分镜。
       return await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("reorder_shot_failed", { message: errMsg(err) }), "error");

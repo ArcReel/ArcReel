@@ -39,7 +39,7 @@ skills:
 
 > reference_video 同样走两段式：step1 已定稿的是内容契约（unit 边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做视觉展开——unit 数、unit 时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
 >
-> drama 走两段式（见 ADR 0041）：step1 已定稿内容（场景边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt）并按 scene_id 透传 step1 内容、不重新识别口播。
+> drama 走两段式（见 ADR 0041）：step1 已定稿内容（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt）并按 scene_id 透传 step1 内容、不重新识别口播。
 
 ### Step 2: 调用工具生成 JSON 剧本
 

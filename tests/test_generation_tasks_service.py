@@ -3510,13 +3510,13 @@ class TestGenerationTasks:
             pytest.param(
                 {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]},
                 "drama_scene",
-                "场景「E1S01」",
+                "分镜「E1S01」",
                 id="drama-scenes",
             ),
             pytest.param(
                 {"content_mode": "ad", "shots": [{"shot_id": "E1S01"}]},
                 "shot",
-                "镜头「E1S01」",
+                "分镜「E1S01」",
                 id="ad-shots",
             ),
             pytest.param(
@@ -3530,8 +3530,8 @@ class TestGenerationTasks:
     def test_emit_success_batch_storyboard_entity_type_follows_skeleton(
         self, monkeypatch, tmp_path, script, expected_entity_type, expected_label
     ):
-        """storyboard/video 任务完成通知与分镜级事件同口径：实体类型与名词按项目剧本骨架
-        种类解析，不恒为 narration 的 segment/「分镜」。"""
+        """storyboard/video 任务完成通知与分镜级事件同口径：实体类型按项目剧本骨架解析，
+        三种分镜骨架的中文名词统一为「分镜」。"""
         captured = []
         monkeypatch.setattr(
             generation_tasks,
@@ -3876,7 +3876,7 @@ class TestGetAspectRatio:
 
 
 def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
-    """ad 项目 fixture：商品镜头 E1S02（引用保温杯）+ 氛围镜头 E1S01/E1S03。"""
+    """ad 项目 fixture：商品分镜 E1S02（引用保温杯）+ 氛围分镜 E1S01/E1S03。"""
     pm = _FakePM(project_path)
     pm.project["content_mode"] = "ad"
     if with_sheet:
@@ -3927,7 +3927,7 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.unit
     async def test_product_shot_injects_sheet_then_originals_before_other_sheets(self, tmp_path, monkeypatch):
-        """有确认 sheet 的商品镜头：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。"""
+        """有确认 sheet 的商品分镜：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。"""
         project_path = _prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
         pm = _ad_pm(project_path, with_sheet=True)
@@ -3956,7 +3956,7 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.unit
     async def test_product_shot_without_sheet_injects_originals_directly(self, tmp_path, monkeypatch):
-        """无 sheet 的商品镜头：原图直注、仍排首位；声明但缺失的原图跳过。"""
+        """无 sheet 的商品分镜：原图直注、仍排首位；声明但缺失的原图跳过。"""
         project_path = _prepare_files(tmp_path)
         pm = _ad_pm(project_path, with_sheet=False)
         generator = _FakeGenerator()
@@ -4001,7 +4001,7 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.unit
     async def test_atmosphere_shot_zero_product_images(self, tmp_path, monkeypatch):
-        """氛围镜头（products_in_shot 为空）：零商品图，场景/角色 sheet 照常注入，prompt 无保真指令。"""
+        """氛围分镜（products_in_shot 为空）：零商品图，场景/角色 sheet 照常注入，prompt 无保真指令。"""
         project_path = _prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
         pm = _ad_pm(project_path, with_sheet=True)
@@ -4039,7 +4039,7 @@ class TestAdProductFidelityStoryboard:
                 == []
             )
 
-        # 缺失 / None / 空列表是氛围镜头的正常表达，同样返回空列表
+        # 缺失 / None / 空列表是氛围分镜的正常表达，同样返回空列表
         for empty in (None, []):
             item = {"shot_id": "E1S01", "products_in_shot": empty}
             assert (
@@ -4057,7 +4057,7 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.integration
     def test_collect_product_references_resolves_nfd_registered_name_by_nfc_query(self, tmp_path):
-        """商品以 NFD key 登记、镜头 products_in_shot 传入 NFC 名字：
+        """商品以 NFD key 登记、分镜 products_in_shot 传入 NFC 名字：
         collect_product_references_for_names 须按归一形式查找 bucket 命中，不能因编码
         形式不同静默跳过。"""
         import unicodedata
@@ -4114,7 +4114,7 @@ def _patch_video_path(monkeypatch, pm, generator):
 
 @pytest.mark.integration
 class TestAdProductVideoRequest:
-    """商品镜头的视频请求走纯图生视频：分镜图作首帧，不带参考图。"""
+    """商品分镜的视频请求走纯图生视频：分镜图作首帧，不带参考图。"""
 
     async def test_product_shot_video_request_carries_no_reference_images(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

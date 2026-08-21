@@ -108,7 +108,7 @@ def build_grid_prompt(
     if n_scenes > total:
         # 超员场景在成图中没有对应画格，切格回填会按位置错配——调用方应先按
         # max_cell_count 切块（见 lib.grid.layout.plan_grid_chunks），此处 fail loud。
-        raise ValueError(f"场景数 {n_scenes} 超过 {rows}×{cols} 宫格的画格数 {total}，分组应先切块再构建 prompt")
+        raise ValueError(f"分镜数 {n_scenes} 超过 {rows}×{cols} 宫格的画格数 {total}，分组应先切块再构建 prompt")
 
     # Number of content cells: first frame + (n_scenes - 1) transitions + last first frame
     # Cell 0: first scene opening

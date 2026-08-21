@@ -172,7 +172,7 @@ describe("EndFrameRow 能力警告", () => {
     fireEvent.click(chooseBtn);
 
     // 选图器内部同样不得残留禁用：候选可选、确认可点。
-    const candidate = await findByRole("button", { name: /镜头 E1S01/ });
+    const candidate = await findByRole("button", { name: /分镜 E1S01/ });
     expect(candidate).toBeEnabled();
     fireEvent.click(candidate);
     const confirmBtn = getByRole("button", { name: "设为尾帧" });
@@ -203,7 +203,7 @@ describe("EndFrameRow 能力警告", () => {
     expect(queryByRole("alert")).toBeNull();
   });
 
-  it("未设尾帧的镜头即使模型不支持也不出警告", async () => {
+  it("未设尾帧的分镜即使模型不支持也不出警告", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
     const { findByText, queryByRole } = renderRow({ endFramePath: null });
     await findByText("未设置");
@@ -288,7 +288,7 @@ describe("EndFrameRow 能力警告", () => {
 });
 
 describe("EndFrameRow 占用态", () => {
-  it("本镜头视频任务在途时兄弟控件同步禁用", async () => {
+  it("本分镜视频任务在途时兄弟控件同步禁用", async () => {
     useTasksStore.setState({ tasks: [videoTask("running")] });
     const { getByRole, findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("已设置");
@@ -309,7 +309,7 @@ describe("EndFrameRow 占用态", () => {
     expect(getByRole("button", { name: "清除" })).toBeEnabled();
   });
 
-  it("选图器打开后本镜头被入队：提交时刻复核占用态并拒绝", async () => {
+  it("选图器打开后本分镜被入队：提交时刻复核占用态并拒绝", async () => {
     const select = vi.spyOn(API, "selectEndFrame");
     const { getByRole, findByText, findByRole } = renderRow();
     await findByText("未设置");
@@ -318,9 +318,9 @@ describe("EndFrameRow 占用态", () => {
     fireEvent.click(getByRole("button", { name: "选择图片" }));
 
     // 选中本集分镜图（项目内通道）
-    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+    fireEvent.click(await findByRole("button", { name: /分镜 E1S01/ }));
 
-    // 打开选图器之后该镜头才被入队——只查开窗时刻会漏掉这个窗口
+    // 打开选图器之后该分镜才被入队——只查开窗时刻会漏掉这个窗口
     useTasksStore.setState({ tasks: [videoTask("queued")] });
 
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
@@ -338,7 +338,7 @@ describe("EndFrameRow 占用态", () => {
 
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
-    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+    fireEvent.click(await findByRole("button", { name: /分镜 E1S01/ }));
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
 
     await waitFor(() => {
@@ -359,7 +359,7 @@ describe("EndFrameRow 占用态", () => {
 
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
-    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+    fireEvent.click(await findByRole("button", { name: /分镜 E1S01/ }));
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
 
     await waitFor(() => {
@@ -377,7 +377,7 @@ describe("EndFrameRow 占用态", () => {
 
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
-    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+    fireEvent.click(await findByRole("button", { name: /分镜 E1S01/ }));
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
 
     await waitFor(() => {
@@ -402,7 +402,7 @@ describe("EndFrameRow 占用态", () => {
 
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
-    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+    fireEvent.click(await findByRole("button", { name: /分镜 E1S01/ }));
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
 
     await waitFor(() => {

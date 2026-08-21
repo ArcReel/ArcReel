@@ -5,7 +5,7 @@ import { useTasksStore } from "@/stores/tasks-store";
 import type { DramaScene } from "@/types";
 
 /**
- * 逐镜头时长编辑器：候选取经联动约束收窄后的集合，已保存的越界值不静默改写、
+ * 逐个分镜时长编辑器：候选取经联动约束收窄后的集合，已保存的越界值不静默改写、
  * 按成因给警告并引导重选。
  */
 
@@ -113,12 +113,12 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
   });
 
-  it("该镜头生成中时禁用时长 pill 并说明原因", () => {
+  it("该分镜生成中时禁用时长 pill 并说明原因", () => {
     for (const busyProp of ["generatingStoryboard", "generatingVideo"] as const) {
       const { unmount } = renderDetail({ [busyProp]: true }, 8);
       const pill = screen.getByRole("button", { name: /8 秒/ });
       expect(pill).toBeDisabled();
-      expect(pill).toHaveAttribute("title", "该镜头正在生成中，暂不能修改时长");
+      expect(pill).toHaveAttribute("title", "该分镜正在生成中，暂不能修改时长");
       unmount();
     }
   });
@@ -144,7 +144,7 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
     expect(screen.getAllByRole("radio")).toHaveLength(1);
 
-    // 面板已打开，此刻该镜头的视频任务启动：只查打开时刻的实现会在这里放过写入
+    // 面板已打开，此刻该分镜的视频任务启动：只查打开时刻的实现会在这里放过写入
     rerender(
       <ShotDetail
         segment={makeScene(4)}
@@ -166,7 +166,7 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
 
-  it("prop 还没跟上、但 store 已记录该镜头在跑时，提交仍被拒", () => {
+  it("prop 还没跟上、但 store 已记录该分镜在跑时，提交仍被拒", () => {
     // 提交时刻复核的存在理由：prop 反映的是上次渲染，store 更新到重渲染提交之间用户仍可能
     // 点下去。故走 tasks-store 的 isResourceBusy 新鲜读，而不是只看 busy prop。
     const onUpdatePrompt = vi.fn();
@@ -240,7 +240,7 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
 
-  it("prop 还没跟上、但 store 已记录该镜头在跑时，面板打不开", () => {
+  it("prop 还没跟上、但 store 已记录该分镜在跑时，面板打不开", () => {
     // 打开时刻同样要新鲜复核：渲染完成到用户点击之间任务可能才启动，此时 busy prop
     // 还停留在上次渲染，只看它会让面板照常展开。
     const onUpdatePrompt = vi.fn();

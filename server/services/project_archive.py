@@ -1252,7 +1252,7 @@ class ProjectArchiveService:
         单元的引用不落盘，正文才是真相，因此本方法只碰结构与产物字段：per-unit 时长收编、
         generated_assets 补全、video_clip / video_thumbnail 路径规范化与版本回溯。正文里
         ``@[名称]`` 的自愈另走 :meth:`_repair_unit_mentions_tree`——它要等 schema 迁移把存量
-        镜头结构折成正文之后才有正文可读。
+        旧 ``shots`` 结构折成正文之后才有正文可读。
         video_uri 是远端 URL，不当作本地路径处理（否则会被同名 canonical 本地文件覆盖）。
         """
         raw_units = script_payload.get("video_units")
@@ -1335,7 +1335,7 @@ class ProjectArchiveService:
     def _repair_unit_mentions_tree(self, project_dir: Path, diagnostics: ArchiveDiagnostics) -> None:
         """迁移之后再扫一遍全部 video_units 正文：说话人缺定义补占位，其余未解析提及只警告。
 
-        必须跑在 :func:`migrate_project_dir` **之后**：存量归档的单元把内容挂在镜头结构上，
+        必须跑在 :func:`migrate_project_dir` **之后**：存量归档的单元把内容挂在旧 ``shots`` 结构上，
         正文是迁移折出来的，早跑一遍等于对着空正文自愈，占位角色与诊断都不会产生。
         本遍只改 ``project.json``（补占位角色），不改剧本。
         """

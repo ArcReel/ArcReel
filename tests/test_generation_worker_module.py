@@ -342,7 +342,7 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
-        """镜头级状态读不到时回退当前 r2v 配置，不采用 payload 中的 enqueue-time pin。"""
+        """视频单元级状态读不到时回退当前 r2v 配置，不采用 payload 中的 enqueue-time pin。"""
         _patch_pm(
             monkeypatch,
             {

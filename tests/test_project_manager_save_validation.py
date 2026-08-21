@@ -347,7 +347,7 @@ class TestAssetWritebackExemption:
 
     def test_reference_video_update_scene_asset_writes_unit(self, tmp_path: Path):
         """reference 模式下 update_scene_asset 必须按 unit_id 索引 video_units 回写资产——
-        旧 helper 在 reference 下取 "scenes" 键找不到任何 unit_id,KeyError("场景不存在")
+        旧 helper 在 reference 下取 "scenes" 键找不到任何 unit_id,KeyError("分镜不存在")
         掩盖了根因（路径选错而非 id 不存在）。"""
         pm = _pm(tmp_path)
         pm.save_script("demo", _reference_script(), "episode_1.json")

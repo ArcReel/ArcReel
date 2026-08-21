@@ -38,7 +38,7 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 |------|------|
 | 整集生成（默认操作） | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery})` |
 | 断点续传 | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery, "resume": true})` |
-| 单场景 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": chosen_narration_delivery})` |
+| 单分镜 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": chosen_narration_delivery})` |
 | 批量自选 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S05", "E1S10"], "narration_delivery": chosen_narration_delivery})` |
 | 自选 + 续传 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": [...], "narration_delivery": chosen_narration_delivery, "resume": true})` |
 | 全部待处理（独立模式） | `mcp__arcreel__generate_video_all({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery})` |

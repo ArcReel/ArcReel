@@ -288,7 +288,7 @@ async def finalize_shot_video_upload(
     versions: VersionManager,
     original_filename: str | None,
 ) -> int:
-    """通过共享正式写入 seam 提交镜头视频及其所有 sidecar。"""
+    """通过共享正式写入 seam 提交分镜视频及其所有 sidecar。"""
 
     def _commit_metadata(thumb_rel: str | None, on_commit: Callable[[Path], None]) -> None:
         get_project_manager().batch_update_scene_assets(

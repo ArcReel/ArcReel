@@ -622,8 +622,8 @@ describe("StudioCanvasRouter", () => {
     expect(providersSpy).not.toHaveBeenCalled();
   });
 
-  // 逐镜头时长候选须按项目分辨率与生效 generation_mode 收窄——用户在设置里选了 1080p 却仍能把
-  // 单个镜头改成 4 秒，入队时才被 backend 拒。反向用例守住「未受约束的分辨率下与改动前一致」：
+  // 逐个分镜的时长候选须按项目分辨率与生效 generation_mode 收窄——用户在设置里选了 1080p 却仍能把
+  // 单个分镜改成 4 秒，入队时才被 backend 拒。反向用例守住「未受约束的分辨率下与改动前一致」：
   // 全集原样呈现，不因为接了收窄管线而误缩。
   it.each([
     ["1080p", "8"],
@@ -1216,7 +1216,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-video"));
     await waitFor(() => {
-      // duration 取镜头自身 duration_seconds(5),不回退默认值 4
+      // duration 取分镜自身 duration_seconds(5),不回退默认值 4
       expect(API.generateVideo).toHaveBeenCalledWith(
         "demo",
         "SEG-1",
@@ -1340,7 +1340,7 @@ describe("StudioCanvasRouter", () => {
     });
 
     // 重排接口成功，但项目刷新失败：本地 segments 仍是旧顺序，
-    // 必须报告失败，否则调用方会推进 selectedIndex 切到错误镜头
+    // 必须报告失败，否则调用方会推进 selectedIndex 切到错误分镜
     vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
     vi.spyOn(API, "reorderShots").mockResolvedValue({ success: true });
 

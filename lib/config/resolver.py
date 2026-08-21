@@ -229,11 +229,11 @@ _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
 )
 
 #: 视频任务类型桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考生视频无参考图视频单元的降级执行）、
-#: r2v（参考生视频的有参考图镜头）。t2v 不设桶（docs/adr/0054）。
+#: r2v（参考生视频中有参考图的视频单元）。t2v 不设桶（docs/adr/0054）。
 VideoCapability = Literal["i2v", "r2v"]
 
 #: 视频任务类型 → 任务类型桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
-#: 宫格生视频（task_type ``video``）→ i2v；参考生视频按镜头是否携带参考图分流
+#: 宫格生视频（task_type ``video``）→ i2v；参考生视频按视频单元是否携带参考图分流
 #: （``lib.reference_video.units``），本表登记其代表桶 r2v，仅供剧本 / unit 读不到时回退。
 #: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.capability_buckets）
 #: 是分层约束：队列 / worker 的入队与认领路径处于 lib.video_backends 的依赖闭包内，不得经
@@ -916,7 +916,7 @@ class ConfigResolver:
         与全局项目碰撞读到错误能力）。
 
         ``capability`` 未给定时按项目 generation_mode 定桶；给定时按指定桶解析——供参考生视频
-        内按镜头分流的读侧（无参考图退化镜头按 i2v 桶取档 / 计价）使用。
+        内按视频单元分流的读侧（无参考图的视频单元按 i2v 桶取档 / 计价）使用。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_capabilities_from_project(svc, session, project, capability=capability)
@@ -1363,7 +1363,7 @@ class ConfigResolver:
 
             # 生效能力（系统判定 ⊕ 用户覆盖）只此一个合成点：工厂给执行层注入的也是它的返回值，
             # 展示层与执行层因此严格同源，不在此处自行合并覆盖或重算系统判定。纯函数不查
-            # provider 行、不构造 SDK client，故每镜头解析无 DB/网络/client 构造副作用
+            # provider 行、不构造 SDK client，故逐视频单元解析无 DB/网络/client 构造副作用
             # （也不因 api_key 缺失而抛）。
             try:
                 caps = synthesize_video_capabilities(

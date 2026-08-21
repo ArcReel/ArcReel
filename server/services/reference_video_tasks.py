@@ -214,7 +214,7 @@ async def resolve_project_duration_context(
     """一次性解析视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
 
     ``capability`` 未给定时按项目生成模式定桶；给定时按指定桶解析——参考生视频内按视频单元分流的
-    调用方（费用估算、逐 unit 预检）以此对无参考图退化镜头按 i2v 桶模型取档。
+    调用方（费用估算、逐 unit 预检）以此对无参考图的视频单元按 i2v 桶模型取档。
 
     解析失败时返回空档位，仅让新建 unit 选用兼容默认值；不代表生成可执行。
     分辨率仅在档位非空时才解析，空档位下分辨率约束无意义。``max_duration`` 与
@@ -357,7 +357,7 @@ async def execute_reference_video_task(
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
     #    （docs/adr/0049）——executor 不再触碰 MediaGenerator 私有属性、不再手工重建
     #    registry provider_id。桶按本 unit 解析后的实际参考图分流（docs/adr/0054）：
-    #    有参考图 → r2v；无参考图的退化镜头降级 → i2v，不送入拒空参考的 r2v 桶模型。
+    #    有参考图 → r2v；无参考图的视频单元降级 → i2v，不送入拒空参考的 r2v 桶模型。
     #    判据取解析结果而非声明，与 backend 的实际请求同源。
     execution_capability = reference_video_bucket(with_references=bool(hydration.available))
     execution_payload = without_reference_video_execution_identity(payload)
@@ -528,7 +528,7 @@ async def execute_reference_video_task(
     #    引用可展开成多张图片，裁剪后直接按条目传给渲染，保证 `图片N` 的 1-based 索引与
     #    调用通道实际收到的 reference_images 一一对应。商品高保真尾注也只点名仍实际发图的商品。
     #    prompt 始终从执行期新读取的剧本重组（脚本可变 + 队列 dedup 不看 payload，
-    #    用入队快照会丢失入队后对镜头文本的编辑）；prompt 只在入队边界用于结构校验，
+    #    用入队快照会丢失入队后对视频单元正文的编辑）；prompt 只在入队边界用于结构校验，
     #    不写进任务 payload。
     #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
     #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。

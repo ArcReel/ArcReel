@@ -51,7 +51,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ## 创作类型
 
-本项目为**剧情演绎**（drama）。剧本数据结构为 `scenes[]`，每个场景对应一段独立的视觉画面（含对话、动作、情绪）。
+本项目为**剧情演绎**（drama）。剧本数据结构为 `scenes[]`，每个分镜对应一段独立的视觉画面（含对话、动作、情绪）。
 
 > 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与创作类型独立。详细规格见 `.claude/references/generation-modes.md`。
 

@@ -728,7 +728,7 @@ class ScriptGenerator:
 
         收窄发生在交给 prompt / 动态 schema 之前：``supported_durations`` 是型号的时长全集，
         不含「分辨率↔时长」「参考图↔时长」两条联动约束。不收窄的话 Veo 项目（兜底分辨率即
-        1080p）的剧本会产出 4/6 秒镜头，到视频入队时才被 backend 拒，用户已无统一纠正入口。
+        1080p）的剧本会产出 4/6 秒分镜，到视频入队时才被 backend 拒，用户已无统一纠正入口。
 
         ``uses_reference_images`` 由调用方按本集 step1 的实际引用情况传入；缺省退回按生成模式
         判定（见 ``constrain_durations_for_project``）。
@@ -1085,8 +1085,8 @@ class ScriptGenerator:
         """加载并解析 drama 的 step1 结构化内容（``step1_normalized_script.json``）。
 
         返回 ``{title, scenes: [...]}`` dict；缺文件抛 FileNotFoundError（_load_step1）、
-        内容非合法 JSON / 顶层非对象 / scenes 非非空列表 / 含非对象场景项 / scene_id 非非空字符串 /
-        scene_id 改写到当前集号后重复，均抛 ValueError。各场景的内部字段（utterances / source_text 等）
+        内容非合法 JSON / 顶层非对象 / scenes 非非空列表 / 含非对象分镜项 / scene_id 非非空字符串 /
+        scene_id 改写到当前集号后重复，均抛 ValueError。各分镜的内部字段（utterances / source_text 等）
         由 step2 合并后经 save_script 的结构校验把关，此处只做最外层形状守卫——但 scenes 形状与 scene_id
         须在此 fail-fast，否则坏 step1 会被当成空剧本静默落盘、scene_id 撞键拖到产物文件名 / 资产键才暴露，
         或在 render/merge 阶段抛内部异常而非明确的 step1 校验错误。
@@ -1111,11 +1111,11 @@ class ScriptGenerator:
         self._freeze_step1_artifact_basis(data)
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
-            raise ValueError("Step 1 内容文件结构异常：scenes 必须是非空的场景对象数组")
+            raise ValueError("Step 1 内容文件结构异常：scenes 必须是非空的分镜对象数组")
         scene_ids: list[str] = []
         for idx, scene in enumerate(scenes):
             if not isinstance(scene, dict):
-                raise ValueError(f"Step 1 内容文件结构异常：scenes[{idx}] 必须是场景对象")
+                raise ValueError(f"Step 1 内容文件结构异常：scenes[{idx}] 必须是分镜对象")
             scene_id = scene.get("scene_id")
             if not isinstance(scene_id, str) or not scene_id:
                 raise ValueError(f"Step 1 内容文件结构异常：scenes[{idx}].scene_id 必须是非空字符串")

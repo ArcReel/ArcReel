@@ -1091,7 +1091,7 @@ class TestProjectEventService:
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1S01" for c in changes)
         shot_changes = [c for c in changes if c["entity_type"] == "shot"]
-        assert shot_changes and all(c["label"].startswith("镜头") for c in shot_changes)
+        assert shot_changes and all(c["label"].startswith("分镜") for c in shot_changes)
         # ad 镜头走时间线画布：可导航事件的锚点类型为 segment（ShotSplitView 守卫）。
         assert all(c["focus"]["anchor_type"] == "segment" for c in shot_changes if c["focus"] is not None)
 
@@ -1163,7 +1163,7 @@ class TestProjectEventService:
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
         assert any(c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes)
         scene_changes = [c for c in changes if c["entity_type"] == "drama_scene"]
-        assert scene_changes and all(c["label"].startswith("场景") for c in scene_changes)
+        assert scene_changes and all(c["label"].startswith("分镜") for c in scene_changes)
         # drama 场景走时间线画布：可导航事件的锚点类型为 segment。
         assert all(c["focus"]["anchor_type"] == "segment" for c in scene_changes if c["focus"] is not None)
 

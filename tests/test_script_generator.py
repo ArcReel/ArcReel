@@ -356,12 +356,12 @@ class TestScriptGenerator:
             {"title": "第一集", "scenes": [{"scene_id": "E1S01"}, 42]},
         )
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="必须是场景对象"):
+        with pytest.raises(ValueError, match="必须是分镜对象"):
             generator._load_drama_step1_content(1)
 
     @pytest.mark.unit
     async def test_load_drama_step1_content_rejects_empty_scene_id(self, tmp_path):
-        """drama step1 场景 scene_id 为空串 / 缺失 → ValueError fail-fast（空 scene_id 拖到合并阶段才暴露）。"""
+        """drama step1 分镜的 scene_id 为空串 / 缺失 → ValueError fail-fast（拖到合并阶段才暴露）。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,

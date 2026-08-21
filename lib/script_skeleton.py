@@ -52,7 +52,7 @@ SKELETONS: dict[str, Skeleton] = {
 }
 
 # 条目标签的 i18n key 按骨架种类派生——驱动分镜级事件与任务完成事件共用的通知文案
-# （如「镜头「E1S01」」）。文案本身按语言存放在 lib/i18n 的 ``event_label_*``，此处只登记
+# （如「分镜「E1S01」」）。文案本身按语言存放在 lib/i18n 的 ``event_label_*``，此处只登记
 # 稳定标识。两套事件路径必须读同一张表，不各自维护一份。
 SKELETON_ITEM_LABEL_KEYS: dict[str, str] = {
     "segments": "skeleton_segments",
@@ -62,7 +62,7 @@ SKELETON_ITEM_LABEL_KEYS: dict[str, str] = {
 }
 
 # 事件的实体类型按骨架种类推导，与 ``SKELETON_ITEM_LABEL_KEYS`` 同源。驱动前端分组标签映射
-# （``ENTITY_LABELS``），使四种骨架各显分镜/场景/镜头/视频单元，而非恒为「分镜」。取值与既有
+# （``ENTITY_LABELS``）：三种分镜骨架统一显示「分镜」，参考生视频骨架显示「视频单元」。取值与既有
 # ``entity_type`` 枚举不冲突（drama 用 ``drama_scene`` 避免与命名实体 ``scene`` 撞组）。
 SKELETON_ENTITY_TYPES: dict[str, str] = {
     "segments": "segment",
@@ -73,7 +73,7 @@ SKELETON_ENTITY_TYPES: dict[str, str] = {
 
 # 事件的锚点类型按骨架种类推导，取值与前端各画布的滚动目标类型守卫对齐：video_units 归
 # ``reference_unit``（参考生视频画布按此选中并高亮对应视频单元），其余归 ``segment``
-# （narration/drama/ad 共用时间线镜头拆分视图，按 id 选中条目）。
+# （narration/drama/ad 共用时间线分镜视图，按 id 选中条目）。
 SKELETON_ANCHOR_TYPES: dict[str, str] = {
     "segments": "segment",
     "scenes": "segment",

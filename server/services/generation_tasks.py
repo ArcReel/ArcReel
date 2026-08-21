@@ -597,13 +597,13 @@ def _collect_shot_product_references(
     currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
-    """商品镜头（``products_in_shot`` 非空）的商品参考集，用于分镜图生成。
+    """商品分镜（``products_in_shot`` 非空）的商品参考集，用于分镜图生成。
 
     每个商品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
     原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "label": str, "name": str,
     "kind": "sheet"|"original"}`` 列表——label 供支持内联标签的后端绑定图与商品名，
     name 供高保真指令点名（指令只点名实际注入了参考的商品），kind 供截断时让 sheet
-    优先存活；调用方负责把该列表排在其它参考之前（排序绝对优先）。氛围镜头
+    优先存活；调用方负责把该列表排在其它参考之前（排序绝对优先）。氛围分镜
     （列表为空）返回空列表，零商品图。脏数据（products_in_shot 非列表、products
     非 dict、商品名非字符串、引用不存在的商品）按既有装配口径跳过不抛。
     """
@@ -650,7 +650,7 @@ def collect_product_references_for_names(
         seen.add(canonical)
         entry = products.get(canonical)
         if not isinstance(entry, dict):
-            logger.warning("镜头引用的商品 '%s' 不在 project.json products 中，商品参考跳过", name)
+            logger.warning("分镜引用的商品 '%s' 不在 project.json products 中，商品参考跳过", name)
             continue
         before = len(references)
         sheet = entry.get(spec.sheet_field)
@@ -682,7 +682,7 @@ def collect_product_references_for_names(
                 }
             )
         if len(references) == before:
-            logger.warning("商品镜头引用的商品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
+            logger.warning("商品分镜引用的商品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
     return references
 
 
@@ -1469,7 +1469,7 @@ _SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
 
 # 任务类型自带条目标签的例外：tts 的产物是旁白配音，与骨架条目名词不同名。reference_video 显式
 # 指向视频单元，与参考生视频项目的骨架名词同口径；storyboard/video 未列出，回退到按骨架种类派生
-# 的 label_key（分镜/场景/镜头），与同项目分镜级事件同口径。
+# 的 label_key（片段/场景/分镜），与同项目分镜级事件同口径。
 _SKELETON_TASK_LABEL_KEYS: dict[str, str] = {
     "reference_video": "skeleton_video_units",
     "tts": "narration_audio",
@@ -1624,8 +1624,8 @@ async def execute_storyboard_task(
             currency_resolver=_currency_resolver,
             formal_claims=_formal_claims,
         )
-        # 商品镜头：商品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
-        # 并附高保真还原指令；氛围镜头零商品图，既有装配不变。
+        # 商品分镜：商品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
+        # 并附高保真还原指令；氛围分镜零商品图，既有装配不变。
         _product_refs = _collect_shot_product_references(
             _project,
             _project_path,
@@ -2873,9 +2873,9 @@ def _collect_product_reference_images(project: dict, project_path: Path, resourc
     # safe_exists 同时兜住脏数据（非字符串）、越出项目目录的绝对路径 / `..` 穿越与文件缺失
     existing = [project_path / ref for ref in refs if safe_exists(project_path, ref)]
     if refs and not existing:
-        # 声明了原图却全部缺失：下游（sheet 生成 / 镜头保真注入）静默退化会丢失保真锚定，
+        # 声明了原图却全部缺失：下游（sheet 生成 / 分镜保真注入）静默退化会丢失保真锚定，
         # 留观测痕迹便于诊断（不阻塞——文件缺失可能是归档迁移等正常历史原因）。
-        # 文案保持场景中立：本函数同时服务 sheet 生成与商品镜头参考收集两个调用方。
+        # 文案保持场景中立：本函数同时服务 sheet 生成与商品分镜参考收集两个调用方。
         logger.warning("商品 '%s' 声明了 %d 张原图但磁盘均缺失", resource_id, len(refs))
     return existing or None
 

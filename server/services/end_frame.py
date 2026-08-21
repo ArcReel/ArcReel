@@ -1,6 +1,6 @@
-"""镜头尾帧快照的设置与清除服务层。
+"""分镜尾帧快照的设置与清除服务层。
 
-尾帧是镜头的用户意图持久属性（``end_frame_image``），不是运行时产出，故不进
+尾帧是分镜的用户意图持久属性（``end_frame_image``），不是运行时产出，故不进
 ``generated_assets``。设置的两条通道（上传任意图片 / 指定项目内已有图片的相对路径）
 在这里汇成同一落点：归一为 PNG 后快照复制到 ``end_frames/scene_{id}.png``，剧本条目
 只存该固定相对路径。源图与快照就此彻底解耦——源图重生成、版本回滚、删除都动不到
@@ -8,12 +8,12 @@
 
 设置写快照文件 + 写字段、清除删快照文件 + 置空字段，各自整段落在同一把剧本锁
 （`ProjectManager.locked_script`）临界区内完成，与对方互斥——不会出现一方写完文件、
-对方抢在字段写回前把文件删掉的交错，结构上杜绝悬空引用。临界区内因目标镜头
+对方抢在字段写回前把文件删掉的交错，结构上杜绝悬空引用。临界区内因目标分镜
 mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 
 `locked_script` 在锁内完成剧本持久化，校验/落盘异常向调用方传出前锁已释放，故文件
 系统副作用（写快照 / 删快照）不能靠锁外的 try/except 直接回滚——那样回滚本身会跟同
-一间隙内另一个成功落盘的并发请求打架。补偿改为重新过锁并按「本镜头的操作代次是否仍是
+一间隙内另一个成功落盘的并发请求打架。补偿改为重新过锁并按「本分镜的操作代次是否仍是
 失败前那一次」做条件回滚（见 `_restore_after_persist_failure`），只撤销自己的效果、不
 覆盖旁人已落盘的成果。代次而非文件内容——内容比对有退化值问题：并发的另一次清除同样会
 让文件落到「不存在」，与「无人接手」的期望内容（None）无法区分，会把并发清除的结果误判
@@ -24,7 +24,7 @@ mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 
 代次键须按 `ProjectManager.normalize_script_filename` 归一化剧本文件名——`episode_1.json`
 与 `scripts/episode_1.json` 是同一剧本的合法别名，不归一的话两个别名各自生成一把代次键，
-用不同别名操作同一镜头的并发请求就互相看不见。归一化调用 `ProjectManager` 的公开入口而非
+用不同别名操作同一分镜的并发请求就互相看不见。归一化调用 `ProjectManager` 的公开入口而非
 在本文件复刻其内部规则，避免上游改动（如支持新别名形式）时两处静默漂移、代次键重新分裂。
 
 回滚基线（`old_bytes`）须在取得剧本锁之后、mutation 之前读取，不能在锁外预读——锁外预读的话，
@@ -35,8 +35,8 @@ mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 读基线本身失败（权限 / 临时 IO 错误）时 `old_bytes` 仍是初始的 `None`，补偿会把"读失败"
 误判成"目标文件原本不存在"，进而 unlink 一个从未被本次操作触碰过的既有快照。
 
-操作代次的推进（`_advance_shot_generation`）须放在镜头匹配成功、紧邻首次文件 mutation
-之前，不能在此之前就推进——提前推进的话，一次因镜头未找到而空手退出的请求也会让代次
+操作代次的推进（`_advance_shot_generation`）须放在分镜匹配成功、紧邻首次文件 mutation
+之前，不能在此之前就推进——提前推进的话，一次因分镜未找到而空手退出的请求也会让代次
 前移，导致同一时间段内另一个真正持久化失败、正在等待重新过锁补偿的请求，把这次空手
 退出误判成"已被接管、自身状态自洽"而跳过回滚，把它自己失败前的半截效果留在磁盘上。
 """
@@ -70,7 +70,7 @@ def _current_shot_generation(key: _ShotKey) -> int:
 
 
 def _advance_shot_generation(key: _ShotKey) -> int:
-    """推进该镜头的操作代次，返回新值。在临界区内、mutation 之前调用——无论后续
+    """推进该分镜的操作代次，返回新值。在临界区内、mutation 之前调用——无论后续
     是否失败，都代表「一次操作进入过临界区」，供失败一方的补偿回滚据此判断有无被接手。
     """
     with _generation_lock:
@@ -90,7 +90,7 @@ class EndFrameError(Exception):
 
 
 def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
-    """校验该镜头可设尾帧，返回项目绝对路径；不可设时抛领域错误。
+    """校验该分镜可设尾帧，返回项目绝对路径；不可设时抛领域错误。
 
     参考生视频路径无首尾帧概念，一律拒绝。该判定按 project.json 的生成模式
     （``is_reference_video_project``）作出，不看剧本级 ``generation_mode`` 戳——ad 创作类型的
@@ -160,7 +160,7 @@ def _restore_after_persist_failure(
 
     补偿本身必须重新过锁——`locked_script` 在锁内完成持久化，异常向上传播前锁已释放，
     若在锁外直接按调用方持有的旧字节回写，会跟同一间隙内另一个成功落盘的并发请求打架。
-    回滚前用 `expected_generation` 复核该镜头的操作代次是否仍是本次失败前那一次：仍是
+    回滚前用 `expected_generation` 复核该分镜的操作代次是否仍是本次失败前那一次：仍是
     则说明这段时间无人进入过临界区，安全回滚；已前移则说明并发操作已经接管（不论其
     自身成败），当前状态可能已自洽，回滚只会用陈旧字节覆盖它的成果，直接跳过。
     """
@@ -314,7 +314,7 @@ async def set_end_frame_from_bytes(
     shot_id: str,
     content: bytes,
 ) -> str:
-    """上传通道：把上传的图片字节落成该镜头的尾帧快照。"""
+    """上传通道：把上传的图片字节落成该分镜的尾帧快照。"""
     project_path = await asyncio.to_thread(_locate_shot, project_name, script_file, shot_id)
     return await _apply_snapshot(
         project_path=project_path,
@@ -345,7 +345,7 @@ async def set_end_frame_from_project_image(
 
 
 async def clear_end_frame(*, project_name: str, script_file: str, shot_id: str) -> None:
-    """清除镜头尾帧：在同一剧本锁临界区内把字段置空并删快照文件，与设置操作互斥。"""
+    """清除分镜尾帧：在同一剧本锁临界区内把字段置空并删快照文件，与设置操作互斥。"""
     project_path = await asyncio.to_thread(_locate_shot, project_name, script_file, shot_id)
     target, _ = _snapshot_target(project_path, shot_id)
     await asyncio.to_thread(_clear_snapshot_and_field, project_name, script_file, shot_id, target)

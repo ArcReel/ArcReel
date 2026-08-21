@@ -629,7 +629,7 @@ def compose_video(
     for scene in script["scenes"]:
         video_clip = get_generated_assets(scene).get("video_clip")
         if not video_clip:
-            raise ValueError(f"场景 {scene['scene_id']} 缺少视频片段")
+            raise ValueError(f"分镜 {scene['scene_id']} 缺少视频片段")
 
         # 与 --music / output 同样的围栏：剧本里 video_clip 写成绝对路径或 ../
         # 形式时，未 resolve 的 `project_dir / video_clip` 会落到项目外（且字面

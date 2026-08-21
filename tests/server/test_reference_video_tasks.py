@@ -691,10 +691,10 @@ async def test_execute_reference_video_task_blocks_a_dirty_text_before_submissio
 async def test_execute_reference_video_task_bucket_follows_resolved_references(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, strip_mentions: bool, expected_capability: str
 ):
-    """执行侧按解析后的实际参考图分流定桶：有参考图 → r2v，无参考图退化镜头 → i2v。
+    """执行侧按解析后的实际参考图分流定桶：有参考图 → r2v，无参考图的视频单元 → i2v。
 
     降级让 r2v 桶配置为拒空参考模型（DashScope R2V / MiniMax S2V）的项目也能生成
-    退化镜头——若恒声明 r2v，这类镜头执行期必以 video_reference_images_required 失败。
+    无参考图的视频单元——若恒声明 r2v，这类视频单元执行期必以 video_reference_images_required 失败。
     """
     proj_dir = _write_project(tmp_path)
     if strip_mentions:

@@ -1137,7 +1137,7 @@ class UpdateShotRequest(BaseModel):
     updates: dict
 
 
-# ad 镜头 PATCH 白名单：shot_id（定位键）与 generated_assets（运行时状态）不可改写。
+# ad 分镜 PATCH 白名单：shot_id（定位键）与 generated_assets（运行时状态）不可改写。
 _SHOT_UPDATABLE_FIELDS = (
     "section",
     "voiceover_text",
@@ -1172,7 +1172,7 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
     # reorder 的 s["shot_id"] 索引会 KeyError 变 500。
     if not all(isinstance(s.get("shot_id"), str) and s["shot_id"] for s in shots):
         raise ValueError("ad script field 'shots' contains elements missing valid 'shot_id'")
-    # shot_id 是单镜头身份键：重复值会让 PATCH 静默更新首个命中项、reorder 失去 1:1 映射
+    # shot_id 是单个分镜的身份键：重复值会让 PATCH 静默更新首个命中项、reorder 失去 1:1 映射
     shot_ids = [s["shot_id"] for s in shots]
     if len(set(shot_ids)) != len(shot_ids):
         raise ValueError("ad script field 'shots' contains duplicate 'shot_id' values")
@@ -1181,7 +1181,7 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
 
 @router.patch("/projects/{name}/script-shots/{shot_id}")
 async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Translator):
-    """更新 广告/短片剧本中的单个镜头（按 shot_id 定位）。
+    """更新广告/短片剧本中的单个分镜（按 shot_id 定位）。
 
     路径风格与 ``script-scenes`` 对齐；口播文案 / section / 时长 / 引用列表等
     白名单字段可改，结构合法性由写盘统一入口的「不更坏」校验兜底。

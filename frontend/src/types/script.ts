@@ -301,7 +301,7 @@ export interface AdShot {
   characters_in_shot?: string[];
   scenes?: string[];
   props?: string[];
-  /** 商品名称引用，非空即商品镜头。 */
+  /** 商品名称引用，非空即商品分镜。 */
   products_in_shot?: string[];
   image_prompt: ImagePrompt | string;
   video_prompt: VideoPrompt | string;

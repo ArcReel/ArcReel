@@ -210,7 +210,7 @@ async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[
     的秒数——故把服务端拆分工具用的同两套档位一并返回，让改写方与生成方对同一份数字。
 
     ad 例外：该路径的 unit 是从广告分镜派生的轻量索引、时长不受档位枚举管辖，返回这
-    两套档位只会诱导按剧集路径的口径去改 ad 镜头。
+    两套档位只会诱导按剧集路径的口径去改 ad 分镜。
     """
     if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
         return
@@ -595,7 +595,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
             # step1 当成功产物写盘、拖到 step2 / 最终生成才必然失败。
             raw_scenes = content.get("scenes")
             if not isinstance(raw_scenes, list) or not raw_scenes:
-                raise ValueError("step1 规范化内容结构异常：scenes 必须是非空的场景对象数组")
+                raise ValueError("step1 规范化内容结构异常：scenes 必须是非空的分镜对象数组")
             for scene in raw_scenes:
                 admission = admit_script_unit("scenes", scene, ignore_marker=True)
                 if admission.allowed:
@@ -617,7 +617,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
                 "content": [
                     {
                         "type": "text",
-                        "text": f"✅ 规范化剧本（结构化内容）已保存: {step1_path}\n📊 生成统计: {len(scenes)} 个场景",
+                        "text": f"✅ 规范化剧本（结构化内容）已保存: {step1_path}\n📊 生成统计: {len(scenes)} 个分镜",
                     }
                 ]
             }
@@ -1088,7 +1088,7 @@ def _render_step1_conflict_report(
 
 
 def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
-    """正式 step1 的结构化 unit 表 → 草稿装的扁平引用语法文本（``_build_reference_units_from_flat`` 的逆向）。
+    """正式 step1 的结构化 unit 表 → 扁平草稿单元（``_build_reference_units_from_flat`` 的逆向）。
 
     ``unit_id`` 不进草稿：它是按数组序号机械编号的派生物，草稿是给 Agent 改的那一层，带上
     派生字段等于给漂移开口子。
@@ -1117,7 +1117,7 @@ def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
 
 
 def _reference_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式参考 step1 内容 → 草稿装的引用语法结构；不是合法 step1 时返回 None。"""
+    """正式参考 step1 内容 → 扁平草稿结构；不是合法 step1 时返回 None。"""
     units = content.get("units")
     if not isinstance(units, list) or not units:
         return None
@@ -1164,7 +1164,7 @@ async def _promote_drama_step1(ctx: ToolContext, episode: int, draft: Quarantine
     except ValidationError as exc:
         violation = DraftViolation(
             f"草稿的 content 不符合 step1 规范化产出结构：{exc}；"
-            f"顶层须为 {{title, scenes}}，每个场景的 duration_seconds 取自模型档位 {supported_durations}",
+            f"顶层须为 {{title, scenes}}，每个分镜的 duration_seconds 取自模型档位 {supported_durations}",
             code="schema_invalid",
         )
         # 写回 Agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿改形，它照着
@@ -1181,7 +1181,7 @@ async def _promote_drama_step1(ctx: ToolContext, episode: int, draft: Quarantine
 
     raw_scenes = content.get("scenes")
     if not isinstance(raw_scenes, list) or not raw_scenes:
-        violation = DraftViolation("草稿的 content.scenes 必须是非空的场景对象数组", code="schema_invalid")
+        violation = DraftViolation("草稿的 content.scenes 必须是非空的分镜对象数组", code="schema_invalid")
         report = quarantine_and_report(
             project_path,
             episode,
@@ -1240,7 +1240,7 @@ async def _promote_drama_step1(ctx: ToolContext, episode: int, draft: Quarantine
         "content": [
             {
                 "type": "text",
-                "text": f"✅ step1 规范化内容已校验通过并晋升: {step1_path}\n📊 {len(raw_scenes)} 个场景{replan_note}",
+                "text": f"✅ step1 规范化内容已校验通过并晋升: {step1_path}\n📊 {len(raw_scenes)} 个分镜{replan_note}",
             }
         ]
     }
@@ -1322,7 +1322,7 @@ async def _open_drama_step1_for_edit(ctx: ToolContext, episode: int, source: str
                 "type": "text",
                 "text": (
                     f"✅ 第 {episode} 集 step1 已取回可编辑草稿：{draft_path}\n"
-                    f"📊 {len(scenes)} 个场景（正式文件 {step1_path} 保持原样，未改动）\n\n"
+                    f"📊 {len(scenes)} 个分镜（正式文件 {step1_path} 保持原样，未改动）\n\n"
                     "编辑口径：改 content.scenes[i] 的 scene_description / utterances / source_text / "
                     "duration_seconds / segment_break / 出场资产；needs_replan 是按台词准入派生的标记，"
                     "不在草稿里、也不要手写。增删场景即增删数组元素。\n"

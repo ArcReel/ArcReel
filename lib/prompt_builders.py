@@ -42,12 +42,12 @@ _CHARACTER_GUARD = "四个面板中角色面部、发型、服装、配饰完全
 # 参考图这条通道，其正向声明见 _PRODUCT_GUARD。
 _SCENE_GUARD = "画面中没有人物出镜，空间透视正常，陈设固定，光影统一。"
 _PROP_GUARD = "外观结构完整，焦点清晰。"
-# 商品保真核心句：sheet 生成守卫与镜头注入指令共用，调优措辞只改这一处。
+# 商品保真核心句：sheet 生成守卫与分镜注入指令共用，调优措辞只改这一处。
 _PRODUCT_FIDELITY_CORE = "logo、文字、配色、材质、比例与结构不得改变或臆造"
 # product sheet 由实拍原图整理而来，原图全量作为 i2i 参考注入（generation_tasks.py 的
 # _DESIGN_REFERENCE_COLLECTORS），手持与模特展示是电商原图的常见形态。参考图里的真人是强
 # 正向视觉条件，末尾的反向提示词压不住，因此在守卫句中正面声明只呈现商品本体。这句只作用于
-# sheet 生成；商品出现在镜头里时本就可以被人拿着，不能走 _PRODUCT_FIDELITY_CORE 共用。
+# sheet 生成；商品出现在分镜里时本就可以被人拿着，不能走 _PRODUCT_FIDELITY_CORE 共用。
 _PRODUCT_GUARD = (
     f"商品外观必须忠实于参考图中的真实商品：{_PRODUCT_FIDELITY_CORE}；各视图为同一件商品。"
     "参考图中的手部、模特及其他出镜人物一律不保留，画面只呈现商品本体；"
@@ -170,7 +170,7 @@ def build_storyboard_prompt(
 
 
 def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | None) -> str:
-    """给商品镜头的生成 prompt 追加高保真还原指令。
+    """给商品分镜的生成 prompt 追加高保真还原指令。
 
     仅在商品参考图实际注入请求时调用（分镜图与视频两层共用同一份指令文本）——
     指令指向"商品参考图"，参考缺席时追加只会误导模型。``product_names`` 为空

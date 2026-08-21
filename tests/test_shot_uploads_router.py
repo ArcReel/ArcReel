@@ -1,4 +1,4 @@
-"""镜头级分镜图/视频上传路由 + 参考单元视频上传端点测试。"""
+"""分镜级分镜图/视频上传路由 + 参考单元视频上传端点测试。"""
 
 import asyncio
 from io import BytesIO
@@ -237,7 +237,7 @@ class TestShotStoryboardUpload:
             assert resp.status_code == 404
 
     def test_reference_script_guarded_404(self, tmp_path, monkeypatch):
-        """reference_video 剧本无分镜概念，镜头上传一律 404。"""
+        """reference_video 剧本无分镜概念，分镜图/视频自主上传路由一律 404。"""
         client, pm = _client(monkeypatch, tmp_path)
         pm.save_script(
             "demo",

@@ -2194,7 +2194,7 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
 async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """联合图已付费落盘、切分失败：该组每个场景都记为 failed，不声称产物已就位。"""
+    """联合图已付费落盘、切分失败：该组每个分镜都记为 failed，不声称产物已就位。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
@@ -2223,7 +2223,7 @@ async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id
     assert out.get("is_error") is True
     result = _generation_result(out)
     assert result.succeeded == []
-    # 逐场景 ID 报告：一张宫格覆盖的四个场景各自拿到自己的失败结论。
+    # 逐分镜 ID 报告：一张宫格覆盖的四个分镜各自拿到自己的失败结论。
     assert result.failed == ["E1S01", "E1S02", "E1S03", "E1S04"]
     item = result.items[0]
     assert item.problem is not None
@@ -2319,7 +2319,7 @@ async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(
 async def test_generate_grid_reports_each_scene_of_a_shared_grid(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """同组场景共享一张宫格，结果仍逐场景 ID 报告：落格的成功、没落格的单独失败。"""
+    """同组分镜共享一张宫格，结果仍逐分镜 ID 报告：落格的成功、没落格的单独失败。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
@@ -5231,7 +5231,7 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
 async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
     fake_ctx: ToolContext, monkeypatch, generation_mode: str, content_mode: str
 ) -> None:
-    """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 镜头时长也不受档位枚举管辖。"""
+    """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 分镜时长也不受档位枚举管辖。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def fake_resolve(_project):
@@ -7292,7 +7292,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert envelope["kind"] == QUARANTINE_KIND_STEP1
     assert [v["code"] for v in envelope["violations"]] == [code]
     assert envelope["violations"][0]["label"] == "unit E1U01"
-    # 草稿装的是扁平引用语法产物（Agent 要改的那一层），不是派生后的落盘形状
+    # 草稿装的是扁平草稿结构（Agent 要改的是正文 / 原文锚 / 时长），不是派生后的落盘形状
     assert envelope["content"]["units"][0]["text"] == unit["text"]
     assert "shots" not in envelope["content"]["units"][0]
 
@@ -7393,8 +7393,8 @@ async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
 
 
 @pytest.mark.unit
-async def test_open_step1_for_edit_returns_flat_reference_syntax(fake_ctx: ToolContext) -> None:
-    """取回的草稿装扁平引用语法文本，不装派生物：Agent 改的是正文 / 锚 / 时长，
+async def test_open_step1_for_edit_returns_flat_draft_structure(fake_ctx: ToolContext) -> None:
+    """取回的是扁平草稿结构，不装派生物：Agent 改的是引用语法正文 / 原文锚 / 时长，
     unit_id 由晋升时按数组序号重新派生，放进草稿等于给漂移开口子。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身\n@[张三] 走向 @[村口]")])
@@ -7574,7 +7574,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     report = out["content"][0]["text"]
     assert "并发冲突" in report
     assert "base_fingerprint" in report
-    # 冲突报告附上盘上现值的扁平引用语法文本，供 Agent 对照合并
+    # 冲突报告附上盘上现值的扁平草稿单元，供 Agent 对照合并
     assert "在 @[村口] 等候" in report
     # 正式文件未被覆盖，草稿仍在场
     assert _rv_step1_path(fake_ctx).read_text(encoding="utf-8") == web_version

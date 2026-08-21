@@ -15,7 +15,7 @@
  * | `workbench-overview` | 工作台 7 | 项目概览的项目概述卡 |
  * | `workbench-agent` | 工作台 8 | 演示工作台右侧的 Agent 面板（静态演示对话） |
  * | `workbench-lorebook` | 工作台 9 | 角色集页面的卡片区 |
- * | `workbench-timeline` | 工作台 10 | 剧集分镜画布的镜头主体 |
+ * | `workbench-timeline` | 工作台 10 | 剧集分镜画布的分镜主体 |
  * | `workbench-export` | 工作台 11 | 顶栏的导出按钮 |
  *
  * 工作台五步落在演示项目的只读工作台上（见 `demo-project.ts`）。概述/角色集/分镜/导出

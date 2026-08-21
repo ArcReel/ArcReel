@@ -103,7 +103,7 @@ export default {
   bucket_i2v_label: "图生视频",
   bucket_i2v_caption: "覆盖由分镜图或多宫格分镜图驱动的视频生成。",
   bucket_r2v_label: "参考生视频",
-  bucket_r2v_caption: "覆盖参考生视频路径，含其中没有参考图的镜头。",
+  bucket_r2v_caption: "覆盖参考生视频路径，含其中没有参考图的视频单元。",
   text_tier_default_label: "默认模型",
   text_tier_simple_label: "简单任务",
   text_tier_simple_caption: "覆盖项目概述、风格图分析；此档模型需支持图像输入。",

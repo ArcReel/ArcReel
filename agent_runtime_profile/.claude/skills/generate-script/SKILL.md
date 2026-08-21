@@ -63,8 +63,8 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 - `title`：LLM 写入的剧集标题
 - `episode` / `content_mode` / `novel`（含 title、chapter）：由后端 `_add_metadata` 注入，不依赖 LLM 输出
 - 旁白/解说：`segments[]`（每个片段含 novel_text、duration_seconds、segment_break、出场角色 / 场景 / 道具 —— 由 step1 透传；image_prompt、video_prompt —— 由 step2 生成）
-- 剧情演绎：`scenes[]`（每个场景含 image_prompt、video_prompt、duration_seconds，以及 step1 透传的 utterances、source_text、characters_in_scene 等）
-- 广告/短片：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等）；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
+- 剧情演绎：`scenes[]`（每个分镜含 image_prompt、video_prompt、duration_seconds，以及 step1 透传的 utterances、source_text、characters_in_scene 等）
+- 广告/短片：`shots[]`（每个分镜含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等）；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
 - 参考生视频：`video_units[]`（每个 unit 含 `text`、`duration_seconds` 等）
 - `metadata`：created_at、updated_at、generator
 
