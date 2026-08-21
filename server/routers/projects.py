@@ -1063,7 +1063,7 @@ class UpdateSceneRequest(BaseModel):
     updates: dict
 
 
-@router.patch("/projects/{name}/script-scenes/{scene_id}")
+@router.patch("/projects/{name}/script-scenes/{scene_id}", dependencies=[Depends(require_project_migration_ok)])
 async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Translator):
     """更新 drama 模式剧本中的单个场景镜头（按 scene_id 定位）。
 
@@ -1180,7 +1180,7 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
     return shots
 
 
-@router.patch("/projects/{name}/script-shots/{shot_id}")
+@router.patch("/projects/{name}/script-shots/{shot_id}", dependencies=[Depends(require_project_migration_ok)])
 async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Translator):
     """更新 ad 模式剧本中的单个镜头（按 shot_id 定位）。
 
@@ -1238,7 +1238,7 @@ class ReorderShotsRequest(BaseModel):
     shot_ids: list[str]
 
 
-@router.post("/projects/{name}/script-shots/reorder")
+@router.post("/projects/{name}/script-shots/reorder", dependencies=[Depends(require_project_migration_ok)])
 async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
     """按给定全排列重排 ad 剧本的 shots 顺序（与参考视频 units/reorder 同语义）。"""
     try:
@@ -1310,7 +1310,7 @@ class UpdateEpisodeRequest(BaseModel):
     title: str
 
 
-@router.patch("/projects/{name}/segments/{segment_id}")
+@router.patch("/projects/{name}/segments/{segment_id}", dependencies=[Depends(require_project_migration_ok)])
 async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _t: Translator):
     """更新旁白/解说片段"""
     try:
