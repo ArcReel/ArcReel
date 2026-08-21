@@ -54,9 +54,11 @@ mcp__arcreel__get_workflow_plan({
 处理顺序：
 
 1. 把 `details[]` 逐条讲给用户：哪一集的哪个文件、违了什么约，不要压成一句「升级失败」。
-2. 用既有的受控编辑工具（`mcp__arcreel__patch_episode_script`、`mcp__arcreel__patch_project`、
-   `mcp__arcreel__patch_episode_meta` 等）按明细修。**没有裸文件写入这条路**，也不要用 `Edit`
-   直接改正式脚本。
+2. 阻断期仍可用的写入工具只有 `mcp__arcreel__patch_project`、`mcp__arcreel__patch_episode_meta`、
+   `mcp__arcreel__rename_asset`；`mcp__arcreel__patch_episode_script`、`mcp__arcreel__insert_segment`、
+   `mcp__arcreel__remove_segment`、`mcp__arcreel__split_segment` 与所有生成工具一律被拒。按明细用
+   前三个能修的先修，够不着的（如剧本正文类违约）按第 4 步如实告知用户。
+   **没有裸文件写入这条路**，也不要用 `Edit` 直接改正式脚本。
 3. 调用 `mcp__arcreel__retry_project_migration` 重跑升级链。它幂等，重复调用不会造成损失。
 4. 成功时工具返回新的制作计划，项目解除阻断，照常按 `next_action` 继续；失败时返回新的结构化
    明细，回到第 1 步。修不动时如实告诉用户卡在哪里，不要反复空跑重试。
