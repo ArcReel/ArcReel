@@ -1,6 +1,6 @@
 ---
 name: generate-video
-description: 为剧本场景或自包含 video unit 生成视频。当用户要求生成、重做或续传视频时使用；支持整集、单项与批量自选。
+description: 为分镜或自包含 video unit 生成视频。当用户要求生成、重做或续传视频时使用；支持整集、单项与批量自选。
 ---
 
 # 生成视频

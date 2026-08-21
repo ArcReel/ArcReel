@@ -1796,7 +1796,7 @@ class API {
   /**
    * 生成分镜图
    * @param projectName - 项目名称
-   * @param segmentId - 片段/场景 ID
+   * @param segmentId - 分镜 ID
    * @param prompt - 图片生成 prompt（支持字符串或结构化对象）
    * @param scriptFile - 剧本文件名
    */
@@ -1818,7 +1818,7 @@ class API {
   /**
    * 生成视频
    * @param projectName - 项目名称
-   * @param segmentId - 片段/场景 ID
+   * @param segmentId - 分镜 ID
    * @param prompt - 视频生成 prompt（支持字符串或结构化对象）
    * @param scriptFile - 剧本文件名
    * @param durationSeconds - 时长（秒）

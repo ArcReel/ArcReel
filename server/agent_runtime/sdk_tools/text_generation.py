@@ -1325,7 +1325,7 @@ async def _open_drama_step1_for_edit(ctx: ToolContext, episode: int, source: str
                     f"📊 {len(scenes)} 个分镜（正式文件 {step1_path} 保持原样，未改动）\n\n"
                     "编辑口径：改 content.scenes[i] 的 scene_description / utterances / source_text / "
                     "duration_seconds / segment_break / 出场资产；needs_replan 是按台词准入派生的标记，"
-                    "不在草稿里、也不要手写。增删场景即增删数组元素。\n"
+                    "不在草稿里、也不要手写。增删分镜即增删数组元素。\n"
                     f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
                     "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
                     "草稿在场期间内容确认与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"

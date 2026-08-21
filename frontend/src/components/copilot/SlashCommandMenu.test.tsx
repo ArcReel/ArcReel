@@ -7,7 +7,7 @@ import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 
 const SKILLS = [
   { name: "video-workflow", description: "完整工作流", scope: "project" as const, path: "/tmp/a" },
-  { name: "generate-storyboard", description: "为剧本场景生成分镜图", scope: "project" as const, path: "/tmp/b" },
+  { name: "generate-storyboard", description: "为剧本分镜生成分镜图", scope: "project" as const, path: "/tmp/b" },
   { name: "generate-video", description: "用 Veo 生成视频片段", scope: "project" as const, path: "/tmp/c" },
 ];
 

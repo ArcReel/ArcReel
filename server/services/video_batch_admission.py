@@ -774,7 +774,7 @@ def storyboard_video_prompt(
     prompt = item.get("video_prompt")
     if not prompt:
         item_id = item.get("segment_id") or item.get("scene_id")
-        raise ValueError(f"片段/场景缺少 video_prompt 字段: {item_id}")
+        raise ValueError(f"分镜缺少 video_prompt 字段: {item_id}")
     if is_structured_video_prompt(prompt):
         # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 系的机械派生：剧本 JSON
         # 里残留的 voice_profiles 一律先剥离，不因门控不触发（narration/ad、或 drama 无
@@ -792,10 +792,10 @@ def storyboard_video_prompt(
         return video_prompt_to_yaml(prompt)
     if isinstance(prompt, dict):
         item_id = item.get("segment_id") or item.get("scene_id")
-        raise ValueError(f"片段/场景 video_prompt 为对象但格式不符合结构化规范: {item_id}")
+        raise ValueError(f"分镜 video_prompt 为对象但格式不符合结构化规范: {item_id}")
     if not isinstance(prompt, str):
         item_id = item.get("segment_id") or item.get("scene_id")
-        raise TypeError(f"片段/场景 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
+        raise TypeError(f"分镜 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
     return prompt
 
 

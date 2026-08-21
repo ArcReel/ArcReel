@@ -740,7 +740,7 @@ export default {
   'generation_route_locked': '生成方式创建后不可更改',
   'grid_generation': '多宫格分镜',
   'route_storyboard': '分镜图生视频',
-  'route_storyboard_desc': '先为每个场景生成分镜图，确认画面后再生成视频',
+  'route_storyboard_desc': '先为每个分镜生成分镜图，确认画面后再生成视频',
   'route_reference_video': '参考生视频',
   'route_reference_video_desc': '跳过分镜图，直接用角色、场景、道具图作为参考生成视频',
   'grid_storyboard_label': '多宫格分镜',

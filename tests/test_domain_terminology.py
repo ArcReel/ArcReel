@@ -8,7 +8,10 @@ import pytest
 pytestmark = pytest.mark.unit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ACTIVE_ROOTS = (
+ACTIVE_PATHS = (
+    REPO_ROOT / "CONTEXT.md",
+    REPO_ROOT / "README.md",
+    REPO_ROOT / "CONTRIBUTING.md",
     REPO_ROOT / "agent_runtime_profile",
     REPO_ROOT / "frontend" / "src",
     REPO_ROOT / "lib",
@@ -27,8 +30,9 @@ HISTORICAL_PARTS = {
 def _active_text_lines():
     """Yield current contract prose; omit decision history and legacy-shape migrations."""
     this_file = Path(__file__).resolve()
-    for root in ACTIVE_ROOTS:
-        for path in root.rglob("*"):
+    for active_path in ACTIVE_PATHS:
+        paths = (active_path,) if active_path.is_file() else active_path.rglob("*")
+        for path in paths:
             if path == this_file or path.suffix not in TEXT_SUFFIXES:
                 continue
             relative_parts = path.relative_to(REPO_ROOT).parts
@@ -87,3 +91,25 @@ def test_drama_scene_machine_identifiers_are_described_as_storyboard_entries():
         if any(pattern.search(line) for pattern in patterns)
     ]
     assert not violations, "drama 脚本条目应称分镜，场景保留给资产：\n" + "\n".join(violations)
+
+
+def test_storyboard_entries_are_not_called_scenes_in_current_prose():
+    """Natural-language aliases must not bypass the machine-identifier guard."""
+    legacy_fragments = (
+        "片段/" + "场景",
+        "剧本" + "场景",
+        "单" + "场景时长",
+        "场景" + "统计摘要",
+        "按其中的" + "场景定位",
+        "增删" + "场景",
+        "每个" + "场景一条",
+        "逐" + "场景",
+    )
+    legacy_patterns = (re.compile("每个" + "场景" + r"(?:都|宜|生成)"),)
+    violations = [
+        f"{path}:{line_number}: {line.strip()}"
+        for path, line_number, line in _active_text_lines()
+        if any(fragment in line for fragment in legacy_fragments)
+        or any(pattern.search(line) for pattern in legacy_patterns)
+    ]
+    assert not violations, "脚本条目的自然语言术语应为分镜：\n" + "\n".join(violations)

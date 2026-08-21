@@ -414,7 +414,7 @@ describe("ProjectSettingsPage – style picker", () => {
 
     renderAt("/app/projects/demo/settings");
 
-    expect(await screen.findByText(/先为每个场景生成分镜图/)).toBeInTheDocument();
+    expect(await screen.findByText(/先为每个分镜生成分镜图/)).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: /多宫格分镜/ })).not.toBeInTheDocument();
   });
 });

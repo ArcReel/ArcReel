@@ -90,7 +90,7 @@ def _build_prompt(
 ) -> str:
     image_prompt = segment.get("image_prompt", "")
     if not image_prompt:
-        raise ValueError(f"片段/场景 {segment[id_field]} 缺少 image_prompt 字段")
+        raise ValueError(f"分镜 {segment[id_field]} 缺少 image_prompt 字段")
     return build_storyboard_prompt(image_prompt, style, style_description)
 
 
@@ -98,7 +98,7 @@ def generate_storyboards_tool(ctx: ToolContext):
     @tool(
         _OPERATION,
         "为 narration/剧情演绎剧本生成分镜图。"
-        "script 为剧本文件名（如 episode_1.json）；segment_ids 指定要重生的片段/场景 ID 列表"
+        "script 为剧本文件名（如 episode_1.json）；segment_ids 指定要重生的分镜 ID 列表"
         "（不传则只生成缺分镜图的项；已失效但可用的旧图不会被自动重生）。"
         "返回 requested / succeeded / failed / blocked 的逐 ID 结果，每个失败项带稳定 code 与下一步动作。",
         {

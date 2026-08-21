@@ -77,7 +77,7 @@ def _fail_scenes(
     provider_checkpoint: ProviderCheckpoint | None = None,
     artifact_paths: Mapping[str, str] | None = None,
 ) -> None:
-    """一张宫格的失败落到它覆盖的每个场景：调用方点的是场景，不是宫格。
+    """一张宫格的失败落到它覆盖的每个分镜：调用方点的是分镜，不是宫格。
 
     ``artifact_paths`` 是剧本里已登记的旧图路径（点名强制路线也会有——旧图存在，
     只是该路线不复用它）。失败不动旧产物，但报告要带上它的路径与状态，否则
@@ -131,7 +131,7 @@ def _list_groups(
         ids = [item[id_field] for item in group]
         plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
         status = _describe_plans(plans)
-        lines.append(f"  组 {i + 1}: {ids[0]}..{ids[-1]} ({len(ids)} 场景) → {status}")
+        lines.append(f"  组 {i + 1}: {ids[0]}..{ids[-1]} ({len(ids)} 分镜) → {status}")
     return lines
 
 
@@ -150,11 +150,11 @@ def generate_grid_tool(ctx: ToolContext):
         _OPERATION,
         "为已开启宫格装配的 storyboard 项目（generation_mode=storyboard 且 grid_storyboard=true）"
         "生成宫格联合图（按 segment_break 分组），并在每张生成完成后自动执行切分落格，"
-        "端到端产出各场景起始分镜图。"
+        "端到端产出各分镜的起始分镜图。"
         "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些分镜的分组；"
         "不传 scene_ids 时只生成仍缺分镜图的分组，已失效但可用的旧图会被复用而不重生。"
-        "结果按 requested / succeeded / failed / blocked 逐场景 ID 返回"
-        "（同一分组的场景共享一张宫格，该宫格的结果投影到它覆盖的每个场景）。",
+        "结果按 requested / succeeded / failed / blocked 逐分镜 ID 返回"
+        "（同一分组的分镜共享一张宫格，该宫格的结果投影到它覆盖的每个分镜）。",
         {
             "type": "object",
             "properties": {
@@ -165,7 +165,7 @@ def generate_grid_tool(ctx: ToolContext):
                 "scene_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "只生成包含这些场景的分组；不传则只生成仍缺分镜图的分组",
+                    "description": "只生成包含这些分镜的分组；不传则只生成仍缺分镜图的分组",
                 },
                 "list_only": {"type": "boolean", "description": "仅列出分组信息，不入队"},
             },
@@ -280,7 +280,7 @@ def generate_grid_tool(ctx: ToolContext):
                                 artifact_status=state.status,
                             )
                         # 宫格整组共用一张联合图：同组任一格状态不可读就无法安全出图，
-                        # 组内仍缺分镜图的场景（targets）同样被阻塞，逐场景给结论而不是
+                        # 组内仍缺分镜图的分镜（targets）同样被阻塞，逐分镜给结论而不是
                         # 留空让调用方猜。已复用的场景（skipped）不受影响——它们各自的
                         # 旧图已确认可用，这次调用本就不会碰它们，"产物状态不可读、需要
                         # 修复"对它们是错误结论，仍按正常复用记账。
@@ -302,7 +302,7 @@ def generate_grid_tool(ctx: ToolContext):
                             builder.skip(state)
                         continue
                     if not selection.targets:
-                        # 整组分镜图都还可用：逐场景报告复用，宫格本身不进结果集。
+                        # 整组分镜图都还可用：逐分镜报告复用，宫格本身不进结果集。
                         for state in selection.skipped:
                             builder.skip(state)
                         continue

@@ -1469,7 +1469,7 @@ _SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
 
 # 任务类型自带条目标签的例外：tts 的产物是旁白配音，与骨架条目名词不同名。reference_video 显式
 # 指向视频单元，与参考生视频项目的骨架名词同口径；storyboard/video 未列出，回退到按骨架种类派生
-# 的 label_key（片段/场景/分镜），与同项目分镜级事件同口径。
+# 的 label_key（分镜），与同项目分镜级事件同口径。
 _SKELETON_TASK_LABEL_KEYS: dict[str, str] = {
     "reference_video": "skeleton_video_units",
     "tts": "narration_audio",
