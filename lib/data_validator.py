@@ -929,8 +929,7 @@ class DataValidator:
                 asset_type="prop",
             )
 
-            # utterances：分镜级有序发声序列（取代旧 video_prompt.dialogue + voiceover）。
-            # 缺失放行（存量剧情演绎走读时迁移，旧双字段不在此层校验）；出现则校验结构与
+            # utterances 是分镜级有序发声源；本层允许字段缺失，字段存在时校验结构与
             # kind ⇄ speaker 约束，与上方 characters_in_scene 等同口径（逐项 append、不 raise）。
             self._validate_utterances(scene.get("utterances"), prefix, errors)
 
@@ -960,7 +959,7 @@ class DataValidator:
 
     @staticmethod
     def _validate_utterances(utterances: Any, prefix: str, errors: list[ValidationMessage]) -> None:
-        """校验剧情演绎分镜级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行，存量走读时迁移）。
+        """校验剧情演绎分镜级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行）。
 
         每条须为 ``{kind, speaker, text}``：kind ∈ {dialogue, voiceover}、text 非空字符串；
         dialogue 必带非空 speaker、voiceover 不得带 speaker。逐项 append、不 raise。

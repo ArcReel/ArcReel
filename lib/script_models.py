@@ -152,8 +152,8 @@ class _VideoPromptCore(BaseModel):
 class VideoPrompt(_VideoPromptCore):
     """narration / ad 视频生成 Prompt：含角色对话 dialogue。
 
-    drama 不用本模型——其台词迁入分镜级 ``DramaScene.utterances``，video_prompt 用无-dialogue 的
-    ``DramaVideoPrompt`` 变体（见 ADR 0040）。
+    drama 的有序发声由 ``DramaScene.utterances`` 承载，video_prompt 使用无-dialogue 的
+    ``DramaVideoPrompt``（见 ADR 0040）。
     """
 
     dialogue: Annotated[list[Dialogue], BeforeValidator(_none_to_empty_list)] = Field(
@@ -162,7 +162,7 @@ class VideoPrompt(_VideoPromptCore):
 
 
 class DramaVideoPrompt(_VideoPromptCore):
-    """drama 视频生成 Prompt：无 dialogue（口播统一迁入分镜级 ``DramaScene.utterances``）。
+    """drama 视频生成 Prompt：无 dialogue，口播由分镜级 ``DramaScene.utterances`` 统一承载。
 
     ``extra="forbid"`` 下任何残留的 ``dialogue`` 键会被 ``DramaScene`` 读时迁移先行剥离。
     """
@@ -487,10 +487,9 @@ class DramaScene(BaseModel):
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
-    # drama 用无-dialogue 变体：台词迁入下方 utterances，video_prompt 只承载画面动作 / 运镜 / 环境音。
+    # drama 的 video_prompt 只承载画面动作、运镜与环境音，口播由下方 utterances 承载。
     video_prompt: DramaVideoPrompt = Field(description="视频生成提示词")
-    # 分镜级有序发声序列，取代旧 video_prompt.dialogue（角色台词）与分镜 voiceover（画外音）双字段：
-    # dialogue/voiceover 条目按时序排在同一列表，插入顺序即幕内先后（见 ADR 0040）。
+    # utterances 统一承载分镜级角色台词与画外音；条目顺序即幕内发声顺序（见 ADR 0040）。
     utterances: list[Utterance] = Field(
         default_factory=list,
         description="分镜级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列",
