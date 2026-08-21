@@ -292,6 +292,51 @@ describe("MediaModelSection", () => {
       expect(box).not.toBeChecked();
       expect(screen.getByText(/没有声音/)).toBeInTheDocument();
     });
+
+    // 全局页无项目上下文，默认模型两条路径都会用到，能力线只能给目录位；但两个细分项下拉
+    // 各自就是一条路径，与上方按桶取值的勾选框判据同源，不能共用默认层那一个答案。
+    describe("候选下拉的音轨能力线", () => {
+      function mockOmni() {
+        vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+          options: { ...CONFIG.options, video_backends: ["kling/v3-omni"] },
+          settings: { ...CONFIG.settings, default_video_backend: "" },
+        } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+        vi.spyOn(API, "getModelCandidates").mockResolvedValue({
+          ...CANDIDATES,
+          video: {
+            default: ["kling/v3-omni"],
+            buckets: { i2v: ["kling/v3-omni"], r2v: ["kling/v3-omni"] },
+          },
+        } as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>);
+        vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+          videoProvider("kling", "v3-omni", {
+            audio_track: "controllable",
+            reference_route_audio_track: "always_off",
+          }),
+        ]);
+      }
+
+      /** 打开指定下拉，读出 v3-omni 那一行的能力线，再关掉——同时只开一个下拉。 */
+      async function omniRowIn(user: ReturnType<typeof userEvent.setup>, comboboxName: string) {
+        await user.click(screen.getByRole("combobox", { name: comboboxName }));
+        const text = screen.getByRole("option", { name: /v3-omni/ }).textContent ?? "";
+        await user.keyboard("{Escape}");
+        return text;
+      }
+
+      it("默认模型按目录位标有声，两个细分项各按自己的路径标注", async () => {
+        const user = userEvent.setup();
+        mockOmni();
+        render(<MediaModelSection />);
+        await screen.findByRole("combobox", { name: "默认视频模型" });
+        expect(await omniRowIn(user, "默认视频模型")).toContain("有声");
+
+        await user.click(screen.getAllByText("按用途指定模型")[0]);
+        expect(await omniRowIn(user, "图生视频")).toContain("有声");
+        // 与同屏 r2vAudioControl（always_off）判定的勾选框一致：一屏之内两句话不能互相矛盾
+        expect(await omniRowIn(user, "参考生视频")).toContain("无声");
+      });
+    });
   });
 
   it("auto-expands a channel whose sub-field is already configured", async () => {

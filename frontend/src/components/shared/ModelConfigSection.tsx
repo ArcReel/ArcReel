@@ -295,7 +295,15 @@ export function ModelConfigSection({
     endpointToMediaType,
   ).options;
 
-  const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
+  // 默认层下拉展示的是本项目实际会执行的那条路径（与上方 audioControl 同口径）；两个细分项
+  // 下拉各按自己的桶取值，不受此处影响。
+  const renderVideoOptionMeta = videoOptionMetaRenderer({
+    t,
+    providers,
+    customProviders,
+    endpointToMediaType,
+    defaultRoute: usesReferenceImages ? "r2v" : "i2v",
+  });
 
   const handleVideoChange = (next: string) => applyVideoLayer({ videoBackend: next });
 
