@@ -192,20 +192,18 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
 
 
 @pytest.mark.parametrize(
-    "tool_factory,args",
+    "tool_factory,args,unblocked_fields",
     [
-        (list_pending_assets_tool, {}),
-        (get_episode_script_revision_tool, {"script": "episode_1.json"}),
+        (list_pending_assets_tool, {}, ()),
+        (get_episode_script_revision_tool, {"script": "episode_1.json"}, ("script", "revision")),
     ],
 )
 async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of_raising(
-    tmp_path: Path, tool_factory, args
+    tmp_path: Path, tool_factory, args, unblocked_fields
 ) -> None:
-    """只读诊断工具（不在 MIGRATION_BLOCKED_TOOL_IDS 里，不经注册期守卫包装）在阻断项目上
+    """只读诊断工具不在 MIGRATION_BLOCKED_TOOL_IDS 里、不经注册期守卫包装，各自在 handler 内
 
-    自行读一次迁移裁决，命中即返回与生成类工具同构的 problem 回执，而不是把内部异常
-    （list_pending_assets 原先会撞上的 ProjectMigrationError）或过期数据（未加检查前
-    get_episode_script_revision 会静默放行）透给 agent。
+    读一次迁移裁决：命中则返回与生成类工具同构的 problem 回执，裁决清空后照常给出结果。
     """
 
     from server.agent_runtime.sdk_tools._context import ToolContext
@@ -233,6 +231,9 @@ async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of
     unblocked = await handler(args)
 
     assert unblocked.get("is_error") is not True
+    assert "problem" not in unblocked
+    for field in unblocked_fields:
+        assert unblocked[field]
 
 
 async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_path: Path, monkeypatch) -> None:
