@@ -210,7 +210,7 @@ class TestReferenceVideoRouter:
             assert body["quarantine"] is None
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
 
-            # 编辑单元正文 → 重新待审
+            # 编辑单元正文 → 重新等待确认
             edited = _rv_step1()
             edited["units"][0]["text"] = "@[阿离] 转身离去。"
             put = client.put(f"{base}/content", json=edited)
@@ -448,7 +448,7 @@ class TestReferenceVideoRouter:
         """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：caps 是它唯一的档位来源。
 
         ``supported_durations``（未收窄全集，供存量草稿的读时收编 clamp）与 ``duration_tiers``
-        （收窄后的逐 unit 可选项）都要经 caps 解析出真实档位，否则这类项目的审阅门只能退回
+        （收窄后的逐 unit 可选项）都要经 caps 解析出真实档位，否则这类项目的内容确认只能退回
         结构区间 clamp，读时迁移的收编对其整体失效。
         """
         from server.agent_runtime.sdk_tools import _context

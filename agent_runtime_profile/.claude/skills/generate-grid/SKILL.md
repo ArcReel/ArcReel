@@ -1,6 +1,6 @@
 ---
 name: generate-grid
-description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"、"宫格模式生成分镜"时使用。自动按 segment_break 分组，选择最优宫格大小，生成链式过渡帧宫格联合图，随后切分落格为各场景起始分镜图。
+description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"、"宫格模式生成分镜"时使用。自动按 segment_break 分组，选择最优宫格大小，生成链式过渡帧宫格联合图，随后切分落格为各分镜的起始分镜图。
 ---
 
 # 生成宫格分镜图
@@ -18,12 +18,12 @@ description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"
 | 操作 | 工具 |
 |------|------|
 | 整集生成 | `mcp__arcreel__generate_grid({"script": "episode_1.json"})` |
-| 指定场景所在的组 | `mcp__arcreel__generate_grid({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S02", "E1S03"]})` |
+| 指定分镜所在的组 | `mcp__arcreel__generate_grid({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S02", "E1S03"]})` |
 | 列出当前分组信息 | `mcp__arcreel__generate_grid({"script": "episode_1.json", "list_only": true})` |
 
 不传 `scene_ids` 时只补缺：分镜格已齐备的分组会被复用，不重新生成。
-结果按 `requested / succeeded / failed / blocked` 逐**场景** ID 返回：同组场景共享一张宫格，
-这张宫格的入队、任务与切分结果投影到它覆盖的每个场景。联合图已生成但切分失败的场景
+结果按 `requested / succeeded / failed / blocked` 逐**分镜** ID 返回：同组分镜共享一张宫格，
+这张宫格的入队、任务与切分结果投影到它覆盖的每个分镜。联合图已生成但切分失败的分镜
 带 `generation_post_processing_failed`，此时不要重新生成整张宫格（会重复计费）。
 结构详见 `.claude/references/generation-results.md`。
 

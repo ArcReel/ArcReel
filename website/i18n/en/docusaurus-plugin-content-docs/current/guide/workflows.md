@@ -17,9 +17,9 @@ When creating a project, distinguish between:
 
 They can be combined. For example:
 
-- Drama + Storyboard image-to-video;
+- Drama + Storyboard mode;
 - Drama + Reference-to-video;
-- Narration/Commentary + Storyboard image-to-video;
+- Narration/Commentary + Storyboard mode;
 - Ad / Short Video + Reference-to-video.
 
 ## 2. Content Sources {#content-sources}
@@ -269,13 +269,13 @@ Instead of using an ordinary storyboard as the sole input, the workflow directly
 
 | Requirement | Recommended Content Mode | Recommended video generation mode |
 |---|---|---|
-| Novel recaps and narration-led content | Narration/Commentary | Storyboard image-to-video |
+| Novel recaps and narration-led content | Narration/Commentary | Storyboard mode |
 | Continuous narratives and character dialogue | Drama | Storyboard mode (with multi-grid storyboards) or Reference-to-video mode |
-| A complete existing screenplay | Drama | Storyboard image-to-video |
+| A complete existing screenplay | Drama | Storyboard mode |
 | Merchandise structure must remain stable | Ad / Short Video | Prefer Reference-to-video |
 | Strong cross-shot consistency requirements | Narration/Commentary or Drama | Storyboard mode (with multi-grid storyboards) |
-| First ArcReel trial | Any | Storyboard image-to-video |
-| Limited provider support | Any | Storyboard image-to-video |
+| First ArcReel trial | Any | Storyboard mode |
+| Limited provider support | Any | Storyboard mode |
 | An established library of high-quality character assets | Drama | Reference-to-video |
 
 ## 6. Standard Production Stages {#production-stages}

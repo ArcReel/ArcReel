@@ -681,7 +681,7 @@ async def test_reference_step1_rejects_duplicate_unit_ids(reference_project: Pat
 @pytest.mark.integration
 def test_reference_step1_migration_carries_confirmation_forward(reference_project: Path):
     """迁移回写让 step1 内容指纹漂移；若该集已确认（指纹恰是迁移前内容），须把确认指纹
-    平移到迁移后的值，否则仅 build_prompt/dry-run 预览一次就会把已确认分集退回待审。
+    平移到迁移后的值，否则仅 build_prompt/dry-run 预览一次就会让已确认分集重新等待确认。
     """
     drafts = reference_project / "drafts" / "episode_1"
     # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
@@ -741,9 +741,9 @@ def test_reference_step1_migration_carries_confirmation_confirmed_after_construc
 @pytest.mark.integration
 def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_clamped(reference_project: Path):
     """迁移带 warnings（求和时长不在模型档位内，被取档改写）不是纯格式收编：已确认分集
-    须退回待审，不能平移确认——取档后的秒数不是用户确认时看到的值。
+    须重新等待确认，不能平移确认——取档后的秒数不是用户确认时看到的值。
 
-    退回待审的同时本次调用也须中止：内容确认判的是迁移前状态、已按「已确认」放行，
+    重新等待确认的同时本次调用也须中止：内容确认判的是迁移前状态、已按「已确认」放行，
     改写发生在放行之后，继续下去就会按用户从未过目的秒数走完付费的 step2。
     """
     drafts = reference_project / "drafts" / "episode_1"
@@ -768,7 +768,7 @@ def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_
 
     after_project = _json.loads(project_path.read_text(encoding="utf-8"))
     review = after_project["episodes"][0]["step1_review"]
-    assert review["fingerprint"] == before  # 未被平移，仍是迁移前的旧指纹——照常判定为待审
+    assert review["fingerprint"] == before  # 未被平移，仍是迁移前的旧指纹——照常判定为待确认
 
 
 @pytest.mark.integration

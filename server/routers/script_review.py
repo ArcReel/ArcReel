@@ -50,7 +50,7 @@ def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> 
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
 async def get_script_review(project_name: str, episode: int, _t: Translator):
-    """读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。
+    """读取该集 step1 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。
 
     ``quarantine`` 字段单独合并（reference_video 变体、草稿在场时才非 None）：它按产出时
     那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。
@@ -81,7 +81,7 @@ async def update_script_review_content(
     content: dict = Body(...),
     base_fingerprint: str | None = None,
 ):
-    """保存手动 / Agent 编辑后的结构化中间态，并使该集重新进入待审。
+    """保存手动 / Agent 编辑后的结构化中间态，并使该集重新等待确认。
 
     ``base_fingerprint``（query）是编辑方 GET 时拿到的内容指纹：给定时服务端在锁内比对，
     编辑期间 step1 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。

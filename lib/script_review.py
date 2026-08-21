@@ -1,14 +1,14 @@
-"""step1→step2 内容确认的核心逻辑：适用性判定、step1 路径、内容指纹、审核状态派生，
+"""step1→step2 内容确认的核心逻辑：适用性判定、step1 路径、内容指纹、确认状态派生，
 以及参考生视频正式 step1 的单一写盘出口（``step1_write_lock`` / ``write_step1_locked``）。
 
 gate 横跨两处消费：SDK 工具（``generate_episode_script`` 的 step2 阻塞 enforcement）与 web
-router / service（结构化中间态审阅 / 编辑 / 确认）。状态派生只依赖 step1 文件 + project dict
+router / service（结构化中间态查看 / 编辑 / 确认）。状态派生只依赖 step1 文件 + project dict
 的纯计算；写盘出口另持 ``ProjectManager.file_lock`` 的 per-path 锁，四条写路径（Web 端保存、
 重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 step2 草稿清理只存在一处。
 
 真值只存「确认指纹」于 project.json ``episodes[i].step1_review``；pending / confirmed 由读时
 比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、Agent
-改写 step1、web 手改 step1 都会让指纹漂移、自动重新待审，无需 hook 各异的 step1 写入路径
+改写 step1、web 手改 step1 都会让指纹漂移、自动重新等待确认，无需 hook 各异的 step1 写入路径
 （narration step1 由子智能体 Write 落盘、无 Python chokepoint）。
 
 适用范围（拥有结构化 step1 中间态的三条内容/视觉两段式路径）：
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: 审核状态：not_applicable=该集不走 gate；no_step1=适用但 step1 未产出；
+#: 内容确认状态：not_applicable=该集不走 gate；no_step1=适用但 step1 未产出；
 #: pending_review=step1 已产出但未经确认（或确认后内容又变）→ 阻塞 step2；confirmed=已确认放行。
 ReviewStatus = Literal["not_applicable", "no_step1", "pending_review", "confirmed"]
 
@@ -448,7 +448,7 @@ def step2_generated(project_path: Path, project: dict[str, Any], episode: int) -
 
 
 def review_status(project_path: Path, project: dict[str, Any], episode: int) -> ReviewStatus:
-    """派生该集审核状态。
+    """派生该集内容确认状态。
 
     穷举 {step1 有无 × step2 有无 × step1_review 有无}：
     - 无 step1（或 gate 不适用）：not_applicable / no_step1；
@@ -472,7 +472,7 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
         return "confirmed" if stored_fingerprint == live else "pending_review"
     # 无确认指纹（存量 / 首次）：用 step2 产物是否已存在做 grandfather 判据。
     # 过渡态局限：存量集没有指纹基线，无法区分「step1 未动」与「step1 已重拆但未确认」——
-    # 只要旧 step2 文件仍在，重拆后的 step1 也会被放行、不重新拦审。这是「不无谓阻塞存量重跑」的
+    # 只要旧 step2 文件仍在，重拆后的 step1 也会被放行、不重新阻塞。这是「不无谓阻塞存量重跑」的
     # 取舍代价，且自愈：用户或 Agent 首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
     return "confirmed" if step2_generated(project_path, project, episode) else "pending_review"
 
@@ -503,8 +503,8 @@ def carry_confirmation_through_migration(project: dict[str, Any], episode: int, 
     """存量 step1 草稿的时长收编迁移是机械格式收编、不是内容编辑，但回写会让内容指纹漂移。
 
     若该集确认指纹恰好记的是迁移前内容（``before``），就把它平移到迁移后的值（``after``），
-    避免一个早已确认的分集仅因被迁移回写就退回待审；指纹本就对不上（step1 在迁移外确实被
-    改过）时不动，返回 False，照常按待审处理。
+    避免一个早已确认的分集仅因被迁移回写就重新等待确认；指纹本就对不上（step1 在迁移外确实被
+    改过）时不动，返回 False，照常按待确认处理。
 
     仅适用于迁移无 warnings 的情形（纯格式收编，时长取值未被 clamp 改写）：调用方须在迁移
     产生 warnings 时跳过本函数，让确认照常失效——那种情形下 ``after`` 携带的时长已不是用户
@@ -538,15 +538,15 @@ def migrate_step1_draft_in_place(
 
     迁移多数情况下是机械格式收编，回写会让内容指纹漂移：经 ``update_project`` 在锁内把该集
     确认指纹平移到迁移后的值（``carry_confirmation_through_migration``），避免已确认分集仅因
-    被加载就退回待审。``warnings`` 非空说明迁移按档位 / 结构区间 clamp 改写了实际时长取值——
-    那是内容变更，不平移确认，已确认分集经指纹比对照常退回待审；从未存过指纹、靠 grandfather
-    判据（step2 产物已存在）放行的存量集则显式记下迁移前内容的指纹，使其同样失配退回待审。
+    被加载就重新等待确认。``warnings`` 非空说明迁移按档位 / 结构区间 clamp 改写了实际时长取值——
+    那是内容变更，不平移确认，已确认分集经指纹比对照常重新等待确认；从未存过指纹、靠 grandfather
+    判据（step2 产物已存在）放行的存量集则显式记下迁移前内容的指纹，使其同样失配、等待确认。
     该标记的持久化不区分 dry-run 与真实生成：迁移幂等落盘后重试不再产生 warnings，只有落盘
-    的标记能保证后续生成仍被审阅门拦下。
+    的标记能保证后续生成仍被内容确认阻塞。
 
     project 侧的确认标记先落盘、草稿后落盘：两次写之间中断时草稿仍是迁移前内容，下次加载
     重跑迁移即自愈。反序则草稿已丢失旧字段、重跑判 ``changed=False``，标记永久缺失——靠
-    grandfather 判据放行的存量集会带着被 clamp 的时长停在 confirmed，绕过审阅门。
+    grandfather 判据放行的存量集会带着被 clamp 的时长停在 confirmed，绕过内容确认。
 
     ``supported_durations`` 给定时（step2 加载侧持有模型档位）收编结果直接取档；缺省
     （web gate 侧，能力解析是 async + DB、同步拿不到档位）只做结构区间 clamp。

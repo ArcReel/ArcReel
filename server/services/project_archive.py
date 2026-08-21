@@ -1264,7 +1264,7 @@ class ProjectArchiveService:
         # 修复须先跑这道迁移再校验——本方法在 validate_project_tree 之前执行、写回结果
         # 由调用方按 script_changed 落盘，与其它字段修复共用同一次写盘。
         # 档位表按归档自带 project.json 的自报身份查 registry（无 DB 访问——导入跑在 to_thread
-        # 里，且此刻自定义供应商的凭证/能力可能尚未导入本机）：迁移一次落盘，与生成侧、审阅门
+        # 里，且此刻自定义供应商的凭证/能力可能尚未导入本机）：迁移一次落盘，与生成侧、内容确认
         # 口径不一致会让先跑的把非档位秒数固化。查不到（未声明型号、或自定义供应商不在 registry）
         # 时为 None，退回结构区间 clamp。
         # provider 先在副本上归一化：本方法跑在 migrate_project_dir 之前，存量归档里可能还是

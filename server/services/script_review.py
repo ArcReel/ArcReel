@@ -1,10 +1,10 @@
-"""step1→step2 web 内容确认的服务层：审阅状态读取、结构化中间态编辑、确认动作。
+"""step1→step2 web 内容确认的服务层：确认状态读取、结构化中间态编辑、确认动作。
 
 纯 gate 逻辑（适用性 / 指纹 / 状态派生）在 ``lib.script_review``；本层叠加 ProjectManager
 持久化（确认指纹落 project.json ``episodes[i].step1_review``）与结构化内容的 Pydantic 校验、落盘。
 
 确认触发 step2 的语义是「放行」而非「服务端 launcher」：step2（剧本视觉生成）由 Agent 的
-``generate_episode_script`` 工具执行，本服务只负责把审核状态翻到 confirmed；该工具读时经
+``generate_episode_script`` 工具执行，本服务只负责把内容确认状态翻到 confirmed；该工具读时经
 ``lib.script_review.gate_blocks_step2`` 校验，pending 时拒绝、confirmed 后放行。
 """
 
@@ -150,7 +150,9 @@ class ScriptReviewService:
         try:
             return await resolve_video_caps(project)
         except Exception as exc:  # noqa: BLE001 - best-effort：解析失败退回空 caps，不阻断 gate
-            logger.warning("video_capabilities 解析异常，审阅门退回不带 caps 的解析 project=%s：%s", project_name, exc)
+            logger.warning(
+                "video_capabilities 解析异常，内容确认退回不带 caps 的解析 project=%s：%s", project_name, exc
+            )
             return {}
 
     async def _resolve_supported_durations(self, project_name: str, project: dict[str, Any]) -> list[int] | None:
@@ -190,7 +192,7 @@ class ScriptReviewService:
 
         ``supported_durations`` 由调用方经 ``_resolve_supported_durations`` 解析后传入（本函数
         跑在锁内，不能自行 await），与 step2 生成侧同源：迁移幂等一次性、谁先跑谁定终局，两侧
-        口径不一致时先跑的审阅门会把落在结构区间内但非档位成员的秒数固化到盘上，step2 的枚举
+        口径不一致时先跑的内容确认会把落在结构区间内但非档位成员的秒数固化到盘上，step2 的枚举
         schema 随后硬拒，用户在 gate 里既看不出问题也改不动。为 None（项目未配置视频型号）时
         退回结构区间 clamp——缺配置不该阻断草稿加载，档位偏移仍由执行时取档兜底。
 
@@ -211,7 +213,7 @@ class ScriptReviewService:
         return content, updated or project
 
     async def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
-        """返回该集审核状态 + 结构化中间态内容（供 web 渲染）。
+        """返回该集内容确认状态 + 结构化中间态内容（供 web 渲染）。
 
         ``content`` 为解析后的结构化 step1（drama: {title, scenes[]}；narration: {segments[]}；
         reference_video: {units[]}）；不适用 gate 或 step1 缺失 / 损坏时为 None。
@@ -376,7 +378,7 @@ class ScriptReviewService:
     async def save_content(
         self, project_name: str, episode: int, content: object, base_fingerprint: str | None = None
     ) -> dict[str, Any]:
-        """校验并落盘编辑后的结构化中间态（手动或 Agent 编辑后回写），返回最新状态（重新待审）。
+        """校验并落盘编辑后的结构化中间态（手动或 Agent 编辑后回写），返回最新状态（重新等待确认）。
 
         内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
 
@@ -432,7 +434,7 @@ class ScriptReviewService:
             raise ScriptReviewError("conflict", str(exc)) from exc
 
     async def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
-        """把该集审核状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
+        """把该集内容确认状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
 
         无 step1 / 不适用 / 集条目缺失 / step1 内容结构非法 / 有草稿待处置时
         抛 ScriptReviewError，由 router 映射 4xx。

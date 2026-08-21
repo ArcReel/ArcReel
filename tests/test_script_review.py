@@ -1,7 +1,7 @@
 """step1→step2 内容确认的服务层与纯逻辑测试。
 
-只测外部可观察行为：审核状态流转（step1 产出 → pending → 阻塞 → 确认 → confirmed → 放行）、
-适用范围、内容编辑后重新待审、结构校验。
+只测外部可观察行为：内容确认状态流转（step1 产出 → pending → 阻塞 → 确认 → confirmed → 放行）、
+适用范围、内容编辑后重新等待确认、结构校验。
 """
 
 from __future__ import annotations
@@ -89,10 +89,10 @@ def _stub_video_caps(
     provider_id: str = "custom-acme",
     model: str = "acme-video",
 ) -> None:
-    """替身审阅门的视频能力查询，按给定档位表作答。
+    """替身内容确认的视频能力查询，按给定档位表作答。
 
     档位表经 caps 注入而非项目字段：caps（DB 驱动的能力查询）是自定义供应商唯一的档位来源，
-    也是审阅门实际走的那条路径。``supported_durations`` 为 None 时返回空 caps，等价于
+    也是内容确认实际走的那条路径。``supported_durations`` 为 None 时返回空 caps，等价于
     「解析不到型号」。默认身份取自定义供应商——它不在 ``PROVIDER_REGISTRY``，不带联动约束，
     档位表因而原样生效。
     """
@@ -259,7 +259,7 @@ class TestDramaGateFlow:
         await svc.confirm("demo", 1)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
-        # 内容变更（指纹漂移）→ 自动重新待审
+        # 内容变更（指纹漂移）→ 自动重新等待确认
         edited = _drama_step1()
         edited["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
         await svc.save_content("demo", 1, edited)
@@ -399,7 +399,7 @@ class TestReferenceVideoGateFlow:
 
     @pytest.mark.unit
     async def test_editing_unit_text_reopens_review(self, tmp_path):
-        """编辑单元正文 → 重新待审；正文是落盘的唯一内容，参考图不随之落一份副本。"""
+        """编辑单元正文 → 重新等待确认；正文是落盘的唯一内容，参考图不随之落一份副本。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
         svc = ScriptReviewService(pm)
@@ -641,11 +641,11 @@ class TestReferenceVideoStep1Migration:
         return legacy
 
     async def test_migration_takes_slot_so_step2_never_sees_a_non_member_duration(self, tmp_path, monkeypatch):
-        """审阅门迁移落盘的秒数必是档位成员，不能只是「落在结构区间内」。
+        """内容确认迁移落盘的秒数必是档位成员，不能只是「落在结构区间内」。
 
-        迁移幂等一次性、谁先跑谁定终局，而正常产品流程是先开审阅门再生成：审阅门若按结构
+        迁移幂等一次性、谁先跑谁定终局，而正常产品流程是先做内容确认再生成：内容确认若按结构
         区间落一个非档位秒数，step2 的枚举 schema 随后硬拒，用户在 gate 里看不出问题也改不动。
-        故审阅门与生成侧取同一份档位表。
+        故内容确认与生成侧取同一份档位表。
         """
         _stub_video_caps(monkeypatch, [4, 8, 12])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -661,7 +661,7 @@ class TestReferenceVideoStep1Migration:
     async def test_custom_provider_draft_migration_takes_slot_from_caps(self, tmp_path, monkeypatch):
         """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：档位表只有 caps 给得出。
 
-        审阅门若不解析 caps，这类项目的读时收编只能退回结构区间 clamp——落盘的秒数不是档位
+        内容确认若不解析 caps，这类项目的读时收编只能退回结构区间 clamp——落盘的秒数不是档位
         成员，step2 的枚举 schema 随后硬拒。``supported_durations`` 也要一并带出真实档位，
         面板的可选项才与收编到的值同源。
         """
@@ -760,7 +760,7 @@ class TestReferenceVideoStep1Migration:
         assert (await svc.save_content("demo", 1, edited))["status"] == "pending_review"
 
     async def test_confirm_survives_migration_without_reopening_review(self, tmp_path):
-        """迁移是机械收编、不是内容编辑：已确认的分集不因加载被回退到待审。"""
+        """迁移是机械收编、不是内容编辑：已确认的分集不因加载而重新等待确认。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
@@ -779,7 +779,7 @@ class TestReferenceVideoStep1Migration:
         assert state["content"]["units"][0]["duration_seconds"] == 8
 
     async def test_confirm_reopens_review_when_migration_clamps_duration(self, tmp_path, monkeypatch):
-        """迁移带 warnings（时长被 clamp 改写）不是纯格式收编：已确认分集须退回待审，
+        """迁移带 warnings（时长被 clamp 改写）不是纯格式收编：已确认分集须重新等待确认，
         不能像纯结构收编那样平移确认——clamp 后的秒数不是用户确认时看到的值。
         """
         _stub_video_caps(monkeypatch, [4, 8, 12])
@@ -801,7 +801,7 @@ class TestReferenceVideoStep1Migration:
 
     async def test_clamping_migration_reopens_review_for_grandfathered_episode(self, tmp_path, monkeypatch):
         """从未存过确认指纹、靠 grandfather 判据（step2 已存在）放行的存量集：迁移 clamp
-        改写时长后须退回待审——迁移幂等落盘，重试不再产生 warnings，不落失配标记的话
+        改写时长后须重新等待确认——迁移幂等落盘，重试不再产生 warnings，不落失配标记的话
         后续生成会静默采用用户从未过目的取值。
         """
         _stub_video_caps(monkeypatch, [4, 8, 12])
@@ -818,7 +818,7 @@ class TestReferenceVideoStep1Migration:
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
     async def test_clamping_migration_marker_survives_interrupted_project_write(self, tmp_path, monkeypatch):
-        """迁移是「project 失配标记 + 草稿」两次写：project 那次失败后重试仍须收敛到待审。
+        """迁移是「project 失配标记 + 草稿」两次写：project 那次失败后重试仍须收敛到待确认。
 
         草稿先落盘则重试判 changed=False、标记再也补不上，grandfather 存量集会带着被 clamp
         的时长停在 confirmed；标记先落盘时草稿仍是迁移前内容，重试重跑迁移即自愈。
@@ -929,7 +929,7 @@ class TestReferenceVideoStep1Migration:
         assert state["status"] == "confirmed"
 
     async def test_migration_does_not_confirm_an_unconfirmed_episode(self, tmp_path):
-        """指纹本就对不上（step1 确实改过）时不平移确认记录，照常按待审处理。"""
+        """指纹本就对不上（step1 确实改过）时不平移确认记录，照常按待确认处理。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         _write_rv_step1(pm, self._legacy_step1())
@@ -1323,7 +1323,7 @@ class TestLegacyEnumeration:
 
     @pytest.mark.unit
     async def test_step1_no_step2_no_review_pending(self, tmp_path):
-        """feature 后首次产 step1（未产 step2、无确认）→ 待审、阻塞。"""
+        """feature 后首次产 step1（未产 step2、无确认）→ 待确认、阻塞。"""
         pm = _make_project(tmp_path, "drama")
         _write_step1(pm, "drama", _drama_step1())
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "pending_review"
@@ -1348,7 +1348,7 @@ class TestLegacyEnumeration:
 
     @pytest.mark.unit
     async def test_step1_step2_review_mismatch_pending(self, tmp_path):
-        """已确认后 step1 又被改（即便 step2 在）→ 重新待审，指纹优先于 grandfather。"""
+        """已确认后 step1 又被改（即便 step2 在）→ 重新等待确认，指纹优先于 grandfather。"""
         pm = _make_project(tmp_path, "drama")
         _write_step1(pm, "drama", _drama_step1())
         _write_step2(pm)
