@@ -56,15 +56,22 @@ alembic downgrade <end>:<start> --sql > downgrade.sql
 # 检查生成的 SQL：方言差异、类型转换逻辑、降级回滚路径
 
 # online：真实数据库执行闭环（需受控 MySQL 实例）
-alembic upgrade head
-alembic downgrade <n>
-alembic upgrade head   # 幂等性：降级后再次升级必须成功且状态一致
+DATABASE_URL=mysql+aiomysql://arcreel:<password>@mysql:3306/arcreel alembic upgrade head
+DATABASE_URL=mysql+aiomysql://arcreel:<password>@mysql:3306/arcreel alembic downgrade -1
+DATABASE_URL=mysql+aiomysql://arcreel:<password>@mysql:3306/arcreel alembic upgrade head
 ```
+
+| 迁移 | Revision | 影响内容 | 验证范围 |
+|---|---|---|---|
+| 7a8b9c0d1e2f | unify_partial_indexes_and_string_lengths | 生成列 + 字段长度 | MySQL: 生成列语法正确、唯一索引语义等价；PG/SQLite: partial index 未被破坏 |
+| bcaaa615ff38 | mysql_varchar_to_datetime | VARCHAR→DATETIME(6) | MySQL: 数据转换无精度丢失；PG/SQLite: 无操作 |
 
 | 模式 | 定义 | 验证标准 |
 |---|---|---|
 | offline | 只渲染 SQL、不连接数据库 | upgrade/downgrade 脚本语法正确、降级路径可逆 |
 | online | 连真实 MySQL 实例执行 | `upgrade → downgrade → upgrade` 闭环无错、最终 schema 与首次升级一致 |
+| online（数据） | 加载代表性 legacy 数据后执行 | 既有数据经迁移后保持语义等价（如 provider_credential 的多条 inactive 记录仍能共存） |
+
 
 ## 后续
 
