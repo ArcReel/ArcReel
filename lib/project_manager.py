@@ -416,15 +416,15 @@ class ProjectManager:
         *,
         content_mode: ContentMode | None = None,
     ) -> dict:
-        """同步 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
+        """物化 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
 
         ``content_mode=None`` 时从 ``project_dir/project.json`` 读取；
         project.json 缺失或 ``content_mode`` 字段缺失 → 回退到 ``"narration"`` + log info。
         ``content_mode`` 显式非法值 → 抛 ``ValueError``。
 
         详见 ``lib.profile_manifest.sync_profile_to_project``：manifest-driven
-        sync，sha256 区分内置 skill 升级（自动传播）/ 用户修改（保留）/ 用户主动
-        删除（不复活）；profile 上游删除时同步删除项目内未改副本；命名碰撞 /
+        物化流程用 sha256 区分内置 skill 升级（自动传播）/ 用户修改（保留）/ 用户主动
+        删除（不复活）；profile 上游删除时移除项目内未改副本；命名碰撞 /
         状态机回流等 15 行决策表完整覆盖。
 
         Returns:
@@ -485,7 +485,7 @@ class ProjectManager:
         return cast(ContentMode, mode)
 
     def sync_all_agent_profiles(self) -> dict:
-        """扫描所有项目目录，同步 agent_runtime_profile（启动 hook 用）。
+        """扫描所有项目目录，物化 agent_runtime_profile（启动 hook 用）。
 
         单项目失败隔离：捕获普通异常后继续下一项目（``failed_projects`` 计数）。
         ``ProfileMissingError`` / ``ProfileEmptyError`` 是部署级错误，全部跳过
@@ -524,7 +524,7 @@ class ProjectManager:
         for project_dir in sorted(self.projects_root.iterdir()):
             # 与 ``list_projects`` 同规则：跳过点开头（.git 等）和下划线开头
             # （``_global_assets`` 保留目录 — 跨项目共享 character/scene/prop 库，
-            # 不是项目，不应同步 Agent profile）
+            # 不是项目，不应物化 Agent profile）
             if not project_dir.is_dir() or project_dir.name.startswith((".", "_")):
                 continue
             try:

@@ -1,7 +1,7 @@
 """Tests for manifest-driven profile sync via ``ProjectManager.sync_agent_profile``.
 
 历史命名 ``test_project_manager_symlink.py`` 保留（外部测试 selector 仍用此名）。
-同步基于 manifest + sha256：
+物化基于 manifest + sha256：
 - profile 升级内置 skill 自动传播到老项目（行 #4）
 - 用户主动删除内置 skill 不复活（行 #2/#11）
 - 命名碰撞 / 状态机回流 / 上游删除等 15 行决策表完整覆盖
@@ -190,7 +190,7 @@ class TestDecisionTable:
         assert stats["user_modified"] == 1
 
     def test_decision_7_profile_deletion_propagates_to_unmodified_dest(self, env):
-        """#7：profile 上游删 + 用户未改 → 同步删除 dest + tombstone。"""
+        """#7：profile 上游删 + 用户未改 → 物化时删除 dest + tombstone。"""
         pm, profile_dir, project_dir = env
         pm.sync_agent_profile(project_dir)
         _profile_skill_path(profile_dir).unlink()
@@ -458,7 +458,7 @@ class TestForceResync:
         escape_link.symlink_to(outside)
 
         # manifest 删一遍触发首次迁移分支也会跑校验？_full_reset 不走 escape guard
-        # 路径（它走全量 copy 不会撞已存在 dest）。所以这里走主同步路径：
+        # 路径（它走全量 copy 不会撞已存在 dest）。所以这里走主物化路径：
         # 在 manifest 里手插一条 entry 让该 rel 进 all_keys → 触发 #6 user_modified
         # 分支 → _apply_decision 里跑 sha256_file(d) 会跟过 symlink 读到 outside。
         # escape guard 阻断该 rel 的 I/O。
@@ -659,7 +659,7 @@ class TestProfileEntryGuards:
         assert (project_dir / ".claude" / "skill.md").exists()
 
     def test_profile_empty_raises_protective_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        """profile 目录存在但无可同步文件 → ProfileEmptyError。"""
+        """profile 目录存在但无可物化文件 → ProfileEmptyError。"""
         empty_profile = tmp_path / "profile"
         empty_profile.mkdir()
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(empty_profile))

@@ -1,6 +1,6 @@
-"""Profile manifest sync system.
+"""Profile manifest materialization system.
 
-把 agent_runtime_profile/.claude/ 和 CLAUDE.md 同步到各项目 {project}/.claude/ +
+把 agent_runtime_profile/.claude/ 和 CLAUDE.md 物化到各项目 {project}/.claude/ +
 CLAUDE.md。manifest + sha256 区分三种状态：未改的内置 skill / 用户修改 / 用户主动删除。
 
 manifest 落在 ``{project_dir}/.arcreel_profile_manifest.json``（项目根，跨 .claude
@@ -39,21 +39,21 @@ MANIFEST_SCHEMA_VERSION = 1
 EXPECTED_PROFILE_ID = "arcreel/builtin"
 LOCK_TIMEOUT_SECONDS = 10
 
-# profile 端要同步的两个根：``.claude/**`` 目录树 + 顶层 ``CLAUDE.md``
+# profile 端要物化的两个根：``.claude/**`` 目录树 + 顶层 ``CLAUDE.md``
 _PROFILE_TREE_ROOT = ".claude"
 _PROFILE_TOP_FILE = "CLAUDE.md"
 
 
 class ProfileMissingError(RuntimeError):
-    """profile 目录不存在 → 部署错误。sync 拒绝运行以防 mass prune 所有项目。"""
+    """profile 目录不存在 → 部署错误。物化流程拒绝运行以防 mass prune 所有项目。"""
 
 
 class ProfileEmptyError(RuntimeError):
-    """profile 目录无可同步文件 → 部署错误。同上拒绝运行。"""
+    """profile 目录无可物化文件 → 部署错误。同上拒绝运行。"""
 
 
 class ProfileMisconfiguredError(RuntimeError):
-    """profile 端变体文件不合法（成对缺失或与通用文件并存）→ 部署错误。sync 拒绝运行。"""
+    """profile 端变体文件不合法（成对缺失或与通用文件并存）→ 部署错误。物化流程拒绝运行。"""
 
 
 ContentMode = Literal["narration", "drama", "ad"]
@@ -208,7 +208,7 @@ def _project_lock(project_dir: Path):
 def _ensure_dest_within(project_dir: Path, rel: str) -> Path:
     """解析 ``project_dir / rel`` 后必须仍在 ``project_dir`` 内，否则 ``raise``。
 
-    防止恶意 symlink 把同步 I/O 引到项目根之外。攻击模型：导入的归档 / 用户手放
+    防止恶意 symlink 把物化 I/O 引到项目根之外。攻击模型：导入的归档 / 用户手放
     的 symlink 让 ``.claude`` 或其祖先目录指向 ``/etc`` 等外部位置，sync 跑
     ``_safe_copy`` / ``_safe_unlink_if_file`` 时就会读写项目外文件。
 
@@ -614,7 +614,7 @@ def _apply_decision(
                 stats["skipped"] += 1
         case (False, True, "active"):
             if d_hash == m_hash:
-                # #7 profile 上游删，用户未改 → 同步删除 D + tombstone
+                # #7 profile 上游删，用户未改 → 物化时删除 D + tombstone
                 _safe_unlink_if_file(d)
                 manifest.entries[rel] = _tombstone_entry()
                 stats["pruned"] += 1
@@ -622,7 +622,7 @@ def _apply_decision(
             else:
                 # #8 profile 上游删，用户改过 → 保留 D 及旧 baseline。保留 entry
                 # 让设置页仍能识别这是从内置 profile 分叉的 legacy 定制，而不是
-                # 无来源的 project-only 文件；后续同步继续按三方语义保护它。
+                # 无来源的 project-only 文件；后续物化继续按三方语义保护它。
                 stats["orphaned"] += 1
                 stats["skipped"] += 1
         case (False, True, "none"):
@@ -673,11 +673,11 @@ def sync_profile_to_project(
     project_dir: Path,
     content_mode: ContentMode,
 ) -> dict:
-    """profile → project_dir 同步主入口。
+    """profile → project_dir 物化主入口。
 
     Raises:
         ProfileMissingError: profile 目录不存在
-        ProfileEmptyError: profile 目录无可同步文件
+        ProfileEmptyError: profile 目录无可物化文件
         ProfileMisconfiguredError: 变体文件配置违规
         ValueError: content_mode 非 narration/drama
     """

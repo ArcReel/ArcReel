@@ -260,15 +260,15 @@ def _log_profile_sync_outcome(stats: dict, *, log: logging.Logger = logger) -> N
     """根据 ``sync_all_agent_profiles`` 返回的 stats 决定打 info 还是 warning。
 
     ``stats["aborted"]`` 是 bool；而 bool 是 int 的子类——简单的
-    ``isinstance(v, int) and v > 0`` 会把 ``aborted=True`` 当成"同步完成"的正向
+    ``isinstance(v, int) and v > 0`` 会把 ``aborted=True`` 当成"物化完成"的正向
     信号，与实际状态相反。先单独处理 abort 信号，再用 ``type(v) is int``（严格
     类型相等）仅统计真正的整数计数。
     """
     if stats.get("aborted"):
-        log.warning("agent_runtime profile 同步已中止: %s", stats)
+        log.warning("agent_runtime profile 物化已中止: %s", stats)
         return
     if any(type(v) is int and v > 0 for v in stats.values()):
-        log.info("agent_runtime profile 同步完成: %s", stats)
+        log.info("agent_runtime profile 物化完成: %s", stats)
 
 
 async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, dict]:
@@ -404,7 +404,7 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("text tier settings migration failed (non-fatal): %s", exc)
 
-    # 把 agent_runtime_profile 同步到存量项目（manifest 物化，同步文件 I/O → worker 线程）
+    # 把 agent_runtime_profile 物化到存量项目（文件 I/O → worker 线程）
     from lib.project_manager import get_project_manager
 
     _pm = get_project_manager()
