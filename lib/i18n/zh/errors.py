@@ -369,6 +369,8 @@ MESSAGES = {
     "character_catalog_asset_download_failed": "角色资源下载失败，本次同步已取消",
     "character_catalog_asset_integrity_failed": "角色资源大小或 SHA-256 校验失败，本次同步已取消",
     "character_catalog_asset_too_large": "角色资源超过单文件 200 MB 限制，本次同步已取消",
+    "character_catalog_sync_failed": "人物资产库同步异常失败，请重试或检查服务日志",
+    "background_job_unsupported": "不支持这种后台任务类型",
     "asset_primary_resource_invalid_type": "人物主资源只能是图片或音频",
     "asset_primary_resource_invalid": "所选资源不属于该人物，或媒体类型不匹配",
 }

@@ -97,10 +97,16 @@ async def test_sync_keeps_all_images_and_audio_but_ignores_video(
     await settings.set_setting("croco_characters_api_url", "https://catalog.example.test/export")
     await settings.set_setting("croco_characters_api_token", "test-secret")
 
-    result = await sync_character_catalog(async_session)
+    progress: list[tuple[int, int]] = []
+
+    async def on_progress(current: int, total: int) -> None:
+        progress.append((current, total))
+
+    result = await sync_character_catalog(async_session, progress_callback=on_progress)
 
     assert result["added"] == 1
     assert result["assetsDownloaded"] == 3
+    assert progress == [(0, 1), (1, 1)]
     assert "https://cdn.example.test/intro.mp4" not in client.requested_urls
     async_session.expire_all()
     asset = await AssetRepository(async_session).get_by_external_identity(CROCO_CATALOG_SOURCE, "croco-dad")

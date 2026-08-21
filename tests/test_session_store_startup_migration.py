@@ -30,6 +30,7 @@ async def test_lifespan_invokes_session_store_migration():
         patch("server.app.startup_http_client", new=AsyncMock(return_value=None)),
         patch("server.app.shutdown_http_client", new=AsyncMock(return_value=None)),
         patch("server.app.create_generation_worker") as worker_factory,
+        patch("server.app.create_background_job_worker") as background_worker_factory,
         patch("server.app.assistant.assistant_service") as svc_mock,
         patch("server.app.ProjectEventService") as pes_factory,
         patch("server.app.close_db", new=AsyncMock(return_value=None)),
@@ -43,6 +44,11 @@ async def test_lifespan_invokes_session_store_migration():
                 "stop": AsyncMock(),
                 "request_cancel": lambda self, _tid: False,
             },
+        )()
+        background_worker_factory.return_value = type(
+            "B",
+            (),
+            {"start": AsyncMock(), "stop": AsyncMock()},
         )()
         # assistant_service.startup is awaited
         svc_mock.startup = AsyncMock()

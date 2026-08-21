@@ -419,6 +419,8 @@ MESSAGES = {
     "character_catalog_asset_download_failed": "A character resource could not be downloaded; the sync was cancelled",
     "character_catalog_asset_integrity_failed": "A character resource failed its size or SHA-256 check; the sync was cancelled",
     "character_catalog_asset_too_large": "A character resource exceeds the 200 MB per-file limit; the sync was cancelled",
+    "character_catalog_sync_failed": "Character library sync failed unexpectedly; try again or check the server logs",
+    "background_job_unsupported": "This background job type is not supported",
     "asset_primary_resource_invalid_type": "A character primary resource must be an image or audio file",
     "asset_primary_resource_invalid": "The selected resource does not belong to this character or has the wrong media type",
 }

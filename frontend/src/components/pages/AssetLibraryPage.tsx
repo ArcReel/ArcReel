@@ -6,6 +6,10 @@ import { AssetGrid } from "@/components/assets/AssetGrid";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useAssetsStore } from "@/stores/assets-store";
+import {
+  isCharacterCatalogJobActive,
+  useCharacterCatalogSyncStore,
+} from "@/stores/character-catalog-sync-store";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -126,17 +130,22 @@ export function AssetLibraryPage() {
   const [formModal, setFormModal] = useState<{ mode: "create" | "edit"; asset?: Asset } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [syncingCatalog, setSyncingCatalog] = useState(false);
+  const syncJob = useCharacterCatalogSyncStore((state) => state.job);
+  const syncRequestPending = useCharacterCatalogSyncStore((state) => state.requestPending);
+  const startCatalogSync = useCharacterCatalogSyncStore((state) => state.start);
+  const syncingCatalog = syncRequestPending || isCharacterCatalogJobActive(syncJob);
 
   const byType = useAssetsStore((s) => s.byType);
   const loadList = useAssetsStore((s) => s.loadList);
   const addAsset = useAssetsStore((s) => s.addAsset);
   const updateAssetLocal = useAssetsStore((s) => s.updateAsset);
   const deleteAssetLocal = useAssetsStore((s) => s.deleteAsset);
+  const characterCatalogRevision = useAssetsStore((s) => s.characterCatalogRevision);
+  const relevantCatalogRevision = activeTab === "character" ? characterCatalogRevision : 0;
 
   useEffect(() => {
     void loadList(activeTab, debouncedQ || undefined);
-  }, [activeTab, debouncedQ, loadList]);
+  }, [activeTab, debouncedQ, loadList, relevantCatalogRevision]);
 
   const assets = byType[activeTab];
   const ActiveIcon = TABS.find((tab) => tab.type === activeTab)!.icon;
@@ -179,22 +188,13 @@ export function AssetLibraryPage() {
 
   const handleSyncCatalog = useCallback(async () => {
     if (syncingCatalog) return;
-    setSyncingCatalog(true);
     try {
-      const result = await API.syncCharacterCatalog();
-      await loadList("character", debouncedQ || undefined);
-      useAppStore.getState().pushToast(t("sync_library_success", {
-        added: result.added,
-        updated: result.updated,
-        unchanged: result.unchanged,
-        assetsDownloaded: result.assetsDownloaded,
-      }), "success");
+      await startCatalogSync();
+      useAppStore.getState().pushToast(t("sync_background_started"), "info");
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
-    } finally {
-      setSyncingCatalog(false);
     }
-  }, [debouncedQ, loadList, syncingCatalog, t]);
+  }, [startCatalogSync, syncingCatalog, t]);
 
   const handleEditAsset = useCallback((a: Asset) => setFormModal({ mode: "edit", asset: a }), []);
   const handleDeleteAsset = useCallback((a: Asset) => setDeleteTarget(a), []);
@@ -265,7 +265,12 @@ export function AssetLibraryPage() {
                 className={ACCENT_BTN_SM_CLS}
               >
                 <RefreshCw className={`h-4 w-4 ${syncingCatalog ? "animate-spin" : ""}`} />
-                {t(syncingCatalog ? "syncing_library" : "sync_library")}
+                {syncingCatalog && syncJob?.progress_total
+                  ? t("sync_progress_compact", {
+                      current: syncJob.progress_current,
+                      total: syncJob.progress_total,
+                    })
+                  : t(syncingCatalog ? "syncing_library" : "sync_library")}
               </button>
             )}
             <button

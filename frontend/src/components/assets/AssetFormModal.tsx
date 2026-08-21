@@ -1,7 +1,8 @@
 import { useEffect, useId, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ImagePlus, Landmark, Package, User } from "lucide-react";
-import type { Asset, AssetType } from "@/types/asset";
+import { AlertTriangle, Check, ChevronDown, Image as ImageIcon, ImagePlus, Landmark, Package, User } from "lucide-react";
+import { API } from "@/api";
+import type { Asset, AssetResource, AssetType } from "@/types/asset";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
@@ -49,11 +50,12 @@ export function AssetFormModal({
   const imageResources = resources.filter((resource) => resource.media_type === "image");
   const audioResources = resources.filter((resource) => resource.media_type === "audio");
   const [primaryImageResourceId, setPrimaryImageResourceId] = useState(
-    imageResources.find((resource) => resource.is_primary)?.id ?? "",
+    imageResources.find((resource) => resource.is_primary)?.id ?? imageResources[0]?.id ?? "",
   );
   const [primaryAudioResourceId, setPrimaryAudioResourceId] = useState(
-    audioResources.find((resource) => resource.is_primary)?.id ?? "",
+    audioResources.find((resource) => resource.is_primary)?.id ?? audioResources[0]?.id ?? "",
   );
+  const selectedImageResource = imageResources.find((resource) => resource.id === primaryImageResourceId);
   const fileRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
@@ -74,7 +76,10 @@ export function AssetFormModal({
     return () => URL.revokeObjectURL(url);
   }, [image]);
 
-  const displayedPreview = sanitizeImageSrc(localPreview ?? previewImageUrl);
+  const selectedResourcePreview = selectedImageResource
+    ? API.getGlobalAssetUrl(selectedImageResource.path, initialData?.updated_at)
+    : null;
+  const displayedPreview = sanitizeImageSrc(localPreview ?? selectedResourcePreview ?? previewImageUrl);
   const TypeIcon = TYPE_ICON[type];
 
   const isCharacter = type === "character";
@@ -295,25 +300,30 @@ export function AssetFormModal({
               </FieldLabel>
             )}
 
-            {isCharacter && mode === "edit" && imageResources.length > 1 && (
-              <FieldLabel label={t("field.primary_image")}>
-                <select
-                  value={primaryImageResourceId}
-                  onChange={(event) => setPrimaryImageResourceId(event.target.value)}
-                  className="focus-ring rounded-lg px-3 py-2 text-[13px] outline-none"
+            {isCharacter && mode === "edit" && initialData?.voice_id && (
+              <FieldGroup label={t("field.voice_id")}>
+                <div
+                  className="select-text break-all rounded-lg px-3 py-2 font-mono text-[11px]"
                   style={{
-                    background: "oklch(0.16 0.010 265 / 0.6)",
-                    border: "1px solid var(--color-hairline)",
-                    color: "var(--color-text)",
+                    background: "oklch(0.16 0.010 265 / 0.45)",
+                    border: "1px solid var(--color-hairline-soft)",
+                    color: "var(--color-text-3)",
                   }}
                 >
-                  {imageResources.map((resource, index) => (
-                    <option key={resource.id} value={resource.id}>
-                      {t("resource_image_option", { index: index + 1 })}
-                    </option>
-                  ))}
-                </select>
-              </FieldLabel>
+                  {initialData.voice_id}
+                </div>
+              </FieldGroup>
+            )}
+
+            {isCharacter && mode === "edit" && imageResources.length > 1 && (
+              <FieldGroup label={t("field.primary_image")}>
+                <ImageResourcePicker
+                  resources={imageResources}
+                  value={primaryImageResourceId}
+                  fingerprint={initialData?.updated_at}
+                  onChange={setPrimaryImageResourceId}
+                />
+              </FieldGroup>
             )}
 
             {isCharacter && mode === "edit" && audioResources.length > 0 && (
@@ -373,6 +383,127 @@ export function AssetFormModal({
   );
 }
 
+function ImageResourcePicker({
+  resources,
+  value,
+  fingerprint,
+  onChange,
+}: {
+  resources: AssetResource[];
+  value: string;
+  fingerprint?: string | null;
+  onChange: (resourceId: string) => void;
+}) {
+  const { t } = useTranslation("assets");
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
+  const selectedIndex = Math.max(0, resources.findIndex((resource) => resource.id === value));
+  const selected = resources[selectedIndex];
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const labelFor = (resource: AssetResource, index: number) => {
+    const knownLabels: Record<string, string> = {
+      avatarUrl: t("resource_image_avatar"),
+      fullBodyImageUrl: t("resource_image_full_body"),
+      halfBodyImageUrl: t("resource_image_half_body"),
+      chestImageUrl: t("resource_image_chest"),
+    };
+    return knownLabels[resource.key] ?? t("resource_image_option", { index: index + 1 });
+  };
+
+  const thumbnail = (resource: AssetResource, label: string) => {
+    const src = sanitizeImageSrc(API.getGlobalAssetUrl(resource.path, fingerprint));
+    return (
+      <span
+        className="relative grid h-10 w-14 shrink-0 place-items-center overflow-hidden rounded-md"
+        style={{ background: "oklch(0.13 0.008 265)", border: "1px solid var(--color-hairline-soft)" }}
+      >
+        <ImageIcon aria-hidden className="h-4 w-4 text-text-4" />
+        {src && (
+          <img
+            src={src}
+            alt={label}
+            className="absolute inset-0 h-full w-full object-cover"
+            onError={(event) => { event.currentTarget.style.display = "none"; }}
+          />
+        )}
+      </span>
+    );
+  };
+
+  if (!selected) return null;
+  const selectedLabel = labelFor(selected, selectedIndex);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
+        onClick={() => setOpen((current) => !current)}
+        className="focus-ring flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none"
+        style={{
+          background: "oklch(0.16 0.010 265 / 0.6)",
+          border: "1px solid var(--color-hairline)",
+          color: "var(--color-text)",
+        }}
+      >
+        {thumbnail(selected, selectedLabel)}
+        <span className="min-w-0 flex-1 truncate text-[12px]">{selectedLabel}</span>
+        <ChevronDown aria-hidden className={`h-4 w-4 shrink-0 text-text-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label={t("field.primary_image")}
+          className="absolute inset-x-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border p-1 shadow-2xl"
+          style={{ background: "oklch(0.17 0.010 265)", borderColor: "var(--color-hairline)" }}
+        >
+          {resources.map((resource, index) => {
+            const label = labelFor(resource, index);
+            const selectedOption = resource.id === value;
+            return (
+              <button
+                key={resource.id}
+                type="button"
+                role="option"
+                aria-selected={selectedOption}
+                onClick={() => {
+                  onChange(resource.id);
+                  setOpen(false);
+                }}
+                className="focus-ring flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left outline-none transition-colors hover:bg-white/5"
+              >
+                {thumbnail(resource, label)}
+                <span className="min-w-0 flex-1 truncate text-[12px] text-text-2">{label}</span>
+                {selectedOption && <Check aria-hidden className="h-4 w-4 shrink-0 text-accent" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FieldLabel({
   label,
   children,
@@ -393,5 +524,19 @@ function FieldLabel({
       </span>
       {children}
     </label>
+  );
+}
+
+function FieldGroup({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span
+        className="num text-[10px] uppercase"
+        style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
+      >
+        {label}
+      </span>
+      {children}
+    </div>
   );
 }

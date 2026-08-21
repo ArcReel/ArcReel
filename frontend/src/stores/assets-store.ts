@@ -4,14 +4,17 @@ import type { Asset, AssetType } from "@/types/asset";
 
 interface AssetsStore {
   byType: Record<AssetType, Asset[]>;
+  characterCatalogRevision: number;
   loadList: (type: AssetType, q?: string) => Promise<void>;
   addAsset: (asset: Asset) => void;
   updateAsset: (asset: Asset) => void;
   deleteAsset: (id: string, type: AssetType) => Promise<void>;
+  invalidateCharacterCatalog: () => void;
 }
 
 export const useAssetsStore = create<AssetsStore>((set) => ({
   byType: { character: [], scene: [], prop: [] },
+  characterCatalogRevision: 0,
   loadList: async (type, q) => {
     const res = await API.listAssets({ type, q });
     set((s) => ({ byType: { ...s.byType, [type]: res.items } }));
@@ -33,4 +36,7 @@ export const useAssetsStore = create<AssetsStore>((set) => ({
       byType: { ...s.byType, [type]: s.byType[type].filter((a) => a.id !== id) },
     }));
   },
+  invalidateCharacterCatalog: () => set((state) => ({
+    characterCatalogRevision: state.characterCatalogRevision + 1,
+  })),
 }));

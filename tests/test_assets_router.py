@@ -519,6 +519,32 @@ class TestFromProject:
 
 class TestApplyToProject:
     @pytest.mark.unit
+    async def test_character_voice_id_is_attached_to_project_card(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        created = client.post(
+            "/api/v1/assets",
+            data={"type": "character", "name": "鳄鱼爸爸"},
+        ).json()["asset"]
+        async with _assets_env["factory"]() as session:
+            await AssetRepository(session).update(created["id"], voice_id="voice-croco-dad")
+            await session.commit()
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created["id"]],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+
+        assert response.status_code == 200
+        assert pm.load_project("target")["characters"]["鳄鱼爸爸"]["voice_id"] == "voice-croco-dad"
+
+    @pytest.mark.unit
     def test_apply_with_skip_policy(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]

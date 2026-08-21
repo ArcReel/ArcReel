@@ -64,6 +64,20 @@ describe("CharacterCard", () => {
     expect(screen.getByLabelText("声音风格")).toHaveValue("warm");
   });
 
+  it("renders the Voice ID carried from a library character", () => {
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{ description: "hero desc", voice_style: "warm", voice_id: "voice-hero-1" }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("voice-hero-1")).toBeInTheDocument();
+  });
+
   it("keeps selected reference file until save and submits it in the payload", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(

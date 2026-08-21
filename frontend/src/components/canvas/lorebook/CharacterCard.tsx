@@ -95,7 +95,7 @@ export function CharacterCard({
   const sheetInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const descId = useId();
-  const voiceId = useId();
+  const voiceStyleId = useId();
 
   const handleSheetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -539,7 +539,7 @@ export function CharacterCard({
             输入框自带 aria-label 保留「声音风格」这一字段身份 */}
         <CapsLabel>{t("voice_section")}</CapsLabel>
         <input
-          id={voiceId}
+          id={voiceStyleId}
           type="text"
           value={voiceStyle}
           readOnly={readOnly}
@@ -549,6 +549,20 @@ export function CharacterCard({
           style={FIELD_STYLE}
           placeholder={t("voice_style_example")}
         />
+
+        {character.voice_id && (
+          <div
+            className="mt-1.5 flex items-start gap-2 rounded-lg px-2.5 py-2"
+            style={FIELD_STYLE}
+          >
+            <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-4">
+              {t("assets:field.voice_id")}
+            </span>
+            <code className="min-w-0 flex-1 break-all text-right text-[10.5px] text-text-3">
+              {character.voice_id}
+            </code>
+          </div>
+        )}
 
         {readOnly && !displayedAudioUrl ? null : (
         <div className="mt-1.5">

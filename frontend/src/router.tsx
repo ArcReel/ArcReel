@@ -13,6 +13,7 @@ import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
+import { CharacterCatalogSyncMonitor } from "@/components/assets/CharacterCatalogSyncMonitor";
 import { OnboardingTour } from "@/onboarding/OnboardingTour";
 import {
   buildDemoProjectData,
@@ -191,6 +192,7 @@ export function AppRoutes() {
   return (
     <>
       <ConfigStatusLoader />
+      <CharacterCatalogSyncMonitor />
       <OnboardingTour />
       <Switch>
         {/* Login page */}

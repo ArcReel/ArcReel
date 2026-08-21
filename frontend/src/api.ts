@@ -26,7 +26,7 @@ import type {
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
   GetSystemConfigResponse,
-  CharacterCatalogSyncResult,
+  CharacterCatalogSyncJob,
   GetSystemVersionResponse,
   ModelCandidatesResponse,
   OnboardingStatus,
@@ -901,8 +901,12 @@ class API {
     });
   }
 
-  static async syncCharacterCatalog(): Promise<CharacterCatalogSyncResult> {
+  static async syncCharacterCatalog(): Promise<{ job: CharacterCatalogSyncJob; deduped: boolean }> {
     return this.request("/character-catalog/sync", { method: "POST" });
+  }
+
+  static async getCharacterCatalogSyncStatus(): Promise<{ job: CharacterCatalogSyncJob | null }> {
+    return this.request("/character-catalog/sync/status");
   }
 
 

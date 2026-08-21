@@ -38,7 +38,9 @@ class TestAppModule:
     @pytest.mark.asyncio
     async def test_lifespan_starts_and_stops_worker(self, monkeypatch):
         worker = _FakeWorker()
+        background_worker = _FakeWorker()
         monkeypatch.setattr(app_module, "create_generation_worker", lambda: worker)
+        monkeypatch.setattr(app_module, "create_background_job_worker", lambda: background_worker)
         monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
         monkeypatch.setattr(app_module, "init_db", _noop_async)
         monkeypatch.setattr(lib.db, "init_db", _noop_async)
@@ -50,9 +52,11 @@ class TestAppModule:
 
         async with app_module.lifespan(app):
             assert worker.started
+            assert background_worker.started
             assert hasattr(app.state, "generation_worker")
 
         assert worker.stopped
+        assert background_worker.stopped
 
     @pytest.mark.asyncio
     async def test_lifespan_clears_callback_after_worker_stop(self, monkeypatch):
@@ -83,6 +87,7 @@ class TestAppModule:
 
         worker = _OrderCheckingWorker()
         monkeypatch.setattr(app_module, "create_generation_worker", lambda: worker)
+        monkeypatch.setattr(app_module, "create_background_job_worker", _FakeWorker)
         monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
         monkeypatch.setattr(app_module, "init_db", _noop_async)
         monkeypatch.setattr(lib.db, "init_db", _noop_async)

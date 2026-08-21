@@ -1434,6 +1434,19 @@ class TestFilesRouter:
             assert resp.content == b"img-bytes"
 
     @pytest.mark.unit
+    def test_serve_nested_character_catalog_asset(self, tmp_path, monkeypatch):
+        """目录角色以 catalog/<角色>/<文件> 存放时仍能由公开媒体路由读取。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        target = pm.get_global_assets_root() / "character" / "catalog" / "char-1" / "avatar.png"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"nested-image")
+
+        with client:
+            resp = client.get("/api/v1/global-assets/character/catalog/char-1/avatar.png")
+            assert resp.status_code == 200
+            assert resp.content == b"nested-image"
+
+    @pytest.mark.unit
     def test_serve_global_asset_scene_and_prop(self, tmp_path, monkeypatch):
         """scene/prop 子目录也能正确读取"""
         client, pm = _client(monkeypatch, tmp_path)

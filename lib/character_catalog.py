@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
@@ -268,7 +269,11 @@ async def _fetch_catalog(client: httpx.AsyncClient, api_url: str, token: str) ->
     return catalog
 
 
-async def sync_character_catalog(session: AsyncSession) -> dict[str, Any]:
+async def sync_character_catalog(
+    session: AsyncSession,
+    *,
+    progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
     """从 DB 读取配置并增量同步当前发布目录。
 
     远端缺席的本地角色不删除；只有本次回包中的角色会按当前版本更新。
@@ -282,6 +287,9 @@ async def sync_character_catalog(session: AsyncSession) -> dict[str, Any]:
 
     client = get_http_client()
     catalog = await _fetch_catalog(client, api_url, token)
+    total_characters = len(catalog.characters)
+    if progress_callback is not None:
+        await progress_callback(0, total_characters)
     asset_repo = AssetRepository(session)
     resource_repo = AssetResourceRepository(session)
     projects_root = get_project_manager().projects_root
@@ -289,11 +297,14 @@ async def sync_character_catalog(session: AsyncSession) -> dict[str, Any]:
 
     result = {"added": 0, "updated": 0, "unchanged": 0, "assetsDownloaded": 0}
     created_paths: set[str] = set()
-    obsolete_paths: set[str] = set()
-    live_paths: set[str] = set()
 
     try:
-        for character in catalog.characters:
+        for character_index, character in enumerate(catalog.characters, start=1):
+            # 每个角色独立提交：后台状态可在 SQLite 下持续落盘并被其它请求读取；
+            # 若后续角色失败，已完成角色保持可用，重试仍由增量同步幂等收敛。
+            created_paths = set()
+            obsolete_paths: set[str] = set()
+            live_paths: set[str] = set()
             existing = await asset_repo.get_by_external_identity(CROCO_CATALOG_SOURCE, character.id)
             is_new = existing is None
             changed = is_new
@@ -434,7 +445,15 @@ async def sync_character_catalog(session: AsyncSession) -> dict[str, Any]:
             else:
                 result["unchanged"] += 1
 
-        await session.commit()
+            await session.commit()
+            created_paths = set()
+            for path in obsolete_paths - live_paths:
+                try:
+                    (projects_root / path).unlink()
+                except FileNotFoundError:
+                    pass
+            if progress_callback is not None:
+                await progress_callback(character_index, total_characters)
     except Exception:
         await session.rollback()
         for path in created_paths:
@@ -443,12 +462,6 @@ async def sync_character_catalog(session: AsyncSession) -> dict[str, Any]:
             except FileNotFoundError:
                 pass
         raise
-
-    for path in obsolete_paths - live_paths:
-        try:
-            (projects_root / path).unlink()
-        except FileNotFoundError:
-            pass
 
     return {
         "publishVersion": catalog.publish_version.model_dump(by_alias=True),

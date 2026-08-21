@@ -1,32 +1,34 @@
 """Croco 角色目录同步 API。"""
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter
 
-from lib.character_catalog import CharacterCatalogSyncError, sync_character_catalog
-from lib.db import get_async_session
+from lib.background_job_worker import CHARACTER_CATALOG_SYNC_JOB
+from lib.db import async_session_factory
+from lib.db.repositories.background_job_repo import BackgroundJobRepository
 from lib.i18n import Translator
 
 router = APIRouter(prefix="/character-catalog", tags=["角色目录"])
 
 
-@router.post("/sync")
-async def sync_catalog(
-    _t: Translator,
-    session: AsyncSession = Depends(get_async_session),
-):
-    try:
-        return await sync_character_catalog(session)
-    except CharacterCatalogSyncError as exc:
-        if exc.code == "character_catalog_config_missing":
-            status_code = 400
-        elif exc.code in {
-            "character_catalog_invalid_url",
-            "character_catalog_invalid_payload",
-            "character_catalog_asset_integrity_failed",
-            "character_catalog_asset_too_large",
-        }:
-            status_code = 422
-        else:
-            status_code = 502
-        raise HTTPException(status_code=status_code, detail=_t(exc.code, status=exc.status or "")) from exc
+@router.post("/sync", status_code=202)
+async def sync_catalog(_t: Translator):
+    async with async_session_factory() as session:
+        job, deduped = await BackgroundJobRepository(session).enqueue(CHARACTER_CATALOG_SYNC_JOB)
+    return {"job": _localized_job(job, _t), "deduped": deduped}
+
+
+@router.get("/sync/status")
+async def sync_catalog_status(_t: Translator):
+    async with async_session_factory() as session:
+        job = await BackgroundJobRepository(session).get_latest(CHARACTER_CATALOG_SYNC_JOB)
+    return {"job": _localized_job(job, _t) if job else None}
+
+
+def _localized_job(job: dict, _t: Translator) -> dict:
+    payload = dict(job)
+    code = payload.get("error_code")
+    if code:
+        payload["error_message"] = _t(code, status=payload.get("error_detail") or "")
+    else:
+        payload["error_message"] = None
+    return payload

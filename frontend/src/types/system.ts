@@ -111,3 +111,20 @@ export interface CharacterCatalogSyncResult {
   unchanged: number;
   assetsDownloaded: number;
 }
+
+export interface CharacterCatalogSyncJob {
+  job_id: string;
+  job_type: "character_catalog_sync";
+  status: "queued" | "running" | "succeeded" | "failed";
+  phase: "queued" | "fetching_catalog" | "syncing_characters" | "completed" | "failed";
+  progress_current: number;
+  progress_total: number;
+  result: CharacterCatalogSyncResult | null;
+  error_code: string | null;
+  error_detail: string | null;
+  error_message: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+}

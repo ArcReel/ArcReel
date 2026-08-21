@@ -32,6 +32,7 @@ from lib.agent_session_store import session_store_enabled
 from lib.agent_session_store.import_local import migrate_local_transcripts_to_store
 from lib.agent_session_store.store import DbSessionStore
 from lib.app_data_dir import app_data_dir
+from lib.background_job_worker import BackgroundJobWorker
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
@@ -431,6 +432,12 @@ async def lifespan(app: FastAPI):
     await worker.start()
     logger.info("GenerationWorker 已启动")
 
+    logger.info("启动 BackgroundJobWorker...")
+    background_worker = create_background_job_worker()
+    app.state.background_job_worker = background_worker
+    await background_worker.start()
+    logger.info("BackgroundJobWorker 已启动")
+
     logger.info("启动 ProjectEventService...")
     project_event_service = ProjectEventService(PROJECT_ROOT, projects_root=app_data_dir())
     app.state.project_event_service = project_event_service
@@ -445,6 +452,11 @@ async def lifespan(app: FastAPI):
         logger.info("正在停止 ProjectEventService...")
         await project_event_service.shutdown()
         logger.info("ProjectEventService 已停止")
+    background_worker = getattr(app.state, "background_job_worker", None)
+    if background_worker:
+        logger.info("正在停止 BackgroundJobWorker...")
+        await background_worker.stop()
+        logger.info("BackgroundJobWorker 已停止")
     worker = getattr(app.state, "generation_worker", None)
     if worker:
         logger.info("正在停止 GenerationWorker...")
@@ -660,6 +672,10 @@ app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管
 
 def create_generation_worker() -> GenerationWorker:
     return GenerationWorker()
+
+
+def create_background_job_worker() -> BackgroundJobWorker:
+    return BackgroundJobWorker()
 
 
 @app.get("/health")

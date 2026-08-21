@@ -668,6 +668,7 @@ class ProjectEventService:
             name: {
                 "description": str(data.get("description") or ""),
                 "voice_style": str(data.get("voice_style") or ""),
+                "voice_id": str(data.get("voice_id") or ""),
                 "character_sheet": str(data.get("character_sheet") or ""),
                 "reference_image": str(data.get("reference_image") or ""),
                 "reference_audio": str(data.get("reference_audio") or ""),

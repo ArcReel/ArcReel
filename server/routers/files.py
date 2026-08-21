@@ -228,19 +228,17 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
-@public_router.get("/global-assets/{asset_type}/{filename}")
+@public_router.get("/global-assets/{asset_type}/{filename:path}")
 async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
-    """服务 _global_assets 下的全局资产图片与自定义风格参考图。"""
+    """服务 _global_assets 下的全局资产；目录同步资源允许使用嵌套相对路径。"""
     if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES | {"style"}:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
-    if "/" in filename or ".." in filename:
-        raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))
 
     root = get_project_manager().get_global_assets_root()
-    # 防御性检查：即使 filename 通过了字符串校验，也要确保解析后的路径仍在 root 之内
-    # （防御 symlink / URL 编码等边界场景）
+    # filename 可含合法子目录；safe_join 仍会展开 URL 解码后的 .. 与 symlink，
+    # 并把可访问范围严格限制在已校验的资产类型目录内。
     try:
-        path = safe_join(root, asset_type, filename)
+        path = safe_join(root / asset_type, filename)
     except PathTraversalError:
         raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 

@@ -419,6 +419,8 @@ MESSAGES = {
     "character_catalog_asset_download_failed": "Không thể tải một tài nguyên nhân vật; đã hủy đồng bộ",
     "character_catalog_asset_integrity_failed": "Một tài nguyên nhân vật không đạt kiểm tra kích thước hoặc SHA-256; đã hủy đồng bộ",
     "character_catalog_asset_too_large": "Một tài nguyên nhân vật vượt quá giới hạn 200 MB mỗi tệp; đã hủy đồng bộ",
+    "character_catalog_sync_failed": "Đồng bộ thư viện nhân vật thất bại ngoài dự kiến; hãy thử lại hoặc kiểm tra nhật ký máy chủ",
+    "background_job_unsupported": "Loại tác vụ nền này không được hỗ trợ",
     "asset_primary_resource_invalid_type": "Tài nguyên chính của nhân vật phải là hình ảnh hoặc âm thanh",
     "asset_primary_resource_invalid": "Tài nguyên đã chọn không thuộc nhân vật này hoặc sai loại phương tiện",
 }

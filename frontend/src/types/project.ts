@@ -22,6 +22,8 @@ export interface Character {
   description: string;
   character_sheet?: string;
   voice_style?: string;
+  /** 由人物资产库导入的供应商音色标识；项目角色卡只读展示。 */
+  voice_id?: string;
   reference_image?: string;
   reference_audio?: string;
   /** reference_audio 当前生效版本的设置/更新时间（ISO8601），由后端在写入时机械戳。 */

@@ -78,8 +78,8 @@ describe("AssetFormModal", () => {
         initialData={{
           name: "鳄鱼爸爸",
           resources: [
-            { id: "img-1", key: "avatarUrl", origin: "catalog", media_type: "image", mime_type: "image/png", path: "avatar.png", byte_size: 1, is_primary: true },
-            { id: "img-2", key: "fullBodyImageUrl", origin: "catalog", media_type: "image", mime_type: "image/png", path: "full.png", byte_size: 1, is_primary: false },
+            { id: "img-1", key: "avatarUrl", origin: "catalog", media_type: "image", mime_type: "image/png", path: "_global_assets/character/avatar.png", byte_size: 1, is_primary: true },
+            { id: "img-2", key: "fullBodyImageUrl", origin: "catalog", media_type: "image", mime_type: "image/png", path: "_global_assets/character/full.png", byte_size: 1, is_primary: false },
             { id: "audio-1", key: "voice1", origin: "catalog", media_type: "audio", mime_type: "audio/wav", path: "voice1.wav", byte_size: 1, is_primary: true },
             { id: "audio-2", key: "voice2", origin: "catalog", media_type: "audio", mime_type: "audio/wav", path: "voice2.wav", byte_size: 1, is_primary: false },
           ],
@@ -89,7 +89,14 @@ describe("AssetFormModal", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("field.primary_image"), { target: { value: "img-2" } });
+    const imagePicker = screen.getByRole("button", { name: /resource_image_avatar/ });
+    expect(screen.getByAltText("resource_image_avatar").getAttribute("src"))
+      .toContain("/api/v1/global-assets/character/avatar.png");
+    fireEvent.click(imagePicker);
+    const fullBodyOption = screen.getByRole("option", { name: /resource_image_full_body/ });
+    expect(screen.getByAltText("resource_image_full_body").getAttribute("src"))
+      .toContain("/api/v1/global-assets/character/full.png");
+    fireEvent.click(fullBodyOption);
     fireEvent.change(screen.getByLabelText("field.primary_audio"), { target: { value: "audio-2" } });
     fireEvent.click(screen.getByRole("button", { name: "save" }));
 
@@ -97,5 +104,19 @@ describe("AssetFormModal", () => {
       primary_image_resource_id: "img-2",
       primary_audio_resource_id: "audio-2",
     })));
+  });
+
+  it("shows a synced Voice ID as read-only character metadata", () => {
+    render(
+      <AssetFormModal
+        type="character"
+        mode="edit"
+        initialData={{ name: "鳄鱼爸爸", voice_id: "voice-croco-dad" }}
+        onClose={() => {}}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("voice-croco-dad")).toBeInTheDocument();
   });
 });
