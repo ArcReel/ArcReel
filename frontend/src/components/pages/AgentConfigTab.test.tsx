@@ -150,5 +150,29 @@ describe("AgentConfigTab — credentials directory", () => {
       }),
     ).toBeInTheDocument();
   });
-});
 
+  it("renders Supabase character channel and saves URL plus token", async () => {
+    setupBaseMocks();
+    const update = vi.spyOn(API, "updateSystemConfig").mockResolvedValue({
+      ...makeConfigResponse(),
+      settings: {
+        ...makeConfigResponse().settings,
+        croco_characters_api_url: "https://catalog.example.test/export",
+        croco_characters_api_token: { is_set: true, masked: "cata…3456" },
+      },
+    });
+    render(<AgentConfigTab visible />);
+
+    const user = userEvent.setup();
+    const url = await screen.findByLabelText("CROCO_CHARACTERS_API_URL");
+    const token = screen.getByLabelText("CROCO_CHARACTERS_API_TOKEN");
+    await user.type(url, "https://catalog.example.test/export");
+    await user.type(token, "catalog-secret-123456");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      croco_characters_api_url: "https://catalog.example.test/export",
+      croco_characters_api_token: "catalog-secret-123456",
+    }));
+  });
+});

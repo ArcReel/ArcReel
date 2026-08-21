@@ -65,7 +65,13 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         namespace_priority=0,
         reference_list_fields=("characters_in_segment", "characters_in_scene", "characters_in_shot"),
         original_image_fields=("reference_image",),
-        extra_string_fields=("voice_style", "reference_image", "reference_audio", "voice_notice_dismissed_at"),
+        extra_string_fields=(
+            "voice_style",
+            "voice_id",
+            "reference_image",
+            "reference_audio",
+            "voice_notice_dismissed_at",
+        ),
         # voice_style 是 LLM 生成的角色配音风格，agent 可改；reference_image / reference_audio
         # 是用户上传的文件路径（系统级），不进 agent 白名单——更新分别走
         # update_character_reference_image / update_character_reference_audio。

@@ -165,6 +165,8 @@ class TestGetSystemConfig:
             "default_audio_backend",
             "narration_voice",
             "narration_speed",
+            "croco_characters_api_url",
+            "croco_characters_api_token",
         }
         assert set(settings.keys()) == expected_keys
 
@@ -234,6 +236,20 @@ class TestGetSystemConfig:
         ak = res.json()["settings"]["anthropic_api_key"]
         assert ak["is_set"] is False
         assert ak["masked"] is None
+
+    @pytest.mark.unit
+    def test_character_catalog_token_is_masked(self):
+        mock_svc = _make_mock_svc(
+            settings={
+                "croco_characters_api_url": "https://catalog.example.test/export",
+                "croco_characters_api_token": "catalog-secret-123456",
+            }
+        )
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            settings = client.get("/api/v1/system/config").json()["settings"]
+        assert settings["croco_characters_api_url"] == "https://catalog.example.test/export"
+        assert settings["croco_characters_api_token"]["is_set"] is True
+        assert "catalog-secret-123456" not in settings["croco_characters_api_token"]["masked"]
 
     @pytest.mark.unit
     def test_settings_reflect_stored_values(self):
@@ -347,6 +363,32 @@ class TestPatchSystemConfig:
         assert res.status_code == 200
         settings = res.json()["settings"]
         assert settings["default_video_backend"] == "ark/doubao-seedance-1-5-pro-251215"
+
+    @pytest.mark.unit
+    def test_patch_sets_character_catalog_channel(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={
+                    "croco_characters_api_url": "https://catalog.example.test/export",
+                    "croco_characters_api_token": "catalog-secret-123456",
+                },
+            )
+        assert res.status_code == 200
+        settings = res.json()["settings"]
+        assert settings["croco_characters_api_url"] == "https://catalog.example.test/export"
+        assert settings["croco_characters_api_token"]["is_set"] is True
+
+    @pytest.mark.unit
+    def test_patch_rejects_non_https_character_catalog_url(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"croco_characters_api_url": "http://catalog.example.test/export"},
+            )
+        assert res.status_code == 422
 
     @pytest.mark.unit
     def test_patch_sets_video_bucket_backends(self):
