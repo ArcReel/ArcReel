@@ -11,15 +11,17 @@ different project via prompt injection.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server
 
-from lib.project_migration_guard import project_migration_failure
-from server.agent_runtime.sdk_tools._context import ToolContext, migration_refusal_response
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    migration_failure_for,
+    migration_refusal_response,
+)
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
@@ -156,7 +158,7 @@ def _refuse_while_migration_failed(sdk_tool: Any, ctx: ToolContext) -> Any:
     inner = sdk_tool.handler
 
     async def _guarded(args: Any) -> dict[str, Any]:
-        failure = await asyncio.to_thread(project_migration_failure, ctx.project_name, ctx.pm)
+        failure = await migration_failure_for(ctx)
         if failure is not None:
             return migration_refusal_response(
                 failure,

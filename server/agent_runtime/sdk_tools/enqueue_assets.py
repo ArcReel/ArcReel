@@ -34,6 +34,8 @@ from lib.project_manager import ProjectManager
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     generation_result_response,
+    migration_failure_for,
+    migration_refusal_response,
     tool_error,
 )
 
@@ -137,6 +139,12 @@ def list_pending_assets_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
+            failure = await migration_failure_for(ctx)
+            if failure is not None:
+                return migration_refusal_response(
+                    failure,
+                    text="❌ 项目数据升级未完成，产物清单不可读，无法列出待生成资产。请按明细修复后调用 retry_project_migration：",
+                )
             asset_type = args.get("type")
             types = (asset_type,) if asset_type else ALL_TYPES
             lines: list[str] = []
