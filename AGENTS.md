@@ -165,34 +165,9 @@ triage 状态机使用五个默认标签：`needs-triage` / `needs-info` / `read
 
 单上下文布局：根目录 `CONTEXT.md` + `docs/adr/`。详见 `docs/agents/domain.md`。
 
-## 开发与维护流程（Feature Worktree）
+## 开发与维护流程
 
-所有 feature / bug / 重构 / 文档改动都在独立 worktree 中进行，**不在 main 工作树直接开发**。
-
-### 隔离与分支命名
-
-- Worktree 根目录：`.worktrees/`（已 gitignore；每项一个 worktree checkout，main 工作树保持干净）
-- 分支命名：`<type>-<kebab-case>`，type 取值：
-  - `feat-<name>` — 新功能
-  - `bug-<name>` — 缺陷修复
-  - `refactor-<name>` — 行为不变的重构
-  - `chore-<name>` — 依赖 / 配置 / 构建等杂务
-  - `docs-<name>` — 文档
-
-### 流程
-
-1. 从 `main` 开 worktree 与分支：
-   ```bash
-   git worktree add .worktrees/<name> -b <type>-<name> main
-   ```
-2. 在该 worktree 内开发 / 修复。
-3. 本地验证通过：`uv run pytest`、`uv run ruff check`、`uv run basedpyright`、`uv run lint-imports`（前端 `pnpm lint && pnpm check`）。
-4. 验证通过后，用 ask questions 询问用户是否 merge；**未经用户确认不 merge**。
-5. 用户确认后：merge 回 `main`，再删除 worktree 与分支（properly clean）：
-   ```bash
-   git worktree remove .worktrees/<name>
-   git branch -d <type>-<name>
-   ```
+Feature、bug、重构和文档改动的 worktree、验证、commit、merge、清理以及 Graphify 更新流程统一见 [`DEV.md`](DEV.md)。开始具体开发前必须先阅读该文件；本文件负责项目架构和代码约束，不重复维护开发流程。
 
 ### 最优开发 / 修复原则
 
