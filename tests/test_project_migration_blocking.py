@@ -28,6 +28,12 @@ from lib.project_migrations.runner import migrate_project_with_verdict, run_proj
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest
 from lib.workflow_state import WorkflowStateService
+from server.agent_runtime.sdk_tools.patch_script import (
+    insert_segment_tool,
+    patch_episode_script_tool,
+    remove_segment_tool,
+    split_segment_tool,
+)
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.services.workflow_planner import WorkflowPlanner
@@ -216,6 +222,50 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
     # The blocked set names real tools, and never the retry tool — it is the way out.
     assert sdk_tools.MIGRATION_BLOCKED_TOOL_IDS <= set(sdk_tools.ARCREEL_MCP_TOOL_IDS)
     assert "retry_project_migration" not in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
+
+
+@pytest.mark.parametrize(
+    "tool_factory",
+    [
+        patch_episode_script_tool,
+        insert_segment_tool,
+        remove_segment_tool,
+        split_segment_tool,
+    ],
+)
+async def test_script_edit_mcp_tools_refuse_at_registration_on_a_migration_blocked_project(
+    tmp_path: Path, monkeypatch, tool_factory
+) -> None:
+    """四个受控剧本编辑工具经 MIGRATION_BLOCKED_TOOL_IDS 在注册期挡下——不落到
+
+    ScriptBatchEditor.execute 的内层裁决（那条仍在，作兜底，但这里不该是命中路径：
+    命中内层会返回 ``script_edit`` 信封而不是 ``problem``，与本测试的形状断言矛盾）。
+    """
+
+    import lib.project_migration_guard as guard
+    from server.agent_runtime import sdk_tools
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(projects_root)
+    _break_episode_script(project_dir)
+    failure = migrate_project_with_verdict(project_dir)
+    assert failure is not None
+
+    pm = ProjectManager(str(projects_root))
+    monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
+    ctx = sdk_tools.ToolContext(project_name="demo", projects_root=projects_root, pm=pm)
+
+    sdk_tool = tool_factory(ctx)
+    assert sdk_tool.name in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
+    guarded = sdk_tools._refuse_while_migration_failed(sdk_tool, ctx)  # pyright: ignore[reportPrivateUsage]
+    blocked = await guarded.handler({})
+
+    assert blocked["is_error"] is True
+    assert blocked["problem"]["code"] == GenerationProblemCode.PROJECT_MIGRATION_FAILED
+    assert blocked["problem"]["action"] == GenerationAction.RETRY_PROJECT_MIGRATION
+    assert blocked["problem"]["detail"] == failure.reason
+    assert "script_edit" not in blocked
 
 
 async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_path: Path, monkeypatch) -> None:

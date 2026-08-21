@@ -109,8 +109,11 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
 
 # Tools refused outright while the project's schema migration verdict is a failure.
 # Everything that generates output or writes formal content is closed; the read-only
-# tools stay open so the agent can still diagnose what needs repairing, and the
-# controlled script/project editors stay open because repairing is done through them.
+# tools stay open so the agent can still diagnose what needs repairing. The script
+# editors are declared here too even though their shared ``ScriptBatchEditor.execute``
+# already refuses internally for the same verdict -- entry declaration is the source
+# of truth (阻断以入口声明为准), the inner check is only a fallback, never a reason
+# for an entry to skip declaring the block itself.
 MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
         "complete_asset_inventory",
@@ -133,6 +136,10 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "split_narration_segments",
         "plan_episodes",
         "reset_episode_planning",
+        "patch_episode_script",
+        "insert_segment",
+        "remove_segment",
+        "split_segment",
     }
 )
 
