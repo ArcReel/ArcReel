@@ -240,8 +240,9 @@ async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of
     assert blocked["problem"]["code"] == MIGRATION_FAILURE_CODE
     assert blocked["problem"]["action"] == RETRY_MIGRATION_ACTION
     assert blocked["problem"]["detail"] == failure.reason
-    problem_text = blocked["content"][0]["text"]
-    assert json.loads(problem_text[problem_text.index("{") :]) == blocked["problem"]
+    # migration_refusal_response 按 text + "\n" + json.dumps(payload, ...) 拼接，直接比对该已知
+    # 序列化结果，不靠猜切分点（提示文本或缩进 JSON 内部各自可能出现 "\n"/"{"，两者都不是可靠锚点）。
+    assert blocked["content"][0]["text"].endswith(json.dumps(blocked["problem"], ensure_ascii=False, indent=2))
 
     _repair_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is None
