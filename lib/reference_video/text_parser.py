@@ -354,7 +354,7 @@ def resolve_references(
 ) -> tuple[list[ReferenceResource], list[str]]:
     """按 project.json 四类资产把 mention 名字分派成 ReferenceResource。
 
-    新项目资产共用名称空间；对历史重复名仍按产品→角色→场景→道具稳定决议。
+    新项目资产共用名称空间；对历史重复名仍按商品→角色→场景→道具稳定决议。
 
     名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.asset_name_comparison_key`），
     产出的 ``ReferenceResource.name`` 与 ``missing`` 因此一律是归一形式：下游拿它回查资产表、

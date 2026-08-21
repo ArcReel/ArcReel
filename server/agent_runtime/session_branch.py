@@ -165,7 +165,7 @@ class SessionBranchService:
             logger.warning("cannot locate transcript of incomplete branch %s: project key unresolved", new_session_id)
         else:
             try:
-                # 不带 subpath 的 delete 连子代理子路径与 summary 一并清除。
+                # 不带 subpath 的 delete 连子智能体子路径与 summary 一并清除。
                 await store.delete({"project_key": project_key, "session_id": new_session_id})
             except Exception:
                 logger.exception("failed to discard transcript of incomplete branch %s", new_session_id)

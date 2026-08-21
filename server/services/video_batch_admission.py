@@ -846,14 +846,14 @@ def build_storyboard_video_specs(
     resolver: ArtifactCurrencyResolver | None = None,
     voice_characters: dict[str, Any] | None = None,
 ) -> tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]:
-    """Build the storyboard-route specs, refusing each unit that cannot be requested.
+    """Build the Storyboard-mode specs, refusing each unit that cannot be requested.
 
     A unit whose speech, inputs or prompt are unusable is refused with its own code
     and next action instead of being dropped into a log line, so one bad unit never
     silently shrinks the batch — and, because the refusal is a ticket rather than a
     recorded block, it can hold the whole batch back before any task exists.
 
-    ``skeleton_kind`` 取路线闸门给出的剧本实际骨架种类，而不是按创作类型反推：族内的历史
+    ``skeleton_kind`` 取生成模式闸门给出的剧本实际骨架种类，而不是按创作类型反推：族内的历史
     形态（narration 数据落 ``scenes`` 键）按反推值去适配，合法的旧剧本会被整批判成解析失败。
 
     发声准入在这里执行，与参考生视频由 ``reference_unit_task_spec`` 承担的位置对应：
@@ -970,7 +970,7 @@ async def admit_storyboard_video_request(
     selection: GenerationSelectionMode,
     extra_tickets: Sequence[UnitAdmissionTicket],
 ) -> BatchAdmission:
-    """Admit one storyboard-route request from the specs it would actually enqueue.
+    """Admit one Storyboard-mode request from the specs it would actually enqueue.
 
     The visual prompt each spec already carries is what the admission compares
     against the paid artifact, so the triples are built from the specs rather than

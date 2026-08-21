@@ -1480,7 +1480,7 @@ describe("StudioCanvasRouter", () => {
 
   it("withholds the panel's regenerate entry on the reference route instead of wiring a dead button", async () => {
     // 参考生视频的剧本是 video_units，本组件的逐单元入队回调解不出提示词。给出回调
-    // 只会长出一个按下去毫无反应的按钮，该路线的重生入口在单元卡上。
+    // 只会长出一个按下去毫无反应的按钮，该生成模式的重生入口在单元卡上。
     const projectData = makeProjectData({ generation_mode: "reference_video" });
     useProjectsStore.setState({
       currentProjectName: "demo",

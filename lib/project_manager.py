@@ -465,7 +465,7 @@ class ProjectManager:
         ``project.json`` 不存在或缺 ``content_mode`` 字段 → 回退 narration（兼容
         老项目）。文件存在但读取/解析失败 → raise，让上层 sync_all_agent_profiles
         走 failed_projects 分支；若静默回退到 narration，drama 项目会因 manifest
-        记录的 mode 不匹配触发破坏性 reset，把 profile 错误切回说书变体。
+        记录的 mode 不匹配触发破坏性 reset，把 profile 错误切回旁白/解说变体。
         """
         pj_path = project_dir / self.PROJECT_FILE
         try:

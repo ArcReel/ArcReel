@@ -62,7 +62,7 @@ MESSAGES = {
     "prompt_text_empty": "prompt must not be empty",
     "storyboard_task_submitted": "Storyboard generation task for '{segment_id}' submitted",
     "generate_storyboard_first": "Please generate storyboard scene_{segment_id}.png first",
-    "video_route_is_reference_video": "This project uses the reference-video route, which has no storyboard-to-video step; generate by video unit in the reference video editor",
+    "video_route_is_reference_video": "This project uses Reference-to-video mode, which has no storyboard-to-video step; generate by video unit in the reference video editor",
     "invalid_storyboard_image_path": "Segment '{segment_id}' has an invalid storyboard image reference; please regenerate the storyboard",
     "invalid_end_frame_image_path": "Segment '{segment_id}' has an invalid end-frame image reference; please capture the end frame again",
     "video_audio_switch_not_supported": "{provider}/{model} always produces audio and cannot be muted; turn the audio switch back on in settings and try again",

@@ -181,7 +181,7 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         allowed_exts=_IMAGE_EXTS,
         subdir=(ASSET_SPECS["product"].subdir, "refs"),
         naming="sequenced",
-        # 产品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
+        # 商品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
         # 不做阈值压缩/重编码。请求体上限由生成发送前的参考压缩环节独立保障。
         content_check="validate_image",
         metadata_setter=ProjectManager.add_product_reference_image,
@@ -266,7 +266,7 @@ async def upload_file(
         project_name: 项目名称
         upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref)
         file: 上传的文件
-        name: 可选，用于角色/场景/道具/产品名称（自动更新元数据）；product_ref 必填；
+        name: 可选，用于角色/场景/道具/商品名称（自动更新元数据）；product_ref 必填；
             分镜/视频上传走 shot_uploads 路由
         on_conflict: source 类型独有 — fail / replace / rename
     """

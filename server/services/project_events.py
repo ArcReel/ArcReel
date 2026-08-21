@@ -801,7 +801,7 @@ class ProjectEventService:
     def _item_entities(
         item: dict[str, Any], chars_field: str | None
     ) -> tuple[list[str], list[str], list[str], list[str]]:
-        """条目出场的 (角色, 场景, 道具, 产品) 名单（各自排序、去重）。
+        """条目出场的 (角色, 场景, 道具, 商品) 名单（各自排序、去重）。
 
         ``chars_field`` 非 ``None`` 时角色读逐条字段、场景/道具读顶层 ``scenes`` / ``props``；为
         ``None``（video_units 无逐条实体字段的显式缺位，见 ``SKELETONS``）时一律为空——参考生视频

@@ -396,7 +396,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
     生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
-    按 i2i 槽精确解析。两条视频路线都忽略 enqueue payload 中的旧身份，分镜视频定桶经
+    按 i2i 槽精确解析。两种视频生成模式都忽略 enqueue payload 中的旧身份，分镜视频定桶经
     ``video_bucket_for_queued_task`` 与入队派生共用；reference_video 则重读最新
     project/script/unit，以实际可用资产调用公共 request projection。
     这份 provider 投影只服务 claim 过滤与限流路由，不是执行身份；正常 executor 会在开始时
@@ -671,7 +671,7 @@ class GenerationWorker:
                         )
                     await self._requeue_single_task(task["task_id"])
                     if task.get("task_type") in ("video", "reference_video"):
-                        # 两条视频路线都必须先重投影才能判断当前 provider；本 cycle 排除已
+                        # 两种视频生成模式都必须先重投影才能判断当前 provider；本 cycle 排除已
                         # 重投影且仍池满的任务，继续寻找其它 provider 的可运行任务。
                         attempted_current_state_tasks.add(task["task_id"])
                         continue
@@ -868,7 +868,7 @@ class GenerationWorker:
     async def _process_resume_task(self, task: dict[str, Any]) -> None:
         """重启自愈入口：直接调 backend.resume_video，绕过 normal executor 流水线。
 
-        两条视频路线都在 worker 开始时按最新状态物化，并在 provider 提交前写入不可变
+        两种视频生成模式都在 worker 开始时按最新状态物化，并在 provider 提交前写入不可变
         execution checkpoint。重启后只从 checkpoint 构造固定的解析请求，不从当前项目
         配置或 enqueue payload 重算执行身份。
 
@@ -1148,7 +1148,7 @@ class GenerationWorker:
                     await self._cleanup_video_staging(task)
                     continue
 
-            # video 路径：判断 provider 是否支持 resume。两条路线均只用不可变 checkpoint；
+            # video 路径：判断 provider 是否支持 resume。两种生成模式均只用不可变 checkpoint；
             # 否则项目配置在重启前后切换时，_extract_provider 会按当前项目重新解析，可能把原本
             # Grok/Vidu 孤儿误判成可 resume，或把可 resume 任务路由到错池。
             provider_id = (

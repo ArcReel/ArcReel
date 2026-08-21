@@ -177,8 +177,8 @@ class CreateProjectRequest(BaseModel):
     target_duration: int | None = Field(default=None, gt=0)
     # 仅 content_mode=ad：创作诉求短文本（可空，不走 source_loader）
     brief: str | None = None
-    # 生成模式：必填二选一、无默认值——缺失或旧三值 grid 由 Pydantic 校验返回 422，
-    # 不再被默认值悄悄锁进某种生成模式。创建后不可更改（PATCH 模型结构上无此字段）。
+    # 生成模式：创建时必须显式选择 storyboard 或 reference_video；缺失或旧 grid 值由
+    # Pydantic 校验返回 422。创建后不可更改（PATCH 模型结构上无此字段）。
     generation_mode: Literal["storyboard", "reference_video"]
     # 宫格分镜开关：只改变分镜图的生产方式，不是独立生成模式；仅 storyboard 生成模式有意义，
     # 创建后可经项目 PATCH 随时切换。ad 项目拒绝开启。

@@ -24,7 +24,7 @@ description: 为旁白/解说剧本逐段生成旁白配音（TTS）。当用户
 > **选择规则**：不传 `segment_ids` 则只为缺 `narration_audio` 的段入队——已失效但仍可用的旧配音会被复用，不自动重生；
 > 显式传入的段即使已有音频也会重新合成（用于换音色/语速后重生）。
 >
-> **只在用户要求时调用**：缺 TTS 不是工作流缺口，也不拦导出；后期配音路线的旁白根本不需要 TTS。
+> **只在用户要求时调用**：缺 TTS 不是工作流缺口，也不拦导出；后期配音方式的旁白根本不需要 TTS。
 > 不要因为计划报了缺失音频就自动补齐。用户在某次视频请求上选了「使用当前 TTS」时，按预检返回的
 > `problems[].action` 处理——**action 是权威，不要按 `code` 自己推**：`generate_tts` 为对应的段生成、
 > `regenerate_tts`（`tts_stale` / `tts_duration_unavailable`）重新合成且旧音频保留、`wait_for_task`

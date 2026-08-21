@@ -43,7 +43,7 @@ REFERENCE_VIDEO_STEP1_LEGACY_FILENAME = "step1_reference_units.md"
 #: 草稿文件名。与正式文件同目录、不同名：正式文件因此永远只装校验通过的内容，而待
 #: 处置的产物不被丢弃——Agent 就地改草稿再调晋升工具重判。内容确认与生成侧都要认
 #: 这些名字（草稿在场时阻塞确认与 step2），故与正式文件名收敛在同一处，避免任一侧
-#: 漏认让隔离态被静默绕过。
+#: 漏认会静默绕过待处置草稿的阻塞状态。
 REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME = "step1_reference_units.invalid.json"
 REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME = "step2_reference_script.invalid.json"
 DRAMA_STEP1_QUARANTINE_FILENAME = "step1_normalized_script.invalid.json"

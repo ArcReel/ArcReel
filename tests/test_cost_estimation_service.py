@@ -1431,7 +1431,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_reference_route_gives_no_estimate_for_mismatched_storyboard_script(self, db_factory):
-        """参考生视频项目下的失配剧本（分镜骨架）不产生预估：该集按当前路线根本不能生成。
+        """参考生视频项目下的失配剧本（分镜骨架）不产生预估：该集按当前生成模式根本不能生成。
 
         估算与执行同轴——生成侧对这类存量混排集直接拒绝并要求重拆，估算这边照实给零，
         不去替它假想一条分镜路径。
@@ -1468,7 +1468,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_reference_route_estimates_units_ignoring_residual_segments(self, db_factory):
-        """参考生视频项目按 units 估算，剧本里残留的 segments 不参与——路线定路径，形状不投票。"""
+        """参考生视频项目按 units 估算，剧本里残留的 segments 不参与——生成模式定路径，形状不投票。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1494,7 +1494,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_storyboard_route_gives_no_estimate_for_mismatched_unit_script(self, db_factory):
-        """分镜图生视频项目下的失配剧本（video_units 骨架）不产生预估：估算只认项目路线。"""
+        """分镜图生视频项目下的失配剧本（video_units 骨架）不产生预估：估算只认项目生成模式。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -2011,9 +2011,9 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_all_episodes_priced_by_the_project_route_bucket(self, db_factory, monkeypatch):
-        """全项目同一条路线、同一个桶：算价不逐集分歧，也不被某集的剧本形状带偏。
+        """全项目同一种生成模式、同一个桶：算价不逐集分歧，也不被某集的剧本形状带偏。
 
-        项目路线是 storyboard，ep2 是失配的 video_units 骨架——它不产生预估（生成侧会拒绝
+        项目生成模式是 storyboard，ep2 是失配的 video_units 骨架——它不产生预估（生成侧会拒绝
         并要求重拆），更不会把估算拽去 r2v 桶。
         """
         priced_models: list[str | None] = []
@@ -2046,7 +2046,7 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="per-episode-bucket")
 
-        # 只有骨架与路线相符的 ep1 产生预估，且按项目路线的 i2v 桶算价。
+        # 只有骨架与生成模式相符的 ep1 产生预估，且按项目生成模式的 i2v 桶算价。
         assert priced_models == ["kling-v3"]
         assert result["episodes"][1]["segments"] == []
         assert result["models"]["video"] == {"provider": "kling", "model": "kling-v3"}

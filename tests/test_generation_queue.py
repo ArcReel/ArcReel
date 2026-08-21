@@ -658,7 +658,7 @@ def stub_enqueue_resolution(monkeypatch):
 
 
 class TestProjectExecutionProviderOnEnqueue:
-    """两条视频路线入队都只保存 advisory provider，不冻结执行 model。"""
+    """两种视频生成模式入队都只保存 advisory provider，不冻结执行 model。"""
 
     async def test_video_task_keeps_only_advisory_provider(self, queue, stub_enqueue_resolution):
         enqueued = await queue.enqueue_task(

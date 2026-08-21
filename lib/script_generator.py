@@ -253,7 +253,7 @@ class ScriptGenerator:
         self._step1_input_claim = None
         gen_mode = self.generation_mode
 
-        # ad 两条路线都一键生成、不走 step1；参考生视频直接产出自包含 video_units。
+        # ad 两种生成模式都一键生成、不走 step1；参考生视频直接产出自包含 video_units。
         if self.content_mode == "ad":
             prompt, schema = await self._compose_ad(episode, gen_mode)
             prompt = append_user_instructions(prompt, instructions)
@@ -1548,7 +1548,7 @@ class ScriptGenerator:
         # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
         ep = int(episode)
         # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + resolve_kind_items 查条目数组
-        # 与 id 字段改写（参考生视频三种 content_mode 均映射到 video_units，无需按路线分支）。
+        # 与 id 字段改写（参考生视频三种 content_mode 均映射到 video_units，无需按生成模式分支）。
         # self.content_mode 为项目级校验值，解析不会 fail-loud。
         kind = resolve_declared_kind(self.content_mode, gen_mode)
         raw_rewrite_items, id_field, _kind = resolve_kind_items(script_data, kind=kind)
@@ -1619,7 +1619,7 @@ class ScriptGenerator:
                     )
                 s["duration_seconds"] = target_duration
         # content_mode 严格只是"内容类型"（narration/drama/ad）；"视频来源"维度是项目级事实，
-        # 剧本不落盘任何路线戳——生成分派一律读项目路线。
+        # 剧本不落盘任何生成模式标记——生成分派一律读项目生成模式。
         # 参考生视频剧本必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
         # "narration"，setdefault 拿不到项目级真值；非参考集 LLM 已在 schema 中产出
         # narration/drama，setdefault 仅作 fallback。
@@ -1651,7 +1651,7 @@ class ScriptGenerator:
         if isinstance(novel, dict):
             novel.pop("source_file", None)
 
-        # 剥离剧本级 generation_mode：路线的真相源是 project.json，剧本不留戳。
+        # 剥离剧本级 generation_mode：生成模式的真相源是 project.json，剧本不留标记。
         # 校验失败时 script_data 是后端原样返回的 dict（未经模型过滤），存量剧本重生成也会
         # 把旧值带进来——不在此处删就会随写盘回到磁盘上。
         script_data.pop("generation_mode", None)

@@ -1499,7 +1499,7 @@ class WorkflowStateService:
                         )
                         # 旁白 TTS 只作为信息报告，不参与状态推进：缺 TTS 既不是工作流缺口
                         # 也不拦导出，补 TTS 由用户显式发起（见 generate_narration_audio），
-                        # 后期路线的旁白根本不需要 TTS。Manifest 读不出某条 TTS 状态时同理——
+                        # 后期配音方式根本不需要 TTS。Manifest 读不出某条 TTS 状态时同理——
                         # 传独立的 audio_blockers 而非共享 blockers，不让它触发下面
                         # ``if blockers`` 把状态钉在 VIDEO；不可读事实仍经
                         # ``artifacts["audio"]["state"] == "blocked"`` 报告，只是不拦进度。

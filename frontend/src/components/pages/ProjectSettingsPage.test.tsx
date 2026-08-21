@@ -395,7 +395,7 @@ describe("ProjectSettingsPage – style picker", () => {
     await waitFor(() => {
       expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({ grid_storyboard: true }));
     });
-    // 路线不在 PATCH 面上
+    // 生成模式不在 PATCH 面上
     expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("generation_mode");
   });
 

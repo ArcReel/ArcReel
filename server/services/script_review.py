@@ -274,7 +274,7 @@ class ScriptReviewService:
         无草稿时 None。
 
         读时按产出时那套校验器全量重算（``revalidate_reference_step1_draft``，晋升工具同一份
-        代码），不信任草稿里 ``violations`` 的上一轮快照——隔离期间源文或模型配置可能已变，
+        代码），不信任草稿里 ``violations`` 的上一轮快照——草稿在场期间源文或模型配置可能已变，
         报告要对现值负责。本方法与 ``get_state`` 各自读盘、互不依赖，由 router 在同一次请求内
         合并两者的返回。
 
@@ -299,7 +299,7 @@ class ScriptReviewService:
         if draft is None:
             if not quarantine_path.exists():
                 # 存在性检查与读取之间的窗口内，Agent 的晋升/重拆分工具把文件清掉了（正式内容
-                # 已写入、隔离态合法结束）：不是信封损坏，是这次读跨越了「清除」那一刻，按「无
+                # 已写入、待处置草稿已清除）：不是信封损坏，是这次读跨越了「清除」那一刻，按「无
                 # 草稿」处理，不误报损坏。
                 return None
             # 文件存在但信封形状坏（非法 JSON / 顶层非对象 / content 非对象）：`read_quarantine`
@@ -452,7 +452,7 @@ class ScriptReviewService:
         episode: int,
         supported_durations: list[int] | None,
     ) -> None:
-        """``confirm`` 的同步主体：隔离态校验、读时收编、结构校验、指纹落盘。"""
+        """``confirm`` 的同步主体：待处置草稿校验、读时收编、结构校验、指纹落盘。"""
         project_path = self.pm.get_project_path(project_name)
         path = script_review.step1_path(project_path, project, episode)
         if path is None:
@@ -460,7 +460,7 @@ class ScriptReviewService:
         project = self._require_episode(project_name, project, episode)
         # 草稿在场时拒绝确认：正式 step1 此刻仍是上一版（或不存在），确认它等于替用户
         # 认可一份他没看过的内容，而刚产出的那份违约正文还在草稿里等 Agent 处置。校验
-        # 口径与生成侧同一把尺——晋升工具用的正是产出时那套校验器，这里只判「是否还在隔离」。
+        # 口径与生成侧同一把尺——晋升工具用的正是产出时那套校验器，这里只判待处置草稿是否在场。
         quarantine = script_review.step1_quarantine_path(project_path, project, episode)
         if quarantine is not None and quarantine.exists():
             raise ScriptReviewError("quarantined", f"step1 草稿待处置: {quarantine}")

@@ -265,16 +265,16 @@ def test_product_reference_uses_its_sheet_without_type_priority(tmp_path: Path):
         target_dir = refs_dir if "original" in filename else products_dir
         (target_dir / filename).write_bytes(image)
     project["products"] = {
-        "产品甲": {
+        "商品甲": {
             "description": "x",
             "product_sheet": "products/甲-sheet.png",
             "reference_images": ["products/refs/甲-original.png"],
         },
     }
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "product", "产品甲", "products/甲-sheet.png")
+    _register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
 
-    assert _resolved_names(project, proj_dir, "@[张三] 拿起 @[产品甲]") == ["张三.png", "甲-sheet.png"]
+    assert _resolved_names(project, proj_dir, "@[张三] 拿起 @[商品甲]") == ["张三.png", "甲-sheet.png"]
 
 
 @pytest.mark.unit
@@ -286,11 +286,11 @@ def test_clamp_keeps_the_first_mentions_without_type_priority(tmp_path: Path):
     products_dir.mkdir(exist_ok=True)
     image = (proj_dir / "characters" / "张三.png").read_bytes()
     (products_dir / "甲-sheet.png").write_bytes(image)
-    project["products"] = {"产品甲": {"description": "x", "product_sheet": "products/甲-sheet.png"}}
+    project["products"] = {"商品甲": {"description": "x", "product_sheet": "products/甲-sheet.png"}}
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "product", "产品甲", "products/甲-sheet.png")
+    _register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
 
-    entries = list(resolve_reference_assets(project, proj_dir, {"text": "@[张三] 在 @[酒馆] 拿起 @[产品甲]"}))
+    entries = list(resolve_reference_assets(project, proj_dir, {"text": "@[张三] 在 @[酒馆] 拿起 @[商品甲]"}))
     clamped, warnings = _clamp_resolved_reference_images(
         entries,
         2,
@@ -309,20 +309,20 @@ def test_clamp_keeps_the_first_mentions_without_type_priority(tmp_path: Path):
 
 @pytest.mark.unit
 def test_product_reference_with_original_only_is_executable(tmp_path: Path):
-    """尚无标准 sheet 的产品仍以实拍原图作为保真锚点，不被误判为缺图。"""
+    """尚无标准 sheet 的商品仍以实拍原图作为保真锚点，不被误判为缺图。"""
     proj_dir = _write_project(tmp_path)
     project, _unit = _load_project_and_unit(proj_dir, "E1U1")
     refs_dir = proj_dir / "products" / "refs"
     refs_dir.mkdir(parents=True)
     (refs_dir / "original.png").write_bytes((proj_dir / "characters" / "张三.png").read_bytes())
     project["products"] = {
-        "产品甲": {
+        "商品甲": {
             "product_sheet": "",
             "reference_images": ["products/refs/original.png"],
         }
     }
 
-    entries = resolve_reference_assets(project, proj_dir, {"text": "@[产品甲] 出现"})
+    entries = resolve_reference_assets(project, proj_dir, {"text": "@[商品甲] 出现"})
 
     assert [entry.path.name for entry in entries] == ["original.png"]
     assert entries[0].kind == "original"
@@ -402,17 +402,17 @@ def test_render_unit_prompt_binds_subjects_in_first_mention_order():
 @pytest.mark.unit
 def test_render_unit_prompt_binds_all_product_images_and_adds_fidelity_guard():
     rendered = _render_unit_prompt(
-        {"text": "镜头1：@[产品甲] 出现在画面中央"},
-        {"products": {"产品甲": {}}},
+        {"text": "镜头1：@[商品甲] 出现在画面中央"},
+        {"products": {"商品甲": {}}},
         VoiceRenderSettings(model_id="m", audio_ready=set()),
         request_references=[
-            ReferenceResource(type="product", name="产品甲"),
-            ReferenceResource(type="product", name="产品甲"),
+            ReferenceResource(type="product", name="商品甲"),
+            ReferenceResource(type="product", name="商品甲"),
         ],
     )
 
-    assert "<产品甲>@图片1、<产品甲>@图片2。" in rendered.prompt
-    assert "产品高保真还原（最高优先级" in rendered.prompt
+    assert "<商品甲>@图片1、<商品甲>@图片2。" in rendered.prompt
+    assert "商品高保真还原（最高优先级" in rendered.prompt
 
 
 @pytest.mark.unit

@@ -246,14 +246,14 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
 #: 生成模式 → 任务类型桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
 #: 已成形任务的 task_type 定桶，读侧（能力查询 / 时长约束收窄等）在任务成形前只有项目的
 #: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。参考
-#: 路线内无参考图退化镜头的镜头级降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
+#: 参考生视频模式内无参考图镜头的降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
 VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoCapability] = {
     "storyboard": "i2v",
     "reference_video": "r2v",
 }
 
-#: 表外 generation_mode（无项目上下文与脏数据）落的桶。project.json 是明文文件，路线字段
-#: 可能被手工改坏；无项目上下文（如 provider 目录查询）同样没有路线可依。
+#: 表外 generation_mode（无项目上下文与脏数据）落的桶。project.json 是明文文件，生成模式字段
+#: 可能被手工改坏；无项目上下文（如 provider 目录查询）同样没有生成模式可依。
 _DEFAULT_VIDEO_BUCKET: VideoCapability = "i2v"
 
 
@@ -292,10 +292,10 @@ def caps_generation_mode(project: dict | None) -> str | None:
     """能力查询口径的 generation_mode：直读项目字段，无项目上下文时为 None。
 
     生成模式创建即定、整个项目按同一条路径生成，能力解析因此不需要剧集上下文：定桶、声音
-    一致性、以及下游按 caps ``generation_mode`` 求值的分辨率与参考图约束全部按项目路线定轴。
+    一致性、以及下游按 caps ``generation_mode`` 求值的分辨率与参考图约束全部按项目生成模式定轴。
 
     返回 None 而非默认档，是因为 ``generation_mode`` 是 caps 的对外字段（回前端与 Agent）：
-    无项目上下文（provider 目录查询等）时「未声明」不该渲染成用户显式选过某条路线。
+    无项目上下文（provider 目录查询等）时「未声明」不该渲染成用户显式选过某种生成模式。
     """
     if project is None:
         return None
@@ -873,7 +873,7 @@ class ConfigResolver:
 
         model 按项目 ``generation_mode`` 定桶（图生视频 / 宫格 → i2v，参考生视频 → r2v）后走与
         执行相同的解析入口，回答的始终是「当前配置真正会执行的那个模型」（``docs/adr/0054``）。
-        路线创建即定、整个项目按同一条路径生成，解析因此不需要剧集上下文。
+        生成模式创建即定、整个项目按同一种模式生成，解析因此不需要剧集上下文。
 
         Returns:
             {

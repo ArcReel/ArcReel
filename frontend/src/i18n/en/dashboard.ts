@@ -737,7 +737,7 @@ export default {
   'current_global_hint': 'Current global: {{value}}',
   'aspect_ratio_label': 'Aspect Ratio',
   'aspect_ratio_change_warning': 'Existing storyboards/videos remain at original ratio; consider regenerating',
-  'generation_route': 'Generation Method',
+  'generation_route': 'Generation Mode',
   'generation_route_locked': 'Locked after creation',
   'grid_generation': 'Multi-grid Storyboard',
   'route_storyboard': 'Storyboard to Video',

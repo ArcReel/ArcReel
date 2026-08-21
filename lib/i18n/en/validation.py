@@ -99,7 +99,7 @@ MESSAGES = {
     # ---- ad shots ----
     "val_shot_duration_missing_zero": "{prefix}: duration_seconds is missing, counted as 0 toward the total",
     "val_shot_duration_out_of_range": (
-        "{prefix}: invalid duration_seconds '{value}', the reference_video route requires an integer "
+        "{prefix}: invalid duration_seconds '{value}', reference_video mode requires an integer "
         "between {low} and {high}"
     ),
     "val_shot_missing_voiceover_text": (

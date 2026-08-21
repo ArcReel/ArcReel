@@ -58,7 +58,7 @@ def _shot(shot_id: str, *, duration: object = 4, voiceover: str = "", transition
         "products_in_shot": ["咖啡"],
         "image_prompt": {
             "shot_type": "Medium Shot",
-            "composition": "产品位于画面中央",
+            "composition": "商品位于画面中央",
             "lighting": "晨光",
             "color_tone": "暖色",
             "ambiance": "清新",

@@ -597,21 +597,21 @@ def _collect_shot_product_references(
     currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
-    """产品镜头（``products_in_shot`` 非空）的产品参考集，用于分镜图生成。
+    """商品镜头（``products_in_shot`` 非空）的商品参考集，用于分镜图生成。
 
-    每个产品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
+    每个商品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
     原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "label": str, "name": str,
-    "kind": "sheet"|"original"}`` 列表——label 供支持内联标签的后端绑定图与产品名，
-    name 供高保真指令点名（指令只点名实际注入了参考的产品），kind 供截断时让 sheet
+    "kind": "sheet"|"original"}`` 列表——label 供支持内联标签的后端绑定图与商品名，
+    name 供高保真指令点名（指令只点名实际注入了参考的商品），kind 供截断时让 sheet
     优先存活；调用方负责把该列表排在其它参考之前（排序绝对优先）。氛围镜头
-    （列表为空）返回空列表，零产品图。脏数据（products_in_shot 非列表、products
-    非 dict、产品名非字符串、引用不存在的产品）按既有装配口径跳过不抛。
+    （列表为空）返回空列表，零商品图。脏数据（products_in_shot 非列表、products
+    非 dict、商品名非字符串、引用不存在的商品）按既有装配口径跳过不抛。
     """
     raw_products_in_shot = item.get("products_in_shot")
     if not isinstance(raw_products_in_shot, (list, tuple)):
         if raw_products_in_shot:
             logger.warning(
-                "products_in_shot 类型异常（%s），产品参考注入跳过",
+                "products_in_shot 类型异常（%s），商品参考注入跳过",
                 type(raw_products_in_shot).__name__,
             )
         return []
@@ -632,7 +632,7 @@ def collect_product_references_for_names(
     currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
 ) -> list[dict]:
-    """按产品名列表收集产品参考集（注入二元规则的装配核心，条目语义见
+    """按商品名列表收集商品参考集（注入二元规则的装配核心，条目语义见
     ``_collect_shot_product_references``）。分镜图按分镜注入与广告/短片的参考生视频
     按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
     """
@@ -642,7 +642,7 @@ def collect_product_references_for_names(
     seen: set[str] = set()
     for name in names:
         if not isinstance(name, str):
-            logger.warning("products_in_shot 含非字符串条目 %r，产品参考跳过", name)
+            logger.warning("products_in_shot 含非字符串条目 %r，商品参考跳过", name)
             continue
         canonical = normalize_asset_name(name)
         if canonical in seen:
@@ -650,7 +650,7 @@ def collect_product_references_for_names(
         seen.add(canonical)
         entry = products.get(canonical)
         if not isinstance(entry, dict):
-            logger.warning("镜头引用的产品 '%s' 不在 project.json products 中，产品参考跳过", name)
+            logger.warning("镜头引用的商品 '%s' 不在 project.json products 中，商品参考跳过", name)
             continue
         before = len(references)
         sheet = entry.get(spec.sheet_field)
@@ -667,7 +667,7 @@ def collect_product_references_for_names(
             references.append(
                 {
                     "image": project_path / sheet,
-                    "label": f"产品「{canonical}」标准多角度参考图",
+                    "label": f"商品「{canonical}」标准多角度参考图",
                     "name": canonical,
                     "kind": "sheet",
                 }
@@ -676,18 +676,18 @@ def collect_product_references_for_names(
             references.append(
                 {
                     "image": original,
-                    "label": f"产品「{canonical}」实拍原图（保真锚点）",
+                    "label": f"商品「{canonical}」实拍原图（保真锚点）",
                     "name": canonical,
                     "kind": "original",
                 }
             )
         if len(references) == before:
-            logger.warning("产品镜头引用的产品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
+            logger.warning("商品镜头引用的商品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
     return references
 
 
 def _product_names_in_references(product_references: list[dict]) -> list[str]:
-    """从产品参考集提取去重保序的产品名——高保真指令只点名实际注入了参考的产品。"""
+    """从商品参考集提取去重保序的商品名——高保真指令只点名实际注入了参考的商品。"""
     return list(dict.fromkeys(ref["name"] for ref in product_references))
 
 
@@ -1520,7 +1520,7 @@ def emit_generation_success_batch(
             except Exception:
                 reference_route_task = False
         if reference_route_task:
-            # 参考生视频的资源身份恒为 video unit；路线来自创建后不可变的 project.json，
+            # 参考生视频的资源身份恒为 video unit；生成模式来自创建后不可变的 project.json，
             # 不让 ad 剧本残留的 shots[] 在 TTS 成功后把 E1U* 事件错分为 shot。
             kind = "video_units"
         else:
@@ -1624,8 +1624,8 @@ async def execute_storyboard_task(
             currency_resolver=_currency_resolver,
             formal_claims=_formal_claims,
         )
-        # 产品镜头：产品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
-        # 并附高保真还原指令；氛围镜头零产品图，既有装配不变。
+        # 商品镜头：商品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
+        # 并附高保真还原指令；氛围镜头零商品图，既有装配不变。
         _product_refs = _collect_shot_product_references(
             _project,
             _project_path,
@@ -1724,7 +1724,7 @@ def _resolve_tts_task_items(
 
     if not reference_video_route:
         return resolve_items(script)
-    # 参考生视频的骨架种类由任务开工时定死的路线给出，直接指定；取证解析只服务于路线未知的调用方。
+    # 参考生视频的骨架种类由任务开工时定死的生成模式给出，直接指定；取证解析只服务于生成模式未知的调用方。
     return resolve_items(script, kind="video_units")
 
 
@@ -2309,8 +2309,8 @@ async def execute_video_task(
         raise ValueError("current script unit is missing video_prompt")
     requested_visual_prompt = copy.deepcopy(prompt)
     delivery_options = NarrationDeliveryRequestOptions.from_payload(payload)
-    # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考生视频后
-    # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免路线口径分叉。
+    # lane 归桶按项目生成模式求值，与提交入口（``generate_video``）同源：入口挡掉参考生视频后
+    # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免生成模式口径分叉。
     execution_payload = without_video_execution_identity(payload) if task_id is not None else payload
     ctx = await resolve_generation_context(
         project_name,
@@ -2865,7 +2865,7 @@ _DESIGN_PROMPT_BUILDERS: dict[str, Any] = {
 
 
 def _collect_product_reference_images(project: dict, project_path: Path, resource_id: str) -> list[Path] | None:
-    """产品原图（保真验收锚点）作为 sheet 标准化整理的参考输入；缺失文件跳过。"""
+    """商品原图（保真验收锚点）作为 sheet 标准化整理的参考输入；缺失文件跳过。"""
     entry = normalize_asset_bucket(project.get("products")).get(normalize_asset_name(resource_id)) or {}
     refs = entry.get("reference_images")
     if not isinstance(refs, list):
@@ -2875,8 +2875,8 @@ def _collect_product_reference_images(project: dict, project_path: Path, resourc
     if refs and not existing:
         # 声明了原图却全部缺失：下游（sheet 生成 / 镜头保真注入）静默退化会丢失保真锚定，
         # 留观测痕迹便于诊断（不阻塞——文件缺失可能是归档迁移等正常历史原因）。
-        # 文案保持场景中立：本函数同时服务 sheet 生成与产品镜头参考收集两个调用方。
-        logger.warning("产品 '%s' 声明了 %d 张原图但磁盘均缺失", resource_id, len(refs))
+        # 文案保持场景中立：本函数同时服务 sheet 生成与商品镜头参考收集两个调用方。
+        logger.warning("商品 '%s' 声明了 %d 张原图但磁盘均缺失", resource_id, len(refs))
     return existing or None
 
 

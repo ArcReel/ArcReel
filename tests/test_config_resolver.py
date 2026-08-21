@@ -1921,7 +1921,7 @@ class TestStyleAnalysisVisionGuard:
 
 
 class TestProjectGenerationModeCaps:
-    """能力解析按项目生成模式定轴：路线创建即定、全项目一条，能力不需要剧集上下文。"""
+    """能力解析按项目生成模式定轴：创建即定、全项目一种，能力不需要剧集上下文。"""
 
     async def _caps(self, project: dict) -> dict:
         factory, engine = await _make_session()
@@ -1938,7 +1938,7 @@ class TestProjectGenerationModeCaps:
 
     @pytest.mark.unit
     def test_caps_generation_mode_none_without_project_context(self):
-        """无项目上下文时为 None（未声明 ≠ 显式选了某条路线）。"""
+        """无项目上下文时为 None（未声明 ≠ 显式选择某种生成模式）。"""
         assert caps_generation_mode(None) is None
         assert caps_generation_mode({}) is None
         assert caps_generation_mode({"generation_mode": ""}) is None
@@ -1946,7 +1946,7 @@ class TestProjectGenerationModeCaps:
 
     @pytest.mark.integration
     async def test_bucket_follows_project_route(self):
-        """定桶按项目路线取对应桶键的模型。"""
+        """定桶按项目生成模式取对应桶键的模型。"""
         storyboard_project = {
             "generation_mode": "storyboard",
             "video_provider_i2v": "kling/kling-v3",

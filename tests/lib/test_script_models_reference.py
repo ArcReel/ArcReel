@@ -80,7 +80,7 @@ def test_reference_video_script_valid():
         novel=NovelInfo(title="江湖行", chapter="第一回"),
         video_units=[_make_unit()],
     )
-    # 剧本只承载"内容类型"维度；"视频来源"是项目级路线，剧本不携带
+    # 剧本只承载“创作类型”维度；生成模式是项目级属性，剧本不携带
     assert script.content_mode == "narration"
     assert not hasattr(script, "generation_mode")
     assert len(script.video_units) == 1

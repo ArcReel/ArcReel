@@ -81,7 +81,7 @@ class TestEnvelope:
         )
 
     def test_broken_json_reads_as_none_but_still_counts_as_present(self, tmp_path: Path):
-        """Agent 手改草稿改坏 JSON 是可预期的中间态：读不出内容，但不能因此被当成「没有隔离」
+        """Agent 手改草稿改坏 JSON 是可预期的中间态：读不出内容，但不能因此被当成「无草稿」
         而放行 gate 与 step2。"""
         path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1)
         path.parent.mkdir(parents=True)
@@ -163,8 +163,8 @@ class TestReport:
         assert 'validate_and_promote_draft({"episode": 3})' in text
 
     def test_drama_and_reference_step1_drafts_are_separate_files(self, tmp_path: Path):
-        """两条路线的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让换过路线的项目上
-        残留的草稿被当成本路线的待处置件读进来。"""
+        """两种生成模式的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让其他模式的
+        遗留草稿被当作当前生成模式的待处置件读进来。"""
         assert (
             quarantine_path(tmp_path, 1, QUARANTINE_KIND_DRAMA_STEP1).name
             != quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1).name

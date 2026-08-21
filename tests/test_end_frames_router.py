@@ -869,7 +869,7 @@ class TestReferenceVideoRejection:
         assert pm.load_script("demo", "episode_1.json")["segments"][0]["end_frame_image"] == END_FRAME_REL
 
     def test_script_without_episode_number_rejected_by_project_route(self, tmp_path, monkeypatch):
-        # 剧本与文件名都不含集号：判定只需项目路线，照常拒绝且不落到 500。
+        # 剧本与文件名都不含集号：判定只需项目生成模式，照常拒绝且不落到 500。
         script = {
             "title": "E1",
             "content_mode": "narration",

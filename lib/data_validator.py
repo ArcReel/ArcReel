@@ -1373,7 +1373,7 @@ class DataValidator:
 
         Callers that classify artifact readiness separately can disable filesystem artifact
         checks while retaining the shared episode structure and reference validation. Editing
-        flows can also disable the generation-route gate while validating references against
+        flows can also disable the generation-mode gate while validating references against
         the supplied episode's actual skeleton.
         """
         errors: list[ValidationMessage] = []

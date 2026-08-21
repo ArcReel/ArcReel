@@ -317,7 +317,7 @@ def generate_grid_tool(ctx: ToolContext):
             pending: list[tuple[GridGeneration, str, list[str]]] = []
 
             for group, target_ids in selected_groups:
-                # 超上限分组切为多张宫格逐张入队：每张的场景数与画格数一致
+                # 超上限分组切为多张宫格逐张入队：每张的分镜数与画格数一致
                 # （末张不足一档时落小档 + 占位格），与预览、费用估算同源。
                 # 空分组（``plan_grid_chunks`` 的唯一空产出）自然跳过循环体。
                 plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)

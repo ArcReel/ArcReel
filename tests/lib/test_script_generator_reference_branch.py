@@ -127,7 +127,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
 
     data = _j.loads(out.read_text(encoding="utf-8"))
     # 参考生视频剧本 content_mode 继承项目级 narration/drama；生成模式是项目级事实，
-    # 剧本不落盘任何路线戳。
+    # 剧本不落盘任何生成模式标记。
     assert data["content_mode"] == "narration"
     assert "generation_mode" not in data
     assert len(data["video_units"]) == 1
@@ -572,9 +572,9 @@ async def test_fetch_video_capabilities_swallows_db_errors(reference_project: Pa
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
-    """项目路线为 reference_video 时 build_prompt 必须走 reference 分支。
+    """项目生成模式为 reference_video 时 build_prompt 必须走 reference 分支。
 
-    路线取自 ``project.json`` 顶层 ``generation_mode``，全项目同一条、不随集号变化。
+    生成模式取自 ``project.json`` 顶层 ``generation_mode``，全项目相同、不随集号变化。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()

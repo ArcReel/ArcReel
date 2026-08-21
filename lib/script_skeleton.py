@@ -12,8 +12,8 @@
   的消费方，输入为项目级已过校验的 content_mode 与项目声明的 generation_mode。**fail-loud**——未知/缺失 content_mode 抛 ``ValueError``，不静默兜底。
 - 取证解析 ``resolve_script_kind(script)``：服务手持剧本数据的消费方（编辑 / 查看 / 导出），
   数据形状优先——回答的是「这份剧本现在长什么样」，与项目声明无关。
-- 路线闸门 ``ensure_route_skeleton(script, content_mode, generation_mode)``：生成入口用，
-  剧本实际骨架与项目路线要求的骨架不属同一族时拒绝，并给出重拆指引。
+- 生成模式闸门 ``ensure_route_skeleton(script, content_mode, generation_mode)``：生成入口用，
+  剧本实际骨架与项目生成模式要求的骨架不属同一族时拒绝，并给出重拆指引。
 
 行为不进表：validate 钩子、Pydantic 模型映射、编辑白名单不入注册表，留各消费方本地。
 
@@ -132,10 +132,10 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
     返回 ``"video_units"`` / ``"scenes"`` / ``"segments"`` / ``"shots"``。
 
     **只看数据形状**：本解析回答的是取证提问「这份剧本现在长什么样」，服务于编辑 / 查看 /
-    导出——这些能力对任何一份磁盘上的剧本都必须成立，包括骨架与项目路线不符的失配剧本。
-    若改由项目路线单向定夺，失配集通过所有 MCP 编辑工具
+    导出——这些能力对任何一份磁盘上的剧本都必须成立，包括骨架与项目生成模式不符的失配剧本。
+    若改由项目生成模式单向定夺，失配集通过所有 MCP 编辑工具
     完全不可触达（``resolve_items`` 返回空列表、按 id 编辑都报"未找到"），Agent 看到错误也
-    无法定位成因。生成路径不走本解析：由生成入口按项目路线分派，失配由 ``ensure_route_skeleton``
+    无法定位成因。生成路径不走本解析：由生成入口按项目生成模式分派，失配由 ``ensure_route_skeleton``
     显式拒绝。
 
     判别顺序：
@@ -172,7 +172,7 @@ def resolve_kind_items(script: dict[str, Any], *, kind: str | None = None) -> tu
     """按骨架种类取条目数组与其 id 字段的唯一入口：返回 ``(items, id_field, kind)``。
 
     ``kind`` 缺省时经 ``resolve_script_kind``（取证解析）由剧本数据形状判别；调用方已持有
-    项目声明或路线闸门算出的种类（``resolve_declared_kind`` / ``ensure_route_skeleton`` 的
+    项目声明或生成模式闸门算出的种类（``resolve_declared_kind`` / ``ensure_route_skeleton`` 的
     返回值）可显式传入，跳过重复判别。
 
     返回的条目值是 ``script.get(kind)`` 原样——**不做类型校验、不把非 list 兜底为空数组**：
@@ -195,7 +195,7 @@ _STORYBOARD_ROUTE_SKELETONS = ("segments", "scenes", "shots")
 class SkeletonRouteMismatchError(ValueError):
     """剧本骨架与项目生成模式不属同一族——生成被拒。
 
-    失配剧本的唯一出路是重拆重生成：路线创建时锁定，剧本不可就地换族。查看 / 编辑 /
+    失配剧本的唯一出路是重拆重生成：生成模式创建时锁定，剧本不可就地换族。查看 / 编辑 /
     导出不经本闸门，失配剧本仍可读可改可导出。
 
     ``actual`` 为 ``None`` 表示剧本一个骨架数组都没有（畸形或半成品剧本），与「有数组但
@@ -233,13 +233,13 @@ class SkeletonRouteMismatchError(ValueError):
 
 
 def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, generation_mode: str | None) -> str:
-    """生成入口的路线闸门：确认剧本骨架属于项目路线要求的族，返回剧本实际骨架种类。
+    """生成入口的生成模式闸门：确认剧本骨架属于项目生成模式要求的族，返回剧本实际骨架种类。
 
-    生成分派一律按项目路线（``resolve_declared_kind``），剧本自身不携带路线信息。骨架与路线
-    失配的剧本，按路线生成时要读的数组不存在，静默降档与悄悄换路径都不可接受——此处显式拒绝
+    生成分派一律按项目生成模式（``resolve_declared_kind``），剧本自身不携带生成模式信息。骨架与生成模式
+    失配的剧本，按生成模式生成时要读的数组不存在，静默降档与悄悄换路径都不可接受——此处显式拒绝
     并给出重拆指引。
 
-    判据是「路线要读的那个数组在不在」，不是「取证解析的答案等不等于声明值」，两个方向对称按
+    判据是「生成模式要读的那个数组在不在」，不是「取证解析的答案等不等于声明值」，两个方向对称按
     键在场性判定：
 
     - 参考生视频只问 ``video_units`` 键在不在。剧本同时残留分镜族数组时取证解析会按形状优先答
@@ -251,11 +251,11 @@ def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, gene
       顺着走下去分镜图入队会落进"✨ 所有片段的分镜图都已生成"的假成功。
 
     两个分支都只问键在不在、不问值的类型：``"video_units": {}`` 这类脏数据是类型错误、不是
-    路线失配，报错权归下游的「必须是数组」校验，闸门不越俎代庖（否则会报出「要求 video_units、
+    生成模式失配，报错权归下游的「必须是数组」校验，闸门不越俎代庖（否则会报出「要求 video_units、
     当前 video_units」的自相矛盾文案）。
 
     Raises:
-        SkeletonRouteMismatchError: 剧本骨架与路线要求的骨架不属同一族，或剧本没有任何骨架数组。
+        SkeletonRouteMismatchError: 剧本骨架与生成模式要求的骨架不属同一族，或剧本没有任何骨架数组。
         ValueError: content_mode 未知或缺失（由 ``resolve_declared_kind`` fail-loud）。
     """
     expected = resolve_declared_kind(content_mode, generation_mode)

@@ -99,7 +99,7 @@ describe("CreateProjectModal", () => {
   it("advances from step 1 to step 2 after title entered and Next clicked", async () => {
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 路线无预选、必选：不选则 Next 恒禁用
+    // 生成模式无预选、必选：不选则 Next 恒禁用
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     // Step 2 shows loading or Back button
@@ -111,7 +111,7 @@ describe("CreateProjectModal", () => {
   it("advances from step 2 to step 3 without validation", async () => {
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 路线无预选、必选：不选则 Next 恒禁用
+    // 生成模式无预选、必选：不选则 Next 恒禁用
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一步/ })); // to step 2
     await waitFor(() =>
@@ -127,7 +127,7 @@ describe("CreateProjectModal", () => {
   it("submits createProject with default template when Create clicked on step 3", async () => {
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 路线无预选、必选：不选则 Next 恒禁用
+    // 生成模式无预选、必选：不选则 Next 恒禁用
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     await waitFor(() =>
@@ -256,7 +256,7 @@ describe("CreateProjectModal", () => {
 
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 路线无预选、必选：不选则 Next 恒禁用
+    // 生成模式无预选、必选：不选则 Next 恒禁用
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     // 第二步按 i2v 执行模型（veo-3）列时长与分辨率
@@ -282,7 +282,7 @@ describe("CreateProjectModal", () => {
     vi.spyOn(API, "createProject").mockRejectedValueOnce(new Error("boom"));
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 路线无预选、必选：不选则 Next 恒禁用
+    // 生成模式无预选、必选：不选则 Next 恒禁用
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
@@ -299,7 +299,7 @@ describe("CreateProjectModal", () => {
   it("calls uploadStyleImage after createProject when in custom mode with uploaded file", async () => {
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 路线无预选、必选：不选则 Next 恒禁用
+    // 生成模式无预选、必选：不选则 Next 恒禁用
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
@@ -327,7 +327,7 @@ describe("CreateProjectModal", () => {
   it("允许在 custom tab 未上传文件时创建项目（风格为可选）", async () => {
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 路线无预选、必选：不选则 Next 恒禁用
+    // 生成模式无预选、必选：不选则 Next 恒禁用
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
@@ -400,7 +400,7 @@ describe("CreateProjectModal ad mode", () => {
   it("does not send target_duration for narration projects", async () => {
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 路线无预选、必选：不选则 Next 恒禁用
+    // 生成模式无预选、必选：不选则 Next 恒禁用
     fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     await waitFor(() =>

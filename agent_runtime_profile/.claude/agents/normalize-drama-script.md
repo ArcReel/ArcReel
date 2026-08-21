@@ -135,7 +135,7 @@ mcp__arcreel__validate_and_promote_draft({"episode": N})
 
 ### 返回摘要（三种情况均执行）
 
-统计场景数和各类信息，返回：
+统计分镜数和各类信息，返回：
 
 ```
 ## 规范化内容完成（剧情演绎）
@@ -146,7 +146,7 @@ mcp__arcreel__validate_and_promote_draft({"episode": N})
 
 | 统计项 | 数值 |
 |--------|------|
-| 总场景数 | XX 个 |
+| 总分镜数 | XX 个 |
 | 预计总时长 | X 分 X 秒 |
 | segment_break 标记 | XX 个 |
 

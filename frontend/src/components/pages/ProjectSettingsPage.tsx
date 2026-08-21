@@ -156,7 +156,7 @@ export function ProjectSettingsPage() {
   const [textSimple, setTextSimple] = useState<string>("");
   const [textComplex, setTextComplex] = useState<string>("");
   const [aspectRatio, setAspectRatio] = useState<string>("");
-  // 路线创建时锁定，此页只读展示；宫格装配开关随时可切
+  // 生成模式创建时锁定，此页只读展示；宫格装配开关随时可切
   const [generationRoute, setGenerationRoute] = useState<GenerationRoute>("storyboard");
   const [gridStoryboard, setGridStoryboard] = useState(false);
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
@@ -507,7 +507,7 @@ export function ProjectSettingsPage() {
         text_backend_simple: textSimple || null,
         text_backend_complex: textComplex || null,
         aspect_ratio: aspectRatio || undefined,
-        // 路线不在 PATCH 面上（创建后不可更改）；宫格装配开关随时可写，
+        // 生成模式不在 PATCH 面上（创建后不可更改）；宫格装配开关随时可写，
         // 但只在开关可见时写——参考生视频与 ad 项目下该键与项目无关，ad 更会对 true 返回 400
         ...(gridToggleVisible ? { grid_storyboard: gridStoryboard } : {}),
         // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键

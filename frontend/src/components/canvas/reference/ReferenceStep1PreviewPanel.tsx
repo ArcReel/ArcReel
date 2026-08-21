@@ -311,7 +311,7 @@ function selectUnitsContent(state: ScriptReviewState): ReferenceStep1Draft | nul
  * 专属 reference_video 变体的内容确认面板——文稿流布局（unit 卡：头部 + 原文 + 高亮正文），
  * 草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 step2。
  *
- * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（非隔离
+ * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（无待处置
  * 草稿）内容上开放；草稿的修复走 Agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
  */
 export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: ReferenceStep1PreviewPanelProps) {

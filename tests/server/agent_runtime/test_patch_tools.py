@@ -622,19 +622,19 @@ class TestPatchEpisodeScript:
     @pytest.mark.integration
     async def test_reference_text_edit_moves_the_derived_references(self, ref_ctx: ToolContext) -> None:
         project = ref_ctx.pm.load_project("demo")
-        project["products"] = {"产品A": {"description": ""}, "产品B": {"description": ""}}
+        project["products"] = {"商品A": {"description": ""}, "商品B": {"description": ""}}
         ref_ctx.pm.save_project("demo", project)
         script = _reference_script()
-        script["video_units"][0]["text"] = "@[产品A] 正面展示"
+        script["video_units"][0]["text"] = "@[商品A] 正面展示"
         ref_ctx.pm.save_script("demo", script, "episode_1.json")
 
         changed = await _call(
             patch_episode_script_tool(ref_ctx),
-            {"script": "episode_1.json", "edits": {"E1U1": {"text": "@[产品B] 侧面展示"}}},
+            {"script": "episode_1.json", "edits": {"E1U1": {"text": "@[商品B] 侧面展示"}}},
         )
 
         assert changed.get("is_error") is not True
-        assert _derived_references(ref_ctx, 0) == [("product", "产品B")]
+        assert _derived_references(ref_ctx, 0) == [("product", "商品B")]
 
     @pytest.mark.integration
     async def test_reference_text_edit_admits_non_character_mentions(self, ref_ctx: ToolContext) -> None:

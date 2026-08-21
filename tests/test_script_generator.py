@@ -1143,7 +1143,7 @@ class TestAddMetadataInjectsHiddenFields:
 
     @pytest.mark.unit
     def test_strips_legacy_generation_mode_stamp(self, tmp_path: Path) -> None:
-        """路线真相源是 project.json，剧本不留戳：存量剧本重生成、或校验失败降级保存的
+        """生成模式的真相源是 project.json，剧本不留标记：存量剧本重生成、或校验失败降级保存的
         原始后端 dict 里带的 generation_mode，必须在写盘前剥离。"""
         sg = self._make_generator(tmp_path, content_mode="drama")
         data = {"title": "第一集", "generation_mode": "reference_video", "scenes": [{"scene_id": "E1S01"}]}
@@ -2029,7 +2029,7 @@ def _ad_shot(shot_id: str, *, duration: int = 4, section: str = "hook", voiceove
 class TestAdScriptGeneration:
     @pytest.mark.unit
     async def test_build_prompt_without_step1_uses_brief_and_products(self, tmp_path):
-        """ad 一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息 + 配比表。"""
+        """ad 一键生成不走 step1 中间文件：prompt 直接来自 brief + 商品信息 + 配比表。"""
         project_path = tmp_path / "demo"
         _write_ad_project(project_path)
 
@@ -2363,7 +2363,7 @@ class TestAdAspectRatioFallback:
 
 
 class TestAdReferenceSkeletonUnity:
-    """ad + reference_video 生成自包含 video_units 且不携带路线戳。"""
+    """ad + reference_video 生成自包含 video_units 且不携带生成模式标记。"""
 
     @pytest.mark.unit
     async def test_generate_ad_reference_script_carries_no_generation_mode(self, tmp_path):

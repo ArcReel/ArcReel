@@ -106,7 +106,7 @@ def _ad_script() -> dict[str, Any]:
         "characters_in_shot": ["角色A"],
         "scenes": [],
         "props": [],
-        "products_in_shot": ["产品A"],
+        "products_in_shot": ["商品A"],
         "image_prompt": {
             "scene": "场景描述",
             "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
@@ -189,8 +189,8 @@ class TestRewritePayloadReferences:
 
     def test_ad_dialogue_speaker_and_products(self) -> None:
         payload = _ad_script()
-        assert rewrite_payload_references(payload, "product", "产品A", "新产品") == 1
-        assert payload["shots"][0]["products_in_shot"] == ["新产品"]
+        assert rewrite_payload_references(payload, "product", "商品A", "新商品") == 1
+        assert payload["shots"][0]["products_in_shot"] == ["新商品"]
         assert rewrite_payload_references(payload, "character", "角色A", "新角色") == 2
         shot = payload["shots"][0]
         assert shot["characters_in_shot"] == ["新角色"]
@@ -215,12 +215,12 @@ class TestRewritePayloadReferences:
         payload["video_units"] = [
             {
                 "unit_id": "E1U1",
-                "text": "@[产品A] 特写",
+                "text": "@[商品A] 特写",
                 "duration_seconds": 5,
             }
         ]
-        count = rewrite_payload_references(payload, "product", "产品A", "新产品")
-        assert payload["video_units"][0]["text"] == "@[新产品] 特写"
+        count = rewrite_payload_references(payload, "product", "商品A", "新商品")
+        assert payload["video_units"][0]["text"] == "@[新商品] 特写"
         assert count == 2  # products_in_shot + mention
 
     def test_reference_units_and_mentions(self) -> None:
@@ -366,25 +366,25 @@ class TestRenameAssetCascade:
         pm = ProjectManager(str(tmp_path))
         pm.create_project("demo", content_mode="ad")
         pm.create_project_metadata("demo", "Demo", "Anime", "ad")
-        pm.upsert_assets("demo", "products", {"产品A": {"description": "饮料"}})
+        pm.upsert_assets("demo", "products", {"商品A": {"description": "饮料"}})
         pm.upsert_assets("demo", "characters", {"角色A": {"description": "代言人"}})
         pm.save_script("demo", _ad_script(), "episode_1.json")
 
         project_dir = pm.get_project_path("demo")
         refs = project_dir / "products" / "refs"
         refs.mkdir(parents=True)
-        (refs / "产品A_1.png").write_bytes(b"a")
-        (refs / "产品A_2.png").write_bytes(b"b")
+        (refs / "商品A_1.png").write_bytes(b"a")
+        (refs / "商品A_2.png").write_bytes(b"b")
 
         def _set_paths(project: dict) -> None:
-            project["products"]["产品A"]["reference_images"] = [
-                "products/refs/产品A_1.png",
-                "products/refs/产品A_2.png",
+            project["products"]["商品A"]["reference_images"] = [
+                "products/refs/商品A_1.png",
+                "products/refs/商品A_2.png",
             ]
 
         pm.update_project("demo", _set_paths)
 
-        report = pm.rename_asset("demo", "products", "产品A", "爆款")
+        report = pm.rename_asset("demo", "products", "商品A", "爆款")
 
         assert report.files == 2
         assert sorted(f.name for f in refs.iterdir() if f.is_file() and not f.name.startswith(".")) == [

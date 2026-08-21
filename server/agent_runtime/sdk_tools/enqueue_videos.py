@@ -274,7 +274,7 @@ def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
 
     交付方式决定整批走哪一套准入判据与哪一份时长基准（TTS 实测 vs 剧本计划），
     替调用方挑一个默认值会让一批视频按它没声明过的交付方式准入并计费。
-    storyboard 与 reference 两条路线都经这里取交付方式，判定只有这一处。
+    storyboard 与 reference_video 两种生成模式都经这里取交付方式，判定只有这一处。
     """
 
     delivery = args.get("narration_delivery")
@@ -454,7 +454,7 @@ async def _admit_storyboard_specs(
     selection: GenerationSelectionMode,
     extra_tickets: list[UnitAdmissionTicket],
 ) -> BatchAdmission:
-    """Admit the storyboard-route specs, then stamp the delivery choice onto them.
+    """Admit the Storyboard-mode specs, then stamp the delivery choice onto them.
 
     The admission itself is the shared one the read-only plan also consults, so a
     preview and the submission it predicts cannot reach different verdicts. Only the
@@ -490,7 +490,7 @@ def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | 
     同一份 ``video_units`` 骨架。
 
     Raises:
-        SkeletonRouteMismatchError: 剧本骨架与项目路线失配，生成被拒。
+        SkeletonRouteMismatchError: 剧本骨架与项目生成模式失配，生成被拒。
     """
     project = ctx.pm.load_project(ctx.project_name)
     content_mode = resolve_content_mode(script, project)
@@ -1042,7 +1042,7 @@ async def _run_reference_episode(
     episode = _reference_episode(project, script, script_filename)
     units = script.get("video_units")
     if "video_units" in script and not isinstance(units, list):
-        # 路线闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
+        # 生成模式闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
         # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
         logger.debug("第 %d 集 video_units 类型非法: %s (%s)", episode, type(units).__name__, script_filename)
         raise ValueError(f"第 {episode} 集 video_units 必须是数组：{script_filename}")

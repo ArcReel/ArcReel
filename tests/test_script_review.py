@@ -421,8 +421,8 @@ class TestReferenceVideoGateFlow:
     async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
         """草稿在场 → 确认被拒、step2 被阻塞，即使正式 step1 早已确认过。
 
-        隔离态与「正式 step1 的内容指纹」是两件事：重拆分违约时正式文件原封不动，只看指纹
-        会把该集判成 confirmed 并放行，用户看到的却是上一版内容。
+        待处置草稿与「正式 step1 的内容指纹」相互独立：重拆分违约时正式文件保持不变，只看
+        指纹会把该集判成 confirmed 并放行，用户看到的却是上一版内容。
         """
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
@@ -451,10 +451,10 @@ class TestReferenceVideoGateFlow:
 
     @pytest.mark.unit
     def test_quarantine_path_follows_the_project_variant(self, tmp_path):
-        """草稿按项目当前变体解析：两条路线各认自己的文件名，narration 尚无草稿通道返回 None。
+        """草稿按项目当前变体解析：两种生成模式各认自己的文件名，narration 尚无草稿通道返回 None。
 
-        共用一个文件名或不分变体地判，会让换过路线的项目上残留的另一条路线的草稿被当成本
-        路线的待处置件——那份文件没有写入方会来清理，该集会被永久卡在阻塞态。
+        共用一个文件名或不分变体地判，会让其他生成模式的遗留草稿被当作当前模式的待处置件——
+        那份文件没有当前写入方会清理，该集会被永久卡在阻塞态。
         """
         drama_pm = _make_project(tmp_path / "drama", "drama")
         rv_pm = _make_project(tmp_path / "rv", "drama", generation_mode="reference_video")
@@ -476,7 +476,7 @@ class TestReferenceVideoGateFlow:
 
     @pytest.mark.unit
     def test_quarantine_of_another_variant_does_not_block(self, tmp_path):
-        """换过生成模式后残留的另一条路线的草稿不参与阻塞判定。"""
+        """其他生成模式的遗留草稿不参与当前模式的阻塞判定。"""
         pm = _make_project(tmp_path, "drama")
         project_path = pm.get_project_path("demo")
         write_quarantine(

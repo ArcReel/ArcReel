@@ -717,7 +717,7 @@ export default {
   'current_global_hint': 'Toàn cục hiện tại: {{value}}',
   'aspect_ratio_label': 'Tỉ lệ khung hình',
   'aspect_ratio_change_warning': 'Phân cảnh/video hiện tại vẫn giữ tỉ lệ gốc; cân nhắc tạo lại',
-  'generation_route': 'Phương thức tạo',
+  'generation_route': 'Chế độ tạo',
   'generation_route_locked': 'Không thể thay đổi sau khi tạo',
   'grid_generation': 'Phân cảnh đa lưới',
   'route_storyboard': 'Phân cảnh sang video',

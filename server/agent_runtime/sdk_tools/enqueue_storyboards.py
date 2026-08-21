@@ -135,7 +135,7 @@ def generate_storyboards_tool(ctx: ToolContext):
 
             if project_data:
                 # 失配剧本在此被拒：按分镜图生视频该读的数组不在剧本里，继续走下去
-                # 会落进空结果的假成功，把成因埋掉。project.json 缺失时无路线可依，
+                # 会落进空结果的假成功，把成因埋掉。project.json 缺失时无生成模式可依，
                 # 沿用上面的降级放行。
                 ensure_route_skeleton(
                     script, resolve_content_mode(script, project_data), project_data.get("generation_mode")

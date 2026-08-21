@@ -233,7 +233,7 @@ class _StoreGone(Exception):
 
 
 class _StoreFailingAfterMainWrite:
-    """主 transcript 已写入、收集子代理子路径时失败的 store。"""
+    """主 transcript 已写入、收集子智能体子路径时失败的 store。"""
 
     def __init__(self, inner: DbSessionStore) -> None:
         self._inner = inner

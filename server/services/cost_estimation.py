@@ -62,7 +62,7 @@ ACTUAL_COST_TYPES = ("image", "video", "audio")
 
 #: 读侧定桶要枚举的全部视频任务类型桶。分镜图生视频项目整体走 i2v 桶；参考生视频由公共
 #: request projection 按每个 unit 当前实际可用资产分桶。两个桶都在这里预解析，省去按
-#: 路线与镜头分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
+#: 生成模式与镜头分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
 
 #: 普通分镜图取不到分辨率档时的计价档。执行侧此路径把 ``None`` 原样下发给 backend、由其自行定档
@@ -499,7 +499,7 @@ class CostEstimationService:
 
         # 参考生视频路径跳过分镜步骤，所有创作类型都按自包含 reference_unit 计费与展示。
         #
-        # 生成路径以项目路线为唯一真相源，整个项目同一条路线、逐集不变（剧本不携带路线信息）；
+        # 生成路径以项目生成模式为唯一真相源，整个项目同一种生成模式、逐集不变（剧本不携带生成模式信息）；
         # 参考生视频内的定桶再由 request projection 按当前资产逐 unit 分流。
         for ep_meta in episodes_meta:
             script_file = ep_meta.get("script_file", "")

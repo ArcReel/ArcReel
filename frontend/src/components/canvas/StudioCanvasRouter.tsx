@@ -736,7 +736,7 @@ export function StudioCanvasRouter() {
           const scriptFile = episode?.script_file?.replace(/^scripts\//, "");
           const script = scriptFile ? (currentScripts[scriptFile] ?? null) : null;
           const route = normalizeRoute(currentProjectData?.generation_mode);
-          // 路线决定是否走参考图路径，时长候选据此收窄。
+          // 生成模式决定是否走参考图路径，时长候选据此收窄。
           const durationCtx = {
             videoResolution,
             usesReferenceImages: route === "reference_video",
@@ -777,7 +777,7 @@ export function StudioCanvasRouter() {
                   onViewUnit={handleViewWorkflowUnit}
                   // 参考生视频的视频入队由 ReferenceVideoCanvas 自己的整批准入判定路径承担，
                   // 本组件的逐单元回调对 video_units 剧本解不出提示词、按下去毫无反应。
-                  // 该路线只给「查看」跳转，重生入口在跳过去的那张单元卡上。
+                  // 该生成模式只给「查看」跳转，重生入口在跳过去的那张单元卡上。
                   onRegenerate={
                     route === "reference_video" || !scriptFile
                       ? undefined

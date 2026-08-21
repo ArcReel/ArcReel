@@ -14,7 +14,7 @@ pytestmark = pytest.mark.unit
 def _unit(**overrides: object) -> dict:
     payload: dict = {
         "unit_id": "E1U1",
-        "text": "@[产品] 放在 @[场景] 的桌面上",
+        "text": "@[商品] 放在 @[场景] 的桌面上",
         "duration_seconds": 8,
         "generated_assets": {},
     }
@@ -34,7 +34,7 @@ def test_reference_video_script_accepts_ad_products_and_replan_state() -> None:
     )
 
     assert script.content_mode == "ad"
-    assert script.video_units[0].text == "@[产品] 放在 @[场景] 的桌面上"
+    assert script.video_units[0].text == "@[商品] 放在 @[场景] 的桌面上"
     assert script.video_units[0].needs_replan is False
 
 
@@ -62,7 +62,7 @@ def test_product_mentions_resolve_first_even_in_corrupt_duplicate_namespace() ->
 
 
 def test_product_label_before_colon_is_not_misparsed_as_character_speech() -> None:
-    unit = _unit(text="@[产品]：瓶身正面朝向镜头")
+    unit = _unit(text="@[商品]：瓶身正面朝向镜头")
     result = SpeechComposition.prepare(adapt_video_unit(unit))
 
     assert result.mode is SpeechMode.SILENT

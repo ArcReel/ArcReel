@@ -167,7 +167,7 @@ class _FakePMNarration(_FakePMPathOnly):
 
 
 class _FakePMGridDisabled(_FakePMPathOnly):
-    """ProjectManager 替身：路线合法但宫格开关关闭。"""
+    """ProjectManager 替身：生成模式合法但宫格开关关闭。"""
 
     def load_project(self, name):
         return {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": False}

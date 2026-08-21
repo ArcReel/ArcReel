@@ -621,7 +621,7 @@ class TestFilesRouter:
 
     @pytest.mark.unit
     def test_product_ref_upload_preserves_original_bytes(self, tmp_path, monkeypatch):
-        """产品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""
+        """商品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""
         client, pm = _client(monkeypatch, tmp_path)
 
         # 构造一张 >2MB 的 PNG（其他资产上传在该阈值会被压成 JPEG q85）：
@@ -682,7 +682,7 @@ class TestFilesRouter:
         client, pm = _client(monkeypatch, tmp_path)
 
         def _mutate(project: dict) -> None:
-            project.setdefault("products", {})[name_nfd] = {"description": "存量 NFD 产品"}
+            project.setdefault("products", {})[name_nfd] = {"description": "存量 NFD 商品"}
 
         pm.update_project("demo", _mutate)
 
@@ -693,12 +693,12 @@ class TestFilesRouter:
             )
             assert resp.status_code == 200, resp.text
             products = pm.load_project("demo")["products"]
-            assert name_nfc not in products  # 不因上传新造一条 NFC 产品
+            assert name_nfc not in products  # 不因上传新造一条 NFC 商品
             assert products[name_nfd]["reference_images"] == [resp.json()["path"]]
 
     @pytest.mark.unit
     def test_product_ref_unknown_product_404(self, tmp_path, monkeypatch):
-        """原图列表是文件的唯一指针：产品不存在时拒收，避免落下孤儿文件。"""
+        """原图列表是文件的唯一指针：商品不存在时拒收，避免落下孤儿文件。"""
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post(

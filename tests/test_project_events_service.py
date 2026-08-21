@@ -1415,7 +1415,7 @@ class TestProjectEventService:
                         {
                             "unit_id": "E1U01",
                             "duration_seconds": 4,
-                            "text": "镜头1：产品特写",
+                            "text": "镜头1：商品特写",
                             "generated_assets": _pending_assets(),
                         }
                     ],
@@ -1435,7 +1435,7 @@ class TestProjectEventService:
         with project_change_source("filesystem"):
             pm.save_script("ad-ref", script, "episode_1.json", validate=False)
         after_product = service._build_snapshot("ad-ref")
-        # 产品引用同样只写在正文里，逐条实体名单恒空。
+        # 商品引用同样只写在正文里，逐条实体名单恒空。
         assert after_product["scripts"]["episode_1.json"]["items"]["E1U01"]["products"] == []
         product_changes = service._diff_snapshots(previous, after_product)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in product_changes)

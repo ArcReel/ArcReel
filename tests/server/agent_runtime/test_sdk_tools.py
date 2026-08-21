@@ -2680,7 +2680,7 @@ async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(
 async def test_generate_grid_splits_oversized_group_into_multiple_grids(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # 12 场景 + 非 4K（上限 9）：入队 2 张宫格，场景不重不漏，每张 prompt 场景数与格数一致
+    # 12 个分镜 + 非 4K（上限 9）：入队 2 张宫格，分镜不重不漏，每张 prompt 分镜数与格数一致
     from lib.grid_manager import GridManager
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
@@ -2745,7 +2745,7 @@ async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
 
 @pytest.mark.unit
 async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolContext) -> None:
-    # reference_video 路线无分镜图步骤：即使残留 grid_storyboard=true 也不适用宫格工具
+    # reference_video 生成模式无分镜图步骤：即使残留 grid_storyboard=true 也不适用宫格工具
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
     tool_obj = generate_grid_tool(fake_ctx)
@@ -3261,7 +3261,7 @@ async def test_generate_reference_video_legacy_unresolvable_episode_fails_before
 
 @pytest.mark.integration
 async def test_generate_video_episode_reference_rejects_malformed_unit_container(fake_ctx: ToolContext) -> None:
-    """``video_units`` 非数组：路线闸门只问键在不在，容器校验落在入队侧，
+    """``video_units`` 非数组：生成模式闸门只问键在不在，容器校验落在入队侧，
     须报出可定位的结构错误而不是下传到 unit 迭代抛 TypeError。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import generate_video_episode_tool
 
@@ -4595,7 +4595,7 @@ async def test_six_route_agent_single_video_generation_returns_structured_admiss
     fake_ctx.pm.script_payload = case.script()  # type: ignore[attr-defined]
     batch_enqueue = AsyncMock()
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", batch_enqueue)
-    # reference_video 路线在准入失败前先探测在途任务（真实 DB 查询）；三个 storyboard
+    # reference_video 生成模式在准入失败前先探测在途任务（真实 DB 查询）；三个 storyboard
     # case 走的是不摸 DB 的直连准入分支，只有 reference_video 三个 case 需要这个 mock。
     monkeypatch.setattr(
         "server.services.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
@@ -5176,7 +5176,7 @@ async def test_get_video_capabilities_happy(fake_ctx: ToolContext, monkeypatch) 
 
 @pytest.mark.unit
 async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext, monkeypatch) -> None:
-    """能力按项目路线解析：工具不收集号，多余的集号入参被忽略、不改变解析口径。"""
+    """能力按项目生成模式解析：工具不收集号，多余的集号入参被忽略、不改变解析口径。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     seen: list[str] = []
@@ -6408,7 +6408,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
             "content_mode": "ad",
             "generation_mode": "reference_video",
             "style": "明亮写实",
-            "products": {"保温杯": {"description": "主推产品"}},
+            "products": {"保温杯": {"description": "主推商品"}},
             "episodes": [{"episode": 1, "title": "短片", "script_file": "scripts/episode_1.json"}],
         }
     )

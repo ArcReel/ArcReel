@@ -98,10 +98,10 @@ class TestGenericFallback:
 
     def test_no_products_drops_selling_framework(self):
         generic_prompt = _build(products={})
-        selling_prompt = _build(products={"测试产品Z": {"description": "独特产品描述"}})
+        selling_prompt = _build(products={"测试商品Z": {"description": "独特商品描述"}})
         assert generic_prompt != selling_prompt
-        assert "测试产品Z" not in generic_prompt
-        assert "测试产品Z" in selling_prompt
+        assert "测试商品Z" not in generic_prompt
+        assert "测试商品Z" in selling_prompt
 
     def test_no_products_keeps_target_duration(self):
         prompt = _build(products={}, target_duration=45)

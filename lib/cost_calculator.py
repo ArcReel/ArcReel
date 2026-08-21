@@ -62,7 +62,7 @@ class CostCalculator:
             return 0.0, "USD"
 
         pricing = lookup_pricing(provider, params.model, params.call_type)
-        # 按秒计费的视频：单次实时调用无/0 时长时按默认 8 秒计（历史行为）。参考生视频聚合走
+        # 按秒计费的视频：单次实时调用无/0 时长时按默认 8 秒计。参考生视频聚合走
         # estimate_reference_video_cost，传真实累计时长（可为 0），不经此默认。
         if isinstance(pricing, (PerSecondMatrix, PerSecondTiered)) and not params.duration_seconds:
             params = replace(params, duration_seconds=8)

@@ -368,9 +368,9 @@ class TestReferenceVideoRouter:
     def test_quarantine_cleared_between_existence_check_and_read_is_not_reported_as_corrupted(
         self, tmp_path, monkeypatch
     ):
-        """存在性检查通过之后、``read_quarantine`` 真正读取之前，晋升工具把隔离文件清掉了
-        （正式内容已写入、隔离态合法结束）：这不是信封损坏，这次读跨越了「清除」那一刻，应
-        按「无草稿」处理，不能误报成损坏——那会让刚晋升完成的集看起来还卡在隔离态。"""
+        """存在性检查通过之后、``read_quarantine`` 真正读取之前，晋升工具把待处置草稿清掉了
+        （正式内容已写入）：这不是信封损坏，这次读跨越了「清除」那一刻，应按「无草稿」处理，
+        不能误报成损坏——那会让刚晋升完成的集看起来仍有待处置草稿。"""
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from server.services import script_review as mod
 

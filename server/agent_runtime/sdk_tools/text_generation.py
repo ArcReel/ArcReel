@@ -271,9 +271,9 @@ def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
 def _step2_blocking_quarantine_kinds(project_data: dict[str, Any]) -> tuple[str, ...]:
     """该项目上会阻塞 step2 的草稿来源。
 
-    按项目当前路线解析、不无条件枚举全部来源：换过路线的项目上会残留另一条路线的草稿，
-    而那条路线的写入方不会再清它们——无条件判会把该集永久卡死。参考生视频的 step2 视觉展开
-    自身也有草稿位，故比其它变体多一个来源。
+    只返回项目当前生成模式对应的草稿来源。其他生成模式的遗留草稿没有当前写入方负责清理，
+    若参与判定会把该集永久卡死。参考生视频的 step2 视觉展开自身也有草稿位，故比其它变体
+    多一个来源。
     """
     if _uses_reference_video_units(project_data):
         return (QUARANTINE_KIND_STEP1, QUARANTINE_KIND_STEP2)
@@ -285,7 +285,7 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
     """Return (step1_md path, hint text for missing-file error)；ad 一键生成不依赖 step1，返回 None。"""
     content_mode = project_data.get("content_mode", "narration")
     if content_mode == "ad":
-        # ad 创作输入是 project.json 的 brief + 产品信息 + target_duration，
+        # ad 创作输入是 project.json 的 brief + 商品信息 + target_duration，
         # ScriptGenerator 的 ad 分支不读 drafts/ 中间文件。
         return None
     generation_mode = project_data.get("generation_mode")
@@ -1365,9 +1365,9 @@ def open_step1_for_edit_tool(ctx: ToolContext):
             project_path = ctx.project_path
             project_data = ctx.pm.load_project(ctx.project_name)
 
-            # 与晋升工具同一判据：按项目当前变体解析该改哪份 step1。换过路线的项目上盘存的
-            # 另一条路线的 step1 与其生成路径无关，取回来编辑只会诱导 Agent 改一份不会被消费
-            # 的文件；无草稿位的变体（narration / ad）则本就没有这条编辑通道。
+            # 与晋升工具同一判据：只打开项目当前生成模式对应的 step1。其他生成模式的遗留
+            # step1 与当前生成路径无关，取回来编辑只会诱导 Agent 修改不会被消费的文件；
+            # 无草稿位的变体（narration / ad）则本就没有这条编辑通道。
             quarantine_kind = script_review.step1_quarantine_kind(project_data)
             if quarantine_kind is None:
                 return {
@@ -1664,8 +1664,8 @@ def validate_and_promote_draft_tool(ctx: ToolContext):
             project_path = ctx.project_path
             project_data = ctx.pm.load_project(ctx.project_name)
 
-            # 按项目当前变体分派：换过路线的项目上残留的另一条路线的草稿不再晋升——晋升会按
-            # 那条路线的形状覆盖正式产物。与 generate_episode_script 忽略这些残留同一判据。
+            # 按项目当前生成模式分派：其他生成模式的遗留草稿不能晋升，否则会以错误形状覆盖
+            # 正式产物。与 generate_episode_script 忽略这些遗留草稿使用同一判据。
             if script_review.step1_quarantine_kind(project_data) == QUARANTINE_KIND_DRAMA_STEP1:
                 drama_draft = read_quarantine(project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
                 if drama_draft is not None:

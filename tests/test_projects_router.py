@@ -2259,7 +2259,7 @@ class TestProjectsRouter:
         assert episode["script_status"] == "generated"
         assert episode["status"] == "in_production"
         assert episode["item_count"] == 1
-        # 旧的场景数字段已退场，响应里不再出现
+        # 响应不包含退役的总量字段
         assert "scenes_count" not in episode
         assert episode["duration_seconds"] == 8
         assert episode["storyboards"] == {"total": 1, "available": 1, "stale": 0}

@@ -135,12 +135,11 @@ def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: 
 def step1_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
     """该集 step1 是否有草稿在场——gate 与 step2 的阻塞判据。
 
-    隔离态与「正式 step1 的内容指纹」是两件事：产出违约或 Agent 取回编辑时正式文件都原封
-    不动，指纹照旧等于已确认值，只看指纹会把该集判成 confirmed 并放行 step2——用户看到的是
-    上一版内容，而待处置的正文还躺在草稿里。故隔离态独立阻塞。
+    待处置草稿与「正式 step1 的内容指纹」相互独立：待修复草稿或可编辑草稿在场时正式文件
+    保持不变，仅检查指纹会错误放行 step2。草稿在场因此独立阻塞。
 
-    草稿按项目当前变体解析（见 ``step1_quarantine_path``）：换过生成模式的项目上残留的另一条
-    路线的草稿不参与判定，否则该集会被一份没有写入方会清理的文件永久卡死。
+    草稿按项目当前生成模式解析（见 ``step1_quarantine_path``）；其他生成模式的遗留草稿
+    不参与判定，否则该集会被一份没有当前写入方清理的文件永久卡死。
     """
     path = step1_quarantine_path(project_path, project, episode)
     return path is not None and path.exists()
@@ -379,7 +378,7 @@ def write_formal_step1_locked(
     下游草稿。返回内容是否发生变化。
 
     调用方须已持有该文件的排他锁（``formal_step1_lock``，或同一路径的
-    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。有隔离
+    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。有待处置
     草稿位的两个变体（drama 与参考生视频）的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、
     迁移回写）汇入本函数；无草稿位的 narration 走 ``write_step1_json``——同一把锁、同一个
     事务，只是不做基线比对、也没有下游草稿要清。正式 step1 之所以对 Agent 写禁，正是因为

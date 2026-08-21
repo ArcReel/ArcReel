@@ -196,7 +196,7 @@ def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, e
     """
     stage, field = _QUARANTINE_REPORT_HINTS[kind]
     return (
-        f"❌ {stage}产出有 {len(violations)} 处违约，已隔离到草稿（正式文件未被改动）：{draft}\n\n"
+        f"❌ {stage}产出有 {len(violations)} 处违约，已保存为待修复草稿（正式文件未被改动）：{draft}\n\n"
         f"{render_violation_report(violations)}\n\n"
         f"处置：直接编辑该草稿的 content.{field} 修正违约；"
         "若违约是「资产名未登记」，也可改为在 project.json 登记该资产、或改用已登记的名称。\n"

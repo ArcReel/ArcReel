@@ -344,7 +344,7 @@ describe("GlobalHeader", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: {
-        title: "说书项目",
+        title: "旁白项目",
         content_mode: "narration",
         style: "Anime",
         episodes: [],

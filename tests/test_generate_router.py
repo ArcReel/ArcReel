@@ -1404,8 +1404,8 @@ class TestVideoRouteGate:
     def _reference_pm(self, project_path: Path, *, storyboard_script: bool = False) -> _FakePM:
         """参考生视频项目。
 
-        ``storyboard_script`` 为真时保留 ``_FakePM`` 的分镜族默认剧本，模拟换路线前
-        留下的存量剧本与分镜图产物。
+        ``storyboard_script`` 为真时保留 ``_FakePM`` 的分镜族默认剧本，模拟与当前生成模式
+        不匹配的存量剧本与分镜图产物。
         """
         fake_pm = _FakePM(project_path)
         fake_pm.project["generation_mode"] = "reference_video"
@@ -1436,7 +1436,7 @@ class TestVideoRouteGate:
 
     @pytest.mark.integration
     def test_reference_route_rejected_even_with_leftover_storyboard(self, tmp_path, monkeypatch):
-        """残留分镜图不改变判定：路线以 project.json 为唯一真相源，不按磁盘产物换路径。"""
+        """残留分镜图不改变判定：生成模式以 project.json 为唯一真相源，不按磁盘产物换路径。"""
         project_path = _prepare_files(tmp_path)
         # 分镜图产物 scene_E1S01.png 由 _prepare_files 写入
         fake_pm = self._reference_pm(project_path, storyboard_script=True)
@@ -1492,7 +1492,7 @@ class TestAdStoryboardRegeneration:
                     "shot_id": "E1S01",
                     "section": "product_reveal",
                     "duration_seconds": 4,
-                    "voiceover_text": "产品亮相",
+                    "voiceover_text": "商品亮相",
                     "characters_in_shot": [],
                     "scenes": [],
                     "props": [],
@@ -1517,7 +1517,7 @@ class TestAdStoryboardRegeneration:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E1S01",
-                json={"script_file": "episode_1.json", "prompt": "产品特写"},
+                json={"script_file": "episode_1.json", "prompt": "商品特写"},
             )
             assert resp.status_code == 200
             assert resp.json()["success"] is True
@@ -1535,7 +1535,7 @@ class TestAdStoryboardRegeneration:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E9S99",
-                json={"script_file": "episode_1.json", "prompt": "产品特写"},
+                json={"script_file": "episode_1.json", "prompt": "商品特写"},
             )
             assert resp.status_code == 404
 

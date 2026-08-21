@@ -184,7 +184,7 @@ class GeneratedAssets(BaseModel):
     video_thumbnail: str | None = Field(default=None, description="视频缩略图路径")
     video_uri: str | None = Field(default=None, description="视频 URI")
     # narration_audio 由 TTS 任务（generation_tasks.execute_tts_task）在合成后写回，
-    # 显式声明使其通过 extra="forbid" + 「不更坏」守卫；仅说书 segment 写入，drama/refvideo 恒 None。
+    # 显式声明使其通过 extra="forbid" + 「不更坏」守卫；仅旁白/解说 segment 写入，drama/refvideo 恒 None。
     narration_audio: str | None = Field(default=None, description="旁白音频路径")
     status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")
     # video_clip 写回时（apply_unit_video_assets 单一写点）机械戳生成时间；用于跟角色
@@ -283,7 +283,7 @@ class NarrationEpisodeScript(BaseModel):
 
     顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` 等字段由运行时注入
     (``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,顶层 forbid
-    会让现有写盘流程崩;``generation_mode`` 不在其列——路线的真相源是 project.json,剧本
+    会让现有写盘流程崩;``generation_mode`` 不在其列——生成模式的真相源是 project.json,剧本
     不留戳,生成写盘前由 ``ScriptGenerator._add_metadata`` 剥离,存量在制品里的残留字段按
     未知字段忽略。typo 防护靠子模型(VideoPrompt / ImagePrompt /
     NarrationSegment 等)的 ``extra="forbid"`` 在嵌套字段路径上挡。
@@ -301,7 +301,7 @@ class NarrationEpisodeScript(BaseModel):
     segments: list[NarrationSegment] = Field(description="片段列表")
 
 
-# ============ 说书 step1 结构化中间态 / step2 视觉层 ============
+# ============ 旁白/解说 step1 结构化中间态 / step2 视觉层 ============
 #
 # 两段式职责切分：step1（片段拆分）产出内容层（逐字 novel_text + 片段边界 + 时长），
 # step2（generate-script）只产出视觉层（image_prompt / video_prompt），按 segment_id
@@ -309,7 +309,7 @@ class NarrationEpisodeScript(BaseModel):
 
 
 class NarrationStep1Segment(BaseModel):
-    """说书 step1（片段拆分）产出的结构化片段：内容层。
+    """旁白/解说 step1（片段拆分）产出的结构化片段：内容层。
 
     只承载 step1 已定的内容字段：片段边界（segment_id / segment_break）、逐字 novel_text、
     时长。视觉层（image_prompt / video_prompt）由 step2 生成后按 segment_id 合并进来。
@@ -330,7 +330,7 @@ class NarrationStep1Segment(BaseModel):
 
 
 class NarrationStep1Draft(BaseModel):
-    """说书 step1 结构化中间态（``drafts/episode_N/step1_segments.json`` 的 schema）。
+    """旁白/解说 step1 结构化中间态（``drafts/episode_N/step1_segments.json`` 的 schema）。
 
     顶层容忍附加字段（如 ``episode`` 头）：片段拆分由子智能体经 Write 产出、非结构化输出
     强约束，读时按本模型校验。
@@ -495,7 +495,7 @@ class DramaScene(BaseModel):
         default_factory=list,
         description="场景级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列",
     )
-    # 逐字原文摘录（追溯锚，类比说书 novel_text，但纯作追溯、不被朗读、不出音、best-effort）。
+    # 逐字原文摘录（追溯锚，类比旁白/解说 novel_text，但纯作追溯、不被朗读、不出音、best-effort）。
     # 由 step1（内容抽取）填入，step2（视觉）透传不改；存量数据缺失时默认空串（不更坏守卫放行）。
     source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
     # 见 NarrationSegment.transition_to_next 说明
@@ -848,8 +848,8 @@ class ReferenceVideoScript(BaseModel):
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
 
     ``content_mode`` 仅承担"内容类型"维度（narration/drama/ad）；"视频来源"维度是项目级事实
-    （``project.json`` 的 ``generation_mode``），剧本不携带——路线创建时锁定，剧本骨架种类
-    本身即路线的体现。
+    （``project.json`` 的 ``generation_mode``），剧本不携带——生成模式创建时锁定，剧本骨架种类
+    本身即生成模式的体现。
     """
 
     title: str = Field(description="剧集标题")

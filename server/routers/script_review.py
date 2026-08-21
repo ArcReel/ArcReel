@@ -56,7 +56,7 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
     那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。
     先取 ``quarantine`` 再取 ``state``：Agent 的晋升工具在两次读之间把草稿清掉、正式
     step1 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的
-    违约报告」这一侧——面板会误判成仍在隔离态、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
+    违约报告」这一侧——面板会误判成仍有待处置草稿、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
     让响应落在「content 仍是旧的、quarantine 已经是 None」这一侧，面板会误判成干净态放行确认，
     用户点下确认时实际晋升的是他从未看过的那份新内容。
     """
@@ -88,7 +88,7 @@ async def update_script_review_content(
 
     ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与草稿是两份独立文件，保存在途时
     Agent 可能已经另外产出一份新的草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
-    「无草稿」，面板显示干净态、放行确认，而 confirm() 仍会按隔离文件存在性 409。
+    「无草稿」，面板显示干净态、放行确认，而 confirm() 仍会按待处置草稿文件存在性返回 409。
 
     保存完成后立即取 ``quarantine``，早于 ``_attach_duration_tiers`` 那次 await（视频能力
     解析）：晋升工具若恰好在这条 await 期间把草稿清掉，越晚读 quarantine 越可能读到
@@ -114,7 +114,7 @@ async def confirm_script_review(project_name: str, episode: int, _t: Translator)
     """用户显式确认 step1 内容，放行 step2 视觉生成。
 
     ``quarantine`` 同 GET / PUT 一并合并，保持三个端点响应形状一致——``confirm()`` 内部虽已
-    按隔离文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的隔离态，而不是让这个字段在
+    按待处置草稿文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的草稿状态，而不是让这个字段在
     三个端点里时有时无。
     """
     try:

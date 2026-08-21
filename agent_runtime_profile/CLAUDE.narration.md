@@ -145,7 +145,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   调用上重复带上**；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
 - 内容整理中间文件被修改 / 重拆后必须重新生成剧本 JSON，剧本不会自动跟随中间文件更新
 - `reference_video` **只跳过分镜图**，不跳过 audio：旁白交付选择在两种生成模式下都要逐次做
-- 批量旁白配音有两条触发路径：用户显式要求；或用户选择 `use_tts` 后，计划返回 `generate_tts` / `regenerate_tts` 的 `next_action`。后一条必须按计划执行；后期配音路线不需要 TTS
+- 批量旁白配音有两条触发路径：用户显式要求；或用户选择 `use_tts` 后，计划返回 `generate_tts` / `regenerate_tts` 的 `next_action`。后一条必须按计划执行；后期配音方式不需要 TTS
 
 工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，支持中断后恢复。
 视频生成完成后，用户可在 Web 端导出为剪映草稿——声音归属与字幕时序由服务端 presentation 结果决定，
