@@ -176,7 +176,7 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ├── grids/             # 宫格大图（分镜图生视频且 `grid_storyboard=true`）
 ├── videos/            # 生成的视频片段（分镜图生视频）
 ├── reference_videos/  # 生成的 video_unit（参考生视频）
-├── audio/             # 旁白音频（旁白/解说，首次生成时创建）
+├── audio/             # 旁白配音（旁白/解说，首次生成时创建）
 ├── thumbnails/        # 首帧缩略图
 └── output/            # 最终输出
 ```

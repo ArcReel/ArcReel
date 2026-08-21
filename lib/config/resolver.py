@@ -245,8 +245,8 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
 
 #: 生成模式 → 任务类型桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
 #: 已成形任务的 task_type 定桶，读侧（能力查询 / 时长约束收窄等）在任务成形前只有项目的
-#: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。参考
-#: 参考生视频模式内无参考图镜头的降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
+#: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。
+#: 参考生视频项目中无参考图分镜的降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
 VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoCapability] = {
     "storyboard": "i2v",
     "reference_video": "r2v",

@@ -106,7 +106,7 @@ export default {
   'delivery_post_production': '后期配音',
   'delivery_post_production_hint': '视频不带旁白音轨，配音在后期另行加入。',
   'delivery_use_tts': '使用已配置的语音合成',
-  'delivery_use_tts_hint': '先生成旁白配音，视频时长按配音时长取档。',
+  'delivery_use_tts_hint': '先生成旁白配音，视频时长按旁白配音时长取档。',
   'delivery_tts_unavailable': '语音合成还没配置好，选后期配音即可继续。工作流其余部分不受影响。',
 
   // ---- 下一步动作短语 ----

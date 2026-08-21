@@ -171,7 +171,7 @@ class VideoLaneRequest:
 
 @dataclass(frozen=True)
 class AudioLaneRequest:
-    """声明当前任务需要 audio lane（旁白 TTS）。"""
+    """声明当前任务需要 audio lane（旁白配音）。"""
 
 
 @dataclass(frozen=True)

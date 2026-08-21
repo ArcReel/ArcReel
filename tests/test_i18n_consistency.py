@@ -37,6 +37,28 @@ def test_all_locales_have_same_keys():
         assert not extra, f"{locales[i]} has extra keys not in {locales[0]}: {extra}"
 
 
+@pytest.mark.parametrize(
+    ("locale", "term"),
+    (("zh", "旁白配音"), ("en", "narration audio"), ("vi", "âm thanh thuyết minh")),
+)
+def test_tts_lifecycle_messages_name_the_narration_audio_artifact(locale: str, term: str):
+    """TTS 生命周期文案须命名音频产物，不能退化成旁白内容本身。"""
+    keys = (
+        "tts_task_submitted",
+        "tts_batch_submitted",
+        "tts_batch_none_missing",
+        "tts_missing",
+        "tts_generating",
+        "tts_stale",
+        "tts_state_unavailable",
+        "tts_duration_unavailable",
+        "video_duration_unavailable",
+        "video_shorter_than_tts",
+    )
+    for key in keys:
+        assert term.casefold() in MESSAGES[locale][key].casefold(), f"{locale}.{key} must name {term}"
+
+
 def test_errors_module_keys_match():
     """en/errors.py and zh/errors.py must have identical key sets."""
     en_keys = set(en_errors.MESSAGES.keys())

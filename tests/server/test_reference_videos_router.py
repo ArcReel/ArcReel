@@ -918,7 +918,7 @@ def test_precheck_use_tts_while_regenerating_returns_canonical_problem(
         "params": {},
         "action": "wait_for_tts",
         "reason": "tts_generation_in_progress",
-        "message": "旁白音频仍在生成；请等待完成后再使用 TTS 交付",
+        "message": "旁白配音仍在生成；请等待完成后再使用 TTS 交付",
     }
 
 

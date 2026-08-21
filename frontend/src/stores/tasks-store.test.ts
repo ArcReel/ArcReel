@@ -1061,7 +1061,7 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
     expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
   });
 
-  it("轮询看到参考单元旁白任务转成功时失效单元缓存", async () => {
+  it("轮询看到参考单元旁白配音任务转成功时失效单元缓存", async () => {
     // SSE 是完成事件主通道；它静默失速时，任务轮询也必须让新写入剧本的旁白路径出现在
     // reference-video-store，否则播放器会一直持有生成前的旧 unit 快照。
     useAppStore.setState({ referenceVideoUnitsRevision: 0 });

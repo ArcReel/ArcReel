@@ -1736,7 +1736,7 @@ async def execute_tts_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    """为一个 narrator-owned script unit 合成独立旁白音频。"""
+    """为一个 narrator-owned script unit 合成独立旁白配音。"""
     script_file = payload.get("script_file")
 
     def _prepare() -> tuple[dict, Path, str, Any | None, int | None, bool, tuple[ArtifactInputClaim, ...]]:

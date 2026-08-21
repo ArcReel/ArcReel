@@ -69,7 +69,7 @@ export default {
   'tasks_title_other': '{{count}} lần thử đang chạy',
   'task_type_storyboard': 'Ảnh phân cảnh',
   'task_type_grid': 'Phân cảnh đa lưới',
-  'task_type_tts': 'Lời dẫn',
+  'task_type_tts': 'Âm thanh thuyết minh',
   'task_type_video': 'Video',
   'task_type_reference_video': 'Video',
   'task_status_queued': 'đang xếp hàng',

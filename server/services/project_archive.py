@@ -1018,7 +1018,7 @@ class ProjectArchiveService:
         generation_mode = project_payload.get("generation_mode")
 
         # 修复分流按规范解析的骨架种类走：所有参考生视频都使用 video_units，storyboard
-        # 分镜图生视频模式按创作类型使用 segments/scenes/shots。
+        # 分镜图生视频按创作类型使用 segments/scenes/shots。
         kind = resolve_declared_kind(content_mode, generation_mode)
 
         # video_units 骨架用 references 组织资产，结构与

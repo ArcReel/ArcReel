@@ -611,7 +611,7 @@ async def generate_character_voice_sample(
     """提交角色 TTS 试听样本生成任务：文本/音色显式传入，不落回全局旁白配置。
 
     生成产物是预览件，仅在 confirm 端点被显式提升为角色 reference_audio；本端点
-    只负责入队，走既有 audio 生成通道（并发/限速/记账与旁白 TTS 完全同一套）。
+    只负责入队，走既有 audio 生成通道（并发/限速/记账与旁白配音完全同一套）。
     """
     text = req.text.strip()
     voice = req.voice.strip()

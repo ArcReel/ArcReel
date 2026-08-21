@@ -1664,7 +1664,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-narration"));
     await waitFor(() => {
       expect(API.generateNarrationAudio).toHaveBeenCalledWith("demo", "SEG-1", "episode_1.json");
-      expect(useAppStore.getState().toast?.text).toContain("旁白");
+      expect(useAppStore.getState().toast?.text).toContain("旁白配音");
       expect(useAppStore.getState().toast?.tone).toBe("success");
     });
   });
@@ -1714,7 +1714,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-episode-narration"));
     await waitFor(() => {
       expect(API.generateEpisodeNarrationAudio).toHaveBeenCalledWith("demo", "episode_1.json");
-      expect(useAppStore.getState().toast?.text).toContain("2");
+      expect(useAppStore.getState().toast?.text).toContain("已提交 2 个旁白配音生成任务");
       expect(useAppStore.getState().toast?.tone).toBe("success");
     });
   });
