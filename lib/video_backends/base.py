@@ -58,7 +58,7 @@ async def persist_provider_job_id(
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
     Caller 显式传 task_id；``endpoint`` 是协议标识（协议维度，只有自定义供应商有，记录本笔供应商
-    任务按哪套协议提交），``base_url`` 是本次实际请求的域名（连接维度，两类供应商通用，续跑据此
+    任务按哪套协议提交），``base_url`` 是请求实际发往的域名（连接维度，两类供应商通用，续跑据此
     回放原域名轮询）。两者与 job_id 同一次写入落地。DB 瞬态错误最多重试 3 次，业务异常立即抛。
     重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
     """
@@ -99,7 +99,7 @@ class ProviderJobIdPersistenceMixin:
     ) -> None:
         """submit 成功后立即调：worker 路径写回 job_id，非 worker 路径（task_id=None）跳过。
 
-        同时按维度分列写回本次提交所用的端点信息：协议标识取 ``request.execution_endpoint``（由
+        同时按维度分列写回该笔提交所用的端点信息：协议标识取 ``request.execution_endpoint``（由
         自定义供应商的包装层在转发前注入，内置供应商无此维度、恒 None），实际请求域名取参数
         ``endpoint``（由提交域名随用户配置变化的 backend 传入，只有 dashscope 协议这一条线）。
         两类供应商共用同一套写法，域名一律落 ``submitted_base_url``。持久化失败抛出（DB 瞬态错误

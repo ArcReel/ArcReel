@@ -408,7 +408,7 @@ def _candidate_path(project_path: Path, value: object) -> Path | None:
 
 
 def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceResource, ...]:
-    """视频单元正文 → 本次生成的逻辑参考图引用，按首次提及顺序。
+    """视频单元正文 → 该单元生成所用的逻辑参考图引用，按首次提及顺序。
 
     正文是唯一真相：引用不落盘，读侧一律经本函数派生，商品与其它资产走同一条规则、
     没有类型优先级（见 ADR 0064）。未登记的名字不产生引用——它只在渲染与预览侧发一条

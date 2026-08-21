@@ -82,7 +82,7 @@ _MAX_DURATION_SECONDS = 18
 _MAX_REFERENCE_IMAGES = 4
 
 # 尺寸约束：长宽被 8 整除、长边收口 1920（保守值，覆盖上游 480p/720p/1080p 三档标准化）。
-# 缺 resolution 时按 720p 短边兜底。待 console / 实测核对像素上限，不硬编当既成事实。
+# 缺 resolution 时按 720p 短边兜底。像素上限未经 Agnes console 核对，不硬编当既成事实。
 _VIDEO_ROUND_TO = 8
 _MAX_LONG_EDGE = 1920
 

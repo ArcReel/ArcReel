@@ -240,7 +240,7 @@ def _resolve_credential_group_switch(
     current: Mapping[str, str | None] | None,
     _t: Callable[..., str],
 ) -> set[str]:
-    """判定本次提交是否触发凭证切组，返回需清空的其它组字段集合。
+    """判定单次提交是否触发凭证切组，返回需清空的其它组字段集合。
 
     切组由 ``ProviderMeta.credential_groups`` 声明驱动：
     - 单次提交的非空字段横跨多个互斥组时无法判断意图，报错拒绝（避免静默丢弃用户填入的值）；
@@ -572,8 +572,8 @@ async def update_credential(
         kwargs["access_key"] = body.access_key
     if "secret_key" in body.model_fields_set:
         kwargs["secret_key"] = body.secret_key
-    # 切入某组：清空其它已声明组的字段，消除"静默沿用旧模式"。切入判定已排除本次提交触及的组，
-    # 故不会覆盖用户本次填入的值。
+    # 切入某组：清空其它已声明组的字段，消除"静默沿用旧模式"。切入判定已排除同一次提交触及的组，
+    # 故不会覆盖用户在该次提交中填入的值。
     for key in clear_keys:
         kwargs[key] = None
     if kwargs:
