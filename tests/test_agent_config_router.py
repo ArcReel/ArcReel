@@ -75,6 +75,7 @@ async def test_list_preset_providers_returns_catalog(authed_client) -> None:
     ids = [p["id"] for p in data["providers"]]
     assert "deepseek" in ids
     assert "anthropic-official" in ids
+    assert "orcarouter" in ids
     deepseek = next(p for p in data["providers"] if p["id"] == "deepseek")
     assert deepseek["messages_url"] == "https://api.deepseek.com/anthropic"
     assert deepseek["discovery_url"] == "https://api.deepseek.com"
@@ -83,6 +84,11 @@ async def test_list_preset_providers_returns_catalog(authed_client) -> None:
     arcreel = next(p for p in data["providers"] if p["id"] == "arcreel")
     assert arcreel["is_recommended"] is True
     assert arcreel["api_key_url"] == "https://api.arc-reel.com/"
+    orcarouter = next(p for p in data["providers"] if p["id"] == "orcarouter")
+    assert orcarouter["messages_url"] == "https://api.orcarouter.ai"
+    assert orcarouter["discovery_url"] == "https://api.orcarouter.ai"
+    assert orcarouter["default_model"] == "orcarouter/auto"
+    assert orcarouter["icon_key"] == "OrcaRouter"
 
 
 @pytest.mark.asyncio
