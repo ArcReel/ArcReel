@@ -714,6 +714,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         models={
             # --- text ---
             # Agent Plan 套餐未声明独立费率表；pricing=None 由 lookup_pricing 按 Gemini 通用默认费率处理。
+            # 清单与火山方舟 Agent Plan 个人版「支持模型及 Harness」对齐（2026-08-18）。已下线
+            # 型号保留 hidden 条目，兼容旧项目已保存的 provider/model；所有新下拉统一剔除 hidden。
             "doubao-seed-2.0-mini": ModelInfo(
                 display_name="豆包 Seed 2.0 Mini",
                 media_type="text",
@@ -725,18 +727,33 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_generation", "vision"],
                 default=True,
             ),
-            "doubao-seed-2.0-pro": ModelInfo(
-                display_name="豆包 Seed 2.0 Pro",
-                media_type="text",
-                capabilities=["text_generation", "vision"],
-            ),
-            "doubao-seed-2.0-code": ModelInfo(
-                display_name="豆包 Seed 2.0 Code",
+            "deepseek-v4-flash": ModelInfo(
+                display_name="DeepSeek V4 Flash",
                 media_type="text",
                 capabilities=["text_generation"],
             ),
-            "deepseek-v4-flash": ModelInfo(
-                display_name="DeepSeek V4 Flash",
+            "doubao-seed-2.1-turbo": ModelInfo(
+                display_name="豆包 Seed 2.1 Turbo",
+                media_type="text",
+                capabilities=["text_generation", "vision"],
+            ),
+            "doubao-seed-evolving": ModelInfo(
+                display_name="豆包 Seed Evolving",
+                media_type="text",
+                capabilities=["text_generation"],
+            ),
+            "minimax-m3": ModelInfo(
+                display_name="MiniMax M3",
+                media_type="text",
+                capabilities=["text_generation", "vision"],
+            ),
+            "glm-5.3": ModelInfo(
+                display_name="GLM 5.3",
+                media_type="text",
+                capabilities=["text_generation"],
+            ),
+            "kimi-k2.7-code": ModelInfo(
+                display_name="Kimi K2.7 Code",
                 media_type="text",
                 capabilities=["text_generation"],
             ),
@@ -745,20 +762,48 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="text",
                 capabilities=["text_generation"],
             ),
-            "glm-5.1": ModelInfo(
-                display_name="GLM 5.1",
+            "kimi-k3": ModelInfo(
+                display_name="Kimi K3",
+                media_type="text",
+                capabilities=["text_generation", "vision"],
+            ),
+            # glm-5.2 已停止向新用户提供，将于 2026-08-31 下线；保留条目只供已有配置执行。
+            "glm-5.2": ModelInfo(
+                display_name="GLM 5.2（即将下线）",
                 media_type="text",
                 capabilities=["text_generation"],
+                hidden=True,
+            ),
+            # 以下型号已下线。hidden 保留解析兼容，不再出现在新配置的模型选项中。
+            "doubao-seed-2.0-pro": ModelInfo(
+                display_name="豆包 Seed 2.0 Pro（已下线）",
+                media_type="text",
+                capabilities=["text_generation", "vision"],
+                hidden=True,
+            ),
+            "doubao-seed-2.0-code": ModelInfo(
+                display_name="豆包 Seed 2.0 Code（已下线）",
+                media_type="text",
+                capabilities=["text_generation"],
+                hidden=True,
+            ),
+            "glm-5.1": ModelInfo(
+                display_name="GLM 5.1（已下线）",
+                media_type="text",
+                capabilities=["text_generation"],
+                hidden=True,
             ),
             "kimi-k2.6": ModelInfo(
-                display_name="Kimi K2.6",
+                display_name="Kimi K2.6（已下线）",
                 media_type="text",
                 capabilities=["text_generation"],
+                hidden=True,
             ),
             "minimax-m2.7": ModelInfo(
-                display_name="MiniMax M2.7",
+                display_name="MiniMax M2.7（已下线）",
                 media_type="text",
                 capabilities=["text_generation"],
+                hidden=True,
             ),
             # --- image ---
             "doubao-seedream-5.0-lite": ModelInfo(

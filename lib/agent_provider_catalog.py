@@ -11,7 +11,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from lib.config.registry import PROVIDER_REGISTRY
+
 CUSTOM_SENTINEL_ID = "__custom__"
+
+
+def _visible_text_catalog(provider_id: str) -> tuple[str, tuple[str, ...]]:
+    """返回内置 provider 的默认文本模型与可见文本目录，供 Agent 预设复用同一真相源。"""
+    models = PROVIDER_REGISTRY[provider_id].models
+    visible = tuple(mid for mid, info in models.items() if info.media_type == "text" and not info.hidden)
+    default = next((mid for mid in visible if models[mid].default), "")
+    return default, visible
+
+
+_ARK_AGENT_PLAN_DEFAULT_MODEL, _ARK_AGENT_PLAN_TEXT_MODELS = _visible_text_catalog("ark-agent-plan")
 
 
 @dataclass(frozen=True)
@@ -177,8 +190,9 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
         icon_key="Volcengine",
         messages_url="https://ark.cn-beijing.volces.com/api/plan",
         discovery_url="https://ark.cn-beijing.volces.com",
-        default_model="",
-        suggested_models=(),
+        # 与 PROVIDER_REGISTRY["ark-agent-plan"] 共用目录；供应商清单更新后 Agent 预设同步更新。
+        default_model=_ARK_AGENT_PLAN_DEFAULT_MODEL,
+        suggested_models=_ARK_AGENT_PLAN_TEXT_MODELS,
         docs_url="https://www.volcengine.com/docs/82379/2375486",
         api_key_url="https://console.volcengine.com/ark",
         notes_i18n_key="preset_notes_ark_agent_plan",

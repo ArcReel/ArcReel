@@ -63,7 +63,7 @@ export function AddCredentialModal({
   const form = useCredentialForm(initial, customSentinelId, presets);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [discoveredModelOptions, setDiscoveredModelOptions] = useState<string[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(
@@ -119,7 +119,7 @@ export function AddCredentialModal({
     if (!open) return;
     // 重开 modal 时的批量重置，是动作驱动的状态归零。
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setModelOptions([]);
+    setDiscoveredModelOptions([]);
     setDiscoverError(null);
     setSubmitError(null);
     setTestResult(null);
@@ -141,6 +141,13 @@ export function AddCredentialModal({
     return presets.find((p) => p.id === form.presetId) ?? null;
   }, [form.presetId, presets, customSentinelId]);
 
+  // 预设建议目录本来就是离线兜底（设计文档约定与 discovery 结果取并集）。Ark Agent Plan
+  // 没有兼容的 GET /v1/models，因此它直接使用后端从供应商注册表派生出的完整文本目录。
+  const modelOptions = useMemo(
+    () => Array.from(new Set([...(selected?.suggested_models ?? []), ...discoveredModelOptions])),
+    [selected?.suggested_models, discoveredModelOptions],
+  );
+
   useEscapeClose(onClose, open);
 
   if (!open) return null;
@@ -153,10 +160,10 @@ export function AddCredentialModal({
     setTestedBaseUrl(null);
   };
 
-  // modelOptions 是按 (endpoint, credential) 元组发现出来的；base_url 或 api_key
-  // 变了，旧列表里的 id 在新 endpoint 不一定支持，让它失效避免用户保存无效配置。
+  // discovery 结果是按 (endpoint, credential) 元组发现出来的；base_url 或 api_key 变了就让它
+  // 失效。预设 suggested_models 是目录兜底，不属于这次网络发现，仍保留在 modelOptions 中。
   const invalidateDiscoveredModels = () => {
-    setModelOptions([]);
+    setDiscoveredModelOptions([]);
     setDiscoverError(null);
   };
 
@@ -171,6 +178,17 @@ export function AddCredentialModal({
     setDiscovering(true);
     setDiscoverError(null);
     try {
+      // 火山方舟 Agent Plan 的推理 Key 不能调用通用 /v1/models；官方列表管理 API 另需
+      // Access Key 鉴权。这里复用供应商注册表目录，避免把有效 Key 误报为 Unauthorized。
+      if (selected?.id === "ark-agent-plan") {
+        const toast = useAppStore.getState().pushToast;
+        if (modelOptions.length === 0) {
+          toast(t("discover_no_models"), "warning");
+        } else {
+          toast(t("discover_models_success", { count: modelOptions.length }), "success");
+        }
+        return;
+      }
       // 优先使用表单里的 base_url：用户改了 URL 但发现仍走预设默认端点会选到
       // 当前 endpoint 不支持的模型。无 base_url 时回退到预设的 discovery/messages URL。
       const discoverBase =
@@ -191,7 +209,7 @@ export function AddCredentialModal({
         api_key: form.apiKey,
       });
       if (session !== sessionRef.current) return;
-      setModelOptions(res.models.map((m) => m.model_id));
+      setDiscoveredModelOptions(res.models.map((m) => m.model_id));
       const toast = useAppStore.getState().pushToast;
       if (res.models.length === 0) {
         toast(t("discover_no_models"), "warning");

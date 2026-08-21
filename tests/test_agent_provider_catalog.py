@@ -7,6 +7,7 @@ from lib.agent_provider_catalog import (
     get_preset,
     list_presets,
 )
+from lib.config.registry import PROVIDER_REGISTRY
 
 pytestmark = pytest.mark.unit
 
@@ -87,10 +88,21 @@ def test_default_models_match_table() -> None:
         "minimax-intl": "MiniMax-M3",
         "kimi": "",
         "ark-coding-plan": "",
-        "ark-agent-plan": "",
+        "ark-agent-plan": "doubao-seed-2.0-lite",
     }
     actual = {p.id: p.default_model for p in list_presets()}
     assert actual == expected
+
+
+def test_ark_agent_plan_reuses_visible_registry_text_catalog() -> None:
+    preset = get_preset("ark-agent-plan")
+    assert preset is not None
+    registry = PROVIDER_REGISTRY["ark-agent-plan"]
+    expected = tuple(
+        mid for mid, info in registry.models.items() if info.media_type == "text" and not info.hidden
+    )
+    assert preset.suggested_models == expected
+    assert preset.default_model == next(mid for mid in expected if registry.models[mid].default)
 
 
 def test_api_key_url_required() -> None:

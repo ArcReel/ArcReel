@@ -33,20 +33,38 @@ def test_ark_agent_plan_registered() -> None:
             assert m.resolutions, f"{mid} missing resolutions"
 
 
-def test_ark_agent_plan_baseline_models_present() -> None:
+def test_ark_agent_plan_current_text_catalog_and_legacy_visibility() -> None:
     p = PROVIDER_REGISTRY["ark-agent-plan"]
-    baseline = {
+    visible_text = {
+        mid for mid, info in p.models.items() if info.media_type == "text" and not info.hidden
+    }
+    assert visible_text == {
         "doubao-seed-2.0-mini",
         "doubao-seed-2.0-lite",
+        "deepseek-v4-flash",
+        "doubao-seed-2.1-turbo",
+        "doubao-seed-evolving",
+        "minimax-m3",
+        "glm-5.3",
+        "kimi-k2.7-code",
+        "deepseek-v4-pro",
+        "kimi-k3",
+    }
+    legacy = {
+        "glm-5.2",
         "doubao-seed-2.0-pro",
         "doubao-seed-2.0-code",
-        "doubao-seedream-5.0-lite",
-        "doubao-seedance-1.5-pro",
-        "doubao-seedance-2.0",
-        "doubao-seedance-2.0-fast",
-        "doubao-seedance-2.0-mini",
+        "glm-5.1",
+        "kimi-k2.6",
+        "minimax-m2.7",
     }
-    assert baseline.issubset(set(p.models.keys()))
+    assert all(p.models[mid].hidden for mid in legacy)
+
+
+def test_ark_agent_plan_current_multimodal_text_models_support_vision() -> None:
+    p = PROVIDER_REGISTRY["ark-agent-plan"]
+    for mid in ("doubao-seed-2.1-turbo", "minimax-m3", "kimi-k3"):
+        assert "vision" in p.models[mid].capabilities
 
 
 def test_ark_agent_plan_fast_has_no_1080p() -> None:

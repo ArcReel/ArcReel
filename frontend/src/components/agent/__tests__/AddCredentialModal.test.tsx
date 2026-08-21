@@ -46,7 +46,46 @@ const presetsWithSecond: PresetProvider[] = [
   },
 ];
 
+const arkAgentPlanPreset: PresetProvider = {
+  id: "ark-agent-plan",
+  display_name: "Volcengine Ark Agent Plan",
+  icon_key: "Volcengine",
+  messages_url: "https://ark.cn-beijing.volces.com/api/plan",
+  discovery_url: "https://ark.cn-beijing.volces.com",
+  default_model: "doubao-seed-2.0-lite",
+  suggested_models: ["doubao-seed-2.0-lite", "glm-5.3", "kimi-k3"],
+  docs_url: null,
+  api_key_url: "https://console.volcengine.com/ark",
+  notes: null,
+  api_key_pattern: null,
+  is_recommended: false,
+};
+
 describe("AddCredentialModal", () => {
+  it("uses the shared static catalog for Ark Agent Plan without calling /v1/models", async () => {
+    const discoverSpy = vi.spyOn(API, "discoverAnthropicModels");
+    render(
+      <AddCredentialModal
+        open
+        presets={[arkAgentPlanPreset]}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Ark Agent Plan/i }));
+    const modelInput = screen.getByLabelText(/default[_ ]model|默认模型/i);
+    fireEvent.focus(modelInput);
+    fireEvent.change(modelInput, { target: { value: "glm" } });
+    expect(await screen.findByRole("option", { name: "glm-5.3" })).toBeInTheDocument();
+    fireEvent.keyDown(modelInput, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("option", { name: "glm-5.3" })).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: /discover[_ ]models|获取模型列表/i }));
+    expect(discoverSpy).not.toHaveBeenCalled();
+  });
+
   it("renders custom config chip first", () => {
     render(
       <AddCredentialModal
