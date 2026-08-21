@@ -2,7 +2,20 @@
 
 本文档是 ArcReel 开发工作的入口。开始 feature、bug、重构或文档改动前，先阅读本文件和同目录的 `AGENTS.md`。
 
-## 1. 使用独立 Feature Worktree
+## 1. 需求澄清与执行确认
+
+对每个新的 feature、bug、重构或文档改动，在创建 worktree、修改文件或执行其他会改变状态的操作前，必须完成以下确认闸门：
+
+1. 先做必要的只读调研，确认能够从代码库、文档或现有运行状态中直接查明的事实；不要把可以自行查明的问题交给用户。
+2. 列出仍会实质影响需求范围、交互、数据模型、兼容性或验收结果的模糊点，并向用户澄清。没有阻塞性模糊点时，也要明确说明。
+3. 提交具体执行方案，至少包括目标与范围、用户可见行为和验收标准、关键实现决策、预计影响区域、验证方式，以及已知风险或迁移事项。
+4. 等待用户明确确认方案。未经确认，不得开始实现。
+
+用户确认后如果出现会实质改变已确认范围、交互、数据模型或风险的新信息，应暂停实现、更新方案并再次确认；不改变已确认结果的实现细节可以在方案范围内自行处理。
+
+纯代码库问答、解释和只读诊断不需要执行确认；一旦需要写文件或改变项目状态，就必须经过上述闸门。用户直接提出“实现”或“修改”不等于跳过闸门，除非用户已经明确确认了当前具体方案。
+
+## 2. 使用独立 Feature Worktree
 
 不要直接在 `main` 工作树中开发。Worktree 统一放在 `.worktrees/`，该目录已加入 Git ignore。
 
@@ -21,7 +34,7 @@ git worktree add .worktrees/<name> -b <type>-<name> main
 cd .worktrees/<name>
 ```
 
-## 2. 开发与验证
+## 3. 开发与验证
 
 在 feature worktree 内开发，并按改动范围执行验证：
 
@@ -37,7 +50,7 @@ pnpm lint
 pnpm check
 ```
 
-## 3. Graphify 约定
+## 4. Graphify 约定
 
 ArcReel 的 graph 位于 `graphify-out/`。Graphify 是代码库导航和关系查询工具，不能替代本文件中的开发流程约束。
 
@@ -77,7 +90,7 @@ graphify path "<A>" "<B>"
 graphify explain "<concept>"
 ```
 
-## 4. Commit 与 Merge
+## 5. Commit 与 Merge
 
 验证通过后，在 feature worktree 内提交，commit message 遵循 Conventional Commits。Graphify hook 可能在 commit 完成后异步生成新的 `graphify-out/` 变更；不要把这理解为 hook 失败，也不要求把它塞回刚刚完成的 commit。
 
