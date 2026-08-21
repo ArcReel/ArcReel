@@ -155,6 +155,8 @@ def get_episode_script_revision_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
+            # revision 的唯一用途是当 patch_episode_script 的并发令牌，而剧本写入工具在阻断期
+            # 全部关闭：签发出去无处可用，故直接答复裁决，省掉一轮必然被拒的写入往返。
             failure = await migration_failure_for(ctx)
             if failure is not None:
                 return migration_refusal_response(

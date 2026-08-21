@@ -42,9 +42,10 @@ class ToolContext:
 async def migration_failure_for(ctx: ToolContext) -> MigrationFailureRecord | None:
     """This session's project migration verdict, or ``None`` when it is healthy.
 
-    Single read shared by the registration-time write guard and any read-only
-    tool that chooses to check for itself: both need the same disk-backed
-    verdict, not two independent readings of it.
+    The registration-time write guard and the read-only tools that answer the
+    verdict inside their own handlers both go through here, so every refusal in
+    the tool layer rests on the same persisted record read the same way, off the
+    event loop.
     """
     return await asyncio.to_thread(project_migration_failure, ctx.project_name, ctx.pm)
 

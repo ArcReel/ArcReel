@@ -109,15 +109,22 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "retry_project_migration",
 )
 
-# Tools refused outright while the project's schema migration verdict is a failure.
-# Everything that generates output or writes script content is closed; the read-only
-# tools stay open so the agent can still diagnose what needs repairing, and the
-# controlled project/metadata editors (``patch_project``, ``patch_episode_meta``,
-# ``rename_asset``) stay open because repairing is done through them. The script batch
-# editors are named here even though their shared ``ScriptBatchEditor.execute`` already
-# refuses internally on the same verdict: the entry declares the block, the inner check
-# is only a fallback, and an entry never skips declaring the block just because some
-# callee happens to check too.
+# Tools wrapped at registration so they report the verdict instead of running while the
+# project's schema migration verdict is a failure. Everything that generates output or
+# writes script content is named here; the controlled project/metadata editors
+# (``patch_project``, ``patch_episode_meta``, ``rename_asset``) are not, because
+# repairing is done through them. The script batch editors are named here even though
+# their shared ``ScriptBatchEditor.execute`` already refuses internally on the same
+# verdict: the entry declares the block, the inner check is only a fallback, and an
+# entry never skips declaring the block just because some callee happens to check too.
+#
+# The read-only tools are outside this set on purpose — they answer the verdict inside
+# their own handlers, so this frozenset stays exactly the registration-time blocks.
+# ``list_pending_assets`` and ``get_episode_script_revision`` read it via
+# ``migration_failure_for`` and return the same ``migration_refusal_response`` envelope
+# the wrapper does; ``get_workflow_plan`` carries it as the plan's single problem rather
+# than refusing; ``get_video_capabilities`` reads model capability only, never the
+# project's artifacts, and stays fully available.
 MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
         "complete_asset_inventory",
