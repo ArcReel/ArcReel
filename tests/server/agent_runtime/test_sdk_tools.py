@@ -8934,6 +8934,32 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
+async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """资产表记 NFC、模型写回 NFD（或反之）指的是同一个已登记资产，不该判成未登记。
+
+    与 rv 侧 ``validate_unit_text`` 同一比对坐标系：两侧都归一到 ``asset_name_comparison_key``
+    再判等，否则一个登记过的越南语角色名会被拦在拆分之外，且 agent 从报告上看不出差别在哪。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _nr_source(fake_ctx)
+    nfc_name = unicodedata.normalize("NFC", "Hiếu")
+    fake_ctx.pm.project_payload["characters"][nfc_name] = {"description": "配角"}  # type: ignore[attr-defined]
+    segments = [
+        _nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=[unicodedata.normalize("NFD", nfc_name)])
+    ]
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
+
+    out = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1})
+
+    assert out.get("is_error") is not True, out
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
+
+
 async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: str, segments: list[dict]):
     from server.agent_runtime.sdk_tools import text_generation as mod
 

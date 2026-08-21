@@ -24,7 +24,7 @@ from pydantic import BaseModel, ValidationError
 from lib import script_review
 from lib.artifact_manifest import ArtifactBasis
 from lib.artifact_provenance import Step1PromptVariant, build_step1_request
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
@@ -1452,6 +1452,13 @@ def _collect_narration_violations(
         )
 
     allowed = {int(d) for d in supported_durations}
+    # 资产表的 key 先归一到比对坐标系（与 rv 侧 ``validate_unit_text`` 同一处理）：``project.json``
+    # 里的名字与模型写回的名字可能是同一名称的不同 Unicode 形式，两侧不同形会把一个已登记的资产
+    # 判成未登记。归一在循环外做一次，逐片段只查表。
+    registered = {
+        field: normalize_asset_bucket(bucket)
+        for field, bucket in (("characters_in_segment", characters), ("scenes", scenes), ("props", props))
+    }
     for index, segment in enumerate(segments):
         label = _narration_segment_label(segment, index)
 
@@ -1483,10 +1490,11 @@ def _collect_narration_violations(
             )
 
         # 与 rv 侧 ``validate_unit_text`` 对 ``@[名称]`` 的登记校验同口径：只信登记过的资产名，
-        # 不允许模型发明或拼错的名称被当真值写盘、被 step2 视觉层只读消费。
-        for field, bucket in (("characters_in_segment", characters), ("scenes", scenes), ("props", props)):
+        # 不允许模型发明或拼错的名称被当真值写盘、被 step2 视觉层只读消费。报告里回显模型写的
+        # 原名而非归一形式——它要在自己的草稿里找到这个字符串才改得动。
+        for field, bucket in registered.items():
             names = segment.get(field) or []
-            bad = sorted({str(name) for name in names if name not in bucket})
+            bad = sorted({str(name) for name in names if asset_name_comparison_key(str(name)) not in bucket})
             if bad:
                 violations.append(
                     DraftViolation(

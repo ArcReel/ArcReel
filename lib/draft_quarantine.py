@@ -77,7 +77,7 @@ _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
     ),
     QUARANTINE_KIND_NARRATION_STEP1: (
         "step1 片段拆分",
-        "segments[i].novel_text / duration_seconds / segment_break / 出场资产",
+        "segments[i].novel_text / duration_seconds / segment_break / characters_in_segment / scenes / props",
     ),
 }
 
@@ -241,6 +241,7 @@ def quarantine_and_report(
 
 __all__ = [
     "PROMOTE_TOOL_NAME",
+    "QUARANTINE_FILENAMES",
     "QUARANTINE_KIND_DRAMA_STEP1",
     "QUARANTINE_KIND_NARRATION_STEP1",
     "QUARANTINE_KIND_STEP1",
