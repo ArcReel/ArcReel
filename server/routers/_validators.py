@@ -30,7 +30,7 @@ async def require_video_bucket_capability(project: dict, capability: VideoCapabi
 async def require_audio_switch_supported(project: dict, capability: VideoCapability) -> None:
     """视频生成入口预检：成片恒有声的模型不接受「关闭音频」的配置。
 
-    这类模型在本次执行路径上没有音轨开关可下发（音轨形态 ``always_on``），关闭意图无法抵达供应商，
+    这类模型在该执行路径上没有音轨开关可下发（音轨形态 ``always_on``），关闭意图无法抵达供应商，
     却会让编排层按无声路径裁掉全部音色约束——用户拿到的是失去音色约束的有声成片。提交入口
     显式拒绝并说明修复路径，比让请求带着不可能实现的意图执行下去更可用。
 

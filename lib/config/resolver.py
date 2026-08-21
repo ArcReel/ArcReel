@@ -967,7 +967,7 @@ class ConfigResolver:
 
         声音一致性等二维值按 ``project`` 的生成路线派生；``capability`` 显式给定时按该桶派生
         逐路径的能力位（音轨形态按执行子路径分叉，见 :func:`builtin_video_audio_track`）——
-        执行层已知本次任务落哪个桶，传进来才能拿到与实际请求同形的结果。
+        执行层已知任务落在哪个桶，传进来才能拿到与实际请求同形的结果。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_caps_for_model(
@@ -1463,7 +1463,7 @@ class ConfigResolver:
             reference_audio_mode = builtin_caps.reference_audio_mode
             max_reference_audio_count = builtin_caps.max_reference_audio_count
             reference_audio_per_image = builtin_caps.reference_audio_per_image
-            # 音轨与上面几维同源同一个 VideoCapabilities，只是要按本次落的桶取路径分支：参考
+            # 音轨与上面几维同源同一个 VideoCapabilities，只是要按 capability 落的桶取路径分支：参考
             # 路线无音轨的子路径（可灵 v3-omni 多图主体）据此如实派生出 voice_consistency=none。
             has_audio = builtin_caps.audio_track_for_route(capability) != "always_off"
             try:
