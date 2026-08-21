@@ -68,7 +68,7 @@ cd frontend && pnpm check
 
 pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
-> **过渡期说明**：本章描述整改完成后的目标态，存量测试正按整改 Spec 分批对齐；条目与现状不符时（存量的目录与档位、前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线；目录迁移与 marker 自动注入落地前，分类 marker 仍需手写（收集期强制恰好一个，语义见下文分层表）。整改完成后删除本段。
+> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（存量的目录与档位、前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、覆盖率与 eslint 强制项的现行 CI/lint 配置、`testTimeout` 等 vitest 配置、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线；目录迁移与 marker 自动注入落地前，分类 marker 仍需手写（收集期强制恰好一个，语义见下文分层表）。整改完成后删除本段。
 
 ### 分层与目录
 
