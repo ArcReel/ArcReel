@@ -28,7 +28,11 @@ MySQL 5.7 与 MariaDB 未经 CI 覆盖，且缺少 `caching_sha2_password` 与�
 | 从 PostgreSQL 迁移到 MySQL（同机） | Docker 或 `pg_dump` + `mysql` 命令行 |
 | 使用已有 MySQL 集群 | 需要一个可建库、建表、建索引的账号，并在创建库时显式 `CHARACTER SET utf8mb4` |
 
-> 迁移前 **必须先** 将 ArcReel 升级到最新版本，保证 `migrate-to-mysql` 指南对应的迁移脚本 (`alembic/versions/7a8b9c0d1e2f` 及以后) 已在代码中。如果使用官方 Docker 镜像，只要拉取的是 `ghcr.io/arcreel/arcreel:latest` 即可。
+> 迁移前 **必须先** 将 ArcReel 升级到最新版本，保证 `migrate-to-mysql` 指南对应的迁移脚本 (`alembic/versions/7a8b9c0d1e2f` 及以后) 已在代码中。
+>
+> **版本选择**：
+> - 快速体验：使用 `ghcr.io/arcreel/arcreel:latest`
+> - 生产环境：参考 [部署与运维 - 固定版本](./deployment.md#pin-version)，使用 `vX.Y.Z` 标签或 digest
 
 ## 迁移步骤（从 SQLite → MySQL） {#sqlite-to-mysql}
 
