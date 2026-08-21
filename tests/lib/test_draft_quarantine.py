@@ -185,14 +185,6 @@ class TestReport:
         }
         assert len(names) == 3
 
-    def test_drama_and_reference_step1_drafts_are_separate_files(self, tmp_path: Path):
-        """两种生成模式的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让其他模式的
-        遗留草稿被当作当前生成模式的待处置件读进来。"""
-        assert (
-            quarantine_path(tmp_path, 1, QUARANTINE_KIND_DRAMA_STEP1).name
-            != quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1).name
-        )
-
     def test_step2_report_only_points_at_text(self, tmp_path: Path):
         """step2 的 unit 只有正文可改：时长与原文锚是 step1 已确认的内容契约，不在这一层修。"""
         text = render_report(tmp_path / "d.json", QUARANTINE_KIND_STEP2, [_violation()], episode=1)

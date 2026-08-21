@@ -126,13 +126,12 @@ ignore_imports = [
     "lib.db.models.custom_provider -> lib.custom_provider",
 ]
 
-# 路线中立层不得依赖某一条具体路线的子包。隔离草稿信封（draft_quarantine）、正式 step1 的
-# 路径与写盘出口对 drama / narration / reference_video 一视同仁，任一模块 import
-# lib.reference_video 就是把三条路线共用的机制绑在其中一条上——违约条目类型曾住在
-# lib.reference_video.draft_validation，信封为落盘一条违约反向依赖了参考路线子包，第三条
-# 路线接入时依赖会再多一条。类型已提到 lib.draft_violation，本契约防它长回来。
-# lib.script_review 暂不入列：它另有一条 lib.reference_video.duration_migration 的存量依赖
-# （参考路线专属的时长收编），清零那条是独立议题，不在本契约内加 baseline 掩盖。
+# 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、隔离草稿信封
+# （draft_quarantine）、正式 step1 的路径与写禁表（episode_paths）对 drama / narration /
+# reference_video 一视同仁，任一处 import lib.reference_video 都是把三条路线共用的机制绑在
+# 其中一条上。
+# lib.script_review 不在列：它另有一条 lib.reference_video.duration_migration 的依赖（参考
+# 路线专属的时长收编），纳入就要加 baseline 掩盖，那等于让契约声明一件它此刻并不成立的事。
 [[tool.importlinter.contracts]]
 name = "路线中立层不依赖参考路线子包"
 type = "forbidden"

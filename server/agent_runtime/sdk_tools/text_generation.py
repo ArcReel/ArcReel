@@ -1142,8 +1142,18 @@ def _drama_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
     return {"title": content.get("title", ""), "scenes": flat}
 
 
-class DramaDraftRevalidation(NamedTuple):
-    """drama step1 草稿读时重判的结果，与另两条路线的同名结构同形（见 ``NarrationDraftRevalidation``）。"""
+class SingleStep1DraftRevalidation(NamedTuple):
+    """只有一个草稿位的两条路线（drama / narration）的 step1 草稿读时重判结果。
+
+    ``schema_failed`` 显式区分两个阶段：True 表示草稿连产出时的 schema 都没过（``content`` 必为
+    空 dict，调用方只能按 ``draft.content`` 原样呈现）；False 时 ``content`` 是经 schema 收编后的
+    草稿层形状（drama 的 ``{title, scenes}``、narration 的 ``{segments}``），``violations`` 为空即
+    可晋升。两者的处置不同（原样 vs 收编），故不靠 ``content`` 是否为空来反推。
+
+    两条路线共用一个类型而非各立一个：字段与语义逐字相同，分成两个只会让 ``revalidate_step1_draft``
+    的归一分支按类型各写一遍同样的事。参考生视频另有 ``ReferenceDraftRevalidation``——它的产出是
+    扁平 units 且要带回档位，形状本就不同。
+    """
 
     violations: list[DraftViolation]
     content: dict[str, Any]
@@ -1153,7 +1163,7 @@ class DramaDraftRevalidation(NamedTuple):
 
 async def revalidate_drama_step1_draft(
     project_path: Path, project: dict[str, Any], episode: int, draft: QuarantinedDraft
-) -> DramaDraftRevalidation:
+) -> SingleStep1DraftRevalidation:
     """按产出时那套校验器全量重判 drama step1 草稿，只读、不写盘、不清草稿。
 
     校验器就是产出时那一个（按当前能力档位构造的 ``DramaNormalizedScript``），不是它的副本：
@@ -1185,19 +1195,19 @@ async def revalidate_drama_step1_draft(
             f"顶层须为 {{title, scenes}}，每个分镜的 duration_seconds 取自模型档位 {supported_durations}",
             code="schema_invalid",
         )
-        return DramaDraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
+        return SingleStep1DraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
 
     raw_scenes = content.get("scenes")
     if not isinstance(raw_scenes, list) or not raw_scenes:
         violation = DraftViolation("草稿的 content.scenes 必须是非空的分镜对象数组", code="schema_invalid")
-        return DramaDraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
+        return SingleStep1DraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
     for scene in raw_scenes:
         admission = admit_script_unit("scenes", scene, ignore_marker=True)
         if admission.allowed:
             scene.pop("needs_replan", None)
         else:
             scene["needs_replan"] = True
-    return DramaDraftRevalidation([], content, schema_failed=False, basis=step1_basis)
+    return SingleStep1DraftRevalidation([], content, schema_failed=False, basis=step1_basis)
 
 
 async def _promote_drama_step1(ctx: ToolContext, episode: int, draft: QuarantinedDraft) -> dict[str, Any]:
@@ -1482,24 +1492,9 @@ def _collect_narration_violations(
     return violations
 
 
-class NarrationDraftRevalidation(NamedTuple):
-    """narration step1 隔离草稿读时重判的结果。
-
-    ``schema_failed`` 显式区分两个阶段：True 表示草稿连产出时的 schema 都没过（``content`` 必为
-    空 dict，调用方只能按 ``draft.content`` 原样呈现）；False 时 ``content`` 是经 schema 收编后的
-    ``{segments}``，``violations`` 为空即可晋升。两者的处置不同（原样 vs 收编），故不靠 ``content``
-    是否为空来反推。
-    """
-
-    violations: list[DraftViolation]
-    content: dict[str, Any]
-    schema_failed: bool
-    basis: ArtifactBasis | None
-
-
 async def revalidate_narration_step1_draft(
     project_path: Path, project: dict[str, Any], episode: int, draft: QuarantinedDraft
-) -> NarrationDraftRevalidation:
+) -> SingleStep1DraftRevalidation:
     """按产出时那套校验器全量重判 narration step1 隔离草稿，只读、不写盘、不清草稿。
 
     重判走的是拆分工具用的同一个函数（``_collect_narration_violations``），不是它的简化副本：
@@ -1540,7 +1535,7 @@ async def revalidate_narration_step1_draft(
     if not isinstance(raw_segments, list) or not raw_segments:
         logger.debug("隔离草稿 content.segments 形状非法: %s", type(raw_segments).__name__)
         violation = DraftViolation("隔离草稿的 content.segments 必须是非空的片段对象数组", code="schema_invalid")
-        return NarrationDraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
+        return SingleStep1DraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
     try:
         content = NarrationStep1Draft.model_validate(draft.content).model_dump()
     except ValidationError as exc:
@@ -1550,7 +1545,7 @@ async def revalidate_narration_step1_draft(
             "以及 characters_in_segment / scenes / props 三个数组（无对应资产时写空数组）",
             code="schema_invalid",
         )
-        return NarrationDraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
+        return SingleStep1DraftRevalidation([violation], {}, schema_failed=True, basis=step1_basis)
 
     violations = _collect_narration_violations(
         content["segments"],
@@ -1560,7 +1555,7 @@ async def revalidate_narration_step1_draft(
         props=cast(dict[str, Any], prompt_inputs["props"]),
         novel_text=novel_text,
     )
-    return NarrationDraftRevalidation(violations, content, schema_failed=False, basis=step1_basis)
+    return SingleStep1DraftRevalidation(violations, content, schema_failed=False, basis=step1_basis)
 
 
 def _narration_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
@@ -1722,6 +1717,17 @@ class Step1DraftRevalidation(NamedTuple):
     content: dict[str, Any] | None
 
 
+#: 只有一个草稿位的两条路线（drama / narration）→ 该变体的重判器。两者的结果同型
+#: （``SingleStep1DraftRevalidation``），归一到呈现层口径的那一步逐字相同，故按 kind 查表而非
+#: 各写一条分支。参考路线不在表内：它的重判结果另带扁平 units 与档位，归一方式本就不同。
+_SINGLE_STEP1_REVALIDATORS: dict[
+    str, Callable[[Path, dict[str, Any], int, QuarantinedDraft], Awaitable[SingleStep1DraftRevalidation]]
+] = {
+    QUARANTINE_KIND_DRAMA_STEP1: revalidate_drama_step1_draft,
+    QUARANTINE_KIND_NARRATION_STEP1: revalidate_narration_step1_draft,
+}
+
+
 async def revalidate_step1_draft(
     project_path: Path, project: dict[str, Any], episode: int, draft: QuarantinedDraft
 ) -> Step1DraftRevalidation:
@@ -1737,13 +1743,11 @@ async def revalidate_step1_draft(
         reference = await revalidate_reference_step1_draft(project_path, project, episode, draft)
         content = None if reference.schema_failed else {"units": reference.flat_units}
         return Step1DraftRevalidation(reference.violations, content)
-    if draft.kind == QUARANTINE_KIND_DRAMA_STEP1:
-        drama = await revalidate_drama_step1_draft(project_path, project, episode, draft)
-        return Step1DraftRevalidation(drama.violations, None if drama.schema_failed else drama.content)
-    if draft.kind == QUARANTINE_KIND_NARRATION_STEP1:
-        narration = await revalidate_narration_step1_draft(project_path, project, episode, draft)
-        return Step1DraftRevalidation(narration.violations, None if narration.schema_failed else narration.content)
-    raise ValueError(f"不是 step1 隔离草稿来源，无法重判: {draft.kind}")
+    revalidator = _SINGLE_STEP1_REVALIDATORS.get(draft.kind)
+    if revalidator is None:
+        raise ValueError(f"不是 step1 隔离草稿来源，无法重判: {draft.kind}")
+    single = await revalidator(project_path, project, episode, draft)
+    return Step1DraftRevalidation(single.violations, None if single.schema_failed else single.content)
 
 
 async def _open_reference_step1_for_edit(ctx: ToolContext, episode: int, source: str | None) -> dict[str, Any]:

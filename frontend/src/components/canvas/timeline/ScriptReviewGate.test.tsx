@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { ScriptReviewGate } from "./ScriptReviewGate";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import type { ScriptReviewState } from "@/types";
 
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
@@ -150,6 +151,15 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByText("待修复项（1）")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("裴与出征后的第二年。")).not.toBeInTheDocument();
     expect(screen.getByText("确认并继续").closest("button")).toBeDisabled();
+
+    // 「让 Agent 修复」把逐条违约预填进对话输入框、并把对话面板打开：用户不必自己把报告
+    // 转述给 Agent。面板默认就是开着的，先关掉才断得出这次点击真的打开了它。
+    act(() => useAppStore.getState().setAssistantPanelOpen(false));
+    fireEvent.click(screen.getByText("让 Agent 修复"));
+    const input = useAssistantStore.getState().input;
+    expect(input).toContain("1 处违约待修复");
+    expect(input).toContain("1. segment E1S01 的时长 5 不在模型档位 [4, 6, 8] 内");
+    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
   });
 
   it("asks the assistant to promote instead of listing violations when the draft has none", async () => {
@@ -161,6 +171,13 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(screen.getByText("待修复草稿 — 内容未通过校验")).toBeInTheDocument());
     expect(screen.getByText(/重新校验已无违约/)).toBeInTheDocument();
     expect(screen.getByText("确认并继续").closest("button")).toBeDisabled();
+
+    // 重算已无违约时预填的是「请晋升」，不是「有 0 处违约待修复」——后者会让用户去改一份
+    // 已经没问题的东西。
+    fireEvent.click(screen.getByText("让 Agent 修复"));
+    const input = useAssistantStore.getState().input;
+    expect(input).toContain("validate_and_promote_draft");
+    expect(input).not.toContain("违约待修复");
   });
 
   it("adopts externally edited (agent) content on refetch when the user has no edits", async () => {
