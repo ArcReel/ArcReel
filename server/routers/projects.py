@@ -178,9 +178,9 @@ class CreateProjectRequest(BaseModel):
     # 仅 content_mode=ad：创作诉求短文本（可空，不走 source_loader）
     brief: str | None = None
     # 生成模式：必填二选一、无默认值——缺失或旧三值 grid 由 Pydantic 校验返回 422，
-    # 不再被默认值悄悄锁进某条路线。创建后不可更改（PATCH 模型结构上无此字段）。
+    # 不再被默认值悄悄锁进某种生成模式。创建后不可更改（PATCH 模型结构上无此字段）。
     generation_mode: Literal["storyboard", "reference_video"]
-    # 宫格分镜开关：只改变分镜图的生产方式，不是独立路线；仅 storyboard 路线有意义，
+    # 宫格分镜开关：只改变分镜图的生产方式，不是独立生成模式；仅 storyboard 生成模式有意义，
     # 创建后可经项目 PATCH 随时切换。ad 项目拒绝开启。
     grid_storyboard: bool = False
     # 口播语速估算（阅读单位 / 秒）项目级覆盖：空 = 回退 lib.speech_rate 的语言默认。
@@ -676,7 +676,7 @@ async def get_video_capabilities(
     对应用户当前选中的模型而非上一次保存的模型。裸 provider（无 "/"）按其 registry
     默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
 
-    能力按项目生成模式定轴、全项目同一口径，故无需集号：路线创建即定、之后不可更改。
+    能力按项目生成模式定轴、全项目同一口径，故无需集号：生成模式创建即定、之后不可更改。
     """
     resolver = ConfigResolver(async_session_factory)
     try:

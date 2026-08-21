@@ -945,7 +945,7 @@ class TestProjectsRouter:
     def test_create_requires_binary_generation_mode(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
-            # 缺失 generation_mode：必填无默认值，不被悄悄锁进某条路线
+            # 缺失 generation_mode：必填无默认值，不被悄悄锁进某种生成模式
             missing = client.post(
                 "/api/v1/projects",
                 json={"name": "no-mode", "title": "X", "content_mode": "narration"},
@@ -959,7 +959,7 @@ class TestProjectsRouter:
             )
             assert legacy_grid.status_code == 422
 
-            # 二值路线均可创建
+            # 两种生成模式均可创建
             for mode in ("storyboard", "reference_video"):
                 created = client.post(
                     "/api/v1/projects",
@@ -2628,7 +2628,7 @@ class TestGetVideoCapabilities:
 
     @pytest.mark.integration
     def test_capabilities_resolve_by_project_route_without_episode(self, tmp_path, monkeypatch):
-        """能力按项目路线定轴：端点不接受集号，解析只带项目（与候选模型）。"""
+        """能力按项目生成模式定轴：端点不接受集号，解析只带项目（与候选模型）。"""
         from unittest.mock import AsyncMock, MagicMock
 
         resolver_instance = MagicMock()
@@ -2645,7 +2645,7 @@ class TestGetVideoCapabilities:
             )
         assert resp.status_code == 200
         assert resolver_instance.video_capabilities.await_args.args == ("ready",)
-        # 候选模型解析拿到的第三个入参必须是该项目的已加载数据（含项目路线），只断言参数个数的话
+        # 候选模型解析拿到的第三个入参必须是该项目的已加载数据（含项目生成模式），只断言参数个数的话
         # 路由传 None 或传错项目都照样通过。
         passed_project = resolver_instance.video_capabilities_for_model.await_args.args[2]
         assert passed_project["title"] == "Ready"
