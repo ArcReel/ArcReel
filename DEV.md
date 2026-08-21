@@ -41,22 +41,23 @@ pnpm check
 
 ArcReel 的 graph 位于 `graphify-out/`。Graphify 是代码库导航和关系查询工具，不能替代本文件中的开发流程约束。
 
-当前仓库已安装 Graphify 的 Git hook：
+当前仓库在 `.githooks/` 中跟踪 Graphify 的 Git hook。新 clone 安装
+`graphifyy` 后只需启用仓库 hooks 路径：
 
 ```bash
 git config core.hooksPath .githooks
+git config merge.graphify.name "Graphify graph merge driver"
+git config merge.graphify.driver "graphify merge-driver %O %A %B"
 graphify hook status
 ```
 
-`post-commit` 会在 commit 完成后后台更新代码 graph；`post-checkout` 会在切换分支后更新 graph；仓库内的 `.githooks/post-merge` 会在主工作树完成 merge（包括 fast-forward merge）后执行 `graphify update .`。Graphify 输出不加入 `.gitignore`，因此 hook 完成后 `graphify-out/` 可能出现新的 Git 变更，这些变更可以在后续 commit 中统一提交。
+`post-commit` 会在 commit 完成后后台更新代码 graph；`post-checkout` 会在切换分支后更新 graph；`post-merge` 会在主工作树完成 merge（包括 fast-forward merge）后执行 `graphify update .`。三个 hook 都跳过 linked Worktree，只允许主工作树更新根目录的 `graphify-out/`。
 
-`graphify hook install` 只负责安装 Graphify 自己的 `post-commit`/`post-checkout`，不会安装 `post-merge`。因此新 clone 或尚未配置 hooksPath 的 clone 需要先执行上面的 `git config`，再执行：
+团队共享的 Graphify 输出应提交到 `graphify-out/`，包括 `graph.json`、`graph.html`、`GRAPH_REPORT.md`、`manifest.json` 以及标签、健康检查和工作记忆。机器专属的解释器/扫描根记录、成本账本、cache 和日期备份由 `.gitignore` 排除。hook 完成后共享产物可能出现新的 Git 变更，这些变更可以在后续 commit 中统一提交。
 
-```bash
-graphify hook install
-```
+`post-commit`/`post-checkout` 来自 `graphify hook install`，但仓库版本会将安装器写入的 `_PINNED` 解释器路径清空，使 hook 可跨机器使用。升级 Graphify 并重新生成 hook 后，提交前必须再次清空 `_PINNED`；Graphify 不会生成 `post-merge`，该文件由仓库维护。
 
-`.githooks/post-merge` 会主动跳过 linked Worktree，只允许主工作树更新根目录的 `graphify-out/`。如果 hook 未安装、`graphify` 不在 PATH，或 hook 执行失败，在主工作树中补跑：
+如果 hook 未启用、`graphify` 不在 PATH，或 hook 执行失败，在主工作树中补跑：
 
 ```bash
 graphify update .
@@ -96,7 +97,9 @@ git branch -d <type>-<name>
 
 ```bash
 git config core.hooksPath .githooks
-graphify hook install
+git config merge.graphify.name "Graphify graph merge driver"
+git config merge.graphify.driver "graphify merge-driver %O %A %B"
+graphify hook status
 ```
 
-`.git/hooks/` 是本地 Git 元数据，不会随仓库提交；`.gitattributes` 中的 Graphify merge driver 规则则应保留并提交，以便团队共享 `graphify-out/graph.json` 的合并策略。
+`.git/hooks/` 是本地 Git 元数据，不会随仓库提交；仓库共享 hook 位于 `.githooks/`。`.gitattributes` 中的 Graphify merge driver 规则也应保留并提交，以便团队共享 `graphify-out/graph.json` 的合并策略。
