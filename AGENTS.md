@@ -12,7 +12,7 @@ uv run ruff check . && uv run ruff format . && uv run basedpyright && uv run lin
 (cd website && pnpm check)
 ```
 
-启动开发服务器、数据库迁移、分支与提交规范、依赖管理、注释规范见 `CONTRIBUTING.md`。
+启动开发服务器、数据库迁移、测试规范（分层/替身/判据/闸门）、分支与提交规范、依赖管理、注释规范见 `CONTRIBUTING.md`。
 
 ## 通用规范
 
