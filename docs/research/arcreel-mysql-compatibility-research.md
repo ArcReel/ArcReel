@@ -47,19 +47,33 @@ SQLite 存文本 / PostgreSQL native JSON / MySQL 8 native JSON，三者读写�
 
 ## 迁移验证计划
 
-每个受影响迁移须通过 offline 与 online 两套标准：
+每个受影响迁移须通过 offline 与 online 两套标准，并对每个 revision 独立执行闭环与幂等升级。
+
+### offline（不连库，逐 revision 生成 SQL）
 
 ```text
-# offline：SQL 生成与内容检查（不连库）
-alembic upgrade <start>:<end> --sql > upgrade.sql
-alembic downgrade <end>:<start> --sql > downgrade.sql
-# 检查生成的 SQL：方言差异、类型转换逻辑、降级回滚路径
+# 对每个 revision 分别生成 SQL 并检查
+DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4' \
+  alembic upgrade <start>:<end> --sql > upgrade_<revision>.sql
+DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4' \
+  alembic downgrade <end>:<start> --sql > downgrade_<revision>.sql
+# 检查：方言差异、类型转换逻辑、降级回滚路径是否合理
+```
 
-# online：真实数据库执行闭环（需受控 MySQL 实例）
-# 密码含 @ / ? # 等保留字符时需先 URL 编码；示例使用 URL_ENCODED_PASSWORD 占位
-DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4' alembic upgrade head
-DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4' alembic downgrade -1
-DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4' alembic upgrade head
+### online（真实 MySQL，每个 revision 独立闭环 + 幂等）
+
+```text
+DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4'
+
+# 7a8b9c0d1e2f 独立闭环
+alembic upgrade 7a8b9c0d1e2f
+alembic downgrade f6a41746c0de        # 回到父 revision
+alembic upgrade 7a8b9c0d1e2f          # 幂等升级：与首次升级后 schema 一致
+
+# bcaaa615ff38 独立闭环
+alembic upgrade bcaaa615ff38
+alembic downgrade 7a8b9c0d1e2f        # 回到父 revision
+alembic upgrade bcaaa615ff38          # 幂等升级
 ```
 
 | 迁移 | Revision | 影响内容 | 验证范围 |
@@ -70,7 +84,7 @@ DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?c
 | 模式 | 定义 | 验证标准 |
 |---|---|---|
 | offline | 只渲染 SQL、不连接数据库 | upgrade/downgrade 脚本语法正确、降级路径可逆 |
-| online | 连真实 MySQL 实例执行 | `upgrade → downgrade → upgrade` 闭环无错、最终 schema 与首次升级一致 |
+| online | 连真实 MySQL 实例执行 | 每个 revision 独立执行 `upgrade → downgrade → upgrade` 闭环无错、最终 schema 与首次升级一致 |
 | online（数据） | 加载代表性 legacy 数据后执行 | 既有数据经迁移后保持语义等价（如 provider_credential 的多条 inactive 记录仍能共存） |
 
 
