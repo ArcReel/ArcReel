@@ -891,8 +891,8 @@ class ScriptGenerator:
 
         每种模式只对应一个期望文件，缺失时显式报错并指明期望路径——不降级改读
         其他模式的中间文件（静默 fallback 会让剧本基于错误模式的中间产物生成）。
-        本方法只服务 drama 及未来其它走 drama 形状两段式的结构化模式；narration 另经
-        ``_load_narration_step1``、reference_video 另经 ``_load_reference_step1``。
+        本方法只服务 drama 形状的两段式结构化内容；narration 另经 ``_load_narration_step1``、
+        reference_video 另经 ``_load_reference_step1``。
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
         # 按 content_mode 取登记的结构化文件名，脏值兜底 drama。
@@ -922,8 +922,8 @@ class ScriptGenerator:
         drafts_path = episode_drafts_dir(self.project_path, episode)
         step1_json = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
         # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
-        # 待处置的违约产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞，这里是直连
-        # 调用（脚本 / 测试 / 未来的其它入口）的兜底。
+        # 待处置的违约产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞；脚本、测试等
+        # 直连调用会绕过工具入口，因此在此重复守卫。
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP1)
         if quarantine.exists():
             raise ValueError(
@@ -1092,8 +1092,8 @@ class ScriptGenerator:
         或在 render/merge 阶段抛内部异常而非明确的 step1 校验错误。
         """
         # 待修复草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
-        # 待处置的产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞，这里是直连调用
-        # （脚本 / 测试 / 未来的其它入口）的兜底，与参考生视频同口径。
+        # 待处置的产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞；脚本、测试等
+        # 直连调用会绕过工具入口，因此在此重复守卫，与参考生视频同口径。
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_STEP1)
         if quarantine.exists():
             raise ValueError(
