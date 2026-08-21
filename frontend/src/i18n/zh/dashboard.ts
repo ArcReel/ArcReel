@@ -1308,7 +1308,7 @@ export default {
   'reference_step1_source_anchor_broken': '非源文逐字子串',
   'reference_step1_edit_text': '编辑文稿',
   'reference_step1_edit_done': '完成编辑',
-  'reference_step1_quarantined_unit_hint': '本视频单元正在由 Agent 修复，完成后此处会自动更新。',
+  'reference_step1_quarantined_unit_hint': '本视频单元位于等待 Agent 修复的草稿中。',
   'reference_step1_status_quarantined': '待修复草稿 — 拆分未通过校验',
   'reference_step1_status_editable': '草稿由 Agent 处理',
   'reference_step1_editable_hint': 'Agent 会在本集任务中继续处理草稿，完成后此处会自动更新',

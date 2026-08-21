@@ -732,7 +732,7 @@ def build_narration_split_prompt(
 
     return f"""# 角色与任务
 
-你是一位专业的旁白内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的分镜表（step1 内容拆分）。
+你是一位专业的旁白内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的分镜表（step1 内容整理）。
 旁白/解说脚本走两段式：本阶段只定内容层——逐字 `novel_text`、分镜边界、时长、场景切换标记与出场资产；
 视觉层（image_prompt / video_prompt）由后续 step2 按 `segment_id` 对齐生成，`novel_text` 由本阶段定稿后透传、不再重出。
 

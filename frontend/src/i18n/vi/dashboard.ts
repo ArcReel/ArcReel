@@ -1283,7 +1283,7 @@ export default {
   'reference_step1_source_anchor_broken': 'Không phải chuỗi con nguyên văn của văn bản gốc',
   'reference_step1_edit_text': 'Chỉnh sửa văn bản',
   'reference_step1_edit_done': 'Hoàn tất chỉnh sửa',
-  'reference_step1_quarantined_unit_hint': 'Agent đang sửa đơn vị video này; giao diện sẽ tự động cập nhật khi hoàn tất.',
+  'reference_step1_quarantined_unit_hint': 'Đơn vị video này nằm trong bản nháp đang chờ Agent sửa.',
   'reference_step1_status_quarantined': 'Bản nháp cần sửa — chia không qua kiểm tra',
   'reference_step1_status_editable': 'Bản nháp do Agent xử lý',
   'reference_step1_editable_hint': 'Agent sẽ tiếp tục xử lý bản nháp này trong tác vụ của tập; giao diện sẽ cập nhật khi hoàn tất',

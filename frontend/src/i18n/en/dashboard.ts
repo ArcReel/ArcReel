@@ -1309,7 +1309,7 @@ export default {
   'reference_step1_source_anchor_broken': 'Not a verbatim substring of the source',
   'reference_step1_edit_text': 'Edit script',
   'reference_step1_edit_done': 'Done editing',
-  'reference_step1_quarantined_unit_hint': 'The agent is fixing this video unit; this view updates automatically when it is done.',
+  'reference_step1_quarantined_unit_hint': 'This video unit is in a draft awaiting Agent repair.',
   'reference_step1_status_quarantined': 'Draft needing fixes — split failed validation',
   'reference_step1_status_editable': 'Draft handled by the agent',
   'reference_step1_editable_hint': 'The agent will continue this draft as part of the episode task; this view updates when it is done',

@@ -495,7 +495,7 @@ class DramaScene(BaseModel):
         description="分镜级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列",
     )
     # 逐字原文摘录（追溯锚，类比旁白/解说 novel_text，但纯作追溯、不被朗读、不出音、best-effort）。
-    # 由 step1（内容抽取）填入，step2（视觉）透传不改；存量数据缺失时默认空串（不更坏守卫放行）。
+    # 由 step1（内容整理）填入，step2（视觉）透传不改；存量数据缺失时默认空串（不更坏守卫放行）。
     source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
     # 见 NarrationSegment.transition_to_next 说明
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")

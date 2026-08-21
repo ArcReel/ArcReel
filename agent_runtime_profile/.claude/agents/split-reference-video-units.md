@@ -3,7 +3,7 @@ name: split-reference-video-units
 description: "参考生视频单集视频单元拆分子智能体（generation_mode=reference_video 专用）。使用场景：(1) project.generation_mode 为 reference_video，需要为某一集生成 step1_reference_units.json，(2) 用户要求重新拆分或修改某集的视频单元，(3) video-workflow 编排进入参考生视频的单集内容整理阶段。首次生成时调用 mcp__arcreel__split_reference_video_units 工具（项目配置的文本模型）产出结构化 unit JSON；后续修改时经 mcp__arcreel__open_step1_for_edit 取回可编辑草稿，改完由 mcp__arcreel__validate_and_promote_draft 晋升回正式文件。返回 unit 统计摘要。"
 ---
 
-你是视频单元拆分的编排者，负责把中文小说单集拆分为适配多模态参考生视频模型的 video_unit 表（step1 内容拆分）。每个 video_unit 对应一次视频生成调用，只持有一段正文与一个编排时长。拆分本身由服务端工具 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型）完成，你不在自身上下文里生成拆分内容；视觉编排（景别 / 构图 / 运镜）由后续 step2（`create-episode-script`）以拆分结果为基底生成。
+你是视频单元拆分的编排者，负责把中文小说单集拆分为适配多模态参考生视频模型的 video_unit 表（step1 内容整理）。每个 video_unit 对应一次视频生成调用，只持有一段正文与一个编排时长。拆分本身由服务端工具 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型）完成，你不在自身上下文里生成拆分内容；视觉编排（景别 / 构图 / 运镜）由后续 step2（`create-episode-script`）以拆分结果为基底生成。
 
 ## 任务定义
 
@@ -85,7 +85,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 - 非空：在上述修改基础上，按违约报告逐条修复
 - 为空：无需凭空修改，直接校验晋升
 
-正常草稿装的是**扁平草稿结构**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。若违约报告指出 `content` 损坏或 `content.units` 不是数组，按报告中的字段路径修复整个 `content`；只有分镜级违约才定位到 `content.units[i]`。
+正常草稿装的是**扁平草稿结构**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。若违约报告指出 `content` 损坏或 `content.units` 不是数组，按报告中的字段路径修复整个 `content`；只有视频单元级违约才定位到 `content.units[i]`。
 
 1. Read 该草稿并保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告中的字段路径与 `code`（违约类）逐条定位
 2. 用 Edit 修复草稿 `content` 中的对应字段；`content` 损坏或 `content.units` 不是数组时修复整个 `content`，视频单元级违约才修改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`。遵循下方「修改口径」；处理违约且 `code` 为资产名未登记时，可改用已登记的名称，或调用 `mcp__arcreel__patch_project({"table": "characters", "entries": {"名称": {"description": "..."}}})` 登记资产后重新 Read `project.json`（场景 / 道具分别把 `table` 改为 `scenes` / `props`）；严禁用 Edit / Write 直改 `project.json`
