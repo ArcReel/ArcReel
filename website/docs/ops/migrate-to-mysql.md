@@ -262,7 +262,7 @@ DATABASE_URL=mysql+aiomysql://arcreel:***@mysql:3306/arcreel \
 迁移失败需要回滚时：
 1. **停止服务** `docker compose down`（或停止 uvicorn 进程）。
 2. **恢复源库备份**：SQLite 用 `cp projects/.arcreel.db.bak projects/.arcreel.db`；PostgreSQL 用 `pg_restore`。
-3. **移除新的数据库相关环境变量**：删除 `.env` 中的 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`，并将 `ARCREEL_DATABASE_URL` 改回原来的 `DATABASE_URL`（或删除） SQLite/PG 配置（或删除 `DATABASE_URL` 以恢复默认 SQLite）。
+3. **移除 MySQL 相关环境变量**：删除 `.env` 中的 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`ARCREEL_DATABASE_URL`。
 4. 用原来的 `docker-compose.yml` 或命令行重新启动。
 
 ---
