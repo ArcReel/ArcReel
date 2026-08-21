@@ -75,18 +75,21 @@ export function videoOptionMetaRenderer({
   providers,
   customProviders,
   endpointToMediaType,
-  route,
+  defaultRoute,
 }: {
   t: TFunction;
   providers: ProviderInfo[];
   customProviders: CustomProviderInfo[];
   endpointToMediaType?: Record<string, MediaType>;
-  /** 执行路径；有路线上下文的调用点须传入，音轨格按路径取值，与该屏其余控件同口径
-   *  （见 ModelConfigSection.tsx 的 audioControl）。省略时回退目录 i2v 位——全局设置页
-   *  无路线上下文，这是其现行正确口径。 */
-  route?: VideoRoute;
+  /** 默认层下拉的执行路径。默认层跨全部用途，路径只能由调用方的上下文给出（项目是否走参考生
+   *  视频）；全局设置页无项目上下文，省略即回退目录 i2v 位。细分项下拉不看此值——它们各自的
+   *  `key` 就是路径，见下方 `asVideoRoute`。 */
+  defaultRoute?: VideoRoute;
 }) {
-  return (fullValue: string) => {
+  return (fullValue: string, subFieldKey?: string) => {
+    // 细分项下拉自带路径，默认层才回落到调用方给的路径：同屏三个视频下拉分属不同路径，
+    // 共用一条会让「图生视频」那一格按参考生的口径标注（或反之）。
+    const route = asVideoRoute(subFieldKey) ?? defaultRoute;
     const durations = catalogDurations(providers, customProviders, fullValue);
     const resolutions = lookupResolutions(
       providers,
@@ -105,6 +108,14 @@ export function videoOptionMetaRenderer({
     }
     return parts.length > 0 ? parts.join(" · ") : t("dashboard:video_option_caps_unknown");
   };
+}
+
+/**
+ * 细分项 `key` 中的视频执行路径。`LayeredModelFields` 的细分项按任务类型桶命名，视频两个桶
+ * 恰好就是两条路径；图片桶（t2i / i2i）与文本档位不是视频路径，返回 null 交由默认层路径兜底。
+ */
+function asVideoRoute(subFieldKey: string | undefined): VideoRoute | null {
+  return subFieldKey === "i2v" || subFieldKey === "r2v" ? subFieldKey : null;
 }
 
 /** `value` 为 null 时短路为 null，否则套用 `map`——查表结果向布尔态收窄的通用写法。 */

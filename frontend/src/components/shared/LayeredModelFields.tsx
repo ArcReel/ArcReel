@@ -105,7 +105,12 @@ export interface LayeredModelFieldsProps {
   /** 默认层留空时的生效模型（项目层 = 全局默认层）；全局层是基准、不传。 */
   defaultEffective?: string;
   providerNames: Record<string, string>;
-  renderOptionMeta?: (fullValue: string) => React.ReactNode;
+  /**
+   * 下拉选项行的补充信息。第二个参数是发起该下拉的细分项 `key`；默认层不传——它跨全部用途，
+   * 没有单一生成路径。同屏的默认层与各细分项共用一个渲染器，路径相关的取值必须按此参数分流，
+   * 否则一个下拉的路径会被当成全部下拉的路径。
+   */
+  renderOptionMeta?: (fullValue: string, subFieldKey?: string) => React.ReactNode;
   /** 默认层下拉与折叠区之间的附加内容（模型规格条、分辨率、时长等）。 */
   children?: React.ReactNode;
   /** 细分项；省略或空数组即不渲染折叠区（创建向导只暴露默认层）。 */
@@ -175,7 +180,7 @@ export function LayeredModelFields({
         placeholder={emptyLabel}
         fallbackValue={defaultEffective}
         aria-label={defaultLabel}
-        renderOptionMeta={renderOptionMeta}
+        renderOptionMeta={renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue))}
       />
 
       {children}
@@ -226,7 +231,9 @@ export function LayeredModelFields({
                   fallbackValue={field.effective}
                   fallbackLabel={t("follow_model_default")}
                   aria-label={field.label}
-                  renderOptionMeta={renderOptionMeta}
+                  renderOptionMeta={
+                    renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue, field.key))
+                  }
                 />
                 <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{field.caption}</p>
               </div>

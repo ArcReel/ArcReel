@@ -1077,4 +1077,79 @@ describe("音频开关的模型可控性", () => {
     expect(screen.getByRole("radio", { name: "关闭" })).toBeChecked();
     expect(screen.getByText(/没有声音/)).toBeInTheDocument();
   });
+
+  // 同屏三个视频下拉分属三条不同路径：默认层跟着项目实际执行的那条，两个细分项各按自己的桶。
+  // 音轨格与下方开关必须给出同一个答案——一屏之内两句话互相矛盾，用户按下拉预览选型就会选错。
+  describe("候选下拉的音轨能力线", () => {
+    const OMNI_CANDIDATES = {
+      image: {
+        default: ["kling/v3-omni"],
+        buckets: { t2i: ["kling/v3-omni"], i2i: ["kling/v3-omni"] },
+      },
+      video: {
+        default: ["kling/v3-omni"],
+        buckets: { i2v: ["kling/v3-omni"], r2v: ["kling/v3-omni"] },
+      },
+      provider_names: {},
+    };
+
+    function renderDropdowns(usesReferenceImages: boolean) {
+      render(
+        <ModelConfigSection
+          value={EMPTY_VALUE}
+          onChange={() => {}}
+          providers={AUDIO_PROVIDERS}
+          usesReferenceImages={usesReferenceImages}
+          options={{
+            videoBackends: ["kling/v3-omni"],
+            // 图片下拉刻意放同一个模型：音轨格若被错接到图片侧，这里会显形。
+            imageBackends: ["kling/v3-omni"],
+            textBackends: [],
+            providerNames: { kling: "Kling" },
+          }}
+          candidates={OMNI_CANDIDATES}
+          globalDefaults={EMPTY_GLOBALS}
+          enable={{ text: false }}
+        />,
+      );
+    }
+
+    /** 打开指定下拉，读出 v3-omni 那一行的能力线，再关掉——同时只开一个下拉。 */
+    async function omniRowIn(user: ReturnType<typeof userEvent.setup>, comboboxName: string) {
+      await user.click(screen.getByRole("combobox", { name: comboboxName }));
+      const text = screen.getByRole("option", { name: /v3-omni/ }).textContent ?? "";
+      await user.keyboard("{Escape}");
+      return text;
+    }
+
+    it("参考生视频项目：默认层与参考生桶标无声，图生桶不受牵连仍标有声", async () => {
+      const user = userEvent.setup();
+      renderDropdowns(true);
+      // 默认层留空时执行的是 r2v 桶，能力线跟着走
+      expect(await omniRowIn(user, "默认视频模型")).toContain("无声");
+
+      await user.click(screen.getAllByText("按用途指定模型")[0]);
+      expect(await omniRowIn(user, "参考生视频")).toContain("无声");
+      // 项目走参考生路线不代表「图生视频」这一格也该按参考生标注——它就是图生路径本身
+      expect(await omniRowIn(user, "图生视频")).toContain("有声");
+    });
+
+    it("图生视频项目：默认层与图生桶标有声，参考生桶仍标无声", async () => {
+      const user = userEvent.setup();
+      renderDropdowns(false);
+      expect(await omniRowIn(user, "默认视频模型")).toContain("有声");
+
+      await user.click(screen.getAllByText("按用途指定模型")[0]);
+      expect(await omniRowIn(user, "图生视频")).toContain("有声");
+      // 项目当前不走参考生路线，但这一格描述的是参考生路径的能力，与项目设置无关
+      expect(await omniRowIn(user, "参考生视频")).toContain("无声");
+    });
+
+    it("图片下拉不带音轨格——音轨是视频概念，图片桶不消费执行路径", async () => {
+      const user = userEvent.setup();
+      renderDropdowns(true);
+      await user.click(screen.getByRole("combobox", { name: "默认图片模型" }));
+      expect(screen.getByRole("option", { name: /v3-omni/ })).not.toHaveTextContent(/有声|无声/);
+    });
+  });
 });

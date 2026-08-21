@@ -238,6 +238,9 @@ export function MediaModelSection() {
     ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
     : [];
 
+  // 不传 defaultRoute：全局默认模型两条路径都会用到，取任一条都会误报另一条；无项目上下文
+  // 时按目录 i2v 位展示。两个细分项下拉各按自己的桶取值，与上方 i2vAudioControl / r2vAudioControl
+  // 同口径。
   const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
   const currentAudioBackend = draft.default_audio_backend ?? settings.default_audio_backend ?? "";
   const currentNarrationVoice = draft.narration_voice ?? settings.narration_voice ?? "";

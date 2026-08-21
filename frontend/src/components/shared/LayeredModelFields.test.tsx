@@ -111,6 +111,53 @@ describe("LayeredModelFields", () => {
     expect(onDefaultChange).not.toHaveBeenCalled();
   });
 
+  // 默认层与各细分项共用一个 renderOptionMeta。路径相关的取值（音轨）只有拿到「是哪个细分项
+  // 在问」才算得对，所以这里锁住转发本身：默认层不带 key，细分项带且只带自己的 key。
+  describe("renderOptionMeta 的细分项归属", () => {
+    it("默认层下拉不带细分项 key——它跨全部用途，没有单一生成路径", async () => {
+      const user = userEvent.setup();
+      const renderOptionMeta = vi.fn((_fullValue: string, _subFieldKey?: string) => null);
+      renderFields({ renderOptionMeta });
+      await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
+      expect(renderOptionMeta).toHaveBeenCalled();
+      for (const call of renderOptionMeta.mock.calls) {
+        expect(call[1]).toBeUndefined();
+      }
+    });
+
+    it("每个细分项下拉带上自己的 key，互不串用", async () => {
+      const user = userEvent.setup();
+      const renderOptionMeta = vi.fn((_fullValue: string, _subFieldKey?: string) => null);
+      renderFields({
+        renderOptionMeta,
+        subFields: [subField(), subField({ key: "r2v", label: "参考生视频" })],
+      });
+      await user.click(screen.getByText("按用途指定模型"));
+
+      renderOptionMeta.mockClear();
+      await user.click(screen.getByRole("combobox", { name: "图生视频" }));
+      expect(renderOptionMeta).toHaveBeenCalledWith("gemini/veo-3", "i2v");
+      await user.keyboard("{Escape}");
+
+      renderOptionMeta.mockClear();
+      await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
+      expect(renderOptionMeta).toHaveBeenCalledWith("gemini/veo-3", "r2v");
+    });
+
+    it("转发的是原样的 key，不限于视频桶——图片桶同样拿到自己的 key", async () => {
+      const user = userEvent.setup();
+      const renderOptionMeta = vi.fn((_fullValue: string, _subFieldKey?: string) => null);
+      renderFields({
+        renderOptionMeta,
+        subFields: [subField({ key: "t2i", label: "文生图" })],
+      });
+      await user.click(screen.getByText("按用途指定模型"));
+      renderOptionMeta.mockClear();
+      await user.click(screen.getByRole("combobox", { name: "文生图" }));
+      expect(renderOptionMeta).toHaveBeenCalledWith("gemini/veo-3", "t2i");
+    });
+  });
+
   it("force-opens the disclosure and shows an error notice with retry when subFieldsError is set, even with no sub-fields", () => {
     const onRetry = vi.fn();
     const { container } = renderFields({ subFields: [], subFieldsError: { onRetry } });

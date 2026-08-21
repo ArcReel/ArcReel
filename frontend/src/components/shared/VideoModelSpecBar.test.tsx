@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { TFunction } from "i18next";
 import { VideoModelSpecBar, videoOptionMetaRenderer, VoiceConsistencyBadge } from "./VideoModelSpecBar";
-import type { ModelInfoResponse, ProviderInfo } from "@/types";
+import type { ModelInfoResponse, ProviderInfo, VideoRoute } from "@/types";
 
 describe("VideoModelSpecBar", () => {
   it("renders duration / resolution / audio / voice consistency cells", () => {
@@ -62,22 +62,41 @@ function makeKlingProviders(model: ModelInfoResponse): ProviderInfo[] {
 }
 
 describe("videoOptionMetaRenderer", () => {
+  const renderer = (defaultRoute?: VideoRoute) =>
+    videoOptionMetaRenderer({
+      t,
+      providers: makeKlingProviders(makeOmniModel()),
+      customProviders: [],
+      defaultRoute,
+    });
+
   it("i2v 路线读 audio_track：v3-omni 可控音轨，能力线标有声", () => {
-    const providers = makeKlingProviders(makeOmniModel());
-    const renderMeta = videoOptionMetaRenderer({ t, providers, customProviders: [], route: "i2v" });
-    expect(renderMeta("kling/v3-omni")).toContain("video_spec_audio_has");
+    expect(renderer("i2v")("kling/v3-omni")).toContain("video_spec_audio_has");
   });
 
   it("r2v 路线读 reference_route_audio_track：同一模型参考生恒无声，能力线标无声", () => {
-    const providers = makeKlingProviders(makeOmniModel());
-    const renderMeta = videoOptionMetaRenderer({ t, providers, customProviders: [], route: "r2v" });
-    expect(renderMeta("kling/v3-omni")).toContain("video_spec_audio_none");
+    expect(renderer("r2v")("kling/v3-omni")).toContain("video_spec_audio_none");
   });
 
-  it("省略 route 时回退目录 i2v 位（全局设置页现行口径），行为与 lookupCatalogVideoAudio 一致", () => {
-    const providers = makeKlingProviders(makeOmniModel());
-    const renderMeta = videoOptionMetaRenderer({ t, providers, customProviders: [] });
-    expect(renderMeta("kling/v3-omni")).toContain("video_spec_audio_has");
+  it("省略 defaultRoute 时回退目录 i2v 位（全局设置页现行口径），行为与 lookupCatalogVideoAudio 一致", () => {
+    expect(renderer()("kling/v3-omni")).toContain("video_spec_audio_has");
+  });
+
+  // 同屏三个视频下拉共用一个渲染器，细分项自己的路径必须压过默认层的：否则参考生项目里
+  // 「图生视频」那一格会按 r2v 标成无声。
+  it("细分项 key 压过 defaultRoute：参考生项目里 i2v 桶仍按图生路径标有声", () => {
+    expect(renderer("r2v")("kling/v3-omni", "i2v")).toContain("video_spec_audio_has");
+  });
+
+  it("细分项 key 压过 defaultRoute：图生项目里 r2v 桶仍按参考生路径标无声", () => {
+    expect(renderer("i2v")("kling/v3-omni", "r2v")).toContain("video_spec_audio_none");
+  });
+
+  it("图片桶的 key 不是视频路径，取值仍按 defaultRoute 判定", () => {
+    // 渲染器由 LayeredModelFields 逐细分项调用，图片桶的 key 同样会传进来；t2i / i2i 不得
+    // 被当成视频路径解读。
+    expect(renderer("r2v")("kling/v3-omni", "t2i")).toContain("video_spec_audio_none");
+    expect(renderer("i2v")("kling/v3-omni", "i2i")).toContain("video_spec_audio_has");
   });
 });
 
