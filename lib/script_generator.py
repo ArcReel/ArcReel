@@ -260,7 +260,7 @@ class ScriptGenerator:
             self._freeze_ad_artifact_basis(episode)
             return await self._generate_and_save(prompt, schema, episode, output_filename)
 
-        # drama（storyboard / grid）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
+        # 剧情演绎的分镜图生视频（含宫格装配）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
         # step2 仅出视觉层（image_prompt / video_prompt），后端按 scene_id 合并回 step1 内容、
         # 透传 utterances / source_text 等非视觉字段。reference_video 路径不入此分支（用 video_units）；
         # content_mode 非 narration（drama 或脏值）走 step2 drama 形状。
@@ -632,7 +632,7 @@ class ScriptGenerator:
             prompt, _schema = await self._compose_ad(episode, gen_mode)
             return append_user_instructions(prompt, instructions)
 
-        # drama（storyboard / grid）dry-run 走 step2 视觉层 prompt：读 step1 结构化内容并渲染
+        # 剧情演绎的分镜图生视频（含宫格装配）dry-run 走 step2 视觉层 prompt：读 step1 结构化内容并渲染
         # （见 generate() 的两段式说明）。reference_video / narration 不入此分支。
         if gen_mode != "reference_video" and self.content_mode != "narration":
             content = self._load_drama_step1_content(episode)

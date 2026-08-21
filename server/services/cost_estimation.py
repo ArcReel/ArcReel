@@ -539,7 +539,7 @@ class CostEstimationService:
                 logger.warning("费用估算跳过脏脚本 %s: %s", script_file, exc)
                 raw_segments, id_key = [], "segment_id"
 
-            # Grid 模式：预计算每个 segment 的图片分摊费用。份额以条目在 ``raw_segments`` 中的
+            # 宫格装配：预计算每个 segment 的图片分摊费用。份额以条目在 ``raw_segments`` 中的
             # 位置为身份，与下方实付均摊同口径（理由见该处）；分组由
             # ``group_scenes_by_segment_break`` 按顺序切出、连续且不重不漏，故位置即组内序号
             # 加上前序各组的长度。

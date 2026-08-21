@@ -66,7 +66,7 @@ export function ImageEditButton({
 
   const handleSubmit = async () => {
     const trimmed = instruction.trim();
-    // disabled（busy||!hasImage）仍要拦：busy 还带着 store 按资源占用之外的维度——宫格模式下
+    // disabled（busy||!hasImage）仍要拦：busy 还带着 store 按资源占用之外的维度——启用宫格装配时
     // 本集有 grid 任务在跑（切割阶段覆写多张 storyboard，见 selectHasActiveTaskForScriptFile）、
     // 卡片内正在上传底图，二者都不会出现在本资源的占用集里；且键盘快捷键提交绕过按钮的
     // disabled 属性，此处是这层判定唯一的落点。
@@ -79,7 +79,7 @@ export function ImageEditButton({
       return;
     }
     const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
-    // storyboard 资源占用集查不到 grid 任务（其 resource_id 是 grid_id）；宫格模式下
+    // storyboard 资源占用集查不到 grid 任务（其 resource_id 是 grid_id）；启用宫格装配时
     // 本集有切割任务在跑时需按 scriptFile 复核，否则新鲜读会漏过 busy prop 尚未追上
     // 的这一维度，见 selectHasActiveTaskForScriptFile 与 GridImageToVideoCanvas 的
     // gridActiveForEpisode。

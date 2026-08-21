@@ -107,7 +107,7 @@ describe("ImageEditButton", () => {
     });
   });
 
-  it("提交时被 getState() 新鲜读拦截：busy prop 未追上时，宫格模式下本集 grid 任务占用靠 scriptFile 新鲜读兜底", async () => {
+  it("提交时被 getState() 新鲜读拦截：busy prop 未追上时，启用宫格装配后本集 grid 任务占用靠 scriptFile 新鲜读兜底", async () => {
     const editSpy = vi.spyOn(API, "editImage");
     const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
 
@@ -148,7 +148,7 @@ describe("ImageEditButton", () => {
     expect(editSpy).not.toHaveBeenCalled();
   });
 
-  it("busy 维度仍拦截键盘提交：本资源占用集之外的占用（宫格模式下本集 grid 任务在跑）只反映在 busy prop 上", async () => {
+  it("busy 维度仍拦截键盘提交：本资源占用集之外的占用（启用宫格装配后本集 grid 任务在跑）只反映在 busy prop 上", async () => {
     const editSpy = vi.spyOn(API, "editImage");
 
     const props = {

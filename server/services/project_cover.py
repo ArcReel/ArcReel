@@ -5,16 +5,16 @@
 
     1. 已生成视频的首帧 `video_thumbnail`
        —— 分镜图生视频写在 `segments[*].generated_assets.video_thumbnail`，
-          reference 模式写在 `video_units[*].generated_assets.video_thumbnail`，
+          参考生视频写在 `video_units[*].generated_assets.video_thumbnail`，
           均由 `lib/thumbnail.extract_video_thumbnail` 在生成完成后抽出并落盘。
        最能代表"项目当前产出进度"的资产，优先级最高。
 
     2. 已生成的分镜图 `storyboard_image`
        —— 分镜图生视频还没完成视频、但已出分镜图时的次优选择；
-          reference 模式该字段永远为 None，自然跳过。
+          参考生视频该字段永远为 None，自然跳过。
 
     3. 场景参考图 `scene_sheet`
-       —— reference 模式核心兜底：即使一次视频都没生成，也能用一张场景资产图
+       —— 参考生视频核心兜底：即使一次视频都没生成，也能用一张场景资产图
           展现项目美术风格。scene > character 是因为环境/空间感更像"封面"。
 
     4. 角色参考图 `character_sheet`
@@ -79,11 +79,8 @@ def resolve_project_cover(
             continue
 
     def _iter_items(script: dict):
-        # 合并 segments（storyboard/grid）与 video_units（reference）两种集级结构。
-        # 旧实现 `video_units or segments` 在两者共存时会永久丢弃后者——
-        # storyboard 项目被误塞入空 video_units 时，segments 里的真实 video_thumbnail /
-        # storyboard_image 被整体跳过，封面退化到 scene_sheet（见回归测试）。
-        # 合并遍历 + `if thumb`/`if sb` 的 falsy 过滤，天然忽略空壳 item。
+        # 合并分镜图生视频的 segments 与参考生视频的 video_units；两种键共存或其中一方为空壳时，
+        # 任一结构都不能遮蔽另一结构的真实资产。`if thumb` / `if sb` 的 falsy 过滤忽略空壳 item。
         return [*(script.get("segments") or []), *(script.get("video_units") or [])]
 
     for script in scripts:

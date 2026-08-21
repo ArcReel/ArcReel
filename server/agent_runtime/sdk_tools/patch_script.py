@@ -233,17 +233,17 @@ def patch_episode_script_tool(ctx: ToolContext):
 def insert_segment_tool(ctx: ToolContext):
     @tool(
         "insert_segment",
-        "在指定分镜 id 之后插入一个新分镜（segment/scene/unit）。新分镜由你提供完整内容，"
-        "其 id 由系统分配（派生自锚点 id 的稳定后缀，不重排其余分镜），资产为空待生成。"
-        "reference 模式插入的是 video_unit（正文写在 text 字段）。",
+        "在指定条目 id 之后插入一个新条目（分镜或视频单元，机器结构为 segment/scene/unit）。"
+        "新条目由你提供完整内容，其 id 由系统分配（派生自锚点 id 的稳定后缀，不重排其余条目），"
+        "资产为空待生成。参考生视频插入的是 video_unit（正文写在 text 字段）。",
         {
             "type": "object",
             "properties": {
                 "script": {"type": "string", "description": "剧本文件名（纯文件名）"},
-                "after_id": {"type": "string", "description": "在此分镜 id 之后插入"},
+                "after_id": {"type": "string", "description": "在此条目 id 之后插入"},
                 "item": {
                     "type": "object",
-                    "description": "新分镜的完整内容对象（除 id/generated_assets 外的所有必填字段；id 由系统分配）",
+                    "description": "新条目的完整内容对象（除 id/generated_assets 外的所有必填字段；id 由系统分配）",
                 },
             },
             "required": ["script", "after_id", "item"],
@@ -270,7 +270,7 @@ def insert_segment_tool(ctx: ToolContext):
             output = _tool_edit_result("insert_segment", result)
             if result.success:
                 new_ids = _item_ids(ctx.pm.load_script(ctx.project_name, script_filename))
-                output["content"][0]["text"] += f"\n当前分镜顺序: {new_ids}"
+                output["content"][0]["text"] += f"\n当前条目顺序: {new_ids}"
             return output
         except Exception as exc:  # noqa: BLE001
             return tool_error("insert_segment", exc)
@@ -281,13 +281,13 @@ def insert_segment_tool(ctx: ToolContext):
 def remove_segment_tool(ctx: ToolContext):
     @tool(
         "remove_segment",
-        "按 id 删除一个分镜（segment/scene/unit）。其余分镜的 id 不变、不重排，被删分镜的"
-        "已生成资产随之失效。reference 模式删除的是 video_unit。",
+        "按 id 删除一个条目（分镜或视频单元，机器结构为 segment/scene/unit）。其余条目的 id "
+        "不变、不重排，被删条目的已生成资产随之失效。参考生视频删除的是 video_unit。",
         {
             "type": "object",
             "properties": {
                 "script": {"type": "string", "description": "剧本文件名（纯文件名）"},
-                "id": {"type": "string", "description": "要删除的分镜 id"},
+                "id": {"type": "string", "description": "要删除的条目 id"},
             },
             "required": ["script", "id"],
         },
@@ -300,7 +300,7 @@ def remove_segment_tool(ctx: ToolContext):
             output = _tool_edit_result("remove_segment", result)
             if result.success:
                 new_ids = _item_ids(ctx.pm.load_script(ctx.project_name, script_filename))
-                output["content"][0]["text"] += f"\n当前分镜顺序: {new_ids}"
+                output["content"][0]["text"] += f"\n当前条目顺序: {new_ids}"
             return output
         except Exception as exc:  # noqa: BLE001
             return tool_error("remove_segment", exc)
@@ -311,16 +311,16 @@ def remove_segment_tool(ctx: ToolContext):
 def split_segment_tool(ctx: ToolContext):
     @tool(
         "split_segment",
-        "把一个分镜按你提供的各部分内容拆成多个（≥2 份）。**首份保留原 id 且 generated_assets 不动**"
-        "（锚点延续,与 insert_segment 资产保留语义对齐）;其余分配稳定的派生 id 且 generated_assets "
-        "清空,需重新生成。只想微调原分镜内容请用 patch_episode_script——split 适合"
-        "「这一镜信息量太大,拆成 N 镜分别表达」这类身份变化的场景。reference 模式下 unit 的 "
+        "把一个条目（分镜或视频单元）按你提供的各部分内容拆成多个（≥2 份）。**首份保留原 id "
+        "且 generated_assets 不动**（锚点延续,与 insert_segment 资产保留语义对齐）;其余分配稳定的"
+        "派生 id 且 generated_assets 清空,需重新生成。只想微调原条目内容请用 patch_episode_script。"
+        "参考生视频下 unit 的 "
         "duration_seconds 是独立字段（不由正文长度派生），拆分后每份都要给出符合模型档位的值。",
         {
             "type": "object",
             "properties": {
                 "script": {"type": "string", "description": "剧本文件名（纯文件名）"},
-                "id": {"type": "string", "description": "要拆分的分镜 id"},
+                "id": {"type": "string", "description": "要拆分的条目 id"},
                 "parts": {
                     "type": "array",
                     "items": {"type": "object"},

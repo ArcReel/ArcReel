@@ -29,7 +29,7 @@ interface MediaCardProps {
   posterPath?: string | null;
   /** 渲染比例 */
   aspectRatio: "9:16" | "16:9";
-  /** 是否在 grid 模式下隐藏单独生成按钮 */
+  /** 是否因启用宫格装配而隐藏单独生成按钮 */
   hideGenerateButton?: boolean;
   /** 生成按钮是否禁用（视频生成需要先有分镜图） */
   generateDisabled?: boolean;

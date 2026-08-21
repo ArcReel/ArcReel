@@ -1508,7 +1508,7 @@ class API {
     return (await response.json()) as T;
   }
 
-  /** 上传分镜图或分镜视频，替换该分镜的 AI 生成资产（storyboard/grid 模式）。 */
+  /** 上传分镜图或分镜视频，替换该分镜的 AI 生成资产（分镜图生视频，含多宫格分镜）。 */
   static async uploadShotMedia(
     projectName: string,
     scriptFile: string,

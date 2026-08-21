@@ -522,7 +522,7 @@ async def list_projects():
 
                     # 封面走 resolve_project_cover fallback 链：
                     # video_thumbnail → storyboard_image → scene_sheet → character_sheet
-                    # —— 兼顾 reference / grid / storyboard 三种生成模式。
+                    # —— 同时覆盖分镜图生视频（含宫格装配）与参考生视频。
                     thumbnail = resolve_project_cover(manager, name, project, preloaded_scripts=preloaded_scripts)
 
                     # 阶段与产物计数一律来自项目摘要投影（读时计算，产物口径取产物清单）

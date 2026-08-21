@@ -174,12 +174,12 @@ def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
 
 
 def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[dict]:
-    """读取路径的脏数据降级：基于 `resolve_items` 三模式判别（narration/drama/reference_video），
+    """读取路径的脏数据降级：基于 `resolve_items` 判别三种剧本结构，
     脏数据（键存在但值非 list）下 log warning + 返回 []。
 
     与写入路径（`update_scene_asset` / `batch_update_scene_assets`）共用 `resolve_items` 判别
-    保证三模式一致——上一版本用 `_script_items_shape` 在 reference 模式下会静默落到 drama
-    兜底返回 []，破坏一致性。写入侧应该 fail-loud（让 ScriptEditError 上冒，worker 显式失败，
+    保证三种剧本结构的读写判别一致，避免参考生视频静默落到 drama 兜底返回 []。
+    写入侧应该 fail-loud（让 ScriptEditError 上冒，worker 显式失败，
     上层 API 5xx 告知数据损坏）；读取侧在脏数据下返回 [] 不阻塞 UI 渲染，但 warning 给运维
     可观测信号去人工修复，不让降级变隐形。
     """
@@ -1463,8 +1463,8 @@ class ProjectManager:
         # 但「分镜数组键损坏（如 segments: null）」是更严重的损坏，写入侧必须 fail-loud——
         # 静默 no-op 等于把数据丢失藏起来：worker 写完 N 个 video_clip 还以为成功了，UI 却
         # 看不到任何回写。让 ScriptEditError 上冒，worker 层负责降级（记 task 失败、人工修复）。
-        # `resolve_items` 三模式判别（narration/drama/reference_video）与 `_write_script_unlocked`
-        # / 读取 helper 共用同一源——避免 `_script_items_shape` 那种 reference 模式落到 drama 兜底
+        # `resolve_items` 对三种剧本结构的判别与 `_write_script_unlocked` / 读取 helper 共用同一源，
+        # 避免参考生视频落到 drama 兜底
         # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"分镜不存在"的根因被掩盖路径。
         with self.locked_script(
             project_name,
@@ -1612,7 +1612,7 @@ class ProjectManager:
         # 静默 no-op 等于把 worker 写完的 N 个 clip 路径丢弃但 SSE 仍广播「all updated」、UI
         # 永远 pending。id 未命中收集一轮再统一抛，让 worker 看到完整失败集合而不是只看到首个；
         # locked_script 在 with 体内抛异常时整体不写回（与 update_scene_asset 单个版本对齐）。
-        # resolve_items 让 reference 模式 worker 也能正确按 unit_id 索引 video_units。
+        # resolve_items 让参考生视频 worker 也能正确按 unit_id 索引 video_units。
         with self.locked_script(
             project_name,
             script_filename,
@@ -1665,11 +1665,11 @@ class ProjectManager:
         """
         script = self.load_script(project_name, script_filename)
 
-        # `_resolve_items_or_warn` 三模式判别 + 脏数据 warn-and-skip 降级——读取侧 silent
+        # `_resolve_items_or_warn` 对三种剧本结构统一判别，并对脏数据 warn-and-skip 降级——读取侧 silent
         # 比写入侧 silent 安全（UI 渲染空列表好过 5xx 阻塞页面），但 warning 给可观测信号；
         # 写入侧（update_scene_asset / batch_update_scene_assets）则用 `resolve_items` 直接
-        # 抛 ScriptEditError 保证数据损坏永远有显式信号。reference 模式下也能正确返回
-        # video_units，不会静默落到 drama 兜底丢失 reference 数据。
+        # 抛 ScriptEditError 保证数据损坏永远有显式信号。参考生视频也能正确返回
+        # video_units，不会静默落到 drama 兜底丢失参考生视频数据。
         items = _resolve_items_or_warn(script, script_filename=script_filename)
 
         # item.generated_assets 缺失 / null / 非 dict 一律视为"未生成"——读取侧脏数据容错，

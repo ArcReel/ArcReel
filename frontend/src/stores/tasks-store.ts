@@ -570,7 +570,7 @@ function stripScriptsPrefix(path: string): string {
  * 存在即算，用于粗粒度剧集级占用判定：grid 任务的 resource_id 是 grid_id 而非
  * 分镜 segment_id，无法归入 selectActiveResourceIds 的按资源判定；但 grid 切割阶段
  * 会覆写本集内多个分镜的 storyboard 文件，故按 scriptFile 判定「本集是否有宫格任务
- * 在跑」，用于禁用宫格模式下的分镜编辑入口，避免编辑与切割并发写同一文件。
+ * 在跑」，用于在启用宫格装配时禁用分镜编辑入口，避免编辑与切割并发写同一文件。
  *
  * 乐观占用：宫格入队请求发出到下一次轮询把新 grid 任务行写进 store 之间是空窗，期间
  * 本集在 store 里尚无对应 grid 任务行，分镜编辑入口会误判为空闲、与随后的切割阶段
