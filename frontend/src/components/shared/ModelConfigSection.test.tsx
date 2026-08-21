@@ -1063,8 +1063,8 @@ describe("音频开关的模型可控性", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  // 音轨形态按执行路径分叉：同一模型在图生路线可控、在参考路线没有开关可下发。按模型（而非
-  // 按路径）取值会让参考路线的用户开着音频却拿到无声成片，且全程无提示。
+  // 音轨形态按执行路径分叉：同一模型在图生路线可控、在参考生视频没有开关可下发。按模型（而非
+  // 按路径）取值会让参考生视频的用户开着音频却拿到无声成片，且全程无提示。
   it("keeps the switch interactive for a route-split model on the first-frame route", () => {
     renderAudio("kling/v3-omni", null);
     expect(screen.getByRole("radio", { name: "关闭" })).toBeEnabled();

@@ -63,7 +63,7 @@ async def resolve_audio_switch_conflict(project: dict, capability: VideoCapabili
     视频生成的各个提交入口据此在入队前拒绝，WebUI 与 Agent 两条路径共用这一份判据。
 
     判据按 ``capability`` 定的执行路径取（:func:`builtin_video_audio_track`）：同一 model 在不同
-    子路径上可以有不同的音轨形态，按无路径上下文的声明判会对参考路线误判。
+    子路径上可以有不同的音轨形态，按无路径上下文的声明判会对参考生视频误判。
 
     解析失败一律返回 ``None``（不把配置解析问题升级为提交期拒绝），自定义供应商与未登记模型
     没有逐模型音轨声明，无信号不收紧。两次解析都读库，故同在一个 ``try`` 内并一并接住

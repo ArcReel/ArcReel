@@ -324,7 +324,7 @@ class TestMultiImageSubpath:
 
     @pytest.mark.unit
     def test_reference_route_declares_no_audio_switch(self):
-        """能力声明与 multi-image2video 的请求形态同源：参考路线如实呈现为无音轨开关。
+        """能力声明与 multi-image2video 的请求形态同源：参考生视频如实呈现为无音轨开关。
 
         展示层（设置页音频开关置灰）与入队预检读的就是这一份；两者若各写一遍，界面会继续
         放行一个执行期必然被丢弃的开关——用户开了音频却拿到无声成片。

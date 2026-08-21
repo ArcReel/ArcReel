@@ -12,7 +12,7 @@ export type VoiceConsistencyTier = "native" | "soft" | "none";
 export type VideoAudioControl = "controllable" | "always_on" | "always_off";
 
 /**
- * 视频执行路径（能力桶），与 `lib/config/resolver.py::VideoCapability` 一一对应：
+ * 视频执行路径（任务类型桶），与 `lib/config/resolver.py::VideoCapability` 一一对应：
  * `i2v` 覆盖文生与图生首帧，`r2v` 是参考生视频。逐路径的能力位按它取值。
  */
 export type VideoRoute = "i2v" | "r2v";

@@ -323,7 +323,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
 
         「该子路径有没有音轨开关」不在此处二次实现，直接读 ``video_capabilities_for_model`` 的
         逐路径声明——那份声明就是展示层与入队预检读到的同一份（multi-image2video 原生 schema 不
-        含 sound，故参考路线声明为恒无声）。两处各写一遍的话，界面会继续放行一个执行期必然丢弃
+        含 sound，故参考生视频声明为恒无声）。两处各写一遍的话，界面会继续放行一个执行期必然丢弃
         的开关，也会让该请求因标志进 ledger 而按有声价出账。
         """
         route: VideoRoute = "r2v" if subpath == _MULTI_IMAGE2VIDEO else "i2v"

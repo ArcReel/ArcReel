@@ -375,7 +375,7 @@ async def resolve_generation_context(
             requested_generate_audio = await r.video_generate_audio_for_project(project)
             try:
                 # 带上该任务落的桶：音轨形态等逐路径能力位按执行子路径分叉，不传会按项目
-                # 路线定桶，参考路线内降级到 i2v 的镜头就会拿到 r2v 的口径。
+                # 路线定桶，参考生视频内降级到 i2v 的镜头就会拿到 r2v 的口径。
                 caps = await r.video_capabilities_for_model(
                     resolved.provider_id, actual_model, project, capability=video.capability
                 )

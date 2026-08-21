@@ -1619,7 +1619,7 @@ async def revalidate_narration_step1_draft(
 
 
 def _narration_step1_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
-    """正式 narration step1 内容 → 草稿装的书写层形状；不是合法 step1 时返回 None。
+    """正式 narration step1 内容 → 草稿装的分镜结构；不是合法 step1 时返回 None。
 
     该变体没有机器派生字段可剥（``segment_id`` 是模型自己写的对齐锚、不由序号派生），草稿层与
     落盘层同形，只丢掉 ``segments`` 之外的顶层键。分镜项原样带过、包括非 dict 的项：跳过会让
@@ -1906,7 +1906,7 @@ async def _open_reference_step1_for_edit(ctx: ToolContext, episode: int, source:
     }
 
 
-#: step1 草稿来源 → 该变体的「取回正式 step1 为可编辑草稿」入口。三条路线的书写层形状与
+#: step1 草稿来源 → 该变体的「取回正式 step1 为可编辑草稿」入口。三条路线的草稿结构与
 #: 正式文件名各不相同，取回流程却同形（持锁 → 拒覆盖在场草稿 → 读正式文件 → 写草稿并记基线），
 #: 故按 kind 查表分派；缺席即「该变体无编辑通道」（ad 无结构化 step1，本就取不到变体）。
 _STEP1_EDIT_OPENERS: dict[str, Callable[[ToolContext, int, str | None], Awaitable[dict[str, Any]]]] = {

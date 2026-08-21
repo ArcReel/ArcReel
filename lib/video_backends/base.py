@@ -595,7 +595,7 @@ class VideoAudioMode(StrEnum):
     ALWAYS_OFF = "always_off"
 
 
-#: 视频执行路径（能力桶）：``i2v`` 覆盖文生与图生首帧，``r2v`` 是参考生视频。
+#: 视频执行路径（任务类型桶）：``i2v`` 覆盖文生与图生首帧，``r2v`` 是参考生视频。
 #: 与 ``lib.config.resolver.VideoCapability`` 同一份词汇表，因分层契约（config 是最底层，
 #: backend 不得反向导入）而各层各声明一次，取值一致由
 #: ``tests/test_video_backend_capabilities.py`` 的守卫锁定。
@@ -622,7 +622,7 @@ class VideoCapabilities:
     行为（可灵 v3-omni 的多图主体子路径原生 schema 不含音轨开关，故该路径恒无声）。默认取
     ``CONTROLLABLE``——未声明即「无信号不收紧」，不把能力不明的 model 谎报成开关失效。
     取值请走 :meth:`audio_track_for_route`，不要直接读字段，否则每个调用方都要重写一遍
-    「参考路线优先」的合并规则。
+    「参考生视频优先」的合并规则。
 
     ``reference_audio_mode`` / ``max_reference_audio_count`` 描述参考音频路径，与参考图
     同构：模式非 ``NONE`` 时后端接受 ``reference_audio_files`` 请求字段，段数受上限约束。

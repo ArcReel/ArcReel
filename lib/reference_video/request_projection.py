@@ -311,7 +311,7 @@ def reference_audio_model_facts(
 ) -> tuple[bool, bool]:
     """返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
 
-    ``capability`` 定的是执行路径：音轨形态按子路径分叉，参考路线的镜头必须按 r2v 取值，否则
+    ``capability`` 定的是执行路径：音轨形态按子路径分叉，参考生视频的镜头必须按 r2v 取值，否则
     可灵 v3-omni 这类「图生可控、参考生无开关」的型号会被当成开关可控（用户的音频配置在多图
     主体子路径上根本发不出去）。自定义供应商与未登记模型没有逐模型声明，按无信号不收紧。
     """
