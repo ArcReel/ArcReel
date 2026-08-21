@@ -113,10 +113,13 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
 # project's schema migration verdict is a failure. Everything that generates output or
 # writes script content is named here; the controlled project/metadata editors
 # (``patch_project``, ``patch_episode_meta``, ``rename_asset``) are not, because
-# repairing is done through them. The script batch editors are named here even though
-# their shared ``ScriptBatchEditor.execute`` already refuses internally on the same
-# verdict: the entry declares the block, the inner check is only a fallback, and an
-# entry never skips declaring the block just because some callee happens to check too.
+# repairing is done through them. The exception belongs to this MCP repair channel
+# alone and does not carry over to REST: a route that writes script content stays
+# behind ``require_project_migration_ok`` rather than inheriting this exemption.
+# The script batch editors are named here even though their shared
+# ``ScriptBatchEditor.execute`` already refuses internally on the same verdict:
+# the entry declares the block, the inner check is only a fallback, and an entry
+# never skips declaring the block just because some callee happens to check too.
 #
 # The read-only tools are outside this set on purpose — they answer the verdict inside
 # their own handlers, so this frozenset stays exactly the registration-time blocks.
