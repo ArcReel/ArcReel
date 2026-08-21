@@ -2,12 +2,13 @@
 id: migrate-to-mysql
 title: 从 SQLite / PostgreSQL 迁移到 MySQL
 sidebar_position: 3
+update_docs: engine-b
 ---
 
 # 从 SQLite / PostgreSQL 迁移到 MySQL {#migrate-to-mysql}
 
 本文档适用于已使用 SQLite 或 PostgreSQL 部署 ArcReel、希望切换到 **MySQL 8.0+** 的场景。
-如果是全新部署，可直接跳到 [3. 环境变量配置](#configure-env) 并参考 [部署与运维](./deployment.md#mysql-deployment)。
+如果是全新部署，可直接跳到 [3. 环境变量配置](#prepare-mysql) 并参考 [部署与运维](./deployment.md#mysql-deployment)。
 
 三方言支持的架构决策、字段长度、去重生成列等设计细节见 [ADR-0061](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0061-three-dialect-database-support.md)。
 
@@ -48,7 +49,7 @@ cp projects/.arcreel.db projects/.arcreel.db.bak
 
 ### 3. 准备 MySQL 实例 {#prepare-mysql}
 
-#### 方式 A：使用 ArcReel 自带的 `docker-compose.mysql.yml`
+#### 方式 A：使用 ArcReel 自带的 `docker-compose.mysql.yml` {#compose-mysql-a}
 
 ```bash
 cd deploy/production
@@ -60,8 +61,10 @@ cp ../../.env.example .env  # 如已有可跳过
 ```dotenv
 # MySQL 根密码（仅用于容器启动初始化）
 MYSQL_ROOT_PASSWORD=请设置强密码
-# ArcReel 专用账号密码
+# ArcReel 专用账号密码（mysql 容器初始化用；含特殊字符时无需编码）
 MYSQL_PASSWORD=请设置强密码
+# ArcReel 连接串（arcreel 服务用；密码必须与上面一致且做 URL 百分号编码）
+ARCREEL_DATABASE_URL=mysql+aiomysql://arcreel:URL编码后的密码@mysql:3306/arcreel?charset=utf8mb4
 # 时区
 TZ=Asia/Shanghai
 ```
@@ -73,7 +76,7 @@ docker compose -f docker-compose.mysql.yml up -d mysql
 docker compose -f docker-compose.mysql.yml ps   # 确认 mysql 状态为 healthy
 ```
 
-#### 方式 B：使用企业已部署的 MySQL 集群
+#### 方式 B：使用企业已部署的 MySQL 集群 {#compose-mysql-b}
 
 在已有的 MySQL 上手动创建数据库：
 
@@ -114,20 +117,11 @@ DATABASE_URL=mysql+aiomysql://... uv run alembic upgrade head
 
 ### 5. 迁移数据 {#migrate-sqlite-data}
 
-推荐 `pgloader`，它会自动处理类型差异、跳过已存在的表结构、只导入数据。
+用下面的 Python 脚本逐表迁移（反射读取、按 head schema 写入，只导数据不动表结构）。
 
-```bash
-# 在 arcreel 容器中一次性安装并执行
-docker compose -f docker-compose.mysql.yml run --rm arcreel bash -c "
-  apt-get update && apt-get install -y --no-install-recommends pgloader &&
-  pgloader sqlite:///app/projects/.arcreel.db \
-           mysql://arcreel:${MYSQL_PASSWORD}@mysql:3306/arcreel
-"
-```
+#### 把脚本保存为 `_migrate_sqlite_to_mysql.py` {#python-fallback}
 
-#### 备选：无 pgloader 时用 Python 导
-
-把以下脚本保存为 `_migrate_sqlite_to_mysql.py`，然后 `uv run python _migrate_sqlite_to_mysql.py`：
+使用方式：设置 `SOURCE_DB_URL`（源 SQLite）与 `DATABASE_URL`（目标 MySQL）后执行 `uv run python _migrate_sqlite_to_mysql.py`：
 
 ```python
 """一次性脚本：SQLite → MySQL 数据迁移（已存在表结构时只导数据）。
@@ -240,28 +234,26 @@ docker compose -f docker-compose.mysql.yml up -d
 
 PostgreSQL 与 MySQL 在大型对象（`tasks.payload_json` 等）、Boolean（PG `BOOLEAN` vs MySQL `TINYINT(1)`）、时间戳精度（PG microsecond vs MySQL fractional-seconds）上都有差异。**最稳妥的路径是通过 Alembic 在 MySQL 端先建表结构，再用业务表逐一导出/导入。**
 
-### 1. 停止服务、备份源库
+### 1. 停止服务、备份源库 {#pg-stop-backup}
 
 ```bash
 docker compose down
 pg_dump -U arcreel -d arcreel --format=c -f /tmp/arcreel_pg.dump
 ```
 
-### 2. 按上面 [3. 准备 MySQL 实例](#prepare-mysql) + [4. 先在空库上跑 alembic 建表](#build-schema-first) 完成新库准备
+### 2. 按上面 [3. 准备 MySQL 实例](#prepare-mysql) + [4. 先在空库上跑 alembic 建表](#build-schema-first) 完成新库准备 {#pg-prepare}
 
-### 3. 用 `pgloader` 做异构迁移
+### 3. 用 Python 脚本做异构迁移 {#pg-migrate}
 
-`pgloader` 原生支持 PostgreSQL → MySQL，且会自动做 BOOLEAN / UUID / TIMESTAMP 类型转换：
+PostgreSQL → MySQL 没有开箱即用的单向迁移工具（`pgloader` 仅支持向 PostgreSQL 导入，不能作为 MySQL 目标）。使用上面 [SQLite 路径的 Python 备选脚本](#python-fallback)，将 `SOURCE_DB_URL` 设为 PostgreSQL 连接串即可——脚本按表反射读取、逐表写入，BOOLEAN / 时间戳由 SQLAlchemy 方言层自动转换：
 
 ```bash
-docker compose -f docker-compose.mysql.yml run --rm arcreel bash -c "
-  apt-get update && apt-get install -y --no-install-recommends pgloader &&
-  pgloader postgresql://arcreel:${PG_PASSWORD}@pg-host:5432/arcreel \
-           mysql://arcreel:${MYSQL_PASSWORD}@mysql:3306/arcreel
-"
+SOURCE_DB_URL=postgresql+asyncpg://arcreel:***@pg-host:5432/arcreel \
+DATABASE_URL=mysql+aiomysql://arcreel:***@mysql:3306/arcreel \
+  uv run python _migrate_sqlite_to_mysql.py
 ```
 
-### 4. 校验并启动（同 SQLite 路径的 [6](#verify-data)、[7](#start-all)）
+### 4. 校验并启动（同 SQLite 路径的 [6](#verify-data)、[7](#start-all)） {#pg-verify}
 
 ---
 
@@ -302,25 +294,25 @@ uv run alembic upgrade head
 
 ## 常见问题 {#faq}
 
-### Q1. 连接 MySQL 报 `OperationalError: (2003, "Can't connect to MySQL server")`
+### Q1. 连接 MySQL 报 `OperationalError: (2003, "Can't connect to MySQL server")` {#faq-connect}
 
 - 检查 `DATABASE_URL` 的 host、port 是否可达；
 - 企业防火墙或云安全组是否放行 3306；
 - 如果是 localhost 连接，URL 里写 `127.0.0.1` 而不是 `localhost`（`localhost` 在 MySQL 语义里走 UNIX socket，而 `aiomysql` 默认走 TCP）。
 
-### Q2. `sqlalchemy.exc.ProgrammingError: (1064, You have an error in your SQL syntax ... 'key' IN (...) at line 1)`
+### Q2. `sqlalchemy.exc.ProgrammingError: (1064, You have an error in your SQL syntax ... 'key' IN (...) at line 1)` {#faq-reserved-key}
 
 `key` 是 MySQL 保留字。出现这个报错说明有迁移脚本或自定义 SQL 里写了裸 `key`。
 
 - 仓库内迁移脚本：用 `lib.db.migration_compat.qident("key")` 获取正确的标识符引号（MySQL 反引号，其他方言不加）。
 - 业务层 ORM：SQLAlchemy 会自动处理，不用手改。
 
-### Q3. `Specified key was too long; max key length is 3072 bytes`
+### Q3. `Specified key was too long; max key length is 3072 bytes` {#faq-key-length}
 
 InnoDB + `utf8mb4` 单个字符 4 字节，3072/4=768 字符上限。拼接型去重生成列（如 `active_dedupe_key`）在 ArcReel 中存的是拼接键的 **SHA-256 hex**（恒 64 字符），不受源列长度影响。
 如果你自定义了索引，请对超长拼接键改存哈希或限制参与列长度。
 
-### Q4. `pool_recycle` 为什么是 300s？可以改吗？
+### Q4. `pool_recycle` 为什么是 300s？可以改吗？ {#faq-pool-recycle}
 
 MySQL 默认 `wait_timeout=28800`（8 小时）但企业部署常见主动断连 5 分钟或 10 分钟。
 `pool_recycle=300` 是保守值，保证连接池中的连接最多使用 5 分钟就主动回收。如果你确认连接寿命更长，可以在 `.env` 自定义 `DATABASE_URL` 的 engine 参数，但不建议改小（会增加建连开销）。

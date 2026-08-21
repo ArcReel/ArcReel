@@ -171,6 +171,7 @@ cd website && pnpm format         # prettier 写回
 | `website/docs/guide/faq.md` | 高频问题和短答案 | 长篇教程 |
 | `website/docs/ops/deployment.md` | 部署、升级、备份、恢复、监控和安全 | 产品营销文案 |
 | `website/docs/ops/migrate-to-postgres.md` | SQLite 到 PostgreSQL 的迁移步骤、校验和回滚 | PostgreSQL 的日常部署与运维手册 |
+| `website/docs/ops/migrate-to-mysql.md` | SQLite / PostgreSQL 到 MySQL 的迁移步骤、校验和回滚 | MySQL 的日常部署与运维手册 |
 | `website/docs/dev/architecture.md` | 稳定的架构边界、数据流和扩展点 | 临时实现计划和未完成设计 |
 | `SECURITY.md` | 支持版本、支持的部署边界、私密漏洞报告和协调披露政策 | 未修复漏洞细节和动态风险登记 |
 | `docs/security/threat-model.md` | 安全资产、信任边界、攻击面、现有控制和重评触发条件 | 可直接利用的未修复漏洞与补丁历史 |

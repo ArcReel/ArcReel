@@ -35,7 +35,9 @@ services:
       - "1241:1241"
     env_file: .env
     environment:
-      DATABASE_URL: mysql+aiomysql://arcreel:${MYSQL_PASSWORD}@mysql:3306/arcreel?charset=utf8mb4
+      # DATABASE_URL 显式声明（含已 URL 编码的密码），不在此拼接原始密码，
+      # 避免密码含 @ : / ? # % 时 URL 被错误解析。示例见 .env.example。
+      DATABASE_URL: ${ARCREEL_DATABASE_URL:?请在 .env 中设置 ARCREEL_DATABASE_URL（密码需 URL 编码）}
       TZ: ${TZ:-Asia/Shanghai}
     # Agent Bash 沙箱 (bwrap) 需要：
     # 1) 非特权 user namespace → 放开 docker 默认 seccomp/apparmor profile
