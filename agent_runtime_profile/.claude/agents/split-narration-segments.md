@@ -53,7 +53,11 @@ mcp__arcreel__get_video_capabilities({})
 
 ### 情况 A：首次生成拆分
 
-**触发**：`drafts/episode_{N}/step1_segments.json` **不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集内容整理）。两种情况的分支以**文件存在性为准**，主 Agent 传入的操作类型仅作意图参考。
+**触发**：`drafts/episode_{N}/step1_segments.json` 与 `drafts/episode_{N}/step1_segments.invalid.json`
+**都不存在**（典型路径：video-workflow 按计划的 `prepare_step1` 动作路由到单集内容整理）。两种情况的分支以
+**文件存在性为准**，主 Agent 传入的操作类型仅作意图参考；`invalid.json` 在时一律先走情况 B，正式 JSON
+不存在也不重跑工具重抽——首次产出就违约时正式文件本就不存在，只看它会把这次已付费的产出连同你上一轮
+的修改一起盖掉。
 
 > 注：旧项目可能残留结构化前的自由文本稿 `step1_segments.md`。它**不**视为有效 step1——若无 `.json`，按首次生成重跑工具产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
 
@@ -77,9 +81,12 @@ mcp__arcreel__split_narration_segments({"episode": N, "source": "source/episode_
 
 ### 情况 B：修改已有拆分
 
-**触发**：`drafts/episode_{N}/step1_segments.json` **已存在**，且主 Agent 传入了用户的修改意见（用户驱动，不经计划路由）。
+**触发**（两条，任一成立即走本情况）：
 
-**Step 1**: 取回可编辑草稿
+- `drafts/episode_{N}/step1_segments.json` **已存在**，且主 Agent 传入了用户的修改意见（用户驱动，不经计划路由）；
+- `drafts/episode_{N}/step1_segments.invalid.json` **已存在**（上一轮拆分或晋升返回了违约报告，或已取回过草稿尚未晋升）。此时**跳过 Step 1**——草稿已在盘上，直接从 Step 2 开始按其 `violations[]` 就地改 `content.segments[i]`。
+
+**Step 1**: 取回可编辑草稿（仅正式文件已存在、且盘上还没有草稿时）
 
 ```text
 mcp__arcreel__open_step1_for_edit({"episode": N, "source": "source/episode_N.txt"})

@@ -1415,6 +1415,26 @@ def _coverage_source_scope(source: str | None) -> str:
     return f"源文件 {source}" if source else "整个 source/ 目录（未指定单个源文件）"
 
 
+def _covers_source_verbatim(parts: list[str], source: str) -> bool:
+    """各片段是否按序、逐字、完整覆盖 *source*；片段交界处允许至多一个空格。
+
+    片段两端的空白已由 :func:`_normalize_for_coverage` 剥掉，故交界处的一个空格只可能是分隔符，
+    贪心跳过即可、无须回溯：片段自身不可能以空格开头去争这个字符。
+
+    不用「逐段 ``re.escape`` 后以 ``" ?"`` 拼成一条正则」：那样 pattern 长度与整篇源文同阶（可达
+    数百 KB），而本判定在拆分、晋升与 web 审阅 gate 的读时重算三处各跑一次，gate 那次还在请求
+    协程里——每次都按源文规模编译一条正则，代价压在事件循环上。游标扫描是同一判定的线性写法。
+    """
+    cursor = 0
+    for index, part in enumerate(parts):
+        if index and source.startswith(" ", cursor):
+            cursor += 1
+        if not source.startswith(part, cursor):
+            return False
+        cursor += len(part)
+    return cursor == len(source)
+
+
 def _collect_narration_violations(
     segments: list[dict[str, Any]],
     *,
@@ -1510,8 +1530,8 @@ def _collect_narration_violations(
     # 字符串本身无法可靠区分。因此仅在片段交界处允许可选的单个空格；片段自身文本内部与源文其余
     # 部分一律要求折叠后逐字相等，不能让边界宽容掩盖片段内部真实的删减、改写或词间空格丢失。
     # 判定是全集级的（拼接 vs 整篇源文），没有单片段归属，故不带 label。
-    parts = [re.escape(_normalize_for_coverage(str(s.get("novel_text") or ""))) for s in segments]
-    if re.fullmatch(" ?".join(parts), _normalize_for_coverage(novel_text)) is None:
+    parts = [_normalize_for_coverage(str(s.get("novel_text") or "")) for s in segments]
+    if not _covers_source_verbatim(parts, _normalize_for_coverage(novel_text)):
         violations.append(
             DraftViolation(
                 "各片段的 novel_text 未按序、逐字、完整覆盖小说原文（存在删减、改写或重排）；"
