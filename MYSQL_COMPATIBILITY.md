@@ -26,8 +26,12 @@
    - MySQL 8: native JSON，但语法差异
 
 3. **server_default 方言差异**
-   - PostgreSQL: `server_default=text("NOW()")`
-   - MySQL: `server_default=func.now()`
+   - PostgreSQL: server_default=text("NOW()")
+   - MySQL: server_default=func.now()
+
+4. **部分索引 (Partial Index) 限制**
+   - SQLite / PostgreSQL: 支持部分索引（如 sqlite_where / postgresql_where）
+   - MySQL 8: 不支持部分索引。项目中 idx_tasks_dedupe_active 依赖部分索引实现活跃任务去重，在 MySQL 8 中需要寻找替代方案（例如通过虚拟列 Virtual Column 配合唯一索引实现）
 
 ### 需要测试的迁移
 
