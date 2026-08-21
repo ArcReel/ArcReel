@@ -3,7 +3,7 @@ import { API } from "@/api";
 import type { ModelCandidatesResponse } from "@/types/system";
 
 /**
- * 能力桶候选（docs/adr/0054）的加载态：全局设置与项目设置两处都消费同一份全局数据，
+ * 任务类型桶候选（docs/adr/0054）的加载态：全局设置与项目设置两处都消费同一份全局数据，
  * 加载与失败叙事收在这里，调用点只拿结果。
  *
  * 三态互不重叠，因为「细分区静默降级」与「显式报错」的分岔全靠它们区分：

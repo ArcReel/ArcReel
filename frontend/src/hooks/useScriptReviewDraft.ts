@@ -52,7 +52,7 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
 }
 
 /**
- * step1→step2 审核 gate 面板的草稿状态机：拉取 / 外部刷新 / 脏标记 / 采纳 / 保存 / 确认。
+ * step1 → step2 内容确认面板的草稿状态机：拉取 / 外部刷新 / 脏标记 / 采纳 / 保存 / 确认。
  * `ScriptReviewGate`（drama、narration）与 `ReferenceStep1PreviewPanel`（reference_video）
  * 共用，面板只保留各自的呈现与专属交互。
  */
@@ -97,7 +97,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   //
   // 采纳前发出的拉取一律作废：它读到的服务端态未必包含本次写入，回来时 dirtyRef 已因采纳而为
   // false，会按旧内容回写 draft 与 baseFingerprint——草稿回退，且下次保存拿旧指纹撞 OCC。
-  // 但作废掉的若是外部事件（agent 改 step1 的 revision）触发的那次拉取，该 revision 已被消费、
+  // 但作废掉的若是外部事件（Agent 改 step1 的 revision）触发的那次拉取，该 revision 已被消费、
   // 不会再有请求补上，外部更新就此丢失；故确有在途拉取被作废时补发一轮，把它重新拉回来。
   const adopt = useCallback(
     (next: ScriptReviewState) => {
@@ -135,7 +135,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
         if (signal.aborted) return;
         setLoadError(null);
         setState(next);
-        // 外部刷新（挂载 / agent 改 step1 触发的 revision）：用户无未保存编辑时采用服务端内容，
+        // 外部刷新（挂载 / Agent 改 step1 触发的 revision）：用户无未保存编辑时采用服务端内容，
         // 有编辑则仅更新服务端态、保留用户草稿。dirtyRef 读取在 effect 内安全（非 render 期）。
         if (!dirtyRef.current) {
           setDraft(clone(selectContent(next)));

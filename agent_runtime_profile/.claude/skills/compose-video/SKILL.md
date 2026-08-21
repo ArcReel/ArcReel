@@ -9,19 +9,20 @@ description: 把已生成的视频片段按剧本顺序拼接为单集成片，�
 
 ## 适用范围（重要）
 
-- **仅 drama 模式** — 脚本读取剧本顶层 `scenes[]`；narration（`segments[]`）、ad（`shots[]`）和 reference_video（`video_units[]`）会被脚本拒绝。这些模式的成片导出请走 Web 端剪映草稿导出（ad 草稿含视频轨 + 口播文案字幕轨，导出后在剪映配音成片）
+- **仅支持 `scenes[]` 剧本骨架** — 脚本读取顶层 `scenes[]`；顶层为 `segments[]`、`shots[]` 或 `video_units[]` 的剧本会被拒绝。这些剧本的成片导出请走 Web 端剪映草稿导出（广告/短片草稿含视频轨 + 口播文案字幕轨，导出后在剪映配音成片）
 - **单集拼接** — 一次只处理一份剧本文件，不支持多集合并
 - **不实现片头片尾 / BGM 音量调节** — 这些需求请走 Web 端剪映草稿导出
 
-## 声音与字幕的真相源
+## 本地合成的声音与字幕
 
-每个单元的**声音归属**（provider 原音、可选旁白 TTS）与**字幕时序**由服务端 presentation 结果统一
-决定；预览、下载与剪映草稿导出消费的是同一份。本 skill 只做片段串接与可选 BGM 混入：
+服务端 presentation 统一决定声音归属与字幕时序，但只由 Web 端 `JianyingDraftService` 导出消费。
+本 skill 调用的 `compose_video.py` 不读取 presentation：
 
-- **不静音、不闪避、不分离 provider 原音**，也不改写源片段文件。混入 BGM 时由 ffmpeg `amix`
-  等比缩放两路输入，这是既有的混音行为，不是本 skill 在做音量决策；不混 BGM 时原音原样透传
-- **不自行估算字幕时间轴**，也不生成字幕。需要字幕轨请走 Web 端导出
-- **不替用户判断 TTS 是否必需**。旁白交付选「后期配音」时视频照常成片，缺 TTS 不是缺口
+- 直接读取 `generated_assets(scene).video_clip`，保留片段内置音频；不添加 TTS 或字幕轨
+- **不静音、不闪避、不分离供应商原音**，也不改写源片段文件
+- 指定 `--music` 时，BGM 先按固定 `volume=0.3` 调整，再由 ffmpeg `amix` 与片段音频混合；
+  不指定时原音原样透传
+- **不自行估算字幕时间轴**，需要 TTS 或字幕轨时走 Web 端剪映草稿导出
 - 时长以媒体实际时长为准，不用剧本计划的 `duration_seconds` 反推声画边界
 
 stale 产物照常参与成片，不因「看起来旧」跳过或触发重生。
@@ -75,7 +76,7 @@ python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.j
 
 - [ ] 当前 cwd 是项目根（含 `project.json`）
 - [ ] 剧本 content_mode 为 drama（顶层有 `scenes[]`）
-- [ ] 每个场景的 `generated_assets.video_clip` 都已生成
+- [ ] 每个分镜的 `generated_assets.video_clip` 都已生成
 - [ ] `ffmpeg` / `ffprobe` 都在 PATH（脚本会预检）
 - [ ] BGM 文件存在（如指定 `--music`）
 
@@ -83,7 +84,7 @@ python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.j
 
 下列能力**未实现**，请使用 Web 端剪映草稿导出：
 
-- narration / ad / reference_video 模式（脚本只识别 `scenes[]`）
+- 旁白/解说、广告/短片与参考生视频（脚本只识别 `scenes[]`）
 - 多集合并 / 单集分片裁剪
 - BGM 音量调节、独立 BGM 时间轴
 - 片头片尾 intro/outro

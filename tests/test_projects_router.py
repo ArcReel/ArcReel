@@ -945,7 +945,7 @@ class TestProjectsRouter:
     def test_create_requires_binary_generation_mode(self, tmp_path, monkeypatch):
         client = _client(monkeypatch, _FakePM(tmp_path))
         with client:
-            # 缺失 generation_mode：必填无默认值，不被悄悄锁进某条路线
+            # 缺失 generation_mode：必填无默认值，不被悄悄锁进某种生成模式
             missing = client.post(
                 "/api/v1/projects",
                 json={"name": "no-mode", "title": "X", "content_mode": "narration"},
@@ -959,7 +959,7 @@ class TestProjectsRouter:
             )
             assert legacy_grid.status_code == 422
 
-            # 二值路线均可创建
+            # 两种生成模式均可创建
             for mode in ("storyboard", "reference_video"):
                 created = client.post(
                     "/api/v1/projects",
@@ -1002,7 +1002,7 @@ class TestProjectsRouter:
             assert off.status_code == 200
             assert fake_pm.project_data["ready"]["grid_storyboard"] is False
 
-            # 生成路线创建即定：项目 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘
+            # 生成模式创建即定：项目 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘
             route = client.patch("/api/v1/projects/ready", json={"generation_mode": "reference_video"})
             assert route.status_code == 200
             assert fake_pm.project_data["ready"]["generation_mode"] == "storyboard"
@@ -2313,7 +2313,7 @@ class TestProjectsRouter:
         assert episode["script_status"] == "generated"
         assert episode["status"] == "in_production"
         assert episode["item_count"] == 1
-        # 旧的场景数字段已退场，响应里不再出现
+        # 响应不包含退役的总量字段
         assert "scenes_count" not in episode
         assert episode["duration_seconds"] == 8
         assert episode["storyboards"] == {"total": 1, "available": 1, "stale": 0}
@@ -2475,7 +2475,7 @@ class TestProjectsRouter:
 
     @pytest.mark.unit
     def test_patch_project_episodes_has_no_route_field(self, tmp_path, monkeypatch):
-        """生成路线按项目定轴：集级 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘。"""
+        """生成模式按项目定轴：集级 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘。"""
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["episodes"] = [
             {"episode": 1, "title": "第一集", "script_file": "scripts/ep1.json"},
@@ -2682,7 +2682,7 @@ class TestGetVideoCapabilities:
 
     @pytest.mark.integration
     def test_capabilities_resolve_by_project_route_without_episode(self, tmp_path, monkeypatch):
-        """能力按项目路线定轴：端点不接受集号，解析只带项目（与候选模型）。"""
+        """能力按项目生成模式定轴：端点不接受集号，解析只带项目（与候选模型）。"""
         from unittest.mock import AsyncMock, MagicMock
 
         resolver_instance = MagicMock()
@@ -2699,7 +2699,7 @@ class TestGetVideoCapabilities:
             )
         assert resp.status_code == 200
         assert resolver_instance.video_capabilities.await_args.args == ("ready",)
-        # 候选模型解析拿到的第三个入参必须是该项目的已加载数据（含项目路线），只断言参数个数的话
+        # 候选模型解析拿到的第三个入参必须是该项目的已加载数据（含项目生成模式），只断言参数个数的话
         # 路由传 None 或传错项目都照样通过。
         passed_project = resolver_instance.video_capabilities_for_model.await_args.args[2]
         assert passed_project["title"] == "Ready"
@@ -2778,7 +2778,7 @@ class TestGetVideoCapabilities:
 
     @pytest.mark.integration
     def test_capability_bucket_error_returns_localized_400(self, tmp_path, monkeypatch):
-        """能力桶解析闸的报错转成结构化 400，带上修复指引，不被通用 422 文案吞掉。"""
+        """任务类型桶解析闸的报错转成结构化 400，带上修复指引，不被通用 422 文案吞掉。"""
         from lib.config.resolver import VideoBucketCapabilityError
 
         self._patch_resolver(

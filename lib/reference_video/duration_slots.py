@@ -4,7 +4,7 @@
 取档按**容量**解读档位：申请能装下基准时长的最小合法档位，成片不做裁剪——交付时长即
 档位时长。基准时长超过最大档位时按最大档位申请（成片短于请求基准）。
 
-纯函数，无 I/O。参考视频的报价、预检与执行都由 request projection 先解析当前
+纯函数，无 I/O。参考生视频的报价、预检与执行都由 request projection 先解析当前
 provider/model 与非空档位集，再共用本规则，避免各路径判断漂移。
 """
 
@@ -55,7 +55,7 @@ class DurationSlot:
 def resolve_duration_slot(total_seconds: int | float, supported_durations: Sequence[int]) -> DurationSlot:
     """按容量语义为请求时长基准选择申请档位。
 
-    档位集为空时保留历史纯函数语义，原样透传总时长。可执行的参考视频请求不得
+    档位集为空时原样透传总时长。可执行的参考生视频请求不得
     依赖该分支：``ReferenceUnitRequestProjector`` 对缺失、空或无效的档位先返回结构化
     blocker。非空档位集不要求有序、允许重复。
 

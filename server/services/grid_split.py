@@ -78,7 +78,7 @@ async def apply_grid_split(
     - 每格覆写前旧文件先补登版本、覆写后登记新版本（source="grid_split"）；
     - frame_chain 中已不在剧本内的 scene id 跳过并告警；
     - 完成后写 ``grid.split_at`` 并广播项目变更事件（含逐格指纹供前端 cache-bust）。
-    - ``only_scene_ids`` 非 None 时只落格该集合内的 scene：宫格覆盖一组场景，但组内已有
+    - ``only_scene_ids`` 非 None 时只落格该集合内的 scene：宫格覆盖一组分镜，但组内已有
       current/stale 分镜图的场景不该被联合图的重新渲染悄悄覆盖——``None``（HTTP 路由的整
       张重切场景）保持覆写全部 frame_chain 成员的既有行为不变。
     """

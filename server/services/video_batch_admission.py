@@ -281,7 +281,7 @@ def resolve_reference_batch_targets(
 
 
 def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
-    """单 unit 的 TaskSpec 构造，供批量准入、批量入队与时长预检共用同一份结构校验
+    """单 unit 的 TaskSpec 构造，供整批准入判定、批量入队与时长预检共用同一份结构校验
     （见 ADR-0001）——``TaskSpec.from_request`` 是「是否可入队」的唯一真相源，几处判断
     不能各自维护一份、由此产生分歧（如预检放行了入队会拒绝的空提示词 unit）。
     """
@@ -774,14 +774,14 @@ def storyboard_video_prompt(
     prompt = item.get("video_prompt")
     if not prompt:
         item_id = item.get("segment_id") or item.get("scene_id")
-        raise ValueError(f"片段/场景缺少 video_prompt 字段: {item_id}")
+        raise ValueError(f"分镜缺少 video_prompt 字段: {item_id}")
     if is_structured_video_prompt(prompt):
         # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 系的机械派生：剧本 JSON
         # 里残留的 voice_profiles 一律先剥离，不因门控不触发（narration/ad、或 drama 无
         # utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
         prompt = strip_voice_profiles(prompt)
         if content_mode == "drama":
-            # drama 口型台词单一真相源在场景级有序 utterances：取 dialogue-kind 注入 video YAML 的
+            # drama 口型台词单一真相源在分镜级有序 utterances：取 dialogue-kind 注入 video YAML 的
             # dialogue 出口（drama video_prompt 已不带 dialogue）。utterances 迁移前的存量剧本
             # （load_script 按原始 JSON 读盘不过 pydantic，不会被 DramaScene._migrate_legacy
             # 自动补齐）台词仍留在 video_prompt.dialogue，改走 legacy 出口。
@@ -792,10 +792,10 @@ def storyboard_video_prompt(
         return video_prompt_to_yaml(prompt)
     if isinstance(prompt, dict):
         item_id = item.get("segment_id") or item.get("scene_id")
-        raise ValueError(f"片段/场景 video_prompt 为对象但格式不符合结构化规范: {item_id}")
+        raise ValueError(f"分镜 video_prompt 为对象但格式不符合结构化规范: {item_id}")
     if not isinstance(prompt, str):
         item_id = item.get("segment_id") or item.get("scene_id")
-        raise TypeError(f"片段/场景 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
+        raise TypeError(f"分镜 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
     return prompt
 
 
@@ -813,14 +813,14 @@ async def resolve_voice_context(project: dict[str, Any], content_mode: str) -> d
 
 
 async def audio_switch_conflict(project: dict[str, Any]) -> str | None:
-    """分镜路线的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
+    """分镜图生视频的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
 
-    成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与内容模式
+    成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与创作类型
     无关，narration/ad 同样受检。
 
     调用点固定在「确有目标要请求」之后：整集已完成、或条目全被 :func:`build_storyboard_video_specs`
     过滤时本就不会产生任何请求，此时拒绝等于把一次正常的空转变成报错。
-    参考路线由公共 request projection 给出同一音频能力判定。
+    参考生视频由公共 request projection 给出同一音频能力判定。
 
     返回冲突说明文本；无冲突返回 ``None``。调用方把它折成逐目标的准入结论，与其它缺口
     一起在建任务之前一次报全。
@@ -846,23 +846,23 @@ def build_storyboard_video_specs(
     resolver: ArtifactCurrencyResolver | None = None,
     voice_characters: dict[str, Any] | None = None,
 ) -> tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]:
-    """Build the storyboard-route specs, refusing each unit that cannot be requested.
+    """Build the Storyboard-mode specs, refusing each unit that cannot be requested.
 
     A unit whose speech, inputs or prompt are unusable is refused with its own code
     and next action instead of being dropped into a log line, so one bad unit never
     silently shrinks the batch — and, because the refusal is a ticket rather than a
     recorded block, it can hold the whole batch back before any task exists.
 
-    ``skeleton_kind`` 取路线闸门给出的剧本实际骨架种类，而不是按内容模式反推：族内的历史
+    ``skeleton_kind`` 取生成模式闸门给出的剧本实际骨架种类，而不是按创作类型反推：族内的历史
     形态（narration 数据落 ``scenes`` 键）按反推值去适配，合法的旧剧本会被整批判成解析失败。
 
-    发声准入在这里执行，与参考路线由 ``reference_unit_task_spec`` 承担的位置对应：
+    发声准入在这里执行，与参考生视频由 ``reference_unit_task_spec`` 承担的位置对应：
     构造 TaskSpec 的这一步是「这个 unit 能不能被请求」的唯一口径，四个 storyboard 入口
     （整集 / 全部 / 点名 / 单条）与只读的工作流计划都经由它，混合发声与 needs_replan 因此
     在任何入口都会在建任务之前扣住整批，计划预告的准入结论也与真正提交时一致。
     """
 
-    item_type = "片段" if content_mode == "narration" else "场景"
+    item_type = "分镜"
     skip_set = set(skip_ids or [])
 
     specs: list[TaskSpec] = []
@@ -970,7 +970,7 @@ async def admit_storyboard_video_request(
     selection: GenerationSelectionMode,
     extra_tickets: Sequence[UnitAdmissionTicket],
 ) -> BatchAdmission:
-    """Admit one storyboard-route request from the specs it would actually enqueue.
+    """Admit one Storyboard-mode request from the specs it would actually enqueue.
 
     The visual prompt each spec already carries is what the admission compares
     against the paid artifact, so the triples are built from the specs rather than

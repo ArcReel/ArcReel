@@ -142,7 +142,7 @@ export function StudioCanvasRouter() {
   // currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
   const capabilitiesEnabled = !demoMode && !isDemoProject(currentProjectName);
 
-  // 逐镜头时长编辑器的候选取经联动约束收窄后的集合，用户就选不到入队后必然被拒的组合；
+  // 逐个分镜的时长编辑器候选取经联动约束收窄后的集合，用户就选不到入队后必然被拒的组合；
   // 已保存的越界值不改写，由 ShotDetail 按成因给警告并引导重选。
   // 后端未配置时能力管线退回服务端解析出的 model（与生成路径同一套规则，避免 FE/BE 漂移）。
   //
@@ -238,8 +238,8 @@ export function StudioCanvasRouter() {
     [handleUpdatePrompt],
   );
 
-  // ad 镜头重排：把目标镜头向前/向后移动一位，提交整列全排列。
-  // 返回是否移动成功，供编辑器把选中态跟随到镜头的新位置。
+  // ad 分镜重排：把目标分镜向前/向后移动一位，提交整列全排列。
+  // 返回是否移动成功，供编辑器把选中态跟随到分镜的新位置。
   const handleMoveShot = useCallback(async (
     shotId: string,
     direction: "earlier" | "later",
@@ -258,7 +258,7 @@ export function StudioCanvasRouter() {
     try {
       await API.reorderShots(currentProjectName, resolvedFile, ids);
       // 仅在本地 store 已写回新顺序时报告成功：刷新失败时 segments 仍是旧序，
-      // 此时推进 selectedIndex 会让详情面板静默切到相邻镜头。
+      // 此时推进 selectedIndex 会让详情面板静默切到相邻分镜。
       return await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("reorder_shot_failed", { message: errMsg(err) }), "error");
@@ -736,7 +736,7 @@ export function StudioCanvasRouter() {
           const scriptFile = episode?.script_file?.replace(/^scripts\//, "");
           const script = scriptFile ? (currentScripts[scriptFile] ?? null) : null;
           const route = normalizeRoute(currentProjectData?.generation_mode);
-          // 路线决定是否走参考图路径，时长候选据此收窄。
+          // 生成模式决定是否走参考图路径，时长候选据此收窄。
           const durationCtx = {
             videoResolution,
             usesReferenceImages: route === "reference_video",
@@ -760,7 +760,7 @@ export function StudioCanvasRouter() {
             episode?.script_status === "segmented" || episode?.script_status === "generated";
           const isAd = currentProjectData?.content_mode === "ad";
 
-          // 已选集但剧本未生成：进入切片审阅视图（narration/drama 全部生成路径——
+          // 已选集但剧本未生成：进入内容整理视图（narration/drama 全部生成路径——
           // reference_video 此时 units 为空，同样没有可展示内容）；ad 恒单集无源文
           // 切片，走各自画布。
           // 演示项目没有源文可切片，缺剧本的分集直接说明「演示只做到第 1 集」
@@ -775,9 +775,9 @@ export function StudioCanvasRouter() {
                   projectName={currentProjectName}
                   episode={epNum}
                   onViewUnit={handleViewWorkflowUnit}
-                  // 参考路线的视频入队由 ReferenceVideoCanvas 自己的批量准入路径承担，
+                  // 参考生视频的视频入队由 ReferenceVideoCanvas 自己的整批准入判定路径承担，
                   // 本组件的逐单元回调对 video_units 剧本解不出提示词、按下去毫无反应。
-                  // 该路线只给「查看」跳转，重生入口在跳过去的那张单元卡上。
+                  // 该生成模式只给「查看」跳转，重生入口在跳过去的那张单元卡上。
                   onRegenerate={
                     route === "reference_video" || !scriptFile
                       ? undefined

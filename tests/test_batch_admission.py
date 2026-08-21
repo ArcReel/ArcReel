@@ -1,4 +1,4 @@
-"""批量准入的纯折叠：一批目标的整体结论与逐 unit 转述。"""
+"""整批准入判定的纯折叠：一批目标的整体结论与逐 unit 转述。"""
 
 from __future__ import annotations
 

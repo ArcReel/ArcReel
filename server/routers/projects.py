@@ -177,23 +177,22 @@ class CreateProjectRequest(BaseModel):
     target_duration: int | None = Field(default=None, gt=0)
     # 仅 content_mode=ad：创作诉求短文本（可空，不走 source_loader）
     brief: str | None = None
-    # 生成路线：必填二选一、无默认值——缺失或旧三值 grid 由 Pydantic 校验返回 422，
-    # 不再被默认值悄悄锁进某条路线。创建后不可更改（PATCH 模型结构上无此字段）。
+    # 生成模式：创建时必须显式选择 storyboard 或 reference_video；缺失或旧 grid 值由
+    # Pydantic 校验返回 422。创建后不可更改（PATCH 模型结构上无此字段）。
     generation_mode: Literal["storyboard", "reference_video"]
-    # 宫格分镜开关：只改变分镜图的生产方式，不是独立路线；仅 storyboard 路线有意义，
+    # 宫格分镜开关：只改变分镜图的生产方式，不是独立生成模式；仅 storyboard 生成模式有意义，
     # 创建后可经项目 PATCH 随时切换。ad 项目拒绝开启。
     grid_storyboard: bool = False
     # 口播语速估算（阅读单位 / 秒）项目级覆盖：空 = 回退 lib.speech_rate 的语言默认。
     # 与 TTS 的 narration_speed（供应商配音倍率）无关，两者不联动。
     speech_rate_units_per_second: SpeechRateOverride = None
-    # ===== 新增 =====
     style_template_id: str | None = None
     video_backend: str | None = None
-    # 视频能力桶（docs/adr/0054）项目级覆盖：i2v = 图生视频 / 宫格，r2v = 参考生视频；
+    # 视频任务类型桶（docs/adr/0054）项目级覆盖：i2v = 图生视频 / 宫格，r2v = 参考生视频；
     # 空值 = 回退项目默认（video_backend）与全局层
     video_provider_i2v: str | None = None
     video_provider_r2v: str | None = None
-    # 图片能力桶（docs/adr/0054）项目级覆盖 + 项目默认模型：t2i = 文生图，i2i = 图生图；
+    # 图片任务类型桶（docs/adr/0054）项目级覆盖 + 项目默认模型：t2i = 文生图，i2i = 图生图；
     # 桶为空 = 回退项目默认（default_image_backend）与全局层
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
@@ -222,7 +221,7 @@ class UpdateProjectRequest(BaseModel):
     target_duration: int | None = Field(default=None, gt=0)
     # 仅 ad 项目：创作诉求短文本；显式 null 清为空字符串
     brief: str | None = None
-    # 生成路线创建即定、不可变，PATCH 结构上无 generation_mode 字段；宫格开关随时可切
+    # 生成模式创建即定、不可变，PATCH 结构上无 generation_mode 字段；宫格开关随时可切
     grid_storyboard: bool | None = None
     video_backend: str | None = None
     video_provider_i2v: str | None = None
@@ -523,7 +522,7 @@ async def list_projects():
 
                     # 封面走 resolve_project_cover fallback 链：
                     # video_thumbnail → storyboard_image → scene_sheet → character_sheet
-                    # —— 兼顾 reference / grid / storyboard 三种生成模式。
+                    # —— 同时覆盖分镜图生视频（含宫格装配）与参考生视频。
                     thumbnail = resolve_project_cover(manager, name, project, preloaded_scripts=preloaded_scripts)
 
                     # 阶段与产物计数一律来自项目摘要投影（读时计算，产物口径取产物清单）
@@ -626,7 +625,7 @@ async def create_project(
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
-            # 生成路线与宫格开关并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW；
+            # 生成模式与宫格开关并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW；
             # 两字段恒写显式值（grid_storyboard 默认 false 也落盘），新项目即 v5 完整形态
             extras["generation_mode"] = req.generation_mode
             extras["grid_storyboard"] = req.grid_storyboard
@@ -670,14 +669,14 @@ async def get_video_capabilities(
 
     三级模型选择（项目 > 系统设置 > 系统默认）后，读 model 的 `supported_durations`
     并派生 `max_duration`；同时带回 `project.json.default_duration`（用户偏好）。
-    两条生成路线（storyboard/reference_video）都可复用。
+    两条生成模式（storyboard/reference_video）都可复用。
 
     `video_backend`（"provider/model"）用于设置表单里尚未保存的候选模型：不带该参数时按已
-    落盘配置解析，带上则按候选模型 × 本项目的生成路线解析，使 voice_consistency 等二维派生值
+    落盘配置解析，带上则按候选模型 × 本项目的生成模式解析，使 voice_consistency 等二维派生值
     对应用户当前选中的模型而非上一次保存的模型。裸 provider（无 "/"）按其 registry
     默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
 
-    能力按项目生成路线定轴、全项目同一口径，故无需集号：路线创建即定、之后不可更改。
+    能力按项目生成模式定轴、全项目同一口径，故无需集号：生成模式创建即定、之后不可更改。
     """
     resolver = ConfigResolver(async_session_factory)
     try:
@@ -693,7 +692,7 @@ async def get_video_capabilities(
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except VideoBucketCapabilityError as exc:
-        # 能力桶解析闸的报错自带 errors 目录 key 与渲染参数，转成结构化 400 让用户看到修复指引，
+        # 任务类型桶解析闸的报错自带 errors 目录 key 与渲染参数，转成结构化 400 让用户看到修复指引，
         # 不被下面的通用 422 文案吞掉（ValueError 子类，须先于其捕获）
         raise BadRequestError(exc.code, **exc.params) from exc
     except ValueError as exc:
@@ -806,7 +805,7 @@ async def get_agent_profile_status(name: str, _t: Translator):
     except ApiError:
         raise
     except Exception:
-        logger.exception("读取项目 Agent Profile 状态失败: project=%s", name)
+        logger.exception("读取项目 Agent profile 状态失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
@@ -832,7 +831,7 @@ async def reset_agent_profile(name: str, _t: Translator):
     except ApiError:
         raise
     except Exception:
-        logger.exception("重置项目 Agent Profile 失败: project=%s", name)
+        logger.exception("重置项目 Agent profile 失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
@@ -1065,7 +1064,7 @@ class UpdateSceneRequest(BaseModel):
 
 @router.patch("/projects/{name}/script-scenes/{scene_id}", dependencies=[Depends(require_project_migration_ok)])
 async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Translator):
-    """更新 drama 模式剧本中的单个场景镜头（按 scene_id 定位）。
+    """更新剧情演绎剧本中的单个分镜（按 scene_id 定位）。
 
     路径与项目场景资产 CRUD（``/projects/{name}/scenes/{entry_name}``）做明确区分，
     避免 FastAPI 按注册顺序优先匹配本端点导致 SceneCard 保存请求被截获、Pydantic
@@ -1138,7 +1137,7 @@ class UpdateShotRequest(BaseModel):
     updates: dict
 
 
-# ad 镜头 PATCH 白名单：shot_id（定位键）与 generated_assets（运行时状态）不可改写。
+# ad 分镜 PATCH 白名单：shot_id（定位键）与 generated_assets（运行时状态）不可改写。
 _SHOT_UPDATABLE_FIELDS = (
     "section",
     "voiceover_text",
@@ -1173,7 +1172,7 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
     # reorder 的 s["shot_id"] 索引会 KeyError 变 500。
     if not all(isinstance(s.get("shot_id"), str) and s["shot_id"] for s in shots):
         raise ValueError("ad script field 'shots' contains elements missing valid 'shot_id'")
-    # shot_id 是单镜头身份键：重复值会让 PATCH 静默更新首个命中项、reorder 失去 1:1 映射
+    # shot_id 是单个分镜的身份键：重复值会让 PATCH 静默更新首个命中项、reorder 失去 1:1 映射
     shot_ids = [s["shot_id"] for s in shots]
     if len(set(shot_ids)) != len(shot_ids):
         raise ValueError("ad script field 'shots' contains duplicate 'shot_id' values")
@@ -1182,7 +1181,7 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
 
 @router.patch("/projects/{name}/script-shots/{shot_id}", dependencies=[Depends(require_project_migration_ok)])
 async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Translator):
-    """更新 ad 模式剧本中的单个镜头（按 shot_id 定位）。
+    """更新广告/短片剧本中的单个分镜（按 shot_id 定位）。
 
     路径风格与 ``script-scenes`` 对齐；口播文案 / section / 时长 / 引用列表等
     白名单字段可改，结构合法性由写盘统一入口的「不更坏」校验兜底。
@@ -1240,7 +1239,7 @@ class ReorderShotsRequest(BaseModel):
 
 @router.post("/projects/{name}/script-shots/reorder", dependencies=[Depends(require_project_migration_ok)])
 async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
-    """按给定全排列重排 ad 剧本的 shots 顺序（与参考视频 units/reorder 同语义）。"""
+    """按给定全排列重排 ad 剧本的 shots 顺序（与视频单元重排端点同语义）。"""
     try:
 
         def _sync():
@@ -1312,7 +1311,7 @@ class UpdateEpisodeRequest(BaseModel):
 
 @router.patch("/projects/{name}/segments/{segment_id}", dependencies=[Depends(require_project_migration_ok)])
 async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _t: Translator):
-    """更新旁白/解说片段"""
+    """更新旁白/解说分镜"""
     try:
 
         def _sync():

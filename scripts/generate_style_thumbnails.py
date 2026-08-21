@@ -73,7 +73,7 @@ async def load_grok_api_key() -> str:
     async with async_session_factory() as session:
         cred = await CredentialRepository(session).get_active("grok")
     if cred is None or not cred.api_key:
-        raise RuntimeError("未找到 grok 活跃凭证（provider_credential 表）")
+        raise RuntimeError("未找到 grok 生效凭证（provider_credential 表）")
     return cred.api_key
 
 

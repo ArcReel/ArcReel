@@ -1419,7 +1419,7 @@ class TestProjectArchiveService:
         """
         from lib.profile_manifest import MANIFEST_FILENAME
 
-        # 准备 profile：必须至少有一个可同步文件，否则 ProfileEmptyError
+        # 准备 profile：必须至少有一个可物化文件，否则 ProfileEmptyError
         profile_dir = tmp_path / "agent_runtime_profile"
         (profile_dir / ".claude" / "skills" / "demo").mkdir(parents=True)
         (profile_dir / ".claude" / "skills" / "demo" / "SKILL.md").write_text("demo")

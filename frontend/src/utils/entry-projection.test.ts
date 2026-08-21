@@ -189,7 +189,7 @@ describe("projectEntriesToTurns", () => {
 
   it("maps system task entries to task_progress blocks and updates by task_id", () => {
     const turns = projectEntriesToTurns([
-      entry({ type: "assistant", content: [{ type: "text", text: "启动子任务" }], uuid: "a-1" }),
+      entry({ type: "assistant", content: [{ type: "text", text: "启动子智能体" }], uuid: "a-1" }),
       entry({ type: "system", subtype: "task_started", task_id: "t1", description: "分析", uuid: "s-1" }),
       entry({
         type: "system",
@@ -218,7 +218,7 @@ describe("projectEntriesToTurns", () => {
         type: "system",
         subtype: "task_notification",
         task_id: "t9",
-        summary: "子任务完成",
+        summary: "子智能体完成",
         task_status: "completed",
         tool_use_id: "tu-9",
         uuid: "s-2",
@@ -227,7 +227,7 @@ describe("projectEntriesToTurns", () => {
         type: "system",
         subtype: "task_notification",
         task_id: "t9",
-        summary: "子任务完成",
+        summary: "子智能体完成",
         task_status: "completed",
         tool_use_id: "tu-9",
         uuid: "n-1",
@@ -236,7 +236,7 @@ describe("projectEntriesToTurns", () => {
     expect(turns).toHaveLength(1);
     const taskBlocks = turns[0].content.filter((b) => b.type === "task_progress");
     expect(taskBlocks).toHaveLength(1);
-    expect(taskBlocks[0].summary).toBe("子任务完成");
+    expect(taskBlocks[0].summary).toBe("子智能体完成");
     expect(taskBlocks[0].task_status).toBe("completed");
   });
 
@@ -468,7 +468,7 @@ describe("projectEntriesToTurns", () => {
       }),
       entry({
         type: "assistant",
-        content: [{ type: "text", text: "内层子任务回复" }],
+        content: [{ type: "text", text: "内层子智能体回复" }],
         uuid: "a-3",
         parent_tool_use_id: "tu-inner",
       }),
@@ -481,7 +481,7 @@ describe("projectEntriesToTurns", () => {
     const innerAnchor = outerAnchor.sub_turns?.[0].content[0];
     expect(innerAnchor?.type).toBe("tool_use");
     expect(innerAnchor?.id).toBe("tu-inner");
-    expect(innerAnchor?.sub_turns?.[0].content[0].text).toBe("内层子任务回复");
+    expect(innerAnchor?.sub_turns?.[0].content[0].text).toBe("内层子智能体回复");
   });
 
   it("folds task_progress blocks scoped inside a subagent's own sub-timeline into its nested anchor", () => {

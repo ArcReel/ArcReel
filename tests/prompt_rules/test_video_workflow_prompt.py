@@ -1,7 +1,7 @@
 """Contract coverage for the video-workflow Agent Profile.
 
 档案是 prompt，但这里只断言**能对照代码真相源的覆盖**：受控动作与问题码枚举、产物状态枚举、
-准入结论、旁白交付常量、已注册的 `mcp__arcreel__*` 工具名，以及按内容模式物化出的文件映射。
+准入结论、旁白交付常量、已注册的 `mcp__arcreel__*` 工具名，以及按创作类型物化出的文件映射。
 措辞不在断言范围内——服务端扩一个枚举而档案没跟上会红，改一句措辞不会。越界行为由服务端契约
 与 ``AgentAccessPolicy`` 在工具边界上拒绝，不靠在测试里抄一遍 prompt 原文。
 """
@@ -40,7 +40,7 @@ WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
 EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
 
 # ``next_action.type`` 的闭集就是 ``WorkflowActionType``：编排动作、计划注入的动作与
-# ``GenerationAction``（批量准入被拒时原样交回）都在其中。从枚举导出而不是手抄，新增成员
+# ``GenerationAction``（整批准入判定被拒时原样交回）都在其中。从枚举导出而不是手抄，新增成员
 # 时这份契约测试会直接红。
 CONTROLLED_ACTIONS = tuple(action.value for action in WorkflowActionType)
 
@@ -70,14 +70,14 @@ def test_variants_route_through_the_registered_plan_tool(filename: str) -> None:
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
 def test_variants_do_not_name_the_preprocessor_subagents_themselves(filename: str) -> None:
-    """预处理 subagent 由计划的 ``next_action.args.preprocessor`` 指名，档案侧不得再推一遍。"""
+    """内容整理子智能体由计划的 ``next_action.args.preprocessor`` 指名，档案侧不得再推一遍。"""
 
     content = _skill(filename)
 
     for rule in WORKFLOW_RULES.values():
         if rule.preprocessor is not None:
             assert rule.preprocessor not in content, (
-                f"{filename} 硬编码了预处理 subagent {rule.preprocessor}；应改读 next_action.args.preprocessor"
+                f"{filename} 硬编码了内容整理子智能体 {rule.preprocessor}；应改读 next_action.args.preprocessor"
             )
 
 
@@ -133,7 +133,7 @@ def test_narration_audio_skill_covers_the_tts_actions() -> None:
         assert code in content
 
 
-# ------------------------------------------------------------------- 批量准入
+# ------------------------------------------------------------------- 整批准入判定
 
 
 def test_plan_reference_covers_every_admission_decision() -> None:

@@ -16,9 +16,9 @@ from lib.project_manager import grid_storyboard_enabled
 def ensure_grid_writable(project: dict[str, Any]) -> None:
     """项目不允许改写宫格时抛 BadRequestError。
 
-    - 广告/短片项目不开放宫格分镜，残留的历史 grid 记录不可再被改写；
-    - 宫格开关关闭后同理（含 reference_video 路线）——历史 grid 不再可
-      重生成/切分/上传/还原。
+    - 广告/短片项目不开放宫格分镜，已有 grid 记录保持只读；
+    - 未启用宫格的项目（含 reference_video 生成模式）同样只读已有 grid 记录，
+      不允许重生成、切分、上传或还原。
     """
     if project.get("content_mode") == "ad":
         raise BadRequestError("ad_grid_not_supported")

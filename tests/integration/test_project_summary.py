@@ -143,7 +143,7 @@ def test_script_without_media_is_in_production(tmp_path: Path) -> None:
 
 
 def test_item_count_reports_the_storyboard_count_on_the_storyboard_route(tmp_path: Path) -> None:
-    """分镜图生视频路线报分镜数——广告/短片的 shots 与旁白/解说的 segments 同一口径。"""
+    """分镜图生视频报分镜数——广告/短片的 shots 与旁白/解说的 segments 同一口径。"""
 
     pm, project_path = _make_project(tmp_path, "ad")
     source_text = "完整原文"
@@ -167,7 +167,7 @@ def test_item_count_reports_the_storyboard_count_on_the_storyboard_route(tmp_pat
 
 
 def test_item_count_reports_the_video_unit_count_on_the_reference_route(tmp_path: Path) -> None:
-    """参考生视频路线报视频单元数，且该路线没有分镜图这一档产物。"""
+    """参考生视频报视频单元数，且该生成模式没有分镜图这一档产物。"""
 
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     source_text = "完整原文"
@@ -214,7 +214,7 @@ def test_all_artifacts_usable_reports_completed(tmp_path: Path) -> None:
 
 
 def test_deleting_an_asset_sheet_drops_the_available_count_like_the_workbench(tmp_path: Path) -> None:
-    """列表页与工作台同用产物清单：删掉一张设计图，两处一起从「可用」里掉出来。"""
+    """列表页与工作台同用产物清单：删掉一张资产图，两处一起从「可用」里掉出来。"""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -254,7 +254,7 @@ def test_deleting_a_video_drops_the_episode_out_of_completed(tmp_path: Path) -> 
 
 
 def test_stale_ledger_episode_falls_back_to_pending_preprocess(tmp_path: Path) -> None:
-    """重新规划使该集原文范围失效：脚本仍在盘上，但该集回到待预处理，不计入已生成。"""
+    """重新规划使该集原文范围失效：脚本仍在盘上，但该集回到待内容整理，不计入已生成。"""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"

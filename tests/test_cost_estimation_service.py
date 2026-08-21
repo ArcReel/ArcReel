@@ -1027,7 +1027,7 @@ class TestCostEstimationService:
 
     @pytest.mark.unit
     async def test_ad_storyboard_estimates_per_shot(self, db_factory):
-        """ad 项目（分镜路径）：逐镜头返回分镜图 + 视频估值，聚合进集/项目两级合计。"""
+        """ad 项目（分镜图生视频路径）：逐个分镜返回分镜图 + 视频估值，聚合进集/项目两级合计。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1047,7 +1047,7 @@ class TestCostEstimationService:
         for seg in segments:
             assert seg["estimate"]["image"], seg
             assert seg["estimate"]["video"], seg
-        # 视频估值随镜头时长变化（单镜头级估值非整集平摊）
+        # 视频估值随分镜时长变化（单个分镜级估值非整集平摊）
         assert segments[0]["estimate"]["video"] != segments[1]["estimate"]["video"]
         assert result["episodes"][0]["totals"]["estimate"]["image"]
         assert result["project_totals"]["estimate"]["video"]
@@ -1077,7 +1077,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_ad_reference_video_estimates_self_contained_units(self, db_factory):
-        """广告参考路线按 video_units 计费展示，并跳过分镜图与独立音频估值。"""
+        """广告/短片的参考生视频按 video_units 计费展示，并跳过分镜图与独立音频估值。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1431,7 +1431,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_reference_route_gives_no_estimate_for_mismatched_storyboard_script(self, db_factory):
-        """参考路线项目下的失配剧本（分镜骨架）不产生预估：该集按当前路线根本不能生成。
+        """参考生视频项目下的失配剧本（分镜骨架）不产生预估：该集按当前生成模式根本不能生成。
 
         估算与执行同轴——生成侧对这类存量混排集直接拒绝并要求重拆，估算这边照实给零，
         不去替它假想一条分镜路径。
@@ -1468,7 +1468,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_reference_route_estimates_units_ignoring_residual_segments(self, db_factory):
-        """参考路线项目按 units 估算，剧本里残留的 segments 不参与——路线定路径，形状不投票。"""
+        """参考生视频项目按 units 估算，剧本里残留的 segments 不参与——生成模式定路径，形状不投票。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1494,7 +1494,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_storyboard_route_gives_no_estimate_for_mismatched_unit_script(self, db_factory):
-        """分镜路线项目下的失配剧本（video_units 骨架）不产生预估：估算只认项目路线。"""
+        """分镜图生视频项目下的失配剧本（video_units 骨架）不产生预估：估算只认项目生成模式。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1604,7 +1604,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unit_with_malformed_duration(self, db_factory):
-        """agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（字符串、list、dict 等）。
+        """Agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（字符串、list、dict 等）。
         SDK 侧入队预检（``enqueue_videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，
         估算须跟随同一容错口径——一个 unit 的脏时长不能让整个项目估算 500，拖累其余正常集，
         其余正常 unit 仍要继续产生预估。
@@ -1634,7 +1634,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unit_with_non_string_text(self, db_factory):
-        """agent/外部编辑过的剧本可能把 ``text`` 裸写成非字符串的 truthy 值（如 ``true``/``1``）。
+        """Agent/外部编辑过的剧本可能把 ``text`` 裸写成非字符串的 truthy 值（如 ``true``/``1``）。
         该值参与提示词拼接会抛 ``TypeError``，必须先做类型检查，否则单条脏数据会让整个项目
         估算 500。
         """
@@ -1661,7 +1661,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_rejects_non_string_unit_id(self, db_factory):
-        """agent/外部编辑过的剧本可能把 ``unit_id`` 裸写成非字符串 truthy 值（如数字/布尔）。
+        """Agent/外部编辑过的剧本可能把 ``unit_id`` 裸写成非字符串 truthy 值（如数字/布尔）。
         入队执行时（``execute_reference_video_task``）按字符串 resource_id 与剧本原始
         （未转型）值比较定位 unit，类型不等会导致 "unit not found"；估算侧若把该值
         str() 强转后正常计费，会展示一笔实际跑不起来的费用，必须原本就是字符串才计价。
@@ -1852,7 +1852,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_disabled_custom_video_model_estimate_reports_unknown(self, db_factory):
-        """估算模型身份与执行同口径：项目模型被禁用后按能力桶解析闸算悬空引用，不改按该供应商
+        """估算模型身份与执行同口径：项目模型被禁用后按任务类型桶解析闸算悬空引用，不改按该供应商
         默认启用模型出价——那个模型用户没选过，执行期也不会用它（``docs/adr/0054``）。"""
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
@@ -2011,9 +2011,9 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_all_episodes_priced_by_the_project_route_bucket(self, db_factory, monkeypatch):
-        """全项目同一条路线、同一个桶：算价不逐集分歧，也不被某集的剧本形状带偏。
+        """全项目同一种生成模式、同一个桶：算价不逐集分歧，也不被某集的剧本形状带偏。
 
-        项目路线是 storyboard，ep2 是失配的 video_units 骨架——它不产生预估（生成侧会拒绝
+        项目生成模式是 storyboard，ep2 是失配的 video_units 骨架——它不产生预估（生成侧会拒绝
         并要求重拆），更不会把估算拽去 r2v 桶。
         """
         priced_models: list[str | None] = []
@@ -2046,7 +2046,7 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="per-episode-bucket")
 
-        # 只有骨架与路线相符的 ep1 产生预估，且按项目路线的 i2v 桶算价。
+        # 只有骨架与生成模式相符的 ep1 产生预估，且按项目生成模式的 i2v 桶算价。
         assert priced_models == ["kling-v3"]
         assert result["episodes"][1]["segments"] == []
         assert result["models"]["video"] == {"provider": "kling", "model": "kling-v3"}
@@ -2059,9 +2059,9 @@ class TestCostEstimationService:
     async def test_ad_reference_route_prices_by_unit_reference_bucket(
         self, db_factory, monkeypatch, text, expected_model
     ):
-        """ad 参考路线按 unit 当前实际可用参考图分桶算价：有图 → r2v，无图 → i2v。
+        """ad 参考生视频按 unit 当前实际可用参考图分桶算价：有图 → r2v，无图 → i2v。
 
-        参考路线的集实际入队参考视频任务；执行侧对空参考镜头按 i2v 桶降级解析模型，
+        参考生视频的集实际入队参考生视频任务；执行侧对无参考图视频单元按 i2v 桶降级解析模型，
         算价须跟着同一口径分桶。
         """
         priced_models: list[str | None] = []
@@ -2272,7 +2272,7 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="test-noprice")
 
-        # 断言解析到的仍是该自定义 provider/model，排除 resolver 回落 unknown 导致的同结果假阳性
+        # 断言解析到的仍是该自定义供应商/模型，排除 resolver 回落 unknown 导致的同结果假阳性
         assert result["models"]["image"] == {"provider": "custom-99", "model": "ghost"}
         # 缺价 → calculate_cost 返回 0，_add_cost 过滤，image 估值为空且未抛错
         seg = result["episodes"][0]["segments"][0]

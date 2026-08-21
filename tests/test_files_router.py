@@ -621,7 +621,7 @@ class TestFilesRouter:
 
     @pytest.mark.unit
     def test_product_ref_upload_preserves_original_bytes(self, tmp_path, monkeypatch):
-        """产品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""
+        """商品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""
         client, pm = _client(monkeypatch, tmp_path)
 
         # 构造一张 >2MB 的 PNG（其他资产上传在该阈值会被压成 JPEG q85）：
@@ -682,7 +682,7 @@ class TestFilesRouter:
         client, pm = _client(monkeypatch, tmp_path)
 
         def _mutate(project: dict) -> None:
-            project.setdefault("products", {})[name_nfd] = {"description": "存量 NFD 产品"}
+            project.setdefault("products", {})[name_nfd] = {"description": "存量 NFD 商品"}
 
         pm.update_project("demo", _mutate)
 
@@ -693,12 +693,12 @@ class TestFilesRouter:
             )
             assert resp.status_code == 200, resp.text
             products = pm.load_project("demo")["products"]
-            assert name_nfc not in products  # 不因上传新造一条 NFC 产品
+            assert name_nfc not in products  # 不因上传新造一条 NFC 商品
             assert products[name_nfd]["reference_images"] == [resp.json()["path"]]
 
     @pytest.mark.unit
     def test_product_ref_unknown_product_404(self, tmp_path, monkeypatch):
-        """原图列表是文件的唯一指针：产品不存在时拒收，避免落下孤儿文件。"""
+        """原图列表是文件的唯一指针：商品不存在时拒收，避免落下孤儿文件。"""
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post(
@@ -1227,12 +1227,12 @@ class TestFilesRouter:
 
     @pytest.mark.unit
     def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
-        """参考生视频模式下读/写 step1_reference_units.json，避免被按 content_mode 错误路由；
+        """参考生视频下读/写 step1_reference_units.json，避免被按 content_mode 错误路由；
         旧 .md 仅存量兼读，写入经 ScriptReviewService 单一出口做结构校验后落结构化 .json"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
-        # 设置项目为 reference_video 模式（content_mode 仍是 narration 测试正交性）
+        # 设置项目为 参考生视频（content_mode 仍是 narration 测试正交性）
         project_json = project_dir / "project.json"
         payload = json.loads(project_json.read_text(encoding="utf-8"))
         payload["generation_mode"] = "reference_video"
@@ -1298,7 +1298,7 @@ class TestFilesRouter:
 
     @pytest.mark.unit
     def test_draft_content_routes_by_project_generation_mode(self, tmp_path, monkeypatch):
-        """草稿文件名按项目生成路线路由：参考路线全项目落 step1_reference_units.json。"""
+        """草稿文件名按项目生成模式路由：参考生视频全项目落 step1_reference_units.json。"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
@@ -1326,7 +1326,7 @@ class TestFilesRouter:
         content_mode, gen_mode = files._load_project_modes("no-such-project")
         assert content_mode == "drama"
         assert gen_mode is None
-        # demo 项目 content_mode=narration（fixture 默认），生成路线取项目字段
+        # demo 项目 content_mode=narration（fixture 默认），生成模式取项目字段
         content_mode, gen_mode = files._load_project_modes("demo")
         assert content_mode == "narration"
         assert gen_mode == "reference_video"
@@ -1353,7 +1353,7 @@ class TestFilesRouter:
             assert change["action"] == "created"
             assert change["episode"] == 1
             assert change["important"] is True
-            assert "片段拆分" in change["label"]
+            assert "分镜拆分" in change["label"]
 
             mock_emit.reset_mock()
 

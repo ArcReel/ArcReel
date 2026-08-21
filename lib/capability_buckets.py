@@ -1,4 +1,4 @@
-"""能力桶（t2i / i2i / i2v / r2v）归属判定 —— 把既有能力声明翻译成桶，不新增第二份声明。
+"""任务类型桶（t2i / i2i / i2v / r2v）归属判定 —— 把既有能力声明翻译成桶，不新增第二份声明。
 
 判定来源逐桶固定：
 
@@ -56,7 +56,7 @@ def _video_buckets(has_i2v: bool, max_reference_images: int) -> frozenset[Capabi
 
 
 def builtin_model_buckets(provider_id: str, model_id: str, model_info: ModelInfo) -> frozenset[CapabilityBucket]:
-    """内置模型具备的能力桶；文本 / 音频模型恒为空集。"""
+    """内置模型具备的任务类型桶；文本 / 音频模型恒为空集。"""
     if model_info.media_type == "image":
         return _image_buckets_from_capabilities(
             "text_to_image" in model_info.capabilities,
@@ -79,7 +79,7 @@ def custom_model_buckets(
     model_id: str,
     capability_overrides: object | None = None,
 ) -> frozenset[CapabilityBucket]:
-    """自定义供应商模型具备的能力桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。"""
+    """自定义供应商模型具备的任务类型桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。"""
     try:
         media_type = endpoint_to_media_type(endpoint)
     except ValueError:

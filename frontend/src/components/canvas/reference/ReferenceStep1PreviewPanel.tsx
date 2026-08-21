@@ -40,13 +40,13 @@ function unitKeyFromLabel(label: string): string | null {
   return m ? m[1] : null;
 }
 
-/** unit 卡的统一显示形状：结构化（已晋升）与扁平（隔离草稿）两种来源在这里收敛。 */
+/** unit 卡的统一显示形状：结构化（已晋升）与扁平（草稿）两种来源在这里收敛。 */
 interface DisplayUnit {
   key: string;
   durationSeconds: number;
   sourceText: string;
   scriptText: string;
-  /** true 时可编辑（已晋升内容）；隔离草稿的扁平产物只读，修复由 agent 在草稿上完成。 */
+  /** true 时可编辑（已晋升内容）；草稿的扁平产物只读，修复由 Agent 在草稿上完成。 */
   editable: boolean;
 }
 
@@ -69,7 +69,7 @@ function structuredDisplayUnits(draft: ReferenceStep1Draft): DisplayUnit[] {
 }
 
 /**
- * 隔离草稿 → unit 卡。schema 违约时后端原样回传 agent 手改的那份 content（不做收编），`units`
+ * 草稿 → unit 卡。schema 违约时后端原样回传 Agent 手改的那份 content（不做收编），`units`
  * 可能不是数组、逐 unit 字段也可能缺失或类型不对：这里逐项收窄而非信任类型声明——渲染崩掉
  * 恰好发生在用户最需要看到面板的时候。收不成 unit 卡的内容由调用方作原始文本兜底呈现。
  */
@@ -77,7 +77,7 @@ function quarantinedDisplayUnits(
   content: ReferenceStep1FlatDraft | null,
   episode: number,
 ): DisplayUnit[] {
-  // content 为 null：隔离草稿文件本身损坏无法解析（信封形状坏），不是「schema 违约但仍可读」。
+  // content 为 null：草稿文件本身损坏无法解析（信封形状坏），不是「schema 违约但仍可读」。
   const units: unknown = content?.units;
   if (!Array.isArray(units)) return [];
   return units.flatMap((raw: unknown, i) => {
@@ -199,7 +199,7 @@ function UnitCard({
   const hasViolation = violations.anchorSource.length + violations.byLine.size + violations.aggregate.length > 0;
   const anchorBroken = violations.anchorSource.length > 0;
   const stats = useMemo(() => unitStats(unit.scriptText, lookup), [unit.scriptText, lookup]);
-  // 档位表解析不到、或内容不可编辑（隔离草稿）时退回只读秒数：能选的档位必须是保存后
+  // 档位表解析不到、或内容不可编辑（草稿）时退回只读秒数：能选的档位必须是保存后
   // 后端收编不会再改的那一档，拿不到权威档位表就不提供会被静默改掉的选择。
   const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
 
@@ -308,11 +308,11 @@ function selectUnitsContent(state: ScriptReviewState): ReferenceStep1Draft | nul
 
 /**
  * reference_video step1 拆分结果的按集预览：与 drama/narration 的 `ScriptReviewGate` 同级、
- * 专属 reference_video 变体的审核 gate 面板——文稿流布局（unit 卡：头部 + 原文 + 高亮正文），
- * 隔离草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 step2。
+ * 专属 reference_video 变体的内容确认面板——文稿流布局（unit 卡：头部 + 原文 + 高亮正文），
+ * 草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 step2。
  *
- * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（非隔离
- * 草稿）内容上开放；隔离草稿的修复走 agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
+ * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（无待处置
+ * 草稿）内容上开放；草稿的修复走 Agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
  */
 export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: ReferenceStep1PreviewPanelProps) {
   const { t } = useTranslation("dashboard");
@@ -380,15 +380,10 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
-    // 重算已无违约、但隔离草稿仍在场（agent 已改对内容、尚未调晋升工具）：不能报「0 处违约
-    // 待修复」再让用户去改一份已经没问题的东西，正确的下一步是请 agent 直接晋升。
-    const report =
-      violations.length === 0
-        ? t("reference_step1_fix_request_promote_prefill", { episode })
-        : [
-            t("reference_step1_fix_request_prefill_header", { episode, count: violations.length }),
-            ...violations.map((v, i) => `${i + 1}. ${v.message}`),
-          ].join("\n");
+    const report = [
+      t("reference_step1_fix_request_prefill_header", { episode, count: violations.length }),
+      ...violations.map((v, i) => `${i + 1}. ${v.message}`),
+    ].join("\n");
     useAssistantStore.getState().setInput(report);
     useAppStore.getState().setAssistantPanelOpen(true);
   }, [state, episode, t]);
@@ -451,10 +446,11 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
           .map((u) => u.key),
       );
   const allViolations = quarantine?.violations ?? [];
+  const hasDraftViolations = allViolations.length > 0;
   const unitKeys = new Set(displayUnits.map((u) => u.key));
   const unassignedViolations = allViolations.filter((v) => !unitKeys.has(unitKeyFromLabel(v.label) ?? ""));
   const violatingUnitKeys = [...new Set(allViolations.map((v) => unitKeyFromLabel(v.label)).filter((k): k is string => k != null))];
-  // schema 违约会让草稿收不成任何 unit 卡（units 不是数组 / 条目不是对象）：原样摊开 agent
+  // schema 违约会让草稿收不成任何 unit 卡（units 不是数组 / 条目不是对象）：原样摊开 Agent
   // 手里那份内容，否则用户只看得到一条「结构不符」而看不到自己要改的是什么。content 为 null
   // （信封本身损坏）时没有可摊的内容，聚合区的 quarantine_unreadable 违约已经说明情况。
   const rawFallback =
@@ -469,8 +465,10 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         style={CARD_STYLE}
       >
         <div className="flex items-center gap-2">
-          {quarantined ? (
+          {quarantined && hasDraftViolations ? (
             <OctagonAlert className="h-4 w-4 shrink-0 text-red-400" />
+          ) : quarantined ? (
+            <Clock className="h-4 w-4 shrink-0 text-amber-400" />
           ) : confirmed ? (
             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
           ) : (
@@ -479,13 +477,13 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
           <div className="flex flex-col">
             <span className="text-[12.5px] font-medium text-text">
               {quarantined
-                ? t("reference_step1_status_quarantined")
+                ? t(hasDraftViolations ? "reference_step1_status_quarantined" : "reference_step1_status_editable")
                 : confirmed
                   ? t("dashboard:review_status_confirmed")
                   : t("dashboard:review_status_pending")}
             </span>
             <span className="text-[11px] text-text-4">
-              {quarantined ? (
+              {quarantined && hasDraftViolations ? (
                 <>
                   {violatingUnitKeys.map((key, i) => (
                     <span key={key}>
@@ -504,6 +502,8 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
                   )}
                   <span> — {t("reference_step1_click_to_locate")}</span>
                 </>
+              ) : quarantined ? (
+                t("reference_step1_editable_hint")
               ) : confirmed ? (
                 t("dashboard:review_confirmed_hint")
               ) : (
@@ -514,7 +514,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {quarantined && (
+          {quarantined && hasDraftViolations && (
             <button type="button" onClick={handleRequestFix} className={GHOST_BTN_CLS}>
               {t("reference_step1_request_fix")}
             </button>
@@ -533,7 +533,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
             style={ACCENT_BUTTON_STYLE}
             title={
               quarantined
-                ? t("reference_step1_confirm_blocked_hint")
+                ? t(hasDraftViolations ? "reference_step1_confirm_blocked_hint" : "reference_step1_editable_hint")
                 : outOfTierUnitKeys.size > 0
                   ? t("reference_step1_duration_out_of_tier_hint")
                   : undefined

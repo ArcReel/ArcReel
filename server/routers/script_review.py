@@ -1,7 +1,7 @@
-"""step1→step2 web 审核 gate 路由。
+"""step1→step2 web 内容确认路由。
 
 暴露结构化中间态的审阅 / 编辑 / 确认：step1 产出后中间态在 web 可见可改，用户显式确认后才放行
-step2 视觉生成（step2 由 agent 的 generate_episode_script 执行，读时经 gate 校验阻塞到确认）。
+step2 视觉生成（step2 由 Agent 的 generate_episode_script 执行，读时经内容确认校验阻塞到确认）。
 drama（utterances + source_text）与 narration（结构化 novel_text）共用本机制。
 """
 
@@ -36,7 +36,7 @@ async def _attach_duration_tiers(service: ScriptReviewService, project_name: str
 def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> dict | None:
     """把 ``quarantine_unreadable`` 违约的固定中文文案换成按 ``_t`` 渲染的本地化文本。
 
-    该 code 只由两处产出（隔离草稿信封本身损坏 / 重算所需的 meta 缺失损坏），两处都是不带
+    该 code 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），两处都是不带
     插值的固定字符串，不涉及 ``lib.reference_video.draft_validation`` 里其余违约类型那种
     产出时已渲染好插值的模板——本地化改造范围限定在这两条，不牵动其余违约消息的展示形态。
     """
@@ -50,13 +50,13 @@ def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> 
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
 async def get_script_review(project_name: str, episode: int, _t: Translator):
-    """读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。
+    """读取该集 step1 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。
 
-    ``quarantine`` 字段单独合并（reference_video 变体、隔离草稿在场时才非 None）：它按产出时
+    ``quarantine`` 字段单独合并（reference_video 变体、草稿在场时才非 None）：它按产出时
     那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。
-    先取 ``quarantine`` 再取 ``state``：agent 的晋升工具在两次读之间把隔离草稿清掉、正式
+    先取 ``quarantine`` 再取 ``state``：Agent 的晋升工具在两次读之间把草稿清掉、正式
     step1 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的
-    违约报告」这一侧——面板会误判成仍在隔离态、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
+    违约报告」这一侧——面板会误判成仍有待处置草稿、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
     让响应落在「content 仍是旧的、quarantine 已经是 None」这一侧，面板会误判成干净态放行确认，
     用户点下确认时实际晋升的是他从未看过的那份新内容。
     """
@@ -81,18 +81,18 @@ async def update_script_review_content(
     content: dict = Body(...),
     base_fingerprint: str | None = None,
 ):
-    """保存手动 / agent 编辑后的结构化中间态，并使该集重新进入待审。
+    """保存手动 / Agent 编辑后的结构化中间态，并使该集重新等待确认。
 
     ``base_fingerprint``（query）是编辑方 GET 时拿到的内容指纹：给定时服务端在锁内比对，
     编辑期间 step1 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。
 
-    ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与隔离草稿是两份独立文件，保存在途时
-    agent 可能已经另外产出一份新的隔离草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
-    「无隔离草稿」，面板显示干净态、放行确认，而 confirm() 仍会按隔离文件存在性 409。
+    ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与草稿是两份独立文件，保存在途时
+    Agent 可能已经另外产出一份新的草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
+    「无草稿」，面板显示干净态、放行确认，而 confirm() 仍会按待处置草稿文件存在性返回 409。
 
     保存完成后立即取 ``quarantine``，早于 ``_attach_duration_tiers`` 那次 await（视频能力
-    解析）：晋升工具若恰好在这条 await 期间把隔离草稿清掉，越晚读 quarantine 越可能读到
-    「已清除」而不是晋升前那份，响应就会落在「本次保存的内容 + quarantine: null」这一侧，
+    解析）：晋升工具若恰好在这条 await 期间把草稿清掉，越晚读 quarantine 越可能读到
+    「已清除」而不是晋升前那份，响应就会落在「保存的内容 + quarantine: null」这一侧，
     使用户没看过的、晋升后的内容被当作可放行确认——同 GET 端点的顺序取舍，先取的一侧读到
     的是相对更旧但更保守的快照，读时序错位只会让确认被多余地拦一轮，不会误放行。
     """
@@ -114,7 +114,7 @@ async def confirm_script_review(project_name: str, episode: int, _t: Translator)
     """用户显式确认 step1 内容，放行 step2 视觉生成。
 
     ``quarantine`` 同 GET / PUT 一并合并，保持三个端点响应形状一致——``confirm()`` 内部虽已
-    按隔离文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的隔离态，而不是让这个字段在
+    按待处置草稿文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的草稿状态，而不是让这个字段在
     三个端点里时有时无。
     """
     try:

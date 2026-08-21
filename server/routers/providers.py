@@ -422,7 +422,7 @@ async def get_provider_config(
     svc = ConfigService(session)
     db_values = await svc.get_provider_config_masked(provider_id)
 
-    # 计算状态：基于凭证表是否有活跃凭证
+    # 计算状态：基于凭证表是否有生效凭证
     cred_repo = CredentialRepository(session)
     has_active = await cred_repo.has_active_credential(provider_id)
     status = "ready" if has_active else "unconfigured"

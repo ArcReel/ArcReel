@@ -50,7 +50,7 @@ function renderDetail(props: Partial<Parameters<typeof ShotDetail>[0]> = {}) {
   );
 }
 
-describe("ShotDetail ad 模式", () => {
+describe("ShotDetail 广告/短片", () => {
   it("展示口播文案与 section，可编辑并随保存提交 patch", () => {
     const onUpdatePrompt = vi.fn();
     renderDetail({ onUpdatePrompt });
@@ -68,7 +68,7 @@ describe("ShotDetail ad 模式", () => {
     );
   });
 
-  it("展示镜头中的商品引用", () => {
+  it("展示分镜中的商品引用", () => {
     renderDetail();
     expect(screen.getByText("速干杯")).toBeInTheDocument();
   });
@@ -77,23 +77,23 @@ describe("ShotDetail ad 模式", () => {
     const onMoveShot = vi.fn();
     renderDetail({ onMoveShot, selectedIndex: 1 });
 
-    fireEvent.click(screen.getByRole("button", { name: "前移镜头" }));
+    fireEvent.click(screen.getByRole("button", { name: "前移分镜" }));
     expect(onMoveShot).toHaveBeenCalledWith("E1S01", "earlier");
 
-    fireEvent.click(screen.getByRole("button", { name: "后移镜头" }));
+    fireEvent.click(screen.getByRole("button", { name: "后移分镜" }));
     expect(onMoveShot).toHaveBeenCalledWith("E1S01", "later");
   });
 
-  it("首镜头禁用前移、末镜头禁用后移", () => {
+  it("首个分镜禁用前移、末个分镜禁用后移", () => {
     const onMoveShot = vi.fn();
     const first = renderDetail({ onMoveShot, selectedIndex: 0 });
-    expect(screen.getByRole("button", { name: "前移镜头" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "后移镜头" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "前移分镜" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "后移分镜" })).toBeEnabled();
     first.unmount();
 
     renderDetail({ onMoveShot, selectedIndex: 2 });
-    expect(screen.getByRole("button", { name: "前移镜头" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "后移镜头" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "前移分镜" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "后移分镜" })).toBeDisabled();
   });
 
   it("上游静默更新时：干净草稿跟随新值，脏草稿保留用户输入", () => {
@@ -142,7 +142,7 @@ describe("ShotDetail ad 模式", () => {
     expect(screen.getByDisplayValue("用户手改的口播")).toBeInTheDocument();
   });
 
-  it("镜头级费用预估展示在生成按钮上", () => {
+  it("分镜级费用预估展示在生成按钮上", () => {
     useCostStore.setState({
       _segmentIndex: new Map([
         [
@@ -266,7 +266,7 @@ describe("ShotDetail ad 模式", () => {
     expect(onGenerateNarration).not.toHaveBeenCalled();
   });
 
-  it("同一镜头清空口播后隐藏的 TTS 选择会重置为后期配音", () => {
+  it("同一分镜清空口播后隐藏的 TTS 选择会重置为后期配音", () => {
     const onGenerateVideo = vi.fn();
     const withNarration = makeShot({
       generated_assets: {
@@ -309,17 +309,17 @@ describe("ShotDetail ad 模式", () => {
   it("重排请求在途时移动按钮禁用（movePending）", () => {
     const onMoveShot = vi.fn();
     renderDetail({ onMoveShot, movePending: true, selectedIndex: 1 });
-    expect(screen.getByRole("button", { name: "前移镜头" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "后移镜头" })).toBeDisabled();
-    // 切镜导航同样锁定：完成回调按当前索引偏移，在途切镜会让选中态跳到错误镜头
+    expect(screen.getByRole("button", { name: "前移分镜" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "后移分镜" })).toBeDisabled();
+    // 分镜切换导航同样锁定：完成回调按当前索引偏移，在途切换会让选中态跳到错误分镜
     expect(screen.getByRole("button", { name: "上一镜" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "下一镜" })).toBeDisabled();
     // tooltip 解释禁用原因，而非展示常规操作提示
     expect(screen.getByRole("button", { name: "上一镜" })).toHaveAttribute("title", "重排进行中…");
-    expect(screen.getByRole("button", { name: "前移镜头" })).toHaveAttribute("title", "重排进行中…");
+    expect(screen.getByRole("button", { name: "前移分镜" })).toHaveAttribute("title", "重排进行中…");
   });
 
-  it("非 ad 模式不渲染移动按钮", () => {
+  it("非 广告/短片不渲染移动按钮", () => {
     const seg = {
       segment_id: "E1S01",
       episode: 1,
@@ -345,6 +345,6 @@ describe("ShotDetail ad 模式", () => {
         onMoveShot={vi.fn()}
       />,
     );
-    expect(screen.queryByRole("button", { name: "前移镜头" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "前移分镜" })).toBeNull();
   });
 });

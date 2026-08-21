@@ -257,8 +257,8 @@ export function CreateProjectModal() {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, true);
 
-  // 第二步选好时长与分辨率后还能退回第一步改路线。分辨率只由执行模型决定，模型没换就不动；
-  // 时长还受参考图路径影响——同一个模型走参考图时可选时长可能被收窄，故换路线一律重算。
+  // 第二步选好时长与分辨率后还能退回第一步改生成模式。分辨率只由执行模型决定，模型没换就不动；
+  // 时长还受参考图路径影响——同一个模型走参考图时可选时长可能被收窄，故切换生成模式一律重算。
   const handleBasicsChange = (next: WizardStep1Value) => {
     setBasics(next);
     if (next.generationRoute === basics.generationRoute) return;
@@ -282,7 +282,7 @@ export function CreateProjectModal() {
   };
 
   const handleCreate = async () => {
-    // 路线必选（Step1 已拦一道）：缺失时后端返回 422，此处不构造无路线的创建请求
+    // 生成模式必选（Step1 已拦一道）：缺失时后端返回 422，此处不构造缺少生成模式的创建请求
     if (!basics.generationRoute) return;
     setCreating(true);
     try {
@@ -310,7 +310,7 @@ export function CreateProjectModal() {
         grid_storyboard: basics.gridStoryboard,
         // 口播语速估算未填即不传（服务端不落盘，回退语言默认）
         ...(basics.speechRate !== null ? { speech_rate_units_per_second: basics.speechRate } : {}),
-        // ad 不暴露 default_duration（按目标总时长逐镜头规划），改传 target_duration
+        // ad 不暴露 default_duration（按目标总时长逐个分镜规划），改传 target_duration
         ...(isAd
           ? { target_duration: basics.targetDuration }
           : { default_duration: models.defaultDuration }),

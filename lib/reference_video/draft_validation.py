@@ -1,11 +1,11 @@
-"""参考生视频 step1 / step2 产出的机械校验（书写层扁平文本）。
+"""参考生视频 step1 / step2 扁平草稿结构的机械校验。
 
 LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同一份文本上；本模块是「parser
 后校验」这一层的落点：schema 已卡死枚举与外层结构，剩下的语法与内容约束在这里逐 unit
 判定，任一违约 fail-loud 抛 :class:`DraftViolation`，不把违规产物当成功结果写盘。
 
 「不当成功结果写盘」不等于丢弃：调用侧用 :func:`collect_violations` 把逐 unit 的违约收齐成
-一份报告，产物落隔离草稿（``lib.draft_quarantine``）等 agent 修复后重判，不重抽。
+一份报告，产物落待修复草稿（``lib.draft_quarantine``）等 Agent 修复后重判，不重抽。
 每条违约带 ``code``（违约类）与 ``label``（unit 定位），报告因此可逐条定位、可按类断言。
 
 与编辑器侧（人写）的容忍口径分流：``lib.reference_video.script_preview`` 对同样的文本只
@@ -42,10 +42,11 @@ SPEECH_OVERFLOW_TOLERANCE = 0.20
 
 
 class DraftViolation(ValueError):
-    """书写层产出违约。消息含 unit 定位与修复出路，供工具错误信封原样回传给 agent。
+    """草稿产出违约。引用语法误用只是其中一类——原文锚、台词量、台词保真与生成侧的补充
+    判定同走这个类型。消息含 unit 定位与修复出路，供工具错误信封原样回传给 Agent。
 
     ``code`` 是违约类的机读标识，``label`` 是 unit 定位（``unit E1U02`` 一类的前缀）：消息本身
-    面向 agent、措辞可改，报告的分组与测试的按类断言不该挂在措辞上。两者均可为空——异常在
+    面向 Agent、措辞可改，报告的分组与测试的按类断言不该挂在措辞上。两者均可为空——异常在
     模块外被构造时（如生成侧的补充判定）只有消息。
 
     ``line`` 是该 unit 正文内 0-based 的原始行号（``text.splitlines()`` 坐标系，与前端
@@ -87,7 +88,7 @@ class DraftViolations(DraftViolation):
 
 
 def violation_items(exc: DraftViolation) -> list[DraftViolation]:
-    """把单条或聚合的违约一律摊平成条目列表，供报告渲染与隔离草稿落盘取用。"""
+    """把单条或聚合的违约一律摊平成条目列表，供报告渲染与待修复草稿落盘取用。"""
     return list(exc.items) if isinstance(exc, DraftViolations) else [exc]
 
 
@@ -96,7 +97,7 @@ def collect_violations(checks: Iterable[Callable[[], Any]]) -> list[DraftViolati
 
     单个校验函数内部仍是首个违约即抛（各判定共用一次遍历、后续判定以前面的结论为前提），
     故一次调用最多贡献一条；把「每 unit 的锚 / 正文 / 台词量」三个入口分别传进来，报告就能
-    覆盖到所有 unit 而不是停在第一个坏 unit 上——agent 一轮就能看全要改什么。
+    覆盖到所有 unit 而不是停在第一个坏 unit 上——Agent 一轮就能看全要改什么。
 
     只吞 ``DraftViolation``：其余异常（解析器内部错误、脏数据引发的类型错误）照常上抛，
     不被伪装成一条内容违约。
@@ -160,7 +161,7 @@ _FULLWIDTH_BRACES = "｛｝"
 
 
 def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> None:
-    """逐行判书写层语法：花括号用法、写坏的 ``@[`` 引用、缺花括号的台词。
+    """逐行判引用语法：花括号用法、写坏的 ``@[`` 引用、缺花括号的台词。
 
     三类共性是「解析器不报错、但派生结果与作者意图相反」：台词降级成画面描述、说话人反被
     派生成参考图、坏 token 原样进供应商请求。机器产物没有作者意图可保护，一律在语法判定处
@@ -264,7 +265,7 @@ def validate_unit_text(
 ) -> list[ReferenceResource]:
     """校验一个 unit 的正文并机械派生参考图引用。
 
-    覆盖四类阻断违约：正文为空或只有发声记号、书写层语法误用（花括号、写坏的引用、缺花
+    覆盖四类阻断违约：正文为空或只有发声记号、引用语法误用（花括号、写坏的引用、缺花
     括号的台词）、``@[名称]`` 未登记（含台词记号的说话人位）、参考图数超模型上限。正文是
     唯一落盘物，派生结果只服务本次校验与能力判定，不写回。
     """
@@ -368,7 +369,7 @@ def validate_dialogue_load(
 def assert_dialogue_preserved(label: str, step1_text: str, step2_text: str) -> None:
     """step2 保结构 diff：发声记号的序列必须与 step1 逐字一致。
 
-    step2 的职责是视觉展开，台词属于 step1 已与用户在 gate 上确认过的内容契约。改词、增删、
+    step2 的职责是视觉展开，台词属于 step1 已由用户完成内容确认的内容契约。改词、增删、
     重排一律响亮失败，不静默接受——台词不配画面时正确的出路是报错回到 step1，而不是让 step2
     自行把台词改成好配的样子。
     """

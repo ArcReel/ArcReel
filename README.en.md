@@ -94,7 +94,7 @@ For the complete first-run workflow, see [Getting Started](https://docs.arc-reel
 |---|---|
 | [Documentation Home](https://docs.arc-reel.com/en/) | Entry points for users, operators, and developers |
 | [Getting Started](https://docs.arc-reel.com/en/guide/getting-started) | From first deployment to the first generated video |
-| [Workflows and Modes](https://docs.arc-reel.com/en/guide/workflows) | Novel, screenplay, and ad modes, plus the three video-making workflows |
+| [Workflows and Modes](https://docs.arc-reel.com/en/guide/workflows) | Novels, scripts, and creative ideas; three creation types and two generation modes |
 | [Provider Configuration](https://docs.arc-reel.com/en/guide/providers) | Selection and configuration of Agent, text, image, video, and TTS providers |
 | [Jianying Draft Export](https://docs.arc-reel.com/en/guide/jianying-export) | Continue editing ArcReel output in Jianying |
 | [FAQ](https://docs.arc-reel.com/en/guide/faq) | Deployment, cost, model, data, and licensing questions |

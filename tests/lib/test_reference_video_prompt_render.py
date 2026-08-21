@@ -393,7 +393,7 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
     """组合字符角色名的四种 NFC/NFD 配对渲染出完全相同的 prompt 与音频绑定。
 
     这是链路末端：说话人、mention 主体记号、参考图编号、音色声明四处判定任一漏归一，都不会
-    报错，而是让 ``@[名称]`` 这个书写层记号原样漏进供应商请求、台词不重组成官方句式、或音频
+    报错，而是让 ``@[名称]`` 这个引用语法记号原样漏进供应商请求、台词不重组成官方句式、或音频
     不绑——用户拿到的是一条脸和声音都不对的成片。
     """
     project = {
@@ -418,7 +418,7 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
     assert f"<{_NAME_NFC}>的台词音色参考 @音频1，声音特征：清亮少女音。" in rendered.prompt
     assert f"<{_NAME_NFC}> 推门而入" in rendered.prompt
     assert f"<{_NAME_NFC}>说 {{Tôi đến rồi.}}" in rendered.prompt
-    # 书写层记号一个都不该漏进供应商请求
+    # 引用语法记号一个都不该漏进供应商请求
     assert "@[" not in rendered.prompt
 
 

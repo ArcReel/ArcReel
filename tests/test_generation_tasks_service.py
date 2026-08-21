@@ -1910,7 +1910,7 @@ class TestGenerationTasks:
 
     @pytest.mark.integration
     async def test_execute_video_task_lane_bucket_follows_project_route(self, monkeypatch, tmp_path):
-        """lane 归桶按项目路线求值，不再无条件 i2v——与提交入口口径同源。"""
+        """lane 归桶按项目生成模式求值，与提交入口使用同一口径。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         _seed_current_storyboard(fake_pm)
@@ -2920,7 +2920,7 @@ class TestGenerationTasks:
 
     @pytest.mark.unit
     async def test_execute_video_task_drama_dialogue_from_utterances(self, monkeypatch, tmp_path):
-        """drama 口型台词从场景级 dialogue-kind utterances 取（覆盖 payload 已不带的
+        """drama 口型台词从分镜级 dialogue-kind utterances 取（覆盖 payload 已不带的
         video_prompt.dialogue）；voiceover-kind 不进视频 YAML。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -3510,13 +3510,13 @@ class TestGenerationTasks:
             pytest.param(
                 {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]},
                 "drama_scene",
-                "场景「E1S01」",
+                "分镜「E1S01」",
                 id="drama-scenes",
             ),
             pytest.param(
                 {"content_mode": "ad", "shots": [{"shot_id": "E1S01"}]},
                 "shot",
-                "镜头「E1S01」",
+                "分镜「E1S01」",
                 id="ad-shots",
             ),
             pytest.param(
@@ -3530,8 +3530,8 @@ class TestGenerationTasks:
     def test_emit_success_batch_storyboard_entity_type_follows_skeleton(
         self, monkeypatch, tmp_path, script, expected_entity_type, expected_label
     ):
-        """storyboard/video 任务完成通知与分镜级事件同口径：实体类型与名词按项目剧本骨架
-        种类解析，不恒为 narration 的 segment/「分镜」。"""
+        """storyboard/video 任务完成通知与分镜级事件同口径：实体类型按项目剧本骨架解析，
+        三种分镜骨架的中文名词统一为「分镜」。"""
         captured = []
         monkeypatch.setattr(
             generation_tasks,
@@ -3563,7 +3563,7 @@ class TestGenerationTasks:
     def test_emit_success_batch_reference_video_entity_type_aligns_with_frontend(self, monkeypatch, tmp_path):
         """参考生视频任务完成通知的 entity_type 需为前端联合类型认识的 "reference_unit"
         （而非仅本侧认识的 "reference_video_unit"），分组标题才能落「视频单元」而非「内容」
-        兜底；条目文案仍沿用「参考视频」措辞，不随骨架名词改动。"""
+        兜底；条目文案统一使用「视频单元」，不随骨架名词改动。"""
         captured = []
         monkeypatch.setattr(
             generation_tasks,
@@ -3630,7 +3630,7 @@ class TestGenerationTasks:
 
     @pytest.mark.unit
     def test_emit_success_batch_reference_video_tts_entity_type_not_shot(self, monkeypatch, tmp_path):
-        """TTS 任务与视频任务共用项目路线，ad 参考路线的混合骨架不能把 unit 事件分到 shot。"""
+        """TTS 任务与视频任务共用项目生成模式，ad 参考生视频的混合骨架不能把 unit 事件分到 shot。"""
         captured = []
         monkeypatch.setattr(
             generation_tasks,
@@ -3876,7 +3876,7 @@ class TestGetAspectRatio:
 
 
 def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
-    """ad 项目 fixture：产品镜头 E1S02（引用保温杯）+ 氛围镜头 E1S01/E1S03。"""
+    """ad 项目 fixture：商品分镜 E1S02（引用保温杯）+ 氛围分镜 E1S01/E1S03。"""
     pm = _FakePM(project_path)
     pm.project["content_mode"] = "ad"
     if with_sheet:
@@ -3900,12 +3900,12 @@ def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
                 "shot_id": "E1S02",
                 "section": "product_reveal",
                 "duration_seconds": 4,
-                "voiceover_text": "产品亮相",
+                "voiceover_text": "商品亮相",
                 "characters_in_shot": ["Alice"],
                 "scenes": ["祠堂"],
                 "props": [],
                 "products_in_shot": ["保温杯"],
-                "image_prompt": "产品特写",
+                "image_prompt": "商品特写",
             },
         ],
     }
@@ -3918,7 +3918,7 @@ def _ref_paths(refs: list) -> list:
 
 
 class TestAdProductFidelityStoryboard:
-    """产品保真注入二元化——分镜层。"""
+    """商品保真注入二元化——分镜层。"""
 
     def _patch(self, monkeypatch, pm, generator):
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
@@ -3927,7 +3927,7 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.unit
     async def test_product_shot_injects_sheet_then_originals_before_other_sheets(self, tmp_path, monkeypatch):
-        """有确认 sheet 的产品镜头：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。"""
+        """有确认 sheet 的商品分镜：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。"""
         project_path = _prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
         pm = _ad_pm(project_path, with_sheet=True)
@@ -3935,35 +3935,35 @@ class TestAdProductFidelityStoryboard:
         self._patch(monkeypatch, pm, generator)
 
         await generation_tasks.execute_storyboard_task(
-            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "产品特写"}
+            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "商品特写"}
         )
 
         refs = generator.image_calls[0]["reference_images"]
         paths = _ref_paths(refs)
-        # 产品参考全量注入且排首位：sheet 在前、原图压阵，先于角色/场景 sheet
+        # 商品参考全量注入且排首位：sheet 在前、原图压阵，先于角色/场景 sheet
         assert [reference["kind"] for reference in refs[:2]] == ["sheet", "original"]
         assert [path.name for path in paths[:2]] == ["0000-保温杯.png", "0001-保温杯_1.jpg"]
         assert generator.image_reference_bytes[0][:2] == [b"png", b"jpg"]
-        # 既有装配照常跟在产品参考之后（角色/场景 sheet + 上一分镜衔接参考）
+        # 既有装配照常跟在商品参考之后（角色/场景 sheet + 上一分镜衔接参考）
         assert {reference.get("label") for reference in refs[2:] if isinstance(reference, dict)} >= {"Alice", "祠堂"}
-        # 产品参考带可读标签（供支持 label 的后端内联）
+        # 商品参考带可读标签（供支持 label 的后端内联）
         assert all(isinstance(r, dict) and "保温杯" in r["label"] for r in refs[:2])
         # 附高保真还原指令
         prompt = generator.image_calls[0]["prompt"]
         assert prompt.startswith("Style: Anime\nVisual style: cinematic")
-        assert "\n\n产品特写\n\n" in prompt
+        assert "\n\n商品特写\n\n" in prompt
         assert "「保温杯」" in prompt
 
     @pytest.mark.unit
     async def test_product_shot_without_sheet_injects_originals_directly(self, tmp_path, monkeypatch):
-        """无 sheet 的产品镜头：原图直注、仍排首位；声明但缺失的原图跳过。"""
+        """无 sheet 的商品分镜：原图直注、仍排首位；声明但缺失的原图跳过。"""
         project_path = _prepare_files(tmp_path)
         pm = _ad_pm(project_path, with_sheet=False)
         generator = _FakeGenerator()
         self._patch(monkeypatch, pm, generator)
 
         await generation_tasks.execute_storyboard_task(
-            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "产品特写"}
+            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "商品特写"}
         )
 
         refs = generator.image_calls[0]["reference_images"]
@@ -3977,7 +3977,7 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.unit
     async def test_fidelity_instruction_only_names_products_with_injected_references(self, tmp_path, monkeypatch):
-        """指令点名的产品与实际注入参考的产品一致：图全缺的产品不被指令点名（避免指向不存在的参考）。"""
+        """指令点名的商品与实际注入参考的商品一致：图全缺的商品不被指令点名（避免指向不存在的参考）。"""
         project_path = _prepare_files(tmp_path)
         pm = _ad_pm(project_path, with_sheet=False)
         pm.project["products"]["杯刷"] = {
@@ -3992,7 +3992,7 @@ class TestAdProductFidelityStoryboard:
         self._patch(monkeypatch, pm, generator)
 
         await generation_tasks.execute_storyboard_task(
-            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "双产品同框"}
+            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "双商品同框"}
         )
 
         prompt = generator.image_calls[0]["prompt"]
@@ -4001,7 +4001,7 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.unit
     async def test_atmosphere_shot_zero_product_images(self, tmp_path, monkeypatch):
-        """氛围镜头（products_in_shot 为空）：零产品图，场景/角色 sheet 照常注入，prompt 无保真指令。"""
+        """氛围分镜（products_in_shot 为空）：零商品图，场景/角色 sheet 照常注入，prompt 无保真指令。"""
         project_path = _prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
         pm = _ad_pm(project_path, with_sheet=True)
@@ -4018,11 +4018,11 @@ class TestAdProductFidelityStoryboard:
         prompt = generator.image_calls[0]["prompt"]
         assert prompt.startswith("Style: Anime\nVisual style: cinematic")
         assert "\n\n氛围开场\n\n" in prompt
-        assert "产品高保真还原" not in prompt
+        assert "商品高保真还原" not in prompt
 
     @pytest.mark.unit
     def test_collect_shot_product_references_skips_non_list_products_in_shot(self, tmp_path):
-        """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零产品参考（str 不得被逐字符迭代）。"""
+        """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零商品参考（str 不得被逐字符迭代）。"""
         project_path = _prepare_files(tmp_path)
         project = {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
@@ -4039,7 +4039,7 @@ class TestAdProductFidelityStoryboard:
                 == []
             )
 
-        # 缺失 / None / 空列表是氛围镜头的正常表达，同样返回空列表
+        # 缺失 / None / 空列表是氛围分镜的正常表达，同样返回空列表
         for empty in (None, []):
             item = {"shot_id": "E1S01", "products_in_shot": empty}
             assert (
@@ -4057,7 +4057,7 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.integration
     def test_collect_product_references_resolves_nfd_registered_name_by_nfc_query(self, tmp_path):
-        """产品以 NFD key 登记、镜头 products_in_shot 传入 NFC 名字：
+        """商品以 NFD key 登记、分镜 products_in_shot 传入 NFC 名字：
         collect_product_references_for_names 须按归一形式查找 bucket 命中，不能因编码
         形式不同静默跳过。"""
         import unicodedata
@@ -4081,7 +4081,7 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.integration
     def test_collect_product_references_dedupes_nfc_nfd_pair(self, tmp_path):
-        """同一产品的 NFC/NFD 两种编码形式同时出现在 products_in_shot：归一后是同一产品，
+        """同一商品的 NFC/NFD 两种编码形式同时出现在 products_in_shot：归一后是同一商品，
         只应注入一份参考图，不能各自命中同一 bucket 条目各注入一份，否则会重复消耗参考位、
         挤掉真正的角色/场景参考。"""
         import unicodedata
@@ -4114,7 +4114,7 @@ def _patch_video_path(monkeypatch, pm, generator):
 
 @pytest.mark.integration
 class TestAdProductVideoRequest:
-    """产品镜头的视频请求走纯图生视频：分镜图作首帧，不带参考图。"""
+    """商品分镜的视频请求走纯图生视频：分镜图作首帧，不带参考图。"""
 
     async def test_product_shot_video_request_carries_no_reference_images(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
@@ -4139,5 +4139,5 @@ class TestAdProductVideoRequest:
         call = generator.video_calls[0]
         assert "reference_images" not in call
         assert call["start_image"] == project_path / "storyboards" / "scene_E1S02.png"
-        # 参考缺席时不附产品保真指令（指令指向参考图，会误导模型）
+        # 参考缺席时不附商品保真指令（指令指向参考图，会误导模型）
         assert "高保真" not in call["prompt"]

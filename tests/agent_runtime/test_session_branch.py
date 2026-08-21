@@ -233,7 +233,7 @@ class _StoreGone(Exception):
 
 
 class _StoreFailingAfterMainWrite:
-    """主 transcript 已写入、收集子代理子路径时失败的 store。"""
+    """主 transcript 已写入、收集子智能体子路径时失败的 store。"""
 
     def __init__(self, inner: DbSessionStore) -> None:
         self._inner = inner
@@ -260,7 +260,7 @@ class _MetaStoreLosingTheCallerAfterCommit(SessionMetaStore):
 
 
 async def _seed_session_with_a_subagent(store, meta_store, log_store, project_key, tmp_path):
-    """一个前缀里派出过 subagent 的原会话，锚点是末轮用户消息。"""
+    """一个前缀里派出过子智能体的原会话，锚点是末轮用户消息。"""
     session_id = str(uuid4())
     await meta_store.create(PROJECT_NAME, session_id)
     u1, a1, r1, u2 = (f"m{i}-{uuid4().hex[:8]}" for i in range(4))

@@ -29,7 +29,7 @@ interface MediaCardProps {
   posterPath?: string | null;
   /** 渲染比例 */
   aspectRatio: "9:16" | "16:9";
-  /** 是否在 grid 模式下隐藏单独生成按钮 */
+  /** 是否因启用宫格装配而隐藏单独生成按钮 */
   hideGenerateButton?: boolean;
   /** 生成按钮是否禁用（视频生成需要先有分镜图） */
   generateDisabled?: boolean;
@@ -43,7 +43,7 @@ interface MediaCardProps {
   onGenerate?: () => void;
   /** 版本恢复回调；未提供时不显示版本入口（只读展示无版本可回滚） */
   onRestore?: () => Promise<void> | void;
-  /** 自主上传回调（替换该镜头的分镜图/视频）；未提供时不显示上传入口 */
+  /** 自主上传回调（替换该分镜的分镜图/视频）；未提供时不显示上传入口 */
   onUpload?: (file: File) => Promise<void> | void;
   /** 本卡片的上传请求进行中 */
   uploading?: boolean;
@@ -100,7 +100,7 @@ export function MediaCard({
         : t("media_generate_video");
   const resourceType: "storyboards" | "videos" =
     kind === "storyboard" ? "storyboards" : "videos";
-  // uploadDisabled 是本卡片之外的互斥占用（如同一镜头另一张卡在上传中）；
+  // uploadDisabled 是本卡片之外的互斥占用（如同一分镜另一张卡在上传中）；
   // 编辑/版本恢复/生成同样写这个资源，须一并禁用，否则会与占用中的写操作并发冲突。
   const resourceBusy = generating || uploading || uploadDisabled;
 

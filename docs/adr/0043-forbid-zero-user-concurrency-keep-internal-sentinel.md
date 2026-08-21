@@ -12,7 +12,7 @@ status: accepted
 
 ## Consequences
 
-- **两个 `0` 角色彻底分离**：用户契约层「并发上限是 ≥1 整数或留空」与内部「容量 `0` = 不支持该 lane」不再混用同一个用户可达的值；CONTEXT.md `slot` 词条同步补记用户契约面。
+- **两个 `0` 角色彻底分离**：用户契约层「并发上限是 ≥1 整数或留空」与内部「容量 `0` = 不支持该 lane」不再混用同一个用户可达的值；`SlotTable` 的文档字符串同步补记用户契约面。
 - **改写已合入 main 的迁移**：并进的其他 worktree / dev DB 若已 `alembic upgrade head` 跑过旧（`>= 0`）版本，CHECK 不会自动收紧（alembic 不重跑已应用 revision），需 `downgrade -1 && upgrade head` 或重建 dev DB。因未发版且 `0` 无自动来源，实践无害；这是「未发布迁移可就地改写」的有意取舍，发布后不可再用此手法。
 - **改动收敛**：三处输入层校验 + 三列 DB CHECK + 原迁移就地收紧 + i18n 文案（后端 `max_workers_must_be_positive_integer`、前端「正整数」与帮助文案）+ 相应测试。运行时调度、SlotTable、lane 隔离、reload 一概不动。
 - **守住边界**：与注册表 `default_concurrency >= 1` 规则统一；上承 ADR 0042（自定义供应商并发定型列）。

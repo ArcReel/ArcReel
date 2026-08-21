@@ -53,7 +53,7 @@ export function OverviewCanvas({
   tRef.current = t;
   // 广告/短片项目恒单集：界面隐藏「集」语义，区块按单视频呈现
   const isAd = projectData?.content_mode === "ad";
-  // 内容规模的口径按生成路线定，与创作类型无关：分镜路线报分镜数、参考路线报视频单元数。
+  // 内容规模的口径按生成模式定，与创作类型无关：分镜图生视频报分镜数、参考生视频报视频单元数。
   const route = normalizeRoute(projectData?.generation_mode);
   const projectTotals = useCostStore((s) => s.costData?.project_totals);
   const getEpisodeCost = useCostStore((s) => s.getEpisodeCost);

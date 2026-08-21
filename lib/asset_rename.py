@@ -76,7 +76,7 @@ class AssetRenameReport:
 
 
 #: 各资产类型在剧本/草稿骨架里的「名称列表」引用字段。列表内只有 str 元素才是名称引用——
-#: drama 顶层 ``scenes`` 是场景 dict 列表，与 narration 分段里的场景名列表同 key 不同形，
+#: drama 顶层 ``scenes`` 是分镜 dict 列表，与 narration 分镜里的场景名列表同 key 不同形，
 #: 按元素类型即可区分，无需骨架特例。
 _LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
     asset_type: frozenset(spec.reference_list_fields) for asset_type, spec in ASSET_SPECS.items()
@@ -86,7 +86,7 @@ _LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
 def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, new_name: str) -> int:
     """就地把剧本/草稿 payload 中指向 *old_name* 的名称引用改写为 *new_name*，返回改写数。
 
-    覆盖面（与 :mod:`lib.data_validator` 的引用扫描 + 书写层派生口径对齐）：
+    覆盖面（与 :mod:`lib.data_validator` 的引用扫描 + 引用语法派生口径对齐）：
 
     - 各骨架的引用数组（``_LIST_FIELDS_BY_TYPE``，仅 str 元素）；
     - drama ``utterances[].speaker`` 与 ad ``video_prompt.dialogue[].speaker``（仅 character）；
@@ -119,7 +119,7 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
                     count += 1
                     continue
                 if key in ("shots", "units", "video_units") and isinstance(value, list):
-                    # 参考路线的 mention 落在 unit 正文（``video_units[].text``，隔离草稿里是
+                    # 参考生视频的 mention 落在 unit 正文（``video_units[].text``，草稿里是
                     # ``units[].text``）；ad 分镜的 shot 还带引用数组与 video_prompt.dialogue，
                     # 继续下钻由通用规则处理。
                     for item in value:
@@ -230,7 +230,7 @@ def plan_asset_file_renames(
 ) -> list[tuple[Path, Path]]:
     """扫描该资产类型的落盘目录，规划 stem 命中旧名的文件迁移，返回 ``(src, dst)`` 列表。
 
-    覆盖设计图目录本级与其上传子目录（``refs`` / ``refs_audio``），版本快照另由
+    覆盖资产图目录本级与其上传子目录（``refs`` / ``refs_audio``），版本快照另由
     VersionManager 迁移。按目录扫描而非只信 entry 路径字段：生成中间产物可能已按旧名
     落盘而字段未写，旧名文件不应残留。
 
@@ -240,7 +240,7 @@ def plan_asset_file_renames(
 
     ``旧名_{序号}`` 形态只在多图序列资产（entry 带 ``reference_images``）的 ``refs``
     子目录放行——那里的文件名由上传侧按序号机械生成，不会是别的资产的名字；其余目录
-    一律精确同名，否则兄弟资产「旧名_2」的设计图会被一并卷走。
+    一律精确同名，否则兄弟资产「旧名_2」的资产图会被一并卷走。
 
     目标已被占用时抛 :class:`AssetRenameFileCollisionError`：规划早于任何写入，因此整体
     拒绝、不落盘。占用有两种来源，都要拦：磁盘上已有的孤儿文件，以及同批两个源文件（如

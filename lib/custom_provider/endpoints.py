@@ -62,7 +62,7 @@ class EndpointSpec:
         CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend,
     ]
     image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
-    # 参考生视频单镜头参考图上限；仅 video 类有意义。
+    # 单次参考生视频调用的参考图上限；仅 video 类有意义。
     # 显式 int：原样下传作为硬约束（0 表示不接受参考图，executor 据此将 references 裁剪为 0 张）。
     # None：未声明 —— 一个 endpoint 多 model、容量不同时 endpoint 维度给不出准数，由 resolver
     # 调 video_caps_for_model 按 model_id 读取该 model 的真实上限。

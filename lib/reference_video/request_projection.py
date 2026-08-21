@@ -1,4 +1,4 @@
-"""参考视频 unit 的当前请求投影。
+"""视频单元的当前请求投影。
 
 投影是 advisory/current-state 读模型：调用方传入当前 project、script、unit，已经解析出的
 资产候选与请求选项，得到报价、提交预检和限流路由共用的一份不可变事实。结果不携带 token、
@@ -124,7 +124,7 @@ class ResolvedReferenceAsset:
 
 @dataclass(frozen=True)
 class ProviderProjectionCandidate:
-    """当前能力桶的 provider/model 与请求能力事实。"""
+    """当前任务类型桶的供应商模型组合与请求能力事实。"""
 
     capability: VideoCapability
     provider_id: str
@@ -266,7 +266,7 @@ class ReferenceAssetAvailability(Protocol):
 
 
 class ReferenceCapabilityProjection(Protocol):
-    """当前 provider/model 能力的异步适配器。"""
+    """当前供应商模型组合能力的异步适配器。"""
 
     async def resolve_candidate(self, project: dict, capability: VideoCapability) -> ProviderProjectionCandidate:
         raise NotImplementedError

@@ -142,7 +142,7 @@ async def _get_latest_release() -> tuple[dict[str, str], datetime]:
 
 @dataclass(frozen=True)
 class _ModelCandidate:
-    """一个可选模型及其能力桶归属，供不过滤的默认层与按桶过滤的细分层共用。"""
+    """一个可选模型及其任务类型桶归属，供不过滤的默认层与按桶过滤的细分层共用。"""
 
     option: str  # "provider_id/model_id"
     media_type: str
@@ -152,10 +152,10 @@ class _ModelCandidate:
 async def _enumerate_candidates(
     svc: ConfigService, session: AsyncSession
 ) -> tuple[list[_ModelCandidate], dict[str, str]]:
-    """列出所有可选模型（内置 ready 供应商 + 已启用的自定义模型），并附能力桶归属。
+    """列出所有可选模型（内置 ready 供应商 + 已启用的自定义模型），并附任务类型桶归属。
 
     hidden 模型在这里统一剔除：registry 声明 hidden 的语义就是「从 UI 下拉剔除、条目仍保留
-    供算价」，默认层与能力桶层同受此约束（能力过滤只加在桶层）。
+    供算价」，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。
     """
     statuses = await svc.get_all_providers_status()
     ready_providers = {s.name for s in statuses if s.status == "ready"}
@@ -231,7 +231,7 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
 
 
 class MediaCandidates(BaseModel):
-    """单一 media_type 的候选：默认层全量 + 各能力桶过滤后的子集。"""
+    """单一 media_type 的候选：默认层全量 + 各任务类型桶过滤后的子集。"""
 
     default: list[str]
     buckets: dict[CapabilityBucket, list[str]]
@@ -246,7 +246,7 @@ class ModelCandidatesResponse(BaseModel):
 
 class SystemConfigPatchRequest(BaseModel):
     default_video_backend: str | None = None
-    # 视频能力桶（docs/adr/0054）：i2v = 图生视频 / 宫格，r2v = 参考生视频；空值 = 回退默认层
+    # 视频任务类型桶（docs/adr/0054）：i2v = 图生视频 / 宫格，r2v = 参考生视频；空值 = 回退默认层
     default_video_backend_i2v: str | None = None
     default_video_backend_r2v: str | None = None
     default_image_backend: str | None = None
@@ -357,7 +357,7 @@ async def get_model_candidates(
     svc: Annotated[ConfigService, Depends(get_config_service)],
     session: AsyncSession = Depends(get_async_session),
 ) -> ModelCandidatesResponse:
-    """能力桶下拉的候选数据源：默认层全量 + 每个能力桶按能力过滤后的模型列表。
+    """任务类型桶下拉的候选数据源：默认层全量 + 每个任务类型桶按能力过滤后的模型列表。
 
     默认层不过滤 —— 默认层不承诺能力，能力不满足由解析闸报错兜底；只有桶层承诺「配进去的
     组合执行得了」，故按桶过滤。

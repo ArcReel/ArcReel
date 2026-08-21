@@ -53,7 +53,7 @@ MESSAGES = {
     "val_ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",
     "val_ad_missing_target_duration": "缺少必填字段: target_duration（广告/短片项目的目标总时长，秒）",
     "val_ad_target_duration_invalid": "target_duration 值无效: {value}，必须为正整数秒",
-    "val_ad_no_default_duration": "广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）",
+    "val_ad_no_default_duration": "广告/短片项目不持有 default_duration（分镜时长按 target_duration 预算逐个分镜规划）",
     "val_ad_no_grid_storyboard": "广告/短片项目不支持多宫格分镜（grid_storyboard）",
     "val_ad_episodes_single": "广告/短片项目 episodes 必须恒为第 1 集单条",
     "val_ad_shots_missing": "ad 脚本缺少 shots 数组或为空",
@@ -87,10 +87,10 @@ MESSAGES = {
     "val_utterance_dialogue_speaker": "{prefix} dialogue 必须带非空 speaker",
     "val_utterance_voiceover_speaker": "{prefix} voiceover 不得带 speaker",
     "val_scene_speech_overflow": (
-        "{prefix}: 估算说话时长 {spoken:.1f} 秒超过场景时长 {duration} 秒逾 {tolerance:.0%}"
+        "{prefix}: 估算说话时长 {spoken:.1f} 秒超过分镜时长 {duration} 秒逾 {tolerance:.0%}"
         "（容差上界 {budget:.1f} 秒），长对白可能说不完或语速畸快（仅提示，不阻塞保存）"
     ),
-    # ---- ad 镜头 ----
+    # ---- ad 分镜 ----
     "val_shot_duration_missing_zero": "{prefix}: 缺少 duration_seconds，将按 0 计入总时长",
     "val_shot_duration_out_of_range": (
         "{prefix}: duration_seconds 值无效 '{value}'，reference_video 路径必须是 {low}-{high} 之间的整数"
@@ -102,10 +102,10 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
     "val_video_units_missing": "reference_video 脚本缺少 video_units 数组或为空",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数",
-    # ---- 骨架与路线失配 ----
+    # ---- 骨架与生成模式失配 ----
     "val_skeleton_noun_segments": "分镜",
-    "val_skeleton_noun_scenes": "场景",
-    "val_skeleton_noun_shots": "镜头",
+    "val_skeleton_noun_scenes": "分镜",
+    "val_skeleton_noun_shots": "分镜",
     "val_skeleton_noun_video_units": "视频单元",
     "val_route_reference_video": "参考生视频（reference_video）",
     "val_route_storyboard": "分镜图生视频（storyboard）",

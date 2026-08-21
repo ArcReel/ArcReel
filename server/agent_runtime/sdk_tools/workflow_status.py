@@ -27,7 +27,7 @@ def _error(code: str, detail: str) -> dict[str, Any]:
 def complete_step1_rebuild_tool(ctx: ToolContext):
     @tool(
         "complete_step1_rebuild",
-        "在 stale 分集预处理成功后原子记录完成事实；即使重建内容与旧 step1 相同，workflow-status 也能继续收敛。",
+        "在 stale 分集内容整理成功后原子记录完成事实；即使重建内容与旧 step1 相同，workflow-status 也能继续收敛。",
         {
             "type": "object",
             "properties": {

@@ -65,7 +65,7 @@ __all__ = [
     "validate_project",
 ]
 
-#: drama 场景说话量（台词 + 画外音）对场景时长的单向上界容差（比例）。语速估算
+#: 剧情演绎分镜说话量（台词 + 画外音）对分镜时长的单向上界容差（比例）。语速估算
 #: （``lib.speech_rate`` 单一真相源）是近似值，给 20% 余量只在说话量明显超过画面时长时才
 #: warn（长对白塞进固定秒数会说不完 / 语速畸快）。单向上界：只警告「说不完」，不管「说话太少」
 #: ——duration 由画面驱动、留白合法，不被此约束反向改写。仅 DataValidator 消费，与 ad 总时长
@@ -138,7 +138,7 @@ class DataValidator:
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
     VALID_SOURCE_KINDS = set(_VALID_SOURCE_KINDS)
-    # 生成路线合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
+    # 生成模式合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
     VALID_GENERATION_MODES = set(_VALID_GENERATION_MODES)
     # 参考生视频 unit 时长的结构合理性区间，真相源同上（档位成员校验依赖运行时模型能力，
@@ -326,7 +326,7 @@ class DataValidator:
         """广告/短片项目的专属字段与恒单集约束。
 
         target_duration / brief 仅 ad 项目持有；ad 项目不持有 default_duration
-        （镜头按目标总时长预算逐个规划，单镜头偏好无意义），episodes 恒为第 1 集单条。
+        （分镜按目标总时长预算逐个规划，单个分镜偏好无意义），episodes 恒为第 1 集单条。
         """
         if content_mode != "ad":
             if project.get("target_duration") is not None:
@@ -381,7 +381,7 @@ class DataValidator:
         if source_kind is not None and (not isinstance(source_kind, str) or source_kind not in self.VALID_SOURCE_KINDS):
             errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=_allowed(self.VALID_SOURCE_KINDS)))
 
-        # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
+        # 生成模式必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
         generation_mode = project.get("generation_mode")
         if not generation_mode:
             errors.append(_m("val_missing_field", field="generation_mode"))
@@ -468,7 +468,7 @@ class DataValidator:
                     continue
                 desc = char_data.get("description")
                 if not isinstance(desc, str) or not desc:
-                    # 必须是非空字符串：description 是 LLM 直写字段，agent 误传数字/对象
+                    # 必须是非空字符串：description 是 LLM 直写字段，Agent 误传数字/对象
                     # 应在守卫点 fail-loud，否则会作为合法资产落盘、下游消费时才崩
                     errors.append(_m("val_asset_missing_description", asset_type=_asset("character"), name=char_name))
                 for field_name in char_extra_fields:
@@ -618,7 +618,7 @@ class DataValidator:
         field_label: str,
         asset_type: str,
     ) -> None:
-        """校验可缺省的镜头资产引用字段：缺失给 warning，非数组或引用未登记给 error。"""
+        """校验可缺省的分镜资产引用字段：缺失给 warning，非数组或引用未登记给 error。"""
         if refs is None:
             warnings.append(_m("val_missing_defaults_empty_array", prefix=prefix, field=field_label))
             return
@@ -743,7 +743,7 @@ class DataValidator:
         item: dict[str, Any],
         errors: list[ValidationMessage],
     ) -> None:
-        """校验镜头条目的尾帧快照路径：越界、缺失、目录外均报 error（缺失即悬空引用，不容忍）。
+        """校验分镜条目的尾帧快照路径：越界、缺失、目录外均报 error（缺失即悬空引用，不容忍）。
 
         与 generated_assets 内的路径字段不同：尾帧字段只接受服务层写出的 `end_frames/`
         快照路径（`confine_to_default_dir`），不接受指向 storyboards/scripts 等其它目录
@@ -769,7 +769,7 @@ class DataValidator:
         *,
         project_dir: Path | None = None,
     ) -> None:
-        """验证 segments（narration 模式）"""
+        """验证 segments（旁白/解说）"""
         if not isinstance(segments, list):
             errors.append(_m("val_field_must_be_array", field="segments"))
             return
@@ -862,7 +862,7 @@ class DataValidator:
         language: str | None = None,
         speech_rate_override: float | None = None,
     ) -> None:
-        """验证 scenes（drama 模式）。
+        """验证 scenes（剧情演绎）。
 
         ``language`` 为项目 ``source_language``（说话量上界 warning 的语速按此取，与字幕派生同口径）；
         ``speech_rate_override`` 为项目级语速覆盖，None 即回退语言默认。
@@ -929,16 +929,15 @@ class DataValidator:
                 asset_type="prop",
             )
 
-            # utterances：场景级有序发声序列（取代旧 video_prompt.dialogue + voiceover）。
-            # 缺失放行（存量 drama 走读时迁移，旧双字段不在此层校验）；出现则校验结构与
+            # utterances 是分镜级有序发声源；本层允许字段缺失，字段存在时校验结构与
             # kind ⇄ speaker 约束，与上方 characters_in_scene 等同口径（逐项 append、不 raise）。
             self._validate_utterances(scene.get("utterances"), prefix, errors)
 
-            # 说话量（台词 + 画外音）对场景时长的单向上界 warning：估算说话时长超 duration × 容差
+            # 说话量（台词 + 画外音）对分镜时长的单向上界 warning：估算说话时长超 duration × 容差
             # 时仅提示「说不完」，不阻塞、不改写 duration（duration 由画面驱动）。
             self._warn_scene_speech_overflow(scene, prefix, language, speech_rate_override, warnings)
 
-            # source_text：逐字原文锚（best-effort，由 step1 内容抽取填入、step2 透传）。镜像共享模型
+            # source_text：逐字原文锚（best-effort，由 step1 内容整理填入、step2 透传）。镜像共享模型
             # 的 source_text: str（extra=forbid 下显式 null 同样被拒）——键存在则须为字符串，显式 null
             # 一并拒绝；键缺失放行（默认空串，存量数据无此字段）。用 in 判定以区分缺失与显式 null。
             if "source_text" in scene and not isinstance(scene["source_text"], str):
@@ -960,7 +959,7 @@ class DataValidator:
 
     @staticmethod
     def _validate_utterances(utterances: Any, prefix: str, errors: list[ValidationMessage]) -> None:
-        """校验 drama 场景级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行，存量走读时迁移）。
+        """校验剧情演绎分镜级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行）。
 
         每条须为 ``{kind, speaker, text}``：kind ∈ {dialogue, voiceover}、text 非空字符串；
         dialogue 必带非空 speaker、voiceover 不得带 speaker。逐项 append、不 raise。
@@ -1007,7 +1006,7 @@ class DataValidator:
     ) -> None:
         """场景说话量（台词 + 画外音）估算时长超 ``duration ×（1 + 容差）`` 时仅 warn（单向上界，不阻塞）。
 
-        说话时长按 ``estimate_spoken_seconds``（语速估算单一真相源）对 utterances 逐条求和，与 drama
+        说话时长按 ``estimate_spoken_seconds``（语速估算单一真相源）对 utterances 逐条求和，与剧情演绎
         字幕 span 派生同口径；空 / 纯空白 / 脏数据条目估 0 秒。duration 仍由画面驱动、不被此约束反向
         改写。单向：只警告「说不完」（估算超上界），不管「说话太少」。duration 非正整数、无 utterances
         时跳过——与 ad 总时长漂移那条同样「只 warn 不阻塞」、不推前端。
@@ -1050,10 +1049,10 @@ class DataValidator:
         *,
         project_dir: Path | None = None,
     ) -> None:
-        """验证 shots（ad 模式）：平铺镜头列表，口播文案一等，产品按名字引用。
+        """验证 shots（广告/短片）：平铺分镜列表，口播文案一等，商品按名字引用。
 
         storyboard 路径的时长成员校验在生成 schema 层（supported_durations 枚举，校验器
-        拿不到供应商能力、只把关正整数）。参考路线使用 ``video_units``，不经过本函数。
+        拿不到供应商能力、只把关正整数）。参考生视频使用 ``video_units``，不经过本函数。
 
         资产引用一律按 NFC 归一比对（见 ``_validate_segment_refs``），与两条生成路径的
         各收集器同口径。
@@ -1193,7 +1192,7 @@ class DataValidator:
         *,
         project_dir: Path | None = None,
     ) -> None:
-        """验证 video_units（reference_video 模式）"""
+        """验证 video_units（参考生视频）"""
         if not isinstance(video_units, list) or not video_units:
             errors.append(_m("val_video_units_missing"))
             return
@@ -1274,15 +1273,15 @@ class DataValidator:
         if novel is not None and not isinstance(novel, dict):
             errors.append(_m("val_novel_must_be_object"))
 
-        # drama 说话量上界 warning 的语速从 lib.speech_rate 唯一真相源取：项目级覆盖优先，
+        # 剧情演绎说话量上界 warning 的语速从 lib.speech_rate 唯一真相源取：项目级覆盖优先，
         # 否则按项目 source_language 的语言默认（缺失 / 脏值回退默认语速）。
         source_language = project.get("source_language")
         scene_language = source_language if isinstance(source_language, str) else None
         scene_speech_rate = project_speech_rate_override(project)
 
-        # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类经规范解析统一
-        # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。广告参考路线
-        # 与其他参考路线一样使用 video_units；广告 storyboard 路线仍使用 shots。
+        # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类统一由
+        # resolve_declared_kind 解析。广告/短片的参考生视频使用 video_units，生成模式为
+        # `storyboard` 时使用 shots。
         gen_mode = project.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, gen_mode)
@@ -1300,14 +1299,14 @@ class DataValidator:
                 # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
                 kind = ensure_route_skeleton(episode, content_mode, gen_mode)
             except SkeletonRouteMismatchError as exc:
-                # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
+                # 失配剧本（骨架与项目生成模式跨族）：生成模式要求的数组根本不在剧本里，
                 # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
                 # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
                 errors.append(exc.to_validation_message())
                 return
         else:
-            # 编辑/查看流程必须能修正路线失配的存量剧本；引用校验按磁盘实际骨架分派，生成入口
-            # 仍通过默认开启的路线闸门拒绝将这类剧本投入生产。
+            # 编辑/查看流程必须能修正生成模式失配的存量剧本；引用校验按磁盘实际骨架分派，
+            # 生成入口仍通过默认开启的生成模式闸门拒绝将这类剧本投入生产。
             kind = resolve_script_kind(episode)
         artifact_root = project_dir if validate_artifacts else None
         if kind == "video_units":
@@ -1373,7 +1372,7 @@ class DataValidator:
 
         Callers that classify artifact readiness separately can disable filesystem artifact
         checks while retaining the shared episode structure and reference validation. Editing
-        flows can also disable the generation-route gate while validating references against
+        flows can also disable the generation-mode gate while validating references against
         the supplied episode's actual skeleton.
         """
         errors: list[ValidationMessage] = []

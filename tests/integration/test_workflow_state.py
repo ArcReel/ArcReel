@@ -83,7 +83,7 @@ def _write_registered_script(
 ) -> None:
     """写剧本并登记认领——落盘本身不进读取口径，未登记的剧本一律按 missing 处理。
 
-    剧集剧本的取证以 step1 为输入，故一并登记 step1（广告模式无 step1，登记为不可取证即跳过）。
+    剧集剧本的取证以 step1 为输入，故一并登记 step1（广告/短片无 step1，登记为不可取证即跳过）。
     """
     atomic_write_json(project_path / "scripts" / filename, script)
     register_current_artifact_if_provable(project_path, ArtifactKey.episode_step1(episode))
@@ -122,7 +122,7 @@ def _write_episode_source(project_path: Path, episode: int = 1, text: str = "原
 def _commit_media_version(project_path: Path, resource_type: str, resource_id: str) -> str:
     """按规范路径落一个媒体产物并提交版本记录，返回项目内相对路径。
 
-    视频 / 旁白音频的清单取证只认版本记录里的执行事实，落盘文件本身不构成证据。
+    视频 / 旁白配音的清单取证只认版本记录里的执行事实，落盘文件本身不构成证据。
     """
     relative = resource_relative_path(resource_type, resource_id)
     current = project_path / relative
@@ -157,7 +157,7 @@ def _commit_audio_version(
     episode: int = 1,
     script_file: str = "episode_1.json",
 ) -> str:
-    """按 TTS 执行事实提交一条旁白音频版本记录，返回项目内相对路径。"""
+    """按 TTS 执行事实提交一条旁白配音版本记录，返回项目内相对路径。"""
     preparation = admit_script_unit(skeleton_kind, item).preparation
     basis = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, _TTS_SETTINGS))
     relative = resource_relative_path("audio", resource_id)
@@ -467,7 +467,7 @@ def test_narration_progresses_through_storyboard_video_to_export(tmp_path: Path)
     script["segments"][0]["generated_assets"]["video_clip"] = _commit_media_version(project_path, "videos", "E1S01")
     atomic_write_json(script_path, script)
     _register_produced_artifacts(project_path)
-    # 视频齐备即可导出：缺旁白 TTS 只在 artifacts["audio"] 里如实报告，
+    # 视频齐备即可导出：缺旁白配音只在 artifacts["audio"] 里如实报告，
     # 既不推进状态机也不拦导出（补 TTS 由用户显式发起）。
     ready = service.get_status("demo")
     assert ready.state == "EXPORT_READY"
@@ -500,7 +500,7 @@ def test_narration_progresses_through_storyboard_video_to_export(tmp_path: Path)
 
 @pytest.mark.integration
 def test_narration_audio_manifest_state_unreadable_does_not_block_export(tmp_path: Path, monkeypatch) -> None:
-    """旁白 TTS 只作为信息报告，不参与状态推进：即便 Manifest 判定该条 TTS 状态不可读
+    """旁白配音只作为信息报告，不参与状态推进：即便 Manifest 判定该条 TTS 状态不可读
     （BLOCKED），也不能让它借道共享 blockers 列表把工作流钉在 VIDEO——视频齐备时仍须
     到达 EXPORT_READY，不可读事实只经 artifacts["audio"]["state"] 报告。用一个只对
     narration_audio 键抛错的假 resolver 隔离验证，不牵扯 step1/script Manifest 激活的

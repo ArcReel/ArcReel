@@ -47,14 +47,14 @@ function renderList(shots: AdShot[]) {
   );
 }
 
-describe("ShotList ad 模式", () => {
+describe("ShotList 广告/短片", () => {
   it("列表预览展示口播文案与 section 标签", () => {
     renderList([makeShot()]);
     expect(screen.getByText("还在等杯子干？")).toBeInTheDocument();
     expect(screen.getByText("hook")).toBeInTheDocument();
   });
 
-  it("无口播的纯画面镜头退回画面描述", () => {
+  it("无口播的纯画面分镜退回画面描述", () => {
     renderList([makeShot({ voiceover_text: "" })]);
     expect(screen.getByText("速干杯特写")).toBeInTheDocument();
   });

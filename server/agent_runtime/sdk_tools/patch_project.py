@@ -1,6 +1,6 @@
 """SDK MCP tool for editing project.json assets by table + name 或顶层 settings 字段。
 
-把 agent 对 ``project.json`` 角色/场景/道具/产品的写入收归 ``patch_project``：按 table
+把 Agent 对 ``project.json`` 角色/场景/道具/商品的写入收归 ``patch_project``：按 table
 （characters/scenes/props/products）+ name **upsert**（不存在则加、存在则改字段），经
 ``ProjectManager.upsert_assets`` 在单一文件锁内 read-modify-write，apply 后落盘前做结构
 校验，非法则不写。取代脆弱的单行 CLI-JSON 脚本 ``add_assets.py``（且把「只能加」扩为「可改」）。
@@ -26,7 +26,7 @@ _TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 
 # 顶层 settings 白名单。新增项 append 到 tuple,并在 _coerce_setting_value 加分支。
 # source_language: overview 生成是非必经路径(generate_overview=false / overview 失败时
-# 源语言不会落盘),需要给 agent 在用户确认后写入的恢复通道,带 zh/en/vi enum 校验防乱填。
+# 源语言不会落盘),需要给 Agent 在用户确认后写入的恢复通道,带 zh/en/vi enum 校验防乱填。
 # planning_window_chars / planning_max_episodes: 分集规划工具的窗口字数与每批集数覆盖项,
 # null 时回退工具内部默认。
 # narration_voice / narration_speed: 项目级旁白音色与语速覆盖项,null 时回退全局配置。
@@ -286,12 +286,12 @@ def _format_settings_result(updated: dict[str, tuple[str, Any]]) -> str:
 
 
 def _format_upsert_result(table: str, result: dict[str, Any]) -> str:
-    """把 upsert_assets 的诊断 dict 渲染为 agent 可读文本。
+    """把 upsert_assets 的诊断 dict 渲染为 Agent 可读文本。
 
-    区分新增/合并/无变更让子任务能验证策略是否符合预期(分析提取场景应预期合并/无变更=0,
+    区分新增/合并/无变更让子智能体能验证策略是否符合预期(分析提取场景应预期合并/无变更=0,
     出现说明遗漏了已存在过滤);显式列出被忽略字段让 LLM 不再重复尝试同样会被丢的字段
     (reference_image 系统管理、sheet_field 资产流水线回写、type/importance 已废弃)。
-    name 维度按字母序排序,渲染顺序稳定不依赖 agent 入参 dict 序。
+    name 维度按字母序排序,渲染顺序稳定不依赖 Agent 入参 dict 序。
     """
     added: list[str] = sorted(result.get("added") or [])
     merged: list[str] = sorted(result.get("merged") or [])
@@ -306,7 +306,7 @@ def _format_upsert_result(table: str, result: dict[str, Any]) -> str:
         summary_parts.append(f"合并改字段 {len(merged)} 个: {', '.join(merged)}")
     if noop:
         # 全字段被白名单/legacy strip 丢空 → no-op:project.json 字节未变,工具不报『合并』
-        # 误导 agent。dropped_fields / dropped_legacy 段会详述被丢的字段,agent 据此修参。
+        # 误导 Agent。dropped_fields / dropped_legacy 段会详述被丢的字段,Agent 据此修参。
         summary_parts.append(f"无可写字段已跳过 {len(noop)} 个: {', '.join(noop)}")
     summary = "; ".join(summary_parts) if summary_parts else "无变更（所有条目均无可写字段）"
     icon = "ℹ️" if (not added and not merged) else "✅"
@@ -314,7 +314,7 @@ def _format_upsert_result(table: str, result: dict[str, Any]) -> str:
 
     if dropped_fields:
         detail = "; ".join(f"{name}: {', '.join(fields)}" for name, fields in sorted(dropped_fields.items()))
-        lines.append(f"⚠️  以下字段不在 agent 可编辑范围,已忽略 → {detail}")
+        lines.append(f"⚠️  以下字段不在 Agent 可编辑范围,已忽略 → {detail}")
         lines.append("   说明: reference_image 由用户上传/系统管理;")
         lines.append("   character_sheet / scene_sheet / prop_sheet 由资产生成流水线回写,不可手动设置。")
     if dropped_legacy:

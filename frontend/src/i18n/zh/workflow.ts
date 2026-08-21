@@ -82,7 +82,7 @@ export default {
   'checkpoint_submitted': '已提交给 {{provider}}，重试可能再次计费。',
   'checkpoint_provider_unknown': '供应商',
 
-  // ---- 批量准入 ----
+  // ---- 整批准入判定 ----
   'admission_blocked_intro': '这一批一个任务也没有创建，没有产生费用。修好下面这些再发一次即可。',
   'admission_withheld_title_one': '{{count}} 个单元本身没问题，随本批一起未提交：',
   'admission_withheld_title_other': '{{count}} 个单元本身没问题，随本批一起未提交：',
@@ -106,7 +106,7 @@ export default {
   'delivery_post_production': '后期配音',
   'delivery_post_production_hint': '视频不带旁白音轨，配音在后期另行加入。',
   'delivery_use_tts': '使用已配置的语音合成',
-  'delivery_use_tts_hint': '先生成旁白配音，视频时长按配音时长取档。',
+  'delivery_use_tts_hint': '先生成旁白配音，视频时长按旁白配音时长取档。',
   'delivery_tts_unavailable': '语音合成还没配置好，选后期配音即可继续。工作流其余部分不受影响。',
 
   // ---- 下一步动作短语 ----
@@ -129,7 +129,7 @@ export default {
   'action_plan_episodes': '规划分集',
   'action_draft_selling_points': '提炼卖点',
   'action_prepare_step1': '为这一集准备内容整理',
-  'action_confirm_step1': '审阅并确认内容整理',
+  'action_confirm_step1': '完成内容确认',
   'action_generate_script': '生成正式脚本',
   'action_generate_asset_sheets': '生成缺失的资产图',
   'action_generate_storyboards': '生成缺失的分镜图',

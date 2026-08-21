@@ -313,12 +313,12 @@ After confirming the direction, generate them in batches.
 
 ### 5.5 Video Clips {#video-clips}
 
-Choose a video generation route based on the project:
+Choose a video generation mode based on the project:
 
-- Storyboard route (storyboard image-to-video, with multi-grid storyboards as an option);
-- Reference-to-video route.
+- Storyboard mode (storyboard image-to-video, with multi-grid storyboards as an option);
+- Reference-to-video mode.
 
-With multi-grid storyboards enabled, the Storyboard route first generates several shots together on one or more multi-grid storyboards, then splits each grid into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
+With multi-grid storyboards enabled, Storyboard mode first generates several shots together on one or more multi-grid storyboards, then splits each grid into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
 
 Review the results for:
 
@@ -370,7 +370,7 @@ On the Usage page, review:
 
 ### 7.1 Compose the Final Video for a Drama Episode {#compose-final-video}
 
-For Drama projects using the storyboard route, you can use ArcReel to compose the final video after confirming every video clip. For Narration/Commentary and Ad / Short Video projects using the storyboard route, export a Jianying draft. For reference-to-video projects, download the generated clips and continue in post-production.
+For Drama projects using Storyboard mode, you can use ArcReel to compose the final video after confirming every video clip. For Narration/Commentary and Ad / Short Video projects using Storyboard mode, export a Jianying draft. For Reference-to-video projects, download the generated clips and continue in post-production.
 
 Before composing, check:
 
@@ -383,7 +383,7 @@ Before composing, check:
 
 ### 7.2 Export a Jianying Draft or Generated Clips {#export-jianying-draft}
 
-Narration/Commentary and Ad / Short Video projects using the storyboard route complete the final video through a Jianying draft. Drama projects can also use this option when subtitles, audio tracks, transitions, or pacing need more work. Reference-to-video projects can download the generated video clips and continue editing them in Jianying or another post-production tool.
+Narration/Commentary and Ad / Short Video projects using Storyboard mode complete the final video through a Jianying draft. Drama projects can also use this option when subtitles, audio tracks, transitions, or pacing need more work. Reference-to-video projects can download the generated video clips and continue editing them in Jianying or another post-production tool.
 
 For detailed instructions, see [Jianying Draft Export Guide](./jianying-export.md).
 

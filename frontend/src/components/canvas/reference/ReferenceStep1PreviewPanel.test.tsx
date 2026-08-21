@@ -72,7 +72,7 @@ describe("ReferenceStep1PreviewPanel", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  // 正文之外不再有参考资产清单：`@[名称]` 在正文里高亮，参考图执行期才解析。
+  // `@[名称]` 在正文里高亮；参考图仅在执行期解析，无独立参考图清单。
   it("renders the clean pending state with the highlighted body and no reference list", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
@@ -208,7 +208,7 @@ describe("ReferenceStep1PreviewPanel", () => {
       duration_tiers: null,
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    await waitFor(() => expect(screen.getByText("暂无预处理内容")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("暂无内容整理结果")).toBeInTheDocument());
   });
 
   it("edits the unit body in the non-quarantined state and persists the units draft", async () => {
@@ -289,15 +289,15 @@ describe("ReferenceStep1PreviewPanel", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       ...quarantinedState(),
       quarantine: {
-        // schema 违约：后端原样回传 agent 手改的内容，`units` 根本不是数组。
+        // schema 违约：后端原样回传 Agent 手改的内容，`units` 根本不是数组。
         content: { units: "被改坏了" } as never,
-        violations: [{ code: "schema_invalid", label: "", message: "隔离草稿的 content.units 必须是非空数组", line: null }],
+        violations: [{ code: "schema_invalid", label: "", message: "待修复草稿的 content.units 必须是非空数组", line: null }],
       },
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("无法锚定的违约")).toBeInTheDocument());
-    expect(screen.getByText("隔离草稿的 content.units 必须是非空数组")).toBeInTheDocument();
+    expect(screen.getByText("待修复草稿的 content.units 必须是非空数组")).toBeInTheDocument();
     expect(screen.getByText(/被改坏了/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });
@@ -398,19 +398,19 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect([...select.options].map((o) => o.value)).toEqual(["8"]);
   });
 
-  it("asks the assistant to promote instead of reporting violations when the quarantine has none", async () => {
+  it("shows a non-interactive processing state when the draft has no violations", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       ...quarantinedState(),
       quarantine: { content: quarantinedState().quarantine!.content, violations: [] },
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "让 Agent 修复" }));
-
-    const input = useAssistantStore.getState().input;
-    expect(input).toContain("validate_and_promote_draft");
-    expect(input).not.toContain("1. ");
-    // 禁用判据是隔离草稿文件是否在场，不是重算后的违约数量——违约为空但仍隔离时确认依旧禁用。
+    expect(await screen.findByText("草稿由 Agent 处理")).toBeInTheDocument();
+    expect(screen.queryByText("待修复草稿 — 拆分未通过校验")).not.toBeInTheDocument();
+    expect(screen.getByText("Agent 会在本集任务中继续处理草稿，完成后此处会自动更新")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Agent/ })).not.toBeInTheDocument();
+    expect(useAssistantStore.getState().input).toBe("");
+    // 禁用判据是待处置草稿文件是否在场，不是重算后的违约数量——违约为空但草稿仍在场时确认依旧禁用。
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });
 

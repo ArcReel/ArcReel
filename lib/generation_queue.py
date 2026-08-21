@@ -71,7 +71,7 @@ def reference_video_enqueue_payload(
     *,
     script_file: str | None,
 ) -> dict[str, Any]:
-    """把新入队的参考视频载荷收窄为定位与请求选项。
+    """把新入队的参考生视频载荷收窄为定位与请求选项。
 
     prompt、references、style、duration 等可变请求事实不是任务快照；worker 开始时
     从当前 project/script/unit 重新投影。提交后的执行身份保存在专用 checkpoint，
@@ -110,7 +110,7 @@ async def video_bucket_for_queued_task(
     """视频任务的定桶口径，入队派生与 worker 限流投影共用、与执行侧同步（docs/adr/0054）。
 
     图生视频 / 宫格 → i2v；参考生视频调公共 request projection 按当前实际可用资产分流——
-    无参考图的退化镜头 → i2v，其余 → r2v。剧本 / unit / 能力读不到时回退代表桶 r2v；
+    无参考图的视频单元 → i2v，其余 → r2v。剧本 / unit / 能力读不到时回退代表桶 r2v；
     回退只影响 claim 池过滤与限流槽路由的精度，执行层仍在处理开始时重新投影。
     表外任务类型返回 None（不定桶）。
     """
@@ -178,7 +178,7 @@ async def resolve_video_execution_for_queued_task(
     payload: dict[str, Any] | None,
     resource_id: str | None,
 ) -> tuple[ProviderModel, VideoCapability | None]:
-    """解析队列视频任务的当前身份与能力桶，供入队 advisory 和 worker 限流共用。"""
+    """解析队列视频任务的当前身份与任务类型桶，供入队 advisory 和 worker 限流共用。"""
 
     projection = (
         await reference_projection_for_queued_task(
@@ -219,7 +219,7 @@ async def _derive_execution_model_for_enqueue(
 ) -> tuple[ProviderModel, VideoCapability | None] | None:
     """入队时按 project + payload 派生任务的 advisory provider 与视频桶。
 
-    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；两条视频路线都只保存 advisory provider，
+    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；两种视频生成模式都只保存 advisory provider，
     worker 开始处理时重新投影当前状态。与 worker ``_extract_provider`` 同套解析逻辑，
     但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。

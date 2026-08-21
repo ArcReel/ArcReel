@@ -667,7 +667,7 @@ class TestProjectEventService:
 
     @pytest.mark.unit
     def test_change_identity_normalizes_equivalent_ready_actions(self):
-        """参考视频完成在发布方与快照差分两侧的 action 命名不同，但去重身份相同。
+        """参考生视频完成在发布方与快照差分两侧的 action 命名不同，但去重身份相同。
 
         发布方按 task_type 映射为 ``reference_video_ready``，同一次落盘在 unit 差分里是
         ``video_ready``；不归一会让同一次完成既由本批广播、又被补扫广播一次。
@@ -1091,7 +1091,7 @@ class TestProjectEventService:
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1S01" for c in changes)
         shot_changes = [c for c in changes if c["entity_type"] == "shot"]
-        assert shot_changes and all(c["label"].startswith("镜头") for c in shot_changes)
+        assert shot_changes and all(c["label"].startswith("分镜") for c in shot_changes)
         # ad 镜头走时间线画布：可导航事件的锚点类型为 segment（ShotSplitView 守卫）。
         assert all(c["focus"]["anchor_type"] == "segment" for c in shot_changes if c["focus"] is not None)
 
@@ -1163,7 +1163,7 @@ class TestProjectEventService:
         assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
         assert any(c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes)
         scene_changes = [c for c in changes if c["entity_type"] == "drama_scene"]
-        assert scene_changes and all(c["label"].startswith("场景") for c in scene_changes)
+        assert scene_changes and all(c["label"].startswith("分镜") for c in scene_changes)
         # drama 场景走时间线画布：可导航事件的锚点类型为 segment。
         assert all(c["focus"]["anchor_type"] == "segment" for c in scene_changes if c["focus"] is not None)
 
@@ -1415,7 +1415,7 @@ class TestProjectEventService:
                         {
                             "unit_id": "E1U01",
                             "duration_seconds": 4,
-                            "text": "镜头1：产品特写",
+                            "text": "镜头1：商品特写",
                             "generated_assets": _pending_assets(),
                         }
                     ],
@@ -1435,7 +1435,7 @@ class TestProjectEventService:
         with project_change_source("filesystem"):
             pm.save_script("ad-ref", script, "episode_1.json", validate=False)
         after_product = service._build_snapshot("ad-ref")
-        # 产品引用同样只写在正文里，逐条实体名单恒空。
+        # 商品引用同样只写在正文里，逐条实体名单恒空。
         assert after_product["scripts"]["episode_1.json"]["items"]["E1U01"]["products"] == []
         product_changes = service._diff_snapshots(previous, after_product)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in product_changes)
@@ -1464,7 +1464,7 @@ class TestProjectEventService:
         """
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("ad-sb")
-        # 不设 generation_mode：非参考路线，unit 级组合不激活。
+        # 不设 generation_mode：非参考生视频，unit 级组合不激活。
         pm.create_project_metadata("ad-sb", "AdSb", "Anime", "ad")
 
         with project_change_source("filesystem"):

@@ -20,7 +20,7 @@ const script = {
       video_prompt: "",
       generated_assets: { storyboard_image: "storyboards/E1S01_v1.png" },
     },
-    // 没有分镜图的镜头不进选项
+    // 没有分镜图的分镜不进选项
     { segment_id: "E1S02", novel_text: "", image_prompt: "", video_prompt: "" },
   ],
 } as unknown as EpisodeScript;
@@ -109,8 +109,8 @@ describe("EndFramePicker 项目内通道", () => {
     await findByText("本集分镜切图");
     expect(getByText("本集分镜图")).toBeInTheDocument();
 
-    // 无分镜图的镜头不出现
-    expect(queryByRole("button", { name: /镜头 E1S02/ })).toBeNull();
+    // 无分镜图的分镜不出现
+    expect(queryByRole("button", { name: /分镜 E1S02/ })).toBeNull();
 
     // 角色/场景分组已移除：即使 currentProjectData 里有对应素材也不展示
     expect(queryByText("角色")).toBeNull();
@@ -128,7 +128,7 @@ describe("EndFramePicker 项目内通道", () => {
     const onPickProjectImage = vi.fn();
     const { getByRole, findByRole } = renderPicker({ onPickProjectImage });
 
-    const cell = await findByRole("button", { name: /镜头 E1S01/ });
+    const cell = await findByRole("button", { name: /分镜 E1S01/ });
     fireEvent.click(cell);
     expect(cell).toHaveAttribute("aria-pressed", "true");
 
@@ -169,7 +169,7 @@ describe("EndFramePicker 上传通道", () => {
     const { getByRole, findByRole, findByText } = renderPicker({ disabled: true });
     await findByText("本集分镜图");
 
-    const cell = await findByRole("button", { name: /镜头 E1S01/ });
+    const cell = await findByRole("button", { name: /分镜 E1S01/ });
     fireEvent.click(cell);
 
     expect(getByRole("button", { name: /上传/ })).toBeDisabled();

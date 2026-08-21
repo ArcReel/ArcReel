@@ -1,4 +1,4 @@
-"""参考生视频正文解析器：书写层记号（``@[名称]`` 引用、台词与画外音）的识别原语。
+"""参考生视频正文解析器：引用语法记号（``@[名称]`` 引用、台词与画外音）的识别原语。
 
 视频单元只持久化正文，参考图与发声归属都由本模块从正文读时派生（见 ADR 0064）：解析结果
 不落盘，改正文即改一切派生物。"""
@@ -25,7 +25,7 @@ _SPEAKER_SEPARATORS = "：:"
 
 
 def _normalize_source(text: str) -> str:
-    """书写层文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。
+    """引用语法文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。
 
     两者同一性质——屏幕上看不见的字节差异，却让按字节走的判定分叉，故合并在一个入口处理。
     BOM 不止出现在文档开头：粘贴拼接会把它带到任意行首，而分叉是按行发生的。NFC 则是
@@ -311,7 +311,7 @@ def rewrite_mentions(text: str, old_name: str, new_name: str) -> tuple[str, int]
 
 
 def derive_references_from_text(text: str, project: dict) -> tuple[list[ReferenceResource], list[str]]:
-    """书写层正文 → ``(references, missing)`` 的唯一派生入口。
+    """引用语法正文 → ``(references, missing)`` 的唯一派生入口。
 
     参考图是纯派生物、不落盘：机器产物校验（``lib.reference_video.draft_validation
     .validate_unit_text``）、编辑器预览与执行期请求投影都经本函数从同一份正文派生。三者的
@@ -331,7 +331,7 @@ def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
     等价于「渲染后为空」，空提示词校验可在入队侧无损完成）。
 
     正文与 ``names`` 都归一到比对坐标系后再判成员：不归一时，NFD 落盘的 ``@[名称]`` 与 NFC
-    登记的同一个名字判不相等，该 mention 会被当成未登记而原样保留，``@[名称]`` 这个书写层
+    登记的同一个名字判不相等，该 mention 会被当成未登记而原样保留，``@[名称]`` 这个引用语法
     记号就直接漏进了供应商请求。
     """
     normalized_names = {asset_name_comparison_key(name) for name in names}
@@ -354,7 +354,7 @@ def resolve_references(
 ) -> tuple[list[ReferenceResource], list[str]]:
     """按 project.json 四类资产把 mention 名字分派成 ReferenceResource。
 
-    新项目资产共用名称空间；对历史重复名仍按产品→角色→场景→道具稳定决议。
+    新项目资产共用名称空间；对历史重复名仍按商品→角色→场景→道具稳定决议。
 
     名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.asset_name_comparison_key`），
     产出的 ``ReferenceResource.name`` 与 ``missing`` 因此一律是归一形式：下游拿它回查资产表、

@@ -67,7 +67,7 @@ export function lookupSupportedDurations(
     : undefined;
 }
 
-/** 目录（非自定义供应商）里的视频音频能力：音轨是否存在 + 服务端派生的声音一致性档位。 */
+/** 目录（非自定义供应商）里的视频音轨能力：音轨是否存在 + 服务端派生的声音一致性档位。 */
 export interface CatalogVideoAudio {
   hasAudioTrack: boolean;
   /** 无项目上下文下的档位，服务端派生。有项目上下文时改用能力查询结果，不读此值。 */
@@ -228,7 +228,7 @@ export function lookupProjectVideoResolution(
 }
 
 /** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。
- *  自定义 provider 路径需要从 endpoint 推 media_type 选标准分辨率集；该 map 由调用方
+ *  自定义供应商路径需要从 endpoint 推 media_type 选标准分辨率集；该 map 由调用方
  *  从 endpoint-catalog-store 读出注入（保持本文件无 store 副作用）。 */
 export function lookupResolutions(
   providers: ProviderInfo[],

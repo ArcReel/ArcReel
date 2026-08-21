@@ -343,7 +343,7 @@ class ProjectArchiveService:
 
                     diagnostics = self._repair_project_tree(staging_dir)
                     # 在校验前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend /
-                    # 生成路线重编码）：启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的
+                    # 生成模式重编码）：启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的
                     # 旧归档需在此补跑，否则解析链不再读 legacy 字段会让该项目静默回退全局默认，且校验器按
                     # 最新 schema 形态断言（如 generation_mode 必填二值），未迁移的旧归档会被误拒。放在安装
                     # **前** → 迁移若抛错，staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目
@@ -1017,8 +1017,8 @@ class ProjectArchiveService:
         content_mode = raw_content_mode
         generation_mode = project_payload.get("generation_mode")
 
-        # 修复分流按规范解析的骨架种类走：所有参考路线都使用 video_units，storyboard
-        # 路线按内容模式使用 segments/scenes/shots。
+        # 修复分流按规范解析的骨架种类走：所有参考生视频都使用 video_units，storyboard
+        # 分镜图生视频按创作类型使用 segments/scenes/shots。
         kind = resolve_declared_kind(content_mode, generation_mode)
 
         # video_units 骨架用 references 组织资产，结构与
@@ -1247,12 +1247,12 @@ class ProjectArchiveService:
         versions_payload: dict[str, Any],
         diagnostics: ArchiveDiagnostics,
     ) -> bool:
-        """修复 reference_video 模式剧本的 video_units，返回 script_changed。
+        """修复 参考生视频剧本的 video_units，返回 script_changed。
 
         单元的引用不落盘，正文才是真相，因此本方法只碰结构与产物字段：per-unit 时长收编、
         generated_assets 补全、video_clip / video_thumbnail 路径规范化与版本回溯。正文里
         ``@[名称]`` 的自愈另走 :meth:`_repair_unit_mentions_tree`——它要等 schema 迁移把存量
-        镜头结构折成正文之后才有正文可读。
+        旧 ``shots`` 结构折成正文之后才有正文可读。
         video_uri 是远端 URL，不当作本地路径处理（否则会被同名 canonical 本地文件覆盖）。
         """
         raw_units = script_payload.get("video_units")
@@ -1264,7 +1264,7 @@ class ProjectArchiveService:
         # 修复须先跑这道迁移再校验——本方法在 validate_project_tree 之前执行、写回结果
         # 由调用方按 script_changed 落盘，与其它字段修复共用同一次写盘。
         # 档位表按归档自带 project.json 的自报身份查 registry（无 DB 访问——导入跑在 to_thread
-        # 里，且此刻自定义供应商的凭证/能力可能尚未导入本机）：迁移一次落盘，与生成侧、审阅门
+        # 里，且此刻自定义供应商的凭证/能力可能尚未导入本机）：迁移一次落盘，与生成侧、内容确认
         # 口径不一致会让先跑的把非档位秒数固化。查不到（未声明型号、或自定义供应商不在 registry）
         # 时为 None，退回结构区间 clamp。
         # provider 先在副本上归一化：本方法跑在 migrate_project_dir 之前，存量归档里可能还是
@@ -1335,7 +1335,7 @@ class ProjectArchiveService:
     def _repair_unit_mentions_tree(self, project_dir: Path, diagnostics: ArchiveDiagnostics) -> None:
         """迁移之后再扫一遍全部 video_units 正文：说话人缺定义补占位，其余未解析提及只警告。
 
-        必须跑在 :func:`migrate_project_dir` **之后**：存量归档的单元把内容挂在镜头结构上，
+        必须跑在 :func:`migrate_project_dir` **之后**：存量归档的单元把内容挂在旧 ``shots`` 结构上，
         正文是迁移折出来的，早跑一遍等于对着空正文自愈，占位角色与诊断都不会产生。
         本遍只改 ``project.json``（补占位角色），不改剧本。
         """

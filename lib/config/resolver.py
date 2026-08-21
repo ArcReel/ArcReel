@@ -101,7 +101,7 @@ def _split_pair(raw: object) -> tuple[str, str] | None:
     """解析 ``"<provider>/<model>"`` → (provider, model)；不合法返回 None。
 
     provider 或 model 为空/纯空白（如 ``"openai/"`` / ``"/m"``）均视为不合法返回 None，
-    交由调用方走裸 provider 补默认 model 或回退——避免把空 model 带到执行层。"""
+    交由调用方走裸供应商补默认 model 或回退——避免把空 model 带到执行层。"""
     if not isinstance(raw, str) or "/" not in raw:
         return None
     provider, model = raw.split("/", 1)
@@ -112,19 +112,19 @@ def _split_pair(raw: object) -> tuple[str, str] | None:
 
 
 def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | None:
-    """解析 project.json 的 provider 字段，兼容裸 provider 覆盖。
+    """解析 project.json 的 provider 字段，兼容裸供应商覆盖。
 
     - ``"provider/model"`` → (provider, model)
     - 裸 ``"provider"``（registry 中存在且有该 media_type 默认 model）→ (provider, 默认 model)
     - 其余 → None（交由全局默认解析）
 
-    裸 provider 经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
-    pin 住该 provider 并补全其默认 model，避免静默回退到全局默认的**另一**供应商。"""
+    裸供应商经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
+    pin 住该供应商并补全其默认 model，避免静默回退到全局默认的**另一**供应商。"""
     pair = _split_pair(raw)
     if pair is not None:
         return pair
     if isinstance(raw, str):
-        # 裸 provider，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该 provider 默认 model
+        # 裸供应商，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该供应商默认 model
         provider = raw.strip().rstrip("/").strip()
         if provider:
             model = default_model_for_provider(provider, media_type)
@@ -134,7 +134,7 @@ def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | N
 
 
 def _trusted_payload_provider(provider_id: object) -> str | None:
-    """返回可信任的规范 provider_id（已知 provider），否则 None。
+    """返回可信任的规范 provider_id（已知供应商），否则 None。
 
     payload 是解析链唯一绕过写边界校验的输入来源（in-flight 队列任务在旧代码入队时即序列化）。
     据此守卫：非字符串 / 空白 / 不可识别的 provider（如 legacy ``seedance``/``vertex``）一律不予
@@ -161,9 +161,9 @@ def _payload_model_or_default(raw_model: object, provider_id: str, media_type: s
 
 @dataclass(frozen=True)
 class _LayeredBackendKeys:
-    """「默认 + 能力桶」四级解析骨架的键位声明，媒体类型无关（见 ``docs/adr/0054``）。
+    """「默认 + 任务类型桶」四级解析骨架的键位声明，媒体类型无关（见 ``docs/adr/0054``）。
 
-    每个媒体类型的每个能力桶声明一份键位，由 ``ConfigResolver._resolve_layered_backend``
+    每个媒体类型的每个任务类型桶声明一份键位，由 ``ConfigResolver._resolve_layered_backend``
     按固定顺序消费：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。键为 None 表示该层
     不存在、直接跳过——新媒体 / 新桶接入只需补一份键位声明，不改骨架本身。
     """
@@ -209,7 +209,7 @@ _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 
 
 # 不定桶视频键位：与 ``_VIDEO_LAYERED_KEYS`` 同源同层，只去掉桶层（None 由骨架跳过）。供不承诺
-# 能力桶的调用方（费用估算、限流路由兜底、配置展示）解析，不施加桶键覆盖也不过能力闸。
+# 任务类型桶的调用方（费用估算、限流路由兜底、配置展示）解析，不施加桶键覆盖也不过能力闸。
 _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="video",
     parse_fallback=_DEFAULT_VIDEO_BACKEND,
@@ -218,7 +218,7 @@ _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
 )
 
 
-# 音频键位。音频无能力桶，桶层留空（None）由骨架直接跳过：项目默认层用 project.json 的
+# 音频键位。音频无任务类型桶，桶层留空（None）由骨架直接跳过：项目默认层用 project.json 的
 # audio_backend 字段，全局默认层用 default_audio_backend 设置键。
 _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="audio",
@@ -227,12 +227,12 @@ _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     global_default_key="default_audio_backend",
 )
 
-#: 视频能力桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考路线无参考图退化镜头的降级执行）、
-#: r2v（参考生视频的有参考图镜头）。t2v 不设桶（docs/adr/0054）。
+#: 视频任务类型桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考生视频无参考图视频单元的降级执行）、
+#: r2v（参考生视频中有参考图的视频单元）。t2v 不设桶（docs/adr/0054）。
 VideoCapability = Literal["i2v", "r2v"]
 
-#: 视频任务类型 → 能力桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
-#: 宫格生视频（task_type ``video``）→ i2v；参考生视频按镜头是否携带参考图分流
+#: 视频任务类型 → 任务类型桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
+#: 宫格生视频（task_type ``video``）→ i2v；参考生视频按视频单元是否携带参考图分流
 #: （``lib.reference_video.units``），本表登记其代表桶 r2v，仅供剧本 / unit 读不到时回退。
 #: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.capability_buckets）
 #: 是分层约束：队列 / worker 的入队与认领路径处于 lib.video_backends 的依赖闭包内，不得经
@@ -242,22 +242,22 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
     "reference_video": "r2v",
 }
 
-#: 生成模式 → 能力桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
+#: 生成模式 → 任务类型桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
 #: 已成形任务的 task_type 定桶，读侧（能力查询 / 时长约束收窄等）在任务成形前只有项目的
-#: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。参考
-#: 路线内无参考图退化镜头的镜头级降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
+#: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。
+#: 参考生视频项目中无参考图分镜的降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
 VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoCapability] = {
     "storyboard": "i2v",
     "reference_video": "r2v",
 }
 
-#: 表外 generation_mode（无项目上下文与脏数据）落的桶。project.json 是明文文件，路线字段
-#: 可能被手工改坏；无项目上下文（如 provider 目录查询）同样没有路线可依。
+#: 表外 generation_mode（无项目上下文与脏数据）落的桶。project.json 是明文文件，生成模式字段
+#: 可能被手工改坏；无项目上下文（如 provider 目录查询）同样没有生成模式可依。
 _DEFAULT_VIDEO_BUCKET: VideoCapability = "i2v"
 
 
 def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapability:
-    """项目的 generation_mode 归到哪个视频能力桶——读侧定桶的唯一入口。
+    """项目的 generation_mode 归到哪个视频任务类型桶——读侧定桶的唯一入口。
 
     project.json 是明文文件，``generation_mode`` 可能被写成非字符串，一并落默认桶。
     """
@@ -290,11 +290,11 @@ def _payload_video_pinned_pair(
 def caps_generation_mode(project: dict | None) -> str | None:
     """能力查询口径的 generation_mode：直读项目字段，无项目上下文时为 None。
 
-    生成路线创建即定、整个项目按同一条路径生成，能力解析因此不需要剧集上下文：定桶、声音
-    一致性、以及下游按 caps ``generation_mode`` 求值的分辨率与参考图约束全部按项目路线定轴。
+    生成模式创建即定、整个项目按同一条路径生成，能力解析因此不需要剧集上下文：定桶、声音
+    一致性、以及下游按 caps ``generation_mode`` 求值的分辨率与参考图约束全部按项目生成模式定轴。
 
     返回 None 而非默认档，是因为 ``generation_mode`` 是 caps 的对外字段（回前端与 Agent）：
-    无项目上下文（provider 目录查询等）时「未声明」不该渲染成用户显式选过某条路线。
+    无项目上下文（provider 目录查询等）时「未声明」不该渲染成用户显式选过某种生成模式。
     """
     if project is None:
         return None
@@ -307,8 +307,8 @@ def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
 
     纯读 project.json、不查 DB，供 caps 解析失败（DB / migration 故障等）时的降级路径复用：
     桶键与默认键都在同一个明文文件里，降级只该丢掉 DB 那部分，不该顺带把桶口径也降成项目
-    默认层——否则配了 ``video_provider_r2v`` 的参考视频项目会拿 ``video_backend`` 的档位与
-    参考图上限写剧本。层内取值口径与 ``_resolve_layered_backend`` 的项目层一致（含裸 provider
+    默认层——否则配了 ``video_provider_r2v`` 的参考生视频项目会拿 ``video_backend`` 的档位与
+    参考图上限写剧本。层内取值口径与 ``_resolve_layered_backend`` 的项目层一致（含裸供应商
     覆盖）。
     """
     keys = _VIDEO_LAYERED_KEYS[video_bucket_for_generation_mode(project.get("generation_mode"))]
@@ -534,7 +534,7 @@ def constrain_durations(
 def _resolution_for_constraints(
     project: dict, provider_id: str | None, model_id: str | None, *, generation_mode: str | None
 ) -> str | None:
-    """约束求值用的生效分辨率：项目已保存的档位，参考视频模式下补 provider 兜底。
+    """约束求值用的生效分辨率：项目已保存的档位，参考生视频下补供应商兜底。
 
     联动约束必须按**执行期真正下发给供应商的那个档位**求值，而两条视频路径下发的值不同源：
 
@@ -542,11 +542,11 @@ def _resolution_for_constraints(
       参数」（见 ``docs/adr/0019``），供应商按自己的默认档位处理——Veo 省略时是 720p，4/6/8 全
       合法。此时按兜底档位求值会凭空收窄：未配置分辨率的 Veo 项目剧本节奏会被锁死 8 秒，而
       供应商本来就接受 4/6 秒。故未配置时返回 ``None``（不施加分辨率约束）。
-    - 参考视频路径是唯一需要非空档位的调用方，执行期取 ``resolution_or_fallback``（见
+    - 参考生视频路径是唯一需要非空档位的调用方，执行期取 ``resolution_or_fallback``（见
       ``server/services/reference_video_tasks.py``），故这里同样补 ``get_provider_fallback``，
       让约束与实际下发的档位描述同一件事。
 
-    ``get_provider_fallback`` 本身是费用估算与参考视频路径的内部口径，不是「用户没配分辨率时
+    ``get_provider_fallback`` 本身是费用估算与参考生视频路径的内部口径，不是「用户没配分辨率时
     的生效值」，不可当作后者施加到普通路径上。自定义供应商的 DB 默认档位不在此解析：该类
     供应商不声明联动约束，解析出来也不改变结果，不值得为此把纯函数变成 async。
 
@@ -596,8 +596,8 @@ def constrain_durations_for_project(
 ) -> list[int]:
     """按项目当前配置收窄时长候选：分辨率取生效档位，参考图约束按是否真的带参考图判定。
 
-    ``uses_reference_images`` 缺省时退回「生成模式即参考视频」的近似判定。调用方能看到
-    实际的参考图情况时应显式传入：参考视频路径允许单元不带任何引用，执行层与 backend 都只在
+    ``uses_reference_images`` 缺省时退回「生成模式即参考生视频」的近似判定。调用方能看到
+    实际的参考图情况时应显式传入：参考生视频路径允许单元不带任何引用，执行层与调用通道都只在
     ``reference_images`` 非空时施加该约束，按模式一刀切会把无引用单元本可申请的档位也收掉。
     """
     return constrain_durations(
@@ -627,7 +627,7 @@ class VisionCapabilityError(ValueError):
 
 
 class VideoBucketCapabilityError(ValueError):
-    """视频解析闸报错：解析出的模型缺所属能力桶要求的能力，或配置引用已不可用。
+    """视频解析闸报错：解析出的模型缺所属任务类型桶要求的能力，或配置引用已不可用。
 
     ``code`` 是 errors 目录 key、``params`` 是其渲染参数：router 可直接
     ``_t(exc.code, **exc.params)`` 本地化，worker 落库经 ``lib.task_failure.encode_failure``
@@ -758,7 +758,7 @@ class ConfigResolver:
         优先级：项目级 `project.json.video_backend` > 系统设置 `default_video_backend` >
         系统默认 `_DEFAULT_VIDEO_BACKEND` > auto-resolve（按 registry 顺序挑第一个 ready）。
 
-        返回字面配置结果，不做自定义 provider 的身份收敛——供配置展示与「当前选的是哪个」类
+        返回字面配置结果，不做自定义供应商的身份收敛——供配置展示与「当前选的是哪个」类
         判断使用；要拿运行时实际执行的身份请用 ``resolve_video_backend()``。
         """
         async with self._open_session() as (session, svc):
@@ -790,7 +790,7 @@ class ConfigResolver:
     ) -> ProviderModel:
         """解析视频任务应使用的 ProviderModel。
 
-        payload 恒为最高优先级：已写入能力桶键 ``video_provider_<cap>`` 的物化执行身份优先。
+        payload 恒为最高优先级：已写入任务类型桶键 ``video_provider_<cap>`` 的物化执行身份优先。
         其后按 ``capability`` 分两条路径（``docs/adr/0054``）：
 
         - ``capability`` 给定（``"i2v"`` / ``"r2v"``）：走四级骨架 项目桶（``video_provider_<cap>``）
@@ -800,7 +800,7 @@ class ConfigResolver:
           ``VideoBucketCapabilityError``，不静默换模型。payload 命中时跳过能力闸——已入队任务
           按 payload 照常执行，不回头补校验；但已物化的身份仍过身份可用性校验，悬空同样抛该异常。
         - ``capability`` 为 None：同一骨架去掉桶层，项目默认（``video_backend``）> 全局默认
-          （``default_video_backend``）> 自动推断，无能力闸；自定义 provider 的 model 不存在、
+          （``default_video_backend``）> 自动推断，无能力闸；自定义供应商的 model 不存在、
           已禁用或 endpoint 的 media_type 不是 video 时，收敛到该 provider 默认启用的 video
           model（**运行时有效身份**），无可用默认则抛 ``ValueError``。供不承诺能力的调用方
           （费用估算、限流路由兜底）使用。
@@ -899,7 +899,7 @@ class ConfigResolver:
 
         model 按项目 ``generation_mode`` 定桶（图生视频 / 宫格 → i2v，参考生视频 → r2v）后走与
         执行相同的解析入口，回答的始终是「当前配置真正会执行的那个模型」（``docs/adr/0054``）。
-        路线创建即定、整个项目按同一条路径生成，解析因此不需要剧集上下文。
+        生成模式创建即定、整个项目按同一种模式生成，解析因此不需要剧集上下文。
 
         Returns:
             {
@@ -917,7 +917,7 @@ class ConfigResolver:
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
-              "generation_mode": str | None,       # 项目生成路线（无项目上下文时 None）
+              "generation_mode": str | None,       # 项目生成模式（无项目上下文时 None）
               "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode 二维派生
             }
 
@@ -941,8 +941,8 @@ class ConfigResolver:
         （例如 `ScriptGenerator` 在非标准路径实例化、或测试用 tmp_path 时，防止目录名
         与全局项目碰撞读到错误能力）。
 
-        ``capability`` 未给定时按项目 generation_mode 定桶；给定时按指定桶解析——供参考路线
-        内按镜头分流的读侧（无参考图退化镜头按 i2v 桶取档 / 计价）使用。
+        ``capability`` 未给定时按项目 generation_mode 定桶；给定时按指定桶解析——供参考生视频
+        内按视频单元分流的读侧（无参考图的视频单元按 i2v 桶取档 / 计价）使用。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_capabilities_from_project(svc, session, project, capability=capability)
@@ -963,9 +963,9 @@ class ConfigResolver:
         的能力去校验 payload 解析出的 model」的错配。
 
         入参身份仍会再收敛一次（口径同 ``resolve_video_backend``），因此直接传字面配置也能
-        拿到有效身份的能力；自定义 provider 无可用默认 model 时抛 ``ValueError``。
+        拿到有效身份的能力；自定义供应商无可用默认 model 时抛 ``ValueError``。
 
-        声音一致性等二维值按 ``project`` 的生成路线派生；``capability`` 显式给定时按该桶派生
+        声音一致性等二维值按 ``project`` 的生成模式派生；``capability`` 显式给定时按该任务类型桶派生
         逐路径的能力位（音轨形态按执行子路径分叉，见 :func:`builtin_video_audio_track`）——
         执行层已知任务落在哪个桶，传进来才能拿到与实际请求同形的结果。
         """
@@ -1094,11 +1094,11 @@ class ConfigResolver:
         project: dict | None,
         keys: _LayeredBackendKeys,
     ) -> tuple[str, str]:
-        """「默认 + 能力桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
+        """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
 
         媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。项目层
-        字段兼容裸 provider 覆盖（``_parse_project_provider``）；全局层要求 ``provider/model``
-        完整形态。payload 层与运行时身份收敛（如视频自定义 provider 的有效身份收敛）不属于
+        字段兼容裸供应商覆盖（``_parse_project_provider``）；全局层要求 ``provider/model``
+        完整形态。payload 层与运行时身份收敛（如视频自定义供应商的有效身份收敛）不属于
         骨架，由各媒体的调用方在骨架外处理。
         """
         if project:
@@ -1131,8 +1131,8 @@ class ConfigResolver:
 
         payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider`` /
         ``image_model`` 键——按该格式序列化的任务据此解析。图片任务不锁定执行身份（任务周期
-        短，排队期间配置漂移的窗口小），故 payload 层无能力桶键。payload provider 须是已知
-        provider（见
+        短，排队期间配置漂移的窗口小），故 payload 层无任务类型桶键。payload 供应商须是已知
+        供应商（见
         ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
         键位见 ``_IMAGE_LAYERED_KEYS``）。
         """
@@ -1157,9 +1157,9 @@ class ConfigResolver:
     ) -> ProviderModel:
         """payload 优先解析视频 ProviderModel；无 payload 时按 ``capability`` 走桶骨架或不定桶骨架。
 
-        payload 层只认已物化的能力桶键（``video_provider_<cap>`` 复合值，见
+        payload 层只认已物化的任务类型桶键（``video_provider_<cap>`` 复合值，见
         ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
-        （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信 provider——
+        （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信供应商——
         供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
         """
         if payload:
@@ -1274,7 +1274,7 @@ class ConfigResolver:
     ) -> ProviderModel:
         """把选择身份收敛为 backend 构造时会实际使用的视频身份。
 
-        内置 provider 的 registry 身份已是有效身份；自定义 provider 需与 loader 共用同一规则：
+        内置供应商的 registry 身份已是有效身份；自定义供应商需与 loader 共用同一规则：
         model 不存在、禁用或 endpoint 已改成其它 media_type 时，回退到默认启用 video model。
 
         已物化的身份不走这条收敛（见 ``_resolve_video_provider_model``）：换 model 执行等于
@@ -1324,7 +1324,7 @@ class ConfigResolver:
         """payload > project > 全局默认 三级解析音频 ProviderModel。
 
         payload 层服务于历史任务（携带 ``audio_provider`` + ``audio_model``）的排空。payload
-        provider 须是已知 provider（见 ``_trusted_payload_provider``），否则回退 project/global。
+        供应商须是已知供应商（见 ``_trusted_payload_provider``），否则回退 project/global。
         """
         if payload:
             provider_id = _trusted_payload_provider(payload.get("audio_provider"))
@@ -1353,14 +1353,14 @@ class ConfigResolver:
         *,
         capability: VideoCapability | None = None,
     ) -> dict:
-        """按能力桶（未显式给定时按项目 generation_mode 定桶）解析出会执行的那个模型，再读它的能力。
+        """按任务类型桶（未显式给定时按项目 generation_mode 定桶）解析出会执行的那个模型，再读它的能力。
 
         与执行路径共用 ``_resolve_video_provider_model``（含能力闸），读侧不留第二种口径：切换
         generation_mode 后能力查询随桶变化，模型缺该桶所需能力或引用已失效时报错、不静默换模型
         （``docs/adr/0054``）。payload 传 None——能力查询回答的是当前配置，不排空历史任务。
 
         只传选择身份：有效身份收敛由 ``_resolve_video_caps_for_model`` 统一做，在此先做一遍会让
-        自定义 provider 多跑一轮 model 查询。
+        自定义供应商多跑一轮 model 查询。
         """
         if capability is None:
             capability = video_bucket_for_generation_mode(caps_generation_mode(project))
@@ -1404,7 +1404,7 @@ class ConfigResolver:
 
             # 生效能力（系统判定 ⊕ 用户覆盖）只此一个合成点：工厂给执行层注入的也是它的返回值，
             # 展示层与执行层因此严格同源，不在此处自行合并覆盖或重算系统判定。纯函数不查
-            # provider 行、不构造 SDK client，故每镜头解析无 DB/网络/client 构造副作用
+            # provider 行、不构造 SDK client，故逐视频单元解析无 DB/网络/client 构造副作用
             # （也不因 api_key 缺失而抛）。
             try:
                 caps = synthesize_video_capabilities(
@@ -1562,7 +1562,7 @@ class ConfigResolver:
         try:
             cfg = await self._resolve_provider_config(svc, session, provider_id)
         except ValueError:
-            # 未知 / 自定义 provider（_validate_provider 抛 ValueError）→ 回退保守通用默认
+            # 未知 / 自定义供应商（_validate_provider 抛 ValueError）→ 回退保守通用默认
             return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
         total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), _DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
         single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), _DEFAULT_REFERENCE_SINGLE_MAX_BYTES)

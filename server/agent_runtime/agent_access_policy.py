@@ -1,4 +1,4 @@
-"""agent 访问规则真相源：内核 sandbox settings 编译与应用层 hook 裁决共用同一份规则。
+"""Agent 访问规则真相源：内核 sandbox settings 编译与应用层 hook 裁决共用同一份规则。
 
 零 I/O、以进程级根路径纯构造（假根路径亦可构造）；不 import SDK 类型。
 SDK 封皮（hook 签名、权限结果类型、权限链顺序）留在会话管理侧薄 adapter
@@ -55,7 +55,7 @@ class ProtectedWriteRule:
 
 @dataclass(frozen=True, kw_only=True)
 class AgentAccessPolicy:
-    """「agent 能碰什么」的单一规则真相源，同一份规则做两种投影：
+    """「Agent 能碰什么」的单一规则真相源，同一份规则做两种投影：
 
     - 内核沙箱层：编译 SandboxSettings（denyRead / denyWrite / 网络域名单）；
     - 应用层 hook：提供逐次读/写/命令裁决与纯变换（project_cwd 逐调用传参）。
@@ -75,12 +75,12 @@ class AgentAccessPolicy:
     # 数据根（已 resolve，生产为 app_data_dir()）：``.arcreel.db*`` /
     # ``.system_config.json*`` 所在地，也是跨项目读隔离的基准。
     projects_root: Path
-    # agent profile 根（已 resolve，受调用方 env 解析控制）：
+    # Agent profile 根（已 resolve，受调用方 env 解析控制）：
     # ``.claude/settings.json`` 所在地。
     agent_profile_root: Path
     # 日志目录（已 resolve）：服务器日志含 HTTP 请求路径、provider 探测、异常栈，
     # 默认 read 规则会把 project_root 当成参考资料根放行，不显式 deny 会让任意
-    # 项目 session 里的 agent 通过 Read/Grep 读到全局日志。无论落在 repo 内还是
+    # 项目 session 里的 Agent 通过 Read/Grep 读到全局日志。无论落在 repo 内还是
     # 外（如 /var/log/arcreel）都必须 deny。
     log_dir: Path
     # False 表示内核沙箱不支持当前平台（目前仅 Windows）——Bash 走代码白名单回退。
@@ -95,10 +95,10 @@ class AgentAccessPolicy:
     # 走前缀白名单（见 ``filter_allowed_tools`` / ``is_bash_command_whitelisted``）。
     BASH_TOOLS: ClassVar[tuple[str, ...]] = ("Bash", "BashOutput", "KillBash")
 
-    # 沙箱网络默认允许的域名。所有 provider HTTP 调用已迁到 in-process MCP tool
-    # （server/agent_runtime/sdk_tools/，主进程跑不经 sandbox），所以 sandbox 内
-    # 只需要保留 Anthropic SDK 自身 + 通用 dev 域名（docs / 包仓库等）。
-    # 自定义 provider 不再需要手动 ALLOWED_DOMAINS 放行。
+    # 沙箱网络默认允许的域名。所有供应商 HTTP 调用均由 in-process MCP tool
+    # （server/agent_runtime/sdk_tools/，主进程不经 sandbox）执行；sandbox 内
+    # 只保留 Anthropic SDK 自身与通用 dev 域名（docs / 包仓库等），自定义供应商
+    # 无需手动加入 ALLOWED_DOMAINS。
     _DEFAULT_SANDBOX_ALLOWED_DOMAINS: ClassVar[tuple[str, ...]] = (
         # Anthropic
         "anthropic.com",
@@ -134,7 +134,7 @@ class AgentAccessPolicy:
     # Windows 回退白名单的 shell metachar 黑名单：``;`` ``&`` ``|`` ``<`` ``>``
     # `` ` `` ``$`` 与换行都可能在白名单前缀后挂任意命令（链式/管道/重定向/
     # 命令替换）。不解析引号语境，引号内出现也整串拒——宁可误拒（fail-closed），
-    # deny 文案会引导 agent 改写命令。
+    # deny 文案会引导 Agent 改写命令。
     _BASH_METACHARS_RE: ClassVar["re.Pattern[str]"] = re.compile(r"[;&|<>`$\r\n]")
 
     # ``..`` 路径段：``python .claude/skills/../../evil.py`` 不含 metachar 且满足
@@ -292,7 +292,7 @@ class AgentAccessPolicy:
           不受 sandbox 约束），堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对
           sandbox 内所有子进程生效。sandbox 内已无合法 Bash 写这三类路径（compose 写视频输出、
           split 写 ``source/``，均不碰），故不误伤。
-        - ``allowUnsandboxedCommands=False``：禁止 agent 在 sandbox 失败时
+        - ``allowUnsandboxedCommands=False``：禁止 Agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
         """
         if not self.sandbox_enabled:
@@ -387,7 +387,7 @@ class AgentAccessPolicy:
 
         SDK 子进程持有真值的 ANTHROPIC_*（认证需要），及空值 placeholder 的
         OTHER_PROVIDER_*（options.env 空字符串覆盖），Bash sandbox 默认从父进程
-        继承全部 env，agent 跑 ``env | grep`` 能看到变量名。通过
+        继承全部 env，Agent 跑 ``env | grep`` 能看到变量名。通过
         ``env -u VAR ... sh -c '<cmd>'`` 把所有命中的变量名从 Bash subshell 中
         unset，原 command 经 ``shlex.quote`` 整体作为 sh 子壳的 -c 参数。
 
@@ -423,7 +423,7 @@ class AgentAccessPolicy:
         4. python skills 入口额外要求首个参数是 ``<skill>/scripts/<script>.py``
            （``_is_allowed_python_skill_command``），不放行 skills 目录下任意文件。
 
-        白名单匹配在剥引号 + 反斜杠转正斜杠的归一化串上做：容忍 Windows agent 发出
+        白名单匹配在剥引号 + 反斜杠转正斜杠的归一化串上做：容忍 Windows Agent 发出
         的 ``\\`` 分隔符路径与带引号的脚本路径，避免合法命令被误拒（matching 不改写
         实际执行的命令，放行时仍透传原始 input）。metachar 与 ``..`` 已先对原串及
         各归一化变体拒过，归一化只用于「是否命中白名单」的判定，不会放宽安全边界。
@@ -567,7 +567,7 @@ class AgentAccessPolicy:
     def _check_write_access(self, resolved: Path, project_cwd: Path, *, logical_norm: Path) -> tuple[bool, str | None]:
         """Write/Edit 的写入约束：cwd 外一律拒，cwd 内先过 ``PROTECTED_WRITE_RULES`` 规则表
         （``scripts/*.json`` / ``project.json`` / 正式 step1——只能走收归后的 MCP
-        工具），再拒代码扩展名（agent 不写代码）。
+        工具），再拒代码扩展名（Agent 不写代码）。
 
         所有 cwd-relative 判定（cwd 内外、protected 区命中）都按 **base 同时枚举 raw + resolved**
         两种形式与 target 比对：caller 传入的 ``resolved`` 已展开 symlink，但 ``project_cwd`` 可能
@@ -631,7 +631,7 @@ class AgentAccessPolicy:
         - ``os.path.normcase`` + ``casefold``：normcase 统一 Windows 分隔符
           （``/``→``\\``，POSIX 上恒等）；casefold 承担大小写不敏感比较——
           Windows NTFS / macOS APFS 默认卷大小写不敏感，``PROJECT.JSON`` 与
-          ``project.json`` 指向同一物理文件。Linux case-sensitive 卷上 agent
+          ``project.json`` 指向同一物理文件。Linux case-sensitive 卷上 Agent
           实际不会用大小写变体，偶尔 over-match 不破坏 fail-loud 语义。
         """
         s = str(path)
@@ -669,9 +669,9 @@ class AgentAccessPolicy:
                 return True
             scripts_dir = cls._normalize_path_for_protected_compare(base / "scripts")
             # 拒绝 scripts/ 子树（含目录本身）：sandbox denyWrite 把整个 scripts/ 列入内核级 deny，
-            # hook 层须保持一致——否则 agent 用 Write 写 scripts/foo.bak / .tmp / .md 会污染剧本
+            # hook 层须保持一致——否则 Agent 用 Write 写 scripts/foo.bak / .tmp / .md 会污染剧本
             # 目录，破坏项目结构约定（scripts/ 是剧本 .json 专属，drafts/ 才放草稿）。
-            # 同时显式覆盖目录路径本身（target == scripts_dir）：agent 把目录名当文件路径 Write 时
+            # 同时显式覆盖目录路径本身（target == scripts_dir）：Agent 把目录名当文件路径 Write 时
             # 文件系统会拒，但 hook 层 fail-fast 优先，不依赖 OS 兜底。
             if target_s == scripts_dir or target_s.startswith(scripts_dir + os.sep):
                 return True
@@ -686,8 +686,8 @@ class AgentAccessPolicy:
         """命中受写禁的正式 step1（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_STEP1_FILENAMES``）。
 
         与 ``scripts/*.json`` / ``project.json`` 同一条理由收进写禁：这些文件各有多条写入路径
-        （迁移读改写、Web 端保存、重生成 / 晋升写盘、agent 修改），除 agent 外都持
-        ``ProjectManager.file_lock`` 的同一把 per-path 锁；agent 的 Write/Edit 跑在沙箱里、
+        （迁移读改写、Web 端保存、重生成 / 晋升写盘、Agent 修改），除 Agent 外都持
+        ``ProjectManager.file_lock`` 的同一把 per-path 锁；Agent 的 Write/Edit 跑在沙箱里、
         取不到这把锁，直改与并发的 Web 端保存之间就是一个丢失更新窗口。改走
         ``open_step1_for_edit`` → 改草稿 → 晋升，写盘只发生在持锁的晋升侧。
 
@@ -695,7 +695,7 @@ class AgentAccessPolicy:
         generation_mode 运行时可变。多认一两个本项目用不到的 step1 文件名无害——那些文件在
         该项目里本就没有合法写入者。
 
-        只拦正式文件，不拦同目录的 ``.invalid.json`` 隔离草稿：草稿本就是给 agent 用文件工具
+        只拦正式文件，不拦同目录的 ``.invalid.json`` 草稿：草稿本就是给 Agent 用文件工具
         改的编辑工位，且没有第二条写入路径（Web 端草稿保存只写正式文件名），无并发可言。
 
         ``bases`` 与 target 的 raw/resolved 双形式口径同 ``_is_protected_project_json``。
@@ -721,7 +721,7 @@ class AgentAccessPolicy:
 #: - ``formal_step1``：「写入口持锁」——正式 step1 另有多条持同一把 per-path 锁的写入
 #:   路径，Write/Edit 取不到锁，直改即丢失更新窗口。两层刻意不对称：sandbox 按 ``drafts/``
 #:   整目录 deny（清单在会话装配期一次性构造，集是运行时增删的，逐文件枚举必然落空；Bash
-#:   本就没有合法写入者），hook 只拒正式 step1——同目录的 ``.invalid.json`` 隔离草稿正是
+#:   本就没有合法写入者），hook 只拒正式 step1——同目录的 ``.invalid.json`` 草稿正是
 #:   留给内置 Edit 的编辑工位，不能拒。
 AgentAccessPolicy.PROTECTED_WRITE_RULES = (
     ProtectedWriteRule(

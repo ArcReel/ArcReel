@@ -1,14 +1,13 @@
 """step1 中间态文件名与 episode 剧本路径的单一真相源。
 
-这些路径原本散落在审核 gate、状态计算、web 草稿读写层、剧本生成器与 SDK 文本工具中各自
-硬编码同名字面量。审核 gate 找不到 step1 文件时按 ``no_step1`` 放行 step2（文件不存在不等于
-故障），因此任一写盘侧文件名 / 目录漂移都会让 gate 静默绕过且无报错。本模块把这些映射收敛到
-一处：新增走结构化两段式的 content_mode 只需在 ``STEP1_FILENAMES`` 登记结构化文件名，gate、
-状态计算、web 读取与写盘自动一致。
+内容确认、状态计算、web 草稿读写层、剧本生成器与 SDK 文本工具统一消费本模块的路径映射。
+内容确认找不到 step1 文件时按 ``no_step1`` 放行 step2（文件不存在不等于故障），因此所有读写侧
+必须共享同一组文件名与目录。新增走结构化两段式的 content_mode 只需在
+``STEP1_FILENAMES`` 登记结构化文件名，内容确认、状态计算、web 读取与写盘便会保持一致。
 
-保留既有语义差异（收敛时不许抹平）：
+以下语义差异必须保留：
 
-- 审核 gate 只认结构化 ``.json``（``STEP1_FILENAMES`` / ``step1_filename``）；
+- 内容确认只认结构化 ``.json``（``STEP1_FILENAMES`` / ``step1_filename``）；
 - 状态计算与 web 读取层额外兼认旧版 ``.md`` 别名（``STEP1_LEGACY_FILENAMES`` /
   ``step1_read_candidates``），令存量在制品仍被识别 / 可浏览——「是否分过段」与「格式迁移」
   是两回事。
@@ -18,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-#: 结构化 step1 中间态文件名（按 content_mode）。审核 gate 仅认这两类。
+#: 结构化 step1 中间态文件名（按 content_mode）。内容确认仅认这两类。
 #: 新增走结构化两段式的 content_mode 在此登记一处即可让 gate / 状态计算 / web 读取 / 写盘一致。
 STEP1_FILENAMES: dict[str, str] = {
     "drama": "step1_normalized_script.json",
@@ -26,7 +25,7 @@ STEP1_FILENAMES: dict[str, str] = {
 }
 
 #: 旧版非结构化 step1 别名（按 content_mode）。仅供状态计算 / web 读取层兼认存量在制品，
-#: 审核 gate 与写盘侧不认。新增 content_mode 无历史遗留，无需登记于此。
+#: 内容确认与写盘侧不认。新增 content_mode 无历史遗留，无需登记于此。
 STEP1_LEGACY_FILENAMES: dict[str, tuple[str, ...]] = {
     "drama": ("step1_normalized_script.md",),
     "narration": ("step1_segments.md",),
@@ -34,26 +33,26 @@ STEP1_LEGACY_FILENAMES: dict[str, tuple[str, ...]] = {
 
 #: reference_video 的结构化 step1 中间态文件名。reference_video 是 generation_mode 维度、
 #: 跨 content_mode（narration / drama 均可），不进按 content_mode 键控的 ``STEP1_FILENAMES``；
-#: 审核 gate 按 step1 变体单独纳入本文件名（见 ``lib.script_review.step1_kind``）。
+#: 内容确认按 step1 变体单独纳入本文件名（见 ``lib.script_review.step1_kind``）。
 REFERENCE_VIDEO_STEP1_FILENAME = "step1_reference_units.json"
 
 #: reference_video 旧版自由文本 step1 别名。仅供读取 / 浏览层兼认存量在制品；
 #: 写盘与生成侧不认——仅存在旧 ``.md`` 时生成侧给出重跑拆分的明确提示。
 REFERENCE_VIDEO_STEP1_LEGACY_FILENAME = "step1_reference_units.md"
 
-#: 隔离草稿文件名。与正式文件同目录、不同名：正式文件因此永远只装校验通过的内容，而待
-#: 处置的产物不被丢弃——agent 就地改隔离草稿再调晋升工具重判。审核 gate 与生成侧都要认
-#: 这些名字（隔离草稿在场时阻塞确认与 step2），故与正式文件名收敛在同一处，避免任一侧
-#: 漏认让隔离态被静默绕过。
+#: 草稿文件名。与正式文件同目录、不同名：正式文件因此永远只装校验通过的内容，而待
+#: 处置的产物不被丢弃——Agent 就地改草稿再调晋升工具重判。内容确认与生成侧都要认
+#: 这些名字（草稿在场时阻塞确认与 step2），故与正式文件名收敛在同一处，避免任一侧
+#: 漏认会静默绕过待处置草稿的阻塞状态。
 REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME = "step1_reference_units.invalid.json"
 REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME = "step2_reference_script.invalid.json"
 DRAMA_STEP1_QUARANTINE_FILENAME = "step1_normalized_script.invalid.json"
 
-#: 对 agent 写禁的正式 step1 文件名（见 ``AgentAccessPolicy._is_protected_formal_step1``）。
+#: 对 Agent 写禁的正式 step1 文件名（见 ``AgentAccessPolicy._is_protected_formal_step1``）。
 #: 收的是文件名而非按项目变体解析的路径：写禁在会话装配前就要成立，而项目的 content_mode /
 #: generation_mode 是运行时可变的，按项目状态分叉判定会让改过模式的项目落进无人拦的缝里。
-#: 判据是「该变体的修改已有隔离草稿通道可走」——写禁与替代通道成对出现，只拒不给出路会
-#: 把 agent 卡死。narration 的 step1 目前仍由其 subagent 直接编辑、无草稿通道，故不在表内。
+#: 判据是「该变体的修改已有草稿通道可走」——写禁与替代通道成对出现，只拒不给出路会
+#: 把 Agent 卡死。narration 的 step1 由其子智能体直接编辑且无草稿通道，故不在表内。
 AGENT_PROTECTED_STEP1_FILENAMES: frozenset[str] = frozenset({STEP1_FILENAMES["drama"], REFERENCE_VIDEO_STEP1_FILENAME})
 
 
@@ -65,7 +64,7 @@ def step1_filename(content_mode: str) -> str | None:
 def step1_read_candidates(content_mode: str) -> tuple[str, ...]:
     """结构化 step1 文件名 + 旧版 ``.md`` 别名（读取 / 浏览侧候选，主文件缺失时回落探测）。
 
-    不走结构化 step1 的模式返回空元组。审核 gate 不用此函数（只认结构化 ``.json``）。
+    不走结构化 step1 的模式返回空元组。内容确认不用此函数（只认结构化 ``.json``）。
     """
     primary = STEP1_FILENAMES.get(content_mode)
     if primary is None:

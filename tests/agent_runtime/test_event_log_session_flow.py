@@ -95,7 +95,7 @@ def _new_session_messages() -> list[dict]:
             "uuid": "a-sub",
             "session_id": SDK_ID,
             "parent_tool_use_id": "tu-1",
-            "content": [{"type": "text", "text": "子任务输出"}],
+            "content": [{"type": "text", "text": "子智能体输出"}],
         },
         {"type": "result", "subtype": "success", "is_error": False, "session_id": SDK_ID, "uuid": "r-1"},
     ]
@@ -537,9 +537,9 @@ class TestNewSessionEventLogFlow:
         ):
             await manager.send_message(
                 SDK_ID,
-                "跑子任务",
+                "跑子智能体",
                 meta=meta,
-                user_entry=build_user_entry([{"type": "text", "text": "跑子任务"}]),
+                user_entry=build_user_entry([{"type": "text", "text": "跑子智能体"}]),
                 client_key="ck-t",
             )
 

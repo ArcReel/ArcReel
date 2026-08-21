@@ -51,7 +51,7 @@ function renderDetail(props: Partial<Parameters<typeof ShotDetail>[0]> = {}) {
   return render(detailElement(makeScene(), props));
 }
 
-describe("ShotDetail drama 模式", () => {
+describe("ShotDetail 剧情演绎", () => {
   it("渲染 UtteranceListEditor：按时序展示画外音与带说话人的台词", () => {
     renderDetail();
     expect(screen.getByDisplayValue("三年后。")).toBeInTheDocument();
@@ -148,6 +148,6 @@ describe("ShotDetail drama 模式", () => {
     const { container } = render(detailElement(scene, { onGenerateNarration: vi.fn() }));
 
     expect(container.querySelector('audio[src*="audio/segment_E1S01.wav"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /重新生成旁白|Regenerate narration/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /重新生成旁白配音|Regenerate narration audio/ })).toBeDisabled();
   });
 });

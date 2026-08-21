@@ -4,7 +4,7 @@
 参考图、用户编辑指令为唯一 prompt 调用 i2i，产出新图覆盖 current 并自动进版本历史；
 原 image_prompt 不回写——编辑是对**图**的分叉而非对 prompt 的分叉。
 
-支持的资源：character / scene / prop / product 四类设计图 + storyboard 分镜图。
+支持的资源：character / scene / prop / product 四类资产图 + storyboard 分镜图。
 「当前图路径解析」与「按资源类型写回」复用生成链路的既有口径（资产 sheet 字段 /
 剧本 generated_assets），由 :func:`resolve_current_image_rel` 统一提供给路由
 （入队前校验）与 executor（执行时读取），两侧口径不分叉。

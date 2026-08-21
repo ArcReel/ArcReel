@@ -122,14 +122,14 @@ _REQUEST_SCHEMA_PROPERTIES = {
 
 
 #: 已退役的入参名 → 该怎么写。键都是曾经真实存在、或与视频单元旧结构同名的写法：
-#: 前三个是点名目标的旧 id 参数，后两个是视频单元已删除的镜头与参考清单字段。
+#: 前三个是点名目标的旧 id 参数，后两个是视频单元已删除的 ``shots`` 与参考清单字段。
 #: 视频单元现在只持有 ``text`` 与 ``duration_seconds``，参考图在执行期从正文的
 #: ``@[名称]`` 首次提及顺序派生，两者都不再经工具入参传入。
 _RETIRED_PARAMS: dict[str, str] = {
     "shot_ids": "改用点名参数 scene_id（单个）/ scene_ids（批量）",
     "unit_id": "改用点名参数 scene_id——参考生视频项目在该参数里直接传 unit_id",
     "unit_ids": "改用点名参数 scene_ids——参考生视频项目在该参数里直接传 unit_id 列表",
-    "shots": "视频单元不再有镜头数组；正文写在剧本的 text 字段里，经 patch_episode_script 修改",
+    "shots": "视频单元不再有 shots 数组；正文写在剧本的 text 字段里，经 patch_episode_script 修改",
     "references": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
     "reference_images": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
 }
@@ -170,7 +170,7 @@ _SCENE_TOOL_SCHEMA = _video_tool_schema(
         "script": _SCRIPT_SCHEMA_PROPERTY,
         "scene_id": {
             "type": "string",
-            "description": "场景或片段 ID；reference_video 项目传 video_unit 的 unit_id（如 E1U2）",
+            "description": "分镜 ID；reference_video 项目传视频单元的 unit_id（如 E1U2）",
         },
         **_REQUEST_SCHEMA_PROPERTIES,
     },
@@ -191,7 +191,7 @@ _SELECTED_TOOL_SCHEMA = _video_tool_schema(
         "scene_ids": {
             "type": "array",
             "items": {"type": "string"},
-            "description": '场景或片段 ID 列表；reference_video 项目传 video_unit 的 unit_id 列表（如 ["E1U2"]）',
+            "description": '分镜 ID 列表；reference_video 项目传视频单元的 unit_id 列表（如 ["E1U2"]）',
         },
         "resume": {
             "type": "boolean",
@@ -274,7 +274,7 @@ def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
 
     交付方式决定整批走哪一套准入判据与哪一份时长基准（TTS 实测 vs 剧本计划），
     替调用方挑一个默认值会让一批视频按它没声明过的交付方式准入并计费。
-    storyboard 与 reference 两条路线都经这里取交付方式，判定只有这一处。
+    storyboard 与 reference_video 两种生成模式都经这里取交付方式，判定只有这一处。
     """
 
     delivery = args.get("narration_delivery")
@@ -454,7 +454,7 @@ async def _admit_storyboard_specs(
     selection: GenerationSelectionMode,
     extra_tickets: list[UnitAdmissionTicket],
 ) -> BatchAdmission:
-    """Admit the storyboard-route specs, then stamp the delivery choice onto them.
+    """Admit the Storyboard-mode specs, then stamp the delivery choice onto them.
 
     The admission itself is the shared one the read-only plan also consults, so a
     preview and the submission it predicts cannot reach different verdicts. Only the
@@ -490,7 +490,7 @@ def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | 
     同一份 ``video_units`` 骨架。
 
     Raises:
-        SkeletonRouteMismatchError: 剧本骨架与项目路线失配，生成被拒。
+        SkeletonRouteMismatchError: 剧本骨架与项目生成模式失配，生成被拒。
     """
     project = ctx.pm.load_project(ctx.project_name)
     content_mode = resolve_content_mode(script, project)
@@ -951,7 +951,7 @@ async def _generate_reference_units(
 
 
 def _reference_episode(project: dict[str, Any], script: dict[str, Any], script_filename: str) -> int:
-    """参考路线的集号：绑定身份优先，取不到时回落到剧本 / 文件名推断。"""
+    """参考生视频的集号：绑定身份优先，取不到时回落到剧本 / 文件名推断。"""
 
     episode = resolve_artifact_episode(
         project=project,
@@ -981,7 +981,7 @@ async def _run_reference_batch(
     log: list[str],
     operation: str,
 ) -> dict[str, Any]:
-    """参考路线的共享收尾：目标状态 → 批量生成 → 准入拒绝或结果响应。
+    """参考生视频的共享收尾：目标状态 → 批量生成 → 准入拒绝或结果响应。
 
     ``reuse_existing`` 收 currency 解析器与 unit，让整集路线的复用判定与点名路线的
     「一律不复用」共用同一条缝。
@@ -1042,7 +1042,7 @@ async def _run_reference_episode(
     episode = _reference_episode(project, script, script_filename)
     units = script.get("video_units")
     if "video_units" in script and not isinstance(units, list):
-        # 路线闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
+        # 生成模式闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
         # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
         logger.debug("第 %d 集 video_units 类型非法: %s (%s)", episode, type(units).__name__, script_filename)
         raise ValueError(f"第 {episode} 集 video_units 必须是数组：{script_filename}")
@@ -1209,7 +1209,7 @@ def _video_request_context(
 
 @dataclass(frozen=True)
 class _StoryboardScreening:
-    """分镜路线的目标条目、ID 字段、骨架种类与筛查记名。"""
+    """分镜图生视频的目标条目、ID 字段、骨架种类与筛查记名。"""
 
     items: list[dict[str, Any]]
     id_field: str
@@ -1315,7 +1315,7 @@ class _CheckpointSubmission:
 
 @dataclass(frozen=True)
 class _StoryboardBatch:
-    """分镜路线一次请求的批次上下文：目标口径、准入身份与结果构造器。
+    """分镜图生视频一次请求的批次上下文：目标口径、准入身份与结果构造器。
 
     四个视频工具的目标集合与提交方式各不相同，但构造 TaskSpec、整批准入与逐目标记录
     结论这三步共用同一份口径——集中在这里，改一处判定不会只改到其中一个入口。
@@ -1343,7 +1343,7 @@ class _StoryboardBatch:
         items: list[dict[str, Any]],
         skip_ids: list[str] | None,
     ) -> tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]:
-        """按本次请求的目标条目构造分镜路线的 TaskSpec。"""
+        """按本次请求的目标条目构造分镜图生视频的 TaskSpec。"""
 
         voice_characters = await resolve_voice_context(self.sb.project, self.sb.content_mode)
         return build_storyboard_video_specs(
@@ -1429,8 +1429,7 @@ class _StoryboardBatch:
 def generate_video_episode_tool(ctx: ToolContext):
     @tool(
         "generate_video_episode",
-        "为剧本对应的整集生成所有场景视频。resume=true 时从 checkpoint 续传。"
-        "reference_video 模式会自动按 video_units 处理。",
+        "为剧本对应的整集生成所有分镜视频。resume=true 时从 checkpoint 续传。参考生视频会自动按视频单元处理。",
         _EPISODE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1471,7 +1470,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 resolver=currency,
             )
             states = video_target_states(items, id_field, episode=episode, resolver=currency)
-            # 整集生成始终复用仍可用的旧片段（含 stale），从不强制重生——所以
+            # 整集生成始终复用仍可用的旧分镜（含 stale），从不强制重生——所以
             # 无论是否 resume，选择模式如实报告为 missing-only；点名重做走
             # generate_video_scene / generate_selected_videos。checkpoint 的
             # completed_scenes 只认得本批次（或此前 resume）提交过的 ID，非
@@ -1498,9 +1497,9 @@ def generate_video_episode_tool(ctx: ToolContext):
                 state = _state_for(states, str(done_id))
                 builder.skip(state)
 
-            # currency 之外的第三态：Manifest 读不出该片段的产物状态（BLOCKED），既不能
+            # currency 之外的第三态：Manifest 读不出该分镜的产物状态（BLOCKED），既不能
             # 判定为可复用（进 already_done）也不能安全当作缺失去入队——不可读不等于没有，
-            # 花钱重生可能覆盖一份实际仍然可用的片段。generate_video_all 走
+            # 花钱重生可能覆盖一份实际仍然可用的分镜。generate_video_all 走
             # select_generation_targets 已经把这一态折进 selection.unavailable，这里是
             # 同一场判定手写的另一条腿，必须同步处理。
             already_done_set = set(already_done)
@@ -1520,7 +1519,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             refused.extend(spec_refused)
 
             if not specs and not refused and not builder.recorded_ids and not any(ordered_paths):
-                raise RuntimeError("没有可生成的视频片段")
+                raise RuntimeError("没有可生成的分镜")
 
             return await batch.admit_and_submit(
                 items=items,
@@ -1546,7 +1545,7 @@ def generate_video_episode_tool(ctx: ToolContext):
 def generate_video_scene_tool(ctx: ToolContext):
     @tool(
         "generate_video_scene",
-        "生成单个分镜/片段的视频。reference_video 项目把 unit_id 填进 scene_id 即对该 unit 重新生成（覆盖已有成片）。",
+        "生成单个分镜的视频。reference_video 项目把视频单元的 unit_id 填进 scene_id 即重新生成该视频单元（覆盖已有成片）。",
         _SCENE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1581,7 +1580,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     if screened is not None and screened.problems
                     else GenerationProblem(
                         code=GenerationProblemCode.UNIT_NOT_FOUND,
-                        detail=f"场景/片段 '{scene_id}' 不存在",
+                        detail=f"分镜 '{scene_id}' 不存在",
                         action=GenerationAction.FIX_INPUT,
                     ),
                 )
@@ -1626,7 +1625,7 @@ def generate_video_scene_tool(ctx: ToolContext):
 def generate_video_all_tool(ctx: ToolContext):
     @tool(
         "generate_video_all",
-        "为剧本批量生成所有缺视频的场景/片段（独立模式，不拼接）。reference_video 模式等同 episode 模式。",
+        "为剧本批量生成所有缺视频的分镜（独立模式，不拼接）。参考生视频等同 episode 模式。",
         _ALL_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1690,8 +1689,8 @@ def generate_video_all_tool(ctx: ToolContext):
             target_id_set = set(selection.target_ids)
             pending = [item for item in items if str(storyboard_item_id(item, id_field) or "") in target_id_set]
             specs, _order_map, refused = await batch.build_specs(items=pending, skip_ids=None)
-            # 产物状态不可读的场景被选目标环节排除在 targets 之外，但它属于这次请求：
-            # 不带进准入，同批健康的场景会照常入队并计费，剩下这一个被无声略过。
+            # 产物状态不可读的分镜被选目标环节排除在 targets 之外，但它属于这次请求：
+            # 不带进准入，同批健康的分镜会照常入队并计费，剩下这一个被无声略过。
             refused.extend(unavailable_tickets)
             refused.extend(screen_refused)
             if not specs and not refused:
@@ -1714,7 +1713,7 @@ def generate_video_all_tool(ctx: ToolContext):
 def generate_video_selected_tool(ctx: ToolContext):
     @tool(
         "generate_video_selected",
-        "生成指定多个场景的视频。storyboard 项目用按 scene_ids 哈希的独立 checkpoint，支持 resume 续传。"
+        "生成指定多个分镜的视频。storyboard 项目用按 scene_ids 哈希的独立 checkpoint，支持 resume 续传。"
         "reference_video 项目传 unit_id 列表即对这些 unit 重新生成（覆盖已有成片），"
         "不落批次进度 checkpoint、忽略此处 resume 参数；已入队任务的 provider 提交恢复由队列独立处理。",
         _SELECTED_TOOL_SCHEMA,
@@ -1762,7 +1761,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             refused: list[UnitAdmissionTicket] = []
             seen_canonical: set[str] = set()
             # ``items_by_id`` 同时按 ``id_field`` 与 ``scene_id`` 索引同一个 item，
-            # 调用方若把两个值都列入 ``scene_ids`` 会让同一场景重复入队——必须按
+            # 调用方若把两个值都列入 ``scene_ids`` 会让同一分镜重复入队——必须按
             # 规范 ``id_field`` 再去一次重。
             screened_ids = {ticket.unit_id for ticket in screen_refused}
             for sid in scene_ids:
@@ -1774,7 +1773,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                         refused_ticket(
                             sid,
                             code=GenerationProblemCode.UNIT_NOT_FOUND,
-                            detail=f"场景/片段 '{sid}' 不存在",
+                            detail=f"分镜 '{sid}' 不存在",
                             action=GenerationAction.FIX_INPUT,
                         )
                     )
@@ -1789,7 +1788,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 return generation_result_response(builder.build(), log)
 
             # checkpoint hash 用 ``selected`` 解析出的规范 ID 集合，让同一批
-            # 场景无论用别名 ``scene_id`` 还是规范 ``id_field`` 调用都落到同一
+            # 分镜无论用别名 ``scene_id`` 还是规范 ``id_field`` 调用都落到同一
             # checkpoint 文件（否则 resume 会因 hash 不同读到空 ``completed_scenes``，
             # 已生成的视频被 ``_scan_completed_items`` 漏判，重复入队）。
             canonical_scene_ids = sorted(seen_canonical)

@@ -26,7 +26,7 @@ interface ShotSplitViewProps {
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
   ) => void | Promise<void>;
-  /** ad 模式镜头顺序调整，resolve 为是否移动成功 */
+  /** 广告/短片分镜顺序调整，resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (
@@ -75,8 +75,8 @@ export function ShotSplitView({
   const [movePending, setMovePending] = useState(false);
   const listScrollRef = useRef<HTMLDivElement>(null);
 
-  // 镜头重排：请求在途时丢弃后续点击（快速连点会基于过期顺序计算出相同排列），
-  // 移动成功后把选中态跟随到镜头的新位置——选中按索引存储，不跟随会静默切到被换位的邻居。
+  // 分镜重排：请求在途时丢弃后续点击（快速连点会基于过期顺序计算出相同排列），
+  // 移动成功后把选中态跟随到分镜的新位置——选中按索引存储，不跟随会静默切到被换位的邻居。
   const handleMoveShot = onMoveShot
     ? async (shotId: string, direction: "earlier" | "later") => {
         if (movePending) return;

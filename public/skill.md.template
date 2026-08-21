@@ -69,7 +69,7 @@ curl {{BASE_URL}}/api/v1/projects \
 | `title` | string | 项目标题 |
 | `content_mode` | string | 选填，创作类型：`drama`（剧情演绎，角色驱动）/ `narration`（旁白/解说，旁白驱动）/ `ad`（广告/短片，商品与目标时长驱动）。默认 `narration`。创建后不可更改 |
 | `source_kind` | string | 选填，源文件类型：`novel`（小说，AI 改编为脚本）/ `screenplay`（剧本，优先保留原稿）。默认 `novel`。创建后不可更改 |
-| `generation_mode` | string | **必填**，视频生成方法二选一：`storyboard`（分镜图生视频）/ `reference_video`（参考图直接生视频，无分镜图步骤）。创建后不可更改 |
+| `generation_mode` | string | **必填**，视频生成方法二选一：`storyboard`（分镜图生视频）/ `reference_video`（参考生视频，无分镜图步骤）。创建后不可更改 |
 | `grid_storyboard` | bool | 选填，默认 `false`。按多宫格分镜批量产出分镜图，仅 `generation_mode` 为 `storyboard` 时生效；广告/短片项目不可开启。创建后可经项目 PATCH 切换 |
 | `brief` | string | 选填，仅 `content_mode` 为 `ad` 可用：创作诉求短文本，不经上传源文件接口传入。非广告/短片项目携带该字段返回 400 |
 | `target_duration` | int | 选填，仅 `content_mode` 为 `ad` 可用：成片目标总时长（秒），须为正整数。非广告/短片项目携带该字段返回 400 |

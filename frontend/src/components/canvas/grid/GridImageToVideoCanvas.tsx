@@ -134,7 +134,7 @@ export function GridImageToVideoCanvas({
   const ttsBusyIds = useActiveResourceIds("tts", projectName);
   // 本集有宫格任务在跑：切割阶段会覆写本集内多个分镜的 storyboard 文件，grid 任务的
   // resource_id 是 grid_id、无法归入按分镜 resource_id 判定的 storyboardBusyIds，
-  // 故按 scriptFile 粗粒度判定，禁用宫格模式下的分镜编辑入口，避免并发写同一文件。
+  // 故按 scriptFile 粗粒度判定，启用宫格装配时禁用分镜编辑入口，避免并发写同一文件。
   const gridActiveForEpisode = useHasActiveTaskForScriptFile("grid", scriptFile, projectName);
   const generatingStoryboard = useCallback(
     (segId: string) => storyboardBusyIds.has(segId) || gridActiveForEpisode,

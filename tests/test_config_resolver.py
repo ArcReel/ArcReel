@@ -638,7 +638,7 @@ class TestVideoCapabilities:
 
     @pytest.mark.unit
     async def test_unknown_model_raises(self):
-        """悬空模型引用在能力桶解析闸即报错，携带可本地化的 code。"""
+        """悬空模型引用在任务类型桶解析闸即报错，携带可本地化的 code。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         factory, engine = await _make_session()
@@ -713,7 +713,7 @@ class TestVideoCapabilities:
         """minimax S2V-01 的 max_reference_images 来自 backend 声明（=1）；
 
         编排层据此只取 1 张参考图，不会向只吃单脸的 S2V-01 拼多张。S2V-01 不支持首帧，
-        项目须是参考生视频模式才落进它所属的 r2v 桶。
+        项目须是参考生视频才落进它所属的 r2v 桶。
         """
         factory, engine = await _make_session()
         try:
@@ -862,7 +862,7 @@ class TestVideoCapabilities:
 
     @pytest.mark.integration
     async def test_custom_disabled_model_errors_like_execution_layer(self):
-        """project 仍指向已禁用的 model 时，能力解析与执行路径同样在能力桶解析闸报悬空引用。
+        """project 仍指向已禁用的 model 时，能力解析与执行路径同样在任务类型桶解析闸报悬空引用。
 
         不静默换成该供应商的默认启用 model（``docs/adr/0054``）：宣称一个用户没选过的模型的能力，
         与执行期直接报错的行为对不上。"""
@@ -1297,7 +1297,7 @@ class TestResolveImageBackend:
 
 @pytest.mark.unit
 class TestLayeredBackendSkeleton:
-    """「默认 + 能力桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
+    """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
 
     用带全部四层键位的合成声明直测骨架契约，与各媒体的具体键位无关；媒体桶接入只补
     键位声明、不改骨架本身。
@@ -1450,7 +1450,7 @@ class TestResolveVideoBackend:
 
     @pytest.mark.unit
     async def test_payload_without_pinned_bucket_key_falls_through_to_project(self):
-        """payload 层只认锁定的能力桶键：非桶键的 provider 字段不参与解析，一律回退配置层。"""
+        """payload 层只认锁定的任务类型桶键：非桶键的 provider 字段不参与解析，一律回退配置层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
@@ -1921,7 +1921,7 @@ class TestStyleAnalysisVisionGuard:
 
 
 class TestProjectGenerationModeCaps:
-    """能力解析按项目生成路线定轴：路线创建即定、全项目一条，能力不需要剧集上下文。"""
+    """能力解析按项目生成模式定轴：创建即定、全项目一种，能力不需要剧集上下文。"""
 
     async def _caps(self, project: dict) -> dict:
         factory, engine = await _make_session()
@@ -1938,7 +1938,7 @@ class TestProjectGenerationModeCaps:
 
     @pytest.mark.unit
     def test_caps_generation_mode_none_without_project_context(self):
-        """无项目上下文时为 None（未声明 ≠ 显式选了某条路线）。"""
+        """无项目上下文时为 None（未声明 ≠ 显式选择某种生成模式）。"""
         assert caps_generation_mode(None) is None
         assert caps_generation_mode({}) is None
         assert caps_generation_mode({"generation_mode": ""}) is None
@@ -1946,7 +1946,7 @@ class TestProjectGenerationModeCaps:
 
     @pytest.mark.integration
     async def test_bucket_follows_project_route(self):
-        """定桶按项目路线取对应桶键的模型。"""
+        """定桶按项目生成模式取对应桶键的模型。"""
         storyboard_project = {
             "generation_mode": "storyboard",
             "video_provider_i2v": "kling/kling-v3",
@@ -1958,7 +1958,7 @@ class TestProjectGenerationModeCaps:
 
     @pytest.mark.integration
     async def test_voice_consistency_follows_project_route(self):
-        """参考路线按 native 解析，分镜路线降格 soft。"""
+        """参考生视频按 native 解析，分镜图生视频降格 soft。"""
         project = {
             "generation_mode": "reference_video",
             "video_provider_r2v": "ark/doubao-seedance-2-0-260128",
@@ -1971,7 +1971,7 @@ class TestProjectGenerationModeCaps:
 
     @pytest.mark.integration
     async def test_uses_reference_images_constraint_follows_project_route(self):
-        """caps 的 generation_mode 是下游时长约束的入参，参考路线据此施加「参考图↔时长」约束。"""
+        """caps 的 generation_mode 是下游时长约束的入参，参考生视频据此施加「参考图↔时长」约束。"""
         caps = await self._caps({"generation_mode": "reference_video", "video_provider_r2v": "minimax/S2V-01"})
         assert caps["generation_mode"] == "reference_video"
         assert caps["max_reference_images"] == 1
@@ -1996,7 +1996,7 @@ class TestResolveRawSupportedDurations:
     def test_custom_provider_resolves_only_through_caps(self):
         """``custom-`` 前缀不在 registry：不带 caps 时无从解析，带 caps 时取 caps 的档位表。
 
-        这条是审阅门必须先解析 caps 的原因——同步两级链对自定义供应商恒为 None。
+        这条是内容确认必须先解析 caps 的原因——同步两级链对自定义供应商恒为 None。
         """
         project = {"video_backend": "custom-7/acme-video"}
         assert resolve_raw_supported_durations(project) is None
@@ -2015,7 +2015,7 @@ class TestResolveRawSupportedDurations:
 
 
 class TestPayloadPinnedVideoModel:
-    """入队锁进 payload 能力桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
+    """入队锁进 payload 任务类型桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
 
     @pytest.mark.unit
     async def test_pinned_bucket_key_wins_over_project(self):

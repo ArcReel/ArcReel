@@ -1,4 +1,4 @@
-"""隔离草稿信封与违约收集的单元测试。
+"""草稿信封与违约收集的单元测试。
 
 覆盖的是「产物不丢弃」这条机制的底座：信封读写往返、坏 JSON 的降级口径、多条违约的收集与
 报告渲染。上层闭环（拆分 / 晋升 / gate 阻塞）的测试在 ``tests/server/agent_runtime/
@@ -81,7 +81,7 @@ class TestEnvelope:
         )
 
     def test_broken_json_reads_as_none_but_still_counts_as_present(self, tmp_path: Path):
-        """agent 手改草稿改坏 JSON 是可预期的中间态：读不出内容，但不能因此被当成「没有隔离」
+        """Agent 手改草稿改坏 JSON 是可预期的中间态：读不出内容，但不能因此被当成「无草稿」
         而放行 gate 与 step2。"""
         path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1)
         path.parent.mkdir(parents=True)
@@ -138,11 +138,12 @@ class TestEnvelope:
 
 class TestReport:
     def test_report_names_draft_field_and_promote_tool(self, tmp_path: Path):
-        """处置指引要写「改哪个文件的哪个字段、改完调什么」——agent 不知道产物还在盘上就会重抽。"""
+        """处置指引要写「改哪个文件的哪个字段、改完调什么」——Agent 不知道产物还在盘上就会重抽。"""
         path = quarantine_path(tmp_path, 2, QUARANTINE_KIND_STEP1)
         text = render_report(path, QUARANTINE_KIND_STEP1, [_violation()], episode=2)
         assert str(path) in text
-        assert "content.units[i].text" in text
+        assert "按报告字段路径修复" in text
+        assert "content.units[i]" in text
         assert 'validate_and_promote_draft({"episode": 2})' in text
         assert "无轮次上限" in text
 
@@ -152,8 +153,8 @@ class TestReport:
         assert text.splitlines()[1].startswith("2. [too_many_shots] ")
 
     def test_drama_step1_report_points_at_scene_fields(self, tmp_path: Path):
-        """drama 草稿改的是场景内容表，不是参考路线的 units——指引里报错字段路径写错，
-        agent 会照着改一个不存在的字段再晋升，白跑一轮。"""
+        """drama 草稿改的是分镜内容表，不是参考生视频的 units——指引里报错字段路径写错，
+        Agent 会照着改一个不存在的字段再晋升，白跑一轮。"""
         path = quarantine_path(tmp_path, 3, QUARANTINE_KIND_DRAMA_STEP1)
         text = render_report(path, QUARANTINE_KIND_DRAMA_STEP1, [_violation()], episode=3)
 
@@ -163,8 +164,8 @@ class TestReport:
         assert 'validate_and_promote_draft({"episode": 3})' in text
 
     def test_drama_and_reference_step1_drafts_are_separate_files(self, tmp_path: Path):
-        """两条路线的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让换过路线的项目上
-        残留的草稿被当成本路线的待处置件读进来。"""
+        """两种生成模式的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让其他模式的
+        遗留草稿被当作当前生成模式的待处置件读进来。"""
         assert (
             quarantine_path(tmp_path, 1, QUARANTINE_KIND_DRAMA_STEP1).name
             != quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1).name

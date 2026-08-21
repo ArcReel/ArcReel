@@ -1,8 +1,8 @@
 """Agent 视频入队路径上的音频开关预检。
 
 WebUI 提交入口拒绝的配置（成片恒有声的模型 + 关闭音频），从 Agent 入队同样要被拒——放行会让
-编排层按无声路径裁掉全部音色约束，用户拿到失去音色约束的有声成片。分镜路线复用
-``server.services.video_caps``，参考路线由公共 request projection 承载相同判据。
+编排层按无声路径裁掉全部音色约束，用户拿到失去音色约束的有声成片。分镜图生视频复用
+``server.services.video_caps``，参考生视频由公共 request projection 承载相同判据。
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ class TestAssertAudioSwitchSupported:
 
 @pytest.mark.unit
 class TestStoryboardRouteGate:
-    """分镜路线：闸门与内容模式无关，但只在确有任务要入队时才拦。"""
+    """分镜图生视频：闸门与创作类型无关，但只在确有任务要入队时才拦。"""
 
     async def test_gate_is_content_mode_agnostic(self, tmp_path, monkeypatch):
         seen: list[str] = []
@@ -121,7 +121,7 @@ class TestStoryboardRouteGate:
 
 @pytest.mark.unit
 class TestReferenceRouteGate:
-    """参考路线：按本批真正要入队的 unit 调用公共 request projection。"""
+    """参考生视频：按本批真正要入队的 unit 调用公共 request projection。"""
 
     @staticmethod
     def _stub_current_state(monkeypatch) -> None:

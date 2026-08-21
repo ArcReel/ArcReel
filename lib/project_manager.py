@@ -85,8 +85,8 @@ logger = logging.getLogger(__name__)
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
-# 生成路线（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
-# 宫格不是路线：它由独立的 grid_storyboard 布尔表达，仅 storyboard 路线有意义。
+# 生成模式（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
+# 宫格不是生成模式：它由独立的 grid_storyboard 布尔表达，仅 `storyboard` 生成模式有意义。
 # 存量三值 "grid" 已由 v4→v5 迁移重编码为 storyboard + grid_storyboard=true。
 VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
 _DEFAULT_GENERATION_MODE = "storyboard"
@@ -109,7 +109,7 @@ _UNSET = _Unset()
 def grid_storyboard_enabled(project: dict[str, Any]) -> bool:
     """项目是否按宫格生产分镜图。
 
-    宫格是 storyboard 路线内的分镜图生产方式：reference_video 路线无分镜图步骤，
+    宫格是分镜图生视频内的分镜图生产方式：参考生视频无分镜图步骤，
     即使残留 grid_storyboard=true 也不激活宫格分支。
     """
     return project.get("generation_mode") == "storyboard" and bool(project.get("grid_storyboard"))
@@ -156,10 +156,10 @@ def resolve_episode_script_binding(
 
 
 def is_reference_video_project(project: Mapping[str, Any]) -> bool:
-    """项目是否走参考生视频路线。
+    """项目是否使用参考生视频。
 
-    project.json 的 ``generation_mode`` 是该判定的唯一真相源：路线创建即定、之后不可变，
-    整个项目按同一条路径生成；ad 内容模式的剧本骨架也不携带剧本级 ``generation_mode`` 戳
+    project.json 的 ``generation_mode`` 是该判定的唯一真相源：模式创建即定、之后不可变，
+    整个项目按同一生成模式生成；广告/短片的剧本骨架也不携带剧本级 ``generation_mode`` 戳
     （见 ``script_generator``），只看剧本判不出参考生视频。
     """
     return project.get("generation_mode") == "reference_video"
@@ -174,12 +174,12 @@ def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
 
 
 def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[dict]:
-    """读取路径的脏数据降级：基于 `resolve_items` 三模式判别（narration/drama/reference_video），
+    """读取路径的脏数据降级：基于 `resolve_items` 判别三种剧本结构，
     脏数据（键存在但值非 list）下 log warning + 返回 []。
 
     与写入路径（`update_scene_asset` / `batch_update_scene_assets`）共用 `resolve_items` 判别
-    保证三模式一致——上一版本用 `_script_items_shape` 在 reference 模式下会静默落到 drama
-    兜底返回 []，破坏一致性。写入侧应该 fail-loud（让 ScriptEditError 上冒，worker 显式失败，
+    保证三种剧本结构的读写判别一致，避免参考生视频静默落到 drama 兜底返回 []。
+    写入侧应该 fail-loud（让 ScriptEditError 上冒，worker 显式失败，
     上层 API 5xx 告知数据损坏）；读取侧在脏数据下返回 [] 不阻塞 UI 渲染，但 warning 给运维
     可观测信号去人工修复，不让降级变隐形。
     """
@@ -359,7 +359,7 @@ class ProjectManager:
 
         Args:
             name: 项目标识（全局唯一，用于 URL 和文件系统）
-            content_mode: 内容模式（narration / drama），影响 profile 物化时选哪份变体
+            content_mode: 创作类型（narration / drama），影响 profile 物化时选哪份变体
 
         Returns:
             项目目录路径
@@ -416,15 +416,15 @@ class ProjectManager:
         *,
         content_mode: ContentMode | None = None,
     ) -> dict:
-        """同步 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
+        """物化 agent_runtime_profile 到项目目录的 .claude / CLAUDE.md。
 
         ``content_mode=None`` 时从 ``project_dir/project.json`` 读取；
         project.json 缺失或 ``content_mode`` 字段缺失 → 回退到 ``"narration"`` + log info。
         ``content_mode`` 显式非法值 → 抛 ``ValueError``。
 
         详见 ``lib.profile_manifest.sync_profile_to_project``：manifest-driven
-        sync，sha256 区分内置 skill 升级（自动传播）/ 用户修改（保留）/ 用户主动
-        删除（不复活）；profile 上游删除时同步删除项目内未改副本；命名碰撞 /
+        物化流程用 sha256 区分内置 skill 升级（自动传播）/ 用户修改（保留）/ 用户主动
+        删除（不复活）；profile 上游删除时移除项目内未改副本；命名碰撞 /
         状态机回流等 15 行决策表完整覆盖。
 
         Returns:
@@ -465,7 +465,7 @@ class ProjectManager:
         ``project.json`` 不存在或缺 ``content_mode`` 字段 → 回退 narration（兼容
         老项目）。文件存在但读取/解析失败 → raise，让上层 sync_all_agent_profiles
         走 failed_projects 分支；若静默回退到 narration，drama 项目会因 manifest
-        记录的 mode 不匹配触发破坏性 reset，把 profile 错误切回说书变体。
+        记录的 mode 不匹配触发破坏性 reset，把 profile 错误切回旁白/解说变体。
         """
         pj_path = project_dir / self.PROJECT_FILE
         try:
@@ -485,7 +485,7 @@ class ProjectManager:
         return cast(ContentMode, mode)
 
     def sync_all_agent_profiles(self) -> dict:
-        """扫描所有项目目录，同步 agent_runtime_profile（启动 hook 用）。
+        """扫描所有项目目录，物化 agent_runtime_profile（启动 hook 用）。
 
         单项目失败隔离：捕获普通异常后继续下一项目（``failed_projects`` 计数）。
         ``ProfileMissingError`` / ``ProfileEmptyError`` 是部署级错误，全部跳过
@@ -524,7 +524,7 @@ class ProjectManager:
         for project_dir in sorted(self.projects_root.iterdir()):
             # 与 ``list_projects`` 同规则：跳过点开头（.git 等）和下划线开头
             # （``_global_assets`` 保留目录 — 跨项目共享 character/scene/prop 库，
-            # 不是项目，不该 sync agent profile）
+            # 不是项目，不应物化 Agent profile）
             if not project_dir.is_dir() or project_dir.name.startswith((".", "_")):
                 continue
             try:
@@ -1243,7 +1243,7 @@ class ProjectManager:
     # ==================== 角色管理 ====================
 
     def update_character_sheet(self, project_name: str, script_filename: str, name: str, sheet_path: str) -> dict:
-        """更新角色设计图路径"""
+        """更新角色资产图路径"""
         # 资产回写热路径：只动运行时字段，结构不可能因此变坏，豁免结构校验。
         with self.locked_script(project_name, script_filename, validate=False) as script:
             key = resolve_asset_key(script.get("characters"), name)
@@ -1261,7 +1261,7 @@ class ProjectManager:
         创建标准的 generated_assets 结构
 
         Args:
-            content_mode: 内容模式（'narration' 或 'drama'）
+            content_mode: 创作类型（'narration' 或 'drama'）
 
         Returns:
             标准的 generated_assets 字典
@@ -1285,8 +1285,8 @@ class ProjectManager:
         创建标准场景对象模板
 
         Args:
-            scene_id: 场景 ID（如 "E1S01"），集号已编码在 ID 中
-            duration_seconds: 场景时长（秒）
+            scene_id: 分镜 ID（如 "E1S01"），集号已编码在 ID 中
+            duration_seconds: 分镜时长（秒）
 
         Returns:
             标准的场景字典
@@ -1452,7 +1452,7 @@ class ProjectManager:
         Args:
             project_name: 项目名称
             script_filename: 剧本文件名
-            scene_id: 场景/片段 ID
+            scene_id: 分镜 ID
             asset_type: 资源类型 ('storyboard_image' 或 'video_clip')
             asset_path: 资源路径
 
@@ -1463,9 +1463,9 @@ class ProjectManager:
         # 但「分镜数组键损坏（如 segments: null）」是更严重的损坏，写入侧必须 fail-loud——
         # 静默 no-op 等于把数据丢失藏起来：worker 写完 N 个 video_clip 还以为成功了，UI 却
         # 看不到任何回写。让 ScriptEditError 上冒，worker 层负责降级（记 task 失败、人工修复）。
-        # `resolve_items` 三模式判别（narration/drama/reference_video）与 `_write_script_unlocked`
-        # / 读取 helper 共用同一源——避免 `_script_items_shape` 那种 reference 模式落到 drama 兜底
-        # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"场景不存在"的根因被掩盖路径。
+        # `resolve_items` 对三种剧本结构的判别与 `_write_script_unlocked` / 读取 helper 共用同一源，
+        # 避免参考生视频落到 drama 兜底
+        # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"分镜不存在"的根因被掩盖路径。
         with self.locked_script(
             project_name,
             script_filename,
@@ -1503,7 +1503,7 @@ class ProjectManager:
             assets[asset_type] = asset_path
             self.update_scene_status(item)
             return item
-        raise KeyError(f"场景 '{scene_id}' 不存在")
+        raise KeyError(f"分镜 '{scene_id}' 不存在")
 
     def update_scene_asset_across_scripts(
         self,
@@ -1612,7 +1612,7 @@ class ProjectManager:
         # 静默 no-op 等于把 worker 写完的 N 个 clip 路径丢弃但 SSE 仍广播「all updated」、UI
         # 永远 pending。id 未命中收集一轮再统一抛，让 worker 看到完整失败集合而不是只看到首个；
         # locked_script 在 with 体内抛异常时整体不写回（与 update_scene_asset 单个版本对齐）。
-        # resolve_items 让 reference 模式 worker 也能正确按 unit_id 索引 video_units。
+        # resolve_items 让参考生视频 worker 也能正确按 unit_id 索引 video_units。
         with self.locked_script(
             project_name,
             script_filename,
@@ -1653,7 +1653,7 @@ class ProjectManager:
 
     def get_pending_scenes(self, project_name: str, script_filename: str, asset_type: str) -> list[dict]:
         """
-        获取待处理的场景/片段列表
+        获取待处理的分镜列表
 
         Args:
             project_name: 项目名称
@@ -1661,15 +1661,15 @@ class ProjectManager:
             asset_type: 资源类型
 
         Returns:
-            待处理场景/片段列表
+            待处理分镜列表
         """
         script = self.load_script(project_name, script_filename)
 
-        # `_resolve_items_or_warn` 三模式判别 + 脏数据 warn-and-skip 降级——读取侧 silent
+        # `_resolve_items_or_warn` 对三种剧本结构统一判别，并对脏数据 warn-and-skip 降级——读取侧 silent
         # 比写入侧 silent 安全（UI 渲染空列表好过 5xx 阻塞页面），但 warning 给可观测信号；
         # 写入侧（update_scene_asset / batch_update_scene_assets）则用 `resolve_items` 直接
-        # 抛 ScriptEditError 保证数据损坏永远有显式信号。reference 模式下也能正确返回
-        # video_units，不会静默落到 drama 兜底丢失 reference 数据。
+        # 抛 ScriptEditError 保证数据损坏永远有显式信号。参考生视频也能正确返回
+        # video_units，不会静默落到 drama 兜底丢失参考生视频数据。
         items = _resolve_items_or_warn(script, script_filename=script_filename)
 
         # item.generated_assets 缺失 / null / 非 dict 一律视为"未生成"——读取侧脏数据容错，
@@ -1687,7 +1687,7 @@ class ProjectManager:
         return self.get_project_path(project_name) / "source" / filename
 
     def get_character_path(self, project_name: str, filename: str) -> Path:
-        """获取角色设计图路径"""
+        """获取角色资产图路径"""
         return self._get_asset_path("character", project_name, filename)
 
     def get_storyboard_path(self, project_name: str, filename: str) -> Path:
@@ -1704,14 +1704,14 @@ class ProjectManager:
 
     def get_scenes_needing_storyboard(self, project_name: str, script_filename: str) -> list[dict]:
         """
-        获取需要生成分镜图的场景/片段列表（两种模式统一逻辑）
+        获取需要生成分镜图的分镜列表（两种模式统一逻辑）
 
         Args:
             project_name: 项目名称
             script_filename: 剧本文件名
 
         Returns:
-            需要生成分镜图的场景/片段列表
+            需要生成分镜图的分镜列表
         """
         script = self.load_script(project_name, script_filename)
 
@@ -2248,7 +2248,7 @@ class ProjectManager:
         # 数据层守卫：模式专属字段互斥。路由层已返回 400，这里再兜一道防非路由调用方。
         if resolved_mode == "ad":
             if default_duration is not None:
-                raise ValueError("广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）")
+                raise ValueError("广告/短片项目不持有 default_duration（分镜时长按 target_duration 预算逐个分镜规划）")
             if target_duration is not None and (
                 not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0
             ):
@@ -2307,7 +2307,7 @@ class ProjectManager:
                 raise ValueError(f"extras 不允许覆盖核心字段: {sorted(forbidden)}")
             project.update(extras)
 
-        # 生成路线与宫格开关：路由层已做必填二值校验与 ad 互斥（400/422），这里再兜一道防非路由
+        # 生成模式与宫格开关：路由层已做必填二值校验与 ad 互斥（400/422），这里再兜一道防非路由
         # 调用方；未传时按数据层默认补写显式值，保证新项目落盘即含两字段（与 schema v5 形态对齐）。
         generation_mode = project.setdefault("generation_mode", _DEFAULT_GENERATION_MODE)
         if not isinstance(generation_mode, str) or generation_mode not in VALID_GENERATION_MODES:
@@ -2465,24 +2465,24 @@ class ProjectManager:
         返回**诊断 dict**（不是 project 元数据）：``added``（新建条目名列表）、``merged``
         （合并已有条目名列表）、``dropped_fields``（被白名单丢弃的非允许字段，{name: [字段名]}）、
         ``dropped_legacy``（被剔除的历史字段如 type/importance，{name: [字段名]}）。caller
-        （MCP tool 层）据此构造对 agent 的明确反馈——silent drop 是设计意图（least privilege），
-        但纯 silent 让 agent 误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
-        把忽略原因明示给 agent，避免 agent 重复尝试同样会被丢的字段。
+        （MCP tool 层）据此构造对 Agent 的明确反馈——silent drop 是设计意图（least privilege），
+        但纯 silent 让 Agent 误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
+        把忽略原因明示给 Agent，避免 Agent 重复尝试同样会被丢的字段。
         """
         # data_validator 在模块级 import 本模块（VALID_GENERATION_MODES），故惰性 import 破环。
         from lib.data_validator import DataValidator
 
         asset_type = self._resolve_asset_type(table)
-        # 拆开两种失败 case 让 agent 错误更精确（之前合并的 "entries 不能为空" 无法区分两者）
+        # entries 类型错误与空对象需要不同提示，便于 Agent 精确修正输入。
         if not isinstance(entries, dict):
             raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
         if not entries:
             raise ValueError("entries 不能为空（至少需要一个 name → attrs 条目）")
         # 规范化 name：strip + NFC 后非空，且须是路径安全的单段组件（validate_asset_name，
-        # 名称会被拼进文件路径与单段路由参数）。agent 误传 "  李白  " 这种带空格的 name 会让
+        # 名称会被拼进文件路径与单段路由参数）。Agent 误传 "  李白  " 这种带空格的 name 会让
         # 后续按 name 索引查找（角色生成等）因空格差异 mismatch。非法 name fail-loud。
         # 同时检测规范化后冲突：{"李白": {...}, "  李白  ": {...}} 或 NFC/NFD 双形态规范化后
-        # key 相同 → 后者会 silent overwrite 前者；fail-loud 让 agent 明确感知 collision 并去重。
+        # key 相同 → 后者会 silent overwrite 前者；fail-loud 让 Agent 明确感知 collision 并去重。
         normalized_entries: dict[str, dict] = {}
         raw_keys_by_normalized: dict[str, str] = {}
         for raw_name, attrs in entries.items():
@@ -2501,15 +2501,15 @@ class ProjectManager:
             raw_keys_by_normalized[name] = raw_name
 
         spec = ASSET_SPECS[asset_type]
-        # 字段白名单走 spec 的「agent 权限维度」`agent_editable_extra_fields`，**不复用** schema 维度
+        # 字段白名单走 spec 的「Agent 权限维度」`agent_editable_extra_fields`，**不复用** schema 维度
         # `extra_string_fields`——后者包括 `reference_image` 这类系统/用户路径字段（与 sheet_field
-        # 同性质，更新走 `update_character_reference_image` 专用 API），不该被 agent patch_project 直改。
+        # 同性质，更新走 `update_character_reference_image` 专用 API），不该被 Agent patch_project 直改。
         # 不允许的字段同样含 `sheet_field`（character_sheet / scene_sheet / prop_sheet，资产生成流水线
         # 在图像就绪后通过 `_update_asset_sheet` 专用 API 回写）以及 spec 之外的任意 key。
         # `_strip_legacy_asset_fields` 处理 type/importance 等历史字段，这层再加白名单形成「最小特权」。
         allowed_fields = {"description", *spec.agent_editable_extra_fields}
-        # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示 agent。silent drop 仍是设计意图,
-        # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知 agent,避免 LLM 重复尝试。
+        # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示 Agent。silent drop 仍是设计意图,
+        # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知 Agent,避免 LLM 重复尝试。
         cleaned: dict[str, dict[str, Any]] = {}
         dropped_fields: dict[str, list[str]] = {}  # name → [被白名单丢的字段]
         dropped_legacy: dict[str, list[str]] = {}  # name → [被 _LEGACY_ASSET_FIELDS 剔除的字段]
@@ -2526,7 +2526,7 @@ class ProjectManager:
                 else:
                     non_allowed.append(k)
                     logger.debug(
-                        "upsert_assets: %s '%s' 的字段 %r 不在 agent 可编辑白名单 %s,已忽略",
+                        "upsert_assets: %s '%s' 的字段 %r 不在 Agent 可编辑白名单 %s,已忽略",
                         table,
                         name,
                         k,
@@ -2642,7 +2642,7 @@ class ProjectManager:
         """剔除旧式 type/importance 字段（schema 演进遗留），返回新 dict。"""
         return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
 
-    #: 级联重命名须一并改写的 step1 草稿文件名（结构化 JSON，含隔离草稿——它们承载
+    #: 级联重命名须一并改写的 step1 正式内容、可编辑草稿与待修复草稿文件名（结构化 JSON——它们承载
     #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。旧版 ``.md`` 自由文本别名
     #: 不在列：读取层仅兼认浏览，写盘与生成侧已不认。
     _RENAME_DRAFT_FILENAMES = frozenset(
@@ -3007,7 +3007,7 @@ class ProjectManager:
             name: 角色名称
             description: 角色描述
             voice_style: 声音风格
-            character_sheet: 角色设计图路径
+            character_sheet: 角色资产图路径
 
         Returns:
             更新后的项目元数据
@@ -3030,7 +3030,7 @@ class ProjectManager:
         return self.update_project(project_name, _mutate)
 
     def update_project_character_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        """更新项目级角色设计图路径"""
+        """更新项目级角色资产图路径"""
         return self._update_asset_sheet("character", project_name, name, sheet_path)
 
     def update_character_reference_image(self, project_name: str, char_name: str, ref_path: str) -> dict:
@@ -3187,7 +3187,7 @@ class ProjectManager:
     # ==================== 场景管理（scene） ====================
 
     def update_scene_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        """更新场景设计图路径"""
+        """更新场景资产图路径"""
         return self._update_asset_sheet("scene", project_name, name, sheet_path)
 
     def get_scene(self, project_name: str, name: str) -> dict:
@@ -3199,13 +3199,13 @@ class ProjectManager:
         return self._get_pending_assets("scene", project_name)
 
     def get_scene_path(self, project_name: str, filename: str) -> Path:
-        """获取场景设计图路径"""
+        """获取场景资产图路径"""
         return self._get_asset_path("scene", project_name, filename)
 
     # ==================== 道具管理（prop） ====================
 
     def update_prop_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        """更新道具设计图路径"""
+        """更新道具资产图路径"""
         return self._update_asset_sheet("prop", project_name, name, sheet_path)
 
     def get_prop(self, project_name: str, name: str) -> dict:
@@ -3217,42 +3217,42 @@ class ProjectManager:
         return self._get_pending_assets("prop", project_name)
 
     def get_prop_path(self, project_name: str, filename: str) -> Path:
-        """获取道具设计图路径"""
+        """获取道具资产图路径"""
         return self._get_asset_path("prop", project_name, filename)
 
     def get_pending_characters(self, project_name: str) -> list[dict]:
         """产物清单未登记可用 character_sheet 的角色；项目未迁移时阻断。"""
         return self._get_pending_assets("character", project_name)
 
-    # ==================== 产品管理（product） ====================
+    # ==================== 商品管理（product） ====================
 
     def update_product_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
-        """更新产品标准参考图（product sheet）路径"""
+        """更新商品标准参考图（product sheet）路径"""
         return self._update_asset_sheet("product", project_name, name, sheet_path)
 
     def get_product(self, project_name: str, name: str) -> dict:
-        """获取产品定义"""
+        """获取商品定义"""
         return self._get_asset("product", project_name, name)
 
     def get_pending_project_products(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 product_sheet 的产品；项目未迁移时阻断。"""
+        """产物清单未登记可用 product_sheet 的商品；项目未迁移时阻断。"""
         return self._get_pending_assets("product", project_name)
 
     def get_product_path(self, project_name: str, filename: str) -> Path:
-        """获取产品图片路径"""
+        """获取商品图片路径"""
         return self._get_asset_path("product", project_name, filename)
 
     def add_product_reference_image(self, project_name: str, product_name: str, ref_path: str) -> dict:
-        """向产品的 reference_images 列表追加一张原图路径（已存在则不重复追加）。
+        """向商品的 reference_images 列表追加一张原图路径（已存在则不重复追加）。
 
-        原图是产品保真的验收锚点，只增不改；删除/重排走资产 PATCH 通道。
+        原图是商品保真的验收锚点，只增不改；删除/重排走资产 PATCH 通道。
         """
 
         def _mutate(project: dict) -> None:
             bucket = project.get("products")
             key = resolve_asset_key(bucket, product_name)
             if not isinstance(bucket, dict) or key is None:
-                raise KeyError(f"产品 '{product_name}' 不存在")
+                raise KeyError(f"商品 '{product_name}' 不存在")
             refs = bucket[key].setdefault("reference_images", [])
             if not isinstance(refs, list):
                 raise ValueError(
@@ -3304,7 +3304,7 @@ class ProjectManager:
         return self._add_asset("prop", project_name, name, entry)
 
     def add_product(self, project_name: str, name: str, description: str, brand: str = "") -> bool:
-        """直接添加产品到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
+        """直接添加商品到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
         entry = self._build_asset_entry("product", description, {"brand": brand})
         return self._add_asset("product", project_name, name, entry)
 

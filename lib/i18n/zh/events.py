@@ -13,8 +13,8 @@ MESSAGES = {
     "event_label_asset_image_prop": "道具「{id}」资产图",
     "event_label_asset_image_product": "商品「{id}」资产图",
     "event_label_skeleton_segments": "分镜「{id}」",
-    "event_label_skeleton_scenes": "场景「{id}」",
-    "event_label_skeleton_shots": "镜头「{id}」",
+    "event_label_skeleton_scenes": "分镜「{id}」",
+    "event_label_skeleton_shots": "分镜「{id}」",
     "event_label_skeleton_video_units": "视频单元「{id}」",
     "event_label_narration_audio": "旁白配音「{id}」",
     "event_label_named_entity_character": "角色「{id}」",
@@ -25,5 +25,5 @@ MESSAGES = {
     "event_label_overview": "项目概览",
     "event_label_episode": "第 {episode} 集",
     "event_label_draft_normalized_script": "第 {episode} 集规范化脚本",
-    "event_label_draft_segment_splitting": "第 {episode} 集片段拆分",
+    "event_label_draft_segment_splitting": "第 {episode} 集分镜拆分",
 }

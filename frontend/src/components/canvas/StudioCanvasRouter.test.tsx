@@ -622,9 +622,8 @@ describe("StudioCanvasRouter", () => {
     expect(providersSpy).not.toHaveBeenCalled();
   });
 
-  // 逐镜头时长候选须按项目分辨率与生效 generation_mode 收窄——用户在设置里选了 1080p 却仍能把
-  // 单个镜头改成 4 秒，入队时才被 backend 拒。反向用例守住「未受约束的分辨率下与改动前一致」：
-  // 全集原样呈现，不因为接了收窄管线而误缩。
+  // 逐个分镜的时长候选须按项目分辨率与生效 generation_mode 收窄：受约束的分辨率只呈现匹配档位，
+  // 没有匹配约束的分辨率保留完整时长集合。
   it.each([
     ["1080p", "8"],
     ["720p", "4,6,8"],
@@ -1216,7 +1215,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-video"));
     await waitFor(() => {
-      // duration 取镜头自身 duration_seconds(5),不回退默认值 4
+      // duration 取分镜自身 duration_seconds(5),不回退默认值 4
       expect(API.generateVideo).toHaveBeenCalledWith(
         "demo",
         "SEG-1",
@@ -1340,7 +1339,7 @@ describe("StudioCanvasRouter", () => {
     });
 
     // 重排接口成功，但项目刷新失败：本地 segments 仍是旧顺序，
-    // 必须报告失败，否则调用方会推进 selectedIndex 切到错误镜头
+    // 必须报告失败，否则调用方会推进 selectedIndex 切到错误分镜
     vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
     vi.spyOn(API, "reorderShots").mockResolvedValue({ success: true });
 
@@ -1479,8 +1478,8 @@ describe("StudioCanvasRouter", () => {
   });
 
   it("withholds the panel's regenerate entry on the reference route instead of wiring a dead button", async () => {
-    // 参考生视频模式的剧本是 video_units，本组件的逐单元入队回调解不出提示词。给出回调
-    // 只会长出一个按下去毫无反应的按钮，该路线的重生入口在单元卡上。
+    // 参考生视频的剧本是 video_units，本组件的逐单元入队回调解不出提示词。给出回调
+    // 只会长出一个按下去毫无反应的按钮，该生成模式的重生入口在单元卡上。
     const projectData = makeProjectData({ generation_mode: "reference_video" });
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1664,7 +1663,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-narration"));
     await waitFor(() => {
       expect(API.generateNarrationAudio).toHaveBeenCalledWith("demo", "SEG-1", "episode_1.json");
-      expect(useAppStore.getState().toast?.text).toContain("旁白");
+      expect(useAppStore.getState().toast?.text).toContain("旁白配音");
       expect(useAppStore.getState().toast?.tone).toBe("success");
     });
   });
@@ -1686,7 +1685,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-narration"));
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("生成旁白失败");
+      expect(useAppStore.getState().toast?.text).toContain("生成旁白配音失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });
   });
@@ -1714,7 +1713,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-episode-narration"));
     await waitFor(() => {
       expect(API.generateEpisodeNarrationAudio).toHaveBeenCalledWith("demo", "episode_1.json");
-      expect(useAppStore.getState().toast?.text).toContain("2");
+      expect(useAppStore.getState().toast?.text).toContain("已提交 2 个旁白配音生成任务");
       expect(useAppStore.getState().toast?.tone).toBe("success");
     });
   });
@@ -1741,7 +1740,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-episode-narration"));
     await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("所有分镜均已生成旁白");
+      expect(useAppStore.getState().toast?.text).toContain("所有分镜均已生成旁白配音");
       expect(useAppStore.getState().toast?.tone).toBe("success");
     });
   });

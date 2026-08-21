@@ -159,7 +159,7 @@ function NarrationSegmentCard({
 }
 
 /**
- * step1→step2 web 审核 gate 面板：把 step1 结构化中间态在网页结构化呈现、可手动 / agent 编辑，
+ * step1→step2 web 内容确认面板：把 step1 结构化中间态在网页结构化呈现、可手动 / Agent 编辑，
  * 用户显式确认后才放行 step2 视觉生成。drama（utterances + source_text）与 narration
  * （novel_text）共用本面板；reference_video 变体的专属面板见 `ReferenceStep1PreviewPanel`。
  */
@@ -239,7 +239,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
 
   return (
     <div className="flex flex-col gap-3">
-      {/* 审核状态条 + 确认动作 */}
+      {/* 内容确认状态条 + 确认动作 */}
       <header
         className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-[10px] border border-hairline px-3.5 py-2.5 backdrop-blur-md"
         style={CARD_STYLE}

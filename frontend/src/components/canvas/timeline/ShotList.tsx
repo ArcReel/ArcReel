@@ -42,12 +42,12 @@ function getImagePromptScene(seg: Segment): string {
 function getSegmentText(seg: Segment, mode: ListContentMode): string {
   if (mode === "narration") return (seg as NarrationSegment).novel_text || "";
   if (mode === "ad") {
-    // ad 模式：口播文案是一等内容，列表预览优先展示；无口播的纯画面镜头退回画面描述
+    // 广告/短片：口播文案是一等内容，列表预览优先展示；无口播的纯画面分镜退回画面描述
     const voiceover = (seg as AdShot).voiceover_text;
     if (typeof voiceover === "string" && voiceover.trim()) return voiceover;
     return getImagePromptScene(seg);
   }
-  // drama 模式：用 image_prompt.scene 作为画面预览，与 narration 的 novel_text 对称
+  // 剧情演绎：用 image_prompt.scene 作为画面预览，与 narration 的 novel_text 对称
   return getImagePromptScene(seg);
 }
 

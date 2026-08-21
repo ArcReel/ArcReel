@@ -374,7 +374,7 @@ class TestUsageStatsAudioCount:
                 await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
                 stats = await repo.get_stats(project_name="demo")
                 assert stats["audio_count"] == 1
-                # audio 按字符冻结成本快照（非 0）
+                # audio 按字符冻结费用（非 0）
                 assert stats["cost_by_currency"].get("CNY", 0) > 0
         finally:
             await engine.dispose()

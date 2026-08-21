@@ -320,7 +320,7 @@ describe("API", () => {
             locations: [{ path: ["references"], line: null }],
             params: { missing: [["character", "张三"]] },
             action: "repair_reference_assets",
-            message: "参考资产缺失",
+            message: "参考图缺失",
           },
         ],
       };
@@ -333,7 +333,7 @@ describe("API", () => {
         expect.fail("request should fail");
       } catch (error) {
         expect(error).toBeInstanceOf(ReferenceProjectionError);
-        expect(error).toMatchObject({ message: "参考资产缺失", projection });
+        expect(error).toMatchObject({ message: "参考图缺失", projection });
       }
     });
 

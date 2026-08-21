@@ -621,7 +621,7 @@ class TestDataValidator:
 
     @pytest.mark.unit
     def test_validate_episode_drama_no_warning_when_speech_far_under_duration(self, tmp_path):
-        # 单向上界：说话量远少于场景时长不警告（duration 由画面驱动、留白合法，不管「说话太少」）
+        # 单向上界：说话量远少于分镜时长不警告（duration 由画面驱动、留白合法，不管「说话太少」）
         result = self._drama_episode_with_scene(
             tmp_path,
             {
@@ -765,7 +765,7 @@ class TestDataValidator:
 
     @pytest.mark.unit
     def test_validate_episode_drama_invalid_scene_prop_refs(self, tmp_path):
-        """drama 模式：引用未定义的 scenes/props 应报错"""
+        """剧情演绎：引用未定义的 scenes/props 应报错"""
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("drama"))
         _write_json(
@@ -1107,7 +1107,7 @@ def _ad_project_payload(**overrides) -> dict:
         "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
         "characters": {"主播": {"description": "出镜模特"}},
         "scenes": {"客厅": {"description": "现代客厅"}},
-        "props": {"速干杯": {"description": "主推产品"}},
+        "props": {"速干杯": {"description": "主推商品"}},
     }
     payload.update(overrides)
     return payload
@@ -1211,7 +1211,7 @@ class TestAdProjectValidation:
 
 
 class TestGenerationModeValidation:
-    """生成路线（generation_mode）必填二值与宫格开关（grid_storyboard）类型校验。"""
+    """生成模式（generation_mode）必填二值与宫格开关（grid_storyboard）类型校验。"""
 
     def _validate(self, tmp_path, payload: dict):
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
@@ -1335,22 +1335,22 @@ class TestAdEpisodeValidation:
 
     @pytest.mark.unit
     def test_unknown_product_reference_rejected(self, tmp_path):
-        result = self._validate(tmp_path, [self._ad_shot(products_in_shot=["不存在的产品"])])
+        result = self._validate(tmp_path, [self._ad_shot(products_in_shot=["不存在的商品"])])
         assert not result.valid
         assert any("products_in_shot" in e for e in result.errors)
 
     @pytest.mark.integration
     def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
         """products_in_shot 与其收集器（collect_product_references_for_names）同口径归一：
-        NFC/NFD 不一致的合法产品名必须放行，否则校验层比实际生成时的收集层更严格，
-        挡下收集层其实能解析的产品。"""
+        NFC/NFD 不一致的合法商品名必须放行，否则校验层比实际生成时的收集层更严格，
+        挡下收集层其实能解析的商品。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
         name_nfd = unicodedata.normalize("NFD", "Hiếu")
         assert name_nfc != name_nfd
 
-        project = _ad_project_payload(products={name_nfd: {"description": "主推产品"}})
+        project = _ad_project_payload(products={name_nfd: {"description": "主推商品"}})
         result = self._validate(tmp_path, [self._ad_shot(products_in_shot=[name_nfc])], project=project)
         assert result.valid, result.errors
 
@@ -1463,7 +1463,7 @@ class TestAdEpisodeValidationEdgeCases:
 
 
 class TestAdReferenceVideoUnitsValidation:
-    """ad 参考路线与其他内容模式共用自包含 video_units 校验。"""
+    """ad 参考生视频与其他创作类型共用自包含 video_units 校验。"""
 
     @staticmethod
     def _unit(**overrides) -> dict:
@@ -1480,7 +1480,7 @@ class TestAdReferenceVideoUnitsValidation:
         project_dir = tmp_path / "projects" / "demo"
         project = _ad_project_payload(
             generation_mode="reference_video",
-            products={"速干杯": {"description": "主推产品"}},
+            products={"速干杯": {"description": "主推商品"}},
         )
         _write_json(project_dir / "project.json", project)
         _write_json(
@@ -1675,7 +1675,7 @@ class TestSkeletonEntryTypeGuards:
 
 
 class TestRouteSkeletonMismatchValidation:
-    """存量失配剧本（集级路线覆盖时代的混排集）：报结构结论 + 重拆指引，不逐字段报缺失。"""
+    """存量失配剧本（曾含集级生成模式覆盖的混排集）：报结构结论 + 重拆指引，不逐字段报缺失。"""
 
     @pytest.mark.unit
     def test_unit_script_under_storyboard_route_is_rejected(self, tmp_path):
@@ -1690,7 +1690,7 @@ class TestRouteSkeletonMismatchValidation:
 
         assert not result.valid
         assert any("骨架" in error and "重新拆分" in error for error in result.errors), result.errors
-        # 只报路线结论，不再叠一份"缺少 segments"之类的下游噪声。
+        # 只报生成模式失配结论，不叠加“缺少 segments”之类的下游噪声。
         assert len(result.errors) == 1, result.errors
 
     @pytest.mark.unit
@@ -1711,7 +1711,7 @@ class TestRouteSkeletonMismatchValidation:
 
     @pytest.mark.unit
     def test_reference_route_script_with_residual_segments_is_not_a_mismatch(self, tmp_path):
-        """参考路线剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""
+        """参考生视频剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""
         payload = _project_payload()
         payload["generation_mode"] = "reference_video"
         project_dir = tmp_path / "projects" / "demo"
@@ -1872,7 +1872,7 @@ class TestDataValidatorSkeletonExhaustiveness:
             monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
 
         project = {"content_mode": content_mode, "products": {}}
-        # 剧本不携带路线戳；骨架数组照 kind 摆出来，否则会先被路线闸门按失配拒掉。
+        # 剧本不携带生成模式标记；骨架数组照 kind 摆出来，否则会先被生成模式闸门按失配拒掉。
         episode = {"episode": 1, "title": "第一集", "content_mode": content_mode, kind: []}
         if gen_mode:
             project["generation_mode"] = gen_mode

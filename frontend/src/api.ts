@@ -327,7 +327,7 @@ export interface VersionInfo {
   source?: string;
 }
 
-/** 镜头/单元媒体上传的统一响应。 */
+/** 分镜/视频单元媒体上传的统一响应。 */
 export interface ShotUploadResult {
   success: boolean;
   path: string;
@@ -382,7 +382,7 @@ export interface AgentProfileStatus {
   customized_files: string[];
 }
 
-/** 旁白/解说片段 PATCH 入参（drama 模式片段走 {@link API.updateScene}）。 */
+/** 旁白/解说分镜 PATCH 入参（剧情演绎分镜走 {@link API.updateScene}）。 */
 export interface SegmentUpdatePayload {
   script_file: string;
   duration_seconds?: number;
@@ -406,7 +406,7 @@ export interface CreateProjectPayload {
   aspect_ratio?: "9:16" | "16:9";
   /** 生成模式，创建时必填二选一、无默认值（后端缺失即 422）。 */
   generation_mode: GenerationRoute;
-  /** 多宫格分镜装配开关，可随创建写入；仅分镜图生视频模式有意义。 */
+  /** 多宫格分镜装配开关，可随创建写入；仅分镜图生视频有意义。 */
   grid_storyboard?: boolean;
   /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
   speech_rate_units_per_second?: number | null;
@@ -418,7 +418,7 @@ export interface CreateProjectPayload {
   style_template_id?: string | null;
   video_backend?: string | null;
   image_backend?: string | null;
-  /** 项目默认图片模型。创建向导只暴露默认层（docs/adr/0054），能力桶留给项目设置页。 */
+  /** 项目默认图片模型。创建向导只暴露默认层（docs/adr/0054），任务类型桶留给项目设置页。 */
   default_image_backend?: string | null;
   text_backend_simple?: string | null;
   text_backend_complex?: string | null;
@@ -840,7 +840,7 @@ class API {
   }
 
   /**
-   * 能力桶下拉的候选数据源（docs/adr/0054）：默认层全量 + 每个桶按能力过滤后的模型列表。
+   * 任务类型桶下拉的候选数据源（docs/adr/0054）：默认层全量 + 每个桶按能力过滤后的模型列表。
    * 与 getSystemConfig 的 options 同口径（同样剔除 hidden 模型），过滤只加在桶层。
    */
   static async getModelCandidates(
@@ -1332,9 +1332,9 @@ class API {
     );
   }
 
-  // ==================== step1→step2 审核 gate ====================
+  // ==================== step1 → step2 内容确认 ====================
 
-  /** 读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。 */
+  /** 读取该集 step1 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */
   static async getScriptReview(
     projectName: string,
     episode: number,
@@ -1346,9 +1346,9 @@ class API {
     );
   }
 
-  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新待审）。
+  /** 保存手动 / Agent 编辑后的结构化中间态，返回最新状态（重新等待确认）。
    *
-   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 agent 晋升）
+   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 Agent 晋升）
    * 改过时服务端 409 冲突、不落盘，避免静默覆盖对方的修改；不传则不比对。 */
   static async saveScriptReviewContent(
     projectName: string,
@@ -1379,7 +1379,7 @@ class API {
     );
   }
 
-  // ==================== 片段管理（旁白/解说） ====================
+  // ==================== 分镜管理（旁白/解说） ====================
 
   /** `updates` 字段形状参见 {@link SegmentUpdatePayload}；保留 Record 以兼容 spread 调用。 */
   static async updateSegment(
@@ -1396,9 +1396,9 @@ class API {
     );
   }
 
-  // ==================== 镜头管理（广告/短片模式） ====================
+  // ==================== 分镜管理（广告/短片） ====================
 
-  /** 更新 ad 剧本中的单个镜头（口播文案 / section / 时长 / 引用列表等白名单字段）。 */
+  /** 更新 ad 剧本中的单个分镜（口播文案 / section / 时长 / 引用列表等白名单字段）。 */
   static async updateShot(
     projectName: string,
     shotId: string,
@@ -1414,7 +1414,7 @@ class API {
     );
   }
 
-  /** 按给定全排列重排 ad 剧本的镜头顺序。 */
+  /** 按给定全排列重排 ad 剧本的分镜顺序。 */
   static async reorderShots(
     projectName: string,
     scriptFile: string,
@@ -1508,7 +1508,7 @@ class API {
     return (await response.json()) as T;
   }
 
-  /** 上传分镜图或镜头视频，替换该镜头的 AI 生成资产（storyboard/grid 模式）。 */
+  /** 上传分镜图或分镜视频，替换该分镜的 AI 生成资产（分镜图生视频，含多宫格分镜）。 */
   static async uploadShotMedia(
     projectName: string,
     scriptFile: string,
@@ -1522,13 +1522,13 @@ class API {
     return API.postFileUpload<ShotUploadResult>(url, file);
   }
 
-  // ==================== 镜头尾帧 ====================
+  // ==================== 分镜尾帧 ====================
   //
   // 三个端点同一落点：设置走上传或项目内选图两条通道，都归一为 PNG 快照写到
   // end_frames/scene_{id}.png（原地覆盖），清除删快照并置空字段。返回的
   // end_frame_image 是项目内相对路径；换图后路径不变，靠资产指纹 cache-bust。
 
-  /** 上传任意图片作为该镜头的尾帧。 */
+  /** 上传任意图片作为该分镜的尾帧。 */
   static async uploadEndFrame(
     projectName: string,
     shotId: string,
@@ -1541,7 +1541,7 @@ class API {
     return API.postFileUpload<{ success: boolean; end_frame_image: string }>(url, file);
   }
 
-  /** 选项目内已有图片作为该镜头的尾帧（快照复制，不建立引用）。 */
+  /** 选项目内已有图片作为该分镜的尾帧（快照复制，不建立引用）。 */
   static async selectEndFrame(
     projectName: string,
     shotId: string,
@@ -1557,7 +1557,7 @@ class API {
     });
   }
 
-  /** 清除该镜头的尾帧。 */
+  /** 清除该分镜的尾帧。 */
   static async clearEndFrame(
     projectName: string,
     shotId: string,
@@ -1569,7 +1569,7 @@ class API {
     return this.request(url, { method: "DELETE" });
   }
 
-  /** 上传参考生视频单元的成片视频。 */
+  /** 上传视频单元的成片视频。 */
   static async uploadReferenceUnitVideo(
     projectName: string,
     episode: number,
@@ -1796,7 +1796,7 @@ class API {
   /**
    * 生成分镜图
    * @param projectName - 项目名称
-   * @param segmentId - 片段/场景 ID
+   * @param segmentId - 分镜 ID
    * @param prompt - 图片生成 prompt（支持字符串或结构化对象）
    * @param scriptFile - 剧本文件名
    */
@@ -1818,7 +1818,7 @@ class API {
   /**
    * 生成视频
    * @param projectName - 项目名称
-   * @param segmentId - 片段/场景 ID
+   * @param segmentId - 分镜 ID
    * @param prompt - 视频生成 prompt（支持字符串或结构化对象）
    * @param scriptFile - 剧本文件名
    * @param durationSeconds - 时长（秒）
@@ -1848,7 +1848,7 @@ class API {
   /**
    * 生成单段旁白配音（文本由后端从剧本 novel_text 读取）
    * @param projectName - 项目名称
-   * @param segmentId - 片段 ID
+   * @param segmentId - 分镜 ID
    * @param scriptFile - 剧本文件名
    */
   static async generateNarrationAudio(
@@ -2950,7 +2950,7 @@ class API {
 
   // ==================== Reference-to-Video API ====================
 
-  /** List reference-video units for an episode. */
+  /** List video units for an episode on the reference-to-video path. */
   static async listReferenceVideoUnits(
     projectName: string,
     episode: number,
@@ -2960,7 +2960,7 @@ class API {
     );
   }
 
-  /** Create a new reference-video unit. */
+  /** Create a new video unit on the reference-to-video path. */
   static async addReferenceVideoUnit(
     projectName: string,
     episode: number,

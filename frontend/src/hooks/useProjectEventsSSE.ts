@@ -295,7 +295,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           }
 
           if (entityChanges.length > 0 && payload.source !== "webui") {
-            // Draft 事件 — 自动导航到剧集预处理 Tab
+            // Draft 事件 — 自动导航到剧集内容整理 Tab
             let draftHandled = false;
             for (const change of entityChanges) {
               if (

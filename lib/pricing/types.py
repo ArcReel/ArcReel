@@ -71,7 +71,7 @@ class PerSecondMatrix:
     """视频按秒计费，单价由 ``dimensions`` 控制的维度组合查表得出。
 
     ``dimensions``：
-    - ``resolution_audio`` — 键 ``(分辨率小写, 是否生成音频)``，缺失回落 ``("1080p", True)``。
+    - ``resolution_audio`` — 键 ``(分辨率小写, 是否生成有声视频)``，缺失回落 ``("1080p", True)``。
     - ``resolution_only`` — 键 ``(分辨率, None)``，缺失回落 ``(default_resolution, None)`` 再回落 0.0。
       ``default_resolution`` 须与该模型在分辨率未显式指定（Auto）时实际下发的分辨率一致——
       两者不一致会让 Auto 请求按错误档位结算，量级上可能是漏计费。
@@ -127,7 +127,7 @@ class PerSecondTiered:
 
 @dataclass(frozen=True)
 class PerTokenVideo:
-    """视频按 token 计费（按 ``(service_tier, 是否生成音频)`` 查每百万 token 价）。
+    """视频按 token 计费（按 ``(service_tier, 是否生成有声视频)`` 查每百万 token 价）。
 
     ``rates`` 形如 ``{model: {(service_tier, generate_audio): 每百万 token 价}}``；
     缺失键回落 ``("default", True)``，再回落 16.00。

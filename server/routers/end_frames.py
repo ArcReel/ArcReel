@@ -1,4 +1,4 @@
-"""镜头尾帧设置/清除路由。
+"""分镜尾帧设置/清除路由。
 
 设置有两条通道、同一落点：``/end-frame/upload`` 收 multipart 上传，``/end-frame/select``
 按项目内相对路径选已有图片；两者都归一为 PNG 快照写到 ``end_frames/scene_{id}.png``。
@@ -71,7 +71,7 @@ async def upload_end_frame(
     _t: Translator,
     file: UploadFile = File(...),
 ):
-    """上传任意图片作为该镜头的尾帧。"""
+    """上传任意图片作为该分镜的尾帧。"""
     with _translated_errors(script_file, _t):
         max_bytes = validate_upload(file.filename, file.size, kind="image")
         # 限定读入内存的字节数：Content-Length 缺失/被绕过时不至于 OOM
@@ -95,7 +95,7 @@ async def select_end_frame(
     req: SelectEndFrameRequest,
     _t: Translator,
 ):
-    """指定项目内已有图片的相对路径作为该镜头的尾帧（快照复制，不建立引用）。"""
+    """指定项目内已有图片的相对路径作为该分镜的尾帧（快照复制，不建立引用）。"""
     with _translated_errors(req.script_file, _t):
         relative = await set_end_frame_from_project_image(
             project_name=project_name,
@@ -113,7 +113,7 @@ async def delete_end_frame(
     script_file: str,
     _t: Translator,
 ):
-    """清除该镜头的尾帧：删快照文件并把字段置空。"""
+    """清除该分镜的尾帧：删快照文件并把字段置空。"""
     with _translated_errors(script_file, _t):
         await clear_end_frame(project_name=project_name, script_file=script_file, shot_id=shot_id)
         return {"success": True}

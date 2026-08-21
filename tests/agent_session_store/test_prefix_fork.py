@@ -41,11 +41,11 @@ def _entry(uuid: str, parent: str | None, entry_type: str, session_id: str, **ex
 
 
 def _build_transcript(session_id: str) -> tuple[list[dict], list[dict], str]:
-    """一段有 subagent 的三轮 transcript，返回 (主线, 子时间线, 末轮用户消息 uuid)。
+    """一段有子智能体的三轮 transcript，返回 (主线, 子时间线, 末轮用户消息 uuid)。
 
-    首轮是不派 subagent 的纯对话，次轮派出 Task subagent 并完整收尾，末轮的
+    首轮是不派子智能体的纯对话，次轮派出 Task 子智能体并完整收尾，末轮的
     用户消息即分叉锚点。三轮各自对应一类锚点位置：首轮之前（空前缀）、次轮
-    之前（有对话但 subagent 尚未派出）、末轮之前（subagent 应随行）。
+    之前（有对话但子智能体尚未派出）、末轮之前（子智能体应随行）。
     """
     u0, a0, u1, a1, r1, a2, u2, a3 = (f"m{i}-{uuid4().hex[:8]}" for i in range(8))
     main = [
@@ -80,7 +80,7 @@ def _build_transcript(session_id: str) -> tuple[list[dict], list[dict], str]:
     s1, s2 = (f"s{i}-{uuid4().hex[:8]}" for i in range(2))
     subagent = [
         {"type": "agent_metadata", "agentId": AGENT_ID, "sessionId": session_id},
-        _entry(s1, None, "user", session_id, isSidechain=True, message={"role": "user", "content": "子任务"}),
+        _entry(s1, None, "user", session_id, isSidechain=True, message={"role": "user", "content": "子智能体"}),
         _entry(s2, s1, "assistant", session_id, isSidechain=True, message={"role": "assistant", "content": "子结果"}),
     ]
     return main, subagent, u2
@@ -125,7 +125,7 @@ async def test_prefix_stops_before_anchor(seeded):
 
 
 async def test_sdk_reads_back_the_full_chain(seeded):
-    """AC：新会话经 SDK 公开 helper 读回为完整链，含 subagent 子时间线。"""
+    """AC：新会话经 SDK 公开 helper 读回为完整链，含子智能体子时间线。"""
     _, _, _, _, tmp_path = seeded
     store, _, _, _, _ = seeded
     new_id, result = await _copy(seeded)
@@ -239,7 +239,7 @@ async def test_leading_metadata_rows_do_not_count_as_a_prefix(session_factory, t
 
 
 async def test_subagent_started_after_the_anchor_is_not_carried(seeded):
-    """锚点之后才派出的 subagent 不随行——它属于被丢弃的分支。"""
+    """锚点之后才派出的子智能体不随行——它属于被丢弃的分支。"""
     store, project_key, session_id, _, _ = seeded
     main = await store.load({"project_key": project_key, "session_id": session_id})
     assert main is not None
@@ -252,7 +252,7 @@ async def test_subagent_started_after_the_anchor_is_not_carried(seeded):
 
 
 async def test_nested_subagent_subpath_is_carried(session_factory, tmp_path):
-    """SDK 的 subagent 子路径可嵌套在 ``subagents/workflows/<runId>/`` 下，同样随行。"""
+    """SDK 的子智能体子路径可嵌套在 ``subagents/workflows/<runId>/`` 下，同样随行。"""
     store = DbSessionStore(session_factory)
     project_key = project_key_for_directory(str(tmp_path))
     session_id = str(uuid4())

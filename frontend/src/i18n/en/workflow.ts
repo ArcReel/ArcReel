@@ -127,7 +127,7 @@ export default {
   'action_plan_episodes': 'plan the episodes',
   'action_draft_selling_points': 'draft the selling points',
   'action_prepare_step1': 'prepare content organization for this episode',
-  'action_confirm_step1': 'review and confirm the content organization',
+  'action_confirm_step1': 'complete content confirmation',
   'action_generate_script': 'generate the final script',
   'action_generate_asset_sheets': 'generate the missing asset images',
   'action_generate_storyboards': 'generate the missing storyboards',

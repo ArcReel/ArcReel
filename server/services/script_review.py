@@ -1,10 +1,10 @@
-"""step1→step2 web 审核 gate 的服务层：审阅状态读取、结构化中间态编辑、确认动作。
+"""step1→step2 web 内容确认的服务层：确认状态读取、结构化中间态编辑、确认动作。
 
 纯 gate 逻辑（适用性 / 指纹 / 状态派生）在 ``lib.script_review``；本层叠加 ProjectManager
 持久化（确认指纹落 project.json ``episodes[i].step1_review``）与结构化内容的 Pydantic 校验、落盘。
 
-确认触发 step2 的语义是「放行」而非「服务端 launcher」：step2（剧本视觉生成）由 agent 的
-``generate_episode_script`` 工具执行，本服务只负责把审核状态翻到 confirmed；该工具读时经
+确认触发 step2 的语义是「放行」而非「服务端 launcher」：step2（剧本视觉生成）由 Agent 的
+``generate_episode_script`` 工具执行，本服务只负责把内容确认状态翻到 confirmed；该工具读时经
 ``lib.script_review.gate_blocks_step2`` 校验，pending 时拒绝、confirmed 后放行。
 """
 
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 #: 结构化 step1 中间态的校验模型（按 step1 变体 ``script_review.step1_kind``）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
-#: narration 为 NarrationStep1Draft（结构化 novel_text 片段），reference_video 为 ReferenceStep1Draft
+#: narration 为 NarrationStep1Draft（结构化 novel_text 分镜），reference_video 为 ReferenceStep1Draft
 #: （units → 正文 + 编排时长）。
 _STEP1_CONTENT_MODEL: dict[str, type[BaseModel]] = {
     "drama": DramaNormalizedScript,
@@ -84,7 +84,7 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: obj
 
 
 class ScriptReviewService:
-    """封装 step1→step2 审核 gate 的读写。router 与测试经此操作 gate，不直接碰文件 / project.json。"""
+    """封装 step1→step2 内容确认的读写。router 与测试经此操作 gate，不直接碰文件 / project.json。"""
 
     def __init__(self, pm: ProjectManager):
         self.pm = pm
@@ -92,7 +92,7 @@ class ScriptReviewService:
     def _resolve_step1_model(self, project: dict[str, Any], episode: int) -> tuple[str, type[BaseModel]]:
         """该集 step1 变体 + 结构校验模型；不适用 gate（无结构化 step1）时抛 not_applicable。
 
-        变体判定单一真相源在 ``script_review.step1_kind``（reference_video 按项目生成路线优先，
+        变体判定单一真相源在 ``script_review.step1_kind``（reference_video 按项目生成模式优先，
         跨 content_mode）；本层据此选 Pydantic 模型。返回变体名供调用方按变体分流。
         """
         kind = script_review.step1_kind(project)
@@ -150,7 +150,9 @@ class ScriptReviewService:
         try:
             return await resolve_video_caps(project)
         except Exception as exc:  # noqa: BLE001 - best-effort：解析失败退回空 caps，不阻断 gate
-            logger.warning("video_capabilities 解析异常，审阅门退回不带 caps 的解析 project=%s：%s", project_name, exc)
+            logger.warning(
+                "video_capabilities 解析异常，内容确认退回不带 caps 的解析 project=%s：%s", project_name, exc
+            )
             return {}
 
     async def _resolve_supported_durations(self, project_name: str, project: dict[str, Any]) -> list[int] | None:
@@ -190,7 +192,7 @@ class ScriptReviewService:
 
         ``supported_durations`` 由调用方经 ``_resolve_supported_durations`` 解析后传入（本函数
         跑在锁内，不能自行 await），与 step2 生成侧同源：迁移幂等一次性、谁先跑谁定终局，两侧
-        口径不一致时先跑的审阅门会把落在结构区间内但非档位成员的秒数固化到盘上，step2 的枚举
+        口径不一致时先跑的内容确认会把落在结构区间内但非档位成员的秒数固化到盘上，step2 的枚举
         schema 随后硬拒，用户在 gate 里既看不出问题也改不动。为 None（项目未配置视频型号）时
         退回结构区间 clamp——缺配置不该阻断草稿加载，档位偏移仍由执行时取档兜底。
 
@@ -211,7 +213,7 @@ class ScriptReviewService:
         return content, updated or project
 
     async def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
-        """返回该集审核状态 + 结构化中间态内容（供 web 渲染）。
+        """返回该集内容确认状态 + 结构化中间态内容（供 web 渲染）。
 
         ``content`` 为解析后的结构化 step1（drama: {title, scenes[]}；narration: {segments[]}；
         reference_video: {units[]}）；不适用 gate 或 step1 缺失 / 损坏时为 None。
@@ -270,20 +272,20 @@ class ScriptReviewService:
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
-        """reference_video 变体的隔离草稿信息（供 web 审核 gate 呈现违约行内锚定），不适用 /
-        无隔离草稿时 None。
+        """reference_video 变体的草稿信息（供 web 内容确认呈现违约行内锚定），不适用 /
+        无草稿时 None。
 
         读时按产出时那套校验器全量重算（``revalidate_reference_step1_draft``，晋升工具同一份
-        代码），不信任草稿里 ``violations`` 的上一轮快照——隔离期间源文或模型配置可能已变，
+        代码），不信任草稿里 ``violations`` 的上一轮快照——草稿在场期间源文或模型配置可能已变，
         报告要对现值负责。本方法与 ``get_state`` 各自读盘、互不依赖，由 router 在同一次请求内
         合并两者的返回。
 
         ``content`` 校验通过时返回收编后的扁平产出（时长已按当前档位收编），未通过时返回草稿
-        原样内容 + 违约列表，供呈现层原样展示 agent 手改的那份文本。meta 被改坏以致无从重算
+        原样内容 + 违约列表，供呈现层原样展示 Agent 手改的那份文本。meta 被改坏以致无从重算
         时，把「无法重算」本身作为一条违约返回，而不是退回草稿里那份上一轮快照——报告一律
         对现值负责，读时重算失败也是现值的一部分。
 
-        项目 / 隔离草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程——本方法整体是
+        项目 / 草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程——本方法整体是
         ``async``（内部要 ``await`` 重算里的能力解析），若前半截同步 I/O 直接跑在事件循环上，
         源文越大越占用循环时间，拖慢并发的其它请求；``get_state`` 把同步主体整段卸到线程，
         这里保持同一纪律。
@@ -298,20 +300,20 @@ class ScriptReviewService:
         draft = await asyncio.to_thread(read_quarantine, project_path, episode, QUARANTINE_KIND_STEP1)
         if draft is None:
             if not quarantine_path.exists():
-                # 存在性检查与读取之间的窗口内，agent 的晋升/重拆分工具把文件清掉了（正式内容
-                # 已写入、隔离态合法结束）：不是信封损坏，是这次读跨越了「清除」那一刻，按「无
-                # 隔离草稿」处理，不误报损坏。
+                # 存在性检查与读取之间的窗口内，Agent 的晋升/重拆分工具把文件清掉了（正式内容
+                # 已写入、待处置草稿已清除）：不是信封损坏，是这次读跨越了「清除」那一刻，按「无
+                # 草稿」处理，不误报损坏。
                 return None
             # 文件存在但信封形状坏（非法 JSON / 顶层非对象 / content 非对象）：`read_quarantine`
-            # 按「无隔离草稿」返回 None 是它自己的读取口径（供 confirm 的存在性判断照常阻塞），
-            # 但呈现层不能照单全收——那会让面板看起来「干净」，实际隔离草稿仍在阻塞确认。
+            # 按「无草稿」返回 None 是它自己的读取口径（供 confirm 的存在性判断照常阻塞），
+            # 但呈现层不能照单全收——那会让面板看起来「干净」，实际草稿仍在阻塞确认。
             return {
                 "content": None,
                 "violations": [
                     {
                         "code": "quarantine_unreadable",
                         "label": "",
-                        "message": "隔离草稿文件已损坏或格式不符，无法解析",
+                        "message": "草稿文件已损坏或格式不符，无法解析",
                         "line": None,
                     }
                 ],
@@ -326,14 +328,14 @@ class ScriptReviewService:
             # meta.source 缺失等草稿被改坏的情形：把重算失败本身报成一条无 unit 归属的违约，
             # 呈现层落聚合区。gate 不崩，用户也不会看到一份与现值脱钩的旧报告。异常文本含
             # draft.path，只记日志、不回传给调用方——面向用户的 message 不能带内部路径。
-            logger.warning("隔离草稿重算失败 project=%s episode=%s：%s", project_name, episode, exc)
+            logger.warning("草稿重算失败 project=%s episode=%s：%s", project_name, episode, exc)
             return {
                 "content": draft.content,
                 "violations": [
                     {
                         "code": "quarantine_unreadable",
                         "label": "",
-                        "message": "隔离草稿的产出上下文缺失或损坏，无法重新校验",
+                        "message": "草稿的产出上下文缺失或损坏，无法重新校验",
                         "line": None,
                     }
                 ],
@@ -376,7 +378,7 @@ class ScriptReviewService:
     async def save_content(
         self, project_name: str, episode: int, content: object, base_fingerprint: str | None = None
     ) -> dict[str, Any]:
-        """校验并落盘编辑后的结构化中间态（手动或 agent 编辑后回写），返回最新状态（重新待审）。
+        """校验并落盘编辑后的结构化中间态（手动或 Agent 编辑后回写），返回最新状态（重新等待确认）。
 
         内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
 
@@ -415,7 +417,7 @@ class ScriptReviewService:
         expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
         try:
             if kind == "reference_video":
-                # 写盘经单一出口：锁、基线比对、step2 隔离草稿清理都在 write_step1_locked 一处。
+                # 写盘经单一出口：锁、基线比对、step2 草稿清理都在 write_step1_locked 一处。
                 with script_review.step1_write_lock(project_path, episode):
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
                     script_review.write_step1_locked(project_path, episode, validated, expected_fingerprint=expected)
@@ -432,9 +434,9 @@ class ScriptReviewService:
             raise ScriptReviewError("conflict", str(exc)) from exc
 
     async def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
-        """把该集审核状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
+        """把该集内容确认状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
 
-        无 step1 / 不适用 / 集条目缺失 / step1 内容结构非法 / 有隔离草稿待处置时
+        无 step1 / 不适用 / 集条目缺失 / step1 内容结构非法 / 有草稿待处置时
         抛 ScriptReviewError，由 router 映射 4xx。
 
         档位表先于加锁解析（同 ``get_state``）：确认路径同样要对存量草稿做一次读时收编，收编
@@ -452,19 +454,19 @@ class ScriptReviewService:
         episode: int,
         supported_durations: list[int] | None,
     ) -> None:
-        """``confirm`` 的同步主体：隔离态校验、读时收编、结构校验、指纹落盘。"""
+        """``confirm`` 的同步主体：待处置草稿校验、读时收编、结构校验、指纹落盘。"""
         project_path = self.pm.get_project_path(project_name)
         path = script_review.step1_path(project_path, project, episode)
         if path is None:
             raise ScriptReviewError("not_applicable")
         project = self._require_episode(project_name, project, episode)
-        # 隔离草稿在场时拒绝确认：正式 step1 此刻仍是上一版（或不存在），确认它等于替用户
-        # 认可一份他没看过的内容，而刚产出的那份违约正文还在隔离草稿里等 agent 处置。校验
-        # 口径与生成侧同一把尺——晋升工具用的正是产出时那套校验器，这里只判「是否还在隔离」。
+        # 草稿在场时拒绝确认：正式 step1 此刻仍是上一版（或不存在），确认它等于替用户
+        # 认可一份他没看过的内容，而刚产出的那份违约正文还在草稿里等 Agent 处置。校验
+        # 口径与生成侧同一把尺——晋升工具用的正是产出时那套校验器，这里只判待处置草稿是否在场。
         quarantine = script_review.step1_quarantine_path(project_path, project, episode)
         if quarantine is not None and quarantine.exists():
-            raise ScriptReviewError("quarantined", f"step1 隔离草稿待处置: {quarantine}")
-        # 存量草稿先做时长收编再校验：agent / 直连调用可能不经 get_state 就确认。同一把
+            raise ScriptReviewError("quarantined", f"step1 草稿待处置: {quarantine}")
+        # 存量草稿先做时长收编再校验：Agent / 直连调用可能不经 get_state 就确认。同一把
         # per-path 锁覆盖读改写全程（含下方 reference_video 分支自己的落盘），避免中途被
         # save_content 或迁移的写入插队——_read_step1_migrated 要求调用方已持锁。
         with self.pm.file_lock(path):
@@ -501,7 +503,7 @@ class ScriptReviewService:
                     if not admission.allowed:
                         raise ScriptReviewError("speech_admission", admission=admission)
                 # 单一写盘出口（已持同一把 per-path 锁，不再套 step1_write_lock）；同临界区
-                # 读改写无并发窗口，不做基线比对。内容真的变了时，step2 隔离草稿的基底随之
+                # 读改写无并发窗口，不做基线比对。内容真的变了时，step2 草稿的基底随之
                 # 失效，由出口按变更清理。
                 script_review.write_step1_locked(project_path, episode, dumped)
                 fingerprint = script_review.content_fingerprint_of_data(dumped)

@@ -1,4 +1,4 @@
-"""v6→v7：把广告参考路线迁移为自包含 ``video_units``。
+"""v6→v7：把广告/短片的参考生视频迁移为自包含 ``video_units``。
 
 产出的是当前的单元形状（一段 ``text`` + 编排时长，见 ADR 0064）：旧 shot 的画面文本按顺序
 拼进同一段正文，参考图与发声归属改由正文的记号读时派生，不另存数组。后续 v8→v9 对这批
@@ -166,7 +166,7 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
 
     raw_shots = payload.get("shots")
     if not isinstance(raw_shots, list):
-        raise ValueError("广告参考路线旧剧本缺少 shots 数组")
+        raise ValueError("广告/短片的参考生视频旧剧本缺少 shots 数组")
     shots: list[dict[str, Any]] = []
     shot_by_id: dict[str, dict[str, Any]] = {}
     for index, raw_shot in enumerate(raw_shots):

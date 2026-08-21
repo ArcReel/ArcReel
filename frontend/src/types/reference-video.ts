@@ -220,7 +220,7 @@ export interface ScriptPreview {
 }
 
 /**
- * reference_video step1 结构化中间态（审核 gate 的可审 / 可改对象）。映射后端
+ * reference_video step1 结构化中间态（内容确认的可审 / 可改对象）。映射后端
  * lib/script_models.py 的 ReferenceStep1Unit / ReferenceStep1Draft：step1 定内容层
  * （unit 边界 + unit 时长 + 单元正文），step2 视觉编排由用户确认后才触发。
  */
@@ -239,8 +239,8 @@ export interface ReferenceStep1Draft {
 }
 
 /**
- * step1 的书写层扁平形状（隔离草稿装的是这个，不是落盘的 `ReferenceStep1Draft`）：
- * `unit_id` 机器派生，落盘前才有——隔离期间只有时长 + 原文锚 + 一段书写层正文。
+ * step1 的扁平草稿结构（草稿装的是这个，不是落盘的 `ReferenceStep1Draft`）：
+ * `unit_id` 机器派生，落盘前才有——草稿中只有时长 + 原文锚 + 一段引用语法正文。
  * Mirrors lib/script_models.py ReferenceStep1FlatUnit / ReferenceStep1FlatDraft。
  */
 export interface ReferenceStep1FlatUnit {
@@ -254,7 +254,7 @@ export interface ReferenceStep1FlatDraft {
 }
 
 /**
- * 隔离草稿违约条目。Mirrors lib/draft_quarantine.py::violation_entries。
+ * 草稿违约条目。Mirrors lib/draft_quarantine.py::violation_entries。
  * `label` 形如 `"unit E1U02"`——数组下标 = 派生 unit 序号 - 1，可据此定位到 `content.units[i]`。
  * `line` 是该 unit 正文内 0-based 原始行号（与 `useUnitPromptHighlight.ts` 的 `sourceLine` 同
  * 坐标系），仅语法类违约才有；unit 级违约（无自然行归属）为 null，呈现层落卡内聚合区。
@@ -270,12 +270,12 @@ export interface ScriptReviewViolation {
 }
 
 /**
- * step1 隔离草稿信息（`ScriptReviewState.quarantine`）：reference_video 变体、隔离草稿在场时
+ * step1 草稿信息（`ScriptReviewState.quarantine`）：reference_video 变体、草稿在场时
  * 才非 null。`content` 是读时按同一校验器重算后的扁平产出（校验通过部分已收编，未通过部分原样
  * 呈现 agent 手改的文本）；`violations` 同样是读时重算的结果，不是草稿里上一轮的报告快照。
  */
 export interface ScriptReviewQuarantine {
-  /** null 仅在隔离草稿文件已损坏、无法解析信封形状时出现——`violations` 会带一条说明。 */
+  /** null 仅在草稿文件已损坏、无法解析信封形状时出现——`violations` 会带一条说明。 */
   content: ReferenceStep1FlatDraft | null;
   violations: ScriptReviewViolation[];
 }
@@ -284,8 +284,8 @@ export interface ReferenceVideoScript {
   episode: number;
   title: string;
   /**
-   * 内容类型——参考视频集继承项目级 narration/drama，决定画面比例等次级配置；
-   * "视频来源"维度由项目的生成路线表达，不落在剧本上。
+   * 内容类型——参考生视频剧本继承项目级 narration/drama，决定画面比例等次级配置；
+   * "视频来源"维度由项目的生成模式表达，不落在剧本上。
    */
   content_mode?: "narration" | "drama" | "ad";
   duration_seconds: number;

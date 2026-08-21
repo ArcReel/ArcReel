@@ -1,4 +1,4 @@
-"""归档导入针对 reference_video 模式（video_units）的修复测试。
+"""归档导入针对 参考生视频（video_units）的修复测试。
 
 覆盖 _repair_script_payload 对 generation_mode=reference_video 项目剧本里
 video_units 的处理：确保导出-导入往返时 video_units[*].generated_assets

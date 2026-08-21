@@ -99,7 +99,7 @@ MESSAGES = {
     # ---- cảnh quay quảng cáo ----
     "val_shot_duration_missing_zero": "{prefix}: thiếu duration_seconds, sẽ tính 0 vào tổng thời lượng",
     "val_shot_duration_out_of_range": (
-        "{prefix}: duration_seconds không hợp lệ '{value}', tuyến reference_video yêu cầu số nguyên "
+        "{prefix}: duration_seconds không hợp lệ '{value}', chế độ reference_video yêu cầu số nguyên "
         "trong khoảng {low}-{high}"
     ),
     "val_shot_missing_voiceover_text": (
@@ -111,7 +111,7 @@ MESSAGES = {
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
-    # ---- khung xương và tuyến sinh video ----
+    # ---- khung xương và chế độ tạo video ----
     "val_skeleton_noun_segments": "phân cảnh",
     "val_skeleton_noun_scenes": "cảnh",
     "val_skeleton_noun_shots": "cảnh quay",

@@ -1399,13 +1399,13 @@ class TestUnexpectedErrorMapsTo500:
 
 
 class TestVideoRouteGate:
-    """逐条视频生成端点按项目生成路线定轴：参考路线在提交入口即拒绝。"""
+    """逐条视频生成端点按项目生成模式定轴：参考生视频在提交入口即拒绝。"""
 
     def _reference_pm(self, project_path: Path, *, storyboard_script: bool = False) -> _FakePM:
-        """参考路线项目。
+        """参考生视频项目。
 
-        ``storyboard_script`` 为真时保留 ``_FakePM`` 的分镜族默认剧本，模拟换路线前
-        留下的存量剧本与分镜图产物。
+        ``storyboard_script`` 为真时保留 ``_FakePM`` 的分镜族默认剧本，模拟与当前生成模式
+        不匹配的存量剧本与分镜图产物。
         """
         fake_pm = _FakePM(project_path)
         fake_pm.project["generation_mode"] = "reference_video"
@@ -1419,7 +1419,7 @@ class TestVideoRouteGate:
 
     @pytest.mark.integration
     def test_reference_route_rejected_with_route_guidance(self, tmp_path, monkeypatch):
-        """参考路线：拒绝并指引走参考生视频流程，而非「先生成分镜图」。"""
+        """参考生视频：拒绝并指引走参考生视频流程，而非「先生成分镜图」。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = self._reference_pm(project_path)
         fake_queue = _FakeQueue()
@@ -1436,7 +1436,7 @@ class TestVideoRouteGate:
 
     @pytest.mark.integration
     def test_reference_route_rejected_even_with_leftover_storyboard(self, tmp_path, monkeypatch):
-        """残留分镜图不改变判定：路线以 project.json 为唯一真相源，不按磁盘产物换路径。"""
+        """残留分镜图不改变判定：生成模式以 project.json 为唯一真相源，不按磁盘产物换路径。"""
         project_path = _prepare_files(tmp_path)
         # 分镜图产物 scene_E1S01.png 由 _prepare_files 写入
         fake_pm = self._reference_pm(project_path, storyboard_script=True)
@@ -1454,7 +1454,7 @@ class TestVideoRouteGate:
 
     @pytest.mark.integration
     def test_storyboard_route_enqueues_with_i2v_bucket(self, tmp_path, monkeypatch):
-        """分镜路线：行为不变，桶预检仍按 i2v。"""
+        """分镜图生视频：行为不变，桶预检仍按 i2v。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["generation_mode"] = "storyboard"
@@ -1492,7 +1492,7 @@ class TestAdStoryboardRegeneration:
                     "shot_id": "E1S01",
                     "section": "product_reveal",
                     "duration_seconds": 4,
-                    "voiceover_text": "产品亮相",
+                    "voiceover_text": "商品亮相",
                     "characters_in_shot": [],
                     "scenes": [],
                     "props": [],
@@ -1517,7 +1517,7 @@ class TestAdStoryboardRegeneration:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E1S01",
-                json={"script_file": "episode_1.json", "prompt": "产品特写"},
+                json={"script_file": "episode_1.json", "prompt": "商品特写"},
             )
             assert resp.status_code == 200
             assert resp.json()["success"] is True
@@ -1535,7 +1535,7 @@ class TestAdStoryboardRegeneration:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E9S99",
-                json={"script_file": "episode_1.json", "prompt": "产品特写"},
+                json={"script_file": "episode_1.json", "prompt": "商品特写"},
             )
             assert resp.status_code == 404
 

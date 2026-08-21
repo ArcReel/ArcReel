@@ -612,12 +612,12 @@ def compose_video(
     # 加载剧本（pm.load_script 内部已用 _safe_subpath 过滤 ../ 等逃逸尝试）
     script = pm.load_script(project_name, script_filename)
 
-    # 仅支持 drama 模式（顶层 scenes[]）；narration/ad/reference_video 给友好错误
+    # 合成器只接受顶层 scenes[] 骨架；其他已知骨架返回带实际结构的指引。
     if "scenes" not in script:
         content_mode = script.get("content_mode") or "unknown"
         actual_keys = [k for k in ("segments", "shots", "video_units") if k in script]
         raise RuntimeError(
-            f"compose_video.py 目前仅支持 drama 模式（剧本顶层需有 scenes[]）；"
+            f"compose_video.py 只支持顶层 scenes[] 的剧本；"
             f"当前剧本 content_mode={content_mode}，实际结构含 {actual_keys or ['无法识别']}，"
             "请使用 Web 端剪映草稿导出"
         )
@@ -629,7 +629,7 @@ def compose_video(
     for scene in script["scenes"]:
         video_clip = get_generated_assets(scene).get("video_clip")
         if not video_clip:
-            raise ValueError(f"场景 {scene['scene_id']} 缺少视频片段")
+            raise ValueError(f"分镜 {scene['scene_id']} 缺少视频片段")
 
         # 与 --music / output 同样的围栏：剧本里 video_clip 写成绝对路径或 ../
         # 形式时，未 resolve 的 `project_dir / video_clip` 会落到项目外（且字面

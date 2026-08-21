@@ -63,7 +63,7 @@ export interface ReferenceVideoCanvasProps {
   canEditTitle?: boolean;
   /** step2 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
   hasScript?: boolean;
-  /** ad 参考路线一阶段产出，不展示 step1 预处理页。 */
+  /** ad 参考生视频一阶段产出，不展示 step1 内容整理页。 */
   showPreprocess?: boolean;
   /** unit 时长为自由正整数，不用供应商档位作为编排限制。 */
   freeDuration?: boolean;
@@ -392,7 +392,7 @@ export function ReferenceVideoCanvas({
     episode,
     requestOptions: effectiveRequestOptions,
   });
-  /** 批量准入的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
+  /** 整批准入判定的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
   const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
 
   const enqueue = useCallback(
@@ -631,7 +631,7 @@ export function ReferenceVideoCanvas({
       setDurationSaving(unitId, true);
       try {
         await patchUnit(projectName, episode, unitId, { duration_seconds: seconds });
-        // 参考视频按申请秒数计价，SSE 的 unit 失效负责最终同步列表；费用面板仍需
+        // 参考生视频按申请秒数计价，SSE 的 unit 失效负责最终同步列表；费用面板仍需
         // 在本地写成功时主动刷新，给当前浏览器即时反馈。
         useCostStore.getState().debouncedFetch(projectName);
         return true;
@@ -764,7 +764,7 @@ export function ReferenceVideoCanvas({
 
   // Reset tab to units on project/episode change (render-time derived-state pattern).
   // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
-  // units 面板无脚本可读、请求会 404，应先落到 preproc 审阅 gate。
+  // units 面板无脚本可读、请求会 404，应先落到内容确认。
   const [tab, setTab] = useState<"units" | "preproc">(
     hasScript || !showPreprocess ? "units" : "preproc",
   );

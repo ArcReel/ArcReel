@@ -85,11 +85,9 @@ export interface Dialogue {
 export type UtteranceKind = "dialogue" | "voiceover";
 
 /**
- * Drama 场景级有序发声条目，判别式联合（discriminated union）按 kind 收窄，把 kind ⇄ speaker
+ * Drama 分镜级有序发声条目，判别式联合（discriminated union）按 kind 收窄，把 kind ⇄ speaker
  * 约束编码进类型：dialogue 必带非空 speaker、voiceover 不得带 speaker。非法组合（dialogue 缺
  * speaker、voiceover 带 speaker）编译期即被拒，与后端 Utterance 契约一致。
- * 取代旧 video_prompt.dialogue + 场景 voiceover 双字段（见 ADR 0040）。
- * 富审阅 / 编辑 UI 后续提供；本阶段仅类型 / 形状守卫。
  */
 export interface DialogueUtterance {
   kind: "dialogue";
@@ -108,7 +106,7 @@ export interface VoiceoverUtterance {
 export type Utterance = DialogueUtterance | VoiceoverUtterance;
 
 /**
- * step1 结构化中间态（审核 gate 的可审 / 可改对象）。映射后端 lib/script_models.py 的
+ * step1 结构化中间态（内容确认的可审 / 可改对象）。映射后端 lib/script_models.py 的
  * DramaSceneContent / DramaNormalizedScript 与 NarrationStep1Segment / NarrationStep1Draft：
  * step1 已定内容层，step2 视觉生成（image_prompt / video_prompt）由用户确认后才触发。
  */
@@ -121,7 +119,7 @@ export interface DramaSceneContent {
   props: string[];
   /** 视觉改编自由文本（供 step2 生成画面，不内嵌口播）。 */
   scene_description: string;
-  /** 场景级有序发声序列：台词 / 画外音按时序排列（审核 gate 的富编辑对象）。 */
+  /** 分镜级有序发声序列：台词 / 画外音按时序排列（内容确认的富编辑对象）。 */
   utterances: Utterance[];
   /** 逐字原文摘录（追溯锚，不朗读、不出音）。 */
   source_text: string;
@@ -134,7 +132,7 @@ export interface DramaNormalizedScript {
 
 export interface NarrationStep1Segment {
   segment_id: string;
-  /** 小说原文（逐字保留，审核 gate 的可编辑对象）。 */
+  /** 小说原文（逐字保留，内容确认的可编辑对象）。 */
   novel_text: string;
   duration_seconds: number;
   segment_break: boolean;
@@ -154,7 +152,7 @@ export type ScriptReviewStatus =
   | "pending_review"
   | "confirmed";
 
-/** step1→step2 审核 gate 状态（后端 server/routers/script_review.py 的 GET 响应）。 */
+/** step1→step2 内容确认状态（后端 server/routers/script_review.py 的 GET 响应）。 */
 export interface ScriptReviewState {
   episode: number;
   content_mode: string | null;
@@ -162,7 +160,7 @@ export interface ScriptReviewState {
   fingerprint: string | null;
   confirmed_at: string | null;
   content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft | null;
-  /** reference_video 变体、隔离草稿在场时非 null；其余变体恒为 null。 */
+  /** reference_video 变体、草稿在场时非 null；其余变体恒为 null。 */
   quarantine: ScriptReviewQuarantine | null;
   /**
    * unit 时长可选档位，reference_video 变体才非 null（项目未配置视频型号而解析不到时也为
@@ -239,7 +237,7 @@ export interface DramaScene {
   image_prompt: ImagePrompt | string;
   video_prompt: VideoPrompt | string;
   /**
-   * 场景级有序发声序列：角色台词与画外音按时序排列。新结构（drama）；
+   * 分镜级有序发声序列：角色台词与画外音按时序排列。新结构（drama）；
    * 存量 drama 走后端读时迁移，前端读到时此字段可能缺省。
    */
   utterances?: Utterance[];
@@ -290,7 +288,7 @@ export const AD_SECTION_VALUES = [
   "cta",
 ] as const;
 
-/** 广告/短片模式镜头（平铺 shots[]，口播文案一等）。 */
+/** 广告/短片分镜（平铺 shots[]，口播文案一等）。 */
 export interface AdShot {
   shot_id: string;
   /** 带货框架段落标签（hook/pain_point/... 八值引导，不硬枚举）。 */
@@ -301,7 +299,7 @@ export interface AdShot {
   characters_in_shot?: string[];
   scenes?: string[];
   props?: string[];
-  /** 商品名称引用，非空即商品镜头。 */
+  /** 商品名称引用，非空即商品分镜。 */
   products_in_shot?: string[];
   image_prompt: ImagePrompt | string;
   video_prompt: VideoPrompt | string;

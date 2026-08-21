@@ -213,7 +213,7 @@ class TestMergeDramaVisualIntoScenes:
             merge_drama_visual_into_scenes([_content_scene("E1S01")], [_visual_scene("E1S01"), _visual_scene("E1S01")])
 
     def test_merge_duplicate_content_scene_id_raises(self):
-        # step1 内容侧重复 scene_id：两个场景会共用同一视觉、下游产物文件名撞键，须 fail-loud
+        # step1 内容侧重复 scene_id：两个分镜会共用同一视觉、下游产物文件名撞键，须 fail-loud
         with pytest.raises(DramaVisualMergeError):
             merge_drama_visual_into_scenes([_content_scene("E1S01"), _content_scene("E1S01")], [_visual_scene("E1S01")])
 

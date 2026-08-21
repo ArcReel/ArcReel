@@ -123,7 +123,7 @@ describe("UnitPreviewPanel", () => {
     );
 
     expect(container.querySelector('audio[src*="audio/segment_E1U1.wav"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Regenerate narration|重新生成旁白/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Regenerate narration audio|重新生成旁白配音/ })).toBeDisabled();
   });
 
   // 版本恢复与生成回写同一个成片文件：占用期间恢复旧版本会显示成功、随后被在跑的

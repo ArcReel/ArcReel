@@ -30,7 +30,7 @@ END_FRAME_RESOURCE_TYPE = "end_frames"
 
 _PATTERNS: dict[str, ResourcePattern] = {
     "storyboards": ResourcePattern("storyboards", ".png", prefix="scene_"),
-    # 尾帧快照与分镜图、镜头视频同按镜头 id 命名，故共用 scene_ 前缀。
+    # 尾帧快照与分镜图、分镜视频同按分镜 id 命名，故共用 scene_ 前缀。
     END_FRAME_RESOURCE_TYPE: ResourcePattern(END_FRAME_RESOURCE_TYPE, ".png", prefix="scene_"),
     "videos": ResourcePattern("videos", ".mp4", prefix="scene_"),
     "characters": ResourcePattern("characters", ".png"),

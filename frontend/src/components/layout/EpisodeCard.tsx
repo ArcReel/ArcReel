@@ -13,7 +13,7 @@ interface EpisodeCardProps {
   showEpisodeBadge?: boolean;
   /** ep.title 为空时的兜底显示文本（ad 项目用项目标题）。 */
   fallbackTitle?: string;
-  /** 项目生成路线：决定条目数报「分镜数」还是「视频单元数」。必填，漏接线时类型报错而不是静默显示错名词。 */
+  /** 项目生成模式：决定条目数报「分镜数」还是「视频单元数」。必填，漏接线时类型报错而不是静默显示错名词。 */
   route: GenerationRoute;
 }
 

@@ -1,4 +1,4 @@
-"""全排列重排校验：ad shots 与参考视频 video_units 的 reorder 端点共用。
+"""全排列重排校验：ad shots 与参考生视频 video_units 的 reorder 端点共用。
 
 返回错误判别值而非直接抛 HTTP 异常——两个调用方各自映射到自己域的 i18n 文案，
 校验语义（长度一致、无重复、集合相等）单点维护。

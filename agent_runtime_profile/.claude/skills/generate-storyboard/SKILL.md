@@ -1,6 +1,6 @@
 ---
 name: generate-storyboard
-description: 为剧本场景生成分镜图。当用户说"生成分镜"、"预览场景画面"、想重新生成某些分镜图、或剧本中有场景缺少分镜图时使用。自动保持角色和画面连续性。
+description: 为分镜生成分镜图。当用户说"生成分镜"、"预览分镜画面"、想重新生成某些分镜图、或剧本中有分镜缺少分镜图时使用。自动保持角色和画面连续性。
 ---
 
 # 生成分镜图
@@ -47,7 +47,7 @@ description: 为剧本场景生成分镜图。当用户说"生成分镜"、"预�
 MCP 工具自动处理以下参考图传入，无需手动指定：
 - **character_sheet**：场景中出场角色的资产图，保持外貌一致
 - **scene_sheet / prop_sheet**：场景中出现的场景 / 道具资产图
-- **商品参考（广告/短片项目）**：镜头 `products_in_shot` 非空时自动注入商品参考并排在所有参考之前（有 product sheet 时 sheet + 原图，无 sheet 时原图直注），同时附加高保真还原指令——image_prompt 无需复述商品外观
+- **商品参考（广告/短片项目）**：分镜 `products_in_shot` 非空时自动注入商品参考并排在所有参考之前（有 product sheet 时 sheet + 原图，无 sheet 时原图直注），同时附加高保真还原指令——image_prompt 无需复述商品外观
 - **上一张分镜图**：相邻片段默认引用，提升画面连续性
 - 当片段标记 `segment_break=true` 时，跳过上一张分镜图参考
 
@@ -56,7 +56,7 @@ MCP 工具自动处理以下参考图传入，无需手动指定：
 从剧本 JSON 读取以下字段构建 prompt：
 
 ```
-场景 [scene_id/segment_id] 的分镜图：
+分镜 [scene_id/segment_id] 的分镜图：
 
 - 画面描述：[visual.description]
 - 镜头构图：[visual.shot_type]

@@ -85,11 +85,11 @@ FastAPI 提供：
 - 生成任务查询；
 - 外部 API Key 接入。
 
-Agent 回复通过 Agent SSE 流式返回；项目终态变化通过项目事件 SSE 触发界面刷新，生成任务的中间状态和断线兜底由任务查询补充。部署反向代理时必须关闭 SSE 代理缓冲并设置足够长的读取超时。
+Agent 回复通过对话 SSE 流式返回；项目终态变化通过项目事件 SSE 触发界面刷新，生成任务的中间状态和断线兜底由任务查询补充。部署反向代理时必须关闭 SSE 代理缓冲并设置足够长的读取超时。
 
 ## 5. Agent Runtime {#agent-runtime}
 
-Agent Runtime 基于 Claude Agent SDK，并采用“编排 Skill + 聚焦 Subagent”的结构。
+Agent Runtime 基于 Claude Agent SDK，并采用“编排 Skill + 聚焦子智能体”的结构。
 
 ```mermaid
 flowchart TD
@@ -97,10 +97,10 @@ flowchart TD
     MAIN --> SKILL["工作流编排 Skill"]
     SKILL --> STATE["读取项目状态"]
     STATE --> DECIDE{"下一阶段"}
-    DECIDE --> A["角色 / 场景 / 道具分析 Subagent"]
-    DECIDE --> B["分集规划 Subagent"]
-    DECIDE --> C["剧本规范化 Subagent"]
-    DECIDE --> D["资产生成 Subagent"]
+    DECIDE --> A["角色 / 场景 / 道具分析子智能体"]
+    DECIDE --> B["分集规划子智能体"]
+    DECIDE --> C["剧本规范化子智能体"]
+    DECIDE --> D["资产生成子智能体"]
     A --> SUMMARY["精炼摘要"]
     B --> SUMMARY
     C --> SUMMARY
@@ -116,15 +116,15 @@ flowchart TD
 - 判断项目当前状态；
 - 选择下一步；
 - 调用确定性工具；
-- 分发 Subagent；
+- 分发子智能体；
 - 控制阶段边界；
 - 在需要时等待用户确认。
 
 编排层不应承担所有内容推理，否则会让主上下文快速膨胀。
 
-### 5.2 聚焦 Subagent {#focused-subagents}
+### 5.2 聚焦子智能体 {#focused-subagents}
 
-每个 Subagent 聚焦一个任务，例如：
+每个子智能体聚焦一个目标，例如：
 
 - 角色、场景和道具提取；
 - 旁白/解说片段拆分；
@@ -132,7 +132,7 @@ flowchart TD
 - 单集结构化剧本；
 - 资产生成。
 
-大量小说原文和中间推理尽量保留在 Subagent 内部，主 Agent 接收摘要和结果引用。
+大量小说原文和中间推理尽量保留在子智能体内部，主 Agent 接收摘要和结果引用。
 
 ### 5.3 确定性工具 {#deterministic-tools}
 
@@ -239,7 +239,7 @@ flowchart LR
 
 创建和重试任务时应避免：
 
-- 同一个镜头重复扣费；
+- 同一个分镜重复扣费；
 - 远程任务已成功但本地重复提交；
 - SSE 断开导致任务被认为失败；
 - 重复点击产生相同的生成任务。
@@ -434,7 +434,7 @@ ArcReel 在支持的环境中使用 `bwrap` 等机制限制这些能力。Docker
 - 失败后如何恢复；
 - 是否产生费用；
 - 是否需要版本历史；
-- 主 Agent、Skill、Subagent 和确定性工具各负责什么。
+- 主 Agent、Skill、子智能体和确定性工具各负责什么。
 
 一个阶段只有在完成条件可以由项目状态明确判断时，才能可靠地被编排和恢复。
 

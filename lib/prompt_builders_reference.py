@@ -1,4 +1,4 @@
-"""参考生视频模式 Prompt 构建器。
+"""参考生视频 Prompt 构建器。
 
 设计原则与 prompt_builders_script.py 一致：
 - 不重复 schema 已声明的枚举（type 等）；让 response_schema 直接约束。
@@ -6,7 +6,7 @@
 - 字段说明给指导和示例，不堆"必须 / 禁止"清单。
 - 跨 backend 时长 / references 上限通过参数显式注入，不在文本里硬编码秒数。
 
-两级 prompt 注入的书写层语法规范取自同一份常量
+两级 prompt 注入的引用语法规范取自同一份常量
 （``lib.reference_video.writing_syntax.WRITING_SYNTAX_SPEC``）：LLM 产出与人在编辑器写的
 是同一种格式，语法只能有一份措辞，本模块不复写。
 """
@@ -82,7 +82,7 @@ def build_reference_units_split_prompt(
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
-    """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 原文锚 + 书写层正文）。
+    """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 原文锚 + 引用语法正文）。
 
     由 ``split_reference_video_units`` MCP tool 消费。step1 定的是**结构与内容契约**——
     unit 边界、时长（即计费单位）、台词落位、核心资产指认；视觉展开（景别 / 构图 / 运镜）
@@ -172,7 +172,7 @@ def build_reference_units_split_prompt(
 
     return f"""# 角色与任务
 
-你是一位参考生视频单元架构师，本任务是把源文拆分为适配多模态参考视频模型的 video_unit 表（step1 内容拆分）。
+你是一位视频单元架构师，本任务是把源文拆分为适配多模态参考生视频模型的 video_unit 表（step1 内容整理）。
 每个 video_unit 对应**一次视频生成调用**，正文是一段连续的画面描述，一次生成完整覆盖它。
 本阶段定的是**结构与内容契约**：unit 边界、时长（时长即计费单位）、台词落位、核心资产指认——用户会逐 unit 审阅确认这份契约。
 视觉编排（景别 / 构图 / 运镜扩写）由后续 step2 以你的拆分为基底生成，本阶段不写。
@@ -271,7 +271,7 @@ def build_reference_video_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
 ) -> str:
-    """构建参考生视频模式 step2（视觉展开）的 LLM Prompt。
+    """构建参考生视频 step2（视觉展开）的 LLM Prompt。
 
     step2 只做一件事：把 step1 每个 unit 的正文按同一份书写语法扩写出视觉层，**保结构**——
     unit 数与顺序不变、台词逐字不变；时长不进输出（step1 定稿、机械沿用）。
@@ -294,7 +294,7 @@ def build_reference_video_prompt(
 
     return f"""# 角色与任务
 
-你是一位资深的短视频分镜编剧，本任务是为「参考生视频」模式的第 {episode} 集做**视觉展开**。
+你是一位资深的短视频分镜编剧，本任务是为采用「参考生视频」的第 {episode} 集做**视觉展开**。
 下方 step1_units 表给出的是已经用户确认的内容契约；你的任务是逐 unit 把正文扩写出景别 / 构图 / 运镜与画面细节。
 
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名保持英文。

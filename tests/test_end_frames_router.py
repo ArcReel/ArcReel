@@ -1,4 +1,4 @@
-"""镜头尾帧设置/清除端点测试。
+"""分镜尾帧设置/清除端点测试。
 
 覆盖两条设置通道（上传 / 项目内选图）落到同一快照路径、换图原地覆盖、清除语义、
 越界与缺失拒绝，以及快照与源图的解耦（源图被改写/删除不影响已定尾帧）。
@@ -441,7 +441,7 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
     """模拟「回滚重新过锁前，另一个并发请求已抢先完整地执行完自己的一次操作」。
 
     回滚判定的是「操作代次」而非文件内容（见 end_frame.py 模块 docstring 的退化值说明），
-    所以这里不能只改文件字节，还要推进该镜头的代次，否则复现不出代次判定要拦截的场景。
+    所以这里不能只改文件字节，还要推进该分镜的代次，否则复现不出代次判定要拦截的场景。
     `content=None` 表示并发的那一次是清除（文件被删）；否则表示并发的那一次是设置。
 
     补偿回滚会再发起一次 `locked_script`，其剧本读取即回滚临界区的起点——在其第 n 次被
@@ -510,7 +510,7 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.read_bytes() == before
 
     def test_set_failure_skips_restore_when_concurrent_write_supersedes(self, client, monkeypatch):
-        """回滚重新过锁时若该镜头的操作代次已前移，说明并发请求已经接管，
+        """回滚重新过锁时若该分镜的操作代次已前移，说明并发请求已经接管，
         必须跳过回滚——否则会用陈旧字节覆盖对方刚成功落盘的内容。"""
         c, pm = client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
@@ -761,7 +761,7 @@ def _client_with_project(
     project_generation_mode=None,
     grid_storyboard=None,
 ):
-    """构造项目 generation_mode 可控的测试 client，用于覆盖生成路线准入判定。"""
+    """构造项目 generation_mode 可控的测试 client，用于覆盖生成模式准入判定。"""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo", content_mode=content_mode)
     pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
@@ -805,10 +805,10 @@ def _ad_script(shot_id="E1S01") -> dict:
 
 
 class TestReferenceVideoRejection:
-    """项目生成路线为 reference_video 时，尾帧三端点一律拒绝。
+    """项目生成模式为 reference_video 时，尾帧三端点一律拒绝。
 
     判定只看 project.json：ad 剧本骨架不携带剧本级 generation_mode 戳（见 script_generator），
-    各内容模式共用这一口径。
+    各创作类型共用这一口径。
     """
 
     def test_ad_project_level_reference_video_rejects_all_three_endpoints(self, tmp_path, monkeypatch):
@@ -824,7 +824,7 @@ class TestReferenceVideoRejection:
         assert pm.load_script("demo", "episode_1.json")["shots"][0].get("end_frame_image") is None
 
     def test_ad_storyboard_route_allows_end_frame(self, tmp_path, monkeypatch):
-        # 分镜路线的 ad 项目照常放行。
+        # 分镜图生视频的 ad 项目照常放行。
         c, _pm = _client_with_project(
             tmp_path,
             monkeypatch,
@@ -869,7 +869,7 @@ class TestReferenceVideoRejection:
         assert pm.load_script("demo", "episode_1.json")["segments"][0]["end_frame_image"] == END_FRAME_REL
 
     def test_script_without_episode_number_rejected_by_project_route(self, tmp_path, monkeypatch):
-        # 剧本与文件名都不含集号：判定只需项目路线，照常拒绝且不落到 500。
+        # 剧本与文件名都不含集号：判定只需项目生成模式，照常拒绝且不落到 500。
         script = {
             "title": "E1",
             "content_mode": "narration",

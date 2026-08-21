@@ -1,4 +1,4 @@
-"""step1→step2 审核 gate 路由测试：审阅读取、内容编辑、确认动作的可测状态流转。"""
+"""step1→step2 内容确认路由测试：审阅读取、内容编辑、确认动作的可测状态流转。"""
 
 from __future__ import annotations
 
@@ -210,7 +210,7 @@ class TestReferenceVideoRouter:
             assert body["quarantine"] is None
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
 
-            # 编辑单元正文 → 重新待审
+            # 编辑单元正文 → 重新等待确认
             edited = _rv_step1()
             edited["units"][0]["text"] = "@[阿离] 转身离去。"
             put = client.put(f"{base}/content", json=edited)
@@ -224,7 +224,7 @@ class TestReferenceVideoRouter:
 
     @pytest.mark.unit
     def test_quarantine_surfaced_with_recomputed_line_anchored_violations(self, tmp_path, monkeypatch):
-        """隔离草稿在场时 GET 附带 ``quarantine`` 字段：违约按产出时那套校验器读时重算，
+        """草稿在场时 GET 附带 ``quarantine`` 字段：违约按产出时那套校验器读时重算，
         不信任草稿里上一轮的快照（这里把快照消息故意写成 "stale" 来验证）。"""
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from lib.reference_video.draft_validation import DraftViolation
@@ -259,7 +259,7 @@ class TestReferenceVideoRouter:
             assert violations[0]["line"] == 1
             assert violations[0]["message"] != "stale"
 
-            # 隔离草稿在场时确认被拒：正式 step1 还没有一份可放行的内容。
+            # 草稿在场时确认被拒：正式 step1 还没有一份可放行的内容。
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 409
 
@@ -339,8 +339,8 @@ class TestReferenceVideoRouter:
 
     @pytest.mark.integration
     def test_quarantine_corrupted_envelope_reported_not_treated_as_clean(self, tmp_path, monkeypatch):
-        """隔离草稿文件存在但信封本身损坏（非法 JSON）：``read_quarantine`` 按其自身读取口径
-        返回 None，但 GET 响应不能把这等同于「无隔离草稿」——那会让面板显示干净态、放行确认，
+        """草稿文件存在但信封本身损坏（非法 JSON）：``read_quarantine`` 按其自身读取口径
+        返回 None，但 GET 响应不能把这等同于「无草稿」——那会让面板显示干净态、放行确认，
         而 confirm() 仍会按文件存在性 409（用户点确认却总是失败，且看不到任何解释）。
         """
         from lib import script_review as lib_script_review
@@ -368,9 +368,9 @@ class TestReferenceVideoRouter:
     def test_quarantine_cleared_between_existence_check_and_read_is_not_reported_as_corrupted(
         self, tmp_path, monkeypatch
     ):
-        """存在性检查通过之后、``read_quarantine`` 真正读取之前，晋升工具把隔离文件清掉了
-        （正式内容已写入、隔离态合法结束）：这不是信封损坏，这次读跨越了「清除」那一刻，应
-        按「无隔离草稿」处理，不能误报成损坏——那会让刚晋升完成的集看起来还卡在隔离态。"""
+        """存在性检查通过之后、``read_quarantine`` 真正读取之前，晋升工具把待处置草稿清掉了
+        （正式内容已写入）：这不是信封损坏，这次读跨越了「清除」那一刻，应按「无草稿」处理，
+        不能误报成损坏——那会让刚晋升完成的集看起来仍有待处置草稿。"""
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from server.services import script_review as mod
 
@@ -404,7 +404,7 @@ class TestReferenceVideoRouter:
         """``quarantine_unreadable`` 违约的 message 走 ``_t`` 按 ``Accept-Language`` 本地化。
 
         其它违约 code 的 message 是产出时渲染好插值的中文模板，不做本地化；``quarantine_unreadable``
-        是仅有的两处不带插值的固定字符串（隔离草稿信封损坏 / 重算所需的 meta 缺失损坏），本地化
+        是仅有的两处不带插值的固定字符串（草稿信封损坏 / 重算所需的 meta 缺失损坏），本地化
         改造范围就锁定在这两条。"""
         from lib import script_review as lib_script_review
 
@@ -448,7 +448,7 @@ class TestReferenceVideoRouter:
         """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：caps 是它唯一的档位来源。
 
         ``supported_durations``（未收窄全集，供存量草稿的读时收编 clamp）与 ``duration_tiers``
-        （收窄后的逐 unit 可选项）都要经 caps 解析出真实档位，否则这类项目的审阅门只能退回
+        （收窄后的逐 unit 可选项）都要经 caps 解析出真实档位，否则这类项目的内容确认只能退回
         结构区间 clamp，读时迁移的收编对其整体失效。
         """
         from server.agent_runtime.sdk_tools import _context
@@ -474,7 +474,7 @@ class TestReferenceVideoRouter:
 
     @pytest.mark.integration
     def test_quarantine_with_non_string_meta_source_degrades_gracefully(self, tmp_path, monkeypatch):
-        """隔离草稿信封本身合法，但 ``meta.source`` 被改成非字符串（如数字）：重算链路要把它当作
+        """草稿信封本身合法，但 ``meta.source`` 被改成非字符串（如数字）：重算链路要把它当作
         「无法重算」降级，而不是让 ``safe_join`` 内部的 ``TypeError`` 冒穿成未处理的 500——那样
         用户在最需要看到面板给出修复指引的时刻，看到的反而是一个空白错误页。"""
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
@@ -523,9 +523,9 @@ class TestReferenceVideoRouter:
 
     @pytest.mark.integration
     def test_put_response_includes_quarantine_created_during_the_request(self, tmp_path, monkeypatch):
-        """保存作用于正式草稿，隔离草稿是另一份文件——PUT 响应缺 ``quarantine`` 字段的话，
-        面板 ``adopt()`` 会把它当成「无隔离草稿」而放行确认，即使这份隔离草稿在保存前后一直
-        都在（这里用「保存时隔离草稿已存在」模拟，等价于「保存在途时才产出」的时序）。"""
+        """保存作用于正式草稿，草稿是另一份文件——PUT 响应缺 ``quarantine`` 字段的话，
+        面板 ``adopt()`` 会把它当成「无草稿」而放行确认，即使这份草稿在保存前后一直
+        都在（这里用「保存时草稿已存在」模拟，等价于「保存在途时才产出」的时序）。"""
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from lib.reference_video.draft_validation import DraftViolation
 

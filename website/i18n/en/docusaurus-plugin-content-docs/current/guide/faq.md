@@ -177,25 +177,25 @@ A read timeout after a generation request is submitted can leave an uncertain st
 
 ## Project workflows and tasks {#project-workflow-and-tasks}
 
-### How should I choose a project mode and the Storyboard or Reference-to-video route? Can I change them later? {#choose-mode-and-route}
+### How should I choose a content mode and a video generation mode? Can I change them later? {#choose-mode-and-route}
 
 You must choose two separate dimensions when creating a project:
 
 - **Content Mode**: Narration/Commentary, Drama, or Ad / Short Video. This determines the screenplay structure and production workflow.
-- **Video generation route**: Storyboard or Reference-to-video. This determines whether videos use storyboard images or asset reference images.
+- **Video generation mode**: Storyboard or Reference-to-video. This determines whether videos use storyboard images or asset reference images.
 
-Content Mode and the video generation route cannot be changed after creation. Multi-grid storyboards are not a third route; they are an image-generation method within the Storyboard route. Ad / Short Video projects do not support multi-grid storyboards. Before creating the full project, use a short sample to confirm that the route fits your needs.
+Content mode and video generation mode cannot be changed after creation. Multi-grid storyboards are not a third generation mode; they are an image-generation method within Storyboard mode. Ad / Short Video projects do not support multi-grid storyboards. Before creating the full project, use a short sample to confirm that the generation mode fits your needs.
 
-- **Storyboard route**: screenplay → character/scene/prop designs → storyboard images → video. Each shot must have a corresponding storyboard image before video generation.
-- **Multi-grid storyboards**: still part of the Storyboard route, as an image-generation method within it. ArcReel first generates one or more grid images, splits them into starting storyboard images for each shot, and then generates video from those storyboard images.
-- **Reference-to-video route**: skips storyboard images and directly uses the character, scene, and prop designs referenced by the screenplay as video references.
+- **Storyboard mode**: screenplay → character/scene/prop designs → storyboard images → video. Each shot must have a corresponding storyboard image before video generation.
+- **Multi-grid storyboards**: still part of Storyboard mode, as an image-generation method within it. ArcReel first generates one or more grid images, splits them into starting storyboard images for each shot, and then generates video from those storyboard images.
+- **Reference-to-video mode**: skips storyboard images and directly uses the character, scene, and prop designs referenced by the screenplay as video references.
 
 Reference-to-video does not mean that asset images are unnecessary. If a referenced asset in a Narration/Commentary or Drama project has no design image, its video will fail. In an Ad / Short Video project, a task may continue without merchandise reference images, but merchandise fidelity cannot be guaranteed.
 
-If the video provider receives only text and no storyboard or reference image, verify the project route, actual model, and custom model's call endpoint:
+If the video provider receives only text and no storyboard or reference image, verify the project's generation mode, actual model, and custom model's call endpoint:
 
-1. The Storyboard route sends the shot's storyboard image as the video's starting image.
-2. The Reference-to-video route collects the asset designs referenced by the screenplay.
+1. Storyboard mode sends the shot's storyboard image as the video's starting image.
+2. Reference-to-video mode collects the asset designs referenced by the screenplay.
 3. The selected video model and call endpoint must explicitly support the corresponding image-to-video or reference-to-video capability.
 
 If a custom model is registered only with a text-to-video endpoint, or if its declared capabilities do not match the upstream API, ArcReel cannot send reference images to the service using the correct protocol.
@@ -212,8 +212,8 @@ Usually a prerequisite review or asset is incomplete:
 
 1. For Narration/Commentary and Drama projects, confirm that the screenplay preprocessing result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
 2. Check whether characters, scenes, and props have definitions but no generated design images.
-3. On the Storyboard route, check whether the target shot has a storyboard image.
-4. On the Reference-to-video route, verify that referenced assets in Narration/Commentary and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.
+3. In Storyboard mode, check whether the target shot has a storyboard image.
+4. In Reference-to-video mode, verify that referenced assets in Narration/Commentary and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.
 5. Expand the task panel and check for tasks that are still queued, running, or failed.
 
 Do not judge completion solely from the phase number in the header. Assets in the sidebar, episode status, and task errors provide more specific information about what is missing.
@@ -237,19 +237,19 @@ To avoid duplicate charges, ArcReel does not unconditionally requeue every runni
 3. After changing a character design, regenerate the affected storyboards and videos. Existing results are not updated automatically.
 4. Validate the selected model's reference-image capabilities with a few shots before scaling up the batch.
 
-When generating a storyboard, ArcReel uses the character, scene, and prop designs referenced by that shot as reference images. Videos on the Storyboard route then use the storyboard image as their first frame, while the Reference-to-video route directly uses asset images. Generation models still cannot guarantee absolute frame-by-frame consistency.
+When generating a storyboard, ArcReel uses the character, scene, and prop designs referenced by that shot as reference images. Videos in Storyboard mode then use the storyboard image as their first frame, while Reference-to-video mode directly uses asset images. Generation models still cannot guarantee absolute frame-by-frame consistency.
 
 ### How can I make adjacent shots more continuous? {#shot-continuity}
 
-On the Storyboard route, when a shot is not the first shot, is not marked as a new segment, and the previous storyboard has already been generated, ArcReel uses that previous storyboard as a continuity reference. This helps carry over composition, color, and setting, but it cannot guarantee a seamless join between two independently generated videos.
+In Storyboard mode, when a shot is not the first shot, is not marked as a new segment, and the previous storyboard has already been generated, ArcReel uses that previous storyboard as a continuity reference. This helps carry over composition, color, and setting, but it cannot guarantee a seamless join between two independently generated videos.
 
 Lock down assets and storyboards before generating video, and keep location, time, clothing, and character descriptions consistent across adjacent shots. For important transitions, use a model that supports end frames or handle them in a post-production tool such as Jianying.
 
 ### How do start and end frames work? {#first-and-last-frame}
 
-On the Storyboard route, the storyboard image is the video's first frame. You can also select or upload an end frame for each shot, but generation is available only when the current video model explicitly supports end frames. For unsupported models, ArcReel rejects the request instead of silently ignoring the end frame.
+In Storyboard mode, the storyboard image is the video's first frame. You can also select or upload an end frame for each shot, but generation is available only when the current video model explicitly supports end frames. For unsupported models, ArcReel rejects the request instead of silently ignoring the end frame.
 
-The Reference-to-video route has no separate end-frame setting. Changing a storyboard or end frame does not automatically update an existing video; regenerate the corresponding video to apply the change.
+Reference-to-video mode has no separate end-frame setting. Changing a storyboard or end frame does not automatically update an existing video; regenerate the corresponding video to apply the change.
 
 ### Why are people appearing in a scene design? {#people-in-scene-images}
 
@@ -261,7 +261,7 @@ A scene design is different from a story-specific storyboard image: the scene de
 
 The Web UI currently offers standalone voice-over TTS only for Narration/Commentary. You can preview or generate voice-over segment by segment or for a full episode, then include it in a Jianying draft export. Configure the speech provider, voice, and speed globally or per project; some models do not support speed control.
 
-Built-in speech from a video model, character reference audio, and standalone voice-over TTS are separate capabilities. Character reference audio is currently used on the Reference-to-video route, and the selected video model must explicitly support reference audio. On the Storyboard route, or when only a voice description is available, voice is a soft constraint and cannot guarantee identical timbre across segments.
+Built-in speech from a video model, character reference audio, and standalone voice-over TTS are separate capabilities. Character reference audio is currently used in Reference-to-video mode, and the selected video model must explicitly support reference audio. In Storyboard mode, or when only a voice description is available, voice is a soft constraint and cannot guarantee identical timbre across segments.
 
 ## Costs, data, and export {#cost-data-export}
 

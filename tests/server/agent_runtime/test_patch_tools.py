@@ -550,7 +550,7 @@ class TestPatchEpisodeScript:
 
     @pytest.mark.unit
     async def test_drama_mode_by_scene_id(self, drama_ctx: ToolContext) -> None:
-        """drama 模式：按 scene_id 定位，批量改字段落盘。"""
+        """剧情演绎：按 scene_id 定位，批量改字段落盘。"""
         out = await _call(
             patch_episode_script_tool(drama_ctx),
             {"script": "episode_1.json", "edits": {"E1S02": {"image_prompt.scene": "剧集新场景"}}},
@@ -622,19 +622,19 @@ class TestPatchEpisodeScript:
     @pytest.mark.integration
     async def test_reference_text_edit_moves_the_derived_references(self, ref_ctx: ToolContext) -> None:
         project = ref_ctx.pm.load_project("demo")
-        project["products"] = {"产品A": {"description": ""}, "产品B": {"description": ""}}
+        project["products"] = {"商品A": {"description": ""}, "商品B": {"description": ""}}
         ref_ctx.pm.save_project("demo", project)
         script = _reference_script()
-        script["video_units"][0]["text"] = "@[产品A] 正面展示"
+        script["video_units"][0]["text"] = "@[商品A] 正面展示"
         ref_ctx.pm.save_script("demo", script, "episode_1.json")
 
         changed = await _call(
             patch_episode_script_tool(ref_ctx),
-            {"script": "episode_1.json", "edits": {"E1U1": {"text": "@[产品B] 侧面展示"}}},
+            {"script": "episode_1.json", "edits": {"E1U1": {"text": "@[商品B] 侧面展示"}}},
         )
 
         assert changed.get("is_error") is not True
-        assert _derived_references(ref_ctx, 0) == [("product", "产品B")]
+        assert _derived_references(ref_ctx, 0) == [("product", "商品B")]
 
     @pytest.mark.integration
     async def test_reference_text_edit_admits_non_character_mentions(self, ref_ctx: ToolContext) -> None:
@@ -666,7 +666,7 @@ class TestPatchEpisodeScript:
 
     @pytest.mark.unit
     async def test_ad_mode_by_shot_id(self, ad_ctx: ToolContext) -> None:
-        """ad 模式：按 shot_id 定位，批量改字段落盘。"""
+        """广告/短片：按 shot_id 定位，批量改字段落盘。"""
         out = await _call(
             patch_episode_script_tool(ad_ctx),
             {"script": "episode_1.json", "edits": {"E1S02": {"voiceover_text": "新口播"}}},
@@ -968,7 +968,7 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_entry_name_whitespace_normalized(self, ctx: ToolContext) -> None:
-        """agent 传带前后空格的 name → strip 规范化后存储（避免按 name 查找因空格差异 mismatch）。"""
+        """Agent 传带前后空格的 name → strip 规范化后存储（避免按 name 查找因空格差异 mismatch）。"""
         out = await _call(
             patch_project_tool(ctx),
             {"table": "characters", "entries": {"  李白  ": {"description": "白衣剑客"}}},
@@ -990,7 +990,7 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_non_string_extra_field_rejected(self, ctx: ToolContext) -> None:
-        """voice_style 等 extra_string_fields 须为字符串：agent 传 int / dict / list 会被守卫点拦下，
+        """voice_style 等 extra_string_fields 须为字符串：Agent 传 int / dict / list 会被守卫点拦下，
         否则下游把 reference_image 当路径拼接时会运行时崩。"""
         out = await _call(
             patch_project_tool(ctx),
@@ -1001,8 +1001,8 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_upsert_strips_sheet_and_unknown_fields(self, ctx: ToolContext) -> None:
-        """least-privilege：agent 仅能改 description + spec.extra_string_fields。
-        sheet 字段（系统生成的资产图路径）+ spec-undeclared key 均被静默丢弃，不让 agent
+        """least-privilege：Agent 仅能改 description + spec.extra_string_fields。
+        sheet 字段（系统生成的资产图路径）+ spec-undeclared key 均被静默丢弃，不让 Agent
         覆写本不该碰的字段。"""
         # 先 upsert 一个干净 entry，再尝试用 patch 改 sheet（应被忽略）+ 加 unknown key
         await _call(
@@ -1032,13 +1032,13 @@ class TestPatchProject:
         char = ctx.pm.load_project("demo")["characters"]["李白"]
         assert char["description"] == "改后描述"
         assert char["voice_style"] == "沉稳"
-        assert char["character_sheet"] == "characters/li_bai.png"  # 系统字段未被 agent 覆写
+        assert char["character_sheet"] == "characters/li_bai.png"  # 系统字段未被 Agent 覆写
         assert "random_extra_field" not in char  # spec 外字段不入库
 
     @pytest.mark.unit
     async def test_upsert_strips_reference_audio(self, ctx: ToolContext) -> None:
         """reference_audio 与 reference_image 同性质（用户上传路径），不进
-        agent_editable_extra_fields，agent 尝试写入应被静默丢弃。"""
+        agent_editable_extra_fields，Agent 尝试写入应被静默丢弃。"""
         ctx.pm.update_project(
             "demo",
             lambda p: p["characters"].update(
@@ -1066,11 +1066,11 @@ class TestPatchProject:
         )
         assert out.get("is_error") is not True
         char = ctx.pm.load_project("demo")["characters"]["李白"]
-        assert char["reference_audio"] == "characters/refs_audio/李白.wav"  # 未被 agent 覆写
+        assert char["reference_audio"] == "characters/refs_audio/李白.wav"  # 未被 Agent 覆写
 
     @pytest.mark.unit
     async def test_non_string_description_rejected(self, ctx: ToolContext) -> None:
-        """description 必须是非空字符串：agent 误传数字（如 LLM 把"1"输出成 int）
+        """description 必须是非空字符串：Agent 误传数字（如 LLM 把"1"输出成 int）
         会让原 truthy 校验放行、错误数据作为合法资产落盘——守卫点须 fail-loud。"""
         out = await _call(
             patch_project_tool(ctx),
@@ -1093,7 +1093,7 @@ class TestPatchProject:
     @pytest.mark.unit
     async def test_normalized_name_collision_fails_loud(self, ctx: ToolContext) -> None:
         """两个 raw key strip 后等价（如 "李白" 与 "  李白  "）→ fail-loud，避免后者
-        silent overwrite 前者的 attrs；agent 应明确感知 collision 并去重。"""
+        silent overwrite 前者的 attrs；Agent 应明确感知 collision 并去重。"""
         out = await _call(
             patch_project_tool(ctx),
             {
@@ -1111,7 +1111,7 @@ class TestPatchProject:
     @pytest.mark.unit
     async def test_upsert_strips_reference_image_field(self, ctx: ToolContext) -> None:
         """reference_image 是用户上传或系统生成的文件路径（与 sheet_field 同性质），
-        agent_editable_extra_fields 不包含它——patch_project 应静默丢弃，不让 agent
+        agent_editable_extra_fields 不包含它——patch_project 应静默丢弃，不让 Agent
         覆写用户已上传的角色参考图。更新走专用 API update_character_reference_image。
         validator 维度的 extra_string_fields 仍保留 reference_image 用于类型校验。"""
         # 先 upsert 一个干净 entry
@@ -1123,7 +1123,7 @@ class TestPatchProject:
         ctx.pm.update_character_reference_image("demo", "李白", "characters/refs/li_bai.jpg")
         assert ctx.pm.load_project("demo")["characters"]["李白"]["reference_image"] == "characters/refs/li_bai.jpg"
 
-        # agent 尝试改描述时顺带覆写 reference_image——应被丢弃
+        # Agent 尝试改描述时顺带覆写 reference_image——应被丢弃
         out = await _call(
             patch_project_tool(ctx),
             {
@@ -1141,12 +1141,12 @@ class TestPatchProject:
         char = ctx.pm.load_project("demo")["characters"]["李白"]
         assert char["description"] == "改后描述"
         assert char["voice_style"] == "沉稳"
-        # 用户上传的 reference_image 不被 agent 覆写
+        # 用户上传的 reference_image 不被 Agent 覆写
         assert char["reference_image"] == "characters/refs/li_bai.jpg"
 
     @pytest.mark.unit
     async def test_product_upsert_selling_points_editable(self, ctx: ToolContext) -> None:
-        """products 表对 agent 开放；selling_points 在可编辑白名单内（agent 起草、用户可改），
+        """products 表对 Agent 开放；selling_points 在可编辑白名单内（Agent 起草、用户可改），
         新 entry 的列表字段按 spec 初始化。"""
         out = await _call(
             patch_project_tool(ctx),
@@ -1165,7 +1165,7 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_product_upsert_strips_reference_images(self, ctx: ToolContext) -> None:
-        """reference_images 是用户上传的原图路径列表（保真验收锚点），不在 agent 白名单——
+        """reference_images 是用户上传的原图路径列表（保真验收锚点），不在 Agent 白名单——
         upsert 应静默丢弃且不覆写既有值，更新走专用上传 API。"""
         await _call(
             patch_project_tool(ctx),
@@ -1204,8 +1204,8 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_response_distinguishes_added_and_merged(self, ctx: ToolContext) -> None:
-        """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 agent 验证是否符合预期策略
-        (如 analyze-assets subagent 应预期合并数=0,出现合并数说明遗漏了已存在过滤)。"""
+        """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 Agent 验证是否符合预期策略
+        (如 analyze-assets 子智能体应预期合并数=0,出现合并数说明遗漏了已存在过滤)。"""
         out1 = await _call(
             patch_project_tool(ctx),
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
@@ -1242,13 +1242,13 @@ class TestPatchProject:
         text = _text(out)
         assert "reference_image" in text
         assert "character_sheet" in text
-        assert "agent 可编辑范围" in text or "已忽略" in text
+        assert "Agent 可编辑范围" in text or "已忽略" in text
 
     @pytest.mark.unit
     async def test_existing_entry_with_only_dropped_fields_reports_noop(self, ctx: ToolContext) -> None:
-        """已存在的 entry,agent 提交的全部字段都被白名单/legacy strip 丢空时,
+        """已存在的 entry,Agent 提交的全部字段都被白名单/legacy strip 丢空时,
         cleaned[name]={} → bucket.update({}) 是 no-op。工具应明确报『无可写字段已跳过』,
-        不应误报『合并改字段 1 个』让 agent 以为有变更。"""
+        不应误报『合并改字段 1 个』让 Agent 以为有变更。"""
         # 先建一个干净 entry
         await _call(
             patch_project_tool(ctx),
@@ -1272,7 +1272,7 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_response_lists_dropped_legacy_fields(self, ctx: ToolContext) -> None:
-        """工具返回文本应显式列出被剔除的历史字段(type / importance),让 agent 不再发它们。"""
+        """工具返回文本显式列出被剔除的历史字段(type / importance)，供 Agent 避免发送。"""
         out = await _call(
             patch_project_tool(ctx),
             {

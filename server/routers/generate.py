@@ -251,7 +251,7 @@ async def generate_video(
 
     需要先有分镜图作为起始帧。生成由 GenerationWorker 异步执行。
 
-    仅服务分镜图生视频路线：参考生视频路线没有分镜图这一步，在此拒绝并指引换入口。
+    仅服务分镜图生视频：参考生视频没有分镜图这一步，在此拒绝并指引换入口。
     """
 
     def _sync() -> tuple[dict, Path, dict, dict]:
@@ -259,9 +259,9 @@ async def generate_video(
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
 
-        # 路线闸门前置于分镜图存在性检查：参考路线项目本无分镜图步骤，落到下面会拿到
-        # 「请先生成分镜图」的误导指引；换路线前残留分镜图时更糟——请求按 i2v 执行，
-        # 与按 r2v 归桶的费用估算不同轴。路线以 project.json 为唯一真相源，磁盘产物不投票。
+        # 生成模式检查前置于分镜图存在性检查：参考生视频项目本无分镜图步骤，否则会拿到
+        # 「请先生成分镜图」的误导指引。磁盘中即使存在不适用于当前模式的分镜图也不参与判定；
+        # 生成模式以 project.json 为唯一真相源，确保请求执行与费用估算使用同一轴。
         if is_reference_video_project(project):
             raise ConflictError("video_route_is_reference_video")
 
@@ -305,8 +305,8 @@ async def generate_video(
 
     project, project_path, script, item = await asyncio.to_thread(_sync)
 
-    # 归桶按项目路线求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
-    # 上面的路线闸门已挡掉参考路线，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
+    # 归桶按项目生成模式求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
+    # 上面的生成模式检查已挡掉参考生视频，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
     # 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
     _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
     await require_video_bucket_capability(project, _video_bucket)
@@ -611,7 +611,7 @@ async def generate_character_voice_sample(
     """提交角色 TTS 试听样本生成任务：文本/音色显式传入，不落回全局旁白配置。
 
     生成产物是预览件，仅在 confirm 端点被显式提升为角色 reference_audio；本端点
-    只负责入队，走既有 audio 生成通道（并发/限速/记账与旁白 TTS 完全同一套）。
+    只负责入队，走既有 audio 生成通道（并发/限速/记账与旁白配音完全同一套）。
     """
     text = req.text.strip()
     voice = req.voice.strip()
@@ -754,7 +754,7 @@ async def confirm_character_voice_sample(
     }
 
 
-# ==================== 资产设计图生成（character / scene / prop / product 共用） ====================
+# ==================== 资产图生成（character / scene / prop / product 共用） ====================
 
 
 # i18n key 命名差异：scene 用历史前缀 "project_scene_*"
@@ -775,7 +775,7 @@ async def _enqueue_asset_generation(
     user_id: str,
     _t: Translator,
 ) -> dict:
-    """项目级资产（character / scene / prop / product）设计图生成共用入队逻辑。"""
+    """项目级资产（character / scene / prop / product）资产图生成共用入队逻辑。"""
     spec = ASSET_SPECS[asset_type]
     keys = _ASSET_GENERATE_I18N[asset_type]
 
@@ -824,7 +824,7 @@ async def generate_character(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交角色设计图生成任务到队列，立即返回 task_id。"""
+    """提交角色资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
         asset_type="character",
         project_name=project_name,
@@ -843,7 +843,7 @@ async def generate_scene(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交场景设计图生成任务到队列，立即返回 task_id。"""
+    """提交场景资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
         asset_type="scene",
         project_name=project_name,
@@ -862,7 +862,7 @@ async def generate_prop(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交道具设计图生成任务到队列，立即返回 task_id。"""
+    """提交道具资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
         asset_type="prop",
         project_name=project_name,
@@ -881,7 +881,7 @@ async def generate_product(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交产品标准参考图（product sheet）生成任务到队列，立即返回 task_id。"""
+    """提交商品标准参考图（product sheet）生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
         asset_type="product",
         project_name=project_name,

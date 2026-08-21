@@ -73,7 +73,7 @@ describe("UtteranceListEditor", () => {
 
   it("shows an empty hint when there are no utterances", () => {
     render(<UtteranceListEditor utterances={[]} onChange={() => {}} />);
-    expect(screen.getByText("本场景暂无发声内容。")).toBeInTheDocument();
+    expect(screen.getByText("本分镜暂无发声内容。")).toBeInTheDocument();
   });
 
   // 稳定 key 回归：数组索引作 key 时删除 / 移动会按位复用受控输入节点，

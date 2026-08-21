@@ -60,7 +60,7 @@ _OPERATION = "generate_grid"
 
 
 def _scene_artifact_key(episode: int, scene_id: str) -> ArtifactKey:
-    """本工具的产物是各场景的分镜格；联合图只是共享的载体，不是被请求的 ID。"""
+    """本工具的产物是各分镜的分镜格；联合图只是共享的载体，不是被请求的 ID。"""
 
     return ArtifactKey.episode_storyboard(episode, scene_id)
 
@@ -77,7 +77,7 @@ def _fail_scenes(
     provider_checkpoint: ProviderCheckpoint | None = None,
     artifact_paths: Mapping[str, str] | None = None,
 ) -> None:
-    """一张宫格的失败落到它覆盖的每个场景：调用方点的是场景，不是宫格。
+    """一张宫格的失败落到它覆盖的每个分镜：调用方点的是分镜，不是宫格。
 
     ``artifact_paths`` 是剧本里已登记的旧图路径（点名强制路线也会有——旧图存在，
     只是该路线不复用它）。失败不动旧产物，但报告要带上它的路径与状态，否则
@@ -131,7 +131,7 @@ def _list_groups(
         ids = [item[id_field] for item in group]
         plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
         status = _describe_plans(plans)
-        lines.append(f"  组 {i + 1}: {ids[0]}..{ids[-1]} ({len(ids)} 场景) → {status}")
+        lines.append(f"  组 {i + 1}: {ids[0]}..{ids[-1]} ({len(ids)} 分镜) → {status}")
     return lines
 
 
@@ -150,11 +150,11 @@ def generate_grid_tool(ctx: ToolContext):
         _OPERATION,
         "为已开启宫格装配的 storyboard 项目（generation_mode=storyboard 且 grid_storyboard=true）"
         "生成宫格联合图（按 segment_break 分组），并在每张生成完成后自动执行切分落格，"
-        "端到端产出各场景起始分镜图。"
-        "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些场景的分组；"
+        "端到端产出各分镜的起始分镜图。"
+        "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些分镜的分组；"
         "不传 scene_ids 时只生成仍缺分镜图的分组，已失效但可用的旧图会被复用而不重生。"
-        "结果按 requested / succeeded / failed / blocked 逐场景 ID 返回"
-        "（同一分组的场景共享一张宫格，该宫格的结果投影到它覆盖的每个场景）。",
+        "结果按 requested / succeeded / failed / blocked 逐分镜 ID 返回"
+        "（同一分组的分镜共享一张宫格，该宫格的结果投影到它覆盖的每个分镜）。",
         {
             "type": "object",
             "properties": {
@@ -165,7 +165,7 @@ def generate_grid_tool(ctx: ToolContext):
                 "scene_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "只生成包含这些场景的分组；不传则只生成仍缺分镜图的分组",
+                    "description": "只生成包含这些分镜的分组；不传则只生成仍缺分镜图的分组",
                 },
                 "list_only": {"type": "boolean", "description": "仅列出分组信息，不入队"},
             },
@@ -180,8 +180,8 @@ def generate_grid_tool(ctx: ToolContext):
 
             project = ctx.pm.load_project(ctx.project_name)
             script = ctx.pm.load_script(ctx.project_name, script_filename)
-            # 失配剧本在此被拒：按分镜路线该读的数组不在剧本里，继续走下去只会
-            # 报"没有匹配的场景组"，把成因埋掉。
+            # 失配剧本在此被拒：按分镜图生视频该读的数组不在剧本里，继续走下去只会
+            # 报"没有匹配的分镜组"，把成因埋掉。
             ensure_route_skeleton(script, resolve_content_mode(script, project), project.get("generation_mode"))
 
             # ``list_only`` 是 ``generate_grid`` 工具的预览模式，与生成分支一样
@@ -213,7 +213,7 @@ def generate_grid_tool(ctx: ToolContext):
             style = project.get("style", "")
             resolver = active_artifact_currency_resolver(project_path, project)
             groups = group_scenes_by_segment_break(items, id_field)
-            # 失败落回场景时用来带上旧图路径与状态（见 ``_fail_scenes`` docstring）；
+            # 失败落回分镜时用来带上旧图路径与状态（见 ``_fail_scenes`` docstring）；
             # 与选择阶段的候选路径同源，取自剧本已登记的 storyboard_image。
             scene_artifact_paths = {
                 str(item.get(id_field)): path
@@ -229,7 +229,7 @@ def generate_grid_tool(ctx: ToolContext):
             log: list[str] = []
             # 每个已选分组连同它的缺口 ID 集合一起记录：整组仍要一起生成（联合图靠
             # 相邻分镜连续性），但只有缺口 ID 才是这次调用实际请求生成的目标——组内
-            # 已复用（``builder.skip`` 已记账）的场景不能进这里，否则宫格结果落盘会
+            # 已复用（``builder.skip`` 已记账）的分镜不能进这里，否则宫格结果落盘会
             # 覆盖它们，且成功/失败回填时会撞上"重复记账"。
             selected_groups: list[tuple[list[dict[str, Any]], frozenset[str]]] = []
 
@@ -242,7 +242,7 @@ def generate_grid_tool(ctx: ToolContext):
                             sid,
                             problem=GenerationProblem(
                                 code=GenerationProblemCode.UNIT_NOT_FOUND,
-                                detail=f"场景 {sid} 不在当前剧本中",
+                                detail=f"分镜 {sid} 不在当前剧本中",
                                 action=GenerationAction.FIX_INPUT,
                             ),
                         )
@@ -280,8 +280,8 @@ def generate_grid_tool(ctx: ToolContext):
                                 artifact_status=state.status,
                             )
                         # 宫格整组共用一张联合图：同组任一格状态不可读就无法安全出图，
-                        # 组内仍缺分镜图的场景（targets）同样被阻塞，逐场景给结论而不是
-                        # 留空让调用方猜。已复用的场景（skipped）不受影响——它们各自的
+                        # 组内仍缺分镜图的分镜（targets）同样被阻塞，逐分镜给结论而不是
+                        # 留空让调用方猜。已复用的分镜（skipped）不受影响——它们各自的
                         # 旧图已确认可用，这次调用本就不会碰它们，"产物状态不可读、需要
                         # 修复"对它们是错误结论，仍按正常复用记账。
                         for state in selection.targets:
@@ -291,7 +291,7 @@ def generate_grid_tool(ctx: ToolContext):
                                 state.unit_id,
                                 problem=GenerationProblem(
                                     code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
-                                    detail=f"同组场景 {sorted(unavailable_ids)} 的产物状态不可读，整张宫格无法生成",
+                                    detail=f"同组分镜 {sorted(unavailable_ids)} 的产物状态不可读，整张宫格无法生成",
                                     action=GenerationAction.REPAIR_ARTIFACT_STATE,
                                 ),
                                 artifact_key=state.artifact_key,
@@ -302,7 +302,7 @@ def generate_grid_tool(ctx: ToolContext):
                             builder.skip(state)
                         continue
                     if not selection.targets:
-                        # 整组分镜图都还可用：逐场景报告复用，宫格本身不进结果集。
+                        # 整组分镜图都还可用：逐分镜报告复用，宫格本身不进结果集。
                         for state in selection.skipped:
                             builder.skip(state)
                         continue
@@ -317,7 +317,7 @@ def generate_grid_tool(ctx: ToolContext):
             pending: list[tuple[GridGeneration, str, list[str]]] = []
 
             for group, target_ids in selected_groups:
-                # 超上限分组切为多张宫格逐张入队：每张的场景数与画格数一致
+                # 超上限分组切为多张宫格逐张入队：每张的分镜数与画格数一致
                 # （末张不足一档时落小档 + 占位格），与预览、费用估算同源。
                 # 空分组（``plan_grid_chunks`` 的唯一空产出）自然跳过循环体。
                 plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=allow_large_grid)
@@ -338,7 +338,7 @@ def generate_grid_tool(ctx: ToolContext):
                     gm.cleanup_superseded(script_filename, episode, generated_ids)
                 for chunk, layout in plans:
                     chunk_ids = [item[id_field] for item in chunk]
-                    # 该张宫格覆盖的场景里，只有落在缺口集合内的才是这次要落格/报告
+                    # 该张宫格覆盖的分镜里，只有落在缺口集合内的才是这次要落格/报告
                     # 的目标；组内混入的可复用成员已在选择阶段记过 skip，这里绝不能
                     # 再碰它们（落格会覆盖旧图，重复记账会撞上 builder 的去重断言）。
                     report_ids = [cid for cid in chunk_ids if cid in target_ids]
@@ -491,8 +491,8 @@ def generate_grid_tool(ctx: ToolContext):
                             artifact_paths=scene_artifact_paths,
                         )
                         continue
-                    # 逐格投影：落到盘上的格才算这一场景成功；联合图成功但某格没落盘
-                    # （该分镜已不在剧本里）是这一个场景自己的失败，不牵连同组其他场景。
+                    # 逐格投影：落到盘上的格才算这一分镜成功；联合图成功但某格没落盘
+                    # （该分镜已不在剧本里）是这一个分镜自己的失败，不牵连同组其他分镜。
                     cut = set(split_result.updated_scene_ids)
                     for scene_id in report_ids:
                         scene_key = _scene_artifact_key(episode, scene_id)

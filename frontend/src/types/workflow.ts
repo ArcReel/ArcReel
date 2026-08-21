@@ -144,7 +144,7 @@ export interface WorkflowPlanStep {
 }
 
 /**
- * 批量准入结论。`admitted` 之外的两种结局都**一个任务也没建**，
+ * 整批准入判定的结论。`admitted` 之外的两种结局都**一个任务也没建**，
  * 界面必须把这一点说清楚，而不是只报一句失败。
  */
 export type BatchAdmissionDecision = "admitted" | "confirmation_required" | "blocked";

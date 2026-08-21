@@ -2,7 +2,7 @@
  * 会话事件日志投影 — entries → Turn[]。
  *
  * 日志条目已在服务端写入点定型（tool_result 独立条目、interrupt / task 通知 /
- * AskUserQuestion 答复为 typed 条目、subagent 条目带 parent_tool_use_id、
+ * AskUserQuestion 答复为 typed 条目、子智能体条目带 parent_tool_use_id、
  * stream_event 不入日志），本模块只做渲染归组：连续 assistant 条目合并、
  * tool_result 按 tool_use_id 回填、task 按 task_id 就地更新。
  * 不做内容嗅探、不做内容比对去重、不合成消息。
@@ -10,8 +10,8 @@
  * 投影分两层：
  * - 内部累积态（fold）：逐条消费条目，只做追加与按 id 回填，永不回溯重放；
  *   条目块在此层做唯一一次深拷贝。
- * - 展示视图（display）：由累积态按 turn 派生——task 折叠、滞留子任务推导
- *   完成、subagent 子时间线挂载都在这层重算；按 turn 版本缓存，只有被新
+ * - 展示视图（display）：由累积态按 turn 派生——task 折叠、滞留子智能体推导
+ *   完成、子智能体子时间线挂载都在这层重算；按 turn 版本缓存，只有被新
  *   条目触达的 turn 重建视图，未触达的 turn 保持引用稳定。
  *
  * `projectEntriesToTurns` 是纯函数入口（空投影器全量重放）；
@@ -76,18 +76,18 @@ interface InternalTurn {
   version: number;
 }
 
-/** tool_use 块的登记位置：跨 turn 回填与 subagent 锚定都按此 O(1) 定位。 */
+/** tool_use 块的登记位置：跨 turn 回填与子智能体锚定都按此 O(1) 定位。 */
 interface ToolUseSite {
   fold: Fold;
   turn: InternalTurn;
   block: ContentBlock;
 }
 
-/** 一条平铺时间线（主时间线或某个 subagent 组）的折叠状态。 */
+/** 一条平铺时间线（主时间线或某个子智能体组）的折叠状态。 */
 interface Fold {
   committed: InternalTurn[];
   cursor: InternalTurn | null;
-  /** 所属 subagent 组（主时间线为 null），脏标记沿锚链向上传播用。 */
+  /** 所属子智能体组（主时间线为 null），脏标记沿锚链向上传播用。 */
   group: SubagentGroup | null;
   version: number;
   displayVersion: number;
@@ -122,8 +122,8 @@ export function createTimelineProjector(): TimelineProjector {
   let main: Fold = newFold();
   let groups = new Map<string, SubagentGroup>();
   // 尚未锚定的组：compose() 只需扫这个集合而非全部历史 groups，避免长会话
-  // 里已锚定完成的 subagent 组随会话增长把每条新消息的合成卡片扫描拖成
-  // O(历史 subagent 总数)。
+  // 里已锚定完成的子智能体组随会话增长把每条新消息的合成卡片扫描拖成
+  // O(历史子智能体总数)。
   let pendingGroups = new Set<SubagentGroup>();
   let toolUseSites = new Map<string, ToolUseSite>();
   let turnViewCache = new WeakMap<InternalTurn, { version: number; turn: Turn }>();
@@ -148,7 +148,7 @@ export function createTimelineProjector(): TimelineProjector {
 
   /**
    * site 所在时间线的锚链（沿既有 anchor 归属向上走）是否会绕回 targetFold。
-   * 用于锚定前判定：真实数据里 subagent 嵌套是无环 DAG（parent_tool_use_id
+   * 用于锚定前判定：真实数据里子智能体嵌套是无环 DAG（parent_tool_use_id
    * 恒指向更早、仍开放的祖先调用），环只可能来自畸形/自指条目
    * （如 parent_tool_use_id 等于自身 tool_use id）。一旦锚定成环，该组的
    * 展示视图会互相依赖、永远无法从主时间线触达，导致整段时间线被
@@ -166,7 +166,7 @@ export function createTimelineProjector(): TimelineProjector {
     return false;
   }
 
-  /** 条目触达 turn 后：失效其展示缓存，并沿 subagent 锚链逐层失效祖先 turn。 */
+  /** 条目触达 turn 后：失效其展示缓存，并沿子智能体锚链逐层失效祖先 turn。 */
   function touch(fold: Fold, turn: InternalTurn): void {
     composedDirty = true;
     turn.version = ++versionCounter;
@@ -244,7 +244,7 @@ export function createTimelineProjector(): TimelineProjector {
     attachSystemBlock(fold, entry, taskBlock);
   }
 
-  /** 登记 tool_use 块位置（同 id 首次登记生效），并锚定等待中的 subagent 组。 */
+  /** 登记 tool_use 块位置（同 id 首次登记生效），并锚定等待中的子智能体组。 */
   function registerToolUse(fold: Fold, turn: InternalTurn, block: ContentBlock): void {
     const id = block.id;
     if (!id) return;
@@ -438,8 +438,8 @@ export function createTimelineProjector(): TimelineProjector {
   }
 
   /**
-   * 构建单个 turn 的展示视图：挂载 subagent 子时间线、把已完成 Agent 调用
-   * 的滞留 task_started 推导为完成、将 task 进度折叠进锚点 tool_use（子任务
+   * 构建单个 turn 的展示视图：挂载子智能体子时间线、把已完成 `Agent` 调用
+   * 的滞留 task_started 推导为完成、将 task 进度折叠进锚点 tool_use（子智能体
    * 卡片就地显示状态与进度，不渲染独立进度行；无锚点的 task 块保持原样）。
    * 可变块（tool_use / task_progress）逐次浅拷，累积态不被展示层污染，
    * 同一版本重复构建收敛到同一结果。
@@ -498,7 +498,7 @@ export function createTimelineProjector(): TimelineProjector {
     const out = [...foldDisplay(main)];
     // 仍无锚点的组（如懒生成残余组、成环被拒锚的组）：以合成锚点独立成卡，
     // 不丢子时间线。只扫 pendingGroups（当前仍未锚定的组），不扫全部历史
-    // groups——已锚定的组不会再变回待锚定，扫描量不随会话内 subagent 总数增长。
+    // groups——已锚定的组不会再变回待锚定，扫描量不随会话内子智能体总数增长。
     for (const group of pendingGroups) {
       out.push({
         type: "system",
@@ -565,7 +565,7 @@ export function isDraftReplaced(
 
 /**
  * draft → Turn。replaced 为真（已被权威条目替换）时返回 null；
- * subagent 的流式草稿不进主时间线：主线只显示折叠卡片，
+ * 子智能体的流式草稿不进主时间线：主线只显示折叠卡片，
  * 卡片内容随权威条目（近实时）更新。
  */
 export function buildDraftTurn(draft: DraftState | null, replaced: boolean): Turn | null {

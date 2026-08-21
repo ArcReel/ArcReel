@@ -117,7 +117,7 @@ def generate_narration_audio_tool(ctx: ToolContext):
         _OPERATION,
         "为任意生成模式中由 narrator 拥有发声内容的单元显式生成旁白配音（TTS），入队并等待完成。"
         "script 为剧本文件名（如 episode_1.json）；segment_ids 接受当前骨架的 unit ID 列表"
-        "（不传则只选缺旁白音频的 narrator 单元；已失效但可用的旧配音不会被自动重生）。"
+        "（不传则只选缺旁白配音的 narrator 单元；已失效但可用的旧配音不会被自动重生）。"
         "返回 requested / succeeded / failed / blocked 的逐 ID 结果，"
         "每个失败项带稳定 code 与下一步动作。"
         "合成文本在 worker 开始时从最新剧本的规范 narrator utterances 读取，不依赖分镜图或视频。",
@@ -131,7 +131,7 @@ def generate_narration_audio_tool(ctx: ToolContext):
                 "segment_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "当前剧本骨架的单元 ID 列表；不传则只选缺旁白音频的 narrator 单元",
+                    "description": "当前剧本骨架的单元 ID 列表；不传则只选缺旁白配音的 narrator 单元",
                 },
             },
             "required": ["script"],

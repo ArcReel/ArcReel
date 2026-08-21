@@ -72,7 +72,7 @@ def _write_step1(project_dir: Path, payload: str, episode: int = 1) -> None:
 
 @pytest.fixture
 def reference_project(tmp_path: Path) -> Path:
-    """造一个 reference_video 模式的最小项目。"""
+    """造一个 参考生视频的最小项目。"""
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     (project_dir / "project.json").write_text(
@@ -126,8 +126,8 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    # 参考视频集 content_mode 继承项目级 narration/drama；生成路线是项目级事实，
-    # 剧本不落盘任何路线戳。
+    # 参考生视频剧本 content_mode 继承项目级 narration/drama；生成模式是项目级事实，
+    # 剧本不落盘任何生成模式标记。
     assert data["content_mode"] == "narration"
     assert "generation_mode" not in data
     assert len(data["video_units"]) == 1
@@ -147,7 +147,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_script_generator_overrides_llm_duration_with_step1_confirmed_value(reference_project: Path):
-    """unit 时长的单一真相是 step1 审阅确认的值：step2 根本不产出该字段，落盘值机械取自
+    """unit 时长的单一真相是 step1 完成内容确认时的值：step2 根本不产出该字段，落盘值机械取自
     step1（时长即计费，不给 LLM 留任何改写入口）。
     """
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT))
@@ -401,11 +401,11 @@ async def test_script_generator_rejects_step2_unregistered_mention(reference_pro
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp_path: Path):
-    """drama 项目下生成的参考视频集 content_mode 必须为 drama。
+    """drama 项目下生成的参考生视频剧本 content_mode 必须为 drama。
 
     Pydantic 的 ReferenceVideoScript.content_mode 默认 "narration"，model_dump 会
     把该默认值写入 dict；_add_metadata 必须显式覆盖而非 setdefault，否则 drama 项目
-    的参考视频集会被错误标记成 narration。
+    的参考生视频剧本会被错误标记成 narration。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
@@ -572,9 +572,9 @@ async def test_fetch_video_capabilities_swallows_db_errors(reference_project: Pa
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
-    """项目路线为 reference_video 时 build_prompt 必须走 reference 分支。
+    """项目生成模式为 reference_video 时 build_prompt 必须走 reference 分支。
 
-    路线取自 ``project.json`` 顶层 ``generation_mode``，全项目同一条、不随集号变化。
+    生成模式取自 ``project.json`` 顶层 ``generation_mode``，全项目相同、不随集号变化。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
@@ -681,7 +681,7 @@ async def test_reference_step1_rejects_duplicate_unit_ids(reference_project: Pat
 @pytest.mark.integration
 def test_reference_step1_migration_carries_confirmation_forward(reference_project: Path):
     """迁移回写让 step1 内容指纹漂移；若该集已确认（指纹恰是迁移前内容），须把确认指纹
-    平移到迁移后的值，否则仅 build_prompt/dry-run 预览一次就会把已确认分集退回待审。
+    平移到迁移后的值，否则仅 build_prompt/dry-run 预览一次就会让已确认分集重新等待确认。
     """
     drafts = reference_project / "drafts" / "episode_1"
     # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
@@ -741,9 +741,9 @@ def test_reference_step1_migration_carries_confirmation_confirmed_after_construc
 @pytest.mark.integration
 def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_clamped(reference_project: Path):
     """迁移带 warnings（求和时长不在模型档位内，被取档改写）不是纯格式收编：已确认分集
-    须退回待审，不能平移确认——取档后的秒数不是用户确认时看到的值。
+    须重新等待确认，不能平移确认——取档后的秒数不是用户确认时看到的值。
 
-    退回待审的同时本次调用也须中止：审阅 gate 判的是迁移前状态、已按「已确认」放行，
+    重新等待确认的同时本次调用也须中止：内容确认判的是迁移前状态、已按「已确认」放行，
     改写发生在放行之后，继续下去就会按用户从未过目的秒数走完付费的 step2。
     """
     drafts = reference_project / "drafts" / "episode_1"
@@ -760,7 +760,7 @@ def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_
 
     gen = ScriptGenerator(reference_project)
     # 求和 4s 不是模型档位成员，取档改写为 8s——这一步产生 warning。
-    with pytest.raises(ValueError, match="尚未经审阅确认"):
+    with pytest.raises(ValueError, match="尚未完成内容确认"):
         gen._load_reference_step1(episode=1, supported_durations=[8])
 
     # 迁移本身已幂等落盘（中止的是本次生成，不是迁移）。
@@ -768,7 +768,7 @@ def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_
 
     after_project = _json.loads(project_path.read_text(encoding="utf-8"))
     review = after_project["episodes"][0]["step1_review"]
-    assert review["fingerprint"] == before  # 未被平移，仍是迁移前的旧指纹——照常判定为待审
+    assert review["fingerprint"] == before  # 未被平移，仍是迁移前的旧指纹——照常判定为待确认
 
 
 @pytest.mark.integration
@@ -824,7 +824,7 @@ def test_step1_speech_violation_preserves_canonical_unit_and_locations(reference
 
 @pytest.mark.integration
 async def test_step1_dialogue_overload_is_caught_before_the_paid_step2_call(reference_project: Path):
-    """审阅 gate 上改短时长 / 补写台词绕开了拆分时的口播量校验，生成前复判把它拦下。
+    """内容确认时改短时长 / 补写台词绕开了拆分时的口播量校验，生成前复判把它拦下。
 
     step2 逐字保留台词、之后再无口播量校验：不在这里复判，念不完的 unit 会一路落盘成片。
     """
@@ -872,7 +872,7 @@ async def test_step2_missing_title_falls_back_instead_of_failing_the_paid_call(r
 
 
 # ---------------------------------------------------------------------------
-# step2 违约的隔离草稿与修复晋升闭环
+# step2 违约的待修复草稿与修复晋升闭环
 # ---------------------------------------------------------------------------
 
 #: 违约的 step2 展开：引用了未登记的资产名（step1 正文里没有的 @[路人甲]）。
@@ -890,7 +890,7 @@ def _script_path(project: Path) -> Path:
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_step2_violation_quarantines_instead_of_discarding(reference_project: Path):
-    """step2 违约不丢弃这次已付费的展开：产物落隔离草稿、正式剧本不被写出、报告带处置指引。"""
+    """step2 违约不丢弃这次已付费的展开：产物落待修复草稿、正式剧本不被写出、报告带处置指引。"""
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
 
     with pytest.raises(DraftViolation) as excinfo:
@@ -904,14 +904,14 @@ async def test_step2_violation_quarantines_instead_of_discarding(reference_proje
     envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
     assert envelope["kind"] == QUARANTINE_KIND_STEP2
     assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset"]
-    # 草稿装的是扁平书写层产物（agent 要改的那一层）
+    # 草稿装的是扁平草稿结构（Agent 要改的是其中的正文 / 原文锚 / 时长）
     assert envelope["content"]["units"][0]["text"] == BAD_STEP2_UNIT_TEXT
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_promote_step2_draft_after_repair(reference_project: Path):
-    """修好隔离草稿后晋升：正式剧本落盘、草稿清除，结构仍由 step1 + 正文机械合成。"""
+    """修好待修复草稿后晋升：正式剧本落盘、草稿清除，结构仍由 step1 + 正文机械合成。"""
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
     with pytest.raises(DraftViolation):
         await gen.generate(episode=1)
@@ -961,8 +961,8 @@ async def test_promote_step2_draft_reports_again_without_round_limit(reference_p
 async def test_promote_step2_draft_rejects_schema_breach_with_report(reference_project: Path):
     """草稿的 content 被改坏 schema 层同样只回报告：与 step1 晋升同口径，正式剧本不被污染。
 
-    这条路上没有 backend 可重试（content 是 agent 手写的），走 ValueError 直抛的话草稿里的
-    violations 快照不会刷新，agent 只能从工具文本里看到一段 pydantic 报错。
+    这条路上没有 backend 可重试（content 是 Agent 手写的），走 ValueError 直抛的话草稿里的
+    violations 快照不会刷新，Agent 只能从工具文本里看到一段 pydantic 报错。
     """
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
     with pytest.raises(DraftViolation):
@@ -994,7 +994,7 @@ def _tiers_by_reference_state(with_refs: list[int], without_refs: list[int]):
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_step2_duration_off_tier_after_merge_quarantines(reference_project: Path):
-    """合并之后才判出的档位越界同样落隔离草稿——这份展开已经付过费了。
+    """合并之后才判出的档位越界同样落待修复草稿——这份展开已经付过费了。
 
     step2 可以给 unit 增删 `@` 引用，生效档位随之换一套：step1 那个 4 秒的带图 unit 在展开时
     丢掉了引用，档位就从 [4] 变成 [8]。这一判在 `_add_metadata` 里、在保结构 diff 之后，
@@ -1011,14 +1011,14 @@ async def test_step2_duration_off_tier_after_merge_quarantines(reference_project
     assert not _script_path(reference_project).exists()
     envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
     assert [v["code"] for v in envelope["violations"]] == ["duration_off_tier"]
-    # 草稿装的仍是 agent 要改的那一层正文，改回 `@` 引用即可重新晋升
+    # 草稿装的仍是 Agent 要改的那一层正文，改回 `@` 引用即可重新晋升
     assert envelope["content"]["units"][0]["text"] == no_reference_text
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_promote_step2_draft_revalidates_edited_step1(reference_project: Path):
-    """晋升前按产出路径同一份预判重判 step1 现值：隔离期间 Web 端改坏 step1 不能借晋升落盘。
+    """晋升前按产出路径同一份预判重判 step1 现值：草稿在场期间 Web 端改坏 step1 不能借晋升落盘。
 
     编辑器对人写正文只出 warning，改出未登记的 @[名称] 能存下去；而保结构 diff 只比对 step2
     正文与 step1 的镜头/台词结构，不复判 step1 自身的正文合法性。
@@ -1047,14 +1047,14 @@ async def test_promote_step2_draft_revalidates_edited_step1(reference_project: P
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_promote_step2_draft_without_draft(reference_project: Path):
-    with pytest.raises(FileNotFoundError, match="没有可晋升的 step2 隔离草稿"):
+    with pytest.raises(FileNotFoundError, match="没有可晋升的 step2 待修复草稿"):
         await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_step2_refuses_to_run_while_step1_quarantined(reference_project: Path):
-    """step1 还在隔离态时不跑 step2：正式 step1 仍是上一版，拿它生成等于静默换回旧内容。"""
+    """step1 草稿还在场时不跑 step2：正式 step1 仍是上一版，拿它生成等于静默换回旧内容。"""
     write_quarantine(
         reference_project,
         1,
@@ -1063,5 +1063,5 @@ async def test_step2_refuses_to_run_while_step1_quarantined(reference_project: P
         violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
     )
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT))
-    with pytest.raises(ValueError, match="有隔离草稿待处置"):
+    with pytest.raises(ValueError, match="有待修复草稿"):
         await gen.generate(episode=1)

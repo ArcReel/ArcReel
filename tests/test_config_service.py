@@ -47,7 +47,7 @@ async def test_provider_status_models_isolated_from_registry(config_service: Con
 
 
 async def test_provider_becomes_ready(config_service: ConfigService, session: AsyncSession):
-    # 新逻辑：status 由凭证表中的活跃凭证决定，而不是 ProviderConfig 表
+    # status 由凭证表中的生效凭证决定，而不是 ProviderConfig 表
     cred_repo = CredentialRepository(session)
     await cred_repo.create("gemini-aistudio", "default", api_key="AIza-test")
     await session.flush()

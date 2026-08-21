@@ -1,11 +1,11 @@
-"""v4→v5 迁移：生成路线收缩为二值，宫格降为 grid_storyboard 开关。
+"""v4→v5 迁移：生成模式收缩为二值，宫格降为 grid_storyboard 开关。
 
 四项职责：
-- ``generation_mode == "grid"`` 重编码为 ``storyboard + grid_storyboard=true``（宫格不是路线，
+- ``generation_mode == "grid"`` 重编码为 ``storyboard + grid_storyboard=true``（宫格不是生成模式，
   只是分镜图的生产方式）；
 - ``generation_mode`` 缺失或非二值脏值补写显式 ``storyboard``（与迁移前读侧对未知值回退
   storyboard 的口径一致，行为不变）；
-- 剔除全部集级 ``episodes[].generation_mode`` 覆盖字段（路线一律按项目定轴）；
+- 剔除全部集级 ``episodes[].generation_mode`` 覆盖字段（生成模式一律按项目定轴）；
 - 不触碰剧本文件。
 """
 

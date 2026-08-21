@@ -86,7 +86,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
 
   if (!visible) return null;
 
-  // 紧贴 agent 面板左边沿；面板收起时（理论上不会，触发时强制打开了）退到右上角
+  // 紧贴 Agent 面板左边沿；面板收起时（理论上不会，触发时强制打开了）退到右上角
   const cardRight = assistantPanelOpen ? ASSISTANT_PANEL_WIDTH + 12 : 80;
 
   return (
@@ -140,7 +140,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
           }}
         />
 
-        {/* 尾巴：指向右侧 agent 面板的小三角 + 流光线 */}
+        {/* 尾巴：指向右侧 Agent 面板的小三角 + 流光线 */}
         <span
           aria-hidden
           className="agent-handoff-tail-line pointer-events-none absolute"

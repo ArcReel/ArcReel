@@ -129,7 +129,7 @@ async def resolve_video_caps(project: dict[str, Any], *, capability: VideoCapabi
     duration linkage constraints declared on it.
 
     能力按项目生成模式解析——生成模式创建即定、全项目同一条，Agent 拿到的与执行层同口径。
-    ``capability`` 给定时按指定桶解析（参考路线内无参考图退化镜头的 i2v 读侧）。
+    ``capability`` 给定时按指定桶解析（参考生视频内无参考图视频单元的 i2v 读侧）。
     """
     resolver = ConfigResolver(async_session_factory)
     return await resolver.video_capabilities_for_project(project, capability=capability)
@@ -166,7 +166,7 @@ async def reference_unit_duration_tiers(
     caps: dict[str, Any],
     durations: list[int],
 ) -> tuple[list[int], list[int]]:
-    """参考视频路径逐 unit 的两套生效档位：``(带参考图, 不带参考图)``。
+    """参考生视频逐 unit 的两套生效档位：``(带参考图, 不带参考图)``。
 
     「参考图↔时长」约束只对实际带参考图的请求生效（执行层 ``effective_reference_durations``
     与 backend 同此判据），故 unit 的生效档位取决于该 unit 正文里有没有 ``@[名称]`` 引用。
@@ -175,7 +175,7 @@ async def reference_unit_duration_tiers(
 
     不带图集按 **i2v 桶模型**求值：无引用 unit 执行期降级到 i2v 桶执行，档位跟着执行模型走，
     否则两桶模型不同时创作侧会放行只有 r2v 桶才有的秒数、漏掉 i2v 桶独有的秒数。``caps`` /
-    ``durations`` 是调用方按路线主桶（r2v）解析并做过软回退的结果，只用于带图集；i2v 桶解析
+    ``durations`` 是调用方按生成模式主桶（r2v）解析并做过软回退的结果，只用于带图集；i2v 桶解析
     失败或无档位声明时，不带图集回退按同一份 r2v 输入求值（退回「两桶同模型」的既有行为，
     档位标注不挡主流程）。
 

@@ -22,7 +22,7 @@ class CostCalculator:
     DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
     DEFAULT_VIDEO_MODEL = "veo-3.1-lite-generate-preview"
 
-    # Ark 生成视频的 token/s 近似常量（用于参考模式成本估算，实际 token 由生成回调覆盖）。
+    # Ark 生成视频的 token/s 近似常量（用于参考生视频成本估算，实际 token 由生成回调覆盖）。
     _ARK_TOKENS_PER_SECOND_ESTIMATE = 60_000
 
     def calculate_cost(
@@ -62,7 +62,7 @@ class CostCalculator:
             return 0.0, "USD"
 
         pricing = lookup_pricing(provider, params.model, params.call_type)
-        # 按秒计费的视频：单次实时调用无/0 时长时按默认 8 秒计（历史行为）。参考模式聚合走
+        # 按秒计费的视频：单次实时调用无/0 时长时按默认 8 秒计。参考生视频聚合走
         # estimate_reference_video_cost，传真实累计时长（可为 0），不经此默认。
         if isinstance(pricing, (PerSecondMatrix, PerSecondTiered)) and not params.duration_seconds:
             params = replace(params, duration_seconds=8)
@@ -88,7 +88,7 @@ class CostCalculator:
         generate_audio: bool = True,
         service_tier: str = "default",
     ) -> tuple[float, str]:
-        """聚合参考模式一集的视频费用：sum over units of (duration × 单价)。
+        """聚合参考生视频一集的视频费用：sum over units of (duration × 单价)。
 
         token 计费的视频（Ark）按 duration × ``_ARK_TOKENS_PER_SECOND_ESTIMATE`` 近似换算 token；
         其余按秒计费的模型直接用累计时长。空列表返回该定价声明自带的币种。

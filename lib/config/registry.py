@@ -29,7 +29,7 @@ ModelCapability = Literal[
     "text_generation",
     "structured_output",  # 消费点：文本 backend 结构化输出探测
     "vision",  # 消费点：文本解析的 vision 闸（lib/config/resolver.py）
-    "text_to_image",  # 消费点：图片能力桶判定（lib/capability_buckets.py）
+    "text_to_image",  # 消费点：图片任务类型桶判定（lib/capability_buckets.py）
     "image_to_image",  # 消费点：同上
     "text_to_speech",
 ]
@@ -40,7 +40,7 @@ class ModelInfo:
     display_name: str
     media_type: str
     # 能力 token（词汇表见 ModelCapability）。图片模型的 text_to_image / image_to_image 是
-    # 能力桶判定的真相源；视频模型的输入模式（t2v / i2v / r2v）、参考图上限与音轨形态一概不在
+    # 任务类型桶判定的真相源；视频模型的输入模式（t2v / i2v / r2v）、参考图上限与音轨形态一概不在
     # 此声明——它们的真相源是各 backend 的 VideoCapabilities 与请求期 gate，与请求构造同源，
     # 也只有那里表达得了「同一 model 内按执行子路径分叉」（可灵 v3-omni 走多图主体子路径时
     # 请求体没有音轨开关）。补一份视频能力位声明即引入第二份手写来源，由
@@ -153,7 +153,7 @@ def _gemini_image_pricing(model_id: str, rates: dict[str, float]) -> PerImageByR
     return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="USD")
 
 
-# Veo 视频费率（美元/秒），按 (分辨率, 是否生成音频)。
+# Veo 视频费率（美元/秒），按 (分辨率, 是否生成有声视频)。
 def _veo_video_pricing(model_id: str, rates: dict[tuple[str, bool | None], float]) -> PerSecondMatrix:
     return PerSecondMatrix(
         rates={model_id: rates},
@@ -205,7 +205,7 @@ def _ark_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="CNY")
 
 
-# Ark 视频费率（元/百万 token），按 (service_tier, 是否生成音频)。
+# Ark 视频费率（元/百万 token），按 (service_tier, 是否生成有声视频)。
 def _ark_video_pricing(model_id: str, rates: dict[tuple[str, bool], float]) -> PerTokenVideo:
     return PerTokenVideo(rates={model_id: rates}, default_model=model_id)
 
@@ -644,7 +644,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             # Seedance 2.5：官方《视频生成 API》声明 480p/720p 两档、原生 30 秒直出。时长在此
             # 全展开为 4–30 秒离散值；官方另有 -1（模型自选时长）不登记——它会让请求时长与剧本
             # 时长指引脱钩，编排层按分镜时长排片的前提不成立。计费 ¥70/百万 token，视频输入档
-            # （参考视频转 token）另有单价，不计入本表：本表只覆盖 PerTokenVideo 消费的输出 usage。
+            # （参考生视频输入转 token）另有单价，不计入本表：本表只覆盖 PerTokenVideo 消费的输出 usage。
             "doubao-seedance-2-5-260628": ModelInfo(
                 display_name="Seedance 2.5",
                 media_type="video",
@@ -1266,7 +1266,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "快手可灵 Kling 视频与图像生成平台。API Key（Bearer）适用于全部模型；"
             "Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。"
         ),
-        # 首个需要两个 secret 字符串的内置 provider（JWT HS256 鉴权），凭证按 registry key 名
+        # 首个需要两个 secret 字符串的内置供应商（JWT HS256 鉴权），凭证按 registry key 名
         # 存入 provider_credential 的 access_key / secret_key 定型列（见 ADR 0037）。api_key 复用
         # 该表已有的 api_key 定型列（其余 provider 的静态 Bearer key 同列），无需新迁移。
         required_keys=["api_key", "access_key", "secret_key"],

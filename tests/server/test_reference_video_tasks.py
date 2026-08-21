@@ -156,10 +156,10 @@ def _wire_context(
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
 
-    executor 不触碰 MediaGenerator 私有属性、不手工重建 provider 身份——所有
+    执行器不触碰 MediaGenerator 私有属性、不手工重建 provider 身份——所有
     provider/backend 身份、能力上限、resolution 均由 GenerationContext 的 video lane 提供。
     能力上限与 resolution 的解析逻辑本身在 tests/server/test_generation_context.py 覆盖，此处
-    只需喂入 lane 值验证 executor 的下游 clamp / 守卫 / 透传行为。
+    只需喂入 lane 值验证执行器的下游 clamp / 守卫 / 透传行为。
 
     ``registry_provider_id`` 缺省与 ``backend_name`` 相同（多数供应商如此）；族别名供应商
     （如 ark-agent-plan 族复用 Ark backend）两者不同，需显式区分以覆盖 registry 查表路径。
@@ -265,16 +265,16 @@ def test_product_reference_uses_its_sheet_without_type_priority(tmp_path: Path):
         target_dir = refs_dir if "original" in filename else products_dir
         (target_dir / filename).write_bytes(image)
     project["products"] = {
-        "产品甲": {
+        "商品甲": {
             "description": "x",
             "product_sheet": "products/甲-sheet.png",
             "reference_images": ["products/refs/甲-original.png"],
         },
     }
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "product", "产品甲", "products/甲-sheet.png")
+    _register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
 
-    assert _resolved_names(project, proj_dir, "@[张三] 拿起 @[产品甲]") == ["张三.png", "甲-sheet.png"]
+    assert _resolved_names(project, proj_dir, "@[张三] 拿起 @[商品甲]") == ["张三.png", "甲-sheet.png"]
 
 
 @pytest.mark.unit
@@ -286,11 +286,11 @@ def test_clamp_keeps_the_first_mentions_without_type_priority(tmp_path: Path):
     products_dir.mkdir(exist_ok=True)
     image = (proj_dir / "characters" / "张三.png").read_bytes()
     (products_dir / "甲-sheet.png").write_bytes(image)
-    project["products"] = {"产品甲": {"description": "x", "product_sheet": "products/甲-sheet.png"}}
+    project["products"] = {"商品甲": {"description": "x", "product_sheet": "products/甲-sheet.png"}}
     (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "product", "产品甲", "products/甲-sheet.png")
+    _register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
 
-    entries = list(resolve_reference_assets(project, proj_dir, {"text": "@[张三] 在 @[酒馆] 拿起 @[产品甲]"}))
+    entries = list(resolve_reference_assets(project, proj_dir, {"text": "@[张三] 在 @[酒馆] 拿起 @[商品甲]"}))
     clamped, warnings = _clamp_resolved_reference_images(
         entries,
         2,
@@ -309,20 +309,20 @@ def test_clamp_keeps_the_first_mentions_without_type_priority(tmp_path: Path):
 
 @pytest.mark.unit
 def test_product_reference_with_original_only_is_executable(tmp_path: Path):
-    """尚无标准 sheet 的产品仍以实拍原图作为保真锚点，不被误判为缺图。"""
+    """尚无标准 sheet 的商品仍以实拍原图作为保真锚点，不被误判为缺图。"""
     proj_dir = _write_project(tmp_path)
     project, _unit = _load_project_and_unit(proj_dir, "E1U1")
     refs_dir = proj_dir / "products" / "refs"
     refs_dir.mkdir(parents=True)
     (refs_dir / "original.png").write_bytes((proj_dir / "characters" / "张三.png").read_bytes())
     project["products"] = {
-        "产品甲": {
+        "商品甲": {
             "product_sheet": "",
             "reference_images": ["products/refs/original.png"],
         }
     }
 
-    entries = resolve_reference_assets(project, proj_dir, {"text": "@[产品甲] 出现"})
+    entries = resolve_reference_assets(project, proj_dir, {"text": "@[商品甲] 出现"})
 
     assert [entry.path.name for entry in entries] == ["original.png"]
     assert entries[0].kind == "original"
@@ -402,17 +402,17 @@ def test_render_unit_prompt_binds_subjects_in_first_mention_order():
 @pytest.mark.unit
 def test_render_unit_prompt_binds_all_product_images_and_adds_fidelity_guard():
     rendered = _render_unit_prompt(
-        {"text": "镜头1：@[产品甲] 出现在画面中央"},
-        {"products": {"产品甲": {}}},
+        {"text": "镜头1：@[商品甲] 出现在画面中央"},
+        {"products": {"商品甲": {}}},
         VoiceRenderSettings(model_id="m", audio_ready=set()),
         request_references=[
-            ReferenceResource(type="product", name="产品甲"),
-            ReferenceResource(type="product", name="产品甲"),
+            ReferenceResource(type="product", name="商品甲"),
+            ReferenceResource(type="product", name="商品甲"),
         ],
     )
 
-    assert "<产品甲>@图片1、<产品甲>@图片2。" in rendered.prompt
-    assert "产品高保真还原（最高优先级" in rendered.prompt
+    assert "<商品甲>@图片1、<商品甲>@图片2。" in rendered.prompt
+    assert "商品高保真还原（最高优先级" in rendered.prompt
 
 
 @pytest.mark.unit
@@ -691,10 +691,10 @@ async def test_execute_reference_video_task_blocks_a_dirty_text_before_submissio
 async def test_execute_reference_video_task_bucket_follows_resolved_references(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, strip_mentions: bool, expected_capability: str
 ):
-    """执行侧按解析后的实际参考图分流定桶：有参考图 → r2v，无参考图退化镜头 → i2v。
+    """执行侧按解析后的实际参考图分流定桶：有参考图 → r2v，无参考图的视频单元 → i2v。
 
     降级让 r2v 桶配置为拒空参考模型（DashScope R2V / MiniMax S2V）的项目也能生成
-    退化镜头——若恒声明 r2v，这类镜头执行期必以 video_reference_images_required 失败。
+    无参考图的视频单元——若恒声明 r2v，这类视频单元执行期必以 video_reference_images_required 失败。
     """
     proj_dir = _write_project(tmp_path)
     if strip_mentions:
@@ -1261,8 +1261,8 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
     monkeypatch: pytest.MonkeyPatch,
 ):
     """Regression: Grok 视频生成必须用 720p（xai_sdk 的 VideoResolutionMap 只接受 480p/720p；
-    参考视频 executor 若回退到 MediaGenerator 默认 1080p，会在 SDK 抛 `Invalid video resolution 1080p`）。
-    executor 必须把 video lane 的 `resolution_or_fallback` 原样传给 generate_video_async——
+    参考生视频执行器若回退到 MediaGenerator 默认 1080p，会在 SDK 抛 `Invalid video resolution 1080p`）。
+    执行器必须把 video lane 的 `resolution_or_fallback` 原样传给 generate_video_async——
     档位的解析/兜底逻辑（provider fallback、model_settings 优先级）在
     tests/server/test_generation_context.py 覆盖。
     """
@@ -1313,7 +1313,7 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
     )
 
     assert captured.get("resolution") == "720p", (
-        f"Grok executor 必须显式传 720p，否则 MediaGenerator 默认 1080p 会被 xai_sdk 拒绝。"
+        f"Grok 执行器必须显式传 720p，否则 MediaGenerator 默认 1080p 会被 xai_sdk 拒绝。"
         f"实际收到: {captured.get('resolution')!r}"
     )
 
@@ -1738,7 +1738,7 @@ async def test_execute_reference_video_task_refuses_a_script_outside_the_episode
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """executor 必须走真实 MediaGenerator._get_output_path。
+    """执行器必须走真实 MediaGenerator._get_output_path。
 
     只 mock 最外层的 VideoBackend.generate ——resource_type 未注册到
     lib.resource_paths 时，这条测试会立刻爆 ValueError。
@@ -1856,7 +1856,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），压缩下沉
+    """执行器把**源 sheet 路径**直接交给 generate_video_async（单次调用），压缩下沉
     咽喉层——不预压缩到临时文件，不在 R2V 层做二次压缩重试。
     """
     proj_dir = _write_project(tmp_path)

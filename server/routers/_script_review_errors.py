@@ -1,6 +1,6 @@
-"""gate 领域错误 → HTTP 响应的共享映射。
+"""内容确认领域错误 → HTTP 响应的共享映射。
 
-审核 gate 的领域错误从两个 router 冒出来：``script_review``（审阅门自身的读写端点）与
+内容确认的领域错误从两个 router 冒出来：``script_review``（内容确认自身的读写端点）与
 ``files``（通用草稿端点对参考生视频 step1 改道 ``ScriptReviewService``）。映射放在两者之外的
 共享模块，两个 router 各自从这里取，同一个错误码在不同端点上不会给出不同的状态码或文案。
 """

@@ -7,9 +7,9 @@ MediaGenerator 中间层
 覆盖的资源类型：
 - storyboards: 分镜图 (scene_E1S01.png)
 - videos: 视频 (scene_E1S01.mp4)
-- characters: 角色设计图 (姜月茴.png)
-- scenes: 场景设计图 (庙宇.png)
-- props: 道具设计图 (玉佩.png)
+- characters: 角色资产图 (姜月茴.png)
+- scenes: 场景资产图 (庙宇.png)
+- props: 道具资产图 (玉佩.png)
 - grids: 宫格图 (grid_xxx.png)
 """
 
@@ -189,7 +189,7 @@ class MediaGenerator:
                 依据，也是该 lane 记账 provider 的单一真相源。须为 registry id（如 "gemini-aistudio"），
                 非 backend.name；与 image_backend 成对提供，缺一即抛
             video_provider_id: 视频 registry provider_id（同上，I2V/R2V 与视频记账用）
-            audio_provider_id: 音频 registry provider_id（旁白 TTS 记账用），与 audio_backend 成对
+            audio_provider_id: 音频 registry provider_id（旁白配音记账用），与 audio_backend 成对
         """
         require_provider_pair("image", image_backend, image_provider_id)
         require_provider_pair("video", video_backend, video_provider_id)

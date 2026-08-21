@@ -18,7 +18,7 @@ import type { CustomProviderInfo, ProviderInfo, VideoCapabilities, VoiceConsiste
 //
 //   firstFrame / lastFrame  → 服务端生效值。这两维带用户覆盖语义（覆盖存在供应商配置上、
 //                             不落项目字段），只有服务端能给出「系统判定 ⊕ 用户覆盖」的结果。
-//   voiceConsistency        → 服务端派生值。二维派生（模型能力 × 项目生成路线）只在
+//   voiceConsistency        → 服务端派生值。二维派生（模型能力 × 项目生成模式）只在
 //                             服务端一处，前端不复制公式；无项目上下文时读目录端点的同名字段。
 //   durations               → 静态目录的 supported_durations，再经分辨率 / 参考图两条联动
 //                             约束收窄。约束只声明在目录里、服务端不返回，故以目录为准；
@@ -87,7 +87,7 @@ export interface ModelCapabilities {
   firstFrame: boolean | null;
   lastFrame: boolean | null;
   /**
-   * 声音一致性三级标识（服务端二维派生：模型能力 × 项目生成路线），与 firstFrame 同源
+   * 声音一致性三级标识（服务端二维派生：模型能力 × 项目生成模式），与 firstFrame 同源
    * 同口径——尚未查到或查询失败时为 null（未知）。查询带上 videoBackend，故编辑中的未保存候选
    * 模型也会得到它自己的档位。无项目上下文（全局设置页）时改读目录端点的同名字段。
    */

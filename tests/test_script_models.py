@@ -327,7 +327,7 @@ class TestScriptModels:
 
 
 class TestAdScriptModels:
-    """广告/短片模式剧本骨架：平铺 shots[]，口播文案一等。"""
+    """广告/短片剧本骨架：平铺 shots[]，口播文案一等。"""
 
     @pytest.mark.unit
     def test_ad_shot_carries_section_and_voiceover(self):

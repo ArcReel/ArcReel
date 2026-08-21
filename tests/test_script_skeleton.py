@@ -5,7 +5,7 @@
 - 规范解析全组合：3 content_mode × storyboard/grid/reference_video
 - 取证阶梯逐台阶
 - fail-loud：未知/缺失 content_mode 抛 ValueError（原「未知落 drama」语义已反转）
-- 路线闸门：跨族失配拒绝、族内差异放行
+- 生成模式闸门：跨族失配拒绝、族内差异放行
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ class TestScriptResolver:
         assert resolve_script_kind({"content_mode": "narration", "scenes": []}) == "scenes"
 
     def test_residual_generation_mode_field_is_ignored(self):
-        # 存量剧本残留的路线戳是未知字段：取证解析只看数据形状，按 segments 返回，编辑能力不丢失。
+        # 存量剧本残留的生成模式标记是未知字段：取证解析只看数据形状，按 segments 返回，编辑能力不丢失。
         script = {"content_mode": "narration", "generation_mode": "reference_video", "segments": []}
         assert resolve_script_kind(script) == "segments"
 
@@ -135,7 +135,7 @@ class TestScriptResolver:
 
 @pytest.mark.unit
 class TestRouteSkeletonGate:
-    """路线闸门：剧本骨架与项目路线跨族即拒，族内差异放行。"""
+    """生成模式闸门：剧本骨架与项目生成模式跨族即拒，族内差异放行。"""
 
     def test_matched_reference_route_passes(self):
         script = {"content_mode": "narration", "video_units": []}
@@ -161,7 +161,7 @@ class TestRouteSkeletonGate:
         assert ensure_route_skeleton(script, "narration", "storyboard") == "scenes"
 
     def test_reference_route_passes_with_residual_storyboard_array(self):
-        # 参考路线剧本残留分镜族数组：取证解析按形状优先答 segments，但生成侧读的是 video_units，
+        # 参考生视频剧本残留分镜族数组：取证解析按形状优先答 segments，但生成侧读的是 video_units，
         # 残留数组不参与投票，闸门须放行（与费用估算按 units 计价同口径）。
         script = {
             "content_mode": "narration",
@@ -171,7 +171,7 @@ class TestRouteSkeletonGate:
         assert ensure_route_skeleton(script, "narration", "reference_video") == "video_units"
 
     def test_storyboard_route_passes_with_residual_unit_array(self):
-        # 反向：分镜路线剧本残留 video_units，分镜数组在场即放行。
+        # 反向：分镜图生视频剧本残留 video_units，分镜数组在场即放行。
         script = {"content_mode": "narration", "segments": [{"segment_id": "E1S1"}], "video_units": []}
         assert ensure_route_skeleton(script, "narration", "storyboard") == "segments"
 
@@ -196,7 +196,7 @@ class TestRouteSkeletonGate:
 
     def test_storyboard_route_rejects_script_without_any_skeleton_array(self):
         # 三个分镜键全缺：resolve_script_kind 会按 content_mode 合成 segments，若据此放行，
-        # 分镜图入队会落进"所有片段的分镜图都已生成"的假成功。判据是键在场性，故拒绝。
+        # 分镜图入队会落进"所有分镜的分镜图都已生成"的假成功。判据是键在场性，故拒绝。
         script = {"content_mode": "narration", "title": "第一集"}
         with pytest.raises(SkeletonRouteMismatchError) as exc:
             ensure_route_skeleton(script, "narration", "storyboard")

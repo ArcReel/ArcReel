@@ -94,7 +94,7 @@ class WorkflowActionType(StrEnum):
     """``WorkflowNextAction.type`` 的闭集。
 
     三个来源合成同一份取值：本模块按编排阶段给出的动作、``lib.workflow_plan`` 投影时
-    额外注入的动作，以及批量准入被拒时原样交回的 ``lib.generation_result.GenerationAction``。
+    额外注入的动作，以及整批准入判定被拒时原样交回的 ``lib.generation_result.GenerationAction``。
     消费方（前端联合类型、profile 受控动作表、动作译文）一律从本枚举派生，新增成员即
     自动进入各处覆盖检查，不必再手抄一份清单。
     """
@@ -123,7 +123,7 @@ class WorkflowActionType(StrEnum):
     PATCH_EPISODE_SCRIPT = "patch_episode_script"
     CHOOSE_NARRATION_DELIVERY = "choose_narration_delivery"
 
-    # ``GenerationAction`` 闭集；批量准入与任务失败把它原样交回成 next_action
+    # ``GenerationAction`` 闭集；整批准入判定与任务失败把它原样交回成 next_action
     RETRY = "retry"
     FIX_INPUT = "fix_input"
     GENERATE_DEPENDENCY = "generate_dependency"
@@ -202,7 +202,7 @@ class EpisodeSummary(BaseModel):
     episode: int
     script_status: EpisodeScriptStatus
     status: EpisodeProductionStatus
-    # 该集的内容规模：分镜图生视频路线报分镜数、参考生视频路线报视频单元数，
+    # 该集的内容规模：分镜图生视频报分镜数、参考生视频报视频单元数，
     # 三种创作类型同一口径。读时按脚本条目数算，不落盘。
     item_count: int
     duration_seconds: int
@@ -239,7 +239,7 @@ class ProjectSummary(BaseModel):
     phase_progress: float
     needs_repair: bool
     repair_reason: str | None
-    #: 按 ``ASSET_SPECS`` 的资产类型键给出设计图计数，新增资产类型自动进入投影。
+    #: 按 ``ASSET_SPECS`` 的资产类型键给出资产图计数，新增资产类型自动进入投影。
     assets: dict[str, ArtifactCount]
     episodes_summary: EpisodesSummary
     episodes: list[EpisodeSummary]
@@ -340,7 +340,7 @@ def _episode_production_status(
 ) -> EpisodeProductionStatus:
     """分镜图与视频一起算：两者都是制作阶段的产物，缺任何一件该集都还没做完。
 
-    参考路线没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
+    参考生视频没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
     """
 
     if script_status != "generated":
@@ -355,7 +355,7 @@ def _episode_production_status(
 
 
 def _sheet_bearing_counts(assets: Mapping[str, ArtifactCount]) -> list[ArtifactCount]:
-    """产品资产没有设计图产物：与 11 值状态的 ASSET_SHEETS 判据同口径地把它排除。"""
+    """商品没有资产图产物：与 11 值状态的 ASSET_SHEETS 判据同口径地把它排除。"""
 
     return [count for asset_type, count in assets.items() if asset_type != "product"]
 
@@ -1011,8 +1011,8 @@ class WorkflowStateService:
         if step1 is None:
             return "none"
         if script_review.step1_quarantined(project_path, project, number):
-            # 隔离草稿在场即已分段：首轮拆分失败时正式文件从未写过，报 none 会把用户
-            # 路由回源文审阅页，见不到隔离态详情与修复入口。
+            # 草稿在场即已分段：首轮拆分失败时正式文件从未写过，报 none 会把用户
+            # 路由回源文审阅页，见不到草稿详情与修复入口。
             return "segmented"
         if currency is None:
             return "none"
@@ -1057,7 +1057,7 @@ class WorkflowStateService:
     ) -> float:
         """脚本阶段按已生成脚本的集数算；制作阶段按可用产物占应有产物的比例算。
 
-        制作阶段的分母收全该阶段要交的三类产物——设计图、分镜图、视频——否则缺一类
+        制作阶段的分母收全该阶段要交的三类产物——资产图、分镜图、视频——否则缺一类
         产物的项目会停在 100%。
         """
 
@@ -1497,9 +1497,9 @@ class WorkflowStateService:
                                 "reference_videos" if generation_mode == "reference_video" else "videos"
                             ),
                         )
-                        # 旁白 TTS 只作为信息报告，不参与状态推进：缺 TTS 既不是工作流缺口
+                        # 旁白配音只作为信息报告，不参与状态推进：缺 TTS 既不是工作流缺口
                         # 也不拦导出，补 TTS 由用户显式发起（见 generate_narration_audio），
-                        # 后期路线的旁白根本不需要 TTS。Manifest 读不出某条 TTS 状态时同理——
+                        # 后期配音方式根本不需要 TTS。Manifest 读不出某条 TTS 状态时同理——
                         # 传独立的 audio_blockers 而非共享 blockers，不让它触发下面
                         # ``if blockers`` 把状态钉在 VIDEO；不可读事实仍经
                         # ``artifacts["audio"]["state"] == "blocked"`` 报告，只是不拦进度。

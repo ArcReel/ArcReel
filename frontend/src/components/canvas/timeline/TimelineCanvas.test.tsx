@@ -116,7 +116,7 @@ describe("TimelineCanvas", () => {
       />,
     );
 
-    expect(screen.getByText("脚本尚未生成，先在「预处理」中完成审阅")).toBeInTheDocument();
+    expect(screen.getByText("脚本尚未生成，先在「内容整理」中完成内容确认")).toBeInTheDocument();
     expect(screen.queryByTestId("shot-split-view")).not.toBeInTheDocument();
   });
 
@@ -167,7 +167,7 @@ describe("TimelineCanvas", () => {
       expect(shotView).toHaveAttribute("data-can-update-prompt", "no");
       expect(shotView).toHaveAttribute("data-can-generate-narration", "no");
       expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "no");
-      expect(screen.queryByRole("button", { name: /生成全集旁白/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: "生成全集旁白配音" })).toBeNull();
     });
 
     it("keeps the same write handlers outside the demo workbench", () => {
@@ -179,7 +179,7 @@ describe("TimelineCanvas", () => {
       expect(shotView).toHaveAttribute("data-can-update-prompt", "yes");
       expect(shotView).toHaveAttribute("data-can-generate-narration", "yes");
       expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "yes");
-      expect(screen.getByRole("button", { name: /生成全集旁白/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "生成全集旁白配音" })).toBeInTheDocument();
     });
   });
 });

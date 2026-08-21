@@ -23,5 +23,5 @@ ArcReel 的媒体生成沿 `media_type` 轴扇出：image/video 走 **Generation
 - **audio backend 保持同步、无 resume/`provider_job_id`**：worker claim → 调同步 backend（秒回）→ 标终态。`docs/adr/0007` 的孤儿处理对 audio 退化为"标 failed、不续传"，因同步且重生成廉价，无需 video 那套 submit-poll-resume 机制。
 - **"同步"是针对"短 segment + 同步 API"的选择，异步是预留扩展点**：v1 选同步因为（a）所选供应商的 TTS API 本就同步返回字节（DashScope Qwen-TTS sync HTTP、OpenAI 兼容 `/v1/audio/speech` 立即返回），（b）按 segment 的旁白短（`duration_seconds ≤ 60`、文本有界）秒级完成。**但长文本 TTS 接口业界是异步的**（MiniMax T2A async、豆包异步长文本 ≤10万字、Google long-audio LRO、Azure batch）。若未来接入只提供异步 API 的供应商，或改为"整集一次性合成长文本"，需要 video 式 submit-poll 生命周期——故 `AudioBackend` Protocol 设计上**预留**异步可能（如 text/video 那样允许各自的 backend 形态），但 v1 只建同步。
 - **Task 无需迁移**：`task.task_type` / `media_type` 是自由 String 列，audio 行直接落库。
-- **版本化不变**：audio 与 image/video 一样经 VersionManager 落版本（见 `CONTEXT.md`「旁白配音」与 audio 媒体类型词条）。
+- **版本化不变**：audio 与 image/video 一样经 VersionManager 落版本（见 `CONTEXT.md`「旁白配音」与「媒体类型（media_type / call_type）」词条）。
 - **与 text 的非对称是契约**：text 生成每集一次、同步内联不入队；audio 每集 N 段、入队。任何后续 PR 若想把 audio 改回同步内联（或把 text 改成入队），须先 deprecate 本 ADR 并说明生成基数的变化理由。

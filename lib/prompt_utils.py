@@ -210,7 +210,7 @@ def build_drama_video_prompt_from_legacy_dialogue(
     characters: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """legacy drama 场景（utterances 迁移前的旧剧本，台词仍留在 ``video_prompt.dialogue``、
-    无场景级 ``utterances`` 字段）的 Voice_Profiles 注入出口。
+    无分镜级 ``utterances`` 字段）的 Voice_Profiles 注入出口。
 
     ``load_script`` 按原始 JSON 读盘、不过 pydantic，这类存量剧本不会被
     ``DramaScene._migrate_legacy`` 自动补齐 ``utterances``；调用方须按 ``"utterances" not

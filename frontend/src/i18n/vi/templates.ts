@@ -103,7 +103,7 @@ export default {
   bucket_i2v_label: "Ảnh sang video",
   bucket_i2v_caption: "Bao gồm video được tạo từ khung phân cảnh hoặc khung phân cảnh đa ô.",
   bucket_r2v_label: "Tham chiếu sang video",
-  bucket_r2v_caption: "Bao gồm lộ trình tham chiếu sang video, kể cả các cảnh không có ảnh tham chiếu.",
+  bucket_r2v_caption: "Bao gồm chế độ tham chiếu sang video, kể cả các cảnh không có ảnh tham chiếu.",
   text_tier_default_label: "Mô hình mặc định",
   text_tier_simple_label: "Tác vụ đơn giản",
   text_tier_simple_caption: "Bao gồm tổng quan dự án và phân tích ảnh phong cách; mô hình bậc này phải hỗ trợ đầu vào hình ảnh.",

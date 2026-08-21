@@ -356,12 +356,12 @@ class TestScriptGenerator:
             {"title": "第一集", "scenes": [{"scene_id": "E1S01"}, 42]},
         )
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="必须是场景对象"):
+        with pytest.raises(ValueError, match="必须是分镜对象"):
             generator._load_drama_step1_content(1)
 
     @pytest.mark.unit
     async def test_load_drama_step1_content_rejects_empty_scene_id(self, tmp_path):
-        """drama step1 场景 scene_id 为空串 / 缺失 → ValueError fail-fast（空 scene_id 拖到合并阶段才暴露）。"""
+        """drama step1 分镜的 scene_id 为空串 / 缺失 → ValueError fail-fast（拖到合并阶段才暴露）。"""
         project_path = tmp_path / "demo"
         _write_drama_ledger_project(
             project_path,
@@ -408,7 +408,7 @@ class TestScriptGenerator:
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = 4
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
             await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
@@ -429,7 +429,7 @@ class TestScriptGenerator:
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = raw
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
             await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
@@ -443,7 +443,7 @@ class TestScriptGenerator:
         content = _drama_step1_content()
         del content["scenes"][0]["duration_seconds"]
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
             await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
@@ -458,7 +458,7 @@ class TestScriptGenerator:
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = None
         generator = ScriptGenerator(project_path)
-        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
             await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
@@ -1143,7 +1143,7 @@ class TestAddMetadataInjectsHiddenFields:
 
     @pytest.mark.unit
     def test_strips_legacy_generation_mode_stamp(self, tmp_path: Path) -> None:
-        """路线真相源是 project.json，剧本不留戳：存量剧本重生成、或校验失败降级保存的
+        """生成模式的真相源是 project.json，剧本不留标记：存量剧本重生成、或校验失败降级保存的
         原始后端 dict 里带的 generation_mode，必须在写盘前剥离。"""
         sg = self._make_generator(tmp_path, content_mode="drama")
         data = {"title": "第一集", "generation_mode": "reference_video", "scenes": [{"scene_id": "E1S01"}]}
@@ -1253,7 +1253,7 @@ def test_resolve_supported_durations_raises_when_unset(tmp_path):
 
 
 class TestFetchVideoCapabilitiesErrorHandling:
-    """能力桶解析闸的报错不被 fallback 吞掉——写剧本与执行读同一个模型的档位。"""
+    """任务类型桶解析闸的报错不被 fallback 吞掉——写剧本与执行读同一个模型的档位。"""
 
     def _sg(self, tmp_path) -> ScriptGenerator:
         sg = ScriptGenerator.__new__(ScriptGenerator)
@@ -1308,7 +1308,7 @@ class TestDegradedResolutionKeepsBucket:
 
     @pytest.mark.unit
     def test_max_refs_falls_back_to_bucket_model(self, tmp_path):
-        """参考视频项目降级后仍按 r2v 桶模型报上限；取项目默认层会拿到不接受参考图的 kling-v3。"""
+        """参考生视频项目降级后仍按 r2v 桶模型报上限；取项目默认层会拿到不接受参考图的 kling-v3。"""
         sg = _sg_with_project(tmp_path, dict(self._PROJECT))
         assert sg._resolve_max_refs(None) == 3
 
@@ -1365,7 +1365,7 @@ def test_resolve_supported_durations_unset_resolution_not_narrowed(tmp_path):
 
 @pytest.mark.integration
 def test_resolve_supported_durations_respects_project_resolution(tmp_path):
-    """项目显式配了无声明的分辨率时不收窄，行为与改动前一致。"""
+    """项目显式配置了无时长约束声明的分辨率时保留完整时长集合。"""
     sg = _sg_with_project(
         tmp_path,
         {
@@ -1378,7 +1378,7 @@ def test_resolve_supported_durations_respects_project_resolution(tmp_path):
 
 @pytest.mark.integration
 def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
-    """reference_video 模式触发「参考图↔时长」约束，即便分辨率本身无声明。"""
+    """参考生视频触发「参考图↔时长」约束，即便分辨率本身无声明。"""
     sg = _sg_with_project(
         tmp_path,
         {
@@ -1391,10 +1391,10 @@ def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
 
 @pytest.mark.integration
 def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tmp_path):
-    """参考视频模式但本集单元都不带引用时不施加参考图约束。
+    """参考生视频但本集单元都不带引用时不施加参考图约束。
 
     通用单元允许空 references，执行层与 backend 都只在实际带图时施加该约束；按模式一刀切
-    会把 720p 下本可申请的 4/6 秒收掉，改变无引用单元改动前的行为。
+    会错误收掉 720p 下无引用单元可申请的 4/6 秒。
     """
     sg = _sg_with_project(
         tmp_path,
@@ -1414,7 +1414,7 @@ def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tm
 
 @pytest.mark.unit
 def test_units_use_references_distinguishes_none_from_no_refs():
-    """None（非参考视频路径）与「确定不带引用」区分开，前者交由下游按模式近似判定。"""
+    """None（非参考生视频路径）与「确定不带引用」区分开，前者交由下游按模式近似判定。"""
     assert _units_use_references(None) is None
     assert _units_use_references([{"unit_id": "E1U01", "text": "空镜：海面翻涌。"}]) is False
     assert (
@@ -1837,7 +1837,7 @@ class TestLoadReferenceStep1:
 
     @staticmethod
     def _generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
-        """参考路线项目：step1 的规范位置随 generation_mode 变，登记也据此定位。"""
+        """参考生视频项目：step1 的规范位置随 generation_mode 变，登记也据此定位。"""
         return _bare_generator(tmp_path, {"generation_mode": "reference_video", **(project_extra or {})})
 
     def _write(self, sg: ScriptGenerator, episode: int, payload: dict) -> None:
@@ -1945,8 +1945,8 @@ class TestLoadReferenceStep1:
     @pytest.mark.integration
     def test_clamping_migration_aborts_generation_that_gate_already_let_through(self, tmp_path):
         """靠 grandfather 判据（step2 已存在、无确认指纹）放行的存量集：迁移 clamp 改写秒数
-        即令放行依据失效，生成须中止。gate 判的是迁移前状态、改写发生在放行之后——不在此
-        拦下，付费的 step2 就会按用户从未过目的秒数生成，落盘后才在下次加载被拦。
+        即令放行依据失效，生成须中止。内容确认判的是迁移前状态、改写发生在放行之后——不在此
+        拦下，付费的 step2 就会按用户从未过目的秒数生成；加载这份已落盘状态时才会被拦截。
         """
         sg = self._generator(
             tmp_path,
@@ -1970,7 +1970,7 @@ class TestLoadReferenceStep1:
                 ]
             },
         )
-        with pytest.raises(ValueError, match="尚未经审阅确认"):
+        with pytest.raises(ValueError, match="尚未完成内容确认"):
             sg._load_reference_step1(1, [4, 6, 8])
 
     @pytest.mark.unit
@@ -2029,7 +2029,7 @@ def _ad_shot(shot_id: str, *, duration: int = 4, section: str = "hook", voiceove
 class TestAdScriptGeneration:
     @pytest.mark.unit
     async def test_build_prompt_without_step1_uses_brief_and_products(self, tmp_path):
-        """ad 一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息 + 配比表。"""
+        """ad 一键生成不走 step1 中间文件：prompt 直接来自 brief + 商品信息 + 配比表。"""
         project_path = tmp_path / "demo"
         _write_ad_project(project_path)
 
@@ -2042,7 +2042,7 @@ class TestAdScriptGeneration:
 
     @pytest.mark.unit
     async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path):
-        """ad + reference_video：直接输出统一书写层 video_units，不持久化旧镜头字段。"""
+        """ad + reference_video：直接输出统一引用语法 video_units，不持久化旧镜头字段。"""
         project_path = tmp_path / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
 
@@ -2177,7 +2177,7 @@ class TestAdScriptGeneration:
 
     @pytest.mark.unit
     async def test_generate_ad_reference_passes_free_range_schema(self, tmp_path):
-        """ad + reference_video：response_schema 只含 unit 时长与统一书写层正文。"""
+        """ad + reference_video：response_schema 只含 unit 时长与统一引用语法正文。"""
         from lib.script_models import AdReferenceFlatScript
 
         project_path = tmp_path / "demo"
@@ -2363,7 +2363,7 @@ class TestAdAspectRatioFallback:
 
 
 class TestAdReferenceSkeletonUnity:
-    """ad + reference_video 生成自包含 video_units 且不携带路线戳。"""
+    """ad + reference_video 生成自包含 video_units 且不携带生成模式标记。"""
 
     @pytest.mark.unit
     async def test_generate_ad_reference_script_carries_no_generation_mode(self, tmp_path):

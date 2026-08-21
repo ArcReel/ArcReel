@@ -1,6 +1,6 @@
-// Endpoint key 改用 string 别名 —— 真相源在后端 ENDPOINT_REGISTRY，
-// 前端通过 GET /api/v1/custom-providers/endpoints 拉运行时 catalog。
-// 放弃编译期窄类型换取「新增 endpoint 不再需要改前端类型」。
+// Endpoint key 使用 string 别名；后端 ENDPOINT_REGISTRY 是真相源，前端通过
+// GET /api/v1/custom-providers/endpoints 读取运行时 catalog，因此 endpoint 扩展
+// 无需同步修改前端联合类型。
 export type EndpointKey = string;
 
 export type MediaType = "text" | "image" | "video" | "audio";

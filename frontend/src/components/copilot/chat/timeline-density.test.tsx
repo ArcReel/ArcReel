@@ -80,7 +80,7 @@ describe("SubagentCard", () => {
   function makeCardBlock(overrides: Partial<ContentBlock> = {}): ContentBlock {
     const subTurns: Turn[] = [
       { type: "user", content: [{ type: "text", text: "内部 prompt" }], uuid: "s-u1" },
-      { type: "assistant", content: [{ type: "text", text: "子任务回复" }], uuid: "s-a1" },
+      { type: "assistant", content: [{ type: "text", text: "子智能体回复" }], uuid: "s-a1" },
     ];
     return {
       type: "tool_use",
@@ -105,7 +105,7 @@ describe("SubagentCard", () => {
     expect(screen.getByText("运行中")).toBeInTheDocument();
     expect(screen.getByText("4200 tokens")).toBeInTheDocument();
     // 默认收起：子时间线不可见
-    expect(screen.queryByText("子任务回复")).not.toBeInTheDocument();
+    expect(screen.queryByText("子智能体回复")).not.toBeInTheDocument();
   });
 
   it("expands to reveal the sub-timeline", () => {
@@ -116,7 +116,7 @@ describe("SubagentCard", () => {
 
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("内部 prompt")).toBeInTheDocument();
-    expect(screen.getByText("子任务回复")).toBeInTheDocument();
+    expect(screen.getByText("子智能体回复")).toBeInTheDocument();
   });
 
   it("derives completed status from the tool result", () => {

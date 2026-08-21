@@ -1,4 +1,4 @@
-"""能力桶候选模型过滤 API：GET /system/config/model-candidates。
+"""任务类型桶候选模型过滤 API：GET /system/config/model-candidates。
 
 只断言外部行为——给定 ready 供应商与自定义供应商模型，断言各桶候选列表的成员关系。
 桶归属的真相源判定（registry 图片能力声明 / backend 视频能力 / endpoint 系统判定 ⊕ 覆盖）

@@ -34,7 +34,7 @@ type ConfirmedDurations = ReadonlyMap<string, number>;
 type Commit = (unitIds: string[], confirmedDurations: ConfirmedDurations) => Promise<void>;
 
 /**
- * 参考视频生成入口的时长确认闸门：入队前预检取档，申请秒数与请求时长基准不一致时先让
+ * 参考生视频入口的时长确认闸门：入队前预检取档，申请秒数与请求时长基准不一致时先让
  * 用户确认，取消则一个都不入队。
  *
  * 批量入口聚合成一次确认（逐个弹窗会让用户为一次操作点 N 遍），单入口与批量入口共用

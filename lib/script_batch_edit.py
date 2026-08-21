@@ -688,7 +688,7 @@ def _candidate_validation_errors(
 
     Empty scripts are valid editable drafts in every script model. DataValidator also
     serves export/readiness checks and intentionally rejects those drafts; this command
-    uses it for project-reference validation, not generation-route admission or to turn
+    uses it for project-reference validation, not generation-mode admission or to turn
     remove-last into an impossible operation.
     """
 

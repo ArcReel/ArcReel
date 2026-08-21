@@ -199,7 +199,7 @@ class TestSessionManagerProjectScope:
         for token in (
             "项目标题",
             "重生之皇后威武",
-            "内容模式",
+            "创作类型",
             "narration",
             "视觉风格",
             "Photographic",

@@ -71,10 +71,10 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
                 all_characters[name] = char_data.copy()
                 print(f"      👤 发现角色: {name}")
             else:
-                # 合并数据（优先保留有设计图的版本）
+                # 合并数据（优先保留有资产图的版本）
                 if char_data.get("character_sheet") and not all_characters[name].get("character_sheet"):
                     all_characters[name] = char_data.copy()
-                    print(f"      👤 更新角色: {name} (有设计图)")
+                    print(f"      👤 更新角色: {name} (有资产图)")
 
         # 提取剧集信息
         novel_info = script.get("novel", {})
@@ -132,7 +132,7 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
         },
     }
 
-    # 统计已完成的角色设计图（仅用于日志输出）
+    # 统计已完成的角色资产图（仅用于日志输出）
     completed_chars = 0
     for name, char_data in all_characters.items():
         sheet = char_data.get("character_sheet")
@@ -149,7 +149,7 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
         print("\n  📁 创建目录: clues/")
 
     print("\n  📊 迁移摘要:")
-    print(f"      - 角色: {len(all_characters)} 个 ({completed_chars} 个有设计图)")
+    print(f"      - 角色: {len(all_characters)} 个 ({completed_chars} 个有资产图)")
     print(f"      - 剧集: {len(episodes)} 个")
     print("      - 线索: 0 个 (待添加)")
 

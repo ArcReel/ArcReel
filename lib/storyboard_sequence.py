@@ -36,20 +36,20 @@ class EndFrameImageUnavailable(ValueError):
     """The optional end-frame binding is invalid or its snapshot is unavailable."""
 
 
-PREVIOUS_STORYBOARD_REFERENCE_LABEL = "上一分镜图（镜头衔接参考）"
+PREVIOUS_STORYBOARD_REFERENCE_LABEL = "上一分镜图（分镜衔接参考）"
 PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = (
-    "仅用于延续前一镜头的构图、色调和场景连续性，不是新增角色、服装或道具设定；请以当前 prompt 为准生成当前镜头。"
+    "仅用于延续前一分镜的构图、色调和场景连续性，不是新增角色、服装或道具设定；请以当前 prompt 为准生成当前分镜。"
 )
 
 
 def get_storyboard_items(script: dict) -> tuple[list[dict], str, str | None, str, str]:
-    """返回 narration/drama/ad 模式剧本的分镜列表 + 各引用字段名。
+    """返回 旁白/解说、剧情演绎与广告/短片剧本的分镜列表 + 各引用字段名。
 
     ``video_units`` 骨架没有 storyboard 一说（视频按 unit 直出，见
-    ``server/agent_runtime/sdk_tools/enqueue_videos.py`` 的参考路线分支），这里硬返回空列表是
+    ``server/agent_runtime/sdk_tools/enqueue_videos.py`` 的参考生视频分支），这里硬返回空列表是
     「该骨架下不存在 storyboard 任务」的明示，调用方据此跳过。判别只看剧本实际骨架、不看项目
-    路线：本函数是查看 / 编辑 / 生成共用的结构访问器，对存量失配剧本也要如实回答；生成分派按
-    项目路线在各生成入口做，失配由 ``lib.script_skeleton.ensure_route_skeleton`` 显式拒绝。
+    生成模式：本函数是查看 / 编辑 / 生成共用的结构访问器，对存量失配剧本也要如实回答；生成分派按
+    项目生成模式在各生成入口做，失配由 ``lib.script_skeleton.ensure_route_skeleton`` 显式拒绝。
     该分支的 ``char_field`` 取 ``SKELETONS`` 声明的缺位（``None``）——``video_units`` 无逐条
     角色名单（角色以 ``references`` 条目形态存在），不返回假字段名让调用方 ``get()`` 静默取空。
 

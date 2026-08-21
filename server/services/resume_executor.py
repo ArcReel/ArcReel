@@ -1,7 +1,7 @@
 """Resume executor：worker `_process_resume_task` 直接调用的入口。
 
 不走 `execute_video_task` / `execute_reference_video_task` 流水线——provider 端
-job 已经在跑，本地 storyboard / 参考资产是否存在不该影响接续轮询。仅复用 service
+job 已经在跑，本地分镜图 / 参考图是否存在不该影响接续轮询。仅复用 service
 层的 finalize helpers 写回 scene/unit 资产。
 """
 

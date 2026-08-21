@@ -35,7 +35,7 @@ export interface WizardStep2ModelsProps {
   onCancel: () => void;
   data: WizardStep2Data | null;
   error: string | null;
-  /** ad 项目不暴露 default_duration（镜头时长按目标总时长规划）。 */
+  /** ad 项目不暴露 default_duration（分镜时长按目标总时长规划）。 */
   hideDuration?: boolean;
   /** 上一步选定的生成模式是否为参考生视频——参考图路径可能收窄可选时长。 */
   usesReferenceImages?: boolean;

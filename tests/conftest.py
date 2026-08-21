@@ -165,7 +165,7 @@ def _profile_env(monkeypatch, tmp_path):
     """
     profile_dir = tmp_path / "agent_runtime_profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
-    # 仅 touch 顶层 CLAUDE.md（最少 1 个可同步文件以避开 ProfileEmptyError）。
+    # 仅 touch 顶层 CLAUDE.md（最少 1 个可物化文件以避开 ProfileEmptyError）。
     # 不预创建 ``.claude/`` —— 让需要自己 mkdir(".claude", parents=True) 的下游测试
     # 不撞 FileExistsError；那些测试自己会构造完整 profile 内容。
     (profile_dir / "CLAUDE.md").write_text("")

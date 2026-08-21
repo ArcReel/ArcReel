@@ -3,6 +3,13 @@ Background worker that consumes generation tasks from SQLite queue.
 
 Per-provider × media_type 调度，拆成两件独立的东西：CapacityTable（上限，来自
 ConfigService 的用户配置）+ SlotTable（运行时占用台账）。
+
+受支持的部署只启动一个 uvicorn 进程；server lifespan 在该进程内创建唯一的
+GenerationWorker，二者生命周期一致。因此 cancel 信号走进程内的
+``dict[task_id, asyncio.Task]``，孤儿任务只来自进程重启。lease 能在进程短暂重叠时防止
+重复认领，并为跨进程接管提供防御，但不让多 uvicorn worker 成为受支持部署：请求若落到
+非任务 owner 的进程，进程内 cancel 无法转发。若支持多进程，须同时重审取消通道与孤儿判定
+（见 ``docs/adr/0006`` 与 ``docs/adr/0007``）。
 """
 
 from __future__ import annotations
@@ -288,6 +295,9 @@ class SlotTable:
     被动纯内存数据结构，**容量无关**：``has_room`` 由 caller 传入 ``capacity``。
     不写 DB、不解析 provider、不决定孤儿策略、不碰状态机守卫。
 
+    ``capacity`` 的 ``0`` 只有一个含义——该 lane 不受支持，是内部哨兵值。用户契约面的
+    并发上限是「≥1 的整数或留空」，``0`` 不可由用户输入抵达（见 ``docs/adr/0043``）。
+
     **空 bucket 不残留（by design）**：``release`` / ``drain_finished`` 移除最后一个
     占用时一并删掉该 ``(provider,media)`` bucket，保证 ``occupied_providers`` 永不
     返回已清空的 provider（池满黑名单决策的支点）。
@@ -386,7 +396,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
     生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
-    按 i2i 槽精确解析。两条视频路线都忽略 enqueue payload 中的旧身份，分镜视频定桶经
+    按 i2i 槽精确解析。两种视频生成模式都忽略 enqueue payload 中的旧身份，分镜视频定桶经
     ``video_bucket_for_queued_task`` 与入队派生共用；reference_video 则重读最新
     project/script/unit，以实际可用资产调用公共 request projection。
     这份 provider 投影只服务 claim 过滤与限流路由，不是执行身份；正常 executor 会在开始时
@@ -661,7 +671,7 @@ class GenerationWorker:
                         )
                     await self._requeue_single_task(task["task_id"])
                     if task.get("task_type") in ("video", "reference_video"):
-                        # 两条视频路线都必须先重投影才能判断当前 provider；本 cycle 排除已
+                        # 两种视频生成模式都必须先重投影才能判断当前 provider；本 cycle 排除已
                         # 重投影且仍池满的任务，继续寻找其它 provider 的可运行任务。
                         attempted_current_state_tasks.add(task["task_id"])
                         continue
@@ -858,7 +868,7 @@ class GenerationWorker:
     async def _process_resume_task(self, task: dict[str, Any]) -> None:
         """重启自愈入口：直接调 backend.resume_video，绕过 normal executor 流水线。
 
-        两条视频路线都在 worker 开始时按最新状态物化，并在 provider 提交前写入不可变
+        两种视频生成模式都在 worker 开始时按最新状态物化，并在 provider 提交前写入不可变
         execution checkpoint。重启后只从 checkpoint 构造固定的解析请求，不从当前项目
         配置或 enqueue payload 重算执行身份。
 
@@ -1138,7 +1148,7 @@ class GenerationWorker:
                     await self._cleanup_video_staging(task)
                     continue
 
-            # video 路径：判断 provider 是否支持 resume。两条路线均只用不可变 checkpoint；
+            # video 路径：判断 provider 是否支持 resume。两种生成模式均只用不可变 checkpoint；
             # 否则项目配置在重启前后切换时，_extract_provider 会按当前项目重新解析，可能把原本
             # Grok/Vidu 孤儿误判成可 resume，或把可 resume 任务路由到错池。
             provider_id = (

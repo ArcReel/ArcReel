@@ -2,7 +2,7 @@
 
 约束：
 - cwd 必须含 project.json，否则脚本拒绝执行
-- compose_video：narration / ad / reference_video 模式给友好错误，不是 KeyError
+- compose_video：旁白/解说、广告/短片与参考生视频给友好错误，不是 KeyError
 - compose_video：--output 不能逃逸到 output/ 之外
 """
 
@@ -49,7 +49,7 @@ def _run(
 def fake_project(tmp_path: Path) -> Path:
     """构造一个最小项目目录：project.json + source/。
 
-    模拟 projects/{name}/ 形态。cwd 切到此目录即等价于 agent session cwd。
+    模拟 projects/{name}/ 形态。cwd 切到此目录即等价于 Agent session cwd。
     """
     # ProjectManager 校验项目标识仅允许英文字母 / 数字 / 中划线，所以不用下划线
     projects_root = tmp_path / "projects"
@@ -82,7 +82,7 @@ def fake_project(tmp_path: Path) -> Path:
 
 
 def _write_drama_script(project_dir: Path, video_clip_exists: bool = True) -> str:
-    """构造一份最小可用的 drama 模式剧本 + 视频文件，返回剧本文件名。"""
+    """构造一份最小可用的剧情演绎剧本 + 视频文件，返回剧本文件名。"""
     (project_dir / "scripts").mkdir(exist_ok=True)
     (project_dir / "videos").mkdir(exist_ok=True)
     clip_rel = "videos/scene_1.mp4"
@@ -111,7 +111,7 @@ def test_compose_video_rejects_non_project_cwd(tmp_path: Path) -> None:
 
 @_requires_ffmpeg
 def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
-    """narration 模式（顶层 segments[] 无 scenes[]）应给友好错误，不是 KeyError。"""
+    """旁白/解说（顶层 segments[] 无 scenes[]）应给友好错误，不是 KeyError。"""
     (fake_project / "scripts").mkdir(exist_ok=True)
     (fake_project / "scripts" / "ep_narration.json").write_text(
         json.dumps(
@@ -127,14 +127,14 @@ def test_compose_video_rejects_narration_mode(fake_project: Path) -> None:
     result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_narration.json")
     assert result.returncode != 0
     out = result.stdout + result.stderr
-    assert "仅支持 drama 模式" in out
+    assert "只支持顶层 scenes[] 的剧本" in out
     # 不能出现裸 KeyError
     assert "KeyError" not in out
 
 
 @_requires_ffmpeg
 def test_compose_video_rejects_ad_mode(fake_project: Path) -> None:
-    """ad 模式（顶层 shots[] 无 scenes[]）应给友好错误并指引剪映草稿导出，不是 KeyError。"""
+    """广告/短片（顶层 shots[] 无 scenes[]）应给友好错误并指引剪映草稿导出，不是 KeyError。"""
     (fake_project / "scripts").mkdir(exist_ok=True)
     (fake_project / "scripts" / "ep_ad.json").write_text(
         json.dumps(
@@ -157,7 +157,7 @@ def test_compose_video_rejects_ad_mode(fake_project: Path) -> None:
     result = _run(COMPOSE_VIDEO, fake_project, "scripts/ep_ad.json")
     assert result.returncode != 0
     out = result.stdout + result.stderr
-    assert "仅支持 drama 模式" in out
+    assert "只支持顶层 scenes[] 的剧本" in out
     assert "content_mode=ad" in out
     assert "剪映草稿导出" in out
     assert "KeyError" not in out
@@ -183,8 +183,7 @@ def test_compose_video_rejects_output_escape(fake_project: Path) -> None:
 def test_compose_video_fails_fast_on_missing_music(fake_project: Path) -> None:
     """--music 文件不存在时应立即抛错，不要静默 warning 走完拼接。
 
-    review #8（coderabbit）：自动化场景下静默 warning 容易把失败当成功。
-    校验顺序：cwd 检查 → drama 模式检查 → output / music 路径围栏 + 存在性，
+    校验顺序：cwd 检查 → 剧情演绎检查 → output / music 路径围栏 + 存在性，
     再开始拼接。music 不存在时应 fail-fast。
     """
     script_arg = _write_drama_script(fake_project, video_clip_exists=True)
@@ -205,7 +204,7 @@ def test_compose_video_fails_fast_on_missing_music(fake_project: Path) -> None:
 
 @_requires_ffmpeg
 def test_compose_video_rejects_video_clip_escape(fake_project: Path, tmp_path: Path) -> None:
-    """剧本里 `generated_assets.video_clip` 走 `..` 逃逸时拒绝（review #12）。
+    """剧本里 `generated_assets.video_clip` 走 `..` 逃逸时拒绝。
 
     `project_dir / "../escape.mp4"` 未 resolve 时字面前缀会骗过 is_relative_to。
     resolve 后才能识别为项目外。
@@ -233,7 +232,7 @@ def test_compose_video_rejects_video_clip_escape(fake_project: Path, tmp_path: P
 
 @_requires_ffmpeg
 def test_compose_video_rejects_video_clip_absolute_outside(fake_project: Path, tmp_path: Path) -> None:
-    """剧本里 `generated_assets.video_clip` 是项目外绝对路径时拒绝（review #12）。"""
+    """剧本里 `generated_assets.video_clip` 是项目外绝对路径时拒绝。"""
     outside = tmp_path / "outside.mp4"
     outside.write_bytes(b"\x00" * 16)
     (fake_project / "scripts").mkdir(exist_ok=True)
@@ -279,7 +278,7 @@ def test_compose_video_rejects_output_symlink(fake_project: Path, tmp_path: Path
 
 @_requires_ffmpeg
 def test_compose_video_rejects_music_dir(fake_project: Path) -> None:
-    """--music 指向目录时应在校验阶段拒绝（review #9）。"""
+    """--music 指向目录时应在校验阶段拒绝。"""
     script_arg = _write_drama_script(fake_project, video_clip_exists=True)
     music_dir = fake_project / "bgm-dir"
     music_dir.mkdir()

@@ -96,7 +96,7 @@ class UploadSpec:
     它由 ``_handle_source_upload`` 全权接管，表项只提供类型校验与扩展名白名单。
 
     按剧本条目定位（script_file + shot_id）、需回写剧本元数据的上传不入本表，走各自的
-    镜头级路由，校验与落盘共用 ``server.services.upload_finalize`` 的 helper。
+    分镜级路由，校验与落盘共用 ``server.services.upload_finalize`` 的 helper。
     """
 
     allowed_exts: tuple[str, ...]
@@ -181,7 +181,7 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         allowed_exts=_IMAGE_EXTS,
         subdir=(ASSET_SPECS["product"].subdir, "refs"),
         naming="sequenced",
-        # 产品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
+        # 商品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
         # 不做阈值压缩/重编码。请求体上限由生成发送前的参考压缩环节独立保障。
         content_check="validate_image",
         metadata_setter=ProjectManager.add_product_reference_image,
@@ -266,7 +266,7 @@ async def upload_file(
         project_name: 项目名称
         upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref)
         file: 上传的文件
-        name: 可选，用于角色/场景/道具/产品名称（自动更新元数据）；product_ref 必填；
+        name: 可选，用于角色/场景/道具/商品名称（自动更新元数据）；product_ref 必填；
             分镜/视频上传走 shot_uploads 路由
         on_conflict: source 类型独有 — fail / replace / rename
     """
@@ -839,7 +839,7 @@ async def update_draft_content(
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
             # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 step1）。
-            # 若写入 fallback 到老文件，切模式后后续 subagent 读 step_files[step_num] 仍为空，
+            # 若写入 fallback 到老文件，切模式后后续子智能体读 step_files[step_num] 仍为空，
             # 导致"前端保存成功但生成报缺少 step1"。
             return project_dir, content_mode, episode_drafts_dir(project_dir, episode) / step_files[step_num]
 
@@ -848,7 +848,7 @@ async def update_draft_content(
         if draft_path.name == REFERENCE_VIDEO_STEP1_FILENAME:
             # 参考生视频正式 step1 不走本端点的裸文本直写：它的写盘统一收敛在
             # ScriptReviewService.save_content 的单一出口（结构校验、references 重派生、
-            # per-path 锁与 step2 隔离草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
+            # per-path 锁与 step2 草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
             # 本端点无基线指纹可传，不做并发基线比对（同其余无基线的直连调用）。
             try:
                 parsed = json.loads(content)
@@ -901,7 +901,7 @@ def _write_plain_draft(
 
     drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
     ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
-    非对象场景项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
+    非对象分镜项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
     失败）。按目标文件名而非 content_mode 触发：_get_step_files 对未知模式回落到 drama 的
     结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration
     的 step1 落自己的文件名，不匹配此校验。

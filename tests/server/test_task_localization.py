@@ -56,7 +56,7 @@ class TestWarningRendering:
 
         rendered = _localize_task(task, _translator("zh"))["result"]["warnings"]
 
-        assert rendered == ["Sora 参考模式暂不支持多图，已降级为单图"]
+        assert rendered == ["Sora 参考生视频暂不支持多图，已降级为单图"]
 
     def test_multiple_warnings_keep_order(self):
         task = _task(
@@ -135,7 +135,7 @@ class TestWarningRendering:
         assert not localized["error_message"].startswith("[")
         assert localized["error_code"] == "provider_unsupported_media"
         assert localized["error_params"] == {"provider_id": "grok", "media_type": "image"}
-        assert localized["result"]["warnings"] == ["Sora 参考模式暂不支持多图，已降级为单图"]
+        assert localized["result"]["warnings"] == ["Sora 参考生视频暂不支持多图，已降级为单图"]
 
     def test_projection_failure_keeps_machine_details_while_message_tracks_locale(self):
         task = _task(
@@ -189,7 +189,7 @@ class TestWarningPassthroughAndTolerance:
 
         rendered = _localize_task(task, _translator("zh"))["result"]["warnings"]
 
-        assert rendered == ["Sora 参考模式暂不支持多图，已降级为单图"]
+        assert rendered == ["Sora 参考生视频暂不支持多图，已降级为单图"]
 
     def test_non_list_warnings_become_empty_list(self):
         task = _task(result={"warnings": "boom"})

@@ -14,8 +14,8 @@ from pydantic.json_schema import SkipJsonSchema
 
 from lib.script_skeleton import resolve_declared_kind
 
-# 所有剧本模型默认禁止额外字段:agent 的 `patch_episode_script` 通过 `_set_nested` 允许在
-# dict 上凭空创建叶子(为了让 agent 补 LLM 漏写的 optional 字段);若 Pydantic 走默认
+# 所有剧本模型默认禁止额外字段:Agent 的 `patch_episode_script` 通过 `_set_nested` 允许在
+# dict 上凭空创建叶子(为了让 Agent 补 LLM 漏写的 optional 字段);若 Pydantic 走默认
 # `extra="ignore"`,任何 typo / hallucinated 字段都会被静默丢,但 dict 已被 atomic_write_json
 # 持久化,JSON 文件里垃圾字段长存,「不更坏」error-set diff 永远抓不到(before/after Pydantic
 # 都 ignore → 两边 errors 集合相同 → new_errors=∅ → 放行)。`extra="forbid"` 让 Pydantic
@@ -144,7 +144,7 @@ class _VideoPromptCore(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    action: str = Field(description="该镜头时长内的动作描述；镜头运动由 camera_motion 承载")
+    action: str = Field(description="该分镜时长内的动作描述；镜头运动由 camera_motion 承载")
     camera_motion: Annotated[CameraMotion, BeforeValidator(_normalize_camera_motion)] = Field(description="镜头运动")
     ambiance_audio: str = Field(description="环境音效（画内音）")
 
@@ -152,8 +152,8 @@ class _VideoPromptCore(BaseModel):
 class VideoPrompt(_VideoPromptCore):
     """narration / ad 视频生成 Prompt：含角色对话 dialogue。
 
-    drama 不用本模型——其台词迁入场景级 ``DramaScene.utterances``，video_prompt 用无-dialogue 的
-    ``DramaVideoPrompt`` 变体（见 ADR 0040）。
+    drama 的有序发声由 ``DramaScene.utterances`` 承载，video_prompt 使用无-dialogue 的
+    ``DramaVideoPrompt``（见 ADR 0040）。
     """
 
     dialogue: Annotated[list[Dialogue], BeforeValidator(_none_to_empty_list)] = Field(
@@ -162,7 +162,7 @@ class VideoPrompt(_VideoPromptCore):
 
 
 class DramaVideoPrompt(_VideoPromptCore):
-    """drama 视频生成 Prompt：无 dialogue（口播统一迁入场景级 ``DramaScene.utterances``）。
+    """drama 视频生成 Prompt：无 dialogue，口播由分镜级 ``DramaScene.utterances`` 统一承载。
 
     ``extra="forbid"`` 下任何残留的 ``dialogue`` 键会被 ``DramaScene`` 读时迁移先行剥离。
     """
@@ -184,8 +184,8 @@ class GeneratedAssets(BaseModel):
     video_thumbnail: str | None = Field(default=None, description="视频缩略图路径")
     video_uri: str | None = Field(default=None, description="视频 URI")
     # narration_audio 由 TTS 任务（generation_tasks.execute_tts_task）在合成后写回，
-    # 显式声明使其通过 extra="forbid" + 「不更坏」守卫；仅说书 segment 写入，drama/refvideo 恒 None。
-    narration_audio: str | None = Field(default=None, description="旁白音频路径")
+    # 显式声明使其通过 extra="forbid" + 「不更坏」守卫；仅旁白/解说 segment 写入，drama/refvideo 恒 None。
+    narration_audio: str | None = Field(default=None, description="旁白配音路径")
     status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")
     # video_clip 写回时（apply_unit_video_assets 单一写点）机械戳生成时间；用于跟角色
     # `voice_updated_at` 比较，判定该片段是否生成于当前参考音频设置之前。
@@ -207,11 +207,11 @@ def get_generated_assets(item: dict) -> dict:
     return assets if isinstance(assets, dict) else {}
 
 
-# ============ 说书模式（Narration） ============
+# ============ 旁白/解说（Narration） ============
 
 
 class NarrationSegment(BaseModel):
-    """说书模式的片段
+    """旁白/解说的分镜
 
     注意：不设独立 `episode` 字段。集号已经编码在 `segment_id`（格式 E{集}S{序号}）中，
     与 `DramaScene.scene_id` / `ReferenceVideoUnit.unit_id` 保持一致。避免 AI 在每个
@@ -235,8 +235,8 @@ class NarrationSegment(BaseModel):
                 data.pop(k, None)
         return data
 
-    segment_id: str = Field(description="片段 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
-    duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
+    segment_id: str = Field(description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
+    duration_seconds: int = Field(ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     novel_text: str = Field(description="小说原文（必须原样保留，用于后期配音）")
     characters_in_segment: list[str] = Field(description="出场角色名称列表")
@@ -275,7 +275,7 @@ class NovelInfo(BaseModel):
 
 
 class NarrationEpisodeScript(BaseModel):
-    """说书模式剧集脚本
+    """旁白/解说剧本
 
     注意：`episode` 字段不在 schema 中。CLI 参数 `--episode N` 是集号的唯一真相源，
     由 `ScriptGenerator._add_metadata` 写入。不让 AI 生成该字段，避免幻觉写错集号
@@ -283,7 +283,7 @@ class NarrationEpisodeScript(BaseModel):
 
     顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` 等字段由运行时注入
     (``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,顶层 forbid
-    会让现有写盘流程崩;``generation_mode`` 不在其列——路线的真相源是 project.json,剧本
+    会让现有写盘流程崩;``generation_mode`` 不在其列——生成模式的真相源是 project.json,剧本
     不留戳,生成写盘前由 ``ScriptGenerator._add_metadata`` 剥离,存量在制品里的残留字段按
     未知字段忽略。typo 防护靠子模型(VideoPrompt / ImagePrompt /
     NarrationSegment 等)的 ``extra="forbid"`` 在嵌套字段路径上挡。
@@ -291,27 +291,27 @@ class NarrationEpisodeScript(BaseModel):
 
     title: str = Field(description="剧集标题")
     # content_mode 由 _add_metadata setdefault 注入项目级真值;Literal 单值让 LLM 写无意义
-    content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="内容模式")
+    content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="创作类型")
     # novel 由 _add_metadata 注入 {项目 title, f"第N集"};compose-video 用 chapter 作输出文件名,LLM 自由发挥反而不可预测
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # hook / next_episode_teaser 由 _add_metadata 从分集账本注入（账本是钩子设计的
     # 单一真相源，LLM 不参与填写）；账本无规划数据时为 null。
     hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
     next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
-    segments: list[NarrationSegment] = Field(description="片段列表")
+    segments: list[NarrationSegment] = Field(description="分镜列表")
 
 
-# ============ 说书 step1 结构化中间态 / step2 视觉层 ============
+# ============ 旁白/解说 step1 结构化中间态 / step2 视觉层 ============
 #
-# 两段式职责切分：step1（片段拆分）产出内容层（逐字 novel_text + 片段边界 + 时长），
+# 两段式职责切分：step1（分镜拆分）产出内容层（逐字 novel_text + 分镜边界 + 时长），
 # step2（generate-script）只产出视觉层（image_prompt / video_prompt），按 segment_id
 # 合并回 step1 已确认结构。novel_text 永不经 step2 的 LLM 重出 → 消除扩写漂移。
 
 
 class NarrationStep1Segment(BaseModel):
-    """说书 step1（片段拆分）产出的结构化片段：内容层。
+    """旁白/解说 step1（分镜拆分）产出的结构化分镜：内容层。
 
-    只承载 step1 已定的内容字段：片段边界（segment_id / segment_break）、逐字 novel_text、
+    只承载 step1 已定的内容字段：分镜边界（segment_id / segment_break）、逐字 novel_text、
     时长。视觉层（image_prompt / video_prompt）由 step2 生成后按 segment_id 合并进来。
     characters_in_segment / scenes / props 由 step1 登记（内容层是资产引用的单一真相源）：
     step2 视觉层 schema 不含资产字段、只读消费、不补登记不改写，故三者必填——无资产须显式写 []，
@@ -320,9 +320,9 @@ class NarrationStep1Segment(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    segment_id: str = Field(min_length=1, description="片段 ID，格式 E{集}S{序号}")
+    segment_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号}")
     novel_text: str = Field(min_length=1, description="小说原文（逐字保留，用于配音与透传）")
-    duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
+    duration_seconds: int = Field(ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     characters_in_segment: list[str] = Field(description="出场角色名称列表；无则显式写 []")
     scenes: list[str] = Field(description="出场场景名称列表；无则显式写 []")
@@ -330,15 +330,15 @@ class NarrationStep1Segment(BaseModel):
 
 
 class NarrationStep1Draft(BaseModel):
-    """说书 step1 结构化中间态（``drafts/episode_N/step1_segments.json`` 的 schema）。
+    """旁白/解说 step1 结构化中间态（``drafts/episode_N/step1_segments.json`` 的 schema）。
 
-    顶层容忍附加字段（如 ``episode`` 头）：片段拆分由 subagent 经 Write 产出、非结构化输出
+    顶层容忍附加字段（如 ``episode`` 头）：分镜拆分由子智能体经 Write 产出、非结构化输出
     强约束，读时按本模型校验。
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    segments: list[NarrationStep1Segment] = Field(description="片段列表")
+    segments: list[NarrationStep1Segment] = Field(description="分镜列表")
 
 
 class NarrationVisualSegment(BaseModel):
@@ -352,33 +352,33 @@ class NarrationVisualSegment(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    segment_id: str = Field(min_length=1, description="对齐锚：必须取自 step1 片段表，逐一对应、不增不减")
+    segment_id: str = Field(min_length=1, description="对齐锚：必须取自 step1 分镜表，逐一对应、不增不减")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
 
 
 class NarrationVisualEpisodeScript(BaseModel):
-    """step2 视觉层的 LLM ``response_schema``：剧集标题 + 各片段视觉层。
+    """step2 视觉层的 LLM ``response_schema``：剧集标题 + 各分镜视觉层。
 
-    顶层不走 ``extra="forbid"``（与 NarrationEpisodeScript 同口径）；逐片段视觉层由
+    顶层不走 ``extra="forbid"``（与 NarrationEpisodeScript 同口径）；逐分镜视觉层由
     NarrationVisualSegment 的 ``extra="forbid"`` 在嵌套路径上挡 typo / 漂移。
     """
 
     title: str = Field(description="剧集标题")
-    segments: list[NarrationVisualSegment] = Field(description="各片段的视觉层，按 segment_id 一一对齐 step1")
+    segments: list[NarrationVisualSegment] = Field(description="各分镜的视觉层，按 segment_id 一一对齐 step1")
 
 
-# ============ 剧集动画模式（Drama） ============
+# ============ 剧情演绎（Drama） ============
 
 
 UtteranceKind = Literal["dialogue", "voiceover"]
 
 
 class Utterance(BaseModel):
-    """drama 场景级有序发声条目：插入顺序即幕内时序（台词与画外音的先后）。
+    """drama 分镜级有序发声条目：插入顺序即幕内时序（台词与画外音的先后）。
 
     判别式联合 ``{kind, speaker, text}``，``kind`` 决定下游路由与 ``kind ⇄ speaker`` 约束：
-    - ``dialogue``：人物发声（对白、内心独白、人物画外解说），必带非空 ``speaker``，
+    - ``dialogue``：角色发声（对白、内心独白、角色画外解说），必带非空 ``speaker``，
       进视频 YAML 交供应商出口型音轨；
     - ``voiceover``：无说话人的旁白解说，``speaker`` 必为 ``None``，不作视频提示词（留给字幕 / TTS）。
 
@@ -388,7 +388,7 @@ class Utterance(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    kind: UtteranceKind = Field(description="发声类型：dialogue=带角色归属的人物发声、voiceover=无角色归属的叙述旁白")
+    kind: UtteranceKind = Field(description="发声类型：dialogue=带角色归属的角色发声、voiceover=无角色归属的叙述旁白")
     speaker: str | None = Field(default=None, description="说话角色名；dialogue 必填非空、voiceover 必须为 null")
     text: str = Field(description="发声内容原文，逐字保留")
 
@@ -414,7 +414,7 @@ class Utterance(BaseModel):
 
 
 class DramaScene(BaseModel):
-    """剧集动画模式的场景"""
+    """剧情演绎的分镜。"""
 
     model_config = _STRICT_CONFIG
 
@@ -480,23 +480,22 @@ class DramaScene(BaseModel):
                     utterances.append({"kind": "voiceover", "speaker": None, "text": line.strip()})
         return utterances
 
-    scene_id: str = Field(min_length=1, description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
-    duration_seconds: int = Field(default=8, ge=1, le=60, description="场景时长（秒）")
+    scene_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
+    duration_seconds: int = Field(default=8, ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     characters_in_scene: list[str] = Field(description="出场角色名称列表")
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
-    # drama 用无-dialogue 变体：台词迁入下方 utterances，video_prompt 只承载画面动作 / 运镜 / 环境音。
+    # drama 的 video_prompt 只承载画面动作、运镜与环境音，口播由下方 utterances 承载。
     video_prompt: DramaVideoPrompt = Field(description="视频生成提示词")
-    # 场景级有序发声序列，取代旧 video_prompt.dialogue（角色台词）与场景 voiceover（画外音）双字段：
-    # dialogue/voiceover 条目按时序排在同一列表，插入顺序即幕内先后（见 ADR 0040）。
+    # utterances 统一承载分镜级角色台词与画外音；条目顺序即幕内发声顺序（见 ADR 0040）。
     utterances: list[Utterance] = Field(
         default_factory=list,
-        description="场景级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列",
+        description="分镜级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列",
     )
-    # 逐字原文摘录（追溯锚，类比说书 novel_text，但纯作追溯、不被朗读、不出音、best-effort）。
-    # 由 step1（内容抽取）填入，step2（视觉）透传不改；存量数据缺失时默认空串（不更坏守卫放行）。
+    # 逐字原文摘录（追溯锚，类比旁白/解说 novel_text，但纯作追溯、不被朗读、不出音、best-effort）。
+    # 由 step1（内容整理）填入，step2（视觉）透传不改；存量数据缺失时默认空串（不更坏守卫放行）。
     source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
     # 见 NarrationSegment.transition_to_next 说明
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
@@ -510,7 +509,7 @@ class DramaScene(BaseModel):
 
 
 class DramaEpisodeScript(BaseModel):
-    """剧集动画模式剧集脚本
+    """剧情演绎剧本
 
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
@@ -518,18 +517,18 @@ class DramaEpisodeScript(BaseModel):
 
     title: str = Field(description="剧集标题")
     # 见 NarrationEpisodeScript.content_mode 说明
-    content_mode: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="内容模式")
+    content_mode: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="创作类型")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # 见 NarrationEpisodeScript 同名字段说明。
     hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
     next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
-    scenes: list[DramaScene] = Field(description="场景列表")
+    scenes: list[DramaScene] = Field(description="分镜列表")
 
 
-# ============ 剧集动画两段式：step1 内容 / step2 视觉（见 ADR 0041） ============
+# ============ 剧情演绎两段式：step1 内容 / step2 视觉（见 ADR 0041） ============
 #
-# 内容抽取前移到 step1：场景边界、characters/scenes/props、utterances（逐字口播）、source_text
+# 内容抽取前移到 step1：分镜边界、characters/scenes/props、utterances（逐字口播）、source_text
 # （逐字原文锚）、scene_description（视觉改编自由文本）一次定稿。step2 只生成视觉层
 # （image_prompt / video_prompt），LLM 输出 schema 仅含 scene_id（对齐锚）+ 视觉字段——
 # 非视觉字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移，由后端按 scene_id
@@ -537,7 +536,7 @@ class DramaEpisodeScript(BaseModel):
 
 
 class DramaSceneContent(BaseModel):
-    """step1（normalize）产出的场景内容层：除视觉层（image_prompt / video_prompt）外的全部字段。
+    """step1（normalize）产出的分镜内容层：除视觉层（image_prompt / video_prompt）外的全部字段。
 
     作为 step2 视觉生成、以及后续 web 审阅 / 编辑的结构化中间态契约（落盘于
     ``drafts/episode_N/step1_normalized_script.json``，外层为 ``DramaNormalizedScript``）。
@@ -546,60 +545,60 @@ class DramaSceneContent(BaseModel):
     - ``scene_description``：**视觉改编自由文本**——只承载画面可见内容（角色动作、神态、环境、光影），
       供 step2 生成 image_prompt / video_prompt 作画面基底；**不内嵌任何口播**，允许相对原文创作改编
       （丢失 / 漂移可容忍，非保真字段）。
-    - ``utterances``：**逐字口播**——场景内"说出来的话"的有序序列（台词 dialogue 带 speaker、画外音
+    - ``utterances``：**逐字口播**——分镜内"说出来的话"的有序序列（台词 dialogue 带 speaker、画外音
       voiceover 无 speaker），下游字幕 / TTS 的单一真相源，step2 透传不改、不重识别。
-    - ``source_text``：**逐字原文追溯锚**——本场景所源自的原文片段摘录，供人工对照、失真定位、单场景
+    - ``source_text``：**逐字原文追溯锚**——本分镜所源自的原文片段摘录，供人工对照、失真定位、单分镜
       重生成；不被朗读、不出音，与 utterances 分属两事（utterances 是发声、source_text 是溯源）。
     """
 
     model_config = _STRICT_CONFIG
 
-    scene_id: str = Field(min_length=1, description="场景 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
-    duration_seconds: int = Field(default=8, ge=1, le=60, description="场景时长（秒）")
+    scene_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
+    duration_seconds: int = Field(default=8, ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     characters_in_scene: list[str] = Field(description="出场角色名称列表")
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
-    scene_description: str = Field(description="场景视觉改编描述（自由文本，仅承载视觉内容，供 step2 生成视觉层）")
+    scene_description: str = Field(description="分镜视觉改编描述（自由文本，仅承载视觉内容，供 step2 生成视觉层）")
     utterances: list[Utterance] = Field(
         default_factory=list,
-        description="场景级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列，逐字保留",
+        description="分镜级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列，逐字保留",
     )
     source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
-    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该场景需要人工重新规划")
+    needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该分镜需要人工重新规划")
 
 
 class DramaNormalizedScript(BaseModel):
-    """step1 规范化剧本：场景内容列表。作为 step2 视觉生成与后续 web 审阅 / 编辑的唯一基底。
+    """step1 规范化剧本：分镜内容列表。作为 step2 视觉生成与后续 web 审阅 / 编辑的唯一基底。
 
     顶层不走 ``extra="forbid"``（同 ``DramaEpisodeScript``）：避免落盘时附带的运行时字段触发拒绝。
     """
 
     title: str = Field(description="剧集标题")
-    scenes: list[DramaSceneContent] = Field(description="场景内容列表")
+    scenes: list[DramaSceneContent] = Field(description="分镜内容列表")
 
 
 class DramaSceneVisual(BaseModel):
-    """step2（generate-script）产出的场景视觉层：仅 scene_id（对齐锚）+ 视觉字段。
+    """step2（generate-script）产出的分镜视觉层：仅 scene_id（对齐锚）+ 视觉字段。
 
-    ``scene_id`` 必须等于 step1 已定场景的 scene_id，后端按它（非列表顺序）合并回内容层。
+    ``scene_id`` 必须等于 step1 已定分镜的 scene_id，后端按它（非列表顺序）合并回内容层。
     """
 
     model_config = _STRICT_CONFIG
 
-    scene_id: str = Field(min_length=1, description="对齐锚：必须等于 step1 已定场景的 scene_id")
+    scene_id: str = Field(min_length=1, description="对齐锚：必须等于 step1 已定分镜的 scene_id")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: DramaVideoPrompt = Field(description="视频生成提示词（无 dialogue，口播在 step1 utterances）")
 
 
 class DramaVisualScript(BaseModel):
-    """step2 视觉层剧本：各场景视觉字段（按 scene_id 与 step1 内容对齐）。
+    """step2 视觉层剧本：各分镜视觉字段（按 scene_id 与 step1 内容对齐）。
 
     顶层不走 ``extra="forbid"`` 同 ``DramaNormalizedScript``。``title`` 可选，最终标题取自 step1 内容。
     """
 
     title: str = Field(default="", description="剧集标题（可选，最终以 step1 内容为准）")
-    scenes: list[DramaSceneVisual] = Field(description="各场景视觉层（按 scene_id 对齐 step1 内容）")
+    scenes: list[DramaSceneVisual] = Field(description="各分镜视觉层（按 scene_id 对齐 step1 内容）")
 
 
 class DramaVisualMergeError(ValueError):
@@ -619,7 +618,7 @@ def merge_drama_visual_into_scenes(
     工程透传（见 ADR 0041）：非视觉字段（utterances / source_text / characters_in_scene 等）一律取自
     step1 内容、不受 step2 影响；视觉字段（image_prompt / video_prompt）取自 step2。按 ``scene_id``
     对齐（非列表顺序），并校验 scene_id 两侧唯一与全覆盖——内容缺视觉、视觉悬空、内容或视觉重复
-    scene_id 均抛 ``DramaVisualMergeError``（内容侧重复会让两个场景共用同一视觉、并在下游产物文件名
+    scene_id 均抛 ``DramaVisualMergeError``（内容侧重复会让两个分镜共用同一视觉、并在下游产物文件名
     上撞键，故同样 fail-loud）。结果顺序沿用内容层。不就地修改入参。
     """
     visual_by_id: dict[str, dict[str, object]] = {}
@@ -649,11 +648,11 @@ def merge_drama_visual_into_scenes(
         content_ids.add(sid)
         visual = visual_by_id.get(sid)
         if visual is None:
-            raise DramaVisualMergeError(f"step1 场景 {sid} 缺少对应的 step2 视觉层")
+            raise DramaVisualMergeError(f"step1 分镜 {sid} 缺少对应的 step2 视觉层")
         # _parse_drama_visual 校验失败降级会回原始 scenes，其中可能有只含 scene_id、缺视觉字段的半成品；
         # 在合并阶段 fail-loud，避免写入 None 后绕过 DramaVisualMergeError、拖到 save_script 才以通用异常失败。
         if "image_prompt" not in visual or "video_prompt" not in visual:
-            raise DramaVisualMergeError(f"step2 视觉层场景 {sid} 缺少必要的视觉字段")
+            raise DramaVisualMergeError(f"step2 视觉层分镜 {sid} 缺少必要的视觉字段")
         scene = {k: v for k, v in content.items() if k not in _DRAMA_CONTENT_ONLY_FIELDS}
         scene["image_prompt"] = visual["image_prompt"]
         scene["video_prompt"] = visual["video_prompt"]
@@ -666,30 +665,30 @@ def merge_drama_visual_into_scenes(
     return merged
 
 
-# ============ 广告/短片模式（Ad） ============
+# ============ 广告/短片（Ad） ============
 
 
 class AdShot(BaseModel):
-    """广告/短片模式的镜头——平铺 shots[] 的最小单元。
+    """广告/短片的分镜——平铺 shots[] 的最小单元。
 
     ``section`` 是带货框架段落标签（hook/pain_point/product_reveal/selling_point/
     demo/trust/price_promo/cta 八值引导，不硬枚举，留给 prompt 资产约束）；
-    ``voiceover_text`` 是一等口播文案，字幕导出与后续 TTS 的单一来源。产品按名字
-    引用 ``products_in_shot``（对应 project.json 的 products bucket），氛围镜头该列表为空。
+    ``voiceover_text`` 是一等口播文案，字幕导出与后续 TTS 的单一来源。商品按名字
+    引用 ``products_in_shot``（对应 project.json 的 products bucket），氛围分镜该列表为空。
     """
 
     model_config = _STRICT_CONFIG
 
-    shot_id: str = Field(description="镜头 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
+    shot_id: str = Field(description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     section: str = Field(
         description="带货框架段落标签（如 hook/pain_point/product_reveal/selling_point/demo/trust/price_promo/cta）"
     )
-    duration_seconds: int = Field(ge=1, le=60, description="镜头时长（秒）")
+    duration_seconds: int = Field(ge=1, le=60, description="分镜时长（秒）")
     voiceover_text: str = Field(description="口播文案（必须完整可照稿配音，可为空字符串）")
     characters_in_shot: list[str] = Field(default_factory=list, description="出场角色名称列表")
     scenes: list[str] = Field(default_factory=list, description="出场场景名称列表")
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
-    products_in_shot: list[str] = Field(default_factory=list, description="出场产品名称列表，非空即产品镜头")
+    products_in_shot: list[str] = Field(default_factory=list, description="出场商品名称列表，非空即商品分镜")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
     # 见 NarrationSegment.transition_to_next 说明
@@ -704,7 +703,7 @@ class AdShot(BaseModel):
 
 
 class AdEpisodeScript(BaseModel):
-    """广告/短片模式剧集脚本（恒单集，剧本即第 1 集脚本文件）。
+    """广告/短片剧本（恒单集，剧本即第 1 集脚本文件）。
 
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
@@ -712,17 +711,17 @@ class AdEpisodeScript(BaseModel):
 
     title: str = Field(description="短片标题")
     # 见 NarrationEpisodeScript.content_mode 说明
-    content_mode: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="内容模式")
+    content_mode: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="创作类型")
     # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
-    shots: list[AdShot] = Field(description="镜头列表")
+    shots: list[AdShot] = Field(description="分镜列表")
 
 
-# ============ 参考生视频模式（Reference Video） ============
+# ============ 参考生视频（Reference-to-Video） ============
 
-#: 参考生视频 unit 编排时长（``ReferenceVideoUnit.duration_seconds``）的结构范围（秒）。
+#: 视频单元编排时长（``ReferenceVideoUnit.duration_seconds``）的结构范围（秒）。
 #: 静态模型只拦非正整数与量级明显失真的值；生成预检再按执行模型能力投影到申请档位并把
-#: 偏移作为 warning 呈现。上界不由镜头数推导：镜头不承载时长，unit 才是一次生成调用。
+#: 偏移作为 warning 呈现。上界不由正文内的镜头描述数推导：镜头描述不承载时长，unit 才是一次生成调用。
 #: 存量迁移的问题壳是唯一例外，可在 ``needs_replan`` 下保存零秒。
 REFERENCE_UNIT_DURATION_RANGE: tuple[int, int] = (1, 300)
 
@@ -734,10 +733,10 @@ AD_TARGET_DURATION_DRIFT_THRESHOLD = 0.20
 
 
 def ad_shot_duration_seconds(shot: object) -> int:
-    """ad 单镜头时长（秒）的脏数据归一口径：非 dict 条目、非正整数时长
+    """ad 单个分镜时长（秒）的脏数据归一口径：非 dict 条目、非正整数时长
     （bool 按 int 子类排除）一律按 0 计、不抛。
 
-    分镜路线的总时长偏差观察经 ``ad_script_total_duration`` 共用此口径。
+    分镜图生视频的总时长偏差观察经 ``ad_script_total_duration`` 共用此口径。
     """
     if not isinstance(shot, dict):
         return 0
@@ -760,7 +759,7 @@ def ad_script_total_duration(shots: object) -> int:
 
 
 #: 缺 duration_seconds 时按骨架种类取的兜底时长（秒）——剧本条目时长的单一真相源。
-#: segments/scenes 沿用历史默认；shots（ad）与 video_units（参考直出）无单镜头默认时长
+#: segments/scenes 沿用历史默认；shots（ad）与 video_units（参考生视频）无单分镜默认时长
 #: 偏好（按 target/预算逐条规划），缺失按 0 计，避免杜撰值污染与目标总时长的对照。
 #: 四种骨架全登记；第五种骨架加入即在 ``item_duration`` 查表 KeyError。
 _ITEM_FALLBACK_DURATIONS: dict[str, int] = {"segments": 4, "scenes": 8, "shots": 0, "video_units": 0}
@@ -802,11 +801,11 @@ class ReferenceResource(BaseModel):
     model_config = _STRICT_CONFIG
 
     type: Literal["product", "character", "scene", "prop"] = Field(description="引用的资源类型")
-    name: str = Field(description="产品/角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
+    name: str = Field(description="商品/角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
 
 
 class ReferenceVideoUnit(BaseModel):
-    """参考视频单元——一个视频文件的最小生成粒度。
+    """视频单元——一个视频文件的最小生成粒度。
 
     ``text`` 是这个单元的唯一持久化内容真相：一段自由书写的正文，参考图与发声归属都从它
     读时或执行期派生，不另存结构（见 ADR 0064）。unit 是一次生成调用的单元，一个 unit 一个
@@ -842,14 +841,14 @@ class ReferenceVideoUnit(BaseModel):
 
 
 class ReferenceVideoScript(BaseModel):
-    """参考生视频模式剧集脚本。
+    """参考生视频剧集脚本。
 
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
 
     ``content_mode`` 仅承担"内容类型"维度（narration/drama/ad）；"视频来源"维度是项目级事实
-    （``project.json`` 的 ``generation_mode``），剧本不携带——路线创建时锁定，剧本骨架种类
-    本身即路线的体现。
+    （``project.json`` 的 ``generation_mode``），剧本不携带——生成模式创建时锁定，剧本骨架种类
+    本身即生成模式的体现。
     """
 
     title: str = Field(description="剧集标题")
@@ -898,7 +897,7 @@ class ReferenceStep1Unit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
     )
-    # 逐字原文锚：拆分工具校验其为源文子串后原样落盘，供 gate 对照与失真定位。
+    # 逐字原文锚：拆分工具校验其为源文子串后原样落盘，供内容确认时对照与失真定位。
     # 默认空串：不带该字段的存量草稿照常通过校验。
     source_text: SkipJsonSchema[str] = Field(default="", description="该 unit 所依据的逐字原文摘录（追溯锚）")
 
@@ -915,7 +914,7 @@ class ReferenceStep1Draft(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 书写层扁平文本：两级 LLM 产出的形状
+# 参考生视频扁平草稿结构：两级 LLM 产出的形状
 # ---------------------------------------------------------------------------
 #
 # step1 / step2 的 LLM 产出与人在编辑器里写的是同一种格式（见 lib/reference_video/
@@ -926,7 +925,7 @@ class ReferenceStep1Draft(BaseModel):
 
 
 class ReferenceStep1FlatUnit(BaseModel):
-    """step1 的 LLM 产出单元：时长 + 原文锚 + 书写层正文。"""
+    """step1 的 LLM 产出单元：时长 + 原文锚 + 引用语法正文。"""
 
     model_config = _STRICT_CONFIG
 
@@ -936,7 +935,7 @@ class ReferenceStep1FlatUnit(BaseModel):
         description="该单元时长（秒）",
     )
     source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
-    text: str = Field(min_length=1, description="该单元的书写层正文：画面描述 + 行内的台词 / 画外音记号")
+    text: str = Field(min_length=1, description="该单元的引用语法正文：画面描述 + 行内的台词 / 画外音记号")
 
 
 class ReferenceStep1FlatDraft(BaseModel):
@@ -948,15 +947,15 @@ class ReferenceStep1FlatDraft(BaseModel):
 
 
 class ReferenceStep2FlatUnit(BaseModel):
-    """step2 的 LLM 产出单元：只有展开后的书写层正文。
+    """step2 的 LLM 产出单元：只有展开后的引用语法正文。
 
-    时长与 unit 顺序是 step1 已定稿、用户已在审阅 gate 上确认的内容契约，不进 step2 输出——
+    时长与 unit 顺序是 step1 已定稿、用户已完成内容确认的内容契约，不进 step2 输出——
     不给 LLM 写的字段就没有漂移可校验。
     """
 
     model_config = _STRICT_CONFIG
 
-    text: str = Field(min_length=1, description="视觉展开后的书写层正文：画面描述 + 行内的台词 / 画外音记号")
+    text: str = Field(min_length=1, description="视觉展开后的引用语法正文：画面描述 + 行内的台词 / 画外音记号")
 
 
 class ReferenceStep2FlatScript(BaseModel):
@@ -969,7 +968,7 @@ class ReferenceStep2FlatScript(BaseModel):
 
 
 class AdReferenceFlatUnit(BaseModel):
-    """广告参考路线一次生成产出的自包含书写单元。"""
+    """广告/短片的参考生视频一次生成产出的自包含书写单元。"""
 
     model_config = _STRICT_CONFIG
 
@@ -978,11 +977,11 @@ class AdReferenceFlatUnit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元的编排时长（秒），不按供应商档位量化",
     )
-    text: str = Field(min_length=1, description="书写层正文：画面描述 + 行内的台词 / 画外音记号")
+    text: str = Field(min_length=1, description="引用语法正文：画面描述 + 行内的台词 / 画外音记号")
 
 
 class AdReferenceFlatScript(BaseModel):
-    """广告参考路线的单阶段 LLM 输出；ID 与状态均由机器派生。"""
+    """广告/短片的参考生视频的单阶段 LLM 输出；ID 与状态均由机器派生。"""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -1036,7 +1035,7 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     - 在 response_schema（结构化输出）里渲染为 JSON-schema ``enum``（单值时为 ``const``）→ LLM 生成层即被卡死；
     - ``model_validate`` 时强制成员校验。
 
-    服务 narration / drama / ad 三种内容模式：骨架种类经规范解析
+    服务 narration / drama / ad 三种创作类型：骨架种类经规范解析
     （``resolve_declared_kind``，未知/缺失 content_mode fail-loud 抛 ``ValueError``，不落 drama
     兜底），kind → 模型的映射留本地（行为不进注册表）。reference_video 不经此路：其 API 消费的是
     ``unit.duration_seconds``（各 shot 之和），与单 shot 枚举不对应，沿用静态 ``ReferenceVideoScript``。
@@ -1047,39 +1046,39 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     kind = resolve_declared_kind(content_mode, None)
     if kind == "segments":
         segment = _constrained_duration_item(
-            NarrationSegment, duration_type, "片段时长（秒），必须取 supported_durations 中的值"
+            NarrationSegment, duration_type, "分镜时长（秒），必须取 supported_durations 中的值"
         )
         return create_model(
             "NarrationEpisodeScript",
             __base__=NarrationEpisodeScript,
-            segments=(list[segment], Field(description="片段列表")),
+            segments=(list[segment], Field(description="分镜列表")),
         )
     if kind == "shots":
-        return _ad_episode_model(duration_type, "镜头时长（秒），必须取 supported_durations 中的值")
-    scene = _constrained_duration_item(DramaScene, duration_type, "场景时长（秒），必须取 supported_durations 中的值")
+        return _ad_episode_model(duration_type, "分镜时长（秒），必须取 supported_durations 中的值")
+    scene = _constrained_duration_item(DramaScene, duration_type, "分镜时长（秒），必须取 supported_durations 中的值")
     return create_model(
         "DramaEpisodeScript",
         __base__=DramaEpisodeScript,
-        scenes=(list[scene], Field(description="场景列表")),
+        scenes=(list[scene], Field(description="分镜列表")),
     )
 
 
 def build_drama_normalized_script_model(supported_durations: list[int]) -> type[BaseModel]:
     """构造 step1 规范化剧本模型，``duration_seconds`` 被 ``supported_durations`` 枚举硬约束。
 
-    内容抽取前移后由 step1 决定场景时长，故 duration 枚举约束加在内容层 ``DramaSceneContent`` 上
+    内容抽取前移后由 step1 决定分镜时长，故 duration 枚举约束加在内容层 ``DramaSceneContent`` 上
     （与 ``build_episode_script_model`` 同口径，渲染为 response_schema 的 enum / const）；step2 视觉层
     不含 duration，沿用静态 ``DramaVisualScript``。
     """
     scene = _constrained_duration_item(
         DramaSceneContent,
         _duration_literal(supported_durations),
-        "场景时长（秒），必须取 supported_durations 中的值",
+        "分镜时长（秒），必须取 supported_durations 中的值",
     )
     return create_model(
         "DramaNormalizedScript",
         __base__=DramaNormalizedScript,
-        scenes=(list[scene], Field(description="场景内容列表")),
+        scenes=(list[scene], Field(description="分镜内容列表")),
     )
 
 
@@ -1089,7 +1088,7 @@ def _ad_episode_model(duration_type: object, description: str) -> type[BaseModel
     return create_model(
         "AdEpisodeScript",
         __base__=AdEpisodeScript,
-        shots=(list[shot], Field(description="镜头列表")),
+        shots=(list[shot], Field(description="分镜列表")),
     )
 
 

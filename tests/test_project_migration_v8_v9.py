@@ -289,7 +289,7 @@ def test_storyboard_project_only_gets_the_version_bump(tmp_path: Path) -> None:
 
     assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
     assert (project_dir / "scripts/episode_1.json").read_bytes() == script_before
-    # 分镜路线只改 project.json，备份也只有它那一份。
+    # 分镜图生视频只改 project.json，备份也只有它那一份。
     backups = sorted(path.name.split(".bak.v8-")[0] for path in project_dir.rglob("*.bak.v8-*"))
     assert backups == ["project.json"]
 

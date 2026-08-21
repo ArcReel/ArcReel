@@ -6,20 +6,20 @@ sidebar_position: 2
 
 # Workflows and Modes {#workflows}
 
-ArcReel supports multiple content sources and video generation routes. This page helps you choose the right path before starting a project and define the review criteria for each stage.
+ArcReel supports multiple content sources and video generation modes. This page helps you choose the right mode before starting a project and define the review criteria for each stage.
 
 ## 1. Two Dimensions to Choose Separately {#two-dimensions}
 
 When creating a project, distinguish between:
 
 1. **Content Mode**: determines how the script is organized;
-2. **Video generation route**: determines whether video production is organized around storyboard images or asset reference images. Multi-grid storyboards are an optional image-generation method within the Storyboard route.
+2. **Video generation mode**: determines whether video production is organized around storyboard images or asset reference images. Multi-grid storyboards are an optional image-generation method within Storyboard mode.
 
 They can be combined. For example:
 
-- Drama + Storyboard image-to-video;
+- Drama + Storyboard mode;
 - Drama + Reference-to-video;
-- Narration/Commentary + Storyboard image-to-video;
+- Narration/Commentary + Storyboard mode;
 - Ad / Short Video + Reference-to-video.
 
 ## 2. Content Sources {#content-sources}
@@ -189,7 +189,7 @@ flowchart LR
 - Whether the ending has a clear call to action;
 - Whether voice-over copy and subtitles comply with platform rules.
 
-## 4. Video Generation Routes {#video-production-routes}
+## 4. Video Generation Modes {#video-production-routes}
 
 ### 4.1 Storyboard Image-to-Video {#storyboard-image-route}
 
@@ -215,9 +215,9 @@ Uses a single storyboard image as the video input.
 - Projects where each shot is relatively independent;
 - Projects that need to switch providers quickly.
 
-### 4.2 Multi-grid Storyboards Within the Storyboard Route {#grid-storyboard-route}
+### 4.2 Multi-grid Storyboards Within Storyboard Mode {#grid-storyboard-route}
 
-Multi-grid storyboards are not a separate route but an image-generation method within the Storyboard route. It generates multiple shots from the same passage together on one or more multi-grid storyboards, then automatically splits each grid into an individual storyboard image for each shot and generates each video separately. The video model still receives the individual storyboard image after splitting.
+Multi-grid storyboards are not a separate generation mode but an image-generation method within Storyboard mode. It generates multiple shots from the same passage together on one or more multi-grid storyboards, then automatically splits each grid into an individual storyboard image for each shot and generates each video separately. The video model still receives the individual storyboard image after splitting.
 
 Multi-grid storyboards automatically use square 2×2 / 3×3 grids based on the number of shots. Each cell uses the same aspect ratio as the project video; when there are more shots, they are divided across multiple multi-grid storyboards according to the grid capacity. Denser 4×4 / 5×5 grids are available only when the image model's resolution tier is configured as 4K—the more cells a multi-grid storyboard contains, the lower the resolution of each cell, and dense grids at lower resolution tiers will degrade downstream video quality.
 
@@ -267,15 +267,15 @@ Instead of using an ordinary storyboard as the sole input, the workflow directly
 
 ## 5. Mode Selection Table {#mode-selection-table}
 
-| Requirement | Recommended Content Mode | Recommended video generation route |
+| Requirement | Recommended Content Mode | Recommended video generation mode |
 |---|---|---|
-| Novel recaps and narration-led content | Narration/Commentary | Storyboard image-to-video |
-| Continuous narratives and character dialogue | Drama | Storyboard route (with multi-grid storyboards) or Reference-to-video |
-| A complete existing screenplay | Drama | Storyboard image-to-video |
+| Novel recaps and narration-led content | Narration/Commentary | Storyboard mode |
+| Continuous narratives and character dialogue | Drama | Storyboard mode (with multi-grid storyboards) or Reference-to-video mode |
+| A complete existing screenplay | Drama | Storyboard mode |
 | Merchandise structure must remain stable | Ad / Short Video | Prefer Reference-to-video |
-| Strong cross-shot consistency requirements | Narration/Commentary or Drama | Storyboard route (with multi-grid storyboards) |
-| First ArcReel trial | Any | Storyboard image-to-video |
-| Limited provider support | Any | Storyboard image-to-video |
+| Strong cross-shot consistency requirements | Narration/Commentary or Drama | Storyboard mode (with multi-grid storyboards) |
+| First ArcReel trial | Any | Storyboard mode |
+| Limited provider support | Any | Storyboard mode |
 | An established library of high-quality character assets | Drama | Reference-to-video |
 
 ## 6. Standard Production Stages {#production-stages}

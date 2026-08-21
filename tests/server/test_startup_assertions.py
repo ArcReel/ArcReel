@@ -280,7 +280,7 @@ def test_log_profile_sync_outcome_aborted_logs_warning(
     }
     with caplog.at_level("WARNING", logger="server.app"):
         _log_profile_sync_outcome(stats)
-    assert any("同步已中止" in r.message for r in caplog.records)
+    assert any("物化已中止" in r.message for r in caplog.records)
     assert not any("同步完成" in r.message for r in caplog.records)
 
 
@@ -297,7 +297,7 @@ def test_log_profile_sync_outcome_success_counts_logs_info(
     }
     with caplog.at_level("INFO", logger="server.app"):
         _log_profile_sync_outcome(stats)
-    assert any("同步完成" in r.message for r in caplog.records)
+    assert any("物化完成" in r.message for r in caplog.records)
 
 
 def test_log_profile_sync_outcome_all_zero_is_silent(

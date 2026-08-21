@@ -8,7 +8,7 @@ from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, Vide
 
 
 async def require_video_bucket_capability(project: dict, capability: VideoCapability) -> None:
-    """视频生成入口预检：按能力桶解析全局 + 项目配置并过解析闸（``docs/adr/0054``）。
+    """视频生成入口预检：按任务类型桶解析全局 + 项目配置并过解析闸（``docs/adr/0054``）。
 
     解析出的模型缺该桶所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
     ``BadRequestError``（app 级 handler 本地化为 400），让用户在提交入口即看到修复指引，而不是
