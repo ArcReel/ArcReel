@@ -1,6 +1,6 @@
 # 广告/短片不接入 step1→step2 内容确认
 
-ad（广告/短片）创作类型不接入 step1→step2 两段式剧本流水线与阻塞式 Web 内容确认。内容确认的适用范围维持 content_mode ∈ {drama, narration} 且 effective_mode ≠ reference_video。
+ad（广告/短片）创作类型不接入 step1→step2 两段式剧本流水线与阻塞式 Web 内容确认。内容确认适用于 drama / narration 的全部结构化 step1 变体，包括参考生视频的 `step1_reference_units.json`；ad 因没有 step1 而不适用。
 
 ## Why this is out of scope
 
