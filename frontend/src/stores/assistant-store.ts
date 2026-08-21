@@ -7,6 +7,7 @@ import type {
   SessionMeta,
   SessionStatus,
   SkillInfo,
+  SubagentTaskSnapshot,
   TimelineEntry,
   Turn,
 } from "@/types";
@@ -36,6 +37,8 @@ interface AssistantState {
   // 由 entries/draft 投影派生，仅 timeline actions 写入
   turns: Turn[];
   draftTurn: Turn | null;
+  /** tool_use_id → 独立后台子任务快照。 */
+  subagents: Record<string, SubagentTaskSnapshot>;
   messagesLoading: boolean;
 
   // Input
@@ -88,6 +91,7 @@ interface AssistantState {
   /** 应用一条流式 delta；rev 未超过门槛时忽略。 */
   applyDelta: (payload: DraftDeltaPayload) => void;
   clearDraft: () => void;
+  setSubagentSnapshots: (tasks: SubagentTaskSnapshot[]) => void;
   /** 清空时间线（项目切换 / 新会话）。 */
   resetTimeline: () => void;
   setMessagesLoading: (loading: boolean) => void;
@@ -157,6 +161,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     draftRev: 0,
     turns: [],
     draftTurn: null,
+    subagents: {},
     messagesLoading: false,
     input: "",
     sending: false,
@@ -237,6 +242,8 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
       });
     },
     clearDraft: () => set({ draft: null, draftTurn: null }),
+    setSubagentSnapshots: (tasks) =>
+      set({ subagents: Object.fromEntries(tasks.map((task) => [task.tool_use_id, task])) }),
     resetTimeline: () => {
       projector = createTimelineProjector();
       projectorSource = null;
@@ -248,6 +255,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
         draftRev: 0,
         turns: [],
         draftTurn: null,
+        subagents: {},
         startupFailure: null,
         startupFailureOrigin: null,
         // 编辑态锚在被清空的那条时间线上，重建后锚点不再存在

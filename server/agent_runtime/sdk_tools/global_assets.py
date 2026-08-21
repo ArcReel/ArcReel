@@ -22,7 +22,7 @@ def list_global_assets_tool(ctx: ToolContext):
         try:
             async with async_session_factory() as session:
                 assets = await AssetRepository(session).list(type=None, q=None, limit=10_000, offset=0)
-            grouped: dict[str, list[dict[str, str]]] = {"characters": [], "scenes": [], "props": []}
+            grouped: dict[str, list[dict[str, Any]]] = {"characters": [], "scenes": [], "props": []}
             bucket_by_type = {"character": "characters", "scene": "scenes", "prop": "props"}
             for asset in assets:
                 bucket = bucket_by_type.get(asset.type)
@@ -30,8 +30,12 @@ def list_global_assets_tool(ctx: ToolContext):
                     continue
                 grouped[bucket].append(
                     {
+                        "id": asset.id,
                         "name": asset.name,
                         "description": asset.description,
+                        "image_path": asset.image_path,
+                        "audio_path": asset.audio_path,
+                        "voice_id": asset.voice_id,
                     }
                 )
             return {

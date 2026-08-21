@@ -379,6 +379,27 @@ async def stream_entries(
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
+@self_auth_router.get("/sessions/{session_id}/subagents/stream", response_class=EventSourceResponse)
+async def stream_subagents(
+    project_name: str,
+    session_id: str,
+    request: Request,
+    _user: CurrentUserFlexible,
+    _t: Translator,
+    deps: tuple[AssistantService, SessionMeta] = Depends(_assistant_service_for_stream),
+) -> AsyncIterator[ServerSentEvent]:
+    """Persistent child-task stream, independent from the parent turn SSE."""
+    service, meta = deps
+    try:
+        async for event in service.stream_subagent_events(session_id, meta=meta, request=request):
+            yield event
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Sub Agent 状态流失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
 @router.post("/sessions/{session_id}/interrupt")
 async def interrupt_session(project_name: str, session_id: str, _t: Translator):
     try:

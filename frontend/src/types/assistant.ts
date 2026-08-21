@@ -133,6 +133,26 @@ export interface TimelineEntry {
   failure?: FailureObservation;
 }
 
+export type SubagentStatus = "running" | "completed" | "failed" | "stopped" | "cancelled" | "interrupted";
+
+/** 独立子任务状态流的持久化快照；entries 是该子任务自己的局部时间线。 */
+export interface SubagentTaskSnapshot {
+  tool_use_id: string;
+  task_id: string | null;
+  agent_type: string;
+  description: string;
+  status: SubagentStatus;
+  summary: string;
+  usage: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
+  entries: TimelineEntry[];
+}
+
+export interface SubagentSnapshotPayload {
+  session_id: string;
+  active: boolean;
+  tasks: SubagentTaskSnapshot[];
+}
+
 /** 服务端流式预览态快照（身份为 message_id，不入日志）。 */
 export interface DraftState {
   message_id: string;

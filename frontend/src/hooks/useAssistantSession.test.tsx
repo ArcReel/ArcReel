@@ -148,6 +148,38 @@ describe("useAssistantSession", () => {
     expect(state.turns.map((t) => t.type)).toEqual(["user", "assistant"]);
   });
 
+  it("keeps the independent subagent stream alive after the parent turn completes", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({ sessions: [makeSession("session-1", "running")] });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+    renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+
+    act(() => {
+      MockEventSource.instances[0].emit("entry", {
+        seq: 0,
+        type: "assistant",
+        content: [{ type: "tool_use", id: "tu-1", name: "Agent", input: { description: "提取资产" } }],
+      });
+    });
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(MockEventSource.instances[1].url).toContain("/subagents/stream");
+
+    act(() => {
+      MockEventSource.instances[0].emit("status", { status: "completed" });
+      MockEventSource.instances[1].emit("snapshot", {
+        session_id: "session-1",
+        active: true,
+        tasks: [{ tool_use_id: "tu-1", task_id: "task-1", agent_type: "analyze-assets", description: "提取资产", status: "running", summary: "", usage: null, entries: [] }],
+      });
+    });
+    expect(MockEventSource.instances[0].close).toHaveBeenCalled();
+    expect(MockEventSource.instances[1].close).not.toHaveBeenCalled();
+    expect(useAssistantStore.getState().subagents["tu-1"].status).toBe("running");
+
+    act(() => MockEventSource.instances[1].emit("settled", { session_id: "session-1" }));
+    expect(MockEventSource.instances[1].close).toHaveBeenCalled();
+  });
+
   it("applies draft snapshot and rev-gated deltas, then replaces draft by message_id identity", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "running")],

@@ -1,7 +1,9 @@
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Bot, CheckCircle2, ChevronDown, ChevronRight, CircleStop, LoaderCircle, XCircle } from "lucide-react";
 import type { ContentBlock, Turn } from "@/types";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { projectEntriesToTurns } from "@/utils/entry-projection";
 import { ContentBlockRenderer } from "./ContentBlockRenderer";
 import { getRoleLabel, TERMINAL_SESSION_STATUSES } from "./utils";
 
@@ -22,9 +24,16 @@ type CardStatus = "running" | "completed" | "failed" | "stopped";
 function deriveStatus(block: ContentBlock, sessionDone: boolean): CardStatus {
   const task = block.task_info;
   if (task?.task_status === "failed" || block.is_error) return "failed";
-  if (task?.task_status === "completed" || block.result !== undefined) return "completed";
-  // 会话已终结而子任务无终态：随会话一起停止，不再转圈
-  return sessionDone ? "stopped" : "running";
+  if (task?.task_status === "completed") return "completed";
+  // Agent 工具的 async_launched tool_result 只代表成功派发，不能当作完成。
+  return sessionDone && block.result === undefined ? "stopped" : "running";
+}
+
+function formatDuration(durationMs: number | undefined): string | null {
+  if (durationMs == null || !Number.isFinite(durationMs)) return null;
+  const seconds = Math.max(0, Math.round(durationMs / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 function deriveDescription(block: ContentBlock): string {
@@ -40,17 +49,33 @@ export function SubagentCard({ block }: SubagentCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const detailsId = useId();
   const sessionStatus = useAssistantStore((s) => s.sessionStatus);
+  const liveSnapshot = useAssistantStore((s) => (block.id ? s.subagents[block.id] : undefined));
   const sessionDone = sessionStatus != null && TERMINAL_SESSION_STATUSES.has(sessionStatus);
 
-  const status = deriveStatus(block, sessionDone);
+  const fallbackStatus = deriveStatus(block, sessionDone);
+  const status: CardStatus = liveSnapshot
+    ? liveSnapshot.status === "completed"
+      ? "completed"
+      : liveSnapshot.status === "failed"
+        ? "failed"
+        : liveSnapshot.status === "running"
+          ? "running"
+          : "stopped"
+    : fallbackStatus;
   const description = deriveDescription(block);
-  const subTurns = block.sub_turns ?? [];
+  const streamedTurns = useMemo(
+    () => liveSnapshot ? projectEntriesToTurns(liveSnapshot.entries) : null,
+    [liveSnapshot],
+  );
+  const subTurns = streamedTurns ?? block.sub_turns ?? [];
   const resultText = typeof block.result === "string" ? block.result : "";
   const expandable = subTurns.length > 0 || resultText.trim() !== "";
 
-  const summary = block.task_info?.summary ?? "";
-  const tokens = block.task_info?.usage?.total_tokens;
-  const agentType = typeof block.input?.subagent_type === "string" ? block.input.subagent_type : "";
+  const summary = liveSnapshot?.summary || block.task_info?.summary || "";
+  const usage = liveSnapshot?.usage ?? block.task_info?.usage;
+  const tokens = usage?.total_tokens;
+  const duration = formatDuration(usage?.duration_ms);
+  const agentType = liveSnapshot?.agent_type || (typeof block.input?.subagent_type === "string" ? block.input.subagent_type : "");
 
   const statusLabelKeys: Record<CardStatus, string> = {
     running: "subagent_status_running",
@@ -68,51 +93,60 @@ export function SubagentCard({ block }: SubagentCardProps) {
           ? "var(--color-text-4)"
           : "var(--color-accent)";
 
+  const StatusIcon = status === "running"
+    ? LoaderCircle
+    : status === "completed"
+      ? CheckCircle2
+      : status === "failed"
+        ? XCircle
+        : CircleStop;
+
   const header = (
-    <>
-      <span className="shrink-0" aria-hidden="true">
-        {status === "running" ? (
-          <span
-            className="inline-block h-3 w-3 rounded-full border-t-transparent motion-safe:animate-spin"
-            style={{ border: "1px solid var(--color-accent)", borderTopColor: "transparent" }}
-          />
-        ) : (
-          <span className="text-xs font-medium" style={{ color: statusColor }}>
-            {status === "completed" ? "✓" : status === "failed" ? "✗" : "■"}
-          </span>
-        )}
-      </span>
+    <div className="flex min-w-0 flex-1 items-start gap-3">
       <span
-        className="shrink-0 text-[10px] font-semibold uppercase tracking-wide"
-        style={{ color: "var(--color-text-4)" }}
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
+        style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)", color: "var(--color-accent-2)" }}
       >
-        {agentType || t("subagent_card_label")}
+        <Bot className="h-[18px] w-[18px]" aria-hidden="true" />
       </span>
-      <span className="min-w-0 flex-1 truncate text-[11.5px]" style={{ color: "var(--color-text-2)" }}>
-        {description || summary || t("subagent_card_label")}
-      </span>
-      <span className="ml-1.5 flex shrink-0 items-center gap-1.5">
-        {tokens != null && status === "running" && (
-          <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
-            {t("subagent_tokens", { count: tokens })}
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{ color: "var(--color-text-4)" }}>
+            {agentType || t("subagent_card_label")}
           </span>
-        )}
-        <span className="text-[10px]" style={{ color: statusColor }}>
-          {statusLabel}
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+            style={{ color: statusColor, background: "oklch(0.16 0.01 265 / 0.55)", border: "1px solid var(--color-hairline-soft)" }}
+          >
+            <StatusIcon className={`h-3 w-3 ${status === "running" ? "motion-safe:animate-spin" : ""}`} aria-hidden="true" />
+            {statusLabel}
+          </span>
         </span>
-        {expandable && (
-          <span className="text-[10px]" style={{ color: "var(--color-text-4)" }}>
-            {isExpanded ? "▼" : "▶"}
-          </span>
-        )}
+        <span className="mt-1 block text-[13px] font-medium leading-5" style={{ color: "var(--color-text)" }}>
+          {description || summary || t("subagent_card_label")}
+        </span>
+        <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px]" style={{ color: "var(--color-text-4)" }}>
+          {status === "running" && <span>{t("subagent_background_active")}</span>}
+          {tokens != null && <span className="num">{t("subagent_tokens", { count: tokens })}</span>}
+          {duration && <span className="num">{duration}</span>}
+        </span>
       </span>
-    </>
+      {expandable && (
+        <span className="mt-1 shrink-0" style={{ color: "var(--color-text-4)" }}>
+          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </span>
+      )}
+    </div>
   );
 
   return (
     <div
-      className="my-1.5 min-w-0 overflow-hidden rounded-lg"
-      style={{ border: "1px solid var(--color-hairline-soft)", background: "oklch(0.21 0.012 265 / 0.5)" }}
+      className="my-3 min-w-0 overflow-hidden rounded-xl"
+      style={{
+        border: `1px solid ${status === "running" ? "var(--color-accent-soft)" : "var(--color-hairline-soft)"}`,
+        background: "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.82), oklch(0.19 0.01 265 / 0.72))",
+        boxShadow: status === "running" ? "0 10px 28px -18px var(--color-accent-glow)" : "none",
+      }}
     >
       {expandable ? (
         <button
@@ -120,7 +154,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
           onClick={() => setIsExpanded(!isExpanded)}
           aria-expanded={isExpanded}
           aria-controls={detailsId}
-          className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors"
+          className="flex w-full items-start px-3.5 py-3 text-left transition-colors"
           onMouseEnter={(e) => {
             e.currentTarget.style.background = "oklch(1 0 0 / 0.04)";
           }}
@@ -131,11 +165,11 @@ export function SubagentCard({ block }: SubagentCardProps) {
           {header}
         </button>
       ) : (
-        <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5">{header}</div>
+        <div className="flex w-full items-start px-3.5 py-3">{header}</div>
       )}
 
       {isExpanded && (
-        <div id={detailsId} className="px-2.5 pb-2" style={{ borderTop: "1px solid var(--color-hairline-soft)" }}>
+        <div id={detailsId} className="px-3.5 pb-3" style={{ borderTop: "1px solid var(--color-hairline-soft)" }}>
           {subTurns.length > 0 ? (
             <div className="mt-2 ml-1 pl-2.5" style={{ borderLeft: "2px solid var(--color-accent-soft)" }}>
               {subTurns.map((turn, turnIndex) => (

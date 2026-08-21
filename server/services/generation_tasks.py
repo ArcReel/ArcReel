@@ -41,6 +41,8 @@ from lib.artifact_manifest import (
 from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.asset_types import (
     ASSET_SPECS,
+    GLOBAL_ASSET_ID_FIELD,
+    GLOBAL_ASSET_IMAGE_USAGE_FIELD,
     AssetSpec,
     normalize_asset_bucket,
     normalize_asset_name,
@@ -57,7 +59,9 @@ from lib.audio_utils import (
 )
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
+from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
+from lib.db.repositories.asset_repo import AssetRepository
 from lib.generation_queue import (
     CompensableGenerationResult,
     DispatchProviderChanged,
@@ -2798,6 +2802,8 @@ async def execute_character_task(
     if not prompt:
         raise ValueError("prompt is required for character task")
 
+    linked_reference = await _resolve_linked_global_image_reference(project_name, "character", resource_id)
+
     def _prepare_char():
         _project = get_project_manager().load_project(project_name)
         _project_path = get_project_manager().get_project_path(project_name)
@@ -2810,7 +2816,9 @@ async def execute_character_task(
         _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc)
         _ref_images = None
         _ref_path = _char_data.get("reference_image")
-        if _ref_path:
+        if linked_reference is not None:
+            _ref_images = [linked_reference]
+        elif _ref_path:
             _full_ref = _project_path / _ref_path
             if _full_ref.exists():
                 _ref_images = [_full_ref]
@@ -2887,6 +2895,30 @@ _DESIGN_REFERENCE_COLLECTORS: dict[str, Any] = {
 }
 
 
+async def _resolve_linked_global_image_reference(
+    project_name: str, asset_type: str, resource_id: str
+) -> Path | None:
+    """Resolve a linked global image only when the project chose reference mode."""
+
+    pm = get_project_manager()
+    project = await asyncio.to_thread(pm.load_project, project_name)
+    spec = ASSET_SPECS[asset_type]
+    key = resolve_asset_key(project.get(spec.bucket_key), resource_id)
+    entry = project.get(spec.bucket_key, {}).get(key) if key is not None else None
+    if not isinstance(entry, dict) or entry.get(GLOBAL_ASSET_IMAGE_USAGE_FIELD) != "reference":
+        return None
+    asset_id = entry.get(GLOBAL_ASSET_ID_FIELD)
+    if not isinstance(asset_id, str) or not asset_id:
+        return None
+    async with async_session_factory() as session:
+        asset = await AssetRepository(session).get_by_id(asset_id)
+    if asset is None or asset.type != asset_type or not asset.image_path:
+        return None
+    if not safe_exists(pm.projects_root, asset.image_path):
+        return None
+    return pm.projects_root / asset.image_path
+
+
 async def execute_design_task(
     kind: str,
     project_name: str,
@@ -2906,6 +2938,8 @@ async def execute_design_task(
     if not prompt:
         raise ValueError(f"prompt is required for {kind} task")
 
+    linked_reference = await _resolve_linked_global_image_reference(project_name, kind, resource_id)
+
     def _prepare():
         project = get_project_manager().load_project(project_name)
         project_path = get_project_manager().get_project_path(project_name)
@@ -2915,6 +2949,8 @@ async def execute_design_task(
         style_desc = project.get("style_description", "")
         full_prompt = prompt_builder(resource_id, prompt, style, style_desc)
         refs = reference_collector(project, project_path, resource_id) if reference_collector else None
+        if linked_reference is not None:
+            refs = [linked_reference, *(refs or [])]
         visual_references = tuple(
             VisualReference(
                 path=path,
