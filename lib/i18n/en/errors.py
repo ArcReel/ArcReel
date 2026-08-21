@@ -232,6 +232,11 @@ MESSAGES = {
     ),
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
+    "style_description_requires_custom_mode": "A preset style cannot also save a custom style description; switch to custom style first",
+    "style_library_requires_custom": "Only custom styles can be saved to the style library",
+    "style_library_empty": "Enter a style description or upload a style reference image first",
+    "style_library_item_not_found": "This custom style no longer exists; refresh and try again",
+    "style_image_required_for_analysis": "Upload a style reference image before analyzing it",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
     "ad_no_default_duration": "Ad/short-video projects do not support a default duration; shot lengths are planned against the target duration",
     "ad_grid_not_supported": "Ad/short-video projects do not support Multi-grid Storyboard to Video",

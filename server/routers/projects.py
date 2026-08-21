@@ -188,6 +188,10 @@ class CreateProjectRequest(BaseModel):
     speech_rate_units_per_second: SpeechRateOverride = None
     # ===== 新增 =====
     style_template_id: str | None = None
+    # 自定义风格可在创建前由参考图解析，也可由用户直接输入；模板模式不写入此字段。
+    style_description: str | None = None
+    # 已保存自定义风格卡片的关联 ID；项目仍保存 description/image 快照。
+    style_preset_id: str | None = None
     video_backend: str | None = None
     # 视频能力桶（docs/adr/0054）项目级覆盖：i2v = 图生视频 / 宫格，r2v = 参考生视频；
     # 空值 = 回退项目默认（video_backend）与全局层
@@ -222,6 +226,9 @@ class EpisodePatch(BaseModel):
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = None
+    # 自定义风格文本可由参考图解析或由用户直接填写；预设模板仍以 style 为单一真相源。
+    style_description: str | None = None
+    style_preset_id: str | None = None
     content_mode: ContentMode | None = None
     # 源文件性质创建即定、不可变；出现即拒（与 content_mode 同性质）。
     source_kind: SourceKind | None = None
@@ -551,6 +558,7 @@ async def list_projects():
                             "style": project.get("style", ""),
                             "style_template_id": project.get("style_template_id"),
                             "style_image": project.get("style_image"),
+                            "style_description": project.get("style_description"),
                             "thumbnail": thumbnail,
                             "status": status,
                         }
@@ -594,6 +602,8 @@ async def create_project(
 
             style_prompt = req.style or ""
             if req.style_template_id:
+                if req.style_preset_id:
+                    raise HTTPException(status_code=400, detail=_t("style_library_requires_custom"))
                 if not is_known_template(req.style_template_id):
                     raise HTTPException(
                         status_code=400,
@@ -641,6 +651,10 @@ async def create_project(
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
+            if not req.style_template_id and (style_description := (req.style_description or "").strip()):
+                extras["style_description"] = style_description
+            if not req.style_template_id and req.style_preset_id:
+                extras["style_preset_id"] = req.style_preset_id
             # 生成路线与宫格开关并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW；
             # 两字段恒写显式值（grid_storyboard 默认 false 也落盘），新项目即 v5 完整形态
             extras["generation_mode"] = req.generation_mode
@@ -960,11 +974,27 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         # 强互斥:模版与参考图二选一
                         project.pop("style_image", None)
                         project.pop("style_description", None)
+                        project.pop("style_preset_id", None)
 
                 if req.clear_style_image:
                     # 显式清除自定义参考图，用于"取消风格"流程
                     project.pop("style_image", None)
                     project.pop("style_description", None)
+                    project.pop("style_preset_id", None)
+
+                if "style_preset_id" in req.model_fields_set:
+                    if project.get("style_template_id") and req.style_preset_id:
+                        raise HTTPException(status_code=400, detail=_t("style_library_requires_custom"))
+                    if req.style_preset_id:
+                        project["style_preset_id"] = req.style_preset_id
+                    else:
+                        project.pop("style_preset_id", None)
+
+                if "style_description" in req.model_fields_set:
+                    if project.get("style_template_id"):
+                        raise HTTPException(status_code=400, detail=_t("style_description_requires_custom_mode"))
+                    project["style"] = ""
+                    project["style_description"] = (req.style_description or "").strip()
 
                 if "model_settings" in req.model_fields_set:
                     if req.model_settings is None:

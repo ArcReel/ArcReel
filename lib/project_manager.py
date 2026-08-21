@@ -346,10 +346,10 @@ class ProjectManager:
         return [d.name for d in self.projects_root.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))]
 
     def get_global_assets_root(self) -> Path:
-        """返回全局资产根目录，并确保 character/scene/prop 子目录存在。"""
+        """返回全局资产根目录，并确保各类可复用素材子目录存在。"""
         root = self.projects_root / "_global_assets"
         root.mkdir(parents=True, exist_ok=True)
-        for sub in ("character", "scene", "prop"):
+        for sub in ("character", "scene", "prop", "style"):
             (root / sub).mkdir(exist_ok=True)
         return root
 

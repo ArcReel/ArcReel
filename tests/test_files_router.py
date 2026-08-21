@@ -768,11 +768,57 @@ class TestFilesRouter:
             # 否则生成链路会把模板 prompt 与 style_description 一起喂给 LLM。
             assert after.get("style", "") == ""
 
+            reanalyze = client.post("/api/v1/projects/demo/style-image/analyze")
+            assert reanalyze.status_code == 200
+            assert reanalyze.json()["style_description"] == "cinematic, high contrast"
+
+            def _seed_manual_description(project_data: dict) -> None:
+                project_data["style_description"] = "manual soft pastel"
+
+            pm.update_project("demo", _seed_manual_description)
+            upload_without_analysis = client.post(
+                "/api/v1/projects/demo/style-image?analyze=false",
+                files={"file": ("replacement.png", _img_bytes("PNG"), "image/png")},
+            )
+            assert upload_without_analysis.status_code == 200
+            assert upload_without_analysis.json()["style_description"] == ""
+            assert pm.load_project("demo")["style_description"] == "manual soft pastel"
+
             bad_style_ext = client.post(
                 "/api/v1/projects/demo/style-image",
                 files={"file": ("style.gif", b"gif", "image/gif")},
             )
             assert bad_style_ext.status_code == 400
+
+    @pytest.mark.unit
+    def test_analyze_style_image_before_project_creation_is_stateless(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        before = pm.load_project("demo").copy()
+
+        with client:
+            response = client.post(
+                "/api/v1/style-image/analyze",
+                files={"file": ("style.webp", _img_bytes("WEBP"), "image/webp")},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "success": True,
+            "style_description": "cinematic, high contrast",
+        }
+        assert pm.load_project("demo") == before
+
+    @pytest.mark.unit
+    def test_serves_saved_custom_style_library_image(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        image_path = pm.get_global_assets_root() / "style" / "saved.png"
+        image_path.write_bytes(b"saved-style")
+
+        with client:
+            response = client.get("/api/v1/global-assets/style/saved.png")
+
+        assert response.status_code == 200
+        assert response.content == b"saved-style"
 
     @pytest.mark.unit
     def test_security_and_error_paths(self, tmp_path, monkeypatch):

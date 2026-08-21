@@ -99,7 +99,7 @@ function pickFeaturedProject(projects: ProjectSummary[]): ProjectSummary | null 
 
 function styleLabelOf(p: ProjectSummary, t: TFunction): string {
   if (p.style_template_id) return t(`templates:name.${p.style_template_id}`);
-  if (p.style_image) return t("dashboard:style_custom");
+  if (p.style_image || p.style_description) return t("dashboard:style_custom");
   return t("dashboard:style_not_set");
 }
 

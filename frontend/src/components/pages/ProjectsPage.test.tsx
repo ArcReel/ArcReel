@@ -277,6 +277,27 @@ describe("ProjectsPage", () => {
     expect(screen.getAllByText(/自定义风格/).length).toBeGreaterThan(0);
   });
 
+  it("shows 自定义风格 label for a text-only custom style", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [
+        {
+          name: "manual-style",
+          title: "Manual Style",
+          content_mode: "narration",
+          style_template_id: null,
+          style_image: null,
+          style_description: "soft pastel, low contrast",
+          episode_count: 0,
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    } as unknown as Awaited<ReturnType<typeof API.listProjects>>);
+
+    renderPage();
+
+    expect((await screen.findAllByText(/自定义风格|Custom style/)).length).toBeGreaterThan(0);
+  });
+
   it("shows 未设置风格 label when project has neither template_id nor style_image", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({
       projects: [

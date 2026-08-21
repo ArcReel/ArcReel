@@ -230,8 +230,8 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
 
 @public_router.get("/global-assets/{asset_type}/{filename}")
 async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
-    """服务 _global_assets 下的全局资产图片（仅全局库类型：character/scene/prop）"""
-    if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
+    """服务 _global_assets 下的全局资产图片与自定义风格参考图。"""
+    if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES | {"style"}:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))
@@ -963,8 +963,71 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _t: Trans
 # ==================== 风格参考图管理 ====================
 
 
+async def _analyze_style_image(project_name: str | None, image_path: Path) -> str:
+    """调用 simple 文本档的 vision 模型，返回风格描述自由文本。
+
+    ``project_name`` 为空时用于新建项目向导：此时项目尚未落盘，按全局 simple
+    文本模型解析且只返回文本，不产生任何项目侧写入。
+    """
+    from lib.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
+    from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
+    from lib.text_generator import TextGenerator
+
+    generator = await TextGenerator.create(TextTaskType.STYLE_ANALYSIS, project_name)
+    result = await generator.generate(
+        TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=image_path)]),
+        project_name=project_name,
+    )
+    return result.text
+
+
+@router.post("/style-image/analyze")
+async def analyze_uploaded_style_image(_t: Translator, file: UploadFile = File(...)):
+    """解析尚未归属项目的风格参考图，仅返回可编辑的风格描述。"""
+    original_filename = _require_filename(file, _t)
+    ext = Path(original_filename).suffix.lower()
+    if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
+        raise HTTPException(
+            status_code=400,
+            detail=_t("unsupported_image_type", ext=ext, allowed=".png, .jpg, .jpeg, .webp"),
+        )
+
+    try:
+        content = await file.read()
+
+        def _sync_prepare(temp_dir: str) -> Path:
+            try:
+                content_norm, new_ext = normalize_uploaded_image(content, ext)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
+            output_path = Path(temp_dir) / f"style_reference{new_ext}"
+            output_path.write_bytes(content_norm)
+            return output_path
+
+        with tempfile.TemporaryDirectory(prefix="arcreel-style-") as temp_dir:
+            output_path = await asyncio.to_thread(_sync_prepare, temp_dir)
+            style_description = await _analyze_style_image(None, output_path)
+
+        return {"success": True, "style_description": style_description}
+    except HTTPException:
+        raise
+    except VisionCapabilityError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=_t("vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value),
+        )
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
 @router.post("/projects/{project_name}/style-image")
-async def upload_style_image(project_name: str, _t: Translator, file: UploadFile = File(...)):
+async def upload_style_image(
+    project_name: str,
+    _t: Translator,
+    file: UploadFile = File(...),
+    analyze: bool = True,
+):
     """
     上传风格参考图并分析风格
 
@@ -1001,23 +1064,16 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
 
         output_path, style_filename = await asyncio.to_thread(_sync_prepare)
 
-        # 调用 TextGenerator 分析风格（自动追踪用量）
-        from lib.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
-        from lib.text_backends.prompts import STYLE_ANALYSIS_PROMPT
-        from lib.text_generator import TextGenerator
-
-        generator = await TextGenerator.create(TextTaskType.STYLE_ANALYSIS, project_name)
-        result = await generator.generate(
-            TextGenerationRequest(prompt=STYLE_ANALYSIS_PROMPT, images=[ImageInput(path=output_path)]),
-            project_name=project_name,
-        )
-        style_description = result.text
+        # 默认沿用既有 analyze=true 行为；项目设置与创建向导可 analyze=false，
+        # 只保存图片并保留用户已经确认的文本。
+        style_description = await _analyze_style_image(project_name, output_path) if analyze else None
 
         def _sync_save():
             # 更新 project.json：整段 RMW 在单一 _project_lock 内完成，避免覆盖并发写入的其它字段
             def _mutate(project_data: dict) -> None:
                 project_data["style_image"] = style_filename
-                project_data["style_description"] = style_description
+                if style_description is not None:
+                    project_data["style_description"] = style_description
                 # 强互斥：自定义参考图与模版二选一。除了清 template_id，
                 # 还需清掉之前由模板展开写入的 `style` prompt，否则生成链路会把
                 # 模板 prompt 与 style_description 同时喂给 LLM，破坏二选一语义。
@@ -1032,10 +1088,55 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         return {
             "success": True,
             "style_image": style_filename,
-            "style_description": style_description,
+            "style_description": style_description or "",
             "url": f"/api/v1/files/{project_name}/{style_filename}",
         }
 
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
+    except HTTPException:
+        raise
+    except VisionCapabilityError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=_t("vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value),
+        )
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.post("/projects/{project_name}/style-image/analyze")
+async def analyze_saved_style_image(project_name: str, _t: Translator):
+    """重新解析项目已保存的风格参考图，并把结果写回 style_description。"""
+    try:
+
+        def _sync_resolve() -> Path:
+            manager = get_project_manager()
+            project_dir = manager.get_project_path(project_name)
+            project_data = manager.load_project(project_name)
+            style_image = project_data.get("style_image")
+            if not isinstance(style_image, str) or not style_image:
+                raise HTTPException(status_code=400, detail=_t("style_image_required_for_analysis"))
+            image_path = safe_join(project_dir, style_image)
+            if not image_path.is_file():
+                raise HTTPException(status_code=400, detail=_t("style_image_required_for_analysis"))
+            return image_path
+
+        output_path = await asyncio.to_thread(_sync_resolve)
+        style_description = await _analyze_style_image(project_name, output_path)
+
+        def _sync_save() -> None:
+            def _mutate(project_data: dict) -> None:
+                project_data["style_description"] = style_description
+                project_data.pop("style_template_id", None)
+                project_data["style"] = ""
+
+            with project_change_source("webui"):
+                get_project_manager().update_project(project_name, _mutate)
+
+        await asyncio.to_thread(_sync_save)
+        return {"success": True, "style_description": style_description}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:

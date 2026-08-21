@@ -416,6 +416,10 @@ export interface CreateProjectPayload {
   /** 仅 ad：创作诉求短文本（可空）。 */
   brief?: string | null;
   style_template_id?: string | null;
+  /** 自定义风格的最终可编辑文本；模板模式不传。 */
+  style_description?: string | null;
+  /** 选中的用户自定义风格卡片。 */
+  style_preset_id?: string | null;
   video_backend?: string | null;
   image_backend?: string | null;
   /** 项目默认图片模型。创建向导只暴露默认层（docs/adr/0054），能力桶留给项目设置页。 */
@@ -424,6 +428,15 @@ export interface CreateProjectPayload {
   text_backend_complex?: string | null;
   default_text_backend?: string | null;
   model_settings?: Record<string, { resolution?: string | null }>;
+}
+
+export interface CustomStyle {
+  id: string;
+  name: string;
+  description: string;
+  image_path: string | null;
+  source_project: string | null;
+  updated_at: string | null;
 }
 
 function normalizeDiagnosticsBucket(value: unknown): { code: string; message: string; location?: string }[] {
@@ -2255,7 +2268,8 @@ class API {
    */
   static async uploadStyleImage(
     projectName: string,
-    file: File
+    file: File,
+    analyze = true,
   ): Promise<{
     success: boolean;
     style_image: string;
@@ -2265,7 +2279,8 @@ class API {
     const formData = new FormData();
     formData.append("file", file);
 
-    const url = `/projects/${encodeURIComponent(projectName)}/style-image`;
+    const baseUrl = `/projects/${encodeURIComponent(projectName)}/style-image`;
+    const url = analyze ? baseUrl : `${baseUrl}?analyze=false`;
     const response = await fetch(
       `${API_BASE}${url}`,
       withAuth(url, {
@@ -2277,6 +2292,56 @@ class API {
     await throwIfNotOk(response, "上传失败");
 
     return response.json() as Promise<{ success: boolean; style_image: string; style_description: string; url: string }>;
+  }
+
+  /** 新建项目之前解析临时风格图；只返回文本，不写入任何项目。 */
+  static async analyzeStyleImageFile(
+    file: File,
+  ): Promise<{ success: boolean; style_description: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const url = "/style-image/analyze";
+    const response = await fetch(
+      `${API_BASE}${url}`,
+      withAuth(url, {
+        method: "POST",
+        body: formData,
+      }),
+    );
+    await throwIfNotOk(response, "风格解析失败");
+    return response.json() as Promise<{ success: boolean; style_description: string }>;
+  }
+
+  static async analyzeStyleImage(
+    projectName: string,
+  ): Promise<{ success: boolean; style_description: string }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/style-image/analyze`, {
+      method: "POST",
+    });
+  }
+
+  static async listCustomStyles(): Promise<{ items: CustomStyle[] }> {
+    return this.request("/styles");
+  }
+
+  static async saveCustomStyleFromProject(
+    projectName: string,
+  ): Promise<{ style: CustomStyle; project: ProjectData }> {
+    return this.request("/styles/from-project", {
+      method: "POST",
+      body: JSON.stringify({ project_name: projectName }),
+    });
+  }
+
+  static async applyCustomStyleToProject(
+    styleId: string,
+    projectName: string,
+  ): Promise<{ style: CustomStyle; project: ProjectData }> {
+    return this.request(`/styles/${encodeURIComponent(styleId)}/apply`, {
+      method: "POST",
+      body: JSON.stringify({ project_name: projectName }),
+    });
   }
 
   // ==================== 助手会话 API ====================

@@ -138,6 +138,8 @@ export interface ProjectData {
   style_template_id?: string | null;
   style_image?: string;
   style_description?: string;
+  /** 关联的用户自定义风格卡片；项目本身仍保存风格快照。 */
+  style_preset_id?: string | null;
   overview?: ProjectOverview;
   aspect_ratio?: string | AspectRatio;  // 新项目为 string，旧项目可能为 dict
   default_duration?: number | null;     // 新分镜的默认视频时长（秒），空值即由 AI 按内容决定；ad 项目不持有
@@ -200,6 +202,8 @@ export interface ProjectSummary {
   style: string;
   style_template_id?: string | null;
   style_image?: string | null;
+  style_description?: string | null;
+  style_preset_id?: string | null;
   thumbnail: string | null;
   status: ProjectStatus | Record<string, never>;
 }

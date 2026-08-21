@@ -230,6 +230,11 @@ MESSAGES = {
     ),
     # Projects
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
+    "style_description_requires_custom_mode": "Không thể lưu mô tả tùy chỉnh cùng phong cách cài sẵn; hãy chuyển sang phong cách tùy chỉnh trước",
+    "style_library_requires_custom": "Chỉ có thể lưu phong cách tùy chỉnh vào thư viện phong cách",
+    "style_library_empty": "Hãy nhập mô tả phong cách hoặc tải lên ảnh tham chiếu phong cách trước",
+    "style_library_item_not_found": "Không còn tìm thấy phong cách tùy chỉnh này; hãy làm mới và thử lại",
+    "style_image_required_for_analysis": "Hãy tải ảnh tham chiếu phong cách lên trước khi phân tích",
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",
     "ad_no_default_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mặc định; thời lượng cảnh quay được lên kế hoạch theo tổng thời lượng mục tiêu",
     "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ phân cảnh đa lưới",

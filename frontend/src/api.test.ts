@@ -970,6 +970,71 @@ describe("API", () => {
       expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
     });
 
+    it("can save a style image without analyzing and can analyze the saved image later", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({ jsonData: { success: true, style_description: "soft light" } }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const file = new File(["img"], "style.png", { type: "image/png" });
+
+      await API.uploadStyleImage("demo", file, false);
+      await API.analyzeStyleImage("demo");
+
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "/api/v1/projects/demo/style-image?analyze=false",
+      );
+      expect(fetchMock.mock.calls[1][0]).toBe(
+        "/api/v1/projects/demo/style-image/analyze",
+      );
+      expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe("POST");
+    });
+
+    it("analyzes a style image before a project exists using multipart form", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({ jsonData: { success: true, style_description: "soft light" } }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const file = new File(["img"], "style.png", { type: "image/png" });
+
+      const result = await API.analyzeStyleImageFile(file);
+
+      expect(result.style_description).toBe("soft light");
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/style-image/analyze");
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(init.method).toBe("POST");
+      expect(init.body).toBeInstanceOf(FormData);
+    });
+
+    it("lists, saves, and applies reusable custom styles", async () => {
+      const style = {
+        id: "style-1",
+        name: "韩剧柔光",
+        description: "soft light",
+        image_path: null,
+        source_project: "demo",
+        updated_at: null,
+      };
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(mockResponse({ jsonData: { items: [style] } }))
+        .mockResolvedValueOnce(mockResponse({ jsonData: { style, project: {} } }))
+        .mockResolvedValueOnce(mockResponse({ jsonData: { style, project: {} } }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await API.listCustomStyles();
+      await API.saveCustomStyleFromProject("demo");
+      await API.applyCustomStyleToProject("style-1", "next");
+
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/styles");
+      expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/styles/from-project");
+      expect((fetchMock.mock.calls[1][1] as RequestInit).body).toBe(
+        JSON.stringify({ project_name: "demo" }),
+      );
+      expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/styles/style-1/apply");
+      expect((fetchMock.mock.calls[2][1] as RequestInit).body).toBe(
+        JSON.stringify({ project_name: "next" }),
+      );
+    });
+
     it("imports project via multipart form and preserves structured errors", async () => {
       const fetchMock = vi
         .fn()

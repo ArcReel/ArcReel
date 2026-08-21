@@ -3,7 +3,7 @@ import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, Loader2 } from "lucide-react";
-import { API, type AgentProfileStatus } from "@/api";
+import { API, type AgentProfileStatus, type CustomStyle } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
@@ -26,14 +26,19 @@ import { getProjectDisplayName } from "@/utils/project-display";
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
   const styleImage = project.style_image as string | undefined;
+  const hasStyleDescription = typeof project.style_description === "string"
+    && project.style_description.trim().length > 0;
   const templateId = (project.style_template_id as string | undefined) ?? null;
-  if (styleImage) {
+  if (styleImage || hasStyleDescription) {
     return {
       mode: "custom",
       templateId: null,
       activeCategory: "live",
       uploadedFile: null,
-      uploadedPreview: `/api/v1/files/${encodeURIComponent(projectName)}/${styleImage}`,
+      uploadedPreview: styleImage
+        ? `/api/v1/files/${encodeURIComponent(projectName)}/${styleImage}`
+        : null,
+      customStyleId: typeof project.style_preset_id === "string" ? project.style_preset_id : null,
     };
   }
   const effectiveId = templateId ?? DEFAULT_TEMPLATE_ID;
@@ -44,6 +49,7 @@ function deriveStyleValue(project: Record<string, unknown>, projectName: string)
     activeCategory: tpl?.category ?? "live",
     uploadedFile: null,
     uploadedPreview: null,
+    customStyleId: null,
   };
 }
 
@@ -182,7 +188,11 @@ export function ProjectSettingsPage() {
 
   // ── Style picker state (independent save flow) ─────────────────────────────
   const [styleValue, setStyleValue] = useState<StylePickerValue | null>(null);
+  const [styleDescription, setStyleDescription] = useState("");
   const [savingStyle, setSavingStyle] = useState(false);
+  const [analyzingStyle, setAnalyzingStyle] = useState(false);
+  const [customStyles, setCustomStyles] = useState<CustomStyle[]>([]);
+  const [customStylesLoading, setCustomStylesLoading] = useState(true);
   const initialRef = useRef({
     videoBackend: "", videoProviderI2V: "", videoProviderR2V: "",
     imageBackendDefault: "", imageBackendT2I: "", imageBackendI2I: "",
@@ -197,6 +207,7 @@ export function ProjectSettingsPage() {
   });
   // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
   const initialStyleRef = useRef<StylePickerValue | null>(null);
+  const initialStyleDescriptionRef = useRef("");
 
   // 候选是全局配置、与项目无关，故只在挂载时取一次，不跟随下面按 projectName 重取的效果；
   // 拉取失败也只影响细分区，其余表单状态照常。
@@ -228,7 +239,8 @@ export function ProjectSettingsPage() {
       API.getProject(projectName),
       getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
-    ]).then(([configRes, projectRes, providerList, customProviderList]) => {
+      API.listCustomStyles().catch(() => ({ items: [] as CustomStyle[] })),
+    ]).then(([configRes, projectRes, providerList, customProviderList, stylesRes]) => {
       if (disposed) return;
 
       setOptions({
@@ -255,6 +267,8 @@ export function ProjectSettingsPage() {
       setGlobalGenerateAudio(configRes.settings?.video_generate_audio ?? true);
       setProviders(providerList);
       setCustomProviders(customProviderList);
+      setCustomStyles(stylesRes.items);
+      setCustomStylesLoading(false);
 
       const project = projectRes.project as unknown as Record<string, unknown>;
       const vb = (project.video_backend as string | undefined) ?? "";
@@ -328,8 +342,13 @@ export function ProjectSettingsPage() {
       setModelSettings(ms);
 
       const derivedStyle = deriveStyleValue(project, projectName);
+      const derivedStyleDescription = typeof project.style_description === "string"
+        ? project.style_description
+        : "";
       setStyleValue(derivedStyle);
+      setStyleDescription(derivedStyleDescription);
       initialStyleRef.current = derivedStyle;
+      initialStyleDescriptionRef.current = derivedStyleDescription;
       initialRef.current = {
         videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v,
         imageBackendDefault: ibDefault, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i,
@@ -363,8 +382,16 @@ export function ProjectSettingsPage() {
     if (styleValue.mode !== init.mode) return true;
     if (styleValue.mode === "template") return styleValue.templateId !== init.templateId;
     // custom 模式：新上传文件、或既有图被用户清空（preview 从 URL 变为 null）
-    return styleValue.uploadedFile !== null || styleValue.uploadedPreview !== init.uploadedPreview;
+    return styleValue.customStyleId !== init.customStyleId
+      || styleValue.uploadedFile !== null
+      || styleValue.uploadedPreview !== init.uploadedPreview;
   })();
+  // 自定义风格既可由图片解析，也可完全手填；两者共享同一个最终文本字段。
+  const styleDescriptionIsEditable = !!styleValue
+    && styleValue.mode === "custom"
+    && styleValue.customStyleId === null;
+  const styleDescriptionIsDirty = styleDescriptionIsEditable
+    && styleDescription !== initialStyleDescriptionRef.current;
 
   // "无风格"态：模版未选 + 未上传新文件 + 未保留旧预览
   const isStyleCleared = !!styleValue
@@ -395,7 +422,8 @@ export function ProjectSettingsPage() {
     speechRate !== initialRef.current.speechRate ||
     videoResolution !== initialRef.current.videoResolution ||
     imageResolution !== initialRef.current.imageResolution ||
-    styleIsDirty;
+    styleIsDirty ||
+    styleDescriptionIsDirty;
   /* eslint-enable react-hooks/refs */
 
   useWarnUnsaved(isDirty);
@@ -426,7 +454,14 @@ export function ProjectSettingsPage() {
     && styleValue.mode === "template"
     && !styleValue.templateId
     && (styleValue.uploadedFile !== null || !!styleValue.uploadedPreview);
-  const isStyleSaveDisabled = savingStyle || !styleIsDirty || isStyleIncomplete;
+  // 存量自定义风格可能尚未进入用户风格库：即使项目字段本身没有变化，也允许点一次保存完成入库。
+  const needsLibrarySave = !!styleValue
+    && styleValue.mode === "custom"
+    && styleValue.customStyleId === null
+    && (!!styleValue.uploadedPreview || !!styleValue.uploadedFile || !!styleDescription.trim());
+  const isStyleSaveDisabled = savingStyle
+    || ((!styleIsDirty && !styleDescriptionIsDirty) && !needsLibrarySave)
+    || isStyleIncomplete;
 
   const handleSaveStyle = useCallback(async () => {
     if (!styleValue) return;
@@ -434,8 +469,27 @@ export function ProjectSettingsPage() {
     try {
       if (styleValue.mode === "template" && styleValue.templateId) {
         await API.updateProject(projectName, { style_template_id: styleValue.templateId });
-      } else if (styleValue.mode === "custom" && styleValue.uploadedFile) {
-        await API.uploadStyleImage(projectName, styleValue.uploadedFile);
+      } else if (styleValue.mode === "custom" && styleValue.customStyleId) {
+        await API.applyCustomStyleToProject(styleValue.customStyleId, projectName);
+      } else if (
+        styleValue.mode === "custom"
+        && (styleValue.uploadedFile || styleValue.uploadedPreview || styleDescription.trim())
+      ) {
+        if (styleValue.uploadedFile) {
+          // 图片与文字是两个独立输入：保存图片时不自动解析，不覆盖用户手填内容。
+          await API.uploadStyleImage(projectName, styleValue.uploadedFile, false);
+        }
+        const initialStyle = initialStyleRef.current;
+        await API.updateProject(projectName, {
+          style_template_id: null,
+          ...(initialStyle?.customStyleId ? { style_preset_id: null } : {}),
+          ...(initialStyle?.uploadedPreview && !styleValue.uploadedPreview
+            ? { clear_style_image: true }
+            : {}),
+          style_description: styleDescription,
+        });
+        const saved = await API.saveCustomStyleFromProject(projectName);
+        setCustomStyles((current) => [saved.style, ...current.filter((item) => item.id !== saved.style.id)]);
       } else {
         // 取消风格：显式清掉模板 ID 与自定义图
         await API.updateProject(projectName, {
@@ -446,13 +500,54 @@ export function ProjectSettingsPage() {
       // Refetch project to reset styleValue from canonical server state
       const refreshed = await API.getProject(projectName);
       const nextStyle = deriveStyleValue(refreshed.project as unknown as Record<string, unknown>, projectName);
+      const nextStyleDescription = refreshed.project.style_description ?? "";
       setStyleValue(nextStyle);
+      setStyleDescription(nextStyleDescription);
       initialStyleRef.current = nextStyle;
-      useAppStore.getState().pushToast(t("saved"), "success");
+      initialStyleDescriptionRef.current = nextStyleDescription;
+      useAppStore.getState().pushToast(
+        styleValue.mode === "custom" && styleValue.customStyleId === null
+          ? t("style_saved_to_library")
+          : t("saved"),
+        "success",
+      );
     } catch (e: unknown) {
       useAppStore.getState().pushToast(t("save_failed", { message: errMsg(e) }), "error");
     } finally {
       setSavingStyle(false);
+    }
+  }, [styleValue, styleDescription, projectName, t]);
+
+  const handleAnalyzeStyle = useCallback(async () => {
+    if (!styleValue?.uploadedPreview) return;
+    setAnalyzingStyle(true);
+    try {
+      let nextStyle = styleValue;
+      let nextDescription: string;
+      if (styleValue.uploadedFile) {
+        const result = await API.uploadStyleImage(projectName, styleValue.uploadedFile, true);
+        nextDescription = result.style_description;
+        nextStyle = {
+          ...styleValue,
+          mode: "custom",
+          templateId: null,
+          uploadedFile: null,
+          uploadedPreview: result.url,
+          customStyleId: null,
+        };
+      } else {
+        const result = await API.analyzeStyleImage(projectName);
+        nextDescription = result.style_description;
+      }
+      setStyleValue(nextStyle);
+      setStyleDescription(nextDescription);
+      // 解析接口会把图片与原始文本暂存进项目，但这里不重置 dirty 基线：用户仍需点击
+      // 「保存风格」确认最终文本并把它正式加入可复用风格库。
+      useAppStore.getState().pushToast(t("style_analysis_complete"), "success");
+    } catch (error: unknown) {
+      useAppStore.getState().pushToast(t("style_analysis_failed", { message: errMsg(error) }), "error");
+    } finally {
+      setAnalyzingStyle(false);
     }
   }, [styleValue, projectName, t]);
 
@@ -463,7 +558,9 @@ export function ProjectSettingsPage() {
       templateId: null,
       uploadedFile: null,
       uploadedPreview: null,
+      customStyleId: null,
     });
+    setStyleDescription("");
   }, [styleValue]);
 
   // 宫格是分镜路线内的装配选项；参考路线与不支持宫格的 ad 项目下既不呈现也不参与保存
@@ -709,7 +806,55 @@ export function ProjectSettingsPage() {
                 </div>
               }
             >
-              <StylePicker value={styleValue} onChange={setStyleValue} />
+              <StylePicker
+                value={styleValue}
+                onChange={setStyleValue}
+                customStyles={customStyles}
+                customStylesLoading={customStylesLoading}
+                onSelectCustomStyle={(style) => setStyleDescription(style.description)}
+                onCreateCustomStyle={() => setStyleDescription("")}
+                customPreviewAction={styleValue.uploadedPreview ? (
+                  <button
+                    type="button"
+                    onClick={voidPromise(handleAnalyzeStyle)}
+                    disabled={analyzingStyle || savingStyle}
+                    className="inline-flex items-center gap-1.5 rounded-[6px] border border-white/15 bg-black/65 px-2.5 py-1.5 text-[11px] font-medium text-white shadow-lg backdrop-blur-md transition-colors hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {analyzingStyle ? (
+                      <Loader2 aria-hidden className="h-3 w-3 motion-safe:animate-spin" />
+                    ) : null}
+                    {analyzingStyle ? t("style_analyzing") : t("style_analyze")}
+                  </button>
+                ) : undefined}
+              />
+              {styleDescriptionIsEditable && (
+                <div className="mt-4">
+                  <div className="mb-4 flex items-center gap-3" aria-hidden>
+                    <span className="h-px flex-1 bg-hairline-soft" />
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-text-4">
+                      {t("style_input_or")}
+                    </span>
+                    <span className="h-px flex-1 bg-hairline-soft" />
+                  </div>
+                  <label
+                    htmlFor="project-style-description"
+                    className="mb-1.5 block text-[12px] font-medium text-text-2"
+                  >
+                    {t("style_description_label")}
+                  </label>
+                  <textarea
+                    id="project-style-description"
+                    value={styleDescription}
+                    onChange={(event) => setStyleDescription(event.target.value)}
+                    placeholder={t("style_description_placeholder")}
+                    rows={5}
+                    className="w-full resize-y rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] leading-[1.6] text-text outline-none transition-colors placeholder:text-text-4 focus:border-accent/55 focus:ring-2 focus:ring-accent/15"
+                  />
+                  <p className="mt-1.5 text-[11px] leading-[1.5] text-text-3">
+                    {t("style_description_hint")}
+                  </p>
+                </div>
+              )}
             </SectionCard>
           )}
 

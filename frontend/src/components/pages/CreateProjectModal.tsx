@@ -5,7 +5,7 @@ import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { useLocation } from "wouter";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { API } from "@/api";
+import { API, type CustomStyle } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { DEFAULT_TEMPLATE_ID } from "@/data/style-templates";
@@ -178,9 +178,14 @@ export function CreateProjectModal() {
     activeCategory: "live",
     uploadedFile: null,
     uploadedPreview: null,
+    customStyleId: null,
+    styleDescription: "",
   });
 
   const [creating, setCreating] = useState(false);
+  const [analyzingStyle, setAnalyzingStyle] = useState(false);
+  const [customStyles, setCustomStyles] = useState<CustomStyle[]>([]);
+  const [customStylesLoading, setCustomStylesLoading] = useState(true);
 
   // Step2 的远端数据 hoist 到此处：只在 modal 挂载时 fetch 一次，
   // 前进/后退切 step 时 Step2 unmount/mount 不再触发 HTTP。
@@ -191,10 +196,11 @@ export function CreateProjectModal() {
     let cancelled = false;
     voidCall((async () => {
       try {
-        const [sysConfig, providersRes, customRes] = await Promise.all([
+        const [sysConfig, providersRes, customRes, stylesRes] = await Promise.all([
           API.getSystemConfig(),
           API.getProviders(),
           API.listCustomProviders(),
+          API.listCustomStyles().catch(() => ({ items: [] as CustomStyle[] })),
         ]);
         if (cancelled) return;
         setStep2Data({
@@ -218,6 +224,8 @@ export function CreateProjectModal() {
             textComplex: sysConfig.settings.text_backend_complex ?? "",
           },
         });
+        setCustomStyles(stylesRes.items);
+        setCustomStylesLoading(false);
       } catch (err) {
         if (!cancelled) setStep2Error(errMsg(err));
       }
@@ -281,6 +289,23 @@ export function CreateProjectModal() {
     }));
   };
 
+  const handleAnalyzeStyle = async () => {
+    if (!style.uploadedFile) return;
+    setAnalyzingStyle(true);
+    try {
+      const result = await API.analyzeStyleImageFile(style.uploadedFile);
+      setStyle((current) => ({ ...current, styleDescription: result.style_description }));
+      useAppStore.getState().pushToast(t("dashboard:style_analysis_complete"), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(
+        t("dashboard:style_analysis_failed", { message: errMsg(err) }),
+        "error",
+      );
+    } finally {
+      setAnalyzingStyle(false);
+    }
+  };
+
   const handleCreate = async () => {
     // 路线必选（Step1 已拦一道）：缺失时后端返回 422，此处不构造无路线的创建请求
     if (!basics.generationRoute) return;
@@ -315,6 +340,10 @@ export function CreateProjectModal() {
           ? { target_duration: basics.targetDuration }
           : { default_duration: models.defaultDuration }),
         style_template_id: style.mode === "template" ? style.templateId : null,
+        ...(style.mode === "custom" ? { style_description: style.styleDescription } : {}),
+        ...(style.mode === "custom" && style.customStyleId
+          ? { style_preset_id: style.customStyleId }
+          : {}),
         video_backend: models.videoBackend || null,
         default_image_backend: models.imageBackendDefault || null,
         default_text_backend: models.textBackendDefault || null,
@@ -323,10 +352,19 @@ export function CreateProjectModal() {
         ...(Object.keys(modelSettings).length > 0 ? { model_settings: modelSettings } : {}),
       });
 
-      // Upload style image if in custom mode
-      if (style.mode === "custom" && style.uploadedFile) {
+      // 自定义风格后处理不阻断项目创建：已保存卡片复制快照；新定义风格则保存图片后入库。
+      if (style.mode === "custom") {
         try {
-          await API.uploadStyleImage(resp.name, style.uploadedFile);
+          if (style.customStyleId) {
+            await API.applyCustomStyleToProject(style.customStyleId, resp.name);
+          } else {
+            if (style.uploadedFile) {
+              await API.uploadStyleImage(resp.name, style.uploadedFile, false);
+            }
+            if (style.uploadedFile || style.styleDescription.trim()) {
+              await API.saveCustomStyleFromProject(resp.name);
+            }
+          }
         } catch {
           useAppStore.getState().pushToast(
             t("dashboard:style_upload_failed_hint"),
@@ -460,6 +498,10 @@ export function CreateProjectModal() {
               onCreate={voidPromise(handleCreate)}
               onCancel={handleClose}
               creating={creating}
+              analyzing={analyzingStyle}
+              onAnalyze={voidPromise(handleAnalyzeStyle)}
+              customStyles={customStyles}
+              customStylesLoading={customStylesLoading}
             />
           )}
         </div>

@@ -67,6 +67,7 @@ from server.routers import (
     scenes,
     script_review,
     shot_uploads,
+    styles,
     system,
     system_config,
     tasks,
@@ -632,6 +633,7 @@ app.include_router(
     tags=["参考生视频"],
 )
 app.include_router(assets.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["全局资产库"])
+app.include_router(styles.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义风格库"])
 app.include_router(onboarding.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["首次使用引导"])
 
 # 公开端点：匿名可达。登录入口是拿 token 的前提，静态媒体经 <img src> / <video src> 加载。

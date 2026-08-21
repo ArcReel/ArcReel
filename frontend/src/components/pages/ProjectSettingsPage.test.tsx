@@ -76,6 +76,29 @@ describe("ProjectSettingsPage – style picker", () => {
     );
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+    vi.spyOn(API, "listCustomStyles").mockResolvedValue({ items: [] });
+    vi.spyOn(API, "saveCustomStyleFromProject").mockResolvedValue({
+      style: {
+        id: "style-1",
+        name: "Demo · 风格",
+        description: "soft pastel",
+        image_path: null,
+        source_project: "demo",
+        updated_at: null,
+      },
+      project: {} as never,
+    });
+    vi.spyOn(API, "applyCustomStyleToProject").mockResolvedValue({
+      style: {
+        id: "saved-style",
+        name: "韩剧柔光",
+        description: "soft k-drama light",
+        image_path: null,
+        source_project: "old-project",
+        updated_at: null,
+      },
+      project: {} as never,
+    });
     mockBuiltinAgentProfile();
   });
 
@@ -198,6 +221,104 @@ describe("ProjectSettingsPage – style picker", () => {
       const img = screen.getByAltText(/上传风格参考图|Upload style reference/) as HTMLImageElement;
       expect(img.src).toContain("/api/v1/files/demo/style_reference.png");
     });
+    expect(screen.getByLabelText(/风格描述|Style description/)).toHaveValue("old desc");
+    expect(screen.getByRole("button", { name: /解析风格|Analyze style/ })).toBeInTheDocument();
+  });
+
+  it("allows a text-only custom style to be edited and saved without an image", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        style: "",
+        style_description: "soft pastel",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo", style: "", style_description: "soft pastel" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    const input = await screen.findByLabelText(/风格描述|Style description/);
+    expect(screen.queryByRole("button", { name: /解析风格|Analyze style/ })).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "soft pastel, lower contrast" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存风格|Save style/ }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith("demo", {
+        style_template_id: null,
+        style_description: "soft pastel, lower contrast",
+      });
+    });
+    expect(API.saveCustomStyleFromProject).toHaveBeenCalledWith("demo");
+  });
+
+  it("shows saved custom style cards and applies the selected card to the project", async () => {
+    vi.mocked(API.listCustomStyles).mockResolvedValueOnce({
+      items: [{
+        id: "saved-style",
+        name: "韩剧柔光",
+        description: "soft k-drama light",
+        image_path: null,
+        source_project: "old-project",
+        updated_at: null,
+      }],
+    });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        style_template_id: "live_premium_drama",
+        style: "preset",
+        episodes: [],
+        characters: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+
+    renderAt("/app/projects/demo/settings");
+    fireEvent.click(await screen.findByRole("button", { name: /自定义|Custom/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "韩剧柔光" }));
+    expect(screen.queryByLabelText(/风格描述|Style description/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /保存风格|Save style/ }));
+
+    await waitFor(() => {
+      expect(API.applyCustomStyleToProject).toHaveBeenCalledWith("saved-style", "demo");
+    });
+    expect(API.saveCustomStyleFromProject).not.toHaveBeenCalled();
+  });
+
+  it("analyzes the saved custom image and fills the editable description", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        style_image: "style_reference.png",
+        style_description: "old desc",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const analyzeSpy = vi.spyOn(API, "analyzeStyleImage").mockResolvedValue({
+      success: true,
+      style_description: "soft daylight, muted palette",
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    fireEvent.click(await screen.findByRole("button", { name: /解析风格|Analyze style/ }));
+    await waitFor(() => {
+      expect(analyzeSpy).toHaveBeenCalledWith("demo");
+      expect(screen.getByLabelText(/风格描述|Style description/)).toHaveValue(
+        "soft daylight, muted palette",
+      );
+    });
+    expect(screen.getByRole("button", { name: /保存风格|Save style/ })).toBeEnabled();
   });
 
   it("clearing the reference image keeps save enabled and triggers clear PATCH", async () => {

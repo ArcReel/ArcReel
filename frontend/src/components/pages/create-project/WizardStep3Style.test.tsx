@@ -9,10 +9,21 @@ const baseValue = {
   activeCategory: "live" as const,
   uploadedFile: null,
   uploadedPreview: null,
+  customStyleId: null,
+  styleDescription: "",
 };
 
 const noop = () => {};
-const commonProps = { onBack: noop, onCreate: noop, onCancel: noop, creating: false };
+const commonProps = {
+  onBack: noop,
+  onCreate: noop,
+  onCancel: noop,
+  onAnalyze: noop,
+  creating: false,
+  analyzing: false,
+  customStyles: [],
+  customStylesLoading: false,
+};
 
 describe("WizardStep3Style", () => {
   it("renders live templates in default live tab with default one selected", () => {
@@ -93,11 +104,94 @@ describe("WizardStep3Style", () => {
     expect(createBtn).toBeEnabled();
   });
 
+  it("shows an editable style description in custom mode", () => {
+    const onChange = vi.fn();
+    const value = { ...baseValue, mode: "custom" as const, templateId: null };
+    render(<WizardStep3Style value={value} onChange={onChange} {...commonProps} />);
+
+    fireEvent.change(screen.getByLabelText(/风格描述|Style description/i), {
+      target: { value: "soft pastel, diffused light" },
+    });
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      styleDescription: "soft pastel, diffused light",
+    }));
+  });
+
+  it("offers saved custom style cards and fills the selected style description", () => {
+    const onChange = vi.fn();
+    const value = { ...baseValue, mode: "custom" as const, templateId: null };
+    render(
+      <WizardStep3Style
+        value={value}
+        onChange={onChange}
+        {...commonProps}
+        customStyles={[{
+          id: "saved-style",
+          name: "韩剧柔光",
+          description: "soft k-drama light",
+          image_path: null,
+          source_project: "demo",
+          updated_at: null,
+        }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "韩剧柔光" }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      customStyleId: "saved-style",
+      styleDescription: "soft k-drama light",
+    }));
+  });
+
+  it("shows Analyze on an uploaded preview and delegates explicit analysis", () => {
+    const onAnalyze = vi.fn();
+    const value = {
+      ...baseValue,
+      mode: "custom" as const,
+      templateId: null,
+      uploadedFile: new File(["img"], "x.png", { type: "image/png" }),
+      uploadedPreview: "blob:test",
+    };
+    render(
+      <WizardStep3Style
+        value={value}
+        onChange={noop}
+        {...commonProps}
+        onAnalyze={onAnalyze}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /解析风格|Analyze style/i }));
+    expect(onAnalyze).toHaveBeenCalledOnce();
+  });
+
+  it("does not show the custom style textbox in template mode", () => {
+    render(<WizardStep3Style value={baseValue} onChange={noop} {...commonProps} />);
+    expect(screen.queryByLabelText(/风格描述|Style description/i)).not.toBeInTheDocument();
+  });
+
   it("disables Create button while creating=true", () => {
     render(<WizardStep3Style value={baseValue} onChange={noop} {...{ ...commonProps, creating: true }} />);
     // While creating, button reads "创建中…" / "Creating…"
     const createBtn = screen.getByRole("button", { name: /创建中|Creating|创建项目|Create/i });
     expect(createBtn).toBeDisabled();
+  });
+
+  it("disables Create button while analyzing=true", () => {
+    const value = {
+      ...baseValue,
+      mode: "custom" as const,
+      uploadedPreview: "blob:test",
+    };
+    render(
+      <WizardStep3Style
+        value={value}
+        onChange={noop}
+        {...{ ...commonProps, analyzing: true }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /创建项目|Create/i })).toBeDisabled();
   });
 
   it("calls onBack when Back is clicked", () => {

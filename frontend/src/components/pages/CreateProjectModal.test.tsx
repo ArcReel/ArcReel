@@ -76,6 +76,7 @@ describe("CreateProjectModal", () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "listCustomStyles").mockResolvedValue({ items: [] });
     vi.spyOn(API, "createProject").mockResolvedValue({
       success: true,
       name: "demo-proj",
@@ -86,6 +87,32 @@ describe("CreateProjectModal", () => {
       style_image: "",
       style_description: "",
       url: "",
+    });
+    vi.spyOn(API, "analyzeStyleImageFile").mockResolvedValue({
+      success: true,
+      style_description: "soft light, muted palette",
+    });
+    vi.spyOn(API, "saveCustomStyleFromProject").mockResolvedValue({
+      style: {
+        id: "style-1",
+        name: "Demo · 风格",
+        description: "soft light, muted palette",
+        image_path: null,
+        source_project: "demo-proj",
+        updated_at: null,
+      },
+      project: {} as never,
+    });
+    vi.spyOn(API, "applyCustomStyleToProject").mockResolvedValue({
+      style: {
+        id: "saved-style",
+        name: "韩剧柔光",
+        description: "soft k-drama light",
+        image_path: "_global_assets/style/kdrama.png",
+        source_project: "old-project",
+        updated_at: null,
+      },
+      project: {} as never,
     });
   });
 
@@ -307,7 +334,87 @@ describe("CreateProjectModal", () => {
     expect(API.createProject).toHaveBeenCalledWith(expect.objectContaining({
       style_template_id: null,
     }));
-    await waitFor(() => expect(API.uploadStyleImage).toHaveBeenCalledWith("demo-proj", file));
+    await waitFor(() => expect(API.uploadStyleImage).toHaveBeenCalledWith("demo-proj", file, false));
+  });
+
+  it("saves a manually entered style description without requiring an image", async () => {
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /自定义|Custom/ }));
+
+    fireEvent.change(screen.getByLabelText(/风格描述|Style description/i), {
+      target: { value: "hand-drawn ink, warm paper" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /创建项目|Create/i }));
+
+    await waitFor(() => expect(API.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        style_template_id: null,
+        style_description: "hand-drawn ink, warm paper",
+      }),
+    ));
+    expect(API.uploadStyleImage).not.toHaveBeenCalled();
+  });
+
+  it("analyzes an uploaded image before creation and lets the returned text drive creation", async () => {
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /自定义|Custom/ }));
+
+    const file = new File(["content"], "style.png", { type: "image/png" });
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+    fireEvent.change(fileInput);
+    fireEvent.click(await screen.findByRole("button", { name: /解析风格|Analyze style/i }));
+
+    await waitFor(() => expect(API.analyzeStyleImageFile).toHaveBeenCalledWith(file));
+    expect(await screen.findByLabelText(/风格描述|Style description/i)).toHaveValue(
+      "soft light, muted palette",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /创建项目|Create/i }));
+    await waitFor(() => expect(API.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({ style_description: "soft light, muted palette" }),
+    ));
+    expect(API.uploadStyleImage).toHaveBeenCalledWith("demo-proj", file, false);
+    expect(API.saveCustomStyleFromProject).toHaveBeenCalledWith("demo-proj");
+  });
+
+  it("creates a project from a saved custom style card", async () => {
+    vi.mocked(API.listCustomStyles).mockResolvedValueOnce({
+      items: [{
+        id: "saved-style",
+        name: "韩剧柔光",
+        description: "soft k-drama light",
+        image_path: "_global_assets/style/kdrama.png",
+        source_project: "old-project",
+        updated_at: null,
+      }],
+    });
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /自定义|Custom/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "韩剧柔光" }));
+    fireEvent.click(screen.getByRole("button", { name: /创建项目|Create/i }));
+
+    await waitFor(() => expect(API.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        style_template_id: null,
+        style_preset_id: "saved-style",
+        style_description: "soft k-drama light",
+      }),
+    ));
+    expect(API.applyCustomStyleToProject).toHaveBeenCalledWith("saved-style", "demo-proj");
+    expect(API.uploadStyleImage).not.toHaveBeenCalled();
+    expect(API.saveCustomStyleFromProject).not.toHaveBeenCalled();
   });
 
   it("允许在 custom tab 未上传文件时创建项目（风格为可选）", async () => {
@@ -343,6 +450,7 @@ describe("CreateProjectModal ad mode", () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "listCustomStyles").mockResolvedValue({ items: [] });
     vi.spyOn(API, "createProject").mockResolvedValue({
       success: true,
       name: "ad-proj",

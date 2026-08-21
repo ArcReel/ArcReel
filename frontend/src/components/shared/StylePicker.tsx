@@ -1,6 +1,7 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Upload, X } from "lucide-react";
+import { Check, Plus, Upload, X } from "lucide-react";
+import { API, type CustomStyle } from "@/api";
 import {
   DEFAULT_TEMPLATE_ID,
   getTemplatesByCategory,
@@ -14,11 +15,19 @@ export interface StylePickerValue {
   uploadedFile: File | null;
   /** Either a blob: URL (just-uploaded) or a /api/v1/files/... URL (already saved). */
   uploadedPreview: string | null;
+  /** 已选中的用户风格卡片；null 表示正在定义一个新风格。 */
+  customStyleId: string | null;
 }
 
 export interface StylePickerProps {
   value: StylePickerValue;
   onChange: (next: StylePickerValue) => void;
+  /** Optional action rendered over the lower-right corner of a custom image preview. */
+  customPreviewAction?: ReactNode;
+  customStyles?: CustomStyle[];
+  customStylesLoading?: boolean;
+  onSelectCustomStyle?: (style: CustomStyle, next: StylePickerValue) => void;
+  onCreateCustomStyle?: (next: StylePickerValue) => void;
 }
 
 const SELECTED_RING_STYLE: CSSProperties = {
@@ -31,7 +40,7 @@ const HOVER_RING_STYLE: CSSProperties = {
 };
 
 interface TemplateCardProps {
-  thumbnail: string;
+  thumbnail: string | null;
   label: string;
   tagline: string;
   isSelected: boolean;
@@ -58,18 +67,20 @@ function TemplateCard({
       className="group relative aspect-[3/4] overflow-hidden rounded-[8px] transition-transform duration-150 motion-safe:hover:-translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       style={isSelected ? SELECTED_RING_STYLE : HOVER_RING_STYLE}
     >
-      <img
-        src={thumbnail}
-        alt={label}
-        width={240}
-        height={320}
-        loading="lazy"
-        decoding="async"
-        className="h-full w-full object-cover"
-        onError={(e) => {
-          e.currentTarget.style.display = "none";
-        }}
-      />
+      {thumbnail ? (
+        <img
+          src={thumbnail}
+          alt={label}
+          width={240}
+          height={320}
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover"
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
+        />
+      ) : null}
       {/* Fallback gradient if image errors out */}
       <div
         aria-hidden
@@ -134,7 +145,15 @@ function revokeBlobUrl(url: string | null) {
   if (url && url.startsWith("blob:")) URL.revokeObjectURL(url);
 }
 
-export function StylePicker({ value, onChange }: StylePickerProps) {
+export function StylePicker({
+  value,
+  onChange,
+  customPreviewAction,
+  customStyles = [],
+  customStylesLoading = false,
+  onSelectCustomStyle,
+  onCreateCustomStyle,
+}: StylePickerProps) {
   const { t } = useTranslation(["common", "templates"]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ownedBlobUrlRef = useRef<string | null>(null);
@@ -168,10 +187,41 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
       ...value,
       mode: "custom",
       templateId: null,
+      customStyleId: null,
       uploadedFile: file,
       uploadedPreview: objectUrl,
     });
     e.target.value = "";
+  };
+
+  const handleSelectSavedStyle = (style: CustomStyle) => {
+    revokeBlobUrl(ownedBlobUrlRef.current);
+    ownedBlobUrlRef.current = null;
+    const next = {
+      ...value,
+      mode: "custom",
+      templateId: null,
+      customStyleId: style.id,
+      uploadedFile: null,
+      uploadedPreview: API.getGlobalAssetUrl(style.image_path, style.updated_at),
+    } satisfies StylePickerValue;
+    onChange(next);
+    onSelectCustomStyle?.(style, next);
+  };
+
+  const handleCreateCustomStyle = () => {
+    revokeBlobUrl(ownedBlobUrlRef.current);
+    ownedBlobUrlRef.current = null;
+    const next = {
+      ...value,
+      mode: "custom",
+      templateId: null,
+      customStyleId: null,
+      uploadedFile: null,
+      uploadedPreview: null,
+    } satisfies StylePickerValue;
+    onChange(next);
+    onCreateCustomStyle?.(next);
   };
 
   const handleClearUpload = () => {
@@ -226,7 +276,55 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
             {t("templates:tab_custom_desc")}
           </p>
 
-          {value.uploadedPreview ? (
+          {customStylesLoading ? (
+            <p className="mb-3 text-[11.5px] text-text-4">{t("templates:custom_styles_loading")}</p>
+          ) : null}
+
+          {customStyles.length > 0 || value.customStyleId !== null ? (
+            <div className="mb-5">
+              <p className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-4">
+                {t("templates:custom_styles_saved")}
+              </p>
+              <div className="grid max-h-[330px] grid-cols-4 gap-3 overflow-y-auto p-1 pr-2">
+                {customStyles.map((style) => (
+                  <TemplateCard
+                    key={style.id}
+                    thumbnail={API.getGlobalAssetUrl(style.image_path, style.updated_at)}
+                    label={style.name}
+                    tagline={style.description}
+                    isSelected={value.customStyleId === style.id}
+                    isDefault={false}
+                    defaultLabel=""
+                    onClick={() => handleSelectSavedStyle(style)}
+                  />
+                ))}
+                <button
+                  type="button"
+                  aria-label={t("templates:custom_style_new")}
+                  aria-pressed={value.customStyleId === null}
+                  onClick={handleCreateCustomStyle}
+                  className="group relative grid aspect-[3/4] place-items-center overflow-hidden rounded-[8px] border border-dashed border-hairline-strong bg-bg-grad-a/45 px-3 text-center transition-colors hover:border-accent/45 hover:bg-accent-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  style={value.customStyleId === null ? SELECTED_RING_STYLE : undefined}
+                >
+                  <span>
+                    <Plus className="mx-auto mb-2 h-5 w-5 text-accent-2" aria-hidden />
+                    <span className="block text-[11px] font-medium text-text">
+                      {t("templates:custom_style_new")}
+                    </span>
+                    <span className="mt-1 block text-[9px] leading-[1.4] text-text-4">
+                      {t("templates:custom_style_new_hint")}
+                    </span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {value.customStyleId !== null ? (
+            <p className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/40 px-3 py-2 text-[11.5px] leading-[1.5] text-text-3">
+              {t("templates:custom_style_selected_hint")}
+            </p>
+          ) : value.uploadedPreview ? (
             <div className="relative overflow-hidden rounded-[10px] border border-hairline">
               <img
                 src={value.uploadedPreview}
@@ -246,6 +344,9 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
               >
                 <X className="h-3.5 w-3.5" />
               </button>
+              {customPreviewAction ? (
+                <div className="absolute bottom-2 right-2">{customPreviewAction}</div>
+              ) : null}
             </div>
           ) : (
             <button

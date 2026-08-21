@@ -1708,6 +1708,31 @@ class TestProjectsRouter:
             assert "真人电视剧" in data["style"] or "精品短剧" in data["style"]
 
     @pytest.mark.unit
+    def test_create_project_with_custom_style_description_persists_trimmed_text(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "title": "自定义风格项目",
+                    "name": "custom-style-1",
+                    "style_template_id": None,
+                    "style_description": "  soft pastel, diffused daylight  ",
+                    "style_preset_id": "saved-style-1",
+                },
+            )
+
+        assert resp.status_code == 200
+        data = fake_pm.project_data["custom-style-1"]
+        assert data["style"] == ""
+        assert data["style_description"] == "soft pastel, diffused daylight"
+        assert data["style_preset_id"] == "saved-style-1"
+        assert "style_template_id" not in data
+
+    @pytest.mark.unit
     def test_create_project_with_unknown_template_id_returns_400(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         client = _client(monkeypatch, fake_pm)
@@ -2078,6 +2103,36 @@ class TestProjectsRouter:
             assert "style_description" not in data
 
     @pytest.mark.unit
+    def test_update_project_allows_text_only_custom_style_description(self, tmp_path, monkeypatch):
+        """自定义风格描述可不依赖参考图，由用户直接填写并保存。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"].pop("style_template_id", None)
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"style_template_id": None, "style_description": "  soft pastel, lower contrast  "},
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert data["style"] == ""
+            assert data["style_description"] == "soft pastel, lower contrast"
+
+    @pytest.mark.unit
+    def test_update_project_rejects_custom_description_while_template_is_active(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["style_template_id"] = "live_premium_drama"
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"style_description": "soft pastel"},
+            )
+            assert resp.status_code == 400
+
+    @pytest.mark.unit
     def test_update_project_persists_narration_overrides(self, tmp_path, monkeypatch):
         """PATCH 旁白配音项目级覆盖：audio_backend / narration_voice / narration_speed 写入 project.json。"""
         fake_pm = _FakePM(tmp_path)
@@ -2280,10 +2335,11 @@ class TestProjectsRouter:
         assert "estimated_duration_seconds" not in script.get("metadata", {})
 
     @pytest.mark.unit
-    def test_list_projects_returns_style_image_field(self, tmp_path, monkeypatch):
-        """列表端点需返回 style_image：否则前端无法区分"自定义风格"与"未设置"。"""
+    def test_list_projects_returns_custom_style_fields(self, tmp_path, monkeypatch):
+        """列表端点返回图片与文本，前端才能识别两种自定义风格输入。"""
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
+        fake_pm.project_data["ready"]["style_description"] = "soft pastel"
         # 互斥：自定义图情况下 style_template_id 应为空
         fake_pm.project_data["ready"].pop("style_template_id", None)
         fake_pm.project_data["ready"]["style"] = ""
@@ -2294,6 +2350,7 @@ class TestProjectsRouter:
             assert resp.status_code == 200
             ready = [p for p in resp.json()["projects"] if p["name"] == "ready"][0]
             assert ready["style_image"] == "style_reference.png"
+            assert ready["style_description"] == "soft pastel"
             assert ready.get("style_template_id") is None
 
     @pytest.mark.unit
