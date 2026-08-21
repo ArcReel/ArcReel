@@ -1145,11 +1145,15 @@ describe("音频开关的模型可控性", () => {
       expect(await omniRowIn(user, "参考生视频")).toContain("无声");
     });
 
-    it("图片下拉不带音轨格——音轨是视频概念，图片桶不消费执行路径", async () => {
+    it("图片侧的默认层与细分项下拉都不带音轨格——音轨是视频概念，图片桶不消费执行路径", async () => {
       const user = userEvent.setup();
       renderDropdowns(true);
-      await user.click(screen.getByRole("combobox", { name: "默认图片模型" }));
-      expect(screen.getByRole("option", { name: /v3-omni/ })).not.toHaveTextContent(/有声|无声/);
+      expect(await omniRowIn(user, "默认图片模型")).not.toMatch(/有声|无声/);
+
+      // 图片折叠区排在视频之后
+      await user.click(screen.getAllByText("按用途指定模型")[1]);
+      expect(await omniRowIn(user, "文生图")).not.toMatch(/有声|无声/);
+      expect(await omniRowIn(user, "图生图")).not.toMatch(/有声|无声/);
     });
   });
 });

@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { TFunction } from "i18next";
 import { VideoModelSpecBar, videoOptionMetaRenderer, VoiceConsistencyBadge } from "./VideoModelSpecBar";
+import { lookupCatalogVideoAudio } from "@/utils/provider-models";
 import type { ModelInfoResponse, ProviderInfo, VideoRoute } from "@/types";
 
 describe("VideoModelSpecBar", () => {
@@ -37,7 +38,7 @@ function makeOmniModel(overrides: Partial<ModelInfoResponse> = {}): ModelInfoRes
     supported_durations: [5],
     duration_resolution_constraints: {},
     resolutions: ["720p"],
-    // 可灵 v3-omni：图生可控、参考生恒无声——issue #2022 的取值场景。
+    // 可灵 v3-omni：图生可控、参考生恒无声，两条路径给出不同答案的那一类模型。
     audio_track: "controllable",
     reference_route_audio_track: "always_off",
     voice_consistency: "soft",
@@ -78,8 +79,15 @@ describe("videoOptionMetaRenderer", () => {
     expect(renderer("r2v")("kling/v3-omni")).toContain("video_spec_audio_none");
   });
 
-  it("省略 defaultRoute 时回退目录 i2v 位（全局设置页现行口径），行为与 lookupCatalogVideoAudio 一致", () => {
-    expect(renderer()("kling/v3-omni")).toContain("video_spec_audio_has");
+  // 无路径上下文（全局设置页的默认模型）时读目录位。这里连带钉住它与 lookupCatalogVideoAudio
+  // 同解：目录的 audio_track 就是 i2v 位，两处各算一遍，其中一处改了另一处必须跟着改。
+  it("省略 defaultRoute 时按目录位取值，与 lookupCatalogVideoAudio 同解", () => {
+    const providers = makeKlingProviders(makeOmniModel());
+    const catalog = lookupCatalogVideoAudio(providers, "kling/v3-omni");
+    expect(catalog?.hasAudioTrack).toBe(true);
+    expect(renderer()("kling/v3-omni")).toContain(
+      catalog?.hasAudioTrack ? "video_spec_audio_has" : "video_spec_audio_none",
+    );
   });
 
   // 同屏三个视频下拉共用一个渲染器，细分项自己的路径必须压过默认层的：否则参考生项目里

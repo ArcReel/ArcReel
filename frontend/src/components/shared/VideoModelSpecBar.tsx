@@ -97,8 +97,10 @@ export function videoOptionMetaRenderer({
       customProviders,
       endpointToMediaType,
     ).options;
+    // 查不到模型时为 null，音轨格整格不渲染——两条分支都不臆造一个答案。
+    const audioControl = route ? lookupVideoAudioControl(providers, fullValue, route) : null;
     const hasAudioTrack = route
-      ? nullableBool(lookupVideoAudioControl(providers, fullValue, route), (c) => c !== "always_off")
+      ? (audioControl === null ? null : audioControl !== "always_off")
       : (lookupCatalogVideoAudio(providers, fullValue)?.hasAudioTrack ?? null);
     const parts: string[] = [];
     if (durations?.length) parts.push(formatDurationsLabel(durations));
@@ -116,11 +118,6 @@ export function videoOptionMetaRenderer({
  */
 function asVideoRoute(subFieldKey: string | undefined): VideoRoute | null {
   return subFieldKey === "i2v" || subFieldKey === "r2v" ? subFieldKey : null;
-}
-
-/** `value` 为 null 时短路为 null，否则套用 `map`——查表结果向布尔态收窄的通用写法。 */
-function nullableBool<T>(value: T | null, map: (value: T) => boolean): boolean | null {
-  return value === null ? null : map(value);
 }
 
 export interface VideoModelSpecBarProps {

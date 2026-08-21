@@ -180,7 +180,7 @@ export function LayeredModelFields({
         placeholder={emptyLabel}
         fallbackValue={defaultEffective}
         aria-label={defaultLabel}
-        renderOptionMeta={renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue))}
+        renderOptionMeta={renderOptionMeta}
       />
 
       {children}

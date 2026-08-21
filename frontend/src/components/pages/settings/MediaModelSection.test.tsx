@@ -333,8 +333,7 @@ describe("MediaModelSection", () => {
 
         await user.click(screen.getAllByText("按用途指定模型")[0]);
         expect(await omniRowIn(user, "图生视频")).toContain("有声");
-        // 与同屏 r2vAudioControl（always_off）一致；此前这一格固定读 i2v 位标「有声」，
-        // 与它下方被置灰为恒无声的勾选框自相矛盾
+        // 与同屏 r2vAudioControl（always_off）判定的勾选框一致：一屏之内两句话不能互相矛盾
         expect(await omniRowIn(user, "参考生视频")).toContain("无声");
       });
     });
