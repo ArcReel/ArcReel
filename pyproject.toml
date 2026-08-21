@@ -20,6 +20,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.48",
     "aiosqlite>=0.22.1",
     "asyncpg>=0.31.0",
+    "aiomysql>=0.2.0",
     "alembic>=1.18.4",
     "pwdlib[argon2]>=0.3.0",
     "volcengine-python-sdk[ark]>=5.0.17",

@@ -1,0 +1,65 @@
+# ArcReel 生产部署 Compose：MySQL 8.0 版
+# 完整部署、备份、恢复、迁移（SQLite / PG → MySQL）指南：
+#   website/docs/ops/deployment.md （第 3 章 MySQL 生产部署、第 7 章备份恢复）
+#   website/docs/ops/migrate-to-mysql.md
+services:
+  mysql:
+    image: mysql:8.0
+    # 8.0+ 默认认证插件即 caching_sha2_password（aiomysql 搭配 cryptography 支持），
+    # 无需显式指定；--default-authentication-plugin 在 8.4 已移除，写上会让容器起不来。
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: arcreel
+      MYSQL_USER: arcreel
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在 .env 中设置 MYSQL_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./mysqldata:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      # 不用 -p$MYSQL_PASSWORD，避免密码出现在 `ps` 进程列表；先检查
+      # /var/run/mysqld/mysqld.sock 是否就绪（本地 socket auth），再探测
+      # 3306 端口监听；两者任一通过即视为 healthy。
+      test: ["CMD-SHELL", "if mysqladmin ping --silent --socket=/var/run/mysqld/mysqld.sock 2>/dev/null; then exit 0; fi; if [ -e /var/run/mysqld/mysqld.sock ]; then timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/3306 && exec 3>&- && exec 3<&-'; [ $? -eq 0 ] && exit 0; fi; exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  arcreel:
+    image: ghcr.io/arcreel/arcreel:latest
+    ports:
+      - "1241:1241"
+    env_file: .env
+    environment:
+      # DATABASE_URL 显式声明（含已 URL 编码的密码），不在此拼接原始密码，
+      # 避免密码含 @ : / ? # % 时 URL 被错误解析。示例见 .env.example。
+      DATABASE_URL: ${ARCREEL_DATABASE_URL:?请在 .env 中设置 ARCREEL_DATABASE_URL（密码需 URL 编码）}
+      TZ: ${TZ:-Asia/Shanghai}
+    # Agent Bash 沙箱 (bwrap) 需要：
+    # 1) 非特权 user namespace → 放开 docker 默认 seccomp/apparmor profile
+    # 2) bwrap 嵌套出的 net namespace 内配置 loopback → 容器需要 NET_ADMIN cap
+    #    （否则报 "loopback: Failed RTM_NEWADDR: Operation not permitted"）
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./.env:/app/.env
+      - ./projects:/app/projects
+      - ./logs:/app/logs
+      - ./vertex_keys:/app/vertex_keys
+      - ./claude_data:/root/.claude
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1241/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
