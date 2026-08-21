@@ -554,7 +554,7 @@ class TestStep2PromptGuards:
 
 
 class TestBuildNarrationSplitPrompt:
-    """step1 说书片段拆分 prompt（源文 → 结构化片段表）。"""
+    """step1 说书分镜拆分 prompt（源文 → 结构化分镜表）。"""
 
     def _prompt(self, **overrides):
         kwargs = dict(

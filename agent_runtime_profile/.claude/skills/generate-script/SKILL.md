@@ -15,7 +15,7 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 1. 项目目录下存在 `project.json`（含 style / overview / characters / scenes / props）
 2. 已完成 Step 1 内容整理（按项目 `generation_mode` 选择一种中间文件）：
-   - narration（storyboard + 旁白/解说，含 grid_storyboard）：`drafts/episode_N/step1_segments.json`（结构化片段：逐字 novel_text + 时长 + segment_break + 出场角色 / 场景 / 道具）
+   - narration（storyboard + 旁白/解说，含 grid_storyboard）：`drafts/episode_N/step1_segments.json`（结构化分镜：逐字 novel_text + 时长 + segment_break + 出场角色 / 场景 / 道具）
    - drama（storyboard + 剧情演绎，含 grid_storyboard）：`drafts/episode_N/step1_normalized_script.json`（结构化内容；step1 已定稿口播 utterances / 原文锚 source_text / 视觉改编描述，step2 透传 + 补视觉，见 ADR 0041）
    - reference_video（参考生视频）：`drafts/episode_N/step1_reference_units.json`
    - **ad（广告/短片）例外**：不需要任何 step1 中间文件——创作输入是 `project.json` 的
@@ -51,7 +51,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
    - ad → `AdEpisodeScript`（平铺 `shots[]`，骨架不随生成路径更换；storyboard 路径
      duration 按 supported_durations 枚举硬约束，reference_video 路径为 1-15 秒自由整数）
    - reference_video（narration/drama 下）→ `ReferenceVideoScript`（含 `video_units[]`）
-   - narration → step2 走两段式：LLM 的 `response_schema` 是 `NarrationVisualEpisodeScript`（仅 `segment_id` + image_prompt + video_prompt），后端按 `segment_id` 把视觉层合并回 step1 的结构化片段（novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具透传），得到完整 `NarrationEpisodeScript`。novel_text 不进 LLM 输出 → 不发生扩写漂移
+   - narration → step2 走两段式：LLM 的 `response_schema` 是 `NarrationVisualEpisodeScript`（仅 `segment_id` + image_prompt + video_prompt），后端按 `segment_id` 把视觉层合并回 step1 的结构化分镜（novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具透传），得到完整 `NarrationEpisodeScript`。novel_text 不进 LLM 输出 → 不发生扩写漂移
    - drama（storyboard，含 grid_storyboard）→ **两段式**：LLM 输出 `DramaVisualScript`（仅 `scene_id` + image_prompt + video_prompt），后端按 scene_id 把视觉层合并回 step1 已定稿内容（`step1_normalized_script.json` 的 utterances / source_text / 出场资产 / 时长 / 边界透传不变），合并结果即 `DramaEpisodeScript`。非视觉字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移（见 ADR 0041）
 6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
    - 注：**任何骨架的剧本都不写入顶层 `generation_mode`**。生成模式是项目级事实（`project.json` 的 `generation_mode`，创建时锁定），剧本骨架种类本身即生成模式的体现；消费方一律读 `project.json` 分派，不得从剧本上找该字段。
@@ -62,7 +62,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 
 - `title`：LLM 写入的剧集标题
 - `episode` / `content_mode` / `novel`（含 title、chapter）：由后端 `_add_metadata` 注入，不依赖 LLM 输出
-- 旁白/解说：`segments[]`（每个片段含 novel_text、duration_seconds、segment_break、出场角色 / 场景 / 道具 —— 由 step1 透传；image_prompt、video_prompt —— 由 step2 生成）
+- 旁白/解说：`segments[]`（每个分镜含 novel_text、duration_seconds、segment_break、出场角色 / 场景 / 道具 —— 由 step1 透传；image_prompt、video_prompt —— 由 step2 生成）
 - 剧情演绎：`scenes[]`（每个分镜含 image_prompt、video_prompt、duration_seconds，以及 step1 透传的 utterances、source_text、characters_in_scene 等）
 - 广告/短片：`shots[]`（每个分镜含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等）；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
 - 参考生视频：`video_units[]`（每个 unit 含 `text`、`duration_seconds` 等）

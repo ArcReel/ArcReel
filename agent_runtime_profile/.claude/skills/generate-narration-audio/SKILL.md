@@ -5,7 +5,7 @@ description: 为旁白/解说剧本逐段生成旁白配音（TTS）。当用户
 
 # 生成旁白配音
 
-为旁白/解说（narration）模式剧本的每个片段，以该段 `novel_text` 原文合成一段旁白音频，
+为旁白/解说（narration）模式剧本的每个分镜，以该分镜的 `novel_text` 原文合成一段旁白音频，
 写回该段 `generated_assets.narration_audio`（输出 `audio/segment_{segment_id}.wav`）。
 只依赖剧本，不依赖分镜图/视频——剧本生成后即可推进。
 

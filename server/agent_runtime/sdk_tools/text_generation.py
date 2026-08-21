@@ -1749,11 +1749,11 @@ def _validate_narration_segments(segments: list[dict], supported_durations: list
     """按 narration step1 读取契约做后校验：segment_id 唯一 + novel_text 非空白 + duration ∈ supported_durations。
 
     静态 ``NarrationStep1Segment.novel_text`` 的 ``min_length=1`` 只校验原始字符串长度，纯空白
-    （如单个空格）能满足该约束却不携带任何实际旁白内容；此类片段在覆盖校验中经
+    （如单个空格）能满足该约束却不携带任何实际旁白内容；此类分镜在覆盖校验中经
     ``_normalize_for_coverage`` 折叠为空字符串后不消耗任何字符，不会被覆盖校验拦截，会被当作
-    合法片段（携带真实 duration_seconds / 资产引用）写盘，产生"有时长但无旁白"的哑片段。
+    合法分镜（携带真实 duration_seconds / 资产引用）写盘，产生"有时长但无旁白"的哑分镜。
 
-    静态 ``NarrationStep1Segment.duration_seconds`` 是 ``ge=1, le=60`` 开区间（复用既有片段 schema，
+    静态 ``NarrationStep1Segment.duration_seconds`` 是 ``ge=1, le=60`` 开区间（复用既有分镜 schema，
     不在 schema 层枚举硬约束），故超出 ``supported_durations`` 的时长能过 schema 校验；此处 fail-loud
     补上成员校验，与 ``ScriptGenerator._load_narration_step1`` 同口径——只有经此校验的内容才写盘成为
     step1 真值源，杜绝把非法时长拖到 step2 / 最终 save_script 才暴露。
@@ -1777,7 +1777,7 @@ def _validate_narration_asset_references(
     scenes: dict[str, Any],
     props: dict[str, Any],
 ) -> None:
-    """校验片段登记的角色 / 场景 / 道具已在 project.json 对应表注册，与 rv 侧
+    """校验分镜登记的角色 / 场景 / 道具已在 project.json 对应表注册，与 rv 侧
     ``_build_reference_units_from_flat`` 对资产引用的校验同口径：只信登记过的资产名，
     不允许模型发明或拼错的名称被当真值写盘、被 step2 视觉层只读消费。
     """
@@ -1803,12 +1803,12 @@ def _normalize_for_coverage(text: str) -> str:
 
 
 def _validate_narration_novel_text_coverage(segments: list[dict], novel_text: str) -> None:
-    """机械校验片段 ``novel_text`` 按序、完整覆盖源文，杜绝模型删减 / 改写 / 重排后仍被当真值落盘。
+    """机械校验分镜 ``novel_text`` 按序、完整覆盖源文，杜绝模型删减 / 改写 / 重排后仍被当真值落盘。
 
-    片段边界处的空白存在与否天然歧义——模型选择的切分点可能落在源文空格上（该空格被
-    切分本身"消耗"，不落在任一片段自身文本里），也可能落在无空格的 CJK / 标点邻接处，
-    两者从拼接后的字符串本身无法可靠区分。因此仅在片段交界处允许可选的单个空格；片段
-    自身文本内部与源文其余部分一律要求折叠后逐字相等，不能让边界宽容掩盖片段内部真实的
+    分镜边界处的空白存在与否天然歧义——模型选择的切分点可能落在源文空格上（该空格被
+    切分本身"消耗"，不落在任一分镜自身文本里），也可能落在无空格的 CJK / 标点邻接处，
+    两者从拼接后的字符串本身无法可靠区分。因此仅在分镜交界处允许可选的单个空格；分镜
+    自身文本内部与源文其余部分一律要求折叠后逐字相等，不能让边界宽容掩盖分镜内部真实的
     删减、改写或词间空格丢失（后者是 CJK / 半角标点邻接边界的普适宽容规则曾误伤的场景）。
     """
     parts = [re.escape(_normalize_for_coverage(str(s.get("novel_text") or ""))) for s in segments]
@@ -1820,7 +1820,7 @@ def _validate_narration_novel_text_coverage(segments: list[dict], novel_text: st
 def split_narration_segments_tool(ctx: ToolContext):
     @tool(
         "split_narration_segments",
-        "把本集小说原文按朗读节奏拆分为旁白/解说片段表（逐字 novel_text + 时长 + segment_break + 出场资产），"
+        "把本集小说原文按朗读节奏拆分为旁白/解说分镜表（逐字 novel_text + 时长 + segment_break + 出场资产），"
         "保存到 drafts/episode_N/step1_segments.json，供 generate_episode_script（旁白/解说）消费。"
         "novel_text 逐字保留原文、由 step2 透传，不经 step2 的 LLM 重出。dry_run=true 时仅返回 prompt。",
         {
@@ -1891,8 +1891,8 @@ def split_narration_segments_tool(ctx: ToolContext):
                     ]
                 }
 
-            # 结构化输出：response_schema 复用既有 NarrationStep1Draft（片段 schema）；
-            # 本地解析复用同一 schema 保持同口径校验。片段时长的成员约束由下方 _validate_narration_segments 兜底。
+            # 结构化输出：response_schema 复用既有 NarrationStep1Draft（分镜 schema）；
+            # 本地解析复用同一 schema 保持同口径校验。分镜时长的成员约束由下方 _validate_narration_segments 兜底。
             generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=ctx.project_name)
             result = await generator.generate(
                 TextGenerationRequest(
@@ -1908,7 +1908,7 @@ def split_narration_segments_tool(ctx: ToolContext):
 
             raw_segments = content.get("segments")
             if not isinstance(raw_segments, list) or not raw_segments:
-                raise ValueError("step1 拆分内容结构异常：segments 必须是非空的片段对象数组")
+                raise ValueError("step1 拆分内容结构异常：segments 必须是非空的分镜对象数组")
             _validate_narration_segments(raw_segments, supported_durations)
             _validate_narration_asset_references(raw_segments, characters, scenes, props)
             _validate_narration_novel_text_coverage(raw_segments, novel_text)
@@ -1926,8 +1926,8 @@ def split_narration_segments_tool(ctx: ToolContext):
                     {
                         "type": "text",
                         "text": (
-                            f"✅ 旁白/解说片段拆分（结构化 step1）已保存: {step1_path}\n"
-                            f"📊 生成统计: {len(raw_segments)} 个片段 / {total_chars} 字，"
+                            f"✅ 旁白/解说分镜拆分（结构化 step1）已保存: {step1_path}\n"
+                            f"📊 生成统计: {len(raw_segments)} 个分镜 / {total_chars} 字，"
                             f"预计总时长 {total_seconds} 秒；segment_break 标记 {break_count} 个"
                         ),
                     }

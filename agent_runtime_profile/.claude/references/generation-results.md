@@ -41,8 +41,8 @@ skipped                                     （复用旧产物，不在 requeste
   `replan_unit` / `configure_provider` / `confirm_request_duration` / …）
 - `unit_id` 与（若有）`artifact_key`、`artifact_path`
 
-宫格按**场景 ID** 记账：同一分组的场景共享一张宫格联合图，这张图的入队、任务、
-切分结果会投影到它覆盖的每个场景，某一格没落盘只算那一个场景失败。
+宫格按**分镜 ID** 记账：同一分组的分镜共享一张宫格联合图，这张图的入队、任务、
+切分结果会投影到它覆盖的每个分镜，某一格没落盘只算那一个分镜失败。
 
 **按 `code` 与 `action` 决定下一步，不要解析文本判断能不能重试。**
 

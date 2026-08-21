@@ -170,7 +170,7 @@ _SCENE_TOOL_SCHEMA = _video_tool_schema(
         "script": _SCRIPT_SCHEMA_PROPERTY,
         "scene_id": {
             "type": "string",
-            "description": "场景或片段 ID；reference_video 项目传 video_unit 的 unit_id（如 E1U2）",
+            "description": "分镜 ID；reference_video 项目传视频单元的 unit_id（如 E1U2）",
         },
         **_REQUEST_SCHEMA_PROPERTIES,
     },
@@ -191,7 +191,7 @@ _SELECTED_TOOL_SCHEMA = _video_tool_schema(
         "scene_ids": {
             "type": "array",
             "items": {"type": "string"},
-            "description": '场景或片段 ID 列表；reference_video 项目传 video_unit 的 unit_id 列表（如 ["E1U2"]）',
+            "description": '分镜 ID 列表；reference_video 项目传视频单元的 unit_id 列表（如 ["E1U2"]）',
         },
         "resume": {
             "type": "boolean",
@@ -1429,7 +1429,7 @@ class _StoryboardBatch:
 def generate_video_episode_tool(ctx: ToolContext):
     @tool(
         "generate_video_episode",
-        "为剧本对应的整集生成所有场景视频。resume=true 时从 checkpoint 续传。参考生视频会自动按 video_units 处理。",
+        "为剧本对应的整集生成所有分镜视频。resume=true 时从 checkpoint 续传。参考生视频会自动按视频单元处理。",
         _EPISODE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1470,7 +1470,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 resolver=currency,
             )
             states = video_target_states(items, id_field, episode=episode, resolver=currency)
-            # 整集生成始终复用仍可用的旧片段（含 stale），从不强制重生——所以
+            # 整集生成始终复用仍可用的旧分镜（含 stale），从不强制重生——所以
             # 无论是否 resume，选择模式如实报告为 missing-only；点名重做走
             # generate_video_scene / generate_selected_videos。checkpoint 的
             # completed_scenes 只认得本批次（或此前 resume）提交过的 ID，非
@@ -1497,9 +1497,9 @@ def generate_video_episode_tool(ctx: ToolContext):
                 state = _state_for(states, str(done_id))
                 builder.skip(state)
 
-            # currency 之外的第三态：Manifest 读不出该片段的产物状态（BLOCKED），既不能
+            # currency 之外的第三态：Manifest 读不出该分镜的产物状态（BLOCKED），既不能
             # 判定为可复用（进 already_done）也不能安全当作缺失去入队——不可读不等于没有，
-            # 花钱重生可能覆盖一份实际仍然可用的片段。generate_video_all 走
+            # 花钱重生可能覆盖一份实际仍然可用的分镜。generate_video_all 走
             # select_generation_targets 已经把这一态折进 selection.unavailable，这里是
             # 同一场判定手写的另一条腿，必须同步处理。
             already_done_set = set(already_done)
@@ -1519,7 +1519,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             refused.extend(spec_refused)
 
             if not specs and not refused and not builder.recorded_ids and not any(ordered_paths):
-                raise RuntimeError("没有可生成的视频片段")
+                raise RuntimeError("没有可生成的分镜")
 
             return await batch.admit_and_submit(
                 items=items,
@@ -1545,7 +1545,7 @@ def generate_video_episode_tool(ctx: ToolContext):
 def generate_video_scene_tool(ctx: ToolContext):
     @tool(
         "generate_video_scene",
-        "生成单个分镜/片段的视频。reference_video 项目把 unit_id 填进 scene_id 即对该 unit 重新生成（覆盖已有成片）。",
+        "生成单个分镜的视频。reference_video 项目把视频单元的 unit_id 填进 scene_id 即重新生成该视频单元（覆盖已有成片）。",
         _SCENE_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1625,7 +1625,7 @@ def generate_video_scene_tool(ctx: ToolContext):
 def generate_video_all_tool(ctx: ToolContext):
     @tool(
         "generate_video_all",
-        "为剧本批量生成所有缺视频的场景/片段（独立模式，不拼接）。参考生视频等同 episode 模式。",
+        "为剧本批量生成所有缺视频的分镜（独立模式，不拼接）。参考生视频等同 episode 模式。",
         _ALL_TOOL_SCHEMA,
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -1689,8 +1689,8 @@ def generate_video_all_tool(ctx: ToolContext):
             target_id_set = set(selection.target_ids)
             pending = [item for item in items if str(storyboard_item_id(item, id_field) or "") in target_id_set]
             specs, _order_map, refused = await batch.build_specs(items=pending, skip_ids=None)
-            # 产物状态不可读的场景被选目标环节排除在 targets 之外，但它属于这次请求：
-            # 不带进准入，同批健康的场景会照常入队并计费，剩下这一个被无声略过。
+            # 产物状态不可读的分镜被选目标环节排除在 targets 之外，但它属于这次请求：
+            # 不带进准入，同批健康的分镜会照常入队并计费，剩下这一个被无声略过。
             refused.extend(unavailable_tickets)
             refused.extend(screen_refused)
             if not specs and not refused:
@@ -1773,7 +1773,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                         refused_ticket(
                             sid,
                             code=GenerationProblemCode.UNIT_NOT_FOUND,
-                            detail=f"场景/片段 '{sid}' 不存在",
+                            detail=f"分镜 '{sid}' 不存在",
                             action=GenerationAction.FIX_INPUT,
                         )
                     )

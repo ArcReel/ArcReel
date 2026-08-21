@@ -111,7 +111,7 @@ def generate_storyboards_tool(ctx: ToolContext):
                 "segment_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "片段或场景 ID 列表；不传则只选缺分镜图的项",
+                    "description": "分镜 ID 列表；不传则只选缺分镜图的项",
                 },
             },
             "required": ["script"],

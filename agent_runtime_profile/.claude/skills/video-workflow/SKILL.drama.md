@@ -269,7 +269,7 @@ dispatch `generate-assets` 子智能体：
     requested_ids 为空 →
       mcp__arcreel__generate_video_episode({"script": target.script_filename,
                                             "narration_delivery": chosen_narration_delivery})
-  验证方式：重新读取 target.script，检查各场景的 video_clip 字段
+  验证方式：重新读取 target.script，检查各分镜的 video_clip 字段
 ```
 
 `narration_delivery` 省略或写错值一律返回工具错误、不入队任何任务，也不退回后期配音。凑够必填项

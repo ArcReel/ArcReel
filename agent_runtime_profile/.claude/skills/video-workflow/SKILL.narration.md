@@ -237,7 +237,7 @@ dispatch `generate-assets` 子智能体：
 
 两条路径都把 `next_action.args` 与 `requested_ids` 原样传给子智能体，由子智能体按上面映射调用工具。
 
-> **切换 `grid_storyboard` 后的重做**：本动作的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的片段范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑 `generate_videos` 对应片段。
+> **切换 `grid_storyboard` 后的重做**：本动作的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的分镜范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑 `generate_videos` 对应分镜。
 
 ## `generate_videos`：视频生成
 
@@ -273,7 +273,7 @@ dispatch `generate-assets` 子智能体：
     requested_ids 为空 →
       mcp__arcreel__generate_video_episode({"script": target.script_filename,
                                             "narration_delivery": chosen_narration_delivery})
-  验证方式：重新读取 target.script，检查各场景的 video_clip 字段
+  验证方式：重新读取 target.script，检查各分镜的 video_clip 字段
 ```
 
 `narration_delivery` 省略或写错值一律返回工具错误、不入队任何任务，也不退回后期配音。凑够必填项

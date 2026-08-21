@@ -85,6 +85,8 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 下一步：主 Agent 可继续 dispatch 资产生成子智能体（角色资产图、分镜图等）。
 ```
 
+`generation_mode == reference_video` 时，将统计行写为 `| 总视频单元数 | XX 个 |`；其他生成方式写 `| 总分镜数 | XX 个 |`。摘要只输出当前生成方式适用的一行。
+
 如果生成失败：
 ```
 ## JSON 剧本生成失败
