@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Landmark, Link2, Package, Unlink, User } from "lucide-react";
+import { LockKeyhole, UnlockKeyhole } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { errMsg } from "@/utils/async";
 import type { Asset, AssetType } from "@/types/asset";
+import { errMsg } from "@/utils/async";
 import { AssetPickerModal } from "./AssetPickerModal";
 
 interface Props {
@@ -13,20 +13,16 @@ interface Props {
   resourceId: string;
   matchedAssetId?: string;
   linkedAssetId?: string;
+  imageUsage?: "main" | "reference";
+  voiceSource?: "reference_audio" | "voice_id" | "none";
+  onAssetResolved?: (asset: Asset | null) => void;
   onReload?: () => void | Promise<unknown>;
   busy?: boolean;
 }
 
-const TYPE_ICON = { character: User, scene: Landmark, prop: Package };
-
 export function ProjectAssetLinkControl({
-  projectName,
-  resourceType,
-  resourceId,
-  matchedAssetId,
-  linkedAssetId,
-  onReload,
-  busy = false,
+  projectName, resourceType, resourceId, matchedAssetId, linkedAssetId,
+  imageUsage = "main", voiceSource = "none", onAssetResolved, onReload, busy = false,
 }: Props) {
   const { t } = useTranslation("assets");
   const assetId = linkedAssetId ?? matchedAssetId;
@@ -37,31 +33,27 @@ export function ProjectAssetLinkControl({
 
   useEffect(() => {
     let cancelled = false;
-    if (!assetId) return () => { cancelled = true; };
-    void API.getAsset(assetId)
-      .then((result) => {
-        if (!cancelled && result.asset.type === resourceType) {
-          setResolvedAsset({ id: assetId, asset: result.asset });
-        }
-      })
-      .catch(() => {
-        // 全局资产可能已被删除；仍保留解除链接入口，不阻断项目卡片。
-      });
+    if (!assetId) {
+      onAssetResolved?.(null);
+      return () => { cancelled = true; };
+    }
+    void API.getAsset(assetId).then(({ asset: value }) => {
+      if (!cancelled && value.type === resourceType) {
+        setResolvedAsset({ id: assetId, asset: value });
+        onAssetResolved?.(value);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        onAssetResolved?.(null);
+      }
+    });
     return () => { cancelled = true; };
-  }, [assetId, resourceType]);
+  }, [assetId, resourceType, onAssetResolved]);
 
-  const link = async (targetId: string) => {
+  const run = async (operation: () => Promise<unknown>) => {
     setSubmitting(true);
     try {
-      const result = await API.linkProjectAsset({
-        project_name: projectName,
-        resource_type: resourceType,
-        resource_id: resourceId,
-        asset_id: targetId,
-      });
-      setResolvedAsset({ id: targetId, asset: result.asset });
-      setPicking(false);
-      useAppStore.getState().pushToast(t("link_global_asset_success", { name: result.asset.name }), "success");
+      await operation();
       await onReload?.();
     } catch (error) {
       useAppStore.getState().pushToast(errMsg(error), "error");
@@ -70,96 +62,47 @@ export function ProjectAssetLinkControl({
     }
   };
 
-  const handleUnlink = async () => {
-    setSubmitting(true);
-    try {
-      await API.unlinkProjectAsset(projectName, resourceType, resourceId);
-      setResolvedAsset(null);
-      useAppStore.getState().pushToast(t("unlink_global_asset_success"), "success");
-      await onReload?.();
-    } catch (error) {
-      useAppStore.getState().pushToast(errMsg(error), "error");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
+  const link = (targetId: string) => run(async () => {
+    const result = await API.linkProjectAsset({ project_name: projectName, resource_type: resourceType, resource_id: resourceId, asset_id: targetId });
+    setResolvedAsset({ id: targetId, asset: result.asset });
+    onAssetResolved?.(result.asset);
+    setPicking(false);
+    useAppStore.getState().pushToast(t("link_global_asset_success", { name: result.asset.name }), "success");
+  });
+  const unlink = () => run(async () => {
+    await API.unlinkProjectAsset(projectName, resourceType, resourceId);
+    setResolvedAsset(null);
+    onAssetResolved?.(null);
+    useAppStore.getState().pushToast(t("unlink_global_asset_success"), "success");
+  });
+  const configure = (patch: { image_usage?: "main" | "reference"; voice_source?: "reference_audio" | "voice_id" | "none" }) =>
+    run(() => API.configureProjectAssetLink({ project_name: projectName, resource_type: resourceType, resource_id: resourceId, ...patch }));
   const disabled = busy || submitting;
-  const Icon = TYPE_ICON[resourceType];
-  const imageUrl = asset ? API.getGlobalAssetUrl(asset.image_path, asset.updated_at) : null;
 
   return (
     <>
-      {asset ? (
-        <div
-          className="mb-4 flex items-center gap-2 rounded-lg px-2 py-1.5"
-          style={{ border: "1px solid var(--color-hairline-soft)", background: "oklch(0.18 0.010 265 / 0.45)" }}
-          data-testid="global-asset-link-card"
-        >
-          <div className="grid h-9 w-12 shrink-0 place-items-center overflow-hidden rounded bg-[oklch(0.16_0.010_265)]">
-            {imageUrl ? (
-              <img
-                src={imageUrl}
-                alt={asset.name}
-                className="h-full w-full object-contain"
-              />
-            ) : (
-              <Icon className="h-4 w-4 text-[var(--color-text-4)]" />
-            )}
-          </div>
-          <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--color-text-2)]">
-            {asset.name}
-          </span>
-          {linkedAssetId ? (
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => { void handleUnlink(); }}
-              aria-label={t("unlink_global_asset")}
-              title={t("unlink_global_asset")}
-              className="focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40"
-            >
-              <Unlink className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => { void link(asset.id); }}
-              aria-label={t("link_global_asset")}
-              title={t("link_global_asset")}
-              className="focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40"
-            >
-              <Link2 className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      ) : (
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => {
-            if (linkedAssetId) void handleUnlink();
-            else setPicking(true);
-          }}
-          className="focus-ring mb-4 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg text-xs text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.04)] disabled:opacity-40"
-          style={{ border: "1px dashed var(--color-hairline)" }}
-          aria-label={t(linkedAssetId ? "unlink_global_asset" : "link_global_asset")}
-        >
-          {linkedAssetId ? <Unlink className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}
-          <span>{t(linkedAssetId ? "unlink_global_asset" : "link_global_asset")}</span>
-        </button>
-      )}
-
-      {picking ? (
-        <AssetPickerModal
-          type={resourceType}
-          existingNames={new Set()}
-          mode="link"
-          onClose={() => setPicking(false)}
-          onImport={(ids) => { if (ids[0]) void link(ids[0]); }}
-        />
-      ) : null}
+      <div className="flex items-center gap-1.5" data-testid="global-asset-link-control">
+        {assetId ? <>
+          <button type="button" disabled={disabled} onClick={() => { void configure({ image_usage: imageUsage === "main" ? "reference" : "main" }); }} className="focus-ring rounded px-1.5 py-1 text-[10px] text-[var(--color-text-3)] hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40" title={asset?.name}>
+            {imageUsage === "main" ? t("global_asset_as_main") : t("global_asset_as_reference")}
+          </button>
+          {resourceType === "character" && asset && (asset.audio_path || asset.voice_id) ? (
+            <select aria-label={t("global_asset_voice_source")} value={voiceSource} disabled={disabled} onChange={(event) => { void configure({ voice_source: event.target.value as "reference_audio" | "voice_id" | "none" }); }} className="h-7 rounded border border-[var(--color-hairline)] bg-transparent px-1 text-[10px] text-[var(--color-text-3)]">
+              {asset.audio_path ? <option value="reference_audio">{t("global_asset_reference_audio")}</option> : null}
+              {asset.voice_id ? <option value="voice_id">Voice ID</option> : null}
+              <option value="none">{t("global_asset_no_voice")}</option>
+            </select>
+          ) : null}
+          <button type="button" disabled={disabled} onClick={() => { void unlink(); }} aria-label={t("unlink_global_asset")} title={t("unlink_global_asset")} className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-300 hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40">
+            <LockKeyhole className="h-3.5 w-3.5" />
+          </button>
+        </> : (
+          <button type="button" disabled={disabled} onClick={() => setPicking(true)} aria-label={t("link_global_asset")} title={t("link_global_asset")} className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-3)] hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40">
+            <UnlockKeyhole className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {picking ? <AssetPickerModal type={resourceType} existingNames={new Set()} mode="link" onClose={() => setPicking(false)} onImport={(ids) => { if (ids[0]) void link(ids[0]); }} /> : null}
     </>
   );
 }

@@ -18,14 +18,13 @@ const asset: Asset = {
 };
 
 describe("ProjectAssetLinkControl", () => {
-  it("shows a matched asset card and links it only after the user clicks", async () => {
+  it("shows an exact matched asset as an already locked link", async () => {
     vi.spyOn(API, "getAsset").mockResolvedValue({ asset });
     const link = vi.spyOn(API, "linkProjectAsset").mockResolvedValue({
       success: true,
       project_asset: {},
       asset,
     });
-    const user = userEvent.setup();
     render(
       <ProjectAssetLinkControl
         projectName="demo"
@@ -35,16 +34,9 @@ describe("ProjectAssetLinkControl", () => {
       />,
     );
 
-    expect(await screen.findByTestId("global-asset-link-card")).toHaveTextContent("鳄鱼爸爸");
+    expect(await screen.findByTestId("global-asset-link-control")).toHaveTextContent("主图");
     expect(link).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "链接全局资产" }));
-
-    await waitFor(() => expect(link).toHaveBeenCalledWith({
-      project_name: "demo",
-      resource_type: "character",
-      resource_id: "鳄鱼爸爸",
-      asset_id: "asset-1",
-    }));
+    expect(screen.getByRole("button", { name: "解除全局资产链接" })).toBeInTheDocument();
   });
 
   it("unlinks an already linked card", async () => {
@@ -63,7 +55,7 @@ describe("ProjectAssetLinkControl", () => {
       />,
     );
 
-    await screen.findByTestId("global-asset-link-card");
+    await screen.findByTestId("global-asset-link-control");
     await user.click(screen.getByRole("button", { name: "解除全局资产链接" }));
     await waitFor(() => expect(unlink).toHaveBeenCalledWith("demo", "character", "鳄鱼爸爸"));
   });

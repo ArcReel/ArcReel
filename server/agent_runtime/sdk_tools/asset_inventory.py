@@ -18,7 +18,14 @@ from lib.asset_inventory import (
     AssetInventorySourceBlocked,
     complete_asset_inventory,
 )
-from lib.asset_types import ASSET_SPECS, MATCHED_GLOBAL_ASSET_ID_FIELD, asset_name_comparison_key
+from lib.asset_types import (
+    ASSET_SPECS,
+    GLOBAL_ASSET_ID_FIELD,
+    GLOBAL_ASSET_IMAGE_USAGE_FIELD,
+    GLOBAL_ASSET_VOICE_SOURCE_FIELD,
+    MATCHED_GLOBAL_ASSET_ID_FIELD,
+    asset_name_comparison_key,
+)
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.source_revision import SourceScope
@@ -43,6 +50,7 @@ async def _attach_exact_global_asset_matches(entries: object) -> object:
         assets = await AssetRepository(session).list(type=None, q=None, limit=10_000, offset=0)
     canonical_candidates: dict[tuple[str, str], set[str]] = {}
     alias_candidates: dict[tuple[str, str], set[str]] = {}
+    assets_by_id = {asset.id: asset for asset in assets}
     for asset in assets:
         canonical_candidates.setdefault((asset.type, asset_name_comparison_key(asset.name)), set()).add(asset.id)
         for alias in asset.aliases:
@@ -60,13 +68,26 @@ async def _attach_exact_global_asset_matches(entries: object) -> object:
             if not isinstance(name, str) or not isinstance(attrs, dict):
                 continue
             # 匹配 ID 只能来自服务端全局库查询，忽略模型自行提交或提示注入伪造的 ID。
-            attrs.pop(MATCHED_GLOBAL_ASSET_ID_FIELD, None)
+            for field in (
+                MATCHED_GLOBAL_ASSET_ID_FIELD,
+                GLOBAL_ASSET_ID_FIELD,
+                GLOBAL_ASSET_IMAGE_USAGE_FIELD,
+                GLOBAL_ASSET_VOICE_SOURCE_FIELD,
+            ):
+                attrs.pop(field, None)
             match_key = (asset_type, asset_name_comparison_key(name))
             canonical_ids = canonical_candidates.get(match_key)
             candidate_ids = canonical_ids if canonical_ids is not None else alias_candidates.get(match_key)
             matched_id = next(iter(candidate_ids)) if candidate_ids is not None and len(candidate_ids) == 1 else None
             if matched_id is not None:
                 attrs[MATCHED_GLOBAL_ASSET_ID_FIELD] = matched_id
+                attrs[GLOBAL_ASSET_ID_FIELD] = matched_id
+                attrs[GLOBAL_ASSET_IMAGE_USAGE_FIELD] = "main"
+                if asset_type == "character":
+                    matched = assets_by_id[matched_id]
+                    attrs[GLOBAL_ASSET_VOICE_SOURCE_FIELD] = (
+                        "reference_audio" if matched.audio_path else "voice_id" if matched.voice_id else "none"
+                    )
     return enriched
 
 

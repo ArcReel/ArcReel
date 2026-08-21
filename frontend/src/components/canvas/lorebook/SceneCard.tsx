@@ -15,6 +15,7 @@ import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
 import type { Scene } from "@/types";
+import type { Asset } from "@/types/asset";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -64,6 +65,8 @@ export function SceneCard({
   const [imgError, setImgError] = useState(false);
   const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [linkedAsset, setLinkedAsset] = useState<Asset | null>(null);
+  const handleLinkedAssetResolved = useCallback((asset: Asset | null) => setLinkedAsset(asset), []);
   const sheetInputRef = useRef<HTMLInputElement>(null);
 
   const handleSheetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,9 +119,15 @@ export function SceneCard({
     onUpdate(name, { description });
   };
 
-  const sheetUrl = scene.scene_sheet
+  const localSheetUrl = scene.scene_sheet
     ? API.getFileUrl(projectName, scene.scene_sheet, sheetFp)
     : null;
+  const globalImageUrl = linkedAsset?.image_path
+    ? API.getGlobalAssetUrl(linkedAsset.image_path, linkedAsset.updated_at)
+    : null;
+  const hasGlobalLink = Boolean(scene.global_asset_id || scene.matched_global_asset_id);
+  const usingGlobalMain = hasGlobalLink && (scene.global_asset_image_usage ?? "main") === "main";
+  const sheetUrl = usingGlobalMain && globalImageUrl ? globalImageUrl : localSheetUrl;
 
   return (
     <div
@@ -195,7 +204,7 @@ export function SceneCard({
             projectName={projectName}
             resourceType="scene"
             resourceId={name}
-            hasImage={Boolean(scene.scene_sheet)}
+            hasImage={Boolean(scene.scene_sheet) && !usingGlobalMain}
             busy={generating || uploadingSheet}
           />
           <AddToLibraryButton
@@ -219,21 +228,12 @@ export function SceneCard({
         )}
       </div>
 
-      {readOnly ? null : (
-        <ProjectAssetLinkControl
-          projectName={projectName}
-          resourceType="scene"
-          resourceId={name}
-          matchedAssetId={scene.matched_global_asset_id}
-          linkedAssetId={scene.global_asset_id}
-          onReload={onReload}
-          busy={generating || uploadingSheet}
-        />
-      )}
-
       {/* ---- Image area ---- */}
       <div className="mb-4">
-        <CapsLabel>{t("scene_design")}</CapsLabel>
+        <div className="flex items-center justify-between">
+          <CapsLabel>{t("scene_design")}</CapsLabel>
+          {readOnly ? null : <ProjectAssetLinkControl projectName={projectName} resourceType="scene" resourceId={name} matchedAssetId={scene.matched_global_asset_id} linkedAssetId={scene.global_asset_id} imageUsage={scene.global_asset_image_usage} onAssetResolved={handleLinkedAssetResolved} onReload={onReload} busy={generating || uploadingSheet} />}
+        </div>
         <div
           className="mt-1.5 overflow-hidden rounded-lg"
           style={{ border: "1px solid var(--color-hairline-soft)" }}
@@ -300,6 +300,7 @@ export function SceneCard({
         <GenerateButton
           onClick={() => onGenerate(name)}
           loading={generating}
+          disabled={usingGlobalMain}
           label={scene.scene_sheet ? t("regenerate_design") : t("generate_design")}
           className="w-full justify-center"
         />

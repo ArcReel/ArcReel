@@ -119,9 +119,9 @@ describe("SubagentCard", () => {
     expect(screen.getByText("子任务回复")).toBeInTheDocument();
   });
 
-  it("derives completed status from the tool result", () => {
+  it("does not treat an async launch tool result as completion", () => {
     render(<SubagentCard block={makeCardBlock({ result: "done" })} />);
-    expect(screen.getByText("已完成")).toBeInTheDocument();
+    expect(screen.getByText("运行中")).toBeInTheDocument();
   });
 
   it("shows stopped instead of a spinner when the session is terminal", () => {

@@ -145,7 +145,7 @@ def _is_interrupt_echo(blocks: list[dict[str, Any]]) -> bool:
     return str(blocks[0].get("text") or "").strip().startswith(_INTERRUPT_ECHO_PREFIX)
 
 
-def _extract_task_notifications(blocks: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _extract_task_notifications(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """提取消息文本中的全部 task-notification XML（同一 tick 可能批了多条）。"""
     text = _blocks_text(blocks)
 
@@ -153,15 +153,28 @@ def _extract_task_notifications(blocks: list[dict[str, Any]]) -> list[dict[str, 
         m = re.search(rf"<{name}>(.*?)</{name}>", xml, re.DOTALL)
         return m.group(1).strip() if m else ""
 
-    return [
-        {
-            "task_id": _tag(match.group(0), "task-id"),
-            "tool_use_id": _tag(match.group(0), "tool-use-id"),
-            "status": _tag(match.group(0), "status"),
-            "summary": _tag(match.group(0), "summary"),
-        }
-        for match in _TASK_NOTIFICATION_RE.finditer(text)
-    ]
+    notifications: list[dict[str, Any]] = []
+    for match in _TASK_NOTIFICATION_RE.finditer(text):
+        xml = match.group(0)
+        usage: dict[str, int] = {}
+        for xml_name, field_name in (
+            ("subagent_tokens", "total_tokens"),
+            ("tool_uses", "tool_uses"),
+            ("duration_ms", "duration_ms"),
+        ):
+            raw = _tag(xml, xml_name)
+            if raw.isdigit():
+                usage[field_name] = int(raw)
+        notifications.append(
+            {
+                "task_id": _tag(xml, "task-id"),
+                "tool_use_id": _tag(xml, "tool-use-id"),
+                "status": _tag(xml, "status"),
+                "summary": _tag(xml, "summary"),
+                "usage": usage or None,
+            }
+        )
+    return notifications
 
 
 def _extract_structured_answers(message: dict[str, Any]) -> dict[str, str] | None:
@@ -370,6 +383,7 @@ class SdkMessageNormalizer:
                         "description": "",
                         "summary": task_info["summary"] or None,
                         "task_status": task_info["status"] or None,
+                        "usage": task_info["usage"],
                         "tool_use_id": task_info["tool_use_id"] or None,
                         "uuid": (
                             f"{base_uuid}-tn{i}" if multiple and base_uuid else (base_uuid or f"entry-{uuid4().hex}")

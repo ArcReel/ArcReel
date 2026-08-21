@@ -28,6 +28,8 @@ interface VoiceSampleButtonProps {
   busy?: boolean;
   /** 确认保存成功后触发，供调用方重新加载角色资产 */
   onSaved: () => Promise<unknown> | void;
+  /** 已链接全局角色选择的 TTS Voice ID；存在于供应商列表时默认选中。 */
+  initialVoiceId?: string;
 }
 
 /**
@@ -39,6 +41,7 @@ export function VoiceSampleButton({
   characterName,
   busy = false,
   onSaved,
+  initialVoiceId,
 }: VoiceSampleButtonProps) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);
@@ -103,7 +106,7 @@ export function VoiceSampleButton({
         if (controller.signal.aborted) return;
         setVoicesConfigured(res.configured);
         setVoices(res.voices);
-        setSelectedVoice((prev) => prev || res.voices[0]?.id || "");
+        setSelectedVoice((prev) => prev || res.voices.find((voice) => voice.id === initialVoiceId)?.id || res.voices[0]?.id || "");
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
@@ -113,7 +116,7 @@ export function VoiceSampleButton({
         if (!controller.signal.aborted) setVoicesLoading(false);
       });
     return () => controller.abort();
-  }, [open, projectName]);
+  }, [initialVoiceId, open, projectName]);
 
   const disabled = busy || !audioConfigured;
 

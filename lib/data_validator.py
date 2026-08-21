@@ -20,6 +20,10 @@ from pydantic import ValidationError
 
 from lib.asset_types import (
     ASSET_SPECS,
+    GLOBAL_ASSET_IMAGE_USAGE_FIELD,
+    GLOBAL_ASSET_IMAGE_USAGES,
+    GLOBAL_ASSET_VOICE_SOURCE_FIELD,
+    GLOBAL_ASSET_VOICE_SOURCES,
     PROJECT_ASSET_LINK_FIELDS,
     asset_name_comparison_key,
     normalize_asset_name,
@@ -509,6 +513,18 @@ class DataValidator:
                                 actual=type(val).__name__,
                             )
                         )
+                image_usage = char_data.get(GLOBAL_ASSET_IMAGE_USAGE_FIELD)
+                if image_usage is not None and image_usage not in GLOBAL_ASSET_IMAGE_USAGES:
+                    errors.append(
+                        _m("val_asset_field_invalid_value", asset_type=_asset("character"), name=char_name,
+                           field=GLOBAL_ASSET_IMAGE_USAGE_FIELD, value=repr(image_usage))
+                    )
+                voice_source = char_data.get(GLOBAL_ASSET_VOICE_SOURCE_FIELD)
+                if voice_source is not None and voice_source not in GLOBAL_ASSET_VOICE_SOURCES:
+                    errors.append(
+                        _m("val_asset_field_invalid_value", asset_type=_asset("character"), name=char_name,
+                           field=GLOBAL_ASSET_VOICE_SOURCE_FIELD, value=repr(voice_source))
+                    )
                 # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，故意不开放
                 # 通用 PATCH 覆写），但仍需校验类型与值：外部编辑/导入的 project.json 若把它写成
                 # 非字符串或不可解析的字符串，会在前端 computeVoiceLegacyNotice 的日期解析处
@@ -592,6 +608,12 @@ class DataValidator:
                             actual=type(val).__name__,
                         )
                     )
+            image_usage = data.get(GLOBAL_ASSET_IMAGE_USAGE_FIELD)
+            if image_usage is not None and image_usage not in GLOBAL_ASSET_IMAGE_USAGES:
+                errors.append(
+                    _m("val_asset_field_invalid_value", asset_type=kind, name=name,
+                       field=GLOBAL_ASSET_IMAGE_USAGE_FIELD, value=repr(image_usage))
+                )
             for field_name in extra_list_fields:
                 # spec 声明的 extra_list_fields（reference_images / selling_points 等）若存在
                 # 须为字符串列表：下游把元素当路径拼接 / 当文本注入 prompt，混入非 str 会

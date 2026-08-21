@@ -15,6 +15,7 @@ import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
 import type { Prop } from "@/types";
+import type { Asset } from "@/types/asset";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -64,6 +65,8 @@ export function PropCard({
   const [imgError, setImgError] = useState(false);
   const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [linkedAsset, setLinkedAsset] = useState<Asset | null>(null);
+  const handleLinkedAssetResolved = useCallback((asset: Asset | null) => setLinkedAsset(asset), []);
   const sheetInputRef = useRef<HTMLInputElement>(null);
 
   const handleSheetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,9 +119,15 @@ export function PropCard({
     onUpdate(name, { description });
   };
 
-  const sheetUrl = prop.prop_sheet
+  const localSheetUrl = prop.prop_sheet
     ? API.getFileUrl(projectName, prop.prop_sheet, sheetFp)
     : null;
+  const globalImageUrl = linkedAsset?.image_path
+    ? API.getGlobalAssetUrl(linkedAsset.image_path, linkedAsset.updated_at)
+    : null;
+  const hasGlobalLink = Boolean(prop.global_asset_id || prop.matched_global_asset_id);
+  const usingGlobalMain = hasGlobalLink && (prop.global_asset_image_usage ?? "main") === "main";
+  const sheetUrl = usingGlobalMain && globalImageUrl ? globalImageUrl : localSheetUrl;
 
   return (
     <div
@@ -195,7 +204,7 @@ export function PropCard({
             projectName={projectName}
             resourceType="prop"
             resourceId={name}
-            hasImage={Boolean(prop.prop_sheet)}
+            hasImage={Boolean(prop.prop_sheet) && !usingGlobalMain}
             busy={generating || uploadingSheet}
           />
           <AddToLibraryButton
@@ -219,21 +228,12 @@ export function PropCard({
         )}
       </div>
 
-      {readOnly ? null : (
-        <ProjectAssetLinkControl
-          projectName={projectName}
-          resourceType="prop"
-          resourceId={name}
-          matchedAssetId={prop.matched_global_asset_id}
-          linkedAssetId={prop.global_asset_id}
-          onReload={onReload}
-          busy={generating || uploadingSheet}
-        />
-      )}
-
       {/* ---- Image area ---- */}
       <div className="mb-4">
-        <CapsLabel>{t("prop_design")}</CapsLabel>
+        <div className="flex items-center justify-between">
+          <CapsLabel>{t("prop_design")}</CapsLabel>
+          {readOnly ? null : <ProjectAssetLinkControl projectName={projectName} resourceType="prop" resourceId={name} matchedAssetId={prop.matched_global_asset_id} linkedAssetId={prop.global_asset_id} imageUsage={prop.global_asset_image_usage} onAssetResolved={handleLinkedAssetResolved} onReload={onReload} busy={generating || uploadingSheet} />}
+        </div>
         <div
           className="mt-1.5 overflow-hidden rounded-lg"
           style={{ border: "1px solid var(--color-hairline-soft)" }}
@@ -300,6 +300,7 @@ export function PropCard({
         <GenerateButton
           onClick={() => onGenerate(name)}
           loading={generating}
+          disabled={usingGlobalMain}
           label={prop.prop_sheet ? t("regenerate_design") : t("generate_design")}
           className="w-full justify-center"
         />

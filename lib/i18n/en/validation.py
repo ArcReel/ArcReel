@@ -70,6 +70,7 @@ MESSAGES = {
         "{asset_type} '{name}' is missing the required field: description (must be a non-empty string)"
     ),
     "val_asset_field_must_be_string": "{asset_type} '{name}'.{field} must be a string, got {actual}",
+    "val_asset_field_invalid_value": "{asset_type} '{name}'.{field} has an invalid value: {value}",
     "val_asset_field_bad_timestamp": "{asset_type} '{name}'.{field} is not a valid ISO8601 timestamp: {value}",
     "val_asset_field_must_be_string_list": "{asset_type} '{name}'.{field} must be a list of strings, got {actual}",
     "val_asset_field_item_must_be_string": "{asset_type} '{name}'.{field}[{index}] must be a string, got {actual}",

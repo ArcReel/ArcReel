@@ -17,6 +17,7 @@ import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
 import { VoiceSampleButton } from "./VoiceSampleButton";
 import type { Character } from "@/types";
+import type { Asset } from "@/types/asset";
 
 interface CharacterSavePayload {
   description: string;
@@ -90,6 +91,8 @@ export function CharacterCard({
   const [saving, setSaving] = useState(false);
   const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [linkedAsset, setLinkedAsset] = useState<Asset | null>(null);
+  const handleLinkedAssetResolved = useCallback((asset: Asset | null) => setLinkedAsset(asset), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const audioElRef = useRef<HTMLAudioElement>(null);
@@ -271,22 +274,35 @@ export function CharacterCard({
     }
   };
 
-  const sheetUrl = character.character_sheet
+  const localSheetUrl = character.character_sheet
     ? API.getFileUrl(projectName, character.character_sheet, sheetFp)
     : null;
+  const globalImageUrl = linkedAsset?.image_path
+    ? API.getGlobalAssetUrl(linkedAsset.image_path, linkedAsset.updated_at)
+    : null;
+  const hasGlobalLink = Boolean(character.global_asset_id || character.matched_global_asset_id);
+  const usingGlobalMain = hasGlobalLink && (character.global_asset_image_usage ?? "main") === "main";
+  const sheetUrl = usingGlobalMain && globalImageUrl
+    ? globalImageUrl
+    : localSheetUrl;
 
   const savedReferenceUrl = character.reference_image
     ? API.getFileUrl(projectName, character.reference_image, referenceFp)
     : null;
 
-  const displayedReferenceUrl = referencePreview ?? savedReferenceUrl;
+  const linkedReferenceUrl = character.global_asset_image_usage === "reference" ? globalImageUrl : null;
+  const displayedReferenceUrl = referencePreview ?? linkedReferenceUrl ?? savedReferenceUrl;
   const hasSavedReference = Boolean(savedReferenceUrl) && !referencePreview;
 
   const savedAudioUrl = character.reference_audio
     ? API.getFileUrl(projectName, character.reference_audio, audioFp)
     : null;
 
-  const displayedAudioUrl = audioPreview ?? savedAudioUrl;
+  const linkedAudioUrl = character.global_asset_voice_source === "reference_audio" && linkedAsset?.audio_path
+    ? API.getGlobalAssetUrl(linkedAsset.audio_path, linkedAsset.updated_at)
+    : null;
+  const displayedAudioUrl = audioPreview ?? linkedAudioUrl ?? savedAudioUrl;
+  const usingLinkedAudio = Boolean(linkedAudioUrl) && !audioPreview;
 
   useEffect(() => {
     // 音源切换（更换/删除/上游变化）时复位播放状态，避免残留上一段的播放进度
@@ -374,7 +390,7 @@ export function CharacterCard({
             projectName={projectName}
             resourceType="character"
             resourceId={name}
-            hasImage={Boolean(character.character_sheet)}
+            hasImage={Boolean(character.character_sheet) && !usingGlobalMain}
             busy={generating || uploadingSheet}
           />
           <AddToLibraryButton
@@ -399,22 +415,24 @@ export function CharacterCard({
         )}
       </div>
 
-      {readOnly ? null : (
-        <ProjectAssetLinkControl
-          projectName={projectName}
-          resourceType="character"
-          resourceId={name}
-          matchedAssetId={character.matched_global_asset_id}
-          linkedAssetId={character.global_asset_id}
-          onReload={onReload}
-          busy={generating || uploadingSheet || saving || deletingAudio}
-        />
-      )}
-
       {/* ---- Image area ---- */}
       <div className="mb-4 space-y-3">
         <div>
-          <CapsLabel>{t("character_design")}</CapsLabel>
+          <div className="flex items-center justify-between">
+            <CapsLabel>{t("character_design")}</CapsLabel>
+            {readOnly ? null : <ProjectAssetLinkControl
+              projectName={projectName}
+              resourceType="character"
+              resourceId={name}
+              matchedAssetId={character.matched_global_asset_id}
+              linkedAssetId={character.global_asset_id}
+              imageUsage={character.global_asset_image_usage}
+              voiceSource={character.global_asset_voice_source}
+              onAssetResolved={handleLinkedAssetResolved}
+              onReload={onReload}
+              busy={generating || uploadingSheet || saving || deletingAudio}
+            />}
+          </div>
           <div
             className="mt-1.5 overflow-hidden rounded-lg"
             style={{ border: "1px solid var(--color-hairline-soft)" }}
@@ -620,11 +638,12 @@ export function CharacterCard({
                 {audioFile ? t("unsaved_audio") : t("saved_audio")}
               </span>
 
-              {readOnly ? null : (
+              {readOnly || usingLinkedAudio ? null : (
               <div className="flex shrink-0 items-center gap-0.5">
                 <VoiceSampleButton
                   projectName={projectName}
                   characterName={name}
+                  initialVoiceId={character.global_asset_voice_source === "voice_id" ? linkedAsset?.voice_id ?? undefined : undefined}
                   busy={generating || deletingAudio || Boolean(audioFile)}
                   onSaved={() => onReload?.()}
                 />
@@ -687,6 +706,7 @@ export function CharacterCard({
                 <VoiceSampleButton
                   projectName={projectName}
                   characterName={name}
+                  initialVoiceId={character.global_asset_voice_source === "voice_id" ? linkedAsset?.voice_id ?? undefined : undefined}
                   busy={generating || deletingAudio || Boolean(audioFile)}
                   onSaved={() => onReload?.()}
                 />
@@ -733,6 +753,7 @@ export function CharacterCard({
         <GenerateButton
           onClick={() => onGenerate(name)}
           loading={generating}
+          disabled={usingGlobalMain}
           label={character.character_sheet ? t("regenerate_design") : t("generate_design")}
           className="w-full justify-center"
         />

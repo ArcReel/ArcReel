@@ -46,6 +46,26 @@ class SdkTranscriptAdapter:
     def __init__(self, store: Any = None) -> None:
         self._store = store
 
+    async def session_revision(
+        self,
+        sdk_session_id: str | None,
+        project_cwd: Path | str | None = None,
+    ) -> tuple[int, int] | None:
+        """Cheap append-only revision across the main and child transcripts."""
+        if not sdk_session_id or self._store is None or project_cwd is None:
+            return None
+        revision = getattr(self._store, "session_revision", None)
+        if revision is None:
+            return None
+        from lib.agent_session_store import make_project_key
+
+        return await revision(
+            {
+                "project_key": make_project_key(project_cwd),
+                "session_id": sdk_session_id,
+            }
+        )
+
     async def read_raw_messages(
         self,
         sdk_session_id: str | None,

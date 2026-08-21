@@ -7,7 +7,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS, MATCHED_GLOBAL_ASSET_ID_FIELD, resolve_asset_key, validate_asset_name
+from lib.asset_types import (
+    ASSET_SPECS,
+    GLOBAL_ASSET_ID_FIELD,
+    GLOBAL_ASSET_IMAGE_USAGE_FIELD,
+    GLOBAL_ASSET_VOICE_SOURCE_FIELD,
+    MATCHED_GLOBAL_ASSET_ID_FIELD,
+    resolve_asset_key,
+    validate_asset_name,
+)
 from lib.content_digest import PREFIXED_DIGEST_RE
 from lib.project_manager import ProjectManager
 from lib.source_revision import SourceRevisionBlocker, SourceScope, compute_source_revision
@@ -142,7 +150,14 @@ def _prepare_entries(entries: object) -> dict[str, dict[str, dict[str, Any]]]:
         if not isinstance(bucket_name, str) or not isinstance(raw_entries, Mapping):
             raise AssetInventoryInvalidRequest(f"entries[{bucket_name!r}] must be an object")
         spec = allowed_buckets[bucket_name]
-        allowed_fields = {"description", MATCHED_GLOBAL_ASSET_ID_FIELD, *spec.agent_editable_extra_fields}
+        allowed_fields = {
+            "description",
+            MATCHED_GLOBAL_ASSET_ID_FIELD,
+            GLOBAL_ASSET_ID_FIELD,
+            GLOBAL_ASSET_IMAGE_USAGE_FIELD,
+            GLOBAL_ASSET_VOICE_SOURCE_FIELD,
+            *spec.agent_editable_extra_fields,
+        }
         normalized: dict[str, dict[str, Any]] = {}
         for raw_name, raw_attrs in raw_entries.items():
             try:
@@ -168,13 +183,21 @@ def _prepare_entries(entries: object) -> dict[str, dict[str, dict[str, Any]]]:
                 raise AssetInventoryInvalidRequest(
                     f"{bucket_name}[{name!r}].{MATCHED_GLOBAL_ASSET_ID_FIELD} must be a string"
                 )
+            global_asset_id = attrs.get(GLOBAL_ASSET_ID_FIELD)
+            if global_asset_id is not None and not isinstance(global_asset_id, str):
+                raise AssetInventoryInvalidRequest(f"{bucket_name}[{name!r}].{GLOBAL_ASSET_ID_FIELD} must be a string")
             entry: dict[str, Any] = {"description": description, spec.sheet_field: ""}
             for field in spec.extra_string_fields:
                 entry[field] = attrs.get(field, "")
             for field in spec.extra_list_fields:
                 entry[field] = []
-            if matched_global_asset_id:
-                entry[MATCHED_GLOBAL_ASSET_ID_FIELD] = matched_global_asset_id
+            linked_id = global_asset_id or matched_global_asset_id
+            if linked_id:
+                entry[MATCHED_GLOBAL_ASSET_ID_FIELD] = linked_id
+                entry[GLOBAL_ASSET_ID_FIELD] = linked_id
+                entry[GLOBAL_ASSET_IMAGE_USAGE_FIELD] = str(attrs.get(GLOBAL_ASSET_IMAGE_USAGE_FIELD) or "main")
+                if spec.asset_type == "character":
+                    entry[GLOBAL_ASSET_VOICE_SOURCE_FIELD] = str(attrs.get(GLOBAL_ASSET_VOICE_SOURCE_FIELD) or "none")
             normalized[name] = entry
         prepared[bucket_name] = normalized
     return prepared

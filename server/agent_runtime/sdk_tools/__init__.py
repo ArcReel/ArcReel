@@ -49,6 +49,7 @@ from server.agent_runtime.sdk_tools.patch_script import (
     remove_segment_tool,
     split_segment_tool,
 )
+from server.agent_runtime.sdk_tools.project_asset_links import manage_project_asset_link_tool
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
 from server.agent_runtime.sdk_tools.text_generation import (
@@ -106,6 +107,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "split_segment",
     "patch_project",
     "rename_asset",
+    "manage_project_asset_link",
     "retry_project_migration",
 )
 
@@ -117,6 +119,7 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
         "complete_asset_inventory",
         "complete_step1_rebuild",
+        "manage_project_asset_link",
         "generate_assets",
         "generate_storyboards",
         "edit_images",
@@ -196,6 +199,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         split_segment_tool(ctx),
         patch_project_tool(ctx),
         rename_asset_tool(ctx),
+        manage_project_asset_link_tool(ctx),
         retry_project_migration_tool(ctx),
     ]
     return create_sdk_mcp_server(

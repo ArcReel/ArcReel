@@ -24,6 +24,8 @@ export interface Character {
   matched_global_asset_id?: string;
   /** 用户确认建立的全局资产逻辑关联。 */
   global_asset_id?: string;
+  global_asset_image_usage?: "main" | "reference";
+  global_asset_voice_source?: "reference_audio" | "voice_id" | "none";
   character_sheet?: string;
   voice_style?: string;
   /** 由人物资产库导入的供应商音色标识；项目角色卡只读展示。 */
@@ -41,6 +43,7 @@ export interface Scene {
   description: string;
   matched_global_asset_id?: string;
   global_asset_id?: string;
+  global_asset_image_usage?: "main" | "reference";
   scene_sheet?: string;
 }
 
@@ -48,6 +51,7 @@ export interface Prop {
   description: string;
   matched_global_asset_id?: string;
   global_asset_id?: string;
+  global_asset_image_usage?: "main" | "reference";
   prop_sheet?: string;
 }
 

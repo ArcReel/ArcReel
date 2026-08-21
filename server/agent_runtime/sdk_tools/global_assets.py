@@ -30,9 +30,13 @@ def list_global_assets_tool(ctx: ToolContext):
                     continue
                 grouped[bucket].append(
                     {
+                        "id": asset.id,
                         "name": asset.name,
                         "description": asset.description,
                         "aliases": [alias.alias for alias in asset.aliases],
+                        "image_path": asset.image_path,
+                        "audio_path": asset.audio_path,
+                        "voice_id": asset.voice_id,
                     }
                 )
             return {

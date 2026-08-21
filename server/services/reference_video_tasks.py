@@ -69,6 +69,7 @@ from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_visual_provenance import resolve_video_aspect_ratio
 from lib.visual_artifact_provenance import build_reference_video_artifact_visual_basis
+from server.services.effective_global_assets import resolve_linked_global_reference_audio_paths
 from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import get_project_manager
 from server.services.narration_delivery_tasks import (
@@ -533,6 +534,13 @@ async def execute_reference_video_task(
     #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
     #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
     audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
+    audio_paths.update(
+        await resolve_linked_global_reference_audio_paths(
+            project,
+            project_path.parent,
+            session_factory=async_session_factory,
+        )
+    )
     voice_settings = VoiceRenderSettings(
         voice_consistency=video.voice_consistency,
         requested_generate_audio=video.requested_generate_audio,
