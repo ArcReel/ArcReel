@@ -8,6 +8,10 @@ LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同�
 一份报告，产物落待修复草稿（``lib.draft_quarantine``）等 Agent 修复后重判，不重抽。
 每条违约带 ``code``（违约类）与 ``label``（unit 定位），报告因此可逐条定位、可按类断言。
 
+违约条目类型与报告渲染（:class:`DraftViolation` / :func:`collect_violations` /
+:func:`render_violation_report`）三条路线通用，定义在路线中立的 ``lib.draft_violation``；
+本模块原样再导出它们，参考生视频的既有导入路径不变。
+
 与编辑器侧（人写）的容忍口径分流：``lib.reference_video.script_preview`` 对同样的文本只
 出 warning、照常落盘——那里有作者意图要保护；本模块面向机器产物，没有意图可保护，一律拒。
 """
@@ -16,10 +20,16 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY, normalize_asset_bucket
+from lib.draft_violation import (
+    DraftViolation,
+    DraftViolations,
+    collect_violations,
+    render_violation_report,
+    violation_items,
+)
 from lib.reference_video.text_parser import (
     SpeechMark,
     derive_references_from_text,
@@ -39,85 +49,6 @@ from lib.speech_rate import estimate_spoken_seconds
 #: 把「刚好写满」的正常产出判违约。与 drama 保存期上界 warning 的 20% 同量级——两处都是
 #: 「同一套语速估算 vs 已定时长」的比对，宽容度没有理由不同。
 SPEECH_OVERFLOW_TOLERANCE = 0.20
-
-
-class DraftViolation(ValueError):
-    """草稿产出违约。引用语法误用只是其中一类——原文锚、台词量、台词保真与生成侧的补充
-    判定同走这个类型。消息含 unit 定位与修复出路，供工具错误信封原样回传给 Agent。
-
-    ``code`` 是违约类的机读标识，``label`` 是 unit 定位（``unit E1U02`` 一类的前缀）：消息本身
-    面向 Agent、措辞可改，报告的分组与测试的按类断言不该挂在措辞上。两者均可为空——异常在
-    模块外被构造时（如生成侧的补充判定）只有消息。
-
-    ``line`` 是该 unit 正文内 0-based 的原始行号（``text.splitlines()`` 坐标系，与前端
-    ``toScriptLines`` 的 ``sourceLine`` 同一坐标系），仅在校验发生于具体某一行时才有意义
-    （如语法误用）；unit 级、无自然行归属的违约（缺台词量超载、引用未登记等）留空，供
-    呈现层区分「行内锚定」与「落卡内聚合区」两条路径。
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str = "",
-        label: str = "",
-        line: int | None = None,
-        locations: tuple[dict[str, object], ...] = (),
-        reason: str | None = None,
-        action: str | None = None,
-    ):
-        super().__init__(message)
-        self.code = code
-        self.label = label
-        self.line = line
-        self.locations = locations
-        self.reason = reason
-        self.action = action
-
-
-class DraftViolations(DraftViolation):
-    """一次校验收集到的多条违约。消息即逐条报告，``items`` 保留结构化条目。
-
-    继承 :class:`DraftViolation` 而非另立类型：既有调用方按 ``DraftViolation`` 捕获与断言，
-    聚合体走同一分支才不会在「一条」与「多条」之间分叉出两套处置路径。
-    """
-
-    def __init__(self, items: Sequence[DraftViolation]):
-        super().__init__(render_violation_report(items), code="multiple", label="")
-        self.items: list[DraftViolation] = list(items)
-
-
-def violation_items(exc: DraftViolation) -> list[DraftViolation]:
-    """把单条或聚合的违约一律摊平成条目列表，供报告渲染与待修复草稿落盘取用。"""
-    return list(exc.items) if isinstance(exc, DraftViolations) else [exc]
-
-
-def collect_violations(checks: Iterable[Callable[[], Any]]) -> list[DraftViolation]:
-    """依次执行各校验，收集 :class:`DraftViolation` 而不在首个违约处中断。
-
-    单个校验函数内部仍是首个违约即抛（各判定共用一次遍历、后续判定以前面的结论为前提），
-    故一次调用最多贡献一条；把「每 unit 的锚 / 正文 / 台词量」三个入口分别传进来，报告就能
-    覆盖到所有 unit 而不是停在第一个坏 unit 上——Agent 一轮就能看全要改什么。
-
-    只吞 ``DraftViolation``：其余异常（解析器内部错误、脏数据引发的类型错误）照常上抛，
-    不被伪装成一条内容违约。
-    """
-    found: list[DraftViolation] = []
-    for check in checks:
-        try:
-            check()
-        except DraftViolation as exc:
-            found.extend(violation_items(exc))
-    return found
-
-
-def render_violation_report(violations: Sequence[DraftViolation]) -> str:
-    """把违约条目渲染成逐条编号的报告文本（一行一条，带违约类标注）。"""
-    lines: list[str] = []
-    for index, violation in enumerate(violations, start=1):
-        suffix = f"[{violation.code}] " if violation.code else ""
-        lines.append(f"{index}. {suffix}{violation}")
-    return "\n".join(lines)
 
 
 def _normalize_for_anchor(text: str) -> str:

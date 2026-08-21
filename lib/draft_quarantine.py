@@ -31,28 +31,37 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.draft_violation import DraftViolation, render_violation_report
 from lib.episode_paths import (
     DRAMA_STEP1_QUARANTINE_FILENAME,
+    NARRATION_STEP1_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
     episode_drafts_dir,
 )
 from lib.json_io import atomic_write_json, load_json_or_none
-from lib.reference_video.draft_validation import DraftViolation, render_violation_report
 
 #: 草稿的产出来源。``content`` 与该来源那一步的模型输出 schema 同形：参考生视频 step1 是
 #: ``{units: [{duration_seconds, source_text, text}]}``、step2 是 ``{title, units: [{text}]}``，
 #: drama step1 是 ``{title, scenes: [...]}``（即 ``DramaNormalizedScript`` 去掉机器派生的
-#: ``needs_replan``）。
+#: ``needs_replan``），narration step1 是 ``{segments: [...]}``（即 ``NarrationStep1Draft``，
+#: 该变体没有机器派生字段，草稿层与落盘层同形）。
 QUARANTINE_KIND_STEP1 = "reference_video_step1"
 QUARANTINE_KIND_STEP2 = "reference_video_step2"
 QUARANTINE_KIND_DRAMA_STEP1 = "drama_step1"
+QUARANTINE_KIND_NARRATION_STEP1 = "narration_step1"
 
 _QUARANTINE_FILENAMES: dict[str, str] = {
     QUARANTINE_KIND_STEP1: REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     QUARANTINE_KIND_STEP2: REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
     QUARANTINE_KIND_DRAMA_STEP1: DRAMA_STEP1_QUARANTINE_FILENAME,
+    QUARANTINE_KIND_NARRATION_STEP1: NARRATION_STEP1_QUARANTINE_FILENAME,
 }
+
+#: 全部草稿文件名，供不关心 kind、只需按文件名定位草稿的消费方取用（如资产级联重命名的
+#: 改写清单）。从上表派生而非另列一份：新增一种来源只在上表加一行，漏登记会让草稿在改写清单
+#: 外静默漂移——草稿承载引用数组与 ``@[名称]`` 正文，漏改后晋升会卡在「引用未登记」上。
+QUARANTINE_FILENAMES: frozenset[str] = frozenset(_QUARANTINE_FILENAMES.values())
 
 #: 报告里「改哪个字段」的指引按来源分流：草稿正文的形状各不相同，指引落到不存在的字段名
 #: 会把 Agent 引到它改不动的地方。与文件名同表登记，新增一种来源只在本模块加一行。
@@ -65,6 +74,11 @@ _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
     QUARANTINE_KIND_DRAMA_STEP1: (
         "step1 规范化",
         "content（分镜级字段位于 content.scenes[i]）",
+    ),
+    QUARANTINE_KIND_NARRATION_STEP1: (
+        "step1 分镜拆分",
+        "content（分镜级字段位于 content.segments[i]："
+        "novel_text / duration_seconds / segment_break / characters_in_segment / scenes / props）",
     ),
 }
 
@@ -228,7 +242,9 @@ def quarantine_and_report(
 
 __all__ = [
     "PROMOTE_TOOL_NAME",
+    "QUARANTINE_FILENAMES",
     "QUARANTINE_KIND_DRAMA_STEP1",
+    "QUARANTINE_KIND_NARRATION_STEP1",
     "QUARANTINE_KIND_STEP1",
     "QUARANTINE_KIND_STEP2",
     "STEP1_EDIT_TOOL_NAME",

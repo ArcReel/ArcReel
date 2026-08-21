@@ -290,3 +290,22 @@ class TestDialoguePreserved:
     def test_dropped_dialogue_rejected(self):
         with pytest.raises(DraftViolation, match="台词条数被改动"):
             assert_dialogue_preserved("unit E1U01", self.STEP1, "镜头1：@[李明] 推门")
+
+
+class TestNeutralLayerReexport:
+    """违约条目类型的定义处是路线中立的 ``lib.draft_violation``，本模块只再导出。
+
+    分叉成两份类型定义时，``except DraftViolation`` 会按导入路径的不同静默漏接一半——三条
+    路线的校验器与草稿信封都在同一条 except 上。import-linter 的「路线中立层不依赖参考
+    生视频子包」契约管方向，本用例管同一性。
+    """
+
+    def test_symbols_are_the_neutral_layer_objects(self):
+        from lib import draft_violation
+        from lib.reference_video import draft_validation
+
+        assert draft_validation.DraftViolation is draft_violation.DraftViolation
+        assert draft_validation.DraftViolations is draft_violation.DraftViolations
+        assert draft_validation.collect_violations is draft_violation.collect_violations
+        assert draft_validation.render_violation_report is draft_violation.render_violation_report
+        assert draft_validation.violation_items is draft_violation.violation_items

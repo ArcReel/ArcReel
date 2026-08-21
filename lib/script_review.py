@@ -8,8 +8,8 @@ router / service（结构化中间态查看 / 编辑 / 确认）。状态派生�
 
 真值只存「确认指纹」于 project.json ``episodes[i].step1_review``；pending / confirmed 由读时
 比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、Agent
-改写 step1、web 手改 step1 都会让指纹漂移、自动重新等待确认，无需 hook 各异的 step1 写入路径
-（narration step1 由子智能体 Write 落盘、无 Python chokepoint）。
+经草稿晋升改写 step1、web 手改 step1 都会让指纹漂移、自动重新等待确认，无需各写入路径各自
+上报。
 
 适用范围（拥有结构化 step1 中间态的三条内容/视觉两段式路径）：
 - drama / narration 的图生 / 宫格路径：step1_normalized_script.json / step1_segments.json；
@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from lib.content_digest import canonical_json_digest
 from lib.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     clear_quarantine,
@@ -106,11 +107,12 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
     return episode_drafts_dir(project_path, episode) / filename
 
 
-#: step1 变体 → 该变体的草稿来源。narration 尚未接入草稿（其 step1 仍由子智能体
-#: 直接编辑），故不在表内——缺席即「该变体无草稿位」，gate 与生成侧据此不阻塞。
+#: step1 变体 → 该变体的草稿来源。三条路线各有一位；缺席即「该变体无草稿位」，
+#: 内容确认与生成侧据此不阻塞（ad 无结构化 step1，本就取不到变体）。
 _STEP1_QUARANTINE_KIND: dict[str, str] = {
     "reference_video": QUARANTINE_KIND_STEP1,
     "drama": QUARANTINE_KIND_DRAMA_STEP1,
+    "narration": QUARANTINE_KIND_NARRATION_STEP1,
 }
 
 
@@ -335,22 +337,6 @@ def formal_step1_write_transaction(
             )
 
 
-def write_step1_json(
-    project_path: Path,
-    episode: int,
-    path: Path,
-    content: object,
-    *,
-    basis: ArtifactBasis | None = None,
-) -> None:
-    """Atomically write a structured step1 through its canonical lock and claim seam."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pm = ProjectManager(str(project_path.parent))
-    with pm.file_lock(path), formal_step1_write_transaction(project_path, episode, path, basis=basis):
-        atomic_write_json(path, content)
-
-
 def delete_step1_file(project_path: Path, episode: int, path: Path) -> bool:
     """Delete a formal step1 and forget its active claim through the same transaction."""
 
@@ -378,20 +364,18 @@ def write_formal_step1_locked(
     下游草稿。返回内容是否发生变化。
 
     调用方须已持有该文件的排他锁（``formal_step1_lock``，或同一路径的
-    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。有待处置
-    草稿位的两个变体（drama 与参考生视频）的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、
-    迁移回写）汇入本函数；无草稿位的 narration 走 ``write_step1_json``——同一把锁、同一个
-    事务，只是不做基线比对、也没有下游草稿要清。正式 step1 之所以对 Agent 写禁，正是因为
-    写盘只发生在这些持锁的出口。
+    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。三个变体
+    的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、迁移回写）汇入本函数。正式 step1
+    之所以对 Agent 写禁，正是因为写盘只发生在这一个持锁的出口。
 
     ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
     与盘上现值不一致时抛 ``Step1WriteConflict``、不落盘——后写方拿冲突报告去合并，先写方的
     内容不被静默覆盖。传 ``UNCHECKED_FINGERPRINT`` 跳过比对：重拆分是刻意的整份重建，
     同临界区读改写（迁移、确认）则读写之间本就无并发窗口。
 
-    ``dependent_quarantine`` 是以本文件为基底的下游草稿来源（参考生视频的 step2；drama
-    step1 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都按字节回滚，
-    不会留下「正式文件是旧的、草稿已被清掉」的半场。基底真的变了才作废它——迁移回写是机械
+    ``dependent_quarantine`` 是以本文件为基底的下游草稿来源（只有参考生视频的 step2；
+    drama / narration step1 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都
+    按字节回滚，不会留下「正式文件是旧的、草稿已被清掉」的半场。基底真的变了才作废它——迁移回写是机械
     格式收编、不是内容编辑，调用方传 ``clear_dependent_quarantine=False`` 保留。
     """
     assert_base_fingerprint(path, expected_fingerprint)

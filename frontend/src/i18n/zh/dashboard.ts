@@ -1308,6 +1308,17 @@ export default {
   'review_confirm_failed': '确认失败，请重试',
   'review_load_failed': '无法加载内容整理结果',
   'review_retry': '重试',
+  'review_status_quarantined': '待修复草稿 — 内容未通过校验',
+  'review_quarantined_hint': '待修复草稿在场期间无法编辑或确认；由 Agent 修复并晋升后此处更新。',
+  'review_quarantined_violations_label': '待修复项（{{count}}）',
+  'review_quarantined_no_violations': '重新校验已无违约，等待 Agent 把草稿晋升为正式内容。',
+  'review_quarantined_draft_label': '草稿正文（只读）',
+  'review_confirm_blocked_quarantined': '有待修复草稿，修复晋升后才能确认',
+  'review_request_fix': '让 Agent 修复',
+  'review_fix_request_prefill_header':
+    '第 {{episode}} 集的内容整理草稿有 {{count}} 处违约待修复，请直接编辑待修复草稿修正：',
+  'review_fix_request_promote_prefill':
+    '第 {{episode}} 集的内容整理草稿重新校验已无违约，但尚未晋升为正式内容，请调用 validate_and_promote_draft 晋升。',
 
   // ReferenceStep1PreviewPanel（reference_video 变体 step1 按集预览）
   'reference_step1_source_text_label': '原文',

@@ -15,6 +15,7 @@ import pytest
 
 from lib.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     clear_quarantine,
@@ -25,7 +26,7 @@ from lib.draft_quarantine import (
     violation_entries,
     write_quarantine,
 )
-from lib.reference_video.draft_validation import (
+from lib.draft_violation import (
     DraftViolation,
     DraftViolations,
     collect_violations,
@@ -163,13 +164,26 @@ class TestReport:
         assert "units[i]" not in text
         assert 'validate_and_promote_draft({"episode": 3})' in text
 
-    def test_drama_and_reference_step1_drafts_are_separate_files(self, tmp_path: Path):
-        """两种生成模式的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让其他模式的
-        遗留草稿被当作当前生成模式的待处置件读进来。"""
-        assert (
-            quarantine_path(tmp_path, 1, QUARANTINE_KIND_DRAMA_STEP1).name
-            != quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1).name
-        )
+    def test_narration_step1_report_points_at_segment_fields(self, tmp_path: Path):
+        """narration 草稿改的是分镜表：指引里的字段路径写错，Agent 会照着改一个不存在的字段
+        再晋升，白跑一轮。"""
+        path = quarantine_path(tmp_path, 4, QUARANTINE_KIND_NARRATION_STEP1)
+        text = render_report(path, QUARANTINE_KIND_NARRATION_STEP1, [_violation()], episode=4)
+
+        assert path.name == "step1_segments.invalid.json"
+        assert "content.segments[i]" in text
+        assert "units[i]" not in text
+        assert "scenes[i]" not in text
+        assert 'validate_and_promote_draft({"episode": 4})' in text
+
+    def test_each_step1_variant_has_its_own_draft_file(self, tmp_path: Path):
+        """三条路线的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让换过路线的项目上
+        残留的草稿被当成本路线的待处置件读进来。"""
+        names = {
+            quarantine_path(tmp_path, 1, kind).name
+            for kind in (QUARANTINE_KIND_STEP1, QUARANTINE_KIND_DRAMA_STEP1, QUARANTINE_KIND_NARRATION_STEP1)
+        }
+        assert len(names) == 3
 
     def test_step2_report_only_points_at_text(self, tmp_path: Path):
         """step2 的 unit 只有正文可改：时长与原文锚是 step1 已确认的内容契约，不在这一层修。"""

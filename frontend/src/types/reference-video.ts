@@ -255,9 +255,10 @@ export interface ReferenceStep1FlatDraft {
 
 /**
  * 草稿违约条目。Mirrors lib/draft_quarantine.py::violation_entries。
- * `label` 形如 `"unit E1U02"`——数组下标 = 派生 unit 序号 - 1，可据此定位到 `content.units[i]`。
- * `line` 是该 unit 正文内 0-based 原始行号（与 `useUnitPromptHighlight.ts` 的 `sourceLine` 同
- * 坐标系），仅语法类违约才有；unit 级违约（无自然行归属）为 null，呈现层落卡内聚合区。
+ * `label` 是定位前缀，形如 `"unit E1U02"`（参考生视频，数组下标 = 派生 unit 序号 - 1）或
+ * `"segment E1S03"`（narration，与 `segment_id` 对应）；集级违约无定位、为空串。
+ * `line` 是该单元正文内 0-based 原始行号（与 `useUnitPromptHighlight.ts` 的 `sourceLine` 同
+ * 坐标系），仅语法类违约才有；单元级违约（无自然行归属）为 null，呈现层落卡内聚合区。
  */
 export interface ScriptReviewViolation {
   code: string;
@@ -270,13 +271,18 @@ export interface ScriptReviewViolation {
 }
 
 /**
- * step1 草稿信息（`ScriptReviewState.quarantine`）：reference_video 变体、草稿在场时
- * 才非 null。`content` 是读时按同一校验器重算后的扁平产出（校验通过部分已收编，未通过部分原样
- * 呈现 agent 手改的文本）；`violations` 同样是读时重算的结果，不是草稿里上一轮的报告快照。
+ * step1 草稿信息（`ScriptReviewState.quarantine`）：草稿在场时才非 null，三条 step1
+ * 路线都可能出现。`content` 是读时按同一校验器重算后的草稿层内容（校验通过部分已收编，未通过
+ * 部分原样呈现 Agent 手改的文本）；`violations` 同样是读时重算的结果，不是草稿里上一轮的报告
+ * 快照。
+ *
+ * `content` 的形状随路线不同（参考生视频 `{ units }`、drama `{ title, scenes }`、narration
+ * `{ segments }`），且草稿正是给 Agent 手改的那一份——字段可能缺失或类型不对。故这里只声明到
+ * 「一个对象」，各面板按自己那条路线逐项收窄后渲染，不信任声明。
  */
 export interface ScriptReviewQuarantine {
   /** null 仅在草稿文件已损坏、无法解析信封形状时出现——`violations` 会带一条说明。 */
-  content: ReferenceStep1FlatDraft | null;
+  content: Record<string, unknown> | null;
   violations: ScriptReviewViolation[];
 }
 

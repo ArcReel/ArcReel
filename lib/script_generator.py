@@ -43,6 +43,7 @@ from lib.db import async_session_factory
 from lib.draft_quarantine import (
     PROMOTE_TOOL_NAME,
     QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     clear_quarantine,
@@ -1026,6 +1027,15 @@ class ScriptGenerator:
         仅存在结构化前的旧 ``step1_segments.md`` 时给明确的「重跑拆分」报错——不写
         md→json 迁移器（旧 md 产于结构化中间态引入前、不含手工编辑）。
         """
+        # 草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
+        # 待处置的产出静默换成旧内容。内容确认已在工具入口按同一判据阻塞，这里是直连调用
+        # （脚本 / 测试 / 未来的其它入口）的兜底，与另两条路线同口径。
+        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_NARRATION_STEP1)
+        if quarantine.exists():
+            raise ValueError(
+                f"第 {episode} 集 step1 有草稿待处置（{quarantine}），step2 生成已中止；"
+                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 step1"
+            )
         drafts_path = episode_drafts_dir(self.project_path, episode)
         narration_json = STEP1_FILENAMES["narration"]
         step1_json = drafts_path / narration_json

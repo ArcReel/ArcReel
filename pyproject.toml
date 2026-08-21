@@ -126,6 +126,22 @@ ignore_imports = [
     "lib.db.models.custom_provider -> lib.custom_provider",
 ]
 
+# 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
+# （draft_quarantine）、正式 step1 的路径与写禁表（episode_paths）对 drama / narration /
+# reference_video 一视同仁，任一处 import lib.reference_video 都是把三条路线共用的机制绑在
+# 其中一条上。
+# lib.script_review 不在列：它另有一条 lib.reference_video.duration_migration 的依赖（参考
+# 生视频专属的时长收编），纳入就要加 baseline 掩盖，那等于让契约声明一件它此刻并不成立的事。
+[[tool.importlinter.contracts]]
+name = "路线中立层不依赖参考生视频子包"
+type = "forbidden"
+source_modules = [
+    "lib.draft_violation",
+    "lib.draft_quarantine",
+    "lib.episode_paths",
+]
+forbidden_modules = ["lib.reference_video"]
+
 [tool.ruff]
 line-length = 120
 exclude = [".worktrees", ".claude/worktrees"]
