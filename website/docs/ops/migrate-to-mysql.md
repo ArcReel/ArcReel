@@ -8,7 +8,7 @@ update_docs: engine-b
 # 从 SQLite / PostgreSQL 迁移到 MySQL {#migrate-to-mysql}
 
 本文档适用于已使用 SQLite 或 PostgreSQL 部署 ArcReel、希望切换到 **MySQL 8.0+** 的场景。
-如果是全新部署，可直接跳到 [3. 环境变量配置](#prepare-mysql) 并参考 [部署与运维](./deployment.md#mysql-deployment)。
+如果是全新部署，可直接跳到 [3. 准备 MySQL 实例](#prepare-mysql) 并参考 [部署与运维](./deployment.md#mysql-deployment)。
 
 三方言支持的架构决策、字段长度、去重生成列等设计细节见 [ADR-0061](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0061-three-dialect-database-support.md)。
 
@@ -262,7 +262,7 @@ DATABASE_URL=mysql+aiomysql://arcreel:***@mysql:3306/arcreel \
 迁移失败需要回滚时：
 1. **停止服务** `docker compose down`（或停止 uvicorn 进程）。
 2. **恢复源库备份**：SQLite 用 `cp projects/.arcreel.db.bak projects/.arcreel.db`；PostgreSQL 用 `pg_restore`。
-3. **移除新的数据库相关环境变量**：删除 `.env` 中的 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`，并将 `DATABASE_URL` 改回原来的 SQLite/PG 配置（或删除 `DATABASE_URL` 以恢复默认 SQLite）。
+3. **移除新的数据库相关环境变量**：删除 `.env` 中的 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`，并将 `ARCREEL_DATABASE_URL` 改回原来的 `DATABASE_URL`（或删除） SQLite/PG 配置（或删除 `DATABASE_URL` 以恢复默认 SQLite）。
 4. 用原来的 `docker-compose.yml` 或命令行重新启动。
 
 ---
@@ -312,7 +312,7 @@ uv run alembic upgrade head
 InnoDB + `utf8mb4` 单个字符 4 字节，3072/4=768 字符上限。拼接型去重生成列（如 `active_dedupe_key`）在 ArcReel 中存的是拼接键的 **SHA-256 hex**（恒 64 字符），不受源列长度影响。
 如果你自定义了索引，请对超长拼接键改存哈希或限制参与列长度。
 
-### Q4. `pool_recycle` 为什么是 300s？可以改吗？ {#faq-pool-recycle}
+### Q4. `pool_recycle 为什么是 3600s？可以改吗？ {#faq-pool-recycle}
 
 MySQL 默认 `wait_timeout=28800`（8 小时）但企业部署常见主动断连 5 分钟或 10 分钟。
 `pool_recycle=300` 是保守值，保证连接池中的连接最多使用 5 分钟就主动回收。如果你确认连接寿命更长，可以在 `.env` 自定义 `DATABASE_URL` 的 engine 参数，但不建议改小（会增加建连开销）。
