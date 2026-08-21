@@ -31,6 +31,7 @@ from lib.asset_types import (
 )
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
+from lib.db.repositories.asset_resource_repo import AssetResourceRepository
 from lib.i18n import Translator
 from lib.project_manager import ProjectManager, get_project_manager
 from server.routers._asset_router_factory import localize_project_asset_name_conflict
@@ -52,6 +53,19 @@ def _validate_asset_name(name: str, _t: Translator) -> str:
 
 
 def _serialize(asset) -> dict:
+    resources = [
+        {
+            "id": resource.id,
+            "key": resource.resource_key,
+            "origin": resource.origin,
+            "media_type": resource.media_type,
+            "mime_type": resource.mime_type,
+            "path": resource.path,
+            "byte_size": resource.byte_size,
+            "is_primary": resource.path in {asset.image_path, asset.audio_path},
+        }
+        for resource in asset.resources
+    ]
     return {
         "id": asset.id,
         "type": asset.type,
@@ -61,6 +75,10 @@ def _serialize(asset) -> dict:
         "image_path": asset.image_path,
         "audio_path": asset.audio_path,
         "source_project": asset.source_project,
+        "external_source": asset.external_source,
+        "external_id": asset.external_id,
+        "voice_id": asset.voice_id,
+        "resources": resources,
         "updated_at": asset.updated_at.isoformat() if asset.updated_at else None,
     }
 
@@ -147,7 +165,8 @@ async def create_asset(
                     source_project=None,
                 )
                 await s.commit()
-                await s.refresh(a)
+                a = await repo.get_by_id(a.id)
+                assert a is not None
             except IntegrityError:
                 await s.rollback()
                 if image_path:
@@ -204,10 +223,10 @@ async def delete_asset(asset_id: str, _t: Translator):
         repo = AssetRepository(s)
         a = await repo.get_by_id(asset_id)
         if a:
-            if a.image_path:
-                _delete_global_asset_file(a.image_path)
-            if a.audio_path:
-                _delete_global_asset_file(a.audio_path)
+            file_paths = {resource.path for resource in a.resources}
+            file_paths.update(path for path in (a.image_path, a.audio_path) if path)
+            for path in file_paths:
+                _delete_global_asset_file(path)
             await repo.delete(asset_id)
             await s.commit()
     return None
@@ -227,6 +246,8 @@ async def replace_image(
             raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
         old_path = a.image_path
         asset_type = a.type
+        old_path_is_resource = any(resource.path == old_path for resource in a.resources)
+        keeps_image_variants = a.type == "character" and a.external_source is not None
 
     # 2) 先保存新图（会触发 415/413 校验）—— 旧文件仍完好
     new_path = await _save_upload(image, asset_type, _t)
@@ -236,17 +257,60 @@ async def replace_image(
         async with async_session_factory() as s:
             repo = AssetRepository(s)
             a = await repo.update(asset_id, image_path=new_path)
+            if keeps_image_variants:
+                await AssetResourceRepository(s).create(
+                    asset_id=asset_id,
+                    resource_key=f"local:{uuid.uuid4().hex}",
+                    origin="local",
+                    media_type="image",
+                    mime_type=image.content_type,
+                    path=new_path,
+                    sort_order=len(a.resources),
+                )
             await s.commit()
-            await s.refresh(a)
+            # create() 通过 asset_id 写入，已装载的 relationship 不会自动追加；显式
+            # 过期后重查，保证响应立即包含用户刚上传的本地图片资源。
+            s.expire(a, ["resources"])
+            a = await repo.get_by_id(asset_id)
+            assert a is not None
     except Exception:
         _delete_global_asset_file(new_path)
         raise
 
     # 4) DB 更新成功后才删除旧文件
-    if old_path and old_path != new_path:
+    if old_path and old_path != new_path and not old_path_is_resource:
         _delete_global_asset_file(old_path)
 
     return {"asset": _serialize(a)}
+
+
+class SetPrimaryResourceRequest(BaseModel):
+    resource_id: str
+
+
+@router.put("/{asset_id}/primary-resource/{media_type}")
+async def set_primary_resource(
+    asset_id: str,
+    media_type: str,
+    req: SetPrimaryResourceRequest,
+    _t: Translator,
+):
+    if media_type not in {"image", "audio"}:
+        raise HTTPException(status_code=400, detail=_t("asset_primary_resource_invalid_type"))
+    async with async_session_factory() as s:
+        asset_repo = AssetRepository(s)
+        asset = await asset_repo.get_by_id(asset_id)
+        if asset is None:
+            raise HTTPException(status_code=404, detail=_t("asset_not_found", name=asset_id))
+        resource = await AssetResourceRepository(s).get_by_id(req.resource_id)
+        if resource is None or resource.asset_id != asset_id or resource.media_type != media_type:
+            raise HTTPException(status_code=422, detail=_t("asset_primary_resource_invalid"))
+        field = "image_path" if media_type == "image" else "audio_path"
+        await asset_repo.update(asset_id, **{field: resource.path})
+        await s.commit()
+        asset = await asset_repo.get_by_id(asset_id)
+        assert asset is not None
+    return {"asset": _serialize(asset)}
 
 
 class FromProjectRequest(BaseModel):
@@ -632,6 +696,8 @@ async def apply_to_project(
             payload: dict = {"description": a_.description or ""}
             if a_.type == "character":
                 payload["voice_style"] = a_.voice_style or ""
+                if a_.voice_id:
+                    payload["voice_id"] = a_.voice_id
                 if ta:
                     payload["reference_audio"] = ta
                     # 资产即开关：导入即等效「设置了这个声音」，存量过渡横幅计数须能感知

@@ -68,4 +68,34 @@ describe("AssetFormModal", () => {
     );
     expect(screen.queryByLabelText(/field\.voice_style/)).not.toBeInTheDocument();
   });
+
+  it("lets a synced character choose primary image and reference voice", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <AssetFormModal
+        type="character"
+        mode="edit"
+        initialData={{
+          name: "鳄鱼爸爸",
+          resources: [
+            { id: "img-1", key: "avatarUrl", origin: "catalog", media_type: "image", mime_type: "image/png", path: "avatar.png", byte_size: 1, is_primary: true },
+            { id: "img-2", key: "fullBodyImageUrl", origin: "catalog", media_type: "image", mime_type: "image/png", path: "full.png", byte_size: 1, is_primary: false },
+            { id: "audio-1", key: "voice1", origin: "catalog", media_type: "audio", mime_type: "audio/wav", path: "voice1.wav", byte_size: 1, is_primary: true },
+            { id: "audio-2", key: "voice2", origin: "catalog", media_type: "audio", mime_type: "audio/wav", path: "voice2.wav", byte_size: 1, is_primary: false },
+          ],
+        }}
+        onClose={() => {}}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("field.primary_image"), { target: { value: "img-2" } });
+    fireEvent.change(screen.getByLabelText("field.primary_audio"), { target: { value: "audio-2" } });
+    fireEvent.click(screen.getByRole("button", { name: "save" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      primary_image_resource_id: "img-2",
+      primary_audio_resource_id: "audio-2",
+    })));
+  });
 });

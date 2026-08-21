@@ -21,6 +21,8 @@ export interface SystemConfigSettings {
   claude_code_subagent_model: string;
   agent_session_cleanup_delay_seconds: number;
   agent_max_concurrent_sessions: number;
+  croco_characters_api_url?: string;
+  croco_characters_api_token?: { is_set: boolean; masked: string | null };
 }
 
 export interface SystemConfigOptions {
@@ -97,4 +99,15 @@ export interface SystemConfigPatch {
   claude_code_subagent_model?: string;
   agent_session_cleanup_delay_seconds?: number;
   agent_max_concurrent_sessions?: number;
+  croco_characters_api_url?: string;
+  croco_characters_api_token?: string;
+}
+
+export interface CharacterCatalogSyncResult {
+  publishVersion: { id: string; name: string; activatedAt: string };
+  remoteCharacters: number;
+  added: number;
+  updated: number;
+  unchanged: number;
+  assetsDownloaded: number;
 }

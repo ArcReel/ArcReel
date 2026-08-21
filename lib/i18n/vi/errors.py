@@ -417,4 +417,13 @@ MESSAGES = {
     "project_config_invalid": "Cấu hình dự án không hợp lệ; hãy kiểm tra tham số và thử lại",
     "invalid_discovery_format": "Định dạng khám phá mô hình không được hỗ trợ: {discovery_format}",
     "request_invalid": "Yêu cầu không hợp lệ, vui lòng kiểm tra và thử lại",
+    "character_catalog_config_missing": "Trước tiên hãy cấu hình URL và token danh mục nhân vật trong phần Supabase của Cài đặt tác nhân",
+    "character_catalog_invalid_url": "Điểm cuối danh mục nhân vật phải là URL HTTPS hợp lệ",
+    "character_catalog_request_failed": "Không thể truy cập danh mục nhân vật ({status}); hãy kiểm tra điểm cuối và token",
+    "character_catalog_invalid_payload": "Danh mục nhân vật trả về cấu trúc dữ liệu không được hỗ trợ",
+    "character_catalog_asset_download_failed": "Không thể tải một tài nguyên nhân vật; đã hủy đồng bộ",
+    "character_catalog_asset_integrity_failed": "Một tài nguyên nhân vật không đạt kiểm tra kích thước hoặc SHA-256; đã hủy đồng bộ",
+    "character_catalog_asset_too_large": "Một tài nguyên nhân vật vượt quá giới hạn 200 MB mỗi tệp; đã hủy đồng bộ",
+    "asset_primary_resource_invalid_type": "Tài nguyên chính của nhân vật phải là hình ảnh hoặc âm thanh",
+    "asset_primary_resource_invalid": "Tài nguyên đã chọn không thuộc nhân vật này hoặc sai loại phương tiện",
 }

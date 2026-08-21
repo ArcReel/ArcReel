@@ -19,6 +19,8 @@ import { TabSaveFooter } from "./TabSaveFooter";
 interface AgentDraft {
   cleanupDelaySeconds: string;
   maxConcurrentSessions: string;
+  catalogApiUrl: string;
+  catalogApiToken: string;
 }
 
 function buildDraft(data: GetSystemConfigResponse): AgentDraft {
@@ -26,13 +28,17 @@ function buildDraft(data: GetSystemConfigResponse): AgentDraft {
   return {
     cleanupDelaySeconds: String(s.agent_session_cleanup_delay_seconds ?? 300),
     maxConcurrentSessions: String(s.agent_max_concurrent_sessions ?? 5),
+    catalogApiUrl: s.croco_characters_api_url ?? "",
+    catalogApiToken: "",
   };
 }
 
 function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
   return (
     a.cleanupDelaySeconds === b.cleanupDelaySeconds &&
-    a.maxConcurrentSessions === b.maxConcurrentSessions
+    a.maxConcurrentSessions === b.maxConcurrentSessions &&
+    a.catalogApiUrl === b.catalogApiUrl &&
+    a.catalogApiToken === b.catalogApiToken
   );
 }
 
@@ -42,6 +48,10 @@ function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
     patch.agent_session_cleanup_delay_seconds = Number(draft.cleanupDelaySeconds) || 300;
   if (draft.maxConcurrentSessions !== saved.maxConcurrentSessions)
     patch.agent_max_concurrent_sessions = Number(draft.maxConcurrentSessions) || 5;
+  if (draft.catalogApiUrl !== saved.catalogApiUrl)
+    patch.croco_characters_api_url = draft.catalogApiUrl.trim();
+  if (draft.catalogApiToken.trim())
+    patch.croco_characters_api_token = draft.catalogApiToken.trim();
   return patch;
 }
 
@@ -56,10 +66,14 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const [draft, setDraft] = useState<AgentDraft>({
     cleanupDelaySeconds: "300",
     maxConcurrentSessions: "5",
+    catalogApiUrl: "",
+    catalogApiToken: "",
   });
   const savedRef = useRef<AgentDraft>({
     cleanupDelaySeconds: "300",
     maxConcurrentSessions: "5",
+    catalogApiUrl: "",
+    catalogApiToken: "",
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -166,6 +180,53 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       <div className="space-y-7 pb-0 pt-1">
         <AgentPageIntro />
         <CredentialsSection />
+        <SectionShell
+          kicker={t("character_catalog_kicker")}
+          title={t("character_catalog_supabase_title")}
+        >
+          <div className="space-y-4">
+            <p className="text-[11.5px] leading-[1.6] text-text-4">
+              {t("character_catalog_supabase_desc")}
+            </p>
+            <div>
+              <FieldLabel htmlFor="croco-characters-api-url">
+                {t("character_catalog_api_url_label")}
+              </FieldLabel>
+              <input
+                id="croco-characters-api-url"
+                type="url"
+                value={draft.catalogApiUrl}
+                onChange={(event) => updateDraft("catalogApiUrl", event.target.value)}
+                placeholder="https://…/functions/v1/character-catalog-export"
+                autoComplete="url"
+                className={`${INPUT_CLS} mt-1.5 w-full`}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <FieldLabel htmlFor="croco-characters-api-token">
+                {t("character_catalog_api_token_label")}
+              </FieldLabel>
+              <p className="mt-0.5 text-[11.5px] text-text-4">
+                {remoteData.settings.croco_characters_api_token?.is_set
+                  ? t("character_catalog_token_configured", {
+                      masked: remoteData.settings.croco_characters_api_token.masked ?? "••••",
+                    })
+                  : t("character_catalog_token_missing")}
+              </p>
+              <input
+                id="croco-characters-api-token"
+                type="password"
+                value={draft.catalogApiToken}
+                onChange={(event) => updateDraft("catalogApiToken", event.target.value)}
+                placeholder={t("character_catalog_api_token_placeholder")}
+                autoComplete="new-password"
+                className={`${INPUT_CLS} mt-1.5 w-full`}
+                disabled={saving}
+              />
+            </div>
+          </div>
+        </SectionShell>
         <SectionShell kicker="Runtime Tuning" title={t("advanced_settings")}>
           <div className="space-y-4">
             <div>

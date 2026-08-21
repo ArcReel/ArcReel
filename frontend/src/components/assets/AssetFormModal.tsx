@@ -24,6 +24,8 @@ interface Props {
     voice_style: string;
     image?: File | null;
     overwrite?: boolean;
+    primary_image_resource_id?: string;
+    primary_audio_resource_id?: string;
   }) => Promise<void>;
 }
 
@@ -43,6 +45,15 @@ export function AssetFormModal({
   const [image, setImage] = useState<File | null>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const resources = initialData?.resources ?? [];
+  const imageResources = resources.filter((resource) => resource.media_type === "image");
+  const audioResources = resources.filter((resource) => resource.media_type === "audio");
+  const [primaryImageResourceId, setPrimaryImageResourceId] = useState(
+    imageResources.find((resource) => resource.is_primary)?.id ?? "",
+  );
+  const [primaryAudioResourceId, setPrimaryAudioResourceId] = useState(
+    audioResources.find((resource) => resource.is_primary)?.id ?? "",
+  );
   const fileRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
@@ -77,7 +88,15 @@ export function AssetFormModal({
   const submit = async (overwrite = false) => {
     setSubmitting(true);
     try {
-      await onSubmit({ name: name.trim(), description, voice_style: voiceStyle, image, overwrite });
+      await onSubmit({
+        name: name.trim(),
+        description,
+        voice_style: voiceStyle,
+        image,
+        overwrite,
+        primary_image_resource_id: primaryImageResourceId || undefined,
+        primary_audio_resource_id: primaryAudioResourceId || undefined,
+      });
       onClose();
     } finally {
       setSubmitting(false);
@@ -273,6 +292,48 @@ export function AssetFormModal({
                     color: "var(--color-text)",
                   }}
                 />
+              </FieldLabel>
+            )}
+
+            {isCharacter && mode === "edit" && imageResources.length > 1 && (
+              <FieldLabel label={t("field.primary_image")}>
+                <select
+                  value={primaryImageResourceId}
+                  onChange={(event) => setPrimaryImageResourceId(event.target.value)}
+                  className="focus-ring rounded-lg px-3 py-2 text-[13px] outline-none"
+                  style={{
+                    background: "oklch(0.16 0.010 265 / 0.6)",
+                    border: "1px solid var(--color-hairline)",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  {imageResources.map((resource, index) => (
+                    <option key={resource.id} value={resource.id}>
+                      {t("resource_image_option", { index: index + 1 })}
+                    </option>
+                  ))}
+                </select>
+              </FieldLabel>
+            )}
+
+            {isCharacter && mode === "edit" && audioResources.length > 0 && (
+              <FieldLabel label={t("field.primary_audio")}>
+                <select
+                  value={primaryAudioResourceId}
+                  onChange={(event) => setPrimaryAudioResourceId(event.target.value)}
+                  className="focus-ring rounded-lg px-3 py-2 text-[13px] outline-none"
+                  style={{
+                    background: "oklch(0.16 0.010 265 / 0.6)",
+                    border: "1px solid var(--color-hairline)",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  {audioResources.map((resource, index) => (
+                    <option key={resource.id} value={resource.id}>
+                      {t("resource_audio_option", { index: index + 1 })}
+                    </option>
+                  ))}
+                </select>
               </FieldLabel>
             )}
           </div>

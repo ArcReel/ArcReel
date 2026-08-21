@@ -417,4 +417,13 @@ MESSAGES = {
     "project_config_invalid": "Invalid project configuration; check the parameters and retry",
     "invalid_discovery_format": "Unsupported model discovery format: {discovery_format}",
     "request_invalid": "Invalid request, please check and retry",
+    "character_catalog_config_missing": "Configure the character catalog URL and token in the Supabase section of Agent Settings first",
+    "character_catalog_invalid_url": "The character catalog endpoint must be a valid HTTPS URL",
+    "character_catalog_request_failed": "Could not reach the character catalog ({status}); check the endpoint and token",
+    "character_catalog_invalid_payload": "The character catalog returned an unsupported data structure",
+    "character_catalog_asset_download_failed": "A character resource could not be downloaded; the sync was cancelled",
+    "character_catalog_asset_integrity_failed": "A character resource failed its size or SHA-256 check; the sync was cancelled",
+    "character_catalog_asset_too_large": "A character resource exceeds the 200 MB per-file limit; the sync was cancelled",
+    "asset_primary_resource_invalid_type": "A character primary resource must be an image or audio file",
+    "asset_primary_resource_invalid": "The selected resource does not belong to this character or has the wrong media type",
 }

@@ -140,6 +140,53 @@ describe("AssetLibraryPage tablist (issue #488)", () => {
   });
 });
 
+describe("AssetLibraryPage 人物目录同步", () => {
+  beforeEach(() => {
+    useAssetsStore.setState(useAssetsStore.getInitialState(), true);
+    vi.spyOn(API, "listAssets").mockResolvedValue({ items: [] });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("只在人物资产页显示同步按钮，且页面加载不会自动同步", () => {
+    const sync = vi.spyOn(API, "syncCharacterCatalog").mockResolvedValue({
+      publishVersion: { id: "p1", name: "Published", activatedAt: "2026-08-21T00:00:00Z" },
+      remoteCharacters: 1,
+      added: 1,
+      updated: 0,
+      unchanged: 0,
+      assetsDownloaded: 2,
+    });
+    const { unmount } = renderPage();
+    expect(screen.getByRole("button", { name: "同步资产库" })).toBeInTheDocument();
+    expect(sync).not.toHaveBeenCalled();
+
+    unmount();
+    renderPage("/app/assets?tab=scene");
+    expect(screen.queryByRole("button", { name: "同步资产库" })).not.toBeInTheDocument();
+  });
+
+  it("用户点击后才同步，并刷新当前人物列表", async () => {
+    const sync = vi.spyOn(API, "syncCharacterCatalog").mockResolvedValue({
+      publishVersion: { id: "p1", name: "Published", activatedAt: "2026-08-21T00:00:00Z" },
+      remoteCharacters: 1,
+      added: 1,
+      updated: 0,
+      unchanged: 0,
+      assetsDownloaded: 2,
+    });
+    renderPage();
+    await waitFor(() => expect(API.listAssets).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "同步资产库" }));
+
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(API.listAssets).toHaveBeenCalledTimes(2));
+  });
+});
+
 describe("AssetLibraryPage 删除确认文案", () => {
   function makeAsset(overrides: Partial<Asset> = {}): Asset {
     return {

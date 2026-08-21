@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.db.base import Base
+from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import _ as translate_message
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
@@ -38,7 +39,7 @@ async def _assets_env(tmp_path, monkeypatch):
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(assets.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
-    yield {"client": TestClient(app), "pm": pm}
+    yield {"client": TestClient(app), "pm": pm, "factory": factory}
     await engine.dispose()
 
 
@@ -156,6 +157,32 @@ class TestAssetsCRUD:
         )
         assert r2.status_code == 200
         assert r2.json()["asset"]["image_path"] is not None
+
+    @pytest.mark.unit
+    async def test_replace_synced_character_image_returns_local_resource(self, _assets_env):
+        client = _assets_env["client"]
+        r = client.post("/api/v1/assets", data={"type": "character", "name": "同步人物"})
+        aid = r.json()["asset"]["id"]
+        async with _assets_env["factory"]() as session:
+            await AssetRepository(session).update(
+                aid,
+                external_source="croco-character-catalog",
+                external_id="remote-character",
+            )
+            await session.commit()
+
+        img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 128
+        response = client.post(
+            f"/api/v1/assets/{aid}/image",
+            files={"image": ("local.png", img, "image/png")},
+        )
+
+        assert response.status_code == 200
+        resources = response.json()["asset"]["resources"]
+        assert len(resources) == 1
+        assert resources[0]["origin"] == "local"
+        assert resources[0]["media_type"] == "image"
+        assert resources[0]["is_primary"] is True
 
     @pytest.mark.unit
     def test_replace_image_invalid_format_preserves_old_image(self, _assets_env):
