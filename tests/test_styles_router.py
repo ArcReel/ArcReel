@@ -33,9 +33,7 @@ async def _styles_env(tmp_path, monkeypatch):
 
     app = FastAPI()
     register_error_handlers(app)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
-        id="default", sub="testuser", role="admin"
-    )
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(styles.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
     yield {"client": TestClient(app), "manager": manager}
@@ -114,6 +112,7 @@ class TestCustomStylesRouter:
 
         manager.update_project("source", _template)
         assert client.post("/api/v1/styles/from-project", json={"project_name": "source"}).status_code == 400
+
         def _empty(project: dict) -> None:
             project.pop("style_template_id", None)
             project["style"] = ""

@@ -116,15 +116,15 @@ MESSAGES = {
     "narration_speed_must_be_positive": "Narration speed must be a positive number",
     "speech_rate_out_of_range": "Spoken pace must be between {min} and {max} (characters or words per second)",
     "character_not_found": "Character '{name}' does not exist",
-    "character_task_submitted": "Character design generation task for '{name}' submitted",
+    "character_task_submitted": "Character asset sheet generation task for '{name}' submitted",
     "voice_sample_voice_required": "Please select a voice first",
     "voice_sample_text_too_long": "Sample text cannot exceed {max_length} characters",
     "voice_sample_task_submitted": "Voice sample generation task for character '{name}' submitted",
     "voice_sample_not_ready": "The voice sample has not finished generating successfully; cannot confirm yet",
     "voice_sample_file_missing": "The voice sample file no longer exists; please regenerate it",
-    "scene_task_submitted": "Scene design generation task for '{name}' submitted",
-    "prop_task_submitted": "Prop design generation task for '{name}' submitted",
-    "product_task_submitted": "Merchandise reference image generation task for '{name}' submitted",
+    "scene_task_submitted": "Scene asset sheet generation task for '{name}' submitted",
+    "prop_task_submitted": "Prop asset sheet generation task for '{name}' submitted",
+    "product_task_submitted": "Merchandise asset sheet generation task for '{name}' submitted",
     # Files
     "file_not_found": "File does not exist: {path}",
     "forbidden_access": "Access to files outside the project directory is forbidden",
@@ -161,9 +161,6 @@ MESSAGES = {
     "script_review_quarantine_unreadable": (
         "The draft needing fixes is corrupted or malformed and can't be read; ask the agent to re-split this episode"
     ),
-    "draft_event_label": "Episode {episode} {label_prefix}",
-    "normalized_script": "Normalized Script",
-    "segment_splitting": "Segment Splitting",
     # Source loader
     "source_unsupported_format": "Unsupported source format: {ext} (supported: .txt / .md / .docx / .epub / .pdf)",
     "source_decode_failed": "Failed to decode source file '{filename}' (tried: {tried})",
@@ -242,8 +239,6 @@ MESSAGES = {
     "ad_grid_not_supported": "Ad/short-video projects do not support Multi-grid Storyboard to Video",
     "grid_storyboard_not_enabled": "Multi-grid Storyboard is not enabled for this project",
     "ad_target_duration_required": "Ad/short-video projects require a target duration (positive integer seconds)",
-    "project_id_not_editable": "content_mode cannot be modified after project creation",
-    "source_kind_not_editable": "source_kind cannot be modified after project creation",
     "project_deleted": "Project '{name}' deleted",
     "scene_updated": "Scene '{scene_id}' updated",
     "segment_updated": "Segment '{segment_id}' updated",
@@ -274,7 +269,6 @@ MESSAGES = {
     # Validators
     "invalid_backend_format": "Model selection format is invalid; use provider/model",
     "backend_media_type_mismatch": "Model type mismatch: this setting needs a {expected} model, but {provider}/{model} is a {actual} model",
-    "deprecated_image_backend": "The image_backend field is deprecated; use image_provider_t2i and image_provider_i2i instead",
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
     "invalid_resource_id": "Invalid resource ID: {resource_id}",
@@ -365,6 +359,7 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} does not support image-to-video generation; assign a model that supports it for image-to-video in Settings, or change the default video model",
     "video_capability_missing_r2v": "{provider}/{model} does not support reference-to-video generation; assign a model that supports it for reference-to-video in Settings, or change the default video model",
     "video_capability_reference_unavailable": "The configured video model {provider}/{model} is no longer available (model deleted, capabilities changed, or provider removed); re-select a video model in Settings",
+    "video_output_profile_unsupported": "Model {model} does not support resolution {resolution} at aspect ratio {aspect_ratio} (supported: {supported}); adjust the resolution or aspect ratio",
     "video_resolution_duration_unsupported": "Model {model} does not support {duration}s at {resolution} resolution (only {supported}); adjust the resolution or duration",
     "video_reference_images_duration_unsupported": "Model {model} does not support {duration}s with reference images (only {supported}); change the duration to {supported} or remove the reference images",
     "video_reference_images_required": "Model {model} requires at least one reference image; please provide reference images",

@@ -98,9 +98,7 @@ def test_ark_agent_plan_reuses_visible_registry_text_catalog() -> None:
     preset = get_preset("ark-agent-plan")
     assert preset is not None
     registry = PROVIDER_REGISTRY["ark-agent-plan"]
-    expected = tuple(
-        mid for mid, info in registry.models.items() if info.media_type == "text" and not info.hidden
-    )
+    expected = tuple(mid for mid, info in registry.models.items() if info.media_type == "text" and not info.hidden)
     assert preset.suggested_models == expected
     assert preset.default_model == next(mid for mid in expected if registry.models[mid].default)
 

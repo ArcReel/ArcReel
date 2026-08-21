@@ -82,7 +82,7 @@ describe("AgentCopilot", () => {
     render(<AgentCopilot />);
 
     expect(screen.getByText("需要你的选择")).toBeInTheDocument();
-    expect(screen.getByLabelText("智能体输入")).toBeDisabled();
+    expect(screen.getByLabelText("Agent 输入")).toBeDisabled();
     expect(screen.getByLabelText("发送消息")).toBeDisabled();
     expect(screen.getByPlaceholderText("请先回答上方问题")).toBeInTheDocument();
   });
@@ -128,7 +128,7 @@ describe("AgentCopilot", () => {
   it("does not send when Enter is used to confirm an IME composition", () => {
     render(<AgentCopilot />);
 
-    const textarea = screen.getByLabelText("智能体输入");
+    const textarea = screen.getByLabelText("Agent 输入");
     fireEvent.change(textarea, { target: { value: "你好" } });
 
     fireEvent.compositionStart(textarea);
@@ -160,7 +160,7 @@ describe("AgentCopilot", () => {
       useAssistantStore.getState().setInput("为第 1 集生成剧本");
     });
 
-    expect(screen.getByLabelText("智能体输入")).toHaveValue("为第 1 集生成剧本");
+    expect(screen.getByLabelText("Agent 输入")).toHaveValue("为第 1 集生成剧本");
 
     await waitFor(() => {
       expect(useAssistantStore.getState().input).toBe("");

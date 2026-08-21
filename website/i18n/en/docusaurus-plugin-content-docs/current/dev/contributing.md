@@ -59,15 +59,90 @@ pnpm sync-contributing
 pnpm check-consistency
 ```
 
-## Running Tests {#running-tests}
+## Testing {#testing}
 
 ```bash
-# Backend tests
-python -m pytest
+# Backend tests; single file: uv run python -m pytest path/to/test.py, -k to filter by keyword, -v for verbose output
+uv run python -m pytest
 
-# Frontend typecheck + tests
+# Frontend typecheck + lint + tests
 cd frontend && pnpm check
 ```
+
+pytest runs with `asyncio_mode = "auto"`; async tests need no manual marking.
+
+> **Transition note**: this chapter describes the target state after remediation; the existing suite and the related engineering configuration are being aligned with it in batches under a remediation spec. Where a rule does not match the current tree (existing test directories and tiers, frontend calls that bypass the `API` class with direct `fetch`/`EventSource`, the current CI/lint configuration for coverage and the eslint-enforced rules, vitest settings such as `testTimeout`, the not-yet-created `src/test/` shared infrastructure), the chapter is the direction of travel. `scripts/audit_tests.py` and the CI `test-lint` step do not exist yet; they land with the first gate, and each gate ships in the same PR that clears its remaining violations. Until the directory migration and automatic marker injection land, classification markers are still written by hand (collection enforces exactly one; semantics per the table below). Delete this note once remediation completes.
+
+### Tiers and layout {#test-tiers}
+
+Every backend test belongs to exactly one tier; CI runs `-m "not e2e"` by default:
+
+| Tier | Meaning | Boundary |
+|---|---|---|
+| `unit` | Fast and isolated | No real DB, subprocesses, or network; `tmp_path` local filesystem is allowed |
+| `integration` | Real cross-module collaboration | Real DB, filesystem, ffmpeg subprocesses; anything touching a real DB (including all alembic migration tests) belongs here |
+| `e2e` | End-to-end | Depends on real external services (remote APIs, LLM calls); skipped in CI by default, run locally when needed |
+
+- The layout is `tests/unit|integration|e2e/<mirror of the top-level source package>` (such as `tests/unit/lib/…`, `tests/integration/server/…`). Tier markers are injected automatically by conftest based on the path—never written by hand; `uses_db` combined with `unit` fails at collection time. Mirror correctness relies on review; there is no mechanical check.
+- alembic migration tests keep one file per migration script, under `tests/integration/lib/db/migrations/`, sharing that directory's conftest `alembic_cfg`; migration tests stay on SQLite, with the PostgreSQL side covered by the CI workflow's alembic upgrade/downgrade commands.
+
+### File size and naming {#test-file-size}
+
+- One test file corresponds to one subject under test; when a single subject outgrows readable size, split by behavior area using semantic topic suffixes.
+- Two gates: the split-naming suffixes `_more` / `_full` / `_coverage` / `_extra` / `_additional` are forbidden; a 3000-line circuit breaker per file (it exists to stop unbounded file growth, not as a size standard).
+
+### Test doubles {#test-doubles}
+
+- **Priority**: real objects (in-memory SQLite, `tmp_path`) > handwritten doubles in `tests/fakes.py` (admission criteria in its module docstring) > `spec`/`autospec` Mocks > bare `MagicMock`/`AsyncMock`. Mocks may only replace repository boundaries (third-party SDKs, network transport, subprocesses, filesystem, clocks); collaborators inside the repository use real objects or handwritten fakes.
+- **Never patch private symbols of production code** (gate, no exemptions): `patch("lib.x._y")`, `monkeypatch.setattr(mod, "_y")`, and `patch.object(Cls, "_y")` are all forbidden. Use a seam when internal behavior must be controlled.
+- **A seam is explicit parameter injection**: a constructor or keyword parameter with a production default and no behavior change, such as `retry_async(operation, *, clock=..., jitter=...)`; never a module-level replaceable global. Applies to: polling clocks/intervals/backoff, capability resolvers, HTTP probe clients, filesystem and subprocesses.
+- **Assert outbound HTTP with respx**: keep the real httpx client and intercept at the transport layer (`AsyncOpenAI` traffic is captured the same way), asserting the actually serialized request.
+- **Patch consolidation** (gate): a patch target string appearing in ≥3 test files must be consolidated into a shared fixture / helper, no longer written inline per file; for FastAPI route dependencies prefer `app.dependency_overrides` over patching.
+
+### Meaningless-test criteria {#meaningless-tests}
+
+Meaningless tests are negative value; deletion beats retention. Three mechanical criteria (gate):
+
+1. **All assertions land on double call records**—the test's subject has become the mock itself. Assert real output instead: the returned object's type and attributes, the real request captured by respx, or observable state.
+2. **Patching the unit under test's own logic steps and then testing that unit**—an integration test mocking the public entry point of the module under test is a special case of this.
+3. **Zero-assertion tests**—if you can say what to protect, add the assertion; if you cannot, delete the test.
+
+On a hit, disposal follows three fixed steps, with no per-case discretion: ① the behavior is already substantively covered by another test → delete, with no coverage compensation; ② uncovered but not worth protecting (no real branch or contract) → delete; ③ worth protecting → rework, and cases needing a production seam move to the seam-consolidation batch.
+
+Four audit criteria rely on review and dedicated audits, not gates: weakened duplication (same path as another test with weaker assertions), over-specification (asserting log text, dict key order, private attributes, and other implementation details rather than contracts), severe setup-to-assertion imbalance, and assertion helpers that only assert double call records internally.
+
+### Shared infrastructure {#shared-test-fixtures}
+
+- **Three roles**: `tests/conftest.py` holds only fixtures and collection-time hooks and must never be imported (gate); `tests/fakes.py` holds double implementations, no fixtures; `tests/factories.py` holds test input builders (data and media file builders). Topic-specific shared modules (such as `tests/auth_deps.py`) are allowed; every public symbol in fakes / factories / topic modules must be used by ≥2 test files (gate)—single-file symbols move back into that file.
+- **Local conftest**: provides fixtures for its own directory only; must not share a fixture name with the root conftest; fixtures shared across directories move up to the root conftest; conftests never import each other (gate).
+- **Fixture overriding and duplication** (gate): a test file must not define a fixture with the same name as any conftest fixture; a fixture name defined in ≥3 test files moves up to a conftest.
+- **DB fixtures**: all derive from the single dialect-aware engine fixture, thereby automatically receiving the `uses_db` marker and inclusion in the PostgreSQL compatibility selection.
+
+### Timing and flakiness {#timing-and-flakiness}
+
+- Waiting, retry, and timeout logic is always driven through a clock seam or event handshake—no real `time.sleep` wall-clock waits.
+- Flaky failures are ordinary defects: fix them in place (clock seam / event handshake), or delete them under the meaningless-test criteria if a fix is impractical or not worthwhile. No automatic retries (pytest-rerunfailures, CI job-level retry)—automatic retry hides failures that should stay visible.
+- Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/test_project_manager_concurrent_save.py` (`integration` tier).
+
+### Coverage {#coverage}
+
+Coverage is a signal, not a gate: CI never fails on a coverage number, and Codecov is the sole signal carrier (PR coverage comments and trend graphs, all statuses informational). Never write tests for a coverage number; deleting meaningless tests is allowed to lower coverage.
+
+### Gates {#test-gates}
+
+- Single entry point: `uv run python scripts/audit_tests.py --check`, the same command locally and in CI (a standalone `test-lint` step); output is `rule-id file:line fix guidance`.
+- Zero tolerance: the violation count is always 0—no baseline, no ratchet, no exemption annotations; a script false positive is fixed in the script, never by tagging the test as an exception; a new rule ships in the same PR that clears its existing violations.
+- Division of labor: the AST script owns code structure; pytest collection time does only tier-related checks; no new runtime checks. Frontend semantic rules belong to eslint; structural rules are scanned by the same script over `frontend/src/**/*.test.*`.
+
+### Frontend tests (vitest) {#frontend-vitest}
+
+- **API stubbing**: `vi.spyOn(API, method)` is the standard stubbing boundary (the `API` class is the frontend's only outbound gateway); tests of `api.ts` itself use handwritten fetch/Response stubs; msw is not introduced. Whole-module `vi.mock("@/api")` and `vi.mock("react-i18next")` are forbidden (enforced by eslint; the global setup already loads the real Chinese i18n, and mocking it hides missing translations).
+- **SSE stubbing**: use the shared `FakeEventSource` in `src/test/`, returned from a spy on `API.openProjectEventStream`.
+- **Mocking internal child components** requires one of three categories: heavyweight (virtualization/animation/canvas), side-effecting (sends requests/starts timers), or pure display irrelevant to the test; a component mocked in ≥3 files moves up to `src/__mocks__/`.
+- **Shared infrastructure**: cross-cutting utilities unrelated to the subject under test (`createDeferred`, `FakeEventSource`, factories) appearing in ≥3 files move up to `src/test/`; API spy combinations are exempt from consolidation (each file spies a different combination of methods; there is no common shape to extract); local `renderXxx` helpers move up only when ≥3 files repeat the same shape.
+- **Layout and size**: test files sit next to their source files, without `__tests__/` directories; "one file, one subject", the split-naming ban, and the 3000-line circuit breaker match the backend, with semantic topic suffixes allowed (such as `ShotDetail.drama.test.tsx`).
+- **Testability rework**: no production behavior changes; structural extraction at the pure-function or hook level is allowed.
+- **Configuration and lint**: `testTimeout` stays at the vitest default of 5s, with individual slow tests overriding it explicitly with an explanation; eslint enables the vitest, testing-library, and jest-dom plugins (`expect-expect` catches zero-assertion tests); bare `toHaveBeenCalled` has no ban—assertion strength is a review concern.
 
 ## Code Quality {#code-quality}
 
@@ -119,30 +194,6 @@ The project has followed a zero-warning policy since PR 3 (#219); every rule is 
 
 - TypeScript version lock: the peer range of `typescript-eslint@8.x` is `typescript <6.1`; upgrade `typescript-eslint` before upgrading TypeScript to 6.1+
 
-**Test coverage:**
-
-- CI requires ≥80%
-- `asyncio_mode = "auto"` (async tests do not need to be marked manually)
-
-### Pytest marker discipline {#pytest-markers}
-
-Every test case must have exactly one type marker. By default, CI runs `-m "not e2e"`:
-
-| Marker | Meaning | Forbidden |
-|--------|------|------|
-| `unit` | Fast and isolated; does not touch real I/O or external services | — |
-| `integration` | Cross-module collaboration using real dependencies (in-memory DB, temporary filesystem, and so on) | **Do not mock the public entry point of the module under test** (for example, an integration test for `MediaGenerator` must not mock `MediaGenerator.generate`, because that would test the mock itself) |
-| `e2e` | End-to-end; depends on real external resources (remote APIs, LLM calls, heavyweight real ffmpeg work) | Skipped by default in CI; run locally when needed |
-
-The marker can be applied at the test, class, or module (`pytestmark`) level. After combining all three levels, exactly one classification must still match.
-
-Marker classification is enforced during pytest collection and does not depend on manual review:
-
-- An unmarked or multiply marked test fails collection immediately (`tests/conftest.py::_enforce_classification_markers`), and the error lists the specific nodeid
-- `--strict-markers` also makes markers not registered in `pyproject.toml` fail during collection
-
-The existing `unit`/`integration` classifications came from bulk defaults (tests that invoke real ffmpeg to generate test audio or video assets, or that match `uses_db`, are classified as `integration`; all others as `unit`) and are not guaranteed to be semantically exact for every test. Classify new tests according to the table above—the use of real ffmpeg to generate a test fixture is different from the "heavyweight real ffmpeg work" in the `e2e` definition: the former invokes ffmpeg to produce test input, while the latter means a heavyweight ffmpeg processing pipeline in an end-to-end scenario.
-
 ## Documentation Maintenance {#docs-maintenance}
 
 The only published location for user documentation is [docs.arc-reel.com](https://docs.arc-reel.com/en/); source files live in `website/docs/` (see "Documentation Site" above for local builds and previews). Chinese is the sole authoring source; English translations are generated by AI, and humans review only the Chinese source. Internal documentation (ADRs, `CONTEXT.md`, `AGENTS.md`, the security threat model, provider API documentation indexes, and so on) is not published on the site and remains under the repository's `docs/` directory. `SECURITY.md` also remains in the repository root because the GitHub Security tab depends on it.
@@ -156,7 +207,7 @@ This file is the source of truth for the contributing guide. During builds, it i
 | `README.md` | Product positioning, core value, and the shortest path to getting started | A complete model list, every environment variable, or internal implementation details |
 | `website/docs/index.mdx` | Documentation-site positioning, primary entry points, and a navigation overview | Complete instructions for specific features |
 | `website/docs/guide/getting-started.md` | The complete path from deployment to the first generated video | Production-grade reverse proxy and backup strategies |
-| `website/docs/guide/workflows.md` | Content modes, video-making workflows, review checkpoints, and selection guidance | Provider credentials and operations commands |
+| `website/docs/guide/workflows.md` | Content modes, video generation routes, review checkpoints, and selection guidance | Provider credentials and operations commands |
 | `website/docs/guide/providers.md` | Provider types, capability coverage, selection principles, and configuration hierarchy | Price promises likely to become outdated |
 | `website/docs/guide/jianying-export.md` | Locating the Jianying draft directory, exporting, and further editing steps | The video generation process itself |
 | `website/docs/guide/faq.md` | Frequently asked questions and short answers | Long tutorials |
@@ -171,7 +222,7 @@ This file is the source of truth for the contributing guide. During builds, it i
 - **Keep the README stable**: the README only needs to help a first-time repository visitor answer, "What is ArcReel, is it right for me, how is it different from calling a model API directly, and what is the fastest way to run it?" Put specific model names, prices, and API parameters on the corresponding site pages so that the homepage does not need to be rewritten every time a provider changes.
 - **Treat runtime capabilities as authoritative for provider information**: documentation describes the media types covered, how ArcReel unifies configuration, how to choose between different capabilities, and where to confirm specifics; the models actually selectable on the Settings page and the provider's official documentation are definitive.
 - **Give headings explicit anchor IDs**: write every heading on a published page as `## 标题 {#english-id}`. The Chinese and English locales share the same anchor to prevent changes to copy from invalidating automatically generated Chinese slugs. Use relative file paths for cross-references within the site (such as `../ops/deployment.md`), and use absolute GitHub links when pointing to repository files not published on the site.
-- **Commit documentation changes with feature changes**: when adding a content mode or video-making workflow, adding a provider or media capability, or changing deployment directories, ports, environment variables, data directories, backup methods, migration behavior, public APIs, licenses, or commercial-use terms, update the corresponding documentation at the same time.
+- **Commit documentation changes with feature changes**: when adding a content mode or video generation route, adding a provider or media capability, or changing deployment directories, ports, environment variables, data directories, backup methods, migration behavior, public APIs, licenses, or commercial-use terms, update the corresponding documentation at the same time.
 - **No JSX or import in docs-site `.md` files**: `website/docusaurus.config.ts` sets `markdown.format: "detect"`, so `.md` files are parsed as CommonMark rather than MDX. Neither raises a compile error, and neither is executed as MDX: a JSX tag is output verbatim as raw HTML (a tag with children leaks that content directly onto the page), and an import statement is displayed verbatim as page text. Use `.mdx` for pages that need JSX.
 
 ## Workflow {#workflow}
@@ -251,7 +302,7 @@ fix(queue): 修复任务 lease 超时后未正确归还的问题
 # With a scope and a body
 feat(grid): 支持 grid_12 布局
 
-将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
+将多宫格分镜系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
 **This repository does not use breaking-change markers.** The frontend and backend are released together, and the backend API does not make versioned compatibility guarantees—the bundled frontend evolves with each version, while external integrations (OpenClaw and others) fetch the latest contract at runtime through `/skill.md` rather than depending on a version number. When deleting or changing endpoints referenced by `public/skill.md.template`, update that template at the same time. Classify API changes normally as `fix`/`refactor`; do not add a `!` suffix or a `BREAKING CHANGE:` footer. To correct an incorrectly marked commit after it has been merged, edit that PR's description and append a `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` block. release-please then recalculates the changelog and version number according to the override (this requires squash merging, which this repository uses). The workflow runs only on pushes to main; after editing, wait for the next push to main or rerun the release-please workflow manually. During the 0.x stage, `bump-minor-pre-major` limits the version jump caused by an incorrect marker to minor, but does not correct the changelog.

@@ -684,7 +684,7 @@ export function ShotDetail({
         : (segment as NarrationSegment).characters_in_segment ?? [];
   const sceneNames = segment.scenes ?? [];
   const propNames = segment.props ?? [];
-  // 展示用去重：products_in_shot 无唯一性约束（同一产品多次入画合法），重复名直接作 key 会撞
+  // 展示用去重：products_in_shot 无唯一性约束（同一商品多次入画合法），重复名直接作 key 会撞
   const productNames = isAd ? Array.from(new Set(adShot?.products_in_shot ?? [])) : [];
   const refsReadOnly = !onUpdatePrompt;
 

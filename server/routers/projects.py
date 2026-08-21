@@ -197,7 +197,6 @@ class CreateProjectRequest(BaseModel):
     # 空值 = 回退项目默认（video_backend）与全局层
     video_provider_i2v: str | None = None
     video_provider_r2v: str | None = None
-    image_backend: str | None = None
     # 图片能力桶（docs/adr/0054）项目级覆盖 + 项目默认模型：t2i = 文生图，i2i = 图生图；
     # 桶为空 = 回退项目默认（default_image_backend）与全局层
     image_provider_t2i: str | None = None
@@ -211,12 +210,7 @@ class CreateProjectRequest(BaseModel):
 
 
 class EpisodePatch(BaseModel):
-    """PATCH body entry for a single episode.
-
-    The declared fields are the writable set; derived fields the API serves on
-    episodes (item_count, status, storyboards, etc.) are not declared here and
-    are silently dropped via extra='ignore', so they can never be written back.
-    """
+    """单集更新请求体。仅包含可写字段；未声明字段会被忽略。"""
 
     model_config = ConfigDict(extra="ignore")
     episode: int
@@ -229,9 +223,6 @@ class UpdateProjectRequest(BaseModel):
     # 自定义风格文本可由参考图解析或由用户直接填写；预设模板仍以 style 为单一真相源。
     style_description: str | None = None
     style_preset_id: str | None = None
-    content_mode: ContentMode | None = None
-    # 源文件性质创建即定、不可变；出现即拒（与 content_mode 同性质）。
-    source_kind: SourceKind | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
     # 仅 ad 项目：目标总时长（秒），任意正整数合法，不可清空
@@ -243,7 +234,6 @@ class UpdateProjectRequest(BaseModel):
     video_backend: str | None = None
     video_provider_i2v: str | None = None
     video_provider_r2v: str | None = None
-    image_backend: str | None = None
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
@@ -611,11 +601,6 @@ async def create_project(
                     )
                 style_prompt = resolve_template_prompt(req.style_template_id)
 
-            # legacy image_backend 已退役（拆为 image_provider_t2i/i2i）；写路径直接拒绝，
-            # 避免迁移后再写时被解析链忽略、静默落到全局默认的另一供应商。
-            if req.image_backend:
-                raise HTTPException(status_code=400, detail=_t("deprecated_image_backend"))
-
             # 模式专属字段互斥：target_duration/brief 仅 ad 可用；
             # ad 不暴露 default_duration、不开放宫格分镜
             content_mode = req.content_mode or "narration"
@@ -872,21 +857,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 
         def _sync():
             manager = get_project_manager()
-            if req.content_mode is not None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=_t("project_id_not_editable"),
-                )
-            if "source_kind" in req.model_fields_set:
-                raise HTTPException(
-                    status_code=400,
-                    detail=_t("source_kind_not_editable"),
-                )
-
-            # legacy image_backend 已退役（拆为 image_provider_t2i/i2i）；写路径直接拒绝，
-            # 避免迁移后再写时被解析链忽略、静默落到全局默认的另一供应商。
-            if req.image_backend:
-                raise HTTPException(status_code=400, detail=_t("deprecated_image_backend"))
 
             def _mutate(project: dict) -> None:
                 # 整段 read-modify-write 在单一 _project_lock 内完成，避免并发 PATCH / 任务回写丢更新
@@ -1372,7 +1342,7 @@ class UpdateEpisodeRequest(BaseModel):
 
 @router.patch("/projects/{name}/segments/{segment_id}")
 async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _t: Translator):
-    """更新说书模式片段"""
+    """更新旁白/解说片段"""
     try:
 
         def _sync():

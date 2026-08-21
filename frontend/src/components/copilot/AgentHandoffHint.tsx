@@ -6,7 +6,7 @@ import { UI_LAYERS } from "@/utils/ui-layers";
 
 const AUTO_DISMISS_MS = 6500;
 
-// 助手面板宽度（与 StudioLayout 中保持一致）
+// Agent 面板宽度（与 StudioLayout 中保持一致）
 const ASSISTANT_PANEL_WIDTH = 505;
 
 interface AgentHandoffHintProps {

@@ -1546,6 +1546,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 audio_always_on=True,
                 default=True,
                 supported_durations=list(range(3, 16)),
+                resolutions=["480p", "0.7M", "720p"],
                 pricing=None,
             ),
             # --- image ---

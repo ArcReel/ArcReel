@@ -1,9 +1,9 @@
 """CrocoVideoBackend — Croco GPU 视频生成后端（MiniMax H3）。
 
 走 Croco 统一任务协议：POST /api/v2/jobs（video.generate）→ 轮询到终态 → 下载 video 产物。
-H3 V2 合同只暴露稳定参数 mode/prompt/duration_seconds，不暴露尺寸（由中枢按画面规格决定），
-故 aspect_ratio 不随请求下发。T2V / I2V（首帧）/ R2V（参考图 ≤9 + 参考音频 ≤3）三条路径共用
-统一任务信封，仅 mode 与 inputs 不同。
+H3 V2 合同用 quality 同时表达画幅与清晰度：ArcReel 对外的 resolution + aspect_ratio
+会在提交前转为中枢的 profile token。T2V / I2V（首帧）/ R2V（参考图 ≤9 +
+参考音频 ≤3）三条路径共用统一任务信封，仅 mode 与 inputs 不同。
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ReferenceAudioMode,
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -27,6 +28,56 @@ DEFAULT_MODEL = "minimax-h3"
 
 _OPERATION = "video.generate"
 _CONTRACT_VERSION = "1"
+
+# Croco H3 的 quality 不是单纯分辨率，而是「画幅 × 清晰度」输出 profile。
+# 公开给 ArcReel 用户的三档是 480p / 0.7M / 720p；中枢内部的 720p profile
+# 以实际短边 768 命名，这是协议 token，不应直接暴露到项目设置。
+_QUALITY_BY_ASPECT_AND_RESOLUTION = {
+    "16:9": {
+        "480p": "preview",
+        "0.7m": "base_0_7mp",
+        "720p": "base_768p",
+    },
+    "9:16": {
+        "480p": "portrait_preview",
+        "0.7m": "portrait_0_7mp",
+        "720p": "portrait_768p",
+    },
+    "4:3": {
+        "480p": "standard_480p",
+        "0.7m": "standard_0_7mp",
+        "720p": "standard_768p",
+    },
+    "3:4": {
+        "480p": "standard_portrait_480p",
+        "0.7m": "standard_portrait_0_7mp",
+        "720p": "standard_portrait_768p",
+    },
+}
+_RESOLUTION_ALIASES = {
+    "480p": "480p",
+    "0.7m": "0.7m",
+    "0.7mp": "0.7m",
+    ".7m": "0.7m",
+    "720p": "720p",
+    "768p": "720p",
+}
+
+
+def _resolve_quality(resolution: str | None, aspect_ratio: str) -> str:
+    """ArcReel 分辨率 + 画幅 → Croco H3 quality；未显式选档时走中枢 0.7M 默认。"""
+    raw_resolution = (resolution or "0.7M").strip()
+    normalized_resolution = _RESOLUTION_ALIASES.get(raw_resolution.lower())
+    profiles = _QUALITY_BY_ASPECT_AND_RESOLUTION.get(aspect_ratio)
+    if normalized_resolution is None or profiles is None:
+        raise VideoCapabilityError(
+            "video_output_profile_unsupported",
+            model=DEFAULT_MODEL,
+            resolution=raw_resolution or "Auto",
+            aspect_ratio=aspect_ratio,
+            supported="480p, 0.7M, 720p @ 16:9/9:16/4:3/3:4",
+        )
+    return profiles[normalized_resolution]
 
 
 class CrocoVideoBackend(ProviderJobIdPersistenceMixin):
@@ -72,6 +123,7 @@ class CrocoVideoBackend(ProviderJobIdPersistenceMixin):
         parameters = {
             "mode": mode,
             "prompt": request.prompt,
+            "quality": _resolve_quality(request.resolution, request.aspect_ratio),
             "duration_seconds": request.duration_seconds,
         }
         job = await self._client.submit_job(

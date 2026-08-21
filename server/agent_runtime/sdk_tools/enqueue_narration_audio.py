@@ -115,7 +115,7 @@ def _candidates(
 def generate_narration_audio_tool(ctx: ToolContext):
     @tool(
         _OPERATION,
-        "为任意路线中由 narrator 拥有发声内容的单元显式生成旁白配音（TTS），入队并等待完成。"
+        "为任意生成模式中由 narrator 拥有发声内容的单元显式生成旁白配音（TTS），入队并等待完成。"
         "script 为剧本文件名（如 episode_1.json）；segment_ids 接受当前骨架的 unit ID 列表"
         "（不传则只选缺旁白音频的 narrator 单元；已失效但可用的旧配音不会被自动重生）。"
         "返回 requested / succeeded / failed / blocked 的逐 ID 结果，"

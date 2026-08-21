@@ -99,7 +99,8 @@ def read_instructions_arg(args: dict[str, Any]) -> tuple[str | None, dict[str, A
     if raw is None:
         return None, None
     if not isinstance(raw, str):
-        return None, _param_error(f"instructions 必须是字符串，收到 {type(raw).__name__}")
+        logger.debug("instructions 入参类型非法: %s", type(raw).__name__)
+        return None, _param_error("instructions 必须是文本")
     if len(raw) > MAX_INSTRUCTIONS_LEN:
         return None, _param_error(f"instructions 过长（{len(raw)} 字符，上限 {MAX_INSTRUCTIONS_LEN}），请精简后重试")
     text = raw.strip()
@@ -114,7 +115,7 @@ async def resolve_video_caps(project: dict[str, Any], *, capability: VideoCapabi
     this variant exposes the model identity so the caller can evaluate the
     duration linkage constraints declared on it.
 
-    能力按项目生成路线解析——路线创建即定、全项目同一条，智能体拿到的与执行层同口径。
+    能力按项目生成模式解析——生成模式创建即定、全项目同一条，Agent 拿到的与执行层同口径。
     ``capability`` 给定时按指定桶解析（参考路线内无参考图退化镜头的 i2v 读侧）。
     """
     resolver = ConfigResolver(async_session_factory)

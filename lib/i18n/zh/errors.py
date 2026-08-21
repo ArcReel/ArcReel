@@ -1,5 +1,5 @@
 MESSAGES = {
-    "project_migration_failed": "项目 '{name}' 的数据升级未完成，暂时无法生成内容。原因：{reason}。请在智能体对话中修复后重试升级",
+    "project_migration_failed": "项目 '{name}' 的数据升级未完成，暂时无法生成内容。原因：{reason}。请在 Agent 对话中修复后重试升级",
     "project_not_found": "项目 '{name}' 不存在或未初始化",
     "resource_not_found": "请求的资源不存在",
     "overview_ai_response_invalid": "AI 返回内容无法解析为项目概述，请重试或更换模型/供应商",
@@ -111,15 +111,15 @@ MESSAGES = {
     "narration_speed_must_be_positive": "旁白语速必须是正数",
     "speech_rate_out_of_range": "语速需在 {min} 到 {max} 之间（字或词/秒）",
     "character_not_found": "角色「{name}」不存在",
-    "character_task_submitted": "角色「{name}」设计图生成任务已提交",
+    "character_task_submitted": "角色「{name}」资产图生成任务已提交",
     "voice_sample_voice_required": "请先选择音色",
     "voice_sample_text_too_long": "试听文案不能超过 {max_length} 个字符",
     "voice_sample_task_submitted": "角色「{name}」的语音试听样本生成任务已提交",
     "voice_sample_not_ready": "语音试听样本尚未生成成功，无法确认保存",
     "voice_sample_file_missing": "语音试听样本文件不存在，请重新生成",
-    "scene_task_submitted": "场景「{name}」设计图生成任务已提交",
-    "prop_task_submitted": "道具「{name}」设计图生成任务已提交",
-    "product_task_submitted": "商品「{name}」标准参考图生成任务已提交",
+    "scene_task_submitted": "场景「{name}」资产图生成任务已提交",
+    "prop_task_submitted": "道具「{name}」资产图生成任务已提交",
+    "product_task_submitted": "商品「{name}」资产图生成任务已提交",
     # Files
     "file_not_found": "文件不存在: {path}",
     "forbidden_access": "禁止访问项目目录外的文件",
@@ -145,13 +145,10 @@ MESSAGES = {
     "draft_invalid_json": "内容整理草稿的结构不合法，请检查后重试",
     "script_review_not_applicable": "该集不适用内容确认（该模式没有可确认的内容整理结果）",
     "script_review_no_step1": "尚无可确认的内容整理结果，请先完成内容整理",
-    "script_review_quarantined": "本集有待修复草稿，请让智能体修改并晋升后再确认",
+    "script_review_quarantined": "本集有待修复草稿，请让 Agent 修改并晋升后再确认",
     "script_review_conflict": "内容整理草稿在编辑期间已被其他编辑方修改，本次保存未覆盖；请刷新查看最新内容，合并后再保存",
     "script_review_invalid_content": "内容确认草稿结构校验失败，请检查后重试",
-    "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请让智能体重新拆分该集",
-    "draft_event_label": "第 {episode} 集{label_prefix}",
-    "normalized_script": "规范化脚本",
-    "segment_splitting": "片段拆分",
+    "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请让 Agent 重新拆分该集",
     # Source loader
     "source_unsupported_format": "不支持的源文件格式：{ext}（支持 .txt / .md / .docx / .epub / .pdf）",
     "source_decode_failed": "源文件「{filename}」解码失败（已尝试：{tried}）",
@@ -178,8 +175,8 @@ MESSAGES = {
     "session_not_found": "会话 '{session_id}' 不存在",
     "session_or_project_not_found": "会话或项目不存在",
     "sdk_session_timeout": "SDK 会话创建超时",
-    "agent_startup_failed": "智能体启动失败：\n{details}",
-    "agent_startup_failed_title": "智能体启动失败",
+    "agent_startup_failed": "Agent 启动失败：\n{details}",
+    "agent_startup_failed_title": "Agent 启动失败",
     "interface_offline": "该接口已下线，请使用推荐的接口",
     "answers_required": "answers 不能为空",
     # Custom Providers
@@ -219,8 +216,6 @@ MESSAGES = {
     "ad_grid_not_supported": "广告/短片项目不支持多宫格分镜生视频",
     "grid_storyboard_not_enabled": "项目未启用多宫格分镜，无法生成多宫格分镜",
     "ad_target_duration_required": "广告/短片项目必须设置目标总时长（正整数秒）",
-    "project_id_not_editable": "项目创建后不支持修改 content_mode",
-    "source_kind_not_editable": "项目创建后不支持修改源文件性质（source_kind）",
     "project_deleted": "项目 '{name}' 已删除",
     "scene_updated": "场景 '{scene_id}' 已更新",
     "segment_updated": "片段 '{segment_id}' 已更新",
@@ -248,7 +243,6 @@ MESSAGES = {
     # Validators
     "invalid_backend_format": "模型选择格式无效，应为「供应商/模型」",
     "backend_media_type_mismatch": "所选模型类型不符：该项需要 {expected} 模型，但 {provider}/{model} 是 {actual} 模型",
-    "deprecated_image_backend": "image_backend 字段已废弃，请改用 image_provider_t2i 与 image_provider_i2i",
     # Versions
     "unsupported_resource_type": "不支持的资源类型: {resource_type}",
     "invalid_resource_id": "非法的资源 ID: {resource_id}",
@@ -276,7 +270,7 @@ MESSAGES = {
     "ref_script_rebound": "该集脚本绑定已变更，请重试",
     "ref_ad_reference_skipped": "「{name}」（{type}）缺少可用参考图，本次生成已跳过该参考",
     # 分镜文稿解析预览的降级可见性提示
-    "ref_warn_unregistered_mention": "@[{name}] 未在产品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
+    "ref_warn_unregistered_mention": "@[{name}] 未在商品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
     "ref_warn_unclosed_brace": "第 {line} 行：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",
     "ref_warn_braces_not_speech": (
         "第 {line} 行：花括号未被识别为台词，将原样发送；台词写成 @[角色]{{台词}}，画外音写成 {{台词}}，"
@@ -315,6 +309,7 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} 不支持图生视频；请在设置中为「图生视频」单独指定支持该用途的模型，或更换默认视频模型",
     "video_capability_missing_r2v": "{provider}/{model} 不支持参考生视频；请在设置中为「参考生视频」单独指定支持该用途的模型，或更换默认视频模型",
     "video_capability_reference_unavailable": "配置的视频模型 {provider}/{model} 已不可用（模型被删除、能力已变更或供应商被移除）；请在设置中重新选择视频模型",
+    "video_output_profile_unsupported": "模型 {model} 不支持 {aspect_ratio} 画幅下的 {resolution} 分辨率（支持：{supported}）；请调整分辨率或画幅",
     "video_resolution_duration_unsupported": "模型 {model} 在 {resolution} 分辨率下不支持 {duration}s（仅支持 {supported}）；请调整分辨率或时长",
     "video_reference_images_duration_unsupported": "模型 {model} 使用参考图时不支持 {duration}s（仅支持 {supported}）；请把时长改为 {supported}，或移除参考图",
     "video_reference_images_required": "模型 {model} 需要至少一张参考图；请提供参考图",

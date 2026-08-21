@@ -39,6 +39,7 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
         "video_end_image_unreadable",
         "video_last_frame_requires_pro",
         "video_last_frame_unsupported",
+        "video_output_profile_unsupported",
         "video_prompt_too_long",
         "video_reference_images_duration_unsupported",
         "video_reference_images_exceeded",

@@ -35,9 +35,7 @@ def test_ark_agent_plan_registered() -> None:
 
 def test_ark_agent_plan_current_text_catalog_and_legacy_visibility() -> None:
     p = PROVIDER_REGISTRY["ark-agent-plan"]
-    visible_text = {
-        mid for mid, info in p.models.items() if info.media_type == "text" and not info.hidden
-    }
+    visible_text = {mid for mid, info in p.models.items() if info.media_type == "text" and not info.hidden}
     assert visible_text == {
         "doubao-seed-2.0-mini",
         "doubao-seed-2.0-lite",

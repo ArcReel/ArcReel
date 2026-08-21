@@ -116,15 +116,15 @@ MESSAGES = {
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
     "speech_rate_out_of_range": "Nhịp đọc phải nằm trong khoảng {min} đến {max} (ký tự hoặc từ mỗi giây)",
     "character_not_found": "Nhân vật '{name}' không tồn tại",
-    "character_task_submitted": "Đã gửi tác vụ tạo thiết kế nhân vật cho '{name}'",
+    "character_task_submitted": "Đã gửi tác vụ tạo hình tài sản nhân vật cho '{name}'",
     "voice_sample_voice_required": "Vui lòng chọn giọng đọc trước",
     "voice_sample_text_too_long": "Văn bản mẫu không được vượt quá {max_length} ký tự",
     "voice_sample_task_submitted": "Đã gửi tác vụ tạo mẫu giọng đọc thử cho nhân vật '{name}'",
     "voice_sample_not_ready": "Mẫu giọng đọc thử chưa tạo thành công, chưa thể xác nhận",
     "voice_sample_file_missing": "Tệp mẫu giọng đọc thử không còn tồn tại, vui lòng tạo lại",
-    "scene_task_submitted": "Đã gửi tác vụ tạo thiết kế cảnh cho '{name}'",
-    "prop_task_submitted": "Đã gửi tác vụ tạo thiết kế đạo cụ cho '{name}'",
-    "product_task_submitted": "Đã gửi tác vụ tạo ảnh tham chiếu chuẩn cho hàng hóa '{name}'",
+    "scene_task_submitted": "Đã gửi tác vụ tạo hình tài sản cảnh cho '{name}'",
+    "prop_task_submitted": "Đã gửi tác vụ tạo hình tài sản đạo cụ cho '{name}'",
+    "product_task_submitted": "Đã gửi tác vụ tạo hình tài sản hàng hóa cho '{name}'",
     # Files
     "file_not_found": "Tệp không tồn tại: {path}",
     "forbidden_access": "Cấm truy cập tệp ngoài thư mục dự án",
@@ -159,9 +159,6 @@ MESSAGES = {
     "script_review_quarantine_unreadable": (
         "Tệp bản nháp cần sửa đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"
     ),
-    "draft_event_label": "Tập {episode} {label_prefix}",
-    "normalized_script": "Kịch bản đã chuẩn hóa",
-    "segment_splitting": "Chia đoạn",
     # Source loader
     "source_unsupported_format": "Định dạng nguồn không hỗ trợ: {ext} (hỗ trợ: .txt / .md / .docx / .epub / .pdf)",
     "source_decode_failed": "Không giải mã được tệp nguồn '{filename}' (đã thử: {tried})",
@@ -240,8 +237,6 @@ MESSAGES = {
     "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ phân cảnh đa lưới",
     "grid_storyboard_not_enabled": "Dự án chưa bật phân cảnh đa lưới",
     "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
-    "project_id_not_editable": "content_mode không thể chỉnh sửa sau khi tạo dự án",
-    "source_kind_not_editable": "source_kind không thể chỉnh sửa sau khi tạo dự án",
     "project_deleted": "Đã xóa dự án '{name}'",
     "scene_updated": "Đã cập nhật cảnh '{scene_id}'",
     "segment_updated": "Đã cập nhật đoạn '{segment_id}'",
@@ -272,7 +267,6 @@ MESSAGES = {
     # Validators
     "invalid_backend_format": "Định dạng lựa chọn mô hình không hợp lệ; sử dụng provider/model",
     "backend_media_type_mismatch": "Loại mô hình không khớp: mục này cần mô hình {expected}, nhưng {provider}/{model} là mô hình {actual}",
-    "deprecated_image_backend": "Trường image_backend đã ngừng dùng; hãy dùng image_provider_t2i và image_provider_i2i",
     # Versions
     "unsupported_resource_type": "Loại tài nguyên không hỗ trợ: {resource_type}",
     "invalid_resource_id": "ID tài nguyên không hợp lệ: {resource_id}",
@@ -365,6 +359,7 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} không hỗ trợ tạo video từ ảnh; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video từ ảnh trong Cài đặt, hoặc đổi mô hình video mặc định",
     "video_capability_missing_r2v": "{provider}/{model} không hỗ trợ tạo video theo tham chiếu; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video theo tham chiếu trong Cài đặt, hoặc đổi mô hình video mặc định",
     "video_capability_reference_unavailable": "Mô hình video đã cấu hình {provider}/{model} không còn khả dụng (mô hình bị xóa, năng lực đã thay đổi hoặc nhà cung cấp bị gỡ bỏ); hãy chọn lại mô hình video trong Cài đặt",
+    "video_output_profile_unsupported": "Mô hình {model} không hỗ trợ độ phân giải {resolution} với tỷ lệ khung hình {aspect_ratio} (hỗ trợ: {supported}); hãy điều chỉnh độ phân giải hoặc tỷ lệ khung hình",
     "video_resolution_duration_unsupported": "Mô hình {model} không hỗ trợ {duration}s ở độ phân giải {resolution} (chỉ {supported}); hãy điều chỉnh độ phân giải hoặc thời lượng",
     "video_reference_images_duration_unsupported": "Mô hình {model} không hỗ trợ {duration}s khi dùng ảnh tham chiếu (chỉ {supported}); hãy đổi thời lượng sang {supported} hoặc bỏ ảnh tham chiếu",
     "video_reference_images_required": "Mô hình {model} cần ít nhất một ảnh tham chiếu; hãy cung cấp ảnh tham chiếu",

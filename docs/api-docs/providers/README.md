@@ -5,6 +5,7 @@
 - [agnes](agnes.md)
 - [ark](ark.md)
 - [ark-agent-plan](ark-agent-plan.md)
+- [croco](croco.md)
 - [dashscope](dashscope.md)
 - [gemini-aistudio](gemini-aistudio.md)
 - [gemini-vertex](gemini-vertex.md)

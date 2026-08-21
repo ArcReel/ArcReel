@@ -46,6 +46,11 @@ async def _fake_create_backend(*args, **kwargs):
     return _FakeTextBackend(), "fake"
 
 
+async def _fake_generate_without_ledger(self, request, project_name=None):
+    """路由测试只验证解析结果，不依赖用量账本或数据库。"""
+    return await self.backend.generate(request)
+
+
 def _img_bytes(fmt="JPEG", color=(255, 0, 0)):
     image = Image.new("RGB", (8, 8), color)
     buf = BytesIO()
@@ -63,6 +68,7 @@ def _client(monkeypatch, tmp_path):
 
     monkeypatch.setattr(files, "get_project_manager", lambda: pm)
     monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
+    monkeypatch.setattr("lib.text_generator.TextGenerator.generate", _fake_generate_without_ledger)
 
     app = FastAPI()
     register_error_handlers(app)

@@ -617,7 +617,7 @@ class EpisodePlanner:
         每批集数）后转为 :class:`EpisodePlanningError` 冒泡（见 docs/adr/0044）。
 
         后端结构化输出降级链耗尽的 :class:`StructuredOutputExhaustedError` 同样短路本循环，
-        转为 :class:`EpisodePlanningError`，让智能体拿到「供应商结构化输出能力不足」的可读
+        转为 :class:`EpisodePlanningError`，让 Agent 拿到「供应商结构化输出能力不足」的可读
         话术而非后端内部异常原文。
         """
         if self.generator is None:
@@ -1005,7 +1005,7 @@ def _build_planning_prompt(
         *(_PLAN_INTRO_SCREENPLAY if is_screenplay else _PLAN_INTRO_NOVEL),
         "",
         "# 项目信息",
-        f"- 内容模式：{'剧集动画（drama）' if content_mode == 'drama' else '说书旁白（narration）'}",
+        f"- 内容模式：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
     ]
     synopsis = overview.get("synopsis") if isinstance(overview, Mapping) else None
     if synopsis:

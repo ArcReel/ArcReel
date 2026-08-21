@@ -1,18 +1,24 @@
 """Verify that i18n translation dictionaries are consistent across locales."""
 
+import re
+from pathlib import Path
+
 import pytest
 
 from lib.i18n import MESSAGES, SUPPORTED_LOCALES
 from lib.i18n.en import emails as en_emails
 from lib.i18n.en import errors as en_errors
+from lib.i18n.en import events as en_events
 from lib.i18n.en import system as en_system
 from lib.i18n.en import templates as en_templates
 from lib.i18n.vi import emails as vi_emails
 from lib.i18n.vi import errors as vi_errors
+from lib.i18n.vi import events as vi_events
 from lib.i18n.vi import system as vi_system
 from lib.i18n.vi import templates as vi_templates
 from lib.i18n.zh import emails as zh_emails
 from lib.i18n.zh import errors as zh_errors
+from lib.i18n.zh import events as zh_events
 from lib.i18n.zh import system as zh_system
 from lib.i18n.zh import templates as zh_templates
 from lib.style_templates import STYLE_TEMPLATES
@@ -169,3 +175,50 @@ def test_batch_admission_problem_codes_are_translated():
     for code in sorted(codes):
         for locale in SUPPORTED_LOCALES:
             assert code in MESSAGES[locale], f"problem code '{code}' has no {locale} message"
+
+
+def _event_label_keys(messages: dict[str, str]) -> set[str]:
+    prefix = "event_label_"
+    return {key.removeprefix(prefix) for key in messages if key.startswith(prefix)}
+
+
+def test_events_module_keys_match():
+    en_keys = set(en_events.MESSAGES.keys())
+    zh_keys = set(zh_events.MESSAGES.keys())
+    vi_keys = set(vi_events.MESSAGES.keys())
+    assert en_keys == zh_keys == vi_keys, (
+        f"events key mismatch: missing_in_zh={en_keys - zh_keys}, "
+        f"missing_in_vi={en_keys - vi_keys}, missing_in_en={(zh_keys | vi_keys) - en_keys}"
+    )
+
+
+def test_every_event_label_key_is_translated():
+    """事件载荷可能携带的 label_key 全部有翻译，且没有无人使用的残留 key。"""
+    from lib.script_skeleton import SKELETON_ITEM_LABEL_KEYS
+    from server.services.generation_tasks import _SKELETON_TASK_LABEL_KEYS, _TASK_CHANGE_SPECS
+
+    emitted = {spec[2] for spec in _TASK_CHANGE_SPECS.values()}
+    emitted |= set(_SKELETON_TASK_LABEL_KEYS.values())
+    emitted |= set(SKELETON_ITEM_LABEL_KEYS.values())
+    # 快照差分与路由直接发布的固定 key（无表可枚举，在此登记）。
+    emitted |= {
+        "named_entity_character",
+        "named_entity_scene",
+        "named_entity_prop",
+        "character_reference_audio",
+        "project_settings",
+        "overview",
+        "episode",
+        "draft_normalized_script",
+        "draft_segment_splitting",
+    }
+    assert _event_label_keys(zh_events.MESSAGES) == emitted
+
+
+def test_frontend_event_label_keys_match_backend():
+    """界面按同一组 label_key 渲染文案，两侧 key 集合不得漂移。"""
+    source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "i18n" / "en" / "events.ts").read_text(
+        encoding="utf-8"
+    )
+    frontend_keys = set(re.findall(r"""["']label\.([a-z0-9_]+)["']""", source))
+    assert frontend_keys == _event_label_keys(en_events.MESSAGES)

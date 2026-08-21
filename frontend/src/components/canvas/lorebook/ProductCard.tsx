@@ -117,7 +117,7 @@ export function ProductCard({
     parsedSellingPoints.join("\n") !== (product.selling_points ?? []).join("\n");
 
   useEffect(() => {
-    // 上游产品数据变化时同步本地草稿
+    // 上游商品数据变化时同步本地草稿
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDescription(product.description);
   }, [product.description]);

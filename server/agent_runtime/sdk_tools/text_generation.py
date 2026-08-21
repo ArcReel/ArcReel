@@ -229,7 +229,7 @@ def get_video_capabilities_tool(ctx: ToolContext):
         "get_video_capabilities",
         "查视频模型能力（model 粒度）+ 用户项目偏好。返回 JSON；"
         "参考生视频项目另含 reference_unit_durations（按 unit 有无 @ 引用分开的两套生效档位）。"
-        "能力按项目生成路线定轴，全项目同一口径，无需指定剧集。",
+        "能力按项目生成模式定轴，全项目同一口径，无需指定剧集。",
         {"type": "object", "properties": {}},
     )
     async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
@@ -299,7 +299,7 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
                 f"重跑 split-reference-video-units 把旧 {REFERENCE_VIDEO_STEP1_LEGACY_FILENAME} "
                 f"重新拆分为结构化 {REFERENCE_VIDEO_STEP1_FILENAME}"
             )
-        return rv_json, "split-reference-video-units subagent (Step 1)"
+        return rv_json, "split-reference-video-units 子任务 (Step 1)"
     if content_mode != "narration" and content_mode in STEP1_FILENAMES:
         # drama 及未来其它走 drama 形状两段式的结构化模式：step1 是结构化 JSON（见 ADR 0041）。
         # narration 虽也在 STEP1_FILENAMES，但另有旧 .md 迁移提示分支，需先排除。
@@ -311,7 +311,7 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
     step1_json = drafts_path / narration_json
     if not step1_json.exists() and (drafts_path / narration_legacy_md).exists():
         return step1_json, f"重跑 split-narration-segments 把旧 {narration_legacy_md} 重新拆分为结构化 {narration_json}"
-    return step1_json, "split-narration-segments subagent (Step 1)"
+    return step1_json, "split-narration-segments 子任务 (Step 1)"
 
 
 def generate_episode_script_tool(ctx: ToolContext):
@@ -941,9 +941,10 @@ async def revalidate_reference_step1_draft(
     violations: list[DraftViolation] = []
     flat_units: list[dict[str, Any]] = []
     if not isinstance(raw_units, list) or not raw_units:
+        logger.debug("隔离草稿 content.units 形状非法: %s", type(raw_units).__name__)
         violations = [
             DraftViolation(
-                f"隔离草稿的 content.units 必须是非空的 unit 对象数组（当前为 {type(raw_units).__name__}）",
+                "隔离草稿的 content.units 必须是非空的 unit 对象数组",
                 code="schema_invalid",
             )
         ]
@@ -1371,7 +1372,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
                             "type": "text",
                             "text": (
                                 f"❌ 第 {episode} 集的 step1 没有隔离草稿编辑通道"
-                                "（该项目无结构化 step1，或其 step1 变体由 subagent 直接编辑）"
+                                "（该项目无结构化 step1，或其 step1 变体由子任务直接编辑）"
                             ),
                         }
                     ],
@@ -1816,7 +1817,7 @@ def _validate_narration_novel_text_coverage(segments: list[dict], novel_text: st
 def split_narration_segments_tool(ctx: ToolContext):
     @tool(
         "split_narration_segments",
-        "把本集小说原文按朗读节奏拆分为说书片段表（逐字 novel_text + 时长 + segment_break + 出场资产），"
+        "把本集小说原文按朗读节奏拆分为旁白/解说片段表（逐字 novel_text + 时长 + segment_break + 出场资产），"
         "保存到 drafts/episode_N/step1_segments.json，供 generate_episode_script（narration 模式）消费。"
         "novel_text 逐字保留原文、由 step2 透传，不经 step2 的 LLM 重出。dry_run=true 时仅返回 prompt。",
         {
@@ -1922,7 +1923,7 @@ def split_narration_segments_tool(ctx: ToolContext):
                     {
                         "type": "text",
                         "text": (
-                            f"✅ 说书片段拆分（结构化 step1）已保存: {step1_path}\n"
+                            f"✅ 旁白/解说片段拆分（结构化 step1）已保存: {step1_path}\n"
                             f"📊 生成统计: {len(raw_segments)} 个片段 / {total_chars} 字，"
                             f"预计总时长 {total_seconds} 秒；segment_break 标记 {break_count} 个"
                         ),

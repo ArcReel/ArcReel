@@ -78,13 +78,13 @@ Jianying export, the workspace presentation preview, and editable bundle downloa
 
 A manually uploaded video without generation provenance is exported unchanged and is explicitly marked as having unavailable provenance. ArcReel does not infer its currency or generate TTS or subtitles for it.
 
-### Narration Mode {#narration-mode-export}
+### Narration/Commentary {#narration-mode-export}
 
 - **Video track**: All generated video clips arranged in order
 - **Subtitle track**: The corresponding original novel text is automatically added as subtitles for each clip (white text with a black outline); the style and position can be adjusted freely in Jianying
 - **Narration track**: **TTS Overlay** includes existing TTS; **Original Audio** does not add a separate narration track
 
-### Drama Mode {#drama-mode-export}
+### Drama {#drama-mode-export}
 
 - **Video track**: All generated video clips arranged in scene order
 - **Subtitle track**: Character dialogue and voice-over from the screenplay are added automatically; the style, position, and timing can be adjusted further in Jianying

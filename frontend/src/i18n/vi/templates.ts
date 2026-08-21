@@ -109,7 +109,7 @@ export default {
   text_tier_simple_caption: "Bao gồm tổng quan dự án và phân tích ảnh phong cách; mô hình bậc này phải hỗ trợ đầu vào hình ảnh.",
   text_tier_complex_label: "Tác vụ phức tạp",
   text_tier_complex_caption: "Bao gồm tạo kịch bản, lập kế hoạch tập và trích xuất & phân tách nội dung.",
-  text_tier_agent_boundary: "Trò chuyện tác nhân và suy luận subagent do cấu hình Nhà cung cấp tác nhân AI quyết định.",
+  text_tier_agent_boundary: "Trò chuyện Agent và suy luận subagent do cấu hình Nhà cung cấp Agent quyết định.",
   duration_label: "Thời lượng mặc định",
   duration_auto: "tự động",
   duration_unsupported_notice: "Thời lượng đã lưu {{value}}s không còn được mô hình hiện tại hỗ trợ. Vui lòng chọn lại.",

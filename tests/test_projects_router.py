@@ -671,14 +671,14 @@ class TestProjectsRouter:
             assert invalid.status_code == 422
 
     @pytest.mark.unit
-    def test_source_kind_not_editable_after_create(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
+    def test_source_kind_silently_ignored_on_patch(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
         with client:
-            rejected = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
-            assert rejected.status_code == 400
-            # 不可变字段「出现即拒」：显式传 null 也不得静默通过
-            rejected_null = client.patch("/api/v1/projects/ready", json={"source_kind": None})
-            assert rejected_null.status_code == 400
+            resp = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
+            assert resp.status_code == 200
+            # 「不接受该字段」的实质保证：请求体里的值不得落进项目数据
+            assert "source_kind" not in fake_pm.project_data["ready"]
 
     @pytest.mark.unit
     def test_project_details_and_updates(self, tmp_path, monkeypatch):
@@ -701,11 +701,12 @@ class TestProjectsRouter:
             assert update.status_code == 200
             assert update.json()["project"]["title"] == "Updated"
 
-            rejected_mode = client.patch(
+            ignored_mode = client.patch(
                 "/api/v1/projects/ready",
                 json={"content_mode": "drama"},
             )
-            assert rejected_mode.status_code == 400
+            assert ignored_mode.status_code == 200
+            assert "content_mode" not in fake_pm.project_data["ready"]
 
             # aspect_ratio 现在允许修改（字符串），dict 类型将被 Pydantic 拒绝（422）
             rejected_ratio_dict = client.patch(
@@ -722,12 +723,12 @@ class TestProjectsRouter:
             assert updated_ratio.status_code == 200
             assert updated_ratio.json()["project"]["aspect_ratio"] == "16:9"
 
-            # 退役的 image_backend 字段在 PATCH 上也被直接拒绝
-            rejected_legacy = client.patch(
+            ignored_legacy = client.patch(
                 "/api/v1/projects/ready",
                 json={"image_backend": "gemini-aistudio/nano-banana"},
             )
-            assert rejected_legacy.status_code == 400
+            assert ignored_legacy.status_code == 200
+            assert "image_backend" not in fake_pm.project_data["ready"]
 
             get_script = client.get("/api/v1/projects/ready/scripts/episode_1.json")
             assert get_script.status_code == 200
@@ -1011,12 +1012,12 @@ class TestProjectsRouter:
         fake_pm = _FakePM(tmp_path)
         client = _client(monkeypatch, fake_pm)
         with client:
-            # content_mode 创建后不可变：补 ad 同样 400
-            rejected_mode = client.patch(
+            ignored_mode = client.patch(
                 "/api/v1/projects/ready",
                 json={"content_mode": "ad"},
             )
-            assert rejected_mode.status_code == 400
+            assert ignored_mode.status_code == 200
+            assert "content_mode" not in fake_pm.project_data["ready"]
 
             # ad 项目 target_duration 接受任意正整数秒
             updated = client.patch(
@@ -1914,8 +1915,8 @@ class TestProjectsRouter:
             assert rejected.status_code == 400
 
     @pytest.mark.unit
-    def test_create_project_rejects_legacy_image_backend(self, tmp_path, monkeypatch):
-        """退役的 image_backend 字段在写路径被直接 400 拒绝，避免静默错配（应改用 image_provider_t2i/i2i）。"""
+    def test_create_project_ignores_legacy_image_backend(self, tmp_path, monkeypatch):
+        """退役的 image_backend 字段已从写模型移除，传入时被静默忽略。"""
         fake_pm = _FakePM(tmp_path)
         client = _client(monkeypatch, fake_pm)
 
@@ -1929,8 +1930,9 @@ class TestProjectsRouter:
                     "image_backend": "gemini-aistudio/nano-banana",
                 },
             )
-            assert resp.status_code == 400
-            assert "legacy-1" not in fake_pm.project_data
+            assert resp.status_code == 200
+            # 关键保证：退役字段不得落进 project.json，否则解析链会忽略它、静默错配供应商
+            assert "image_backend" not in fake_pm.project_data["legacy-1"]
 
     @pytest.mark.unit
     def test_create_project_empty_model_fields_not_written(self, tmp_path, monkeypatch):

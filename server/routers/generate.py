@@ -42,7 +42,7 @@ from lib.narration_delivery import (
     video_request_reuses_current_visual,
 )
 from lib.path_safety import safe_exists, safe_join
-from lib.project_change_hints import emit_project_change_batch, project_change_source
+from lib.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager, is_reference_video_project
 from lib.reference_video.request_projection import ProjectionResolutionError
 from lib.script_editor import resolve_items
@@ -100,7 +100,7 @@ class GenerateVideoRequest(BaseModel):
     seed: int | None = None
     # 单目标入口保留后期配音默认（docs/adr/0061）：请求由用户在这一段的界面上直接触发，
     # 界面已呈现该段的旁白状态与费用，代价也止于这一段。必填只加在替整批选定准入判据与
-    # 时长基准的批量入口与由模型推断参数的智能体视频工具上。
+    # 时长基准的批量入口与由模型推断参数的 Agent 视频工具上。
     narration_delivery: NarrationDelivery = POST_PRODUCTION
     confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
 
@@ -729,7 +729,7 @@ async def confirm_character_voice_sample(
                         "entity_type": "character",
                         "action": "updated",
                         "entity_id": char_name,
-                        "label": f"角色「{char_name}」参考音频",
+                        **build_change_label("character_reference_audio", id=char_name),
                         "focus": None,
                         "important": False,
                         "asset_fingerprints": {ref_audio_rel: target_path.stat().st_mtime_ns},

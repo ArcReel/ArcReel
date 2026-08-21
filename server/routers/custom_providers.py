@@ -202,7 +202,7 @@ class UpdateProviderRequest(BaseModel):
 
 
 class FullUpdateProviderRequest(BaseModel):
-    """PUT 全量更新：provider 元数据 + 模型列表在同一事务中。"""
+    """PUT 全量更新：provider 元数据与模型列表。"""
 
     display_name: str
     base_url: str
@@ -652,7 +652,7 @@ async def get_provider_credentials(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
-    """返回明文 base_url + api_key，供智能体配置导入复用。
+    """返回明文 base_url + api_key，供 Agent 配置导入复用。
 
     仅 CurrentUser 鉴权,与现有 PATCH 接口对齐;日志不打印 body。
     多用户场景需重新评估细粒度授权。
@@ -830,7 +830,7 @@ async def discover_anthropic_models_endpoint(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Anthropic 协议模型发现：智能体配置专用。
+    """Anthropic 协议模型发现：Agent 配置专用。
 
     凭据缺失时 fallback 到 active credential（AgentCredentialRepository）。
     """

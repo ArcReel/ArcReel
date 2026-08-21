@@ -126,7 +126,7 @@ describe("CharacterCard", () => {
       />,
     );
 
-    const sheetInput = screen.getByLabelText("上传设计图", { selector: "input" });
+    const sheetInput = screen.getByLabelText("上传资产图", { selector: "input" });
     // 面板打开（点击上传按钮）之后、选完文件之前，该角色被别处入队占用。
     useTasksStore.setState({
       tasks: [
@@ -144,7 +144,7 @@ describe("CharacterCard", () => {
     fireEvent.change(sheetInput as HTMLInputElement, { target: { files: [file] } });
 
     await waitFor(() => {
-      expect(pushToast).toHaveBeenCalledWith("生成或编辑进行中，暂无法上传设计图", "info");
+      expect(pushToast).toHaveBeenCalledWith("生成或编辑进行中，暂无法上传资产图", "info");
     });
     expect(uploadFile).not.toHaveBeenCalled();
   });

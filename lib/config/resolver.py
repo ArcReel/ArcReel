@@ -294,7 +294,7 @@ def caps_generation_mode(project: dict | None) -> str | None:
     生成路线创建即定、整个项目按同一条路径生成，能力解析因此不需要剧集上下文：定桶、声音
     一致性、以及下游按 caps ``generation_mode`` 求值的分辨率与参考图约束全部按项目路线定轴。
 
-    返回 None 而非默认档，是因为 ``generation_mode`` 是 caps 的对外字段（回前端与智能体）：
+    返回 None 而非默认档，是因为 ``generation_mode`` 是 caps 的对外字段（回前端与 Agent）：
     无项目上下文（provider 目录查询等）时「未声明」不该渲染成用户显式选过某条路线。
     """
     if project is None:

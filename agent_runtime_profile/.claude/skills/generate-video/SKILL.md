@@ -7,18 +7,18 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 ## 路由
 
-让 MCP 工具读取 `project.json`，按 `generation_mode` × `content_mode` 选择路线，并校验剧本骨架：
+让 MCP 工具读取 `project.json`，按 `generation_mode` × `content_mode` 分派，并校验剧本骨架：
 
-| 项目路线 × 内容模式 | 应有骨架 | 路由 | 输出目录 |
+| 生成模式 × 创作类型 | 应有骨架 | 分派 | 输出目录 |
 |---|---|---|---|
 | `reference_video` × narration / drama / ad | `video_units[]` | `task_type="reference_video"` → `execute_reference_video_task` | `reference_videos/{unit_id}.mp4` |
 | `storyboard` × narration | `segments[]` | `task_type="video"` → `execute_video_task` | `videos/scene_{segment_id}.mp4` |
 | `storyboard` × drama | `scenes[]` | 同上 | `videos/scene_{scene_id}.mp4` |
 | `storyboard` × ad | `shots[]` | 同上 | `videos/scene_{shot_id}.mp4` |
 
-骨架失配时停止入队，按项目路线重生成剧本。参考路线直接消费自包含 `video_units[]`，跳过分镜图。
+骨架失配时停止入队，按项目生成模式重生成剧本。参考生视频直接消费自包含 `video_units[]`，跳过分镜图。
 
-### 参考路线
+### 参考生视频
 
 把每个 `video_units[]` 条目视为一次独立生成调用：
 
@@ -46,11 +46,11 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 每次调用都必须带 `narration_delivery`（见「旁白交付」）：省略或写错值一律返回工具错误、不入队任何任务。
 上表的 `chosen_narration_delivery` 是占位符，调用前换成本次已向用户确认的那个值，不要照抄一个具体值。
 
-把 `scene_id` / `scene_ids` 在 storyboard 路线解释为分镜 ID，在 reference 路线解释为 `unit_id`。集号由剧本元数据或文件名解析。
+把 `scene_id` / `scene_ids` 在分镜图生视频解释为分镜 ID，在参考生视频解释为 `unit_id`。集号由剧本元数据或文件名解析。
 
 ### 点名重新生成 unit
 
-在 reference 路线传 `video_units[].unit_id`：
+在参考生视频传 `video_units[].unit_id`：
 
 | 操作 | 工具 |
 |------|------|
@@ -83,7 +83,7 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 `tts_conflicts_with_active_narrated_video` 等待在跑的任务后重查（不要重复提交）、
 `tts_not_applicable` 改选后期配音、`tts_state_unavailable` 报为独立缺口而不是当作缺失去重生。
 
-`generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：旁白交付选择在两条路线上都要做。
+`generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：旁白交付选择在两种生成模式下都要做。
 
 ### 批量准入与档位确认
 
@@ -119,26 +119,26 @@ stale 产物照常可预览、可导出、可参与成片，服务端会复用�
 
 ## 工作流程
 
-1. 加载项目和剧本，确认骨架与路线一致。
-2. 在 storyboard 路线确认分镜图可用；在 reference 路线确认 unit 可生成且声明的参考资产可解析。
+1. 加载项目和剧本，确认骨架与生成模式一致。
+2. 在分镜图生视频确认分镜图可用；在参考生视频确认 unit 正文非空、编排时长合法。
 3. 与用户确定本次旁白交付方式，调用相应 MCP 工具，处理准入拒绝与档位确认。
 4. 展示结果，按用户选择点名重做不满意的分镜或 unit。
 5. 以工具写回的 `generated_assets.video_clip` 作为成片归属。
 
 ## Prompt 构建
 
-让 MCP 工具按路线构建 Prompt：
+让 MCP 工具按生成模式构建 Prompt：
 
-- storyboard 路线读取 `image_prompt`、`video_prompt` 与分镜图。
-- reference 路线读取 unit 正文（`text`）与编排时长。
-- 说书 storyboard 路线不把 `novel_text` 放入视频 Prompt；旁白由独立音频流程处理。
+- 分镜图生视频读取 `image_prompt`、`video_prompt` 与分镜图。
+- 参考生视频读取 unit 正文（`text`）与编排时长。
+- 旁白/解说的分镜图生视频不把 `novel_text` 放入视频 Prompt；旁白由独立音频流程处理。
 - 自动应用音频开关、角色发声归属与负面 Prompt 规则。
 
 ## 生成前检查
 
-按项目路线检查：
+按项目生成模式检查：
 
 - storyboard：每个目标分镜都有可用分镜图，动作与发声内容可执行。
 - reference：每个目标 unit 有非空书写层、合法编排时长、单一发声归属，且未标记 `needs_replan`。
-- reference：所有声明引用已登记且图片可解析；让服务端按 `max_reference_images` 裁剪，产品参考保持优先。
+- reference：参考图由服务端在执行期从正文 `@[名称]` 的首次提及顺序解析；未登记的提及只产生警告、不阻断入队，让服务端按 `max_reference_images` 裁剪。
 - reference：输出路径为 `reference_videos/{unit_id}.mp4`。

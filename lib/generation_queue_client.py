@@ -579,7 +579,7 @@ async def _enqueue_sequentially(
                         task_id="",
                         status="failed",
                         # detail 与 ``enqueue_problem`` 的两个默认值同为英文：它是契约字段，
-                        # 面向智能体与排障，用户可读的那句由各端按问题码本地化。
+                        # 面向 Agent 与排障，用户可读的那句由各端按问题码本地化。
                         error=f"batch enqueue stopped at '{spec.resource_id}'; this target was never queued",
                         enqueue_interrupted=True,
                     )

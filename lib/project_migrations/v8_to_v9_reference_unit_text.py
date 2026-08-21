@@ -161,7 +161,7 @@ def _ensure_backup(path: Path) -> None:
 def _located(episode: int, file: str) -> Iterator[None]:
     """把预检抛出的结构违约补成带定位事实的迁移错误。
 
-    「需要修复」裁决按 ``(episode, file)`` 给用户与智能体导航，仅凭消息文本无法定位到集与文件。
+    「需要修复」裁决按 ``(episode, file)`` 给用户与 Agent 导航，仅凭消息文本无法定位到集与文件。
     """
 
     try:

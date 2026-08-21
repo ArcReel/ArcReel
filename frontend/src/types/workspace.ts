@@ -44,7 +44,12 @@ export interface ProjectChange {
     | "task_failed"
     | "task_cancelled";
   entity_id: string;
+  /** 后端按默认语言渲染的条目标签，只作日志与旧发布方兜底；界面文案以 label_key 为准。 */
   label: string;
+  /** 条目标签的稳定标识，对应 `events` 命名空间的 `label.*`。 */
+  label_key?: string;
+  /** label_key 的插值参数（如 id / episode）。 */
+  label_params?: Record<string, string | number>;
   script_file?: string;
   episode?: number;
   /** 仅 entity_type === "task" 携带：终态任务的任务类型，用于判定哪类画布需重拉。 */

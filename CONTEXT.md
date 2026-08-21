@@ -56,8 +56,8 @@ _Avoid_: api_format、把它当模型调用协议开关。
 同一供应商下配置多套凭证时当前生效的那一套，由用户在 UI 手动切换、全局生效，每个供应商至多一条活跃凭证。
 _Avoid_: default credential、把切换理解为自动轮换或负载均衡。
 
-**智能体凭证（agent_credential）**：
-供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的智能体凭证表，与自定义 provider 凭证互不相通（见 `docs/adr/0017`）。
+**Agent 凭证（agent_credential）**：
+供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的 Agent 凭证表，与自定义 provider 凭证互不相通（见 `docs/adr/0017`）。
 _Avoid_: 把它当成一个自定义 provider。
 
 ### 任务与取消
@@ -324,6 +324,10 @@ _Avoid_: 分镜、资产图、多宫格分镜。
 参考生视频时，一段自由文本加编排时长构成的最小生成、计费和成片归属单位；视频单元的数量即参考生视频项目的内容规模度量。
 _Avoid_: 场景、分镜。
 
+**书写层记号（writing_syntax）**：
+创作者在视频单元正文中直接书写的三种记号：`@[名称]` 引用已登记的商品/角色/场景/道具资产，`@[名称]{台词}` 引用资产并附带角色台词，裸 `{台词}` 标注画外音。
+_Avoid_: 把记号解析规则与资产登记混为一谈。
+
 **脚本（script）**：
 ArcReel 根据小说、剧本或指令整理出的结构化创作内容，用于后续生成分镜或视频单元。
 _Avoid_: 用剧本指代 ArcReel 的结构化产物。
@@ -373,7 +377,7 @@ _Avoid_: 以物理集文件的存在性推断分集状态或集数。
 _Avoid_: 与产物时效的 stale 混为一谈。
 
 **指令（instructions）**：
-创作者为一次内容整理或生成提出的自然语言要求，只在该次操作中生效；长期偏好由智能体记忆承载。
+创作者为一次内容整理或生成提出的自然语言要求，只在该次操作中生效；长期偏好由 Agent 记忆承载。
 _Avoid_: 创作要求、prompt。
 
 **分集规划（plan）**：
@@ -411,41 +415,41 @@ _Avoid_: 把它当一次性通知、用它阻断只读查看。
 _Avoid_: 并存另一套按文件存在性统计的阶段/进度。
 
 **制作计划（workflow plan）**：
-制作状态之上的有序步骤视图，每步携带状态、是否必需、可执行动作、涉及的产物与问题；服务端权威生成，Web 与智能体消费同一份。
-_Avoid_: 智能体自行按文件推断下一步。
+制作状态之上的有序步骤视图，每步携带状态、是否必需、可执行动作、涉及的产物与问题；服务端权威生成，Web 与 Agent 消费同一份。
+_Avoid_: Agent 自行按文件推断下一步。
 
 **项目摘要（project summary）**：
 制作状态的跨集聚合投影，供项目列表与剧集卡使用：项目所在阶段、可用资产计数、每集可用产物计数与脚本状态。
 _Avoid_: 用它替代目标集的制作状态。
 
-### 智能体运行时
+### Agent 运行时
 
-**智能体（agent）**：
-在 ArcReel 中理解创作者要求、协助组织内容并调用创作能力完成工作的智能体。
+**Agent（智能体）**：
+在 ArcReel 中理解创作者要求、协助组织内容并调用创作能力完成工作的对话式 AI。界面标签与短文案写「Agent」；文档与产品内的说明性文案首次出现时写「Agent（智能体）」，同一篇内其余位置仍写「Agent」。
 _Avoid_: 助手、创作助手、Copilot。
 
 **子任务（subagent）**：
-智能体为完成一个聚焦目标而拆出的工作，主对话只展示其目标、状态和结果。
-_Avoid_: 子智能体。
+Agent 为完成一个聚焦目标而拆出的工作，主对话只展示其目标、状态和结果。
+_Avoid_: 子 Agent。
 
 **SessionActor**：
-每个智能体会话专属的执行体，串行化该会话对 SDK 的所有调用（见 `docs/adr/0028`）。
+每个 Agent 会话专属的执行体，串行化该会话对 SDK 的所有调用（见 `docs/adr/0028`）。
 _Avoid_: 与 ManagedSession 混为一谈。
 
-**智能体启动失败（agent_startup_failure）**：
-智能体尚未建立可用运行环境时发生的系统故障，位于任何对话轮次之前。
-_Avoid_: 与智能体轮次失败混为一谈。
+**Agent 启动失败（agent_startup_failure）**：
+Agent 尚未建立可用运行环境时发生的系统故障，位于任何对话轮次之前。
+_Avoid_: 与 Agent 轮次失败混为一谈。
 
-**智能体轮次失败（agent_turn_failure）**：
-智能体已成功启动后，某一轮未完成的故障终态；它是系统故障事件，不是智能体回答。
-_Avoid_: 把 SDK 合成的错误消息作为普通智能体回答。
+**Agent 轮次失败（agent_turn_failure）**：
+Agent 已成功启动后，某一轮未完成的故障终态；它是系统故障事件，不是 Agent 回答。
+_Avoid_: 把 SDK 合成的错误消息作为普通 Agent 回答。
 
 **故障观测（failure_observation）**：
-ArcReel 在一次智能体故障中实际获得的上下文与原始故障事实；它是排障证据，不是根因结论。
+ArcReel 在一次 Agent 故障中实际获得的上下文与原始故障事实；它是排障证据，不是根因结论。
 _Avoid_: 把未识别事实归一成"未知错误"。
 
 **SDK transcript**：
-SDK 按自身协议写入的会话记录，唯一职责是供 SDK 重建智能体上下文。
+SDK 按自身协议写入的会话记录，唯一职责是供 SDK 重建 Agent 上下文。
 _Avoid_: 把 transcript 当 UI 对话时间线的数据源。
 
 **会话事件日志（session event log）**：
@@ -453,7 +457,7 @@ _Avoid_: 把 transcript 当 UI 对话时间线的数据源。
 _Avoid_: 把它当第二真相源与 transcript 对账。
 
 **流式预览态（draft）**：
-正在流式生成、尚未完成的智能体消息的临时预览表示，消息完成后被会话事件日志里的权威条目替换。
+正在流式生成、尚未完成的 Agent 消息的临时预览表示，消息完成后被会话事件日志里的权威条目替换。
 _Avoid_: 把 draft 做成日志条目的 pending 状态。
 
 **消息改写（message rewrite）**：
@@ -468,20 +472,20 @@ _Avoid_: 与 SDK 原生 `fork_session` 混为一谈。
 同一会话内属于同一个子任务的消息序列，主时间线上只呈现一张可折叠的子任务卡片。
 _Avoid_: 把 subagent 消息平铺进主时间线。
 
-**智能体运行 profile（agent_runtime_profile）**：
-智能体专属的运行态配置树，与开发者本地的编辑器配置物理分离，运行时物化进各项目目录。
+**Agent 运行 profile（agent_runtime_profile）**：
+Agent 专属的运行态配置树，与开发者本地的编辑器配置物理分离，运行时物化进各项目目录。
 _Avoid_: 用「.claude」笼统指代、称为 agent config。
 
 **profile 物化（materialization）**：
-把智能体运行 profile 落盘进某个项目目录的过程，按该项目的创作类型选定变体。
+把 Agent 运行 profile 落盘进某个项目目录的过程，按该项目的创作类型选定变体。
 _Avoid_: 用「同步 / 复制」泛指。
 
-**智能体沙箱（agent_sandbox）**：
-智能体工具调用外围的内核级隔离层，约束沙箱内所有子进程的文件读写与网络（见 `docs/adr/0025`、`docs/adr/0026`）。
+**Agent 沙箱（agent_sandbox）**：
+Agent 工具调用外围的内核级隔离层，约束沙箱内所有子进程的文件读写与网络（见 `docs/adr/0025`、`docs/adr/0026`）。
 _Avoid_: 用「沙箱」泛指应用层路径围栏 hook。
 
 **AgentAccessPolicy**：
-「智能体能碰什么」的单一规则来源，同一份规则为内核沙箱与应用层围栏各做一种投影（见 `docs/adr/0046`）。
+「Agent 能碰什么」的单一规则来源，同一份规则为内核沙箱与应用层围栏各做一种投影（见 `docs/adr/0046`）。
 _Avoid_: SandboxPolicy。
 
 ### 认证与凭证

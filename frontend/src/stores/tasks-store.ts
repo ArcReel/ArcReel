@@ -210,7 +210,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
    * 参考生视频画布靠 `referenceVideoUnitsRevision` 重拉成片和旁白路径，而自增主通道是项目
    * 事件 SSE：SSE 断线、静默失速或丢掉这一条事件时，任务状态还能靠轮询兜底恢复，unit
    * 快照却一直不更新，直到画布重新挂载。这里让 reference_video / tts 的轮询成功也走同一次
-   * 失效，补上兜底路径的缺口；非参考路线没有挂载该画布，多一次 revision 自增不触发请求。
+   * 失效，补上兜底路径的缺口；非参考生视频模式没有挂载该画布，多一次 revision 自增不触发请求。
    *
    * 判据是「这一轮成功、上一轮不成功」，其中「上一轮没见过」也算不成功——任务的入队与完成
    * 整个落在两次轮询之间时（空闲档间隔较长，provider 命中缓存时可能秒回），它是首次以
@@ -459,7 +459,7 @@ export function isTerminalStatus(status: TaskStatus): boolean {
  * 任务占用的「资源种类」。除 image_edit 外，task_type 本身即资源种类；image_edit 跨
  * character/scene/prop/product/storyboard 共用一个 task_type，真正的种类在 resource_type，
  * 故按 resource_type 归槽——编辑任务与同资源的生成任务落入同一占用集、彼此互斥。
- * `voice_sample`（角色 TTS 试听样本）同理归入 `character`——它与该角色的设计图生成/
+ * `voice_sample`（角色 TTS 试听样本）同理归入 `character`——它与该角色的资产图生成/
  * 编辑/上传共用同一占用槽（见 {@link enqueueCharacterVoiceSample}），乐观标记在请求
  * 发出前就用 `character` kind 打标，真实任务行落库后须归到同一 kind 才能让位不断档。
  *
