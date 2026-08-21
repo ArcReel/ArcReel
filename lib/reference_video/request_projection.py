@@ -16,12 +16,13 @@ from typing import Protocol, cast
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.asset_types import ASSET_SPECS, AssetSpec, asset_name_comparison_key, normalize_asset_bucket
-from lib.config.registry import (
-    model_audio_switch_controllable,
-    model_has_audio_track,
-    model_info_for,
+from lib.config.registry import model_info_for
+from lib.config.resolver import (
+    VideoBucketCapabilityError,
+    VideoCapability,
+    builtin_video_audio_track,
+    get_provider_fallback,
 )
-from lib.config.resolver import VideoBucketCapabilityError, VideoCapability, get_provider_fallback
 from lib.narration_delivery import (
     POST_PRODUCTION as POST_PRODUCTION,
 )
@@ -306,13 +307,19 @@ def reference_audio_model_facts(
     model_id: str,
     *,
     voice_consistency: str,
+    capability: VideoCapability,
 ) -> tuple[bool, bool]:
-    """返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。"""
+    """返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
 
-    model_info = model_info_for(provider_id, model_id)
-    if model_info is None:
+    ``capability`` 定的是执行路径：音轨形态按子路径分叉，参考路线的镜头必须按 r2v 取值，否则
+    可灵 v3-omni 这类「图生可控、参考生无开关」的型号会被当成开关可控（用户的音频配置在多图
+    主体子路径上根本发不出去）。自定义供应商与未登记模型没有逐模型声明，按无信号不收紧。
+    """
+
+    audio_track = builtin_video_audio_track(provider_id, model_id, capability=capability)
+    if audio_track is None:
         return voice_consistency != "none", True
-    return model_has_audio_track(provider_id, model_info), model_audio_switch_controllable(model_info)
+    return audio_track != "always_off", audio_track == "controllable"
 
 
 def strict_reference_durations(
@@ -523,6 +530,7 @@ class ConfigReferenceCapabilityProjection:
             provider_id,
             model_id,
             voice_consistency=str(caps.get("voice_consistency") or "soft"),
+            capability=capability,
         )
         max_references = caps.get("max_reference_images")
         candidate = ProviderProjectionCandidate(

@@ -45,6 +45,7 @@ from lib.retry import (
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -277,11 +278,15 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         首帧 + 尾帧（首尾关键帧）+ 多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加）。
         当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
         保持 backend 为单一真相源。
+
+        音轨恒无声：请求体没有音轨字段、成片不带音轨（``generate`` 结算时直接写死
+        ``generate_audio=False``），用户的开启意图无处可下发。
         """
         return VideoCapabilities(
             first_frame=True,
             last_frame=True,
             max_reference_images=_MAX_REFERENCE_IMAGES,
+            audio_track=VideoAudioMode.ALWAYS_OFF,
         )
 
     @property

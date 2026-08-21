@@ -374,7 +374,11 @@ async def resolve_generation_context(
             # 能力接口，能力解析失败不得连带把它冲回默认值 True（会静默重新允许参考音频上传）。
             requested_generate_audio = await r.video_generate_audio_for_project(project)
             try:
-                caps = await r.video_capabilities_for_model(resolved.provider_id, actual_model, project)
+                # 带上本次任务落的桶：音轨形态等逐路径能力位按执行子路径分叉，不传会按项目
+                # 路线定桶，参考路线内降级到 i2v 的镜头就会拿到 r2v 的口径。
+                caps = await r.video_capabilities_for_model(
+                    resolved.provider_id, actual_model, project, capability=video.capability
+                )
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")

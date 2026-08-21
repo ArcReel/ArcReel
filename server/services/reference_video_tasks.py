@@ -400,6 +400,7 @@ async def execute_reference_video_task(
                 video.provider_model.provider_id,
                 video.backend_model,
                 voice_consistency=video.voice_consistency,
+                capability=capability,
             )
             return ProviderProjectionCandidate(
                 capability=capability,

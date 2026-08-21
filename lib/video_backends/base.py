@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 import httpx
 from sqlalchemy.exc import InterfaceError, OperationalError
@@ -579,6 +579,29 @@ class ReferenceAudioMode(StrEnum):
     DIRECT = "direct"
 
 
+class VideoAudioMode(StrEnum):
+    """成片音轨与音轨开关的三态。
+
+    ``CONTROLLABLE`` 表示请求携带音轨开关，用户的开/关意图能抵达供应商；``ALWAYS_ON`` 表示
+    成片必然带音轨而请求里没有开关可下发（关闭意图必然落空）；``ALWAYS_OFF`` 表示该路径不产
+    音轨、也没有开关（开启意图必然落空）。
+
+    与 ``reference_audio_mode`` 是两回事：后者描述**输入**通道（能否给模型一段音色参考），本
+    枚举描述**输出**音轨。取值与前端 ``VideoAudioControl`` 字面量一一对应，两侧不各自归并。
+    """
+
+    CONTROLLABLE = "controllable"
+    ALWAYS_ON = "always_on"
+    ALWAYS_OFF = "always_off"
+
+
+#: 视频执行路径（能力桶）：``i2v`` 覆盖文生与图生首帧，``r2v`` 是参考生视频。
+#: 与 ``lib.config.resolver.VideoCapability`` 同一份词汇表，因分层契约（config 是最底层，
+#: backend 不得反向导入）而各层各声明一次，取值一致由
+#: ``tests/test_video_backend_capabilities.py`` 的守卫锁定。
+VideoRoute = Literal["i2v", "r2v"]
+
+
 @dataclass
 class VideoCapabilities:
     """Declares what a video backend supports.
@@ -590,6 +613,16 @@ class VideoCapabilities:
     不是统一契约：部分后端拒绝叠加（如 Agnes 抛 ``VideoCapabilityError``），部分静默叠加
     （如 v2 中转、Grok、Sora 首帧与参考共享单槽）。调用方不应假设某种统一行为，需按具体
     后端核实。
+
+    ``audio_track`` / ``reference_route_audio_track`` 描述**成片音轨**（有无音轨、开关是否可
+    控），是该维度的唯一真相源——与请求构造同源，backend 是否往请求体里放音轨开关就是这一位
+    的字面含义。两条执行路径各声明一次，与 ``first_frame`` / ``max_reference_images`` 把两条
+    路径摊平进同一个对象同构：``reference_route_audio_track`` 为 None 表示参考生视频路径与
+    ``audio_track`` 同形（绝大多数 backend 如此），非 None 时表示该路径的请求形态另有一套音轨
+    行为（可灵 v3-omni 的多图主体子路径原生 schema 不含音轨开关，故该路径恒无声）。默认取
+    ``CONTROLLABLE``——未声明即「无信号不收紧」，不把能力不明的 model 谎报成开关失效。
+    取值请走 :meth:`audio_track_for_route`，不要直接读字段，否则每个调用方都要重写一遍
+    「参考路线优先」的合并规则。
 
     ``reference_audio_mode`` / ``max_reference_audio_count`` 描述参考音频路径，与参考图
     同构：模式非 ``NONE`` 时后端接受 ``reference_audio_files`` 请求字段，段数受上限约束。
@@ -639,6 +672,18 @@ class VideoCapabilities:
     reference_audio_per_image: bool = False
     max_prompt_chars: int | None = None
     first_frame_ratio_adaptive_only: bool = False
+    audio_track: VideoAudioMode = VideoAudioMode.CONTROLLABLE
+    reference_route_audio_track: VideoAudioMode | None = None
+
+    def audio_track_for_route(self, route: VideoRoute) -> VideoAudioMode:
+        """该执行路径上成片音轨的实际形态。
+
+        参考生视频路径未单独声明时跟随 ``audio_track``——两条路径同形是常态，逐 backend 重复
+        声明只会多出一份可漂移的副本。
+        """
+        if route == "r2v" and self.reference_route_audio_track is not None:
+            return self.reference_route_audio_track
+        return self.audio_track
 
 
 @dataclass

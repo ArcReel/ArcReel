@@ -199,6 +199,9 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
         保持 backend 为单一真相源。
+
+        音轨形态全系取 ``VideoCapabilities`` 的默认值（开关可控）：``_build_payload`` 无条件把
+        ``generate_audio`` 放进请求体，各档 Seedance 都认这个开关，故无需分支声明。
         """
         if ArkVideoBackend._is_seedance_2_5(model):
             # 2.5 与 2.0 的差别不止数值：素材上限放宽到参考图 30 / 音频 10 段、总时长 30 秒，

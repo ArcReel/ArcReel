@@ -2439,7 +2439,7 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     versions = VersionManager(proj_dir)
     project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
     has_audio_track, audio_switch_controllable = reference_audio_model_facts(
-        "openai", "sora-2", voice_consistency="soft"
+        "openai", "sora-2", voice_consistency="soft", capability="i2v"
     )
     # 正文没有 @ 提及 → 无参考图，执行侧按 i2v 桶分流。
     candidate = ProviderProjectionCandidate(

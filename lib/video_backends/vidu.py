@@ -16,6 +16,7 @@ from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_VIDU
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
+    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -210,6 +211,10 @@ class ViduVideoBackend:
             max_prompt_chars=(
                 _PROMPT_MAX_REFERENCE2VIDEO if _serves_only_reference2video(model) else _PROMPT_MAX_TEXT2VIDEO
             ),
+            # 音轨开关 body["audio"] 只对 q3 系列下发（_build_request），其余系列默认静音且无
+            # 开关可下发，故恒无声。未登记 model 不在 _Q3_MODELS 内，同样按恒无声声明——与
+            # `generate_audio=... if self._model in _Q3_MODELS else False` 的结算口径同源。
+            audio_track=(VideoAudioMode.CONTROLLABLE if model in _Q3_MODELS else VideoAudioMode.ALWAYS_OFF),
         )
 
     @property

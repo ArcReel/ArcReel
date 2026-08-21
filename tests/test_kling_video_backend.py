@@ -13,7 +13,7 @@ import jwt
 import pytest
 
 from lib.providers import PROVIDER_KLING
-from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
+from lib.video_backends.base import VideoAudioMode, VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.registry import effective_generate_audio_for_model
 
@@ -321,6 +321,24 @@ class TestMultiImageSubpath:
             )
             is False
         )
+
+    @pytest.mark.unit
+    def test_reference_route_declares_no_audio_switch(self):
+        """能力声明与 multi-image2video 的请求形态同源：参考路线如实呈现为无音轨开关。
+
+        展示层（设置页音频开关置灰）与入队预检读的就是这一份；两者若各写一遍，界面会继续
+        放行一个执行期必然被丢弃的开关——用户开了音频却拿到无声成片。
+        """
+        caps = KlingVideoBackend.video_capabilities_for_model("kling-v3-omni")
+        assert caps.audio_track_for_route("i2v") is VideoAudioMode.CONTROLLABLE
+        assert caps.audio_track_for_route("r2v") is VideoAudioMode.ALWAYS_OFF
+
+    @pytest.mark.unit
+    def test_tier_aware_capabilities_keep_reference_route_audio_declaration(self):
+        """按档位收窄的能力查询也带同一份音轨声明，不因走另一条查询而丢掉路径分叉。"""
+        caps = _jwt_backend("kling-v3-omni").video_capabilities_for_tier("pro", resolution="1080p")
+        assert caps.audio_track_for_route("i2v") is VideoAudioMode.CONTROLLABLE
+        assert caps.audio_track_for_route("r2v") is VideoAudioMode.ALWAYS_OFF
 
     @pytest.mark.unit
     def test_reference_images_take_precedence_over_start_image(self, tmp_path):

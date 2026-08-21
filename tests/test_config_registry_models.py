@@ -166,9 +166,6 @@ class TestProviderRegistry:
         assert wan3.media_type == "video"
         assert wan3.supported_durations == list(range(2, 31))
         assert wan3.resolutions == ["480p", "720p", "1080p"]
-        # 单模型通吃三条路径，音轨由请求参数控制 —— 与同门恒有声型号相反
-        assert "generate_audio" in wan3.capabilities
-        assert wan3.audio_always_on is False
         assert wan3.default is False
 
     def test_dashscope_declares_wan3_base_url_key(self):
@@ -184,13 +181,6 @@ class TestProviderRegistry:
         assert "doubao-seedance-2-0-260128" in video_models
         assert "doubao-seedance-2-0-fast-260128" in video_models
         assert "doubao-seedance-2-0-mini-260615" in video_models
-        # 2.0 系列音轨开关可控
-        for mid in (
-            "doubao-seedance-2-0-260128",
-            "doubao-seedance-2-0-fast-260128",
-            "doubao-seedance-2-0-mini-260615",
-        ):
-            assert "generate_audio" in video_models[mid].capabilities
         # fast 与 mini 都只支持 480p/720p，不含 1080p/4k
         assert video_models["doubao-seedance-2-0-fast-260128"].resolutions == ["480p", "720p"]
         assert video_models["doubao-seedance-2-0-mini-260615"].resolutions == ["480p", "720p"]
@@ -206,7 +196,6 @@ class TestProviderRegistry:
         # 30 秒直出全展开为离散档；官方的 -1（模型自选时长）不登记
         assert seedance_25.supported_durations == list(range(4, 31))
         assert seedance_25.resolutions == ["480p", "720p"]
-        assert "generate_audio" in seedance_25.capabilities
         # 2.0 mini 仍是默认，2.5 只是可选
         assert seedance_25.default is False
 

@@ -6,7 +6,7 @@ import { API } from "@/api";
 import * as providerModels from "@/utils/provider-models";
 import { useAppStore } from "@/stores/app-store";
 import { MediaModelSection } from "./MediaModelSection";
-import type { ProviderInfo } from "@/types/provider";
+import type { ProviderInfo, VideoAudioControl } from "@/types/provider";
 
 const CONFIG = {
   options: {
@@ -185,7 +185,7 @@ describe("MediaModelSection", () => {
     function videoProvider(
       providerId: string,
       modelId: string,
-      audio: { has_audio_track: boolean; audio_switch_controllable: boolean },
+      audio: { audio_track: VideoAudioControl; reference_route_audio_track?: VideoAudioControl },
     ): ProviderInfo {
       return {
         id: providerId,
@@ -205,24 +205,22 @@ describe("MediaModelSection", () => {
             supported_durations: [8],
             duration_resolution_constraints: {},
             resolutions: [],
+            reference_route_audio_track: audio.audio_track,
             ...audio,
-            voice_consistency: audio.has_audio_track ? "soft" : "none",
+            voice_consistency: audio.audio_track === "always_off" ? "none" : "soft",
           },
         },
       };
     }
 
-    function mockProviders(hasAudioTrack: boolean, controllable: boolean) {
+    function mockProviders(audioTrack: VideoAudioControl) {
       vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
-        videoProvider("gemini", "veo-3", {
-          has_audio_track: hasAudioTrack,
-          audio_switch_controllable: controllable,
-        }),
+        videoProvider("gemini", "veo-3", { audio_track: audioTrack }),
       ]);
     }
 
     it("keeps the checkbox interactive for a model whose audio track is controllable", async () => {
-      mockProviders(true, true);
+      mockProviders("controllable");
       render(<MediaModelSection />);
       const box = await screen.findByRole("checkbox", { name: /生成音频/ });
       expect(box).toBeEnabled();
@@ -230,7 +228,7 @@ describe("MediaModelSection", () => {
 
     it("locks the checkbox on an always-audible model and offers a one-click fix for a stored off setting", async () => {
       const user = userEvent.setup();
-      mockProviders(true, false);
+      mockProviders("always_on");
       render(<MediaModelSection />);
       const box = await screen.findByRole("checkbox", { name: /生成音频/ });
       expect(box).toBeDisabled();
@@ -251,8 +249,8 @@ describe("MediaModelSection", () => {
       const user = userEvent.setup();
       mockConfig({ default_video_backend_i2v: "dashscope/wan" });
       vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
-        videoProvider("gemini", "veo-3", { has_audio_track: true, audio_switch_controllable: true }),
-        videoProvider("dashscope", "wan", { has_audio_track: true, audio_switch_controllable: false }),
+        videoProvider("gemini", "veo-3", { audio_track: "controllable" }),
+        videoProvider("dashscope", "wan", { audio_track: "always_on" }),
       ]);
       render(<MediaModelSection />);
       const box = await screen.findByRole("checkbox", { name: /生成音频/ });
@@ -276,8 +274,8 @@ describe("MediaModelSection", () => {
         default_video_backend_r2v: "gemini/veo-3",
       });
       vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
-        videoProvider("gemini", "veo-3", { has_audio_track: true, audio_switch_controllable: true }),
-        videoProvider("dashscope", "wan", { has_audio_track: true, audio_switch_controllable: false }),
+        videoProvider("gemini", "veo-3", { audio_track: "controllable" }),
+        videoProvider("dashscope", "wan", { audio_track: "always_on" }),
       ]);
       render(<MediaModelSection />);
       const box = await screen.findByRole("checkbox", { name: /生成音频/ });
@@ -287,7 +285,7 @@ describe("MediaModelSection", () => {
     });
 
     it("locks the checkbox on a model without an audio track", async () => {
-      mockProviders(false, false);
+      mockProviders("always_off");
       render(<MediaModelSection />);
       const box = await screen.findByRole("checkbox", { name: /生成音频/ });
       expect(box).toBeDisabled();

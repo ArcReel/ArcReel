@@ -21,9 +21,9 @@ from starlette.responses import Response
 
 from lib.app_data_dir import app_data_dir
 from lib.backend_assembly.specs import get_provider_spec
-from lib.config.registry import PROVIDER_REGISTRY, model_audio_switch_controllable, model_has_audio_track
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
-from lib.config.resolver import VoiceConsistency, derive_voice_consistency
+from lib.config.resolver import VoiceConsistency, builtin_video_audio_track, derive_voice_consistency
 from lib.config.service import ConfigService, ProviderConfigValueError
 from lib.config.url_utils import normalize_base_url
 from lib.db import get_async_session
@@ -31,6 +31,7 @@ from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
 from lib.i18n import Translator
+from lib.video_backends.base import VideoAudioMode
 from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 from server.dependencies import get_config_service
 
@@ -80,13 +81,14 @@ class ModelInfoResponse(BaseModel):
     duration_resolution_constraints: dict[str, list[int]] = {}
     reference_image_durations: list[int] = []
     resolutions: list[str] = []
-    # 视频 model 是否带音轨（非视频 model 恒 False）。不等于「音轨开关可控」——generate_audio
-    # token 语义见 lib.config.registry.model_has_audio_track。供前端下拉选项的能力线渲染。
-    has_audio_track: bool = False
-    # 请求参数能否控制该 model 的音轨开关（非视频 model 恒 False）。与 has_audio_track 合起来
-    # 分出可控 / 恒有声 / 恒无声三态，供设置页决定音频开关是否可交互；派生走
-    # lib.config.registry.model_audio_switch_controllable，前端不解读 capabilities token。
-    audio_switch_controllable: bool = False
+    # 成片音轨形态（``VideoAudioMode``：可控 / 恒有声 / 恒无声），按执行路径各给一份——同一
+    # model 在图生与参考生两条子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带
+    # 音轨开关）。设置页按当前生效的桶取对应字段决定开关是否可交互，能力线渲染按「非恒无声即
+    # 有音轨」判定；前端不解读 capabilities token，也不自行合成三态。
+    # 真相源是 backend 的 VideoCapabilities（lib.config.resolver.builtin_video_audio_track）；
+    # 非视频 model 恒 always_off。
+    audio_track: str = VideoAudioMode.ALWAYS_OFF.value
+    reference_route_audio_track: str = VideoAudioMode.ALWAYS_OFF.value
     # 无项目上下文（全局设置「模型选择」）下的声音一致性档位：generation_mode 未知，故按非参考
     # 生视频路径派生，native 恒降格。派生走 lib.config.resolver.derive_voice_consistency 这唯一
     # 一处公式，前端只读枚举。有项目上下文时改用 /projects/{name}/video-capabilities（同一函数、
@@ -371,25 +373,24 @@ async def list_providers(
     statuses = await svc.get_all_providers_status()
     providers = []
     for s in statuses:
-        meta = PROVIDER_REGISTRY.get(s.name)
         models: dict[str, ModelInfoResponse] = {}
         for mid, minfo in (s.models or {}).items():
-            model_info = meta.models.get(mid) if meta is not None else None
-            has_audio_track = model_has_audio_track(s.name, model_info) if model_info is not None else False
+            silent = VideoAudioMode.ALWAYS_OFF.value
+            audio_track = builtin_video_audio_track(s.name, mid, capability="i2v") or silent
+            reference_route_audio_track = builtin_video_audio_track(s.name, mid, capability="r2v") or silent
             reference_audio_mode = (
                 _video_reference_audio_mode(s.name, mid) if minfo.get("media_type") == "video" else "none"
             )
             models[mid] = ModelInfoResponse(
                 **minfo,
-                has_audio_track=has_audio_track,
-                audio_switch_controllable=(
-                    model_audio_switch_controllable(model_info) if model_info is not None else False
-                ),
-                # generation_mode=None：目录端点无项目上下文，按非参考生视频路径派生。
+                audio_track=audio_track,
+                reference_route_audio_track=reference_route_audio_track,
+                # generation_mode=None：目录端点无项目上下文，按非参考生视频路径派生，音轨位
+                # 同样取 i2v 路径——有项目上下文时改用 /projects/{name}/video-capabilities。
                 voice_consistency=derive_voice_consistency(
                     reference_audio_mode=reference_audio_mode,
                     generation_mode=None,
-                    has_audio=has_audio_track,
+                    has_audio=audio_track != silent,
                 ),
             )
         providers.append(
