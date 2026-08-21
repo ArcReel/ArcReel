@@ -26,9 +26,13 @@ from lib.project_migration_failure import (
 )
 from lib.project_migrations.runner import migrate_project_with_verdict, run_project_migrations
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script_batch_edit import script_revision
 from lib.workflow_plan import WorkflowPlanRequest
 from lib.workflow_state import WorkflowStateService
+from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools.enqueue_assets import list_pending_assets_tool
 from server.agent_runtime.sdk_tools.patch_script import (
+    get_episode_script_revision_tool,
     insert_segment_tool,
     patch_episode_script_tool,
     remove_segment_tool,
@@ -187,6 +191,68 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     assert unblocked.get("is_error") is not True
     assert load_migration_failure(project_dir) is None
     assert unblocked["workflow_plan"]["status"]["blockers"] == []
+
+
+def _assert_list_pending_assets_unblocked(unblocked: dict, ctx: ToolContext) -> None:
+    text = unblocked["content"][0]["text"]
+    assert ctx.project_name in text
+    assert "✅" in text
+
+
+def _assert_get_episode_script_revision_unblocked(unblocked: dict, ctx: ToolContext) -> None:
+    assert unblocked["script"] == "episode_1.json"
+    assert unblocked["revision"] == script_revision(ctx.pm.load_script_readonly(ctx.project_name, "episode_1.json"))
+
+
+@pytest.mark.parametrize(
+    "tool_factory,args,unblocked_fields,assert_unblocked",
+    [
+        (list_pending_assets_tool, {}, (), _assert_list_pending_assets_unblocked),
+        (
+            get_episode_script_revision_tool,
+            {"script": "episode_1.json"},
+            ("script", "revision"),
+            _assert_get_episode_script_revision_unblocked,
+        ),
+    ],
+)
+async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of_raising(
+    tmp_path: Path, tool_factory, args, unblocked_fields, assert_unblocked
+) -> None:
+    """只读诊断工具不在 MIGRATION_BLOCKED_TOOL_IDS 里、不经注册期守卫包装，各自在 handler 内
+
+    读一次迁移裁决：命中则返回与生成类工具同构的 problem 回执，裁决清空后照常给出结果。
+    """
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(projects_root)
+    _break_episode_script(project_dir)
+    failure = migrate_project_with_verdict(project_dir)
+    assert failure is not None
+
+    ctx = ToolContext(project_name="demo", projects_root=projects_root, pm=ProjectManager(str(projects_root)))
+    handler = tool_factory(ctx).handler
+
+    blocked = await handler(args)
+
+    assert blocked["is_error"] is True
+    assert blocked["problem"]["code"] == MIGRATION_FAILURE_CODE
+    assert blocked["problem"]["action"] == RETRY_MIGRATION_ACTION
+    assert blocked["problem"]["detail"] == failure.reason
+    # migration_refusal_response 按 text + "\n" + json.dumps(payload, ...) 拼接，直接比对该已知
+    # 序列化结果，不靠猜切分点（提示文本或缩进 JSON 内部各自可能出现 "\n"/"{"，两者都不是可靠锚点）。
+    assert blocked["content"][0]["text"].endswith(json.dumps(blocked["problem"], ensure_ascii=False, indent=2))
+
+    _repair_episode_script(project_dir)
+    assert migrate_project_with_verdict(project_dir) is None
+    unblocked = await handler(args)
+
+    assert unblocked.get("is_error") is not True
+    assert "problem" not in unblocked
+    for field in unblocked_fields:
+        assert unblocked[field]
+    assert_unblocked(unblocked, ctx)
 
 
 async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_path: Path, monkeypatch) -> None:

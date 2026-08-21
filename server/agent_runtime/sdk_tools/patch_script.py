@@ -19,7 +19,13 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    migration_failure_for,
+    migration_refusal_response,
+    tool_error,
+    validate_script_filename,
+)
 
 _OPERATIONS_SCHEMA: dict[str, Any] = {
     "type": "array",
@@ -149,6 +155,15 @@ def get_episode_script_revision_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
+            # revision 的唯一用途是当 patch_episode_script 的并发令牌，而剧本写入工具在阻断期
+            # 全部关闭：签发出去无处可用，故直接答复裁决，省掉一轮必然被拒的写入往返。
+            failure = await migration_failure_for(ctx)
+            if failure is not None:
+                return migration_refusal_response(
+                    failure,
+                    text="❌ 项目数据升级未完成，剧本编辑已全部关闭，revision 不再签发。"
+                    "请按明细修复后调用 retry_project_migration：",
+                )
             script_filename = validate_script_filename(args["script"])
             revision = script_revision(ctx.pm.load_script(ctx.project_name, script_filename))
             return {
