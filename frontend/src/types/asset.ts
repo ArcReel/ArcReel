@@ -23,6 +23,7 @@ export interface Asset {
   external_source?: string | null;
   external_id?: string | null;
   voice_id?: string | null;
+  aliases?: string[];
   resources?: AssetResource[];
   updated_at: string | null;
 }

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.db.base import Base
+from lib.db.repositories.asset_alias_repo import AssetAliasRepository
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import _ as translate_message
 from lib.project_manager import ProjectManager
@@ -117,6 +118,22 @@ class TestAssetsCRUD:
         assert r.status_code == 200
         assert len(r.json()["items"]) == 1
 
+    @pytest.mark.unit
+    async def test_list_serializes_structured_aliases(self, _assets_env):
+        async with _assets_env["factory"]() as session:
+            asset = await AssetRepository(session).create(type="character", name="布爸")
+            await AssetAliasRepository(session).create(
+                asset_id=asset.id,
+                alias="鳄鱼爸爸",
+                origin="catalog",
+            )
+            await session.commit()
+
+        response = _assets_env["client"].get("/api/v1/assets?type=character")
+
+        assert response.status_code == 200
+        assert response.json()["items"][0]["aliases"] == ["鳄鱼爸爸"]
+
 
 class TestAssetsCRUDAndProjectLinks:
     @pytest.mark.unit
@@ -146,9 +163,7 @@ class TestAssetsCRUDAndProjectLinks:
         assert character["global_asset_id"] == asset["id"]
         assert character["matched_global_asset_id"] == asset["id"]
 
-        unlinked = client.delete(
-            "/api/v1/assets/project-links/target/character/%E9%B3%84%E9%B1%BC%E7%88%B8%E7%88%B8"
-        )
+        unlinked = client.delete("/api/v1/assets/project-links/target/character/%E9%B3%84%E9%B1%BC%E7%88%B8%E7%88%B8")
 
         assert unlinked.status_code == 200, unlinked.text
         character = pm.load_project("target")["characters"]["鳄鱼爸爸"]

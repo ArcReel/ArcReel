@@ -16,9 +16,10 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.asset_types import validate_asset_name
+from lib.asset_types import asset_name_comparison_key, validate_asset_name
 from lib.config.service import ConfigService
 from lib.db.models.asset import AssetResource
+from lib.db.repositories.asset_alias_repo import AssetAliasRepository
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.db.repositories.asset_resource_repo import AssetResourceRepository
 from lib.httpx_shared import get_http_client
@@ -247,6 +248,26 @@ def _primary_resource(resources: list[AssetResource], media_type: str) -> AssetR
     return min(candidates, key=lambda item: item.sort_order)
 
 
+def _structured_aliases(character: _CatalogCharacter, canonical_name: str) -> list[str]:
+    """Use explicit catalog fields only; free-form prompt text is deliberately excluded."""
+
+    canonical_key = asset_name_comparison_key(canonical_name)
+    aliases: list[str] = []
+    seen = {canonical_key}
+    for candidate in (character.chinese_name, character.name, character.subtitle):
+        if candidate is None:
+            continue
+        try:
+            normalized = validate_asset_name(candidate)
+        except ValueError:
+            continue
+        key = asset_name_comparison_key(normalized)
+        if len(normalized) <= 200 and key not in seen:
+            aliases.append(normalized)
+            seen.add(key)
+    return aliases
+
+
 async def _fetch_catalog(client: httpx.AsyncClient, api_url: str, token: str) -> _CharacterCatalog:
     try:
         response = await client.get(
@@ -291,6 +312,7 @@ async def sync_character_catalog(
     if progress_callback is not None:
         await progress_callback(0, total_characters)
     asset_repo = AssetRepository(session)
+    alias_repo = AssetAliasRepository(session)
     resource_repo = AssetResourceRepository(session)
     projects_root = get_project_manager().projects_root
     resource_root = get_project_manager().get_global_assets_root() / "character" / "catalog"
@@ -326,6 +348,9 @@ async def sync_character_catalog(
                 if any(getattr(existing, key) != value for key, value in patch.items()):
                     await asset_repo.update(existing.id, **patch)
                     changed = True
+
+            if await alias_repo.sync_catalog_aliases(existing.id, _structured_aliases(character, existing.name)):
+                changed = True
 
             # 新建 Asset 尚未通过 selectin 查询装载 relationship；在 AsyncSession 中
             # 直接访问会触发不受支持的隐式 I/O。新角色显然没有历史资源。

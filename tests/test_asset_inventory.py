@@ -8,6 +8,7 @@ from threading import Event
 import pytest
 
 from lib.asset_inventory import AssetInventoryInvalidRequest, AssetInventoryRevisionConflict, complete_asset_inventory
+from lib.db.repositories.asset_alias_repo import AssetAliasRepository
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.project_manager import ProjectManager
 from lib.source_revision import SourceScope, compute_source_revision
@@ -162,9 +163,7 @@ async def test_inventory_tool_records_one_exact_same_type_global_match(
     monkeypatch.setattr("server.agent_runtime.sdk_tools.asset_inventory.async_session_factory", db_factory)
     expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
     assert expected is not None
-    tool = complete_asset_inventory_tool(
-        ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
-    )
+    tool = complete_asset_inventory_tool(ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm))
 
     result = await tool.handler(
         {
@@ -191,17 +190,68 @@ async def test_inventory_tool_records_one_exact_same_type_global_match(
 
 
 @pytest.mark.integration
+async def test_inventory_matching_prefers_canonical_name_and_rejects_ambiguous_alias(
+    tmp_path: Path,
+    db_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pm, project_path = _make_project(tmp_path)
+    async with db_factory() as session:
+        asset_repo = AssetRepository(session)
+        alias_repo = AssetAliasRepository(session)
+        croco_dad = await asset_repo.create(type="character", name="布爸")
+        await alias_repo.create(asset_id=croco_dad.id, alias="Benny Stone", origin="catalog")
+        await alias_repo.create(asset_id=croco_dad.id, alias="鳄鱼爸爸", origin="catalog")
+        canonical_croco_dad = await asset_repo.create(type="character", name="鳄鱼爸爸")
+        first_ambiguous = await asset_repo.create(type="character", name="甲")
+        second_ambiguous = await asset_repo.create(type="character", name="乙")
+        await alias_repo.create(asset_id=first_ambiguous.id, alias="共同别名", origin="local")
+        await alias_repo.create(asset_id=second_ambiguous.id, alias="共同别名", origin="local")
+        await session.commit()
+        croco_dad_id = croco_dad.id
+        canonical_croco_dad_id = canonical_croco_dad.id
+
+    monkeypatch.setattr("server.agent_runtime.sdk_tools.asset_inventory.async_session_factory", db_factory)
+    expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert expected is not None
+    tool = complete_asset_inventory_tool(ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm))
+
+    result = await tool.handler(
+        {
+            "scope": {"kind": "all", "files": []},
+            "expected_source_revision": expected,
+            "entries": {
+                "characters": {
+                    "Benny Stone": {"description": "唯一别名"},
+                    "鳄鱼爸爸": {"description": "正式名称优先"},
+                    "共同别名": {"description": "歧义别名", "matched_global_asset_id": "forged"},
+                },
+                "scenes": {},
+                "props": {},
+            },
+        }
+    )
+
+    assert "is_error" not in result
+    characters = pm.load_project("demo")["characters"]
+    assert characters["Benny Stone"]["matched_global_asset_id"] == croco_dad_id
+    assert characters["鳄鱼爸爸"]["matched_global_asset_id"] == canonical_croco_dad_id
+    assert "matched_global_asset_id" not in characters["共同别名"]
+
+
+@pytest.mark.integration
 async def test_global_asset_context_tool_returns_compact_grouped_assets(
     tmp_path: Path,
     db_factory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async with db_factory() as session:
-        await AssetRepository(session).create(
+        asset = await AssetRepository(session).create(
             type="prop",
             name="景泰蓝花瓶",
             description="蓝色铜胎珐琅器",
         )
+        await AssetAliasRepository(session).create(asset_id=asset.id, alias="珐琅花瓶", origin="local")
         await session.commit()
     monkeypatch.setattr("server.agent_runtime.sdk_tools.global_assets.async_session_factory", db_factory)
     tool = list_global_assets_tool(ToolContext(project_name="demo", projects_root=tmp_path / "projects"))
@@ -209,7 +259,7 @@ async def test_global_asset_context_tool_returns_compact_grouped_assets(
     result = await tool.handler({})
 
     body = json.loads(result["content"][0]["text"])
-    assert body["props"] == [{"name": "景泰蓝花瓶", "description": "蓝色铜胎珐琅器"}]
+    assert body["props"] == [{"name": "景泰蓝花瓶", "description": "蓝色铜胎珐琅器", "aliases": ["珐琅花瓶"]}]
     assert body["characters"] == []
     assert body["scenes"] == []
 

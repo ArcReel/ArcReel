@@ -81,6 +81,7 @@ def _serialize(asset) -> dict:
         "external_source": asset.external_source,
         "external_id": asset.external_id,
         "voice_id": asset.voice_id,
+        "aliases": [alias.alias for alias in asset.aliases],
         "resources": resources,
         "updated_at": asset.updated_at.isoformat() if asset.updated_at else None,
     }

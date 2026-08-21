@@ -36,6 +36,38 @@ class Asset(TimestampMixin, Base):
         lazy="selectin",
         order_by="AssetResource.sort_order",
     )
+    aliases: Mapped[list[AssetAlias]] = relationship(
+        back_populates="asset",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+        order_by="AssetAlias.sort_order",
+    )
+
+
+class AssetAlias(TimestampMixin, Base):
+    """A structured alternate name used to identify one global asset."""
+
+    __tablename__ = "asset_aliases"
+    __table_args__ = (
+        UniqueConstraint("asset_id", "comparison_key", name="uq_asset_alias_comparison_key"),
+        CheckConstraint("origin IN ('catalog', 'local')", name="ck_asset_alias_origin"),
+        Index("ix_asset_alias_comparison_key", "comparison_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    asset_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("assets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    alias: Mapped[str] = mapped_column(String(200), nullable=False)
+    comparison_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    origin: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    asset: Mapped[Asset] = relationship(back_populates="aliases")
 
 
 class AssetResource(TimestampMixin, Base):

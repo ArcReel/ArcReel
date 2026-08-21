@@ -41,7 +41,12 @@ async def _attach_exact_global_asset_matches(entries: object) -> object:
         return entries
     async with async_session_factory() as session:
         assets = await AssetRepository(session).list(type=None, q=None, limit=10_000, offset=0)
-    matches = {(asset.type, asset_name_comparison_key(asset.name)): asset.id for asset in assets}
+    canonical_candidates: dict[tuple[str, str], set[str]] = {}
+    alias_candidates: dict[tuple[str, str], set[str]] = {}
+    for asset in assets:
+        canonical_candidates.setdefault((asset.type, asset_name_comparison_key(asset.name)), set()).add(asset.id)
+        for alias in asset.aliases:
+            alias_candidates.setdefault((asset.type, alias.comparison_key), set()).add(asset.id)
     enriched = copy.deepcopy(entries)
     if not isinstance(enriched, dict):
         return entries
@@ -56,7 +61,10 @@ async def _attach_exact_global_asset_matches(entries: object) -> object:
                 continue
             # 匹配 ID 只能来自服务端全局库查询，忽略模型自行提交或提示注入伪造的 ID。
             attrs.pop(MATCHED_GLOBAL_ASSET_ID_FIELD, None)
-            matched_id = matches.get((asset_type, asset_name_comparison_key(name)))
+            match_key = (asset_type, asset_name_comparison_key(name))
+            canonical_ids = canonical_candidates.get(match_key)
+            candidate_ids = canonical_ids if canonical_ids is not None else alias_candidates.get(match_key)
+            matched_id = next(iter(candidate_ids)) if candidate_ids is not None and len(candidate_ids) == 1 else None
             if matched_id is not None:
                 attrs[MATCHED_GLOBAL_ASSET_ID_FIELD] = matched_id
     return enriched

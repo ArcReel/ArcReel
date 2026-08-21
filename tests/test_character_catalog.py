@@ -9,6 +9,7 @@ import pytest
 
 from lib.character_catalog import CROCO_CATALOG_SOURCE, sync_character_catalog
 from lib.config.service import ConfigService
+from lib.db.repositories.asset_alias_repo import AssetAliasRepository
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.db.repositories.asset_resource_repo import AssetResourceRepository
 from lib.project_manager import ProjectManager
@@ -43,7 +44,14 @@ def _remote_asset(key: str, filename: str, url: str, data: bytes, mime_type: str
     }
 
 
-def _catalog(assets: list[dict[str, Any]], *, voice_id: str = "voice-v1") -> dict[str, Any]:
+def _catalog(
+    assets: list[dict[str, Any]],
+    *,
+    voice_id: str = "voice-v1",
+    name: str = "Croco Dad",
+    chinese_name: str = "鳄鱼爸爸",
+    subtitle: str | None = None,
+) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "publishVersion": {
@@ -54,8 +62,9 @@ def _catalog(assets: list[dict[str, Any]], *, voice_id: str = "voice-v1") -> dic
         "characters": [
             {
                 "id": "croco-dad",
-                "name": "Croco Dad",
-                "chineseName": "鳄鱼爸爸",
+                "name": name,
+                "chineseName": chinese_name,
+                "subtitle": subtitle,
                 "summary": "远端角色描述",
                 "voice": {"ttsVoiceId": voice_id},
                 "assets": assets,
@@ -117,6 +126,7 @@ async def test_sync_keeps_all_images_and_audio_but_ignores_video(
     assert [resource.media_type for resource in asset.resources].count("image") == 2
     assert [resource.media_type for resource in asset.resources].count("audio") == 1
     assert all(resource.media_type != "video" for resource in asset.resources)
+    assert [(alias.alias, alias.origin) for alias in asset.aliases] == [("Croco Dad", "catalog")]
 
 
 @pytest.mark.unit
@@ -160,6 +170,11 @@ async def test_resync_preserves_user_fields_local_resources_primary_selection_an
         mime_type="image/png",
         path=local_path,
     )
+    local_alias = await AssetAliasRepository(async_session).create(
+        asset_id=asset.id,
+        alias="用户自定义旧称",
+        origin="local",
+    )
     await asset_repo.update(
         asset.id,
         name="用户改名",
@@ -193,7 +208,13 @@ async def test_resync_preserves_user_fields_local_resources_primary_selection_an
         ),
     ]
     second_client = _CatalogClient(
-        _catalog(second_assets, voice_id="voice-v2"),
+        _catalog(
+            second_assets,
+            voice_id="voice-v2",
+            name="Benny Stone",
+            chinese_name="布爸",
+            subtitle="鳄鱼爸爸",
+        ),
         {
             "https://cdn.example.test/full-body-v2.png": updated_image,
             "https://cdn.example.test/voice-v2.wav": updated_audio,
@@ -213,5 +234,12 @@ async def test_resync_preserves_user_fields_local_resources_primary_selection_an
     assert refreshed.voice_id == "voice-v2"
     assert refreshed.image_path == local_path
     assert any(resource.id == local_resource.id and resource.origin == "local" for resource in refreshed.resources)
+    assert {(alias.alias, alias.origin) for alias in refreshed.aliases} == {
+        ("用户自定义旧称", "local"),
+        ("布爸", "catalog"),
+        ("Benny Stone", "catalog"),
+        ("鳄鱼爸爸", "catalog"),
+    }
+    assert any(alias.id == local_alias.id for alias in refreshed.aliases)
     assert (tmp_path / local_path).read_bytes() == b"local-user-image"
     assert await asset_repo.get_by_id(absent_id) is not None

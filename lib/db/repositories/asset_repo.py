@@ -13,6 +13,10 @@ from lib.db.repositories.base import BaseRepository
 
 
 class AssetRepository(BaseRepository):
+    @staticmethod
+    def _with_relations():
+        return (selectinload(Asset.resources), selectinload(Asset.aliases))
+
     async def create(
         self,
         *,
@@ -46,13 +50,13 @@ class AssetRepository(BaseRepository):
 
     async def get_by_id(self, asset_id: str) -> Asset | None:
         return (
-            await self.session.execute(select(Asset).options(selectinload(Asset.resources)).where(Asset.id == asset_id))
+            await self.session.execute(select(Asset).options(*self._with_relations()).where(Asset.id == asset_id))
         ).scalar_one_or_none()
 
     async def get_by_type_name(self, type: str, name: str) -> Asset | None:
         return (
             await self.session.execute(
-                select(Asset).options(selectinload(Asset.resources)).where(Asset.type == type, Asset.name == name)
+                select(Asset).options(*self._with_relations()).where(Asset.type == type, Asset.name == name)
             )
         ).scalar_one_or_none()
 
@@ -60,7 +64,7 @@ class AssetRepository(BaseRepository):
         return (
             await self.session.execute(
                 select(Asset)
-                .options(selectinload(Asset.resources))
+                .options(*self._with_relations())
                 .where(Asset.external_source == source, Asset.external_id == external_id)
             )
         ).scalar_one_or_none()
@@ -71,7 +75,7 @@ class AssetRepository(BaseRepository):
         return list(
             (
                 await self.session.execute(
-                    select(Asset).options(selectinload(Asset.resources)).where(Asset.id.in_(asset_ids))
+                    select(Asset).options(*self._with_relations()).where(Asset.id.in_(asset_ids))
                 )
             ).scalars()
         )
@@ -84,7 +88,7 @@ class AssetRepository(BaseRepository):
         limit: int = 100,
         offset: int = 0,
     ) -> list[Asset]:
-        stmt = select(Asset).options(selectinload(Asset.resources))
+        stmt = select(Asset).options(*self._with_relations())
         if type:
             stmt = stmt.where(Asset.type == type)
         if q:
