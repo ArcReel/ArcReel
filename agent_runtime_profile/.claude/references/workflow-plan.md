@@ -66,7 +66,9 @@ mcp__arcreel__get_workflow_plan({
 
 ## 受控动作表
 
-按 `next_action.type` 路由，把 `target.episode`、`next_action.args` 与 `requested_ids` 原样带入。
+按 `next_action.type` 路由，把 `target.episode`、`next_action.args` 与 `requested_ids` 带入对应动作。
+计划模型总会序列化 `requested_ids`：非空数组表示显式点名；`[]` 表示计划未点名。映射到工具的可选
+ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` 原样传给工具（工具入参的显式空数组非法）。
 `plan.status.target` 提供 `episode`、`script`、`script_filename`、`source`。两个剧本字段不可互换：
 `script` 是相对项目根的剧本路径（`scripts/episode_N.json`），用 Read 读剧本内容时用它；
 `script_filename` 是剥掉 `scripts/` 前缀的裸文件名，所有 `mcp__arcreel__*` 工具的 `script` 参数用它。

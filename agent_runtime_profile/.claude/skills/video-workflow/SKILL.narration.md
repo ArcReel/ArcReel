@@ -259,8 +259,9 @@ dispatch `generate-assets` 子智能体：
 `blocked_unit_ids` 连累而非自身有问题。修掉被拒 unit 后**整批重来**，不拆批先跑通过的那一半，
 否则会重复提交已经付过费的 unit。
 
-**dispatch `generate-assets` 子智能体**：请求选择语义与 Web 完全一致——**点名即强制重做（必然计费）/
-不传即只补缺 / 空数组非法**，所以按 `requested_ids` 是否为空二选一，不要两个工具都试：
+**dispatch `generate-assets` 子智能体**：请求选择语义与 Web 完全一致。计划里的 `requested_ids` 总是数组：
+非空表示**点名强制重做（必然计费）**；`[]` 表示计划未点名，应在工具调用中**省略 ID 参数**以只补缺。
+工具入参显式空数组非法，绝不能把计划的 `[]` 原样传给工具。按这两种计划值二选一，不要两个工具都试：
 
 ```text
 dispatch `generate-assets` 子智能体：
@@ -270,7 +271,7 @@ dispatch `generate-assets` 子智能体：
     requested_ids 非空 →
       mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids,
                                              "narration_delivery": chosen_narration_delivery})
-    requested_ids 为空 →
+    requested_ids == []（计划未点名；工具调用不传 scene_ids）→
       mcp__arcreel__generate_video_episode({"script": target.script_filename,
                                             "narration_delivery": chosen_narration_delivery})
   验证方式：重新读取 target.script，检查各分镜的 video_clip 字段
