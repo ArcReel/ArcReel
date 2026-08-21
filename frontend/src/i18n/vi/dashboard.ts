@@ -1283,6 +1283,17 @@ export default {
   'review_confirm_failed': 'Không thể xác nhận, vui lòng thử lại',
   'review_load_failed': 'Không thể tải kết quả tổ chức nội dung',
   'review_retry': 'Thử lại',
+  'review_status_quarantined': 'Bản nháp cần sửa — nội dung không qua kiểm tra',
+  'review_quarantined_hint': 'Không thể chỉnh sửa hay xác nhận khi còn bản nháp cần sửa; nội dung sẽ cập nhật sau khi Agent sửa và thăng cấp.',
+  'review_quarantined_violations_label': 'Mục cần sửa ({{count}})',
+  'review_quarantined_no_violations': 'Xác thực lại không còn vi phạm — đang chờ Agent thăng cấp bản nháp.',
+  'review_quarantined_draft_label': 'Nội dung bản nháp (chỉ đọc)',
+  'review_confirm_blocked_quarantined': 'Còn bản nháp cần sửa — chỉ xác nhận được sau khi sửa và thăng cấp',
+  'review_request_fix': 'Nhờ Agent sửa',
+  'review_fix_request_prefill_header':
+    'Bản nháp tổ chức nội dung của tập {{episode}} có {{count}} vi phạm cần sửa, hãy chỉnh sửa trực tiếp bản nháp cần sửa để khắc phục:',
+  'review_fix_request_promote_prefill':
+    'Bản nháp tổ chức nội dung của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn cần sửa — hãy gọi validate_and_promote_draft để thăng cấp nó.',
 
   // ReferenceStep1PreviewPanel (xem trước theo tập, biến thể step1 của reference_video)
   'reference_step1_source_text_label': 'Văn bản gốc',

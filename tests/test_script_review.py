@@ -14,6 +14,7 @@ import pytest
 from lib import script_review
 from lib.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     clear_quarantine,
@@ -367,6 +368,35 @@ class TestNarrationGateFlow:
         await svc.save_content("demo", 1, edited)
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
+    @pytest.mark.unit
+    async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
+        """narration 的待修复草稿与另两条路线同口径地独立阻塞：草稿在场期间确认被拒、step2 被
+        阻塞，即使正式 step1 早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未
+        看过的上一版内容。"""
+        pm = _make_project(tmp_path, "narration")
+        svc = ScriptReviewService(pm)
+        project_path = pm.get_project_path("demo")
+        _write_step1(pm, "narration", _narration_step1())
+        await svc.confirm("demo", 1)
+        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
+
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_NARRATION_STEP1,
+            content={"segments": []},
+            violations=[],
+        )
+
+        assert (await svc.get_state("demo", 1))["status"] == "pending_review"
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+        assert exc.value.code == "quarantined"
+
+        clear_quarantine(project_path, 1, QUARANTINE_KIND_NARRATION_STEP1)
+        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
+
 
 # ---------------------------------------------------------------------------
 # 状态流转（reference_video，跨 content_mode 共用同一 gate）
@@ -451,7 +481,7 @@ class TestReferenceVideoGateFlow:
 
     @pytest.mark.unit
     def test_quarantine_path_follows_the_project_variant(self, tmp_path):
-        """草稿按项目当前变体解析：两种生成模式各认自己的文件名，narration 尚无草稿通道返回 None。
+        """草稿按项目当前变体解析：三条路线各认自己的文件名。
 
         共用一个文件名或不分变体地判，会让其他生成模式的遗留草稿被当作当前模式的待处置件——
         那份文件没有当前写入方会清理，该集会被永久卡在阻塞态。
@@ -464,15 +494,13 @@ class TestReferenceVideoGateFlow:
             drama_pm.get_project_path("demo"), drama_pm.load_project("demo"), 1
         )
         rv_path = script_review.step1_quarantine_path(rv_pm.get_project_path("demo"), rv_pm.load_project("demo"), 1)
+        narration_path = script_review.step1_quarantine_path(
+            narration_pm.get_project_path("demo"), narration_pm.load_project("demo"), 1
+        )
 
         assert drama_path is not None and drama_path.name == "step1_normalized_script.invalid.json"
         assert rv_path is not None and rv_path.name == "step1_reference_units.invalid.json"
-        assert (
-            script_review.step1_quarantine_path(
-                narration_pm.get_project_path("demo"), narration_pm.load_project("demo"), 1
-            )
-            is None
-        )
+        assert narration_path is not None and narration_path.name == "step1_segments.invalid.json"
 
     @pytest.mark.unit
     def test_quarantine_of_another_variant_does_not_block(self, tmp_path):

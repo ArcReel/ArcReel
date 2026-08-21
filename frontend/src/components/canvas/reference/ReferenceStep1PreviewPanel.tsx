@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
 import type {
   ReferenceStep1Draft,
-  ReferenceStep1FlatDraft,
   ReferenceStep1FlatUnit,
   ScriptReviewState,
   ScriptReviewViolation,
@@ -74,7 +73,7 @@ function structuredDisplayUnits(draft: ReferenceStep1Draft): DisplayUnit[] {
  * 恰好发生在用户最需要看到面板的时候。收不成 unit 卡的内容由调用方作原始文本兜底呈现。
  */
 function quarantinedDisplayUnits(
-  content: ReferenceStep1FlatDraft | null,
+  content: Record<string, unknown> | null,
   episode: number,
 ): DisplayUnit[] {
   // content 为 null：草稿文件本身损坏无法解析（信封形状坏），不是「schema 违约但仍可读」。

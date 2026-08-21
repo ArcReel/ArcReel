@@ -23,6 +23,7 @@ from lib import script_review
 from lib.artifact_manifest import ArtifactStatus
 from lib.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     quarantine_path,
@@ -7855,7 +7856,12 @@ async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: To
 
     out = await _promote(fake_ctx, monkeypatch)
     assert out.get("is_error") is True
-    assert "不走参考生视频路径" in out["content"][0]["text"]
+    # 项目已是 narration + storyboard，晋升按该变体的草稿位分派：残留的参考路径 step2 草稿不在
+    # 它的视野内，故报「本集没有待处置的隔离草稿」而不是去晋升它。
+    assert "没有待处置的隔离草稿" in out["content"][0]["text"]
+    assert quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2).exists(), (
+        "残留草稿应原样留在盘上，不被这条路径消费"
+    )
 
 
 @pytest.mark.unit
@@ -8210,8 +8216,13 @@ async def test_open_step1_for_edit_refuses_to_clobber_existing_drama_draft(fake_
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_rejects_variant_without_draft_channel(fake_ctx: ToolContext) -> None:
-    """narration 的 step1 没有草稿通道：报错要点名这一点，不能让 Agent 以为工具坏了反复重试。"""
-    _rv_project(fake_ctx, generation_mode="storyboard")
+    """ad 没有结构化 step1，也就没有草稿通道：报错要点名这一点，不能让 Agent 以为工具坏了反复重试。"""
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps({"content_mode": "ad", "generation_mode": "storyboard"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    fake_ctx.pm.project_payload["content_mode"] = "ad"  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # pyright: ignore[reportAttributeAccessIssue]
 
     out = await _open_for_edit(fake_ctx)
 
@@ -8269,6 +8280,233 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     assert not _drama_quarantine_path(fake_ctx).exists()
     saved = json.loads(_drama_step1_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["scenes"][0]["scene_description"] == "重新规范化后的描述。"
+
+
+# ---------------------------------------------------------------------------
+# narration step1 的取回编辑与晋升闭环
+# ---------------------------------------------------------------------------
+
+
+def _nr_step1_path(fake_ctx: ToolContext) -> Path:
+    return fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json"
+
+
+def _nr_quarantine_path(fake_ctx: ToolContext) -> Path:
+    return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_NARRATION_STEP1)
+
+
+def _read_nr_quarantine(fake_ctx: ToolContext) -> dict:
+    return json.loads(_nr_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
+
+
+def _write_nr_step1(fake_ctx: ToolContext, segments: list[dict]) -> None:
+    path = _nr_step1_path(fake_ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"segments": segments}, ensure_ascii=False), encoding="utf-8")
+
+
+async def _open_nr_for_edit(fake_ctx: ToolContext, **args) -> dict:
+    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
+
+
+async def _promote_nr(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)) -> dict:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps(durations[0], durations))
+    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
+
+
+@pytest.mark.unit
+async def test_split_narration_segments_quarantines_violation_instead_of_discarding(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """违约产出落隔离草稿而非丢弃：正式文件不写，报告带违约类与片段定位，草稿里是这次的产出。
+
+    丢弃重抽既烧钱又不收敛（同一模型对同一份原文大概率再犯同一类错），本机制的全部要点就是
+    让 agent 就地改这份已付费的产出。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _nr_source(fake_ctx)
+    segments = [_nr_segment("E1S01", 5, _RV_NOVEL, characters_in_segment=["王五"])]
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
+
+    out = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+
+    assert out.get("is_error") is True
+    report = out["content"][0]["text"]
+    assert str(_nr_quarantine_path(fake_ctx)) in report
+    assert "[duration_off_tier]" in report
+    assert "[unregistered_asset]" in report
+    assert "segment E1S01" in report
+    assert not _nr_step1_path(fake_ctx).exists(), "正式文件一步不动"
+    envelope = _read_nr_quarantine(fake_ctx)
+    assert envelope["kind"] == QUARANTINE_KIND_NARRATION_STEP1
+    assert envelope["content"]["segments"][0]["segment_id"] == "E1S01"
+    assert envelope["meta"]["source"] == "source/episode_1.txt"
+    # 正式文件此刻不存在，基线即 null——这份草稿修好晋升时若已被别的写入方建出来，按基线比对报冲突。
+    assert envelope["meta"]["base_fingerprint"] is None
+
+
+@pytest.mark.unit
+async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_ctx: ToolContext, monkeypatch) -> None:
+    """重跑拆分成功后清掉上一轮的草稿：正式文件已是新产物，旧草稿留着只会让 gate 与 step2 继续
+    阻塞在一份已被取代的内容上。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _nr_source(fake_ctx)
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_NARRATION_STEP1,
+        content={"segments": [_nr_segment("E1S01", 5)]},
+        violations=[],
+    )
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([_nr_segment("E1S01", 4, _RV_NOVEL)]))
+
+    out = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+
+    assert out.get("is_error") is not True, out
+    assert not _nr_quarantine_path(fake_ctx).exists()
+    assert json.loads(_nr_step1_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 4
+
+
+@pytest.mark.unit
+async def test_open_step1_for_edit_returns_narration_segments(fake_ctx: ToolContext) -> None:
+    """narration 取回的草稿装片段表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
+    _nr_source(fake_ctx)
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    before = _nr_step1_path(fake_ctx).read_text(encoding="utf-8")
+
+    out = await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    assert out.get("is_error") is not True, out
+    envelope = _read_nr_quarantine(fake_ctx)
+    assert envelope["kind"] == QUARANTINE_KIND_NARRATION_STEP1
+    assert envelope["content"]["segments"][0]["novel_text"] == _RV_NOVEL
+    assert envelope["violations"] == [], "取回是编辑工位，不是违约产物"
+    assert envelope["meta"]["source"] == "source/episode_1.txt"
+    assert envelope["meta"]["base_fingerprint"] is not None
+    assert _nr_step1_path(fake_ctx).read_text(encoding="utf-8") == before
+
+
+@pytest.mark.unit
+async def test_open_step1_for_edit_narration_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
+    """取回 → 改草稿 → 晋升写回正式文件、草稿清除：与 drama / 参考路线同一条晋升通道。"""
+    _nr_source(fake_ctx)
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    envelope = _read_nr_quarantine(fake_ctx)
+    envelope["content"]["segments"][0]["duration_seconds"] = 8
+    _nr_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote_nr(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is not True, out
+    assert not _nr_quarantine_path(fake_ctx).exists()
+    saved = json.loads(_nr_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["segments"][0]["duration_seconds"] == 8
+    assert saved["segments"][0]["novel_text"] == _RV_NOVEL
+
+
+@pytest.mark.unit
+async def test_promote_narration_step1_reports_schema_breach_without_writing(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """草稿被改到过不了产出时那份 schema：报告刷新、正式文件不写，草稿保留 agent 手里那份原样内容。"""
+    _nr_source(fake_ctx)
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
+    before = _nr_step1_path(fake_ctx).read_text(encoding="utf-8")
+
+    envelope = _read_nr_quarantine(fake_ctx)
+    del envelope["content"]["segments"][0]["novel_text"]
+    _nr_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote_nr(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is True
+    assert "[schema_invalid]" in out["content"][0]["text"]
+    assert _nr_step1_path(fake_ctx).read_text(encoding="utf-8") == before
+    assert "novel_text" not in _read_nr_quarantine(fake_ctx)["content"]["segments"][0]
+
+
+@pytest.mark.unit
+async def test_promote_narration_step1_aborts_on_concurrent_write(fake_ctx: ToolContext, monkeypatch) -> None:
+    """取回后正式文件被别的写入方改过：晋升中止、报冲突让 agent 合并，不静默覆盖。"""
+    _nr_source(fake_ctx)
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 6, _RV_NOVEL)])
+
+    out = await _promote_nr(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is True
+    assert "并发冲突" in out["content"][0]["text"]
+    assert "content.segments" in out["content"][0]["text"]
+    assert _nr_quarantine_path(fake_ctx).exists(), "冲突时草稿仍在场，合并后可重试"
+    assert json.loads(_nr_step1_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 6
+
+
+@pytest.mark.unit
+async def test_open_step1_for_edit_refuses_to_clobber_existing_narration_draft(fake_ctx: ToolContext) -> None:
+    """已有草稿在场时不覆盖：那份草稿可能已含未晋升的修改，拿正式文件盖过去等于抹掉它的工作。"""
+    _nr_source(fake_ctx)
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_NARRATION_STEP1,
+        content={"segments": [_nr_segment("E1S01", 8, "改到一半的正文")]},
+        violations=[],
+    )
+
+    out = await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    assert out.get("is_error") is True
+    assert "已有 step1 隔离草稿在场" in out["content"][0]["text"]
+    assert _read_nr_quarantine(fake_ctx)["content"]["segments"][0]["novel_text"] == "改到一半的正文"
+
+
+@pytest.mark.unit
+async def test_promote_narration_step1_revalidates_against_current_source(fake_ctx: ToolContext, monkeypatch) -> None:
+    """晋升按现值重判原文覆盖：草稿里改写过的正文即便结构合法也拒，正式文件不被污染。"""
+    _nr_source(fake_ctx)
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
+    before = _nr_step1_path(fake_ctx).read_text(encoding="utf-8")
+
+    envelope = _read_nr_quarantine(fake_ctx)
+    envelope["content"]["segments"][0]["novel_text"] = "张三在村口等候"
+    _nr_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote_nr(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is True
+    assert "[novel_text_coverage]" in out["content"][0]["text"]
+    assert _nr_step1_path(fake_ctx).read_text(encoding="utf-8") == before
+
+
+@pytest.mark.unit
+async def test_generate_episode_script_blocked_by_narration_quarantine(fake_ctx: ToolContext) -> None:
+    """narration 草稿在场时 step2 生成被拦：正式文件此刻仍是上一版，拿它跑 step2 等于静默换回旧内容。"""
+    _nr_source(fake_ctx)
+    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_NARRATION_STEP1,
+        content={"segments": [_nr_segment("E1S01", 4, _RV_NOVEL)]},
+        violations=[],
+    )
+
+    out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+
+    assert out.get("is_error") is True
+    assert "隔离草稿待处置" in out["content"][0]["text"]
 
 
 # ---------------------------------------------------------------------------
@@ -8582,7 +8820,7 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: T
     tool_obj = split_narration_segments_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
-    assert "duration_seconds 非法" in out["content"][0]["text"]
+    assert "不在模型档位" in out["content"][0]["text"]
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
@@ -8695,7 +8933,7 @@ async def test_split_narration_segments_rejects_truncated_novel_text(fake_ctx: T
         [_nr_segment("E1S01", 4, "张三走向村口。")],
     )
     assert out.get("is_error") is True
-    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
+    assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
@@ -8712,7 +8950,7 @@ async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: T
         ],
     )
     assert out.get("is_error") is True
-    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
+    assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
@@ -8729,7 +8967,7 @@ async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: T
         ],
     )
     assert out.get("is_error") is True
-    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
+    assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
@@ -8743,7 +8981,7 @@ async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: Too
         [_nr_segment("E1S01", 4, "Helloworld, this is fine.")],
     )
     assert out.get("is_error") is True
-    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
+    assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
@@ -8795,7 +9033,7 @@ async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
         [_nr_segment("E1S01", 4, "Hello,world. This is fine.")],
     )
     assert out.get("is_error") is True
-    assert "novel_text 未逐字、完整覆盖小说原文" in out["content"][0]["text"]
+    assert "未按序、逐字、完整覆盖小说原文" in out["content"][0]["text"]
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 

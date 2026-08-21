@@ -47,13 +47,16 @@ REFERENCE_VIDEO_STEP1_LEGACY_FILENAME = "step1_reference_units.md"
 REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME = "step1_reference_units.invalid.json"
 REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME = "step2_reference_script.invalid.json"
 DRAMA_STEP1_QUARANTINE_FILENAME = "step1_normalized_script.invalid.json"
+NARRATION_STEP1_QUARANTINE_FILENAME = "step1_segments.invalid.json"
 
 #: 对 Agent 写禁的正式 step1 文件名（见 ``AgentAccessPolicy._is_protected_formal_step1``）。
 #: 收的是文件名而非按项目变体解析的路径：写禁在会话装配前就要成立，而项目的 content_mode /
 #: generation_mode 是运行时可变的，按项目状态分叉判定会让改过模式的项目落进无人拦的缝里。
 #: 判据是「该变体的修改已有草稿通道可走」——写禁与替代通道成对出现，只拒不给出路会
-#: 把 Agent 卡死。narration 的 step1 由其子智能体直接编辑且无草稿通道，故不在表内。
-AGENT_PROTECTED_STEP1_FILENAMES: frozenset[str] = frozenset({STEP1_FILENAMES["drama"], REFERENCE_VIDEO_STEP1_FILENAME})
+#: 把 Agent 卡死。三条路线的正式 step1 均已有草稿通道，故三个文件名全部在表内。
+AGENT_PROTECTED_STEP1_FILENAMES: frozenset[str] = frozenset(
+    {STEP1_FILENAMES["drama"], STEP1_FILENAMES["narration"], REFERENCE_VIDEO_STEP1_FILENAME}
+)
 
 
 def step1_filename(content_mode: str) -> str | None:

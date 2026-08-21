@@ -125,6 +125,44 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByText("E1S01")).toBeInTheDocument();
   });
 
+  it("locks the panel and lists violations when a draft needs fixes", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      narrationState({
+        quarantine: {
+          content: { segments: [{ segment_id: "E1S01", novel_text: "改到一半的原文。", duration_seconds: 5 }] },
+          violations: [
+            {
+              code: "duration_off_tier",
+              label: "segment E1S01",
+              message: "segment E1S01 的时长 5 不在模型档位 [4, 6, 8] 内",
+              line: null,
+            },
+          ],
+        },
+      }),
+    );
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+    await waitFor(() => expect(screen.getByText("待修复草稿 — 内容未通过校验")).toBeInTheDocument());
+    // 违约逐条呈现，带定位前缀；正式内容不再可编辑，确认被锁。
+    expect(screen.getByText("segment E1S01")).toBeInTheDocument();
+    expect(screen.getByText(/不在模型档位/)).toBeInTheDocument();
+    expect(screen.getByText("待修复项（1）")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("裴与出征后的第二年。")).not.toBeInTheDocument();
+    expect(screen.getByText("确认并继续").closest("button")).toBeDisabled();
+  });
+
+  it("asks the assistant to promote instead of listing violations when the draft has none", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({ quarantine: { content: { title: "第一集", scenes: [] }, violations: [] } }),
+    );
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await waitFor(() => expect(screen.getByText("待修复草稿 — 内容未通过校验")).toBeInTheDocument());
+    expect(screen.getByText(/重新校验已无违约/)).toBeInTheDocument();
+    expect(screen.getByText("确认并继续").closest("button")).toBeDisabled();
+  });
+
   it("adopts externally edited (agent) content on refetch when the user has no edits", async () => {
     const edited = dramaState();
     (edited.content as { scenes: { utterances: { text: string }[] }[] }).scenes[0].utterances[1].text =

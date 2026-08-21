@@ -160,7 +160,7 @@ export interface ScriptReviewState {
   fingerprint: string | null;
   confirmed_at: string | null;
   content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft | null;
-  /** reference_video 变体、草稿在场时非 null；其余变体恒为 null。 */
+  /** 草稿在场时非 null（三条 step1 路线都可能出现），否则 null。 */
   quarantine: ScriptReviewQuarantine | null;
   /**
    * unit 时长可选档位，reference_video 变体才非 null（项目未配置视频型号而解析不到时也为

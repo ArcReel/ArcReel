@@ -556,7 +556,7 @@ def test_formal_step1_registration_failure_restores_the_previous_file(tmp_path: 
 
 def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Path, monkeypatch) -> None:
     from lib import artifact_activation
-    from lib.script_review import write_step1_json
+    from lib.script_review import formal_step1_lock, write_formal_step1_locked
 
     project_dir, _project_data, step1, _script = _project(tmp_path)
     formal_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
@@ -585,7 +585,8 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
 
     def _write() -> None:
         try:
-            write_step1_json(project_dir, 1, formal_path, replacement)
+            with formal_step1_lock(project_dir, 1, formal_path):
+                write_formal_step1_locked(project_dir, 1, formal_path, replacement)
         except Exception as exc:
             failures.append(exc)
         finally:

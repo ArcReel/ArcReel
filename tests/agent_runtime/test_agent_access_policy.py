@@ -142,11 +142,14 @@ def test_write_protected_project_json_denied(policy: AgentAccessPolicy, tool: st
         "drafts/episode_1/step1_normalized_script.json",
         "drafts/episode_12/step1_normalized_script.json",
         "drafts/episode_1/STEP1_NORMALIZED_SCRIPT.JSON",
+        "drafts/episode_1/step1_segments.json",
+        "drafts/episode_12/step1_segments.json",
+        "drafts/episode_1/STEP1_SEGMENTS.JSON",
     ],
 )
 def test_write_formal_step1_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """正式 step1（drama 与参考生视频）不可用 Write/Edit 直改：它另有几条持同一把 per-path 锁的
-    写入路径（迁移 / Web 端保存 / 晋升），沙箱内的 Write/Edit 取不到锁，直改即丢失更新窗口。
+    """三条路线的正式 step1 都不可用 Write/Edit 直改：它另有几条持同一把 per-path 锁的写入路径
+    （迁移 / Web 端保存 / 晋升），沙箱内的 Write/Edit 取不到锁，直改即丢失更新窗口。
     报错要指向取回草稿的工具，否则 Agent 只知被拒、不知改道哪里。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
@@ -172,16 +175,15 @@ def test_protected_step1_filenames_match_shared_constant() -> None:
     [
         "drafts/episode_1/step1_reference_units.invalid.json",
         "drafts/episode_1/step1_normalized_script.invalid.json",
-        "drafts/episode_1/step1_segments.json",
+        "drafts/episode_1/step1_segments.invalid.json",
         "drafts/episode_1/step1_narration_segments.json",
         "drafts/step1_reference_units.json",
         "drafts/episode_1/sub/step1_reference_units.json",
     ],
 )
 def test_write_near_formal_step1_allowed(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """写禁只覆盖那两个正式文件，不外溢到同目录邻居：草稿 (.invalid.json) 正是给 Agent 用
-    文件工具改的编辑工位，连它一起拦会把「取回草稿 → 改 → 晋升」这条替代路径也堵死；
-    narration 的 step1 尚无草稿通道，只拒不给出路会把它的子智能体卡死，故不在写禁表内。"""
+    """写禁只覆盖那三个正式文件，不外溢到同目录邻居：草稿 (.invalid.json) 正是给 Agent 用
+    文件工具改的编辑工位，连它一起拦会把「取回草稿 → 改 → 晋升」这条替代路径也堵死。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert allowed, f"{tool} {relative} 应允许，却被拒：{reason}"

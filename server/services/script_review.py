@@ -20,7 +20,7 @@ from pydantic import BaseModel, ValidationError
 
 from lib import script_review
 from lib.config.resolver import resolve_raw_supported_durations
-from lib.draft_quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violation_entries
+from lib.draft_quarantine import read_quarantine, violation_entries
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.json_io import load_json_or_none
 from lib.project_manager import ProjectManager
@@ -272,18 +272,17 @@ class ScriptReviewService:
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
-        """reference_video 变体的草稿信息（供 web 内容确认呈现违约行内锚定），不适用 /
-        无草稿时 None。
+        """本集 step1 草稿的信息（供内容确认呈现违约），不适用 / 无草稿时 None。
 
-        读时按产出时那套校验器全量重算（``revalidate_reference_step1_draft``，晋升工具同一份
-        代码），不信任草稿里 ``violations`` 的上一轮快照——草稿在场期间源文或模型配置可能已变，
-        报告要对现值负责。本方法与 ``get_state`` 各自读盘、互不依赖，由 router 在同一次请求内
-        合并两者的返回。
+        读时按产出时那套校验器全量重算（``revalidate_step1_draft`` 按 kind 分派到该变体的重判
+        器，晋升工具同一份代码），不信任草稿里 ``violations`` 的上一轮快照——草稿在场期间源文或
+        模型配置可能已变，报告要对现值负责。本方法与 ``get_state`` 各自读盘、互不依赖，由 router
+        在同一次请求内合并两者的返回。
 
-        ``content`` 校验通过时返回收编后的扁平产出（时长已按当前档位收编），未通过时返回草稿
-        原样内容 + 违约列表，供呈现层原样展示 Agent 手改的那份文本。meta 被改坏以致无从重算
-        时，把「无法重算」本身作为一条违约返回，而不是退回草稿里那份上一轮快照——报告一律
-        对现值负责，读时重算失败也是现值的一部分。
+        ``content`` 校验通过时返回收编后的草稿层内容（形状随变体：参考生视频扁平 units、drama 的
+        title + scenes、narration 的 segments），未通过时返回草稿原样内容 + 违约列表，供呈现层
+        原样展示 Agent 手改的那份文本。meta 被改坏以致无从重算时，把「无法重算」本身作为一条违约
+        返回，而不是退回草稿里那份上一轮快照——报告一律对现值负责，读时重算失败也是现值的一部分。
 
         项目 / 草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程——本方法整体是
         ``async``（内部要 ``await`` 重算里的能力解析），若前半截同步 I/O 直接跑在事件循环上，
@@ -291,13 +290,14 @@ class ScriptReviewService:
         这里保持同一纪律。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
-        if script_review.step1_kind(project) != "reference_video":
+        quarantine_kind = script_review.step1_quarantine_kind(project)
+        if quarantine_kind is None:
             return None
         project_path = self.pm.get_project_path(project_name)
         quarantine_path = script_review.step1_quarantine_path(project_path, project, episode)
         if quarantine_path is None or not quarantine_path.exists():
             return None
-        draft = await asyncio.to_thread(read_quarantine, project_path, episode, QUARANTINE_KIND_STEP1)
+        draft = await asyncio.to_thread(read_quarantine, project_path, episode, quarantine_kind)
         if draft is None:
             if not quarantine_path.exists():
                 # 存在性检查与读取之间的窗口内，Agent 的晋升/重拆分工具把文件清掉了（正式内容
@@ -320,10 +320,10 @@ class ScriptReviewService:
             }
         # 延迟导入避免模块级循环依赖：text_generation.py 内部已对本模块做同样的函数级延迟导入
         # （构造 ScriptReviewService 供 quarantine 相关工具复用），两处顶层互相导入会成环。
-        from server.agent_runtime.sdk_tools.text_generation import revalidate_reference_step1_draft
+        from server.agent_runtime.sdk_tools.text_generation import revalidate_step1_draft
 
         try:
-            revalidation = await revalidate_reference_step1_draft(project_path, project, episode, draft)
+            revalidation = await revalidate_step1_draft(project_path, project, episode, draft)
         except ValueError as exc:
             # meta.source 缺失等草稿被改坏的情形：把重算失败本身报成一条无 unit 归属的违约，
             # 呈现层落聚合区。gate 不崩，用户也不会看到一份与现值脱钩的旧报告。异常文本含
@@ -340,7 +340,9 @@ class ScriptReviewService:
                     }
                 ],
             }
-        content = draft.content if revalidation.schema_failed else {"units": revalidation.flat_units}
+        # 重判器没能收编内容（连产出时的 schema 都没过）时退回草稿原样内容：呈现层要展示的是
+        # agent 手改的那份文本，收编不了就不代它改形。
+        content = draft.content if revalidation.content is None else revalidation.content
         return {"content": content, "violations": violation_entries(revalidation.violations)}
 
     async def get_reference_duration_tiers(self, project_name: str, episode: int) -> dict[str, list[int]] | None:

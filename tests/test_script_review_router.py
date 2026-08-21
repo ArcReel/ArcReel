@@ -51,10 +51,16 @@ def _rv_step1() -> dict:
     }
 
 
-def _client(monkeypatch, tmp_path: Path, *, generation_mode: str | None = None) -> tuple[TestClient, ProjectManager]:
+def _client(
+    monkeypatch,
+    tmp_path: Path,
+    *,
+    generation_mode: str | None = None,
+    content_mode: str = "drama",
+) -> tuple[TestClient, ProjectManager]:
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
-    pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+    pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
     pm.add_character("demo", "阿离", "少女")
     pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
     if generation_mode is not None:
@@ -316,6 +322,104 @@ class TestReferenceVideoRouter:
             assert [v["code"] for v in violations] == ["quarantine_unreadable"]
             assert "stale" not in violations[0]["message"]
             assert violations[0]["label"] == ""
+
+    @pytest.mark.unit
+    def test_quarantine_surfaced_for_narration_variant(self, tmp_path, monkeypatch):
+        """narration 的待修复草稿同样进 GET 响应：违约按 narration 那套校验器读时重算。
+
+        呈现按 kind 分派，不写死参考路线——否则另两条路线的草稿在场时面板看起来「干净」，
+        实际确认已被阻塞，用户看不到任何原因。
+        """
+        from lib.draft_quarantine import QUARANTINE_KIND_NARRATION_STEP1, write_quarantine
+        from lib.draft_violation import DraftViolation
+        from server.agent_runtime.sdk_tools import text_generation as mod
+
+        client, pm = _client(monkeypatch, tmp_path, content_mode="narration")
+        project_path = pm.get_project_path("demo")
+        novel = "阿离站在屋檐下。"
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / "source" / "episode_1.txt").write_text(novel, encoding="utf-8")
+
+        async def fake_caps(_project, _episode=None):
+            return 4, [4, 6, 8]
+
+        monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+
+        segment = {
+            "segment_id": "E1S01",
+            "novel_text": novel,
+            "duration_seconds": 5,
+            "segment_break": False,
+            "characters_in_segment": [],
+            "scenes": [],
+            "props": [],
+        }
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_NARRATION_STEP1,
+            content={"segments": [segment]},
+            violations=[DraftViolation("stale", code="blank_novel_text", label="segment E1S01")],
+            meta={"source": "source/episode_1.txt"},
+        )
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            body = client.get(base).json()
+            assert body["quarantine"] is not None
+            violations = body["quarantine"]["violations"]
+            assert [v["code"] for v in violations] == ["duration_off_tier"], "读时重算，不回放上一轮快照"
+            assert violations[0]["label"] == "segment E1S01"
+            assert body["quarantine"]["content"]["segments"][0]["segment_id"] == "E1S01"
+
+            assert client.post(f"{base}/confirm").status_code == 409
+
+    @pytest.mark.unit
+    def test_quarantine_surfaced_for_drama_variant(self, tmp_path, monkeypatch):
+        """drama 的待修复草稿（取回编辑工位）同样进 GET 响应：内容重判通过则违约为空、
+        正文按现值收编回传，面板据此说明「等待晋升」而不是显示一片空白。"""
+        from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_STEP1, write_quarantine
+        from server.agent_runtime.sdk_tools import text_generation as mod
+
+        client, pm = _client(monkeypatch, tmp_path)
+        project_path = pm.get_project_path("demo")
+        novel = "阿离站在屋檐下。"
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / "source" / "episode_1.txt").write_text(novel, encoding="utf-8")
+
+        async def fake_caps(_project, _episode=None):
+            return 4, [4, 6, 8]
+
+        monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+
+        scene = {
+            "scene_id": "E1S01",
+            "duration_seconds": 4,
+            "segment_break": False,
+            "characters_in_scene": ["阿离"],
+            "scenes": [],
+            "props": [],
+            "scene_description": "阿离站在屋檐下。",
+            "utterances": [{"kind": "dialogue", "speaker": "阿离", "text": "我来了。"}],
+            "source_text": novel,
+        }
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_DRAMA_STEP1,
+            content={"title": "第一集", "scenes": [scene]},
+            violations=[],
+            meta={"source": "source/episode_1.txt"},
+        )
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            body = client.get(base).json()
+            assert body["quarantine"] is not None
+            assert body["quarantine"]["violations"] == []
+            assert body["quarantine"]["content"]["scenes"][0]["scene_id"] == "E1S01"
+
+            assert client.post(f"{base}/confirm").status_code == 409
 
     @pytest.mark.unit
     def test_supported_durations_exposed_for_reference_video_only(self, tmp_path, monkeypatch):

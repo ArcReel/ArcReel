@@ -1751,6 +1751,25 @@ class TestLoadNarrationStep1:
         assert segments[0]["segment_break"] is True
 
     @pytest.mark.unit
+    def test_quarantined_step1_blocks_step2_even_with_a_valid_formal_file(self, tmp_path):
+        """草稿在场时直连调用也拒：正式文件此刻仍是上一版，拿它跑 step2 等于把一份待处置的
+        产出静默换成旧内容。工具入口已按同一判据阻塞，这里是脚本 / 测试等直连路径的兜底。"""
+        from lib.draft_quarantine import QUARANTINE_KIND_NARRATION_STEP1, write_quarantine
+
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"episode": 1, "segments": [_step1_seg("E1S01", "第一段原文。")]})
+        write_quarantine(
+            sg.project_path,
+            1,
+            QUARANTINE_KIND_NARRATION_STEP1,
+            content={"segments": [_step1_seg("E1S01", "改到一半的原文。")]},
+            violations=[],
+        )
+
+        with pytest.raises(ValueError, match="隔离草稿待处置"):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    @pytest.mark.unit
     def test_missing_json_without_legacy_md_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         with pytest.raises(FileNotFoundError, match="step1_segments.json"):
