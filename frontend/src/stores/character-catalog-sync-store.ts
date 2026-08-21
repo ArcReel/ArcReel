@@ -27,8 +27,16 @@ export const useCharacterCatalogSyncStore = create<CharacterCatalogSyncState>((s
       const current = state.job;
       if (!incoming || !current || incoming.job_id !== current.job_id) return { job: incoming };
       const currentTerminal = current.status === "succeeded" || current.status === "failed";
+      const incomingTerminal = incoming.status === "succeeded" || incoming.status === "failed";
       if (currentTerminal && isCharacterCatalogJobActive(incoming)) return state;
-      if (Date.parse(incoming.updated_at) < Date.parse(current.updated_at)) return state;
+      if (incomingTerminal && isCharacterCatalogJobActive(current)) return { job: incoming };
+      const incomingUpdatedAt = Date.parse(incoming.updated_at);
+      const currentUpdatedAt = Date.parse(current.updated_at);
+      if (
+        Number.isFinite(incomingUpdatedAt)
+        && Number.isFinite(currentUpdatedAt)
+        && incomingUpdatedAt < currentUpdatedAt
+      ) return state;
       return { job: incoming };
     });
   },

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -66,5 +66,50 @@ describe("CharacterCatalogSyncMonitor", () => {
     await waitFor(() => expect(useAssetsStore.getState().characterCatalogRevision).toBe(1));
     expect(useAppStore.getState().workspaceNotifications.at(-1)?.tone).toBe("success");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("collapses to a compact progress control and expands without stopping the job", async () => {
+    const running = runningJob();
+    vi.spyOn(API, "getCharacterCatalogSyncStatus").mockResolvedValue({ job: running });
+    useCharacterCatalogSyncStore.setState({ job: running });
+    render(<CharacterCatalogSyncMonitor />);
+
+    fireEvent.click(screen.getByRole("button", { name: "缩小同步进度" }));
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "展开同步进度" })).toHaveTextContent("50%");
+
+    act(() => {
+      useCharacterCatalogSyncStore.getState().setJob({
+        ...running,
+        progress_current: 2,
+        progress_total: 3,
+        updated_at: "2026-08-21T00:00:03Z",
+      });
+    });
+    expect(screen.getByRole("button", { name: "展开同步进度" })).toHaveTextContent("67%");
+
+    fireEvent.click(screen.getByRole("button", { name: "展开同步进度" }));
+    expect(screen.getByRole("status")).toHaveTextContent("2 / 3");
+  });
+
+  it("starts a different job expanded after the previous job was collapsed", () => {
+    const running = runningJob();
+    vi.spyOn(API, "getCharacterCatalogSyncStatus").mockResolvedValue({ job: running });
+    useCharacterCatalogSyncStore.setState({ job: running });
+    render(<CharacterCatalogSyncMonitor />);
+    fireEvent.click(screen.getByRole("button", { name: "缩小同步进度" }));
+
+    act(() => {
+      useCharacterCatalogSyncStore.getState().setJob({
+        ...running,
+        job_id: "sync-2",
+        progress_current: 0,
+        updated_at: "2026-08-21T00:01:00Z",
+      });
+    });
+
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "缩小同步进度" })).toBeInTheDocument();
   });
 });

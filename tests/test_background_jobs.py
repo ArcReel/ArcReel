@@ -100,3 +100,5 @@ async def test_character_catalog_route_enqueues_and_reports_status(db_factory, m
     assert queued["deduped"] is False
     assert queued["job"]["status"] == "queued"
     assert status["job"]["job_id"] == queued["job"]["job_id"]
+    assert queued["job"]["updated_at"].endswith("+00:00")
+    assert status["job"]["updated_at"].endswith("+00:00")

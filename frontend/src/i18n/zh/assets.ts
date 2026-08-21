@@ -55,6 +55,8 @@ export default {
   "sync_phase_fetching": "正在获取已发布角色目录…",
   "sync_phase_characters": "已同步 {{current}} / {{total}} 个角色",
   "sync_progress_compact": "同步 {{current}}/{{total}}",
+  "sync_progress_minimize": "缩小同步进度",
+  "sync_progress_expand": "展开同步进度",
   "sync_library_failed": "人物资产库同步失败",
   "sync_library_success": "同步完成：新增 {{added}}，更新 {{updated}}，未变化 {{unchanged}}，下载 {{assetsDownloaded}} 个图片/音频资源",
   "search_placeholder": "搜索资产...",

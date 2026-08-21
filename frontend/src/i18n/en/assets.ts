@@ -53,6 +53,8 @@ export default {
   "sync_phase_fetching": "Fetching the published catalog...",
   "sync_phase_characters": "Synced {{current}} of {{total}} characters",
   "sync_progress_compact": "Sync {{current}}/{{total}}",
+  "sync_progress_minimize": "Minimize sync progress",
+  "sync_progress_expand": "Expand sync progress",
   "sync_library_failed": "Character library sync failed",
   "sync_library_success": "Sync complete: {{added}} added, {{updated}} updated, {{unchanged}} unchanged, {{assetsDownloaded}} image/audio files downloaded",
   "search_placeholder": "Search assets...",

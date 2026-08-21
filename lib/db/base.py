@@ -17,8 +17,18 @@ def utc_now() -> datetime:
 
 
 def dt_to_iso(val: datetime | None) -> str | None:
-    """Convert datetime to ISO string for JSON serialization."""
-    return val.isoformat() if val else None
+    """Serialize database timestamps as unambiguous UTC ISO strings.
+
+    SQLite discards timezone metadata when reading ``DateTime(timezone=True)``
+    columns back. Application timestamps are written in UTC, so a naive value
+    from SQLite must be restored to UTC before it crosses an API boundary.
+    """
+
+    if val is None:
+        return None
+    if val.tzinfo is None:
+        val = val.replace(tzinfo=UTC)
+    return val.astimezone(UTC).isoformat()
 
 
 class TimestampMixin:

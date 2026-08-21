@@ -55,6 +55,8 @@ export default {
   "sync_phase_fetching": "Đang tải danh mục đã xuất bản...",
   "sync_phase_characters": "Đã đồng bộ {{current}} / {{total}} nhân vật",
   "sync_progress_compact": "Đồng bộ {{current}}/{{total}}",
+  "sync_progress_minimize": "Thu nhỏ tiến trình đồng bộ",
+  "sync_progress_expand": "Mở rộng tiến trình đồng bộ",
   "sync_library_failed": "Đồng bộ thư viện nhân vật thất bại",
   "sync_library_success": "Đồng bộ xong: thêm {{added}}, cập nhật {{updated}}, không đổi {{unchanged}}, tải xuống {{assetsDownloaded}} tệp ảnh/âm thanh",
   "search_placeholder": "Tìm kiếm tài nguyên...",

@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Minimize2, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
 import { useAssetsStore } from "@/stores/assets-store";
@@ -19,6 +19,7 @@ export function CharacterCatalogSyncMonitor() {
   const refresh = useCharacterCatalogSyncStore((state) => state.refresh);
   const observedActiveJobId = useRef<string | null>(null);
   const handledTerminalJobId = useRef<string | null>(null);
+  const [collapsedJobId, setCollapsedJobId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -71,6 +72,29 @@ export function CharacterCatalogSyncMonitor() {
     : hasTotal
       ? t("sync_phase_characters", { current: job.progress_current, total: job.progress_total })
       : t("syncing_library");
+  const collapsed = collapsedJobId === job.job_id;
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setCollapsedJobId(null)}
+        aria-label={t("sync_progress_expand")}
+        title={t("sync_progress_expand")}
+        className={`fixed bottom-5 right-5 ${UI_LAYERS.toast} flex h-10 min-w-16 items-center justify-center gap-1.5 rounded-full border px-2.5 shadow-2xl backdrop-blur-xl transition-colors hover:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent`}
+        style={{
+          borderColor: "var(--color-accent-soft)",
+          background: "oklch(0.17 0.012 260 / 0.94)",
+          color: "var(--color-text)",
+        }}
+      >
+        {job.status === "queued"
+          ? <RefreshCw aria-hidden className="h-4 w-4 text-accent" />
+          : <Loader2 aria-hidden className="h-4 w-4 animate-spin text-accent" />}
+        {hasTotal && <span className="num text-[11px] text-text-2">{percent}%</span>}
+      </button>
+    );
+  }
 
   return (
     <div
@@ -92,6 +116,15 @@ export function CharacterCatalogSyncMonitor() {
           <div className="mt-0.5 truncate text-[10px] text-text-4">{statusText}</div>
         </div>
         {hasTotal && <span className="num text-[11px] text-text-3">{percent}%</span>}
+        <button
+          type="button"
+          onClick={() => setCollapsedJobId(job.job_id)}
+          aria-label={t("sync_progress_minimize")}
+          title={t("sync_progress_minimize")}
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-text-4 transition-colors hover:bg-white/10 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Minimize2 aria-hidden className="h-3.5 w-3.5" />
+        </button>
       </div>
       <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-white/10">
         <div
