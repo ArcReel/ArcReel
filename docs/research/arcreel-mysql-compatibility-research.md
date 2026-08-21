@@ -53,10 +53,15 @@ SQLite 存文本 / PostgreSQL native JSON / MySQL 8 native JSON，三者读写�
 
 ```text
 # 对每个 revision 分别生成 SQL 并检查
+# 语法：alembic upgrade <from_revision>:<to_revision> --sql
 DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4' \
-  alembic upgrade <start>:<end> --sql > upgrade_<revision>.sql
+  alembic upgrade f6a41746c0de:7a8b9c0d1e2f --sql > upgrade_7a8b9c0d1e2f.sql
 DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4' \
-  alembic downgrade <end>:<start> --sql > downgrade_<revision>.sql
+  alembic upgrade f6a41746c0de:bcaaa615ff38 --sql > upgrade_bcaaa615ff38.sql
+DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4' \
+  alembic downgrade 7a8b9c0d1e2f:f6a41746c0de --sql > downgrade_7a8b9c0d1e2f.sql
+DATABASE_URL='mysql+aiomysql://arcreel:URL_ENCODED_PASSWORD@mysql:3306/arcreel?charset=utf8mb4' \
+  alembic downgrade bcaaa615ff38:7a8b9c0d1e2f --sql > downgrade_bcaaa615ff38.sql
 # 检查：方言差异、类型转换逻辑、降级回滚路径是否合理
 ```
 
