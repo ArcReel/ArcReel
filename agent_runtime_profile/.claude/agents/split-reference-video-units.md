@@ -79,16 +79,15 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 
 ### 情况 C：处置在场草稿
 
-**触发**：`drafts/episode_{N}/step1_reference_units.invalid.json` 存在。先读信封里的 `violations[]` 判别用途：
+**触发**：`drafts/episode_{N}/step1_reference_units.invalid.json` 存在。`violations[]` 只决定是否需要叠加违约修复，不决定是否应用用户修改：
 
-- 非空：它是拆分或晋升产生的待修复草稿，按违约报告逐条修复
-- 为空：它是 `open_step1_for_edit` 取回的可编辑草稿，先应用主 Agent 传入的用户修改意见，再校验晋升；不得因为没有违约就原样晋升
-
-同一路径刻意复用为两种草稿工位；`violations[]` 是这里的用途判据。
+- 所有草稿：保留已有编辑，并应用主 Agent 本轮传入的用户修改意见
+- 非空：在上述修改基础上，按违约报告逐条修复
+- 为空：无需凭空修复违约，完成用户修改后直接校验晋升；不得因为没有违约就原样晋升
 
 草稿装的是**扁平草稿结构**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。
 
-1. Read 该草稿；`violations[]` 非空时按 `label`（unit 定位）与 `code`（违约类）逐条定位，为空时按用户修改意见定位
+1. Read 该草稿，保留草稿中已有修改，并应用主 Agent 本轮传入的用户修改意见；`violations[]` 非空时，在上述修改基础上按 `label`（unit 定位）与 `code`（违约类）逐条定位
 2. 用 Edit 直接改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方「修改口径」；处理违约且 `code` 为资产名未登记时，可改用已登记的名称，或调用 `mcp__arcreel__patch_project({"table": "characters", "entries": {"名称": {"description": "..."}}})` 登记资产后重新 Read `project.json`（场景 / 道具分别把 `table` 改为 `scenes` / `props`）；严禁用 Edit / Write 直改 `project.json`
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 重新全量校验并晋升
 4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具

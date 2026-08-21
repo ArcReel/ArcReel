@@ -86,7 +86,7 @@ mcp__arcreel__normalize_drama_script({"episode": N, "source": "source/episode_N.
 
 **触发**：`drafts/episode_{N}/step1_normalized_script.invalid.json` 存在，不论正式 JSON 是否存在。
 
-1. Read 草稿信封。`violations[]` 非空时按报告定位并修复草稿 `content` 中对应字段；分镜级违约修改 `content.scenes[i]`。为空时保留已有修改，并应用主 Agent 传入的用户修改意见
+1. Read 草稿信封，保留草稿中已有修改，并应用主 Agent 本轮传入的用户修改意见；`violations[]` 非空时，在上述修改基础上按报告定位并修复草稿 `content` 中对应字段，分镜级违约修改 `content.scenes[i]`
 2. 用 Edit 只修改 invalid 草稿的 `content`，不得直改正式文件，也不得重跑 `normalize_drama_script`
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 全量校验并晋升；仍返回违约报告时继续修改同一草稿后重试
 
