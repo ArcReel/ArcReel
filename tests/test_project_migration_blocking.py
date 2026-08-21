@@ -28,7 +28,9 @@ from lib.project_migrations.runner import migrate_project_with_verdict, run_proj
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest
 from lib.workflow_state import WorkflowStateService
+from server.agent_runtime.sdk_tools.enqueue_assets import list_pending_assets_tool
 from server.agent_runtime.sdk_tools.patch_script import (
+    get_episode_script_revision_tool,
     insert_segment_tool,
     patch_episode_script_tool,
     remove_segment_tool,
@@ -187,6 +189,50 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     assert unblocked.get("is_error") is not True
     assert load_migration_failure(project_dir) is None
     assert unblocked["workflow_plan"]["status"]["blockers"] == []
+
+
+@pytest.mark.parametrize(
+    "tool_factory,args",
+    [
+        (list_pending_assets_tool, {}),
+        (get_episode_script_revision_tool, {"script": "episode_1.json"}),
+    ],
+)
+async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of_raising(
+    tmp_path: Path, tool_factory, args
+) -> None:
+    """只读诊断工具（不在 MIGRATION_BLOCKED_TOOL_IDS 里，不经注册期守卫包装）在阻断项目上
+
+    自行读一次迁移裁决，命中即返回与生成类工具同构的 problem 回执，而不是把内部异常
+    （list_pending_assets 原先会撞上的 ProjectMigrationError）或过期数据（未加检查前
+    get_episode_script_revision 会静默放行）透给 agent。
+    """
+
+    from server.agent_runtime.sdk_tools._context import ToolContext
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(projects_root)
+    _break_episode_script(project_dir)
+    failure = migrate_project_with_verdict(project_dir)
+    assert failure is not None
+
+    ctx = ToolContext(project_name="demo", projects_root=projects_root, pm=ProjectManager(str(projects_root)))
+    handler = tool_factory(ctx).handler
+
+    blocked = await handler(args)
+
+    assert blocked["is_error"] is True
+    assert blocked["problem"]["code"] == MIGRATION_FAILURE_CODE
+    assert blocked["problem"]["action"] == RETRY_MIGRATION_ACTION
+    assert blocked["problem"]["detail"] == failure.reason
+    assert json.loads(blocked["content"][0]["text"].split("\n", 1)[1]) == blocked["problem"]
+
+    _repair_episode_script(project_dir)
+    assert migrate_project_with_verdict(project_dir) is None
+    unblocked = await handler(args)
+
+    assert unblocked.get("is_error") is not True
 
 
 async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_path: Path, monkeypatch) -> None:
