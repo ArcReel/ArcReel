@@ -20,7 +20,7 @@ mcp__arcreel__get_workflow_plan({
 三个字段都只属于**这一次查询**，服务端不会持久化。因此每次重新查询都要把仍然成立的选择原样
 带上；漏带等于把选择撤回。
 
-调用时机：进入工作流、用户说「继续 / 下一步 / 查看进度」、以及**每次工具或子任务完成之后**。
+调用时机：进入工作流、用户说「继续 / 下一步 / 查看进度」、以及**每次工具或子智能体完成之后**。
 `Read` / `Glob` 只用于取执行已选定动作所需的内容，不用于另建一套状态机。不得根据空资产 bucket、
 文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
@@ -75,15 +75,15 @@ mcp__arcreel__get_workflow_plan({
 |---|---|
 | `collect_project_input` | 引导用户在 Web 端补齐项目输入 |
 | `draft_selling_points` | 起草卖点后经 `mcp__arcreel__patch_project` 写回（ad） |
-| `analyze_assets` | dispatch `analyze-assets` 子任务 |
+| `analyze_assets` | dispatch `analyze-assets` 子智能体 |
 | `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`，按 `next_action.args` 传参 |
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
-| `prepare_step1` | dispatch `next_action.args.preprocessor` 指名的子任务 |
+| `prepare_step1` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
 | `confirm_step1` | `mcp__arcreel__confirm_script_review` |
-| `generate_script` | dispatch `create-episode-script` 子任务（ad 直接调 `mcp__arcreel__generate_episode_script`） |
-| `generate_asset_sheets` | dispatch `generate-assets` 子任务，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
-| `generate_storyboards` | dispatch `generate-assets` 子任务，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
-| `generate_grid` | dispatch `generate-assets` 子任务，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |
+| `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
+| `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
+| `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
+| `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |
 | `repair_video_units` | `mcp__arcreel__get_episode_script_revision` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
 | `patch_episode_script` | 计划注入：`next_action.args` 已给 `expected_revision` 与逐条 `problems`，一次批量改完 |
 | `choose_narration_delivery` | 计划注入：见「旁白交付」 |
@@ -94,7 +94,7 @@ mcp__arcreel__get_workflow_plan({
 | `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
 | `none` | 展示 `blockers` 并停止变更 |
 
-`next_action.args.preprocessor` 是权威的内容整理子任务名，**不要自己按创作类型×
+`next_action.args.preprocessor` 是权威的内容整理子智能体名，**不要自己按创作类型×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
 
 ### 整批被拒时交回的逐问题动作

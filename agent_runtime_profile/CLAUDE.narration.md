@@ -12,7 +12,7 @@
 - **单片段/场景时长**：由视频模型能力和项目 `default_duration` 配置决定
   - 分镜图生视频（含 `grid_storyboard=true`）：取值必须在所选视频模型的 `supported_durations` 内，项目 `default_duration` 非 null 时作默认偏好
   - 参考生视频：unit 时长必须取该 unit **引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
-  - 两者的真值均由子任务运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 step1 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
+  - 两者的真值均由子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 step1 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
 - **生成方式**：按 `generation_mode` 分两路——分镜图生视频每个片段/场景独立生成、以分镜图作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；参考生视频按 video_unit 直出、以资产图作 `reference_images`，无分镜图
@@ -45,7 +45,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   - ❌ `projects/{项目名}/source/episode_1.txt`（双前缀，占位符替换或拼接出错就会落到 projects 根）
 - **严禁**在工具参数中出现 `projects/{...}/` 前缀；该前缀仅用于文档说明项目目录结构，**不可直接作为参数传给任何工具**
 - skill 脚本内部已加 cwd 校验，cwd 漂离当前项目目录时会直接拒绝执行
-- **`.claude/agents/*.md` / `SKILL.md` 中的相对形式**：子任务指引（如「读取 `project.json`」、「读取 `source/episode_{N}.txt`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
+- **`.claude/agents/*.md` / `SKILL.md` 中的相对形式**：子智能体指引（如「读取 `project.json`」、「读取 `source/episode_{N}.txt`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
 
 ---
 
@@ -78,12 +78,12 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - `lib/` - 共享 Python 库（多供应商图像 / 视频 / 文本生成抽象层、项目管理）
 - `agent_runtime_profile/.claude/skills/` - 可用的 skills
 
-## 架构：编排 Skill + 聚焦子任务
+## 架构：编排 Skill + 聚焦子智能体
 
 ```
 主 Agent（编排层 — 极轻量）
   │  只持有：项目状态摘要 + 用户对话历史
-  │  职责：查服务端计划、按受控动作决策、用户确认、dispatch 子任务
+  │  职责：查服务端计划、按受控动作决策、用户确认、dispatch 子智能体
   │
   ├─ dispatch → analyze-assets               全局角色/场景/道具提取
   ├─ dispatch → split-narration-segments     旁白/解说片段拆分
@@ -97,15 +97,15 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 | 类型 | 用途 | 示例 |
 |------|------|------|
-| **子任务（聚焦任务）** | 需要大量上下文或推理分析 → 保护主 Agent context | analyze-assets、split-narration-segments |
-| **Skill（在子任务内调用）** | 确定性脚本执行 → API 调用、文件生成 | generate-script、generate-storyboard |
+| **子智能体（聚焦任务）** | 需要大量上下文或推理分析 → 保护主 Agent context | analyze-assets、split-narration-segments |
+| **Skill（在子智能体内调用）** | 确定性脚本执行 → API 调用、文件生成 | generate-script、generate-storyboard |
 | **主 Agent 直接操作** | 仅限轻量操作 | 读项目状态、简单文件操作、用户交互 |
 
 ### 关键约束
 
-- **子任务不能 spawn 子任务**：多步工作流只能通过主 Agent 链式 dispatch
-- **小说原文不进入主 Agent**：由子任务自行读取，主 Agent 只传文件路径
-- **每个子任务一个聚焦目标**：完成即返回，不在内部做多步用户确认
+- **子智能体不能 spawn 子智能体**：多步工作流只能通过主 Agent 链式 dispatch
+- **小说原文不进入主 Agent**：由子智能体自行读取，主 Agent 只传文件路径
+- **每个子智能体一个聚焦目标**：完成即返回，不在内部做多步用户确认
 
 ### 职责边界
 
@@ -116,9 +116,9 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 | Skill | 触发命令 | 功能 |
 |-------|---------|------|
-| video-workflow | `/video-workflow` | 编排 skill：查计划 + 子任务 dispatch + 用户确认 |
+| video-workflow | `/video-workflow` | 编排 skill：查计划 + 子智能体 dispatch + 用户确认 |
 | manage-project | — | 项目管理工具集：角色/场景/道具批量写入、项目 settings 与概述编辑 |
-| generate-script | — | 调用项目配置的文本模型生成 JSON 剧本（由子任务调用） |
+| generate-script | — | 调用项目配置的文本模型生成 JSON 剧本（由子智能体调用） |
 | generate-assets | `/generate-assets` | 统一资产生成：可指定 `type=character\|scene\|prop`，省略则三类并行 |
 | generate-storyboard | `/generate-storyboard` | 生成分镜图（分镜图生视频） |
 | generate-grid | `/generate-grid` | 生成宫格分镜图（`grid_storyboard=true` 时：按 segment_break 分组的链式宫格） |

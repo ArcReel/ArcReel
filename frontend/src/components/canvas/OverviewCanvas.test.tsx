@@ -54,7 +54,7 @@ describe("OverviewCanvas", () => {
   });
 
   it("reports the storyboard count per episode on the storyboard route", () => {
-    // 分镜图生视频上三种创作类型同一口径：广告/短片也报分镜数，不再另说一套。
+    // 分镜图生视频上三种创作类型统一报告分镜数，广告/短片亦然。
     render(
       <OverviewCanvas
         projectName="demo"

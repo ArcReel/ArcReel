@@ -1280,9 +1280,9 @@ class DataValidator:
         scene_language = source_language if isinstance(source_language, str) else None
         scene_speech_rate = project_speech_rate_override(project)
 
-        # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类经规范解析统一
-        # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。广告/短片的参考生视频
-        # 与其他参考生视频一样使用 video_units；广告/短片的生成模式为 `storyboard` 时仍使用 shots。
+        # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类统一由
+        # resolve_declared_kind 解析。广告/短片的参考生视频使用 video_units，生成模式为
+        # `storyboard` 时使用 shots。
         gen_mode = project.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, gen_mode)

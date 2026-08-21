@@ -181,7 +181,7 @@ def test_protected_step1_filenames_match_shared_constant() -> None:
 def test_write_near_formal_step1_allowed(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """写禁只覆盖那两个正式文件，不外溢到同目录邻居：草稿 (.invalid.json) 正是给 Agent 用
     文件工具改的编辑工位，连它一起拦会把「取回草稿 → 改 → 晋升」这条替代路径也堵死；
-    narration 的 step1 尚无草稿通道，只拒不给出路会把它的子任务卡死，故不在写禁表内。"""
+    narration 的 step1 尚无草稿通道，只拒不给出路会把它的子智能体卡死，故不在写禁表内。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert allowed, f"{tool} {relative} 应允许，却被拒：{reason}"
@@ -356,7 +356,7 @@ def test_agent_profile_settings_denied(policy: AgentAccessPolicy, tool: str) -> 
 
 
 def test_arcreel_db_in_sensitive_list(policy: AgentAccessPolicy) -> None:
-    """入队链路已迁到 in-process MCP tool，sandbox 内 Agent 不再需要直读 db。"""
+    """入队链路使用 in-process MCP tool，sandbox 内 Agent 无需直读 db。"""
     cwd = _cwd(policy)
     db = policy.projects_root / ".arcreel.db"
     db.parent.mkdir(parents=True, exist_ok=True)

@@ -1368,7 +1368,7 @@ class TestLegacyEnumeration:
 class TestManualSplitSelfHeal:
     @pytest.mark.unit
     async def test_get_state_self_heals_orphan_without_source_range(self, tmp_path):
-        """孤儿派生文件 → 自愈登记条目（不写 source_range），get_state 不再 episode_not_found。"""
+        """get_state 为孤儿派生文件自愈登记条目且不写 source_range。"""
         pm = _make_manual_split_project(tmp_path, "narration")
         _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年。")
         _write_step1(pm, "narration", _narration_step1())
@@ -1383,7 +1383,7 @@ class TestManualSplitSelfHeal:
 
     @pytest.mark.unit
     async def test_confirm_self_heals_and_unblocks_step2(self, tmp_path):
-        """confirm（web 与 Agent 工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。"""
+        """confirm（web 与 Agent 工具共用同一 service）可补齐空账本条目并放行 step2。"""
         pm = _make_manual_split_project(tmp_path, "drama")
         _write_source_text(pm, "episode_1.txt", "任意派生内容")
         _write_step1(pm, "drama", _drama_step1())

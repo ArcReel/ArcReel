@@ -519,8 +519,7 @@ describe("ReferenceVideoCanvas", () => {
     expect(ta.value).toContain("first");
   });
 
-  // preproc 入口从二级页面跳转改为主 tab 切换；切到内容整理 tab 后 UnitList 被隐藏，
-  // step1 按集预览面板（ReferenceStep1PreviewPanel）inline 渲染。
+  // 内容整理入口使用主 tab；切换后隐藏 UnitList，并 inline 渲染按集 step1 预览面板。
   it("inline-renders the step1 preview panel via the main tab", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1"), mkUnit("E1U2")],

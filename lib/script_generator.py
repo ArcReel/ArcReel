@@ -649,8 +649,8 @@ class ScriptGenerator:
         props = props if isinstance(props, dict) else {}
 
         if gen_mode == "reference_video":
-            # unit 时长按全集校验（见 generate() 同位置说明）；step2 不产出时长，prompt 里
-            # 不再需要档位与上限，只需参考图上限。
+            # unit 时长按全集校验（见 generate() 同位置说明）；step2 不产出时长，prompt
+            # 只需参考图上限。
             step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),

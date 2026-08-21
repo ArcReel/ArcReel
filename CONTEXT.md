@@ -410,13 +410,13 @@ _Avoid_: 用它替代目标集的制作状态。
 
 ### Agent 运行时
 
-**Agent（智能体）**：
-在 ArcReel 中理解创作者要求、协助组织内容并调用创作能力完成工作的对话式 AI。界面标签与短文案写「Agent」；文档与产品内的说明性文案首次出现时写「Agent（智能体）」，同一篇内其余位置仍写「Agent」。
+**ArcReel Agent**：
+在 ArcReel 中理解创作者要求、协助组织内容并调用创作能力完成工作的对话式 AI。中文产品命名写「ArcReel Agent」；其他中文说明可写「Agent」或「智能体」。
 _Avoid_: 助手、创作助手、Copilot。
 
-**子任务（subagent）**：
+**子智能体（subagent）**：
 Agent 为完成一个聚焦目标而委派的一段工作，运行时由下级 Agent 执行；主对话只展示其目标、状态和结果。
-_Avoid_: 子 Agent、子智能体。
+_Avoid_: 子任务、子 Agent。
 
 **SessionActor**：
 每个 Agent 会话专属的执行体，串行化该会话对 SDK 的所有调用（见 `docs/adr/0028`）。
@@ -451,8 +451,8 @@ _Avoid_: 与图片编辑的「编辑」混称。
 _Avoid_: 与 SDK 原生 `fork_session` 混为一谈。
 
 **子时间线（subagent timeline）**：
-同一会话内属于同一个子任务的消息序列，主时间线上只呈现一张可折叠的子任务卡片。
-_Avoid_: 把子任务消息平铺进主时间线。
+同一会话内属于同一个子智能体的消息序列，主时间线上只呈现一张可折叠的子智能体卡片。
+_Avoid_: 把子智能体消息平铺进主时间线。
 
 **Agent 运行 profile（agent_runtime_profile）**：
 Agent 专属的运行态配置树，与开发者本地的编辑器配置物理分离，运行时物化进各项目目录。

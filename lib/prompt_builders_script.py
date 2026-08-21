@@ -6,7 +6,7 @@
   让模型按画面内容自行决定。
 - 不写无法被 LLM 自检的字数硬限制（"≤200 字"）；用示例隐性表达节奏。
 - 字段说明用少量正例与带解说的反例传达要求，不堆"必须 / 禁止"清单。
-- 节奏建议由 lib.prompt_rules.episode_pacing 注入，跨子任务与 builder 共享。
+- 节奏建议由 lib.prompt_rules.episode_pacing 注入，跨子智能体与 builder 共享。
 """
 
 from lib.prompt_rules.episode_pacing import render_pacing_section
@@ -707,7 +707,7 @@ def build_narration_split_prompt(
 
     ``default_duration`` 为单片段默认秒数偏好；与 ``build_normalize_prompt`` 不同，此处对漂移到
     ``supported_durations`` 之外的 default 按 None 处理（软偏好、可被内容需要覆盖），不 fail-loud——
-    与 split-narration-segments 子任务的「default 非成员按 null」口径一致。
+    与 split-narration-segments 子智能体的「default 非成员按 null」口径一致。
     """
     normalized_durations = sorted({int(d) for d in supported_durations})
     if not normalized_durations:

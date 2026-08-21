@@ -788,7 +788,7 @@ export function ShotDetail({
         disabled={dirty || saving || refsReadOnly}
         disabledHint={dirty ? dirtyHint : undefined}
       />
-      {/* 对白编辑：narration / ad 编辑扁平 video_prompt.dialogue；drama 台词已迁到场景级
+      {/* 对白编辑：narration / ad 编辑扁平 video_prompt.dialogue；drama 使用场景级
           utterances（判别式台词 + 画外音），此处直接编辑 scene.utterances 并双向保存同步。 */}
       {isDrama ? (
         <div>

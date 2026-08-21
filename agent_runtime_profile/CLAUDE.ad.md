@@ -10,7 +10,7 @@
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定（广告/短片默认 9:16 竖屏），无需在 prompt 中指定
 - **时长规划**：广告/短片项目**没有** `default_duration` 偏好，按项目 `target_duration`（目标总时长，秒）规划
-  - 分镜图生视频：单分镜时长必须取所选视频模型 `supported_durations` 中的值；子任务运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
+  - 分镜图生视频：单分镜时长必须取所选视频模型 `supported_durations` 中的值；子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
   - 参考生视频：每个 video unit 持有符合剧本模型结构约束的正整数编排时长，unit 内不单列分镜时长；生成预检会把编排时长投影到供应商申请档位
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
@@ -43,7 +43,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   - ❌ `projects/{项目名}/scripts/episode_1.json`（双前缀，占位符替换或拼接出错就会落到 projects 根）
 - **严禁**在工具参数中出现 `projects/{...}/` 前缀；该前缀仅用于文档说明项目目录结构，**不可直接作为参数传给任何工具**
 - skill 脚本内部已加 cwd 校验，cwd 漂离当前项目目录时会直接拒绝执行
-- **`.claude/agents/*.md` / `SKILL.md` 中的相对形式**：子任务指引（如「读取 `project.json`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
+- **`.claude/agents/*.md` / `SKILL.md` 中的相对形式**：子智能体指引（如「读取 `project.json`」）里出现的相对路径是**项目内位置说明**，并非可直接传给工具的 `file_path` 值。调用 Read/Edit/Write/Glob/Grep 时仍按本节规则用 session cwd 拼成绝对路径再传参
 
 ---
 
@@ -93,7 +93,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - **创作输入**：带货项目商品未登记或缺原图时，引导用户在 WebUI 初始化页或商品资产页上传商品图（原图是商品保真的验收锚点，Agent 不能代传图片；通用短片见下文，不索要商品）；用户勾选「生成标准商品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（商品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入
 - **生成模式**：用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知生成模式创建后不可更改，无绕过方式；宫格装配对 ad 不开放
 - **卖点**：商品已登记但 `selling_points` 为空时，从 brief、商品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
-- **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` 子任务出资产图；轻量短片可跳过，仅靠商品参考与项目 style
+- **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` 子智能体出资产图；轻量短片可跳过，仅靠商品参考与项目 style
 - **剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与引用语法正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
 - **product sheet 过目（软门禁）**：商品生成了 `product_sheet` 时，分镜开工前（参考生视频路径为首次视频生成前）安排用户到商品资产页确认 sheet 与真品一致（见下文「商品保真」）；无 sheet（仅原图）直接进入下一步
 - **保真拦截**：分镜图生成后引导用户审核商品形象保真度，不合格的重新生成——在产生视频费用前拦截

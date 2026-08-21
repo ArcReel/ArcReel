@@ -248,7 +248,7 @@ class TestNormalizeTaskNotificationXml:
     XML = (
         "<task-notification>\n<task-id>t9</task-id>\n<tool-use-id>tu-9</tool-use-id>\n"
         "<output-file>/tmp/t9.output</output-file>\n<status>completed</status>\n"
-        "<summary>子任务完成</summary>\n</task-notification>"
+        "<summary>子智能体完成</summary>\n</task-notification>"
     )
 
     def test_xml_user_message_becomes_typed_task_entry(self):
@@ -262,7 +262,7 @@ class TestNormalizeTaskNotificationXml:
         assert entry["task_id"] == "t9"
         assert entry["tool_use_id"] == "tu-9"
         assert entry["task_status"] == "completed"
-        assert entry["summary"] == "子任务完成"
+        assert entry["summary"] == "子智能体完成"
         assert entry["uuid"] == "n-1"
 
     def test_xml_in_block_content_also_typed(self):
@@ -277,7 +277,7 @@ class TestNormalizeTaskNotificationXml:
 
     def test_two_notifications_batched_in_one_message_both_typed(self):
         """同一 tick 内两个后台任务的通知被批到一条消息时，两条都要保留成条目。"""
-        xml2 = self.XML.replace("t9", "t10").replace("tu-9", "tu-10").replace("子任务完成", "另一子任务完成")
+        xml2 = self.XML.replace("t9", "t10").replace("tu-9", "tu-10").replace("子智能体完成", "另一子智能体完成")
         entries = normalize_sdk_message_to_entries(
             {"type": "user", "content": self.XML + "\n" + xml2, "uuid": "n-multi"}
         )
@@ -291,7 +291,7 @@ class TestNormalizeTaskNotificationXml:
     def test_two_notifications_without_base_uuid_get_distinct_uuids(self):
         """消息本身没有 uuid 时，批量通知不能都退化成同一个 "None-tn{i}"——否则
         与单条场景一样会在前端归并/查找时互相覆盖。"""
-        xml2 = self.XML.replace("t9", "t10").replace("tu-9", "tu-10").replace("子任务完成", "另一子任务完成")
+        xml2 = self.XML.replace("t9", "t10").replace("tu-9", "tu-10").replace("子智能体完成", "另一子智能体完成")
         entries = normalize_sdk_message_to_entries({"type": "user", "content": self.XML + "\n" + xml2})
         assert len(entries) == 2
         assert entries[0]["uuid"] != entries[1]["uuid"]
@@ -314,7 +314,7 @@ class TestNormalizeTaskNotificationXml:
 
     def test_batched_notifications_all_carry_same_parent(self):
         """同一消息批多条通知时，每条都带同一 parent。"""
-        xml2 = self.XML.replace("t9", "t10").replace("tu-9", "tu-10").replace("子任务完成", "另一子任务完成")
+        xml2 = self.XML.replace("t9", "t10").replace("tu-9", "tu-10").replace("子智能体完成", "另一子智能体完成")
         entries = normalize_sdk_message_to_entries(
             {"type": "user", "content": self.XML + "\n" + xml2, "uuid": "n-multi", "parent_tool_use_id": "tu-parent"}
         )
@@ -1385,7 +1385,7 @@ class TestResolveUserMessageAnchor:
                     "content": [{"type": "tool_use", "id": "tu-agent", "name": "Task", "input": {}}],
                 }
             ],
-            {"tu-agent": [{"type": "user", "content": "子任务输入", "uuid": "sub-u1"}]},
+            {"tu-agent": [{"type": "user", "content": "子智能体输入", "uuid": "sub-u1"}]},
         )
         service = EventLogService(log_store, adapter)
 

@@ -1,6 +1,6 @@
 ---
 name: split-reference-video-units
-description: "参考生视频单集视频单元拆分子任务（generation_mode=reference_video 专用）。使用场景：(1) project.generation_mode 为 reference_video，需要为某一集生成 step1_reference_units.json，(2) 用户要求重新拆分或修改某集的视频单元，(3) video-workflow 编排进入参考生视频的单集内容整理阶段。首次生成时调用 mcp__arcreel__split_reference_video_units 工具（项目配置的文本模型）产出结构化 unit JSON；后续修改时经 mcp__arcreel__open_step1_for_edit 取回可编辑草稿，改完由 mcp__arcreel__validate_and_promote_draft 晋升回正式文件。返回 unit 统计摘要。"
+description: "参考生视频单集视频单元拆分子智能体（generation_mode=reference_video 专用）。使用场景：(1) project.generation_mode 为 reference_video，需要为某一集生成 step1_reference_units.json，(2) 用户要求重新拆分或修改某集的视频单元，(3) video-workflow 编排进入参考生视频的单集内容整理阶段。首次生成时调用 mcp__arcreel__split_reference_video_units 工具（项目配置的文本模型）产出结构化 unit JSON；后续修改时经 mcp__arcreel__open_step1_for_edit 取回可编辑草稿，改完由 mcp__arcreel__validate_and_promote_draft 晋升回正式文件。返回 unit 统计摘要。"
 ---
 
 你是视频单元拆分的编排者，负责把中文小说单集拆分为适配多模态参考生视频模型的 video_unit 表（step1 内容拆分）。每个 video_unit 对应一次视频生成调用，只持有一段正文与一个编排时长。拆分本身由服务端工具 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型）完成，你不在自身上下文里生成拆分内容；视觉编排（景别 / 构图 / 运镜）由后续 step2（`create-episode-script`）以拆分结果为基底生成。
@@ -47,7 +47,7 @@ mcp__arcreel__get_video_capabilities({})
 - `max_reference_images`：单 unit 参考图上限（即正文里去重后的 `@[名称]` 提及数上限）
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 
-情况 A（首次生成）时由 `mcp__arcreel__split_reference_video_units` 自行查询并注入 prompt，子任务可不直接使用；
+情况 A（首次生成）时由 `mcp__arcreel__split_reference_video_units` 自行查询并注入 prompt，子智能体可不直接使用；
 情况 B（修改已有拆分）需参考这些值决定新值。
 
 工具返回 `is_error: true` 时：若错误文本指向 `*.invalid.json` 草稿，按下方「情况 C：处置在场草稿」处理；其余错误停止并把错误文本报告给主 Agent。
@@ -154,6 +154,6 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 
 **文件已保存**: `drafts/episode_{N}/step1_reference_units.json`
 
-下一步：首次生成（情况 A）→ 主 Agent 可 dispatch `create-episode-script` 子任务生成 JSON 剧本（ReferenceVideoScript）；
+下一步：首次生成（情况 A）→ 主 Agent 可 dispatch `create-episode-script` 子智能体生成 JSON 剧本（ReferenceVideoScript）；
 修改已有（情况 B）→ 若 `scripts/episode_{N}.json` 已存在，主 Agent **必须**重新 dispatch `create-episode-script` 重生 JSON。
 ```

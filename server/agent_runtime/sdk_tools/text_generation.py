@@ -299,7 +299,7 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
                 f"重跑 split-reference-video-units 把旧 {REFERENCE_VIDEO_STEP1_LEGACY_FILENAME} "
                 f"重新拆分为结构化 {REFERENCE_VIDEO_STEP1_FILENAME}"
             )
-        return rv_json, "split-reference-video-units 子任务 (Step 1)"
+        return rv_json, "split-reference-video-units 子智能体 (Step 1)"
     if content_mode != "narration" and content_mode in STEP1_FILENAMES:
         # drama 及未来其它走 drama 形状两段式的结构化模式：step1 是结构化 JSON（见 ADR 0041）。
         # narration 虽也在 STEP1_FILENAMES，但另有旧 .md 迁移提示分支，需先排除。
@@ -311,7 +311,7 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
     step1_json = drafts_path / narration_json
     if not step1_json.exists() and (drafts_path / narration_legacy_md).exists():
         return step1_json, f"重跑 split-narration-segments 把旧 {narration_legacy_md} 重新拆分为结构化 {narration_json}"
-    return step1_json, "split-narration-segments 子任务 (Step 1)"
+    return step1_json, "split-narration-segments 子智能体 (Step 1)"
 
 
 def generate_episode_script_tool(ctx: ToolContext):
@@ -1376,7 +1376,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
                             "type": "text",
                             "text": (
                                 f"❌ 第 {episode} 集的 step1 没有草稿编辑通道"
-                                "（该项目无结构化 step1，或其 step1 变体由子任务直接编辑）"
+                                "（该项目无结构化 step1，或其 step1 变体由子智能体直接编辑）"
                             ),
                         }
                     ],

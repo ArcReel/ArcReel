@@ -72,7 +72,7 @@ describe("ReferenceStep1PreviewPanel", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  // 正文之外不再有独立参考图清单：`@[名称]` 在正文里高亮，参考图执行期才解析。
+  // `@[名称]` 在正文里高亮；参考图仅在执行期解析，无独立参考图清单。
   it("renders the clean pending state with the highlighted body and no reference list", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);

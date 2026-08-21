@@ -332,7 +332,7 @@ class NarrationStep1Segment(BaseModel):
 class NarrationStep1Draft(BaseModel):
     """说书 step1 结构化中间态（``drafts/episode_N/step1_segments.json`` 的 schema）。
 
-    顶层容忍附加字段（如 ``episode`` 头）：片段拆分由子任务经 Write 产出、非结构化输出
+    顶层容忍附加字段（如 ``episode`` 头）：片段拆分由子智能体经 Write 产出、非结构化输出
     强约束，读时按本模型校验。
     """
 

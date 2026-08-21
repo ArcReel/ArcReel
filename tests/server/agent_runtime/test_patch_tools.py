@@ -1205,7 +1205,7 @@ class TestPatchProject:
     @pytest.mark.unit
     async def test_response_distinguishes_added_and_merged(self, ctx: ToolContext) -> None:
         """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 Agent 验证是否符合预期策略
-        (如 analyze-assets 子任务应预期合并数=0,出现合并数说明遗漏了已存在过滤)。"""
+        (如 analyze-assets 子智能体应预期合并数=0,出现合并数说明遗漏了已存在过滤)。"""
         out1 = await _call(
             patch_project_tool(ctx),
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
@@ -1272,7 +1272,7 @@ class TestPatchProject:
 
     @pytest.mark.unit
     async def test_response_lists_dropped_legacy_fields(self, ctx: ToolContext) -> None:
-        """工具返回文本应显式列出被剔除的历史字段(type / importance),让 Agent 不再发它们。"""
+        """工具返回文本显式列出被剔除的历史字段(type / importance)，供 Agent 避免发送。"""
         out = await _call(
             patch_project_tool(ctx),
             {

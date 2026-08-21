@@ -89,7 +89,7 @@ Agent 回复通过对话 SSE 流式返回；项目终态变化通过项目事件
 
 ## 5. Agent Runtime {#agent-runtime}
 
-Agent Runtime 基于 Claude Agent SDK，并采用“编排 Skill + 聚焦子任务”的结构。
+Agent Runtime 基于 Claude Agent SDK，并采用“编排 Skill + 聚焦子智能体”的结构。
 
 ```mermaid
 flowchart TD
@@ -97,10 +97,10 @@ flowchart TD
     MAIN --> SKILL["工作流编排 Skill"]
     SKILL --> STATE["读取项目状态"]
     STATE --> DECIDE{"下一阶段"}
-    DECIDE --> A["角色 / 场景 / 道具分析子任务"]
-    DECIDE --> B["分集规划子任务"]
-    DECIDE --> C["剧本规范化子任务"]
-    DECIDE --> D["资产生成子任务"]
+    DECIDE --> A["角色 / 场景 / 道具分析子智能体"]
+    DECIDE --> B["分集规划子智能体"]
+    DECIDE --> C["剧本规范化子智能体"]
+    DECIDE --> D["资产生成子智能体"]
     A --> SUMMARY["精炼摘要"]
     B --> SUMMARY
     C --> SUMMARY
@@ -116,15 +116,15 @@ flowchart TD
 - 判断项目当前状态；
 - 选择下一步；
 - 调用确定性工具；
-- 分发子任务；
+- 分发子智能体；
 - 控制阶段边界；
 - 在需要时等待用户确认。
 
 编排层不应承担所有内容推理，否则会让主上下文快速膨胀。
 
-### 5.2 聚焦子任务 {#focused-subagents}
+### 5.2 聚焦子智能体 {#focused-subagents}
 
-每个子任务聚焦一个目标，例如：
+每个子智能体聚焦一个目标，例如：
 
 - 角色、场景和道具提取；
 - 旁白/解说片段拆分；
@@ -132,7 +132,7 @@ flowchart TD
 - 单集结构化剧本；
 - 资产生成。
 
-大量小说原文和中间推理尽量保留在子任务内部，主 Agent 接收摘要和结果引用。
+大量小说原文和中间推理尽量保留在子智能体内部，主 Agent 接收摘要和结果引用。
 
 ### 5.3 确定性工具 {#deterministic-tools}
 
@@ -434,7 +434,7 @@ ArcReel 在支持的环境中使用 `bwrap` 等机制限制这些能力。Docker
 - 失败后如何恢复；
 - 是否产生费用；
 - 是否需要版本历史；
-- 主 Agent、Skill、子任务和确定性工具各负责什么。
+- 主 Agent、Skill、子智能体和确定性工具各负责什么。
 
 一个阶段只有在完成条件可以由项目状态明确判断时，才能可靠地被编排和恢复。
 

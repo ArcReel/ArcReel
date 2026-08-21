@@ -53,7 +53,7 @@ DRAMA_STEP1_QUARANTINE_FILENAME = "step1_normalized_script.invalid.json"
 #: 收的是文件名而非按项目变体解析的路径：写禁在会话装配前就要成立，而项目的 content_mode /
 #: generation_mode 是运行时可变的，按项目状态分叉判定会让改过模式的项目落进无人拦的缝里。
 #: 判据是「该变体的修改已有草稿通道可走」——写禁与替代通道成对出现，只拒不给出路会
-#: 把 Agent 卡死。narration 的 step1 目前仍由其子任务直接编辑、无草稿通道，故不在表内。
+#: 把 Agent 卡死。narration 的 step1 目前仍由其子智能体直接编辑、无草稿通道，故不在表内。
 AGENT_PROTECTED_STEP1_FILENAMES: frozenset[str] = frozenset({STEP1_FILENAMES["drama"], REFERENCE_VIDEO_STEP1_FILENAME})
 
 

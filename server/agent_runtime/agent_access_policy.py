@@ -95,10 +95,10 @@ class AgentAccessPolicy:
     # 走前缀白名单（见 ``filter_allowed_tools`` / ``is_bash_command_whitelisted``）。
     BASH_TOOLS: ClassVar[tuple[str, ...]] = ("Bash", "BashOutput", "KillBash")
 
-    # 沙箱网络默认允许的域名。所有 provider HTTP 调用已迁到 in-process MCP tool
-    # （server/agent_runtime/sdk_tools/，主进程跑不经 sandbox），所以 sandbox 内
-    # 只需要保留 Anthropic SDK 自身 + 通用 dev 域名（docs / 包仓库等）。
-    # 自定义供应商不再需要手动 ALLOWED_DOMAINS 放行。
+    # 沙箱网络默认允许的域名。所有供应商 HTTP 调用均由 in-process MCP tool
+    # （server/agent_runtime/sdk_tools/，主进程不经 sandbox）执行；sandbox 内
+    # 只保留 Anthropic SDK 自身与通用 dev 域名（docs / 包仓库等），自定义供应商
+    # 无需手动加入 ALLOWED_DOMAINS。
     _DEFAULT_SANDBOX_ALLOWED_DOMAINS: ClassVar[tuple[str, ...]] = (
         # Anthropic
         "anthropic.com",

@@ -9,7 +9,7 @@ router / service（结构化中间态审阅 / 编辑 / 确认）。状态派生�
 真值只存「确认指纹」于 project.json ``episodes[i].step1_review``；pending / confirmed 由读时
 比对 live step1 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、Agent
 改写 step1、web 手改 step1 都会让指纹漂移、自动重新待审，无需 hook 各异的 step1 写入路径
-（narration step1 由子任务 Write 落盘、无 Python chokepoint）。
+（narration step1 由子智能体 Write 落盘、无 Python chokepoint）。
 
 适用范围（拥有结构化 step1 中间态的三条内容/视觉两段式路径）：
 - drama / narration 的图生 / 宫格路径：step1_normalized_script.json / step1_segments.json；
@@ -106,7 +106,7 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
     return episode_drafts_dir(project_path, episode) / filename
 
 
-#: step1 变体 → 该变体的草稿来源。narration 尚未接入草稿（其 step1 仍由子任务
+#: step1 变体 → 该变体的草稿来源。narration 尚未接入草稿（其 step1 仍由子智能体
 #: 直接编辑），故不在表内——缺席即「该变体无草稿位」，gate 与生成侧据此不阻塞。
 _STEP1_QUARANTINE_KIND: dict[str, str] = {
     "reference_video": QUARANTINE_KIND_STEP1,

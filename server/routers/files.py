@@ -839,7 +839,7 @@ async def update_draft_content(
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
             # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 step1）。
-            # 若写入 fallback 到老文件，切模式后后续子任务读 step_files[step_num] 仍为空，
+            # 若写入 fallback 到老文件，切模式后后续子智能体读 step_files[step_num] 仍为空，
             # 导致"前端保存成功但生成报缺少 step1"。
             return project_dir, content_mode, episode_drafts_dir(project_dir, episode) / step_files[step_num]
 
