@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "no
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { scanMarkdownLines } from "./markdown-scan.mjs";
+import { scanMarkdownLines, walkMarkdownFiles } from "./markdown-scan.mjs";
 import { checkUpdateDocsInventory } from "./update-docs-inventory.mjs";
 
 const websiteDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -64,17 +64,6 @@ function docRoots() {
   return ["docs", ...localeRoots];
 }
 
-function walkDocFiles(directory) {
-  const absoluteDirectory = resolve(websiteDir, directory);
-  if (!existsSync(absoluteDirectory)) return [];
-  return readdirSync(absoluteDirectory, { withFileTypes: true }).flatMap((entry) => {
-    const path = resolve(absoluteDirectory, entry.name);
-    if (entry.isDirectory()) return walkDocFiles(toPosix(relative(websiteDir, path)));
-    if (!entry.isFile() || !/\.mdx?$/.test(entry.name)) return [];
-    return [toPosix(relative(websiteDir, path))];
-  });
-}
-
 function checkAnchors() {
   const problems = [];
   const exemptDocsFound = new Set();
@@ -83,7 +72,7 @@ function checkAnchors() {
     const jsxHeadingDocs = new Set();
     const docPaths = new Set();
 
-    for (const file of walkDocFiles(root)) {
+    for (const file of walkMarkdownFiles(websiteDir, root)) {
       const docPath = toPosix(relative(root, file));
       docPaths.add(docPath);
       const seenAnchors = new Set();
