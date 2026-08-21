@@ -22,7 +22,7 @@ paths:
 
 修改 provider、endpoint、供应商 API 契约、能力、参数约束或计费前，先读 `docs/api-docs/AGENTS.md`，并同步对应官方文档索引。
 
-能力数据按字段划分真相源，改动前对照以下决策：`docs/adr/0013`（型号级能力真相源）、`docs/adr/0018`（`supported_durations` 未登记即 fail loud、无隐性 fallback）、`docs/adr/0054`（视频能力位与各类上限归 backend，与请求构造同源）、`docs/adr/0056`（执行期判定与请求构造同源）。自定义模型读 DB 声明，配置界面此类字段不预填。
+能力数据按字段划分真相源，改动前对照以下决策：`docs/adr/0013`（型号级能力真相源）、`docs/adr/0018`（`supported_durations` 未登记即 fail loud、无隐性 fallback）、`docs/adr/0054`（视频能力位、各类上限与成片音轨形态归 backend `VideoCapabilities`，与请求构造同源；音轨按 i2v / r2v 两条执行路径各声明一份）、`docs/adr/0056`（执行期判定与请求构造同源）。自定义模型读 DB 声明，配置界面此类字段不预填。
 
 提示词侧同样不持有能力数值：`agent_runtime_profile/` 与 `lib/prompt_builders*.py` 中的模板不硬编码时长、分辨率等档位，占位符由编排层从上述真相源注入。
 

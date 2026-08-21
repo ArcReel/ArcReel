@@ -14,6 +14,7 @@ from lib.logging_utils import format_kwargs_for_log
 from lib.providers import PROVIDER_GROK
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
+    VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -52,8 +53,11 @@ class GrokVideoBackend:
         当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
         保持 backend 为单一真相源。参考图上限取自第三方来源，官方文档未明确列出，
         不硬编当既成事实。
+
+        音轨恒有声：SDK 调用不带音轨开关，成片必然带音轨（``generate`` 结算时直接写死
+        ``generate_audio=True``），用户的关闭意图无处可下发。
         """
-        return VideoCapabilities(max_reference_images=7)
+        return VideoCapabilities(max_reference_images=7, audio_track=VideoAudioMode.ALWAYS_ON)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

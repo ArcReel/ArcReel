@@ -4,6 +4,19 @@
  */
 export type VoiceConsistencyTier = "native" | "soft" | "none";
 
+/**
+ * 成片音轨形态，与 `lib/video_backends/base.py::VideoAudioMode` 一一对应：
+ * `controllable` = 请求带音轨开关，用户的开/关意图能抵达供应商；`always_on` = 恒有声、无开关；
+ * `always_off` = 该路径不产音轨、也无开关。三态由服务端从 backend 声明派生，前端不合成。
+ */
+export type VideoAudioControl = "controllable" | "always_on" | "always_off";
+
+/**
+ * 视频执行路径（能力桶），与 `lib/config/resolver.py::VideoCapability` 一一对应：
+ * `i2v` 覆盖文生与图生首帧，`r2v` 是参考生视频。逐路径的能力位按它取值。
+ */
+export type VideoRoute = "i2v" | "r2v";
+
 export interface ModelInfoResponse {
   display_name: string;
   media_type: string;
@@ -14,12 +27,12 @@ export interface ModelInfoResponse {
   // 使用参考图时允许的时长；空 = 参考图路径不额外约束时长。
   reference_image_durations?: number[];
   resolutions: string[];
-  // 视频 model 是否带音轨（非视频 model 恒 false）。不等于「音轨开关可控」——AI Studio Veo /
-  // Grok Imagine 恒有声但未声明 generate_audio token，仍为 true（见 capabilities 语义注）。
-  has_audio_track: boolean;
-  // 请求参数能否控制音轨开关（非视频 model 恒 false）。与 has_audio_track 合起来分出
-  // 可控 / 恒有声 / 恒无声三态，见 utils/provider-models.ts::lookupVideoAudioControl。
-  audio_switch_controllable: boolean;
+  // 成片音轨形态（可控 / 恒有声 / 恒无声），按执行路径各给一份：同一 model 在图生与参考生两条
+  // 子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带音轨开关，成片必然无声）。
+  // 服务端从 backend 的 VideoCapabilities 派生，前端只取值、不合成三态；非视频 model 恒
+  // always_off。见 utils/provider-models.ts::lookupVideoAudioControl。
+  audio_track: VideoAudioControl;
+  reference_route_audio_track: VideoAudioControl;
   // 无项目上下文时的声音一致性档位，服务端派生（generation_mode 未知，native 恒降格）。
   // 有项目上下文的页面改用 /projects/{name}/video-capabilities 的同名字段，不读这里。
   voice_consistency: VoiceConsistencyTier;

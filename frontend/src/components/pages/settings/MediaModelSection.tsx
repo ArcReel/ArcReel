@@ -36,7 +36,7 @@ import {
   lookupVideoAudioControl,
 } from "@/utils/provider-models";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
-import type { ProviderInfo } from "@/types/provider";
+import type { ProviderInfo, VideoRoute } from "@/types/provider";
 
 interface CardProps {
   kicker: string;
@@ -219,10 +219,12 @@ export function MediaModelSection() {
   // 桶可控就不置灰——否则闲置的基础默认会连带禁掉可控桶的合法关闭。
   // 两桶不一致时只由下方警告提示，存量的「关闭」由警告给一键修正入口，不静默改写配置
   // （入队前预检按实际执行的桶拒绝）。
-  const bucketAudioControl = (backend: string) =>
-    backend ? lookupVideoAudioControl(providers, backend) : null;
-  const i2vAudioControl = bucketAudioControl(currentVideoI2V || currentVideo);
-  const r2vAudioControl = bucketAudioControl(currentVideoR2V || currentVideo);
+  // 每个桶按它自己的执行路径取值：同一模型在两条路径上的音轨形态可以不同（可灵 v3-omni 图生
+  // 可控、参考生无开关），按无路径上下文的值取会让 r2v 桶报出一个执行期不存在的开关。
+  const bucketAudioControl = (backend: string, route: VideoRoute) =>
+    backend ? lookupVideoAudioControl(providers, backend, route) : null;
+  const i2vAudioControl = bucketAudioControl(currentVideoI2V || currentVideo, "i2v");
+  const r2vAudioControl = bucketAudioControl(currentVideoR2V || currentVideo, "r2v");
   const audioLockedControl =
     i2vAudioControl === r2vAudioControl &&
     (i2vAudioControl === "always_on" || i2vAudioControl === "always_off")

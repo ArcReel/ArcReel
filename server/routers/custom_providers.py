@@ -63,15 +63,25 @@ MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
 # 开放给用户覆盖的能力维度。DB 列与合成函数对 VideoCapabilities 全字段通用，写入侧在此收窄：
 # 未列入的维度即便是合法字段名也不落库，扩容只需往这里加键名，无需 DB 迁移或改合成语义。
+#
+# 音轨形态（audio_track / reference_route_audio_track）刻意不开放（``docs/adr/0054``）：自定义
+# 供应商的音轨按「无信号不收紧」处理，设置界面拿不到自定义模型的逐模型音轨目录，用户设的这一位
+# 没有执行侧对应物——协议 backend 要么下发音轨开关要么不下发，声明改不了它——开放覆盖只会请回
+# 一份「界面宣称、执行期反悔」的手写声明。
 CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame", "reference_audio_mode", "max_reference_audio_count"})
 
-# 白名单必须是 VideoCapabilities 字段名的子集：值类型校验直接按字段名取期望类型，键名写错
-# 要在导入期炸掉，而不是等到一次真实写入才 KeyError 成 500。
-if not CAPABILITY_OVERRIDE_ALLOWLIST <= CAPABILITY_OVERRIDE_FIELDS.keys():
-    raise RuntimeError(
-        f"能力覆盖白名单含非 VideoCapabilities 字段: "
-        f"{sorted(CAPABILITY_OVERRIDE_ALLOWLIST - set(CAPABILITY_OVERRIDE_FIELDS))}"
-    )
+#: 音轨形态两维：既不开放覆盖，也不回显系统判定（理由同上）。
+_AUDIO_TRACK_FIELDS = frozenset({"audio_track", "reference_route_audio_track"})
+
+# 两份键集合都必须是 VideoCapabilities 字段名的子集：值类型校验直接按字段名取期望类型，键名写错
+# 要在导入期炸掉，而不是等到一次真实写入才 KeyError 成 500；音轨两维的键名写错则会静默停止过滤，
+# 把 backend 侧声明摆回自定义供应商的设置页——那正是本口径要避免的分裂。
+for _name, _keys in (
+    ("能力覆盖白名单", CAPABILITY_OVERRIDE_ALLOWLIST),
+    ("音轨形态字段", _AUDIO_TRACK_FIELDS),
+):
+    if not _keys <= CAPABILITY_OVERRIDE_FIELDS.keys():
+        raise RuntimeError(f"{_name}含非 VideoCapabilities 字段: {sorted(_keys - set(CAPABILITY_OVERRIDE_FIELDS))}")
 
 
 def _narrow_to_allowlist(overrides: dict[str, object]) -> dict[str, object]:
@@ -305,15 +315,20 @@ class EndpointCatalogResponse(BaseModel):
 
 
 def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] | None:
-    """读该 model 的系统判定能力（四字段全量）；非 video endpoint 返回 None。
+    """读该 model 的系统判定能力；非 video endpoint 返回 None。
 
     判定失败（endpoint 已下线、注册表声明异常）时降级为 None 而非 500：列表端点要能把
     其余模型正常呈现出来，单行判定不出来只是设置页少一段"判定值"提示。
+
+    音轨形态两维不回显：自定义供应商的音轨按「无信号不收紧」处理、不参与派生（见
+    ``CAPABILITY_OVERRIDE_ALLOWLIST`` 的说明），把 backend 侧的静态声明摆到设置页会让用户
+    以为它对自定义模型生效——那正是本口径要避免的分裂。
     """
     try:
         if endpoint_to_media_type(endpoint) != "video":
             return None
-        return asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id))
+        caps = asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id))
+        return {k: v for k, v in caps.items() if k not in _AUDIO_TRACK_FIELDS}
     except ValueError:
         logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
         return None

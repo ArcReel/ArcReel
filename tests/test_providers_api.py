@@ -184,29 +184,21 @@ class TestListProviders:
         assert models["imagen-4.0-generate-001"]["resolutions"] == []
 
     @pytest.mark.unit
-    def test_video_model_exposes_has_audio_track_for_always_audible_exception(self):
-        """gemini-aistudio 的 veo-3.1-fast-generate-preview 未声明 generate_audio token，
-        但恒有声（开关不可控），has_audio_track 须为 True（不得因缺 token 误判无声）。"""
+    def test_always_audible_model_reports_switch_not_controllable(self):
+        """AI Studio 的 Veo 恒有声、请求里没有开关：两条路径都报 always_on，设置页据此置灰音频开关。"""
         with _make_client(self._mock_svc_with_models()) as client:
             resp = client.get("/api/v1/providers")
-        models = resp.json()["providers"][0]["models"]
-        assert models["veo-3.1-fast-generate-preview"]["has_audio_track"] is True
+        model = resp.json()["providers"][0]["models"]["veo-3.1-fast-generate-preview"]
+        assert model["audio_track"] == "always_on"
+        assert model["reference_route_audio_track"] == "always_on"
 
     @pytest.mark.unit
-    def test_always_audible_exception_reports_switch_not_controllable(self):
-        """恒有声但请求参数控制不了开关：audio_switch_controllable 须为 False，设置页据此置灰音频开关。"""
+    def test_non_video_model_reports_always_off(self):
+        """image model 的音轨形态恒 always_off（音轨判定对非视频 model 无意义）。"""
         with _make_client(self._mock_svc_with_models()) as client:
             resp = client.get("/api/v1/providers")
         models = resp.json()["providers"][0]["models"]
-        assert models["veo-3.1-fast-generate-preview"]["audio_switch_controllable"] is False
-
-    @pytest.mark.unit
-    def test_non_video_model_has_audio_track_false(self):
-        """image model 的 has_audio_track 恒 False（音轨判定对非视频 model 无意义）。"""
-        with _make_client(self._mock_svc_with_models()) as client:
-            resp = client.get("/api/v1/providers")
-        models = resp.json()["providers"][0]["models"]
-        assert models["imagen-4.0-generate-001"]["has_audio_track"] is False
+        assert models["imagen-4.0-generate-001"]["audio_track"] == "always_off"
         assert models["imagen-4.0-generate-001"]["voice_consistency"] == "none"
 
     @pytest.mark.unit
@@ -254,7 +246,7 @@ class TestListProviders:
         with _make_client(svc) as client:
             resp = client.get("/api/v1/providers")
         model = resp.json()["providers"][0]["models"]["doubao-seedance-2-0-260128"]
-        assert model["has_audio_track"] is True
+        assert model["audio_track"] == "controllable"
         assert model["voice_consistency"] == "soft"
 
 

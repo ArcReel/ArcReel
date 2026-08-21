@@ -17,6 +17,7 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ProviderJobStatus,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -149,8 +150,11 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         Sora input_reference 为单张首帧图，参考图上限为 1；首帧与参考共享该单槽位。
         当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
         保持 backend 为单一真相源。
+
+        音轨恒有声：Sora 成片自带音轨，``generate`` 组装的 kwargs 里没有音轨开关字段，用户的
+        关闭意图无处可下发。
         """
-        return VideoCapabilities(max_reference_images=1)
+        return VideoCapabilities(max_reference_images=1, audio_track=VideoAudioMode.ALWAYS_ON)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

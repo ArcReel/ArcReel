@@ -20,6 +20,7 @@ from lib.system_config import resolve_vertex_credentials_path
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -36,6 +37,16 @@ logger = logging.getLogger(__name__)
 # 独立触发，与首帧/尾帧无关。
 _REQUIRED_DURATION_SECONDS = 8
 _DURATION_CONSTRAINED_RESOLUTIONS = frozenset({"1080p", "4k"})
+
+# 请求里带得动音轨开关的 Veo 型号（即 Vertex 目录）：`_create_task` 只在 backend_type == "vertex"
+# 时下发 generate_audio，AI Studio 的请求没有这个字段。两家目录的 model 命名不重叠，一致性由
+# tests/test_video_backend_capabilities.py 的音轨立场守卫锁定（新增型号漏登记会在那里暴露）。
+_AUDIO_SWITCH_MODELS: frozenset[str] = frozenset(
+    {
+        "veo-3.1-generate-001",
+        "veo-3.1-fast-generate-001",
+    }
+)
 
 
 class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
@@ -105,10 +116,19 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         Veo 官方文档（docs/api-docs/providers/gemini-aistudio.md）把 Image-to-video 与 Reference images
-        列为并列模式，带参考图时 durationSeconds 必须为 8。全系模型共用这份能力声明，不按
+        列为并列模式，带参考图时 durationSeconds 必须为 8。首帧/尾帧/参考图三维全系一致，不按
         model_id 分支；instance property 委托至此，保持 backend 为单一真相源。
+
+        音轨形态按 model_id 分派：Veo 成片恒带音轨，只有 Vertex 的请求带 ``generate_audio`` 开关
+        （见 ``_create_task``），AI Studio 的不带、开关无处可下发。registry 名 ``gemini`` 同时服务
+        gemini-vertex 与 gemini-aistudio，静态查询只拿得到 model_id，故判据落在 model_id 上——两家
+        目录的 model 命名不重叠，未登记的 Veo model 保守按「有音轨、无开关」声明。
         """
-        return VideoCapabilities(last_frame=True, max_reference_images=3)
+        return VideoCapabilities(
+            last_frame=True,
+            max_reference_images=3,
+            audio_track=(VideoAudioMode.CONTROLLABLE if model in _AUDIO_SWITCH_MODELS else VideoAudioMode.ALWAYS_ON),
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

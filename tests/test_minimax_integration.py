@@ -201,7 +201,6 @@ class TestVideoRegistry:
         assert h3.resolutions == ["768p", "2k"]
         # 两档分辨率共用同一段时长，无需 duration_resolution_constraints 门控。
         assert h3.duration_resolution_constraints == {}
-        assert h3.audio_always_on is True
 
         hailuo = models["MiniMax-Hailuo-2.3"]
         assert hailuo.media_type == "video"

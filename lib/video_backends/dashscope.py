@@ -52,6 +52,7 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ReferenceAudioMode,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -326,15 +327,27 @@ def _normalize_wan27_alias(family_suffix: str) -> str:
 
 # 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
 # wan2.7-r2v 额外支持首帧与参考音色。
+#
+# audio_track：只有 wan3.0 的请求带音轨开关（``_build_payload`` 里的 ``parameters["audio"]``），
+# 其余型号恒有声——下发该参数会被上游当非法参数拒。两条路径共用同一份声明：这些型号没有参考
+# 生视频专属的请求形态差异，故不另设 reference_route_audio_track。
 _MODEL_PROFILES: dict[str, VideoCapabilities] = {
-    "happyhorse-1.1-t2v": VideoCapabilities(first_frame=False),
-    "happyhorse-1.1-i2v": VideoCapabilities(first_frame=True),
-    "happyhorse-1.1-r2v": VideoCapabilities(first_frame=False, max_reference_images=9),
-    "happyhorse-1.0-t2v": VideoCapabilities(first_frame=False),
-    "happyhorse-1.0-i2v": VideoCapabilities(first_frame=True),
-    "happyhorse-1.0-r2v": VideoCapabilities(first_frame=False, max_reference_images=9),
-    "wan2.7-t2v": VideoCapabilities(first_frame=False, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS),
-    "wan2.7-i2v": VideoCapabilities(first_frame=True, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS),
+    "happyhorse-1.1-t2v": VideoCapabilities(first_frame=False, audio_track=VideoAudioMode.ALWAYS_ON),
+    "happyhorse-1.1-i2v": VideoCapabilities(first_frame=True, audio_track=VideoAudioMode.ALWAYS_ON),
+    "happyhorse-1.1-r2v": VideoCapabilities(
+        first_frame=False, max_reference_images=9, audio_track=VideoAudioMode.ALWAYS_ON
+    ),
+    "happyhorse-1.0-t2v": VideoCapabilities(first_frame=False, audio_track=VideoAudioMode.ALWAYS_ON),
+    "happyhorse-1.0-i2v": VideoCapabilities(first_frame=True, audio_track=VideoAudioMode.ALWAYS_ON),
+    "happyhorse-1.0-r2v": VideoCapabilities(
+        first_frame=False, max_reference_images=9, audio_track=VideoAudioMode.ALWAYS_ON
+    ),
+    "wan2.7-t2v": VideoCapabilities(
+        first_frame=False, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS, audio_track=VideoAudioMode.ALWAYS_ON
+    ),
+    "wan2.7-i2v": VideoCapabilities(
+        first_frame=True, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS, audio_track=VideoAudioMode.ALWAYS_ON
+    ),
     # 带首帧的参考生视频是 wan2.7-r2v 的官方形态（_build_media 同请求组装
     # first_frame + reference_image）。
     "wan2.7-r2v": VideoCapabilities(
@@ -346,6 +359,7 @@ _MODEL_PROFILES: dict[str, VideoCapabilities] = {
         # 编排层必须显式给出「谁的声音配哪张图」的映射，不能假设与 reference_audio_files 同序。
         reference_audio_per_image=True,
         max_prompt_chars=_WAN27_MAX_PROMPT_CHARS,
+        audio_track=VideoAudioMode.ALWAYS_ON,
     ),
     # wan3.0 的参考音频是 media 数组里的独立条目（不像 2.7 挂在参考素材项上），故不声明
     # reference_audio_per_image，改由 max_reference_audio_total_seconds 约束总量。
@@ -360,7 +374,10 @@ _MODEL_PROFILES: dict[str, VideoCapabilities] = {
     ),
 }
 
-# 未知 model（如代理中转自定义命名）按通用 i2v/t2v 处理，VideoCapabilities() 默认支持首帧。
+# 未知 model（如代理中转自定义命名）按通用 i2v/t2v 处理，VideoCapabilities() 默认支持首帧、
+# 音轨开关按「无信号不收紧」保持可控。请求侧的对应判定是「无信号不发未知参数」（_build_payload
+# 只对 _is_wan3 命中的型号下发 audio），两者方向不同是有意的：声明侧误判恒有声会把用户的开关
+# 锁死，请求侧误发未知参数会被上游直接拒。
 _DEFAULT_PROFILE = VideoCapabilities()
 
 
@@ -517,8 +534,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             parameters["ratio"] = request.aspect_ratio
         if request.seed is not None:
             parameters["seed"] = request.seed
-        # 音轨开关只对 wan3.0 下发：其余型号恒有声（registry 侧 audio_always_on），下发该参数
-        # 会被上游当非法参数拒绝。开关可控与否的真相源在 registry，此处按型号分派运输形态。
+        # 音轨开关只对 wan3.0 下发：其余型号恒有声，下发该参数会被上游当非法参数拒绝。本行就是
+        # `_MODEL_PROFILES` 里 audio_track 声明的执行侧对应物（恒有声型号声明 ALWAYS_ON，wan3.0
+        # 取默认的 CONTROLLABLE），改一侧须同改另一侧。
         if _is_wan3(self._model):
             parameters["audio"] = request.generate_audio
 

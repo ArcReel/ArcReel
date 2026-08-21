@@ -45,6 +45,7 @@ from lib.retry import (
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -81,7 +82,7 @@ _MAX_DURATION_SECONDS = 18
 _MAX_REFERENCE_IMAGES = 4
 
 # 尺寸约束：长宽被 8 整除、长边收口 1920（保守值，覆盖上游 480p/720p/1080p 三档标准化）。
-# 缺 resolution 时按 720p 短边兜底。待 console / 实测核对像素上限，不硬编当既成事实。
+# 缺 resolution 时按 720p 短边兜底。像素上限未经 Agnes console 核对，不硬编当既成事实。
 _VIDEO_ROUND_TO = 8
 _MAX_LONG_EDGE = 1920
 
@@ -277,11 +278,15 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         首帧 + 尾帧（首尾关键帧）+ 多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加）。
         当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
         保持 backend 为单一真相源。
+
+        音轨恒无声：请求体没有音轨字段、成片不带音轨（``generate`` 结算时直接写死
+        ``generate_audio=False``），用户的开启意图无处可下发。
         """
         return VideoCapabilities(
             first_frame=True,
             last_frame=True,
             max_reference_images=_MAX_REFERENCE_IMAGES,
+            audio_track=VideoAudioMode.ALWAYS_OFF,
         )
 
     @property

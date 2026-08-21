@@ -14,7 +14,7 @@ from lib.custom_provider.capabilities import (
     synthesize_video_capabilities,
     system_video_capabilities,
 )
-from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
 
 
 class TestOverrideFieldSchema:
@@ -31,6 +31,8 @@ class TestOverrideFieldSchema:
             "reference_audio_per_image",
             "max_prompt_chars",
             "first_frame_ratio_adaptive_only",
+            "audio_track",
+            "reference_route_audio_track",
         }
         assert CAPABILITY_OVERRIDE_FIELDS["last_frame"] is bool
         assert CAPABILITY_OVERRIDE_FIELDS["max_reference_images"] is int
@@ -40,6 +42,21 @@ class TestOverrideFieldSchema:
         assert CAPABILITY_OVERRIDE_FIELDS["max_prompt_chars"] == (int | None)
         assert CAPABILITY_OVERRIDE_FIELDS["reference_audio_per_image"] is bool
         assert CAPABILITY_OVERRIDE_FIELDS["first_frame_ratio_adaptive_only"] is bool
+        assert CAPABILITY_OVERRIDE_FIELDS["audio_track"] is VideoAudioMode
+        assert CAPABILITY_OVERRIDE_FIELDS["reference_route_audio_track"] == (VideoAudioMode | None)
+
+    @pytest.mark.unit
+    def test_audio_track_dimensions_are_not_open_to_users(self):
+        """音轨形态不对用户开放覆盖（``docs/adr/0054``）。
+
+        自定义供应商的音轨口径按「无信号不收紧」处理：设置界面拿不到自定义模型的逐模型音轨
+        目录，服务端单方面派生会让界面与入队预检各说一套；endpoint 背后的上游 model 又由用户
+        填写、无从核实。开放覆盖等于把一份没有执行侧对应物的手写声明请回来——正是收编音轨真相源
+        要消除的分裂。
+        """
+        from server.routers.custom_providers import CAPABILITY_OVERRIDE_ALLOWLIST
+
+        assert not CAPABILITY_OVERRIDE_ALLOWLIST & {"audio_track", "reference_route_audio_track"}
 
 
 class TestOptionalDimensionSchema:
