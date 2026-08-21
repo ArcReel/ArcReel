@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from lib.api_errors import ConflictError
-from lib.artifact_planner import ARTIFACT_MANIFEST_SCHEMA_VERSION
+from lib.artifact_activation import ARTIFACT_MANIFEST_SCHEMA_VERSION
 from lib.generation_result import GenerationAction, GenerationProblemCode
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import (
