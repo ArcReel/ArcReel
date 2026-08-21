@@ -35,11 +35,11 @@ ${paths.map((path) => `| \`${path}\` | yes | no |`).join("\n")}
 ### 写作约定
 `;
 
-test("CLI derives engine ownership from page frontmatter and reports explicit none", () => {
+test("CLI derives coverage tiers from page frontmatter and reports explicit none", () => {
   withRepo(
     {
-      "website/docs/a.md": frontmatter("engine-a"),
-      "website/docs/nested/b.mdx": frontmatter("engine-b"),
+      "website/docs/a.md": frontmatter("full"),
+      "website/docs/nested/b.mdx": frontmatter("fact-check"),
       "website/docs/ignored.md": frontmatter("none"),
       "CONTRIBUTING.md": responsibilities([
         "website/docs/a.md",
@@ -53,12 +53,27 @@ test("CLI derives engine ownership from page frontmatter and reports explicit no
       });
       assert.equal(
         output,
-        [
-          "engine-a\twebsite/docs/a.md",
-          "none\twebsite/docs/ignored.md",
-          "engine-b\twebsite/docs/nested/b.mdx",
-          "",
-        ].join("\n"),
+        ["full\twebsite/docs/a.md", "none\twebsite/docs/ignored.md", "fact-check\twebsite/docs/nested/b.mdx", ""].join(
+          "\n",
+        ),
+      );
+    },
+  );
+});
+
+test("CLI fails loud on an invalid update-docs value, including retired engine names", () => {
+  withRepo(
+    {
+      "website/docs/typo.md": frontmatter("engine-a"),
+      "CONTRIBUTING.md": responsibilities(["website/docs/typo.md"]),
+    },
+    (root) => {
+      assert.throws(
+        () => execFileSync(process.execPath, [script, "--root", root], { encoding: "utf8", stdio: "pipe" }),
+        (error) =>
+          error.stderr.includes(
+            "website/docs/typo.md 的 frontmatter update_docs 值「engine-a」无效（可选 full / fact-check / none）",
+          ),
       );
     },
   );
@@ -67,7 +82,7 @@ test("CLI derives engine ownership from page frontmatter and reports explicit no
 test("CLI fails loud when a published page has no update-docs declaration", () => {
   withRepo(
     {
-      "website/docs/declared.md": frontmatter("engine-b"),
+      "website/docs/declared.md": frontmatter("fact-check"),
       "website/docs/undeclared.md": "---\nid: missing\n---\n",
       "CONTRIBUTING.md": responsibilities(["website/docs/declared.md", "website/docs/undeclared.md"]),
     },
@@ -83,7 +98,7 @@ test("CLI fails loud when a published page has no update-docs declaration", () =
 test("CLI reports pages missing from and stale in the responsibilities table", () => {
   withRepo(
     {
-      "website/docs/actual.md": frontmatter("engine-b"),
+      "website/docs/actual.md": frontmatter("fact-check"),
       "CONTRIBUTING.md": responsibilities(["website/docs/stale.md"]),
     },
     (root) => {
@@ -102,7 +117,7 @@ test("CLI reports pages missing from and stale in the responsibilities table", (
 test("CLI ignores table-like responsibility rows inside fenced examples", () => {
   withRepo(
     {
-      "website/docs/actual.md": frontmatter("engine-b"),
+      "website/docs/actual.md": frontmatter("fact-check"),
       "CONTRIBUTING.md": responsibilities(["website/docs/actual.md"]).replace(
         "\n### 写作约定",
         "\n```md\n| `website/docs/example-only.md` | yes | no |\n```\n\n### 写作约定",

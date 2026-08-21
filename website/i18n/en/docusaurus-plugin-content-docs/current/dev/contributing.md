@@ -151,7 +151,7 @@ This file is the source of truth for the contributing guide. During builds, it i
 
 ### Page responsibilities {#page-responsibilities}
 
-Published pages also declare their documentation-refresh engine assignment via the `update_docs` frontmatter key; the criteria live in `.agents/skills/update-docs/SKILL.md`.
+Published pages also declare their documentation-refresh coverage tier via the `update_docs` frontmatter key; the criteria live in `.agents/skills/update-docs/SKILL.md`.
 
 | Page | Should contain | Should not contain |
 |---|---|---|

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# update-docs 引擎 A 的确定性部分：算 baseline、列出全量候选 commit 标题、列出待核对文档。
+# update-docs 缺漏引擎（gap finder）的确定性部分：算 baseline、列出全量候选 commit 标题、列出待核对文档。
 # 输出供 SKILL.md 的 LLM 步骤消费（agent-facing，无需 i18n）。
 set -eu
 
-# 非 Docusaurus 根目录文档保留少量枚举；website/docs 的归属由各页 frontmatter 派生。
-ENGINE_A_ROOT_DOCS=(
+# 非 Docusaurus 根目录文档保留少量枚举；website/docs 的覆盖档位由各页 frontmatter 派生。
+FULL_ROOT_DOCS=(
   "README.md"
 )
 
@@ -12,36 +12,36 @@ ENGINE_A_ROOT_DOCS=(
 README_SOURCE="README.md"
 README_MIRROR="README.en.md"
 
-# 非 Docusaurus 根目录中仅引擎 B 覆盖的文档。
-ENGINE_B_ONLY_ROOT_DOCS=(
+# 非 Docusaurus 根目录中仅核对引擎（fact checker）覆盖的文档。
+FACT_CHECK_ONLY_ROOT_DOCS=(
   "CONTRIBUTING.md"
 )
 
 cd "$(git rev-parse --show-toplevel)"
 
-ENGINE_A_DOCS=("${ENGINE_A_ROOT_DOCS[@]}")
-ENGINE_B_ONLY_DOCS=("${ENGINE_B_ONLY_ROOT_DOCS[@]}")
+FULL_DOCS=("${FULL_ROOT_DOCS[@]}")
+FACT_CHECK_ONLY_DOCS=("${FACT_CHECK_ONLY_ROOT_DOCS[@]}")
 inventory="$(node website/scripts/update-docs-inventory.mjs --root "$PWD" --format tsv)"
-while IFS=$'\t' read -r ownership doc; do
+while IFS=$'\t' read -r tier doc; do
   [ -n "${doc}" ] || continue
-  case "${ownership}" in
-    engine-a) ENGINE_A_DOCS+=("${doc}") ;;
-    engine-b) ENGINE_B_ONLY_DOCS+=("${doc}") ;;
+  case "${tier}" in
+    full) FULL_DOCS+=("${doc}") ;;
+    fact-check) FACT_CHECK_ONLY_DOCS+=("${doc}") ;;
     none) ;;
-    # 归属取值的真相源在 update-docs-inventory.mjs；新增取值而漏改这里时报错，不静默漏覆盖。
+    # 覆盖档位取值的真相源在 update-docs-inventory.mjs；新增取值而漏改这里时报错，不静默漏覆盖。
     *)
-      echo "collect-changes: ${doc} 的归属「${ownership}」本脚本不认识，需同步 case 分支" >&2
+      echo "collect-changes: ${doc} 的覆盖档位「${tier}」本脚本不认识，需同步 case 分支" >&2
       exit 1
       ;;
   esac
 done <<< "${inventory}"
 
-# baseline：引擎 A 文档中最近一次提交时间的最早者。
+# baseline：全量组文档中最近一次提交时间的最早者。
 # 用 git 提交时间而非文件系统 mtime，后者在 fresh clone 后会失真。
 
-# 文档的新鲜度点：最近一次改动过正文的提交。只改 update_docs 归属声明的提交要跳过——
-# 归属迁移与日后的归属重划都是纯元数据编辑，算作新鲜会把 baseline 推到该次编辑，
-# 使编辑之前那段区间的能力变更永远不再进入引擎 A 扫描。
+# 文档的新鲜度点：最近一次改动过正文的提交。只改 update_docs 声明的提交要跳过——
+# 档位迁移与日后的档位重划都是纯元数据编辑，算作新鲜会把 baseline 推到该次编辑，
+# 使编辑之前那段区间的能力变更永远不再进入缺漏引擎扫描。
 content_freshness() {
   local target="$1" history changes ts cs sha
   # 显式判退出码，不靠 set -e：函数在命令替换里被调用时 set -e 不生效，
@@ -74,8 +74,8 @@ baseline_sha=""
 baseline_cs=""
 baseline_doc=""
 
-echo "## 引擎 A 覆盖文档（参与 baseline）"
-for doc in "${ENGINE_A_DOCS[@]}"; do
+echo "## 全量组文档（缺漏扫描 + 事实核对，参与 baseline）"
+for doc in "${FULL_DOCS[@]}"; do
   if [ ! -f "${doc}" ]; then
     echo "- (缺失) ${doc}"
     continue
@@ -99,18 +99,18 @@ done
 
 if [ -z "${baseline_sha}" ]; then
   echo
-  echo "## 错误：没有任何引擎 A 文档有 git 历史，无法定 baseline"
+  echo "## 错误：没有任何全量组文档有 git 历史，无法定 baseline"
   exit 1
 fi
 
 echo
-echo "## baseline（仅基于引擎 A 文档）"
-echo "最早被改动的引擎 A 文档：${baseline_doc}（${baseline_cs}）"
+echo "## baseline（仅基于全量组文档）"
+echo "最早被改动的全量组文档：${baseline_doc}（${baseline_cs}）"
 echo "扫描区间：${baseline_sha:0:9}..HEAD"
 
 # 全量候选 commit：区间内所有非 merge commit，每条仅 sha + 标题。
 # 不做 type/scope 过滤——Conventional Commits 在本项目是约定而非强制，
-# 基于它的过滤不可靠；相关性判断交由引擎 A subagent 在语义层完成。
+# 基于它的过滤不可靠；相关性判断交由缺漏引擎 subagent 在语义层完成。
 echo
 echo "## 候选 commit（baseline..HEAD 全量，每条 sha + 标题）"
 count=0
@@ -122,12 +122,12 @@ done < <(git log "${baseline_sha}..HEAD" --no-merges --format=$'%H\t%s')
 
 echo
 echo "## 候选 commit 总数：${count}"
-[ "${count}" -eq 0 ] && echo "（区间内无候选改动，引擎 A 文档可能已是最新）"
+[ "${count}" -eq 0 ] && echo "（区间内无候选改动，全量组文档可能已是最新）"
 
-# 引擎 B 全量清单：所有 in-scope 文档都要核对。
+# 核对引擎全量清单：所有 in-scope 文档都要核对。
 echo
-echo "## 引擎 B 全量核对文档清单（每篇派一个只读 subagent）"
-for doc in "${ENGINE_A_DOCS[@]}" "${ENGINE_B_ONLY_DOCS[@]}"; do
+echo "## 核对引擎全量文档清单（每篇派一个只读 subagent）"
+for doc in "${FULL_DOCS[@]}" "${FACT_CHECK_ONLY_DOCS[@]}"; do
   [ -f "${doc}" ] && echo "- ${doc}"
 done
 
