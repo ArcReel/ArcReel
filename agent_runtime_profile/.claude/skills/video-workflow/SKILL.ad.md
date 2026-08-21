@@ -25,7 +25,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 - `next_action.type == "draft_selling_points"` → 步骤 3
 - `next_action.type == "generate_script"` → 步骤 5
 - `next_action.type == "generate_asset_sheets"` → 步骤 4
-- `next_action.type == "repair_video_units"` → 步骤 7 的 unit 修复
+- `next_action.type == "repair_video_units"` → 步骤 7 的视频单元修复
 - `next_action.type == "generate_storyboards"` → 步骤 7 的 storyboard 单图路径
 - `next_action.type == "generate_grid"` → 步骤 7 的 storyboard 宫格路径
 - `next_action.type == "generate_videos"` → 步骤 7 的视频生成
@@ -41,7 +41,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 6. **sheet 过目（软门禁）**：商品有 `product_sheet` 时，请用户在首次分镜或参考生视频生成前确认它与真品一致；只有原图时直接继续。
 7. **编排与生成**：
 
-   - `repair_video_units`：Read `target.script`，只处理 `requested_ids` 对应的 unit。先调用 `mcp__arcreel__get_episode_script_revision({"script": target.script_filename})`；再用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "expected_revision": revision, "operations": [{"op": "update", "id": unit_id, "fields": {"text": "...", "duration_seconds": ...}}]})` 写回全部 unit 的完整规划（每个 unit 一条有序 update）；由工具重算 `needs_replan`，不要直接编辑标记。每个 unit 保持单一发声归属，商品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_video_selected` 点名重做这些 unit，再刷新状态。
+   - `repair_video_units`：Read `target.script`，只处理 `requested_ids` 对应的视频单元。先调用 `mcp__arcreel__get_episode_script_revision({"script": target.script_filename})`；再用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "expected_revision": revision, "operations": [{"op": "update", "id": unit_id, "fields": {"text": "...", "duration_seconds": ...}}]})` 写回全部视频单元的完整规划（每个视频单元一条有序 update）；由工具重算 `needs_replan`，不要直接编辑标记。每个视频单元保持单一发声归属，商品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_video_selected` 点名重做这些视频单元，再刷新状态。
    - `next_action.type == "generate_storyboards"` → 调
      `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
    - `next_action.type == "generate_grid"` → 调
@@ -52,11 +52,11 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
      不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时先显式生成并让用户试听，再按
      预检返回的 `problems[].action` 处理（action 是权威，不要按 `code` 自己推）
    - `next_action.type == "confirm_request_duration"` → 按 `admission.confirmation.tiers[]` 逐档位展示
-     涉及的 unit 与费用，确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
+     涉及的视频单元与费用，确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
    - `next_action.type == "generate_videos"` → 先看 `plan.steps[].admission.decision`：只有 `admitted`
-     才入队，`blocked` / `confirmation_required` 时**一个任务都不入队**，逐 unit 报告 `unit_id`、
-     `problems[].code`、原因与 `problems[].action`（被 `blocked_unit_ids` 连累的 unit 带
-     `generation_batch_admission_withheld`，如实说明不是它自身有问题）；修掉被拒 unit 后整批重来，
+     才入队，`blocked` / `confirmation_required` 时**一个任务都不入队**，逐视频单元报告 `unit_id`、
+     `problems[].code`、原因与 `problems[].action`（被 `blocked_unit_ids` 连累的视频单元带
+     `generation_batch_admission_withheld`，如实说明不是它自身有问题）；修掉被拒视频单元后整批重来，
      不拆批先跑通过的那一半。入队时若 `requested_ids` 非空则调
      `mcp__arcreel__generate_video_selected({"script": target.script_filename, "scene_ids": requested_ids, "narration_delivery": chosen_narration_delivery})`；
      `requested_ids` 为空时才调 `mcp__arcreel__generate_video_episode({"script": target.script_filename, "narration_delivery": chosen_narration_delivery})`。
@@ -66,7 +66,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
      状态、队列任务、供应商 checkpoint、产物时效四轴分开说——「任务成功」不等于「当前产物有效」；
      stale 产物照常可用，是否重做由用户决定，不自动删除或重生已付费产物
    - 带货项目走分镜图生视频时，先审核商品分镜保真度，再产生视频费用；通用短片没有商品分镜，不设这道审核。
-   - 参考生视频按自包含 unit 生成，跳过分镜；参考图在执行期按正文 `@[名称]` 的首次提及顺序解析，商品与角色、场景、道具同规则。用户不满意时按 `unit_id` 点名重做。
+   - 参考生视频按自包含视频单元生成，跳过分镜；参考图在执行期按正文 `@[名称]` 的首次提及顺序解析，商品与角色、场景、道具同规则。用户不满意时按 `unit_id` 点名重做。
 
 8. **导出剪映草稿**：视频齐全后引导用户在 Web 端导出。声音归属与字幕时序由服务端 presentation 结果
    决定，预览、下载与剪映草稿消费同一份——**不要自行估算字幕时间轴、不要静音 供应商原音、
@@ -79,10 +79,10 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 
 ## 镜头时长约束
 
-storyboard 分镜时长取视频模型 `supported_durations` 成员，可用 `mcp__arcreel__get_video_capabilities` 查询。reference unit 使用剧本模型允许的正整数编排时长，生成预检再投影到供应商档位。发现非法值时先用 `patch_episode_script` 修正。
+分镜图生视频的分镜时长取视频模型 `supported_durations` 成员，可用 `mcp__arcreel__get_video_capabilities` 查询。参考生视频的视频单元使用剧本模型允许的正整数编排时长，生成预检再投影到供应商档位。发现非法值时先用 `patch_episode_script` 修正。
 
 ## 边界
 
 - storyboard 广告以 `shots[]` 为唯一真相源；reference 广告以自包含 `video_units[]` 为唯一真相源。
-- reference unit 自持引用语法正文、编排时长、生成资产与规划状态；编辑这些字段后刷新计划。
-- unit 顺序调整使用 WebUI，字段修复使用 `patch_episode_script`，视频生成使用 `generate-video` skill。
+- 参考生视频的视频单元自持引用语法正文、编排时长、生成资产与规划状态；编辑这些字段后刷新计划。
+- 视频单元顺序调整使用 WebUI，字段修复使用 `patch_episode_script`，视频生成使用 `generate-video` skill。

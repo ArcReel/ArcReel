@@ -13,7 +13,7 @@ drama / ad × storyboard / reference_video）之间哪些步骤适用、顺序�
 mcp__arcreel__get_workflow_plan({
   "episode": N,                                  // 可选：用户指定集数时传
   "narration_delivery": "post_production" | "use_tts",  // 可选：本次旁白交付选择
-  "confirmed_request_durations": {"E1U1": 8}    // 可选：用户已确认的逐 unit 申请档位（键是 unit ID）
+  "confirmed_request_durations": {"E1U1": 8}    // 可选：用户已确认的逐视频单元申请档位（键是 unit ID）
 })
 ```
 
@@ -103,13 +103,13 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 
 视频整批准入判定被拒时，计划把**第一个问题的 `action`** 直接当成 `next_action.type` 交回，
 `next_action.args.admission` 带完整准入结论。因此上表之外还可能收到下面这些动作——它们与
-`problems[].action` 同一个闭集，逐 unit 的处理方式一律读各自的 `problems[].action`，不要按
+`problems[].action` 同一个闭集，逐视频单元的处理方式一律读各自的 `problems[].action`，不要按
 `code` 自己猜：
 
 | `next_action.type` | 执行入口 |
 |---|---|
 | `fix_input` | 剧本/声明本身不合法：按 `problems[].detail` 定位，经 `mcp__arcreel__patch_episode_script` 改对再重查 |
-| `replan_unit` | unit 需要重新规划：走 `repair_video_units` 那一行的改法 |
+| `replan_unit` | 视频单元需要重新规划：走 `repair_video_units` 那一行的改法 |
 | `generate_dependency` | 缺上游产物（资产图等参考图）：先补齐依赖再重查 |
 | `generate_tts` / `regenerate_tts` | 缺旁白音频 / 依据已变：经 `generate-narration-audio` 合成后重查 |
 | `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |
@@ -150,8 +150,8 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `tts_stale` | `regenerate_tts` | 依据已变，重新合成该段再重查；旧音频保留 |
 | `tts_duration_unavailable` | `regenerate_tts` | 时长读不出来，按重新合成处理 |
 | `tts_generating` | `wait_for_task` | 已有旁白任务在跑，**不要再提交一次**，等待后重查 |
-| `tts_conflicts_with_active_narrated_video` | `wait_for_task` | 该 unit 有带旁白的视频任务在跑，等待后重查 |
-| `tts_not_applicable` | `fix_input` | 该 unit 没有叙述旁白，改选 `post_production` |
+| `tts_conflicts_with_active_narrated_video` | `wait_for_task` | 该视频单元有带旁白的视频任务在跑，等待后重查 |
+| `tts_not_applicable` | `fix_input` | 该视频单元没有叙述旁白，改选 `post_production` |
 | `tts_state_unavailable` | `repair_artifact_state` | 产物状态读不出来，报告缺口，不当作缺失去重生 |
 | `tts_not_configured` | `configure_provider` | 见下 |
 
@@ -167,15 +167,15 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 
 `decision != "admitted"` 时：
 
-- 逐 unit 报告 `admission.units[]`：`unit_id`、是否 `admitted`、`problems[].code`、
-  `problems[].action`（下一步动作）。通过的 unit 会带 `generation_batch_admission_withheld`，
+- 逐视频单元报告 `admission.units[]`：`unit_id`、是否 `admitted`、`problems[].code`、
+  `problems[].action`（下一步动作）。通过的视频单元会带 `generation_batch_admission_withheld`，
   其 `blocked_unit_ids` 指出是被谁挡住的——把这层因果如实说给用户，不要报成它们自己有问题。
 - `decision == "confirmation_required"` 时 `admission.confirmation.tiers[]` 给出按申请档位分组的
-  unit 与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations`、连同仍成立的
+  视频单元与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations`、连同仍成立的
   `narration_delivery` 一起重查计划；同一对参数在 `generate_video_*` 重发时同样要带全，
   后者漏带 `narration_delivery` 会直接失败。
 - **不要把整批拆成小批去「先跑通过的那半批」。** 那既绕开了全有或全无，也会在补齐后重复提交
-  已经付过费的 unit。修掉被拒的 unit，整批重来。
+  已经付过费的视频单元。修掉被拒的视频单元，整批重来。
 
 ## 四条状态轴分开报告
 

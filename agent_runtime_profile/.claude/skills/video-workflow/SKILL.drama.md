@@ -247,13 +247,13 @@ dispatch `generate-assets` 子智能体：
   不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时先显式生成并让用户试听，再按
   预检返回的 `problems[].action` 处理（action 是权威，不要按 `code` 自己推）
 - `confirm_request_duration` — 整批准入判定要求确认申请档位。按 `admission.confirmation.tiers[]` 逐档位
-  展示涉及的 unit 与费用，取得确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
+  展示涉及的视频单元与费用，取得确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
 
 只有 `plan.steps[].admission.decision == "admitted"` 才入队；`blocked` 或 `confirmation_required` 时
-**一个任务都不入队**。此时逐 unit 报告 `admission.units[]` 的 `unit_id`、`problems[].code`、原因与
-`problems[].action`；被别人挡住的 unit 带 `generation_batch_admission_withheld`，如实说明是被
-`blocked_unit_ids` 连累而非自身有问题。修掉被拒 unit 后**整批重来**，不拆批先跑通过的那一半，
-否则会重复提交已经付过费的 unit。
+**一个任务都不入队**。此时逐视频单元报告 `admission.units[]` 的 `unit_id`、`problems[].code`、原因与
+`problems[].action`；被别人挡住的视频单元带 `generation_batch_admission_withheld`，如实说明是被
+`blocked_unit_ids` 连累而非自身有问题。修掉被拒视频单元后**整批重来**，不拆批先跑通过的那一半，
+否则会重复提交已经付过费的视频单元。
 
 **dispatch `generate-assets` 子智能体**：请求选择语义与 Web 完全一致。计划里的 `requested_ids` 总是数组：
 非空表示**点名强制重做（必然计费）**；`[]` 表示计划未点名，应在工具调用中**省略 ID 参数**以只补缺。

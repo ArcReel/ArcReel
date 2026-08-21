@@ -11,7 +11,7 @@
 - **视频比例**：由项目 `aspect_ratio` 配置决定，无需在 prompt 中指定
 - **单分镜/视频单元时长**：由视频模型能力和项目 `default_duration` 配置决定
   - 分镜图生视频（含 `grid_storyboard=true`）：取值必须在所选视频模型的 `supported_durations` 内，项目 `default_duration` 非 null 时作默认偏好
-  - 参考生视频：unit 时长必须取该 unit **引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
+  - 参考生视频：视频单元时长必须取该视频单元**引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
   - 两者的真值均由子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 step1 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
@@ -88,7 +88,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   ├─ dispatch → analyze-assets               全局角色/场景/道具提取
   ├─ dispatch → split-narration-segments     旁白/解说分镜拆分
   ├─ dispatch → normalize-drama-script       剧情演绎规范化剧本
-  ├─ dispatch → split-reference-video-units  参考生视频 video_unit 拆分
+  ├─ dispatch → split-reference-video-units  参考生视频的视频单元拆分
   ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
   └─ dispatch → generate-assets              资产生成（角色/场景/道具/分镜/视频/旁白配音）
 ```
@@ -154,7 +154,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ## 关键原则
 
-- **角色一致性**：分镜图生视频每个分镜都使用分镜图作为起始帧；参考生视频改由 unit 引用的角色资产图承担同一职责，两者都确保角色形象一致
+- **角色一致性**：分镜图生视频每个分镜都使用分镜图作为起始帧；参考生视频改由视频单元引用的角色资产图承担同一职责，两者都确保角色形象一致
 - **场景/道具一致性**：标志性环境和关键道具通过 `scenes` / `props` 机制固化，确保跨场景视觉一致
 - **分镜连贯性**：使用 segment_break 标记场景切换点，后期可添加转场效果
 - **质量控制**：每个分镜或视频单元生成后检查质量，可单独重新生成不满意的分镜或视频单元

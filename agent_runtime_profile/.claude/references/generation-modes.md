@@ -38,7 +38,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 
 - **分辨率**：图片 1K，视频 1080p
 - **单分镜时长**（storyboard，含 grid_storyboard）：取值必须在模型 `supported_durations` 内；项目 `default_duration` 非 null 时作默认值（项目创建时按 content_mode 写入 project.json），为 null 时由内容整理按内容节奏自行取值
-- **单 unit 时长**（reference_video）：unit 是一次生成调用的单元，一个 unit 一个时长——取值必须在该 unit **引用状态对应**的生效档位内（`get_video_capabilities` 返回的 `reference_unit_durations.with_references` / `.without_references`；部分型号对带参考图的生成另有时长限制）；内容装不下所选档位时重拆 unit，不违约时长。具体数值由子智能体在执行时通过 `mcp__arcreel__get_video_capabilities` 工具查得，**不在本文档固化**
+- **单个视频单元时长**（参考生视频）：视频单元是一次生成调用的单元，一个视频单元一个时长——取值必须在该视频单元**引用状态对应**的生效档位内（`get_video_capabilities` 返回的 `reference_unit_durations.with_references` / `.without_references`；部分型号对带参考图的生成另有时长限制）；内容装不下所选档位时重拆视频单元，不违约时长。具体数值由子智能体在执行时通过 `mcp__arcreel__get_video_capabilities` 工具查得，**不在本文档固化**
 - **拼接**：全部模式用 ffmpeg concat；Veo extend 仅用于**单片段延长**，不串联不同镜头
 - **BGM**：生成端已在视频 prompt 末尾自动追加"禁止出现：BGM、文字字幕、水印"，无需手动追加，prompt 里也不要描述 BGM / 配乐
 
