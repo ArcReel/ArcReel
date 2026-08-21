@@ -1726,6 +1726,8 @@ class TestProjectsRouter:
         record_migration_failure(fake_pm.base / project_name, ValueError("坏数据"), schema_version=7)
         monkeypatch.setattr(guard, "get_project_manager", lambda: fake_pm)
         client = _client(monkeypatch, fake_pm)
+        before_project_data = deepcopy(fake_pm.project_data)
+        before_scripts = deepcopy(fake_pm.scripts)
 
         with client:
             response = getattr(client, method)(endpoint, json=body)
@@ -1734,6 +1736,9 @@ class TestProjectsRouter:
         detail = response.json()["detail"]
         assert project_name in detail
         assert "坏数据" in detail
+        # 阻断必须发生在惰性迁移读写之前：project.json 与 scripts/*.json 都不能被动过
+        assert fake_pm.project_data == before_project_data
+        assert fake_pm.scripts == before_scripts
 
     @pytest.mark.unit
     def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
