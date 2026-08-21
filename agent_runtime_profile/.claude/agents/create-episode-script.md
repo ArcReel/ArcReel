@@ -49,7 +49,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 等待返回。返回 `is_error: true` 时查看错误信息并尝试修复或报告问题。
 
-若错误为 **草稿待处置**（错误文本指向 `drafts/episode_{N}/` 下的 `*.invalid.json`），先 Read 草稿并检查 `violations[]`：非空表示生成结果未满足约束，是待修复草稿；这次已付费的产出没有丢，正式文件也没被污染，按报告定位与违约类用 Edit 改 `content`——参考生视频路径改 `content.units[i].text`（step1 草稿还可改 `source_text` / `duration_seconds`），drama 路径改 `content.scenes[i]`。空数组表示它只是经 `open_step1_for_edit` 取回的可编辑草稿，不存在需要凭空修正的违约；保留其中已有修改。两种情况都调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 晋升；返回违约报告则按报告继续改再晋升，无轮次上限。不要重跑生成工具重抽。
+若错误为 **草稿待处置**（错误文本指向 `drafts/episode_{N}/` 下的 `*.invalid.json`），先 Read 草稿并检查 `violations[]`：非空表示生成结果未满足约束，是待修复草稿；这次已付费的产出没有丢，正式文件也没被污染，按报告中的字段路径与违约类用 Edit 修复 `content`——参考生视频的 `content` 损坏或 `content.units` 不是数组时修复整个 `content`，分镜级违约才改 `content.units[i]`；drama 的分镜级违约改 `content.scenes[i]`。空数组表示它只是经 `open_step1_for_edit` 取回的可编辑草稿，不存在需要凭空修正的违约；保留其中已有修改。两种情况都调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 晋升；返回违约报告则按报告继续改再晋升，无轮次上限。不要重跑生成工具重抽。
 
 若错误为 **内容确认阻塞**（drama / narration / reference_video 的 step1 结构化中间态尚未经显式确认，或确认后内容又被改；ad 无 step1，不会遇到本错误），这不是数据错误：不要反复重试、不要改写中间文件。确认须由用户驱动——回报主 Agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
 

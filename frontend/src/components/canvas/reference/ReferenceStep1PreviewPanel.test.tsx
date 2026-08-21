@@ -405,9 +405,9 @@ describe("ReferenceStep1PreviewPanel", () => {
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    expect(await screen.findByText("草稿处理中")).toBeInTheDocument();
+    expect(await screen.findByText("草稿由 Agent 处理")).toBeInTheDocument();
     expect(screen.queryByText("待修复草稿 — 拆分未通过校验")).not.toBeInTheDocument();
-    expect(screen.getByText("Agent 正在完成草稿处理，完成后此处会自动更新")).toBeInTheDocument();
+    expect(screen.getByText("Agent 会在本集任务中继续处理草稿，完成后此处会自动更新")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Agent/ })).not.toBeInTheDocument();
     expect(useAssistantStore.getState().input).toBe("");
     // 禁用判据是待处置草稿文件是否在场，不是重算后的违约数量——违约为空但草稿仍在场时确认依旧禁用。

@@ -85,10 +85,10 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 - 非空：在上述修改基础上，按违约报告逐条修复
 - 为空：无需凭空修改，直接校验晋升
 
-草稿装的是**扁平草稿结构**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。
+正常草稿装的是**扁平草稿结构**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。若违约报告指出 `content` 损坏或 `content.units` 不是数组，按报告中的字段路径修复整个 `content`；只有分镜级违约才定位到 `content.units[i]`。
 
-1. Read 该草稿并保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按 `label`（unit 定位）与 `code`（违约类）逐条定位
-2. 用 Edit 直接改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方「修改口径」；处理违约且 `code` 为资产名未登记时，可改用已登记的名称，或调用 `mcp__arcreel__patch_project({"table": "characters", "entries": {"名称": {"description": "..."}}})` 登记资产后重新 Read `project.json`（场景 / 道具分别把 `table` 改为 `scenes` / `props`）；严禁用 Edit / Write 直改 `project.json`
+1. Read 该草稿并保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告中的字段路径与 `code`（违约类）逐条定位
+2. 用 Edit 修复草稿 `content` 中的对应字段；`content` 损坏或 `content.units` 不是数组时修复整个 `content`，分镜级违约才修改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`。遵循下方「修改口径」；处理违约且 `code` 为资产名未登记时，可改用已登记的名称，或调用 `mcp__arcreel__patch_project({"table": "characters", "entries": {"名称": {"description": "..."}}})` 登记资产后重新 Read `project.json`（场景 / 道具分别把 `table` 改为 `scenes` / `props`）；严禁用 Edit / Write 直改 `project.json`
 3. 调用 `mcp__arcreel__validate_and_promote_draft({"episode": N})` 重新全量校验并晋升
 4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具
 

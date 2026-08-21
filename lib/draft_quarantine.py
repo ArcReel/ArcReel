@@ -57,8 +57,11 @@ _QUARANTINE_FILENAMES: dict[str, str] = {
 #: 报告里「改哪个字段」的指引按来源分流：草稿正文的形状各不相同，指引落到不存在的字段名
 #: 会把 Agent 引到它改不动的地方。与文件名同表登记，新增一种来源只在本模块加一行。
 _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
-    QUARANTINE_KIND_STEP1: ("step1 拆分", "units[i].text / source_text / duration_seconds"),
-    QUARANTINE_KIND_STEP2: ("step2 视觉展开", "units[i].text"),
+    QUARANTINE_KIND_STEP1: (
+        "step1 拆分",
+        "content（按报告字段路径修复；分镜级字段位于 content.units[i]）",
+    ),
+    QUARANTINE_KIND_STEP2: ("step2 视觉展开", "content.units[i].text"),
     QUARANTINE_KIND_DRAMA_STEP1: (
         "step1 规范化",
         "content（分镜级字段位于 content.scenes[i]）",
@@ -198,7 +201,7 @@ def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, e
     return (
         f"❌ {stage}产出有 {len(violations)} 处违约，已保存为待修复草稿（正式文件未被改动）：{draft}\n\n"
         f"{render_violation_report(violations)}\n\n"
-        f"处置：直接编辑该草稿的 content.{field} 修正违约；"
+        f"处置：直接编辑该草稿的 {field} 修正违约；"
         "若违约是「资产名未登记」，也可改为在 project.json 登记该资产、或改用已登记的名称。\n"
         f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 重新全量校验并晋升为正式文件；'
         "仍有违约时会返回刷新后的报告，可继续修改再晋升，无轮次上限。"

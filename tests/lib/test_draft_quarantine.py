@@ -142,7 +142,8 @@ class TestReport:
         path = quarantine_path(tmp_path, 2, QUARANTINE_KIND_STEP1)
         text = render_report(path, QUARANTINE_KIND_STEP1, [_violation()], episode=2)
         assert str(path) in text
-        assert "content.units[i].text" in text
+        assert "按报告字段路径修复" in text
+        assert "content.units[i]" in text
         assert 'validate_and_promote_draft({"episode": 2})' in text
         assert "无轮次上限" in text
 
