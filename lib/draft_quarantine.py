@@ -59,7 +59,7 @@ _QUARANTINE_FILENAMES: dict[str, str] = {
 _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
     QUARANTINE_KIND_STEP1: (
         "step1 拆分",
-        "content（按报告字段路径修复；分镜级字段位于 content.units[i]）",
+        "content（按报告字段路径修复；视频单元级字段位于 content.units[i]）",
     ),
     QUARANTINE_KIND_STEP2: ("step2 视觉展开", "content.units[i].text"),
     QUARANTINE_KIND_DRAMA_STEP1: (

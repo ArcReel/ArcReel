@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 #: 结构化 step1 中间态的校验模型（按 step1 变体 ``script_review.step1_kind``）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
-#: narration 为 NarrationStep1Draft（结构化 novel_text 片段），reference_video 为 ReferenceStep1Draft
+#: narration 为 NarrationStep1Draft（结构化 novel_text 分镜），reference_video 为 ReferenceStep1Draft
 #: （units → 正文 + 编排时长）。
 _STEP1_CONTENT_MODEL: dict[str, type[BaseModel]] = {
     "drama": DramaNormalizedScript,

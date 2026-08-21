@@ -1337,11 +1337,11 @@ async def test_generate_narration_audio_rejects_string_segment_ids(fake_ctx: Too
 
 @pytest.mark.unit
 async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolContext, monkeypatch) -> None:
-    """缺 segment_id 的片段不能让整批中断：无 ID 可寻址故不进契约，其余片段照常入队。"""
+    """缺 segment_id 的分镜不能让整批中断：无 ID 可寻址故不进契约，其余分镜照常入队。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
     script = _narration_audio_script()
-    # 两段都缺配音：本用例的主题是无 ID 片段的可寻址性，不掺入已有配音的复用判定。
+    # 两个分镜都缺配音：本用例的主题是无 ID 分镜的可寻址性，不掺入已有配音的复用判定。
     script["segments"][1]["generated_assets"] = {}
     script["segments"].append({"novel_text": "有文本但缺 id 的片段。", "video_prompt": {}, "generated_assets": {}})
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
@@ -1572,7 +1572,7 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
 
 @pytest.mark.integration
 async def test_generate_storyboards_rejects_mismatched_unit_script(fake_ctx: ToolContext) -> None:
-    """失配剧本不能落进"✨ 所有片段的分镜图都已生成"的假成功——报结构错误并指引重拆。"""
+    """失配剧本不能落进"✨ 所有分镜的分镜图都已生成"的假成功——报结构错误并指引重拆。"""
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "narration",
         "episode": 1,
@@ -8359,11 +8359,11 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolConte
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
 
     tool_obj = split_narration_segments_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单个片段出场人物尽量不超过两人"})
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单个分镜出场人物尽量不超过两人"})
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
     assert "# 用户意见" in prompt_text
-    assert "单个片段出场人物尽量不超过两人" in prompt_text
+    assert "单个分镜出场人物尽量不超过两人" in prompt_text
     assert "必须全部落实" not in prompt_text
 
 
@@ -8478,7 +8478,7 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
 
 @pytest.mark.unit
 async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    """happy path：结构化片段 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
+    """happy path：结构化分镜 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _nr_project(fake_ctx)
@@ -8571,7 +8571,7 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
 
 @pytest.mark.unit
 async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
-    """静态片段 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
+    """静态分镜 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _nr_source(fake_ctx)
@@ -8636,7 +8636,7 @@ async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolCon
 
 @pytest.mark.unit
 async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolContext, monkeypatch) -> None:
-    """缺资产字段（characters_in_segment 等）由既有片段 schema（NarrationStep1Segment strict）拦截。"""
+    """缺资产字段（characters_in_segment 等）由既有分镜 schema（NarrationStep1Segment strict）拦截。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _nr_source(fake_ctx)
@@ -8687,7 +8687,7 @@ async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: s
 
 @pytest.mark.unit
 async def test_split_narration_segments_rejects_truncated_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
-    """片段合并后比源文短（模型删减）：novel_text 完整性校验拦截，不落盘。"""
+    """分镜合并后比源文短（模型删减）：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
@@ -8701,7 +8701,7 @@ async def test_split_narration_segments_rejects_truncated_novel_text(fake_ctx: T
 
 @pytest.mark.unit
 async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
-    """片段文字被模型改写（非逐字）：novel_text 完整性校验拦截，不落盘。"""
+    """分镜文字被模型改写（非逐字）：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
@@ -8718,7 +8718,7 @@ async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: T
 
 @pytest.mark.unit
 async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
-    """片段顺序被模型打乱：novel_text 完整性校验拦截，不落盘。"""
+    """分镜顺序被模型打乱：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
@@ -8749,7 +8749,7 @@ async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: Too
 
 @pytest.mark.unit
 async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ctx: ToolContext, monkeypatch) -> None:
-    """片段边界恰好落在源文的段落换行处：边界处允许可选空格，不应误报删减。"""
+    """分镜边界恰好落在源文的段落换行处：边界处允许可选空格，不应误报删减。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
@@ -8768,7 +8768,7 @@ async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ct
 async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """片段边界落在半角标点后（源文无空白分隔）：边界处允许可选空格，不应误报删减。"""
+    """分镜边界落在半角标点后（源文无空白分隔）：边界处允许可选空格，不应误报删减。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
@@ -8787,7 +8787,7 @@ async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
 async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """标点后的词间空格在片段内部（非边界）丢失："Hello, world." -> "Hello,world."，属实质内容损坏，须拦截。"""
+    """标点后的词间空格在分镜内部（非边界）丢失："Hello, world." -> "Hello,world."，属实质内容损坏，须拦截。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,

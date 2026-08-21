@@ -1653,7 +1653,7 @@ class ProjectManager:
 
     def get_pending_scenes(self, project_name: str, script_filename: str, asset_type: str) -> list[dict]:
         """
-        获取待处理的场景/片段列表
+        获取待处理的分镜列表
 
         Args:
             project_name: 项目名称
@@ -1661,7 +1661,7 @@ class ProjectManager:
             asset_type: 资源类型
 
         Returns:
-            待处理场景/片段列表
+            待处理分镜列表
         """
         script = self.load_script(project_name, script_filename)
 
@@ -1704,14 +1704,14 @@ class ProjectManager:
 
     def get_scenes_needing_storyboard(self, project_name: str, script_filename: str) -> list[dict]:
         """
-        获取需要生成分镜图的场景/片段列表（两种模式统一逻辑）
+        获取需要生成分镜图的分镜列表（两种模式统一逻辑）
 
         Args:
             project_name: 项目名称
             script_filename: 剧本文件名
 
         Returns:
-            需要生成分镜图的场景/片段列表
+            需要生成分镜图的分镜列表
         """
         script = self.load_script(project_name, script_filename)
 

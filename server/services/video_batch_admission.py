@@ -862,7 +862,7 @@ def build_storyboard_video_specs(
     在任何入口都会在建任务之前扣住整批，计划预告的准入结论也与真正提交时一致。
     """
 
-    item_type = "片段" if content_mode == "narration" else "场景"
+    item_type = "分镜"
     skip_set = set(skip_ids or [])
 
     specs: list[TaskSpec] = []

@@ -1,6 +1,6 @@
 """``end_frame_image`` 的数据模型、PATCH 白名单与 data_validator 校验测试。
 
-三骨架（narration 片段 / drama 场景 / ad 镜头）同构持有该字段：默认空、参与
+三骨架（narration / drama / ad 分镜）同构持有该字段：默认空、参与
 Python 端序列化与校验、对 LLM 隐藏。写入通道只有尾帧专用端点——通用剧本 PATCH
 刻意不放行该字段，否则原样写值会绕过快照复制、重开悬空引用与越界路径的口子。
 """

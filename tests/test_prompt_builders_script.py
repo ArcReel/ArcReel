@@ -71,7 +71,7 @@ class TestPromptBuildersScript:
             aspect_ratio="9:16",
             episode=1,
         )
-        # 多行 novel_text 续行缩进进原文块（前缀两空格），不 flush-left 溢出片段结构
+        # 多行 novel_text 续行缩进进原文块（前缀两空格），不 flush-left 溢出分镜结构
         assert "原文：第一行。\n  第二行。" in prompt
 
     def _drama_step2_prompt(self, **overrides) -> str:

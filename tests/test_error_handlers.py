@@ -75,7 +75,7 @@ class TestApiErrorHandler:
         client = _make_client()
         resp = client.get("/api-error-404")
         assert resp.status_code == 404
-        assert resp.json()["detail"] == "片段 'E1S01' 不存在"
+        assert resp.json()["detail"] == "分镜 'E1S01' 不存在"
 
     @pytest.mark.unit
     def test_bad_request_400(self):

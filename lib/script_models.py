@@ -235,8 +235,8 @@ class NarrationSegment(BaseModel):
                 data.pop(k, None)
         return data
 
-    segment_id: str = Field(description="片段 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
-    duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
+    segment_id: str = Field(description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
+    duration_seconds: int = Field(ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     novel_text: str = Field(description="小说原文（必须原样保留，用于后期配音）")
     characters_in_segment: list[str] = Field(description="出场角色名称列表")
@@ -298,20 +298,20 @@ class NarrationEpisodeScript(BaseModel):
     # 单一真相源，LLM 不参与填写）；账本无规划数据时为 null。
     hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
     next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
-    segments: list[NarrationSegment] = Field(description="片段列表")
+    segments: list[NarrationSegment] = Field(description="分镜列表")
 
 
 # ============ 旁白/解说 step1 结构化中间态 / step2 视觉层 ============
 #
-# 两段式职责切分：step1（片段拆分）产出内容层（逐字 novel_text + 片段边界 + 时长），
+# 两段式职责切分：step1（分镜拆分）产出内容层（逐字 novel_text + 分镜边界 + 时长），
 # step2（generate-script）只产出视觉层（image_prompt / video_prompt），按 segment_id
 # 合并回 step1 已确认结构。novel_text 永不经 step2 的 LLM 重出 → 消除扩写漂移。
 
 
 class NarrationStep1Segment(BaseModel):
-    """旁白/解说 step1（片段拆分）产出的结构化片段：内容层。
+    """旁白/解说 step1（分镜拆分）产出的结构化分镜：内容层。
 
-    只承载 step1 已定的内容字段：片段边界（segment_id / segment_break）、逐字 novel_text、
+    只承载 step1 已定的内容字段：分镜边界（segment_id / segment_break）、逐字 novel_text、
     时长。视觉层（image_prompt / video_prompt）由 step2 生成后按 segment_id 合并进来。
     characters_in_segment / scenes / props 由 step1 登记（内容层是资产引用的单一真相源）：
     step2 视觉层 schema 不含资产字段、只读消费、不补登记不改写，故三者必填——无资产须显式写 []，
@@ -320,9 +320,9 @@ class NarrationStep1Segment(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    segment_id: str = Field(min_length=1, description="片段 ID，格式 E{集}S{序号}")
+    segment_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号}")
     novel_text: str = Field(min_length=1, description="小说原文（逐字保留，用于配音与透传）")
-    duration_seconds: int = Field(ge=1, le=60, description="片段时长（秒）")
+    duration_seconds: int = Field(ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     characters_in_segment: list[str] = Field(description="出场角色名称列表；无则显式写 []")
     scenes: list[str] = Field(description="出场场景名称列表；无则显式写 []")
@@ -332,13 +332,13 @@ class NarrationStep1Segment(BaseModel):
 class NarrationStep1Draft(BaseModel):
     """旁白/解说 step1 结构化中间态（``drafts/episode_N/step1_segments.json`` 的 schema）。
 
-    顶层容忍附加字段（如 ``episode`` 头）：片段拆分由子智能体经 Write 产出、非结构化输出
+    顶层容忍附加字段（如 ``episode`` 头）：分镜拆分由子智能体经 Write 产出、非结构化输出
     强约束，读时按本模型校验。
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    segments: list[NarrationStep1Segment] = Field(description="片段列表")
+    segments: list[NarrationStep1Segment] = Field(description="分镜列表")
 
 
 class NarrationVisualSegment(BaseModel):
@@ -352,20 +352,20 @@ class NarrationVisualSegment(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    segment_id: str = Field(min_length=1, description="对齐锚：必须取自 step1 片段表，逐一对应、不增不减")
+    segment_id: str = Field(min_length=1, description="对齐锚：必须取自 step1 分镜表，逐一对应、不增不减")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt = Field(description="视频生成提示词")
 
 
 class NarrationVisualEpisodeScript(BaseModel):
-    """step2 视觉层的 LLM ``response_schema``：剧集标题 + 各片段视觉层。
+    """step2 视觉层的 LLM ``response_schema``：剧集标题 + 各分镜视觉层。
 
-    顶层不走 ``extra="forbid"``（与 NarrationEpisodeScript 同口径）；逐片段视觉层由
+    顶层不走 ``extra="forbid"``（与 NarrationEpisodeScript 同口径）；逐分镜视觉层由
     NarrationVisualSegment 的 ``extra="forbid"`` 在嵌套路径上挡 typo / 漂移。
     """
 
     title: str = Field(description="剧集标题")
-    segments: list[NarrationVisualSegment] = Field(description="各片段的视觉层，按 segment_id 一一对齐 step1")
+    segments: list[NarrationVisualSegment] = Field(description="各分镜的视觉层，按 segment_id 一一对齐 step1")
 
 
 # ============ 剧情演绎（Drama） ============
@@ -1047,12 +1047,12 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     kind = resolve_declared_kind(content_mode, None)
     if kind == "segments":
         segment = _constrained_duration_item(
-            NarrationSegment, duration_type, "片段时长（秒），必须取 supported_durations 中的值"
+            NarrationSegment, duration_type, "分镜时长（秒），必须取 supported_durations 中的值"
         )
         return create_model(
             "NarrationEpisodeScript",
             __base__=NarrationEpisodeScript,
-            segments=(list[segment], Field(description="片段列表")),
+            segments=(list[segment], Field(description="分镜列表")),
         )
     if kind == "shots":
         return _ad_episode_model(duration_type, "分镜时长（秒），必须取 supported_durations 中的值")

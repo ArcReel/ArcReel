@@ -29,7 +29,7 @@
 
 ### 工具调用
 
-- **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/图片编辑/集脚本/规范化剧本/旁白/解说片段拆分/视频单元拆分/分集规划与重置/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，Agent 直接以 tool 形式调用。
+- **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/图片编辑/集脚本/规范化剧本/旁白/解说分镜拆分/视频单元拆分/分集规划与重置/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，Agent 直接以 tool 形式调用。
 - **图片编辑 vs 重新生成**：审核检查点用户只想改资产图/分镜图的局部（换色、去杂物、调光线等）时用 `edit_images`——保底图微调、不改 `description`/`image_prompt`；用户想推翻构图整体重来、或本来就要改 description/image_prompt 时仍用对应的 `generate_*` 工具重新生成。用户脱离生成流程直接说「把某某改一下」时也可直接调 `edit_images`，不依赖处于哪个工作流步骤。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script_revision`，再把其 revision 原样作为 `patch_episode_script` 的 `expected_revision`，并传有序 `operations[]`（`update` / `insert_after` / `move_after` / `remove`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，增/删/拆分镜的便捷工具也委托同一事务编辑器；角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等）。
@@ -51,7 +51,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ## 创作类型
 
-本项目为**旁白/解说**（narration）。剧本数据结构为 `segments[]`，每个片段对应一段朗读 + 一张分镜画面。
+本项目为**旁白/解说**（narration）。剧本数据结构为 `segments[]`，每个分镜对应一段朗读 + 一张分镜画面。
 
 > 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与创作类型独立。详细规格见 `.claude/references/generation-modes.md`。
 
@@ -63,7 +63,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
-| `storyboard` | 分镜图生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧；`grid_storyboard=true` 时改用宫格图切块 |
+| `storyboard` | 分镜图生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每分镜一张分镜图作起始帧；`grid_storyboard=true` 时改用宫格图切块 |
 | `reference_video` | 参考生视频 | `video_units[]` | 角色/场景/道具资产图作为参考 |
 
 宫格不是独立生成模式：`grid_storyboard` 是仅在 `generation_mode="storyboard"` 下生效的独立布尔开关，切换宫格 UI 在设置页操作，Agent 无法经工具绕过。
@@ -86,7 +86,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   │  职责：查服务端计划、按受控动作决策、用户确认、dispatch 子智能体
   │
   ├─ dispatch → analyze-assets               全局角色/场景/道具提取
-  ├─ dispatch → split-narration-segments     旁白/解说片段拆分
+  ├─ dispatch → split-narration-segments     旁白/解说分镜拆分
   ├─ dispatch → normalize-drama-script       剧情演绎规范化剧本
   ├─ dispatch → split-reference-video-units  参考生视频 video_unit 拆分
   ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
@@ -154,7 +154,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ## 关键原则
 
-- **角色一致性**：分镜图生视频每个片段都使用分镜图作为起始帧；参考生视频改由 unit 引用的角色资产图承担同一职责，两者都确保角色形象一致
+- **角色一致性**：分镜图生视频每个分镜都使用分镜图作为起始帧；参考生视频改由 unit 引用的角色资产图承担同一职责，两者都确保角色形象一致
 - **场景/道具一致性**：标志性环境和关键道具通过 `scenes` / `props` 机制固化，确保跨场景视觉一致
 - **分镜连贯性**：使用 segment_break 标记场景切换点，后期可添加转场效果
 - **质量控制**：每个分镜或视频单元生成后检查质量，可单独重新生成不满意的分镜或视频单元

@@ -21,7 +21,7 @@ export default {
   "label.overview": "项目概览",
   "label.episode": "第 {{episode}} 集",
   "label.draft_normalized_script": "第 {{episode}} 集规范化脚本",
-  "label.draft_segment_splitting": "第 {{episode}} 集片段拆分",
+  "label.draft_segment_splitting": "第 {{episode}} 集分镜拆分",
 
   "entity.project": "项目",
   "entity.character": "角色",

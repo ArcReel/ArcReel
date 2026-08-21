@@ -25,5 +25,5 @@ MESSAGES = {
     "event_label_overview": "项目概览",
     "event_label_episode": "第 {episode} 集",
     "event_label_draft_normalized_script": "第 {episode} 集规范化脚本",
-    "event_label_draft_segment_splitting": "第 {episode} 集片段拆分",
+    "event_label_draft_segment_splitting": "第 {episode} 集分镜拆分",
 }

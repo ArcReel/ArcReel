@@ -1311,7 +1311,7 @@ class UpdateEpisodeRequest(BaseModel):
 
 @router.patch("/projects/{name}/segments/{segment_id}")
 async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _t: Translator):
-    """更新旁白/解说片段"""
+    """更新旁白/解说分镜"""
     try:
 
         def _sync():

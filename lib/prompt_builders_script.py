@@ -246,12 +246,12 @@ def _neutralize_tags(value: str) -> str:
 
 
 def _format_narration_step1_segments(step1_segments: list[dict]) -> str:
-    """把 step1 结构化片段渲染为 step2 的只读上下文：segment_id + 内容字段 + 逐字原文。
+    """把 step1 结构化分镜渲染为 step2 的只读上下文：segment_id + 内容字段 + 逐字原文。
 
-    这些字段在 step1 已定、step2 透传不重出；此处仅作为「为该片段写好视觉层」的依据呈现。
+    这些字段在 step1 已定、step2 透传不重出；此处仅作为「为该分镜写好视觉层」的依据呈现。
     """
     if not step1_segments:
-        return "（无片段）"
+        return "（无分镜）"
     lines: list[str] = []
     for seg in step1_segments:
         sid = _neutralize_tags(str(seg.get("segment_id", "?")))
@@ -291,8 +291,8 @@ def build_narration_prompt(
 
     return f"""# 角色与任务
 
-你是一位资深的短视频分镜编剧，擅长把已定稿的小说片段转化为可直接驱动 AI 图像 / 视频生成的视觉分镜。
-你的任务：基于下方已定稿的「片段表」，为**每个片段**产出视觉层（image_prompt 与 video_prompt），按 segment_id 一一对齐。
+你是一位资深的短视频分镜编剧，擅长把已定稿的小说内容转化为可直接驱动 AI 图像 / 视频生成的视觉分镜。
+你的任务：基于下方已定稿的「分镜表」，为**每个分镜**产出视觉层（image_prompt 与 video_prompt），按 segment_id 一一对齐。
 
 **只产视觉层**：novel_text、时长、segment_break、出场角色 / 场景 / 道具均已在 step1 定稿、按 segment_id 透传，**不要重复输出、不要改写**；你只产出 image_prompt 与 video_prompt。
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名 / 枚举值保持英文。
@@ -332,15 +332,15 @@ def build_narration_prompt(
 {segments_block}
 </segments>
 
-segments 表每个片段已定稿（segment_id、逐字原文、时长、出场角色 / 场景 / 道具、是否场景切换），为只读上下文。
+segments 表每个分镜已定稿（segment_id、逐字原文、时长、出场角色 / 场景 / 道具、是否场景切换），为只读上下文。
 
 <episode_constraints>
-当前正在生成第 {episode} 集。为每个片段输出一条视觉层，其 segment_id 必须与 segments 表逐字一致——逐一对应，不增、不减、不改写。
+当前正在生成第 {episode} 集。为每个分镜输出一条视觉层，其 segment_id 必须与 segments 表逐字一致——逐一对应，不增、不减、不改写。
 </episode_constraints>
 
 # 字段写作指引
 
-为每个片段产出下列视觉字段。
+为每个分镜产出下列视觉字段。
 
 ## 图片提示词（image_prompt）——切换到「摄影师」视角
 
@@ -354,7 +354,7 @@ segments 表每个片段已定稿（segment_id、逐字原文、时长、出场�
 - **video_prompt.action**：{_ACTION_WRITING_GUIDE}
 - **video_prompt.camera_motion**：按画面内容自行选择。
 - **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
-- **video_prompt.dialogue**：speaker 必须出现在该片段的出场角色中。
+- **video_prompt.dialogue**：speaker 必须出现在该分镜的出场角色中。
 
 # 创作目标
 
@@ -697,15 +697,15 @@ def build_narration_split_prompt(
     episode: int,
     target_language: str = "中文",
 ) -> str:
-    """Step-1 旁白/解说片段拆分 prompt：源文 → 结构化片段表（逐字 novel_text + 时长 + 资产登记）。
+    """Step-1 旁白/解说分镜拆分 prompt：源文 → 结构化分镜表（逐字 novel_text + 时长 + 资产登记）。
 
     由 ``split_narration_segments`` MCP tool 消费。输出受 response_schema（``NarrationStep1Draft``）
     约束为结构化 JSON——``novel_text`` 逐字保留原文（配音与透传真相源），视觉层由后续 step2 按
-    ``segment_id`` 对齐补齐。片段时长的成员校验（∈ ``supported_durations``）由工具后校验兜底，因静态
+    ``segment_id`` 对齐补齐。分镜时长的成员校验（∈ ``supported_durations``）由工具后校验兜底，因静态
     ``NarrationStep1Segment.duration_seconds`` 是 ``ge=1, le=60`` 开区间、不在 schema 层枚举硬约束
-    （复用既有片段 schema）。
+    （复用既有分镜 schema）。
 
-    ``default_duration`` 为单片段默认秒数偏好；与 ``build_normalize_prompt`` 不同，此处对漂移到
+    ``default_duration`` 为单分镜默认秒数偏好；与 ``build_normalize_prompt`` 不同，此处对漂移到
     ``supported_durations`` 之外的 default 按 None 处理（软偏好、可被内容需要覆盖），不 fail-loud——
     与 split-narration-segments 子智能体的「default 非成员按 null」口径一致。
     """
@@ -719,7 +719,7 @@ def build_narration_split_prompt(
     max_dur = normalized_durations[-1]
     if default_duration is not None:
         duration_rule = (
-            f"单片段默认取 {default_duration} 秒（按朗读语速估算该秒数内能念完的字数）；长句 / 情绪铺陈 / "
+            f"单分镜默认取 {default_duration} 秒（按朗读语速估算该秒数内能念完的字数）；长句 / 情绪铺陈 / "
             f"关键对话等可从档位中取更长值（至 {max_dur} 秒）——偏好可被内容需要覆盖，硬约束不可"
         )
     else:
@@ -732,8 +732,8 @@ def build_narration_split_prompt(
 
     return f"""# 角色与任务
 
-你是一位专业的旁白内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的片段表（step1 内容拆分）。
-旁白/解说脚本走两段式：本阶段只定内容层——逐字 `novel_text`、片段边界、时长、场景切换标记与出场资产；
+你是一位专业的旁白内容架构师，本任务是把源文按朗读节奏拆分为适合短视频配音的分镜表（step1 内容拆分）。
+旁白/解说脚本走两段式：本阶段只定内容层——逐字 `novel_text`、分镜边界、时长、场景切换标记与出场资产；
 视觉层（image_prompt / video_prompt）由后续 step2 按 `segment_id` 对齐生成，`novel_text` 由本阶段定稿后透传、不再重出。
 
 **输出语言**：自然语言字符串值使用 {target_language}；JSON 键名保持英文。
@@ -779,14 +779,14 @@ def build_narration_split_prompt(
 - **segment_id**：`E{episode}S{{两位序号}}` 格式（如 E{episode}S01），按顺序递增，不得用其他集号前缀。
 - **duration_seconds**：{duration_rule}。取值必须落在支持档位（{durations_str}）内。
 - **segment_break**：在真正的场景切换点（时间跳跃 / 空间转换 / 情节转折）标 `true`，同一连续场景内标 `false`，不要滥用。
-- **characters_in_segment / scenes / props**：列出该片段 `novel_text` 中实际出现（被叙述或对话提及）的已登记资产，
+- **characters_in_segment / scenes / props**：列出该分镜 `novel_text` 中实际出现（被叙述或对话提及）的已登记资产，
   名称逐字取自下列候选，不要发明候选之外的名称；泛指群演（老人甲 / 村民若干）不登记、不进 characters_in_segment。
   三个数组均必填，无对应资产时显式写空数组 `[]`。
   - character: {", ".join(character_names) or "（暂无）"}
   - scene: {", ".join(scene_names) or "（暂无）"}
   - prop: {", ".join(prop_names) or "（暂无）"}
 
-请覆盖全部源文，按叙事顺序逐片段产出。
+请覆盖全部源文，按叙事顺序逐分镜产出。
 """
 
 

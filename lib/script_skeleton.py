@@ -248,7 +248,7 @@ def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, gene
     - 分镜图生视频只问 ``segments`` / ``scenes`` / ``shots`` 有没有一个在场。族内的历史形态差异
       （narration 数据落 ``scenes`` 键）照实放行并原样返回取证解析的答案，闸门只管跨族；而
       三个键全缺时不能放行——``resolve_script_kind`` 会按 ``content_mode`` 合成一个族内答案，
-      顺着走下去分镜图入队会落进"✨ 所有片段的分镜图都已生成"的假成功。
+      顺着走下去分镜图入队会落进"✨ 所有分镜的分镜图都已生成"的假成功。
 
     两个分支都只问键在不在、不问值的类型：``"video_units": {}`` 这类脏数据是类型错误、不是
     生成模式失配，报错权归下游的「必须是数组」校验，闸门不越俎代庖（否则会报出「要求 video_units、

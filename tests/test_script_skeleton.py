@@ -196,7 +196,7 @@ class TestRouteSkeletonGate:
 
     def test_storyboard_route_rejects_script_without_any_skeleton_array(self):
         # 三个分镜键全缺：resolve_script_kind 会按 content_mode 合成 segments，若据此放行，
-        # 分镜图入队会落进"所有片段的分镜图都已生成"的假成功。判据是键在场性，故拒绝。
+        # 分镜图入队会落进"所有分镜的分镜图都已生成"的假成功。判据是键在场性，故拒绝。
         script = {"content_mode": "narration", "title": "第一集"}
         with pytest.raises(SkeletonRouteMismatchError) as exc:
             ensure_route_skeleton(script, "narration", "storyboard")

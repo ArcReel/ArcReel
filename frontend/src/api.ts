@@ -382,7 +382,7 @@ export interface AgentProfileStatus {
   customized_files: string[];
 }
 
-/** 旁白/解说片段 PATCH 入参（剧情演绎片段走 {@link API.updateScene}）。 */
+/** 旁白/解说分镜 PATCH 入参（剧情演绎分镜走 {@link API.updateScene}）。 */
 export interface SegmentUpdatePayload {
   script_file: string;
   duration_seconds?: number;
@@ -1379,7 +1379,7 @@ class API {
     );
   }
 
-  // ==================== 片段管理（旁白/解说） ====================
+  // ==================== 分镜管理（旁白/解说） ====================
 
   /** `updates` 字段形状参见 {@link SegmentUpdatePayload}；保留 Record 以兼容 spread 调用。 */
   static async updateSegment(
@@ -1848,7 +1848,7 @@ class API {
   /**
    * 生成单段旁白配音（文本由后端从剧本 novel_text 读取）
    * @param projectName - 项目名称
-   * @param segmentId - 片段 ID
+   * @param segmentId - 分镜 ID
    * @param scriptFile - 剧本文件名
    */
   static async generateNarrationAudio(

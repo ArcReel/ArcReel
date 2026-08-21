@@ -287,12 +287,12 @@ class ScriptGenerator:
         )
 
         # 解析一次时长能力：reference 据此构造 duration 枚举硬约束 schema；
-        # narration 两段式用于校验 step1 各片段时长成员合法（step2 不再产出时长）。
+        # narration 两段式用于校验 step1 各分镜时长成员合法（step2 不再产出时长）。
         supported_durations = self._resolve_supported_durations(
             caps, gen_mode=gen_mode, uses_reference_images=_units_use_references(step1_units)
         )
 
-        # narration 走两段式：step1 结构化片段透传内容层（novel_text 等），step2 仅产视觉层、
+        # narration 走两段式：step1 结构化分镜透传内容层（novel_text 等），step2 仅产视觉层、
         # 按 segment_id 合并回 step1。非 narration 走单段（step1 markdown 直喂 LLM）。
         narration_step1: list[dict] | None = None
 
@@ -1019,7 +1019,7 @@ class ScriptGenerator:
     def _load_narration_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
         """加载并校验 narration step1 结构化中间文件 ``step1_segments.json``。
 
-        返回逐字 ``novel_text``、时长、``segment_break`` 等内容字段的片段列表（dict），
+        返回逐字 ``novel_text``、时长、``segment_break`` 等内容字段的分镜列表（dict），
         供 step2 prompt 渲染与视觉层合并复用——novel_text 由此透传、不经 step2 的 LLM 重出。
         校验：结构合法、segment_id 唯一、``duration_seconds`` ∈ ``supported_durations``
         （duration 约束由原 step2 schema enum 前移到 step1，因 step2 不再产出该字段）。
@@ -1037,7 +1037,7 @@ class ScriptGenerator:
                     f"请重跑 split-narration-segments 产出结构化 {narration_json}"
                 )
             raise FileNotFoundError(
-                f"未找到 Step 1 中间文件: {step1_json}；content_mode=narration 期望该文件，请先完成片段拆分"
+                f"未找到 Step 1 中间文件: {step1_json}；content_mode=narration 期望该文件，请先完成分镜拆分"
             )
 
         raw_bytes = step1_json.read_bytes()
@@ -1483,7 +1483,7 @@ class ScriptGenerator:
         """把 step2 LLM 的视觉层按 segment_id 合并回 step1 已确认的结构。
 
         step1 结构（novel_text、时长、segment_break 等内容字段）是单一真相源，逐字透传；
-        LLM 只产出视觉层，按 segment_id 对齐合并回各片段——novel_text 永不经 LLM 重出，
+        LLM 只产出视觉层，按 segment_id 对齐合并回各分镜——novel_text 永不经 LLM 重出，
         从工程上根除扩写漂移。校验 segment_id 唯一且与 step1 全覆盖：缺、多、重都 fail-loud，
         杜绝顺序错配与漏段。
         """
@@ -1500,7 +1500,7 @@ class ScriptGenerator:
         step1_id_set = set(step1_ids)
         missing = [sid for sid in step1_ids if sid not in visual_by_id]
         if missing:
-            raise ValueError(f"episode {episode} 视觉层缺少 step1 片段: {missing}")
+            raise ValueError(f"episode {episode} 视觉层缺少 step1 分镜: {missing}")
         extra = [sid for sid in visual_by_id if sid not in step1_id_set]
         if extra:
             raise ValueError(f"episode {episode} 视觉层含 step1 未定义的 segment_id: {extra}")
