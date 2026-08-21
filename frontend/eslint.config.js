@@ -1,3 +1,5 @@
+// 与 website/eslint.config.mjs 的规则集同构但刻意不共用（理由见对侧头注释）；
+// 改动共有规则时两份配置需各自同步维护。
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import react from "eslint-plugin-react";
