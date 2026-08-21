@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, Landmark, Package as PackageIcon, Plus, Search, User } from "lucide-react";
+import { ChevronLeft, Landmark, Package as PackageIcon, Plus, RefreshCw, Search, User } from "lucide-react";
 import { AssetGrid } from "@/components/assets/AssetGrid";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -126,6 +126,7 @@ export function AssetLibraryPage() {
   const [formModal, setFormModal] = useState<{ mode: "create" | "edit"; asset?: Asset } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [syncingCatalog, setSyncingCatalog] = useState(false);
 
   const byType = useAssetsStore((s) => s.byType);
   const loadList = useAssetsStore((s) => s.loadList);
@@ -142,18 +143,27 @@ export function AssetLibraryPage() {
 
   const handleSubmit = async (payload: {
     name: string; description: string; voice_style: string; image?: File | null;
+    primary_image_resource_id?: string; primary_audio_resource_id?: string;
   }) => {
     try {
       if (formModal?.mode === "edit" && formModal.asset) {
         const { asset } = await API.updateAsset(formModal.asset.id, {
           name: payload.name, description: payload.description, voice_style: payload.voice_style,
         });
+        let after = asset;
         if (payload.image) {
-          const { asset: after } = await API.replaceAssetImage(asset.id, payload.image);
-          updateAssetLocal(after);
-        } else {
-          updateAssetLocal(asset);
+          ({ asset: after } = await API.replaceAssetImage(asset.id, payload.image));
+        } else if (payload.primary_image_resource_id) {
+          ({ asset: after } = await API.setAssetPrimaryResource(
+            asset.id, "image", payload.primary_image_resource_id,
+          ));
         }
+        if (payload.primary_audio_resource_id) {
+          ({ asset: after } = await API.setAssetPrimaryResource(
+            asset.id, "audio", payload.primary_audio_resource_id,
+          ));
+        }
+        updateAssetLocal(after);
       } else {
         const { asset } = await API.createAsset({
           type: activeTab, name: payload.name, description: payload.description,
@@ -166,6 +176,25 @@ export function AssetLibraryPage() {
       throw err; // 让 modal 的 submit 感知失败并保留对话框，用户可修正后重试
     }
   };
+
+  const handleSyncCatalog = useCallback(async () => {
+    if (syncingCatalog) return;
+    setSyncingCatalog(true);
+    try {
+      const result = await API.syncCharacterCatalog();
+      await loadList("character", debouncedQ || undefined);
+      useAppStore.getState().pushToast(t("sync_library_success", {
+        added: result.added,
+        updated: result.updated,
+        unchanged: result.unchanged,
+        assetsDownloaded: result.assetsDownloaded,
+      }), "success");
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setSyncingCatalog(false);
+    }
+  }, [debouncedQ, loadList, syncingCatalog, t]);
 
   const handleEditAsset = useCallback((a: Asset) => setFormModal({ mode: "edit", asset: a }), []);
   const handleDeleteAsset = useCallback((a: Asset) => setDeleteTarget(a), []);
@@ -228,6 +257,17 @@ export function AssetLibraryPage() {
                 className={`${INPUT_CLS} w-[240px] pl-8`}
               />
             </div>
+            {activeTab === "character" && (
+              <button
+                type="button"
+                onClick={() => void handleSyncCatalog()}
+                disabled={syncingCatalog}
+                className={ACCENT_BTN_SM_CLS}
+              >
+                <RefreshCw className={`h-4 w-4 ${syncingCatalog ? "animate-spin" : ""}`} />
+                {t(syncingCatalog ? "syncing_library" : "sync_library")}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setFormModal({ mode: "create" })}

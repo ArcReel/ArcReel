@@ -49,6 +49,7 @@ from server.routers import (
     api_keys,
     assets,
     assistant,
+    character_catalog,
     characters,
     cost_estimation,
     custom_providers,
@@ -633,6 +634,12 @@ app.include_router(
     tags=["参考生视频"],
 )
 app.include_router(assets.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["全局资产库"])
+app.include_router(
+    character_catalog.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user)],
+    tags=["角色目录"],
+)
 app.include_router(styles.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义风格库"])
 app.include_router(onboarding.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["首次使用引导"])
 

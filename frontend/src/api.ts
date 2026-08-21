@@ -26,6 +26,7 @@ import type {
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
   GetSystemConfigResponse,
+  CharacterCatalogSyncResult,
   GetSystemVersionResponse,
   ModelCandidatesResponse,
   OnboardingStatus,
@@ -898,6 +899,10 @@ class API {
       method: "PATCH",
       body: JSON.stringify(patch),
     });
+  }
+
+  static async syncCharacterCatalog(): Promise<CharacterCatalogSyncResult> {
+    return this.request("/character-catalog/sync", { method: "POST" });
   }
 
 
@@ -2969,6 +2974,20 @@ class API {
       throw new Error(typeof error.detail === "string" ? error.detail : "请求失败");
     }
     return response.json() as Promise<{ asset: Asset }>;
+  }
+
+  static async setAssetPrimaryResource(
+    id: string,
+    mediaType: "image" | "audio",
+    resourceId: string,
+  ) {
+    return this.request<{ asset: Asset }>(
+      `/assets/${encodeURIComponent(id)}/primary-resource/${mediaType}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ resource_id: resourceId }),
+      },
+    );
   }
 
   static async deleteAsset(id: string): Promise<void> {

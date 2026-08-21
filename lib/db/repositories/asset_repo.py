@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from lib.db.models.asset import Asset
 from lib.db.repositories.base import BaseRepository
@@ -22,6 +23,9 @@ class AssetRepository(BaseRepository):
         image_path: str | None = None,
         audio_path: str | None = None,
         source_project: str | None = None,
+        external_source: str | None = None,
+        external_id: str | None = None,
+        voice_id: str | None = None,
     ) -> Asset:
         asset = Asset(
             id=str(uuid.uuid4()),
@@ -32,23 +36,45 @@ class AssetRepository(BaseRepository):
             image_path=image_path,
             audio_path=audio_path,
             source_project=source_project,
+            external_source=external_source,
+            external_id=external_id,
+            voice_id=voice_id,
         )
         self.session.add(asset)
         await self.session.flush()
         return asset
 
     async def get_by_id(self, asset_id: str) -> Asset | None:
-        return (await self.session.execute(select(Asset).where(Asset.id == asset_id))).scalar_one_or_none()
+        return (
+            await self.session.execute(select(Asset).options(selectinload(Asset.resources)).where(Asset.id == asset_id))
+        ).scalar_one_or_none()
 
     async def get_by_type_name(self, type: str, name: str) -> Asset | None:
         return (
-            await self.session.execute(select(Asset).where(Asset.type == type, Asset.name == name))
+            await self.session.execute(
+                select(Asset).options(selectinload(Asset.resources)).where(Asset.type == type, Asset.name == name)
+            )
+        ).scalar_one_or_none()
+
+    async def get_by_external_identity(self, source: str, external_id: str) -> Asset | None:
+        return (
+            await self.session.execute(
+                select(Asset)
+                .options(selectinload(Asset.resources))
+                .where(Asset.external_source == source, Asset.external_id == external_id)
+            )
         ).scalar_one_or_none()
 
     async def get_by_ids(self, asset_ids: list[str]) -> list[Asset]:
         if not asset_ids:
             return []
-        return list((await self.session.execute(select(Asset).where(Asset.id.in_(asset_ids)))).scalars())
+        return list(
+            (
+                await self.session.execute(
+                    select(Asset).options(selectinload(Asset.resources)).where(Asset.id.in_(asset_ids))
+                )
+            ).scalars()
+        )
 
     async def list(
         self,
@@ -58,7 +84,7 @@ class AssetRepository(BaseRepository):
         limit: int = 100,
         offset: int = 0,
     ) -> list[Asset]:
-        stmt = select(Asset)
+        stmt = select(Asset).options(selectinload(Asset.resources))
         if type:
             stmt = stmt.where(Asset.type == type)
         if q:

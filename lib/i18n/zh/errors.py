@@ -362,4 +362,13 @@ MESSAGES = {
     "project_config_invalid": "项目配置无效，请检查参数后重试",
     "invalid_discovery_format": "不支持的模型发现格式：{discovery_format}",
     "request_invalid": "请求无效，请检查后重试",
+    "character_catalog_config_missing": "请先在智能体设置的 Supabase 区域配置角色目录地址和令牌",
+    "character_catalog_invalid_url": "角色目录地址必须是有效的 HTTPS URL",
+    "character_catalog_request_failed": "无法访问角色目录（{status}），请检查地址和令牌",
+    "character_catalog_invalid_payload": "角色目录返回了不支持的数据结构",
+    "character_catalog_asset_download_failed": "角色资源下载失败，本次同步已取消",
+    "character_catalog_asset_integrity_failed": "角色资源大小或 SHA-256 校验失败，本次同步已取消",
+    "character_catalog_asset_too_large": "角色资源超过单文件 200 MB 限制，本次同步已取消",
+    "asset_primary_resource_invalid_type": "人物主资源只能是图片或音频",
+    "asset_primary_resource_invalid": "所选资源不属于该人物，或媒体类型不匹配",
 }
