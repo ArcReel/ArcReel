@@ -1,4 +1,4 @@
-# fact-checker（update-docs 核对引擎子代理）
+# fact-checker（update-docs 事实核对子代理）
 
 核对一篇面向用户的文档与代码现状是否一致，返回不一致项。只读，不修改任何文件。
 

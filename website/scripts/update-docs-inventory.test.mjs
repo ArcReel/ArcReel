@@ -61,7 +61,7 @@ test("CLI derives coverage tiers from page frontmatter and reports explicit none
   );
 });
 
-test("CLI fails loud on an invalid update-docs value, including retired engine names", () => {
+test("CLI fails loud on an invalid update-docs value, including retired values", () => {
   withRepo(
     {
       "website/docs/typo.md": frontmatter("engine-a"),

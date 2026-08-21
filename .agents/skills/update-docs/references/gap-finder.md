@@ -1,4 +1,4 @@
-# gap-finder（update-docs 缺漏引擎子代理）
+# gap-finder（update-docs 缺漏扫描子代理）
 
 读最近的 commit 标题，找出代码已落地、但面向用户文档尚未反映的新能力。只读，不修改任何文件。
 

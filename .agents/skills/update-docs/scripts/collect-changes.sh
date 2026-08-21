@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# update-docs 缺漏引擎（gap finder）的确定性部分：算 baseline、列出全量候选 commit 标题、列出待核对文档。
+# update-docs 缺漏扫描（gap finder）的确定性部分：算 baseline、列出全量候选 commit 标题、列出待核对文档。
 # 输出供 SKILL.md 的 LLM 步骤消费（agent-facing，无需 i18n）。
 set -eu
 
@@ -8,11 +8,11 @@ FULL_ROOT_DOCS=(
   "README.md"
 )
 
-# README 翻译对：英文版是中文版的镜像，不独立进引擎，改完后由主 agent 全文核对一致性。
+# README 翻译对：英文版是中文版的镜像，不单独扫描，改完后由主 agent 全文核对一致性。
 README_SOURCE="README.md"
 README_MIRROR="README.en.md"
 
-# 非 Docusaurus 根目录中仅核对引擎（fact checker）覆盖的文档。
+# 非 Docusaurus 根目录中仅事实核对覆盖的文档。
 FACT_CHECK_ONLY_ROOT_DOCS=(
   "CONTRIBUTING.md"
 )
@@ -41,7 +41,7 @@ done <<< "${inventory}"
 
 # 文档的新鲜度点：最近一次改动过正文的提交。只改 update_docs 声明的提交要跳过——
 # 档位迁移与日后的档位重划都是纯元数据编辑，算作新鲜会把 baseline 推到该次编辑，
-# 使编辑之前那段区间的能力变更永远不再进入缺漏引擎扫描。
+# 使编辑之前那段区间的能力变更永远不再进入缺漏扫描。
 content_freshness() {
   local target="$1" history changes ts cs sha
   # 显式判退出码，不靠 set -e：函数在命令替换里被调用时 set -e 不生效，
@@ -52,7 +52,7 @@ content_freshness() {
   fi
   while read -r ts cs sha; do
     [ -n "${sha}" ] || continue
-    # 归属声明与其所在的 frontmatter 分隔符都不算正文：页面原本没有 frontmatter 时，
+    # 档位声明与其所在的 frontmatter 分隔符都不算正文：页面原本没有 frontmatter 时，
     # 补声明的提交新增的是整块 `---` / `update_docs` / `---`。
     # 同样显式判退出码：git show 读不到历史 blob 时管道里只会表现为「没有正文改动行」，
     # 与元数据提交无从区分，该文档会被跳过甚至整个摘出 baseline。
@@ -110,7 +110,7 @@ echo "扫描区间：${baseline_sha:0:9}..HEAD"
 
 # 全量候选 commit：区间内所有非 merge commit，每条仅 sha + 标题。
 # 不做 type/scope 过滤——Conventional Commits 在本项目是约定而非强制，
-# 基于它的过滤不可靠；相关性判断交由缺漏引擎 subagent 在语义层完成。
+# 基于它的过滤不可靠；相关性判断交由缺漏扫描 subagent 在语义层完成。
 echo
 echo "## 候选 commit（baseline..HEAD 全量，每条 sha + 标题）"
 count=0
@@ -124,9 +124,9 @@ echo
 echo "## 候选 commit 总数：${count}"
 [ "${count}" -eq 0 ] && echo "（区间内无候选改动，全量组文档可能已是最新）"
 
-# 核对引擎全量清单：所有 in-scope 文档都要核对。
+# 事实核对全量清单：所有 in-scope 文档都要核对。
 echo
-echo "## 核对引擎全量文档清单（每篇派一个只读 subagent）"
+echo "## 事实核对文档清单（每篇派一个只读 subagent）"
 for doc in "${FULL_DOCS[@]}" "${FACT_CHECK_ONLY_DOCS[@]}"; do
   [ -f "${doc}" ] && echo "- ${doc}"
 done
