@@ -17,6 +17,7 @@ pytestmark = pytest.mark.unit
 REPO = Path(__file__).resolve().parents[2]
 
 STEP1_DRAFT_AGENTS = (
+    "agent_runtime_profile/.claude/agents/create-episode-script.md",
     "agent_runtime_profile/.claude/agents/normalize-drama-script.md",
     "agent_runtime_profile/.claude/agents/split-reference-video-units.md",
 )

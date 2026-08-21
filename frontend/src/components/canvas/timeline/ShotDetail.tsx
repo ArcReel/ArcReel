@@ -463,7 +463,7 @@ export function ShotDetail({
   const upstreamSection = adShot?.section ?? "";
   const isDrama = contentMode === "drama";
   const dramaScene = isDrama ? (segment as DramaScene) : null;
-  // drama 分镜级发声序列（迁移后存量数据可能缺省，读到空即无发声）。
+  // drama 分镜级发声序列；缺省字段按无发声处理。
   const upstreamUtterances = dramaScene?.utterances ?? EMPTY_UTTERANCES;
 
   // 草稿：本地编辑直到用户点击 Save。父级 ShotSplitView 通过 key={segmentId}
