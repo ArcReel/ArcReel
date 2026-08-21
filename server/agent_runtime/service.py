@@ -54,6 +54,7 @@ from server.agent_runtime.session_branch import (
 )
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
+from server.agent_runtime.subagent_status import build_subagent_snapshot
 
 
 class MessageRewriteError(RuntimeError):
@@ -830,6 +831,61 @@ class AssistantService:
                 if msg_type == "result":
                     pending_result = message
                     continue
+
+    async def stream_subagent_events(
+        self,
+        session_id: str,
+        *,
+        meta: SessionMeta | None = None,
+        request: Request | None = None,
+    ) -> AsyncIterator[ServerSentEvent]:
+        """Independent durable child-task stream.
+
+        The parent query is allowed to settle while async Agent/Task children
+        keep writing to the SDK SessionStore.  This stream deliberately does
+        not subscribe to ``SessionManager`` broadcasts; it follows the durable
+        transcript and therefore survives the parent turn closing, browser
+        reconnects, and page refreshes.
+        """
+        if meta is None:
+            meta = await self.meta_store.get(session_id)
+            if meta is None:
+                raise FileNotFoundError(f"session not found: {session_id}")
+        project_cwd = self._resolve_project_cwd_safe(meta.project_name)
+        previous_revision: tuple[int, int] | None = None
+        previous_snapshot: dict[str, Any] | None = None
+        terminal_empty_beats = 0
+
+        while True:
+            if request is not None and await request.is_disconnected():
+                return
+
+            revision = await self.transcript_adapter.session_revision(session_id, project_cwd)
+            should_rebuild = previous_snapshot is None or revision is None or revision != previous_revision
+            if should_rebuild:
+                main_messages = await self.transcript_adapter.read_raw_messages(session_id, project_cwd)
+                groups = await self.transcript_adapter.read_subagent_timelines(session_id, project_cwd)
+                snapshot = build_subagent_snapshot(main_messages, groups)
+                snapshot["session_id"] = session_id
+                if snapshot != previous_snapshot:
+                    yield self._sse_event("snapshot", snapshot)
+                    previous_snapshot = snapshot
+                previous_revision = revision
+
+            status = await self.session_manager.get_status(session_id) or meta.status
+            active = bool(previous_snapshot and previous_snapshot.get("active"))
+            has_tasks = bool(previous_snapshot and previous_snapshot.get("tasks"))
+            if status != "running" and not active:
+                # Leave a short grace window for eager SessionStore appends that
+                # race the parent result by a few scheduler ticks.
+                terminal_empty_beats += 1
+                if has_tasks or terminal_empty_beats >= 3:
+                    yield self._sse_event("settled", {"session_id": session_id})
+                    return
+            else:
+                terminal_empty_beats = 0
+
+            await asyncio.sleep(0.75)
 
     async def stream_startup_failure_events(
         self,

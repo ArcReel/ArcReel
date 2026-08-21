@@ -135,13 +135,19 @@ SHEET_KEY: dict[str, str] = {t: s.sheet_field for t, s in ASSET_SPECS.items()}
 
 GLOBAL_LIBRARY_ASSET_TYPES: frozenset[str] = frozenset(t for t, s in ASSET_SPECS.items() if s.in_global_library)
 
-# 项目资产只保存全局资产的逻辑关联，不复制全局资产内容。matched 字段由资产提取流程
-# 机械写入，global 字段仅由用户确认链接的 API 写入；二者都不开放通用 PATCH。
+# 项目资产只保存全局资产的逻辑关联，不复制全局资产内容。精确同名匹配会直接建立正式
+# 关联；这些字段只由专用链接 API / Agent tool 写入，不开放通用 PATCH。
 MATCHED_GLOBAL_ASSET_ID_FIELD = "matched_global_asset_id"
 GLOBAL_ASSET_ID_FIELD = "global_asset_id"
+GLOBAL_ASSET_IMAGE_USAGE_FIELD = "global_asset_image_usage"
+GLOBAL_ASSET_VOICE_SOURCE_FIELD = "global_asset_voice_source"
+GLOBAL_ASSET_IMAGE_USAGES = frozenset({"main", "reference"})
+GLOBAL_ASSET_VOICE_SOURCES = frozenset({"reference_audio", "voice_id", "none"})
 PROJECT_ASSET_LINK_FIELDS: tuple[str, ...] = (
     MATCHED_GLOBAL_ASSET_ID_FIELD,
     GLOBAL_ASSET_ID_FIELD,
+    GLOBAL_ASSET_IMAGE_USAGE_FIELD,
+    GLOBAL_ASSET_VOICE_SOURCE_FIELD,
 )
 
 

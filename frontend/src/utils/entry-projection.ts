@@ -447,7 +447,6 @@ export function createTimelineProjector(): TimelineProjector {
   function buildTurnView(turn: InternalTurn): Turn {
     const content: ContentBlock[] = [];
     let toolUseById: Map<string, ContentBlock> | null = null;
-    let completedAgentIds: Set<string> | null = null;
     for (const block of turn.content) {
       if (block.type === "tool_use") {
         const view = { ...block };
@@ -455,28 +454,12 @@ export function createTimelineProjector(): TimelineProjector {
           const group = groups.get(block.id);
           if (group && group.anchor?.block === block) view.sub_turns = foldDisplay(group.fold);
           (toolUseById ??= new Map()).set(block.id, view);
-          if (view.name === "Agent" && view.result !== undefined) (completedAgentIds ??= new Set()).add(block.id);
         }
         content.push(view);
       } else if (block.type === "task_progress") {
         content.push({ ...block });
       } else {
         content.push(block);
-      }
-    }
-    // task_started 块对应的 Agent tool_use 已有 result 时推导为已完成
-    if (completedAgentIds) {
-      const completed = completedAgentIds;
-      for (const block of content) {
-        if (
-          block.type === "task_progress" &&
-          block.status === "task_started" &&
-          block.tool_use_id &&
-          completed.has(block.tool_use_id)
-        ) {
-          block.status = "task_notification";
-          block.task_status = "completed";
-        }
       }
     }
     let finalContent = content;

@@ -556,7 +556,7 @@ describe("projectEntriesToTurns", () => {
     expect(anchor.task_info?.usage?.total_tokens).toBe(42);
   });
 
-  it("auto-completes stale task_started blocks whose Agent tool_use has a result", () => {
+  it("keeps async Agent launches running until an explicit task notification", () => {
     const turns = projectEntriesToTurns([
       entry({
         type: "assistant",
@@ -567,8 +567,8 @@ describe("projectEntriesToTurns", () => {
       entry({ type: "tool_result", tool_use_id: "tu-a", content: "done", is_error: false, uuid: "tr-1" }),
     ]);
     const anchor = turns[0].content.find((b) => b.type === "tool_use");
-    expect(anchor?.task_info?.status).toBe("task_notification");
-    expect(anchor?.task_info?.task_status).toBe("completed");
+    expect(anchor?.task_info?.status).toBe("task_started");
+    expect(anchor?.task_info?.task_status).toBeUndefined();
   });
 
   it("does not mutate input entries", () => {

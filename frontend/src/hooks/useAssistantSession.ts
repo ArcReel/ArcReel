@@ -11,6 +11,7 @@ import type {
   ImagePayload,
   PendingQuestion,
   SessionMeta,
+  SubagentSnapshotPayload,
   TimelineEntry,
 } from "@/types";
 
@@ -34,6 +35,13 @@ function lastEntrySeq(entries: TimelineEntry[]): number {
 
 function deletingKey(projectName: string, sessionId: string): string {
   return `${projectName}\n${sessionId}`;
+}
+
+function entryStartsSubagent(entry: TimelineEntry): boolean {
+  if (entry.type !== "assistant" || !Array.isArray(entry.content)) return false;
+  return entry.content.some((block) =>
+    block.type === "tool_use" && ["agent", "task"].includes(String(block.name ?? "").toLowerCase()),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +87,8 @@ export function useAssistantSession(projectName: string | null) {
   const streamRef = useRef<EventSource | null>(null);
   const streamSessionRef = useRef<string | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const subagentStreamRef = useRef<EventSource | null>(null);
+  const subagentStreamSessionRef = useRef<string | null>(null);
   const statusRef = useRef<string>("idle");
   const pendingSendVersionRef = useRef(0);
   // 失败重试复用同一幂等键（同内容签名），成功后清除
@@ -184,8 +194,8 @@ export function useAssistantSession(projectName: string | null) {
     refreshSessions();
   }, [projectName, refreshSessions]);
 
-  // 关闭流
-  const closeStream = useCallback(() => {
+  // 父 Agent 回合流与后台 Sub Agent 流生命周期独立：父回合终结只关前者。
+  const closeParentStream = useCallback(() => {
     if (reconnectRef.current) {
       clearTimeout(reconnectRef.current);
       reconnectRef.current = null;
@@ -196,6 +206,46 @@ export function useAssistantSession(projectName: string | null) {
     }
     streamSessionRef.current = null;
   }, []);
+
+  const closeSubagentStream = useCallback(() => {
+    subagentStreamRef.current?.close();
+    subagentStreamRef.current = null;
+    subagentStreamSessionRef.current = null;
+  }, []);
+
+  const closeStream = useCallback(() => {
+    closeParentStream();
+    closeSubagentStream();
+  }, [closeParentStream, closeSubagentStream]);
+
+  const connectSubagentStream = useCallback((sessionId: string) => {
+    if (
+      subagentStreamRef.current &&
+      subagentStreamSessionRef.current === sessionId &&
+      subagentStreamRef.current.readyState !== EventSource.CLOSED
+    ) {
+      return;
+    }
+    closeSubagentStream();
+    subagentStreamSessionRef.current = sessionId;
+    const source = new EventSource(API.getAssistantSubagentsStreamUrl(projectName!, sessionId));
+    subagentStreamRef.current = source;
+    const isActive = () =>
+      subagentStreamRef.current === source &&
+      subagentStreamSessionRef.current === sessionId &&
+      store.getState().currentSessionId === sessionId;
+
+    source.addEventListener("snapshot", (event) => {
+      if (!isActive()) return;
+      const payload = parseSsePayload(event) as unknown as SubagentSnapshotPayload;
+      if (Array.isArray(payload.tasks)) {
+        store.getState().setSubagentSnapshots(payload.tasks);
+      }
+    });
+    source.addEventListener("settled", () => {
+      if (isActive()) closeSubagentStream();
+    });
+  }, [closeSubagentStream, projectName, store]);
 
   // 连接 SSE entry 流
   const connectStream = useCallback(
@@ -209,7 +259,7 @@ export function useAssistantSession(projectName: string | null) {
         return;
       }
 
-      closeStream();
+      closeParentStream();
       streamSessionRef.current = sessionId;
 
       // 冷订阅游标：已有条目之后；浏览器自动重连由 Last-Event-ID 续传
@@ -226,7 +276,9 @@ export function useAssistantSession(projectName: string | null) {
         if (!isActiveStream()) return;
         const entry = parseSsePayload(event);
         if (typeof entry.seq === "number" && typeof entry.type === "string") {
-          store.getState().appendEntry(entry as unknown as TimelineEntry);
+          const timelineEntry = entry as unknown as TimelineEntry;
+          store.getState().appendEntry(timelineEntry);
+          if (entryStartsSubagent(timelineEntry)) connectSubagentStream(sessionId);
         }
       });
 
@@ -262,7 +314,7 @@ export function useAssistantSession(projectName: string | null) {
           if (status !== "interrupted") {
             store.getState().clearDraft();
           }
-          closeStream();
+          closeParentStream();
 
           // Turn 结束后刷新会话列表，获取 SDK summary 标题
           refreshSessions();
@@ -296,7 +348,7 @@ export function useAssistantSession(projectName: string | null) {
         }
       };
     },
-    [clearPendingQuestion, projectName, closeStream, refreshSessions, store, syncPendingQuestion],
+    [clearPendingQuestion, projectName, closeParentStream, connectSubagentStream, refreshSessions, store, syncPendingQuestion],
   );
 
   // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放。
@@ -320,10 +372,12 @@ export function useAssistantSession(projectName: string | null) {
     } else {
       const data = await API.listAssistantEntries(projectName!, sessionId, -1, { signal });
       if (signal.aborted) return;
-      store.getState().setEntries(data.entries ?? []);
+      const entries = data.entries ?? [];
+      store.getState().setEntries(entries);
       store.getState().setDraftSnapshot(data.draft ?? null, data.draft_rev ?? 0);
+      if (entries.some(entryStartsSubagent)) connectSubagentStream(sessionId);
     }
-  }, [projectName, clearPendingQuestion, connectStream, store]);
+  }, [projectName, clearPendingQuestion, connectStream, connectSubagentStream, store]);
 
   // 加载会话
   useEffect(() => {

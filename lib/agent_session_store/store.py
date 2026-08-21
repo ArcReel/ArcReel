@@ -251,6 +251,29 @@ class DbSessionStore:
             return None
         return payloads
 
+    async def session_revision(self, key: dict) -> tuple[int, int]:
+        """Return an append-only revision for a session, including subagents.
+
+        This is an ArcReel extension to the SDK SessionStore protocol.  The
+        independent subagent SSE uses it as a cheap change detector so it only
+        reconstructs transcript snapshots after the SDK has appended data.
+        ``count`` disambiguates multiple appends that share the same
+        millisecond timestamp.
+        """
+        project_key, session_id, _subpath = _normalize_key(key)
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(
+                    func.count(AgentSessionEntry.seq),
+                    func.coalesce(func.max(AgentSessionEntry.mtime_ms), 0),
+                ).where(
+                    AgentSessionEntry.project_key == project_key,
+                    AgentSessionEntry.session_id == session_id,
+                )
+            )
+            count, mtime_ms = result.one()
+        return int(count), int(mtime_ms)
+
     # --- optional: list_sessions / list_session_summaries -------------------
 
     async def list_sessions(self, project_key: str) -> list[dict]:

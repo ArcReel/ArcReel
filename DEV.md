@@ -50,6 +50,24 @@ pnpm lint
 pnpm check
 ```
 
+### Web 与 Agent 共用操作链路
+
+新增用户可执行的功能或操作时，Web 与 Agent 必须共用同一组业务操作，不能分别实现两套写入逻辑：
+
+1. 先检查现有共享 Service / Domain Operation 是否已经能够完整表达该操作；能够表达时直接复用，不在 Web 路由或 Agent Tool 内复制业务规则。
+2. 如果现有操作或 Agent Tool 无法表达新能力，应在同一次改动中新增或扩展共享操作，并新增或更新对应的 Agent MCP Tool。不能只实现 Web 入口，导致 Agent 只能提示用户改去 Web 端操作。
+3. Web API 与 Agent MCP Tool 都应是薄边界：负责各自的参数解析、身份/权限与错误适配，然后调用同一个共享操作。校验、状态变更、事务和核心副作用必须收敛在共享层。
+4. 新增或修改 Agent Tool 时，同步更新工具注册目录、迁移失败等访问策略、Agent Profile / Prompt 使用说明，以及前端工具名称的全部语言翻译。
+5. 验证至少覆盖共享操作本身、Web 调用路径和 Agent 调用路径，并断言两条入口产生一致的持久化结果与副作用。
+
+推荐链路：
+
+```text
+Web UI → Web API ┐
+                 ├→ Shared Service / Domain Operation → Project / DB / Task Queue
+Agent → MCP Tool ┘
+```
+
 ## 4. Graphify 约定
 
 ArcReel 的 graph 位于 `graphify-out/`。Graphify 是代码库导航和关系查询工具，不能替代本文件中的开发流程约束。

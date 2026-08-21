@@ -2486,6 +2486,12 @@ class API {
     return withAuthQuery(url);
   }
 
+  /** 独立 Sub Agent 状态流；生命周期不跟随父 Agent 回合。 */
+  static getAssistantSubagentsStreamUrl(projectName: string, sessionId: string): string {
+    const url = `${API_BASE}${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/subagents/stream`;
+    return withAuthQuery(url);
+  }
+
   static async listAssistantSkills(
     projectName: string,
     options: { signal?: AbortSignal } = {}
@@ -2953,6 +2959,19 @@ class API {
     return this.request<{ success: true; project_asset: Record<string, unknown> }>(
       `/assets/project-links/${encodeURIComponent(projectName)}/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`,
       { method: "DELETE" },
+    );
+  }
+
+  static async configureProjectAssetLink(payload: {
+    project_name: string;
+    resource_type: AssetType;
+    resource_id: string;
+    image_usage?: "main" | "reference";
+    voice_source?: "reference_audio" | "voice_id" | "none";
+  }) {
+    return this.request<{ success: true; project_asset: Record<string, unknown>; asset: Asset }>(
+      "/assets/project-links",
+      { method: "PATCH", body: JSON.stringify(payload) },
     );
   }
 

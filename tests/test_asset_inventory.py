@@ -186,6 +186,9 @@ async def test_inventory_tool_records_one_exact_same_type_global_match(
     assert "is_error" not in result
     character = pm.load_project("demo")["characters"]["鳄鱼爸爸"]
     assert character["matched_global_asset_id"] == character_id
+    assert character["global_asset_id"] == character_id
+    assert character["global_asset_image_usage"] == "main"
+    assert character["global_asset_voice_source"] == "none"
     assert character["matched_global_asset_id"] != scene_id
 
 
@@ -259,7 +262,11 @@ async def test_global_asset_context_tool_returns_compact_grouped_assets(
     result = await tool.handler({})
 
     body = json.loads(result["content"][0]["text"])
-    assert body["props"] == [{"name": "景泰蓝花瓶", "description": "蓝色铜胎珐琅器", "aliases": ["珐琅花瓶"]}]
+    assert body["props"][0]["name"] == "景泰蓝花瓶"
+    assert body["props"][0]["description"] == "蓝色铜胎珐琅器"
+    assert body["props"][0]["aliases"] == ["珐琅花瓶"]
+    assert body["props"][0]["id"]
+    assert body["props"][0]["image_path"] is None
     assert body["characters"] == []
     assert body["scenes"] == []
 
