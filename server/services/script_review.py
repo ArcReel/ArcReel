@@ -341,7 +341,7 @@ class ScriptReviewService:
                 ],
             }
         # 重判器没能收编内容（连产出时的 schema 都没过）时退回草稿原样内容：呈现层要展示的是
-        # agent 手改的那份文本，收编不了就不代它改形。
+        # Agent 手改的那份文本，收编不了就不代它改形。
         content = draft.content if revalidation.content is None else revalidation.content
         return {"content": content, "violations": violation_entries(revalidation.violations)}
 

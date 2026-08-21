@@ -711,7 +711,7 @@ class TestRenameAssetCascade:
                 },
             },
         }
-        assert set(drafts) == QUARANTINE_FILENAMES, "新增一种隔离草稿来源要在本用例一并覆盖"
+        assert set(drafts) == QUARANTINE_FILENAMES, "新增一种草稿来源要在本用例一并覆盖"
         for filename, payload in drafts.items():
             atomic_write_json(draft_dir / filename, payload)
 

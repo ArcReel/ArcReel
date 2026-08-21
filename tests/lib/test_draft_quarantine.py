@@ -165,7 +165,7 @@ class TestReport:
         assert 'validate_and_promote_draft({"episode": 3})' in text
 
     def test_narration_step1_report_points_at_segment_fields(self, tmp_path: Path):
-        """narration 草稿改的是片段表：指引里的字段路径写错，agent 会照着改一个不存在的字段
+        """narration 草稿改的是分镜表：指引里的字段路径写错，Agent 会照着改一个不存在的字段
         再晋升，白跑一轮。"""
         path = quarantine_path(tmp_path, 4, QUARANTINE_KIND_NARRATION_STEP1)
         text = render_report(path, QUARANTINE_KIND_NARRATION_STEP1, [_violation()], episode=4)

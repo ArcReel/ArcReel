@@ -108,7 +108,7 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
 
 
 #: step1 变体 → 该变体的草稿来源。三条路线各有一位；缺席即「该变体无草稿位」，
-#: gate 与生成侧据此不阻塞（ad 无结构化 step1，本就取不到变体）。
+#: 内容确认与生成侧据此不阻塞（ad 无结构化 step1，本就取不到变体）。
 _STEP1_QUARANTINE_KIND: dict[str, str] = {
     "reference_video": QUARANTINE_KIND_STEP1,
     "drama": QUARANTINE_KIND_DRAMA_STEP1,

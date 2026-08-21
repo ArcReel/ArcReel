@@ -296,8 +296,8 @@ class TestNeutralLayerReexport:
     """违约条目类型的定义处是路线中立的 ``lib.draft_violation``，本模块只再导出。
 
     分叉成两份类型定义时，``except DraftViolation`` 会按导入路径的不同静默漏接一半——三条
-    路线的校验器与隔离草稿信封都在同一条 except 上。import-linter 的「路线中立层不依赖参考
-    路线子包」契约管方向，本用例管同一性。
+    路线的校验器与草稿信封都在同一条 except 上。import-linter 的「路线中立层不依赖参考
+    生视频子包」契约管方向，本用例管同一性。
     """
 
     def test_symbols_are_the_neutral_layer_objects(self):

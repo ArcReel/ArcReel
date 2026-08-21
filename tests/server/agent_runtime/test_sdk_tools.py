@@ -7858,8 +7858,8 @@ async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: To
     out = await _promote(fake_ctx, monkeypatch)
     assert out.get("is_error") is True
     # 项目已是 narration + storyboard，晋升按该变体的草稿位分派：残留的参考路径 step2 草稿不在
-    # 它的视野内，故报「本集没有待处置的隔离草稿」而不是去晋升它。
-    assert "没有待处置的隔离草稿" in out["content"][0]["text"]
+    # 它的视野内，故报「本集没有待处置的草稿」而不是去晋升它。
+    assert "没有待处置的草稿" in out["content"][0]["text"]
     assert quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2).exists(), (
         "残留草稿应原样留在盘上，不被这条路径消费"
     )
@@ -8321,10 +8321,10 @@ async def _promote_nr(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)) -
 async def test_split_narration_segments_quarantines_violation_instead_of_discarding(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """违约产出落隔离草稿而非丢弃：正式文件不写，报告带违约类与片段定位，草稿里是这次的产出。
+    """违约产出落草稿而非丢弃：正式文件不写，报告带违约类与分镜定位，草稿里是这次的产出。
 
     丢弃重抽既烧钱又不收敛（同一模型对同一份原文大概率再犯同一类错），本机制的全部要点就是
-    让 agent 就地改这份已付费的产出。
+    让 Agent 就地改这份已付费的产出。
     """
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -8352,7 +8352,7 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
 
 @pytest.mark.unit
 async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_ctx: ToolContext, monkeypatch) -> None:
-    """重跑拆分成功后清掉上一轮的草稿：正式文件已是新产物，旧草稿留着只会让 gate 与 step2 继续
+    """重跑拆分成功后清掉上一轮的草稿：正式文件已是新产物，旧草稿留着只会让内容确认与 step2 继续
     阻塞在一份已被取代的内容上。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -8376,7 +8376,7 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_returns_narration_segments(fake_ctx: ToolContext) -> None:
-    """narration 取回的草稿装片段表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
+    """narration 取回的草稿装分镜表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
     _nr_source(fake_ctx)
     _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
     before = _nr_step1_path(fake_ctx).read_text(encoding="utf-8")
@@ -8387,7 +8387,7 @@ async def test_open_step1_for_edit_returns_narration_segments(fake_ctx: ToolCont
     envelope = _read_nr_quarantine(fake_ctx)
     assert envelope["kind"] == QUARANTINE_KIND_NARRATION_STEP1
     assert envelope["content"]["segments"][0]["novel_text"] == _RV_NOVEL
-    assert envelope["violations"] == [], "取回是编辑工位，不是违约产物"
+    assert envelope["violations"] == [], "取回是编辑工位，不是待修复草稿"
     assert envelope["meta"]["source"] == "source/episode_1.txt"
     assert envelope["meta"]["base_fingerprint"] is not None
     assert _nr_step1_path(fake_ctx).read_text(encoding="utf-8") == before
@@ -8395,7 +8395,7 @@ async def test_open_step1_for_edit_returns_narration_segments(fake_ctx: ToolCont
 
 @pytest.mark.unit
 async def test_open_step1_for_edit_narration_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
-    """取回 → 改草稿 → 晋升写回正式文件、草稿清除：与 drama / 参考路线同一条晋升通道。"""
+    """取回 → 改草稿 → 晋升写回正式文件、草稿清除：与 drama / 参考生视频同一条晋升通道。"""
     _nr_source(fake_ctx)
     _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
     await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
@@ -8417,7 +8417,7 @@ async def test_open_step1_for_edit_narration_round_trips_through_promote(fake_ct
 async def test_promote_narration_step1_reports_schema_breach_without_writing(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """草稿被改到过不了产出时那份 schema：报告刷新、正式文件不写，草稿保留 agent 手里那份原样内容。"""
+    """草稿被改到过不了产出时那份 schema：报告刷新、正式文件不写，草稿保留 Agent 手里那份原样内容。"""
     _nr_source(fake_ctx)
     _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
     await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
@@ -8437,7 +8437,7 @@ async def test_promote_narration_step1_reports_schema_breach_without_writing(
 
 @pytest.mark.unit
 async def test_promote_narration_step1_aborts_on_concurrent_write(fake_ctx: ToolContext, monkeypatch) -> None:
-    """取回后正式文件被别的写入方改过：晋升中止、报冲突让 agent 合并，不静默覆盖。"""
+    """取回后正式文件被别的写入方改过：晋升中止、报冲突让 Agent 合并，不静默覆盖。"""
     _nr_source(fake_ctx)
     _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
     await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
@@ -8468,7 +8468,7 @@ async def test_open_step1_for_edit_refuses_to_clobber_existing_narration_draft(f
     out = await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
 
     assert out.get("is_error") is True
-    assert "已有 step1 隔离草稿在场" in out["content"][0]["text"]
+    assert "已有 step1 草稿在场" in out["content"][0]["text"]
     assert _read_nr_quarantine(fake_ctx)["content"]["segments"][0]["novel_text"] == "改到一半的正文"
 
 
@@ -8497,8 +8497,8 @@ async def test_promote_narration_step1_names_source_scope_on_coverage_violation(
 ) -> None:
     """取回时未指定 source、而 source/ 下不止一集：一字未改的草稿也判不过，报告须指名范围与出路。
 
-    草稿在场时不能重新取回，改 meta.source 是 agent 唯一的出路；报告只说「片段正文须原样复制
-    原文」的话，它只会去改一份本来就正确的片段表。
+    草稿在场时不能重新取回，改 meta.source 是 Agent 唯一的出路；报告只说「分镜正文须原样复制
+    原文」的话，它只会去改一份本来就正确的分镜表。
     """
     _nr_source(fake_ctx)
     (fake_ctx.project_path / "source" / "episode_2.txt").write_text("李四走进院子", encoding="utf-8")
@@ -8531,7 +8531,7 @@ async def test_generate_episode_script_blocked_by_narration_quarantine(fake_ctx:
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
 
     assert out.get("is_error") is True
-    assert "隔离草稿待处置" in out["content"][0]["text"]
+    assert "草稿待处置" in out["content"][0]["text"]
 
 
 # ---------------------------------------------------------------------------
@@ -8941,7 +8941,7 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
     """资产表记 NFC、模型写回 NFD（或反之）指的是同一个已登记资产，不该判成未登记。
 
     与 rv 侧 ``validate_unit_text`` 同一比对坐标系：两侧都归一到 ``asset_name_comparison_key``
-    再判等，否则一个登记过的越南语角色名会被拦在拆分之外，且 agent 从报告上看不出差别在哪。
+    再判等，否则一个登记过的越南语角色名会被拦在拆分之外，且 Agent 从报告上看不出差别在哪。
     """
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -9040,8 +9040,8 @@ async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: Too
 async def test_split_narration_segments_accepts_unicode_form_difference(fake_ctx: ToolContext, monkeypatch) -> None:
     """源文以 NFD 落盘、模型回写 NFC：纯编码形式差异不是删字改字，覆盖校验不该误判。
 
-    带组合附加符的语种（如 vi）两种形式都在真实语料里出现，误判会把一份逐字正确的片段表
-    挡在正式文件外、连带堵住 gate 确认与 step2 生成。
+    带组合附加符的语种（如 vi）两种形式都在真实语料里出现，误判会把一份逐字正确的分镜表
+    挡在正式文件外、连带堵住内容确认与 step2 生成。
     """
     text = "Ngu\u1eddi \u0111\u00e0n \u00f4ng \u0111i v\u1ec1 ph\u00eda c\u1ed5ng l\u00e0ng."
     out = await _nr_source_and_call(

@@ -10,7 +10,7 @@ LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同�
 
 违约条目类型与报告渲染（:class:`DraftViolation` / :func:`collect_violations` /
 :func:`render_violation_report`）三条路线通用，定义在路线中立的 ``lib.draft_violation``；
-本模块原样再导出它们，参考路线的既有导入路径不变。
+本模块原样再导出它们，参考生视频的既有导入路径不变。
 
 与编辑器侧（人写）的容忍口径分流：``lib.reference_video.script_preview`` 对同样的文本只
 出 warning、照常落盘——那里有作者意图要保护；本模块面向机器产物，没有意图可保护，一律拒。

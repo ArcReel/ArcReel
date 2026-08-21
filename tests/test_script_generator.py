@@ -1766,7 +1766,7 @@ class TestLoadNarrationStep1:
             violations=[],
         )
 
-        with pytest.raises(ValueError, match="隔离草稿待处置"):
+        with pytest.raises(ValueError, match="草稿待处置"):
             sg._load_narration_step1(1, [4, 6, 8])
 
     @pytest.mark.unit

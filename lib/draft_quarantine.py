@@ -58,7 +58,7 @@ _QUARANTINE_FILENAMES: dict[str, str] = {
     QUARANTINE_KIND_NARRATION_STEP1: NARRATION_STEP1_QUARANTINE_FILENAME,
 }
 
-#: 全部隔离草稿文件名，供不关心 kind、只需按文件名定位草稿的消费方取用（如资产级联重命名的
+#: 全部草稿文件名，供不关心 kind、只需按文件名定位草稿的消费方取用（如资产级联重命名的
 #: 改写清单）。从上表派生而非另列一份：新增一种来源只在上表加一行，漏登记会让草稿在改写清单
 #: 外静默漂移——草稿承载引用数组与 ``@[名称]`` 正文，漏改后晋升会卡在「引用未登记」上。
 QUARANTINE_FILENAMES: frozenset[str] = frozenset(_QUARANTINE_FILENAMES.values())
@@ -76,8 +76,9 @@ _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
         "content（分镜级字段位于 content.scenes[i]）",
     ),
     QUARANTINE_KIND_NARRATION_STEP1: (
-        "step1 片段拆分",
-        "segments[i].novel_text / duration_seconds / segment_break / characters_in_segment / scenes / props",
+        "step1 分镜拆分",
+        "content（分镜级字段位于 content.segments[i]："
+        "novel_text / duration_seconds / segment_break / characters_in_segment / scenes / props）",
     ),
 }
 

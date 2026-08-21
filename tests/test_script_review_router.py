@@ -327,7 +327,7 @@ class TestReferenceVideoRouter:
     def test_quarantine_surfaced_for_narration_variant(self, tmp_path, monkeypatch):
         """narration 的待修复草稿同样进 GET 响应：违约按 narration 那套校验器读时重算。
 
-        呈现按 kind 分派，不写死参考路线——否则另两条路线的草稿在场时面板看起来「干净」，
+        呈现按 kind 分派，不写死参考生视频——否则另两条路线的草稿在场时面板看起来「干净」，
         实际确认已被阻塞，用户看不到任何原因。
         """
         from lib.draft_quarantine import QUARANTINE_KIND_NARRATION_STEP1, write_quarantine

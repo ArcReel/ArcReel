@@ -1310,12 +1310,12 @@ export default {
   'review_load_failed': "Couldn't load content organization results",
   'review_retry': 'Retry',
   'review_status_quarantined': 'Draft needing fixes — content failed validation',
-  'review_quarantined_hint': 'Editing and confirming stay locked while a draft needs fixes; this updates once the agent fixes and promotes it.',
+  'review_quarantined_hint': 'Editing and confirming stay locked while a draft needs fixes; this updates once the Agent fixes and promotes it.',
   'review_quarantined_violations_label': 'Items to fix ({{count}})',
-  'review_quarantined_no_violations': 'Revalidation found no violations — waiting for the agent to promote the draft.',
+  'review_quarantined_no_violations': 'Revalidation found no violations — waiting for the Agent to promote the draft.',
   'review_quarantined_draft_label': 'Draft content (read-only)',
   'review_confirm_blocked_quarantined': 'A draft needs fixes — confirm once it is fixed and promoted',
-  'review_request_fix': 'Ask the agent to fix it',
+  'review_request_fix': 'Ask the Agent to fix it',
   'review_fix_request_prefill_header':
     'Episode {{episode}}’s content organization draft has {{count}} violation(s) to fix — please edit the draft needing fixes directly to correct them:',
   'review_fix_request_promote_prefill':
