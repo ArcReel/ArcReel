@@ -128,6 +128,16 @@ class TestMediaRegistryRouting:
             "dashscope", api_key="sk-test", model="qwen3-tts-flash", base_url="https://dashscope.aliyuncs.com"
         )
 
+    @patch("lib.audio_backends.registry.create_backend")
+    def test_minimax_audio_uses_audio_registry(self, mock_create):
+        spec = get_provider_spec("minimax", "audio")
+        config = _loaded(credentials={"api_key": "sk-test"}, provider_id="minimax")
+        spec.build_backend(config, "speech-2.8-hd")
+        # 用户未配 base_url → 回落 registry default（国内站 /v1）
+        mock_create.assert_called_once_with(
+            "minimax", api_key="sk-test", model="speech-2.8-hd", base_url="https://api.minimaxi.com/v1"
+        )
+
 
 class TestGeminiSpec:
     """gemini 特例族：backend_type 按 provider_id 分叉（aistudio/vertex 各一行），image/video 对等透传
@@ -524,9 +534,9 @@ class TestRegistryShape:
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):
             get_provider_spec("ark", "audio")  # ark 无 audio backend，未登记
 
-    def test_audio_only_dashscope_registered(self):
+    def test_audio_only_dashscope_and_minimax_registered(self):
         audio_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "audio"}
-        assert audio_keys == {("dashscope", "audio")}
+        assert audio_keys == {("dashscope", "audio"), ("minimax", "audio")}
 
     def test_simple_family_image_video_complete(self):
         for provider in ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax"):

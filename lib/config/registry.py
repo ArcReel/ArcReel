@@ -1171,9 +1171,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "minimax": ProviderMeta(
         display_name="MiniMax",
-        description="MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
+        description="MiniMax（海螺）多模态平台，提供文本、图片、视频与语音合成。默认连接国内站，海外可将 base_url 切换到国际站。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -1256,6 +1256,52 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[6],
                 resolutions=["768p"],
                 pricing=_minimax_video_pricing("S2V-01", {("768p", 6): 3.0}),
+            ),
+            # --- audio ---
+            # MiniMax speech-2.x / speech-0x 系列：同步 /v1/t2a_v2 端点，按字符计费。
+            # 官方未公布稳定的按字符公开费率（见 docs/research/arcreel-tts-narration-research.md
+            # 中 MiniMax 计费档「被否决」0-3），故 pricing 暂不声明，回落到默认模型再回落 Gemini
+            # 通用费率；待官方费率核实后在此补 PerCharacter 声明。speech-2.8-hd 为当前默认型号。
+            "speech-2.8-hd": ModelInfo(
+                display_name="MiniMax Speech 2.8 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                default=True,
+            ),
+            "speech-2.8-turbo": ModelInfo(
+                display_name="MiniMax Speech 2.8 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-2.6-hd": ModelInfo(
+                display_name="MiniMax Speech 2.6 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-2.6-turbo": ModelInfo(
+                display_name="MiniMax Speech 2.6 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-02-hd": ModelInfo(
+                display_name="MiniMax Speech 02 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-02-turbo": ModelInfo(
+                display_name="MiniMax Speech 02 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-01-hd": ModelInfo(
+                display_name="MiniMax Speech 01 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-01-turbo": ModelInfo(
+                display_name="MiniMax Speech 01 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
             ),
         },
         default_base_url=MINIMAX_BASE_URL,
