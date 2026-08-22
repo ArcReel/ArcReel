@@ -3,7 +3,11 @@ import { useTranslation } from "react-i18next";
 import { ImagePlus, Pause, Play, Upload, User, X } from "lucide-react";
 import { API } from "@/api";
 import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
-import { ProjectAssetLinkControl } from "@/components/assets/ProjectAssetLinkControl";
+import {
+  ProjectAssetImageUsageSwitch,
+  ProjectAssetLinkControl,
+  ProjectAssetVoiceSourceSwitch,
+} from "@/components/assets/ProjectAssetLinkControl";
 import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
@@ -301,7 +305,8 @@ export function CharacterCard({
   const linkedAudioUrl = character.global_asset_voice_source === "reference_audio" && linkedAsset?.audio_path
     ? API.getGlobalAssetUrl(linkedAsset.audio_path, linkedAsset.updated_at)
     : null;
-  const displayedAudioUrl = audioPreview ?? linkedAudioUrl ?? savedAudioUrl;
+  const usingLinkedVoiceId = character.global_asset_voice_source === "voice_id" && Boolean(linkedAsset?.voice_id);
+  const displayedAudioUrl = usingLinkedVoiceId ? null : audioPreview ?? linkedAudioUrl ?? savedAudioUrl;
   const usingLinkedAudio = Boolean(linkedAudioUrl) && !audioPreview;
 
   useEffect(() => {
@@ -428,6 +433,8 @@ export function CharacterCard({
               linkedAssetId={character.global_asset_id}
               imageUsage={character.global_asset_image_usage}
               voiceSource={character.global_asset_voice_source}
+              showImageUsageControl={false}
+              showVoiceSourceControl={false}
               onAssetResolved={handleLinkedAssetResolved}
               onReload={onReload}
               busy={generating || uploadingSheet || saving || deletingAudio}
@@ -461,6 +468,19 @@ export function CharacterCard({
             </PreviewableImageFrame>
           </div>
         </div>
+
+        {!readOnly && hasGlobalLink && globalImageUrl ? (
+          <div className="-my-1 flex justify-center">
+            <ProjectAssetImageUsageSwitch
+              projectName={projectName}
+              resourceType="character"
+              resourceId={name}
+              imageUsage={character.global_asset_image_usage}
+              onReload={onReload}
+              busy={generating || uploadingSheet || saving || deletingAudio}
+            />
+          </div>
+        ) : null}
 
         {/* 只读且没有参考图时整块不渲染：留一个不能用的上传框只是噪声 */}
         {readOnly && !displayedReferenceUrl ? null : (
@@ -568,7 +588,20 @@ export function CharacterCard({
       <div className="mt-3">
         {/* 「声音」是描述输入 + 音频样本共用的分组标题，不单独绑定输入框；
             输入框自带 aria-label 保留「声音风格」这一字段身份 */}
-        <CapsLabel>{t("voice_section")}</CapsLabel>
+        <div className="flex items-center justify-between gap-2">
+          <CapsLabel>{t("voice_section")}</CapsLabel>
+          {readOnly ? null : (
+            <ProjectAssetVoiceSourceSwitch
+              projectName={projectName}
+              resourceType="character"
+              resourceId={name}
+              asset={linkedAsset}
+              voiceSource={character.global_asset_voice_source}
+              onReload={onReload}
+              busy={generating || uploadingSheet || saving || deletingAudio || Boolean(audioFile)}
+            />
+          )}
+        </div>
         <input
           id={voiceStyleId}
           type="text"
@@ -581,7 +614,7 @@ export function CharacterCard({
           placeholder={t("voice_style_example")}
         />
 
-        {character.voice_id && (
+        {character.voice_id && !usingLinkedVoiceId && (
           <div
             className="mt-1.5 flex items-start gap-2 rounded-lg px-2.5 py-2"
             style={FIELD_STYLE}
@@ -595,7 +628,19 @@ export function CharacterCard({
           </div>
         )}
 
-        {readOnly && !displayedAudioUrl ? null : (
+        {usingLinkedVoiceId ? (
+          <div
+            className="mt-1.5 flex items-center gap-2 rounded-lg px-2.5 py-2"
+            style={FIELD_STYLE}
+          >
+            <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-4">
+              {t("assets:field.voice_id")}
+            </span>
+            <code className="min-w-0 flex-1 break-all text-right text-[10.5px] text-text-3">
+              {linkedAsset?.voice_id}
+            </code>
+          </div>
+        ) : readOnly && !displayedAudioUrl ? null : (
         <div className="mt-1.5">
           {displayedAudioUrl ? (
             <div

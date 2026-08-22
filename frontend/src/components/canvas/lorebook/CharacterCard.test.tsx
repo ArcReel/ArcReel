@@ -78,6 +78,86 @@ describe("CharacterCard", () => {
     expect(screen.getByText("voice-hero-1")).toBeInTheDocument();
   });
 
+  it("places the global image switch between the main and reference image regions", async () => {
+    vi.spyOn(API, "getAsset").mockResolvedValue({
+      asset: {
+        id: "asset-hero",
+        type: "character",
+        name: "Hero",
+        description: "global hero",
+        voice_style: "steady",
+        image_path: "_global_assets/characters/hero.png",
+        audio_path: "_global_assets/characters/hero.wav",
+        voice_id: "voice-hero",
+        source_project: null,
+        updated_at: null,
+      },
+    });
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{
+          description: "hero desc",
+          voice_style: "warm",
+          character_sheet: "characters/Hero-local.png",
+          reference_image: "characters/refs/Hero.png",
+          matched_global_asset_id: "asset-hero",
+          global_asset_image_usage: "main",
+          global_asset_voice_source: "reference_audio",
+        }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    const switchButton = await screen.findByRole("button", { name: "切换参考图" });
+    const mainImage = screen.getByAltText(/Hero.*角色资产图/);
+    const referenceImage = screen.getByAltText(/Hero.*参考图/);
+    expect(mainImage.compareDocumentPosition(switchButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(switchButton.compareDocumentPosition(referenceImage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "切换 Voice ID" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("全局资产声音来源")).not.toBeInTheDocument();
+  });
+
+  it("replaces the reference audio controls with the active linked Voice ID", async () => {
+    vi.spyOn(API, "getAsset").mockResolvedValue({
+      asset: {
+        id: "asset-hero",
+        type: "character",
+        name: "Hero",
+        description: "global hero",
+        voice_style: "steady",
+        image_path: "_global_assets/characters/hero.png",
+        audio_path: "_global_assets/characters/hero.wav",
+        voice_id: "voice-hero",
+        source_project: null,
+        updated_at: null,
+      },
+    });
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{
+          description: "hero desc",
+          voice_style: "warm",
+          matched_global_asset_id: "asset-hero",
+          global_asset_voice_source: "voice_id",
+          reference_audio: "characters/refs_audio/Hero.wav",
+        }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("voice-hero")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "切换参考音频" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "播放" })).not.toBeInTheDocument();
+    expect(screen.queryByText("已保存音频")).not.toBeInTheDocument();
+    expect(screen.queryByText("上传参考音频")).not.toBeInTheDocument();
+  });
+
   it("keeps selected reference file until save and submits it in the payload", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(
