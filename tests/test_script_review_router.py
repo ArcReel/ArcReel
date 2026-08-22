@@ -538,8 +538,8 @@ class TestReferenceVideoRouter:
             project_path,
             1,
             QUARANTINE_KIND_STEP1,
-            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
-            violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了，音量 {}"}]},
+            violations=[DraftViolation("坏", code="braces_in_description", label="unit E1U01")],
             meta={"source": "source/episode_1.txt"},
         )
 

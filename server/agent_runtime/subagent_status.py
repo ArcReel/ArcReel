@@ -44,8 +44,16 @@ def _normalized_subagent_entries(messages: list[dict[str, Any]]) -> list[dict[st
 def build_subagent_snapshot(
     main_messages: list[dict[str, Any]],
     subagent_groups: dict[str, list[dict[str, Any]]],
+    *,
+    runtime_alive: bool | None = None,
 ) -> dict[str, Any]:
-    """Project main transcript anchors plus child transcripts into task cards."""
+    """Project main transcript anchors plus child transcripts into task cards.
+
+    Transcript task notifications remain authoritative for normal terminal
+    states.  If a task has no terminal notification but its owning runtime is
+    definitively gone, project it as interrupted instead of inventing a
+    perpetual running state from an old async-launch record.
+    """
     tasks: dict[str, dict[str, Any]] = {}
 
     for message in main_messages:
@@ -59,7 +67,8 @@ def build_subagent_snapshot(
             tool_use_id = block.get("id")
             if not isinstance(tool_use_id, str) or not tool_use_id:
                 continue
-            input_data = block.get("input") if isinstance(block.get("input"), dict) else {}
+            raw_input = block.get("input")
+            input_data: dict[str, Any] = raw_input if isinstance(raw_input, dict) else {}
             tasks.setdefault(
                 tool_use_id,
                 {
@@ -137,6 +146,10 @@ def build_subagent_snapshot(
             task["entries"] = _normalized_subagent_entries(messages)
 
     ordered = list(tasks.values())
+    if runtime_alive is False:
+        for task in ordered:
+            if str(task.get("status") or "") not in _TERMINAL_TASK_STATUSES:
+                task["status"] = "interrupted"
     return {
         "tasks": ordered,
         "active": any(str(task.get("status") or "") not in _TERMINAL_TASK_STATUSES for task in ordered),

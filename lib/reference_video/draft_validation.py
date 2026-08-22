@@ -14,8 +14,6 @@ LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同�
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
@@ -117,40 +115,6 @@ def render_violation_report(violations: Sequence[DraftViolation]) -> str:
         suffix = f"[{violation.code}] " if violation.code else ""
         lines.append(f"{index}. {suffix}{violation}")
     return "\n".join(lines)
-
-
-def _normalize_for_anchor(text: str) -> str:
-    """Unicode NFC 归一后把连续空白折叠为单个空格，只消除编码与空白差异，不删除空白本身。
-
-    与 narration 覆盖校验的 ``_normalize_for_coverage`` 同一口径：模型复制原文时换行与
-    缩进的还原不可靠，但删字改字必须被抓住。NFC 与 ``lib.episode_ledger.normalize_source_text``
-    定义的源文坐标系一致——带组合附加符的语种（如 vi）源文可能以 NFD 落盘、模型回写 NFC，
-    纯编码形式差异不该被判成改写。
-    """
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
-
-
-def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -> None:
-    """校验 ``source_text`` 是源文的逐字子串（空白归一后）。
-
-    step1 的 unit 边界要能追溯回原文，锚失配意味着模型在拆分时改写或杜撰了原文——这是内容
-    层的根本违约，比任何下游画面问题都更早需要被拦下。只判子串、不判顺序与完整覆盖：unit
-    是画面单元不是朗读单元，允许原文中的对话提示语、转述段落不进任何 unit 的锚。
-    """
-    anchor = _normalize_for_anchor(source_text)
-    if not anchor:
-        raise DraftViolation(
-            f"{label} 的 source_text 为空：每个 unit 必须摘录其所依据的原文片段作为追溯锚",
-            code="source_text_empty",
-            label=label,
-        )
-    if anchor not in _normalize_for_anchor(novel_text):
-        raise DraftViolation(
-            f"{label} 的 source_text 不是小说原文的逐字片段（存在改写、翻译或杜撰）："
-            f"{source_text.strip()[:40]!r}；请原样复制原文，不要转述",
-            code="source_text_not_verbatim",
-            label=label,
-        )
 
 
 #: 全角花括号。语法只认半角，但中文输入法下模型很容易写出全角形；行里出现全角花括号时
@@ -403,7 +367,6 @@ __all__ = [
     "normative_lines",
     "render_violation_report",
     "validate_dialogue_load",
-    "validate_source_text_anchor",
     "validate_unit_text",
     "violation_items",
 ]

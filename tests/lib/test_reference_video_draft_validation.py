@@ -12,7 +12,6 @@ from lib.reference_video.draft_validation import (
     dialogue_speakers,
     normative_lines,
     validate_dialogue_load,
-    validate_source_text_anchor,
     validate_unit_text,
 )
 
@@ -27,29 +26,6 @@ PROJECT = {
 #: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
-
-
-class TestSourceTextAnchor:
-    def test_verbatim_substring_accepted(self):
-        validate_source_text_anchor("unit E1U01", "李明推开酒馆的门", "夜色深沉。李明推开酒馆的门，环视四周。")
-
-    def test_whitespace_differences_tolerated(self):
-        """空白折叠后比对：换行 / 缩进的还原不可靠，但删字改字必须被抓住。"""
-        validate_source_text_anchor("unit E1U01", "李明推开\n  酒馆的门", "李明推开 酒馆的门，环视四周。")
-
-    def test_unicode_form_differences_tolerated(self):
-        """源文以 NFD 落盘、模型回写 NFC（组合附加符语种常见）不算改写：两侧先归一到 NFC。"""
-        novel = unicodedata.normalize("NFD", "Anh ấy mở cửa quán rượu.")
-        anchor = unicodedata.normalize("NFC", "Anh ấy mở cửa")
-        validate_source_text_anchor("unit E1U01", anchor, novel)
-
-    def test_rewritten_text_rejected(self):
-        with pytest.raises(DraftViolation, match="不是小说原文的逐字片段"):
-            validate_source_text_anchor("unit E1U01", "李明走进了酒馆", "李明推开酒馆的门。")
-
-    def test_blank_anchor_rejected(self):
-        with pytest.raises(DraftViolation, match="source_text 为空"):
-            validate_source_text_anchor("unit E1U01", "   ", "李明推开酒馆的门。")
 
 
 class TestUnitText:

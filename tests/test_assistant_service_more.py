@@ -74,6 +74,7 @@ class _FakeSessionManager:
         self.buffer = []
         self.pending = []
         self.close_error = None
+        self.subagent_runtime: bool | None = None
 
     async def send_new_session(self, project_name, prompt, **kwargs):
         self.new_sessions.append((project_name, prompt))
@@ -81,6 +82,9 @@ class _FakeSessionManager:
 
     async def get_status(self, session_id):
         return self.status
+
+    def subagent_runtime_alive(self, session_id):
+        return self.subagent_runtime
 
     async def get_pending_questions_snapshot(self, session_id):
         return list(self.pending)
@@ -730,6 +734,58 @@ class TestAssistantServiceMore:
         assert payload["status"] == "error"
         assert payload["subtype"] == "error"
         assert payload["is_error"] is True
+
+    @pytest.mark.asyncio
+    async def test_subagent_stream_reprojects_when_runtime_dies_without_transcript_change(self, tmp_path, monkeypatch):
+        """runtime 消失本身触发新快照，不能依赖 transcript 再追加一条终态消息。"""
+        service = AssistantService(project_root=tmp_path)
+        meta = make_session_meta(id="s1", status="completed")
+        service.meta_store = _FakeMetaStore([meta])
+        sm = _FakeSessionManager()
+        sm.status = "completed"
+        runtime_states = iter([True, False])
+        sm.subagent_runtime_alive = lambda _session_id: next(runtime_states, False)
+        service.session_manager = sm
+        service._resolve_project_cwd_safe = lambda _project_name: tmp_path  # type: ignore[method-assign]
+
+        main = [
+            {
+                "type": "assistant",
+                "content": [{"type": "tool_use", "id": "tu-1", "name": "Agent", "input": {}}],
+            },
+            {
+                "type": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "tu-1", "content": "launched"}],
+                "tool_use_result": {"agentId": "agent-1", "status": "async_launched"},
+            },
+        ]
+
+        class _Adapter:
+            async def session_revision(self, _session_id, _project_cwd):
+                return (2, 100)
+
+            async def read_raw_messages(self, _session_id, _project_cwd):
+                return main
+
+            async def read_subagent_timelines(self, _session_id, _project_cwd):
+                return {}
+
+        async def _no_sleep(_seconds):
+            return None
+
+        service.transcript_adapter = _Adapter()  # type: ignore[assignment]
+        monkeypatch.setattr("server.agent_runtime.service.asyncio.sleep", _no_sleep)
+        stream = service.stream_subagent_events("s1", meta=meta)
+        try:
+            running = await anext(stream)
+            interrupted = await anext(stream)
+        finally:
+            await stream.aclose()
+
+        assert running.event == "snapshot"
+        assert running.data["tasks"][0]["status"] == "running"
+        assert interrupted.event == "snapshot"
+        assert interrupted.data["tasks"][0]["status"] == "interrupted"
 
     def test_skill_listing_and_metadata_parsing(self, tmp_path, monkeypatch):
         service = AssistantService(project_root=tmp_path)

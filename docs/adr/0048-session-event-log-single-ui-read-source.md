@@ -11,6 +11,7 @@ Agent 对话的 UI 真相若分散在多个来源（SDK transcript、内存 buff
 - **SSE 推 entry 流**（SSE 事件的 `id` 字段即 seq，断线按 cursor 续传）；turn 结构组装（合并连续 assistant、tool_result 回填、task 就地更新）是前端投影层的纯函数。
 - **流式预览（draft）是服务端内存态**，身份为消息的 `message_id`，消息完成时被同 `message_id` 的日志条目精确替换；不入日志，崩溃即丢（与 agent 记忆一致）。
 - **subagent 消息全量收录**为带 parent_tool_use_id 的条目，前端按 parent 归组为可折叠子任务卡片，主时间线只显示卡片。
+- subagent 卡片的业务终态仍取 transcript 中的 task notification；若只有异步启动记录而承载它的 runtime 已不存在（服务重启、显式关闭或异常退出），读时投影为 `interrupted`，不把陈旧的启动记录永久显示成 `running`。
 - 日志是 transcript 的**物化视图**：可从 transcript 重放重建，旧会话首次访问时懒生成；漂移的修复手段是重建，不做双向同步。
 - **SDK transcript 职责限于 SDK resume**（agent 记忆），不得混入 UI 专有条目（会被 resume 喂回 agent）。
 

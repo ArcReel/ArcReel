@@ -8,5 +8,5 @@ SDK 自带的 jsonl transcript 绑定本机文件系统，与「运行时状态�
 
 ## Consequences
 
-- 闲置会话在延迟后（`agent_session_cleanup_delay_seconds`，默认 300 秒，另有定期巡检兜底）从内存驱逐（关闭 actor/SDK 子进程）以约束常驻内存。正因 transcript 已入库，驱逐不丢历史：再次访问时按 sdk_session_id 以 SDK resume 重建 actor 续聊。
+- 没有活跃异步子任务的闲置会话在延迟后（`agent_session_cleanup_delay_seconds`，默认 300 秒，另有定期巡检兜底）从内存驱逐（关闭 actor/SDK 子进程）以约束常驻内存。父轮次先完成但 Agent/Task 子任务仍活跃时，清理倒计时、容量淘汰与巡检淘汰均延后到子任务终结；否则关闭父 actor 会同时杀死仍依赖它的子任务。正因 transcript 已入库，驱逐不丢历史：再次访问时按 sdk_session_id 以 SDK resume 重建 actor 续聊。
 - eager flush 有写放大；SDK 在慢 store 下会自行合并帧。`off` 模式只适合单机开发。

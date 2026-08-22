@@ -898,9 +898,9 @@ class ReferenceStep1Unit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
     )
-    # 逐字原文锚：拆分工具校验其为源文子串后原样落盘，供 gate 对照与失真定位。
+    # 辅助源文映射：供 gate 对照与失真定位，不作为逐字机械校验依据。
     # 默认空串：不带该字段的存量草稿照常通过校验。
-    source_text: SkipJsonSchema[str] = Field(default="", description="该 unit 所依据的逐字原文摘录（追溯锚）")
+    source_text: SkipJsonSchema[str] = Field(default="", description="该 unit 所依据的源文内容（辅助追溯）")
 
 
 class ReferenceStep1Draft(BaseModel):
@@ -926,7 +926,7 @@ class ReferenceStep1Draft(BaseModel):
 
 
 class ReferenceStep1FlatUnit(BaseModel):
-    """step1 的 LLM 产出单元：时长 + 原文锚 + 书写层正文。"""
+    """step1 的 LLM 产出单元：时长 + 辅助源文映射 + 书写层正文。"""
 
     model_config = _STRICT_CONFIG
 
@@ -935,7 +935,7 @@ class ReferenceStep1FlatUnit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
     )
-    source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
+    source_text: str = Field(min_length=1, description="该单元所依据的源文内容（辅助审阅与追溯，不做逐字校验）")
     text: str = Field(min_length=1, description="该单元的书写层正文：画面描述 + 行内的台词 / 画外音记号")
 
 

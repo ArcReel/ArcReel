@@ -7198,14 +7198,14 @@ async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolCon
 
 
 @pytest.mark.unit
-async def test_split_reference_video_units_rejects_non_verbatim_source_text(fake_ctx: ToolContext, monkeypatch) -> None:
-    """source_text 非源文逐字子串 → 响亮失败（模型转述 / 杜撰原文）。"""
+async def test_split_reference_video_units_accepts_non_verbatim_source_text(fake_ctx: ToolContext, monkeypatch) -> None:
+    """source_text 是辅助溯源内容：允许模型整理表达，不做逐字子串校验。"""
     _rv_source(fake_ctx)
     units = [_rv_unit("@[张三] 起身", source_text="张三在城里等人")]
     out = await _run_rv_split(fake_ctx, monkeypatch, units)
-    assert out.get("is_error") is True
-    assert "不是小说原文的逐字片段" in out["content"][0]["text"]
-    assert not _rv_step1_path(fake_ctx).exists()
+    assert out.get("is_error") is not True, out
+    saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["units"][0]["source_text"] == "张三在城里等人"
 
 
 @pytest.mark.unit
@@ -7268,7 +7268,7 @@ async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
     return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
 
 
-#: 六类阻断违约的最小触发样例（违约类 → 扁平 unit），共 7 条：「``@[X]`` 未登记」一类按出现位置
+#: 阻断违约的最小触发样例（违约类 → 扁平 unit）：「``@[X]`` 未登记」一类按出现位置
 #: 拆成描述位（unregistered_asset）与台词记号 speaker 位（unregistered_speaker）两条，两处走不同入口，
 #: 合测会漏掉其中一处。逐类断言「落隔离草稿 + 正式文件干净 + 报告按类定位」，而不是只验其中
 #: 一两类——各类共用同一次遍历，漏测哪一类都可能在该类上退回「丢弃重抽」。
@@ -7280,7 +7280,6 @@ _RV_VIOLATION_CASES = [
     ("unregistered_asset", _rv_unit("@[不存在的人] 出场")),
     ("unregistered_speaker", _rv_unit("门开了\n@[无名氏]：{我来了。}")),
     ("braces_in_description", _rv_unit("@[张三] 推门，音量 {}，转身离开")),
-    ("source_text_not_verbatim", _rv_unit("@[张三] 起身", source_text="张三在城里等人")),
     ("dialogue_overload", _rv_unit("@[张三] 起身\n@[张三]：{" + "这是一段非常长的台词" * 6 + "}", duration=4)),
 ]
 
@@ -7350,6 +7349,39 @@ async def test_validate_and_promote_draft_promotes_after_repair(fake_ctx: ToolCo
     saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["units"][0]["unit_id"] == "E1U01"
     assert saved["units"][0]["text"] == "@[张三] 在 @[村口] 出场"
+
+
+@pytest.mark.unit
+async def test_validate_and_promote_draft_accepts_legacy_non_verbatim_quarantine(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """升级前因逐字锚被隔离的草稿，按新口径重判后可由正常晋升流程自行恢复。"""
+    _rv_source(fake_ctx)
+    unit = _rv_unit("@[张三] 起身", source_text="张三在城里等人")
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_STEP1,
+        content={"units": [unit]},
+        violations=[
+            DraftViolation(
+                "旧版逐字校验失败",
+                code="source_text_not_verbatim",
+                label="unit E1U01",
+            )
+        ],
+        meta={
+            "source": "source/episode_1.txt",
+            "base_fingerprint": script_review.content_fingerprint(_rv_step1_path(fake_ctx)),
+        },
+    )
+
+    out = await _promote(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is not True, out
+    assert not _rv_quarantine_path(fake_ctx).exists()
+    saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["units"][0]["source_text"] == "张三在城里等人"
 
 
 @pytest.mark.unit

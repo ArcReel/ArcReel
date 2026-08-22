@@ -7,7 +7,6 @@ from lib.reference_video.draft_validation import (
     normative_lines,
     render_violation_report,
     validate_dialogue_load,
-    validate_source_text_anchor,
     validate_unit_text,
     violation_items,
 )
@@ -69,7 +68,6 @@ __all__ = [
     "resolve_reference_audio_paths",
     "resolve_references",
     "validate_dialogue_load",
-    "validate_source_text_anchor",
     "validate_unit_text",
     "violation_items",
 ]

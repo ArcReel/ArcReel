@@ -25,6 +25,7 @@ from server.agent_runtime.event_log import (
     REPLAYED_USER_ECHO_ENTRY_UUID_KEY,
     REPLAYED_USER_ECHO_KEY,
     EventLogStore,
+    SdkMessageNormalizer,
 )
 from server.agent_runtime.failure_observation import (
     build_startup_failure_observation,
@@ -77,6 +78,7 @@ SDK_AVAILABLE = True
 # 持续高于此值说明 _process_inbox 被阻塞或下游 I/O 超慢。
 _INBOX_BACKLOG_WARN_THRESHOLD = 100
 _INBOX_BACKLOG_RESET_THRESHOLD = 50  # 降至此水位以下才重置告警状态，避免抖动刷屏
+_TERMINAL_SUBAGENT_STATUSES = {"completed", "failed", "stopped", "cancelled", "interrupted"}
 
 
 class _StartupStderrCollector:
@@ -224,6 +226,9 @@ class ManagedSession:
     last_user_prompt: str = ""
     assistant_model: str = ""
     interrupt_requested: bool = False
+    # tool_use_id（缺失时退化为 task_id）→ SDK task_id。父轮次可以先结束，
+    # 但这些异步子任务仍依赖同一个 ClaudeSDKClient/actor 存活。
+    active_subagents: dict[str, str] = field(default_factory=dict)
     last_activity: float | None = None  # updated on every send/receive
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
     _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
@@ -1122,8 +1127,80 @@ class SessionManager:
         # status 由 _on_actor_message 在收到 ResultMessage(error_during_execution) 时推导为 "interrupted"
         return managed.status
 
+    @staticmethod
+    def _tool_result_use_id(msg_dict: dict[str, Any]) -> str | None:
+        content = msg_dict.get("content")
+        if not isinstance(content, list):
+            return None
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            tool_use_id = block.get("tool_use_id")
+            if isinstance(tool_use_id, str) and tool_use_id:
+                return tool_use_id
+        return None
+
+    def _sync_subagent_lifecycle(self, managed: ManagedSession, msg_dict: dict[str, Any]) -> None:
+        """把 SDK 的异步 task 消息投影到当前 runtime 的子任务存活集合。"""
+        was_active = bool(managed.active_subagents)
+
+        # Agent/Task 的异步 launch 元数据位于用户 tool_result 的消息级字段。
+        result = msg_dict.get("tool_use_result")
+        if not isinstance(result, dict):
+            result = msg_dict.get("toolUseResult")
+        if isinstance(result, dict):
+            task_id = result.get("agentId") or result.get("task_id")
+            task_id = task_id if isinstance(task_id, str) else ""
+            tool_use_id = self._tool_result_use_id(msg_dict)
+            key = tool_use_id or task_id
+            status = str(result.get("status") or "").strip().lower()
+            is_async = result.get("isAsync") is True or result.get("is_async") is True or status == "async_launched"
+            if key and task_id and is_async:
+                managed.active_subagents[key] = task_id
+            elif key and status in _TERMINAL_SUBAGENT_STATUSES:
+                managed.active_subagents.pop(key, None)
+                if task_id:
+                    for active_key, active_task_id in list(managed.active_subagents.items()):
+                        if active_task_id == task_id:
+                            managed.active_subagents.pop(active_key, None)
+
+        # Typed task 消息与注入的 task-notification XML 共用事件日志定型器，
+        # 避免在生命周期层再维护一套 XML 解析规则。
+        normalizer = SdkMessageNormalizer(capture_failures=False)
+        for entry in normalizer.normalize(msg_dict):
+            if entry.get("type") != "system":
+                continue
+            subtype = entry.get("subtype")
+            if subtype not in {"task_started", "task_progress", "task_notification"}:
+                continue
+            task_id = entry.get("task_id")
+            task_id = task_id if isinstance(task_id, str) else ""
+            tool_use_id = entry.get("tool_use_id")
+            key = tool_use_id if isinstance(tool_use_id, str) and tool_use_id else task_id
+            status = str(entry.get("task_status") or "").strip().lower()
+            if subtype == "task_notification" or status in _TERMINAL_SUBAGENT_STATUSES:
+                managed.active_subagents.pop(key, None)
+                if task_id:
+                    for active_key, active_task_id in list(managed.active_subagents.items()):
+                        if active_task_id == task_id:
+                            managed.active_subagents.pop(active_key, None)
+            elif key and task_id:
+                managed.active_subagents[key] = task_id
+
+        is_active = bool(managed.active_subagents)
+        if was_active != is_active:
+            managed.last_activity = time.monotonic()
+        if is_active:
+            # 子任务启动晚于父轮次 finalize 时，撤销已经排队的父会话清理。
+            if managed._cleanup_task is not None and not managed._cleanup_task.done():
+                managed._cleanup_task.cancel()
+            managed._cleanup_task = None
+        elif was_active and managed.status != "running":
+            self._schedule_cleanup(managed.session_id)
+
     def _handle_special_message(self, managed: ManagedSession, msg_dict: dict[str, Any]) -> None:
-        """Handle result messages before broadcast."""
+        """Handle lifecycle and result messages before broadcast."""
+        self._sync_subagent_lifecycle(managed, msg_dict)
         if msg_dict.get("type") == "result":
             msg_dict["session_status"] = self._resolve_result_status(
                 msg_dict,
@@ -1249,6 +1326,11 @@ class SessionManager:
         managed = self.sessions.get(session_id)
         if managed is None:
             return
+        if managed.active_subagents:
+            if managed._cleanup_task is not None and not managed._cleanup_task.done():
+                managed._cleanup_task.cancel()
+            managed._cleanup_task = None
+            return
         if managed._cleanup_task is not None and not managed._cleanup_task.done():
             managed._cleanup_task.cancel()
         managed._cleanup_task = asyncio.create_task(self._cleanup_idle(session_id))
@@ -1261,6 +1343,9 @@ class SessionManager:
             return
         managed = self.sessions.get(session_id)
         if managed is None:
+            return
+        if managed.active_subagents:
+            managed._cleanup_task = None
             return
         if managed.status in ("idle", "interrupted", "error", "completed"):
             # Clear our own reference first so _evict_one's cleanup-task cancel doesn't self-cancel
@@ -1372,9 +1457,10 @@ class SessionManager:
         if len(active) < max_concurrent:
             return
 
-        # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
+        # 可淘汰的会话：非 running 且没有后台子任务。父轮次 completed 不代表
+        # SDK runtime 已空闲，异步 Agent/Task 仍依赖同一个 actor。
         evictable = sorted(
-            [s for s in active if s.status != "running"],
+            [s for s in active if s.status != "running" and not s.active_subagents],
             key=lambda s: s.last_activity or 0,
         )
 
@@ -1406,7 +1492,7 @@ class SessionManager:
         cleanup_delay = await self._get_cleanup_delay()
         now = time.monotonic()
         for sid, managed in list(self.sessions.items()):
-            if managed.status == "running" or sid in self._disconnecting:
+            if managed.status == "running" or managed.active_subagents or sid in self._disconnecting:
                 continue
             activity_age = now - (managed.last_activity or 0)
             if activity_age > cleanup_delay * 2:
@@ -1730,6 +1816,26 @@ class SessionManager:
             return self.sessions[session_id].status
         meta = await self.meta_store.get(session_id)
         return meta.status if meta else None
+
+    def subagent_runtime_alive(self, session_id: str) -> bool | None:
+        """Return whether unresolved child tasks still have their owning runtime.
+
+        ``None`` means the parent turn itself is running and launch tracking may
+        still be racing the transcript append.  A terminal/missing/dead runtime
+        is definitive ``False`` so durable snapshots cannot stay "running"
+        forever after a restart or forced close.
+        """
+        managed = self.sessions.get(session_id)
+        if managed is None or session_id in self._disconnecting:
+            return False
+        actor_task = managed.actor.task
+        if actor_task is None or actor_task.done():
+            return False
+        if managed.active_subagents:
+            return True
+        if managed.status == "running":
+            return None
+        return False
 
     async def shutdown_gracefully(self, timeout: float = 30.0) -> None:
         """Gracefully shutdown all sessions using the actor teardown path."""

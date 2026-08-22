@@ -58,7 +58,6 @@ from lib.reference_video.draft_validation import (
     DraftViolation,
     collect_violations,
     validate_dialogue_load,
-    validate_source_text_anchor,
     validate_unit_text,
 )
 from lib.reference_video.script_preview import (
@@ -743,15 +742,15 @@ def _collect_reference_flat_violations(
     project: dict[str, Any],
     *,
     episode: int,
-    novel_text: str,
     caps: ReferenceSplitCaps,
     source_language: str | None,
 ) -> list[DraftViolation]:
     """逐 unit 收齐 step1 扁平产出的全部违约（不在首个违约处中断）。
 
-    schema 已卡死时长枚举与外层形状；此处补依赖运行时能力值 / 项目登记表 / 源文的约束——
-    时长落在该 unit 引用状态对应的生效档位内、原文锚是源文逐字子串、正文语法与资产引用合法、
-    台词量念得完。收齐而非首个即抛：报告要能一次列全所有坏 unit，否则 agent 每修一处就要再跑
+    schema 已卡死时长枚举、source_text 非空与外层形状；此处补依赖运行时能力值 / 项目登记表的
+    约束——时长落在该 unit 引用状态对应的生效档位内、正文语法与资产引用合法、台词量念得完。
+    ``source_text`` 只保留为辅助溯源内容，不再把它与源文做逐字子串比对。收齐而非首个即抛：
+    报告要能一次列全所有坏 unit，否则 agent 每修一处就要再跑
     一轮才知道下一处。
 
     时长档位与正文合并为一个入口：适用哪套档位取决于该 unit 正文里有没有 `@[名称]` 提及——
@@ -763,7 +762,6 @@ def _collect_reference_flat_violations(
     for index, flat in enumerate(flat_units, start=1):
         label = f"unit E{episode}U{index:02d}"
         duration = flat["duration_seconds"]
-        source_text = flat["source_text"]
         text = flat["text"]
 
         def _check_text_and_tier(la: str = label, tx: str = text, d: int = duration) -> None:
@@ -773,7 +771,6 @@ def _collect_reference_flat_violations(
         violations.extend(
             collect_violations(
                 [
-                    lambda la=label, st=source_text: validate_source_text_anchor(la, st, novel_text),
                     _check_text_and_tier,
                     lambda la=label, tx=text, d=duration: validate_dialogue_load(
                         la, tx, d, source_language, speech_rate_override
@@ -900,8 +897,8 @@ async def revalidate_reference_step1_draft(
 
     重判走的是拆分工具用的同一个函数（``_collect_reference_flat_violations``），不是它的简化
     副本：晋升口径、web 审核 gate 的读时重算与产出口径必须同一份代码，否则「这里放行、下次
-    生成时被拒」这类分叉会重新出现。能力与源文都重新解析——隔离期间用户可能改过模型配置或
-    源文，重判要对着现值判。
+    生成时被拒」这类分叉会重新出现。能力与源内容基线都重新解析——隔离期间用户可能改过模型
+    配置或源文，重判与晋升要记录现值依据。
 
     不依赖 ``ToolContext``（``project_path`` / ``project`` 由调用方传入而非从 ctx 派生）：
     web 审核 gate 的读时重算（``server/services/script_review.py``）没有 agent 工具的 ctx，
@@ -909,8 +906,8 @@ async def revalidate_reference_step1_draft(
 
     ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
     """
-    # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按整个 source/ 重解析
-    # ——那比产出时更松，一份从别集抄来的原文锚会恰好命中而被放行。
+    # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按整个 source/ 重解析，
+    # 否则晋升后的产物依据会从指定文件悄悄漂移为整个目录。
     if "source" not in draft.meta:
         raise ValueError(
             f"隔离草稿 {draft.path} 的 meta.source 缺失（产出时记录的源文范围）；"
@@ -919,7 +916,7 @@ async def revalidate_reference_step1_draft(
     # 源文可能达数百 KB（整个 source/ 目录拼接），同步读盘直接放在这个 async 函数体里会占用
     # 事件循环——晋升工具走的是独立会话线程不敏感，但 web 审核 gate 的读时重算（同一份代码）
     # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
-    novel_text, _prompt_inputs, step1_basis = await asyncio.to_thread(
+    _novel_text, _prompt_inputs, step1_basis = await asyncio.to_thread(
         _load_step1_source_with_basis,
         project_path,
         draft.meta["source"],
@@ -967,7 +964,6 @@ async def revalidate_reference_step1_draft(
         flat_units,
         project,
         episode=episode,
-        novel_text=novel_text,
         caps=split_caps,
         source_language=source_language,
     )
@@ -1334,7 +1330,7 @@ async def _open_drama_step1_for_edit(ctx: ToolContext, episode: int, source: str
 def open_step1_for_edit_tool(ctx: ToolContext):
     @tool(
         STEP1_EDIT_TOOL_NAME,
-        "把本集已落盘的正式 step1 取回可编辑的隔离草稿（书写层：参考生视频为时长 + 原文锚 + 正文，"
+        "把本集已落盘的正式 step1 取回可编辑的隔离草稿（书写层：参考生视频为时长 + 辅助源文映射 + 正文，"
         "drama 为场景内容），用于修改已有产出。改完调用 "
         f"{PROMOTE_TOOL_NAME} 全量校验并晋升回正式文件。"
         "正式 step1 不可用 Write/Edit 直改——它与 Web 端保存、迁移、重生成共享一把文件锁，"
@@ -1347,7 +1343,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
                     "type": "string",
                     "description": (
                         "本集小说源文件路径（相对项目目录，如 source/episode_1.txt）；"
-                        "晋升时按它重判原文锚 / 重取产物依据，不传则按整个 source/ 目录重解析（判定更松）"
+                        "晋升时按它重建产物依据；不传则按整个 source/ 目录重建"
                     ),
                 },
             },
@@ -1445,7 +1441,7 @@ def open_step1_for_edit_tool(ctx: ToolContext):
                     # 晋升时照常全量重判。
                     violations=[],
                     # source 键一律写出（未指定时为 null），与拆分侧同口径：晋升侧据此区分「本就按
-                    # 整个 source/ 判锚」与「meta 被改坏」。base_fingerprint 记下此刻正式文件的
+                    # 整个 source/ 建立依据」与「meta 被改坏」。base_fingerprint 记下此刻正式文件的
                     # 指纹（与本临界区读到的 data 同一份内容）：晋升前按它做基线比对，取回与晋升
                     # 之间正式文件被 Web 端保存等并发写入改过时中止晋升、报冲突让 agent 合并。
                     meta={
@@ -1479,10 +1475,11 @@ def open_step1_for_edit_tool(ctx: ToolContext):
 def split_reference_video_units_tool(ctx: ToolContext):
     @tool(
         "split_reference_video_units",
-        "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + 原文锚 + 书写层正文），"
+        "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + 辅助源文映射 + 书写层正文），"
         "保存到 drafts/episode_N/step1_reference_units.json，供 generate_episode_script"
         "（reference_video 模式）消费。unit_id 由工具按序号机械派生，"
-        "并校验原文锚、正文语法、资产引用与台词量。dry_run=true 时仅返回 prompt。",
+        "并校验正文语法、资产引用与台词量；source_text 保留用于审阅追溯，不做逐字校验。"
+        "dry_run=true 时仅返回 prompt。",
         {
             "type": "object",
             "properties": {
@@ -1561,7 +1558,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 }
 
             # 结构化输出：response_schema 按 supported_durations 卡死 unit 时长枚举，产出扁平
-            # unit → 时长 + 原文锚 + 书写层正文；unit_id 不进 LLM 输出、
+            # unit → 时长 + 辅助源文映射 + 书写层正文；unit_id 不进 LLM 输出、
             # 由下方机械派生（正文内的语法则由 parser 后校验兜底，schema 管不到）。
             schema = build_reference_units_step1_model(split_caps.durations)
             generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=ctx.project_name)
@@ -1585,14 +1582,13 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 flat_units,
                 project,
                 episode=episode,
-                novel_text=novel_text,
                 caps=split_caps,
                 source_language=project.get("source_language"),
             )
             if violations:
                 # 违约不丢弃、也不写正式文件：产物连同报告落隔离草稿，由 agent 修复后经
-                # 晋升工具重判。源文路径进 meta——重判时按整个 source/ 重解析会让原文锚的
-                # 子串判定比产出时更松，一份改写过的锚可能在别集原文里恰好命中。
+                # 晋升工具重判。源文路径进 meta，供晋升时重建同一份源内容基线；不把指定文件
+                # 和整个 source/ 目录混成两套输入范围。
                 # 基线读取与草稿写入在同一写临界区内完成：锁外各做一次的话，记下的基线可能
                 # 描述的是另一份并发写入前的内容。
                 with script_review.step1_write_lock(project_path, episode) as step1_path:

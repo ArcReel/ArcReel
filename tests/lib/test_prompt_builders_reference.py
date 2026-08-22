@@ -130,6 +130,8 @@ def test_build_reference_units_split_prompt_contains_constraints_and_candidates(
     assert "外貌" in prompt
     # step1 的内容契约三件：原文锚、台词落位、语速下界
     assert "source_text" in prompt
+    assert "不参与逐字机械校验" in prompt
+    assert "source_text` 须逐字复制" not in prompt
     assert "口播语速约" in prompt
 
 

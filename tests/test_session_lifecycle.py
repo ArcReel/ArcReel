@@ -192,6 +192,83 @@ class TestCleanup:
         finally:
             await mgr.close_session("s1")
 
+    async def test_async_subagent_defers_parent_cleanup_until_notification(self, tmp_path):
+        """父轮次完成后 runtime 继续承载异步子任务；终态通知到达才开始清理倒计时。"""
+        mgr = _make_manager(tmp_path)
+        managed, _ = _make_managed("s1", status="running")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        launch = {
+            "type": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "tu-1", "content": "launched"}],
+            "tool_use_result": {"isAsync": True, "status": "async_launched", "agentId": "agent-1"},
+        }
+        notification = {
+            "type": "system",
+            "subtype": "task_notification",
+            "task_id": "agent-1",
+            "tool_use_id": "tu-1",
+            "status": "completed",
+        }
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=9999):
+                mgr._handle_special_message(managed, launch)
+                with patch.object(mgr.meta_store, "update_status", new_callable=AsyncMock):
+                    await mgr._finalize_turn(
+                        managed,
+                        {"type": "result", "subtype": "success", "is_error": False},
+                    )
+
+                assert managed.status == "completed"
+                assert managed.active_subagents == {"tu-1": "agent-1"}
+                assert managed._cleanup_task is None
+                assert mgr.subagent_runtime_alive("s1") is True
+
+                mgr._handle_special_message(managed, notification)
+                assert managed.active_subagents == {}
+                assert managed._cleanup_task is not None
+                assert mgr.subagent_runtime_alive("s1") is False
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_xml_task_notification_releases_deferred_cleanup(self, tmp_path):
+        """SDK 注入的 XML 通知与 typed 通知走同一生命周期收口。"""
+        mgr = _make_manager(tmp_path)
+        managed, _ = _make_managed("s1", status="completed")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        managed.active_subagents["tu-1"] = "agent-1"
+        xml = (
+            "<task-notification><task-id>agent-1</task-id><tool-use-id>tu-1</tool-use-id>"
+            "<status>completed</status><summary>完成</summary></task-notification>"
+        )
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=9999):
+                mgr._handle_special_message(managed, {"type": "user", "content": xml})
+                assert managed.active_subagents == {}
+                assert managed._cleanup_task is not None
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_capacity_does_not_evict_completed_parent_with_active_subagent(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1", status="completed")
+        await _start(managed)
+        managed.active_subagents["tu-1"] = "agent-1"
+        mgr.sessions["s1"] = managed
+
+        try:
+            with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=1):
+                with pytest.raises(SessionCapacityError):
+                    await mgr._ensure_capacity()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
+
     async def test_cleanup_task_cancelled_on_new_schedule(self, tmp_path):
         """error 状态的 cleanup task 在重新调度时应被取消。"""
         mgr = _make_manager(tmp_path)
@@ -327,6 +404,22 @@ class TestPatrolLoop:
         mgr = _make_manager(tmp_path)
         managed, _ = _make_managed("s1", status="running")
         await _start(managed)
+        mgr.sessions["s1"] = managed
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60):
+                with patch.object(mgr, "_evict_one", new_callable=AsyncMock) as mock_evict:
+                    await mgr._patrol_once()
+                    mock_evict.assert_not_called()
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_patrol_skips_completed_parent_with_active_subagent(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        managed, _ = _make_managed("s1", status="completed")
+        await _start(managed)
+        managed.last_activity = time.monotonic() - 1000
+        managed.active_subagents["tu-1"] = "agent-1"
         mgr.sessions["s1"] = managed
 
         try:

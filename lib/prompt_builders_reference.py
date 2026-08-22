@@ -82,7 +82,7 @@ def build_reference_units_split_prompt(
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
 ) -> str:
-    """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 原文锚 + 书写层正文）。
+    """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 辅助源文映射 + 书写层正文）。
 
     由 ``split_reference_video_units`` MCP tool 消费。step1 定的是**结构与内容契约**——
     unit 边界、时长（即计费单位）、台词落位、核心资产指认；视觉展开（景别 / 构图 / 运镜）
@@ -178,7 +178,7 @@ def build_reference_units_split_prompt(
 视觉编排（景别 / 构图 / 运镜扩写）由后续 step2 以你的拆分为基底生成，本阶段不写。
 
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名保持英文。
-例外（逐字保留、不翻译）：`@[名称]` 中的资产名须逐字等于下方候选表中的登记名；`source_text` 须逐字复制小说原文。
+例外（逐字保留、不翻译）：`@[名称]` 中的资产名须逐字等于下方候选表中的登记名。
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
 # 上下文
@@ -215,8 +215,8 @@ def build_reference_units_split_prompt(
 
 - **unit 边界**：每个 unit 对应一个连贯的视频生成片段——同一时间、同一地点、主体动作连续；
   时间 / 空间 / 情节重大切换点开新 unit。
-- **source_text**：该 unit 所依据的小说原文片段，**逐字复制**（可截断首尾，但中间不得删字、改写、翻译或概括）。
-  它是追溯锚，用于把生成结果对回原文；不逐字复制会被机械校验拒绝。
+- **source_text**：记录该 unit 所依据的源文内容，供人工审阅与追溯。可摘录、概括或整理表达，
+  但须保留与本 unit 对应的关键情节；它不进入视频提示词，也不参与逐字机械校验。
 - **时长决策序**（自上而下，高优先级是硬边界，低优先级在其内做优化）：
   1. 硬约束：`duration_seconds` 是 unit 时长（一次生成调用一个时长），必须取支持档位（{durations_str}）中的值。
      叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。{reference_rule}
