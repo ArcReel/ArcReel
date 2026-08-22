@@ -4,15 +4,21 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 
 ## 工具链与校验
 
-后端使用 `uv`，前端与文档站使用 `pnpm`。push 前按改动范围执行对应校验：
+后端使用 `uv`，前端与文档站使用 `pnpm`。开发中先跑改动相关测试，任务完成后再对受影响域做一次全量；不要在每个小改动后重复执行全仓测试：
 
 ```bash
-uv run ruff check . && uv run ruff format . && uv run basedpyright && uv run lint-imports && uv run python -m pytest
-(cd frontend && pnpm lint && pnpm check)
+# 开发反馈环：预览后执行改动相关测试
+uv run python scripts/test_changed.py --base main
+uv run python scripts/test_changed.py --base main --run
+
+# 任务完成闸门：只对本任务触达的域各跑一次全量
+uv run ruff check . && uv run ruff format --check . && uv run basedpyright && uv run lint-imports
+uv run python -m pytest -m "not e2e"
+(cd frontend && pnpm check)
 (cd website && pnpm check)
 ```
 
-启动开发服务器、数据库迁移、测试规范（分层/替身/判据/闸门）、分支与提交规范、依赖管理、注释规范见 `CONTRIBUTING.md`。
+完整的 Related / Domain full / Repository full 时机与命令见 `DEV.md`；测试规范（分层/替身/判据/闸门）、分支与提交规范、依赖管理、注释规范见 `CONTRIBUTING.md`。
 
 ## 通用规范
 

@@ -59,16 +59,18 @@ pnpm check-consistency
 ## 测试
 
 ```bash
-# 后端测试；单文件：uv run python -m pytest path/to/test.py，-k 关键字筛选，-v 详细输出
-uv run python -m pytest
+# 开发中：预览并执行与 main 以来改动相关的测试
+uv run python scripts/test_changed.py --base main
+uv run python scripts/test_changed.py --base main --run
 
-# 前端 typecheck + lint + 测试
+# 任务完成时：对受影响域各执行一次全量
+uv run python -m pytest -m "not e2e"
 cd frontend && pnpm check
 ```
 
-pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
+Related、Domain full、Repository full 的执行时机与完整命令见 `DEV.md`，选择算法与保守升级条件见 `docs/specs/selective-test-execution.md`。pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
-> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（存量的目录与档位、前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、覆盖率与 eslint 强制项的现行 CI/lint 配置、`testTimeout` 等 vitest 配置、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线；目录迁移与 marker 自动注入落地前，分类 marker 仍需手写（收集期强制恰好一个，语义见下文分层表）。整改完成后删除本段。
+> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（存量的目录与档位、前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、eslint 强制项的现行配置、`testTimeout` 等 vitest 配置），以本章为改造方向。`scripts/audit_tests.py` 与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线；目录迁移与 marker 自动注入落地前，分类 marker 仍需手写（收集期强制恰好一个，语义见下文分层表）。整改完成后删除本段。
 
 ### 分层与目录
 
@@ -123,7 +125,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 ### 覆盖率
 
-覆盖率是信号，不是闸门：CI 不因覆盖率数字失败，Codecov 为唯一信号载体（PR 覆盖评论与趋势图，status 一律 informational）。不为覆盖率数字写测试；删除无意义测试允许覆盖率下降。
+覆盖率是信号，不是闸门：只在全量 CI job 采集并上传，Related 层不携带全仓覆盖率。CI 不因覆盖率数字失败，Codecov 为唯一信号载体（PR 覆盖评论与趋势图，status 一律 informational）。不为覆盖率数字写测试；删除无意义测试允许覆盖率下降。
 
 ### 闸门
 

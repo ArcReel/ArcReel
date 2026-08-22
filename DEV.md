@@ -36,18 +36,77 @@ cd .worktrees/<name>
 
 ## 3. 开发与验证
 
-在 feature worktree 内开发，并按改动范围执行验证：
+在 feature worktree 内开发。验证分为三层：开发反馈环跑相关测试，任务完成闸门跑受影响域全量，仓库关键节点跑全域全量。不得在每个小改动后重复跑全仓测试，也不得只跑 Related 就直接合并。
+
+### 3.1 开发反馈环：Related
+
+每完成一个可独立验证的连贯改动，先预览选择结果，再执行相关测试：
 
 ```bash
-# 后端常用验证
-uv run pytest
+uv run python scripts/test_changed.py --base main
+uv run python scripts/test_changed.py --base main --run
+```
+
+选择器合并 `main...HEAD`、暂存区、工作区和未跟踪文件，并执行直接修改的测试、静态 import 图中的传递依赖测试及显式登记的跨域契约测试。无法证明局部执行安全时会自动升级为对应域全量。选择规则和安全边界见 `docs/specs/selective-test-execution.md`。
+
+Related 只负责运行期行为反馈。改动 Python/前端源码时，同时对改动文件执行对应 lint；类型、架构与构建验证留到任务完成闸门，避免在内循环中重复全量：
+
+```bash
+# 示例：只检查本次触达的 Python 文件
+uv run ruff check path/to/changed.py path/to/test_changed.py
+uv run ruff format --check path/to/changed.py path/to/test_changed.py
+
+# 示例：只检查本次触达的前端文件（先进入 frontend/）
+pnpm exec eslint src/path/to/changed.tsx src/path/to/changed.test.tsx
+```
+
+### 3.2 任务完成闸门：Domain full
+
+准备提交或合并前，对本任务实际触达的域各执行一次全量。未触达的域不重复执行：
+
+```bash
+# 后端域
+uv run ruff check .
+uv run ruff format --check .
+uv run basedpyright
+uv run lint-imports
+uv run python scripts/lint_agent_runtime_profile.py
+uv run python -m pytest -m "not e2e"
+
+# 前端域（先进入 frontend/）
+pnpm check
+pnpm build
+
+# 文档站域（先进入 website/）
+pnpm check
+pnpm sync-contributing
+pnpm check-consistency
+pnpm build
+```
+
+涉及 ORM、repository、SQLAlchemy 查询或 alembic 时，还要执行 PostgreSQL 方言测试与迁移闭环；涉及 Docker 装配时执行镜像构建和健康检查。CI workflow/action、`.codecov.yml` 或 `.gitignore` 变化属于全域影响，不能只验证单个域。
+
+### 3.3 仓库关键节点：Repository full
+
+push 到 `main`、release PR、nightly 以及 CI 基础设施变更无条件执行 backend、PostgreSQL、frontend、website 与 Docker 全域验证。普通 PR 对所有受影响域执行全量。覆盖率只在这些全量 CI job 中采集并上传，不进入 Related 反馈环，也不以数值阈值阻断合并。
+
+### 3.4 常用定点命令
+
+选择器给出的范围仍可进一步定位失败：
+
+```bash
+# 后端单文件 / 单用例
+uv run python -m pytest path/to/test.py
+uv run python -m pytest path/to/test.py -k keyword -v
+
+# 前端直接测试 / 模块图相关测试（先进入 frontend/）
+pnpm exec vitest run src/path/to/component.test.tsx
+pnpm exec vitest related --run "$PWD/src/path/to/component.tsx"
+
+# 全量静态检查
 uv run ruff check .
 uv run basedpyright
 uv run lint-imports
-
-# 前端常用验证（先进入 frontend/）
-pnpm lint
-pnpm check
 ```
 
 ### Web 与 Agent 共用操作链路

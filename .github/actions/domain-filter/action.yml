@@ -48,6 +48,9 @@ runs:
             - 'alembic.ini'
             - 'scripts/**'
             - 'agent_runtime_profile/**'
+            # 这两类前端文件由后端契约测试读取；只命中 frontend 会漏掉跨域一致性闸门。
+            - 'frontend/src/i18n/**'
+            - 'frontend/src/types/workflow.ts'
             - 'pyproject.toml'
             - 'uv.lock'
           frontend:

@@ -16,6 +16,7 @@
     "check": "pnpm typecheck && pnpm lint && vitest run",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:related": "vitest related --run --passWithNoTests",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
