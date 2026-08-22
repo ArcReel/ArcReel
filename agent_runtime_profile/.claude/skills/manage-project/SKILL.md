@@ -1,12 +1,12 @@
 ---
 name: manage-project
-description: 项目管理工具集。使用场景：新增/修改角色/场景/道具到 project.json（经 patch_project 工具，按 table+name upsert）、级联重命名资产（rename_asset 工具）、写顶层 settings 字段、编辑项目概述 overview，以及查询视频模型能力（get_video_capabilities）。分集规划不在本 skill：走 mcp__arcreel__plan_episodes / reset_episode_planning 服务端工具。
+description: 项目管理工具集。使用场景：新增/修改角色/场景/道具到 project.json（经 patch_project 工具，按 table+name upsert）、级联重命名资产（rename_asset 工具）、删除项目资产（delete_project_asset 工具）、写顶层 settings 字段、编辑项目概述 overview，以及查询视频模型能力（get_video_capabilities）。分集规划不在本 skill：走 mcp__arcreel__plan_episodes / reset_episode_planning 服务端工具。
 user-invocable: false
 ---
 
 # 项目管理工具集
 
-提供 project.json 的角色/场景/道具批量写入、项目级 settings 与项目概述编辑，以及视频模型能力查询。
+提供 project.json 的角色/场景/道具批量写入、重命名与删除，项目级 settings 与项目概述编辑，以及视频模型能力查询。
 
 ## 工具一览
 
@@ -14,6 +14,7 @@ user-invocable: false
 |------|------|--------|
 | `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）、顶层 settings 字段或项目概述（overview 分支） | 子任务 / 主 agent |
 | `mcp__arcreel__rename_asset`（SDK tool） | 级联重命名资产：一次改齐资产表 key、全部剧集剧本与 step1 草稿的名称引用（引用数组 / speaker / `@[名称]` mention）及关联文件与版本历史 | 子任务 / 主 agent |
+| `mcp__arcreel__delete_project_asset`（SDK tool） | 从当前项目删除一个角色/场景/道具/产品资产；不删除全局资产库或历史媒体文件 | 主 agent |
 | `mcp__arcreel__get_video_capabilities`（SDK tool） | 查视频模型能力（model 粒度，按项目唯一 generation_mode 解析，全项目同一口径，无需指定剧集） | **子任务**（执行任务时自行查询） |
 
 > 分集规划（拆集/调整）由服务端工具 `mcp__arcreel__plan_episodes` / `mcp__arcreel__reset_episode_planning` 完成，调整已规划内容走「重置 + 重新规划」，流程见 video-workflow 阶段 2。
@@ -55,6 +56,20 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 description）时不落盘并返回 `is_error: true`。
 **严禁**用 Write/Edit/Bash 直接改 `project.json`——改字段走 patch_project 工具，改资产名走 rename_asset 工具。
 `patch_project` 按 name upsert，用它改名只会「新名新建 + 旧名残留」且不更新任何引用。
+
+## 删除项目资产
+
+只有用户明确要求删除某个项目资产时，才调用：
+
+```text
+mcp__arcreel__delete_project_asset({"table": "characters", "name": "角色名"})
+mcp__arcreel__delete_project_asset({"table": "scenes", "name": "场景名"})
+mcp__arcreel__delete_project_asset({"table": "props", "name": "道具名"})
+```
+
+该工具与 Web 删除按钮共用 `ProjectManager.delete_asset`，删除的是当前项目里的资产条目及其正式资产图
+声明；不会删除全局资产库条目，也不会清理历史媒体文件。不要用 `patch_project` 的空对象或 `null`
+模拟删除。
 
 ## 查视频模型能力
 

@@ -28,6 +28,22 @@ describe("CharacterCard", () => {
     useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
   });
 
+  it("places the delete action beside VersionTimeMachine", () => {
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{ description: "hero desc", voice_style: "warm" }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    const version = screen.getByTestId("version-time-machine");
+    const deleteButton = screen.getByRole("button", { name: "删除资产" });
+    expect(version.nextElementSibling).toBe(deleteButton);
+  });
+
   it("renders existing saved reference image", () => {
     render(
       <CharacterCard
@@ -420,6 +436,7 @@ describe("CharacterCard", () => {
     expect(screen.getByText("Hero")).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/角色描述/)).toHaveAttribute("readonly");
     expect(screen.queryByTestId("version-time-machine")).toBeNull();
+    expect(screen.queryByRole("button", { name: "删除资产" })).toBeNull();
     expect(screen.queryByRole("button", { name: /生成|上传|入库|保存/ })).toBeNull();
     for (const field of screen.getAllByRole("textbox")) {
       expect(field).toHaveAttribute("readonly");

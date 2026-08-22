@@ -14,6 +14,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
+import { ProjectAssetDeleteButton } from "./ProjectAssetDeleteButton";
 import type { Prop } from "@/types";
 import type { Asset } from "@/types/asset";
 
@@ -223,6 +224,13 @@ export function PropCard({
             onRestore={onRestoreVersion}
             iconOnly
             busy={generating || uploadingSheet}
+          />
+          <ProjectAssetDeleteButton
+            projectName={projectName}
+            assetType="prop"
+            name={name}
+            busy={generating || uploadingSheet}
+            onReload={onReload}
           />
         </div>
         )}

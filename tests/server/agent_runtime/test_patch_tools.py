@@ -15,6 +15,7 @@ import pytest
 from lib.project_manager import ProjectManager
 from lib.reference_video.request_projection import unit_reference_declarations
 from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools.delete_project_asset import delete_project_asset_tool
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
@@ -1666,3 +1667,37 @@ class TestRenameAssetTool:
         assert out.get("is_error") is True
         assert "冲突" in _text(out)
         assert "角色A" in rename_ctx.pm.load_project("demo")["characters"]
+
+
+class TestDeleteProjectAssetTool:
+    """Agent 与 Web DELETE 路由共用 ProjectManager.delete_asset 的真实持久化语义。"""
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("table", "name"),
+        [("characters", "角色A"), ("scenes", "祠堂"), ("props", "玉佩")],
+    )
+    async def test_deletes_project_asset_through_shared_operation(
+        self,
+        ctx: ToolContext,
+        table: str,
+        name: str,
+    ) -> None:
+        if table != "characters":
+            ctx.pm.upsert_assets("demo", table, {name: {"description": "测试资产"}})
+
+        out = await _call(delete_project_asset_tool(ctx), {"table": table, "name": name})
+
+        assert out.get("is_error") is not True
+        assert name in _text(out)
+        assert name not in ctx.pm.load_project("demo")[table]
+
+    @pytest.mark.unit
+    async def test_missing_asset_returns_tool_error(self, ctx: ToolContext) -> None:
+        out = await _call(
+            delete_project_asset_tool(ctx),
+            {"table": "characters", "name": "不存在"},
+        )
+
+        assert out.get("is_error") is True
+        assert "不存在" in _text(out)

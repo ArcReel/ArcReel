@@ -398,6 +398,7 @@ describe("API", () => {
       await API.addProjectProduct("demo", "Phone", "sleek", "Acme");
       await API.updateProjectProduct("demo", "Phone", { description: "matte" });
       await API.deleteProjectProduct("demo", "Phone");
+      await API.deleteProjectAsset("demo project", "scene", "Old Temple");
       await API.renameProjectAsset("demo", "character", "Hero", "Knight");
       await API.renameProjectAsset("demo", "product", "Phone", "Tablet", { dryRun: true });
 
@@ -476,6 +477,9 @@ describe("API", () => {
         body: JSON.stringify({ description: "matte" }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/products/Phone", {
+        method: "DELETE",
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo%20project/scenes/Old%20Temple", {
         method: "DELETE",
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/characters/Hero/rename", {

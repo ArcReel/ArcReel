@@ -518,6 +518,15 @@ def test_generate_narration_audio_registered() -> None:
     assert "generate_narration_audio" in ARCREEL_MCP_TOOL_IDS
 
 
+@pytest.mark.unit
+def test_delete_project_asset_registered_as_controlled_editor() -> None:
+    """删除工具进入目录，但与 patch/rename 一样在迁移失败时仍可用于受控修复。"""
+    from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
+
+    assert "delete_project_asset" in ARCREEL_MCP_TOOL_IDS
+    assert "delete_project_asset" not in MIGRATION_BLOCKED_TOOL_IDS
+
+
 # ---------------------------------------------------------------------------
 # validate_script_filename — shared guard for all enqueue tools
 # ---------------------------------------------------------------------------

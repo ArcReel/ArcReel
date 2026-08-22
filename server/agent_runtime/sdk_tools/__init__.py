@@ -21,6 +21,7 @@ from claude_agent_sdk import create_sdk_mcp_server
 from lib.project_migration_guard import project_migration_failure
 from server.agent_runtime.sdk_tools._context import ToolContext, migration_refusal_response
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
+from server.agent_runtime.sdk_tools.delete_project_asset import delete_project_asset_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
     list_pending_assets_tool,
@@ -107,6 +108,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "split_segment",
     "patch_project",
     "rename_asset",
+    "delete_project_asset",
     "manage_project_asset_link",
     "retry_project_migration",
 )
@@ -199,6 +201,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         split_segment_tool(ctx),
         patch_project_tool(ctx),
         rename_asset_tool(ctx),
+        delete_project_asset_tool(ctx),
         manage_project_asset_link_tool(ctx),
         retry_project_migration_tool(ctx),
     ]

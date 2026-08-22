@@ -128,7 +128,9 @@ describe("SceneCard", () => {
         onGenerate={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("version-time-machine")).toBeInTheDocument();
+    const version = screen.getByTestId("version-time-machine");
+    const deleteButton = screen.getByRole("button", { name: "删除资产" });
+    expect(version.nextElementSibling).toBe(deleteButton);
   });
 
   it("does not render importance or type badges", () => {

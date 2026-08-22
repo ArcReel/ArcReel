@@ -19,6 +19,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
+import { ProjectAssetDeleteButton } from "./ProjectAssetDeleteButton";
 import { VoiceSampleButton } from "./VoiceSampleButton";
 import type { Character } from "@/types";
 import type { Asset } from "@/types/asset";
@@ -415,6 +416,13 @@ export function CharacterCard({
             onRestore={onRestoreVersion}
             iconOnly
             busy={generating || uploadingSheet}
+          />
+          <ProjectAssetDeleteButton
+            projectName={projectName}
+            assetType="character"
+            name={name}
+            busy={generating || uploadingSheet || saving || deletingAudio}
+            onReload={onReload}
           />
         </div>
         )}

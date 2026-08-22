@@ -1,3 +1,4 @@
+import asyncio
 from io import BytesIO
 
 import pytest
@@ -8,6 +9,8 @@ from PIL import Image
 from lib.artifact_activation import register_current_resource_artifact
 from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.project_manager import ProjectManager
+from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools.delete_project_asset import delete_project_asset_tool
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters
@@ -65,6 +68,65 @@ def _client(monkeypatch, fake_pm):
 
 
 class TestCharactersRouter:
+    def test_web_and_agent_delete_have_identical_persistence_and_claim_side_effects(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        image = BytesIO()
+        Image.new("RGB", (8, 8), color=(10, 20, 30)).save(image, format="PNG")
+
+        def _project(root):
+            pm = ProjectManager(root)
+            pm.create_project("demo")
+            pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+            pm.add_character("demo", "Alice", "lead")
+            project_dir = pm.get_project_path("demo")
+
+            def _register_sheet(_target) -> None:
+                register_current_resource_artifact(
+                    project_dir,
+                    resource_type="characters",
+                    resource_id="Alice",
+                )
+
+            pm.install_asset_sheet_bytes(
+                "character",
+                "demo",
+                "Alice",
+                "characters/Alice.png",
+                image.getvalue(),
+                on_commit=_register_sheet,
+            )
+            return pm, ProjectArtifactManifestAdapter(project_dir)
+
+        web_pm, web_manifest = _project(tmp_path / "web")
+        agent_pm, agent_manifest = _project(tmp_path / "agent")
+        key = ArtifactKey.asset_sheet("character", "Alice")
+        assert web_manifest.get_entry(key) is not None
+        assert agent_manifest.get_entry(key) is not None
+
+        with _client(monkeypatch, web_pm) as client:
+            response = client.delete("/api/v1/projects/demo/characters/Alice")
+
+        agent_ctx = ToolContext(project_name="demo", projects_root=tmp_path / "agent", pm=agent_pm)
+
+        async def _delete_via_agent():
+            return await delete_project_asset_tool(agent_ctx).handler({"table": "characters", "name": "Alice"})
+
+        agent_result = asyncio.run(_delete_via_agent())
+
+        assert response.status_code == 200
+        assert agent_result.get("is_error") is not True
+        web_project = web_pm.load_project("demo")
+        agent_project = agent_pm.load_project("demo")
+        # 两个独立项目的时间戳天然不同；删除后的业务数据与正式 claim 副作用必须一致。
+        web_project.pop("metadata", None)
+        agent_project.pop("metadata", None)
+        assert web_project == agent_project
+        assert web_manifest.get_entry(key) is None
+        assert agent_manifest.get_entry(key) is None
+
     def test_clearing_character_sheet_forgets_its_formal_claim(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")

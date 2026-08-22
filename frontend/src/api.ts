@@ -1144,12 +1144,7 @@ class API {
     projectName: string,
     charName: string
   ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}`,
-      {
-        method: "DELETE",
-      }
-    );
+    return this.deleteProjectAsset(projectName, "character", charName);
   }
 
   // ==================== 项目场景管理 ====================
@@ -1186,12 +1181,7 @@ class API {
     projectName: string,
     sceneName: string
   ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/scenes/${encodeURIComponent(sceneName)}`,
-      {
-        method: "DELETE",
-      }
-    );
+    return this.deleteProjectAsset(projectName, "scene", sceneName);
   }
 
   // ==================== 项目道具管理 ====================
@@ -1228,12 +1218,7 @@ class API {
     projectName: string,
     propName: string
   ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/props/${encodeURIComponent(propName)}`,
-      {
-        method: "DELETE",
-      }
-    );
+    return this.deleteProjectAsset(projectName, "prop", propName);
   }
 
   // ==================== 项目商品管理 ====================
@@ -1271,15 +1256,22 @@ class API {
     projectName: string,
     productName: string
   ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/products/${encodeURIComponent(productName)}`,
-      {
-        method: "DELETE",
-      }
-    );
+    return this.deleteProjectAsset(projectName, "product", productName);
   }
 
-  // ==================== 项目资产重命名 ====================
+  // ==================== 项目资产删除与重命名 ====================
+
+  /** 删除项目内资产；四类便捷方法统一委托到此处，避免路径映射各自漂移。 */
+  static async deleteProjectAsset(
+    projectName: string,
+    assetType: ProjectAssetType,
+    name: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/${ASSET_TYPE_PATH[assetType]}/${encodeURIComponent(name)}`,
+      { method: "DELETE" }
+    );
+  }
 
   /**
    * 级联重命名项目内资产。`dryRun: true` 只返回影响预览（将更新的集数/引用处数/文件数），
