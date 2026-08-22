@@ -15,6 +15,7 @@ from lib.text_backends.base import (
     TextGenerationResult,
     TextTaskTier,
     TextTaskType,
+    VideoInput,
     resolve_schema,
 )
 
@@ -65,12 +66,19 @@ class TestImageInput:
         assert inp.url == "https://example.com/img.png"
 
 
+class TestVideoInput:
+    def test_url(self):
+        inp = VideoInput(url="https://example.com/video.mp4")
+        assert inp.url == "https://example.com/video.mp4"
+
+
 class TestTextGenerationRequest:
     def test_minimal(self):
         req = TextGenerationRequest(prompt="hello")
         assert req.prompt == "hello"
         assert req.response_schema is None
         assert req.images is None
+        assert req.videos is None
         assert req.system_prompt is None
 
     def test_full(self):
@@ -78,10 +86,12 @@ class TestTextGenerationRequest:
             prompt="analyze",
             response_schema={"type": "object"},
             images=[ImageInput(path=Path("/tmp/img.png"))],
+            videos=[VideoInput(url="https://example.com/video.mp4")],
             system_prompt="You are a helpful assistant.",
         )
         assert req.response_schema == {"type": "object"}
         assert len(req.images) == 1
+        assert len(req.videos) == 1
         assert req.system_prompt == "You are a helpful assistant."
 
 

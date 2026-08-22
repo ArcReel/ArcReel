@@ -16,6 +16,7 @@ from lib.text_backends.base import (
     ImageInput,
     TextCapability,
     TextGenerationRequest,
+    VideoInput,
 )
 from tests.fakes import instructor_api_call_exhausted
 
@@ -131,6 +132,30 @@ class TestOpenAITextBackend:
         types = [part["type"] for part in user_msg["content"]]
         assert "image_url" in types
         assert "text" in types
+
+    async def test_generate_with_video_url(self):
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("I see a video"))
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key", model="MiniMax-M3", provider_name="minimax")
+            request = TextGenerationRequest(
+                prompt="Describe this video",
+                videos=[VideoInput(url="https://example.com/video.mp4")],
+            )
+            result = await backend.generate(request)
+
+        assert result.text == "I see a video"
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["messages"][-1]["content"] == [
+            {
+                "type": "video_url",
+                "video_url": {"url": "https://example.com/video.mp4"},
+            },
+            {"type": "text", "text": "Describe this video"},
+        ]
 
     async def test_generate_structured_output(self):
         schema_response = json.dumps({"name": "Alice", "age": 30})
