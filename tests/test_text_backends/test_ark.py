@@ -131,12 +131,14 @@ class TestCapabilityAwareStructured:
 
     @pytest.fixture
     def backend_with_structured(self, mock_ark):
-        """创建一个模型支持原生 structured_output 的 backend（模拟）。"""
+        """创建 registry 已声明原生 structured_output 的 Agent Plan backend。"""
         _, mock_client = mock_ark
-        b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
+        b = ArkTextBackend(
+            api_key="k",
+            model="deepseek-v4-pro",
+            base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+        )
         b._test_client = mock_client
-        # 手动添加原生结构化输出能力
-        b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
         return b
 
     async def test_default_model_does_not_support_native_structured(self, backend_no_structured):
@@ -165,8 +167,8 @@ class TestCapabilityAwareStructured:
             assert result.input_tokens == 50
             assert result.output_tokens == 20
 
-    async def test_native_path_when_supported(self, backend_with_structured, sync_to_thread):
-        """模型支持原生时走 response_format 路径。"""
+    async def test_agent_plan_deepseek_uses_native_path(self, backend_with_structured, sync_to_thread):
+        """DeepSeek V4 Pro 走原生 response_format，不进入 Instructor TOOLS 降级。"""
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"key": "value"}'))],
             usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
@@ -174,11 +176,19 @@ class TestCapabilityAwareStructured:
         backend_with_structured._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
 
         schema = {"type": "object", "properties": {"key": {"type": "string"}}}
-        result = await backend_with_structured.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
+        with patch("lib.text_backends.instructor_support.instructor_fallback_sync") as mock_fallback:
+            result = await backend_with_structured.generate(
+                TextGenerationRequest(prompt="gen", response_schema=schema)
+            )
 
         assert result.text == '{"key": "value"}'
         call_args = backend_with_structured._test_client.chat.completions.create.call_args
-        assert "response_format" in call_args.kwargs
+        assert call_args.kwargs["model"] == "deepseek-v4-pro"
+        assert call_args.kwargs["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": schema},
+        }
+        mock_fallback.assert_not_called()
 
     async def test_unknown_model_falls_back_to_instructor(self, mock_ark):
         """未注册模型保守降级为 Instructor。"""
@@ -248,7 +258,7 @@ class TestCapabilityAwareStructured:
             mock_fallback.assert_not_called()
 
         assert exc_info.value.provider == "ark"
-        assert exc_info.value.model == "mock-model-with-structured"
+        assert exc_info.value.model == "deepseek-v4-pro"
 
     async def test_max_output_tokens_plain(self, backend_no_structured, sync_to_thread):
         """plain 路径透传 max_tokens。"""

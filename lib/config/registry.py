@@ -760,7 +760,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "deepseek-v4-pro": ModelInfo(
                 display_name="DeepSeek V4 Pro",
                 media_type="text",
-                capabilities=["text_generation"],
+                capabilities=["text_generation", "structured_output"],
             ),
             "kimi-k3": ModelInfo(
                 display_name="Kimi K3",

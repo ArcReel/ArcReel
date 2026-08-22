@@ -65,6 +65,11 @@ def test_ark_agent_plan_current_multimodal_text_models_support_vision() -> None:
         assert "vision" in p.models[mid].capabilities
 
 
+def test_ark_agent_plan_deepseek_v4_pro_supports_structured_output() -> None:
+    p = PROVIDER_REGISTRY["ark-agent-plan"]
+    assert "structured_output" in p.models["deepseek-v4-pro"].capabilities
+
+
 def test_ark_agent_plan_fast_has_no_1080p() -> None:
     p = PROVIDER_REGISTRY["ark-agent-plan"]
     assert p.models["doubao-seedance-2.0-fast"].resolutions == ["480p", "720p"]
