@@ -202,6 +202,7 @@ export default {
   'task_in_progress_default': 'In progress',
   'agent_handoff_headline': 'Ready to roll',
   'agent_handoff_subtitle': 'Chat with the agent to start producing your video.',
+  'agent_handoff_message': 'Script analysis is complete, and you can continue producing your project. Next, tell me “Start production” here and I’ll move forward from the project’s current progress.',
   'agent_handoff_dismiss': 'Got it',
   'what_happens_next': 'What happens next?',
   'ai_will_analyze_desc': 'AI will analyze your novel and extract characters, scenes, props, and world settings',

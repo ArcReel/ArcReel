@@ -203,6 +203,7 @@ export default {
   'task_in_progress_default': 'Đang xử lý',
   'agent_handoff_headline': 'Sẵn sàng',
   'agent_handoff_subtitle': 'Trò chuyện với Agent để bắt đầu sản xuất video.',
+  'agent_handoff_message': 'Đã hoàn tất phân tích kịch bản và bạn có thể tiếp tục sản xuất dự án. Tiếp theo, hãy nhắn “Bắt đầu sản xuất” tại đây, tôi sẽ tiếp tục theo tiến độ hiện tại của dự án.',
   'agent_handoff_dismiss': 'Đã hiểu',
   'what_happens_next': 'Tiếp theo sẽ là gì?',
   'ai_will_analyze_desc': 'AI sẽ phân tích tiểu thuyết và trích xuất nhân vật, cảnh, đạo cụ và bối cảnh thế giới',

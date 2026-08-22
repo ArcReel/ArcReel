@@ -24,6 +24,11 @@ import {
 /** 启动失败的来源入口——决定故障卡片的重试重放哪一处输入。 */
 export type StartupFailureOrigin = "send" | "rewrite";
 
+export interface AgentHandoffGuide {
+  id: string;
+  projectName: string;
+}
+
 interface AssistantState {
   // Sessions
   sessions: SessionMeta[];
@@ -53,6 +58,12 @@ interface AssistantState {
    * `send` 的输入留在主输入框，`rewrite` 的留在仍开着的原地编辑器里。
    */
   startupFailureOrigin: StartupFailureOrigin | null;
+
+  /**
+   * 项目分析完成后的前端引导气泡。它不属于权威会话日志，也不会进入 Agent 上下文；
+   * 仅用于告诉用户可以从右侧对话栏继续推进制作。
+   */
+  handoffGuide: AgentHandoffGuide | null;
 
   // Session status
   sessionStatus: SessionStatus | null;
@@ -100,6 +111,7 @@ interface AssistantState {
   setInterrupting: (interrupting: boolean) => void;
   setError: (error: string | null) => void;
   setStartupFailure: (failure: FailureObservation | null, origin?: StartupFailureOrigin) => void;
+  showHandoffGuide: (projectName: string, triggerKey: number) => void;
   setSessionStatus: (status: SessionStatus | null) => void;
   setSessionStatusDetail: (detail: string | null) => void;
   setPendingQuestion: (question: PendingQuestion | null) => void;
@@ -169,6 +181,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     error: null,
     startupFailure: null,
     startupFailureOrigin: null,
+    handoffGuide: null,
     sessionStatus: null,
     sessionStatusDetail: null,
     pendingQuestion: null,
@@ -258,6 +271,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
         subagents: {},
         startupFailure: null,
         startupFailureOrigin: null,
+        handoffGuide: null,
         // 编辑态锚在被清空的那条时间线上，重建后锚点不再存在
         editingTurnUuid: null,
       });
@@ -271,6 +285,13 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     // origin 与 failure 同一次写入，两者不会各自漂移
     setStartupFailure: (failure, origin = "send") =>
       set({ startupFailure: failure, startupFailureOrigin: failure ? origin : null }),
+    showHandoffGuide: (projectName, triggerKey) =>
+      set({
+        handoffGuide: {
+          id: `${projectName}:${triggerKey}`,
+          projectName,
+        },
+      }),
     setSessionStatus: (status) => set({ sessionStatus: status }),
     setSessionStatusDetail: (detail) => set({ sessionStatusDetail: detail }),
     setPendingQuestion: (question) => set({ pendingQuestion: question }),

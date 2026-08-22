@@ -8,7 +8,7 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
-import type { ImagePayload } from "@/types";
+import type { ImagePayload, Turn } from "@/types";
 import { MAX_ATTACHED_IMAGES, useImageAttachments } from "@/hooks/useImageAttachments";
 import { GlassPopover } from "@/components/ui/GlassPopover";
 import { ContextBanner } from "./ContextBanner";
@@ -171,6 +171,7 @@ export function AgentCopilot() {
   const {
     turns, draftTurn, messagesLoading, editingTurnUuid, setEditingTurnUuid,
     sending, sessionStatus, pendingQuestion, answeringQuestion, error, startupFailure, startupFailureOrigin,
+    handoffGuide,
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
@@ -197,6 +198,13 @@ export function AgentCopilot() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const allTurns = composeAllTurns(turns, draftTurn);
+  const handoffTurn: Turn | null = handoffGuide?.projectName === currentProjectName
+    ? {
+        type: "assistant",
+        content: [{ type: "text", text: t("agent_handoff_message") }],
+        uuid: `handoff-guide:${handoffGuide.id}`,
+      }
+    : null;
   const isRunning = sessionStatus === "running";
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
   const attachDisabled = inputDisabled || isReadingImages || attachedImages.length >= MAX_ATTACHED_IMAGES;
@@ -377,7 +385,7 @@ export function AgentCopilot() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [allTurns.length]);
+  }, [allTurns.length, handoffTurn?.uuid]);
 
   return (
     <div
@@ -464,7 +472,7 @@ export function AgentCopilot() {
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 min-w-0 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3">
-        {allTurns.length === 0 && !messagesLoading && !startupFailure && (
+        {allTurns.length === 0 && !handoffTurn && !messagesLoading && !startupFailure && (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div
               className="mb-3 grid h-12 w-12 place-items-center rounded-2xl"
@@ -511,6 +519,7 @@ export function AgentCopilot() {
             onSubmitEdit={handleSubmitEdit}
           />
         ))}
+        {handoffTurn && <MessageRow key={handoffTurn.uuid} turn={handoffTurn} />}
         {startupFailure && (
           // 改写失败时原始输入留在仍开着的编辑器里，重试由它的「重新发送」发起：
           // 卡片这里给重试只会重放主输入框的无关内容（为空时更是毫无反应）

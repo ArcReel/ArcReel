@@ -20,9 +20,10 @@ vi.mock("./SlashCommandMenu", () => ({
 }));
 
 vi.mock("./chat/ChatMessage", () => ({
-  ChatMessage: ({ message }: { message: { type: string } }) => (
-    <div data-testid="chat-message">{message.type}</div>
-  ),
+  ChatMessage: ({ message }: { message: { type: string; content?: Array<{ text?: string }> } }) => {
+    const text = message.content?.map((block) => block.text ?? "").join("") ?? "";
+    return <div data-testid="chat-message">{message.type}:{text}</div>;
+  },
 }));
 
 const mockedUseAssistantSession = vi.mocked(useAssistantSession);
@@ -165,6 +166,33 @@ describe("AgentCopilot", () => {
     await waitFor(() => {
       expect(useAssistantStore.getState().input).toBe("");
     });
+  });
+
+  it("renders the project-scoped analysis handoff as an Agent message", () => {
+    useAssistantStore.getState().showHandoffGuide("demo", 1);
+
+    render(<AgentCopilot />);
+
+    expect(
+      screen.getByText(/剧本分析已完成，你可以继续项目制作了/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("开始对话")).not.toBeInTheDocument();
+  });
+
+  it("does not render a handoff guide that belongs to another project", () => {
+    useAssistantStore.getState().showHandoffGuide("another-project", 1);
+
+    render(<AgentCopilot />);
+
+    expect(screen.queryByText(/剧本分析已完成/)).not.toBeInTheDocument();
+  });
+
+  it("clears the handoff guide when the conversation timeline resets", () => {
+    useAssistantStore.getState().showHandoffGuide("demo", 1);
+
+    useAssistantStore.getState().resetTimeline();
+
+    expect(useAssistantStore.getState().handoffGuide).toBeNull();
   });
 
 });

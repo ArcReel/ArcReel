@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Sparkles, X } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
 
 const AUTO_DISMISS_MS = 6500;
@@ -55,6 +56,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
     }
     setLeaving(false);
     setVisible(true);
+    useAssistantStore.getState().showHandoffGuide(storageScope, triggerKey);
     // 通过 getState() 直接读 + 写，不订阅，避免重新触发 effect
     const store = useAppStore.getState();
     if (!store.assistantPanelOpen) {
@@ -66,7 +68,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
       fadeTimer.current = setTimeout(() => setVisible(false), 320);
     }, AUTO_DISMISS_MS);
     return clearTimers;
-  }, [triggerKey, sessionKey, clearTimers]);
+  }, [triggerKey, sessionKey, storageScope, clearTimers]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleDismiss = useCallback(() => {

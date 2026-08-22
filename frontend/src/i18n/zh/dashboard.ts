@@ -203,6 +203,7 @@ export default {
   'task_in_progress_default': '任务进行中',
   'agent_handoff_headline': '准备就绪',
   'agent_handoff_subtitle': '与 Agent 对话，开启视频制作。',
+  'agent_handoff_message': '剧本分析已完成，你可以继续项目制作了。下一步，直接在这里告诉我「开始制作」，我会根据当前项目进度继续推进。',
   'agent_handoff_dismiss': '知道了',
   'what_happens_next': '接下来会发生什么？',
   'ai_will_analyze_desc': 'AI 将分析您的小说，提取角色、场景、道具和世界观设定',

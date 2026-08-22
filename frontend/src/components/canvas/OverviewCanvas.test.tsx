@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API, ConflictError } from "@/api";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import type { ProjectData } from "@/types";
@@ -42,8 +43,10 @@ function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
 describe("OverviewCanvas", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
+    useAssistantStore.setState(useAssistantStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useCostStore.setState(useCostStore.getInitialState(), true);
+    sessionStorage.clear();
     vi.restoreAllMocks();
     vi.stubGlobal("confirm", vi.fn(() => true));
   });
@@ -207,6 +210,26 @@ describe("OverviewCanvas", () => {
     );
 
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+    expect(useAssistantStore.getState().handoffGuide).toBeNull();
+  });
+
+  it("publishes a project-scoped Agent message when analysis completes", () => {
+    useAppStore.setState({ assistantPanelOpen: false });
+
+    const { rerender } = render(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+
+    rerender(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+
+    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+    expect(useAssistantStore.getState().handoffGuide).toEqual({
+      id: "demo:1",
+      projectName: "demo",
+    });
   });
 
   it("does not replay a stale handoff trigger after switching to a read-only demo project", () => {
