@@ -162,3 +162,70 @@ async def test_build_sandbox_disabled_strips_bash(tmp_path: Path) -> None:
         assert tool not in options.allowed_tools
     assert "Read" in options.allowed_tools
     assert options.sandbox == {"enabled": False}
+
+
+@pytest.mark.asyncio
+async def test_file_access_hook_blocks_read_large_image(tmp_path: Path) -> None:
+    """Read 大图被守卫拦截：图片 base64 展开会超过 CLI 1MB 消息缓冲。"""
+    projects_root = (tmp_path / "projects").resolve()
+    own_project = projects_root / "demo"
+    own_project.mkdir(parents=True, exist_ok=True)
+    big_png = own_project / "scene_E1S01.png"
+    big_png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * (600 * 1024))
+
+    assembler = _make_assembler(tmp_path)
+    hook = assembler._build_file_access_hook(own_project)
+
+    result = await hook(
+        {"tool_name": "Read", "tool_input": {"file_path": str(big_png)}},
+        None,
+        None,
+    )
+    out = result["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny"
+    assert "1MB" in out["permissionDecisionReason"]
+
+
+@pytest.mark.asyncio
+async def test_file_access_hook_blocks_read_large_text_file(tmp_path: Path) -> None:
+    """Read 超大文本被守卫拦截，提示改用 Grep / offset+limit 分段读取。"""
+    projects_root = (tmp_path / "projects").resolve()
+    own_project = projects_root / "demo"
+    own_project.mkdir(parents=True, exist_ok=True)
+    big_json = own_project / "big.json"
+    big_json.write_text("x" * (950 * 1024), encoding="utf-8")
+
+    assembler = _make_assembler(tmp_path)
+    hook = assembler._build_file_access_hook(own_project)
+
+    result = await hook(
+        {"tool_name": "Read", "tool_input": {"file_path": str(big_json)}},
+        None,
+        None,
+    )
+    out = result["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny"
+    assert "offset/limit" in out["permissionDecisionReason"]
+
+
+@pytest.mark.asyncio
+async def test_file_access_hook_allows_read_small_files(tmp_path: Path) -> None:
+    """小图片与小文本不触发守卫，正常放行。"""
+    projects_root = (tmp_path / "projects").resolve()
+    own_project = projects_root / "demo"
+    own_project.mkdir(parents=True, exist_ok=True)
+    small_png = own_project / "small.png"
+    small_png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * (100 * 1024))
+    small_json = own_project / "script.json"
+    small_json.write_text("{}", encoding="utf-8")
+
+    assembler = _make_assembler(tmp_path)
+    hook = assembler._build_file_access_hook(own_project)
+
+    for file_path in (small_png, small_json):
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": str(file_path)}},
+            None,
+            None,
+        )
+        assert result.get("continue_") is True
