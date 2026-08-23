@@ -76,12 +76,10 @@ def test_ffmpeg_available_is_cached():
     断言落在「结论不变」而非探测次数上——调用方依赖的是这个稳定结论（进程内不会一会儿有
     ffmpeg 一会儿没有），探测只调一次是它的副产物。
     """
-    thumbnail_module._reset_for_tests()
     with patch("lib.thumbnail.shutil.which", return_value=None):
         assert thumbnail_module._ffmpeg_available() is False
     with patch("lib.thumbnail.shutil.which", return_value="/usr/bin/ffmpeg"):
         assert thumbnail_module._ffmpeg_available() is False
-    thumbnail_module._reset_for_tests()
 
 
 @pytest.mark.asyncio
@@ -243,9 +241,7 @@ async def test_last_frame_retries_precise_count_when_fast_extract_writes_nothing
 
 def test_ffprobe_available_is_cached():
     """_ffprobe_available() 走 @functools.cache：首次结论定死，之后 which 换答案也不再重探。"""
-    thumbnail_module._reset_for_tests()
     with patch("lib.thumbnail.shutil.which", return_value=None):
         assert thumbnail_module._ffprobe_available() is False
     with patch("lib.thumbnail.shutil.which", return_value="/usr/bin/ffprobe"):
         assert thumbnail_module._ffprobe_available() is False
-    thumbnail_module._reset_for_tests()
