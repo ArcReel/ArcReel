@@ -907,6 +907,7 @@ async def _generate_reference_units(
         project_path=project_dir,
         script=script,
         script_file=script_filename,
+        episode=episode,
         units=targets,
         request_options=request_options,
         confirmed_request_durations=confirmed_request_durations,

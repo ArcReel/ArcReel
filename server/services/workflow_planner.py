@@ -236,6 +236,7 @@ class WorkflowPlanner:
                 project_path=facts.project_path,
                 script=facts.script,
                 script_file=facts.script_file,
+                episode=status.target.episode if status.target is not None else 1,
                 units=targets,
                 request_options=options,
                 operation=status.next_action.type,

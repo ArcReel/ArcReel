@@ -27,6 +27,7 @@ from lib.generation_queue import (
     get_generation_queue,
     without_reference_video_execution_identity,
 )
+from lib.minimax_h3_prompt import is_minimax_h3_model
 from lib.narration_delivery import USE_TTS
 from lib.path_safety import safe_join
 from lib.reference_video.artifact_selection import CurrentReferenceAssets
@@ -72,6 +73,7 @@ from lib.visual_artifact_provenance import build_reference_video_artifact_visual
 from server.services.effective_global_assets import resolve_linked_global_reference_audio_paths
 from server.services.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import get_project_manager
+from server.services.h3_prompt_optimization import H3PromptOptimizationService
 from server.services.narration_delivery_tasks import (
     ResolvedTtsSettingsResolver,
     materialized_reference_video_visual_basis_digest,
@@ -556,6 +558,18 @@ async def execute_reference_video_task(
         request_references=[entry.reference for entry in constrained_entries],
     )
     rendered_prompt = rendered.prompt
+    if is_minimax_h3_model(candidate.model_id):
+        prompt_service = H3PromptOptimizationService()
+        prompt_context = await prompt_service.context_from_projection(
+            episode=script_input.episode,
+            project=project,
+            project_path=project_path,
+            unit=unit,
+            narration_delivery=options.narration_delivery,
+            projection=projection,
+            audio_map=audio_paths,
+        )
+        rendered_prompt = await prompt_service.confirmed_prompt_for_context(project_path, prompt_context)
     reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(
         rendered, audio_paths, reference_audio_per_image=voice_settings.requires_reference_image
     )

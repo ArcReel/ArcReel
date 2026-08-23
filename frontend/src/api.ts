@@ -59,6 +59,9 @@ import type {
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
   ReferenceRequestOptions,
+  H3PromptArtifact,
+  H3PromptOperationRequest,
+  H3PromptState,
   ScriptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
@@ -3199,6 +3202,39 @@ class API {
   ): Promise<ReferenceBatchAdmission> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/generate-batch`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  static async getH3PromptStates(
+    projectName: string,
+    episode: number,
+    payload: H3PromptOperationRequest = {},
+  ): Promise<{ states: H3PromptState[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/h3-prompts/status`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  static async optimizeH3Prompts(
+    projectName: string,
+    episode: number,
+    payload: H3PromptOperationRequest = {},
+  ): Promise<{ artifacts: H3PromptArtifact[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/h3-prompts/optimize`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  static async confirmH3Prompts(
+    projectName: string,
+    episode: number,
+    payload: H3PromptOperationRequest = {},
+  ): Promise<{ artifacts: H3PromptArtifact[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/h3-prompts/confirm`,
       { method: "POST", body: JSON.stringify(payload) },
     );
   }

@@ -138,7 +138,7 @@ describe("ReferenceVideoCanvas", () => {
       name: /Workspace main tabs|工作台主面板切换|Tab chính của workspace/,
     });
     const delivery = screen.getByRole("group", { name: /Narration delivery|旁白交付/ });
-    expect(within(tablist).getAllByRole("tab")).toHaveLength(2);
+    expect(within(tablist).getAllByRole("tab")).toHaveLength(3);
     expect(tablist).not.toContainElement(delivery);
   });
 

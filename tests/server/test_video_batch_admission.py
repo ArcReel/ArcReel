@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -240,3 +241,57 @@ async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
 
     assert admission.decision is BatchAdmissionDecision.BLOCKED
     assert admission.unit_ids == ("E9U9", "E1U1")
+
+
+async def test_h3_prompt_is_an_independent_paid_enqueue_gate(monkeypatch, tmp_path: Path) -> None:
+    _stub_state(monkeypatch)
+
+    async def _project(**kwargs):
+        class _Projection:
+            unit_id = kwargs["unit"]["unit_id"]
+            blocking_problems: tuple[object, ...] = ()
+            cost = None
+            planned_duration = 6
+            request_duration = SimpleNamespace(seconds=6)
+            current_visual_duration = None
+            provider_candidate = SimpleNamespace(model_id="MiniMax-H3")
+
+            def to_advisory_payload(self):
+                return {"allowed": True, "unit_id": self.unit_id, "problems": []}
+
+        return _Projection()
+
+    async def _options(*, options, **_kwargs):
+        return options
+
+    class _PromptService:
+        async def context_from_projection(self, *, episode, **_kwargs):
+            assert episode == 7
+            return object()
+
+        def state_for_context(self, _project_path, _context):
+            return SimpleNamespace(state="missing")
+
+    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
+    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _options)
+    monkeypatch.setattr(admission_mod, "H3PromptOptimizationService", _PromptService)
+
+    admission = await admit_reference_video_batch(
+        project_name="demo",
+        project={},
+        project_path=tmp_path,
+        script={"video_units": []},
+        script_file="custom.json",
+        episode=7,
+        units=[{"unit_id": "E7U01", "text": "镜头", "duration_seconds": 6}],
+        request_options=ReferenceRequestOptions(),
+        operation="generate_video_episode",
+        selection=GenerationSelectionMode.EXPLICIT,
+    )
+
+    assert admission.decision is BatchAdmissionDecision.BLOCKED
+    problem = admission.tickets[0].problems[0]
+    assert problem.code == GenerationProblemCode.H3_PROMPT_MISSING
+    assert problem.action is GenerationAction.OPTIMIZE_VIDEO_PROMPT
+    assert admission.tickets[0].projection is not None
+    assert admission.tickets[0].projection["allowed"] is False
