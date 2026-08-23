@@ -76,6 +76,33 @@ def _typed_video_metadata(
     }
 
 
+def _stub_current_narration_reload(monkeypatch, tmp_path: Path, *, narration, resource_id: str = "E1S01"):
+    """把当前旁白交付重载的三个协作者换成替身，让重载协程本体照跑。
+
+    ``_prepare_current_task_narration_delivery`` 自己的剧本定位与单元准入仍走真实代码，
+    只有项目管理器、交付准备与在途 TTS 查询由替身给出，用例因而不必替换被测模块的步骤。
+    """
+    pm = MagicMock()
+    pm.load_project.return_value = {
+        "name": "demo",
+        "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+    }
+    pm.get_project_path.return_value = tmp_path
+    pm.load_script.return_value = {
+        "episode": 1,
+        "content_mode": "narration",
+        "segments": [{"segment_id": resource_id, "narration": "旁白。", "duration_seconds": 8}],
+    }
+    monkeypatch.setattr(narration_delivery_tasks, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(
+        narration_delivery_tasks,
+        "prepare_current_narration_delivery",
+        AsyncMock(return_value=narration),
+    )
+    monkeypatch.setattr(narration_delivery_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+    return pm
+
+
 async def test_current_settings_use_canonical_provider_and_actual_backend_model(monkeypatch, tmp_path: Path) -> None:
     from lib.config.resolver import ProviderModel
     from server.services.generation_context import AudioLaneResult, GenerationContext
@@ -152,13 +179,7 @@ async def test_generated_video_rejection_restores_previous_current_version(
         actual_duration_seconds=6.2,
         problems=(),
     )
-    load_current = AsyncMock(return_value=narration)
-    monkeypatch.setattr(
-        narration_delivery_tasks,
-        "_prepare_current_task_narration_delivery",
-        load_current,
-        raising=False,
-    )
+    _stub_current_narration_reload(monkeypatch, tmp_path, narration=narration)
 
     with pytest.raises(NarratedVideoDurationBlockedError) as exc_info:
         await narration_delivery_tasks.require_generated_video_covers_current_tts(
@@ -173,12 +194,6 @@ async def test_generated_video_rejection_restores_previous_current_version(
         )
 
     assert exc_info.value.code == expected_code
-    load_current.assert_awaited_once_with(
-        project_name="demo",
-        script_file="episode_1.json",
-        resource_type="videos",
-        resource_id="E1S01",
-    )
     versions.reject_current_version.assert_called_once_with(
         "videos",
         "E1S01",

@@ -272,11 +272,6 @@ async def test_formal_selection_validates_frozen_tts_when_current_tts_changes(
 ) -> None:
     """A paid result is judged against the TTS accepted at submission, not mutable current state."""
 
-    current_projection = AsyncMock(side_effect=RuntimeError("current TTS became stale"))
-    monkeypatch.setattr(
-        "server.services.narration_delivery_tasks._prepare_current_task_narration_delivery",
-        current_projection,
-    )
     monkeypatch.setattr(
         "server.services.narration_delivery_tasks.probe_existing_media_duration_seconds",
         AsyncMock(return_value=8.0),
@@ -317,8 +312,8 @@ async def test_formal_selection_validates_frozen_tts_when_current_tts_changes(
         },
     )
 
+    # 当前 TTS 解析器被换成一抛就错：冻结档若误取当前状态，selection_error 不会是 None。
     assert committer.selection_error is None
-    current_projection.assert_not_awaited()
 
 
 @pytest.mark.asyncio

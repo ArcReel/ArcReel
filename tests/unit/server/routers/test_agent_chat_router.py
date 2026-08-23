@@ -28,6 +28,29 @@ def _make_client() -> TestClient:
     return TestClient(app)
 
 
+def _scripted_session_manager(monkeypatch, *, reply_text: str, status: str) -> "_StubSessionManager":
+    """按目标收尾编排一段事件流，让 ``_collect_reply`` 真的跑出该 (reply, status)。
+
+    端点用例因而不必替换 ``_collect_reply`` 本身：替身只落在会话管理器这个协作者上。
+    """
+    events: list = []
+    if reply_text:
+        events.append(LiveMessage(message={"type": "assistant", "content": [{"type": "text", "text": reply_text}]}))
+    if status == "completed":
+        events.append(LiveMessage(message={"type": "result", "subtype": "success", "is_error": False}))
+        return _StubSessionManager(events)
+    if status == "timeout":
+        # 持续 <idle_timeout 间隔的消息流：deadline 每轮被检查，到点收尾。
+        monkeypatch.setattr(agent_chat, "SYNC_CHAT_TIMEOUT", 0.05)
+        # 灌流消息文本留空：收尾前已收的部分回复因而恒等于 reply_text。
+        return _StubSessionManager(events, flood=True, flood_text="")
+    if status == "error":
+        # 订阅队列溢出以流结束表达。
+        return _StubSessionManager(events)
+    # 其余收尾由心跳上的会话状态给出。
+    return _StubSessionManager([*events, Heartbeat()], status=status)
+
+
 def _fake_session(session_id: str = "sess-1", project_name: str = "demo"):
     meta = MagicMock()
     meta.id = session_id
@@ -39,7 +62,7 @@ class TestAgentChatEndpoint:
     def _patch_service(
         self, monkeypatch, *, project_exists=True, reply_text="你好", status="completed", session_id="sess-1"
     ):
-        """构建 mock AssistantService 并注入。"""
+        """构建 mock AssistantService 并注入；回复由脚本化事件流经真实 _collect_reply 得出。"""
         mock_service = AsyncMock()
 
         # 项目存在性检查
@@ -56,12 +79,8 @@ class TestAgentChatEndpoint:
         # 统一发送端点
         mock_service.send_or_create = AsyncMock(return_value={"status": "accepted", "session_id": session_id})
 
+        mock_service.session_manager = _scripted_session_manager(monkeypatch, reply_text=reply_text, status=status)
         monkeypatch.setattr(agent_chat, "get_assistant_service", lambda: mock_service)
-        monkeypatch.setattr(
-            agent_chat,
-            "_collect_reply",
-            AsyncMock(return_value=(reply_text, status)),
-        )
         return mock_service
 
     def test_new_session_returns_reply(self, monkeypatch):
@@ -199,10 +218,11 @@ class _StubSessionManager:
     flood=True 时持续以 <idle_timeout 间隔吐直播消息,心跳与流结束都不出现。
     """
 
-    def __init__(self, events, *, status="running", flood=False):
+    def __init__(self, events, *, status="running", flood=False, flood_text="x"):
         self._events = list(events)
         self.status = status
         self._flood = flood
+        self._flood_text = flood_text
 
     async def get_status(self, session_id):
         return self.status
@@ -211,6 +231,7 @@ class _StubSessionManager:
     async def stream_messages(self, session_id, *, idle_timeout=5.0):
         events = self._events
         flood = self._flood
+        flood_text = self._flood_text
 
         async def _iter():
             yield SubscriptionReady()
@@ -218,7 +239,7 @@ class _StubSessionManager:
                 yield event
             while flood:
                 await asyncio.sleep(0.01)
-                yield LiveMessage(message={"type": "assistant", "content": [{"type": "text", "text": "x"}]})
+                yield LiveMessage(message={"type": "assistant", "content": [{"type": "text", "text": flood_text}]})
 
         yield _iter()
 
@@ -330,8 +351,8 @@ class TestEntryLogFallback:
                 "draft_rev": 0,
             }
         )
+        mock_service.session_manager = _scripted_session_manager(monkeypatch, reply_text="", status="completed")
         monkeypatch.setattr(agent_chat, "get_assistant_service", lambda: mock_service)
-        monkeypatch.setattr(agent_chat, "_collect_reply", AsyncMock(return_value=("", "completed")))
 
         with _make_client() as client:
             resp = client.post(
@@ -366,8 +387,8 @@ class TestTruncatedReplyBackfill:
             mock_service.list_session_entries = AsyncMock(side_effect=entries_exc)
         else:
             mock_service.list_session_entries = AsyncMock(return_value=entries_payload)
+        mock_service.session_manager = _scripted_session_manager(monkeypatch, reply_text=live_reply, status=live_status)
         monkeypatch.setattr(agent_chat, "get_assistant_service", lambda: mock_service)
-        monkeypatch.setattr(agent_chat, "_collect_reply", AsyncMock(return_value=(live_reply, live_status)))
         return mock_service
 
     def test_error_status_backfills_nonempty_truncated_reply(self, monkeypatch):
