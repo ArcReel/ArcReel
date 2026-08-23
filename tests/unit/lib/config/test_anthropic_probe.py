@@ -261,8 +261,10 @@ async def test_run_test_preset_skips_self_heal(probe_client: httpx.AsyncClient) 
 async def test_run_test_self_heal_retry_also_fails_keeps_original_failure(probe_client: httpx.AsyncClient) -> None:
     """自愈重试也失败 (同 404) → suggestion=None，diagnosis=UNKNOWN。"""
     with capture_http() as router:
-        router.post("https://api.example.com/v1/messages").mock(return_value=httpx.Response(404, text="not found"))
-        router.post("https://api.example.com/anthropic/v1/messages").mock(
+        plain = router.post("https://api.example.com/v1/messages").mock(
+            return_value=httpx.Response(404, text="not found")
+        )
+        suffixed = router.post("https://api.example.com/anthropic/v1/messages").mock(
             return_value=httpx.Response(404, text="still not found")
         )
         router.get("https://api.example.com/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
@@ -278,6 +280,8 @@ async def test_run_test_self_heal_retry_also_fails_keeps_original_failure(probe_
     assert resp.overall == "fail"
     assert resp.suggestion is None
     assert resp.diagnosis == DiagnosisCode.UNKNOWN
+    assert plain.call_count == 1
+    assert suffixed.call_count == 1
 
 
 async def test_run_test_self_heal_retry_promotes_specific_diagnosis(probe_client: httpx.AsyncClient) -> None:
