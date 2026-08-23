@@ -6,6 +6,7 @@ import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from lib.image_backends import ImageCapabilityError
@@ -15,6 +16,7 @@ from lib.image_backends.base import (
     ReferenceImage,
 )
 from lib.providers import PROVIDER_OPENAI
+from tests.http_capture import capture_http, only_request
 
 
 def _make_mock_image_response(
@@ -192,18 +194,13 @@ class TestOpenAIImageBackend:
                 image_size="1K",
             )
 
-            with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
-                mock_http = AsyncMock()
-                MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-                MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
-                mock_resp = MagicMock()
-                mock_resp.content = downloaded
-                mock_resp.raise_for_status = MagicMock()
-                mock_http.get = AsyncMock(return_value=mock_resp)
-
+            with capture_http() as router:
+                download = router.get("https://gateway/img.png").mock(
+                    return_value=httpx.Response(200, content=downloaded)
+                )
                 result = await backend.generate(request)
 
-            mock_http.get.assert_awaited_once_with("https://gateway/img.png", timeout=60)
+            assert str(only_request(download).url) == "https://gateway/img.png"
 
         assert result.image_path == output_path
         assert output_path.read_bytes() == downloaded

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+import respx
 
 from lib.image_backends.base import (
     ImageCapability,
@@ -17,61 +19,33 @@ from lib.image_backends.base import (
     ReferenceImage,
 )
 from lib.providers import PROVIDER_MINIMAX
+from tests.http_capture import capture_http, request_json
 
 
-def _img_response(url: str = "https://x/out.png") -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = {
-        "id": "trace-1",
-        "data": {"image_urls": [url]},
-        "base_resp": {"status_code": 0, "status_msg": "success"},
-    }
-    return resp
+def _img_response(url: str = "https://x/out.png") -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "id": "trace-1",
+            "data": {"image_urls": [url]},
+            "base_resp": {"status_code": 0, "status_msg": "success"},
+        },
+    )
 
 
-def _b64_response(b64: str) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = {
-        "id": "trace-1",
-        "data": {"image_base64": [b64]},
-        "base_resp": {"status_code": 0, "status_msg": "success"},
-    }
-    return resp
+def _b64_response(b64: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "id": "trace-1",
+            "data": {"image_base64": [b64]},
+            "base_resp": {"status_code": 0, "status_msg": "success"},
+        },
+    )
 
 
-def _biz_error_response(status_code: int = 1004, msg: str = "invalid api key") -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = {"base_resp": {"status_code": status_code, "status_msg": msg}}
-    return resp
-
-
-class _RecordingClient:
-    """httpx.AsyncClient 替身：记录每次 post 的 url 与参数，回固定响应。
-
-    端点派生、请求体字段、鉴权头都是「发出去的请求长什么样」的契约，断言落在 ``posts``
-    里的请求内容上，而不是替身的调用对象。
-    """
-
-    def __init__(self, resp: MagicMock) -> None:
-        self.posts: list[dict[str, Any]] = []
-        self._resp = resp
-
-    async def post(self, url: str, **kwargs: Any) -> MagicMock:
-        self.posts.append({"url": url, **kwargs})
-        return self._resp
-
-    async def __aenter__(self) -> _RecordingClient:
-        return self
-
-    async def __aexit__(self, *_exc: object) -> None:
-        return None
-
-
-def _mock_client(resp: MagicMock) -> _RecordingClient:
-    return _RecordingClient(resp)
+def _biz_error_response(status_code: int = 1004, msg: str = "invalid api key") -> httpx.Response:
+    return httpx.Response(200, json={"base_resp": {"status_code": status_code, "status_msg": msg}})
 
 
 def _make_ref(tmp_path: Path, name: str) -> ReferenceImage:
@@ -80,25 +54,26 @@ def _make_ref(tmp_path: Path, name: str) -> ReferenceImage:
     return ReferenceImage(path=str(p))
 
 
-def _http_error(status_code: int, message: str) -> httpx.HTTPStatusError:
-    request = httpx.Request("POST", "https://x/v1/image_generation")
-    response = httpx.Response(status_code, request=request, text=message)
-    return httpx.HTTPStatusError(f"error {status_code}", request=request, response=response)
+def _error_response(status_code: int) -> httpx.Response:
+    return httpx.Response(status_code, text="Request Entity Too Large")
 
 
-def _error_response(status_code: int) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.text = "Request Entity Too Large"
-    resp.raise_for_status = MagicMock(side_effect=_http_error(status_code, "Request Entity Too Large"))
-    return resp
+@contextmanager
+def _generation_route(
+    resp: httpx.Response, download: AsyncMock | None = None
+) -> Iterator[respx.Route]:
+    """成图端点的出站流：走 respx 在 transport 层拦截。
 
-
-def _patches(client: AsyncMock, download: AsyncMock):
-    return (
-        patch("httpx.AsyncClient", return_value=client),
-        patch("lib.image_backends.minimax.download_image_to_path", download),
-    )
+    端点派生、请求体字段、鉴权头都是「发出去的请求长什么样」的契约，断言落在路由捕获的
+    真实请求上；``download`` 给出时同时接管落盘（非 base64 分支的独立下载段）。
+    """
+    with capture_http() as router:
+        route = router.post(url__regex=r"https://[^/]+/v1/image_generation").mock(return_value=resp)
+        if download is None:
+            yield route
+        else:
+            with patch("lib.image_backends.minimax.download_image_to_path", download):
+                yield route
 
 
 class TestCapabilities:
@@ -125,16 +100,14 @@ class TestCapabilities:
 
 class TestTextToImage:
     async def test_t2i_request_build(self, tmp_path: Path):
-        client = _mock_client(_img_response())
         download = AsyncMock()
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_img_response(), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk", model="image-01", base_url="https://api.minimax.io")
             result = await b.generate(ImageGenerationRequest(prompt="a fox", output_path=tmp_path / "o.png"))
 
-        body = client.posts[-1]["json"]
+        body = request_json(route.calls.last.request)
         assert body["model"] == "image-01"
         assert body["prompt"] == "a fox"
         assert body["response_format"] == "url"
@@ -144,61 +117,53 @@ class TestTextToImage:
         # 默认 aspect_ratio=9:16 精确算、受单边 2048 收口
         assert (body["width"], body["height"]) == (1152, 2048)
         # 端点：base host 派生 /v1 + /image_generation
-        assert client.posts[-1]["url"] == "https://api.minimax.io/v1/image_generation"
-        assert client.posts[-1]["headers"]["Authorization"] == "Bearer sk"
+        assert str(route.calls.last.request.url) == "https://api.minimax.io/v1/image_generation"
+        assert route.calls.last.request.headers["Authorization"] == "Bearer sk"
         assert result.provider == PROVIDER_MINIMAX
         assert result.model == "image-01"
         assert result.image_uri == "https://x/out.png"
         download.assert_called_once()
 
     async def test_default_endpoint_is_domestic(self, tmp_path: Path):
-        client = _mock_client(_img_response())
         download = AsyncMock()
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_img_response(), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
-        assert client.posts[-1]["url"] == "https://api.minimaxi.com/v1/image_generation"
+        assert str(route.calls.last.request.url) == "https://api.minimaxi.com/v1/image_generation"
 
     async def test_seed_passthrough(self, tmp_path: Path):
-        client = _mock_client(_img_response())
         download = AsyncMock()
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_img_response(), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", seed=42))
 
-        assert client.posts[-1]["json"]["seed"] == 42
+        assert request_json(route.calls.last.request)["seed"] == 42
 
     async def test_no_seed_field_when_unset(self, tmp_path: Path):
-        client = _mock_client(_img_response())
         download = AsyncMock()
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_img_response(), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
-        assert "seed" not in client.posts[-1]["json"]
+        assert "seed" not in request_json(route.calls.last.request)
 
 
 class TestDimensions:
     async def _dims(self, tmp_path: Path, **req_kwargs) -> tuple[int, int]:
-        client = _mock_client(_img_response())
         download = AsyncMock()
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_img_response(), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", **req_kwargs))
-        body = client.posts[-1]["json"]
+        body = request_json(route.calls.last.request)
         return body["width"], body["height"]
 
     async def test_landscape_picks_wide(self, tmp_path: Path):
@@ -237,11 +202,9 @@ class TestDimensions:
 
 class TestSubjectReference:
     async def test_i2i_single_subject_reference(self, tmp_path: Path):
-        client = _mock_client(_img_response())
         download = AsyncMock()
         ref = _make_ref(tmp_path, "face.png")
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_img_response(), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
@@ -249,24 +212,22 @@ class TestSubjectReference:
                 ImageGenerationRequest(prompt="hero portrait", output_path=tmp_path / "o.png", reference_images=[ref])
             )
 
-        subject = client.posts[-1]["json"]["subject_reference"]
+        subject = request_json(route.calls.last.request)["subject_reference"]
         assert len(subject) == 1
         assert subject[0]["type"] == "character"
         assert subject[0]["image_file"].startswith("data:image/png;base64,")
 
     async def test_multiple_refs_truncated_to_first(self, tmp_path: Path):
-        client = _mock_client(_img_response())
         download = AsyncMock()
         refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(3)]
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_img_response(), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=refs))
 
         # image-01 单脸参考：仅取首张
-        subject = client.posts[-1]["json"]["subject_reference"]
+        subject = request_json(route.calls.last.request)["subject_reference"]
         assert len(subject) == 1
 
     async def test_missing_ref_raises_unreadable(self, tmp_path: Path):
@@ -315,11 +276,10 @@ class TestResponseHandling:
     async def test_base64_response_decoded_and_saved(self, tmp_path: Path):
         raw = b"\x89PNG\r\nhello-bytes"
         b64 = base64.b64encode(raw).decode("ascii")
-        client = _mock_client(_b64_response(b64))
         download = AsyncMock()
         out = tmp_path / "o.png"
-        # 不 patch download：base64 路径独立落盘
-        with patch("httpx.AsyncClient", return_value=client):
+        # 不接管 download：base64 路径独立落盘
+        with _generation_route(_b64_response(b64)):
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
@@ -333,9 +293,8 @@ class TestResponseHandling:
     async def test_base64_data_uri_prefix_stripped(self, tmp_path: Path):
         raw = b"PNGDATA"
         b64 = "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
-        client = _mock_client(_b64_response(b64))
         out = tmp_path / "o.png"
-        with patch("httpx.AsyncClient", return_value=client):
+        with _generation_route(_b64_response(b64)):
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
@@ -344,10 +303,8 @@ class TestResponseHandling:
         assert out.read_bytes() == raw
 
     async def test_business_error_raises_runtime(self, tmp_path: Path):
-        client = _mock_client(_biz_error_response(1004, "invalid api key"))
         download = AsyncMock()
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_biz_error_response(1004, "invalid api key"), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
@@ -355,17 +312,13 @@ class TestResponseHandling:
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
         assert "1004" in str(ei.value)
         # 业务错误不重试、不下载
-        assert len(client.posts) == 1
+        assert route.call_count == 1
         download.assert_not_called()
 
     async def test_empty_data_raises_runtime(self, tmp_path: Path):
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.json.return_value = {"data": {}, "base_resp": {"status_code": 0}}
-        client = _mock_client(resp)
+        resp = httpx.Response(200, json={"data": {}, "base_resp": {"status_code": 0}})
         download = AsyncMock()
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(resp, download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
@@ -375,24 +328,20 @@ class TestResponseHandling:
 
 class TestHttpErrors:
     async def test_400_surfaces_httpstatuserror_single_call(self, tmp_path: Path):
-        client = _mock_client(_error_response(400))
         download = AsyncMock()
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_error_response(400), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
         assert ei.value.response.status_code == 400
-        assert len(client.posts) == 1
+        assert route.call_count == 1
         download.assert_not_called()
 
     async def test_413_surfaces_httpstatuserror_no_retry(self, tmp_path: Path):
-        client = _mock_client(_error_response(413))
         download = AsyncMock()
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_error_response(413), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
@@ -400,7 +349,7 @@ class TestHttpErrors:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
         # 保留 status_code 让咽喉层识别 413 走降档；单次 fail-fast
         assert ei.value.response.status_code == 413
-        assert len(client.posts) == 1
+        assert route.call_count == 1
         download.assert_not_called()
 
 
@@ -410,17 +359,15 @@ class TestRetryScope:
         # 退避 sleep 打桩跳过，避免下载层重试真的等 DOWNLOAD_BACKOFF 秒级时间。
         from lib.retry import DOWNLOAD_MAX_ATTEMPTS
 
-        client = _mock_client(_img_response())
         download = AsyncMock(side_effect=httpx.ConnectError("conn reset"))
-        p1, p2 = _patches(client, download)
-        with p1, p2:
+        with _generation_route(_img_response(), download) as route:
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
             with pytest.raises(httpx.ConnectError):
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
         # 生成 POST 恰好一次（计费一次）；重试全部发生在下载层
-        assert len(client.posts) == 1
+        assert route.call_count == 1
         assert download.call_count == DOWNLOAD_MAX_ATTEMPTS
 
 

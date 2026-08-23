@@ -4,7 +4,9 @@ import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import (
@@ -36,28 +38,15 @@ def ark_backend(mock_ark_client):
 
 
 def _mock_httpx_stream(data: bytes = b"fake-mp4-data"):
-    """Create a patched httpx mock that supports async stream context manager."""
-    patcher = patch("lib.video_backends.base.httpx")
-    mock_httpx = patcher.start()
+    """成片下载的出站流：respx 在 transport 层拦截，任一下载 URL 都回给定字节。
 
-    mock_stream_response = MagicMock()
-    mock_stream_response.status_code = 200
-    mock_stream_response.raise_for_status = MagicMock()
-
-    async def _aiter_bytes(chunk_size=65536):
-        yield data
-
-    mock_stream_response.aiter_bytes = _aiter_bytes
-    mock_stream_response.__aenter__ = AsyncMock(return_value=mock_stream_response)
-    mock_stream_response.__aexit__ = AsyncMock(return_value=None)
-
-    mock_http_client = AsyncMock()
-    mock_http_client.stream = MagicMock(return_value=mock_stream_response)
-    mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-    mock_http_client.__aexit__ = AsyncMock(return_value=None)
-    mock_httpx.AsyncClient.return_value = mock_http_client
-
-    return patcher
+    保留 start/stop 形态（调用方以 try/finally 收尾），换掉的是拦截层——落在断言范围内的
+    是真实序列化后的流式 GET，而不是客户端替身记录的调用参数。
+    """
+    router = respx.mock(assert_all_called=False)
+    router.start()
+    router.get(url__regex=r".*").mock(return_value=httpx.Response(200, content=data))
+    return router
 
 
 class TestArkProperties:
