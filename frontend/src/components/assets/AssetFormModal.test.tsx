@@ -2,21 +2,10 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { AssetFormModal } from "./AssetFormModal";
 
-// Mock i18next to return keys as values
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) => {
-      if (opts) {
-        let result = key;
-        for (const [k, v] of Object.entries(opts)) {
-          result = result.replace(`{{${k}}}`, String(v));
-        }
-        return result;
-      }
-      return key;
-    },
-  }),
-}));
+vi.mock("react-i18next", async () => {
+  const { reactI18nextMock } = await import("@/test/mocks/reactI18next");
+  return reactI18nextMock();
+});
 
 describe("AssetFormModal", () => {
   it("create mode renders empty fields and calls onSubmit", async () => {

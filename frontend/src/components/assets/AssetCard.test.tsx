@@ -2,13 +2,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { AssetCard } from "./AssetCard";
 
-// Mock i18next
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { language: "en" },
-  }),
-}));
+vi.mock("react-i18next", async () => {
+  const { reactI18nextMock } = await import("@/test/mocks/reactI18next");
+  return reactI18nextMock();
+});
 
 const asset = {
   id: "1", type: "scene" as const, name: "庙宇", description: "阴森古朴",

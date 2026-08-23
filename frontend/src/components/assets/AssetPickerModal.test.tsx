@@ -3,21 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AssetPickerModal } from "./AssetPickerModal";
 import { API } from "@/api";
 
-// Mock i18next
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) => {
-      if (opts) {
-        let result = key;
-        for (const [k, v] of Object.entries(opts)) {
-          result = result.replace(`{{${k}}}`, String(v));
-        }
-        return result;
-      }
-      return key;
-    },
-  }),
-}));
+vi.mock("react-i18next", async () => {
+  const { reactI18nextMock } = await import("@/test/mocks/reactI18next");
+  return reactI18nextMock();
+});
 
 const fixtures = [
   { id: "1", type: "character" as const, name: "王小明", description: "", voice_style: "", image_path: null, audio_path: null, source_project: null, updated_at: null },

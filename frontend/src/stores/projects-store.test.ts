@@ -4,6 +4,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import type { ProjectData } from "@/types";
+import { deferred } from "@/test/deferred";
 
 type GetProjectResult = Awaited<ReturnType<typeof API.getProject>>;
 
@@ -21,17 +22,6 @@ function makeProject(title: string): ProjectData {
 
 function makeResult(title: string, fingerprints: Record<string, number> = {}): GetProjectResult {
   return { project: makeProject(title), scripts: {}, asset_fingerprints: fingerprints };
-}
-
-// 手动可控的 deferred promise，用于把 getProject 卡在「在途」状态精确编排合并时序。
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
 }
 
 // 冲刷 microtask + timer 队列，让在途刷新的续跑推进到下一次 await。

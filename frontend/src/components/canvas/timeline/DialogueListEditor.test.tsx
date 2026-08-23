@@ -4,12 +4,10 @@ import { describe, it, expect, vi } from "vitest";
 import { DialogueListEditor } from "./DialogueListEditor";
 import type { Dialogue } from "@/types";
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { language: "en" },
-  }),
-}));
+vi.mock("react-i18next", async () => {
+  const { reactI18nextMock } = await import("@/test/mocks/reactI18next");
+  return reactI18nextMock();
+});
 
 const dialogue: Dialogue[] = [
   { speaker: "韩青", line: "好险的关隘！田单未能攻破，正面尚未被攻破？" },
