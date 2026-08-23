@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,7 @@ from lib.minimax_h3_prompt import (
 )
 from lib.script_editor import split_segment
 from lib.text_backends.base import TextGenerationResult
+from lib.video_style import UnifiedVideoStyle
 from server.services.h3_prompt_optimization import (
     H3PromptContext,
     H3PromptOptimizationService,
@@ -116,6 +118,13 @@ def test_optimizer_user_prompt_includes_the_complete_provider_character_limit() 
     assert "including all section headers" in prompt
 
 
+def test_optimizer_user_prompt_includes_unified_video_style_rules() -> None:
+    prompt = _optimizer_user_prompt({"project": {"video_style": {"music_policy": "none"}}})
+
+    assert "project.video_style" in prompt
+    assert "non_diegetic_music as N/A" in prompt
+
+
 def test_parser_requires_six_ordered_sections_and_valid_request_facts() -> None:
     sections = parse_h3_prompt(_prompt(), duration_seconds=8, picture_count=1, audio_count=1)
     assert list(sections.model_dump()) == [
@@ -194,6 +203,36 @@ async def test_worker_prompt_step_accepts_the_stable_child_id_created_by_split(t
     assert artifacts[0].unit_id == "E1U01_1"
     assert h3_prompt_artifact_path(tmp_path, 1, "E1U01_1").is_file()
     assert load_h3_prompt_artifact(tmp_path, 1, "E1U01_1") == artifacts[0]
+
+
+async def test_no_music_policy_mechanically_removes_optimizer_added_score(tmp_path: Path) -> None:
+    class _Generator:
+        async def generate(self, request: Any, *, project_name: str) -> TextGenerationResult:
+            return TextGenerationResult(
+                text=_prompt().replace("No music.", "A warm orchestral score."),
+                provider="test",
+                model="optimizer",
+            )
+
+    async def _factory(_project_name: str) -> Any:
+        return _Generator()
+
+    style = UnifiedVideoStyle(
+        sound_focus="asmr",
+        music_policy="none",
+        sound_design="Close-miked wire and enamel sounds",
+        source="user",
+        updated_at=datetime.now(UTC),
+    )
+    context = replace(_context(tmp_path), video_style=style)
+    artifacts = await H3PromptOptimizationService(generator_factory=_factory)._optimize_contexts(
+        "demo",
+        tmp_path,
+        [context],
+    )
+
+    assert artifacts[0].sections.non_diegetic_music == "N/A"
+    assert artifacts[0].rendered_prompt.endswith("non_diegetic_music:\nN/A")
 
 
 async def test_optimizer_keeps_pinned_system_prompt_separate_and_saves_pending_review(

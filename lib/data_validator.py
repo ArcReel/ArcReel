@@ -63,6 +63,7 @@ from lib.speech_rate import (
     project_speech_rate_override,
 )
 from lib.validation_messages import MessageJoin, MessagePart, MessageRef, ValidationMessage, ValidationResult
+from lib.video_style import UnifiedVideoStyle
 
 __all__ = [
     "DataValidator",
@@ -416,6 +417,13 @@ class DataValidator:
                 )
 
         self._validate_ad_project_fields(project, content_mode, errors)
+
+        video_style = project.get("video_style")
+        if video_style is not None:
+            try:
+                UnifiedVideoStyle.model_validate(video_style)
+            except ValidationError as exc:
+                errors.append(_m("val_field_invalid", field="video_style", detail=_pydantic_error_summary(exc)))
 
         if not project.get("style"):
             errors.append(_m("val_missing_field", field="style"))

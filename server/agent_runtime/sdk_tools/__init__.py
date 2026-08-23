@@ -73,6 +73,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     validate_and_promote_draft_tool,
 )
 from server.agent_runtime.sdk_tools.update_custom_style import update_custom_style_tool
+from server.agent_runtime.sdk_tools.video_style import analyze_video_style_tool, update_video_style_tool
 from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
 from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool
 
@@ -103,6 +104,8 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_video_selected",
     "generate_narration_audio",
     "optimize_h3_video_prompts",
+    "analyze_video_style",
+    "update_video_style",
     "prepare_hyperframes_episode",
     "generate_hyperframes_bgm",
     "generate_episode_script",
@@ -150,6 +153,8 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "generate_video_selected",
         "generate_narration_audio",
         "optimize_h3_video_prompts",
+        "analyze_video_style",
+        "update_video_style",
         "prepare_hyperframes_episode",
         "generate_hyperframes_bgm",
         "generate_episode_script",
@@ -207,6 +212,8 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         generate_video_selected_tool(ctx),
         generate_narration_audio_tool(ctx),
         optimize_h3_video_prompts_tool(ctx),
+        analyze_video_style_tool(ctx),
+        update_video_style_tool(ctx),
         prepare_hyperframes_episode_tool(ctx),
         generate_hyperframes_bgm_tool(ctx),
         generate_episode_script_tool(ctx),

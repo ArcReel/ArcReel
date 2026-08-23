@@ -8,21 +8,23 @@ interface H3GenerationProgressProps {
 }
 
 const PHASE_INDEX: Record<H3ExecutionProgress["phase"], number> = {
-  prompt_optimizing: 0,
-  submitted: 1,
-  queued: 2,
-  preparing: 3,
-  running: 3,
-  cancelling: 3,
-  completed: 4,
-  failed: 4,
-  cancelled: 4,
+  style_analyzing: 0,
+  prompt_optimizing: 1,
+  submitted: 2,
+  queued: 3,
+  preparing: 4,
+  running: 4,
+  cancelling: 4,
+  completed: 5,
+  failed: 5,
+  cancelled: 5,
 };
 
 export function H3GenerationProgress({ progress, onCancel }: H3GenerationProgressProps) {
   const { t } = useTranslation("dashboard");
   const activeIndex = PHASE_INDEX[progress.phase];
   const labels = [
+    t("h3_progress_style"),
     t("h3_progress_optimize"),
     t("h3_progress_submitted"),
     t("h3_progress_queued"),
@@ -30,7 +32,9 @@ export function H3GenerationProgress({ progress, onCancel }: H3GenerationProgres
   ];
   const percent = Math.max(0, Math.min(100, progress.progress ?? 0));
 
-  let detail = t("h3_progress_optimize_detail");
+  let detail = progress.phase === "style_analyzing"
+    ? t("h3_progress_style_detail")
+    : t("h3_progress_optimize_detail");
   if (progress.phase === "submitted") detail = t("h3_progress_submitted_detail");
   if (progress.phase === "queued") {
     detail =
@@ -52,23 +56,23 @@ export function H3GenerationProgress({ progress, onCancel }: H3GenerationProgres
         <span className="text-xs font-semibold text-white">{detail}</span>
       </div>
 
-      <ol className="grid grid-cols-4 gap-1" aria-label={t("h3_progress_aria")}>
+      <ol className="grid grid-cols-5 gap-1" aria-label={t("h3_progress_aria")}>
         {labels.map((label, index) => {
           const completed = index < activeIndex;
-          const active = index === activeIndex || (activeIndex === 4 && index === 3);
+          const active = index === activeIndex || (activeIndex === 5 && index === 4);
           return (
             <li key={label} className="min-w-0 text-center">
               <div className="mb-1 flex items-center">
                 <span
                   className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[9px] ${
-                    completed || activeIndex === 4
+                    completed || activeIndex === 5
                       ? "border-emerald-300/70 bg-emerald-400/20 text-emerald-200"
                       : active
                         ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-white"
                         : "border-white/15 text-white/35"
                   }`}
                 >
-                  {completed || activeIndex === 4 ? <Check className="h-3 w-3" /> : index + 1}
+                  {completed || activeIndex === 5 ? <Check className="h-3 w-3" /> : index + 1}
                 </span>
                 {index < labels.length - 1 && (
                   <span

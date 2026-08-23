@@ -7,6 +7,8 @@
 
 import type {
   ProjectData,
+  UnifiedVideoStyle,
+  UnifiedVideoStyleDraft,
   ProjectSummary,
   ImportConflictPolicy,
   ImportProjectResponse,
@@ -951,6 +953,26 @@ class API {
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "PATCH",
       body: JSON.stringify(updates),
+    });
+  }
+
+  static async updateVideoStyle(
+    name: string,
+    videoStyle: UnifiedVideoStyleDraft,
+  ): Promise<{ video_style: UnifiedVideoStyle }> {
+    return this.request(`/projects/${encodeURIComponent(name)}/video-style`, {
+      method: "PUT",
+      body: JSON.stringify(videoStyle),
+    });
+  }
+
+  static async analyzeVideoStyle(
+    name: string,
+    episode?: number,
+  ): Promise<{ video_style: UnifiedVideoStyle; created: boolean }> {
+    return this.request(`/projects/${encodeURIComponent(name)}/video-style/analyze`, {
+      method: "POST",
+      body: JSON.stringify(episode == null ? {} : { episode }),
     });
   }
 

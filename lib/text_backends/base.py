@@ -161,6 +161,7 @@ class TextTaskType(StrEnum):
     SCRIPT = "script"
     OVERVIEW = "overview"
     STYLE_ANALYSIS = "style"
+    VIDEO_STYLE_ANALYSIS = "video_style_analysis"
     H3_PROMPT_OPTIMIZATION = "h3_prompt_optimization"
 
 
@@ -181,6 +182,7 @@ TEXT_TASK_TIERS: dict[TextTaskType, TextTaskTier] = {
     TextTaskType.SCRIPT: TextTaskTier.COMPLEX,
     TextTaskType.OVERVIEW: TextTaskTier.SIMPLE,
     TextTaskType.STYLE_ANALYSIS: TextTaskTier.SIMPLE,
+    TextTaskType.VIDEO_STYLE_ANALYSIS: TextTaskTier.SIMPLE,
     TextTaskType.H3_PROMPT_OPTIMIZATION: TextTaskTier.SIMPLE,
 }
 

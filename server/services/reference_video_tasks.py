@@ -561,6 +561,13 @@ async def execute_reference_video_task(
     rendered_prompt = rendered.prompt
     if is_minimax_h3_model(candidate.model_id):
         prompt_service = H3PromptOptimizationService()
+        if project.get("video_style") is None:
+            await persist_h3_execution_progress(
+                task_id,
+                h3_execution_progress("style_analyzing"),
+            )
+            video_style, _created = await prompt_service.ensure_video_style(project_name, script_input.episode)
+            project["video_style"] = video_style.model_dump(mode="json")
         prompt_context = await prompt_service.context_from_projection(
             episode=script_input.episode,
             project=project,

@@ -143,6 +143,25 @@ export interface ModelSettingEntry {
   resolution?: string | null;
 }
 
+export type VideoSoundFocus = "balanced" | "asmr" | "dialogue" | "ambience" | "silent";
+export type VideoMusicPolicy = "auto" | "none" | "custom";
+
+export interface UnifiedVideoStyleDraft {
+  visual_treatment: string;
+  camera_language: string;
+  pacing: string;
+  sound_focus: VideoSoundFocus;
+  music_policy: VideoMusicPolicy;
+  music_description: string;
+  sound_design: string;
+  additional_instructions: string;
+}
+
+export interface UnifiedVideoStyle extends UnifiedVideoStyleDraft {
+  source: "agent" | "user";
+  updated_at: string;
+}
+
 export interface ProjectData {
   title: string;
   content_mode: "narration" | "drama" | "ad";
@@ -154,6 +173,8 @@ export interface ProjectData {
   style_description?: string;
   /** 关联的用户自定义风格卡片；项目本身仍保存风格快照。 */
   style_preset_id?: string | null;
+  /** 项目唯一的统一视频方向；Web 与 Agent 编辑同一份配置。 */
+  video_style?: UnifiedVideoStyle | null;
   overview?: ProjectOverview;
   aspect_ratio?: string | AspectRatio;  // 新项目为 string，旧项目可能为 dict
   default_duration?: number | null;     // 新分镜的默认视频时长（秒），空值即由 AI 按内容决定；ad 项目不持有
