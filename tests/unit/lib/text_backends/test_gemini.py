@@ -233,10 +233,12 @@ class TestGenerate:
             # step2 的实际 response_schema（静态，无枚举收窄）同样过这条通道
             ReferenceStep2FlatScript,
         ]
+        assert schemas, "schema 清单为空时下面的循环形同虚设"
         for schema in schemas:
             config = backend._build_config(schema, None)
             # 不抛 = 转换后的 dict（字符串枚举、无 const）被 google-genai types.Schema 接受
-            gtypes.Schema.model_validate(config["response_schema"])
+            validated = gtypes.Schema.model_validate(config["response_schema"])
+            assert validated.type == gtypes.Type.OBJECT
 
     async def test_system_prompt(self, backend):
         mock_resp = SimpleNamespace(
