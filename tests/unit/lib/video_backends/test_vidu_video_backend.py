@@ -24,6 +24,7 @@ from lib.video_backends.vidu import (
     _coerce_duration,
     _coerce_resolution,
 )
+from tests.fakes import bounded_poll_clock
 
 
 @pytest.fixture
@@ -441,7 +442,7 @@ class TestCreateTaskAmbiguity:
 
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
         with (
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
             pytest.raises(AmbiguousSubmitError, match="手动重试"),
         ):
             await backend._create_task(client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8})
@@ -460,7 +461,7 @@ class TestCreateTaskAmbiguity:
         client.post = AsyncMock(side_effect=[httpx.ConnectError("refused"), httpx.ConnectError("refused"), ok])
 
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
-        with patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0):
+        with bounded_poll_clock():
             data = await backend._create_task(
                 client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8}
             )

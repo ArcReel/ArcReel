@@ -30,6 +30,7 @@ from lib.video_backends.v2_video_generations import (
 from lib.video_backends.v2_video_generations import (
     V2VideoGenerationsBackend as _V2Backend,
 )
+from tests.fakes import bounded_poll_clock
 
 
 def _make_response(status_code: int, json_body: dict) -> MagicMock:
@@ -455,7 +456,7 @@ class TestV2BackendHttp:
         client = _mock_client(post=resp400)
         with (
             patch("httpx.AsyncClient", return_value=client),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
         ):
             req = VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5)
             with pytest.raises(httpx.HTTPStatusError):
@@ -484,7 +485,7 @@ class TestV2BackendHttp:
         client = _mock_client(post=[httpx.ReadTimeout("read timed out")])
         with (
             patch("httpx.AsyncClient", return_value=client),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
         ):
             req = VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5)
             with pytest.raises(AmbiguousSubmitError, match="手动重试"):
@@ -508,7 +509,7 @@ class TestV2BackendHttp:
             patch("httpx.AsyncClient", return_value=client),
             patch("lib.video_backends.v2_video_generations._POLL_INTERVAL_SECONDS", 0.0),
             patch("lib.video_backends.v2_video_generations.download_video", fake_dl),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
         ):
             req = VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5)
             result = await self._backend().generate(req)
@@ -529,7 +530,7 @@ class TestV2BackendHttp:
             patch("httpx.AsyncClient", return_value=client),
             patch("lib.video_backends.v2_video_generations._POLL_INTERVAL_SECONDS", 0.0),
             patch("lib.video_backends.v2_video_generations.download_video", fake_dl),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
         ):
             req = VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5)
             result = await self._backend().generate(req)
