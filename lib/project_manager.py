@@ -887,10 +887,7 @@ class ProjectManager:
         metadata["updated_at"] = now
 
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
-        if self._script_writer is None:
-            atomic_write_json(output_path, script)
-        else:
-            self._script_writer(output_path, script)
+        self._persist_script_json(output_path, script)
 
         # 同步到 project.json，保证 script 写入与元数据同步是单一事务
         # （sync 走的是 `_project_lock`，与外层 `_script_lock` 不同锁，不会冲突）。
@@ -1085,6 +1082,13 @@ class ProjectManager:
                 f"episode={filename_episode} 不一致，拒绝操作以避免污染 project.json"
             )
 
+    def _persist_script_json(self, path: Path, script: dict) -> None:
+        """剧本 JSON 落盘的单一出口：缺省原子写，注入了 ``script_writer`` 时改走注入实现。"""
+        if self._script_writer is None:
+            atomic_write_json(path, script)
+        else:
+            self._script_writer(path, script)
+
     @staticmethod
     def _load_script_or_none(path: Path) -> dict | None:
         """裸读剧本 JSON 取「改前」快照；文件不存在或损坏时返回 None（→ 按严格校验处理）。"""
@@ -1213,7 +1217,7 @@ class ProjectManager:
             script, migrated = self._read_script_unlocked(project_name, norm)
             if migrated:
                 real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
-                atomic_write_json(real, script)
+                self._persist_script_json(real, script)
         return script
 
     def load_script_readonly(self, project_name: str, filename: str) -> dict:

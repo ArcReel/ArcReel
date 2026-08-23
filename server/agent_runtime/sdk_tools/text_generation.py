@@ -200,7 +200,7 @@ def _load_step1_source_with_basis(
 # 本模块的能力查询函数（``_resolve_video_capabilities`` / ``_fetch_caps_with_fallback`` /
 # ``_fetch_reference_caps_with_fallback`` 及 ``_context`` 的 ``resolve_video_caps`` /
 # ``fetch_video_caps``）未注入解析器时一律省略 ``config_resolver`` 关键字，不传 ``None``：
-# 既有用例把这些符号整体替换为不接受该关键字的假实现，缺省路径须与注入前逐字同形。
+# 这些符号会被整体替换为不接受该关键字的替身，调用形状须与不带该关键字的签名兼容。
 
 
 async def _resolve_video_capabilities(
