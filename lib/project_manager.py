@@ -1089,10 +1089,20 @@ class ProjectManager:
         else:
             self._script_writer(path, script)
 
-    @staticmethod
-    def _load_script_or_none(path: Path) -> dict | None:
-        """裸读剧本 JSON 取「改前」快照；文件不存在或损坏时返回 None（→ 按严格校验处理）。"""
-        loaded = load_json_or_none(path)
+    def _load_script_or_none(self, path: Path) -> dict | None:
+        """裸读剧本 JSON 取「改前」快照；剧本不存在或损坏时返回 None（→ 按严格校验处理）。
+
+        与 ``_read_script_unlocked`` 共用 ``script_reader`` seam，改前快照与正式读取取自同一
+        来源。注入的 reader 以 ``OSError``（不存在或不可读）或 ``ValueError``（内容损坏）表达
+        取不到剧本，本函数据此归一为 None；其余异常照常上抛。
+        """
+        if self._script_reader is None:
+            loaded = load_json_or_none(path)
+        else:
+            try:
+                loaded = self._script_reader(path)
+            except (OSError, ValueError):
+                return None
         return loaded if isinstance(loaded, dict) else None
 
     @staticmethod
