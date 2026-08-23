@@ -241,26 +241,20 @@ def test_sandbox_windows_warns_not_raises(monkeypatch: pytest.MonkeyPatch, caplo
     assert any("SANDBOX_UNSUPPORTED" in record.message for record in caplog.records)
 
 
-def test_detect_docker_via_dockerenv(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_detect_docker_via_dockerenv(tmp_path) -> None:
     fake_dockerenv = tmp_path / ".dockerenv"
     fake_dockerenv.touch()
-    monkeypatch.setattr("server.app._DOCKERENV_PATH", fake_dockerenv)
-    monkeypatch.setattr("server.app._CGROUP_PATH", tmp_path / "nonexistent")
-    assert detect_docker_environment() is True
+    assert detect_docker_environment(dockerenv_path=fake_dockerenv, cgroup_path=tmp_path / "nonexistent") is True
 
 
-def test_detect_docker_via_cgroup(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_detect_docker_via_cgroup(tmp_path) -> None:
     fake_cgroup = tmp_path / "cgroup"
     fake_cgroup.write_text("12:cpu:/docker/abc123\n")
-    monkeypatch.setattr("server.app._DOCKERENV_PATH", tmp_path / "nope")
-    monkeypatch.setattr("server.app._CGROUP_PATH", fake_cgroup)
-    assert detect_docker_environment() is True
+    assert detect_docker_environment(dockerenv_path=tmp_path / "nope", cgroup_path=fake_cgroup) is True
 
 
-def test_detect_no_docker(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    monkeypatch.setattr("server.app._DOCKERENV_PATH", tmp_path / "nope")
-    monkeypatch.setattr("server.app._CGROUP_PATH", tmp_path / "also_nope")
-    assert detect_docker_environment() is False
+def test_detect_no_docker(tmp_path) -> None:
+    assert detect_docker_environment(dockerenv_path=tmp_path / "nope", cgroup_path=tmp_path / "also_nope") is False
 
 
 # bool 是 int 子类，``isinstance(True, int) and True > 0`` 为真——这一组三连测试

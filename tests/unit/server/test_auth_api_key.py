@@ -6,7 +6,8 @@ API Key 认证分流单元测试
 
 import hashlib
 import time
-from unittest.mock import AsyncMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
@@ -20,6 +21,32 @@ def clear_cache():
     auth_module._api_key_cache.clear()
     yield
     auth_module._api_key_cache.clear()
+
+
+@pytest.fixture()
+def api_key_db(db_factory, monkeypatch):
+    """把 API Key 查库路径绑到内存库。
+
+    ``_verify_api_key`` 在函数内 import ``lib.db.async_session_factory``，缓存未命中时
+    真的落库查询；绑内存库后过期判定与缓存写入这两步都按真实数据跑。
+    """
+    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+    return db_factory
+
+
+async def _seed_api_key(factory, name: str, key: str, *, expires_at: datetime | None = None) -> None:
+    from lib.db.models.api_key import ApiKey
+
+    async with factory() as session:
+        session.add(
+            ApiKey(
+                name=name,
+                key_hash=auth_module._hash_api_key(key),
+                key_prefix=key[:8],
+                expires_at=expires_at,
+            )
+        )
+        await session.commit()
 
 
 class TestHashApiKey:
@@ -89,37 +116,37 @@ class TestVerifyAndGetPayloadAsync:
                 await auth_module._verify_and_get_payload_async("invalid.jwt.token")
         assert exc_info.value.status_code == 401
 
-    @pytest.mark.asyncio
-    async def test_api_key_path_success(self):
-        """arc- 前缀走 API Key 路径，成功返回 payload。"""
-        expected = {"sub": "apikey:mykey", "via": "apikey"}
-        with patch("server.auth._verify_api_key", new=AsyncMock(return_value=expected)):
-            result = await auth_module._verify_and_get_payload_async("arc-validkey")
+    async def test_api_key_path_success(self, api_key_db):
+        """arc- 前缀走 API Key 路径：查库命中后返回 payload 并写入缓存。"""
+        await _seed_api_key(api_key_db, "mykey", "arc-validkey")
+
+        result = await auth_module._verify_and_get_payload_async("arc-validkey")
+
         assert result["via"] == "apikey"
         assert result["sub"] == "apikey:mykey"
+        hit, cached = auth_module._get_cached_api_key_payload(auth_module._hash_api_key("arc-validkey"))
+        assert hit
+        assert cached == result
 
-    @pytest.mark.asyncio
-    async def test_api_key_not_found_raises_401(self):
-        """arc- 前缀但 key 不存在，抛出 401。"""
-        with patch("server.auth._verify_api_key", new=AsyncMock(return_value=None)):
-            with pytest.raises(HTTPException) as exc_info:
-                await auth_module._verify_and_get_payload_async("arc-badkey")
+    async def test_api_key_not_found_raises_401(self, api_key_db):
+        """arc- 前缀但库里没有该 key，抛出 401。"""
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_module._verify_and_get_payload_async("arc-badkey")
         assert exc_info.value.status_code == 401
 
-    @pytest.mark.asyncio
-    async def test_api_key_expired_raises_401(self):
-        """arc- 前缀但 key 已过期（_verify_api_key 返回 None），抛出 401。"""
-        with patch("server.auth._verify_api_key", new=AsyncMock(return_value=None)):
-            with pytest.raises(HTTPException) as exc_info:
-                await auth_module._verify_and_get_payload_async("arc-expiredkey")
-        assert exc_info.value.status_code == 401
+    async def test_api_key_expired_raises_401(self, api_key_db):
+        """库里有该 key 但 expires_at 已过，抛出 401 并落负缓存。"""
+        await _seed_api_key(
+            api_key_db,
+            "expiredkey",
+            "arc-expiredkey",
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        )
 
-    @pytest.mark.asyncio
-    async def test_jwt_path_not_called_for_api_key(self):
-        """arc- 前缀时不应调用 verify_token。"""
-        with (
-            patch("server.auth._verify_api_key", new=AsyncMock(return_value={"sub": "apikey:k", "via": "apikey"})),
-            patch("server.auth.verify_token") as mock_jwt,
-        ):
-            await auth_module._verify_and_get_payload_async("arc-somekey")
-        mock_jwt.assert_not_called()
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_module._verify_and_get_payload_async("arc-expiredkey")
+
+        assert exc_info.value.status_code == 401
+        hit, cached = auth_module._get_cached_api_key_payload(auth_module._hash_api_key("arc-expiredkey"))
+        assert hit
+        assert cached is None
