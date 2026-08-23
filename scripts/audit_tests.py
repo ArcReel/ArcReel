@@ -301,6 +301,18 @@ def is_collected_test_module(path: Path) -> bool:
     return any(fnmatch(path.name, pattern) for pattern in COLLECTED_TEST_FILE_GLOBS)
 
 
+COLLECTED_TEST_CLASS_GLOB = "Test*"
+
+
+def is_collected_test_class(name: str) -> bool:
+    """pytest 只从 `Test*` 类收集用例。
+
+    同 `is_collected_test_module` 的口径下沉一层：支持类（fake、client 包装）上
+    `test` 开头的方法是普通 API，按名字当成用例会虚增类 1 计数并误报闸门。
+    """
+    return fnmatch(name, COLLECTED_TEST_CLASS_GLOB)
+
+
 TIER_MARKS = ("unit", "integration", "e2e")
 
 
@@ -729,7 +741,8 @@ class FileScanner:
     def _scan_scope(self, body: list[ast.stmt], class_marks: list[str], class_name: str | None) -> None:
         for node in body:
             if isinstance(node, ast.ClassDef):
-                self._scan_scope(node.body, class_marks + marks_of(node.decorator_list), node.name)
+                if is_collected_test_class(node.name):
+                    self._scan_scope(node.body, class_marks + marks_of(node.decorator_list), node.name)
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
                 self._analyze_test(node, class_marks, class_name)
 

@@ -67,6 +67,26 @@ def test_zero_assertion_case_is_reported_with_its_line(tmp_path: Path) -> None:
     assert "test_nothing" in violations[0].guidance
 
 
+def test_support_class_methods_are_not_audited_as_cases(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_client.py").write_text(
+        "class FakeClient:\n"
+        "    def test_connection(self):\n"
+        "        return True\n"
+        "\n"
+        "\n"
+        "class TestClient:\n"
+        "    def test_silent(self):\n"
+        "        value = 1\n",
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.line) for v in violations] == [("NO-ASSERTION", 7)]
+    assert "TestClient::test_silent" in violations[0].guidance
+
+
 def test_unparsable_file_is_reported_at_its_syntax_error_line(tmp_path: Path, capsys) -> None:
     tests, _ = _repo(tmp_path)
     (tests / "test_broken.py").write_text("def test_a():\n    assert (1 ==\n", encoding="utf-8")
