@@ -19,9 +19,10 @@ class _ActorClosed(Exception):
 
 @dataclass
 class SessionCommand:
-    type: Literal["query", "interrupt", "disconnect"]
+    type: Literal["query", "interrupt", "stop_task", "disconnect"]
     prompt: str | AsyncIterable[dict] | None = None
     session_id: str = "default"
+    task_id: str | None = None
     # query 的 prompt 已被送入 SDK（不代表整轮响应结束）；非 query 命令与 done 同时置位
     sent: asyncio.Event = field(default_factory=asyncio.Event)
     # query 整轮 receive_response drain 完成；非 query 命令也用它标记处理完毕
@@ -114,6 +115,15 @@ class SessionActor:
             elif cmd.type == "interrupt":
                 # 当前无 query 进行中；interrupt 无操作，但仍 ACK
                 cmd.complete()
+            elif cmd.type == "stop_task":
+                caught: Exception | None = None
+                try:
+                    if not cmd.task_id:
+                        raise ValueError("stop_task requires task_id")
+                    await client.stop_task(cmd.task_id)
+                except Exception as exc:
+                    caught = exc
+                cmd.complete(caught)
 
     async def _drive_query(self, client: Any, query_cmd: SessionCommand) -> SessionCommand | None:
         """在同一 task 内交织消费 receive_response 与新命令。
@@ -159,8 +169,17 @@ class SessionActor:
                             caught = exc
                         finally:
                             next_cmd.complete(caught)
-                        if caught is not None:
-                            raise caught
+                        cmd_task = asyncio.create_task(self._cmd_queue.get())
+                    elif next_cmd.type == "stop_task":
+                        caught = None
+                        try:
+                            if not next_cmd.task_id:
+                                raise ValueError("stop_task requires task_id")
+                            await client.stop_task(next_cmd.task_id)
+                        except Exception as exc:
+                            caught = exc
+                        finally:
+                            next_cmd.complete(caught)
                         cmd_task = asyncio.create_task(self._cmd_queue.get())
                     elif next_cmd.type == "disconnect":
                         # drive_query 内部遇到 disconnect：先 interrupt 让消息流收尾，

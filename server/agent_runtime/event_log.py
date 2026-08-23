@@ -44,7 +44,7 @@ ENTRY_SUBTYPE_AGENT_TURN_FAILURE = "agent_turn_failure"
 
 SYSTEM_SUBTYPE_SKILL_INVOCATION = "skill_invocation"
 
-_TASK_SUBTYPES = {"task_started", "task_progress", "task_notification"}
+_TASK_SUBTYPES = {"task_started", "task_progress", "task_notification", "task_updated"}
 
 # skill 注入用户消息的识别前缀。语义嗅探只允许发生在写入点这一处：
 # 定型后日志只存 skill 名与入参，读取端与渲染端不再接触注入文本。
@@ -336,13 +336,17 @@ class SdkMessageNormalizer:
             return self._normalize_user(message)
 
         if msg_type == "system" and message.get("subtype") in _TASK_SUBTYPES:
+            raw_status = message.get("status")
+            if message.get("subtype") == "task_updated" and not raw_status:
+                patch = message.get("patch")
+                raw_status = patch.get("status") if isinstance(patch, dict) else None
             sys_entry: dict[str, Any] = {
                 "type": ENTRY_TYPE_SYSTEM,
                 "subtype": message.get("subtype"),
                 "task_id": message.get("task_id"),
                 "description": message.get("description", ""),
                 "summary": message.get("summary"),
-                "task_status": message.get("status"),
+                "task_status": raw_status,
                 "usage": message.get("usage"),
                 "tool_use_id": message.get("tool_use_id"),
                 "uuid": message.get("uuid") or f"entry-{uuid4().hex}",

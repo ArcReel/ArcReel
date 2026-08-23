@@ -78,7 +78,7 @@ SDK_AVAILABLE = True
 # 持续高于此值说明 _process_inbox 被阻塞或下游 I/O 超慢。
 _INBOX_BACKLOG_WARN_THRESHOLD = 100
 _INBOX_BACKLOG_RESET_THRESHOLD = 50  # 降至此水位以下才重置告警状态，避免抖动刷屏
-_TERMINAL_SUBAGENT_STATUSES = {"completed", "failed", "stopped", "cancelled", "interrupted"}
+_TERMINAL_SUBAGENT_STATUSES = {"completed", "failed", "stopped", "cancelled", "interrupted", "killed"}
 
 
 class _StartupStderrCollector:
@@ -188,6 +188,22 @@ class _ActorExitNotice:
     error: BaseException | None = None
 
 
+@dataclass
+class _SubagentActivity:
+    """Runtime-only token heartbeat used by the stalled-task watchdog."""
+
+    task_id: str
+    last_token_change: float
+    message_tokens: dict[str, int] = field(default_factory=dict)
+    reported_total_tokens: int = 0
+    stalled: bool = False
+    stop_requested: bool = False
+
+    @property
+    def total_tokens(self) -> int:
+        return max(sum(self.message_tokens.values()), self.reported_total_tokens)
+
+
 def _make_session_channel() -> SseChannel:
     """会话订阅广播通道：溢出策略为「逐出非关键消息 + 溢出信号」。
 
@@ -229,6 +245,8 @@ class ManagedSession:
     # tool_use_id（缺失时退化为 task_id）→ SDK task_id。父轮次可以先结束，
     # 但这些异步子任务仍依赖同一个 ClaudeSDKClient/actor 存活。
     active_subagents: dict[str, str] = field(default_factory=dict)
+    subagent_activity: dict[str, _SubagentActivity] = field(default_factory=dict)
+    subagent_projection_revision: int = 0
     last_activity: float | None = None  # updated on every send/receive
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
     _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
@@ -280,6 +298,13 @@ class ManagedSession:
                 raise cmd.error
         finally:
             self._interrupting = False
+
+    async def send_stop_task(self, task_id: str) -> None:
+        cmd = SessionCommand(type="stop_task", task_id=task_id)
+        await self.actor.enqueue(cmd)
+        await cmd.done.wait()
+        if cmd.error is not None:
+            raise cmd.error
 
     async def send_disconnect(self) -> None:
         cmd = SessionCommand(type="disconnect")
@@ -366,6 +391,11 @@ class SessionManager:
         )
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}
+        # Watchdog decisions outlive the SDK actor's idle eviction so a page
+        # refresh still distinguishes an automatic stall stop from a generic
+        # stopped task. The transcript's task_updated/killed event provides the
+        # same distinction after a process restart.
+        self._stalled_subagent_history: dict[str, set[str]] = {}
         # 轮次终结时仍未被认领的回显登记累计数，见 _drain_pending_user_echoes。
         self.unclaimed_user_echoes = 0
         self._disconnecting: set[str] = set()
@@ -432,6 +462,8 @@ class SessionManager:
         """Load configuration from environment (sync fallback)."""
         max_turns_env = os.environ.get("ASSISTANT_MAX_TURNS", "").strip()
         self.max_turns = int(max_turns_env) if max_turns_env else None
+        stall_timeout_env = os.environ.get("ASSISTANT_SUBAGENT_STALL_TIMEOUT_SECONDS", "").strip()
+        self.subagent_stall_timeout_seconds = max(int(stall_timeout_env or "300"), 10)
 
     async def refresh_config(self) -> None:
         """Reload configuration from ConfigService (DB), falling back to env."""
@@ -1140,9 +1172,67 @@ class SessionManager:
                 return tool_use_id
         return None
 
+    @staticmethod
+    def _subagent_key_for_task(managed: ManagedSession, tool_use_id: Any, task_id: Any) -> str | None:
+        if isinstance(tool_use_id, str) and tool_use_id:
+            return tool_use_id
+        if isinstance(task_id, str) and task_id:
+            return next(
+                (key for key, active_task_id in managed.active_subagents.items() if active_task_id == task_id),
+                None,
+            )
+        return None
+
+    @staticmethod
+    def _record_subagent_tokens(managed: ManagedSession, msg_dict: dict[str, Any]) -> None:
+        if msg_dict.get("type") != "assistant":
+            return
+        parent = msg_dict.get("parent_tool_use_id")
+        if not isinstance(parent, str) or parent not in managed.active_subagents:
+            return
+        activity = managed.subagent_activity.get(parent)
+        if activity is None:
+            return
+        _input_tokens, _output_tokens, total_tokens = extract_text_token_usage(msg_dict)
+        if total_tokens is None:
+            return
+        before = activity.total_tokens
+        raw_message_id = msg_dict.get("message_id") or msg_dict.get("uuid")
+        message_id = str(raw_message_id) if raw_message_id else f"message-{len(activity.message_tokens)}"
+        activity.message_tokens[message_id] = max(activity.message_tokens.get(message_id, 0), total_tokens)
+        if activity.total_tokens > before:
+            activity.last_token_change = time.monotonic()
+            managed.subagent_projection_revision += 1
+
+    @staticmethod
+    def _record_reported_subagent_usage(
+        managed: ManagedSession,
+        *,
+        tool_use_id: Any,
+        task_id: Any,
+        usage: Any,
+    ) -> None:
+        if not isinstance(usage, dict):
+            return
+        total_tokens = usage.get("total_tokens")
+        if not isinstance(total_tokens, int) or isinstance(total_tokens, bool) or total_tokens < 0:
+            return
+        key = SessionManager._subagent_key_for_task(managed, tool_use_id, task_id)
+        if key is None:
+            return
+        activity = managed.subagent_activity.get(key)
+        if activity is None:
+            return
+        before = activity.total_tokens
+        activity.reported_total_tokens = max(activity.reported_total_tokens, total_tokens)
+        if activity.total_tokens > before:
+            activity.last_token_change = time.monotonic()
+            managed.subagent_projection_revision += 1
+
     def _sync_subagent_lifecycle(self, managed: ManagedSession, msg_dict: dict[str, Any]) -> None:
         """把 SDK 的异步 task 消息投影到当前 runtime 的子任务存活集合。"""
         was_active = bool(managed.active_subagents)
+        now = time.monotonic()
 
         # Agent/Task 的异步 launch 元数据位于用户 tool_result 的消息级字段。
         result = msg_dict.get("tool_use_result")
@@ -1157,6 +1247,10 @@ class SessionManager:
             is_async = result.get("isAsync") is True or result.get("is_async") is True or status == "async_launched"
             if key and task_id and is_async:
                 managed.active_subagents[key] = task_id
+                existing = managed.subagent_activity.get(key)
+                if existing is None or existing.task_id != task_id:
+                    managed.subagent_activity[key] = _SubagentActivity(task_id=task_id, last_token_change=now)
+                    managed.subagent_projection_revision += 1
             elif key and status in _TERMINAL_SUBAGENT_STATUSES:
                 managed.active_subagents.pop(key, None)
                 if task_id:
@@ -1171,14 +1265,20 @@ class SessionManager:
             if entry.get("type") != "system":
                 continue
             subtype = entry.get("subtype")
-            if subtype not in {"task_started", "task_progress", "task_notification"}:
+            if subtype not in {"task_started", "task_progress", "task_notification", "task_updated"}:
                 continue
             task_id = entry.get("task_id")
             task_id = task_id if isinstance(task_id, str) else ""
             tool_use_id = entry.get("tool_use_id")
-            key = tool_use_id if isinstance(tool_use_id, str) and tool_use_id else task_id
+            key = self._subagent_key_for_task(managed, tool_use_id, task_id) or task_id
             status = str(entry.get("task_status") or "").strip().lower()
-            if subtype == "task_notification" or status in _TERMINAL_SUBAGENT_STATUSES:
+            self._record_reported_subagent_usage(
+                managed,
+                tool_use_id=tool_use_id,
+                task_id=task_id,
+                usage=entry.get("usage"),
+            )
+            if subtype in {"task_notification", "task_updated"} and status in _TERMINAL_SUBAGENT_STATUSES:
                 managed.active_subagents.pop(key, None)
                 if task_id:
                     for active_key, active_task_id in list(managed.active_subagents.items()):
@@ -1186,10 +1286,17 @@ class SessionManager:
                             managed.active_subagents.pop(active_key, None)
             elif key and task_id:
                 managed.active_subagents[key] = task_id
+                existing = managed.subagent_activity.get(key)
+                if existing is None or existing.task_id != task_id:
+                    managed.subagent_activity[key] = _SubagentActivity(task_id=task_id, last_token_change=now)
+                    managed.subagent_projection_revision += 1
+
+        self._record_subagent_tokens(managed, msg_dict)
 
         is_active = bool(managed.active_subagents)
         if was_active != is_active:
             managed.last_activity = time.monotonic()
+            managed.subagent_projection_revision += 1
         if is_active:
             # 子任务启动晚于父轮次 finalize 时，撤销已经排队的父会话清理。
             if managed._cleanup_task is not None and not managed._cleanup_task.done():
@@ -1486,6 +1593,7 @@ class SessionManager:
         raise SessionCapacityError(f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试")
 
     _PATROL_INTERVAL = 300  # 5 分钟
+    _SUBAGENT_WATCHDOG_INTERVAL = 5.0
 
     async def _patrol_once(self) -> None:
         """单次巡检：清理所有超时的非 running 会话。"""
@@ -1517,9 +1625,63 @@ class SessionManager:
             except Exception:
                 logger.warning("巡检循环异常", exc_info=True)
 
+    async def _subagent_watchdog_once(self, *, now: float | None = None) -> None:
+        """Stop only child tasks whose cumulative token count has not grown."""
+        observed_at = time.monotonic() if now is None else now
+        timeout = self.subagent_stall_timeout_seconds
+        for session_id, managed in list(self.sessions.items()):
+            if session_id in self._disconnecting:
+                continue
+            for key, task_id in list(managed.active_subagents.items()):
+                activity = managed.subagent_activity.get(key)
+                if activity is None:
+                    activity = _SubagentActivity(task_id=task_id, last_token_change=observed_at)
+                    managed.subagent_activity[key] = activity
+                    managed.subagent_projection_revision += 1
+                    continue
+                if activity.task_id != task_id or activity.stalled or activity.stop_requested:
+                    continue
+                if observed_at - activity.last_token_change < timeout:
+                    continue
+                activity.stop_requested = True
+                try:
+                    await managed.send_stop_task(task_id)
+                except Exception:
+                    activity.stop_requested = False
+                    logger.warning(
+                        "停止停滞 subagent 失败 session_id=%s task_id=%s",
+                        session_id,
+                        task_id,
+                        exc_info=True,
+                    )
+                    continue
+                activity.stalled = True
+                self._stalled_subagent_history.setdefault(session_id, set()).add(task_id)
+                managed.subagent_projection_revision += 1
+                logger.warning(
+                    "subagent token 长时间无增长，已自动停止 session_id=%s task_id=%s timeout=%ss tokens=%s",
+                    session_id,
+                    task_id,
+                    timeout,
+                    activity.total_tokens,
+                )
+
+    async def _subagent_watchdog_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self._SUBAGENT_WATCHDOG_INTERVAL)
+            try:
+                await self._subagent_watchdog_once()
+            except Exception:
+                logger.warning("subagent 停滞巡检异常", exc_info=True)
+
     def start_patrol(self) -> None:
-        """启动巡检后台任务（应在应用 startup 时调用）。"""
-        self._patrol_task = asyncio.create_task(self._patrol_loop())
+        """启动会话清理与 subagent 停滞巡检（应在应用 startup 时调用）。"""
+        patrol = getattr(self, "_patrol_task", None)
+        if patrol is None or patrol.done():
+            self._patrol_task = asyncio.create_task(self._patrol_loop())
+        watchdog = getattr(self, "_subagent_watchdog_task", None)
+        if watchdog is None or watchdog.done():
+            self._subagent_watchdog_task = asyncio.create_task(self._subagent_watchdog_loop())
 
     @staticmethod
     def _resolve_result_status(
@@ -1837,13 +1999,33 @@ class SessionManager:
             return None
         return False
 
+    def subagent_projection_state(self, session_id: str) -> tuple[int, frozenset[str], int]:
+        """Return the in-memory fields that can change a durable task card."""
+        managed = self.sessions.get(session_id)
+        if managed is None:
+            return (
+                0,
+                frozenset(self._stalled_subagent_history.get(session_id, set())),
+                self.subagent_stall_timeout_seconds,
+            )
+        stalled_task_ids = set(self._stalled_subagent_history.get(session_id, set()))
+        stalled_task_ids.update(activity.task_id for activity in managed.subagent_activity.values() if activity.stalled)
+        return managed.subagent_projection_revision, frozenset(stalled_task_ids), self.subagent_stall_timeout_seconds
+
     async def shutdown_gracefully(self, timeout: float = 30.0) -> None:
         """Gracefully shutdown all sessions using the actor teardown path."""
-        patrol = getattr(self, "_patrol_task", None)
-        if patrol is not None and not patrol.done():
-            patrol.cancel()
-            with contextlib.suppress(BaseException):
-                await patrol
+        background_tasks = [
+            task
+            for task in (
+                getattr(self, "_patrol_task", None),
+                getattr(self, "_subagent_watchdog_task", None),
+            )
+            if task is not None and not task.done()
+        ]
+        for task in background_tasks:
+            task.cancel()
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
 
         sessions = list(self.sessions.values())
         if not sessions:

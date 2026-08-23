@@ -855,6 +855,7 @@ class AssistantService:
         previous_revision: tuple[int, int] | None = None
         previous_snapshot: dict[str, Any] | None = None
         previous_runtime_alive: bool | None = None
+        previous_runtime_projection: tuple[int, frozenset[str], int] | None = None
         terminal_empty_beats = 0
 
         while True:
@@ -863,22 +864,32 @@ class AssistantService:
 
             revision = await self.transcript_adapter.session_revision(session_id, project_cwd)
             runtime_alive = self.session_manager.subagent_runtime_alive(session_id)
+            runtime_projection = self.session_manager.subagent_projection_state(session_id)
             should_rebuild = (
                 previous_snapshot is None
                 or revision is None
                 or revision != previous_revision
                 or runtime_alive != previous_runtime_alive
+                or runtime_projection != previous_runtime_projection
             )
             if should_rebuild:
                 main_messages = await self.transcript_adapter.read_raw_messages(session_id, project_cwd)
                 groups = await self.transcript_adapter.read_subagent_timelines(session_id, project_cwd)
-                snapshot = build_subagent_snapshot(main_messages, groups, runtime_alive=runtime_alive)
+                _projection_revision, stalled_task_ids, stall_timeout_seconds = runtime_projection
+                snapshot = build_subagent_snapshot(
+                    main_messages,
+                    groups,
+                    runtime_alive=runtime_alive,
+                    stalled_task_ids=stalled_task_ids,
+                    stall_timeout_seconds=stall_timeout_seconds,
+                )
                 snapshot["session_id"] = session_id
                 if snapshot != previous_snapshot:
                     yield self._sse_event("snapshot", snapshot)
                     previous_snapshot = snapshot
                 previous_revision = revision
                 previous_runtime_alive = runtime_alive
+                previous_runtime_projection = runtime_projection
 
             status = await self.session_manager.get_status(session_id) or meta.status
             active = bool(previous_snapshot and previous_snapshot.get("active"))

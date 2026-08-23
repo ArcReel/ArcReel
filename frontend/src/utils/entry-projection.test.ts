@@ -240,6 +240,26 @@ describe("projectEntriesToTurns", () => {
     expect(taskBlocks[0].task_status).toBe("completed");
   });
 
+  it("projects an individual task_updated kill into the existing task block", () => {
+    const turns = projectEntriesToTurns([
+      entry({ type: "assistant", content: [{ type: "text", text: "spawn" }], uuid: "a-1" }),
+      entry({ type: "system", subtype: "task_started", task_id: "t10", description: "d", uuid: "s-1" }),
+      entry({
+        type: "system",
+        subtype: "task_updated",
+        task_id: "t10",
+        task_status: "killed",
+        uuid: "s-2",
+      }),
+    ]);
+
+    expect(turns).toHaveLength(1);
+    const taskBlocks = turns[0].content.filter((b) => b.type === "task_progress");
+    expect(taskBlocks).toHaveLength(1);
+    expect(taskBlocks[0].status).toBe("task_updated");
+    expect(taskBlocks[0].task_status).toBe("killed");
+  });
+
   it("does not sniff task-notification XML in user entries (typing happens at the write point)", () => {
     const xml =
       "<task-notification><task-id>t9</task-id><tool-use-id>tu-9</tool-use-id>" +

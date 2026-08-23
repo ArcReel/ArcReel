@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, CheckCircle2, ChevronDown, ChevronRight, CircleStop, LoaderCircle, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, ChevronDown, ChevronRight, CircleStop, LoaderCircle, TimerOff, XCircle } from "lucide-react";
 import type { ContentBlock, Turn } from "@/types";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { projectEntriesToTurns } from "@/utils/entry-projection";
@@ -19,7 +19,15 @@ interface SubagentCardProps {
   block: ContentBlock;
 }
 
-type CardStatus = "running" | "completed" | "failed" | "stopped";
+type CardStatus = "running" | "completed" | "failed" | "stopped" | "stalled";
+
+const STATUS_ICONS: Record<CardStatus, typeof LoaderCircle> = {
+  running: LoaderCircle,
+  completed: CheckCircle2,
+  failed: XCircle,
+  stopped: CircleStop,
+  stalled: TimerOff,
+};
 
 function deriveStatus(block: ContentBlock, sessionDone: boolean): CardStatus {
   const task = block.task_info;
@@ -58,9 +66,11 @@ export function SubagentCard({ block }: SubagentCardProps) {
       ? "completed"
       : liveSnapshot.status === "failed"
         ? "failed"
-        : liveSnapshot.status === "running"
-          ? "running"
-          : "stopped"
+        : liveSnapshot.status === "stalled"
+          ? "stalled"
+          : liveSnapshot.status === "running"
+            ? "running"
+            : "stopped"
     : fallbackStatus;
   const description = deriveDescription(block);
   const streamedTurns = useMemo(
@@ -82,24 +92,21 @@ export function SubagentCard({ block }: SubagentCardProps) {
     completed: "subagent_status_completed",
     failed: "subagent_status_failed",
     stopped: "subagent_status_stopped",
+    stalled: "subagent_status_stalled",
   };
   const statusLabel = t(statusLabelKeys[status]);
   const statusColor =
     status === "failed"
       ? "var(--color-danger)"
-      : status === "completed"
-        ? "var(--color-good)"
-        : status === "stopped"
-          ? "var(--color-text-4)"
-          : "var(--color-accent)";
+      : status === "stalled"
+        ? "var(--color-warn)"
+        : status === "completed"
+          ? "var(--color-good)"
+          : status === "stopped"
+            ? "var(--color-text-4)"
+            : "var(--color-accent)";
 
-  const StatusIcon = status === "running"
-    ? LoaderCircle
-    : status === "completed"
-      ? CheckCircle2
-      : status === "failed"
-        ? XCircle
-        : CircleStop;
+  const StatusIcon = STATUS_ICONS[status];
 
   const header = (
     <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -121,13 +128,24 @@ export function SubagentCard({ block }: SubagentCardProps) {
             <StatusIcon className={`h-3 w-3 ${status === "running" ? "motion-safe:animate-spin" : ""}`} aria-hidden="true" />
             {statusLabel}
           </span>
+          {tokens != null && (
+            <span className="num text-[10px] font-medium" style={{ color: "var(--color-text-3)" }}>
+              {t("subagent_tokens", { count: tokens })}
+            </span>
+          )}
         </span>
         <span className="mt-1 block text-[13px] font-medium leading-5" style={{ color: "var(--color-text)" }}>
           {description || summary || t("subagent_card_label")}
         </span>
         <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px]" style={{ color: "var(--color-text-4)" }}>
           {status === "running" && <span>{t("subagent_background_active")}</span>}
-          {tokens != null && <span className="num">{t("subagent_tokens", { count: tokens })}</span>}
+          {status === "stalled" && (
+            <span style={{ color: "var(--color-warn)" }}>
+              {t("subagent_stalled_detail", {
+                minutes: Math.max(1, Math.round((liveSnapshot?.stall_timeout_seconds ?? 300) / 60)),
+              })}
+            </span>
+          )}
           {duration && <span className="num">{duration}</span>}
         </span>
       </span>
@@ -143,7 +161,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
     <div
       className="my-3 min-w-0 overflow-hidden rounded-xl"
       style={{
-        border: `1px solid ${status === "running" ? "var(--color-accent-soft)" : "var(--color-hairline-soft)"}`,
+        border: `1px solid ${status === "running" ? "var(--color-accent-soft)" : status === "stalled" ? "var(--color-warn)" : "var(--color-hairline-soft)"}`,
         background: "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.82), oklch(0.19 0.01 265 / 0.72))",
         boxShadow: status === "running" ? "0 10px 28px -18px var(--color-accent-glow)" : "none",
       }}

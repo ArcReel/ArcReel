@@ -318,6 +318,18 @@ class SdkTranscriptAdapter:
             "timestamp": timestamp,
         }
 
+        # SessionMessage exposes the original assistant payload through
+        # ``message``.  Keep the model-call identity and usage so the durable
+        # subagent projection can aggregate real tokens after a page refresh;
+        # neither field is part of the normalized UI timeline itself.
+        if isinstance(message_data, dict):
+            message_id = message_data.get("id") or message_data.get("message_id")
+            if isinstance(message_id, str) and message_id:
+                result["message_id"] = message_id
+            usage = message_data.get("usage")
+            if isinstance(usage, dict):
+                result["usage"] = usage
+
         tool_use_result = getattr(msg, "tool_use_result", None)
         if tool_use_result is None and payload is not None:
             tool_use_result = payload.get("toolUseResult")

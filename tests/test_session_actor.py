@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -222,6 +223,70 @@ async def test_all_sdk_calls_recorded_on_same_task():
     assert len(sdk_tasks) == 1, (
         f"SDK methods ran on multiple tasks: { {m: client.method_tasks.get(m) for m in sdk_methods} }"
     )
+
+
+@pytest.mark.asyncio
+async def test_stop_task_targets_child_without_interrupting_query():
+    client = FakeSDKClient(
+        block_forever=True,
+        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+    )
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+
+    query = SessionCommand(type="query", prompt="start child")
+    await actor.enqueue(query)
+    await query.sent.wait()
+
+    stop = SessionCommand(type="stop_task", task_id="agent-1")
+    await actor.enqueue(stop)
+    await stop.done.wait()
+
+    assert stop.error is None
+    assert client.stopped_tasks == ["agent-1"]
+    assert client.interrupted is False
+    assert query.done.is_set() is False
+
+    interrupt = SessionCommand(type="interrupt")
+    await actor.enqueue(interrupt)
+    await interrupt.done.wait()
+    await query.done.wait()
+    disconnect = SessionCommand(type="disconnect")
+    await actor.enqueue(disconnect)
+    await disconnect.done.wait()
+    await actor.wait()
+
+
+@pytest.mark.asyncio
+async def test_stop_task_failure_does_not_kill_parent_actor_or_siblings():
+    client = FakeSDKClient(
+        block_forever=True,
+        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+    )
+    client.stop_task = AsyncMock(side_effect=RuntimeError("stop failed"))
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+
+    query = SessionCommand(type="query", prompt="start children")
+    await actor.enqueue(query)
+    await query.sent.wait()
+
+    stop = SessionCommand(type="stop_task", task_id="agent-1")
+    await actor.enqueue(stop)
+    await stop.done.wait()
+
+    assert isinstance(stop.error, RuntimeError)
+    assert actor._fatal is None
+    assert query.done.is_set() is False
+
+    interrupt = SessionCommand(type="interrupt")
+    await actor.enqueue(interrupt)
+    await interrupt.done.wait()
+    await query.done.wait()
+    disconnect = SessionCommand(type="disconnect")
+    await actor.enqueue(disconnect)
+    await disconnect.done.wait()
+    await actor.wait()
 
 
 @pytest.mark.asyncio

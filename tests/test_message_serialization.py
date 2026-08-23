@@ -138,12 +138,14 @@ class TestInferMessageType:
         assert MESSAGE_TYPE_MAP["TaskStartedMessage"] == "system"
         assert MESSAGE_TYPE_MAP["TaskProgressMessage"] == "system"
         assert MESSAGE_TYPE_MAP["TaskNotificationMessage"] == "system"
+        assert MESSAGE_TYPE_MAP["TaskUpdatedMessage"] == "system"
 
     def test_task_message_subtypes(self):
         """TaskMessage subtypes are correctly defined."""
         assert TASK_MESSAGE_SUBTYPES["TaskStartedMessage"] == "task_started"
         assert TASK_MESSAGE_SUBTYPES["TaskProgressMessage"] == "task_progress"
         assert TASK_MESSAGE_SUBTYPES["TaskNotificationMessage"] == "task_notification"
+        assert TASK_MESSAGE_SUBTYPES["TaskUpdatedMessage"] == "task_updated"
 
     def test_infer_returns_none_for_unknown_class(self):
         assert infer_message_type(object()) is None

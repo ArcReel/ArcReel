@@ -133,7 +133,14 @@ export interface TimelineEntry {
   failure?: FailureObservation;
 }
 
-export type SubagentStatus = "running" | "completed" | "failed" | "stopped" | "cancelled" | "interrupted";
+export type SubagentStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "stopped"
+  | "cancelled"
+  | "interrupted"
+  | "stalled";
 
 /** 独立子任务状态流的持久化快照；entries 是该子任务自己的局部时间线。 */
 export interface SubagentTaskSnapshot {
@@ -144,6 +151,7 @@ export interface SubagentTaskSnapshot {
   status: SubagentStatus;
   summary: string;
   usage: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
+  stall_timeout_seconds?: number | null;
   entries: TimelineEntry[];
 }
 

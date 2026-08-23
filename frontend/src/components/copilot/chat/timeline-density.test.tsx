@@ -75,6 +75,7 @@ describe("ThinkingBlock", () => {
 describe("SubagentCard", () => {
   beforeEach(() => {
     useAssistantStore.getState().setSessionStatus("running");
+    useAssistantStore.getState().setSubagentSnapshots([]);
   });
 
   function makeCardBlock(overrides: Partial<ContentBlock> = {}): ContentBlock {
@@ -128,6 +129,28 @@ describe("SubagentCard", () => {
     useAssistantStore.getState().setSessionStatus("interrupted");
     render(<SubagentCard block={makeCardBlock()} />);
     expect(screen.getByText("已停止")).toBeInTheDocument();
+  });
+
+  it("shows live tokens in the header and marks watchdog termination as stalled", () => {
+    useAssistantStore.getState().setSubagentSnapshots([
+      {
+        tool_use_id: "tu-agent",
+        task_id: "agent-1",
+        agent_type: "Explore",
+        description: "探索费用计算逻辑",
+        status: "stalled",
+        summary: "",
+        usage: { total_tokens: 63258 },
+        stall_timeout_seconds: 300,
+        entries: [],
+      },
+    ]);
+
+    render(<SubagentCard block={makeCardBlock()} />);
+
+    expect(screen.getByText("执行停滞")).toBeInTheDocument();
+    expect(screen.getByText("63258 tokens")).toBeInTheDocument();
+    expect(screen.getByText("连续 5 分钟无 token 增长，已自动终止")).toBeInTheDocument();
   });
 
   it("dispatches Agent tool_use blocks to the card", () => {

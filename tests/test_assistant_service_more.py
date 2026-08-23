@@ -86,6 +86,9 @@ class _FakeSessionManager:
     def subagent_runtime_alive(self, session_id):
         return self.subagent_runtime
 
+    def subagent_projection_state(self, session_id):
+        return 0, frozenset(), 300
+
     async def get_pending_questions_snapshot(self, session_id):
         return list(self.pending)
 

@@ -95,6 +95,11 @@ class TestCloseSession:
 
 
 class TestConfigReading:
+    def test_subagent_stall_timeout_env_override(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ASSISTANT_SUBAGENT_STALL_TIMEOUT_SECONDS", "180")
+        mgr = _make_manager(tmp_path)
+        assert mgr.subagent_stall_timeout_seconds == 180
+
     async def test_get_cleanup_delay_default(self, tmp_path):
         mgr = _make_manager(tmp_path)
         with patch("server.agent_runtime.session_manager.async_session_factory") as mock_factory:
@@ -443,5 +448,84 @@ class TestPatrolLoop:
                 with patch.object(mgr, "_evict_one", new_callable=AsyncMock) as mock_evict:
                     await mgr._patrol_once()
                     mock_evict.assert_not_called()
+        finally:
+            await mgr.close_session("s1")
+
+
+class TestSubagentStallWatchdog:
+    @staticmethod
+    def _launch(managed: ManagedSession, key: str, task_id: str) -> None:
+        SessionManager._sync_subagent_lifecycle(
+            object.__new__(SessionManager),
+            managed,
+            {
+                "type": "user",
+                "content": [{"type": "tool_result", "tool_use_id": key, "content": "launched"}],
+                "tool_use_result": {"agentId": task_id, "status": "async_launched"},
+            },
+        )
+
+    async def test_watchdog_stops_only_task_without_token_growth(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        mgr.subagent_stall_timeout_seconds = 300
+        managed, _ = _make_managed("s1", status="completed")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        self._launch(managed, "tu-stale", "agent-stale")
+        self._launch(managed, "tu-live", "agent-live")
+        managed.subagent_activity["tu-stale"].last_token_change = 100.0
+        managed.subagent_activity["tu-live"].last_token_change = 350.0
+        managed.send_stop_task = AsyncMock()
+
+        try:
+            await mgr._subagent_watchdog_once(now=401.0)
+
+            managed.send_stop_task.assert_awaited_once_with("agent-stale")
+            assert managed.subagent_activity["tu-stale"].stalled is True
+            assert managed.subagent_activity["tu-live"].stalled is False
+            _revision, stalled_ids, timeout = mgr.subagent_projection_state("s1")
+            assert stalled_ids == {"agent-stale"}
+            assert timeout == 300
+
+            mgr._sync_subagent_lifecycle(
+                managed,
+                {
+                    "type": "system",
+                    "subtype": "task_updated",
+                    "task_id": "agent-stale",
+                    "patch": {"status": "killed"},
+                },
+            )
+            assert managed.active_subagents == {"tu-live": "agent-live"}
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_token_growth_resets_watchdog_deadline(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        mgr.subagent_stall_timeout_seconds = 300
+        managed, _ = _make_managed("s1", status="completed")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        self._launch(managed, "tu-1", "agent-1")
+        managed.subagent_activity["tu-1"].last_token_change = 100.0
+        managed.send_stop_task = AsyncMock()
+
+        try:
+            with patch("server.agent_runtime.session_manager.time.monotonic", return_value=350.0):
+                mgr._sync_subagent_lifecycle(
+                    managed,
+                    {
+                        "type": "assistant",
+                        "parent_tool_use_id": "tu-1",
+                        "message_id": "msg-1",
+                        "usage": {"input_tokens": 100, "output_tokens": 20},
+                        "content": [],
+                    },
+                )
+            await mgr._subagent_watchdog_once(now=500.0)
+
+            managed.send_stop_task.assert_not_awaited()
+            assert managed.subagent_activity["tu-1"].total_tokens == 120
+            assert managed.subagent_activity["tu-1"].last_token_change == 350.0
         finally:
             await mgr.close_session("s1")
