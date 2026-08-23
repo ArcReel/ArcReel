@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import type { PresetProvider } from "@/types/agent-credential";
 
-import { AddCredentialModal } from "../AddCredentialModal";
+import { AddCredentialModal } from "./AddCredentialModal";
 
 beforeEach(() => {
   // 默认 mock：没有自定义供应商，import 按钮不显示，不污染既有断言

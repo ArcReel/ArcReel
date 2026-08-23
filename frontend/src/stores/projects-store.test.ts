@@ -4,6 +4,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import type { ProjectData } from "@/types";
+import { createDeferred } from "@/test/deferred";
 
 type GetProjectResult = Awaited<ReturnType<typeof API.getProject>>;
 
@@ -21,17 +22,6 @@ function makeProject(title: string): ProjectData {
 
 function makeResult(title: string, fingerprints: Record<string, number> = {}): GetProjectResult {
   return { project: makeProject(title), scripts: {}, asset_fingerprints: fingerprints };
-}
-
-// 手动可控的 deferred promise，用于把 getProject 卡在「在途」状态精确编排合并时序。
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
 }
 
 // 冲刷 microtask + timer 队列，让在途刷新的续跑推进到下一次 await。
@@ -100,8 +90,8 @@ describe("projects-store refreshProject", () => {
   });
 
   it("在途合并：在途期间的多次请求只多触发一次 getProject，最终反映最新一轮", async () => {
-    const d1 = deferred<GetProjectResult>();
-    const d2 = deferred<GetProjectResult>();
+    const d1 = createDeferred<GetProjectResult>();
+    const d2 = createDeferred<GetProjectResult>();
     const spy = vi
       .spyOn(API, "getProject")
       .mockReturnValueOnce(d1.promise)
@@ -129,8 +119,8 @@ describe("projects-store refreshProject", () => {
 
   it("首轮失败、排队轮成功时用新值替换旧值；各调用方返回自己那一轮的结果", async () => {
     useProjectsStore.getState().setCurrentProject("demo", makeProject("旧"), {}, {});
-    const d1 = deferred<GetProjectResult>();
-    const d2 = deferred<GetProjectResult>();
+    const d1 = createDeferred<GetProjectResult>();
+    const d2 = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
 
     const store = useProjectsStore.getState();
@@ -152,8 +142,8 @@ describe("projects-store refreshProject", () => {
   });
 
   it("首轮成功、排队轮失败时，首轮调用方仍返回 success（不被无关的后续轮次拖累）", async () => {
-    const d1 = deferred<GetProjectResult>();
-    const d2 = deferred<GetProjectResult>();
+    const d1 = createDeferred<GetProjectResult>();
+    const d2 = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
 
     const store = useProjectsStore.getState();
@@ -177,8 +167,8 @@ describe("projects-store refreshProject", () => {
   });
 
   it("排队期间被更晚的不同项目请求取代：被取代的调用方立即收到 cancelled，不与新项目的结果混同", async () => {
-    const dA = deferred<GetProjectResult>();
-    const dC = deferred<GetProjectResult>();
+    const dA = createDeferred<GetProjectResult>();
+    const dC = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dC.promise);
 
     const store = useProjectsStore.getState();
@@ -209,8 +199,8 @@ describe("projects-store refreshProject", () => {
 
   it("跨项目合并：A 在途时排队刷新 B，A 的响应不写入 store（避免覆盖排队中的 B）", async () => {
     useProjectsStore.getState().setCurrentProject("B", makeProject("B-旧"), {}, {});
-    const dA = deferred<GetProjectResult>();
-    const dB = deferred<GetProjectResult>();
+    const dA = createDeferred<GetProjectResult>();
+    const dB = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dB.promise);
 
     const store = useProjectsStore.getState();
@@ -233,8 +223,8 @@ describe("projects-store refreshProject", () => {
   });
 
   it("排队轮 onError：首轮无回调、排队轮有回调且失败时通知排队轮回调", async () => {
-    const d1 = deferred<GetProjectResult>();
-    const d2 = deferred<GetProjectResult>();
+    const d1 = createDeferred<GetProjectResult>();
+    const d2 = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
     const onError2 = vi.fn();
 
@@ -251,8 +241,8 @@ describe("projects-store refreshProject", () => {
   });
 
   it("合并期间累积 invalidateKeys：排队轮成功后一并失效", async () => {
-    const d1 = deferred<GetProjectResult>();
-    const d2 = deferred<GetProjectResult>();
+    const d1 = createDeferred<GetProjectResult>();
+    const d2 = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
 
     const store = useProjectsStore.getState();
@@ -275,7 +265,7 @@ describe("projects-store refreshProject", () => {
     // 导航进了只读演示工作台（演示项目不经过 refreshProject，直接调用
     // setCurrentProject 写入前端常量）——迟到的真实项目响应落定时不该把
     // currentProjectName 写回真实项目，否则只读横幅/演示数据会被悄悄顶掉。
-    const d = deferred<GetProjectResult>();
+    const d = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(d.promise);
 
     const store = useProjectsStore.getState();
@@ -296,7 +286,7 @@ describe("projects-store refreshProject", () => {
     // 因此排队去重看不到它——A 页面上 SSE / 写操作触发的刷新若在切到 B 之后才落定，
     // 不该把 currentProjectName 写回 A。
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
-    const dA = deferred<GetProjectResult>();
+    const dA = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
 
     const store = useProjectsStore.getState();
@@ -323,7 +313,7 @@ describe("projects-store refreshProject", () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
     useProjectsStore.getState().setCurrentProject(null, null); // 路由 cleanup：清空但尚未加载 B
 
-    const dA = deferred<GetProjectResult>();
+    const dA = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
 
     const pA = useProjectsStore.getState().refreshProject("A"); // 在 null 窗口内发起
@@ -350,7 +340,7 @@ describe("projects-store refreshProject", () => {
     store.setCurrentProject("A", makeProject("A-数据"), {}, {}); // A 落地
     store.setCurrentProject(null, null); // 路由 cleanup：离开 A，尚未加载 B
 
-    const dC = deferred<GetProjectResult>();
+    const dC = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(dC.promise);
 
     const pC = useProjectsStore.getState().refreshProject("C"); // 在第二次 null 窗口内发起
@@ -372,7 +362,7 @@ describe("projects-store refreshProject", () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
     useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
 
-    const dA = deferred<GetProjectResult>();
+    const dA = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
 
     const pA = useProjectsStore.getState().refreshProject("A");
@@ -390,8 +380,8 @@ describe("projects-store refreshProject", () => {
     // 但排队轮沿用 while 循环继续跑，取的是 B 现役、未 abort 的域，对 queuedName=A 发起
     // 第二次请求。响应落定时当前项目已是 B，须靠当前项目名核对拦截，而非同名判断。
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-旧"), {}, {});
-    const d1 = deferred<GetProjectResult>();
-    const d2 = deferred<GetProjectResult>();
+    const d1 = createDeferred<GetProjectResult>();
+    const d2 = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
 
     const store = useProjectsStore.getState();
@@ -441,7 +431,7 @@ describe("projects-store refreshProject", () => {
 
   it("切换项目后新项目的刷新照常生效（取消域轮换不会长期作废后续刷新）", async () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
-    const dA = deferred<GetProjectResult>();
+    const dA = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject")
       .mockReturnValueOnce(dA.promise)
       .mockResolvedValue(makeResult("B-新数据"));
@@ -465,8 +455,8 @@ describe("projects-store refreshProject", () => {
     // （写操作完成后的刷新、SSE）排进来时，当前项目并未易主。此时若仍为它让位，本轮
     // 就是当前项目自己的首屏数据，丢掉后没有任何人会再加载它。
     useProjectsStore.getState().setCurrentProject("B", null);
-    const dB = deferred<GetProjectResult>();
-    const dStale = deferred<GetProjectResult>();
+    const dB = createDeferred<GetProjectResult>();
+    const dStale = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockImplementation((name) =>
       name === "B" ? dB.promise : dStale.promise,
     );
@@ -491,8 +481,8 @@ describe("projects-store refreshProject", () => {
     // 当前项目自己的首屏刷新——而挤进来的旧项目名注定写不进 store，于是当前项目的数据
     // 一轮都不会被拉取，projectDetailLoading 也永远回落不了。
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
-    const dSseA = deferred<GetProjectResult>();
-    const dB = deferred<GetProjectResult>();
+    const dSseA = createDeferred<GetProjectResult>();
+    const dB = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockImplementation((name) =>
       name === "B" ? dB.promise : dSseA.promise,
     );

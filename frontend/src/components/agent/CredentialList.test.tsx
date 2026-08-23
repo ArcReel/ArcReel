@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AgentCredential } from "@/types/agent-credential";
 
-import { CredentialList } from "../CredentialList";
+import { CredentialList } from "./CredentialList";
 
 const mockCred = (overrides: Partial<AgentCredential> = {}): AgentCredential => ({
   id: 1,

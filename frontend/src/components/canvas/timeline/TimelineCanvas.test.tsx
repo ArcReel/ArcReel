@@ -8,9 +8,10 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./TimelineCanvas";
 import type { NarrationEpisodeScript, ProjectData } from "@/types";
 
-vi.mock("./ScriptReviewGate", () => ({
-  ScriptReviewGate: () => <div data-testid="script-review-gate" />,
-}));
+vi.mock("./ScriptReviewGate", async () => {
+  const { scriptReviewGateMock } = await import("@/__mocks__/ScriptReviewGate");
+  return scriptReviewGateMock();
+});
 vi.mock("./ShotSplitView", () => ({
   ShotSplitView: ({
     onUpdatePrompt,
@@ -26,11 +27,10 @@ vi.mock("./ShotSplitView", () => ({
     />
   ),
 }));
-vi.mock("./EpisodeHeader", () => ({
-  EpisodeHeader: ({ canEditTitle }: { canEditTitle?: boolean }) => (
-    <div data-testid="episode-header" data-can-edit-title={canEditTitle ? "yes" : "no"} />
-  ),
-}));
+vi.mock("./EpisodeHeader", async () => {
+  const { episodeHeaderMock } = await import("@/__mocks__/EpisodeHeader");
+  return episodeHeaderMock();
+});
 
 function makeProjectData(): ProjectData {
   return {
