@@ -65,6 +65,7 @@ from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource
 from lib.speech_artifact_provenance import build_video_duration_basis
 from lib.speech_composition import admit_script_unit, video_unit_replan_problems
+from lib.task_execution_progress import h3_execution_progress, persist_h3_execution_progress
 from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
@@ -568,6 +569,10 @@ async def execute_reference_video_task(
             narration_delivery=options.narration_delivery,
             projection=projection,
             audio_map=audio_paths,
+        )
+        await persist_h3_execution_progress(
+            task_id,
+            h3_execution_progress("prompt_optimizing"),
         )
         rendered_prompt = await prompt_service.optimized_prompt_for_context(
             project_name,

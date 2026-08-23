@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import httpx
@@ -67,6 +68,10 @@ _TERMINAL_STATUSES = frozenset({"blocked", "succeeded", "failed", "canceled"})
 _FAST_POLL_SECONDS = 2.0
 _FAST_POLL_WINDOW_SECONDS = 120.0
 _SLOW_POLL_SECONDS = 5.0
+_CANCEL_RETRY_SECONDS = 1.0
+_CANCEL_MAX_ATTEMPTS = 10
+
+JobUpdateCallback = Callable[[dict, dict | None], Awaitable[None]]
 
 
 def resolve_croco_token(token: str | None = None) -> str:
@@ -196,7 +201,45 @@ class CrocoClient:
             resp.raise_for_status()
             return resp.json()
 
-    async def wait_until_terminal(self, job_id: str, *, max_wait_seconds: float = 1800.0) -> dict:
+    async def get_queue_position(self, job_id: str) -> dict | None:
+        """Return the 1-based GPU queue position while the job is queued.
+
+        A status transition can race this endpoint; 404/409 means the queue
+        projection is no longer applicable and is therefore returned as None.
+        """
+        url = f"{self._base_url}{_JOBS_ENDPOINT}/{job_id}/queue-position"
+        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {self._token}"})
+            if resp.status_code in {404, 409}:
+                return None
+            resp.raise_for_status()
+            return resp.json()
+
+    async def cancel_job(self, job_id: str) -> dict:
+        """Request remote cancellation, tolerating short lifecycle transition races."""
+        url = f"{self._base_url}{_JOBS_ENDPOINT}/{job_id}/cancel"
+        headers = {"Authorization": f"Bearer {self._token}"}
+        last_job: dict = {}
+        for attempt in range(_CANCEL_MAX_ATTEMPTS):
+            async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+                resp = await client.post(url, headers=headers)
+            if resp.status_code not in {409, 423}:
+                resp.raise_for_status()
+                return resp.json()
+            last_job = await self.get_job(job_id)
+            if last_job.get("status") in _TERMINAL_STATUSES:
+                return last_job
+            if attempt + 1 < _CANCEL_MAX_ATTEMPTS:
+                await asyncio.sleep(_CANCEL_RETRY_SECONDS)
+        raise RuntimeError(f"Croco 任务 {job_id} 暂时不可取消（最后状态 {last_job.get('status', 'unknown')}）")
+
+    async def wait_until_terminal(
+        self,
+        job_id: str,
+        *,
+        max_wait_seconds: float = 1800.0,
+        on_update: JobUpdateCallback | None = None,
+    ) -> dict:
         """轮询直到终态，返回终态任务投影。超时抛 TimeoutError。"""
         import time
 
@@ -204,6 +247,16 @@ class CrocoClient:
         while True:
             job = await self.get_job(job_id)
             status = job.get("status")
+            queue = None
+            if status == "queued":
+                try:
+                    queue = await self.get_queue_position(job_id)
+                except Exception:
+                    # Queue position is display metadata; a transient failure must not
+                    # abort a paid generation whose lifecycle endpoint is healthy.
+                    logger.warning("Croco queue position unavailable job_id=%s", job_id, exc_info=True)
+            if on_update is not None:
+                await on_update(job, queue)
             if status in _TERMINAL_STATUSES:
                 return job
             if time.monotonic() - started > max_wait_seconds:

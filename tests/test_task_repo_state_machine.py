@@ -230,6 +230,31 @@ class TestRepoStateMachineGuards:
         assert refreshed["provider_job_id"] == "provider-job-43"
         assert refreshed["provider_endpoint"] == "openai-video"
 
+    async def test_persist_execution_progress_only_updates_active_task(self, db_session):
+        repo = TaskRepository(db_session)
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={},
+            script_file="episode_1.json",
+        )
+
+        await repo.persist_execution_progress(task["task_id"], '{"phase":"queued"}')
+        assert (await repo.get(task["task_id"]))["execution_progress"] is None
+
+        await repo.claim_next("video")
+        await repo.persist_execution_progress(task["task_id"], '{"phase":"running","progress":25}')
+        assert (await repo.get(task["task_id"]))["execution_progress"] == {
+            "phase": "running",
+            "progress": 25,
+        }
+
+        await repo.mark_succeeded(task["task_id"], {})
+        await repo.persist_execution_progress(task["task_id"], '{"phase":"running","progress":99}')
+        assert (await repo.get(task["task_id"]))["execution_progress"]["progress"] == 25
+
     async def test_persist_provider_job_id_without_endpoint_keeps_existing(self, db_session):
         """endpoint 传 None 不清空已有值——清空等于放弃比对，比保留旧值更危险。"""
         repo = TaskRepository(db_session)

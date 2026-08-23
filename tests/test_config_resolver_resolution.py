@@ -1,7 +1,7 @@
 """测试 ConfigResolver.resolve_resolution 与模块级 get_provider_fallback。
 
 resolve_resolution 走公开接口（不断言私有函数），按
-project.model_settings → legacy video_model_settings → 自定义供应商默认 → None 解析；
+project.model_settings → legacy video_model_settings → 全局 model_settings → 自定义供应商默认 → None 解析；
 自定义供应商默认路径用真实内存 DB + 真实 CustomProviderModel 断言。
 """
 
@@ -18,6 +18,7 @@ from lib.config.resolver import (
 )
 from lib.custom_provider import make_provider_id
 from lib.db.base import Base
+from lib.db.models.config import SystemSetting
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
 
@@ -61,6 +62,11 @@ async def _add_custom_video_model(db_session: AsyncSession, model_id: str, resol
     db_session.add(model)
     await db_session.flush()
     return make_provider_id(provider.id)
+
+
+async def _set_global_model_settings(db_session: AsyncSession, raw: str) -> None:
+    db_session.add(SystemSetting(key="model_settings", value=raw))
+    await db_session.flush()
 
 
 # --- 纯项目字典优先级（非自定义 provider，DB 默认恒 None） ---
@@ -158,6 +164,39 @@ async def test_dirty_model_settings_falls_through_to_legacy(resolver: ConfigReso
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") == "1080p"
 
 
+# --- 全局逐模型默认 ---
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_returns_global_resolution_for_builtin_model(resolver: ConfigResolver, db_session: AsyncSession):
+    await _set_global_model_settings(db_session, '{"croco/minimax-h3":{"resolution":"0.7M"}}')
+    assert await resolver.resolve_resolution({}, "croco", "minimax-h3") == "0.7M"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_project_model_setting_wins_over_global(resolver: ConfigResolver, db_session: AsyncSession):
+    await _set_global_model_settings(db_session, '{"croco/minimax-h3":{"resolution":"0.7M"}}')
+    project = {"model_settings": {"croco/minimax-h3": {"resolution": "720p"}}}
+    assert await resolver.resolve_resolution(project, "croco", "minimax-h3") == "720p"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_project_legacy_setting_wins_over_global(resolver: ConfigResolver, db_session: AsyncSession):
+    await _set_global_model_settings(db_session, '{"croco/minimax-h3":{"resolution":"0.7M"}}')
+    project = {"video_model_settings": {"minimax-h3": {"resolution": "480p"}}}
+    assert await resolver.resolve_resolution(project, "croco", "minimax-h3") == "480p"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_malformed_global_setting_is_ignored(resolver: ConfigResolver, db_session: AsyncSession):
+    await _set_global_model_settings(db_session, "not-json")
+    assert await resolver.resolve_resolution({}, "croco", "minimax-h3") is None
+
+
 # --- 自定义供应商默认（真实 DB） ---
 
 
@@ -166,6 +205,17 @@ async def test_dirty_model_settings_falls_through_to_legacy(resolver: ConfigReso
 async def test_returns_custom_default_when_only_custom(resolver: ConfigResolver, db_session: AsyncSession):
     provider_id = await _add_custom_video_model(db_session, "my-model", "720p")
     assert await resolver.resolve_resolution({}, provider_id, "my-model") == "720p"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_global_setting_wins_over_custom_model_default(resolver: ConfigResolver, db_session: AsyncSession):
+    provider_id = await _add_custom_video_model(db_session, "my-model", "720p")
+    await _set_global_model_settings(
+        db_session,
+        f'{{"{provider_id}/my-model":{{"resolution":"1080p"}}}}',
+    )
+    assert await resolver.resolve_resolution({}, provider_id, "my-model") == "1080p"
 
 
 @pytest.mark.unit
@@ -218,6 +268,7 @@ async def test_falls_through_to_custom_when_project_empty_string(resolver: Confi
         ("ark", "720p"),
         ("grok", "720p"),
         ("openai", "720p"),
+        ("croco", "0.7M"),
         ("minimax", "768p"),
         ("minimax-hailuo", "768p"),
         ("unknown-provider", "1080p"),  # 未知 → default

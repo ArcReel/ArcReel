@@ -15,6 +15,29 @@ export type TaskStatus =
   | "cancelled";
 export type TaskMediaType = "image" | "video" | "audio";
 
+export type H3ProgressPhase =
+  | "prompt_optimizing"
+  | "submitted"
+  | "queued"
+  | "preparing"
+  | "running"
+  | "cancelling"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface H3ExecutionProgress {
+  kind: "minimax_h3";
+  phase: H3ProgressPhase;
+  provider_status: string | null;
+  stage: string | null;
+  progress: number | null;
+  can_cancel: boolean;
+  queue_position: number | null;
+  queue_length: number | null;
+  queue_ahead: number | null;
+}
+
 export interface TaskItem {
   task_id: string;
   project_name: string;
@@ -39,6 +62,8 @@ export interface TaskItem {
   cancelled_by: "user" | "cascade" | null;
   provider_id: string | null;
   provider_job_id: string | null;
+  /** Present only for backends that expose durable staged progress (currently MiniMax H3). */
+  execution_progress?: H3ExecutionProgress | null;
   source: "webui" | "agent";
   queued_at: string;
   started_at: string | null;

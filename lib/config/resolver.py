@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.backend_assembly.specs import get_provider_spec
+from lib.config.model_settings import MODEL_SETTINGS_KEY, configured_resolution, parse_model_settings
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     default_model_for_provider,
@@ -358,6 +359,9 @@ _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
 # 当 resolve_resolution 返回 None 时下游的保底分辨率。Grok 即便 registry 声明 1080p
 # 也可能被 xai_sdk 拒收，故按 provider 区分。
 PROVIDER_FALLBACK_RESOLUTION: dict[str, str] = {
+    # Croco 当前视频模型 MiniMax H3 不支持 1080p；Auto 使用中间档 0.7M，
+    # 再由 backend 按画幅映射为对应 quality profile。
+    "croco": "0.7M",
     "gemini": "1080p",
     "ark": "720p",
     "grok": "720p",
@@ -785,20 +789,24 @@ class ConfigResolver:
             return await self._resolve_video_provider_model(svc, session, project, payload, capability)
 
     async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
-        """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。
+        """解析模型分辨率的项目、全局与供应商默认覆盖链。
 
-        None 代表"调用时不传 SDK resolution 参数"（见 ``docs/adr/0019``）。前两级纯读 project
-        dict、无副作用；自定义供应商默认（``CustomProviderModel.resolution``）需 DB，故本方法
-        整体为 async 并在同一 session 内完成。
+        优先级：project.model_settings → legacy video_model_settings → 全局 model_settings →
+        自定义供应商模型默认 → None。None 代表"调用时不传 SDK resolution 参数"（见
+        ``docs/adr/0019``）。全局设置和自定义供应商默认都来自 DB，复用同一个 session 查询。
         """
         from_project = _resolution_from_project(project, provider_id, model_id)
         if from_project:
             return from_project
-        # 仅自定义供应商才有 DB 侧默认；预置供应商在此直接 None，避免为热路径上的
-        # 每次生成任务白开一个 session（原独立模块正是先判 is_custom_provider 再触 DB）。
-        if not provider_id or not model_id or not is_custom_provider(provider_id):
+        if not provider_id or not model_id:
             return None
-        async with self._open_session() as (session, _svc):
+        async with self._open_session() as (session, svc):
+            global_settings = parse_model_settings(await svc.get_setting(MODEL_SETTINGS_KEY))
+            from_global = configured_resolution(global_settings, provider_id, model_id)
+            if from_global:
+                return from_global
+            if not is_custom_provider(provider_id):
+                return None
             return await self._resolve_custom_resolution_default(session, provider_id, model_id)
 
     async def _resolve_custom_resolution_default(

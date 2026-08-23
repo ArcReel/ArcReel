@@ -167,8 +167,23 @@ class TestGetSystemConfig:
             "narration_speed",
             "croco_characters_api_url",
             "croco_characters_api_token",
+            "model_settings",
         }
         assert set(settings.keys()) == expected_keys
+
+    @pytest.mark.unit
+    def test_model_settings_are_decoded_from_json(self):
+        mock_svc = _make_mock_svc(settings={"model_settings": '{"croco/minimax-h3":{"resolution":"0.7M"}}'})
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            settings = client.get("/api/v1/system/config").json()["settings"]
+        assert settings["model_settings"] == {"croco/minimax-h3": {"resolution": "0.7M"}}
+
+    @pytest.mark.unit
+    def test_malformed_model_settings_degrade_to_empty(self):
+        mock_svc = _make_mock_svc(settings={"model_settings": "not-json"})
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            settings = client.get("/api/v1/system/config").json()["settings"]
+        assert settings["model_settings"] == {}
 
     @pytest.mark.unit
     def test_options_contain_backend_lists(self):
@@ -363,6 +378,25 @@ class TestPatchSystemConfig:
         assert res.status_code == 200
         settings = res.json()["settings"]
         assert settings["default_video_backend"] == "ark/doubao-seedance-1-5-pro-251215"
+
+    @pytest.mark.unit
+    def test_patch_sets_per_model_resolution(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={
+                    "model_settings": {
+                        "croco/minimax-h3": {"resolution": " 720p "},
+                        "custom-7/video-model": {"resolution": None},
+                    }
+                },
+            )
+        assert res.status_code == 200
+        assert res.json()["settings"]["model_settings"] == {
+            "croco/minimax-h3": {"resolution": "720p"},
+            "custom-7/video-model": {"resolution": None},
+        }
 
     @pytest.mark.unit
     def test_patch_sets_character_catalog_channel(self):

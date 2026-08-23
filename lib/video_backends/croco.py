@@ -8,11 +8,17 @@ H3 V2 合同用 quality 同时表达画幅与清晰度：ArcReel 对外的 resol
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 from lib.croco_shared import CrocoClient
 from lib.providers import PROVIDER_CROCO
+from lib.task_execution_progress import (
+    h3_execution_progress,
+    h3_progress_from_provider,
+    persist_h3_execution_progress,
+)
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ReferenceAudioMode,
@@ -137,6 +143,10 @@ class CrocoVideoBackend(ProviderJobIdPersistenceMixin):
 
         # worker 路径持久化 job_id，重启可接续（resume_video 轮询 + 下载，不重新 submit）。
         await self._persist_provider_job_id(request, job_id, provider=PROVIDER_CROCO)
+        await persist_h3_execution_progress(
+            request.task_id,
+            h3_progress_from_provider(job),
+        )
 
         return await self._poll_and_download(job_id, request)
 
@@ -144,7 +154,28 @@ class CrocoVideoBackend(ProviderJobIdPersistenceMixin):
         return await self._poll_and_download(job_id, request)
 
     async def _poll_and_download(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        terminal = await self._client.wait_until_terminal(job_id)
+        async def _on_update(job: dict, queue: dict | None) -> None:
+            await persist_h3_execution_progress(
+                request.task_id,
+                h3_progress_from_provider(job, queue),
+            )
+
+        try:
+            terminal = await self._client.wait_until_terminal(job_id, on_update=_on_update)
+        except asyncio.CancelledError:
+            await persist_h3_execution_progress(
+                request.task_id,
+                h3_execution_progress(
+                    "cancelling",
+                    provider_status="canceling",
+                    can_cancel=False,
+                ),
+            )
+            try:
+                await asyncio.shield(self._client.cancel_job(job_id))
+            except Exception:
+                logger.exception("Croco 远端任务取消失败 job_id=%s", job_id)
+            raise
         if terminal.get("status") != "succeeded":
             raise RuntimeError(f"Croco 视频任务未成功: status={terminal.get('status')} error={terminal.get('error')}")
 
@@ -162,6 +193,16 @@ class CrocoVideoBackend(ProviderJobIdPersistenceMixin):
             raise RuntimeError("Croco 视频任务缺少 video 产物")
 
         await self._client.download_output(job_id, "video", request.output_path)
+        await persist_h3_execution_progress(
+            request.task_id,
+            h3_execution_progress(
+                "completed",
+                provider_status="succeeded",
+                stage=terminal.get("stage") if isinstance(terminal.get("stage"), str) else None,
+                progress=100,
+                can_cancel=False,
+            ),
+        )
         logger.info("Croco 视频生成完成: %s", request.output_path)
 
         return VideoGenerationResult(

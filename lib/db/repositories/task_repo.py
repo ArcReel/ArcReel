@@ -112,6 +112,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "provider_endpoint": row.provider_endpoint,
         "submitted_base_url": row.submitted_base_url,
         "execution_checkpoint_json": row.execution_checkpoint_json,
+        "execution_progress": _json_loads(row.execution_progress_json, None),
         "queued_at": dt_to_iso(row.queued_at),
         "started_at": dt_to_iso(row.started_at),
         "finished_at": dt_to_iso(row.finished_at),
@@ -773,6 +774,24 @@ class TaskRepository(BaseRepository):
         if rowcount(result) != 1:
             await self.session.rollback()
             raise ValueError(f"execution checkpoint persistence guard rejected task: {task_id}")
+        await self.session.commit()
+
+    async def persist_execution_progress(self, task_id: str, progress_json: str) -> None:
+        """Replace the display-only execution projection while the task is active.
+
+        Progress polling must never revive or mutate a terminal task. Repeated provider
+        projections are ignored at SQL level so a stable queue/running response does not
+        produce needless writes every polling interval.
+        """
+        await self.session.execute(
+            update(Task)
+            .where(
+                Task.task_id == task_id,
+                Task.status.in_(("running", "cancelling")),
+                Task.execution_progress_json.is_distinct_from(progress_json),
+            )
+            .values(execution_progress_json=progress_json, updated_at=utc_now())
+        )
         await self.session.commit()
 
     async def _merge_payload_field(self, task_id: str, key: str, value: Any, *, raise_if_missing: bool = True) -> None:

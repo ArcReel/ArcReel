@@ -38,6 +38,33 @@ const CANDIDATES = {
   provider_names: {},
 };
 
+function h3Provider(): ProviderInfo {
+  return {
+    id: "croco",
+    display_name: "Croco GPU",
+    description: "",
+    status: "ready",
+    media_types: ["video"],
+    capabilities: [],
+    configured_keys: [],
+    missing_keys: [],
+    models: {
+      "minimax-h3": {
+        display_name: "MiniMax H3",
+        media_type: "video",
+        capabilities: [],
+        default: true,
+        supported_durations: [3, 4, 5],
+        duration_resolution_constraints: {},
+        resolutions: ["480p", "0.7M", "720p"],
+        has_audio_track: true,
+        audio_switch_controllable: false,
+        voice_consistency: "soft",
+      },
+    },
+  };
+}
+
 function mockConfig(settings: Record<string, unknown> = {}) {
   vi.spyOn(API, "getSystemConfig").mockResolvedValue({
     ...CONFIG,
@@ -153,6 +180,50 @@ describe("MediaModelSection", () => {
 
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith({ default_video_backend_r2v: "ark/seedance" }),
+    );
+  });
+
+  it("shows one global resolution picker per distinct effective video model and preserves other entries", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...CONFIG,
+      options: {
+        ...CONFIG.options,
+        video_backends: ["croco/minimax-h3"],
+      },
+      settings: {
+        ...CONFIG.settings,
+        default_video_backend: "croco/minimax-h3",
+        default_video_backend_r2v: "croco/minimax-h3",
+        model_settings: {
+          "custom-7/legacy-model": { resolution: "1K" },
+        },
+      },
+    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([h3Provider()]);
+    const patch = vi
+      .spyOn(API, "updateSystemConfig")
+      .mockResolvedValue(CONFIG as unknown as Awaited<ReturnType<typeof API.updateSystemConfig>>);
+
+    render(<MediaModelSection />);
+    const pickers = await screen.findAllByRole("combobox", {
+      name: "croco/minimax-h3 的默认分辨率",
+    });
+    expect(pickers).toHaveLength(1);
+    expect(pickers[0]).toHaveTextContent("480p");
+    expect(pickers[0]).toHaveTextContent("0.7M");
+    expect(pickers[0]).toHaveTextContent("720p");
+
+    await user.selectOptions(pickers[0], "720p");
+    await user.click(screen.getByRole("button", { name: /保存|Save/ }));
+
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({
+        model_settings: {
+          "custom-7/legacy-model": { resolution: "1K" },
+          "croco/minimax-h3": { resolution: "720p" },
+        },
+      }),
     );
   });
 

@@ -486,6 +486,10 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             await repo.persist_execution_checkpoint(task_id, checkpoint_json, provider_id)
 
+    async def persist_execution_progress(self, task_id: str, progress_json: str) -> None:
+        async with self._task_repo() as repo:
+            await repo.persist_execution_progress(task_id, progress_json)
+
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
         async with self._task_repo() as repo:
             await repo.persist_execution_provider_id(task_id, provider_id)

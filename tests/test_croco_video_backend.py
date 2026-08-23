@@ -1,7 +1,8 @@
 """Croco H3 视频请求合同测试。"""
 
+import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -92,3 +93,57 @@ async def test_generate_sends_resolved_quality_to_unified_job(tmp_path: Path):
         "quality": "portrait_768p",
         "duration_seconds": 6,
     }
+
+
+async def test_provider_updates_are_persisted_as_h3_progress(tmp_path: Path):
+    backend = CrocoVideoBackend(api_key="test-token")
+    backend._client.submit_job = AsyncMock(return_value={"job_id": "job-1", "status": "accepted"})
+
+    async def _wait(_job_id: str, *, on_update):
+        await on_update(
+            {"status": "queued", "stage": "waiting_for_route", "progress": 0, "can_cancel": True},
+            {"position": 3, "queue_length": 8},
+        )
+        return {"status": "succeeded", "progress": 100}
+
+    backend._client.wait_until_terminal = AsyncMock(side_effect=_wait)
+    backend._client.list_outputs = AsyncMock(
+        return_value={
+            "items": [{"output_id": "video", "delivery_state": "ready", "content_url": "https://example.test/v.mp4"}]
+        }
+    )
+    backend._client.download_output = AsyncMock()
+
+    with (
+        patch.object(backend, "_persist_provider_job_id", new=AsyncMock()),
+        patch("lib.video_backends.croco.persist_h3_execution_progress", new=AsyncMock()) as persist,
+    ):
+        await backend.generate(
+            VideoGenerationRequest(
+                prompt="move",
+                output_path=tmp_path / "result.mp4",
+                task_id="task-1",
+            )
+        )
+
+    phases = [call.args[1]["phase"] for call in persist.await_args_list]
+    assert phases == ["submitted", "queued", "completed"]
+    assert persist.await_args_list[1].args[1]["queue_ahead"] == 2
+
+
+async def test_local_cancellation_requests_remote_h3_cancellation(tmp_path: Path):
+    backend = CrocoVideoBackend(api_key="test-token")
+    backend._client.wait_until_terminal = AsyncMock(side_effect=asyncio.CancelledError)
+    backend._client.cancel_job = AsyncMock(return_value={"status": "canceling"})
+
+    with (
+        patch("lib.video_backends.croco.persist_h3_execution_progress", new=AsyncMock()) as persist,
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await backend._poll_and_download(
+            "job-1",
+            VideoGenerationRequest(prompt="move", output_path=tmp_path / "result.mp4", task_id="task-1"),
+        )
+
+    backend._client.cancel_job.assert_awaited_once_with("job-1")
+    assert persist.await_args.args[1]["phase"] == "cancelling"

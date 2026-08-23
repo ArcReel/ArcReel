@@ -28,6 +28,7 @@ from lib.capability_buckets import (
     builtin_model_buckets,
     custom_model_buckets,
 )
+from lib.config.model_settings import parse_model_settings, serialize_model_settings
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
@@ -272,6 +273,9 @@ class SystemConfigPatchRequest(BaseModel):
     # 各档未设置回退 default_text_backend。
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
+    # 与 project.json.model_settings 同形：provider/model -> {resolution}。
+    # null/空分辨率表示该模型继续回退供应商默认。
+    model_settings: dict[str, dict[str, str | None]] | None = None
 
 
 # Setting keys that map directly to string DB settings
@@ -354,6 +358,7 @@ async def get_system_config(
         },
         "text_backend_simple": all_s.get("text_backend_simple") or "",
         "text_backend_complex": all_s.get("text_backend_complex") or "",
+        "model_settings": parse_model_settings(all_s.get("model_settings")),
     }
 
     options = await _build_options(svc, session)
@@ -514,6 +519,9 @@ async def patch_system_config(
             "croco_characters_api_token",
             str(patch["croco_characters_api_token"] or "").strip(),
         )
+
+    if "model_settings" in patch:
+        await svc.set_setting("model_settings", serialize_model_settings(patch["model_settings"]))
 
     # String settings
     for key in _STRING_SETTINGS:

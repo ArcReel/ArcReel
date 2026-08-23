@@ -37,6 +37,7 @@ import {
   isResourceBusy,
   useActiveResourceIds,
   useLatestTasksByResource,
+  useTasksStore,
 } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -319,7 +320,17 @@ export function ReferenceVideoCanvas({
   // 两条路径上 queueRow 始终非空，statusMap 的乐观分支不生效，仅看 status 会在入队到
   // 任务行落库之间的窗口内漏禁用生成按钮。
   const selectedBusy = !!(selected && busyUnitIds.has(selected.unit_id));
-  const selectedCancelling = !!(selected && tasksByUnit.get(selected.unit_id)?.status === "cancelling");
+  const selectedTask = selected ? (tasksByUnit.get(selected.unit_id) ?? null) : null;
+  const selectedCancelling = selectedTask?.status === "cancelling";
+
+  const handleCancelTask = useCallback(async (taskId: string) => {
+    try {
+      await API.cancelTask(taskId);
+      await useTasksStore.getState().refreshTasks();
+    } catch (error) {
+      toastError(error);
+    }
+  }, []);
 
   const failureMessage = useMemo(() => {
     if (!selected) return null;
@@ -1373,6 +1384,8 @@ export function ReferenceVideoCanvas({
                           errorMessage={failureMessage}
                           busy={selectedBusy}
                           cancelling={selectedCancelling}
+                          task={selectedTask}
+                          onCancelTask={(taskId) => void handleCancelTask(taskId)}
                           estimatedCost={displayedEstimatedCost}
                           actualCost={actualCost}
                           narrationText={selectedNarrationText}
@@ -1409,6 +1422,8 @@ export function ReferenceVideoCanvas({
                   errorMessage={failureMessage}
                   busy={selectedBusy}
                   cancelling={selectedCancelling}
+                  task={selectedTask}
+                  onCancelTask={(taskId) => void handleCancelTask(taskId)}
                   estimatedCost={displayedEstimatedCost}
                   actualCost={actualCost}
                   narrationText={selectedNarrationText}

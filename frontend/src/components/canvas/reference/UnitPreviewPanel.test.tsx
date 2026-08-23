@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import type { ReferenceVideoUnit } from "@/types";
+import { makeTask } from "@/test/factories";
 
 // VersionTimeMachine 的 busy 只关面板内的恢复按钮，触发按钮的可用性不变；替身把这个
 // 入参渲染成可断言的属性，避免为了读它去展开面板、加载版本列表。
@@ -60,6 +61,68 @@ describe("UnitPreviewPanel", () => {
   it("shows empty-video placeholder when unit has no video_clip", () => {
     render(<UnitPreviewPanel unit={mkUnit()} />);
     expect(screen.getByText(/Not yet generated|尚未生成/)).toBeInTheDocument();
+  });
+
+  it("shows staged prompt optimization only for a MiniMax H3 task", () => {
+    render(
+      <UnitPreviewPanel
+        unit={mkUnit()}
+        status="running"
+        task={makeTask({
+          status: "running",
+          execution_progress: {
+            kind: "minimax_h3",
+            phase: "prompt_optimizing",
+            provider_status: null,
+            stage: null,
+            progress: null,
+            can_cancel: false,
+            queue_position: null,
+            queue_length: null,
+            queue_ahead: null,
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getAllByText(/正在做提示词优化|Optimizing the prompt/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/正在生成视频…|Generating video…/)).not.toBeInTheDocument();
+  });
+
+  it("shows H3 queue position and invokes cancellation", () => {
+    const onCancelTask = vi.fn();
+    render(
+      <UnitPreviewPanel
+        unit={mkUnit()}
+        status="running"
+        onCancelTask={onCancelTask}
+        task={makeTask({
+          task_id: "h3-task",
+          status: "running",
+          execution_progress: {
+            kind: "minimax_h3",
+            phase: "queued",
+            provider_status: "queued",
+            stage: "waiting_for_route",
+            progress: 0,
+            can_cancel: true,
+            queue_position: 4,
+            queue_length: 9,
+            queue_ahead: 3,
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/前面 3 个|3 ahead/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /取消 H3 生成|Cancel H3 generation/ }));
+    expect(onCancelTask).toHaveBeenCalledWith("h3-task");
+  });
+
+  it("keeps the existing generic in-flight display for non-H3 models", () => {
+    render(<UnitPreviewPanel unit={mkUnit()} status="running" task={makeTask({ status: "running" })} />);
+    expect(screen.getByText(/正在生成视频…|Generating video…/)).toBeInTheDocument();
+    expect(screen.queryByText(/正在做提示词优化|Optimizing the prompt/)).not.toBeInTheDocument();
   });
 
   it("renders the shared presentation when video_clip is present", () => {

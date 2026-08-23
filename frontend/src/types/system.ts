@@ -23,6 +23,7 @@ export interface SystemConfigSettings {
   agent_max_concurrent_sessions: number;
   croco_characters_api_url?: string;
   croco_characters_api_token?: { is_set: boolean; masked: string | null };
+  model_settings?: Record<string, { resolution?: string | null }>;
 }
 
 export interface SystemConfigOptions {
@@ -101,6 +102,7 @@ export interface SystemConfigPatch {
   agent_max_concurrent_sessions?: number;
   croco_characters_api_url?: string;
   croco_characters_api_token?: string;
+  model_settings?: Record<string, { resolution?: string | null }>;
 }
 
 export interface CharacterCatalogSyncResult {

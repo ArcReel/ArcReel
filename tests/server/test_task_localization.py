@@ -164,6 +164,14 @@ class TestWarningPassthroughAndTolerance:
         assert "execution_checkpoint_json" not in localized
         assert task["execution_checkpoint_json"] == '{"provider_id":"secret"}'
 
+    def test_execution_progress_remains_machine_readable(self):
+        progress = {"kind": "minimax_h3", "phase": "queued", "queue_ahead": 2}
+        task = _task(execution_progress=progress)
+
+        localized = _localize_task(task, _translator("zh"))
+
+        assert localized["execution_progress"] == progress
+
     def test_task_without_result_is_returned_unchanged(self):
         task = _task()
 

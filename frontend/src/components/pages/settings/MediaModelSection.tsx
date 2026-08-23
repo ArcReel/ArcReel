@@ -18,6 +18,7 @@ import {
   type LayeredSubField,
 } from "@/components/shared/LayeredModelFields";
 import { TextTierFields } from "@/components/shared/TextTierFields";
+import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
 import { InlineWarning } from "@/components/ui/InlineWarning";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
@@ -235,6 +236,35 @@ export function MediaModelSection() {
   const videoSpecResolutions = currentVideo
     ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
     : [];
+  // 默认、图生视频、参考生视频三个槽位可能指向同一个模型。全局分辨率按实际模型身份
+  // 存储而不是按槽位存储，所以这里只为每个生效模型渲染一次。
+  const resolutionBackends = Array.from(
+    new Set(
+      [currentVideo, currentVideoI2V || currentVideo, currentVideoR2V || currentVideo].filter(
+        (backend): backend is string => Boolean(backend),
+      ),
+    ),
+  );
+  const resolutionModels = resolutionBackends
+    .map((backend) => ({
+      backend,
+      ...lookupResolutions(providers, backend, customProviders, endpointToMediaType),
+    }))
+    .filter(({ options: resolutionOptions }) => resolutionOptions.length > 0);
+  const globalModelSettings = draft.model_settings ?? settings.model_settings ?? {};
+
+  const updateGlobalResolution = (backend: string, resolution: string | null) => {
+    setDraft((prev) => {
+      const base = prev.model_settings ?? settings.model_settings ?? {};
+      return {
+        ...prev,
+        model_settings: {
+          ...base,
+          [backend]: { ...base[backend], resolution },
+        },
+      };
+    });
+  };
 
   const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
   const currentAudioBackend = draft.default_audio_backend ?? settings.default_audio_backend ?? "";
@@ -309,6 +339,36 @@ export function MediaModelSection() {
           </LayeredModelFields>
         ) : (
           emptyHint(t("no_video_providers_hint"))
+        )}
+
+        {resolutionModels.length > 0 && (
+          <div className="mt-4 rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-3.5">
+            <div className="mb-3">
+              <div className="text-[12.5px] font-medium text-text">
+                {t("global_video_resolution_title")}
+              </div>
+              <p className="mt-1 text-[11px] leading-[1.5] text-text-4">
+                {t("global_video_resolution_desc")}
+              </p>
+            </div>
+            <div className="space-y-3">
+              {resolutionModels.map(({ backend, options: resolutionOptions, isCustom }) => (
+                <div key={backend} className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center">
+                  <span className="truncate font-mono text-[11px] text-text-3" translate="no">
+                    {backend}
+                  </span>
+                  <ResolutionPicker
+                    mode={isCustom ? "combobox" : "select"}
+                    options={resolutionOptions}
+                    value={globalModelSettings[backend]?.resolution ?? null}
+                    onChange={(value) => updateGlobalResolution(backend, value)}
+                    placeholder={t("resolution_default_placeholder")}
+                    aria-label={t("global_video_resolution_aria", { model: backend })}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         <div

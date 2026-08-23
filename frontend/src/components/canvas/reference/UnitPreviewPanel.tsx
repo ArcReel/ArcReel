@@ -8,7 +8,8 @@ import { NarrationAudioCard } from "@/components/canvas/timeline/NarrationAudioC
 import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/ui/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
 import { StatusBadge, resolveUnitStatus } from "./unit-status";
-import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
+import { H3GenerationProgress } from "./H3GenerationProgress";
+import type { CostBreakdown, ReferenceVideoUnit, TaskItem, UnitStatus } from "@/types";
 
 export interface UnitPreviewPanelProps {
   unit: ReferenceVideoUnit | null;
@@ -26,6 +27,9 @@ export interface UnitPreviewPanelProps {
   busy?: boolean;
   /** 最新任务行是否处于取消中——占用集会计入 cancelling，但不应展示为「生成中」。 */
   cancelling?: boolean;
+  /** Latest queue row; H3-only execution_progress drives staged provider feedback. */
+  task?: TaskItem | null;
+  onCancelTask?: (taskId: string) => void;
   /** Estimated cost for this unit (optional; rendered next to the CTA). */
   estimatedCost?: CostBreakdown;
   /** Actual already-spent cost; rendered in the metadata block. */
@@ -71,6 +75,8 @@ export function UnitPreviewPanel({
   errorMessage,
   busy = false,
   cancelling = false,
+  task,
+  onCancelTask,
   estimatedCost,
   actualCost,
   onGenerate,
@@ -114,6 +120,8 @@ export function UnitPreviewPanel({
     (busy && !cancelling) ||
     effectiveStatus === "running" ||
     (effectiveStatus === "ready" && !videoUrl);
+  const h3Progress = task?.execution_progress?.kind === "minimax_h3" ? task.execution_progress : null;
+  const h3TaskId = h3Progress ? task?.task_id : undefined;
 
   const ctaLabel = ready
     ? t("reference_preview_regenerate")
@@ -183,15 +191,22 @@ export function UnitPreviewPanel({
 
         {inFlight && !ready && (
           <div className="absolute inset-0 grid place-items-center">
-            <div className="text-center">
-              <div className="mx-auto mb-2.5 h-9 w-9 animate-spin rounded-full border-2 border-[var(--color-accent-soft)] border-t-[var(--color-accent)]" />
-              <div className="text-[11.5px] text-[var(--color-text-2)]">
-                {t("reference_preview_in_flight")}
+            {h3Progress ? (
+              <H3GenerationProgress
+                progress={h3Progress}
+                onCancel={onCancelTask && h3TaskId ? () => onCancelTask(h3TaskId) : undefined}
+              />
+            ) : (
+              <div className="text-center">
+                <div className="mx-auto mb-2.5 h-9 w-9 animate-spin rounded-full border-2 border-[var(--color-accent-soft)] border-t-[var(--color-accent)]" />
+                <div className="text-[11.5px] text-[var(--color-text-2)]">
+                  {t("reference_preview_in_flight")}
+                </div>
+                <div className="mt-1 text-[10.5px] text-[var(--color-text-4)]">
+                  {t("reference_preview_in_flight_meta", { duration: unit.duration_seconds })}
+                </div>
               </div>
-              <div className="mt-1 text-[10.5px] text-[var(--color-text-4)]">
-                {t("reference_preview_in_flight_meta", { duration: unit.duration_seconds })}
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -240,7 +255,11 @@ export function UnitPreviewPanel({
           {inFlight ? (
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              <span>{t("reference_preview_generating")}</span>
+              <span>
+                {h3Progress?.phase === "prompt_optimizing"
+                  ? t("h3_progress_optimize_detail")
+                  : t("reference_preview_generating")}
+              </span>
             </>
           ) : (
             <>

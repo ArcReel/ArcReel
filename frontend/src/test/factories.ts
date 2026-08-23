@@ -24,6 +24,7 @@ export function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
     cancelled_by: null,
     provider_id: null,
     provider_job_id: null,
+    execution_progress: null,
     source: "webui",
     queued_at: "2026-04-20T00:00:00Z",
     started_at: null,
