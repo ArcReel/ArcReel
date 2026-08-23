@@ -154,7 +154,6 @@ export function CreateProjectModal() {
     generationRoute: "reference_video",
     gridStoryboard: false,
     targetDuration: 60,
-    speechRate: null,
   });
 
   const [models, setModels] = useState<ModelConfigValue>({
@@ -333,8 +332,6 @@ export function CreateProjectModal() {
         aspect_ratio: basics.aspectRatio,
         generation_mode: basics.generationRoute,
         grid_storyboard: basics.gridStoryboard,
-        // 口播语速估算未填即不传（服务端不落盘，回退语言默认）
-        ...(basics.speechRate !== null ? { speech_rate_units_per_second: basics.speechRate } : {}),
         // ad 不暴露 default_duration（按目标总时长逐镜头规划），改传 target_duration
         ...(isAd
           ? { target_duration: basics.targetDuration }

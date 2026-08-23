@@ -104,26 +104,37 @@ function ReferenceDiagram({ active }: { active: boolean }) {
   );
 }
 
-/** 左右两半的呈现顺序：分镜路线在左（默认路径），参考路线在右。 */
+/** 左右两半的呈现顺序：参考路线在左（当前默认路径），分镜路线在右。 */
 const ROUTE_CARDS: readonly { route: GenerationRoute; Diagram: (props: { active: boolean }) => ReactNode }[] = [
-  { route: "storyboard", Diagram: StoryboardDiagram },
   { route: "reference_video", Diagram: ReferenceDiagram },
+  { route: "storyboard", Diagram: StoryboardDiagram },
 ];
 
 export interface GenerationRouteCardsProps {
   /** null = 未选。必选：未选时向导不放行。 */
   value: GenerationRoute | null;
   onChange: (next: GenerationRoute) => void;
+  /** 暂不开放的路线仍展示在对比卡中，但不可选择。 */
+  disabledRoutes?: readonly GenerationRoute[];
   /** 装配条等从属内容，仅分镜路线选中时由调用方传入。 */
   children?: ReactNode;
 }
 
-export function GenerationRouteCards({ value, onChange, children }: GenerationRouteCardsProps) {
+export function GenerationRouteCards({
+  value,
+  onChange,
+  disabledRoutes = [],
+  children,
+}: GenerationRouteCardsProps) {
   const { t } = useTranslation("dashboard");
   const sb = value === "storyboard";
-  const halfCls = (selected: boolean) =>
-    `relative flex cursor-pointer flex-col items-center gap-2.5 px-4 py-5 text-center transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
-      selected ? "bg-accent-dim" : "hover:bg-bg-grad-a/60"
+  const halfCls = (selected: boolean, disabled: boolean) =>
+    `relative flex flex-col items-center gap-2.5 px-4 py-5 text-center transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
+      disabled
+        ? "cursor-not-allowed opacity-45"
+        : selected
+          ? "cursor-pointer bg-accent-dim"
+          : "cursor-pointer hover:bg-bg-grad-a/60"
     }`;
   const tagCls = (selected: boolean) =>
     `font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] ${selected ? "text-accent-2" : "text-text-4"}`;
@@ -153,8 +164,8 @@ export function GenerationRouteCards({ value, onChange, children }: GenerationRo
             // 滑动只走 translate：动画 left 会逐帧触发重排
             className="pointer-events-none absolute inset-y-0 left-0 w-1/2 border-2 border-accent/45 transition-[translate] duration-300 motion-reduce:transition-none"
             style={{
-              translate: sb ? "0" : "100%",
-              borderRadius: sb ? "12px 0 0 12px" : "0 12px 12px 0",
+              translate: sb ? "100%" : "0",
+              borderRadius: sb ? "0 12px 12px 0" : "12px 0 0 12px",
               boxShadow: "inset 0 0 30px -18px var(--color-accent-glow)",
             }}
           />
@@ -162,18 +173,25 @@ export function GenerationRouteCards({ value, onChange, children }: GenerationRo
 
         {ROUTE_CARDS.map(({ route, Diagram }) => {
           const selected = value === route;
+          const disabled = disabledRoutes.includes(route);
           const meta = ROUTE_META[route];
           return (
-            <label key={route} className={halfCls(selected)}>
+            <label key={route} className={halfCls(selected, disabled)}>
               <input
                 type="radio"
                 name="generationRoute"
                 value={route}
                 checked={selected}
-                onChange={() => onChange(route)}
+                disabled={disabled}
+                onChange={() => {
+                  if (!disabled) onChange(route);
+                }}
                 className="sr-only"
               />
-              <span className={tagCls(selected)}>{meta.tag}</span>
+              <span className={`inline-flex items-center gap-1 ${tagCls(selected)}`}>
+                {meta.tag}
+                {disabled ? <Lock aria-hidden className="h-2.5 w-2.5" /> : null}
+              </span>
               <Diagram active={selected} />
               <span className="text-[14.5px] font-semibold text-text">{t(meta.nameKey)}</span>
               <span className="text-[11.5px] leading-[1.55] text-text-3">{t(meta.descKey)}</span>
