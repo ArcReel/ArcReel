@@ -127,13 +127,94 @@ describe("CharacterCard", () => {
       />,
     );
 
-    const switchButton = await screen.findByRole("button", { name: "切换参考图" });
+    const switchButton = await screen.findByRole("button", { name: "将主图转为参考图" });
     const mainImage = screen.getByAltText(/Hero.*角色资产图/);
     const referenceImage = screen.getByAltText(/Hero.*参考图/);
     expect(mainImage.compareDocumentPosition(switchButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(switchButton.compareDocumentPosition(referenceImage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("button", { name: "切换 Voice ID" })).toBeInTheDocument();
     expect(screen.queryByLabelText("全局资产声音来源")).not.toBeInTheDocument();
+  });
+
+  it("leaves main empty after moving a linked global image to the saved reference slot", async () => {
+    vi.spyOn(API, "getAsset").mockResolvedValue({
+      asset: {
+        id: "asset-hero",
+        type: "character",
+        name: "Hero",
+        description: "global hero",
+        voice_style: "steady",
+        image_path: "_global_assets/characters/hero.png",
+        audio_path: null,
+        voice_id: null,
+        source_project: null,
+        updated_at: null,
+      },
+    });
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{
+          description: "hero desc",
+          voice_style: "warm",
+          character_sheet: "",
+          reference_image: "characters/refs/Hero.png",
+          matched_global_asset_id: "asset-hero",
+          global_asset_image_usage: "reference",
+        }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    const referenceImage = await screen.findByAltText(/Hero.*参考图/);
+    expect(referenceImage).toHaveAttribute("src", "/api/v1/files/demo/characters/refs/Hero.png");
+    expect(screen.queryByRole("button", { name: "将主图转为参考图" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成资产图" })).toBeEnabled();
+  });
+
+  it("uses a generated project image as main while keeping its saved reference ahead of the linked fallback", async () => {
+    vi.spyOn(API, "getAsset").mockResolvedValue({
+      asset: {
+        id: "asset-hero",
+        type: "character",
+        name: "Hero",
+        description: "global hero",
+        voice_style: "steady",
+        image_path: "_global_assets/characters/hero.png",
+        audio_path: null,
+        voice_id: null,
+        source_project: null,
+        updated_at: null,
+      },
+    });
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{
+          description: "hero desc",
+          voice_style: "warm",
+          character_sheet: "characters/Hero.png",
+          reference_image: "characters/refs/Hero.png",
+          matched_global_asset_id: "asset-hero",
+          global_asset_image_usage: "reference",
+        }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByAltText(/Hero.*角色资产图/)).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/characters/Hero.png",
+    );
+    expect(screen.getByAltText(/Hero.*参考图/)).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/characters/refs/Hero.png",
+    );
+    expect(screen.getByRole("button", { name: "将主图转为参考图" })).toBeInTheDocument();
   });
 
   it("replaces the reference audio controls with the active linked Voice ID", async () => {

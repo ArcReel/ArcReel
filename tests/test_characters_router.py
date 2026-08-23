@@ -11,6 +11,7 @@ from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.project_manager import ProjectManager
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.delete_project_asset import delete_project_asset_tool
+from server.agent_runtime.sdk_tools.project_character_images import move_character_main_to_reference_tool
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters
@@ -68,6 +69,64 @@ def _client(monkeypatch, fake_pm):
 
 
 class TestCharactersRouter:
+    def test_web_and_agent_move_main_to_reference_have_identical_results(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        image = BytesIO()
+        Image.new("RGB", (8, 8), color=(10, 20, 30)).save(image, format="PNG")
+
+        def _project(root):
+            pm = ProjectManager(root)
+            pm.create_project("demo")
+            pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+            pm.add_character("demo", "Alice", "lead")
+            project_dir = pm.get_project_path("demo")
+
+            def _register_sheet(_target) -> None:
+                register_current_resource_artifact(
+                    project_dir,
+                    resource_type="characters",
+                    resource_id="Alice",
+                )
+
+            pm.install_asset_sheet_bytes(
+                "character",
+                "demo",
+                "Alice",
+                "characters/Alice.png",
+                image.getvalue(),
+                on_commit=_register_sheet,
+            )
+            return pm, ProjectArtifactManifestAdapter(project_dir)
+
+        web_pm, web_manifest = _project(tmp_path / "web")
+        agent_pm, agent_manifest = _project(tmp_path / "agent")
+        key = ArtifactKey.asset_sheet("character", "Alice")
+
+        with _client(monkeypatch, web_pm) as client:
+            response = client.post("/api/v1/projects/demo/characters/Alice/main-to-reference")
+
+        agent_ctx = ToolContext(project_name="demo", projects_root=tmp_path / "agent", pm=agent_pm)
+
+        async def _move_via_agent():
+            return await move_character_main_to_reference_tool(agent_ctx).handler({"character_name": "Alice"})
+
+        agent_result = asyncio.run(_move_via_agent())
+
+        assert response.status_code == 200, response.text
+        assert agent_result.get("is_error") is not True
+        web_character = web_pm.load_project("demo")["characters"]["Alice"]
+        agent_character = agent_pm.load_project("demo")["characters"]["Alice"]
+        assert web_character == agent_character
+        assert web_character["character_sheet"] == ""
+        assert web_character["reference_image"] == "characters/refs/Alice.png"
+        assert (web_pm.get_project_path("demo") / web_character["reference_image"]).read_bytes() == image.getvalue()
+        assert (agent_pm.get_project_path("demo") / agent_character["reference_image"]).read_bytes() == image.getvalue()
+        assert web_manifest.get_entry(key) is None
+        assert agent_manifest.get_entry(key) is None
+
     def test_web_and_agent_delete_have_identical_persistence_and_claim_side_effects(
         self,
         tmp_path,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowUpDown, Link, Unlink } from "lucide-react";
+import { Link, Unlink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -150,34 +150,6 @@ function useProjectAssetConfiguration({
   };
 
   return { configure, disabled: busy || submitting };
-}
-
-interface ProjectAssetImageUsageSwitchProps extends ProjectAssetConfigurationControlProps {
-  imageUsage?: "main" | "reference";
-}
-
-/** 全局图片在主图 / 参考图两个槽位之间移动；按钮本身放在两个区域中间。 */
-export function ProjectAssetImageUsageSwitch({
-  imageUsage = "main",
-  ...props
-}: ProjectAssetImageUsageSwitchProps) {
-  const { t } = useTranslation("assets");
-  const { configure, disabled } = useProjectAssetConfiguration(props);
-  const nextUsage = imageUsage === "main" ? "reference" : "main";
-  const label = nextUsage === "reference" ? t("switch_to_reference_image") : t("switch_to_main_image");
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => { void configure({ image_usage: nextUsage }); }}
-      aria-label={label}
-      title={label}
-      className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      <ArrowUpDown className="h-3.5 w-3.5" />
-    </button>
-  );
 }
 
 interface ProjectAssetVoiceSourceSwitchProps extends ProjectAssetConfigurationControlProps {

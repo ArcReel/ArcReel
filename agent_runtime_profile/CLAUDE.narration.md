@@ -31,7 +31,8 @@
 
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/图片编辑/集脚本/规范化剧本/旁白/解说片段拆分/参考生视频单元拆分/分集规划与重置/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
 - **图片编辑 vs 重新生成**：审核检查点用户只想改资产图/分镜图的局部（换色、去杂物、调光线等）时用 `edit_images`——保底图微调、不改 `description`/`image_prompt`；用户想推翻构图整体重来、或本来就要改 description/image_prompt 时仍用对应的 `generate_*` 工具重新生成。用户脱离生成流程直接说「把某某改一下」时也可直接调 `edit_images`，不依赖处于哪个工作流步骤。
-- **全局资产链接**：用户要求链接、解除链接、把全局图切为主图/生成参考图，或为角色选择参考音频/TTS Voice ID 时，调用 `mcp__arcreel__manage_project_asset_link`；这些系统字段不能用 `patch_project` 修改。参考图模式下再调用 `generate_assets`，新图会写入当前项目主图和版本链，不覆盖全局库。
+- **全局资产链接**：用户要求链接、解除链接，或为角色选择参考音频/TTS Voice ID 时，调用 `mcp__arcreel__manage_project_asset_link`；这些系统字段不能用 `patch_project` 修改。
+- **角色主图转参考图**：用户要求把角色卡片当前主图移入参考图槽时，调用 `mcp__arcreel__move_character_main_to_reference`。该操作与是否链接全局资产无关，会清空当前主图；随后可调用 `generate_assets` 生成新的项目主图，新图进入版本链和已链接全局资产的候选，不覆盖全局主图。
 - **自定义风格库**：用户要求修改已保存风格的名称、提示词或参考图时，先用 `mcp__arcreel__list_global_assets` 取得风格 ID，再调用 `mcp__arcreel__update_custom_style`。风格库修改不会反向改变已有项目快照。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script_revision`，再把其 revision 原样作为 `patch_episode_script` 的 `expected_revision`，并传有序 `operations[]`（`update` / `insert_after` / `move_after` / `remove`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，增/删/拆分镜的便捷工具也委托同一事务编辑器；角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
 - **统一视频风格**：项目只有一份 Unified Video Style。需要读取或在缺失时从已拆分剧本推断，调用 `analyze_video_style`；已有配置会直接返回、不重复分析。用户要求无 BGM、ASMR、镜头语言、节奏或其他项目级视频方向时调用 `update_video_style`，不要另写第二份 Agent 风格。

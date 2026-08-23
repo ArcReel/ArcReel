@@ -96,7 +96,8 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - **生成模式**：用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知生成模式创建后不可更改，无绕过方式；宫格装配对 ad 不开放
 - **卖点**：商品已登记但 `selling_points` 为空时，从 brief、商品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
 - **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` 子任务出资产图；轻量短片可跳过，仅靠商品参考与项目 style
-- **全局资产链接**：用户要求链接、解除链接、把全局图切为主图/生成参考图，或为角色选择参考音频/TTS Voice ID 时，调用 `mcp__arcreel__manage_project_asset_link`；这些系统字段不能用 `patch_project` 修改。参考图模式下再调用 `generate_assets`，新图会写入当前项目主图和版本链，不覆盖全局库。
+- **全局资产链接**：用户要求链接、解除链接，或为角色选择参考音频/TTS Voice ID 时，调用 `mcp__arcreel__manage_project_asset_link`；这些系统字段不能用 `patch_project` 修改。
+- **角色主图转参考图**：用户要求把角色卡片当前主图移入参考图槽时，调用 `mcp__arcreel__move_character_main_to_reference`。该操作与是否链接全局资产无关，会清空当前主图；随后可调用 `generate_assets` 生成新的项目主图，新图进入版本链和已链接全局资产的候选，不覆盖全局主图。
 - **自定义风格库**：用户要求修改已保存风格的名称、提示词或参考图时，先用 `mcp__arcreel__list_global_assets` 取得风格 ID，再调用 `mcp__arcreel__update_custom_style`。风格库修改不会反向改变已有项目快照。
 - **剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与书写层正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
 - **product sheet 过目（软门禁）**：商品生成了 `product_sheet` 时，分镜开工前（参考生视频路径为首次视频生成前）安排用户到商品资产页确认 sheet 与真品一致（见下文「商品保真」）；无 sheet（仅原图）直接进入下一步

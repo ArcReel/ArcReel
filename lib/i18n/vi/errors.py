@@ -119,6 +119,8 @@ MESSAGES = {
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
     "speech_rate_out_of_range": "Nhịp đọc phải nằm trong khoảng {min} đến {max} (ký tự hoặc từ mỗi giây)",
     "character_not_found": "Nhân vật '{name}' không tồn tại",
+    "character_main_image_missing": "Nhân vật '{name}' không có ảnh chính hiện tại để chuyển sang ô tham chiếu",
+    "character_main_image_changed": "Ảnh chính của nhân vật '{name}' vừa thay đổi; hãy làm mới và thử lại",
     "character_task_submitted": "Đã gửi tác vụ tạo hình tài sản nhân vật cho '{name}'",
     "voice_sample_voice_required": "Vui lòng chọn giọng đọc trước",
     "voice_sample_text_too_long": "Văn bản mẫu không được vượt quá {max_length} ký tự",
