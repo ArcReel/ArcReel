@@ -39,6 +39,7 @@ _STEP_CHECKPOINTS: tuple[tuple[str, str | None], ...] = (
     ("script_structure", None),
     ("storyboard", "STORYBOARD"),
     ("narration_delivery", None),
+    ("video_prompt_optimization", None),
     ("video", "VIDEO"),
     ("export", "EXPORT_READY"),
 )
@@ -90,6 +91,8 @@ def _build_rule(content_mode: str, generation_mode: str) -> WorkflowRule:
     applicable = set(_CONTENT_STEPS[content_mode])
     if generation_mode == "storyboard":
         applicable.add("storyboard")
+    if generation_mode == "reference_video":
+        applicable.add("video_prompt_optimization")
     return WorkflowRule(
         content_mode=content_mode,
         generation_mode=generation_mode,

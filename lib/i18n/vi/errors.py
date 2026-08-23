@@ -1,4 +1,7 @@
 MESSAGES = {
+    "h3_prompt_missing": "Đơn vị video {unit_id} chưa có lời nhắc MiniMax H3 đã tối ưu",
+    "h3_prompt_stale": "Lời nhắc MiniMax H3 đã tối ưu của đơn vị video {unit_id} đã cũ; hãy tối ưu lại",
+    "h3_prompt_pending_review": "Lời nhắc MiniMax H3 đã tối ưu của đơn vị video {unit_id} đang chờ duyệt",
     "project_migration_failed": "Dự án '{name}' chưa hoàn tất nâng cấp dữ liệu nên không thể tạo nội dung. Lý do: {reason}. Hãy sửa trong cuộc trò chuyện với tác nhân AI rồi thử nâng cấp lại",
     "project_not_found": "Dự án '{name}' không tồn tại hoặc chưa được khởi tạo",
     "resource_not_found": "Tài nguyên được yêu cầu không tồn tại",

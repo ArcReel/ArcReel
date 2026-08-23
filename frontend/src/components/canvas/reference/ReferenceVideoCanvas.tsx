@@ -18,6 +18,7 @@ import { deriveUnitStatus } from "./unit-status";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
+import { H3PromptPanel } from "./H3PromptPanel";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
@@ -763,7 +764,7 @@ export function ReferenceVideoCanvas({
   // Reset tab to units on project/episode change (render-time derived-state pattern).
   // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
   // units 面板无脚本可读、请求会 404，应先落到 preproc 审阅 gate。
-  const [tab, setTab] = useState<"units" | "preproc">(
+  const [tab, setTab] = useState<"units" | "preproc" | "prompts">(
     hasScript || !showPreprocess ? "units" : "preproc",
   );
   const [lastEpisode, setLastEpisode] = useState(episode);
@@ -933,6 +934,18 @@ export function ReferenceVideoCanvas({
               />
             )}
           </button>
+          {hasScript && <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "prompts"}
+            onClick={() => setTab("prompts")}
+            className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
+              tab === "prompts" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+            }`}
+          >
+            {t("reference_tab_h3_prompts")}
+            {tab === "prompts" && <span aria-hidden="true" className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]" />}
+          </button>}
         </div>
         <span className="flex-1" />
         {tab === "units" && (
@@ -982,6 +995,15 @@ export function ReferenceVideoCanvas({
               lookup={mentionLookup}
             />
           </div>
+        </div>
+      ) : tab === "prompts" ? (
+        <div className="min-h-0 flex-1 bg-[oklch(0.18_0.011_250_/_0.25)]">
+          <H3PromptPanel
+            projectName={projectName}
+            episode={episode}
+            units={units}
+            narrationDelivery={narrationDelivery}
+          />
         </div>
       ) : (
         <div

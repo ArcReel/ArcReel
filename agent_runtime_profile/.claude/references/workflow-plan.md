@@ -88,6 +88,8 @@ mcp__arcreel__get_workflow_plan({
 | `patch_episode_script` | 计划注入：`next_action.args` 已给 `expected_revision` 与逐条 `problems`，一次批量改完 |
 | `choose_narration_delivery` | 计划注入：见「旁白交付」 |
 | `confirm_request_duration` | 计划注入：见「批量准入」 |
+| `optimize_video_prompt` | `mcp__arcreel__optimize_h3_video_prompts`，传同一次请求的 episode、unit_ids、narration_delivery 与已确认时长 |
+| `confirm_video_prompt` | 展示待审核提示词；用户确认后调 `mcp__arcreel__confirm_h3_video_prompts`，参数与优化时完全一致 |
 | `generate_videos` | 视频生成工具（见 `generate-video` skill） |
 | `wait_for_task` | 计划注入：有活动任务，不入队新任务；等待并复查计划 |
 | `export` | 引导用户在 Web 端导出 |
@@ -112,6 +114,8 @@ mcp__arcreel__get_workflow_plan({
 | `generate_tts` / `regenerate_tts` | 缺旁白音频 / 依据已变：经 `generate-narration-audio` 合成后重查 |
 | `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |
 | `repair_artifact_state` | 产物状态读不出来：报为独立缺口，绝不当作缺失去重生 |
+| `optimize_video_prompt` | H3 提示词缺失或依据已变：优化后重新查计划，不提交视频任务 |
+| `confirm_video_prompt` | H3 提示词已生成但待审核：用户确认后放行，不自动代替用户确认 |
 | `retry` | 可安全重发同一请求 |
 
 `retry` 与 `configure_provider` 在不入队新批次之前，先把动作原因说给用户；

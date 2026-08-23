@@ -33,6 +33,7 @@ from lib.generation_result import (
     normalize_requested_ids,
 )
 from lib.i18n import Translator
+from lib.minimax_h3_prompt import is_minimax_h3_model
 from lib.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
@@ -63,6 +64,7 @@ from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
 from server.services.cost_estimation import quote_video_request
 from server.services.generation_tasks import emit_generation_success_batch
+from server.services.h3_prompt_optimization import H3PromptOptimizationError, H3PromptOptimizationService
 from server.services.narration_delivery_tasks import (
     prepare_current_reference_video_request_options,
     tts_task_in_progress,
@@ -143,6 +145,16 @@ class GenerateUnitsBatchRequest(BaseModel):
 
     def projection_options(self) -> ReferenceRequestOptions:
         return ReferenceRequestOptions(narration_delivery=self.narration_delivery)
+
+
+class H3PromptOperationRequest(BaseModel):
+    """Final request facts shared by prompt status, optimization and review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    unit_ids: list[str] | None = None
+    narration_delivery: NarrationDelivery = POST_PRODUCTION
+    confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
 
 
 # ============ 辅助 ============
@@ -562,6 +574,59 @@ async def preview_script(
     }
 
 
+async def _run_h3_prompt_operation(
+    operation: str,
+    project_name: str,
+    episode: int,
+    req: H3PromptOperationRequest,
+) -> list[dict[str, Any]]:
+    service = H3PromptOptimizationService()
+    method = getattr(service, operation)
+    try:
+        results = await method(
+            project_name,
+            episode,
+            unit_ids=req.unit_ids,
+            narration_delivery=req.narration_delivery,
+            confirmed_request_durations=req.confirmed_request_durations,
+        )
+    except H3PromptOptimizationError as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "h3_prompt_output_invalid", "message": str(exc)},
+        ) from exc
+    return [result.model_dump(mode="json") for result in results]
+
+
+@router.post("/episodes/{episode}/h3-prompts/status")
+async def h3_prompt_status(
+    project_name: str,
+    episode: int,
+    req: H3PromptOperationRequest,
+) -> dict[str, Any]:
+    return {"states": await _run_h3_prompt_operation("states", project_name, episode, req)}
+
+
+@router.post("/episodes/{episode}/h3-prompts/optimize")
+async def optimize_h3_prompts(
+    project_name: str,
+    episode: int,
+    req: H3PromptOperationRequest,
+) -> dict[str, Any]:
+    return {"artifacts": await _run_h3_prompt_operation("optimize", project_name, episode, req)}
+
+
+@router.post("/episodes/{episode}/h3-prompts/confirm")
+async def confirm_h3_prompts(
+    project_name: str,
+    episode: int,
+    req: H3PromptOperationRequest,
+) -> dict[str, Any]:
+    return {"artifacts": await _run_h3_prompt_operation("confirm", project_name, episode, req)}
+
+
 @router.post(
     "/episodes/{episode}/units/{unit_id}/generate",
     status_code=status.HTTP_202_ACCEPTED,
@@ -615,6 +680,31 @@ async def generate_unit(
         allow_duration_confirmation=False,
         request_cost=request_cost,
     )
+    candidate = projection.provider_candidate
+    if candidate is not None and is_minimax_h3_model(candidate.model_id):
+        prompt_service = H3PromptOptimizationService()
+        prompt_context = await prompt_service.context_from_projection(
+            episode=episode,
+            project=project,
+            project_path=project_path,
+            unit=unit,
+            narration_delivery=current_options.narration_delivery,
+            projection=projection,
+        )
+        prompt_state = prompt_service.state_for_context(project_path, prompt_context)
+        if prompt_state.state != "confirmed":
+            action = (
+                "confirm_video_prompt" if prompt_state.state == "pending_review" else "optimize_video_prompt"
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": f"h3_prompt_{prompt_state.state}",
+                    "unit_id": unit_id,
+                    "state": prompt_state.state,
+                    "action": action,
+                },
+            )
 
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
     # 不再漏到执行层失败（见 ADR-0001）。
@@ -744,6 +834,7 @@ async def generate_units_batch(
         project_path=project_path,
         script=script,
         script_file=script_file,
+        episode=artifact_episode,
         units=targets,
         request_options=body.projection_options(),
         operation="generate_reference_videos_batch",

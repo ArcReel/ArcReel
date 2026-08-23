@@ -96,10 +96,13 @@ def test_rules_exhaust_the_six_content_and_generation_mode_combinations() -> Non
         step_ids = [step.id for step in rule.steps]
         assert step_ids.index("script_structure") < step_ids.index("storyboard")
         assert step_ids.index("storyboard") < step_ids.index("narration_delivery")
-        assert step_ids.index("narration_delivery") < step_ids.index("video")
+        assert step_ids.index("narration_delivery") < step_ids.index("video_prompt_optimization")
+        assert step_ids.index("video_prompt_optimization") < step_ids.index("video")
         storyboard = next(step for step in rule.steps if step.id == "storyboard")
         assert storyboard.applicable is (generation_mode == "storyboard")
         assert next(step for step in rule.steps if step.id == "narration_delivery").applicable is True
+        prompt_step = next(step for step in rule.steps if step.id == "video_prompt_optimization")
+        assert prompt_step.applicable is (generation_mode == "reference_video")
 
 
 @pytest.mark.parametrize("content_mode,generation_mode", sorted(WORKFLOW_RULES))
@@ -206,6 +209,34 @@ def test_use_tts_preserves_structured_admission_blockers() -> None:
     assert video.problems == [problem]
     assert video.admission["decision"] == "blocked"
     assert plan.next_action.type == GenerationAction.GENERATE_TTS.value
+
+
+def test_h3_prompt_blocker_owns_an_independent_step_before_video() -> None:
+    problem = GenerationProblem(
+        code="h3_prompt_missing",
+        detail="optimized prompt is missing",
+        action=GenerationAction.OPTIMIZE_VIDEO_PROMPT,
+        params={"unit_id": "E1U01"},
+    )
+    admission = BatchAdmission(
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        narration_delivery=POST_PRODUCTION,
+        tickets=(UnitAdmissionTicket("E1U01", problems=(problem,)),),
+    )
+
+    plan = build_workflow_plan(
+        _status(generation_mode="reference_video", requested_ids=["E1U01"]),
+        narration_delivery=POST_PRODUCTION,
+        admission=admission.to_payload(),
+    )
+
+    prompt_step = _step(plan, "video_prompt_optimization")
+    assert prompt_step.state is WorkflowStepState.BLOCKED
+    assert prompt_step.problems == [problem]
+    assert prompt_step.action is not None
+    assert prompt_step.action.type == WorkflowActionType.OPTIMIZE_VIDEO_PROMPT
+    assert _step(plan, "video").state is WorkflowStepState.PENDING
 
 
 def test_multiple_admission_repairs_preserve_the_first_structured_action() -> None:

@@ -1,4 +1,7 @@
 MESSAGES = {
+    "h3_prompt_missing": "Video unit {unit_id} does not have an optimized MiniMax H3 prompt yet",
+    "h3_prompt_stale": "The optimized MiniMax H3 prompt for video unit {unit_id} is stale; optimize it again",
+    "h3_prompt_pending_review": "The optimized MiniMax H3 prompt for video unit {unit_id} is waiting for review",
     "project_migration_failed": "Project '{name}' has not finished its data upgrade, so generation is unavailable. Reason: {reason}. Repair it in the agent conversation, then retry the upgrade",
     "project_not_found": "Project '{name}' does not exist or is not initialized",
     "resource_not_found": "The requested resource does not exist",

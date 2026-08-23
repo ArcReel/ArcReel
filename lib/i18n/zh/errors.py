@@ -1,4 +1,7 @@
 MESSAGES = {
+    "h3_prompt_missing": "视频单元 {unit_id} 尚未生成 MiniMax H3 优化提示词",
+    "h3_prompt_stale": "视频单元 {unit_id} 的 MiniMax H3 优化提示词已过期，请重新优化",
+    "h3_prompt_pending_review": "视频单元 {unit_id} 的 MiniMax H3 优化提示词正在等待审核确认",
     "project_migration_failed": "项目 '{name}' 的数据升级未完成，暂时无法生成内容。原因：{reason}。请在 Agent 对话中修复后重试升级",
     "project_not_found": "项目 '{name}' 不存在或未初始化",
     "resource_not_found": "请求的资源不存在",

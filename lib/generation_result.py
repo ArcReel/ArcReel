@@ -106,6 +106,9 @@ class GenerationProblemCode(StrEnum):
     TASK_CANCELLED = "generation_task_cancelled"
     TASK_INTERRUPTED = "generation_task_interrupted"
     POST_PROCESSING_FAILED = "generation_post_processing_failed"
+    H3_PROMPT_MISSING = "h3_prompt_missing"
+    H3_PROMPT_STALE = "h3_prompt_stale"
+    H3_PROMPT_PENDING_REVIEW = "h3_prompt_pending_review"
 
 
 class GenerationAction(StrEnum):
@@ -121,6 +124,8 @@ class GenerationAction(StrEnum):
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
+    OPTIMIZE_VIDEO_PROMPT = "optimize_video_prompt"
+    CONFIRM_VIDEO_PROMPT = "confirm_video_prompt"
     RETRY_PROJECT_MIGRATION = RETRY_MIGRATION_ACTION
     """Fix the reported inputs, then rerun the project's migration chain."""
     NONE = "none"
@@ -893,6 +898,8 @@ _ACTION_LABELS: dict[GenerationAction, str] = {
     GenerationAction.CONFIRM_REQUEST_DURATION: "需确认时长档位",
     GenerationAction.CONFIGURE_PROVIDER: "需配置供应商",
     GenerationAction.REPAIR_ARTIFACT_STATE: "需修复产物状态",
+    GenerationAction.OPTIMIZE_VIDEO_PROMPT: "需优化 H3 视频提示词",
+    GenerationAction.CONFIRM_VIDEO_PROMPT: "需确认 H3 视频提示词",
     GenerationAction.RETRY_PROJECT_MIGRATION: "需重试项目迁移",
     GenerationAction.NONE: "",
 }

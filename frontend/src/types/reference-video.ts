@@ -81,6 +81,43 @@ export interface ReferenceGenerationRequestOptions extends ReferenceRequestOptio
   confirmed_request_duration_seconds?: number | null;
 }
 
+export interface H3PromptReference {
+  label: string;
+  kind: string;
+  name: string;
+  path: string | null;
+}
+
+export interface H3PromptArtifact {
+  unit_id: string;
+  status: "pending_review" | "confirmed";
+  rendered_prompt: string;
+  basis_digest: string;
+  model_id: string;
+  optimizer_provider: string;
+  optimizer_model: string;
+  request_duration_seconds: number;
+  resolution: string | null;
+  aspect_ratio: string;
+  narration_delivery: string;
+  reference_images: H3PromptReference[];
+  reference_audio: H3PromptReference[];
+  optimized_at: string;
+  confirmed_at: string | null;
+}
+
+export interface H3PromptState {
+  unit_id: string;
+  state: "not_applicable" | "missing" | "stale" | "pending_review" | "confirmed";
+  artifact: H3PromptArtifact | null;
+}
+
+export interface H3PromptOperationRequest {
+  unit_ids?: string[] | null;
+  narration_delivery?: "post_production" | "use_tts";
+  confirmed_request_durations?: Record<string, number>;
+}
+
 export interface ReferenceProjectionLocation {
   path: (string | number)[];
   line: number | null;
