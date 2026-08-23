@@ -6336,9 +6336,9 @@
     "semantic_hash": ""
   },
   "lib/video_backends/minimax.py": {
-    "mtime": 1787112461.4593904,
-    "seen": 1787376469.11083,
-    "ast_hash": "533b068ff244c56e1cf76527955bfa71",
+    "mtime": 1787462997.7862387,
+    "seen": 1787463034.049254,
+    "ast_hash": "ec8de86e3d7e8fc0cd7d72b8a54a70ea",
     "semantic_hash": ""
   },
   "lib/video_backends/newapi.py": {
@@ -13266,9 +13266,9 @@
     "semantic_hash": ""
   },
   "lib/minimax_h3_prompt.py": {
-    "mtime": 1787457385.4198678,
-    "seen": 1787462481.6465962,
-    "ast_hash": "d806cfeefcfac5cc468ce7e65915b8da",
+    "mtime": 1787462997.785944,
+    "seen": 1787463034.049202,
+    "ast_hash": "f57fd6d2d4f9aadda26e6d943264c019",
     "semantic_hash": ""
   },
   "lib/task_execution_progress.py": {
@@ -13296,9 +13296,9 @@
     "semantic_hash": ""
   },
   "server/services/h3_prompt_optimization.py": {
-    "mtime": 1787462445.683019,
-    "seen": 1787462481.646708,
-    "ast_hash": "3023e69da291f7e5167c6e3c31c1c97f",
+    "mtime": 1787462997.7866023,
+    "seen": 1787463034.049314,
+    "ast_hash": "ae619c473444bbe7e360cc8500d63bb4",
     "semantic_hash": ""
   },
   "tests/scripts/test_test_changed.py": {
@@ -13314,9 +13314,9 @@
     "semantic_hash": ""
   },
   "tests/test_minimax_h3_prompt.py": {
-    "mtime": 1787462445.6850173,
-    "seen": 1787462481.646864,
-    "ast_hash": "8495ae188457b7cf67f12c5f983992d5",
+    "mtime": 1787462997.7869103,
+    "seen": 1787463034.049463,
+    "ast_hash": "18d441eb3b01cb07b9884fa591919cfc",
     "semantic_hash": ""
   },
   "tests/test_task_execution_progress.py": {
