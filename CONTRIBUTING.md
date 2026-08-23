@@ -68,8 +68,6 @@ cd frontend && pnpm check
 
 pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
-> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、eslint 强制项的现行 CI/lint 配置、`testTimeout` 等 vitest 配置、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 的 `--check` 形态与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线。整改完成后删除本段。
-
 ### 分层与目录
 
 后端每个用例恰好属于一个档位，CI 默认执行 `-m "not e2e"`：

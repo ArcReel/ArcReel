@@ -8,6 +8,7 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 
 ```bash
 uv run ruff check . && uv run ruff format . && uv run basedpyright && uv run lint-imports && uv run python -m pytest
+uv run python scripts/audit_tests.py --check   # 改动测试文件时；同时扫后端 tests/ 与前端 *.test.*
 (cd frontend && pnpm lint && pnpm check)
 (cd website && pnpm check)
 ```
