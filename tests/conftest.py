@@ -461,3 +461,20 @@ async def generation_queue(db_factory: async_sessionmaker[AsyncSession]):
     generation_queue_module._QUEUE_INSTANCE = queue
     yield queue
     generation_queue_module._QUEUE_INSTANCE = None
+
+
+# ---------------------------------------------------------------------------
+# Polling / retry clock (used by 2+ test files)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def poll_clock():
+    """``bounded_poll_clock`` 的 fixture 形态：整条用例的轮询与退避等待都走假表。
+
+    压缩语义与超时兜底与上下文管理器形态完全一致，适用于整条用例都需要假表的场景。
+    """
+    from tests.fakes import bounded_poll_clock
+
+    with bounded_poll_clock():
+        yield

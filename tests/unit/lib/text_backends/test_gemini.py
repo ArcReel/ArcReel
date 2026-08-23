@@ -13,6 +13,7 @@ from lib.text_backends.base import (
     TextGenerationResult,
 )
 from lib.text_backends.gemini import GeminiTextBackend
+from tests.fakes import bounded_poll_clock
 
 
 @pytest.fixture
@@ -233,10 +234,12 @@ class TestGenerate:
             # step2 的实际 response_schema（静态，无枚举收窄）同样过这条通道
             ReferenceStep2FlatScript,
         ]
+        assert schemas, "schema 清单为空时下面的循环形同虚设"
         for schema in schemas:
             config = backend._build_config(schema, None)
             # 不抛 = 转换后的 dict（字符串枚举、无 const）被 google-genai types.Schema 接受
-            gtypes.Schema.model_validate(config["response_schema"])
+            validated = gtypes.Schema.model_validate(config["response_schema"])
+            assert validated.type == gtypes.Type.OBJECT
 
     async def test_system_prompt(self, backend):
         mock_resp = SimpleNamespace(
@@ -414,7 +417,7 @@ class TestStructuredFallback:
         gc = AsyncMock(side_effect=[_resp(_PROSE), transient, transient, transient])
         backend._test_client.aio.models.generate_content = gc
 
-        with patch("lib.retry.asyncio.sleep", new=AsyncMock()):
+        with bounded_poll_clock():
             with pytest.raises(ConnectionError):
                 await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
 

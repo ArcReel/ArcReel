@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -15,6 +16,7 @@ from lib.video_backends.base import (
     VideoCapabilityError,
     VideoGenerationRequest,
 )
+from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 
 
 def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
@@ -57,18 +59,39 @@ def _succeeded(url: str = "https://x/o.mp4", duration: int = 5) -> dict:
     }
 
 
-def _client(*, post=None, get=None) -> AsyncMock:
-    c = AsyncMock()
-    if post is not None:
-        c.post = post
-    if get is not None:
-        c.get = get
-    c.__aenter__ = AsyncMock(return_value=c)
-    c.__aexit__ = AsyncMock(return_value=None)
-    return c
+class _RecordingClient:
+    """httpx.AsyncClient 替身：记录每次 post/get 的 url 与参数，响应由传入的替身产出。
+
+    提交体、端点、鉴权头这些契约都是「发出去的请求长什么样」，断言落在 ``posts`` / ``gets``
+    里的请求内容上，而不是替身的调用对象。
+    """
+
+    def __init__(self, *, post: AsyncMock | None = None, get: AsyncMock | None = None) -> None:
+        self.posts: list[dict[str, Any]] = []
+        self.gets: list[dict[str, Any]] = []
+        self._post = post or AsyncMock()
+        self._get = get or AsyncMock()
+
+    async def post(self, url: str, **kwargs: Any):
+        self.posts.append({"url": url, **kwargs})
+        return await self._post(url, **kwargs)
+
+    async def get(self, url: str, **kwargs: Any):
+        self.gets.append({"url": url, **kwargs})
+        return await self._get(url, **kwargs)
+
+    async def __aenter__(self) -> _RecordingClient:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
 
 
-def _patches(client: AsyncMock, download: AsyncMock):
+def _client(*, post=None, get=None) -> _RecordingClient:
+    return _RecordingClient(post=post, get=get)
+
+
+def _patches(client: _RecordingClient, download: AsyncMock):
     return (
         patch("httpx.AsyncClient", return_value=client),
         patch("lib.video_backends.dashscope.download_video", download),
@@ -231,7 +254,7 @@ class TestReferenceToVideo:
                 )
             )
 
-        body = post.call_args.kwargs["json"]
+        body = client.posts[-1]["json"]
         assert body["model"] == "happyhorse-1.0-r2v"
         media = body["input"]["media"]
         assert len(media) == 2
@@ -242,8 +265,8 @@ class TestReferenceToVideo:
         assert body["parameters"]["watermark"] is False
         assert body["parameters"]["ratio"] == "16:9"
         # submit 端点 + async 头
-        assert post.call_args.args[0].endswith("/api/v1/services/aigc/video-generation/video-synthesis")
-        assert post.call_args.kwargs["headers"]["X-DashScope-Async"] == "enable"
+        assert client.posts[-1]["url"].endswith("/api/v1/services/aigc/video-generation/video-synthesis")
+        assert client.posts[-1]["headers"]["X-DashScope-Async"] == "enable"
         # 计费时长取 usage.duration（非请求值 5）
         assert result.duration_seconds == 8
         assert result.provider == PROVIDER_DASHSCOPE
@@ -265,7 +288,7 @@ class TestReferenceToVideo:
                     prompt="p", output_path=tmp_path / "o.mp4", reference_images=refs, resolution="720p"
                 )
             )
-        assert len(post.call_args.kwargs["json"]["input"]["media"]) == 9
+        assert len(client.posts[-1]["json"]["input"]["media"]) == 9
 
     async def test_r2v_ref_limit_wan_5(self, tmp_path: Path):
         post = AsyncMock(return_value=_resp(_submit()))
@@ -282,7 +305,7 @@ class TestReferenceToVideo:
                     prompt="p", output_path=tmp_path / "o.mp4", reference_images=refs, resolution="1080p"
                 )
             )
-        assert len(post.call_args.kwargs["json"]["input"]["media"]) == 5
+        assert len(client.posts[-1]["json"]["input"]["media"]) == 5
 
     async def test_r2v_all_refs_missing_fail_loud(self, tmp_path: Path):
         # r2v 参考图缺失/不可读（含空串过滤后仍有声明项）须 fail-loud 报错列名，不静默退化
@@ -407,11 +430,11 @@ class TestFirstFrameAndTextOnly:
             await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", start_image=start, resolution="720p")
             )
-        media = post.call_args.kwargs["json"]["input"]["media"]
+        media = client.posts[-1]["json"]["input"]["media"]
         assert media == [{"type": "first_frame", "url": media[0]["url"]}]
         assert media[0]["url"].startswith("data:image/png;base64,")
         # 带首帧（图生视频）按首帧定宽高比：默认 aspect_ratio 非空也不得下传 ratio，否则上游拒绝
-        assert "ratio" not in post.call_args.kwargs["json"]["parameters"]
+        assert "ratio" not in client.posts[-1]["json"]["parameters"]
 
     async def test_t2v_no_media(self, tmp_path: Path):
         post = AsyncMock(return_value=_resp(_submit()))
@@ -423,8 +446,8 @@ class TestFirstFrameAndTextOnly:
 
             b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
             await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="1080p"))
-        assert "media" not in post.call_args.kwargs["json"]["input"]
-        assert post.call_args.kwargs["json"]["parameters"]["resolution"] == "1080P"
+        assert "media" not in client.posts[-1]["json"]["input"]
+        assert client.posts[-1]["json"]["parameters"]["resolution"] == "1080P"
 
     async def test_happyhorse_11_i2v_payload(self, tmp_path: Path):
         """1.1 与 1.0 同口径：水印显式关（官方默认开），480P 档位透传为大写。"""
@@ -440,11 +463,11 @@ class TestFirstFrameAndTextOnly:
             await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", start_image=start, resolution="480p")
             )
-        params = post.call_args.kwargs["json"]["parameters"]
-        assert post.call_args.kwargs["json"]["model"] == "happyhorse-1.1-i2v"
+        params = client.posts[-1]["json"]["parameters"]
+        assert client.posts[-1]["json"]["model"] == "happyhorse-1.1-i2v"
         assert params["watermark"] is False
         assert params["resolution"] == "480P"
-        assert post.call_args.kwargs["json"]["input"]["media"][0]["type"] == "first_frame"
+        assert client.posts[-1]["json"]["input"]["media"][0]["type"] == "first_frame"
 
 
 class TestPollingAndFailures:
@@ -466,7 +489,7 @@ class TestPollingAndFailures:
             result = await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
             )
-        assert get.call_count == 3
+        assert len(client.gets) == 3
         assert result.task_id == "t3"
 
     async def test_failed_raises(self, tmp_path: Path):
@@ -514,7 +537,7 @@ class TestResume:
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"),
             )
         post.assert_not_called()
-        assert get.call_args.args[0].endswith("/tasks/t-resume")
+        assert client.gets[-1]["url"].endswith("/tasks/t-resume")
         assert result.task_id == "t-resume"
 
     async def test_resume_unknown_raises_resume_expired(self, tmp_path: Path):
@@ -548,7 +571,7 @@ class TestResume:
                     "t-404",
                     VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"),
                 )
-            assert get.call_count == 1
+            assert len(client.gets) == 1
 
 
 class TestPersist:
@@ -556,9 +579,8 @@ class TestPersist:
         post = AsyncMock(return_value=_resp(_submit("job-9")))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
-        persist = AsyncMock()
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.video_backends.base.persist_provider_job_id", persist):
+        with p1, p2, p3, captured_provider_job_ids() as persisted:
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-i2v")
@@ -567,10 +589,9 @@ class TestPersist:
                     prompt="p", output_path=tmp_path / "o.mp4", resolution="720p", task_id="db-task-1"
                 )
             )
-        persist.assert_called_once()
-        assert persist.call_args.args[0] == "db-task-1"
-        assert persist.call_args.args[1] == "job-9"
-        assert persist.call_args.kwargs["provider"] == PROVIDER_DASHSCOPE
+        assert [(r["task_id"], r["job_id"], r["provider"]) for r in persisted] == [
+            ("db-task-1", "job-9", PROVIDER_DASHSCOPE)
+        ]
 
 
 class TestSubmit413:
@@ -599,7 +620,7 @@ class TestSubmit413:
                 )
         # 保留 status_code 让咽喉层识别 413；413 非 retryable → fail-fast 单次提交
         assert ei.value.response.status_code == 413
-        assert post.call_count == 1
+        assert len(client.posts) == 1
         download.assert_not_called()
 
 
@@ -615,14 +636,14 @@ class TestRetryStatusGating:
         post = AsyncMock(return_value=bad)
         client = _client(post=post)
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+        with p1, p2, p3, bounded_poll_clock():
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p"))
         assert ei.value.response.status_code == 400
-        assert post.call_count == 1
+        assert len(client.posts) == 1
 
     async def test_submit_real_503_retries_then_succeeds(self, tmp_path: Path):
         # 真 5xx：按 status_code 重试，第三次成功。
@@ -632,14 +653,14 @@ class TestRetryStatusGating:
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+        with p1, p2, p3, bounded_poll_clock():
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
             result = await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
             )
-        assert post.call_count == 3
+        assert len(client.posts) == 3
         assert result.task_id == "t-ok"
 
     async def test_submit_connect_error_retries(self, tmp_path: Path):
@@ -648,14 +669,14 @@ class TestRetryStatusGating:
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+        with p1, p2, p3, bounded_poll_clock():
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
             result = await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
             )
-        assert post.call_count == 2
+        assert len(client.posts) == 2
         assert result.task_id == "t-ok"
 
     async def test_poll_timeout_retries(self, tmp_path: Path):
@@ -671,7 +692,7 @@ class TestRetryStatusGating:
             result = await b.generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p")
             )
-        assert get.call_count == 2
+        assert len(client.gets) == 2
         assert result.task_id == "t-poll"
 
 
@@ -1097,8 +1118,8 @@ class TestWan3:
         await b._poll_once(client, "t-wan3", b._request_base_url)
         from lib.video_backends.dashscope import _VIDEO_ENDPOINT
 
-        assert post.await_args.args[0] == f"https://maas-cn-hangzhou.example.com/ws-123/api/v1{_VIDEO_ENDPOINT}"
-        assert get.await_args.args[0] == "https://maas-cn-hangzhou.example.com/ws-123/api/v1/tasks/t-wan3"
+        assert client.posts[-1]["url"] == f"https://maas-cn-hangzhou.example.com/ws-123/api/v1{_VIDEO_ENDPOINT}"
+        assert client.gets[-1]["url"] == "https://maas-cn-hangzhou.example.com/ws-123/api/v1/tasks/t-wan3"
 
     def test_falls_back_to_shared_base_url(self):
         b = self._backend()
@@ -1116,9 +1137,8 @@ class TestWan3:
         post = AsyncMock(return_value=_resp(_submit("t-wan3")))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
-        persist = AsyncMock()
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.video_backends.base.persist_provider_job_id", persist):
+        with p1, p2, p3, captured_provider_job_ids() as persisted:
             b = self._backend(wan3_base_url="https://maas-a.example.com/ws-1/api/v1")
             await b.generate(
                 VideoGenerationRequest(
@@ -1126,8 +1146,7 @@ class TestWan3:
                 )
             )
 
-        assert persist.call_args.kwargs["base_url"] == "https://maas-a.example.com/ws-1/api/v1"
-        assert persist.call_args.kwargs["endpoint"] is None
+        assert [(r["base_url"], r["endpoint"]) for r in persisted] == [("https://maas-a.example.com/ws-1/api/v1", None)]
 
     async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path: Path):
         """在途改 wan3_base_url 后续跑：轮询仍打提交时的域名，而非当下配置解析出的域名。"""
@@ -1147,7 +1166,7 @@ class TestWan3:
                 ),
             )
 
-        assert get.await_args.args[0] == "https://maas-a.example.com/ws-1/api/v1/tasks/t-wan3"
+        assert client.gets[-1]["url"] == "https://maas-a.example.com/ws-1/api/v1/tasks/t-wan3"
 
 
 class TestCustomProviderBaseUrlReplay:
@@ -1171,9 +1190,8 @@ class TestCustomProviderBaseUrlReplay:
         post = AsyncMock(return_value=_resp(_submit("job-c1")))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
-        persist = AsyncMock()
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.video_backends.base.persist_provider_job_id", persist):
+        with p1, p2, p3, captured_provider_job_ids() as persisted:
             backend = self._wrapped("https://custom-a.example.com")
             await backend.generate(
                 VideoGenerationRequest(
@@ -1181,8 +1199,9 @@ class TestCustomProviderBaseUrlReplay:
                 )
             )
 
-        assert persist.call_args.kwargs["endpoint"] == "dashscope-async-video"
-        assert persist.call_args.kwargs["base_url"] == "https://custom-a.example.com/api/v1"
+        assert [(r["endpoint"], r["base_url"]) for r in persisted] == [
+            ("dashscope-async-video", "https://custom-a.example.com/api/v1")
+        ]
 
     async def test_resume_polls_submitted_domain_after_base_url_change(self, tmp_path: Path):
         """在途改自定义供应商的 base_url 后续跑：轮询打提交时的域名，job 仍在该域名上。"""
@@ -1202,4 +1221,4 @@ class TestCustomProviderBaseUrlReplay:
                 ),
             )
 
-        assert get.await_args.args[0] == "https://custom-a.example.com/api/v1/tasks/job-c1"
+        assert client.gets[-1]["url"] == "https://custom-a.example.com/api/v1/tasks/job-c1"

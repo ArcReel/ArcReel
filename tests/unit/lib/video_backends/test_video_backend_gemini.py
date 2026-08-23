@@ -1,5 +1,7 @@
 """GeminiVideoBackend 单元测试 — mock genai SDK。"""
 
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,14 +10,28 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
+from tests.fakes import bounded_poll_clock
+
+
+class _RecordingRateLimiter:
+    """限流器替身：记录每次取配额时报的模型名，不做等待。
+
+    「按型号取配额」这个契约落在 ``acquired`` 记录的模型名上，而不是替身的调用对象。
+    """
+
+    def __init__(self) -> None:
+        self.acquired: list[str] = []
+
+    def acquire(self, model: str) -> None:
+        self.acquired.append(model)
+
+    async def acquire_async(self, model: str) -> None:
+        self.acquired.append(model)
 
 
 @pytest.fixture
 def mock_rate_limiter():
-    rl = MagicMock()
-    rl.acquire = MagicMock()
-    rl.acquire_async = AsyncMock()
-    return rl
+    return _RecordingRateLimiter()
 
 
 @pytest.fixture
@@ -151,8 +167,7 @@ class TestGeminiVideoBackendGenerate:
             output_path=output,
         )
 
-        # patch asyncio.sleep 以避免实际等待
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+        with bounded_poll_clock():
             result = await gemini_backend.generate(request)
 
         assert result.provider == "gemini"
@@ -209,7 +224,7 @@ class TestGeminiVideoBackendGenerate:
         )
 
         await gemini_backend.generate(request)
-        mock_rate_limiter.acquire_async.assert_called_once_with(gemini_backend._video_model)
+        assert mock_rate_limiter.acquired == [gemini_backend._video_model]
 
     async def test_no_negative_prompt_in_config(self, gemini_backend, tmp_path):
         """negative_prompt 改走 prompt 文本通道，GenerateVideosConfig 不再带该字段。"""
@@ -248,7 +263,7 @@ class TestGeminiRetryBehavior:
         )
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+        with bounded_poll_clock():
             result = await gemini_backend.generate(request)
 
         assert result.provider == "gemini"
@@ -269,8 +284,7 @@ class TestGeminiRetryBehavior:
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with (
-            patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
-            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            bounded_poll_clock(),
         ):
             result = await gemini_backend.generate(request)
 
@@ -290,7 +304,7 @@ class TestGeminiRetryBehavior:
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(ValueError, match="invalid response"):
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 await gemini_backend.generate(request)
 
         # 创建只调用一次
@@ -324,15 +338,35 @@ class TestPrepareImageParam:
 # ── _download_video 测试 ──────────────────────────────────
 
 
+class _AiStudioFileRef:
+    """AI Studio 文件引用替身：先 download 取到字节，save 才能把它落到给定路径。
+
+    这一支的契约是「下载后落盘到 output_path」，断言落在真实文件内容上；顺序颠倒
+    （未下载先落盘）在替身里直接 fail-loud。
+    """
+
+    def __init__(self, content: bytes = b"aistudio-bytes") -> None:
+        self._content = content
+        self._downloaded = False
+
+    def download(self) -> None:
+        self._downloaded = True
+
+    def save(self, path: str) -> None:
+        if not self._downloaded:
+            raise RuntimeError("save 前须先 files.download 取到字节")
+        Path(path).write_bytes(self._content)
+
+
 class TestDownloadVideo:
     def test_aistudio_download(self, gemini_backend, tmp_path):
         output = tmp_path / "video.mp4"
-        mock_ref = MagicMock()
+        ref = _AiStudioFileRef()
+        gemini_backend._client = SimpleNamespace(files=SimpleNamespace(download=lambda file: file.download()))
 
-        gemini_backend._download_video(mock_ref, output)
+        gemini_backend._download_video(ref, output)
 
-        gemini_backend._client.files.download.assert_called_once_with(file=mock_ref)
-        mock_ref.save.assert_called_once_with(str(output))
+        assert output.read_bytes() == b"aistudio-bytes"
 
     def test_vertex_download_from_bytes(self, gemini_backend, tmp_path):
         gemini_backend._backend_type = "vertex"
@@ -377,7 +411,7 @@ class TestGeminiResumeVideo:
         gemini_backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=pending_op)
 
         request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+        with bounded_poll_clock():
             with pytest.raises(ResumeExpiredError) as ei:
                 await gemini_backend.resume_video("op-xyz", request)
         assert ei.value.job_id == "op-xyz"

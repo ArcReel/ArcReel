@@ -1,6 +1,9 @@
 """instructor_support 模块测试。"""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -106,6 +109,39 @@ def _tools_rejected_error() -> InstructorRetryException:
     return instructor_api_call_exhausted(_bad_request("tools is not supported by this endpoint"))
 
 
+@contextmanager
+def _recorded_instructor(
+    result: tuple[Any, Any], *, is_async: bool = False
+) -> Iterator[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+    """instructor 入口的记录器：记下 from_openai 与 create_with_completion 的参数。
+
+    mode 选择、导线参数名这些契约都是「最终发往端点的调用长什么样」，断言落在记录的参数上，
+    而不是替身的调用对象。
+    """
+    patched_with: list[dict[str, Any]] = []
+    calls: list[dict[str, Any]] = []
+
+    class _Completions:
+        def create_with_completion(self, **kwargs: Any) -> Any:
+            calls.append(kwargs)
+            if is_async:
+
+                async def _await_result() -> tuple[Any, Any]:
+                    return result
+
+                return _await_result()
+            return result
+
+    patched = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()))
+
+    def _from_openai(client: Any, **kwargs: Any) -> Any:
+        patched_with.append({"client": client, **kwargs})
+        return patched
+
+    with patch("lib.text_backends.instructor_support.instructor.from_openai", _from_openai):
+        yield patched_with, calls
+
+
 class TestGenerateStructuredViaInstructor:
     def test_returns_json_and_tokens(self):
         """正确返回 JSON 文本和 token 统计。"""
@@ -135,23 +171,14 @@ class TestGenerateStructuredViaInstructor:
         assert output_tokens == 20
 
     def test_passes_mode_and_retries(self):
-        """正确传递 mode 和 max_retries 参数。"""
-        from instructor import Mode
-
+        """mode 交给 from_openai，其余参数原样上线。"""
         mock_client = MagicMock()
         sample = SampleModel(name="Bob", age=25)
         mock_completion = SimpleNamespace(
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
         )
 
-        with patch("lib.text_backends.instructor_support.instructor") as mock_instructor:
-            mock_patched = MagicMock()
-            mock_instructor.from_openai.return_value = mock_patched
-            mock_patched.chat.completions.create_with_completion.return_value = (
-                sample,
-                mock_completion,
-            )
-
+        with _recorded_instructor((sample, mock_completion)) as (patched_with, calls):
             generate_structured_via_instructor(
                 client=mock_client,
                 model="test-model",
@@ -161,15 +188,15 @@ class TestGenerateStructuredViaInstructor:
                 max_retries=3,
             )
 
-            # 验证 from_openai 使用了正确的 mode
-            mock_instructor.from_openai.assert_called_once_with(mock_client, mode=Mode.MD_JSON)
-            # 验证 create_with_completion 使用了正确的参数
-            mock_patched.chat.completions.create_with_completion.assert_called_once_with(
-                model="test-model",
-                messages=[{"role": "user", "content": "test"}],
-                response_model=SampleModel,
-                max_retries=3,
-            )
+        assert patched_with == [{"client": mock_client, "mode": Mode.MD_JSON}]
+        assert calls == [
+            {
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "test"}],
+                "response_model": SampleModel,
+                "max_retries": 3,
+            }
+        ]
 
     def test_handles_none_usage(self):
         """completion.usage 为 None 时返回 None token 统计。"""
@@ -356,13 +383,11 @@ class TestInstructorFallbackSync:
         assert call_kwargs["response_format"] == {"type": "json_object"}
 
     def test_pydantic_branch_forwards_token_param(self):
-        """Pydantic 分支把 token_param 转发给 generate_structured_via_instructor。"""
+        """Pydantic 分支的 token_param 一路传到导线：值以 max_completion_tokens 为参数名上线。"""
         sample = SampleModel(name="Alice", age=30)
+        completion = SimpleNamespace(usage=None)
 
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            return_value=(sample.model_dump_json(), 50, 20),
-        ) as mock_gen:
+        with _recorded_instructor((sample, completion)) as (_patched_with, calls):
             instructor_fallback_sync(
                 client=MagicMock(),
                 model="test-model",
@@ -373,8 +398,15 @@ class TestInstructorFallbackSync:
                 token_param="max_completion_tokens",
             )
 
-        assert mock_gen.call_args[1]["token_param"] == "max_completion_tokens"
-        assert mock_gen.call_args[1]["max_tokens"] == 500
+        assert calls == [
+            {
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "test"}],
+                "response_model": SampleModel,
+                "max_retries": 2,
+                "max_completion_tokens": 500,
+            }
+        ]
 
     def test_dict_branch_default_token_param(self):
         """dict 分支默认以 max_tokens 为参数名上线。"""
@@ -868,13 +900,11 @@ class TestInstructorFallbackAsync:
         assert result.output_tokens == 12
 
     async def test_pydantic_branch_forwards_token_param_async(self):
-        """异步 Pydantic 分支把 token_param 转发给 generate_structured_via_instructor_async。"""
+        """异步 Pydantic 分支的 token_param 一路传到导线：值以 max_completion_tokens 为参数名上线。"""
         sample = SampleModel(name="Bob", age=25)
+        completion = SimpleNamespace(usage=None)
 
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor_async",
-            return_value=(sample.model_dump_json(), 40, 18),
-        ) as mock_gen:
+        with _recorded_instructor((sample, completion), is_async=True) as (_patched_with, calls):
             await instructor_fallback_async(
                 client=AsyncMock(),
                 model="async-model",
@@ -885,8 +915,15 @@ class TestInstructorFallbackAsync:
                 token_param="max_completion_tokens",
             )
 
-        assert mock_gen.call_args[1]["token_param"] == "max_completion_tokens"
-        assert mock_gen.call_args[1]["max_tokens"] == 600
+        assert calls == [
+            {
+                "model": "async-model",
+                "messages": [{"role": "user", "content": "test"}],
+                "response_model": SampleModel,
+                "max_retries": 2,
+                "max_completion_tokens": 600,
+            }
+        ]
 
     async def test_dict_branch_default_token_param_async(self):
         """异步 dict 分支默认以 max_tokens 为参数名上线。"""

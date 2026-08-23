@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -50,15 +53,26 @@ class TestApiKeyResolution:
             resolve_ark_api_key("   ")
 
 
+@contextmanager
+def _recorded_ark_sdk() -> Iterator[list[dict[str, Any]]]:
+    """Ark SDK 类构造的记录器：收下建客户端的参数，回一个空替身。"""
+    created: list[dict[str, Any]] = []
+
+    def _create(**kwargs: Any) -> Any:
+        created.append(kwargs)
+        return MagicMock()
+
+    with patch("volcenginesdkarkruntime.Ark", _create):
+        yield created
+
+
 class TestCreateArkClient:
     def test_trailing_slash_normalized_before_client_construction(self):
-        mock_ark_cls = MagicMock()
-        with patch("volcenginesdkarkruntime.Ark", mock_ark_cls):
+        with _recorded_ark_sdk() as created:
             create_ark_client(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/v3/")
-        mock_ark_cls.assert_called_once_with(base_url=ARK_BASE_URL, api_key="k")
+        assert created == [{"base_url": ARK_BASE_URL, "api_key": "k"}]
 
     def test_default_base_url_when_omitted(self):
-        mock_ark_cls = MagicMock()
-        with patch("volcenginesdkarkruntime.Ark", mock_ark_cls):
+        with _recorded_ark_sdk() as created:
             create_ark_client(api_key="k")
-        mock_ark_cls.assert_called_once_with(base_url=ARK_BASE_URL, api_key="k")
+        assert created == [{"base_url": ARK_BASE_URL, "api_key": "k"}]

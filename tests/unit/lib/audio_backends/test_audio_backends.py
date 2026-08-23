@@ -3,11 +3,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
+from typing import Any, NamedTuple
+from unittest.mock import patch
 
 import httpx
 import pytest
+import respx
 
 from lib.audio_backends import (
     AudioCapability,
@@ -18,6 +23,8 @@ from lib.audio_backends import (
 )
 from lib.dashscope_shared import extract_audio_url
 from lib.providers import PROVIDER_DASHSCOPE
+from tests.fakes import captured_openai_clients
+from tests.http_capture import capture_http, only_request, request_json
 
 
 class TestRegistry:
@@ -60,27 +67,37 @@ class TestExtractAudioUrl:
             extract_audio_url({"code": "InvalidApiKey", "message": "bad key"})
 
 
-def _synth_response(url: str = "https://x/out.wav") -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = {"output": {"audio": {"url": url}}}
-    return resp
+_SYNTH_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+_AUDIO_URL = "https://x/out.wav"
 
 
-def _download_response(content: bytes = b"RIFFfakewav") -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.content = content
-    return resp
+class _DashScopeRoutes(NamedTuple):
+    synthesize: respx.Route
+    download: respx.Route
 
 
-def _mock_client(post_resp: httpx.Response | MagicMock, get_resp: httpx.Response | MagicMock) -> AsyncMock:
-    client = AsyncMock()
-    client.post = AsyncMock(return_value=post_resp)
-    client.get = AsyncMock(return_value=get_resp)
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=None)
-    return client
+@contextmanager
+def _dashscope_audio_routes(
+    *,
+    synth: httpx.Response | None = None,
+    download: httpx.Response | list[httpx.Response | Exception] | None = None,
+    audio_url: str = _AUDIO_URL,
+    synth_url: str = _SYNTH_URL,
+) -> Iterator[_DashScopeRoutes]:
+    """DashScope TTS 的两条出站流：合成 POST 与音频 GET。
+
+    走 respx 在 transport 层拦截，断言对象是真实序列化后的请求（URL 拼接、鉴权头、body 编码
+    都在断言范围内），而不是客户端替身记录的调用参数。
+    """
+    with capture_http() as router:
+        synth_route = router.post(synth_url)
+        synth_route.mock(return_value=synth or httpx.Response(200, json={"output": {"audio": {"url": audio_url}}}))
+        download_route = router.get(audio_url)
+        if isinstance(download, list):
+            download_route.mock(side_effect=download)
+        else:
+            download_route.mock(return_value=download or httpx.Response(200, content=b"RIFFfakewav"))
+        yield _DashScopeRoutes(synthesize=synth_route, download=download_route)
 
 
 class TestDashScopeAudioBackend:
@@ -111,27 +128,26 @@ class TestDashScopeAudioBackend:
         assert voices is not b.list_voices()
 
     async def test_synthesize_request_and_download(self, tmp_path: Path):
-        client = _mock_client(_synth_response(), _download_response(b"RIFFwavbytes"))
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes(download=httpx.Response(200, content=b"RIFFwavbytes")) as routes:
             b = DashScopeAudioBackend(api_key="sk", model="qwen3-tts-flash", base_url="https://dashscope.aliyuncs.com")
             out = tmp_path / "o.wav"
             result = await b.synthesize(
                 AudioSynthesisRequest(text="你好世界", output_path=out, voice="Cherry", language_type="Chinese")
             )
 
-        body = client.post.call_args.kwargs["json"]
+        submitted = only_request(routes.synthesize)
+        body = request_json(submitted)
         assert body["model"] == "qwen3-tts-flash"
         assert body["input"] == {"text": "你好世界", "voice": "Cherry", "language_type": "Chinese"}
         # 同步 TTS 不带 async 头
-        headers = client.post.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer sk"
-        assert "X-DashScope-Async" not in headers
+        assert submitted.headers["Authorization"] == "Bearer sk"
+        assert "X-DashScope-Async" not in submitted.headers
         # 端点：host 派生 /api/v1 + 多模态生成路径
-        assert client.post.call_args.args[0].endswith("/api/v1/services/aigc/multimodal-generation/generation")
+        assert submitted.url.path == "/api/v1/services/aigc/multimodal-generation/generation"
         # 下载 URL 命中响应里的 audio.url
-        assert client.get.call_args.args[0] == "https://x/out.wav"
+        assert str(only_request(routes.download).url) == _AUDIO_URL
         # 字节落盘 + 结果字段
         assert out.read_bytes() == b"RIFFwavbytes"
         assert result.provider == PROVIDER_DASHSCOPE
@@ -141,123 +157,105 @@ class TestDashScopeAudioBackend:
 
     async def test_speed_param_ignored(self, tmp_path: Path):
         # speed 仅 realtime 支持，同步模型忽略（不报错、请求体不带 speed）
-        client = _mock_client(_synth_response(), _download_response())
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes() as routes:
             b = DashScopeAudioBackend(api_key="sk")
             await b.synthesize(
                 AudioSynthesisRequest(text="hi", output_path=tmp_path / "s.wav", voice="Ethan", speed=1.5)
             )
-        body = client.post.call_args.kwargs["json"]
+
+        body = request_json(only_request(routes.synthesize))
         assert "speed" not in body["input"]
         assert "speech_rate" not in body["input"]
 
     async def test_http_error_raises(self, tmp_path: Path):
         # 4xx 透出 httpx.HTTPStatusError（与其余 backend 一致），不嵌响应体进异常消息；提交按状态码不可重试
-        err_resp = httpx.Response(400, text="bad request", request=httpx.Request("POST", "https://x"))
-        client = _mock_client(err_resp, _download_response())
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes(synth=httpx.Response(400, text="bad request")) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             with pytest.raises(httpx.HTTPStatusError):
                 await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
-        # 4xx 按 status_code fail-fast：计费的合成 POST 只发一次、不连带触发下载
-        assert client.post.call_count == 1
-        client.get.assert_not_called()
 
-    async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path, monkeypatch):
+        # 4xx 按 status_code fail-fast：计费的合成 POST 只发一次、不连带触发下载
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 0
+
+    async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path, poll_clock):
         # 4xx 错误消息带 "503" 子串（请求 URL/task_id）：旧字符串兜底会据此误判重试到超时，
         # 新状态码谓词只读 response.status_code，按 400 fail-fast——计费的合成 POST 只发一次、不连带下载。
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
-        err_resp = httpx.Response(
-            400, text="bad request", request=httpx.Request("POST", "https://x/api/v1/tasks/job-503")
-        )
-        client = _mock_client(err_resp, _download_response())
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
-            b = DashScopeAudioBackend(api_key="sk")
+        # host 里带 503 让异常文本命中瞬态子串——真实形态是请求 URL / task_id 里出现的数字
+        host = "https://dashscope-503.example.com"
+        with _dashscope_audio_routes(
+            synth=httpx.Response(400, text="bad request"),
+            synth_url=f"{host}/api/v1/services/aigc/multimodal-generation/generation",
+        ) as routes:
+            b = DashScopeAudioBackend(api_key="sk", base_url=host)
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
+
         # 异常字符串确实带瞬态子串（旧兜底据此误判重试的前提）；新谓词按状态码单次 fail-fast
         assert "503" in str(ei.value)
         assert ei.value.response.status_code == 400
-        assert client.post.call_count == 1
-        client.get.assert_not_called()
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 0
 
-    async def test_download_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
+    async def test_download_failure_does_not_rebill_synthesis(self, tmp_path: Path, poll_clock):
         # 下载瞬时失败只重试 GET，绝不回头重跑会再次计费的合成 POST。
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
-        client = AsyncMock()
-        client.post = AsyncMock(return_value=_synth_response())
-        client.get = AsyncMock(side_effect=[httpx.ConnectError("transient"), _download_response(b"ok")])
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=None)
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes(
+            download=[httpx.ConnectError("transient"), httpx.Response(200, content=b"ok")]
+        ) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "d.wav"
             await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
         # 合成 POST 只发一次（未被下载重试连带重跑 → 不重复计费），下载 GET 重试到第 2 次成功
-        assert client.post.call_count == 1
-        assert client.get.call_count == 2
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 2
         assert out.read_bytes() == b"ok"
 
-    async def test_empty_download_retried_then_rejected_no_file(self, tmp_path: Path, monkeypatch):
+    async def test_empty_download_retried_then_rejected_no_file(self, tmp_path: Path, poll_clock):
         # 200 但空体视为瞬态：重试到下载上限后失败，不写 0 字节 wav，合成 POST 不被重跑。
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
         from lib.retry import DOWNLOAD_MAX_ATTEMPTS
 
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
-        client = AsyncMock()
-        client.post = AsyncMock(return_value=_synth_response())
-        client.get = AsyncMock(return_value=_download_response(b""))
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=None)
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
-
+        with _dashscope_audio_routes(download=httpx.Response(200, content=b"")) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "empty.wav"
             with pytest.raises(RuntimeError, match="空内容"):
                 await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
-        assert client.post.call_count == 1
-        assert client.get.call_count == DOWNLOAD_MAX_ATTEMPTS
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == DOWNLOAD_MAX_ATTEMPTS
         assert not out.exists()
 
-    async def test_empty_download_transient_recovers(self, tmp_path: Path, monkeypatch):
+    async def test_empty_download_transient_recovers(self, tmp_path: Path, poll_clock):
         # 空体一次后恢复：重试拿到字节落盘，合成 POST 不被重跑
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
-        client = AsyncMock()
-        client.post = AsyncMock(return_value=_synth_response())
-        client.get = AsyncMock(side_effect=[_download_response(b""), _download_response(b"ok")])
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=None)
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes(
+            download=[httpx.Response(200, content=b""), httpx.Response(200, content=b"ok")]
+        ) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "recover.wav"
             await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
-        assert client.post.call_count == 1
-        assert client.get.call_count == 2
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 2
         assert out.read_bytes() == b"ok"
 
-    async def test_download_http_error_raises(self, tmp_path: Path, monkeypatch):
+    async def test_download_http_error_raises(self, tmp_path: Path, poll_clock):
         # 下载 4xx：透出 httpx.HTTPStatusError 且不写文件、不被误判可重试、合成 POST 不被重跑；
         # 异常文本不携带预签名 query（有效期内等同下载凭证）
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
-        signed_url = "https://x/out.wav?Expires=1&Signature=topsecret"
-        err_resp = httpx.Response(404, request=httpx.Request("GET", signed_url))
-        client = _mock_client(_synth_response(signed_url), err_resp)
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        signed_url = "https://x/out.wav?Expires=1&Signature=topsecret"
+        with _dashscope_audio_routes(audio_url=signed_url, download=httpx.Response(404)) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "err.wav"
             with pytest.raises(httpx.HTTPStatusError) as excinfo:
@@ -266,30 +264,43 @@ class TestDashScopeAudioBackend:
         assert "Signature" not in str(excinfo.value)
         assert "https://x/out.wav" in str(excinfo.value)
         assert excinfo.value.response.status_code == 404
-        assert client.post.call_count == 1
-        assert client.get.call_count == 1, "4xx 不可重试，下载 GET 不应被重试"
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 1, "4xx 不可重试，下载 GET 不应被重试"
         assert not out.exists()
 
 
-def _mock_speech_client(content: bytes = b"RIFFwavbytes") -> AsyncMock:
-    speech_resp = MagicMock()
-    speech_resp.content = content
-    client = AsyncMock()
-    client.audio.speech.create = AsyncMock(return_value=speech_resp)
-    return client
+class _RecordingSpeechClient:
+    """OpenAI 兼容 TTS 客户端替身：记录每次 speech.create 的请求参数，回固定字节。
+
+    上线参数、落盘格式这些契约都是「发出去的请求长什么样」，断言落在 ``requests`` 里的
+    请求内容上，而不是替身的调用对象。
+    """
+
+    def __init__(self, content: bytes = b"RIFFwavbytes") -> None:
+        self.requests: list[dict[str, Any]] = []
+        self._response = SimpleNamespace(content=content)
+        self.audio = SimpleNamespace(speech=SimpleNamespace(create=self._create))
+
+    async def _create(self, **kwargs: Any) -> SimpleNamespace:
+        self.requests.append(kwargs)
+        return self._response
+
+
+def _mock_speech_client(content: bytes = b"RIFFwavbytes") -> _RecordingSpeechClient:
+    return _RecordingSpeechClient(content)
 
 
 class TestOpenAIAudioBackend:
     async def test_synthesize_request_and_bytes(self, tmp_path: Path):
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", base_url="https://relay.example.com/v1", model="tts-1")
             out = tmp_path / "o.wav"
             result = await b.synthesize(AudioSynthesisRequest(text="你好世界", output_path=out, voice="alloy"))
 
-        kwargs = mock_client.audio.speech.create.call_args.kwargs
+        kwargs = mock_client.requests[-1]
         assert kwargs["model"] == "tts-1"
         assert kwargs["input"] == "你好世界"
         assert kwargs["voice"] == "alloy"
@@ -302,7 +313,7 @@ class TestOpenAIAudioBackend:
         assert result.output_path == out
 
     def test_metadata(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
             from lib.providers import PROVIDER_OPENAI
 
@@ -313,14 +324,14 @@ class TestOpenAIAudioBackend:
 
     def test_provider_name_override(self):
         # 包装层（自定义供应商）可用真实 provider 记账
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1", provider_name="custom-7")
             assert b.name == "custom-7"
 
     def test_list_voices_returns_official_catalog(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="gpt-4o-mini-tts")
@@ -330,7 +341,7 @@ class TestOpenAIAudioBackend:
             assert len(ids) == len(voices)
 
     def test_list_voices_excludes_unsupported_ids_for_legacy_models(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             for legacy_model in ("tts-1", "tts-1-hd"):
@@ -341,7 +352,7 @@ class TestOpenAIAudioBackend:
 
     def test_list_voices_returns_full_catalog_for_custom_openai_tts_endpoint(self):
         """自定义 openai-tts endpoint 未落入官方 legacy 集合时不额外收窄，保持既有兼容口径。"""
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="fish-audio-v1", provider_name="custom-7")
@@ -352,7 +363,7 @@ class TestOpenAIAudioBackend:
         """自定义供应商即使模型名恰好也叫 tts-1/tts-1-hd，也无法确定其继承官方同名模型的
         音色限制——legacy 收窄只对 provider_name 为官方 openai 时生效，避免对无法验证的
         第三方 endpoint 误收窄。"""
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             for legacy_model in ("tts-1", "tts-1-hd"):
@@ -362,45 +373,45 @@ class TestOpenAIAudioBackend:
 
     async def test_speed_passthrough_and_omitted_when_none(self, tmp_path: Path):
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
             await b.synthesize(AudioSynthesisRequest(text="hi", output_path=tmp_path / "a.wav", voice="alloy"))
-            assert "speed" not in mock_client.audio.speech.create.call_args.kwargs
+            assert "speed" not in mock_client.requests[-1]
 
             await b.synthesize(
                 AudioSynthesisRequest(text="hi", output_path=tmp_path / "b.wav", voice="alloy", speed=1.5)
             )
-            assert mock_client.audio.speech.create.call_args.kwargs["speed"] == 1.5
+            assert mock_client.requests[-1]["speed"] == 1.5
 
     async def test_language_type_not_sent(self, tmp_path: Path):
         # /v1/audio/speech 无语种字段（DashScope 特有），不应混入请求
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
             await b.synthesize(
                 AudioSynthesisRequest(text="hi", output_path=tmp_path / "c.wav", voice="alloy", language_type="Chinese")
             )
-        kwargs = mock_client.audio.speech.create.call_args.kwargs
+        kwargs = mock_client.requests[-1]
         assert "language_type" not in kwargs
         assert "language" not in kwargs
 
     async def test_unknown_suffix_falls_back_to_wav(self, tmp_path: Path):
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
             await b.synthesize(AudioSynthesisRequest(text="hi", output_path=tmp_path / "x.bin", voice="alloy"))
-        assert mock_client.audio.speech.create.call_args.kwargs["response_format"] == "wav"
+        assert mock_client.requests[-1]["response_format"] == "wav"
 
     async def test_empty_body_rejected_no_file_no_rebill(self, tmp_path: Path):
         # 200 + 空体：不落 0 字节文件、不重试（重试 = 再次计费）
         mock_client = _mock_speech_client(content=b"")
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
@@ -408,14 +419,13 @@ class TestOpenAIAudioBackend:
             with pytest.raises(RuntimeError, match="空响应体"):
                 await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="alloy"))
 
-        assert mock_client.audio.speech.create.call_count == 1
+        assert len(mock_client.requests) == 1
         assert not out.exists()
 
-    async def test_write_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
+    async def test_write_failure_does_not_rebill_synthesis(self, tmp_path: Path, poll_clock):
         # 写盘瞬态失败（消息含可重试模式）不应回头重跑会再次计费的合成调用
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
@@ -426,4 +436,4 @@ class TestOpenAIAudioBackend:
                 with patch.object(type(req.output_path), "write_bytes", side_effect=OSError("Connection timed out")):
                     await b.synthesize(req)
 
-        assert mock_client.audio.speech.create.call_count == 1, "写盘失败不得重跑计费的合成调用"
+        assert len(mock_client.requests) == 1, "写盘失败不得重跑计费的合成调用"

@@ -3,9 +3,32 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+@contextmanager
+def _recorded_genai_clients(models: list[Any] | None = None) -> Iterator[list[dict[str, Any]]]:
+    """genai 客户端构造的记录器：收下建客户端的参数，回一个列出给定模型的替身。
+
+    鉴权与 base_url 透传的契约就是构造参数本身，断言落在记录的参数上，而不是替身的调用对象。
+    """
+    created: list[dict[str, Any]] = []
+    listed = list(models or [])
+    client = SimpleNamespace(models=SimpleNamespace(list=lambda: listed))
+
+    def _create(**kwargs: Any) -> Any:
+        created.append(kwargs)
+        return client
+
+    with patch("lib.custom_provider.discovery.genai.Client", _create):
+        yield created
+
 
 # ---------------------------------------------------------------------------
 # infer_endpoint smoke check（主体已在 test_custom_provider_endpoints.py 覆盖）
@@ -318,42 +341,31 @@ class TestDiscoverModelsGoogle:
         assert result[0]["model_id"] == "gemini-3-flash"
         assert result[0]["display_name"] == "gemini-3-flash"
 
-    @patch("lib.custom_provider.discovery.genai")
-    async def test_no_base_url(self, mock_genai):
+    async def test_no_base_url(self):
         """base_url 为 None 时不传 http_options。"""
-        mock_client = MagicMock()
-        mock_genai.Client.return_value = mock_client
-        mock_client.models.list.return_value = []
-
         from lib.custom_provider.discovery import discover_models
 
-        await discover_models(
-            discovery_format="google",
-            base_url=None,
-            api_key="test-key",
-        )
+        with _recorded_genai_clients() as created:
+            await discover_models(
+                discovery_format="google",
+                base_url=None,
+                api_key="test-key",
+            )
 
-        mock_genai.Client.assert_called_once_with(api_key="test-key")
+        assert created == [{"api_key": "test-key"}]
 
-    @patch("lib.custom_provider.discovery.genai")
-    async def test_with_base_url(self, mock_genai):
+    async def test_with_base_url(self):
         """base_url 不为空时传 http_options。"""
-        mock_client = MagicMock()
-        mock_genai.Client.return_value = mock_client
-        mock_client.models.list.return_value = []
-
         from lib.custom_provider.discovery import discover_models
 
-        await discover_models(
-            discovery_format="google",
-            base_url="https://custom-endpoint.com/",
-            api_key="test-key",
-        )
+        with _recorded_genai_clients() as created:
+            await discover_models(
+                discovery_format="google",
+                base_url="https://custom-endpoint.com/",
+                api_key="test-key",
+            )
 
-        mock_genai.Client.assert_called_once_with(
-            api_key="test-key",
-            http_options={"base_url": "https://custom-endpoint.com/"},
-        )
+        assert created == [{"api_key": "test-key", "http_options": {"base_url": "https://custom-endpoint.com/"}}]
 
 
 # ---------------------------------------------------------------------------

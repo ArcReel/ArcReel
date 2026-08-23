@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import grpc
 import grpc.aio
@@ -10,6 +10,7 @@ import pytest
 
 from lib.grok_shared import grok_should_retry
 from lib.retry import with_retry_async
+from tests.fakes import bounded_poll_clock
 
 
 def _make_aio_rpc_error(code: grpc.StatusCode, details: str = "") -> grpc.aio.AioRpcError:
@@ -81,7 +82,7 @@ class TestGrokRetryIntegration:
         async def fn():
             return await mock_fn()
 
-        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+        with bounded_poll_clock():
             result = await fn()
 
         assert result == "ok"

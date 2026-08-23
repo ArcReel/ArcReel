@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
+from tests.http_capture import capture_http
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _image_download(url: str, content: bytes) -> Iterator[respx.Route]:
+    """成图下载的出站流：base 层用真实 httpx 取字节，走 respx 在 transport 层拦截。"""
+    with capture_http() as router:
+        yield router.get(url).mock(return_value=httpx.Response(200, content=content))
 
 
 @pytest.fixture()
@@ -94,15 +106,7 @@ class TestGenerateT2I:
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
-        with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
-            mock_http = AsyncMock()
-            MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_resp = MagicMock()
-            mock_resp.content = fake_image_bytes
-            mock_resp.raise_for_status = MagicMock()
-            mock_http.get = AsyncMock(return_value=mock_resp)
-
+        with _image_download(mock_response.url, fake_image_bytes):
             request = ImageGenerationRequest(
                 prompt="A beautiful sunset",
                 output_path=output,
@@ -145,15 +149,7 @@ class TestGenerateI2I:
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
 
-        with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
-            mock_http = AsyncMock()
-            MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_resp = MagicMock()
-            mock_resp.content = fake_image_bytes
-            mock_resp.raise_for_status = MagicMock()
-            mock_http.get = AsyncMock(return_value=mock_resp)
-
+        with _image_download(mock_response.url, fake_image_bytes):
             request = ImageGenerationRequest(
                 prompt="Make it darker",
                 output_path=output,
@@ -183,15 +179,7 @@ class TestGenerateI2I:
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
 
-        with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
-            mock_http = AsyncMock()
-            MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_resp = MagicMock()
-            mock_resp.content = fake_image_bytes
-            mock_resp.raise_for_status = MagicMock()
-            mock_http.get = AsyncMock(return_value=mock_resp)
-
+        with _image_download(mock_response.url, fake_image_bytes):
             request = ImageGenerationRequest(
                 prompt="Merge subjects",
                 output_path=output,
@@ -215,15 +203,7 @@ class TestGenerateI2I:
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n"
 
-        with patch("lib.image_backends.base.httpx.AsyncClient") as MockHttpClient:
-            mock_http = AsyncMock()
-            MockHttpClient.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            MockHttpClient.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_resp = MagicMock()
-            mock_resp.content = fake_image_bytes
-            mock_resp.raise_for_status = MagicMock()
-            mock_http.get = AsyncMock(return_value=mock_resp)
-
+        with _image_download(mock_response.url, fake_image_bytes):
             request = ImageGenerationRequest(
                 prompt="A cat",
                 output_path=output,

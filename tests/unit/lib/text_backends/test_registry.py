@@ -32,7 +32,7 @@ class FakeTextBackend:
 
 
 @pytest.fixture(autouse=True)
-def _clean_registry():
+def _clean_text_registry():
     saved = dict(_BACKEND_FACTORIES)
     _BACKEND_FACTORIES.clear()
     yield

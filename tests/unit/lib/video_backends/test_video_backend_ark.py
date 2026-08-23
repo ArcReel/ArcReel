@@ -4,7 +4,9 @@ import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import (
@@ -14,6 +16,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
 )
 from lib.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
+from tests.fakes import bounded_poll_clock, captured_ark_clients
 
 
 @pytest.fixture
@@ -35,28 +38,15 @@ def ark_backend(mock_ark_client):
 
 
 def _mock_httpx_stream(data: bytes = b"fake-mp4-data"):
-    """Create a patched httpx mock that supports async stream context manager."""
-    patcher = patch("lib.video_backends.base.httpx")
-    mock_httpx = patcher.start()
+    """成片下载的出站流：respx 在 transport 层拦截，任一下载 URL 都回给定字节。
 
-    mock_stream_response = MagicMock()
-    mock_stream_response.status_code = 200
-    mock_stream_response.raise_for_status = MagicMock()
-
-    async def _aiter_bytes(chunk_size=65536):
-        yield data
-
-    mock_stream_response.aiter_bytes = _aiter_bytes
-    mock_stream_response.__aenter__ = AsyncMock(return_value=mock_stream_response)
-    mock_stream_response.__aexit__ = AsyncMock(return_value=None)
-
-    mock_http_client = AsyncMock()
-    mock_http_client.stream = MagicMock(return_value=mock_stream_response)
-    mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-    mock_http_client.__aexit__ = AsyncMock(return_value=None)
-    mock_httpx.AsyncClient.return_value = mock_http_client
-
-    return patcher
+    保留 start/stop 形态（调用方以 try/finally 收尾），换掉的是拦截层——落在断言范围内的
+    是真实序列化后的流式 GET，而不是客户端替身记录的调用参数。
+    """
+    router = respx.mock(assert_all_called=False)
+    router.start()
+    router.get(url__regex=r".*").mock(return_value=httpx.Response(200, content=data))
+    return router
 
 
 class TestArkProperties:
@@ -330,7 +320,7 @@ class TestArkRetryBehavior:
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 result = await ark_backend.generate(request)
         finally:
             patcher.stop()
@@ -364,8 +354,7 @@ class TestArkRetryBehavior:
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
             with (
-                patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
-                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+                bounded_poll_clock(),
             ):
                 result = await ark_backend.generate(request)
         finally:
@@ -387,7 +376,7 @@ class TestArkRetryBehavior:
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(ValueError, match="invalid response"):
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 await ark_backend.generate(request)
 
         # 创建只调用一次，轮询只尝试一次就抛出
@@ -620,7 +609,7 @@ class TestArkServiceTierParam:
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 await ark_backend.generate(request)
         finally:
             patcher.stop()
@@ -646,7 +635,7 @@ class TestArkServiceTierParam:
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 await ark_backend.generate(request)
         finally:
             patcher.stop()
@@ -657,17 +646,14 @@ class TestArkServiceTierParam:
 
 class TestArkVideoBackendBaseUrl:
     def test_custom_base_url_passed_through(self):
-        with patch("lib.video_backends.ark.create_ark_client") as mock_create:
+        with captured_ark_clients("lib.video_backends.ark") as created:
             ArkVideoBackend(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/plan/v3")
-            mock_create.assert_called_once_with(
-                api_key="k",
-                base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
-            )
+        assert created == [{"api_key": "k", "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"}]
 
     def test_default_base_url_is_none(self):
-        with patch("lib.video_backends.ark.create_ark_client") as mock_create:
+        with captured_ark_clients("lib.video_backends.ark") as created:
             ArkVideoBackend(api_key="k")
-            mock_create.assert_called_once_with(api_key="k", base_url=None)
+        assert created == [{"api_key": "k", "base_url": None}]
 
 
 class TestIsArkNotFound:

@@ -14,6 +14,7 @@ from lib.backend_assembly import assemble_backend
 from lib.backend_assembly.assembler import _load_builtin_config
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
+from tests.fakes import captured_backend_construction
 
 
 async def _seed_provider_config(factory, provider: str, **kv: str) -> None:
@@ -43,84 +44,115 @@ class TestLoadBuiltinConfig:
 
 
 class TestAssembleBuiltinEndToEnd:
-    @patch("lib.image_backends.registry.create_backend")
-    async def test_simple_image_end_to_end(self, mock_create, db_factory):
+    async def test_simple_image_end_to_end(self, db_factory):
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
         resolver = ConfigResolver(db_factory)
-        await assemble_backend(provider_id="ark", media_type="image", model_id="doubao-x", resolver=resolver)
+        with captured_backend_construction() as built:
+            await assemble_backend(provider_id="ark", media_type="image", model_id="doubao-x", resolver=resolver)
         # 用户未配 base_url → 回落 registry default；凭证 overlay 经装载真进构造参数
-        mock_create.assert_called_once_with(
-            "ark", api_key="ark-secret", model="doubao-x", base_url="https://ark.cn-beijing.volces.com/api/v3"
-        )
+        assert built == [
+            {
+                "media": "image",
+                "backend": "ark",
+                "kwargs": {
+                    "api_key": "ark-secret",
+                    "model": "doubao-x",
+                    "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                },
+            }
+        ]
 
     async def test_unknown_provider_media_fails_loud(self, db_factory):
         resolver = ConfigResolver(db_factory)
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):
             await assemble_backend(provider_id="ark", media_type="audio", model_id="x", resolver=resolver)
 
-    @patch("lib.image_backends.registry.create_backend")
-    async def test_gemini_aistudio_image_end_to_end(self, mock_create, db_factory):
+    async def test_gemini_aistudio_image_end_to_end(self, db_factory):
         # gemini 特例族：provider_id 直接决定 backend_type，凭证 overlay + 共享 rate_limiter 经装载进闭包
         await _seed_provider_config(db_factory, "gemini-aistudio", api_key="g-secret", base_url="https://g.relay.test")
         sentinel = object()
         resolver = ConfigResolver(db_factory)
-        await assemble_backend(
-            provider_id="gemini-aistudio",
-            media_type="image",
-            model_id="gemini-3.1-flash-image-preview",
-            resolver=resolver,
-            rate_limiter=sentinel,
-        )
-        mock_create.assert_called_once_with(
-            "gemini",
-            backend_type="aistudio",
-            api_key="g-secret",
-            base_url="https://g.relay.test",
-            rate_limiter=sentinel,
-            image_model="gemini-3.1-flash-image-preview",
-        )
+        with captured_backend_construction() as built:
+            await assemble_backend(
+                provider_id="gemini-aistudio",
+                media_type="image",
+                model_id="gemini-3.1-flash-image-preview",
+                resolver=resolver,
+                rate_limiter=sentinel,
+            )
+        assert built == [
+            {
+                "media": "image",
+                "backend": "gemini",
+                "kwargs": {
+                    "backend_type": "aistudio",
+                    "api_key": "g-secret",
+                    "base_url": "https://g.relay.test",
+                    "rate_limiter": sentinel,
+                    "image_model": "gemini-3.1-flash-image-preview",
+                },
+            }
+        ]
 
-    @patch("lib.text_backends.registry.create_backend")
-    async def test_text_simple_end_to_end(self, mock_create, db_factory):
+    async def test_text_simple_end_to_end(self, db_factory):
         # 文本简单族：凭证 overlay 经装载真进构造参数，base_url 回落 registry default
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
         resolver = ConfigResolver(db_factory)
-        await assemble_backend(provider_id="ark", media_type="text", model_id="doubao-x", resolver=resolver)
-        mock_create.assert_called_once_with(
-            "ark", model="doubao-x", api_key="ark-secret", base_url="https://ark.cn-beijing.volces.com/api/v3"
-        )
+        with captured_backend_construction() as built:
+            await assemble_backend(provider_id="ark", media_type="text", model_id="doubao-x", resolver=resolver)
+        assert built == [
+            {
+                "media": "text",
+                "backend": "ark",
+                "kwargs": {
+                    "model": "doubao-x",
+                    "api_key": "ark-secret",
+                    "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                },
+            }
+        ]
 
-    @patch("lib.text_backends.registry.create_backend")
-    async def test_text_dashscope_compat_end_to_end(self, mock_create, db_factory):
+    async def test_text_dashscope_compat_end_to_end(self, db_factory):
         # dashscope 文本 OpenAI-compat：base_url 经 helper 派生、透传 provider_name 计费归因，端到端经缝
         await _seed_provider_config(db_factory, "dashscope", api_key="ds-secret")
         resolver = ConfigResolver(db_factory)
-        await assemble_backend(provider_id="dashscope", media_type="text", model_id="qwen-max", resolver=resolver)
-        mock_create.assert_called_once_with(
-            "openai",
-            model="qwen-max",
-            api_key="ds-secret",
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            provider_name="dashscope",
-        )
+        with captured_backend_construction() as built:
+            await assemble_backend(provider_id="dashscope", media_type="text", model_id="qwen-max", resolver=resolver)
+        assert built == [
+            {
+                "media": "text",
+                "backend": "openai",
+                "kwargs": {
+                    "model": "qwen-max",
+                    "api_key": "ds-secret",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "provider_name": "dashscope",
+                },
+            }
+        ]
 
-    @patch("lib.image_backends.registry.create_backend")
-    async def test_kling_image_api_model_name_decoupled_end_to_end(self, mock_create, db_factory):
+    async def test_kling_image_api_model_name_decoupled_end_to_end(self, db_factory):
         # kling 特例族：双 secret overlay 真进闭包；api_model_name 解耦从 registry models 读到（别名键）
         await _seed_provider_config(db_factory, "kling", access_key="ak-1", secret_key="sk-1")
         resolver = ConfigResolver(db_factory)
-        await assemble_backend(
-            provider_id="kling", media_type="image", model_id="kling-v3-omni-image", resolver=resolver
-        )
-        mock_create.assert_called_once_with(
-            "kling",
-            auth_mode="jwt",
-            access_key="ak-1",
-            secret_key="sk-1",
-            model="kling-v3-omni-image",
-            api_model_name="kling-v3-omni",
-            base_url="https://api-beijing.klingai.com/v1",
-        )
+        with captured_backend_construction() as built:
+            await assemble_backend(
+                provider_id="kling", media_type="image", model_id="kling-v3-omni-image", resolver=resolver
+            )
+        assert built == [
+            {
+                "media": "image",
+                "backend": "kling",
+                "kwargs": {
+                    "auth_mode": "jwt",
+                    "access_key": "ak-1",
+                    "secret_key": "sk-1",
+                    "model": "kling-v3-omni-image",
+                    "api_model_name": "kling-v3-omni",
+                    "base_url": "https://api-beijing.klingai.com/v1",
+                },
+            }
+        ]
 
 
 class TestAssembleCustomEndToEnd:

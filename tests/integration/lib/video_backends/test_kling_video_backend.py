@@ -1,4 +1,4 @@
-"""KlingVideoBackend 单元测试（mock httpx，异步轮询，不打真实 HTTP）。
+"""KlingVideoBackend 测试（respx 在 transport 层拦截，不打真实 HTTP）。
 
 覆盖：JWT / Bearer 双模式鉴权注入、子路径选择（text2video / image2video）、请求体构建、
 脱敏日志视图、submit→轮询→下载端到端、provider_job_id 持久化、失败终态、resume 不重提交。
@@ -6,26 +6,50 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import NamedTuple
 
+import httpx
 import jwt
 import pytest
+import respx
 
 from lib.providers import PROVIDER_KLING
 from lib.video_backends.base import VideoAudioMode, VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.registry import effective_generate_audio_for_model
+from tests.fakes import bounded_poll_clock, captured_provider_job_ids
+from tests.http_capture import capture_http, only_request
 
 _SECRET = "s" * 40
+_BASE_URL = "https://api-beijing.klingai.com/v1"
+_DOWNLOAD_URL = "https://x/final.mp4"
 
 
-def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = json_body
-    resp.raise_for_status = MagicMock()
-    return resp
+class _KlingRoutes(NamedTuple):
+    """Kling 的三条出站流量：建任务（子路径可变）、任务轮询、成片下载。"""
+
+    submit: respx.Route
+    poll: respx.Route
+    download: respx.Route
+
+
+@contextmanager
+def _kling_api() -> Iterator[_KlingRoutes]:
+    videos = re.escape(f"{_BASE_URL}/videos")
+    with capture_http() as router:
+        yield _KlingRoutes(
+            submit=router.post(url__regex=rf"^{videos}/[^/]+$"),
+            poll=router.get(url__regex=rf"^{videos}/[^/]+/[^/]+$"),
+            download=router.get(url__regex=r"^https://x/"),
+        )
+
+
+def _resp(json_body: dict, status_code: int = 200) -> httpx.Response:
+    return httpx.Response(status_code, json=json_body)
 
 
 def _submit(task_id: str = "t-1") -> dict:
@@ -37,17 +61,6 @@ def _query(status: str, url: str = "", status_msg: str = "") -> dict:
     if url:
         data["task_result"] = {"videos": [{"id": "v1", "url": url}]}
     return {"code": 0, "message": "SUCCEED", "data": data}
-
-
-def _client(*, post=None, get=None) -> AsyncMock:
-    c = AsyncMock()
-    if post is not None:
-        c.post = post
-    if get is not None:
-        c.get = get
-    c.__aenter__ = AsyncMock(return_value=c)
-    c.__aexit__ = AsyncMock(return_value=None)
-    return c
 
 
 def _jwt_backend(model: str | None = None) -> KlingVideoBackend:
@@ -473,236 +486,185 @@ class TestSafeLogView:
 
 class TestGenerateHappyPath:
     async def test_submit_poll_download(self, tmp_path):
-        post = AsyncMock(return_value=_resp(_submit("task-9")))
-        get = AsyncMock(
-            side_effect=[
-                _resp(_query("processing")),
-                _resp(_query("succeed", url="https://x/final.mp4")),
-            ]
-        )
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()) as dl,
-        ):
+        with _kling_api() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_resp(_submit("task-9")))
+            routes.poll.mock(
+                side_effect=[
+                    _resp(_query("processing")),
+                    _resp(_query("succeed", url=_DOWNLOAD_URL)),
+                ]
+            )
+            routes.download.mock(return_value=httpx.Response(200, content=b"mp4-bytes"))
+
             result = await _jwt_backend().generate(_request(tmp_path))
+
+            # text2video 提交端点
+            assert only_request(routes.submit).url.path == "/v1/videos/text2video"
+            assert str(only_request(routes.download).url) == _DOWNLOAD_URL
 
         assert result.provider == PROVIDER_KLING
         assert result.task_id == "task-9"
-        assert result.video_uri == "https://x/final.mp4"
+        assert result.video_uri == _DOWNLOAD_URL
         assert result.generate_audio is False  # turbo 无音频
-        dl.assert_awaited_once()
-        # text2video 提交端点
-        assert post.await_args.args[0].endswith("/videos/text2video")
+        assert result.video_path.read_bytes() == b"mp4-bytes"
 
     async def test_jwt_injected_on_submit(self, tmp_path):
-        captured: dict = {}
+        with _kling_api() as routes:
+            routes.submit.mock(return_value=_resp(_submit()))
+            routes.poll.mock(return_value=_resp(_query("succeed", url=_DOWNLOAD_URL)))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
 
-        async def _post(url, json, headers):
-            captured["headers"] = headers
-            return _resp(_submit())
-
-        post = AsyncMock(side_effect=_post)
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
             await _jwt_backend().generate(_request(tmp_path))
 
-        token = captured["headers"]["Authorization"].removeprefix("Bearer ")
+            token = only_request(routes.submit).headers["Authorization"].removeprefix("Bearer ")
+
         claims = jwt.decode(token, _SECRET, algorithms=["HS256"], options={"verify_exp": False})
         assert claims["iss"] == "ak-1"
 
     async def test_bearer_static_key_on_submit(self, tmp_path):
-        captured: dict = {}
+        with _kling_api() as routes:
+            routes.submit.mock(return_value=_resp(_submit()))
+            routes.poll.mock(return_value=_resp(_query("succeed", url=_DOWNLOAD_URL)))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
 
-        async def _post(url, json, headers):
-            captured["headers"] = headers
-            return _resp(_submit())
-
-        post = AsyncMock(side_effect=_post)
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
             await _bearer_backend().generate(_request(tmp_path))
-        assert captured["headers"]["Authorization"] == "Bearer static-key"
+
+            assert only_request(routes.submit).headers["Authorization"] == "Bearer static-key"
 
     async def test_failed_status_raises(self, tmp_path):
-        post = AsyncMock(return_value=_resp(_submit()))
-        get = AsyncMock(return_value=_resp(_query("failed", status_msg="content rejected")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with _kling_api() as routes:
+            routes.submit.mock(return_value=_resp(_submit()))
+            routes.poll.mock(return_value=_resp(_query("failed", status_msg="content rejected")))
+
             with pytest.raises(RuntimeError, match="content rejected"):
                 await _jwt_backend().generate(_request(tmp_path))
 
+            assert routes.download.call_count == 0
+
     async def test_persists_provider_job_id_when_task_id_present(self, tmp_path):
-        post = AsyncMock(return_value=_resp(_submit("task-x")))
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
-        ):
+        with _kling_api() as routes, captured_provider_job_ids() as persisted:
+            routes.submit.mock(return_value=_resp(_submit("task-x")))
+            routes.poll.mock(return_value=_resp(_query("succeed", url=_DOWNLOAD_URL)))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+
             await _jwt_backend().generate(_request(tmp_path, task_id="local-task-1"))
-        persist.assert_awaited_once()
-        assert persist.await_args is not None
+
         # 持久化的是「子路径:task_id:有声标志」，resume 据此复原查询端点（text2video 因无首帧）+ 有声决策（turbo 恒 0）
-        assert persist.await_args.args[1] == "text2video:task-x:0"
+        assert [(r["task_id"], r["job_id"]) for r in persisted] == [("local-task-1", "text2video:task-x:0")]
 
     async def test_persists_image2video_subpath_in_job_id(self, tmp_path):
         img = tmp_path / "first.png"
         img.write_bytes(b"\x89PNG\r\n")
-        post = AsyncMock(return_value=_resp(_submit("task-i")))
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
-        ):
+        with _kling_api() as routes, captured_provider_job_ids() as persisted:
+            routes.submit.mock(return_value=_resp(_submit("task-i")))
+            routes.poll.mock(return_value=_resp(_query("succeed", url=_DOWNLOAD_URL)))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+
             await _jwt_backend().generate(_request(tmp_path, task_id="local-task-2", start_image=img))
+
         # 有首帧 → image2video 前缀编入 job_id，resume 才能查对端点
-        assert persist.await_args is not None
-        assert persist.await_args.args[1] == "image2video:task-i:0"
+        assert [r["job_id"] for r in persisted] == ["image2video:task-i:0"]
 
 
 class TestResume:
     async def test_resume_polls_without_resubmit(self, tmp_path):
-        post = AsyncMock()  # must NOT be called
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()) as dl,
-        ):
+        with _kling_api() as routes:
+            routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+            routes.download.mock(return_value=httpx.Response(200, content=b"resumed"))
+
             # 持久化 job_id 带 text2video 前缀 → 复原查询端点 + 还原裸 task_id
             result = await _jwt_backend().resume_video("text2video:task-resume", _request(tmp_path))
 
-        post.assert_not_called()
+            assert routes.submit.call_count == 0
+            assert only_request(routes.poll).url.path == "/v1/videos/text2video/task-resume"
+
         assert result.task_id == "task-resume"
         assert result.video_uri == "https://x/r.mp4"
-        assert get.await_args.args[0].endswith("/videos/text2video/task-resume")
-        dl.assert_awaited_once()
+        assert result.video_path.read_bytes() == b"resumed"
 
     async def test_resume_image2video_subpath_from_encoded_job_id(self, tmp_path):
         # resume 请求不带 start_image（真实重启路径如此）：子路径必须来自持久化 job_id 前缀，
         # 否则 image2video 任务会误查 text2video 端点取不到。
-        post = AsyncMock()
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with _kling_api() as routes:
+            routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+
             result = await _jwt_backend().resume_video("image2video:task-r2", _request(tmp_path))
-        post.assert_not_called()
+
+            assert routes.submit.call_count == 0
+            assert only_request(routes.poll).url.path == "/v1/videos/image2video/task-r2"
+
         assert result.task_id == "task-r2"
-        assert get.await_args.args[0].endswith("/videos/image2video/task-r2")
 
     async def test_resume_bare_job_id_falls_back_to_text2video(self, tmp_path):
         # 无已知前缀（异常/旧数据）回落 text2video，整串作 task_id。
-        post = AsyncMock()
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with _kling_api() as routes:
+            routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+
             result = await _jwt_backend().resume_video("legacy-bare-id", _request(tmp_path))
+
+            assert only_request(routes.poll).url.path == "/v1/videos/text2video/legacy-bare-id"
+
         assert result.task_id == "legacy-bare-id"
-        assert get.await_args.args[0].endswith("/videos/text2video/legacy-bare-id")
 
     async def test_resume_multi_image2video_subpath_from_encoded_job_id(self, tmp_path):
         # 多图主体任务 resume：子路径从持久化 job_id 前缀复原，查 multi-image2video 端点。
-        post = AsyncMock()
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with _kling_api() as routes:
+            routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+
             result = await _jwt_backend("kling-v3-omni").resume_video("multi-image2video:task-m", _request(tmp_path))
-        post.assert_not_called()
+
+            assert routes.submit.call_count == 0
+            assert only_request(routes.poll).url.path == "/v1/videos/multi-image2video/task-m"
+
         assert result.task_id == "task-m"
-        assert get.await_args.args[0].endswith("/videos/multi-image2video/task-m")
 
 
 class TestAudioGatingResult:
+    @staticmethod
+    @contextmanager
+    def _succeeding(task_id: str) -> Iterator[_KlingRoutes]:
+        """submit 成功 → 一次轮询直接终态 → 下载空片，只留有声决策作观察点。"""
+        with _kling_api() as routes:
+            routes.submit.mock(return_value=_resp(_submit(task_id)))
+            routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+            yield routes
+
     async def test_v2_6_pro_audio_result_true(self, tmp_path):
         # v2-6 pro（即 1080P 档）+ 请求有声 → result.generate_audio=True（下游计费取有声价）
-        post = AsyncMock(return_value=_resp(_submit("task-a")))
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with self._succeeding("task-a") as routes:
             result = await _jwt_backend("kling-v2-6").generate(
                 _request(tmp_path, resolution="1080p", service_tier="pro", generate_audio=True)
             )
+            assert only_request(routes.submit).url.path == "/v1/videos/text2video"
+
         assert result.generate_audio is True
-        assert post.await_args.args[0].endswith("/videos/text2video")
 
     async def test_v2_6_std_audio_result_false(self, tmp_path):
         # std 档拿不到 1080P：即使 request.resolution 写 1080p，结果也必须记为无声，
         # 否则拿到无声片却按有声价（¥1.0/s vs ¥0.8/s）出账
-        post = AsyncMock(return_value=_resp(_submit("task-a2")))
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with self._succeeding("task-a2"):
             result = await _jwt_backend("kling-v2-6").generate(
                 _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
             )
+
         assert result.generate_audio is False
 
     async def test_v3_audio_result_true(self, tmp_path):
         # v3 支持音画同出且无分辨率约束：请求有声 → result.generate_audio=True
-        post = AsyncMock(return_value=_resp(_submit("task-b")))
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with self._succeeding("task-b"):
             result = await _jwt_backend("kling-v3").generate(_request(tmp_path, generate_audio=True))
+
         assert result.generate_audio is True
 
     async def test_turbo_audio_gated_result_false(self, tmp_path):
         # turbo 无音频能力：即使请求有声，result.generate_audio=False（计费取无声价）
-        post = AsyncMock(return_value=_resp(_submit("task-b2")))
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with self._succeeding("task-b2"):
             result = await _jwt_backend().generate(_request(tmp_path, resolution="1080p", generate_audio=True))
+
         assert result.generate_audio is False
 
     async def test_v3_omni_multi_image_audio_result_false(self, tmp_path):
@@ -710,89 +672,69 @@ class TestAudioGatingResult:
         # result.generate_audio 必须同步为 False，否则按有声价出账却拿到无声片
         ref = tmp_path / "ref0.png"
         ref.write_bytes(b"\x89PNG\r\n")
-        post = AsyncMock(return_value=_resp(_submit("task-b3")))
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with self._succeeding("task-b3") as routes:
             result = await _jwt_backend("kling-v3-omni").generate(
                 _request(tmp_path, reference_images=[ref], resolution="1080p", generate_audio=True)
             )
-        assert post.await_args.args[0].endswith("/videos/multi-image2video")
+            assert only_request(routes.submit).url.path == "/v1/videos/multi-image2video"
+
         assert result.generate_audio is False
 
     async def test_v2_6_persists_audio_bit_in_job_id(self, tmp_path):
         # submit 时算定的有声决策编入 job_id（v2-6 pro 有声 → 末段 :1），resume 据此直连计费
-        post = AsyncMock(return_value=_resp(_submit("task-c")))
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
-        ):
+        with self._succeeding("task-c"), captured_provider_job_ids() as persisted:
             await _jwt_backend("kling-v2-6").generate(
                 _request(tmp_path, task_id="local-a", service_tier="pro", generate_audio=True)
             )
-        assert persist.await_args is not None
-        assert persist.await_args.args[1] == "text2video:task-c:1"
+
+        assert [r["job_id"] for r in persisted] == ["text2video:task-c:1"]
 
     async def test_resume_reuses_persisted_audio_over_recompute(self, tmp_path):
         # 持久化有声标志（:1）优先于 resume 时按请求重算：即使请求 generate_audio=False，
         # 结果仍取 submit 时算定的有声（避免计费漂移）
-        post = AsyncMock()
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with _kling_api() as routes:
+            routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+
             result = await _jwt_backend("kling-v2-6").resume_video(
                 "text2video:task-c:1", _request(tmp_path, service_tier="pro", generate_audio=False)
             )
-        post.assert_not_called()
+
+            assert routes.submit.call_count == 0
+            # 锁定解析契约：3 段 job_id 的有声末段不得漏进 task_id，子路径/任务号须正确复原
+            assert only_request(routes.poll).url.path == "/v1/videos/text2video/task-c"
+
         assert result.generate_audio is True
-        # 锁定解析契约：3 段 job_id 的有声末段不得漏进 task_id，子路径/任务号须正确复原
         assert result.task_id == "task-c"
-        assert get.await_args.args[0].endswith("/videos/text2video/task-c")
 
     async def test_resume_legacy_job_id_stays_silent(self, tmp_path):
         # 不含有声标志的 2 段 job_id 一律判无声：这类任务的成片必然无声，不得按当前能力表重算为有声
-        post = AsyncMock()
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with _kling_api() as routes:
+            routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+
             result = await _jwt_backend("kling-v2-6").resume_video(
                 "text2video:task-c", _request(tmp_path, service_tier="pro", generate_audio=True)
             )
-        post.assert_not_called()
+
+            assert routes.submit.call_count == 0
+            # 2 段旧 job_id 同样须正确复原子路径/任务号（不误把整串当 task_id）
+            assert only_request(routes.poll).url.path == "/v1/videos/text2video/task-c"
+
         assert result.generate_audio is False
-        # 2 段旧 job_id 同样须正确复原子路径/任务号（不误把整串当 task_id）
         assert result.task_id == "task-c"
-        assert get.await_args.args[0].endswith("/videos/text2video/task-c")
 
     async def test_resume_legacy_multi_image_job_id_stays_silent(self, tmp_path):
         # 多图主体子路径的成片必然无声：接续请求不带参考图字段，判据只能取自解码出的子路径
-        post = AsyncMock()
-        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
-        ):
+        with _kling_api() as routes:
+            routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+
             result = await _jwt_backend("kling-v3-omni").resume_video(
                 "multi-image2video:task-d", _request(tmp_path, generate_audio=True)
             )
-        post.assert_not_called()
+
+            assert routes.submit.call_count == 0
+            assert only_request(routes.poll).url.path == "/v1/videos/multi-image2video/task-d"
+
         assert result.generate_audio is False
-        assert get.await_args.args[0].endswith("/videos/multi-image2video/task-d")

@@ -3,24 +3,40 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from lib.config.registry import model_info_for
 from lib.providers import PROVIDER_MINIMAX
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.minimax import MiniMaxVideoBackend, _safe_body_for_log
 from lib.video_frame_slots import resolve_first_frame_aspect_ratio
+from tests.fakes import captured_provider_job_ids
+from tests.http_capture import capture_http, only_request, request_json
 
 
-def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = json_body
-    resp.raise_for_status = MagicMock()
-    return resp
+@contextmanager
+def _recorded_model_lookups() -> Iterator[list[tuple[str, str]]]:
+    """registry 查表的记录器：收下 (provider, model) 查询名，回一份固定的 H3 声明。"""
+    queried: list[tuple[str, str]] = []
+
+    def _lookup(provider: str, name: str) -> Any:
+        queried.append((provider, name))
+        return MagicMock(resolutions=["768p"], supported_durations=[6])
+
+    with patch("lib.video_backends.minimax.model_info_for", _lookup):
+        yield queried
+
+
+def _resp(json_body: dict, status_code: int = 200) -> httpx.Response:
+    return httpx.Response(status_code, json=json_body)
 
 
 def _submit(task_id: str = "t-1") -> dict:
@@ -42,15 +58,40 @@ def _retrieve(url: str = "https://x/o.mp4") -> dict:
     return {"file": {"file_id": "f-1", "download_url": url}, "base_resp": {"status_code": 0}}
 
 
-def _client(*, post=None, get=None) -> AsyncMock:
-    c = AsyncMock()
-    if post is not None:
-        c.post = post
-    if get is not None:
-        c.get = get
-    c.__aenter__ = AsyncMock(return_value=c)
-    c.__aexit__ = AsyncMock(return_value=None)
-    return c
+class _MiniMaxRoutes(NamedTuple):
+    submit: respx.Route
+    query: respx.Route
+    retrieve: respx.Route
+    download: AsyncMock
+
+
+@contextmanager
+def _minimax_routes(
+    *,
+    submit: httpx.Response | list[httpx.Response] | None = None,
+    query: httpx.Response | list[httpx.Response] | None = None,
+    retrieve: httpx.Response | list[httpx.Response] | None = None,
+) -> Iterator[_MiniMaxRoutes]:
+    """MiniMax 视频的三条出站流：提交、查询、取回（v2 只用前两条）。
+
+    走 respx 在 transport 层拦截，断言落在真实序列化后的请求上。成片下载是 backend 的
+    另一段 seam，仍按协作者边界接管；轮询间隔压到 0，等待本身不是断言对象。
+    """
+
+    def _mock(route: respx.Route, resp: httpx.Response | list[httpx.Response] | None) -> respx.Route:
+        if isinstance(resp, list):
+            return route.mock(side_effect=resp)
+        return route.mock(return_value=resp if resp is not None else httpx.Response(200, json={}))
+
+    with capture_http() as router:
+        submit_route = _mock(router.post(url__regex=r"https://[^/]+/v[12]/video_generation"), submit)
+        query_route = _mock(router.get(url__regex=r"https://[^/]+/v[12]/query/video_generation.*"), query)
+        retrieve_route = _mock(router.get(url__regex=r"https://[^/]+/v1/files/retrieve.*"), retrieve)
+        with (
+            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.minimax.download_video", new=AsyncMock()) as download,
+        ):
+            yield _MiniMaxRoutes(submit=submit_route, query=query_route, retrieve=retrieve_route, download=download)
 
 
 def _v2_query(status: str, *, url: str = "", error: str = "") -> dict:
@@ -130,11 +171,10 @@ class TestConstructionAndCapabilities:
     def test_h3_output_specs_query_uses_canonical_name(self, model):
         # 直接断言查询参数已归一化为 canonical 名，不依赖兜底值与 registry 声明恰好相等这种
         # 巧合。
-        with patch("lib.video_backends.minimax.model_info_for") as mock_lookup:
-            mock_lookup.return_value = MagicMock(resolutions=["768p"], supported_durations=[6])
+        with _recorded_model_lookups() as queried:
             b = _backend(model)
             b._v2_output_specs()
-        assert mock_lookup.call_args.args[1] == "MiniMax-H3"
+        assert [name for _provider, name in queried] == ["MiniMax-H3"]
 
     def test_h3_output_specs_missing_registry_entry_fails_loud(self):
         # 本方法只查固定的 canonical 名，缺失只可能是 registry 条目被误删/改名——这类配置
@@ -242,79 +282,56 @@ class TestS2V01SubjectReference:
     async def test_generate_two_step_via_subject_reference(self, tmp_path):
         face = tmp_path / "face.png"
         face.write_bytes(b"\x89PNG\r\n")
-        captured: dict = {}
-
-        async def _post(url, json, headers):
-            captured["json"] = json
-            return _resp(_submit("s2v-task"))
-
-        post = AsyncMock(side_effect=_post)
-        get = AsyncMock(side_effect=[_resp(_query("Success", file_id="f")), _resp(_retrieve("https://x/s2v.mp4"))])
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
-        ):
+        with _minimax_routes(
+            submit=_resp(_submit("s2v-task")),
+            query=_resp(_query("Success", file_id="f")),
+            retrieve=_resp(_retrieve("https://x/s2v.mp4")),
+        ) as routes:
             result = await _backend("S2V-01").generate(_request(tmp_path, reference_images=[face]))
 
         assert result.video_uri == "https://x/s2v.mp4"
-        assert captured["json"]["model"] == "S2V-01"
-        assert captured["json"]["subject_reference"][0]["type"] == "character"
+        submitted = request_json(only_request(routes.submit))
+        assert submitted["model"] == "S2V-01"
+        assert submitted["subject_reference"][0]["type"] == "character"
 
 
 class TestGenerateHappyPath:
     async def test_two_step_url_extraction(self, tmp_path):
-        post = AsyncMock(return_value=_resp(_submit("task-9")))
-        get = AsyncMock(
-            side_effect=[
-                _resp(_query("Processing")),
-                _resp(_query("Success", file_id="file-9")),
-                _resp(_retrieve("https://x/final.mp4")),
-            ]
-        )
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.minimax.download_video", new=AsyncMock()) as dl,
-        ):
+        with _minimax_routes(
+            submit=_resp(_submit("task-9")),
+            query=[_resp(_query("Processing")), _resp(_query("Success", file_id="file-9"))],
+            retrieve=_resp(_retrieve("https://x/final.mp4")),
+        ) as routes:
             result = await _backend().generate(_request(tmp_path, duration_seconds=10))
 
         assert result.provider == PROVIDER_MINIMAX
         assert result.task_id == "task-9"
         assert result.video_uri == "https://x/final.mp4"
         assert result.duration_seconds == 10
-        dl.assert_awaited_once()
-        # submit + 2 query + 1 retrieve
-        assert get.await_count == 3
+        routes.download.assert_awaited_once()
+        # 2 次查询轮询 + 1 次取回
+        assert routes.query.call_count == 2
+        assert routes.retrieve.call_count == 1
 
     async def test_fail_status_raises(self, tmp_path):
-        post = AsyncMock(return_value=_resp(_submit()))
-        get = AsyncMock(return_value=_resp(_query("Fail", base_resp={"status_code": 2013, "status_msg": "invalid"})))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
+        with _minimax_routes(
+            submit=_resp(_submit()),
+            query=_resp(_query("Fail", base_resp={"status_code": 2013, "status_msg": "invalid"})),
         ):
             with pytest.raises(RuntimeError, match="2013"):
                 await _backend().generate(_request(tmp_path))
 
     async def test_persists_provider_job_id_when_task_id_present(self, tmp_path):
-        post = AsyncMock(return_value=_resp(_submit("task-x")))
-        get = AsyncMock(side_effect=[_resp(_query("Success", file_id="f")), _resp(_retrieve())])
-        client = _client(post=post, get=get)
         with (
-            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
-            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
+            _minimax_routes(
+                submit=_resp(_submit("task-x")),
+                query=_resp(_query("Success", file_id="f")),
+                retrieve=_resp(_retrieve()),
+            ),
+            captured_provider_job_ids() as persisted,
         ):
             await _backend().generate(_request(tmp_path, task_id="local-task-1"))
-        persist.assert_awaited_once()
-        assert persist.await_args is not None
-        assert persist.await_args.args[1] == "task-x"
+        assert [(r["task_id"], r["job_id"]) for r in persisted] == [("local-task-1", "task-x")]
 
 
 class TestH3V2Capabilities:
@@ -449,90 +466,60 @@ class TestH3V2Payload:
 
 class TestH3V2Generate:
     async def test_single_step_url_extraction(self, tmp_path):
-        captured: dict = {}
-
-        async def _post(url, json, headers):
-            captured["url"] = url
-            captured["json"] = json
-            return _resp(_submit("h3-task"))
-
-        async def _get(url, params=None, headers=None):
-            captured["query_url"] = url
-            captured["query_params"] = params
-            return _resp(_v2_query("succeeded", url="https://x/h3.mp4"))
-
-        client = _client(post=AsyncMock(side_effect=_post), get=AsyncMock(side_effect=_get))
-        with (
-            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.minimax.download_video", new=AsyncMock()) as dl,
-        ):
+        with _minimax_routes(
+            submit=_resp(_submit("h3-task")),
+            query=_resp(_v2_query("succeeded", url="https://x/h3.mp4")),
+        ) as routes:
             result = await _h3().generate(_request(tmp_path, duration_seconds=5))
 
-        assert captured["url"].endswith("/v2/video_generation")
+        assert only_request(routes.submit).url.path.endswith("/v2/video_generation")
         # v2 把 task_id 放路径段，且成功响应直接带下载地址，无 files/retrieve 这一步。
-        assert captured["query_url"].endswith("/v2/query/video_generation/h3-task")
-        assert captured["query_params"] is None
+        queried = only_request(routes.query).url
+        assert queried.path.endswith("/v2/query/video_generation/h3-task")
+        assert not queried.query
+        assert routes.retrieve.call_count == 0
         assert result.video_uri == "https://x/h3.mp4"
         assert result.task_id == "h3-task"
-        dl.assert_awaited_once()
+        routes.download.assert_awaited_once()
 
     async def test_running_status_keeps_polling(self, tmp_path):
-        get = AsyncMock(side_effect=[_resp(_v2_query("running")), _resp(_v2_query("succeeded", url="https://x/o.mp4"))])
-        client = _client(post=AsyncMock(return_value=_resp(_submit())), get=get)
-        with (
-            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
-        ):
+        with _minimax_routes(
+            submit=_resp(_submit()),
+            query=[_resp(_v2_query("running")), _resp(_v2_query("succeeded", url="https://x/o.mp4"))],
+        ) as routes:
             result = await _h3().generate(_request(tmp_path))
-        assert get.await_count == 2
+        assert routes.query.call_count == 2
         assert result.video_uri == "https://x/o.mp4"
 
     @pytest.mark.parametrize("status", ["failed", "cancelled"])
     async def test_terminal_failure_statuses_raise(self, tmp_path, status):
-        client = _client(
-            post=AsyncMock(return_value=_resp(_submit())),
-            get=AsyncMock(return_value=_resp(_v2_query(status, error="quota exhausted"))),
-        )
-        with (
-            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
+        with _minimax_routes(
+            submit=_resp(_submit()),
+            query=_resp(_v2_query(status, error="quota exhausted")),
         ):
             with pytest.raises(RuntimeError, match="quota exhausted"):
                 await _h3().generate(_request(tmp_path))
 
     async def test_resume_polls_v2_endpoint(self, tmp_path):
-        post = AsyncMock()  # must NOT be called
-        get = AsyncMock(return_value=_resp(_v2_query("succeeded", url="https://x/r2.mp4")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
-        ):
+        with _minimax_routes(query=_resp(_v2_query("succeeded", url="https://x/r2.mp4"))) as routes:
             result = await _h3().resume_video("h3-resume", _request(tmp_path))
 
-        post.assert_not_called()
-        assert get.await_args is not None
-        assert get.await_args.args[0].endswith("/v2/query/video_generation/h3-resume")
+        # 续跑只查不提交
+        assert routes.submit.call_count == 0
+        assert only_request(routes.query).url.path.endswith("/v2/query/video_generation/h3-resume")
         assert result.video_uri == "https://x/r2.mp4"
 
 
 class TestResume:
     async def test_resume_polls_without_resubmit(self, tmp_path):
-        post = AsyncMock()  # must NOT be called
-        get = AsyncMock(side_effect=[_resp(_query("Success", file_id="f-r")), _resp(_retrieve("https://x/r.mp4"))])
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
-            patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
-            patch("lib.video_backends.minimax.download_video", new=AsyncMock()) as dl,
-        ):
+        with _minimax_routes(
+            query=_resp(_query("Success", file_id="f-r")),
+            retrieve=_resp(_retrieve("https://x/r.mp4")),
+        ) as routes:
             result = await _backend().resume_video("task-resume", _request(tmp_path))
 
-        post.assert_not_called()
+        # 续跑只查不提交
+        assert routes.submit.call_count == 0
         assert result.task_id == "task-resume"
         assert result.video_uri == "https://x/r.mp4"
-        dl.assert_awaited_once()
+        routes.download.assert_awaited_once()

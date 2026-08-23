@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from lib.providers import PROVIDER_AGNES
 from lib.text_backends.base import TextCapability, TextGenerationRequest
+from tests.fakes import captured_openai_clients
 
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
@@ -43,7 +44,7 @@ class _PersonSchema(BaseModel):
 
 class TestConstruction:
     def test_name_and_default_model(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.text_backends.agnes import AgnesTextBackend
 
             backend = AgnesTextBackend(api_key="sk")
@@ -51,14 +52,14 @@ class TestConstruction:
             assert backend.model == "agnes-2.0-flash"
 
     def test_custom_model(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.text_backends.agnes import AgnesTextBackend
 
             backend = AgnesTextBackend(api_key="sk", model="agnes-2.0-pro")
             assert backend.model == "agnes-2.0-pro"
 
     def test_capabilities_text_and_structured_no_vision(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.text_backends.agnes import AgnesTextBackend
 
             backend = AgnesTextBackend(api_key="sk")
@@ -68,7 +69,7 @@ class TestConstruction:
             assert TextCapability.VISION not in backend.capabilities
 
     def test_missing_api_key_raises(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.text_backends.agnes import AgnesTextBackend
 
             with pytest.raises(ValueError, match="Agnes API Key"):
@@ -76,18 +77,18 @@ class TestConstruction:
 
     def test_base_url_normalized_to_v1(self):
         # 用户填 host（无 /v1 后缀）→ 归一化为 {host}/v1 后传给 SDK。
-        with patch("lib.openai_shared.AsyncOpenAI") as mock_ctor:
+        with captured_openai_clients() as created:
             from lib.text_backends.agnes import AgnesTextBackend
 
             AgnesTextBackend(api_key="sk", base_url="https://apihub.agnes-ai.com")
-            assert mock_ctor.call_args.kwargs["base_url"] == "https://apihub.agnes-ai.com/v1"
+        assert [c["base_url"] for c in created] == ["https://apihub.agnes-ai.com/v1"]
 
     def test_default_base_url_when_unset(self):
-        with patch("lib.openai_shared.AsyncOpenAI") as mock_ctor:
+        with captured_openai_clients() as created:
             from lib.text_backends.agnes import AgnesTextBackend
 
             AgnesTextBackend(api_key="sk")
-            assert mock_ctor.call_args.kwargs["base_url"] == "https://apihub.agnes-ai.com/v1"
+        assert [c["base_url"] for c in created] == ["https://apihub.agnes-ai.com/v1"]
 
 
 class TestGenerate:
@@ -95,7 +96,7 @@ class TestGenerate:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("Test output", 15, 8))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.agnes import AgnesTextBackend
 
             backend = AgnesTextBackend(api_key="sk")
@@ -111,7 +112,7 @@ class TestGenerate:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.agnes import AgnesTextBackend
 
             backend = AgnesTextBackend(api_key="sk")
@@ -128,8 +129,8 @@ class TestGenerate:
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
-            patch("lib.text_backends.openai._instructor_fallback") as mock_fallback,
+            captured_openai_clients(mock_client),
+            patch("instructor.from_openai") as from_openai,
         ):
             from lib.text_backends.agnes import AgnesTextBackend
 
@@ -139,8 +140,8 @@ class TestGenerate:
         assert result.text == schema_response
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["response_format"]["type"] == "json_schema"
-        # 原生成功，不触发降级
-        mock_fallback.assert_not_called()
+        # 原生成功，不触发降级（instructor 客户端未构造）
+        from_openai.assert_not_called()
 
     async def test_non_json_response_triggers_instructor_fallback(self):
         # 原生返回 200 但内容非 JSON（代理静默忽略 response_format）→ 选择性降级到 Instructor。
@@ -160,7 +161,7 @@ class TestGenerate:
         )
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch("instructor.from_openai", return_value=mock_patched),
         ):
             from lib.text_backends.agnes import AgnesTextBackend

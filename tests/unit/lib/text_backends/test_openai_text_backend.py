@@ -17,7 +17,7 @@ from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
 )
-from tests.fakes import instructor_api_call_exhausted
+from tests.fakes import bounded_poll_clock, captured_openai_clients, instructor_api_call_exhausted
 
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
@@ -40,7 +40,7 @@ def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
 
 class TestOpenAITextBackend:
     def test_name_and_model(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
@@ -48,14 +48,14 @@ class TestOpenAITextBackend:
             assert backend.model == "gpt-5.4-mini"
 
     def test_custom_model(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key", model="gpt-5.4")
             assert backend.model == "gpt-5.4"
 
     def test_capabilities(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
@@ -67,7 +67,7 @@ class TestOpenAITextBackend:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("Test output", 15, 8))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
@@ -90,7 +90,7 @@ class TestOpenAITextBackend:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("Response"))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
@@ -112,7 +112,7 @@ class TestOpenAITextBackend:
         img_path = tmp_path / "test.png"
         img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
@@ -135,7 +135,7 @@ class TestOpenAITextBackend:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
@@ -160,7 +160,7 @@ class TestOpenAITextBackend:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=response)
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
@@ -196,8 +196,8 @@ class TestInstructorFallback:
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
-            patch("lib.text_backends.openai._instructor_fallback") as mock_fallback,
+            captured_openai_clients(mock_client),
+            patch("instructor.from_openai") as from_openai,
         ):
             from lib.text_backends.openai import OpenAITextBackend
 
@@ -209,7 +209,8 @@ class TestInstructorFallback:
             result = await backend.generate(request)
 
         assert result.text == schema_response
-        mock_fallback.assert_not_called()
+        # 降级路径的唯一入口是 instructor 客户端：未构造即证明没走降级
+        from_openai.assert_not_called()
 
     async def test_non_json_response_triggers_instructor_fallback_pydantic(self):
         """原生返回 200 但内容非 JSON（OpenAI 兼容代理静默忽略 response_format），应降级到 Instructor。"""
@@ -230,7 +231,7 @@ class TestInstructorFallback:
         )
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch("instructor.from_openai", return_value=mock_patched),
         ):
             from lib.text_backends.openai import OpenAITextBackend
@@ -268,7 +269,7 @@ class TestInstructorFallback:
         )
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch("instructor.from_openai", return_value=mock_patched),
         ):
             from lib.text_backends.openai import OpenAITextBackend
@@ -307,7 +308,7 @@ class TestInstructorFallback:
         )
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch("instructor.from_openai", return_value=mock_patched),
         ):
             from lib.text_backends.openai import OpenAITextBackend
@@ -343,7 +344,7 @@ class TestInstructorFallback:
         )
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch("instructor.from_openai", return_value=mock_patched),
         ):
             from lib.text_backends.openai import OpenAITextBackend
@@ -370,8 +371,8 @@ class TestInstructorFallback:
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json))
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
-            patch("lib.text_backends.openai._instructor_fallback") as mock_fallback,
+            captured_openai_clients(mock_client),
+            patch("instructor.from_openai") as from_openai,
         ):
             from lib.text_backends.openai import OpenAITextBackend
 
@@ -386,7 +387,7 @@ class TestInstructorFallback:
             result = await backend.generate(request)
 
         assert result.text == violating_json
-        mock_fallback.assert_not_called()
+        from_openai.assert_not_called()
 
     async def test_bad_request_error_triggers_instructor_fallback_pydantic(self):
         """原生 response_format 抛 BadRequestError 且 schema 为 Pydantic 类时，走 Instructor 降级。"""
@@ -405,7 +406,7 @@ class TestInstructorFallback:
         )
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch("instructor.from_openai", return_value=mock_patched),
         ):
             from lib.text_backends.openai import OpenAITextBackend
@@ -436,7 +437,7 @@ class TestInstructorFallback:
         )
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch("instructor.from_openai", return_value=mock_patched) as mock_from_openai,
         ):
             from lib.text_backends.openai import OpenAITextBackend
@@ -467,7 +468,7 @@ class TestInstructorFallback:
         )
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch("instructor.from_openai", side_effect=[tools_patched, md_json_patched]) as mock_from_openai,
         ):
             from lib.text_backends.openai import OpenAITextBackend
@@ -488,7 +489,7 @@ class TestInstructorFallback:
             side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json, 12, 6)]
         )
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
@@ -513,7 +514,7 @@ class TestInstructorFallback:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="test-key")
@@ -535,12 +536,12 @@ class TestInstructorFallback:
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("非 JSON 散文"))
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch(
                 "lib.text_backends.instructor_support.instructor_fallback_async",
                 new=AsyncMock(side_effect=ConnectionError("503 service unavailable")),
             ) as mock_instructor,
-            patch("lib.retry.asyncio.sleep", new=AsyncMock()),
+            bounded_poll_clock(),
         ):
             from lib.text_backends.openai import OpenAITextBackend
 
@@ -560,7 +561,7 @@ class TestMaxOutputTokens:
     async def test_official_plain_passes_max_completion_tokens(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="k")
@@ -573,7 +574,7 @@ class TestMaxOutputTokens:
     async def test_official_structured_passes_max_completion_tokens(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(json.dumps({"name": "x"})))
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             class MyModel(BaseModel):
@@ -589,7 +590,7 @@ class TestMaxOutputTokens:
     async def test_no_max_tokens_means_key_absent(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="k")
@@ -602,7 +603,7 @@ class TestMaxOutputTokens:
     async def test_custom_base_url_uses_max_tokens(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="k", base_url="https://vllm.example.com/v1")
@@ -615,7 +616,7 @@ class TestMaxOutputTokens:
     async def test_explicit_official_base_url_uses_max_completion_tokens(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="k", base_url="https://api.openai.com/v1")
@@ -632,7 +633,7 @@ class TestMaxOutputTokens:
         mock_client.chat.completions.create = AsyncMock(
             side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json)]
         )
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="k")
@@ -654,7 +655,7 @@ class TestMaxOutputTokens:
         mock_client.chat.completions.create = AsyncMock(
             side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json)]
         )
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="k", base_url="https://vllm.example.com/v1")
@@ -685,7 +686,7 @@ class TestMaxOutputTokens:
         )
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             patch("instructor.from_openai", return_value=mock_patched),
         ):
             from lib.text_backends.openai import OpenAITextBackend
@@ -712,7 +713,7 @@ class TestTruncation:
         response.choices[0].finish_reason = "length"
         mock_client.chat.completions.create = AsyncMock(return_value=response)
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             class MyModel(BaseModel):
@@ -732,7 +733,7 @@ class TestTruncation:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=response)
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.openai import OpenAITextBackend
 
             backend = OpenAITextBackend(api_key="k")

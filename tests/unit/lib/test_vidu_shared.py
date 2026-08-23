@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
+import httpx
 import pytest
+import respx
 
 from lib import vidu_shared
+from tests.http_capture import capture_http, only_request
 
 
 class TestResolveViduApiKey:
@@ -31,60 +37,48 @@ class TestViduConnectionTestKeyResolution:
     def test_missing_config_key_raises_before_http(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("VIDU_API_KEY", "from-env")
 
-        # resolve 阶段就该抛错，httpx.Client 不应被构造
-        def _should_not_be_called(*_args, **_kwargs):
-            raise AssertionError("connection test should fail before HTTP call")
+        # 未声明任何路由：真发出请求会被 respx 判红，凭证解析失败必须先于出站发生
+        with capture_http() as router:
+            with pytest.raises(ValueError, match="Vidu API Key"):
+                vidu_shared.test_vidu_connection({})
 
-        monkeypatch.setattr(vidu_shared.httpx, "Client", _should_not_be_called)
+            assert router.calls.call_count == 0
 
-        with pytest.raises(ValueError, match="Vidu API Key"):
-            vidu_shared.test_vidu_connection({})
+
+@contextmanager
+def _probe_route(*, status_code: int, body: str = "") -> Iterator[respx.Route]:
+    """连接测试探针的出站流：走 respx 在 transport 层拦截。
+
+    白名单判定的输入是真实响应的状态码，URL 拼接与 Authorization 头都在断言范围内。
+    """
+    with capture_http() as router:
+        yield router.get(url__regex=r".*/tasks/0/creations").mock(return_value=httpx.Response(status_code, text=body))
 
 
 class TestViduConnectionTestUrl:
     """验证连接测试用数字 task id（Vidu 服务端把 id 当 int 解析，非数字会 400 CODEC）。"""
 
-    @staticmethod
-    def _patched_client(monkeypatch: pytest.MonkeyPatch, *, status_code: int, body: str = ""):
-        captured: dict[str, str] = {}
-
-        class _FakeResp:
-            def __init__(self):
-                self.status_code = status_code
-                self.text = body
-
-        class _FakeClient:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_exc):
-                return False
-
-            def get(self, url, **_kwargs):
-                captured["url"] = url
-                return _FakeResp()
-
-        monkeypatch.setattr(vidu_shared.httpx, "Client", _FakeClient)
-        return captured
-
-    def test_url_uses_numeric_bogus_id(self, monkeypatch: pytest.MonkeyPatch):
-        captured = self._patched_client(monkeypatch, status_code=404)
-        vidu_shared.test_vidu_connection({"api_key": "vda_test"})
-        assert captured["url"].endswith("/tasks/0/creations")
-
-    def test_404_is_success(self, monkeypatch: pytest.MonkeyPatch):
-        self._patched_client(monkeypatch, status_code=404)
-        vidu_shared.test_vidu_connection({"api_key": "vda_test"})  # 不抛错即成功
-
-    def test_401_is_invalid_credential(self, monkeypatch: pytest.MonkeyPatch):
-        self._patched_client(monkeypatch, status_code=401)
-        with pytest.raises(RuntimeError, match="凭证无效"):
+    def test_url_uses_numeric_bogus_id(self):
+        with _probe_route(status_code=404) as route:
             vidu_shared.test_vidu_connection({"api_key": "vda_test"})
 
-    def test_400_is_undecidable(self, monkeypatch: pytest.MonkeyPatch):
-        self._patched_client(monkeypatch, status_code=400, body="CODEC parse error")
-        with pytest.raises(RuntimeError, match="无法判定"):
-            vidu_shared.test_vidu_connection({"api_key": "vda_test"})
+        request = only_request(route)
+        assert request.url.path.endswith("/tasks/0/creations")
+        assert request.headers["authorization"] == "Token vda_test"
+
+    def test_404_is_success(self):
+        """404 = task 不存在但认证通过，白名单放行：不抛错，且探针请求确实发出去了。"""
+        with _probe_route(status_code=404) as route:
+            assert vidu_shared.test_vidu_connection({"api_key": "vda_test"}) is None
+
+        assert route.call_count == 1
+
+    def test_401_is_invalid_credential(self):
+        with _probe_route(status_code=401):
+            with pytest.raises(RuntimeError, match="凭证无效"):
+                vidu_shared.test_vidu_connection({"api_key": "vda_test"})
+
+    def test_400_is_undecidable(self):
+        with _probe_route(status_code=400, body="CODEC parse error"):
+            with pytest.raises(RuntimeError, match="无法判定"):
+                vidu_shared.test_vidu_connection({"api_key": "vda_test"})

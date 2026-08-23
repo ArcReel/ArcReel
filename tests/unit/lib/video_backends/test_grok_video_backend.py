@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from lib.providers import PROVIDER_GROK
 from lib.video_backends.base import VideoGenerationRequest
+from tests.fakes import bounded_poll_clock
+from tests.http_capture import capture_http
+
+
+@contextmanager
+def _video_download(url: str, content: bytes) -> Iterator[respx.Route]:
+    """成片下载的出站流：base 层用真实 httpx 流式取字节，走 respx 在 transport 层拦截。"""
+    with capture_http() as router:
+        yield router.get(url).mock(return_value=httpx.Response(200, content=content))
 
 
 @pytest.fixture
@@ -61,17 +74,7 @@ class TestGrokVideoBackend:
         with patch("lib.video_backends.grok.create_grok_client", return_value=mock_client):
             backend = GrokVideoBackend(api_key="test-key")
 
-            mock_http_response = AsyncMock()
-            mock_http_response.status_code = 200
-            mock_http_response.raise_for_status = MagicMock()
-            mock_http_response.aiter_bytes = lambda chunk_size=None: _async_iter([b"fake-video-data"])
-
-            mock_http_client = AsyncMock()
-            mock_http_client.stream = _async_context_manager(mock_http_response)
-            mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-            mock_http_client.__aexit__ = AsyncMock(return_value=False)
-
-            with patch("lib.video_backends.base.httpx.AsyncClient", return_value=mock_http_client):
+            with _video_download(mock_response.url, b"fake-video-data"):
                 request = VideoGenerationRequest(
                     prompt="A cat walking",
                     output_path=video_output_path,
@@ -107,7 +110,7 @@ class TestGrokVideoBackend:
 
         with (
             patch("lib.video_backends.grok.create_grok_client", return_value=mock_client),
-            patch("lib.retry.asyncio.sleep", new=AsyncMock()),
+            bounded_poll_clock(),
         ):
             backend = GrokVideoBackend(api_key="test-key")
             request = VideoGenerationRequest(
@@ -142,17 +145,7 @@ class TestGrokVideoBackend:
         with patch("lib.video_backends.grok.create_grok_client", return_value=mock_client):
             backend = GrokVideoBackend(api_key="test-key")
 
-            mock_http_response = AsyncMock()
-            mock_http_response.status_code = 200
-            mock_http_response.raise_for_status = MagicMock()
-            mock_http_response.aiter_bytes = lambda chunk_size=None: _async_iter([b"fake-video-data"])
-
-            mock_http_client = AsyncMock()
-            mock_http_client.stream = _async_context_manager(mock_http_response)
-            mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-            mock_http_client.__aexit__ = AsyncMock(return_value=False)
-
-            with patch("lib.video_backends.base.httpx.AsyncClient", return_value=mock_http_client):
+            with _video_download(mock_response.url, b"fake-video-data"):
                 request = VideoGenerationRequest(
                     prompt="Animate this scene",
                     output_path=video_output_path,
@@ -203,17 +196,7 @@ class TestGrokVideoBackend:
         with patch("lib.video_backends.grok.create_grok_client", return_value=mock_client):
             backend = GrokVideoBackend(api_key="test-key")
 
-            mock_http_response = AsyncMock()
-            mock_http_response.status_code = 200
-            mock_http_response.raise_for_status = MagicMock()
-            mock_http_response.aiter_bytes = lambda chunk_size=None: _async_iter([b"fake-video-data"])
-
-            mock_http_client = AsyncMock()
-            mock_http_client.stream = _async_context_manager(mock_http_response)
-            mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
-            mock_http_client.__aexit__ = AsyncMock(return_value=False)
-
-            with patch("lib.video_backends.base.httpx.AsyncClient", return_value=mock_http_client):
+            with _video_download(mock_response.url, b"fake-video-data"):
                 request = VideoGenerationRequest(
                     prompt="A cat walking",
                     output_path=video_output_path,
@@ -224,18 +207,3 @@ class TestGrokVideoBackend:
                 result = await backend.generate(request)
 
             assert result.duration_seconds == expected
-
-
-async def _async_iter(items):
-    for item in items:
-        yield item
-
-
-def _async_context_manager(mock_response):
-    from contextlib import asynccontextmanager
-
-    @asynccontextmanager
-    async def _stream(*args, **kwargs):
-        yield mock_response
-
-    return _stream

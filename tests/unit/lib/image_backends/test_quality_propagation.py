@@ -13,6 +13,8 @@ import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from tests.fakes import captured_openai_clients
+
 # ---------------------------------------------------------------------------
 # 1 & 2: ImageGenerationResult dataclass
 # ---------------------------------------------------------------------------
@@ -74,7 +76,7 @@ class TestOpenAIImageBackendQuality:
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.base import ImageGenerationRequest
             from lib.image_backends.openai import OpenAIImageBackend
 
@@ -95,7 +97,7 @@ class TestOpenAIImageBackendQuality:
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.base import ImageGenerationRequest
             from lib.image_backends.openai import OpenAIImageBackend
 
@@ -123,7 +125,7 @@ class TestOpenAIImageBackendQuality:
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.base import ImageGenerationRequest
             from lib.image_backends.openai import OpenAIImageBackend
 
