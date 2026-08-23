@@ -43,6 +43,7 @@ MESSAGE_TYPE_MAP = {
     "TaskStartedMessage": "system",
     "TaskProgressMessage": "system",
     "TaskNotificationMessage": "system",
+    "TaskUpdatedMessage": "system",
 }
 
 # Typed task message subtypes for precise classification
@@ -50,6 +51,7 @@ TASK_MESSAGE_SUBTYPES = {
     "TaskStartedMessage": "task_started",
     "TaskProgressMessage": "task_progress",
     "TaskNotificationMessage": "task_notification",
+    "TaskUpdatedMessage": "task_updated",
 }
 
 

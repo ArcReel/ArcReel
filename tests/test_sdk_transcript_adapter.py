@@ -88,6 +88,27 @@ class TestSdkTranscriptAdapterLegacyPath:
         assert result[0]["type"] == "assistant"
         assert result[0]["content"] == [{"type": "text", "text": "Hello"}]
 
+    async def test_assistant_message_preserves_usage_and_model_message_id(self):
+        mock_msg = MagicMock()
+        mock_msg.type = "assistant"
+        mock_msg.message = {
+            "id": "model-message-1",
+            "content": [{"type": "text", "text": "Working"}],
+            "usage": {"input_tokens": 120, "output_tokens": 30},
+        }
+        mock_msg.uuid = "uuid-usage"
+        mock_msg.parent_tool_use_id = "tu-agent"
+        mock_msg.timestamp = "2026-03-05T00:00:01Z"
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages",
+            return_value=[mock_msg],
+        ):
+            result = await SdkTranscriptAdapter().read_raw_messages("sdk-session-123")
+
+        assert result[0]["message_id"] == "model-message-1"
+        assert result[0]["usage"] == {"input_tokens": 120, "output_tokens": 30}
+
     async def test_legacy_result_does_not_backfill_failure_fields(self):
         mock_msg = MagicMock(
             spec=[

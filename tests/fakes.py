@@ -138,6 +138,7 @@ class FakeSDKClient:
         self._pending_messages: asyncio.Queue[dict | None] = asyncio.Queue()
         self.method_tasks: dict[str, list[asyncio.Task]] = {}
         self.sent_queries: list = []
+        self.stopped_tasks: list[str] = []
         self.interrupted = False
         self.disconnected = False
 
@@ -168,6 +169,10 @@ class FakeSDKClient:
             await self._pending_messages.put(self._interrupt_message)
         # 告知 receive_response "可以停止了"
         await self._pending_messages.put(None)  # sentinel
+
+    async def stop_task(self, task_id: str) -> None:
+        self._record("stop_task")
+        self.stopped_tasks.append(task_id)
 
     async def receive_response(self):
         self._record("receive_response")

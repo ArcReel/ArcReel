@@ -359,7 +359,12 @@ export function createTimelineProjector(): TimelineProjector {
         startTurn(fold, "system", [{ type: "interrupt_notice" }], entry);
         return;
       }
-      if (entry.subtype !== "task_started" && entry.subtype !== "task_progress" && entry.subtype !== "task_notification") {
+      if (
+        entry.subtype !== "task_started"
+        && entry.subtype !== "task_progress"
+        && entry.subtype !== "task_notification"
+        && entry.subtype !== "task_updated"
+      ) {
         return;
       }
       applyTaskBlock(

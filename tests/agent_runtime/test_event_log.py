@@ -185,6 +185,19 @@ class TestNormalize:
         assert entries[0]["task_id"] == "t1"
         assert entries[0]["task_status"] == "completed"
 
+    def test_task_updated_extracts_status_from_patch(self):
+        entries = normalize_sdk_message_to_entries(
+            {
+                "type": "system",
+                "subtype": "task_updated",
+                "task_id": "t1",
+                "patch": {"status": "killed"},
+            }
+        )
+        assert len(entries) == 1
+        assert entries[0]["subtype"] == "task_updated"
+        assert entries[0]["task_status"] == "killed"
+
     def test_other_system_subtypes_are_ignored(self):
         assert normalize_sdk_message_to_entries({"type": "system", "subtype": "init", "session_id": "s"}) == []
         assert normalize_sdk_message_to_entries({"type": "system", "subtype": "compact_boundary"}) == []
