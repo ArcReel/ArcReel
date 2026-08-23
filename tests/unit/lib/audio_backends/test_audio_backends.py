@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any, NamedTuple
+from unittest.mock import patch
 
 import httpx
 import pytest
+import respx
 
 from lib.audio_backends import (
     AudioCapability,
@@ -20,6 +23,7 @@ from lib.audio_backends import (
 )
 from lib.dashscope_shared import extract_audio_url
 from lib.providers import PROVIDER_DASHSCOPE
+from tests.http_capture import capture_http, only_request, request_json
 
 
 class TestRegistry:
@@ -62,27 +66,37 @@ class TestExtractAudioUrl:
             extract_audio_url({"code": "InvalidApiKey", "message": "bad key"})
 
 
-def _synth_response(url: str = "https://x/out.wav") -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = {"output": {"audio": {"url": url}}}
-    return resp
+_SYNTH_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+_AUDIO_URL = "https://x/out.wav"
 
 
-def _download_response(content: bytes = b"RIFFfakewav") -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.content = content
-    return resp
+class _DashScopeRoutes(NamedTuple):
+    synthesize: respx.Route
+    download: respx.Route
 
 
-def _mock_client(post_resp: httpx.Response | MagicMock, get_resp: httpx.Response | MagicMock) -> AsyncMock:
-    client = AsyncMock()
-    client.post = AsyncMock(return_value=post_resp)
-    client.get = AsyncMock(return_value=get_resp)
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=None)
-    return client
+@contextmanager
+def _dashscope_audio_routes(
+    *,
+    synth: httpx.Response | None = None,
+    download: httpx.Response | list[httpx.Response | Exception] | None = None,
+    audio_url: str = _AUDIO_URL,
+    synth_url: str = _SYNTH_URL,
+) -> Iterator[_DashScopeRoutes]:
+    """DashScope TTS 的两条出站流：合成 POST 与音频 GET。
+
+    走 respx 在 transport 层拦截，断言对象是真实序列化后的请求（URL 拼接、鉴权头、body 编码
+    都在断言范围内），而不是客户端替身记录的调用参数。
+    """
+    with capture_http() as router:
+        synth_route = router.post(synth_url)
+        synth_route.mock(return_value=synth or httpx.Response(200, json={"output": {"audio": {"url": audio_url}}}))
+        download_route = router.get(audio_url)
+        if isinstance(download, list):
+            download_route.mock(side_effect=download)
+        else:
+            download_route.mock(return_value=download or httpx.Response(200, content=b"RIFFfakewav"))
+        yield _DashScopeRoutes(synthesize=synth_route, download=download_route)
 
 
 class TestDashScopeAudioBackend:
@@ -113,27 +127,26 @@ class TestDashScopeAudioBackend:
         assert voices is not b.list_voices()
 
     async def test_synthesize_request_and_download(self, tmp_path: Path):
-        client = _mock_client(_synth_response(), _download_response(b"RIFFwavbytes"))
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes(download=httpx.Response(200, content=b"RIFFwavbytes")) as routes:
             b = DashScopeAudioBackend(api_key="sk", model="qwen3-tts-flash", base_url="https://dashscope.aliyuncs.com")
             out = tmp_path / "o.wav"
             result = await b.synthesize(
                 AudioSynthesisRequest(text="你好世界", output_path=out, voice="Cherry", language_type="Chinese")
             )
 
-        body = client.post.call_args.kwargs["json"]
+        submitted = only_request(routes.synthesize)
+        body = request_json(submitted)
         assert body["model"] == "qwen3-tts-flash"
         assert body["input"] == {"text": "你好世界", "voice": "Cherry", "language_type": "Chinese"}
         # 同步 TTS 不带 async 头
-        headers = client.post.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer sk"
-        assert "X-DashScope-Async" not in headers
+        assert submitted.headers["Authorization"] == "Bearer sk"
+        assert "X-DashScope-Async" not in submitted.headers
         # 端点：host 派生 /api/v1 + 多模态生成路径
-        assert client.post.call_args.args[0].endswith("/api/v1/services/aigc/multimodal-generation/generation")
+        assert submitted.url.path == "/api/v1/services/aigc/multimodal-generation/generation"
         # 下载 URL 命中响应里的 audio.url
-        assert client.get.call_args.args[0] == "https://x/out.wav"
+        assert str(only_request(routes.download).url) == _AUDIO_URL
         # 字节落盘 + 结果字段
         assert out.read_bytes() == b"RIFFwavbytes"
         assert result.provider == PROVIDER_DASHSCOPE
@@ -143,118 +156,105 @@ class TestDashScopeAudioBackend:
 
     async def test_speed_param_ignored(self, tmp_path: Path):
         # speed 仅 realtime 支持，同步模型忽略（不报错、请求体不带 speed）
-        client = _mock_client(_synth_response(), _download_response())
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes() as routes:
             b = DashScopeAudioBackend(api_key="sk")
             await b.synthesize(
                 AudioSynthesisRequest(text="hi", output_path=tmp_path / "s.wav", voice="Ethan", speed=1.5)
             )
-        body = client.post.call_args.kwargs["json"]
+
+        body = request_json(only_request(routes.synthesize))
         assert "speed" not in body["input"]
         assert "speech_rate" not in body["input"]
 
     async def test_http_error_raises(self, tmp_path: Path):
         # 4xx 透出 httpx.HTTPStatusError（与其余 backend 一致），不嵌响应体进异常消息；提交按状态码不可重试
-        err_resp = httpx.Response(400, text="bad request", request=httpx.Request("POST", "https://x"))
-        client = _mock_client(err_resp, _download_response())
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes(synth=httpx.Response(400, text="bad request")) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             with pytest.raises(httpx.HTTPStatusError):
                 await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
+
         # 4xx 按 status_code fail-fast：计费的合成 POST 只发一次、不连带触发下载
-        assert client.post.call_count == 1
-        client.get.assert_not_called()
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 0
 
     async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path, poll_clock):
         # 4xx 错误消息带 "503" 子串（请求 URL/task_id）：旧字符串兜底会据此误判重试到超时，
         # 新状态码谓词只读 response.status_code，按 400 fail-fast——计费的合成 POST 只发一次、不连带下载。
-        err_resp = httpx.Response(
-            400, text="bad request", request=httpx.Request("POST", "https://x/api/v1/tasks/job-503")
-        )
-        client = _mock_client(err_resp, _download_response())
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
-            b = DashScopeAudioBackend(api_key="sk")
+        # host 里带 503 让异常文本命中瞬态子串——真实形态是请求 URL / task_id 里出现的数字
+        host = "https://dashscope-503.example.com"
+        with _dashscope_audio_routes(
+            synth=httpx.Response(400, text="bad request"),
+            synth_url=f"{host}/api/v1/services/aigc/multimodal-generation/generation",
+        ) as routes:
+            b = DashScopeAudioBackend(api_key="sk", base_url=host)
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
+
         # 异常字符串确实带瞬态子串（旧兜底据此误判重试的前提）；新谓词按状态码单次 fail-fast
         assert "503" in str(ei.value)
         assert ei.value.response.status_code == 400
-        assert client.post.call_count == 1
-        client.get.assert_not_called()
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 0
 
     async def test_download_failure_does_not_rebill_synthesis(self, tmp_path: Path, poll_clock):
         # 下载瞬时失败只重试 GET，绝不回头重跑会再次计费的合成 POST。
-        client = AsyncMock()
-        client.post = AsyncMock(return_value=_synth_response())
-        client.get = AsyncMock(side_effect=[httpx.ConnectError("transient"), _download_response(b"ok")])
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=None)
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes(
+            download=[httpx.ConnectError("transient"), httpx.Response(200, content=b"ok")]
+        ) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "d.wav"
             await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
         # 合成 POST 只发一次（未被下载重试连带重跑 → 不重复计费），下载 GET 重试到第 2 次成功
-        assert client.post.call_count == 1
-        assert client.get.call_count == 2
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 2
         assert out.read_bytes() == b"ok"
 
     async def test_empty_download_retried_then_rejected_no_file(self, tmp_path: Path, poll_clock):
         # 200 但空体视为瞬态：重试到下载上限后失败，不写 0 字节 wav，合成 POST 不被重跑。
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
         from lib.retry import DOWNLOAD_MAX_ATTEMPTS
 
-        client = AsyncMock()
-        client.post = AsyncMock(return_value=_synth_response())
-        client.get = AsyncMock(return_value=_download_response(b""))
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=None)
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
-
+        with _dashscope_audio_routes(download=httpx.Response(200, content=b"")) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "empty.wav"
             with pytest.raises(RuntimeError, match="空内容"):
                 await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
-        assert client.post.call_count == 1
-        assert client.get.call_count == DOWNLOAD_MAX_ATTEMPTS
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == DOWNLOAD_MAX_ATTEMPTS
         assert not out.exists()
 
     async def test_empty_download_transient_recovers(self, tmp_path: Path, poll_clock):
         # 空体一次后恢复：重试拿到字节落盘，合成 POST 不被重跑
-        client = AsyncMock()
-        client.post = AsyncMock(return_value=_synth_response())
-        client.get = AsyncMock(side_effect=[_download_response(b""), _download_response(b"ok")])
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=None)
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        with _dashscope_audio_routes(
+            download=[httpx.Response(200, content=b""), httpx.Response(200, content=b"ok")]
+        ) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "recover.wav"
             await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
-        assert client.post.call_count == 1
-        assert client.get.call_count == 2
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 2
         assert out.read_bytes() == b"ok"
 
     async def test_download_http_error_raises(self, tmp_path: Path, poll_clock):
         # 下载 4xx：透出 httpx.HTTPStatusError 且不写文件、不被误判可重试、合成 POST 不被重跑；
         # 异常文本不携带预签名 query（有效期内等同下载凭证）
-        signed_url = "https://x/out.wav?Expires=1&Signature=topsecret"
-        err_resp = httpx.Response(404, request=httpx.Request("GET", signed_url))
-        client = _mock_client(_synth_response(signed_url), err_resp)
-        with patch("httpx.AsyncClient", return_value=client):
-            from lib.audio_backends.dashscope import DashScopeAudioBackend
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
 
+        signed_url = "https://x/out.wav?Expires=1&Signature=topsecret"
+        with _dashscope_audio_routes(audio_url=signed_url, download=httpx.Response(404)) as routes:
             b = DashScopeAudioBackend(api_key="sk")
             out = tmp_path / "err.wav"
             with pytest.raises(httpx.HTTPStatusError) as excinfo:
@@ -263,8 +263,8 @@ class TestDashScopeAudioBackend:
         assert "Signature" not in str(excinfo.value)
         assert "https://x/out.wav" in str(excinfo.value)
         assert excinfo.value.response.status_code == 404
-        assert client.post.call_count == 1
-        assert client.get.call_count == 1, "4xx 不可重试，下载 GET 不应被重试"
+        assert routes.synthesize.call_count == 1
+        assert routes.download.call_count == 1, "4xx 不可重试，下载 GET 不应被重试"
         assert not out.exists()
 
 
