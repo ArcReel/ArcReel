@@ -11,7 +11,6 @@ const baseValue = {
   generationRoute: "storyboard" as const,
   gridStoryboard: false,
   targetDuration: 60,
-  speechRate: null,
 };
 
 const GRID_BAR_NAME = /多宫格分镜生视频/;
@@ -27,20 +26,6 @@ describe("WizardStep1Basics", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
-  });
-
-  it("blocks Next while the speech rate is out of range", () => {
-    const onNext = vi.fn();
-    render(
-      <WizardStep1Basics
-        value={{ ...baseValue, title: "demo", speechRate: 25 }}
-        onChange={() => {}}
-        onNext={onNext}
-        onCancel={() => {}}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    expect(onNext).not.toHaveBeenCalled();
   });
 
   it("enables Next button when title has content", () => {
@@ -114,6 +99,21 @@ describe("WizardStep1Basics", () => {
     );
   });
 
+  it("renders screenplay first and keeps it selected when drama uses the default source kind", () => {
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, contentMode: "drama", sourceKind: "screenplay" }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const group = screen.getByRole("radiogroup", { name: /源文件性质|Source type|Loại tệp nguồn/ });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((radio) => radio.getAttribute("value"))).toEqual(["screenplay", "novel"]);
+    expect(radios[0]).toBeChecked();
+  });
+
   it("emits onChange when aspect ratio changes", () => {
     const onChange = vi.fn();
     render(
@@ -157,7 +157,7 @@ describe("WizardStep1Basics", () => {
     }
   });
 
-  it("emits onChange when the storyboard route is picked", () => {
+  it("keeps the storyboard route disabled", () => {
     const onChange = vi.fn();
     render(
       <WizardStep1Basics
@@ -167,10 +167,10 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    expect(onChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({ generationRoute: "storyboard" }),
-    );
+    const storyboard = screen.getByRole("radio", { name: /分镜图生视频/ });
+    expect(storyboard).toBeDisabled();
+    fireEvent.click(storyboard);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("emits onChange when title input changes", () => {
@@ -393,8 +393,14 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    expect(screen.getByRole("radio", { name: /分镜图生视频/ })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /参考生视频/ })).toBeInTheDocument();
+    const group = screen.getByRole("radiogroup", { name: /生成方式|Generation method/ });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((radio) => radio.getAttribute("value"))).toEqual([
+      "reference_video",
+      "storyboard",
+    ]);
+    expect(radios[0]).toBeEnabled();
+    expect(radios[1]).toBeDisabled();
   });
 
   it("renders the multi-grid storyboard toggle with product language", () => {

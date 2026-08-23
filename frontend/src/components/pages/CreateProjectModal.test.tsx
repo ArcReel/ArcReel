@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Stub URL object APIs not available in jsdom
@@ -177,48 +177,30 @@ describe("CreateProjectModal", () => {
     expect(navigateMock).toHaveBeenCalledWith("/app/projects/demo-proj");
   });
 
-  it("submits grid_storyboard true when storyboard route is chosen and the grid toggle is switched on", async () => {
+  it("shows R2V first and selected while I2V remains visible but disabled", () => {
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("switch", { name: /多宫格分镜生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
-    await waitFor(() =>
-      expect(API.createProject).toHaveBeenCalledWith(
-        expect.objectContaining({ generation_mode: "storyboard", grid_storyboard: true }),
-      ),
-    );
+    const group = screen.getByRole("radiogroup", { name: /生成方式|Generation method/ });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((radio) => radio.getAttribute("value"))).toEqual([
+      "reference_video",
+      "storyboard",
+    ]);
+    expect(radios[0]).toBeChecked();
+    expect(radios[0]).toBeEnabled();
+    expect(radios[1]).toBeDisabled();
   });
 
-  it("omits the speech rate when left empty and submits it when filled", async () => {
-    const { unmount } = render(<CreateProjectModal />);
+  it("does not render or submit a speech-rate field during creation", async () => {
+    render(<CreateProjectModal />);
+    expect(screen.queryByLabelText(/语速（可选）|Pace \(optional\)/)).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
     await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-    // 未填不带该键：服务端不落盘，估算回退语言默认
     expect(vi.mocked(API.createProject).mock.calls[0][0]).not.toHaveProperty(
       "speech_rate_units_per_second",
-    );
-    unmount();
-
-    vi.mocked(API.createProject).mockClear();
-    render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.change(screen.getByLabelText(/^语速（可选）$/), { target: { value: "6" } });
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
-    await waitFor(() =>
-      expect(API.createProject).toHaveBeenCalledWith(
-        expect.objectContaining({ speech_rate_units_per_second: 6 }),
-      ),
     );
   });
 
@@ -233,66 +215,6 @@ describe("CreateProjectModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /上一步/ }));
     // Back on step 1, title preserved
     expect(screen.getByRole("textbox")).toHaveValue("demo");
-  });
-
-  it("revalidates duration and resolution when step 1 switches the executing video model", async () => {
-    // 全局给两条视频路径指定了不同模型时，改生成模式即换执行模型：时长与分辨率都是按前一个
-    // 模型选的，不清掉会被写到新模型名下
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
-      ...mockSysConfig,
-      settings: {
-        ...mockSysConfig.settings,
-        default_video_backend_i2v: "gemini-aistudio/veo-3",
-        default_video_backend_r2v: "ark/seedance",
-      },
-    } as never);
-    vi.spyOn(API, "getProviders").mockResolvedValue({
-      providers: [
-        {
-          id: "gemini-aistudio", display_name: "Gemini AI Studio", description: "", status: "ready" as const,
-          media_types: ["video", "image", "text"], capabilities: [], configured_keys: [], missing_keys: [],
-          models: {
-            "veo-3": {
-              display_name: "veo-3", media_type: "video", capabilities: [], default: false,
-              supported_durations: [4, 6, 8], duration_resolution_constraints: {},
-              resolutions: ["720p", "1080p"],
-            },
-          },
-        },
-        {
-          id: "ark", display_name: "Ark", description: "", status: "ready" as const,
-          media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
-          models: {
-            seedance: {
-              display_name: "seedance", media_type: "video", capabilities: [], default: false,
-              supported_durations: [5, 10], duration_resolution_constraints: {},
-              resolutions: ["480p"],
-            },
-          },
-        },
-      ],
-    } as never);
-
-    render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    // 第二步按 r2v 执行模型（seedance）列时长与分辨率
-    fireEvent.click(await screen.findByRole("radio", { name: "5 秒" }));
-    fireEvent.change(screen.getByRole("combobox", { name: /分辨率/ }), { target: { value: "480p" } });
-    fireEvent.click(screen.getByRole("button", { name: /上一步/ }));
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
-    // 执行模型换成 veo-3：5 秒不在其支持集内、480p 也不是它的分辨率，两者都不跟进载荷
-    await waitFor(() =>
-      expect(API.createProject).toHaveBeenCalledWith(
-        expect.objectContaining({ generation_mode: "storyboard", default_duration: null }),
-      ),
-    );
-    const payload = vi.mocked(API.createProject).mock.calls[0][0] as { model_settings?: Record<string, unknown> };
-    expect(payload.model_settings).toBeUndefined();
   });
 
   it("shows error toast and stays on step 3 when createProject fails", async () => {

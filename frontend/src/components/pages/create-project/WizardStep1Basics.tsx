@@ -3,7 +3,6 @@ import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GenerationRouteCards } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
-import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { GenerationRoute } from "@/utils/generation-mode";
@@ -11,7 +10,7 @@ import type { GenerationRoute } from "@/utils/generation-mode";
 export interface WizardStep1Value {
   title: string;
   contentMode: "narration" | "drama" | "ad";
-  /** 源文件性质：novel / screenplay（默认）。仅 drama 暴露，创建即定、不可变。 */
+  /** 源文件性质：screenplay（默认）/ novel。仅 drama 暴露，创建即定、不可变。 */
   sourceKind: "novel" | "screenplay";
   aspectRatio: "9:16" | "16:9";
   /** 生成模式，创建时锁定。默认预选参考生视频（R2V）；null 仅作防御（未选不放行）。 */
@@ -20,8 +19,6 @@ export interface WizardStep1Value {
   gridStoryboard: boolean;
   /** 仅 ad：目标总时长（秒）。UI 四档 15/30/60/90，默认 60。 */
   targetDuration: number;
-  /** 口播语速估算（阅读单位 / 秒）；null = 未填，按项目语言的默认速度估算。 */
-  speechRate: number | null;
 }
 
 /** 广告/短片目标总时长的 UI 档位（数据层不硬枚举，任意正整数秒合法）。 */
@@ -58,8 +55,6 @@ export function WizardStep1Basics({
     }
     // 生成模式必选（默认已预选参考生视频）：null 仅作防御性拦下
     if (!value.generationRoute) return;
-    // 口播语速越界不放行（区间与后端同一把尺）；未填合法
-    if (!isValidSpeechRate(value.speechRate)) return;
     onNext();
   };
 
@@ -152,17 +147,6 @@ export function WizardStep1Basics({
         <div>
           <FieldLabel>{t("dashboard:source_kind")}</FieldLabel>
           <div className="flex gap-2.5" role="radiogroup" aria-label={t("dashboard:source_kind")}>
-            <label className={radioCardClass(value.sourceKind === "novel")}>
-              <input
-                type="radio"
-                name="sourceKind"
-                value="novel"
-                checked={value.sourceKind === "novel"}
-                onChange={() => onChange({ ...value, sourceKind: "novel" })}
-                className="sr-only"
-              />
-              {t("dashboard:source_kind_novel")}
-            </label>
             <label className={radioCardClass(value.sourceKind === "screenplay")}>
               <input
                 type="radio"
@@ -173,6 +157,17 @@ export function WizardStep1Basics({
                 className="sr-only"
               />
               {t("dashboard:source_kind_screenplay")}
+            </label>
+            <label className={radioCardClass(value.sourceKind === "novel")}>
+              <input
+                type="radio"
+                name="sourceKind"
+                value="novel"
+                checked={value.sourceKind === "novel"}
+                onChange={() => onChange({ ...value, sourceKind: "novel" })}
+                className="sr-only"
+              />
+              {t("dashboard:source_kind_novel")}
             </label>
           </div>
           <p className="mt-2 text-[11.5px] leading-[1.55] text-text-3">
@@ -221,12 +216,6 @@ export function WizardStep1Basics({
           </div>
         </div>
       )}
-
-      {/* 口播语速估算：项目还没有语言事实（source_language 由内容分析写入），单位按未知语言呈现 */}
-      <SpeechRateField
-        value={value.speechRate}
-        onChange={(next) => onChange({ ...value, speechRate: next })}
-      />
 
       {/* Aspect Ratio */}
       <div>
@@ -280,6 +269,7 @@ export function WizardStep1Basics({
       {/* Generation route — 二选一，创建后不可更改 */}
       <GenerationRouteCards
         value={value.generationRoute}
+        disabledRoutes={["storyboard"]}
         onChange={(next) =>
           onChange({
             ...value,
