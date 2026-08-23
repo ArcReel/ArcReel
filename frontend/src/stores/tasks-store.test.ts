@@ -932,6 +932,19 @@ describe("isResourceBusy", () => {
     expect(isResourceBusy("storyboard", "p1", "u1")).toBe(false);
     expect(isResourceBusy("video", "p2", "u1")).toBe(false);
   });
+
+  it("keeps voice candidates independent from character image generation", () => {
+    useTasksStore.setState({
+      tasks: [
+        task({ task_id: "voice", resource_id: "艾莉", status: "running", task_type: "voice_sample" }),
+        task({ task_id: "sheet", resource_id: "小明", status: "running", task_type: "character" }),
+      ],
+    });
+    expect(isResourceBusy("voice_sample", "proj", "艾莉")).toBe(true);
+    expect(isResourceBusy("character", "proj", "艾莉")).toBe(false);
+    expect(isResourceBusy("character", "proj", "小明")).toBe(true);
+    expect(isResourceBusy("voice_sample", "proj", "小明")).toBe(false);
+  });
 });
 
 describe("isScriptFileBusy", () => {

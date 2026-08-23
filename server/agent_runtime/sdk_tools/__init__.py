@@ -21,6 +21,10 @@ from claude_agent_sdk import create_sdk_mcp_server
 from lib.project_migration_guard import project_migration_failure
 from server.agent_runtime.sdk_tools._context import ToolContext, migration_refusal_response
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
+from server.agent_runtime.sdk_tools.character_voice_references import (
+    confirm_character_voice_reference_tool,
+    generate_character_voice_references_tool,
+)
 from server.agent_runtime.sdk_tools.delete_project_asset import delete_project_asset_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
@@ -87,6 +91,8 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "get_workflow_plan",
     "list_pending_assets",
     "generate_assets",
+    "generate_character_voice_references",
+    "confirm_character_voice_reference",
     "generate_storyboards",
     "edit_images",
     "generate_grid",
@@ -131,6 +137,8 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "complete_step1_rebuild",
         "manage_project_asset_link",
         "generate_assets",
+        "generate_character_voice_references",
+        "confirm_character_voice_reference",
         "generate_storyboards",
         "edit_images",
         "generate_grid",
@@ -186,6 +194,8 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         get_workflow_plan_tool(ctx),
         list_pending_assets_tool(ctx),
         generate_assets_tool(ctx),
+        generate_character_voice_references_tool(ctx),
+        confirm_character_voice_reference_tool(ctx),
         generate_storyboards_tool(ctx),
         edit_images_tool(ctx),
         generate_grid_tool(ctx),

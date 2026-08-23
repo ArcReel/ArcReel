@@ -15,6 +15,7 @@ from lib.resource_paths import resource_relative_path
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
+from server.services.character_voice_references import VOICE_SAMPLE_TEXT_MAX_LENGTH
 from server.services.generation_context import AudioLaneResult, GenerationContext
 from tests.auth_deps import AUTH_DEPENDENCIES
 
@@ -240,7 +241,7 @@ class TestGenerateCharacterVoiceSample:
         with client:
             res = client.post(
                 "/api/v1/projects/demo/characters/艾莉/voice-sample",
-                json={"text": "长" * (generate.VOICE_SAMPLE_TEXT_MAX_LENGTH + 1), "voice": "Cherry"},
+                json={"text": "长" * (VOICE_SAMPLE_TEXT_MAX_LENGTH + 1), "voice": "Cherry"},
             )
 
         assert res.status_code == 400

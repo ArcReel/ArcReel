@@ -439,6 +439,22 @@ class GenerationQueue:
                 resource_type=resource_type,
             )
 
+    async def get_latest_task_for_resource(
+        self,
+        *,
+        project_name: str,
+        task_type: str,
+        resource_id: str,
+        statuses: tuple[str, ...] | None = None,
+    ) -> dict[str, Any] | None:
+        async with self._task_repo() as repo:
+            return await repo.get_latest_task_for_resource(
+                project_name=project_name,
+                task_type=task_type,
+                resource_id=resource_id,
+                statuses=statuses,
+            )
+
     async def claim_next_task(
         self,
         media_type: str,

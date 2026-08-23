@@ -132,6 +132,62 @@ class TestFfprobeAvailable:
             assert call_args[call_args.index("-protocol_whitelist") + 1] == "file"
 
 
+class TestExtractVoiceReferenceAudio:
+    @pytest.mark.integration
+    @pytest.mark.skipif(
+        shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+        reason="ffmpeg/ffprobe not available",
+    )
+    async def test_extracts_mono_wav_and_caps_duration(self, tmp_path):
+        source = tmp_path / "speaking.mp4"
+        output = tmp_path / "candidate.wav"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=32x32:r=1:d=12",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=12",
+                "-shortest",
+                "-c:v",
+                "libx264",
+                "-c:a",
+                "aac",
+                str(source),
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+        await audio_utils_module.extract_voice_reference_audio(source, output)
+
+        duration = await audio_utils_module.probe_existing_audio_duration_seconds(output)
+        assert duration == pytest.approx(10.0, abs=0.05)
+        stream = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=channels,sample_rate",
+                "-of",
+                "csv=p=0",
+                str(output),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert stream == "24000,1"
+
+
 class TestProbeExistingVideoDuration:
     @pytest.mark.integration
     @pytest.mark.skipif(

@@ -182,14 +182,13 @@ export async function enqueueCharacter(
 export async function enqueueCharacterVoiceSample(
   projectName: string,
   name: string,
-  text: string,
-  voice: string,
+  request: { strategy: "video" | "tts"; text: string; voice?: string },
 ): Promise<EnqueueResult> {
-  // 音色试听样本与该角色的资产图生成/编辑共用同一资源槽（kind "character"）：
-  // 二者互斥可接受——试听样本本就该在角色卡其它生成任务空闲时才发起。
+  // Voice candidates intentionally use an independent slot so extraction can
+  // run in parallel with the character sheet.
   const res = await submit(
-    [markResource(projectName, "character", name, "voice_sample")],
-    () => API.generateCharacterVoiceSample(projectName, name, text, voice),
+    [markResource(projectName, "voice_sample", name, "voice_sample")],
+    () => API.generateCharacterVoiceSample(projectName, name, request),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:voice_sample_task_submitted_toast", { name }));

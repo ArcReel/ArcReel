@@ -54,6 +54,7 @@ from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
     AUDIO_REFERENCE_MIN_SECONDS,
+    extract_voice_reference_audio,
     probe_audio_duration_seconds,
     probe_existing_audio_duration_seconds,
 )
@@ -2194,21 +2195,19 @@ async def execute_character_voice_sample_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
-    """为角色参考音频候选生成一段 TTS 试听样本（预览用，不写入角色资产）。
+    """生成角色参考音频候选（预览用，不写入角色资产）。
 
-    ``resource_id`` 是角色名；文本与音色显式来自 payload（``prompt`` = 待合成文本，
-    ``voice`` = 用户选定的音色 id），不回落任何全局旁白配置。生成产物须满足与
-    参考音频上传同口径的校验（格式经落盘扩展名固定为 wav、时长 2-10 秒、≤15MB）；
-    校验失败直接抛错让任务落 failed，不静默放行不合规样本。
+    默认 ``strategy=video`` 生成一段后端私有独白视频、抽取单声道 WAV 后立即删除视频；
+    ``strategy=tts`` 保留原有显式音色合成路径。两种路径的最终候选都满足上传参考音频
+    的同一组格式/时长/大小约束，且只有 confirm 才会提升为角色 ``reference_audio``。
     """
     character_name = validate_asset_name(resource_id)
-    text = payload.get("prompt")
-    voice = payload.get("voice")
-    if not isinstance(text, str) or not text.strip():
-        raise ValueError("voice sample 任务需要非空 payload.prompt（待合成文本）")
-    if not isinstance(voice, str) or not voice.strip():
-        raise ValueError("voice sample 任务需要 payload.voice（音色 id）")
+    strategy = payload.get("strategy", "tts")
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("voice sample 任务需要非空 payload.prompt")
     if not task_id:
         # 恒由 worker 经 execute_generation_task 传入队列任务自身 id；缺失说明调用方绕过了
         # 常规队列执行路径（如误从别处直接调用），而 sample_id 的跨任务隔离依赖它，fail-fast。
@@ -2219,39 +2218,105 @@ async def execute_character_voice_sample_task(
         # 与 execute_character_task 等其它执行器同口径：入队后、worker 取到任务前角色可能
         # 已被删除，执行前重新核实存在，避免花钱合成一段没有归属的孤儿预览。
         raise ValueError(f"character not found: {character_name}")
-    ctx = await resolve_generation_context(
-        project_name,
-        payload,
-        project=project,
-        user_id=user_id,
-        audio=AudioLaneRequest(),
-    )
-    generator = ctx.generator
-
     sample_id = voice_sample_resource_id(character_name, task_id)
-    _, version = await generator.generate_audio_async(
-        text=text.strip(),
-        resource_id=sample_id,
-        voice=voice.strip(),
-        speed=None,
-    )
-
     audio_rel = resource_relative_path("audio", sample_id)
-    audio_abs = get_project_manager().get_project_path(project_name) / audio_rel
+    project_path = get_project_manager().get_project_path(project_name)
+    audio_abs = project_path / audio_rel
+
+    if strategy == "video":
+        duration_raw = payload.get("duration_seconds")
+        if isinstance(duration_raw, bool) or not isinstance(duration_raw, (int, float)):
+            raise ValueError("video voice sample 任务需要合法 duration_seconds")
+        duration_seconds = int(duration_raw)
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            video=VideoLaneRequest(capability="i2v"),
+        )
+        if ctx.video.voice_consistency == "none":
+            raise VideoCapabilityError(
+                "voice_sample_video_audio_unavailable",
+                provider=ctx.video.provider_model.provider_id,
+                model=ctx.video.backend_model,
+            )
+        if claimed_provider_id is not None and ctx.video.provider_model.provider_id != claimed_provider_id:
+            raise DispatchProviderChanged(
+                claimed_provider_id=claimed_provider_id,
+                actual_provider_id=ctx.video.provider_model.provider_id,
+            )
+        if ctx.video.supported_durations and duration_seconds not in ctx.video.supported_durations:
+            raise ValueError(f"video voice sample duration is no longer supported: {duration_seconds}")
+        generator = ctx.generator
+        video_rel = resource_relative_path("videos", sample_id)
+        video_abs = project_path / video_rel
+        try:
+            await generator.generate_video_async(
+                prompt=prompt.strip(),
+                resource_type="videos",
+                resource_id=sample_id,
+                aspect_ratio=get_aspect_ratio(project, "videos"),
+                duration_seconds=duration_seconds,
+                resolution=ctx.video.resolution,
+                task_id=task_id,
+                generate_audio=True,
+                ephemeral_output=True,
+            )
+            await extract_voice_reference_audio(video_abs, audio_abs)
+        except BaseException:
+            audio_abs.unlink(missing_ok=True)
+            raise
+        finally:
+            # The source clip is an implementation detail.  It is never returned,
+            # versioned, or retained after audio extraction.
+            video_abs.unlink(missing_ok=True)
+        version = 0
+        voice_value: str | None = None
+    elif strategy == "tts":
+        voice = payload.get("voice")
+        if not isinstance(voice, str) or not voice.strip():
+            raise ValueError("TTS voice sample 任务需要 payload.voice（音色 id）")
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            audio=AudioLaneRequest(),
+        )
+        if claimed_provider_id is not None and ctx.audio.provider_model.provider_id != claimed_provider_id:
+            raise DispatchProviderChanged(
+                claimed_provider_id=claimed_provider_id,
+                actual_provider_id=ctx.audio.provider_model.provider_id,
+            )
+        generator = ctx.generator
+        _, version = await generator.generate_audio_async(
+            text=prompt.strip(),
+            resource_id=sample_id,
+            voice=voice.strip(),
+            speed=None,
+        )
+        voice_value = voice.strip()
+    else:
+        raise ValueError(f"unsupported voice sample strategy: {strategy}")
 
     def _read_bytes() -> bytes:
         return audio_abs.read_bytes()
 
-    content = await asyncio.to_thread(_read_bytes)
-    if len(content) > AUDIO_REFERENCE_MAX_BYTES:
-        raise ValueError(f"生成的语音样本超过 {AUDIO_REFERENCE_MAX_BYTES // (1024 * 1024)}MB 限制")
+    try:
+        content = await asyncio.to_thread(_read_bytes)
+        if len(content) > AUDIO_REFERENCE_MAX_BYTES:
+            raise ValueError(f"生成的语音样本超过 {AUDIO_REFERENCE_MAX_BYTES // (1024 * 1024)}MB 限制")
 
-    duration = await probe_audio_duration_seconds(content, audio_abs.suffix)
-    if duration is not None and not (AUDIO_REFERENCE_MIN_SECONDS <= duration <= AUDIO_REFERENCE_MAX_SECONDS):
-        raise ValueError(
-            f"生成的语音样本时长 {duration:.1f}s 超出 "
-            f"{AUDIO_REFERENCE_MIN_SECONDS:.0f}-{AUDIO_REFERENCE_MAX_SECONDS:.0f} 秒范围"
-        )
+        duration = await probe_audio_duration_seconds(content, audio_abs.suffix)
+        if duration is not None and not (AUDIO_REFERENCE_MIN_SECONDS <= duration <= AUDIO_REFERENCE_MAX_SECONDS):
+            raise ValueError(
+                f"生成的语音样本时长 {duration:.1f}s 超出 "
+                f"{AUDIO_REFERENCE_MIN_SECONDS:.0f}-{AUDIO_REFERENCE_MAX_SECONDS:.0f} 秒范围"
+            )
+    except BaseException:
+        audio_abs.unlink(missing_ok=True)
+        raise
 
     return {
         "version": version,
@@ -2259,7 +2324,8 @@ async def execute_character_voice_sample_task(
         "resource_type": "audio",
         "resource_id": sample_id,
         "character_name": character_name,
-        "voice": voice.strip(),
+        "strategy": strategy,
+        "voice": voice_value,
         "duration_seconds": duration,
     }
 
@@ -2895,9 +2961,7 @@ _DESIGN_REFERENCE_COLLECTORS: dict[str, Any] = {
 }
 
 
-async def _resolve_linked_global_image_reference(
-    project_name: str, asset_type: str, resource_id: str
-) -> Path | None:
+async def _resolve_linked_global_image_reference(project_name: str, asset_type: str, resource_id: str) -> Path | None:
     """Resolve a linked global image only when the project chose reference mode."""
 
     pm = get_project_manager()
@@ -3542,15 +3606,15 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
                 task_id=queue_task_id,
                 claimed_provider_id=claimed_provider_id,
             )
-        elif task_type == "video":
+        elif task_type == "video" or (task_type == "voice_sample" and task.get("media_type") == "video"):
             result = await executor(
                 project_name,
                 resource_id,
                 payload,
-                script_file=task.get("script_file"),
                 user_id=user_id,
                 task_id=queue_task_id,
                 claimed_provider_id=claimed_provider_id,
+                **({"script_file": task.get("script_file")} if task_type == "video" else {}),
             )
         else:
             result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)

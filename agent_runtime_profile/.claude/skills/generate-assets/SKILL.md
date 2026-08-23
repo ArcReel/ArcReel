@@ -4,10 +4,16 @@ description: >-
   统一资产生成 skill：接受 `--type=character|scene|prop`，或不传自动扫所有 pending（缺 sheet）资源并按类型分发。当用户说“生成角色图”/“生成场景图”/“生成道具图”、想为新资产创建参考图、或有资产缺少 *_sheet 时使用。
 ---
 
-# 生成资产图
+# 生成角色、场景与道具资产
 
 为项目的角色、场景、道具创建资产图，保证整个视频中视觉元素的一致性。
 图像供应商由项目设置选择（不锁定具体 backend）。
+
+角色声音是独立的并发资产：`complete_asset_inventory` 提交角色集后，服务端会立即为缺少
+有效声音的角色入队参考音频候选，不等待 `character_sheet`。默认以 `description + voice_style`
+生成约 10 秒的单人干净独白视频，抽取/裁剪 WAV 后删除视频；已有 `voice_id`、
+`reference_audio`、已选全局声音或待确认候选时跳过。候选必须试听确认后才写入
+`reference_audio`，TTS 仍作为可选回退。
 
 > Prompt 编写原则详见 `.claude/references/generation-modes.md` 的"Prompt 语言"章节。
 
@@ -83,6 +89,9 @@ description: >-
 | 生成某类全部 pending | `mcp__arcreel__generate_assets({"type": "character"})` |
 | 生成指定多个 | `mcp__arcreel__generate_assets({"type": "prop", "names": ["玉佩", "密信"]})` |
 | 生成单个 | `mcp__arcreel__generate_assets({"type": "scene", "names": ["村口老槐树"]})` |
+| 补生成角色声音候选 | `mcp__arcreel__generate_character_voice_references({"names": ["张三"]})` |
+| 用 TTS 生成候选 | `mcp__arcreel__generate_character_voice_references({"names": ["张三"], "strategy": "tts", "voice": "VoiceId"})` |
+| 用户试听认可后确认 | `mcp__arcreel__confirm_character_voice_reference({"name": "张三", "task_id": "..."})` |
 
 结果按 `requested / succeeded / failed / blocked / skipped` 逐 ID 返回，ID 形如 `character/张三`；
 已失效但可复用的旧图进入 `skipped`，不会自动重生；
@@ -92,9 +101,10 @@ description: >-
 ## 工作流程
 
 1. **加载项目元数据** — 从 Artifact Manifest 找出资产图状态为 `missing` 的资产
-2. **入队生成任务** — description 直接作为 prompt 提交；server 端 `lib.prompt_builders` 注入布局 / 防崩 / 反向
-3. **审核检查点** — 展示每张资产图，用户可批准、要求重新生成，或要求编辑
-4. **更新 project.json** — 更新 `character_sheet` / `scene_sheet` / `prop_sheet` 路径
+2. **并发入队** — 资产图按 description 提交；缺声音候选通常已在角色提取完成时独立入队，不得等待角色图完成后才触发
+3. **审核检查点** — 展示每张资产图；声音只展示提取后的音频候选供试听，不展示内部独白视频
+4. **声音确认** — 只有用户试听认可后才调用 `confirm_character_voice_reference`；未认可可重新生成或切换 TTS
+5. **更新 project.json** — 更新 `character_sheet` / `scene_sheet` / `prop_sheet`，确认后的声音写入角色 `reference_audio`
 
 ## 审核检查点：编辑 vs 重新生成
 

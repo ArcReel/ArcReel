@@ -248,21 +248,25 @@ export default {
   'pause_audio_sample': 'Tạm dừng',
   'delete_audio_sample': 'Xóa mẫu âm thanh',
 
-  // Tạo mẫu âm thanh tham chiếu bằng TTS
-  'voice_sample_action': 'Tạo bằng TTS',
-  'voice_sample_not_configured_hint': 'Vui lòng cấu hình nhà cung cấp âm thanh trong cài đặt trước',
+  // Tạo mẫu âm thanh tham chiếu
+  'voice_sample_action': 'Tạo âm thanh tham chiếu cho nhân vật',
+  'voice_sample_not_configured_hint': 'Vui lòng cấu hình nhà cung cấp video hoặc âm thanh trước',
+  'voice_sample_video_unavailable_tts_hint': 'Không thể tạo video; có thể dùng TTS để tạo âm thanh tham chiếu',
   'voice_sample_modal_title': 'Tạo mẫu giọng đọc tham chiếu',
   'voice_sample_modal_desc':
-    'Chọn giọng đọc cho "{{name}}" và tạo một mẫu thử. Xác nhận để lưu làm âm thanh tham chiếu của nhân vật.',
+    'Tạo một mẫu giọng khoảng 10 giây cho "{{name}}". Nghe thử rồi xác nhận để lưu làm âm thanh tham chiếu.',
+  'voice_sample_mode_video': 'Trích từ video (mặc định)',
+  'voice_sample_mode_tts': 'Giọng TTS',
+  'voice_sample_video_mode_hint': 'Hệ thống tạo riêng một video độc thoại với một người nói và nền yên tĩnh. Chỉ âm thanh được giữ lại; video không được hiển thị hoặc lưu.',
   'voice_sample_voice_label': 'Giọng đọc',
   'voice_sample_voice_placeholder': 'Chọn giọng đọc',
   'voice_sample_voice_loading': 'Đang tải danh sách giọng đọc…',
   'voice_sample_no_voices': 'Nhà cung cấp âm thanh hiện tại không có giọng đọc nào để chọn',
   'voice_sample_text_label': 'Văn bản mẫu',
   'voice_sample_text_default':
-    'Xin chào, đây là một đoạn mẫu giọng đọc sẽ được dùng làm âm thanh tham chiếu của nhân vật, giúp giữ giọng nói nhất quán.',
+    'Xin chào, tôi là {{name}}. Đây là giọng nói tự nhiên của tôi. Hãy nhớ cách tôi nói; rất vui được gặp bạn trong câu chuyện sắp tới.',
   'voice_sample_text_hint':
-    'Mẫu âm thanh phải dài 2-10 giây; văn bản quá dài sẽ khiến việc tạo thất bại.',
+    'Mục tiêu là khoảng 10 giây. Nếu không hỗ trợ 10 giây, hệ thống dùng thời lượng gần nhất nhưng không vượt quá 10 giây.',
   'voice_sample_generate': 'Tạo',
   'voice_sample_generating': 'Đang tạo…',
   'voice_sample_regenerate': 'Tạo lại',
@@ -1643,6 +1647,8 @@ export default {
   'tool_name_get_workflow_plan': 'Xem kế hoạch quy trình đầy đủ',
   'tool_name_get_episode_script_revision': 'Lấy phiên bản kịch bản',
   'tool_name_generate_assets': 'Tạo tài sản',
+  'tool_name_generate_character_voice_references': 'Tạo ứng viên giọng nhân vật',
+  'tool_name_confirm_character_voice_reference': 'Xác nhận âm thanh tham chiếu nhân vật',
   'tool_name_manage_project_asset_link': 'Quản lý liên kết tài sản toàn cục',
   'tool_name_generate_storyboards': 'Tạo storyboard',
   'tool_name_edit_images': 'Chỉnh sửa ảnh',

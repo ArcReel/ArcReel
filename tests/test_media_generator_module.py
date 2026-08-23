@@ -362,6 +362,25 @@ class TestMediaGenerator:
         assert version2 == 2
         assert gen.ledger.started[-1]["call_type"] == "video"
 
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_ephemeral_video_never_enters_version_history(self, tmp_path):
+        gen = _build_generator(tmp_path)
+
+        output, version, _, _ = await gen.generate_video_async(
+            prompt="private speaking clip",
+            resource_type="videos",
+            resource_id="voice_sample__A__task",
+            generate_audio=True,
+            ephemeral_output=True,
+        )
+
+        assert output.read_bytes() == b"fake-video-data"
+        assert version == 0
+        assert gen.versions.ensure_calls == []
+        assert gen.versions.add_calls == []
+        assert gen._video_backend.calls[0].generate_audio is True
+
     @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_video_before_submit_runs_once_immediately_before_first_backend_call(self, tmp_path):

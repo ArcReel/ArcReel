@@ -1922,7 +1922,7 @@ class API {
   }
 
   /**
-   * 提交角色 TTS 试听样本生成任务（预览用，需再调用 confirmCharacterVoiceSample 才落资产）
+   * 提交角色参考音频候选（默认从私有独白视频提取；需确认后才落资产）
    * @param projectName - 项目名称
    * @param charName - 角色名称
    * @param text - 待合成文本
@@ -1931,15 +1931,25 @@ class API {
   static async generateCharacterVoiceSample(
     projectName: string,
     charName: string,
-    text: string,
-    voice: string
+    request: { strategy: "video" | "tts"; text: string; voice?: string }
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}/voice-sample`,
       {
         method: "POST",
-        body: JSON.stringify({ text, voice }),
+        body: JSON.stringify(request),
       }
+    );
+  }
+
+  static async getCharacterVoiceSampleCandidate(
+    projectName: string,
+    charName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{ candidate: import("@/types").TaskItem | null }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}/voice-sample/candidate`,
+      { signal: options.signal }
     );
   }
 

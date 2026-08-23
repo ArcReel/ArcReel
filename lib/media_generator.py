@@ -848,6 +848,7 @@ class MediaGenerator:
         formal_output: bool = False,
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
+        ephemeral_output: bool = False,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """
@@ -892,7 +893,7 @@ class MediaGenerator:
         # 发起的新请求，不能写到来源不明的 legacy current 上；否则新产物被拒绝回滚后，旧视频
         # 会冒充新请求档位，后续被错误地当作可复用成片。未知事实保持未知，新产物在 add_version
         # 时再登记完整请求元数据。
-        if output_path.exists() and not formal_output:
+        if output_path.exists() and not formal_output and not ephemeral_output:
             self.versions.ensure_current_tracked(
                 resource_type=resource_type,
                 resource_id=resource_id,
@@ -1078,6 +1079,12 @@ class MediaGenerator:
                 raise
             video_uri = result.video_uri
             call.success(result)
+
+        if ephemeral_output:
+            # Private working media (for example a voice-reference source clip)
+            # must never enter the user-visible version history.  Its caller owns
+            # deletion in a ``finally`` block after deriving the durable artifact.
+            return output_path, 0, video_ref, video_uri
 
         await self._prepare_formal_video_commit(
             resource_type=resource_type,

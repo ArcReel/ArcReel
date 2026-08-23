@@ -30,6 +30,7 @@ from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.source_revision import SourceScope
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
+from server.services.character_voice_references import enqueue_character_voice_reference
 
 
 def _json_response(payload: dict[str, Any], *, is_error: bool = False) -> dict[str, Any]:
@@ -129,11 +130,38 @@ def complete_asset_inventory_tool(ctx: ToolContext):
                 expected,
                 entries,
             )
+            character_entries = entries.get("characters") if isinstance(entries, Mapping) else None
+            character_names = (
+                [name for name in character_entries if isinstance(name, str)]
+                if isinstance(character_entries, Mapping)
+                else []
+            )
+
+            async def _enqueue_voice(name: str) -> dict[str, Any]:
+                try:
+                    result = await enqueue_character_voice_reference(
+                        ctx.project_name,
+                        name,
+                        strategy="video",
+                        source="agent",
+                        skip_existing_voice=True,
+                        reuse_candidate=True,
+                        manager=ctx.pm,
+                    )
+                    return {"name": name, **result}
+                except Exception as exc:  # voice availability must not roll back the committed inventory
+                    return {"name": name, "status": "unavailable", "detail": str(exc)}
+
+            # Inventory completion is the trigger point. These calls enqueue and
+            # return immediately, so character-sheet generation can proceed while
+            # the private speaking clips are still being produced.
+            voice_references = await asyncio.gather(*(_enqueue_voice(name) for name in character_names))
             return _json_response(
                 {
                     "scope": completed.scope.model_dump(mode="json"),
                     "source_revision": completed.source_revision,
                     "counts": completed.counts,
+                    "voice_references": voice_references,
                 }
             )
         except AssetInventoryRevisionConflict as exc:

@@ -94,6 +94,11 @@ expected source revision：{next_action.args.expected_source_revision}
 请分析小说原文，提取角色 / 场景 / 道具信息，写入 project.json，返回摘要。
 ```
 
+`complete_asset_inventory` 返回的 `voice_references` 是角色声音候选的独立后台任务。它在角色集
+提交后立即触发，与后续 `character_sheet` 生成并行；不要等待角色定妆图再生成声音，也不要把
+内部独白视频作为用户资产展示。候选成功后在审核检查点提供音频试听，用户确认后再调用
+`confirm_character_voice_reference`。
+
 ---
 
 ## `plan_episodes` / `reset_episode_planning`：分集规划
@@ -192,6 +197,9 @@ dispatch `generate-assets` 子任务：
     mcp__arcreel__generate_assets({"type": "character", "names": [该类型 requested_ids]})
   验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
 ```
+
+角色声音不属于上述图片子任务的前置或后置依赖：清单提交时已经独立入队。若
+`voice_references` 显示 unavailable，可提供 TTS 或上传音频回退；不得阻塞角色图生成。
 
 ### 子任务 — 场景设计
 

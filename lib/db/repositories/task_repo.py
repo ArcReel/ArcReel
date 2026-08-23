@@ -263,6 +263,34 @@ class TaskRepository(BaseRepository):
         )
         return [_task_to_dict(t) for t in result.scalars().all()]
 
+    async def get_latest_task_for_resource(
+        self,
+        *,
+        project_name: str,
+        task_type: str,
+        resource_id: str,
+        statuses: tuple[str, ...] | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the newest task for one logical resource.
+
+        Voice-reference candidates remain useful after their queue task reaches
+        ``succeeded``: the user still has to preview and confirm them.  Active-task
+        dedupe cannot discover that terminal candidate, so callers use this query
+        to reuse it instead of generating (and billing for) another sample.
+        """
+        clauses: list[ColumnElement[bool]] = [
+            Task.project_name == project_name,
+            Task.task_type == task_type,
+            Task.resource_id == resource_id,
+        ]
+        if statuses is not None:
+            clauses.append(Task.status.in_(statuses))
+        result = await self.session.execute(
+            select(Task).where(*clauses).order_by(Task.queued_at.desc(), Task.task_id.desc()).limit(1)
+        )
+        task = result.scalar_one_or_none()
+        return _task_to_dict(task) if task is not None else None
+
     # NOTE: In multi-user mode, override this method to add user_id filtering
     async def claim_next(
         self,

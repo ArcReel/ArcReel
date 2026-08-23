@@ -12,6 +12,7 @@
 import asyncio
 import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -24,7 +25,7 @@ from lib.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifact_manifest import ArtifactKey
-from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
+from lib.asset_types import ASSET_SPECS, resolve_asset_key
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
@@ -41,8 +42,6 @@ from lib.narration_delivery import (
     video_request_requires_exact_quote,
     video_request_reuses_current_visual,
 )
-from lib.path_safety import safe_exists, safe_join
-from lib.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager, is_reference_video_project
 from lib.reference_video.request_projection import ProjectionResolutionError
 from lib.script_editor import resolve_items
@@ -57,6 +56,11 @@ from lib.storyboard_sequence import (
 )
 from server.auth import CurrentUser
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
+from server.services.character_voice_references import (
+    confirm_character_voice_reference,
+    enqueue_character_voice_reference,
+    latest_character_voice_candidate,
+)
 from server.services.cost_estimation import quote_video_request
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
@@ -110,8 +114,9 @@ class GenerateTtsRequest(BaseModel):
 
 
 class GenerateVoiceSampleRequest(BaseModel):
-    text: str
-    voice: str
+    strategy: Literal["video", "tts"] | None = None
+    text: str | None = None
+    voice: str | None = None
 
 
 class ConfirmVoiceSampleRequest(BaseModel):
@@ -563,11 +568,6 @@ async def generate_tts_batch(
 
 # ==================== 角色参考音频：TTS 试听样本 ====================
 
-# 试听文案长度粗护栏（与前端 VOICE_SAMPLE_TEXT_MAX_LENGTH 同值）。参考音频要求 2-10 秒，
-# 而「多少字合成出几秒」随语种与音色而变、提交前无法精确判定；此处只挡住整段粘贴导致的
-# 必然失败与无谓计费，真正的时长判定仍在执行层落盘后做。
-VOICE_SAMPLE_TEXT_MAX_LENGTH = 200
-
 
 @router.get("/projects/{project_name}/audio-backend/voices")
 async def get_audio_backend_voices(project_name: str, _t: Translator):
@@ -608,60 +608,38 @@ async def generate_character_voice_sample(
     user: CurrentUser,
     _t: Translator,
 ):
-    """提交角色 TTS 试听样本生成任务：文本/音色显式传入，不落回全局旁白配置。
-
-    生成产物是预览件，仅在 confirm 端点被显式提升为角色 reference_audio；本端点
-    只负责入队，走既有 audio 生成通道（并发/限速/记账与旁白 TTS 完全同一套）。
-    """
-    text = req.text.strip()
-    voice = req.voice.strip()
-    if not text:
-        raise BadRequestError("prompt_text_empty")
-    if len(text) > VOICE_SAMPLE_TEXT_MAX_LENGTH:
-        raise BadRequestError("voice_sample_text_too_long", max_length=VOICE_SAMPLE_TEXT_MAX_LENGTH)
-    if not voice:
-        raise BadRequestError("voice_sample_voice_required")
-
-    def _sync() -> tuple[dict, str]:
-        pm_local = get_project_manager()
-        project = pm_local.load_project(project_name)
-        try:
-            char_name = validate_asset_name(name)
-        except ValueError:
-            raise BadRequestError("asset_invalid_name", name=name)
-        # 存量角色 key 可能是 NFD，按坐标系解析存在性
-        if resolve_asset_key(project.get("characters"), char_name) is None:
-            raise NotFoundError("character_not_found", name=char_name)
-        return project, char_name
-
-    project, char_name = await asyncio.to_thread(_sync)
-    provider_id = await _require_audio_provider_configured(project)
-
-    spec = TaskSpec.from_request(
-        task_type="voice_sample",
-        media_type="audio",
-        resource_id=char_name,
-        prompt=text,
-        extra_payload={"voice": voice},
-        source="webui",
-    )
-    queue = get_generation_queue()
-    result = await queue.enqueue_task(
+    """Submit a preview candidate; video-derived voice is the default strategy."""
+    result = await enqueue_character_voice_reference(
         project_name=project_name,
-        task_type=spec.task_type,
-        media_type=spec.media_type,
-        resource_id=spec.resource_id,
-        payload=spec.payload,
+        name=name,
+        strategy=req.strategy or ("tts" if req.voice is not None else "video"),
+        text=req.text,
+        voice=req.voice,
         source="webui",
         user_id=user.id,
-        provider_id=provider_id,
+        skip_existing_voice=False,
+        reuse_candidate=False,
+        manager=get_project_manager(),
+        queue=get_generation_queue(),
     )
     return {
         "success": True,
         "task_id": result["task_id"],
         "deduped": result.get("deduped", False),
-        "message": _t("voice_sample_task_submitted", name=char_name),
+        "message": _t("voice_sample_task_submitted", name=name),
     }
+
+
+@router.get("/projects/{project_name}/characters/{name}/voice-sample/candidate")
+async def get_character_voice_sample_candidate(project_name: str, name: str):
+    """Return an active or unconfirmed succeeded candidate for Web preview."""
+    task = await latest_character_voice_candidate(
+        project_name,
+        name,
+        manager=get_project_manager(),
+        queue=get_generation_queue(),
+    )
+    return {"candidate": task}
 
 
 @router.post("/projects/{project_name}/characters/{name}/voice-sample/confirm")
@@ -671,82 +649,15 @@ async def confirm_character_voice_sample(
     req: ConfirmVoiceSampleRequest,
     _t: Translator,
 ):
-    """把已生成、已试听的 TTS 样本提升为角色 reference_audio；不确认不落资产。
-
-    只信一个 task_id 指向的 voice_sample 任务结果，不接受客户端直传文件路径——
-    产物已在执行层过一遍与上传同口径的格式/时长/大小校验（见
-    ``execute_character_voice_sample_task``），此处只做「任务确属本角色、已成功」
-    的归属校验后原样落盘，不重复校验。
-    """
-    try:
-        char_name = validate_asset_name(name)
-    except ValueError:
-        raise BadRequestError("asset_invalid_name", name=name)
-    queue = get_generation_queue()
-    task = await queue.get_task(req.task_id)
-    if (
-        task is None
-        or task.get("project_name") != project_name
-        or task.get("task_type") != "voice_sample"
-        or task.get("resource_id") != char_name
-    ):
-        raise NotFoundError("task_not_found", id=req.task_id)
-    if task.get("status") != "succeeded":
-        raise BadRequestError("voice_sample_not_ready")
-
-    result = task.get("result") or {}
-    sample_rel = result.get("file_path")
-    if not isinstance(sample_rel, str) or not sample_rel:
-        raise BadRequestError("voice_sample_not_ready")
-
-    def _sync() -> dict:
-        pm_local = get_project_manager()
-        project_dir = pm_local.get_project_path(project_name)
-        if not safe_exists(project_dir, sample_rel):
-            raise NotFoundError("voice_sample_file_missing")
-        sample_abs = safe_join(project_dir, sample_rel)
-        content = sample_abs.read_bytes()
-
-        filename = f"{char_name}.wav"
-        ref_audio_rel = f"characters/refs_audio/{filename}"
-        target_path = project_dir / ref_audio_rel
-        try:
-            with project_change_source("webui"):
-                pm_local.install_character_reference_audio(project_name, char_name, ref_audio_rel, content)
-        except KeyError:
-            raise NotFoundError("character_not_found", name=char_name)
-
-        # 目标文件名固定为 {char_name}.wav：重新生成后再次确认时 reference_audio 字段值
-        # 不变（同一路径字符串），project.json 的字段级 diff 因此检测不到变化、不会自动
-        # 广播刷新事件——但落盘字节确实已替换。显式带上新 mtime 指纹的 character:updated
-        # 事件，让其它已打开该项目的客户端也能对该音频文件 cache-bust，不必等到无关的
-        # 下一次项目刷新才碰巧同步。
-        try:
-            emit_project_change_batch(
-                project_name,
-                [
-                    {
-                        "entity_type": "character",
-                        "action": "updated",
-                        "entity_id": char_name,
-                        **build_change_label("character_reference_audio", id=char_name),
-                        "focus": None,
-                        "important": False,
-                        "asset_fingerprints": {ref_audio_rel: target_path.stat().st_mtime_ns},
-                    }
-                ],
-                source="webui",
-            )
-        except Exception:
-            logger.exception(
-                "发送试听样本确认项目事件失败 project=%s character=%s",
-                project_name,
-                char_name,
-            )
-
-        return {"path": ref_audio_rel}
-
-    saved = await asyncio.to_thread(_sync)
+    """Promote the preview only after an explicit Web confirmation."""
+    saved = await confirm_character_voice_reference(
+        project_name,
+        name,
+        req.task_id,
+        source="webui",
+        manager=get_project_manager(),
+        queue=get_generation_queue(),
+    )
     return {
         "success": True,
         "path": saved["path"],

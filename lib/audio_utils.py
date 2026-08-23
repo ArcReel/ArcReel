@@ -24,6 +24,7 @@ AUDIO_REFERENCE_MIN_SECONDS = 2.0
 AUDIO_REFERENCE_MAX_SECONDS = 10.0
 
 _FFPROBE_TIMEOUT_SECONDS = 10.0
+_FFMPEG_TIMEOUT_SECONDS = 60.0
 
 # ffprobe 的 format_name 是逗号分隔的候选容器列表（如 m4a 探测出
 # "mov,mp4,m4a,3gp,3g2,mj2"），按扩展名要求其中必须含指定 token，
@@ -96,6 +97,66 @@ def _ffprobe_available() -> bool:
 def _reset_for_tests() -> None:
     """test helper —— 清缓存让 monkeypatch shutil.which 立刻生效。"""
     _ffprobe_available.cache_clear()
+
+
+async def extract_voice_reference_audio(
+    video_path: Path,
+    output_path: Path,
+    *,
+    max_seconds: float = AUDIO_REFERENCE_MAX_SECONDS,
+) -> None:
+    """Extract a clean mono WAV reference from a generated speaking clip.
+
+    The subprocess receives explicit, already-resolved local paths and is limited
+    to the first audio stream.  A temporary sibling file prevents a failed or
+    cancelled extraction from leaving a seemingly valid candidate at the final
+    path.
+    """
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("ffmpeg is required to extract a character voice reference")
+    video_path = Path(video_path)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, staged_name = tempfile.mkstemp(
+        prefix=f".{output_path.stem}.", suffix=output_path.suffix, dir=output_path.parent
+    )
+    os.close(fd)
+    staged_path = Path(staged_name)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-i",
+            str(video_path),
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-t",
+            f"{max_seconds:g}",
+            "-ac",
+            "1",
+            "-ar",
+            "24000",
+            "-c:a",
+            "pcm_s16le",
+            str(staged_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_FFMPEG_TIMEOUT_SECONDS)
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise ValueError("generated video audio extraction timed out") from None
+        if proc.returncode != 0:
+            reason = stderr.decode(errors="replace").strip()[-500:]
+            raise ValueError(f"generated video has no extractable audio track: {reason}")
+        os.replace(staged_path, output_path)
+    finally:
+        staged_path.unlink(missing_ok=True)
 
 
 # 只取时长的 ffprobe 参数，字节输入版与已落盘文件版共用一份——两处各写一份会漂移出

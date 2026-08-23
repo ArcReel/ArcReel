@@ -10,7 +10,7 @@ import pytest
 from lib.config.resolver import ProviderModel
 from lib.resource_paths import resource_relative_path
 from server.services import generation_tasks
-from server.services.generation_context import AudioLaneResult, GenerationContext
+from server.services.generation_context import AudioLaneResult, GenerationContext, VideoLaneResult
 
 pytestmark = pytest.mark.unit
 
@@ -66,6 +66,42 @@ class _FakeAudioGenerator:
         return {"versions": [{"created_at": "2026-06-01T00:00:00Z"}]}
 
 
+class _FakeVideoGenerator:
+    def __init__(self, project_path: Path):
+        self._project_path = project_path
+        self.video_calls: list[dict] = []
+
+    async def generate_video_async(self, **kwargs):
+        self.video_calls.append(kwargs)
+        path = self._project_path / resource_relative_path("videos", kwargs["resource_id"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"private-speaking-video")
+        return path, 0, None, None
+
+
+def _video_ctx(generator):
+    ctx = GenerationContext(
+        generator=generator,
+        video_lane=VideoLaneResult(
+            provider_model=ProviderModel("ark", "seedance-2-0-pro"),
+            backend_name="ark",
+            backend_model="seedance-2-0-pro",
+            resolution="720p",
+            resolution_or_fallback="720p",
+            supported_durations=(5, 8, 10),
+            max_duration=10,
+            max_reference_images=0,
+            voice_consistency="native",
+        ),
+    )
+
+    async def _resolve(*args, **kwargs):
+        assert kwargs.get("video") is not None
+        return ctx
+
+    return _resolve
+
+
 @pytest.fixture
 def voice_sample_env(monkeypatch, tmp_path):
     project_path = tmp_path / "projects" / "demo"
@@ -83,6 +119,48 @@ def voice_sample_env(monkeypatch, tmp_path):
 
 
 class TestExecuteCharacterVoiceSampleTask:
+    async def test_video_strategy_extracts_audio_and_deletes_private_video(self, tmp_path, monkeypatch):
+        project_path = tmp_path / "projects" / "demo"
+        project_path.mkdir(parents=True)
+        pm = _FakePM(project_path)
+        generator = _FakeVideoGenerator(project_path)
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _video_ctx(generator))
+
+        async def _extract(video_path, output_path, **kwargs):
+            assert video_path.read_bytes() == b"private-speaking-video"
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"derived-wav")
+
+        async def _duration(content, suffix):
+            return 9.8
+
+        monkeypatch.setattr(generation_tasks, "extract_voice_reference_audio", _extract)
+        monkeypatch.setattr(generation_tasks, "probe_audio_duration_seconds", _duration)
+
+        result = await generation_tasks.execute_character_voice_sample_task(
+            "demo",
+            "艾莉",
+            {
+                "strategy": "video",
+                "prompt": "single clean monologue",
+                "duration_seconds": 10,
+            },
+            task_id="task-video",
+            claimed_provider_id="ark",
+        )
+
+        call = generator.video_calls[0]
+        assert call["generate_audio"] is True
+        assert call["ephemeral_output"] is True
+        assert call["duration_seconds"] == 10
+        assert result["strategy"] == "video"
+        assert result["voice"] is None
+        assert result["duration_seconds"] == 9.8
+        video_path = project_path / resource_relative_path("videos", result["resource_id"])
+        assert not video_path.exists()
+        assert (project_path / result["file_path"]).read_bytes() == b"derived-wav"
+
     async def test_success(self, voice_sample_env):
         pm, gen = voice_sample_env
         result = await generation_tasks.execute_character_voice_sample_task(

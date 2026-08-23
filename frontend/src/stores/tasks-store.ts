@@ -22,6 +22,7 @@ export type ResourceKind =
   | "storyboard"
   | "video"
   | "tts"
+  | "voice_sample"
   | "reference_video"
   | "grid";
 
@@ -459,9 +460,8 @@ export function isTerminalStatus(status: TaskStatus): boolean {
  * 任务占用的「资源种类」。除 image_edit 外，task_type 本身即资源种类；image_edit 跨
  * character/scene/prop/product/storyboard 共用一个 task_type，真正的种类在 resource_type，
  * 故按 resource_type 归槽——编辑任务与同资源的生成任务落入同一占用集、彼此互斥。
- * `voice_sample`（角色 TTS 试听样本）同理归入 `character`——它与该角色的资产图生成/
- * 编辑/上传共用同一占用槽（见 {@link enqueueCharacterVoiceSample}），乐观标记在请求
- * 发出前就用 `character` kind 打标，真实任务行落库后须归到同一 kind 才能让位不断档。
+ * `voice_sample` uses its own slot: character-sheet generation and private
+ * voice-candidate generation are intentionally concurrent.
  *
  * 两处断言是数据边界：{@link TaskItem} 的字段来自后端、TS 管不到其值域。后端若出现未在
  * {@link ResourceKind} 登记的种类，该行匹配不上任何占用槽（退化为不参与占用判定），
@@ -470,9 +470,6 @@ export function isTerminalStatus(status: TaskStatus): boolean {
 export function taskResourceKind(task: TaskItem): ResourceKind | "" {
   if (task.task_type === "image_edit") {
     return (task.resource_type as ResourceKind | null) ?? "";
-  }
-  if (task.task_type === "voice_sample") {
-    return "character";
   }
   return task.task_type as ResourceKind;
 }

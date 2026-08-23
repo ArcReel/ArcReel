@@ -319,6 +319,7 @@ async def test_complete_inventory_mcp_returns_machine_readable_result_and_confli
         "counts": {"characters": 0, "props": 0, "scenes": 0},
         "scope": {"files": [], "kind": "all"},
         "source_revision": expected,
+        "voice_references": [],
     }
 
     (project_path / "source" / "novel.txt").write_text("又一次变化", encoding="utf-8")
