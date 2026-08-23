@@ -1,95 +1,109 @@
-"""NewAPIVideoBackend 单元测试（mock httpx）。"""
+"""NewAPIVideoBackend 单元测试（respx 捕获出站请求，假表压缩轮询等待）。"""
 
 from __future__ import annotations
 
 import base64
+import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import NamedTuple
 
 import httpx
 import pytest
+import respx
 
 from lib.providers import PROVIDER_NEWAPI
-from lib.video_backends.base import VideoGenerationRequest
+from lib.video_backends.base import AmbiguousSubmitError, ResumeExpiredError, VideoGenerationRequest
+from lib.video_backends.newapi import NewAPIVideoBackend
 from tests.fakes import bounded_poll_clock
+from tests.http_capture import capture_http, only_request, request_json
+
+_BASE_URL = "https://x/v1"
+_GENERATIONS_PATH = "/video/generations"
 
 
-def _make_response(status_code: int, json_body: dict) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = json_body
-    resp.raise_for_status = MagicMock()
-    return resp
+class _NewAPIRoutes(NamedTuple):
+    """NewAPI 的三条出站流量：建任务、任务轮询、成片下载。"""
+
+    submit: respx.Route
+    poll: respx.Route
+    download: respx.Route
 
 
-def _make_http_error(status_code: int, message: str) -> httpx.HTTPStatusError:
-    """构造 httpx.HTTPStatusError，用于模拟 raise_for_status() 抛出的 5xx。"""
-    request = httpx.Request("POST", "https://x/v1/video/generations")
-    response = httpx.Response(status_code, request=request, text=message)
-    return httpx.HTTPStatusError(f"Server error '{status_code}'", request=request, response=response)
+@contextmanager
+def _newapi(*, base_url: str = _BASE_URL) -> Iterator[_NewAPIRoutes]:
+    with capture_http() as router:
+        yield _NewAPIRoutes(
+            submit=router.post(f"{base_url}{_GENERATIONS_PATH}"),
+            poll=router.get(url__regex=rf"^{re.escape(base_url + _GENERATIONS_PATH)}/[^/]+$"),
+            download=router.get(url__regex=r"^https://cdn"),
+        )
 
 
-def _fake_download_factory(payload: bytes = b"mp4-bytes"):
-    """返回一个模拟 `download_video` 的异步函数，写入 payload 到 output_path。"""
+def _json(body: dict, status_code: int = 200) -> httpx.Response:
+    return httpx.Response(status_code, json=body)
 
-    async def _fake(url: str, output_path: Path, *, timeout: int = 120) -> None:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(payload)
 
-    return _fake
+def _queued(task_id: str = "t-proxy") -> httpx.Response:
+    return _json({"task_id": task_id, "status": "queued"})
+
+
+def _done(task_id: str = "t-proxy", url: str = "https://cdn/v.mp4", **extra) -> httpx.Response:
+    body = {"task_id": task_id, "status": "completed", "url": url, "metadata": {"duration": 5}}
+    body.update(extra)
+    return _json(body)
+
+
+def _request(tmp_path: Path, **overrides) -> VideoGenerationRequest:
+    params: dict = {
+        "prompt": "p",
+        "output_path": tmp_path / "o.mp4",
+        "aspect_ratio": "9:16",
+        "duration_seconds": 5,
+    }
+    params.update(overrides)
+    return VideoGenerationRequest(**params)
+
+
+def _backend(base_url: str = _BASE_URL, model: str = "m") -> NewAPIVideoBackend:
+    return NewAPIVideoBackend(api_key="k", base_url=base_url, model=model)
 
 
 class TestNewAPIVideoBackend:
     def test_name_and_model(self):
-        from lib.video_backends.newapi import NewAPIVideoBackend
-
         backend = NewAPIVideoBackend(api_key="sk-test", base_url="https://example.com/v1", model="kling-v1")
         assert backend.name == PROVIDER_NEWAPI
         assert backend.model == "kling-v1"
 
     def test_capabilities(self):
-        from lib.video_backends.newapi import NewAPIVideoBackend
-
-        backend = NewAPIVideoBackend(api_key="sk-test", base_url="https://x/v1", model="m")
-        assert backend.video_capabilities.max_reference_images == 0
+        assert _backend().video_capabilities.max_reference_images == 0
 
     async def test_text_to_video_happy_path(self, tmp_path: Path):
-        create_resp = _make_response(200, {"task_id": "task-42", "status": "queued"})
-        poll_resp = _make_response(
-            200,
-            {
-                "task_id": "task-42",
-                "status": "completed",
-                "url": "https://cdn.example.com/out.mp4",
-                "format": "mp4",
-                "metadata": {"duration": 5, "fps": 24, "width": 720, "height": 1280, "seed": 0},
-            },
-        )
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(return_value=poll_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"mp4-bytes"))
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
+        with _newapi(base_url="https://example.com/v1") as routes:
+            routes.submit.mock(return_value=_queued("task-42"))
+            routes.poll.mock(
+                return_value=_json(
+                    {
+                        "task_id": "task-42",
+                        "status": "completed",
+                        "url": "https://cdn.example.com/out.mp4",
+                        "format": "mp4",
+                        "metadata": {"duration": 5, "fps": 24, "width": 720, "height": 1280, "seed": 0},
+                    }
+                )
+            )
+            routes.download.mock(return_value=httpx.Response(200, content=b"mp4-bytes"))
 
             backend = NewAPIVideoBackend(api_key="sk-test", base_url="https://example.com/v1", model="kling-v1")
-            request = VideoGenerationRequest(
-                prompt="A cat running",
-                output_path=tmp_path / "out.mp4",
-                aspect_ratio="9:16",
-                resolution="720p",
-                duration_seconds=5,
+            result = await backend.generate(
+                _request(
+                    tmp_path,
+                    prompt="A cat running",
+                    output_path=tmp_path / "out.mp4",
+                    resolution="720p",
+                )
             )
-            result = await backend.generate(request)
 
         assert result.video_path == tmp_path / "out.mp4"
         assert result.video_path.read_bytes() == b"mp4-bytes"
@@ -98,596 +112,231 @@ class TestNewAPIVideoBackend:
         assert result.duration_seconds == 5
         assert result.task_id == "task-42"
 
-        post_call = mock_client.post.call_args
-        assert post_call.args[0].endswith("/video/generations")
-        assert post_call.kwargs["json"]["model"] == "kling-v1"
-        assert post_call.kwargs["json"]["prompt"] == "A cat running"
-        assert post_call.kwargs["json"]["width"] == 720
-        assert post_call.kwargs["json"]["height"] == 1280
-        assert post_call.kwargs["json"]["duration"] == 5
-        assert post_call.kwargs["json"]["n"] == 1
-        assert "image" not in post_call.kwargs["json"]
-        assert post_call.kwargs["headers"]["Authorization"] == "Bearer sk-test"
+        submitted = only_request(routes.submit)
+        assert submitted.url.path.endswith(_GENERATIONS_PATH)
+        body = request_json(submitted)
+        assert body["model"] == "kling-v1"
+        assert body["prompt"] == "A cat running"
+        assert body["width"] == 720
+        assert body["height"] == 1280
+        assert body["duration"] == 5
+        assert body["n"] == 1
+        assert "image" not in body
+        assert submitted.headers["Authorization"] == "Bearer sk-test"
 
-        # 下载走 base.download_video，URL 正确且不带 auth（base.download_video 不接 headers 参数）
-        fake_download.assert_called_once()
-        download_call = fake_download.call_args
-        assert download_call.args[0] == "https://cdn.example.com/out.mp4"
-        assert download_call.args[1] == tmp_path / "out.mp4"
+        # 下载走 base.download_video，URL 正确且不带鉴权头
+        downloaded = only_request(routes.download)
+        assert str(downloaded.url) == "https://cdn.example.com/out.mp4"
+        assert "Authorization" not in downloaded.headers
 
     async def test_image_to_video_encodes_base64(self, tmp_path: Path):
         img_bytes = b"\x89PNG\r\nfake"
         img_path = tmp_path / "start.png"
         img_path.write_bytes(img_bytes)
 
-        create_resp = _make_response(200, {"task_id": "t1", "status": "queued"})
-        poll_resp = _make_response(
-            200,
-            {
-                "task_id": "t1",
-                "status": "completed",
-                "url": "https://cdn/x.mp4",
-                "metadata": {"duration": 5},
-            },
-        )
+        with _newapi() as routes:
+            routes.submit.mock(return_value=_queued("t1"))
+            routes.poll.mock(return_value=_done("t1", "https://cdn/x.mp4"))
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(return_value=poll_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+            await _backend(model="kling-v1").generate(_request(tmp_path, start_image=img_path, resolution="720p"))
 
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
+            sent_image = request_json(only_request(routes.submit))["image"]
 
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="kling-v1")
-            await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p",
-                    output_path=tmp_path / "o.mp4",
-                    start_image=img_path,
-                    resolution="720p",
-                    aspect_ratio="9:16",
-                    duration_seconds=5,
-                )
-            )
-
-        sent_image = mock_client.post.call_args.kwargs["json"]["image"]
-        expected = "data:image/png;base64," + base64.b64encode(img_bytes).decode()
-        assert sent_image == expected
+        assert sent_image == "data:image/png;base64," + base64.b64encode(img_bytes).decode()
 
     async def test_start_image_missing_is_ignored(self, tmp_path: Path, caplog):
         """start_image 文件不存在时应 warning 并走纯文生路径。"""
-        create_resp = _make_response(200, {"task_id": "t-missing", "status": "queued"})
-        poll_resp = _make_response(
-            200,
-            {"task_id": "t-missing", "status": "completed", "url": "https://cdn/v.mp4", "metadata": {"duration": 5}},
-        )
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(return_value=poll_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
-
         with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.video_backends.newapi.download_video", fake_download),
+            _newapi() as routes,
             caplog.at_level("WARNING", logger="lib.video_backends.newapi"),
         ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
+            routes.submit.mock(return_value=_queued("t-missing"))
+            routes.poll.mock(return_value=_done("t-missing"))
 
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p",
-                    output_path=tmp_path / "o.mp4",
-                    start_image=tmp_path / "does_not_exist.png",
-                    resolution="720p",
-                    aspect_ratio="9:16",
-                    duration_seconds=5,
-                )
+            await _backend().generate(
+                _request(tmp_path, start_image=tmp_path / "does_not_exist.png", resolution="720p")
             )
 
-        assert "image" not in mock_client.post.call_args.kwargs["json"]
+            body = request_json(only_request(routes.submit))
+
+        assert "image" not in body
         assert any("start_image 文件不存在" in rec.message for rec in caplog.records)
 
     async def test_failed_status_raises(self, tmp_path: Path):
-        create_resp = _make_response(200, {"task_id": "t2", "status": "queued"})
-        poll_resp = _make_response(
-            200,
-            {
-                "task_id": "t2",
-                "status": "failed",
-                "error": {"code": 500, "message": "upstream down"},
-            },
-        )
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(return_value=poll_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        fake_download = AsyncMock()
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            with pytest.raises(RuntimeError, match="upstream down"):
-                await backend.generate(
-                    VideoGenerationRequest(
-                        prompt="p",
-                        output_path=tmp_path / "o.mp4",
-                        resolution="720p",
-                        aspect_ratio="9:16",
-                        duration_seconds=5,
-                    )
-                )
-
-        fake_download.assert_not_called()
-
-    async def test_polls_through_in_progress(self, tmp_path: Path):
-        create_resp = _make_response(200, {"task_id": "t3", "status": "queued"})
-        in_progress = _make_response(200, {"task_id": "t3", "status": "in_progress"})
-        completed = _make_response(
-            200,
-            {
-                "task_id": "t3",
-                "status": "completed",
-                "url": "https://cdn/v.mp4",
-                "metadata": {"duration": 5},
-            },
-        )
-
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(side_effect=[in_progress, in_progress, completed])
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p",
-                    output_path=tmp_path / "o.mp4",
-                    resolution="720p",
-                    aspect_ratio="9:16",
-                    duration_seconds=5,
+        with _newapi() as routes:
+            routes.submit.mock(return_value=_queued("t2"))
+            routes.poll.mock(
+                return_value=_json(
+                    {"task_id": "t2", "status": "failed", "error": {"code": 500, "message": "upstream down"}}
                 )
             )
 
+            with pytest.raises(RuntimeError, match="upstream down"):
+                await _backend().generate(_request(tmp_path, resolution="720p"))
+
+            assert routes.download.call_count == 0
+
+    async def test_polls_through_in_progress(self, tmp_path: Path):
+        in_progress = _json({"task_id": "t3", "status": "in_progress"})
+
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_queued("t3"))
+            routes.poll.mock(side_effect=[in_progress, in_progress, _done("t3")])
+            routes.download.mock(return_value=httpx.Response(200, content=b"v"))
+
+            result = await _backend().generate(_request(tmp_path, resolution="720p"))
+
+            assert routes.poll.call_count == 3
+            assert routes.download.call_count == 1
+
         assert result.task_id == "t3"
-        # 3 次 poll（in_progress → in_progress → completed），下载不经过 mock_client
-        assert mock_client.get.call_count == 3
-        fake_download.assert_called_once()
 
     async def test_polling_timeout_raises(self, tmp_path: Path):
         """轮询超时应抛 TimeoutError 且不触发下载。"""
-        create_resp = _make_response(200, {"task_id": "t-timeout", "status": "queued"})
-        in_progress = _make_response(200, {"task_id": "t-timeout", "status": "in_progress"})
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_queued("t-timeout"))
+            routes.poll.mock(return_value=_json({"task_id": "t-timeout", "status": "in_progress"}))
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(return_value=in_progress)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        fake_download = AsyncMock()
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.video_backends.newapi._MIN_POLL_TIMEOUT_SECONDS", 0.01),
-            patch("lib.video_backends.newapi._POLL_TIMEOUT_PER_SECOND", 0),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
             with pytest.raises(TimeoutError, match="NewAPI"):
-                await backend.generate(
-                    VideoGenerationRequest(
-                        prompt="p",
-                        output_path=tmp_path / "o.mp4",
-                        resolution="720p",
-                        aspect_ratio="9:16",
-                        duration_seconds=5,
-                    )
-                )
+                await _backend().generate(_request(tmp_path, resolution="720p"))
 
-        fake_download.assert_not_called()
+            assert routes.poll.call_count > 1
+            assert routes.download.call_count == 0
 
     async def test_zero_duration_from_api_is_preserved(self, tmp_path: Path):
         """回归: API 返回 duration=0 时不应被 falsy 回退到请求值（is None 判空）。"""
-        create_resp = _make_response(200, {"task_id": "t-zero", "status": "queued"})
-        poll_resp = _make_response(
-            200,
-            {
-                "task_id": "t-zero",
-                "status": "completed",
-                "url": "https://cdn/v.mp4",
-                "metadata": {"duration": 0},
-            },
-        )
+        with _newapi() as routes:
+            routes.submit.mock(return_value=_queued("t-zero"))
+            routes.poll.mock(return_value=_done("t-zero", metadata={"duration": 0}))
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(return_value=poll_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p",
-                    output_path=tmp_path / "o.mp4",
-                    resolution="720p",
-                    aspect_ratio="9:16",
-                    duration_seconds=5,
-                )
-            )
+            result = await _backend().generate(_request(tmp_path, resolution="720p"))
 
         # API 明确返回 0，应如实保留，不是回退到 request.duration_seconds=5
         assert result.duration_seconds == 0
 
     async def test_create_retries_on_5xx(self, tmp_path: Path):
         """5xx HTTPStatusError 应通过 should_retry_submit 的 status_code 闸门重试。"""
-        failing_resp = MagicMock()
-        failing_resp.status_code = 503
-        failing_resp.raise_for_status = MagicMock(side_effect=_make_http_error(503, "upstream busy"))
+        busy = httpx.Response(503, text="upstream busy")
 
-        create_resp = _make_response(200, {"task_id": "t-retry", "status": "queued"})
-        poll_resp = _make_response(
-            200,
-            {"task_id": "t-retry", "status": "completed", "url": "https://cdn/v.mp4", "metadata": {"duration": 5}},
-        )
+        with _newapi() as routes, bounded_poll_clock():
+            # 前两次创建任务 503，第三次成功
+            routes.submit.mock(side_effect=[busy, busy, _queued("t-retry")])
+            routes.poll.mock(return_value=_done("t-retry"))
 
-        mock_client = AsyncMock()
-        # 前两次创建任务 503，第三次成功
-        mock_client.post = AsyncMock(side_effect=[failing_resp, failing_resp, create_resp])
-        mock_client.get = AsyncMock(return_value=poll_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+            result = await _backend().generate(_request(tmp_path, resolution="720p"))
 
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            # 压缩重试退避时间到 0，避免测试变慢
-            patch("lib.video_backends.newapi.DEFAULT_BACKOFF_SECONDS", (0, 0, 0)),
-            bounded_poll_clock(),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p",
-                    output_path=tmp_path / "o.mp4",
-                    resolution="720p",
-                    aspect_ratio="9:16",
-                    duration_seconds=5,
-                )
-            )
+            assert routes.submit.call_count == 3
 
         assert result.task_id == "t-retry"
-        assert mock_client.post.call_count == 3
 
     async def test_create_non_retryable_4xx_fails_fast(self, tmp_path: Path):
         """创建任务遇确定性 4xx（400）应一次失败，不重试。"""
-        bad_resp = _make_response(400, {"error": "bad request"})
-        bad_resp.raise_for_status = MagicMock(side_effect=_make_http_error(400, "bad request"))
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_json({"error": "bad request"}, status_code=400))
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=bad_resp)
-        mock_client.get = AsyncMock(side_effect=AssertionError("4xx 应在创建阶段失败，不该轮询"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            bounded_poll_clock(),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
             with pytest.raises(httpx.HTTPStatusError):
-                await backend.generate(
-                    VideoGenerationRequest(
-                        prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
-                    )
-                )
+                await _backend().generate(_request(tmp_path))
 
-        assert mock_client.post.call_count == 1, "确定性 4xx 不该被 retry"
+            assert routes.submit.call_count == 1, "确定性 4xx 不该被 retry"
+            assert routes.poll.call_count == 0, "4xx 应在创建阶段失败，不该轮询"
 
     async def test_create_read_timeout_fails_fast_with_manual_retry_hint(self, tmp_path: Path):
         """create 阶段 ReadTimeout（请求可能已送达）→ 不重试、单次失败、错误信息含手动重试提示。"""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=httpx.ReadTimeout("read timed out"))
-        mock_client.get = AsyncMock(side_effect=AssertionError("歧义态应在创建阶段失败，不该轮询"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(side_effect=httpx.ReadTimeout("read timed out"))
 
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            bounded_poll_clock(),
-        ):
-            from lib.video_backends.base import AmbiguousSubmitError
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
             with pytest.raises(AmbiguousSubmitError, match="手动重试"):
-                await backend.generate(
-                    VideoGenerationRequest(
-                        prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
-                    )
-                )
+                await _backend().generate(_request(tmp_path))
 
-        assert mock_client.post.call_count == 1, "歧义态不该被 retry"
+            assert routes.submit.call_count == 1, "歧义态不该被 retry"
+            assert routes.poll.call_count == 0
 
     async def test_create_connect_error_retries(self, tmp_path: Path):
         """create 阶段 ConnectError（请求确定未送达）→ 重试，第三次成功。"""
-        create_resp = _make_response(200, {"task_id": "t-conn", "status": "queued"})
-        poll_resp = _make_response(
-            200,
-            {"task_id": "t-conn", "status": "completed", "url": "https://cdn/v.mp4", "metadata": {"duration": 5}},
-        )
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            side_effect=[httpx.ConnectError("refused"), httpx.ConnectError("refused"), create_resp]
-        )
-        mock_client.get = AsyncMock(return_value=poll_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            bounded_poll_clock(),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
-                )
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(
+                side_effect=[httpx.ConnectError("refused"), httpx.ConnectError("refused"), _queued("t-conn")]
             )
+            routes.poll.mock(return_value=_done("t-conn"))
+
+            result = await _backend().generate(_request(tmp_path))
+
+            assert routes.submit.call_count == 3, "ConnectError 请求确定未送达，应重试"
 
         assert result.task_id == "t-conn"
-        assert mock_client.post.call_count == 3, "ConnectError 请求确定未送达，应重试"
 
     async def test_poll_read_timeout_retries(self, tmp_path: Path):
         """poll 阶段 ReadTimeout（幂等 GET）→ 重试，不回归。"""
-        create_resp = _make_response(200, {"task_id": "t-pr", "status": "queued"})
-        poll_resp = _make_response(
-            200,
-            {"task_id": "t-pr", "status": "completed", "url": "https://cdn/v.mp4", "metadata": {"duration": 5}},
-        )
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(side_effect=[httpx.ReadTimeout("read timed out"), poll_resp])
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"v"))
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_queued("t-pr"))
+            routes.poll.mock(side_effect=[httpx.ReadTimeout("read timed out"), _done("t-pr")])
 
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
+            result = await _backend().generate(_request(tmp_path))
 
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
-                )
-            )
+            assert routes.poll.call_count == 2, "poll 网络超时应重试"
 
         assert result.task_id == "t-pr"
-        assert mock_client.get.call_count == 2, "poll 网络超时应重试"
 
     async def test_poll_non_retryable_4xx_fails_fast(self, tmp_path: Path):
         """轮询遇确定性 4xx（401，如 token 失效）应一次失败，不重试到 max_wait 超时。"""
-        create_resp = _make_response(200, {"task_id": "t-401", "status": "queued"})
-        unauthorized_resp = _make_response(401, {"error": "unauthorized"})
-        unauthorized_resp.raise_for_status = MagicMock(side_effect=_make_http_error(401, "unauthorized"))
+        with _newapi() as routes:
+            routes.submit.mock(return_value=_queued("t-401"))
+            routes.poll.mock(return_value=_json({"error": "unauthorized"}, status_code=401))
 
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(return_value=unauthorized_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
             with pytest.raises(httpx.HTTPStatusError):
-                await backend.generate(
-                    VideoGenerationRequest(
-                        prompt="p", output_path=tmp_path / "o.mp4", aspect_ratio="9:16", duration_seconds=5
-                    )
-                )
+                await _backend().generate(_request(tmp_path))
 
-        assert mock_client.get.call_count == 1, "轮询确定性 4xx 应一击失败，不重试到超时"
+            assert routes.poll.call_count == 1, "轮询确定性 4xx 应一击失败，不重试到超时"
 
     async def test_resume_video_polls_existing_job(self, tmp_path: Path):
         """resume_video 仅 poll + 下载,不 POST create (ADR 0007)。"""
-        poll_resp = _make_response(
-            200,
-            {
-                "task_id": "task-resume",
-                "status": "completed",
-                "url": "https://cdn/resumed.mp4",
-                "metadata": {"duration": 5},
-            },
-        )
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=AssertionError("resume 不应 POST create"))
-        mock_client.get = AsyncMock(return_value=poll_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"resumed"))
+        with _newapi() as routes:
+            routes.poll.mock(return_value=_done("task-resume", "https://cdn/resumed.mp4"))
+            routes.download.mock(return_value=httpx.Response(200, content=b"resumed"))
 
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
+            result = await _backend().resume_video("task-resume", _request(tmp_path, output_path=tmp_path / "out.mp4"))
 
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.resume_video(
-                "task-resume",
-                VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
-                ),
-            )
+            assert routes.submit.call_count == 0  # resume 不 POST create
+            assert only_request(routes.poll).url.path.endswith("/task-resume")
 
-        mock_client.post.assert_not_called()
-        # 应该 GET 到 .../video/generations/task-resume
-        assert mock_client.get.call_args.args[0].endswith("/task-resume")
         assert result.task_id == "task-resume"
         assert (tmp_path / "out.mp4").read_bytes() == b"resumed"
 
     async def test_poll_recognizes_expired_status(self, tmp_path: Path):
         """poll 返回 status='expired' → 抛 ResumeExpiredError。"""
-        from lib.video_backends.base import ResumeExpiredError
+        with _newapi() as routes:
+            routes.poll.mock(return_value=_json({"task_id": "task-x", "status": "expired"}))
 
-        expired_resp = _make_response(200, {"task_id": "task-x", "status": "expired"})
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=expired_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
             with pytest.raises(ResumeExpiredError) as ei:
-                await backend.resume_video(
-                    "task-x",
-                    VideoGenerationRequest(
-                        prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
-                    ),
-                )
+                await _backend().resume_video("task-x", _request(tmp_path, output_path=tmp_path / "out.mp4"))
+
             assert ei.value.job_id == "task-x"
             assert ei.value.provider == PROVIDER_NEWAPI
 
     async def test_resume_404_raises_resume_expired_without_retry(self, tmp_path: Path):
         """resume 路径下 GET 返 404 应立即转 ResumeExpiredError，不被 retryable 框架重试到超时。"""
-        from lib.video_backends.base import ResumeExpiredError
+        with _newapi() as routes:
+            routes.poll.mock(return_value=_json({"error": "task not found"}, status_code=404))
 
-        # 构造 404 response 让 raise_for_status 真抛 HTTPStatusError（_make_response 默认 mock 空，需手工设）
-        not_found_resp = _make_response(404, {"error": "task not found"})
-        not_found_resp.raise_for_status = MagicMock(side_effect=_make_http_error(404, "task not found"))
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=not_found_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
             with pytest.raises(ResumeExpiredError) as ei:
-                await backend.resume_video(
-                    "task-404",
-                    VideoGenerationRequest(
-                        prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
-                    ),
-                )
+                await _backend().resume_video("task-404", _request(tmp_path, output_path=tmp_path / "out.mp4"))
+
             assert ei.value.job_id == "task-404"
             assert ei.value.provider == PROVIDER_NEWAPI
             # 不应被 retry 框架重试多次（应仅 1 次 GET 调用立即抛错）
-            assert mock_client.get.call_count == 1, "404 应一击转 ResumeExpiredError，不该被 retry"
+            assert routes.poll.call_count == 1, "404 应一击转 ResumeExpiredError，不该被 retry"
 
     async def test_generate_expired_status_raises_runtime_error_not_resume_expired(self, tmp_path: Path):
         """generate 路径下 status='expired' 抛 RuntimeError，不带 [resume_expired] 语义。"""
-        from lib.video_backends.base import ResumeExpiredError
+        with _newapi() as routes:
+            routes.submit.mock(return_value=_json({"task_id": "task-new"}))
+            routes.poll.mock(return_value=_json({"task_id": "task-new", "status": "expired"}))
 
-        create_resp = _make_response(200, {"task_id": "task-new"})
-        expired_resp = _make_response(200, {"task_id": "task-new", "status": "expired"})
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=create_resp)
-        mock_client.get = AsyncMock(return_value=expired_resp)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        with (
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
             with pytest.raises(RuntimeError) as ei:
-                await backend.generate(
-                    VideoGenerationRequest(
-                        prompt="p",
-                        output_path=tmp_path / "out.mp4",
-                        aspect_ratio="9:16",
-                        duration_seconds=5,
-                    ),
-                )
+                await _backend().generate(_request(tmp_path, output_path=tmp_path / "out.mp4"))
+
             assert "expired" in str(ei.value).lower()
             assert not isinstance(ei.value, ResumeExpiredError), "generate 路径不应抛 ResumeExpiredError"
-
-
-def _mock_http_client(*, create_body: dict | None = None, poll_body: dict) -> AsyncMock:
-    client = AsyncMock()
-    client.post = AsyncMock(return_value=_make_response(200, create_body or {"task_id": "t-proxy"}))
-    client.get = AsyncMock(return_value=_make_response(200, poll_body))
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=None)
-    return client
 
 
 class TestProxyStatusSynonyms:
@@ -695,73 +344,50 @@ class TestProxyStatusSynonyms:
 
     @pytest.mark.parametrize("proxy_status", ["succeeded", "success", "SUCCEEDED", "  succeeded  "])
     async def test_success_synonyms_finish_polling_and_download(self, tmp_path: Path, proxy_status: str):
-        mock_client = _mock_http_client(
-            poll_body={"task_id": "t-proxy", "status": proxy_status, "url": "https://cdn/v.mp4"}
-        )
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"ok"))
-
-        with (
-            bounded_poll_clock(),
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
-                )
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_json({"task_id": "t-proxy"}))
+            routes.poll.mock(
+                return_value=_json({"task_id": "t-proxy", "status": proxy_status, "url": "https://cdn/v.mp4"})
             )
+            routes.download.mock(return_value=httpx.Response(200, content=b"ok"))
 
-        assert mock_client.get.call_count == 1
-        fake_download.assert_awaited_once()
+            result = await _backend().generate(_request(tmp_path, output_path=tmp_path / "out.mp4"))
+
+            assert routes.poll.call_count == 1
+            assert routes.download.call_count == 1
+
         assert result.video_path == tmp_path / "out.mp4"
+        assert result.video_path.read_bytes() == b"ok"
 
     @pytest.mark.parametrize("proxy_status", ["error", "fail", "FAILED", "canceled"])
     async def test_failure_synonyms_raise_immediately(self, tmp_path: Path, proxy_status: str):
-        mock_client = _mock_http_client(
-            poll_body={"task_id": "t-proxy", "status": proxy_status, "error": {"message": "upstream down"}}
-        )
-        fake_download = AsyncMock()
-
-        with (
-            bounded_poll_clock(),
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            with pytest.raises(RuntimeError, match="upstream down"):
-                await backend.generate(
-                    VideoGenerationRequest(
-                        prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
-                    )
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_json({"task_id": "t-proxy"}))
+            routes.poll.mock(
+                return_value=_json(
+                    {"task_id": "t-proxy", "status": proxy_status, "error": {"message": "upstream down"}}
                 )
-
-        assert mock_client.get.call_count == 1
-        fake_download.assert_not_awaited()
-
-    async def test_uppercase_expired_still_splits_generate_and_resume(self, tmp_path: Path):
-        from lib.video_backends.base import ResumeExpiredError
-
-        mock_client = _mock_http_client(poll_body={"task_id": "t-proxy", "status": "EXPIRED"})
-
-        with bounded_poll_clock(), patch("httpx.AsyncClient", return_value=mock_client):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            request = VideoGenerationRequest(
-                prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
             )
 
+            with pytest.raises(RuntimeError, match="upstream down"):
+                await _backend().generate(_request(tmp_path, output_path=tmp_path / "out.mp4"))
+
+            assert routes.poll.call_count == 1
+            assert routes.download.call_count == 0
+
+    async def test_uppercase_expired_still_splits_generate_and_resume(self, tmp_path: Path):
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_json({"task_id": "t-proxy"}))
+            routes.poll.mock(return_value=_json({"task_id": "t-proxy", "status": "EXPIRED"}))
+
+            request = _request(tmp_path, output_path=tmp_path / "out.mp4")
+
             with pytest.raises(RuntimeError) as ei:
-                await backend.generate(request)
+                await _backend().generate(request)
             assert not isinstance(ei.value, ResumeExpiredError)
 
             with pytest.raises(ResumeExpiredError) as resume_ei:
-                await backend.resume_video("t-proxy", request)
+                await _backend().resume_video("t-proxy", request)
             assert resume_ei.value.job_id == "t-proxy"
 
 
@@ -770,114 +396,85 @@ class TestWrappedResponseShape:
     扁平形状保持最高优先级、行为不变。"""
 
     async def test_wrapped_status_and_result_url(self, tmp_path: Path):
-        mock_client = _mock_http_client(
-            poll_body={
-                "code": "success",
-                "data": {"task_id": "t-proxy", "status": "SUCCESS", "result_url": "https://cdn/wrapped.mp4"},
-            }
-        )
-        fake_download = AsyncMock(side_effect=_fake_download_factory(b"wrapped"))
-
-        with (
-            bounded_poll_clock(),
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_json({"task_id": "t-proxy"}))
+            routes.poll.mock(
+                return_value=_json(
+                    {
+                        "code": "success",
+                        "data": {
+                            "task_id": "t-proxy",
+                            "status": "SUCCESS",
+                            "result_url": "https://cdn/wrapped.mp4",
+                        },
+                    }
                 )
             )
+            routes.download.mock(return_value=httpx.Response(200, content=b"wrapped"))
 
-        assert fake_download.await_args.args[0] == "https://cdn/wrapped.mp4"
+            result = await _backend().generate(_request(tmp_path, output_path=tmp_path / "out.mp4"))
+
+            assert str(only_request(routes.download).url) == "https://cdn/wrapped.mp4"
+
         assert result.duration_seconds == 5
         assert (tmp_path / "out.mp4").read_bytes() == b"wrapped"
 
     async def test_flat_url_wins_over_wrapped(self, tmp_path: Path):
-        mock_client = _mock_http_client(
-            poll_body={
-                "task_id": "t-proxy",
-                "status": "completed",
-                "url": "https://cdn/flat.mp4",
-                "data": {"result_url": "https://cdn/wrapped.mp4"},
-            }
-        )
-        fake_download = AsyncMock(side_effect=_fake_download_factory())
-
-        with (
-            bounded_poll_clock(),
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_json({"task_id": "t-proxy"}))
+            routes.poll.mock(
+                return_value=_json(
+                    {
+                        "task_id": "t-proxy",
+                        "status": "completed",
+                        "url": "https://cdn/flat.mp4",
+                        "data": {"result_url": "https://cdn/wrapped.mp4"},
+                    }
                 )
             )
 
-        assert fake_download.await_args.args[0] == "https://cdn/flat.mp4"
+            await _backend().generate(_request(tmp_path, output_path=tmp_path / "out.mp4"))
+
+            assert str(only_request(routes.download).url) == "https://cdn/flat.mp4"
 
     async def test_flat_result_url_wins_over_wrapped(self, tmp_path: Path):
         """混合形状下扁平字段整体优先于包装体，不因字段名不同而让位。"""
-        mock_client = _mock_http_client(
-            poll_body={
-                "task_id": "t-proxy",
-                "status": "completed",
-                "result_url": "https://cdn/flat.mp4",
-                "data": {"url": "https://cdn/wrapped.mp4"},
-            }
-        )
-        fake_download = AsyncMock(side_effect=_fake_download_factory())
-
-        with (
-            bounded_poll_clock(),
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi.download_video", fake_download),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_json({"task_id": "t-proxy"}))
+            routes.poll.mock(
+                return_value=_json(
+                    {
+                        "task_id": "t-proxy",
+                        "status": "completed",
+                        "result_url": "https://cdn/flat.mp4",
+                        "data": {"url": "https://cdn/wrapped.mp4"},
+                    }
                 )
             )
 
-        assert fake_download.await_args.args[0] == "https://cdn/flat.mp4"
+            await _backend().generate(_request(tmp_path, output_path=tmp_path / "out.mp4"))
+
+            assert str(only_request(routes.download).url) == "https://cdn/flat.mp4"
 
     async def test_wrapped_metadata_feeds_duration_and_seed(self, tmp_path: Path):
         """包装体里的 metadata 与状态、视频地址同源，同样要取到——实际时长是计费依据。"""
-        mock_client = _mock_http_client(
-            poll_body={
-                "code": "success",
-                "data": {
-                    "task_id": "t-proxy",
-                    "status": "SUCCESS",
-                    "result_url": "https://cdn/wrapped.mp4",
-                    "metadata": {"duration": 8, "seed": 4242},
-                },
-            }
-        )
-
-        with (
-            bounded_poll_clock(),
-            patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.video_backends.newapi.download_video", AsyncMock(side_effect=_fake_download_factory())),
-        ):
-            from lib.video_backends.newapi import NewAPIVideoBackend
-
-            backend = NewAPIVideoBackend(api_key="k", base_url="https://x/v1", model="m")
-            result = await backend.generate(
-                VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "out.mp4", aspect_ratio="9:16", duration_seconds=5
+        with _newapi() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_json({"task_id": "t-proxy"}))
+            routes.poll.mock(
+                return_value=_json(
+                    {
+                        "code": "success",
+                        "data": {
+                            "task_id": "t-proxy",
+                            "status": "SUCCESS",
+                            "result_url": "https://cdn/wrapped.mp4",
+                            "metadata": {"duration": 8, "seed": 4242},
+                        },
+                    }
                 )
             )
+
+            result = await _backend().generate(_request(tmp_path, output_path=tmp_path / "out.mp4"))
 
         assert result.duration_seconds == 8
         assert result.seed == 4242
