@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Router } from "wouter";
+import { Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { GlobalHeader } from "@/components/layout/GlobalHeader";
 import { API } from "@/api";
@@ -10,6 +10,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore } from "@/stores/usage-store";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
+import type { WorkspaceNotification } from "@/types";
 
 vi.mock("@/components/task-hud/TaskHud", () => ({
   TaskHud: () => <div data-testid="task-hud" />,
@@ -20,8 +21,37 @@ vi.mock("./UsageDrawer", () => ({
 }));
 
 vi.mock("./WorkspaceNotificationsDrawer", () => ({
-  WorkspaceNotificationsDrawer: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="notifications-drawer" /> : null,
+  WorkspaceNotificationsDrawer: ({
+    open,
+    onNavigate,
+  }: {
+    open: boolean;
+    onNavigate: (notification: WorkspaceNotification) => void;
+  }) =>
+    open ? (
+      <div data-testid="notifications-drawer">
+        <button
+          type="button"
+          onClick={() =>
+            onNavigate({
+              id: "product-sheet-ready",
+              text: "商品资产图已更新",
+              tone: "success",
+              created_at: Date.now(),
+              read: false,
+              target: {
+                type: "product",
+                id: "保温杯",
+                route: "/products",
+                highlight_style: "flash",
+              },
+            })
+          }
+        >
+          navigate-product
+        </button>
+      </div>
+    ) : null,
 }));
 
 vi.mock("./ExportScopeDialog", () => ({
@@ -92,8 +122,14 @@ function renderHeader() {
   return render(
     <Router hook={hook}>
       <GlobalHeader />
+      <LocationProbe />
     </Router>,
   );
+}
+
+function LocationProbe() {
+  const [location] = useLocation();
+  return <div data-testid="location">{location}</div>;
 }
 
 describe("GlobalHeader", () => {
@@ -164,6 +200,34 @@ describe("GlobalHeader", () => {
     expect(screen.getByTitle("会话通知: 1 条")).toBeInTheDocument();
     screen.getByRole("button", { name: "打开通知中心" }).click();
     expect(await screen.findByTestId("notifications-drawer")).toBeInTheDocument();
+  });
+
+  it("navigates and highlights a product card from an actionable notification", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+
+    renderHeader();
+
+    screen.getByRole("button", { name: "打开通知中心" }).click();
+    (await screen.findByRole("button", { name: "navigate-product" })).click();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/products");
+      expect(useAppStore.getState().scrollTarget).toEqual(
+        expect.objectContaining({
+          type: "product",
+          id: "保温杯",
+          route: "/products",
+          highlight: true,
+          highlight_style: "flash",
+        }),
+      );
+    });
   });
 
   it("exports the current project zip via browser-native download", async () => {

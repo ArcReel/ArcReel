@@ -27,6 +27,7 @@ export default {
   "entity.character": "角色",
   "entity.scene": "场景",
   "entity.prop": "道具",
+  "entity.product": "商品",
   "entity.segment": "分镜",
   "entity.drama_scene": "场景",
   "entity.shot": "镜头",

@@ -254,6 +254,82 @@ describe("useProjectEventsSSE", () => {
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
 
+  it.each([
+    {
+      entityType: "prop" as const,
+      entityId: "釉料碗",
+      label: "道具「釉料碗」资产图",
+      labelKey: "asset_image_prop",
+      route: "/props",
+      expectedText: "道具「釉料碗」资产图已更新",
+    },
+    {
+      entityType: "product" as const,
+      entityId: "保温杯",
+      label: "商品「保温杯」资产图",
+      labelKey: "asset_image_product",
+      route: "/products",
+      expectedText: "商品「保温杯」资产图已更新",
+    },
+  ])(
+    "adds a click-only target to $entityType asset-sheet completion notifications",
+    async ({ entityType, entityId, label, labelKey, route, expectedText }) => {
+      let capturedOptions: ProjectEventStreamOptions | undefined;
+      vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+        capturedOptions = options;
+        return { close: vi.fn() } as unknown as EventSource;
+      });
+
+      renderHarness("/episodes/1");
+
+      act(() => {
+        capturedOptions?.onChanges?.(
+          {
+            project_name: "demo",
+            batch_id: `batch-${entityType}-sheet`,
+            fingerprint: `fp-${entityType}-sheet`,
+            generated_at: "2026-03-01T00:00:00Z",
+            source: "worker",
+            changes: [
+              {
+                entity_type: entityType,
+                action: "updated",
+                entity_id: entityId,
+                label,
+                label_key: labelKey,
+                label_params: { id: entityId },
+                focus: null,
+                important: true,
+                asset_fingerprints: { [`${entityType}s/${entityId}.png`]: 123 },
+              },
+            ],
+          },
+          new MessageEvent("changes"),
+        );
+      });
+
+      await waitFor(() => {
+        expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
+        expect(useAppStore.getState().workspaceNotifications).toEqual([
+          expect.objectContaining({
+            text: expectedText,
+            tone: "success",
+            target: {
+              type: entityType,
+              id: entityId,
+              route,
+              highlight_style: "flash",
+            },
+          }),
+        ]);
+      });
+
+      // target 只供通知按钮消费；后台完成本身不应切走当前页面或写入滚动目标。
+      expect(screen.getByTestId("location")).toHaveTextContent("/episodes/1");
+      expect(useAppStore.getState().scrollTarget).toBeNull();
+    },
+  );
+
   it("shows a toast without navigation for generation completion batches", async () => {
     let capturedOptions: ProjectEventStreamOptions | undefined;
     vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
