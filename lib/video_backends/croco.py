@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "minimax-h3"
 
 _OPERATION = "video.generate"
-_CONTRACT_VERSION = "1"
+_CONTRACT_VERSION = "2"
 
 # Croco H3 的 quality 不是单纯分辨率，而是「画幅 × 清晰度」输出 profile。
 # 公开给 ArcReel 用户的三档是 480p / 0.7M / 720p；中枢内部的 720p profile

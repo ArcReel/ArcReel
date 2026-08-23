@@ -86,7 +86,7 @@ async def test_generate_sends_resolved_quality_to_unified_job(tmp_path: Path):
     call = backend._client.submit_job.await_args.kwargs
     assert call["model_id"] == "minimax-h3"
     assert call["operation"] == "video.generate"
-    assert call["contract_version"] == "1"
+    assert call["contract_version"] == "2"
     assert call["parameters"] == {
         "mode": "t2v",
         "prompt": "A subject turns toward camera",
