@@ -74,8 +74,8 @@ _MEDIA_TO_OPTION_LIST = {
 }
 
 
-@lru_cache(maxsize=1)
-def _read_app_version(pyproject_path: Path = _PYPROJECT_PATH) -> str:
+def _load_app_version(pyproject_path: Path) -> str:
+    """从给定 pyproject 读版本号；不缓存，缓存由 :func:`_read_app_version` 负责。"""
     with pyproject_path.open("rb") as f:
         data = tomllib.load(f)
 
@@ -83,6 +83,11 @@ def _read_app_version(pyproject_path: Path = _PYPROJECT_PATH) -> str:
     if not version:
         raise RuntimeError("project.version is empty")
     return version
+
+
+@lru_cache(maxsize=1)
+def _read_app_version() -> str:
+    return _load_app_version(_PYPROJECT_PATH)
 
 
 def _parse_version(raw: str) -> Version | None:

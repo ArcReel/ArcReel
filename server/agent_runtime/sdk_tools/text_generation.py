@@ -16,7 +16,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, NamedTuple, cast
+from typing import Any, NamedTuple, Protocol, cast
 
 from claude_agent_sdk import tool
 from pydantic import BaseModel, ValidationError
@@ -196,6 +196,11 @@ def _load_step1_source_with_basis(
 # ---------------------------------------------------------------------------
 # get_video_capabilities
 # ---------------------------------------------------------------------------
+
+# 本模块的能力查询函数（``_resolve_video_capabilities`` / ``_fetch_caps_with_fallback`` /
+# ``_fetch_reference_caps_with_fallback`` 及 ``_context`` 的 ``resolve_video_caps`` /
+# ``fetch_video_caps``）未注入解析器时一律省略 ``config_resolver`` 关键字，不传 ``None``：
+# 既有用例把这些符号整体替换为不接受该关键字的假实现，缺省路径须与注入前逐字同形。
 
 
 async def _resolve_video_capabilities(
@@ -1899,9 +1904,21 @@ class Step1DraftRevalidation(NamedTuple):
 #: 只有一个草稿位的两条路线（drama / narration）→ 该变体的重判器。两者的结果同型
 #: （``SingleStep1DraftRevalidation``），归一到呈现层口径的那一步逐字相同，故按 kind 查表而非
 #: 各写一条分支。参考生视频不在表内：它的重判结果另带扁平 units 与档位，归一方式本就不同。
-_SINGLE_STEP1_REVALIDATORS: dict[
-    str, Callable[[Path, dict[str, Any], int, QuarantinedDraft], Awaitable[SingleStep1DraftRevalidation]]
-] = {
+class _SingleStep1Revalidator(Protocol):
+    """表内重判器的调用形状：草稿定位参数同形，能力解析器按关键字注入。"""
+
+    def __call__(
+        self,
+        project_path: Path,
+        project: dict[str, Any],
+        episode: int,
+        draft: QuarantinedDraft,
+        *,
+        config_resolver: ConfigResolver | None = None,
+    ) -> Awaitable[SingleStep1DraftRevalidation]: ...
+
+
+_SINGLE_STEP1_REVALIDATORS: dict[str, _SingleStep1Revalidator] = {
     QUARANTINE_KIND_DRAMA_STEP1: revalidate_drama_step1_draft,
     QUARANTINE_KIND_NARRATION_STEP1: revalidate_narration_step1_draft,
 }
@@ -1936,22 +1953,7 @@ async def revalidate_step1_draft(
     revalidator = _SINGLE_STEP1_REVALIDATORS.get(draft.kind)
     if revalidator is None:
         raise ValueError(f"不是 step1 草稿来源，无法重判: {draft.kind}")
-    if draft.kind == QUARANTINE_KIND_DRAMA_STEP1:
-        single = await revalidate_drama_step1_draft(
-            project_path,
-            project,
-            episode,
-            draft,
-            config_resolver=config_resolver,
-        )
-    else:
-        single = await revalidate_narration_step1_draft(
-            project_path,
-            project,
-            episode,
-            draft,
-            config_resolver=config_resolver,
-        )
+    single = await revalidator(project_path, project, episode, draft, config_resolver=config_resolver)
     return Step1DraftRevalidation(single.violations, None if single.schema_failed else single.content)
 
 

@@ -51,9 +51,10 @@ async def _post(
     headers: dict[str, str],
     payload: dict[str, Any],
     timeout_s: float,
+    http_client: httpx.AsyncClient | None = None,
 ) -> httpx.Response:
-    """间接层：测试时 patch 这一个。"""
-    client = get_http_client()
+    """POST 出站间接层；``http_client`` 缺省时用共享客户端。"""
+    client = http_client or get_http_client()
     return await client.post(url, headers=headers, json=payload, timeout=timeout_s)
 
 
@@ -92,10 +93,7 @@ async def probe_messages(
     }
     started = time.perf_counter()
     try:
-        if http_client is None:
-            resp = await _post(url=url, headers=headers, payload=payload, timeout_s=timeout_s)
-        else:
-            resp = await http_client.post(url, headers=headers, json=payload, timeout=timeout_s)
+        resp = await _post(url=url, headers=headers, payload=payload, timeout_s=timeout_s, http_client=http_client)
     except httpx.TimeoutException as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         logger.info("probe_messages timeout url=%s elapsed_ms=%d", url, elapsed)
@@ -157,9 +155,11 @@ def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
     return DiagnosisCode.UNKNOWN
 
 
-async def _get(*, url: str, headers: dict[str, str], timeout_s: float) -> httpx.Response:
-    """间接层：测试时 patch 这一个。"""
-    client = get_http_client()
+async def _get(
+    *, url: str, headers: dict[str, str], timeout_s: float, http_client: httpx.AsyncClient | None = None
+) -> httpx.Response:
+    """GET 出站间接层；``http_client`` 缺省时用共享客户端。"""
+    client = http_client or get_http_client()
     return await client.get(url, headers=headers, timeout=timeout_s)
 
 
@@ -177,10 +177,7 @@ async def probe_discovery(
     headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
     started = time.perf_counter()
     try:
-        if http_client is None:
-            resp = await _get(url=url, headers=headers, timeout_s=timeout_s)
-        else:
-            resp = await http_client.get(url, headers=headers, timeout=timeout_s)
+        resp = await _get(url=url, headers=headers, timeout_s=timeout_s, http_client=http_client)
     except httpx.TimeoutException as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"timeout: {exc!s}")

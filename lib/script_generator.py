@@ -167,6 +167,9 @@ class ScriptGenerator:
     读取 Step 1/2 的 Markdown 中间文件，调用 TextBackend 生成最终 JSON 剧本
     """
 
+    # 类属性缺省，绕过 __init__ 构造的实例同样读到 None；解析时按需回退到生产 ConfigResolver。
+    config_resolver: ConfigResolver | None = None
+
     def __init__(
         self,
         project_path: str | Path,
@@ -180,11 +183,11 @@ class ScriptGenerator:
         Args:
             project_path: 项目目录路径，如 projects/test0205
             generator: TextGenerator 实例（可选）。若为 None 则仅支持 build_prompt() dry-run。
-            config_resolver: 能力解析器；缺省时使用连接生产数据库的 ConfigResolver。
+            config_resolver: 能力解析器；缺省时解析期构造连接生产数据库的 ConfigResolver。
         """
         self.project_path = Path(project_path)
         self.generator = generator
-        self.config_resolver = config_resolver or ConfigResolver(async_session_factory)
+        self.config_resolver = config_resolver
         self._step1_revision: str | None = None
         self._artifact_basis: ArtifactBasisDescriptor | None = None
         self._step1_input_claim: ArtifactInputClaim | None = None
@@ -713,8 +716,8 @@ class ScriptGenerator:
         （``docs/adr/0054``），fallback 会拿项目默认模型的档位去写剧本，写出来的时长 / 参考图
         数量执行期照样被拒。报错带 code 与修复指引，比先写一份必败的剧本更省事。
         """
+        resolver = self.config_resolver or ConfigResolver(async_session_factory)
         try:
-            resolver = getattr(self, "config_resolver", None) or ConfigResolver(async_session_factory)
             return await resolver.video_capabilities_for_project(self.project_json)
         except VideoBucketCapabilityError:
             raise
