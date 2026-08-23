@@ -23,6 +23,7 @@ from lib.audio_backends import (
 )
 from lib.dashscope_shared import extract_audio_url
 from lib.providers import PROVIDER_DASHSCOPE
+from tests.fakes import captured_openai_clients
 from tests.http_capture import capture_http, only_request, request_json
 
 
@@ -292,7 +293,7 @@ def _mock_speech_client(content: bytes = b"RIFFwavbytes") -> _RecordingSpeechCli
 class TestOpenAIAudioBackend:
     async def test_synthesize_request_and_bytes(self, tmp_path: Path):
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", base_url="https://relay.example.com/v1", model="tts-1")
@@ -312,7 +313,7 @@ class TestOpenAIAudioBackend:
         assert result.output_path == out
 
     def test_metadata(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
             from lib.providers import PROVIDER_OPENAI
 
@@ -323,14 +324,14 @@ class TestOpenAIAudioBackend:
 
     def test_provider_name_override(self):
         # 包装层（自定义供应商）可用真实 provider 记账
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1", provider_name="custom-7")
             assert b.name == "custom-7"
 
     def test_list_voices_returns_official_catalog(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="gpt-4o-mini-tts")
@@ -340,7 +341,7 @@ class TestOpenAIAudioBackend:
             assert len(ids) == len(voices)
 
     def test_list_voices_excludes_unsupported_ids_for_legacy_models(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             for legacy_model in ("tts-1", "tts-1-hd"):
@@ -351,7 +352,7 @@ class TestOpenAIAudioBackend:
 
     def test_list_voices_returns_full_catalog_for_custom_openai_tts_endpoint(self):
         """自定义 openai-tts endpoint 未落入官方 legacy 集合时不额外收窄，保持既有兼容口径。"""
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="fish-audio-v1", provider_name="custom-7")
@@ -362,7 +363,7 @@ class TestOpenAIAudioBackend:
         """自定义供应商即使模型名恰好也叫 tts-1/tts-1-hd，也无法确定其继承官方同名模型的
         音色限制——legacy 收窄只对 provider_name 为官方 openai 时生效，避免对无法验证的
         第三方 endpoint 误收窄。"""
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             for legacy_model in ("tts-1", "tts-1-hd"):
@@ -372,7 +373,7 @@ class TestOpenAIAudioBackend:
 
     async def test_speed_passthrough_and_omitted_when_none(self, tmp_path: Path):
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
@@ -387,7 +388,7 @@ class TestOpenAIAudioBackend:
     async def test_language_type_not_sent(self, tmp_path: Path):
         # /v1/audio/speech 无语种字段（DashScope 特有），不应混入请求
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
@@ -400,7 +401,7 @@ class TestOpenAIAudioBackend:
 
     async def test_unknown_suffix_falls_back_to_wav(self, tmp_path: Path):
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
@@ -410,7 +411,7 @@ class TestOpenAIAudioBackend:
     async def test_empty_body_rejected_no_file_no_rebill(self, tmp_path: Path):
         # 200 + 空体：不落 0 字节文件、不重试（重试 = 再次计费）
         mock_client = _mock_speech_client(content=b"")
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
@@ -424,7 +425,7 @@ class TestOpenAIAudioBackend:
     async def test_write_failure_does_not_rebill_synthesis(self, tmp_path: Path, poll_clock):
         # 写盘瞬态失败（消息含可重试模式）不应回头重跑会再次计费的合成调用
         mock_client = _mock_speech_client()
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")

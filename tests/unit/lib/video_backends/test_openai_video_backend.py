@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from openai import InternalServerError
@@ -12,7 +12,7 @@ from openai.types.video_create_error import VideoCreateError
 
 from lib.providers import PROVIDER_OPENAI
 from lib.video_backends.base import VideoGenerationRequest
-from tests.fakes import bounded_poll_clock
+from tests.fakes import bounded_poll_clock, captured_openai_clients
 
 
 def _make_mock_video(status="completed", seconds="8", video_id="vid_123"):
@@ -43,7 +43,7 @@ def _stub_client_completed(client: AsyncMock, *, seconds="8", video_id="vid_123"
 
 class TestOpenAIVideoBackend:
     def test_name_and_model(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.video_backends.openai import OpenAIVideoBackend
 
             backend = OpenAIVideoBackend(api_key="test-key")
@@ -51,14 +51,14 @@ class TestOpenAIVideoBackend:
             assert backend.model == "sora-2"
 
     def test_custom_model(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.video_backends.openai import OpenAIVideoBackend
 
             backend = OpenAIVideoBackend(api_key="test-key", model="sora-2-pro")
             assert backend.model == "sora-2-pro"
 
     def test_capabilities(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.video_backends.openai import OpenAIVideoBackend
 
             backend = OpenAIVideoBackend(api_key="test-key")
@@ -70,7 +70,7 @@ class TestOpenAIVideoBackend:
         _stub_client_completed(mock_client, seconds="8", data=video_data)
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -108,7 +108,7 @@ class TestOpenAIVideoBackend:
         _stub_client_completed(mock_client, seconds="4")
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -143,7 +143,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content = AsyncMock()
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -166,7 +166,7 @@ class TestOpenAIVideoBackend:
         _stub_client_completed(mock_client, seconds="6")
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -190,7 +190,7 @@ class TestOpenAIVideoBackend:
         _stub_client_completed(mock_client, seconds=None)
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -212,7 +212,7 @@ class TestOpenAIVideoBackend:
         _stub_client_completed(mock_client, seconds="4")
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -244,7 +244,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content = AsyncMock(side_effect=[error, error, _make_mock_content(b"video-data")])
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -278,7 +278,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content = AsyncMock(side_effect=error)
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -311,7 +311,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content = AsyncMock(side_effect=error)
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -350,7 +350,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -388,7 +388,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -419,7 +419,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content = AsyncMock()
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -456,7 +456,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content = AsyncMock()
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -483,7 +483,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(video_data))
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -510,7 +510,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.retrieve = AsyncMock(return_value=expired_video)
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -548,7 +548,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.retrieve = AsyncMock(side_effect=not_found)
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -574,7 +574,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="expired", video_id="vid_new"))
 
         with (
-            patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
+            captured_openai_clients(mock_client),
             bounded_poll_clock(),
         ):
             from lib.video_backends.openai import OpenAIVideoBackend
@@ -603,7 +603,7 @@ class TestProxyStatusSynonyms:
         mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status=proxy_status))
         mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"v"))
 
-        with bounded_poll_clock(), patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with bounded_poll_clock(), captured_openai_clients(mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
 
             backend = OpenAIVideoBackend(api_key="test-key")
@@ -629,7 +629,7 @@ class TestProxyStatusSynonyms:
         mock_client.videos.retrieve = AsyncMock(return_value=failed)
         mock_client.videos.download_content = AsyncMock()
 
-        with bounded_poll_clock(), patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with bounded_poll_clock(), captured_openai_clients(mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
 
             backend = OpenAIVideoBackend(api_key="test-key")
@@ -649,7 +649,7 @@ class TestProxyStatusSynonyms:
         mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued", video_id="vid_new"))
         mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="EXPIRED", video_id="vid_new"))
 
-        with bounded_poll_clock(), patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with bounded_poll_clock(), captured_openai_clients(mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
 
             backend = OpenAIVideoBackend(api_key="test-key")
@@ -694,7 +694,7 @@ class TestFailureMessage:
         mock_client.videos.retrieve = AsyncMock(return_value=failed)
         mock_client.videos.download_content = AsyncMock()
 
-        with bounded_poll_clock(), patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with bounded_poll_clock(), captured_openai_clients(mock_client):
             from lib.video_backends.openai import OpenAIVideoBackend
 
             backend = OpenAIVideoBackend(api_key="test-key")

@@ -500,6 +500,27 @@ def captured_ark_clients(module: str, client: Any = None) -> Iterator[list[dict[
 
 
 @contextmanager
+def captured_openai_clients(client: Any = None) -> Iterator[list[dict[str, Any]]]:
+    """AsyncOpenAI 构造的记录器：收下建客户端的参数，回给定（或空）客户端替身。
+
+    OpenAI 兼容族（openai / agnes 文本、openai 图像与视频、openai TTS、dashscope 与 minimax
+    视频）都经 ``lib.openai_shared`` 取这个 SDK 入口，构造参数就是该边界上的契约：鉴权、
+    base_url 归一化、超时。断言落在记录的构造参数上，而不是替身的调用对象。
+    """
+    from unittest.mock import AsyncMock
+
+    created: list[dict[str, Any]] = []
+    instance = AsyncMock() if client is None else client
+
+    def _create(**kwargs: Any) -> Any:
+        created.append(kwargs)
+        return instance
+
+    with patch("lib.openai_shared.AsyncOpenAI", _create):
+        yield created
+
+
+@contextmanager
 def captured_backend_construction() -> Iterator[list[dict[str, Any]]]:
     """四个后端 registry 的构造记录器：工厂换成只记参数的哑后端，不建 SDK 客户端。
 

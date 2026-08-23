@@ -16,6 +16,7 @@ from lib.image_backends.base import (
     ReferenceImage,
 )
 from lib.providers import PROVIDER_OPENAI
+from tests.fakes import captured_openai_clients
 from tests.http_capture import capture_http, only_request
 
 
@@ -65,7 +66,7 @@ def _make_mock_image_response(
 
 class TestOpenAIImageBackend:
     def test_name_and_model(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -73,14 +74,14 @@ class TestOpenAIImageBackend:
             assert backend.model == "gpt-image-2"
 
     def test_custom_model(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key", model="custom-image-model")
             assert backend.model == "custom-image-model"
 
     def test_capabilities(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -93,7 +94,7 @@ class TestOpenAIImageBackend:
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -128,7 +129,7 @@ class TestOpenAIImageBackend:
         ref_path = tmp_path / "ref.png"
         ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -159,7 +160,7 @@ class TestOpenAIImageBackend:
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=empty_response)
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -182,7 +183,7 @@ class TestOpenAIImageBackend:
 
         downloaded = b"downloaded-from-gateway"
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -211,7 +212,7 @@ class TestOpenAIImageBackend:
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -235,7 +236,7 @@ class TestOpenAIImageBackend:
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -269,7 +270,7 @@ class TestOpenAIImageBackend:
             )
         )
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -292,7 +293,7 @@ class TestOpenAIImageBackend:
         mock_client = AsyncMock()
         mock_client.images.generate = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -327,7 +328,7 @@ class TestOpenAIImageBackend:
             )
         )
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -359,7 +360,7 @@ class TestOpenAIImageBackend:
             )
         )
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -391,7 +392,7 @@ class TestOpenAIImageBackend:
             )
         )
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -427,7 +428,7 @@ class TestOpenAIImageBackend:
         ref_path = tmp_path / "ref.png"
         ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
 
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.image_backends.openai import OpenAIImageBackend
 
             backend = OpenAIImageBackend(api_key="test-key")
@@ -501,7 +502,7 @@ class TestModeGating:
     @pytest.mark.asyncio
     async def test_all_refs_failed_to_open_raises(self, tmp_path):
         """所有 ref 图都打不开时，应抛 ImageCapabilityError 而非回退到 T2I。"""
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.image_backends.openai import OpenAIImageBackend
 
             b = OpenAIImageBackend(api_key="x", model="m")  # mode="both" 默认

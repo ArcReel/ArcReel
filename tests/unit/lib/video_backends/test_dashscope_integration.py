@@ -9,6 +9,7 @@ import pytest
 from lib.pricing.lookup import lookup_pricing
 from lib.pricing.strategies import PricingParams, calculate_pricing
 from lib.providers import PROVIDER_DASHSCOPE, PROVIDER_OPENAI
+from tests.fakes import captured_openai_clients
 
 
 def _text_response(content: str = "ok", in_tok: int = 10, out_tok: int = 5) -> MagicMock:
@@ -30,7 +31,7 @@ class TestTextProviderBilling:
     """隐患 3 回归：dashscope 文本复用 OpenAI 后端必须以 'dashscope' 记账，否则计费命中 USD。"""
 
     def test_provider_name_override(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.text_backends.openai import OpenAITextBackend
 
             b = OpenAITextBackend(api_key="k", model="qwen-plus", provider_name="dashscope")
@@ -39,7 +40,7 @@ class TestTextProviderBilling:
     async def test_result_provider_is_dashscope(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_text_response("hi"))
-        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+        with captured_openai_clients(mock_client):
             from lib.text_backends.base import TextGenerationRequest
             from lib.text_backends.openai import OpenAITextBackend
 
@@ -49,7 +50,7 @@ class TestTextProviderBilling:
         assert result.model == "qwen-plus"
 
     def test_default_provider_still_openai(self):
-        with patch("lib.openai_shared.AsyncOpenAI"):
+        with captured_openai_clients():
             from lib.text_backends.openai import OpenAITextBackend
 
             assert OpenAITextBackend(api_key="k").name == PROVIDER_OPENAI
