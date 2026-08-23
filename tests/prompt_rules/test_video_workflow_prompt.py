@@ -218,3 +218,25 @@ def test_every_content_mode_materializes_the_video_workflow_skill(mode: str) -> 
     assert mapping[".claude/references/workflow-plan.md"] == ".claude/references/workflow-plan.md"
     assert mapping["CLAUDE.md"] == f"CLAUDE.{mode}.md"
     assert not any(logical.startswith(".claude/skills/manga-workflow/") for logical in mapping)
+
+
+@pytest.mark.parametrize("mode", ("narration", "drama"))
+def test_episodic_profiles_route_reference_unit_boundary_edits_through_step1(mode: str) -> None:
+    content = (PROFILE / f"CLAUDE.{mode}.md").read_text(encoding="utf-8")
+
+    for instruction in (
+        "split-reference-video-units",
+        "open_step1_for_edit",
+        "validate_and_promote_draft",
+        "create-episode-script",
+    ):
+        assert instruction in content
+    assert "不要直接用 `insert_segment` / `remove_segment` / `split_segment` 改最终剧本" in content
+
+
+def test_ad_profile_keeps_stable_child_ids_for_reference_unit_edits() -> None:
+    content = (PROFILE / "CLAUDE.ad.md").read_text(encoding="utf-8")
+
+    assert "E1U01_1" in content
+    assert "稳定子 ID 是合法身份" in content
+    assert "后续 unit 不重编号" in content
