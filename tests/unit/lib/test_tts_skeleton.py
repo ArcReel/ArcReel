@@ -8,11 +8,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.audio_backends.base import AudioCapability, AudioSynthesisResult
 from lib.data_validator import DataValidator
-from lib.db.base import Base
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation_worker import CapacityTable, GenerationWorker, SlotTable
 from lib.media_generator import MediaGenerator
@@ -358,24 +356,16 @@ class TestGenerateAudioAsync:
 
 
 class TestUsageStatsAudioCount:
-    async def test_audio_count(self):
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        try:
-            factory = async_sessionmaker(engine, expire_on_commit=False)
-            async with factory() as session:
-                repo = UsageRepository(session)
-                call_id = await repo.start_call(
-                    project_name="demo", call_type="audio", model="qwen3-tts-flash", provider="dashscope"
-                )
-                await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
-                stats = await repo.get_stats(project_name="demo")
-                assert stats["audio_count"] == 1
-                # audio 按字符冻结费用（非 0）
-                assert stats["cost_by_currency"].get("CNY", 0) > 0
-        finally:
-            await engine.dispose()
+    async def test_audio_count(self, db_session):
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(
+            project_name="demo", call_type="audio", model="qwen3-tts-flash", provider="dashscope"
+        )
+        await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
+        stats = await repo.get_stats(project_name="demo")
+        assert stats["audio_count"] == 1
+        # audio 按字符冻结费用（非 0）
+        assert stats["cost_by_currency"].get("CNY", 0) > 0
 
 
 # ── worker audio lane ───────────────────────────────────────────────────────────
