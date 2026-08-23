@@ -54,7 +54,7 @@ pnpm build && pnpm serve
 # Sync the repo-root CONTRIBUTING.md into the docs-site page (start / build already run this automatically, so a manual run is rarely needed)
 pnpm sync-contributing
 
-# CI consistency gate: page inventory / orphan translations / docs-site headings missing an explicit anchor / UI JSON key completeness — a non-zero exit on any hit;
+# Consistency check: page inventory / orphan translations / docs-site headings missing an explicit anchor / UI JSON key completeness — a non-zero exit on any hit;
 # it reads output already synced by sync-contributing, so run sync-contributing first
 pnpm check-consistency
 ```
@@ -62,29 +62,30 @@ pnpm check-consistency
 ## Testing {#testing}
 
 ```bash
-# Backend tests; single file: uv run python -m pytest path/to/test.py, -k to filter by keyword, -v for verbose output
-uv run python -m pytest
+# During development: preview and run tests related to changes since main
+uv run python scripts/test_changed.py --base main
+uv run python scripts/test_changed.py --base main --run
 
-# Frontend typecheck + lint + tests
-cd frontend && pnpm check
+# Before commit or merge, run the same related selection again
+uv run python scripts/test_changed.py --base main --run
 ```
 
-pytest runs with `asyncio_mode = "auto"`; async tests need no manual marking.
+Feature development, commits, and merges run Related tests by default. Full suites are reserved for explicit requests or high-risk changes that cannot be narrowed safely. See `DEV.md` for timing and `docs/specs/selective-test-execution.md` for selection rules. pytest runs with `asyncio_mode = "auto"`; async tests need no manual marking.
 
-> **Transition note**: this chapter describes the target state after remediation; the existing suite and the related engineering configuration are being aligned with it in batches under a remediation spec. Where a rule does not match the current tree (existing test directories and tiers, frontend calls that bypass the `API` class with direct `fetch`/`EventSource`, the current CI/lint configuration for coverage and the eslint-enforced rules, vitest settings such as `testTimeout`, the not-yet-created `src/test/` shared infrastructure), the chapter is the direction of travel. `scripts/audit_tests.py` and the CI `test-lint` step do not exist yet; they land with the first gate, and each gate ships in the same PR that clears its remaining violations. Until the directory migration and automatic marker injection land, classification markers are still written by hand (collection enforces exactly one; semantics per the table below). Delete this note once remediation completes.
+> **Transition note**: this chapter describes the target state after remediation; the existing suite and related engineering configuration are being aligned with it in batches. Where a rule does not match the current tree, this chapter remains the direction of travel. `scripts/audit_tests.py` does not exist yet. Until directory migration and automatic marker injection land, classification markers are still written by hand. Delete this note once remediation completes.
 
 ### Tiers and layout {#test-tiers}
 
-Every backend test belongs to exactly one tier; CI runs `-m "not e2e"` by default:
+Every backend test belongs to exactly one tier; a manually requested backend full run uses `-m "not e2e"` by default:
 
 | Tier | Meaning | Boundary |
 |---|---|---|
 | `unit` | Fast and isolated | No real DB, subprocesses, or network; `tmp_path` local filesystem is allowed |
 | `integration` | Real cross-module collaboration | Real DB, filesystem, ffmpeg subprocesses; anything touching a real DB (including all alembic migration tests) belongs here |
-| `e2e` | End-to-end | Depends on real external services (remote APIs, LLM calls); skipped in CI by default, run locally when needed |
+| `e2e` | End-to-end | Depends on real external services (remote APIs, LLM calls); run locally when needed |
 
 - The layout is `tests/unit|integration|e2e/<mirror of the top-level source package>` (such as `tests/unit/lib/…`, `tests/integration/server/…`). Tier markers are injected automatically by conftest based on the path—never written by hand; `uses_db` combined with `unit` fails at collection time. Mirror correctness relies on review; there is no mechanical check.
-- alembic migration tests keep one file per migration script, under `tests/integration/lib/db/migrations/`, sharing that directory's conftest `alembic_cfg`; migration tests stay on SQLite, with the PostgreSQL side covered by the CI workflow's alembic upgrade/downgrade commands.
+- alembic migration tests keep one file per migration script, under `tests/integration/lib/db/migrations/`, sharing that directory's conftest `alembic_cfg`; run PostgreSQL upgrade/downgrade validation for high-risk database changes or when explicitly requested.
 
 ### File size and naming {#test-file-size}
 
@@ -121,16 +122,16 @@ Four audit criteria rely on review and dedicated audits, not gates: weakened dup
 ### Timing and flakiness {#timing-and-flakiness}
 
 - Waiting, retry, and timeout logic is always driven through a clock seam or event handshake—no real `time.sleep` wall-clock waits.
-- Flaky failures are ordinary defects: fix them in place (clock seam / event handshake), or delete them under the meaningless-test criteria if a fix is impractical or not worthwhile. No automatic retries (pytest-rerunfailures, CI job-level retry)—automatic retry hides failures that should stay visible.
+- Flaky failures are ordinary defects: fix them in place (clock seam / event handshake), or delete them under the meaningless-test criteria if a fix is impractical or not worthwhile. Do not add automatic retries because they hide failures that should stay visible.
 - Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/test_project_manager_concurrent_save.py` (`integration` tier).
 
 ### Coverage {#coverage}
 
-Coverage is a signal, not a gate: CI never fails on a coverage number, and Codecov is the sole signal carrier (PR coverage comments and trend graphs, all statuses informational). Never write tests for a coverage number; deleting meaningless tests is allowed to lower coverage.
+Coverage is a signal, not a gate. Related tests do not collect repository-wide coverage; collect it only when a full run is explicitly requested. Never write tests for a coverage number; deleting meaningless tests is allowed to lower coverage.
 
 ### Gates {#test-gates}
 
-- Single entry point: `uv run python scripts/audit_tests.py --check`, the same command locally and in CI (a standalone `test-lint` step); output is `rule-id file:line fix guidance`.
+- Single entry point: `uv run python scripts/audit_tests.py --check`; output is `rule-id file:line fix guidance`.
 - Zero tolerance: the violation count is always 0—no baseline, no ratchet, no exemption annotations; a script false positive is fixed in the script, never by tagging the test as an exception; a new rule ships in the same PR that clears its existing violations.
 - Division of labor: the AST script owns code structure; pytest collection time does only tier-related checks; no new runtime checks. Frontend semantic rules belong to eslint; structural rules are scanned by the same script over `frontend/src/**/*.test.*`.
 
@@ -154,7 +155,7 @@ uv run ruff check . && uv run ruff format .
 
 - Rules: `E`/`F`/`I`/`UP`, with `E402` and `E501` ignored
 - line-length: 120
-- Enforced in CI: `ruff check . && ruff format --check .`
+- Check changed files by default; run repository-wide checks only when explicitly requested or justified by risk.
 
 **Lint (frontend ESLint):**
 
@@ -166,7 +167,7 @@ cd frontend && pnpm lint:fix      # Auto-fix what can be fixed
 - Configuration: `frontend/eslint.config.js` (flat config)
 - Rules: `typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - Typed linting enables `projectService: true`, allowing async-related checks such as `no-floating-promises` and `no-misused-promises`
-- Enforced in CI: the `frontend-tests` job's `Lint` step
+- Run ESLint against changed frontend files by default.
 
 ### ESLint disable conventions {#eslint-disable-policy}
 
@@ -213,8 +214,6 @@ Published pages also declare their documentation-refresh coverage tier via the `
 | `website/docs/guide/providers.md` | Provider types, capability coverage, selection principles, and configuration hierarchy | Price promises likely to become outdated |
 | `website/docs/guide/jianying-export.md` | Locating the Jianying draft directory, exporting, and further editing steps | The video generation process itself |
 | `website/docs/guide/faq.md` | Frequently asked questions and short answers | Long tutorials |
-| `website/docs/ops/deployment.md` | Deployment, upgrades, backup, recovery, monitoring, and security | Product marketing copy |
-| `website/docs/ops/migrate-to-postgres.md` | SQLite-to-PostgreSQL migration, verification, and rollback steps | Day-to-day PostgreSQL deployment and operations guidance |
 | `website/docs/dev/architecture.md` | Stable architectural boundaries, data flows, and extension points | Temporary implementation plans and incomplete designs |
 | `SECURITY.md` | Supported versions, supported deployment boundaries, private vulnerability reporting, and coordinated disclosure policy | Details of unfixed vulnerabilities and dynamic risk registers |
 | `docs/security/threat-model.md` | Security assets, trust boundaries, attack surfaces, existing controls, and reassessment triggers | Directly exploitable unfixed vulnerabilities and patch history |
@@ -223,7 +222,7 @@ Published pages also declare their documentation-refresh coverage tier via the `
 
 - **Keep the README stable**: the README only needs to help a first-time repository visitor answer, "What is ArcReel, is it right for me, how is it different from calling a model API directly, and what is the fastest way to run it?" Put specific model names, prices, and API parameters on the corresponding site pages so that the homepage does not need to be rewritten every time a provider changes.
 - **Treat runtime capabilities as authoritative for provider information**: documentation describes the media types covered, how ArcReel unifies configuration, how to choose between different capabilities, and where to confirm specifics; the models actually selectable on the Settings page and the provider's official documentation are definitive.
-- **Give headings explicit anchor IDs**: write every heading on a published page as `## 标题 {#english-id}`. The Chinese and English locales share the same anchor to prevent changes to copy from invalidating automatically generated Chinese slugs. Use relative file paths for cross-references within the site (such as `../ops/deployment.md`), and use absolute GitHub links when pointing to repository files not published on the site.
+- **Give headings explicit anchor IDs**: write every heading on a published page as `## 标题 {#english-id}`. The Chinese and English locales share the same anchor to prevent changes to copy from invalidating automatically generated Chinese slugs. Use relative file paths for cross-references within the site, and absolute GitHub links when pointing to repository files not published on the site.
 - **Commit documentation changes with feature changes**: when adding a content mode or video generation route, adding a provider or media capability, or changing deployment directories, ports, environment variables, data directories, backup methods, migration behavior, public APIs, licenses, or commercial-use terms, update the corresponding documentation at the same time.
 - **No JSX or import in docs-site `.md` files**: `website/docusaurus.config.ts` sets `markdown.format: "detect"`, so `.md` files are parsed as CommonMark rather than MDX. Neither raises a compile error, and neither is executed as MDX: a JSX tag is output verbatim as raw HTML (a tag with children leaks that content directly onto the page), and an import statement is displayed verbatim as page text. Use `.mdx` for pages that need JSX.
 
@@ -243,7 +242,6 @@ Use `<type>/<slug>`, where `type` is one of the conventional commit types:
 - `refactor/` — Refactoring (for example, `refactor/session-actor`)
 - `docs/` — Documentation only (for example, `docs/contribution-infra`)
 - `chore/` — Builds, tooling, version numbers, or cleanup (for example, `chore/freeze-versions`)
-- `ci/` — CI configuration (for example, `ci/testing-discipline`)
 - `test/` — Tests only
 
 Use lowercase words separated by hyphens for `slug`, briefly describing the branch's focus.

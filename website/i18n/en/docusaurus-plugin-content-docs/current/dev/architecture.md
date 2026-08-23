@@ -388,13 +388,12 @@ Agent tools may access:
 - FFmpeg;
 - Bash tools.
 
-ArcReel uses mechanisms such as `bwrap` to restrict these capabilities in supported environments. Docker Compose configures additional permissions for the sandbox, so production deployments must make a clear tradeoff between functionality and host isolation.
+ArcReel uses mechanisms such as `bwrap` to restrict these capabilities in supported environments. Before running locally, make sure the required system sandbox tools are available.
 
 Security principles:
 
 - least privilege by default;
 - file and network allowlists;
-- do not mount the Docker Socket;
 - do not mount unnecessary host paths;
 - expose only the reverse proxy externally;
 - use HTTPS;
@@ -454,6 +453,5 @@ The following constraints should be maintained over the long term:
 
 - [Workflows and Modes](../guide/workflows.md)
 - [Provider and Model Configuration](../guide/providers.md)
-- [Deployment and Operations](../ops/deployment.md)
 - [Contributing Guide](./contributing.md)
 - [ADR Directory](https://github.com/ArcReel/ArcReel/tree/main/docs/adr)

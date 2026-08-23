@@ -2,9 +2,8 @@
 
 ## 背景
 
-ArcReel 后端已超过一万个 pytest 用例，前端也有大量 Vitest 用例。现有流程虽然按
-backend、frontend、website、docker 四个域裁剪 CI，但域内仍是全量执行；`DEV.md`
-又只列出全量命令，导致开发过程中的每个小改动都容易重复跑完整套件。
+ArcReel 后端已超过一万个 pytest 用例，前端也有大量 Vitest 用例。旧流程虽然按域裁剪，
+但域内仍是全量执行；`DEV.md` 又只列出全量命令，导致开发过程中的每个小改动都容易重复跑完整套件。
 
 本 Spec 只调整测试的**执行时机与选择方式**，不降低测试契约，也不把“少跑测试”解释为
 删除测试。测试质量审计仍按 `CONTRIBUTING.md` 的无意义测试判据单独推进。
@@ -13,9 +12,10 @@ backend、frontend、website、docker 四个域裁剪 CI，但域内仍是全量
 
 1. 每个可验证的小改动都执行与其存在静态依赖或显式契约关系的测试。
 2. 选择器无法证明局部执行安全时，保守升级为对应域全量，不静默跳过。
-3. 在任务完成、合并到 `main`、发布和 nightly 等关键节点执行全量验证。
-4. 相关测试不携带全局覆盖率阈值；覆盖率只在全量节点采集并作为趋势信号。
-5. 选择结果可预览、可解释、可测试，开发者和 Agent 使用同一入口。
+3. Feature 开发、提交和合并 `main` 前都使用同一套定向选择结果，合并后不重复执行。
+4. 只有用户明确要求或无法安全收窄的高风险改动才执行全量验证。
+5. 相关测试不携带全局覆盖率阈值；覆盖率只在人工要求的全量验证中按需采集。
+6. 选择结果可预览、可解释、可测试，开发者和 Agent 使用同一入口。
 
 ## 非目标
 
@@ -24,11 +24,11 @@ backend、frontend、website、docker 四个域裁剪 CI，但域内仍是全量
 - 不在本次改动中清理重复、超长或弱断言测试。
 - 不用自动重试掩盖偶发失败。
 
-## 三层验证模型
+## 选择优先验证模型
 
-### 1. Related：开发反馈环
+### 1. Related：默认验证
 
-每次完成一个连贯的小改动后执行：
+每次完成一个连贯的小改动，以及提交或合并 `main` 前执行：
 
 ```bash
 uv run python scripts/test_changed.py --base main --run
@@ -46,28 +46,23 @@ uv run python scripts/test_changed.py --base main --run
 
 Related 层不收集全局覆盖率，也不替代类型检查、构建和架构检查。
 
-### 2. Domain full：任务完成闸门
+### 2. Full：高风险例外
 
-实现完成、准备提交或合并前，对本任务触达的域各执行一次全量：
+全量测试不是任务完成、提交或合并的固定闸门。只有以下情况执行：
 
-- backend：ruff、format check、basedpyright、import-linter、Profile lint、全部非 E2E pytest。
-- frontend：typecheck、eslint、全部 Vitest；影响打包链路时再执行 build。
-- website：typecheck、eslint、format、内容一致性和双语 build。
-- database：影响 DB/ORM/迁移时执行 PostgreSQL 方言测试和迁移闭环。
-- docker：影响 Docker 装配时构建并做健康检查。
+- 用户明确要求；
+- 依赖、测试配置、共享 fixture、数据库迁移等变化无法安全收窄；
+- 生产模块没有可证明相关的测试，或被删除后静态图无法判断边界；
+- 大规模架构调整；
+- 同一次改动同时触达 backend、frontend、website 三个域。
 
-域间契约文件可同时命中多个域；例如前端 i18n 变更同时命中后端契约测试。
+全量范围按风险收窄到受影响域；只有跨三域或仓库级基础设施变化时才考虑 repository full。域间契约文件可同时命中多个域，例如前端 i18n 变更同时命中后端契约测试。
 
-### 3. Repository full：仓库关键节点
+### 3. 提交与合并
 
-以下节点无条件执行所有域：
+Feature 分支在提交或合并 `main` 前重新执行 Related。合并后不重复执行同一套测试，push 到 `main` 也不会自动升级为全量。是否执行 full 只取决于上一节的风险条件，不取决于 Git 事件。
 
-- push 到 `main`；
-- release PR；
-- nightly；
-- CI workflow/action、Codecov 配置或 Git 忽略规则变化。
-
-PR 仍执行所有受影响域的全量验证。Related 层用于开发反馈，不作为合并前唯一证据。
+仓库不通过 GitHub Actions 自动执行测试或 nightly 全量。本地开发者和 Agent 使用 `scripts/test_changed.py` 作为唯一默认测试入口。
 
 ## Python 选择器设计
 
@@ -98,8 +93,7 @@ PR 仍执行所有受影响域的全量验证。Related 层用于开发反馈，
 
 ## 覆盖率
 
-覆盖率只在 CI 全量 job 生成并上传。数值不阻断合并，失败测试、类型错误、lint、构建错误和
-契约错误才是闸门。这样 Related 层不会因“只执行相关测试”天然得不到全仓覆盖率而失败。
+覆盖率只在用户明确要求的全量验证中按需生成。数值不阻断合并，Related 层也不会因无法得到全仓覆盖率而失败。
 
 ## 验收标准
 
@@ -109,5 +103,5 @@ PR 仍执行所有受影响域的全量验证。Related 层用于开发反馈，
 4. 修改共享测试基础设施、依赖文件、删除生产模块或无相关测试模块时升级全量。
 5. 前端源文件使用 Vitest related，前端测试文件直接执行，前端测试基础设施变化升级全量。
 6. 前端 i18n/共享 workflow 类型变化能触发对应后端契约测试。
-7. main push、release、nightly 和 CI 基础设施变化触发所有 CI 域。
-8. `DEV.md` 明确 Related、Domain full、Repository full 的时机，禁止每个小改动重复全量。
+7. Feature 提交与合并前继续执行 Related，合并后不重复执行。
+8. `DEV.md` 明确定向优先和 full 例外条件，禁止把全量测试当作默认完成闸门。

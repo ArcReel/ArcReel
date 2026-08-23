@@ -1,13 +1,11 @@
 {
-  "CONTRIBUTING.md": "026dec6a937e2fab8a8054910cb81f0d5715b441b1bfad1c53845aa40c1af47e",
-  "README.md": "173515c7bf70e0f2eca6b0f619f737d25e833d8576eb866e170063503347dee6",
-  "website/docs/dev/architecture.md": "e9bb58f810f755047b736691c03e70bfcae86e6c3ff2272060cff9cf6e1243d0",
-  "website/docs/guide/faq.md": "44c1a08afacf85f29b37898e6cad9899af3bb58df27723e035afc62b5492f0bf",
-  "website/docs/guide/getting-started.md": "250a0103f34c4171c3a41d0ede69825fd39b94b7e313cb869c4391b1eb4eae2b",
-  "website/docs/guide/jianying-export.md": "65ef8c99427648186337d921be509258e7e08012da79f9450503d3c352b41b0a",
-  "website/docs/guide/providers.md": "1dbb3b917021da1c4e48964d9aa00244144a49b066c0394e68fab785b19f020a",
-  "website/docs/guide/workflows.md": "bfc03870189893f0793fd3823f7160f212fb1d969f9160d8a342df152549edd3",
-  "website/docs/index.mdx": "b7837792193fed1c4492a9be5c72723b3250fea0d6f83632813d9af188d9cc81",
-  "website/docs/ops/deployment.md": "da1f96a383cd53314b014c534cee2104867a60404dacadb310beac8536809287",
-  "website/docs/ops/migrate-to-postgres.md": "3e1ebb83bc9e33bd4afab8b236b6dd48bea92552c143e6a30c5562dd83cd52f3"
+  "CONTRIBUTING.md": "196352596507b4b421a51800f2474aa030acd689197425de1f1e3e107af8a7d5",
+  "README.md": "6e48055c137e8cff0fb3626dc7b4890cc038e76588f2428f05dc4f316260edb1",
+  "website/docs/dev/architecture.md": "f35377d98b389a86992ba46c7c8d4e5efe6cd1be9caf3429808365ba2347d3e6",
+  "website/docs/guide/faq.md": "1821a72ef7c03ef2998d514b4c8dada3d4f9a842181284c8b64a138479321adf",
+  "website/docs/guide/getting-started.md": "9f53734ba831bb7ed24c76ccfabcc8af00dfa960011d070068b2eff7a1ecce84",
+  "website/docs/guide/jianying-export.md": "2c71aefc7419576280ecbf088f7e152be2f5c38ac4cbc37432d70eab04ac9e58",
+  "website/docs/guide/providers.md": "31706e8827c4ce1d2f693123caec51c1a2c047391836374f7e898e74aaef2221",
+  "website/docs/guide/workflows.md": "b5c70d294cf07dc08ea7e96801525cfe4980179903fe8897861534df73ab8ac6",
+  "website/docs/index.mdx": "249a76eeb225bd04aa55529a96665169a817f5fa77a8fcc4e16a4535ed83bb87"
 }

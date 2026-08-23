@@ -391,13 +391,12 @@ Agent 工具可能访问：
 - FFmpeg；
 - Bash 工具。
 
-ArcReel 在支持的环境中使用 `bwrap` 等机制限制这些能力。Docker Compose 为沙箱配置了额外权限，因此生产部署需要在功能和宿主机隔离之间做清晰取舍。
+ArcReel 在支持的环境中使用 `bwrap` 等机制限制这些能力。本地运行前必须确保系统沙箱工具可用。
 
 安全原则：
 
 - 默认最小权限；
 - 文件和网络白名单；
-- 不挂载 Docker Socket；
 - 不挂载不必要的宿主机路径；
 - 对外只暴露反向代理；
 - 使用 HTTPS；
@@ -457,6 +456,5 @@ ArcReel 在支持的环境中使用 `bwrap` 等机制限制这些能力。Docker
 
 - [创作流程与模式](../guide/workflows.md)
 - [供应商与模型配置](../guide/providers.md)
-- [部署与运维](../ops/deployment.md)
 - [贡献指南](./contributing.md)
 - [ADR 目录](https://github.com/ArcReel/ArcReel/tree/main/docs/adr)

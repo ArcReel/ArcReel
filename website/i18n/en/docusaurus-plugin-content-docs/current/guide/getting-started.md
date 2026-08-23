@@ -12,7 +12,7 @@ This guide walks you through deploying ArcReel from scratch and creating your fi
 
 By the end of this guide, you will be able to:
 
-1. Start ArcReel with Docker;
+1. Start ArcReel locally from source;
 2. Sign in to the workspace and configure model providers;
 3. Create a project from a novel, finished screenplay, or ad/short video;
 4. Generate characters, scenes, props, storyboards, and video clips;
@@ -37,12 +37,12 @@ Recommended environments:
 - Linux
 - macOS
 - Windows + WSL2
-- Docker Desktop
 
 Recommended prerequisites:
 
-- Docker
-- Docker Compose
+- Python 3.12+
+- Node.js 20+
+- `uv`, `pnpm`, and `ffmpeg`
 - Start with at least 2 GB of available memory
 - A network environment that can access your selected model providers
 - Enough disk space for images, videos, project archives, and logs
@@ -87,7 +87,7 @@ For detailed recommendations, see [Provider and Model Configuration](./providers
 
 > API keys are sensitive. Do not commit real keys to Git or expose them in issues, log screenshots, or public chat records.
 
-## 2. Deploy ArcReel {#deploy-arcreel}
+## 2. Start ArcReel Locally {#deploy-arcreel}
 
 ### 2.1 Clone the Repository {#clone-repository}
 
@@ -96,12 +96,13 @@ git clone https://github.com/ArcReel/ArcReel.git
 cd ArcReel
 ```
 
-### 2.2 Use the Default SQLite Deployment {#deploy-with-sqlite}
+### 2.2 Install Dependencies and Configure the Environment {#deploy-with-sqlite}
 
-The default deployment is suitable for initial evaluation, personal creation, and light use.
+SQLite is the default and is suitable for local development, personal creation, and light use.
 
 ```bash
-cd deploy
+uv sync
+cd frontend && pnpm install && cd ..
 cp .env.example .env
 ```
 
@@ -119,57 +120,35 @@ You can generate `AUTH_TOKEN_SECRET` with this command:
 openssl rand -hex 32
 ```
 
-Start the service:
+Start the backend and frontend development servers:
 
 ```bash
-docker compose up -d
+./scripts/dev.sh
 ```
 
 Check its status:
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 arcreel
 curl http://localhost:1241/health
 ```
 
 After the health check succeeds, open this address in your browser:
 
 ```text
-http://localhost:1241
+http://localhost:5173
 ```
 
 > When `AUTH_PASSWORD` is empty, ArcReel automatically generates a password on first startup and writes it back to `.env`. For regular use, you should still set and securely store a strong password yourself.
 
-### 2.3 Use the PostgreSQL Production Deployment {#deploy-with-postgresql}
+### 2.3 Optional PostgreSQL {#deploy-with-postgresql}
 
-PostgreSQL is recommended for long-running, concurrent, or production services. It improves concurrency, backups, and operations, but does not provide user isolation. Do not let mutually untrusted users share the same ArcReel instance.
-
-Run these commands from the root of the ArcReel repository:
-
-```bash
-cd deploy/production
-cp .env.example .env
-```
-
-Edit `.env`:
+To use PostgreSQL, create a local database and configure its connection URL in the root `.env` file:
 
 ```dotenv
-AUTH_USERNAME=admin
-AUTH_PASSWORD=set a strong password
-AUTH_TOKEN_SECRET=set a long-lived random secret
-POSTGRES_PASSWORD=alphanumeric-only database password
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/arcreel
 ```
 
-Start the service:
-
-```bash
-docker compose up -d
-docker compose ps
-curl http://localhost:1241/health
-```
-
-For complete production deployment, upgrade, backup, and reverse proxy instructions, see [Deployment and Operations](../ops/deployment.md).
+Then run `./scripts/dev.sh` again. Database migrations run before the service starts.
 
 ## 3. Complete the Initial Setup {#first-time-setup}
 
@@ -404,5 +383,5 @@ Do not define completion as "every asset has been generated once." At a minimum,
 
 - Read [Workflows and Modes](./workflows.md) to choose a more suitable production path;
 - Read [Provider and Model Configuration](./providers.md) to establish quality, speed, and cost tiers;
-- Read [Deployment and Operations](../ops/deployment.md) to configure a production environment and backups;
+- Back up the root `.env`, project data directory, and database regularly;
 - If you encounter a problem, see the [FAQ](./faq.md).

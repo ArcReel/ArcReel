@@ -14,80 +14,72 @@ update_docs: fact-check
 - 媒体生成依赖第三方模型服务，生成速度、可用性、内容策略和成本受供应商影响。
 - 长篇内容仍需要人工审核分集、角色资产和关键剧情节点，ArcReel 的目标是增强创作者，而不是完全取消审核。
 - 不同视频模型对参考图数量、视频时长、首尾帧、音频和地区可用性的支持不同。
-- Windows 原生环境可以运行部分基础流程，但 Agent 沙箱等 POSIX 能力会降级；优先使用 Linux、macOS、WSL2 或 Docker。
-- 生产环境应使用 PostgreSQL、HTTPS、强密码和定期备份，不建议直接把未加保护的 `1241` 端口暴露到公网。
+- Windows 原生环境可以运行部分基础流程，但 Agent 沙箱等 POSIX 能力会降级；优先使用 Linux、macOS 或 WSL2。
+- 服务默认面向本机使用，不建议把未加保护的端口暴露到公网。
 
-## 安装、部署与更新 {#install-deploy-update}
+## 安装、启动与更新 {#install-deploy-update}
 
 ### 推荐怎样安装？Windows 可以直接运行吗？ {#how-to-install}
 
-普通用户优先使用 Docker。推荐环境为 Linux、macOS、WSL2 或 Docker Desktop：
+推荐在 Linux、macOS 或 WSL2 中从源码运行：
 
 ```bash
 git clone https://github.com/ArcReel/ArcReel.git
-cd ArcReel/deploy
+cd ArcReel
+uv sync
+cd frontend && pnpm install && cd ..
 cp .env.example .env
-docker compose up -d
+./scripts/dev.sh
 ```
 
-启动后访问 `http://localhost:1241`；部署在其他主机上时，将 `localhost` 换成主机地址。
+启动后访问 `http://localhost:5173`。
 
-Windows 原生环境可以运行项目创建等基础流程，但 Agent 沙箱会降级，生产部署仍建议使用 WSL2 或 Docker Desktop。Linux/macOS 本地运行需要可用的系统沙箱工具，详见[部署补充说明](../ops/deployment.md)。
+Windows 原生环境可以运行项目创建等基础流程，但 Agent 沙箱会降级，建议使用 WSL2。Linux/macOS 本地运行需要可用的系统沙箱工具。
 
-### Docker 启动后打不开，或者容器反复重启怎么办？ {#docker-wont-start}
+### 本地服务打不开或反复退出怎么办？ {#local-service-wont-start}
 
-在实际使用的 `deploy/` 或 `deploy/production/` 目录执行：
+先查看运行 `./scripts/dev.sh` 的终端输出，再检查：
 
 ```bash
-docker compose ps
-docker compose logs arcreel
+curl http://localhost:1241/health
 ```
 
-依次检查：
-
-1. Docker 服务是否正常，ArcReel 容器是否通过健康检查。
-2. 端口 `1241` 是否已被其他程序占用。
-3. `.env` 是否存在且容器有权读取；生产部署还必须设置 `POSTGRES_PASSWORD`。
-4. 日志是否包含 `SANDBOX_UNAVAILABLE`、`SANDBOX_BWRAP_BROKEN` 或更具体的修复提示。
-5. 供应商 API Key 是否误放在 `.env` 中。供应商凭据应在 Web 设置页保存，否则服务会拒绝启动。
-
-不要为了绕过沙箱错误直接把容器改成特权模式；应先按启动日志修复宿主机的 user namespace、AppArmor 或沙箱依赖。
+1. 端口 `1241` 或 `5173` 是否已被其他程序占用。
+2. 根目录 `.env` 是否存在且当前用户可读写。
+3. 日志是否包含 `SANDBOX_UNAVAILABLE`、`SANDBOX_BWRAP_BROKEN` 或更具体的修复提示。
+4. 供应商 API Key 是否误放在 `.env` 中。供应商凭据应在 Web 设置页保存，否则服务会拒绝启动。
 
 ### 默认登录账号是什么？忘记密码怎么办？ {#default-login}
 
-默认用户名是 `admin`，可通过 `.env` 中的 `AUTH_USERNAME` 修改。`AUTH_PASSWORD` 留空时，首次启动会生成密码并回写到当前部署目录的 `.env`，不会把明文密码打印到日志。
+默认用户名是 `admin`，可通过 `.env` 中的 `AUTH_USERNAME` 修改。`AUTH_PASSWORD` 留空时，首次启动会生成密码并回写到根目录 `.env`，不会把明文密码打印到日志。
 
-忘记密码时，修改 `.env` 中的 `AUTH_PASSWORD`。Docker 部署需要重建容器以重新载入环境变量：
+忘记密码时，修改 `.env` 中的 `AUTH_PASSWORD`，然后重启 `./scripts/dev.sh`。
 
-```bash
-docker compose up -d --force-recreate
-```
+不要在不可信网络中关闭身份认证。
 
-源码部署则重启 ArcReel 服务。不要在公网部署中关闭身份认证。
+### 怎样更新？更新会丢失项目吗？ {#source-update}
 
-### Docker 怎样更新？更新会丢失项目吗？ {#docker-update}
-
-先完成备份，再在对应的 Compose 目录执行：
+先备份项目数据和数据库，再在仓库根目录执行：
 
 ```bash
-docker compose pull
-docker compose up -d
+git pull --ff-only
+uv sync
+cd frontend && pnpm install --frozen-lockfile && cd ..
+uv run alembic upgrade head
 ```
 
-ArcReel 启动时会自动执行数据库与项目结构迁移。正常更新不会主动删除已挂载的数据目录，但更新前仍应备份项目目录、数据库和凭据文件。不要使用会删除数据卷的清理命令代替普通更新。
+ArcReel 启动时会自动执行数据库与项目结构迁移。正常更新不会主动删除项目数据，但更新前仍应备份项目目录、数据库和凭据文件。
 
 设置页的“关于”区域可以检查新版本并打开发布页，但不会在网页中自动升级服务器。
 
 ### 项目和配置存在哪里？怎样备份或迁移？ {#where-is-data}
 
-默认 Docker 部署的主要数据位于 Compose 目录：
+默认本地运行的主要数据位于仓库根目录：
 
 - `projects/`：项目、素材和默认 SQLite 数据库
-- `.env`：登录与部署配置
-- `vertex_keys/`：Vertex 凭据文件
-- `claude_data/`：Agent 会话数据
+- `.env`：登录与运行配置
 
-生产 PostgreSQL 部署还需要备份 PostgreSQL 数据库。全站备份应同时覆盖项目目录、数据库与所需凭据；PostgreSQL 使用 `pg_dump` / `pg_restore`，SQLite 应在停止服务后复制，或使用 SQLite 在线备份机制。
+使用 PostgreSQL 时还需要备份 PostgreSQL 数据库。完整备份应同时覆盖项目目录、数据库与所需凭据；PostgreSQL 使用 `pg_dump` / `pg_restore`，SQLite 应在停止服务后复制，或使用 SQLite 在线备份机制。
 
 Web UI 的项目 ZIP 适合迁移单个项目，但不包含全局供应商配置、账号配置、任务记录、费用记录或 Agent 会话，因此不能代替全站备份。
 
@@ -115,8 +107,8 @@ ArcReel Agent（智能体）与内容生成使用两套独立配置：
 这些提示表示 Agent 进程没有正常启动或未能及时完成初始化，不等同于剧本内容错误。依次检查：
 
 1. Agent 凭据是否已激活，模型 ID 是否与服务端实际开放的 ID 完全一致。
-2. Docker 容器或服务器能否访问 Agent API，代理、DNS 和 TLS 是否正常。
-3. Docker/WSL/本地环境的 Agent 沙箱是否通过启动检查。
+2. 本机能否访问 Agent API，代理、DNS 和 TLS 是否正常。
+3. WSL 或本地环境的 Agent 沙箱是否通过启动检查。
 4. 在设置页“关于”中下载诊断日志，查看错误发生时间附近的具体上游状态码。
 
 连接测试只代表最小请求成功；长会话仍可能受到额度、上下文长度、限流或代理超时影响。
@@ -292,7 +284,7 @@ ArcReel Agent（智能体）与内容生成使用两套独立配置：
 
 ArcReel 是自托管 Web 应用，目前没有独立的 iOS 或 Android 原生 App。手机可以尝试通过浏览器访问，但不承诺完整的移动端编辑体验。
 
-服务器推荐 Linux、macOS、WSL2 或 Docker。Windows 原生环境只保证项目创建与基础流程，正式部署建议 WSL2 或 Docker Desktop。
+本地运行推荐 Linux、macOS 或 WSL2。Windows 原生环境只保证项目创建与基础流程。
 
 ### 可以商用或二次开发吗？ {#commercial-use}
 
@@ -304,20 +296,14 @@ ArcReel 按 [AGPL-3.0](https://github.com/ArcReel/ArcReel/blob/main/LICENSE) 发
 
 ### 只显示“服务器内部错误”，怎样找到真正原因？ {#internal-server-error}
 
-前端的通用错误提示无法说明根因。先展开任务错误，再查看服务端日志和供应商返回的状态码。Docker 部署可在 Compose 目录执行：
-
-```bash
-docker compose logs arcreel
-```
-
-也可以在设置页“关于”中下载诊断日志。诊断包会尝试遮蔽系统摘要中的已知凭据，但不会在下载时对已有日志再次全文脱敏；分享前必须人工检查整个诊断包，并删除 API Key、Token、密码、完整 `.env`、私人接口地址和项目内容。
+前端的通用错误提示无法说明根因。先展开任务错误，再查看运行 `./scripts/dev.sh` 的终端输出和供应商返回的状态码。也可以在设置页“关于”中下载诊断日志。诊断包会尝试遮蔽系统摘要中的已知凭据，但不会在下载时对已有日志再次全文脱敏；分享前必须人工检查整个诊断包，并删除 API Key、Token、密码、完整 `.env`、私人接口地址和项目内容。
 
 ### 怎样提交一个可以有效排查的问题？ {#how-to-report-issue}
 
 提交 [GitHub Issue](https://github.com/ArcReel/ArcReel/issues) 或寻求社区帮助时，请提供：
 
 - ArcReel 版本
-- 操作系统以及 Docker、WSL 或源码部署方式
+- 操作系统以及原生或 WSL 运行方式
 - 失败的具体步骤和可重复操作
 - 实际选择的供应商、模型与任务类型
 - 错误发生时间、短错误关键词、上游状态码和任务 ID

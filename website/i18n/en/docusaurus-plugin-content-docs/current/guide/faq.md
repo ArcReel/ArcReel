@@ -13,80 +13,72 @@ This page covers the most common installation, configuration, production, and tr
 - Media generation depends on third-party model services. Generation speed, availability, content policies, and costs are controlled by providers.
 - Long-form content still requires human review of episode boundaries, character assets, and key plot decisions. ArcReel is designed to empower creators, not eliminate review entirely.
 - Video models differ in their support for reference-image counts, video duration, start and end frames, audio, and regional availability.
-- Native Windows can run parts of the basic workflow, but POSIX capabilities such as the Agent sandbox degrade. Prefer Linux, macOS, WSL2, or Docker.
-- Production environments should use PostgreSQL, HTTPS, strong passwords, and regular backups. Do not expose an unprotected port `1241` directly to the public Internet.
+- Native Windows can run parts of the basic workflow, but POSIX capabilities such as the Agent sandbox degrade. Prefer Linux, macOS, or WSL2.
+- The service is intended for local use by default. Do not expose an unprotected port to the public Internet.
 
-## Installation, deployment, and updates {#install-deploy-update}
+## Installation, startup, and updates {#install-deploy-update}
 
 ### What is the recommended installation method? Can ArcReel run directly on Windows? {#how-to-install}
 
-Docker is the preferred option for most users. The recommended environments are Linux, macOS, WSL2, or Docker Desktop:
+Run ArcReel from source on Linux, macOS, or WSL2:
 
 ```bash
 git clone https://github.com/ArcReel/ArcReel.git
-cd ArcReel/deploy
+cd ArcReel
+uv sync
+cd frontend && pnpm install && cd ..
 cp .env.example .env
-docker compose up -d
+./scripts/dev.sh
 ```
 
-After startup, open `http://localhost:1241`. If ArcReel is deployed on another host, replace `localhost` with that host's address.
+After startup, open `http://localhost:5173`.
 
-Native Windows can run basic workflows such as project creation, but the Agent sandbox degrades. WSL2 or Docker Desktop is still recommended for production deployment. Running locally on Linux or macOS requires a working system sandbox tool; see the [additional deployment notes](../ops/deployment.md).
+Native Windows can run basic workflows such as project creation, but the Agent sandbox degrades, so WSL2 is recommended. Local Linux and macOS environments require working system sandbox tools.
 
-### What should I do if ArcReel does not open after Docker starts, or the container keeps restarting? {#docker-wont-start}
+### What should I do if the local service does not open or keeps exiting? {#local-service-wont-start}
 
-Run these commands in the `deploy/` or `deploy/production/` directory you actually use:
+Check the terminal running `./scripts/dev.sh`, then run:
 
 ```bash
-docker compose ps
-docker compose logs arcreel
+curl http://localhost:1241/health
 ```
 
 Check the following in order:
 
-1. Confirm that Docker is running normally and that the ArcReel container passes its health check.
-2. Confirm that port `1241` is not already in use by another program.
-3. Confirm that `.env` exists and is readable by the container. Production deployments must also set `POSTGRES_PASSWORD`.
-4. Check whether the logs contain `SANDBOX_UNAVAILABLE`, `SANDBOX_BWRAP_BROKEN`, or more specific remediation guidance.
-5. Check whether provider API keys were mistakenly placed in `.env`. Provider credentials must be saved in the Web Settings page, or the service will refuse to start.
-
-Do not switch the container to privileged mode just to bypass a sandbox error. First follow the startup logs to fix the host's user namespace, AppArmor, or sandbox dependencies.
+1. Confirm that ports `1241` and `5173` are not already in use.
+2. Confirm that the root `.env` exists and is readable and writable by the current user.
+3. Check whether the logs contain `SANDBOX_UNAVAILABLE`, `SANDBOX_BWRAP_BROKEN`, or more specific remediation guidance.
+4. Check whether provider API keys were mistakenly placed in `.env`. Provider credentials must be saved in the Web Settings page, or the service will refuse to start.
 
 ### What are the default login credentials? What should I do if I forget the password? {#default-login}
 
-The default username is `admin`; you can change it in `.env` with `AUTH_USERNAME`. If `AUTH_PASSWORD` is empty, ArcReel generates a password on first startup and writes it back to `.env` in the current deployment directory. The plaintext password is not printed to the logs.
+The default username is `admin`; you can change it in `.env` with `AUTH_USERNAME`. If `AUTH_PASSWORD` is empty, ArcReel generates a password on first startup and writes it back to the root `.env`. The plaintext password is not printed to the logs.
 
-If you forget the password, update `.env` by setting `AUTH_PASSWORD`. Docker deployments must recreate the container to reload environment variables:
+If you forget the password, update `AUTH_PASSWORD` in `.env`, then restart `./scripts/dev.sh`. Do not disable authentication on an untrusted network.
 
-```bash
-docker compose up -d --force-recreate
-```
+### How do I update ArcReel? Will an update delete my projects? {#source-update}
 
-For a source deployment, restart the ArcReel service. Do not disable authentication on a public deployment.
-
-### How do I update Docker? Will an update delete my projects? {#docker-update}
-
-Create a backup first, then run these commands in the appropriate Compose directory:
+Back up project data and the database, then run these commands from the repository root:
 
 ```bash
-docker compose pull
-docker compose up -d
+git pull --ff-only
+uv sync
+cd frontend && pnpm install --frozen-lockfile && cd ..
+uv run alembic upgrade head
 ```
 
-ArcReel automatically runs database and project-structure migrations at startup. A normal update does not intentionally delete mounted data directories, but you should still back up the project directory, database, and credential files before updating. Do not substitute cleanup commands that delete data volumes for a normal update.
+ArcReel automatically runs database and project-structure migrations at startup. A normal update does not intentionally delete project data, but you should still back up the project directory, database, and credential files before updating.
 
 The About section of the Settings page can check for a new version and open its release page, but it does not upgrade the server from the Web UI.
 
 ### Where are projects and configuration stored? How do I back them up or migrate them? {#where-is-data}
 
-The main data for a default Docker deployment is stored in its Compose directory:
+The main data for a default local run is stored in the repository root:
 
 - `projects/`: projects, assets, and the default SQLite database
-- `.env`: login and deployment configuration
-- `vertex_keys/`: Vertex credential files
-- `claude_data/`: Agent session data
+- `.env`: login and runtime configuration
 
-A production PostgreSQL deployment also requires a PostgreSQL database backup. A full-instance backup must cover the project directory, database, and required credentials. Use `pg_dump` / `pg_restore` for PostgreSQL. Copy SQLite only after stopping the service, or use SQLite's online backup mechanism.
+When using PostgreSQL, back up the PostgreSQL database as well. A complete backup must cover the project directory, database, and required credentials. Use `pg_dump` / `pg_restore` for PostgreSQL. Copy SQLite only after stopping the service, or use SQLite's online backup mechanism.
 
 A project ZIP from the Web UI is suitable for migrating an individual project, but it does not include global provider configuration, account configuration, task records, cost records, or Agent sessions. It is not a substitute for a full-instance backup.
 
@@ -114,8 +106,8 @@ If the assistant reports that you are not logged in, cannot start, or have no av
 These messages mean that the Agent process did not start normally or could not initialize in time. They do not indicate an error in the screenplay content. Check the following in order:
 
 1. Confirm that the Agent credential is active and that the model ID exactly matches an ID actually exposed by the service.
-2. Confirm that the Docker container or server can reach the Agent API and that its proxy, DNS, and TLS configuration works.
-3. Confirm that the Agent sandbox passes its startup checks in Docker, WSL, or the local environment.
+2. Confirm that the local machine can reach the Agent API and that its proxy, DNS, and TLS configuration works.
+3. Confirm that the Agent sandbox passes its startup checks in WSL or the local environment.
 4. Download diagnostic logs from the About section of Settings and inspect the specific upstream status code near the time of the error.
 
 A successful connection test proves only that a minimal request succeeded. Long sessions may still be affected by quotas, context limits, rate limits, or proxy timeouts.
@@ -291,7 +283,7 @@ Narration/Commentary currently exports the original novel text as subtitles, Ad 
 
 ArcReel is a self-hosted web application and does not currently have a standalone native iOS or Android app. You can try accessing it from a mobile browser, but a complete mobile editing experience is not guaranteed.
 
-Linux, macOS, WSL2, or Docker is recommended for the server. Native Windows guarantees only project creation and basic workflows; use WSL2 or Docker Desktop for a production deployment.
+Linux, macOS, or WSL2 is recommended for local use. Native Windows guarantees only project creation and basic workflows.
 
 ### Can I use ArcReel commercially or build derivative software? {#commercial-use}
 
@@ -303,20 +295,14 @@ To use ArcReel commercially without taking on AGPL open-source obligations, cont
 
 ### The UI only shows “Internal Server Error.” How do I find the real cause? {#internal-server-error}
 
-A generic frontend error cannot identify the root cause. First expand the task error, then inspect the server logs and the status code returned by the provider. For a Docker deployment, run this command in the Compose directory:
-
-```bash
-docker compose logs arcreel
-```
-
-You can also download diagnostic logs from the About section of Settings. The diagnostic bundle attempts to mask known credentials in the system summary, but it does not rescan and redact the full contents of existing logs at download time. Before sharing it, manually inspect the entire bundle and remove API keys, Tokens, passwords, the complete `.env`, private endpoint addresses, and project content.
+A generic frontend error cannot identify the root cause. First expand the task error, then inspect the terminal running `./scripts/dev.sh` and the status code returned by the provider. You can also download diagnostic logs from the About section of Settings. The diagnostic bundle attempts to mask known credentials in the system summary, but it does not rescan and redact the full contents of existing logs at download time. Before sharing it, manually inspect the entire bundle and remove API keys, Tokens, passwords, the complete `.env`, private endpoint addresses, and project content.
 
 ### How do I submit an actionable issue? {#how-to-report-issue}
 
 When filing a [GitHub Issue](https://github.com/ArcReel/ArcReel/issues) or asking the community for help, include:
 
 - The ArcReel version
-- The operating system and whether you deployed with Docker, WSL, or from source
+- The operating system and whether you run natively or through WSL
 - The exact failing steps and reproducible actions
 - The selected provider, model, and task type
 - The error time, a short error keyword, upstream status code, and task ID

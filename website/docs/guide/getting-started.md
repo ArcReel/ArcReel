@@ -13,7 +13,7 @@ update_docs: full
 
 完成教程后，你将能够：
 
-1. 使用 Docker 启动 ArcReel；
+1. 从源码在本机启动 ArcReel；
 2. 登录工作台并配置模型供应商；
 3. 创建小说、成品剧本或广告短片项目；
 4. 生成角色、场景、道具、分镜和视频片段；
@@ -38,12 +38,12 @@ update_docs: full
 - Linux
 - macOS
 - Windows + WSL2
-- Docker Desktop
 
 建议准备：
 
-- Docker
-- Docker Compose
+- Python 3.12+
+- Node.js 20+
+- `uv`、`pnpm` 和 `ffmpeg`
 - 建议从 2 GB 可用内存起步
 - 可访问所选模型供应商的网络环境
 - 足够的磁盘空间保存图片、视频、项目归档和日志
@@ -88,7 +88,7 @@ ArcReel 当前支持的预置供应商包括：
 
 > API Key 属于敏感信息。不要把真实密钥提交到 Git、Issue、日志截图或公开聊天记录中。
 
-## 2. 部署 ArcReel {#deploy-arcreel}
+## 2. 本地启动 ArcReel {#deploy-arcreel}
 
 ### 2.1 克隆项目 {#clone-repository}
 
@@ -97,12 +97,13 @@ git clone https://github.com/ArcReel/ArcReel.git
 cd ArcReel
 ```
 
-### 2.2 使用 SQLite 默认部署 {#deploy-with-sqlite}
+### 2.2 安装依赖并配置环境 {#deploy-with-sqlite}
 
-默认部署适合首次体验、个人创作和轻量使用。
+默认使用 SQLite，适合本地开发、个人创作和轻量使用。
 
 ```bash
-cd deploy
+uv sync
+cd frontend && pnpm install && cd ..
 cp .env.example .env
 ```
 
@@ -120,57 +121,35 @@ AUTH_TOKEN_SECRET=请设置一个长期固定的随机密钥
 openssl rand -hex 32
 ```
 
-启动：
+启动后端和前端开发服务：
 
 ```bash
-docker compose up -d
+./scripts/dev.sh
 ```
 
 检查状态：
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 arcreel
 curl http://localhost:1241/health
 ```
 
 健康检查返回成功后，在浏览器打开：
 
 ```text
-http://localhost:1241
+http://localhost:5173
 ```
 
 > `AUTH_PASSWORD` 留空时，首次启动会自动生成密码并回写到 `.env`。正式使用时仍建议主动设置强密码并妥善保存。
 
-### 2.3 使用 PostgreSQL 生产部署 {#deploy-with-postgresql}
+### 2.3 可选 PostgreSQL {#deploy-with-postgresql}
 
-长期运行、并发访问或正式服务建议使用 PostgreSQL。PostgreSQL 改善并发、备份与运维能力，但不提供用户隔离；请勿让互不信任的用户共享同一 ArcReel 实例：
-
-以下命令从 ArcReel 仓库根目录执行：
-
-```bash
-cd deploy/production
-cp .env.example .env
-```
-
-编辑 `.env`：
+需要 PostgreSQL 时，先创建本地数据库，再在根目录 `.env` 中配置连接地址：
 
 ```dotenv
-AUTH_USERNAME=admin
-AUTH_PASSWORD=请设置一个强密码
-AUTH_TOKEN_SECRET=请设置一个长期固定的随机密钥
-POSTGRES_PASSWORD=仅使用字母数字的数据库密码
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/arcreel
 ```
 
-启动：
-
-```bash
-docker compose up -d
-docker compose ps
-curl http://localhost:1241/health
-```
-
-完整的生产部署、升级、备份和反向代理说明见 [部署与运维](../ops/deployment.md)。
+然后重新执行 `./scripts/dev.sh`。数据库迁移会在服务启动前自动运行。
 
 ## 3. 完成首次配置 {#first-time-setup}
 
@@ -405,5 +384,5 @@ ArcReel 会按照作者提供的内容建立角色和镜头，不应把成品剧
 
 - 阅读 [创作流程与模式](./workflows.md)，选择更合适的生产路径；
 - 阅读 [供应商与模型配置](./providers.md)，建立质量、速度和成本分层；
-- 阅读 [部署与运维](../ops/deployment.md)，配置生产环境和备份；
+- 定期备份根目录 `.env`、项目数据目录和数据库；
 - 遇到问题时查看 [常见问题](./faq.md)。

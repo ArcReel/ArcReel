@@ -156,13 +156,13 @@ def test_profile_change_selects_explicit_contract_tests(tmp_path: Path) -> None:
     assert plan.backend.tests == ["tests/test_agent_profile_lint.py", "tests/test_profile_manifest.py"]
 
 
-def test_document_only_change_defers_runtime_checks_to_domain_gate(tmp_path: Path) -> None:
+def test_document_only_change_runs_related_consistency_checks(tmp_path: Path) -> None:
     _write(tmp_path, "website/docs/guide.md")
 
     plan = build_plan(tmp_path, ["website/docs/guide.md"], "main")
 
-    assert plan.website.mode == "none"
-    assert "完成闸门" in plan.website.reasons[0]
+    assert plan.website.mode == "related"
+    assert "库存" in plan.website.reasons[0]
 
 
 def test_git_change_collection_merges_branch_and_worktree_changes(tmp_path: Path) -> None:

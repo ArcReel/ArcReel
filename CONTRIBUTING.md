@@ -8,7 +8,7 @@
 # 前置要求：Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
 # 文档站 website/ 另需 Node 24（版本固定于 website/.node-version）
 # 操作系统：Linux / macOS / Windows WSL2；Windows 原生可运行项目创建与基础流程，
-# Agent 沙箱在 Windows 上降级为命令前缀白名单（见 docs/adr/0025），生产部署推荐 WSL2/Docker
+# Agent 沙箱在 Windows 上降级为命令前缀白名单（见 docs/adr/0025），建议使用 WSL2
 
 # 安装依赖
 uv sync
@@ -43,7 +43,7 @@ pnpm build        # 双 locale 构建，失效链接或锚点会导致构建失�
 pnpm typecheck
 pnpm lint         # ESLint
 pnpm format       # prettier 写入；format:check 仅校验不修改
-pnpm check        # typecheck + lint + format:check，与 CI 的三项静态检查等价
+pnpm check        # typecheck + lint + format:check
 
 # 站内搜索仅在构建产物上可用，dev server 中不可用
 pnpm build && pnpm serve
@@ -51,7 +51,7 @@ pnpm build && pnpm serve
 # 将仓库根 CONTRIBUTING.md 同步为开发区页面（start / build 已自动前置执行，通常无需手动运行）
 pnpm sync-contributing
 
-# CI 一致性检查：页面清单 / 孤立译文 / 上站文档标题缺少显式锚点 / UI JSON key 完整性，任一不满足即非零退出；
+# 一致性检查：页面清单 / 孤立译文 / 上站文档标题缺少显式锚点 / UI JSON key 完整性，任一不满足即非零退出；
 # 依赖 sync-contributing 的产物，须先运行 sync-contributing
 pnpm check-consistency
 ```
@@ -63,27 +63,26 @@ pnpm check-consistency
 uv run python scripts/test_changed.py --base main
 uv run python scripts/test_changed.py --base main --run
 
-# 任务完成时：对受影响域各执行一次全量
-uv run python -m pytest -m "not e2e"
-cd frontend && pnpm check
+# 提交或合并 main 前仍执行同一套改动相关测试
+uv run python scripts/test_changed.py --base main --run
 ```
 
-Related、Domain full、Repository full 的执行时机与完整命令见 `DEV.md`，选择算法与保守升级条件见 `docs/specs/selective-test-execution.md`。pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
+Feature 开发、提交和合并默认只执行 Related；全量测试仅用于用户明确要求或无法安全收窄的高风险改动。完整时机见 `DEV.md`，选择算法与保守升级条件见 `docs/specs/selective-test-execution.md`。pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
-> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（存量的目录与档位、前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、eslint 强制项的现行配置、`testTimeout` 等 vitest 配置），以本章为改造方向。`scripts/audit_tests.py` 与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线；目录迁移与 marker 自动注入落地前，分类 marker 仍需手写（收集期强制恰好一个，语义见下文分层表）。整改完成后删除本段。
+> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（存量的目录与档位、前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、eslint 强制项的现行配置、`testTimeout` 等 vitest 配置），以本章为改造方向。`scripts/audit_tests.py` 当前尚不存在；目录迁移与 marker 自动注入落地前，分类 marker 仍需手写（收集期强制恰好一个，语义见下文分层表）。整改完成后删除本段。
 
 ### 分层与目录
 
-后端每个用例恰好属于一个档位，CI 默认执行 `-m "not e2e"`：
+后端每个用例恰好属于一个档位；人工触发 backend full 时默认执行 `-m "not e2e"`：
 
 | 档位 | 语义 | 边界 |
 |---|---|---|
 | `unit` | 快速、隔离 | 禁真实 DB、子进程、网络；允许 `tmp_path` 本地文件系统 |
 | `integration` | 跨模块真实协作 | 真实 DB、文件系统、ffmpeg 子进程；使用真实 DB 的用例（含全部 alembic 迁移测试）一律归此档 |
-| `e2e` | 端到端 | 依赖真实外部服务（远程 API、大模型调用）；CI 默认跳过，本地按需运行 |
+| `e2e` | 端到端 | 依赖真实外部服务（远程 API、大模型调用）；本地按需运行 |
 
 - 目录为 `tests/unit|integration|e2e/<源码顶层包镜像>`（如 `tests/unit/lib/…`、`tests/integration/server/…`）。档位 marker 由 conftest 按路径自动注入，无需手写；同时命中 `uses_db` 与 `unit` 的用例在收集期报错。镜像的正确性靠 review，不设机械校验。
-- alembic 迁移测试保持每个迁移脚本一个文件，位于 `tests/integration/lib/db/migrations/`，共享该目录 conftest 的 `alembic_cfg`；迁移测试维持 SQLite，PostgreSQL 侧由 CI workflow 的 alembic 升降级命令兜底。
+- alembic 迁移测试保持每个迁移脚本一个文件，位于 `tests/integration/lib/db/migrations/`，共享该目录 conftest 的 `alembic_cfg`；迁移测试维持 SQLite，PostgreSQL 侧在数据库高风险改动或用户明确要求时执行升降级验证。
 
 ### 体量与命名
 
@@ -120,16 +119,16 @@ Related、Domain full、Repository full 的执行时机与完整命令见 `DEV.m
 ### 时序与偶发失败
 
 - 等待、重试、超时逻辑一律经时钟 seam 或事件握手驱动，不使用 `time.sleep` 之类的真实时间等待。
-- 偶发失败（flaky）视同普通缺陷：就地修复（时钟 seam / 事件握手），无法修复或不值得修复的按无意义测试判据删除。不引入自动重试（pytest-rerunfailures、CI job 级 retry）——自动重试会掩盖本应暴露的失败。
+- 偶发失败（flaky）视同普通缺陷：就地修复（时钟 seam / 事件握手），无法修复或不值得修复的按无意义测试判据删除。不引入自动重试；自动重试会掩盖本应暴露的失败。
 - 概率性 stress 用例（真实并发 + 真实时间）须在本节显式登记。当前唯一登记的豁免：`tests/test_project_manager_concurrent_save.py` 的原子写压力用例（`integration` 档）。
 
 ### 覆盖率
 
-覆盖率是信号，不是闸门：只在全量 CI job 采集并上传，Related 层不携带全仓覆盖率。CI 不因覆盖率数字失败，Codecov 为唯一信号载体（PR 覆盖评论与趋势图，status 一律 informational）。不为覆盖率数字写测试；删除无意义测试允许覆盖率下降。
+覆盖率是信号，不是闸门：Related 不携带全仓覆盖率，只在用户要求的全量验证中按需采集。不为覆盖率数字写测试；删除无意义测试允许覆盖率下降。
 
 ### 闸门
 
-- 入口唯一：`uv run python scripts/audit_tests.py --check`，本地与 CI（独立 `test-lint` 步骤）同一条命令；输出 `规则号 file:line 修复指引`。
+- 入口唯一：`uv run python scripts/audit_tests.py --check`；输出 `规则号 file:line 修复指引`。
 - 零容忍：违规数恒为 0，无基线、无棘轮、无豁免标注；脚本误报通过修改脚本解决，不为用例添加豁免；新增规则与其存量清零同 PR 上线。
 - 分工：AST 脚本负责代码结构；pytest 收集期只做档位相关校验；运行期不新增检查。前端语义类规则归 eslint，结构类规则由同一脚本扫描 `frontend/src/**/*.test.*`。
 
@@ -153,7 +152,7 @@ uv run ruff check . && uv run ruff format .
 
 - 规则集：`E`/`F`/`I`/`UP`，忽略 `E402` 和 `E501`
 - line-length：120
-- CI 中强制检查：`ruff check . && ruff format --check .`
+- 默认只检查本次改动文件；用户要求或高风险改动时才执行全仓检查。
 
 **类型检查（basedpyright）：**
 
@@ -161,7 +160,7 @@ uv run ruff check . && uv run ruff format .
 uv run basedpyright
 ```
 
-- standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 执行全量扫描
+- standard 模式 + `reportMissingTypeStubs = false`，pre-push hook 执行全量扫描
 - tests/ 内 `reportOptional*` 和 `unknown*` 系列降级为 warning，避免大量使用 mock 的测试产生噪声
 - 第三方 untyped 库通过行级 `# pyright: ignore[...]` 处理
 
@@ -171,7 +170,7 @@ uv run basedpyright
 uv run lint-imports
 ```
 
-- 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，是 CI backend-static 的必过步骤
+- 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约；架构调整时必须执行
 - 新增 ignore 条目前先确认该依赖边无法直接消除（约定见 `pyproject.toml`）
 
 **Lint（前端 ESLint）：**
@@ -184,7 +183,7 @@ cd frontend && pnpm lint:fix      # 自动修复可修复的问题
 - 配置：`frontend/eslint.config.js`（flat config）
 - 规则集：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - typed linting 启用 `projectService: true`，可检查 `no-floating-promises`、`no-misused-promises` 等 async 相关问题
-- CI 中强制检查：`frontend-tests` job 的 `Lint` step
+- 默认对本次改动的前端文件执行 ESLint
 
 **Lint & Format（文档站 ESLint + prettier）：**
 
@@ -197,7 +196,7 @@ cd website && pnpm format         # prettier 写入
 - 配置：`website/eslint.config.mjs` + `website/.prettierrc.json`（`website/` 是独立包根，工具链与 `frontend/` 各自独立，因为两者的 TypeScript 大版本不同）
 - ESLint 规则集与 frontend 相同：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - prettier printWidth 120（与后端 ruff 的 line-length 对齐）；`docs/` 与 `i18n/` 不参与格式化，排除依据见 `website/.prettierignore` 顶部注释
-- CI 中强制检查：`website-checks` job 的 `Typecheck` / `Lint` / `Format check` 三个 step，均排在 `Build` 之前
+- 文档站结构或工具链高风险改动时，按 `Typecheck` / `Lint` / `Format check` / `Build` 顺序执行
 
 ### 依赖管理
 
@@ -252,8 +251,6 @@ cd website && pnpm format         # prettier 写入
 | `website/docs/guide/providers.md` | 供应商类型、覆盖能力、选择原则、配置层级 | 容易过期的价格承诺 |
 | `website/docs/guide/jianying-export.md` | 剪映草稿目录定位、导出与二次编辑操作步骤 | 视频生成本身的流程说明 |
 | `website/docs/guide/faq.md` | 高频问题和短答案 | 长篇教程 |
-| `website/docs/ops/deployment.md` | 部署、升级、备份、恢复、监控和安全 | 产品营销文案 |
-| `website/docs/ops/migrate-to-postgres.md` | SQLite 到 PostgreSQL 的迁移步骤、校验和回滚 | PostgreSQL 的日常部署与运维手册 |
 | `website/docs/dev/architecture.md` | 稳定的架构边界、数据流和扩展点 | 临时实现计划和未完成设计 |
 | `SECURITY.md` | 支持版本、支持的部署边界、私密漏洞报告和协调披露政策 | 未修复漏洞细节和动态风险登记 |
 | `docs/security/threat-model.md` | 安全资产、信任边界、攻击面、现有控制和重评触发条件 | 可直接利用的未修复漏洞与补丁历史 |
@@ -262,7 +259,7 @@ cd website && pnpm format         # prettier 写入
 
 - **README 保持稳定**：README 只需让第一次访问仓库的人回答「ArcReel 是什么、适不适合我、和直接调用模型 API 有什么区别、如何最快运行起来」。具体模型名称、单价和接口参数放到站点对应页面，避免供应商每次更新都要重写首页。
 - **供应商信息以运行时能力为准**：文档描述覆盖哪些媒体类型、ArcReel 如何统一配置、不同能力如何选择、具体信息在哪里确认；设置页中实际可选的模型与供应商官方文档是最终依据。
-- **标题带显式锚点 ID**：上站页面的每个标题写成 `## 标题 {#english-id}`，中英两个 locale 共用同一锚点，避免中文自动 slug 随文案改动而失效。站内互引用相对文件路径（如 `../ops/deployment.md`），指向未上站的仓库文件时用 GitHub 绝对链接。
+- **标题带显式锚点 ID**：上站页面的每个标题写成 `## 标题 {#english-id}`，中英两个 locale 共用同一锚点，避免中文自动 slug 随文案改动而失效。站内互引用使用相对文件路径，指向未上站的仓库文件时用 GitHub 绝对链接。
 - **文档变更应与功能变更一起提交**：新增内容模式或视频生成路线、新增供应商或媒体能力、部署目录/端口/环境变量变化、数据目录/备份方式/迁移行为变化、对外 API/许可证或商业使用方式变化，均须同步更新对应文档。
 - **上站 `.md` 不能使用 JSX / import**：`website/docusaurus.config.ts` 设 `markdown.format: "detect"`，`.md` 按 CommonMark 解析而非 MDX：两者都不会报编译错误，但也都不会按 MDX 语法执行——JSX 标签被当作原始 HTML 原样输出（带子内容的标签，子内容会直接显示成页面文本），import 语句被当作普通文本原样显示。需要 JSX 的页面改用 `.mdx`。
 
@@ -282,7 +279,6 @@ cd website && pnpm format         # prettier 写入
 - `refactor/` — 重构（如 `refactor/session-actor`）
 - `docs/` — 纯文档（如 `docs/contribution-infra`）
 - `chore/` — 构建/工具 / 版本号 / 清理（如 `chore/freeze-versions`）
-- `ci/` — CI 配置（如 `ci/testing-discipline`）
 - `test/` — 仅测试
 
 `slug` 用小写 + 短横线，简短描述该分支的主题。

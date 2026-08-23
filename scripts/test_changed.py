@@ -297,10 +297,10 @@ def build_plan(root: Path, changed_paths: list[str], base: str) -> TestPlan:
         translation_changes = [path for path in website_changed if path.startswith(".claude/skills/translate-docs/")]
         if script_changes or translation_changes:
             plan.website.mode = "related"
-            plan.website.reasons = ["文档工具变化，执行文档脚本单元测试"]
+            plan.website.reasons = ["文档工具变化，执行文档脚本单元测试、库存与翻译锁检查"]
         else:
-            plan.website.mode = "none"
-            plan.website.reasons = ["仅文档内容变化；运行期测试留到 website 域完成闸门"]
+            plan.website.mode = "related"
+            plan.website.reasons = ["文档内容变化，执行文档库存与翻译锁检查"]
 
     return plan
 
@@ -367,6 +367,9 @@ def run_plan(plan: TestPlan, root: Path) -> int:
         commands = [
             ["node", "--test", ".claude/skills/translate-docs/scripts/translation-lock.test.mjs"],
             ["node", "--test", "website/scripts/update-docs-inventory.test.mjs"],
+            ["node", "website/scripts/sync-contributing.mjs"],
+            ["node", "website/scripts/update-docs-inventory.mjs"],
+            ["node", ".claude/skills/translate-docs/scripts/translation-lock.mjs", "status"],
         ]
         for command in commands:
             code = _run(command, root)

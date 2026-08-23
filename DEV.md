@@ -36,7 +36,7 @@ cd .worktrees/<name>
 
 ## 3. 开发与验证
 
-在 feature worktree 内开发。验证分为三层：开发反馈环跑相关测试，任务完成闸门跑受影响域全量，仓库关键节点跑全域全量。不得在每个小改动后重复跑全仓测试，也不得只跑 Related 就直接合并。
+在 feature worktree 内开发。Feature 开发、提交和合并 `main` 前都以改动相关测试为默认验证；合并后不重复执行同一批测试。全量测试是例外操作，不是任务完成或合并的固定闸门。
 
 ### 3.1 开发反馈环：Related
 
@@ -49,7 +49,7 @@ uv run python scripts/test_changed.py --base main --run
 
 选择器合并 `main...HEAD`、暂存区、工作区和未跟踪文件，并执行直接修改的测试、静态 import 图中的传递依赖测试及显式登记的跨域契约测试。无法证明局部执行安全时会自动升级为对应域全量。选择规则和安全边界见 `docs/specs/selective-test-execution.md`。
 
-Related 只负责运行期行为反馈。改动 Python/前端源码时，同时对改动文件执行对应 lint；类型、架构与构建验证留到任务完成闸门，避免在内循环中重复全量：
+Related 负责本次改动的运行期行为反馈。改动 Python/前端源码时，同时对改动文件执行对应 lint：
 
 ```bash
 # 示例：只检查本次触达的 Python 文件
@@ -60,35 +60,27 @@ uv run ruff format --check path/to/changed.py path/to/test_changed.py
 pnpm exec eslint src/path/to/changed.tsx src/path/to/changed.test.tsx
 ```
 
-### 3.2 任务完成闸门：Domain full
+### 3.2 提交与合并闸门：仍然执行 Related
 
-准备提交或合并前，对本任务实际触达的域各执行一次全量。未触达的域不重复执行：
+准备提交或合并前，重新预览并执行一次当前分支相对 `main` 的改动相关测试。该结果覆盖分支提交、暂存区、工作区和未跟踪文件；通过后可提交并在用户确认后合并。合并到 `main` 后不重复执行：
 
 ```bash
-# 后端域
-uv run ruff check .
-uv run ruff format --check .
-uv run basedpyright
-uv run lint-imports
-uv run python scripts/lint_agent_runtime_profile.py
-uv run python -m pytest -m "not e2e"
-
-# 前端域（先进入 frontend/）
-pnpm check
-pnpm build
-
-# 文档站域（先进入 website/）
-pnpm check
-pnpm sync-contributing
-pnpm check-consistency
-pnpm build
+uv run python scripts/test_changed.py --base main
+uv run python scripts/test_changed.py --base main --run
 ```
 
-涉及 ORM、repository、SQLAlchemy 查询或 alembic 时，还要执行 PostgreSQL 方言测试与迁移闭环；涉及 Docker 装配时执行镜像构建和健康检查。CI workflow/action、`.codecov.yml` 或 `.gitignore` 变化属于全域影响，不能只验证单个域。
+改动文件的 lint、格式和可直接收窄的类型检查应同时完成。不要因为“准备提交”或“准备合并”而自动运行整个 pytest、Vitest、类型检查、构建或文档站套件。
 
-### 3.3 仓库关键节点：Repository full
+### 3.3 全量测试的例外条件
 
-push 到 `main`、release PR、nightly 以及 CI 基础设施变更无条件执行 backend、PostgreSQL、frontend、website 与 Docker 全域验证。普通 PR 对所有受影响域执行全量。覆盖率只在这些全量 CI job 中采集并上传，不进入 Related 反馈环，也不以数值阈值阻断合并。
+只有以下情况执行全量测试：
+
+- 用户明确要求；
+- 依赖、测试配置、共享 fixture、数据库迁移等变化使测试范围无法安全收窄；
+- 选择器找不到可证明相关的测试并自动升级；
+- 大规模架构调整，或一次改动同时触达 backend、frontend、website 三个域。
+
+全量范围按实际风险决定，不默认扩展到整个仓库。仅 backend 高风险时跑 backend full；只有跨三域或仓库级基础设施变化时才考虑 repository full。覆盖率只在人工要求的全量测试中采集，并作为信号，不以数值阈值阻断合并。
 
 ### 3.4 常用定点命令
 

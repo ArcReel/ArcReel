@@ -17,11 +17,10 @@ body:
     attributes:
       label: 部署方式
       options:
-        - Docker
         - 源码运行 - macOS
         - 源码运行 - Linux
         - 源码运行 - Windows
-        - WSL2
+        - 源码运行 - WSL2
         - 其他
     validations:
       required: true
