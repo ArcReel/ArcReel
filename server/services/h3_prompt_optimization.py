@@ -40,9 +40,11 @@ from lib.reference_video.request_projection import (
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.text_backends.base import ImageInput, TextGenerationRequest, TextGenerationResult, TextTaskType
 from lib.text_generator import TextGenerator
+from lib.video_style import UnifiedVideoStyle
 from lib.video_visual_provenance import resolve_video_aspect_ratio
 from server.services.effective_global_assets import resolve_linked_global_reference_audio_paths
 from server.services.narration_delivery_tasks import prepare_current_reference_video_request_options
+from server.services.video_style import VideoStyleService
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,7 @@ class H3PromptContext:
     audio_paths: tuple[Path, ...]
     basis_digest: str
     user_prompt: str
+    video_style: UnifiedVideoStyle | None = None
 
 
 GeneratorFactory = Callable[[str], Awaitable[TextGenerator]]
@@ -162,6 +165,7 @@ def _basis_payload(
         "project": {
             "style": project.get("style"),
             "style_description": project.get("style_description"),
+            "video_style": project.get("video_style"),
             "source_language": project.get("source_language"),
         },
         "reference_images": [
@@ -185,8 +189,11 @@ def _optimizer_user_prompt(payload: dict[str, Any]) -> str:
     return (
         "Rewrite the following ArcReel video unit for the configured MiniMax H3 request. "
         "The attached images appear in the same order as reference_images and map to <Picture N>. "
-        "Use only the references listed below, preserve all dialogue verbatim in its original language, "
-        "and keep every timestamp within request.duration_seconds. Return only the six required sections. "
+        "Use only the references listed below, preserve all dialogue verbatim in its original language, and "
+        "treat project.video_style as the authoritative project-wide direction for visual treatment, camera, "
+        "pacing and sound. When its music_policy is none, write non_diegetic_music as N/A and do not add score. "
+        "When its sound_focus is asmr, foreground the specified close physical sounds in overall_soundscape. "
+        "Keep every timestamp within request.duration_seconds. Return only the six required sections. "
         f"The complete response, including all section headers, must not exceed {H3_MAX_PROMPT_CHARS} "
         "characters.\n\n" + json.dumps(payload, ensure_ascii=False, indent=2)
     )
@@ -231,6 +238,8 @@ async def _generate_valid_h3_prompt(
                 picture_count=len(context.image_paths),
                 audio_count=len(context.audio_paths),
             )
+            if context.video_style is not None and context.video_style.music_policy == "none":
+                sections = sections.model_copy(update={"non_diegetic_music": "N/A"})
         except H3PromptTooLongError as exc:
             if attempt >= _H3_OPTIMIZATION_MAX_ATTEMPTS:
                 raise
@@ -255,9 +264,11 @@ class H3PromptOptimizationService:
         project_manager: ProjectManager | None = None,
         *,
         generator_factory: GeneratorFactory = _default_generator_factory,
+        video_style_service: VideoStyleService | None = None,
     ) -> None:
         self._pm = project_manager or get_project_manager()
         self._generator_factory = generator_factory
+        self._video_style_service = video_style_service or VideoStyleService(self._pm)
 
     def _load(self, project_name: str, episode: int) -> tuple[dict[str, Any], Path, dict[str, Any], str]:
         project = self._pm.load_project_readonly(project_name)
@@ -265,6 +276,11 @@ class H3PromptOptimizationService:
         script_file = _script_file(project, episode)
         script = self._pm.load_script_readonly(project_name, script_file)
         return project, project_path, script, script_file
+
+    async def ensure_video_style(self, project_name: str, episode: int) -> tuple[UnifiedVideoStyle, bool]:
+        """Resolve the project-wide style immediately before H3 optimization."""
+
+        return await self._video_style_service.ensure(project_name, preferred_episode=episode)
 
     async def context_from_projection(
         self,
@@ -347,6 +363,7 @@ class H3PromptOptimizationService:
             audios=audio_refs,
             audio_paths=audio_paths,
         )
+        video_style = UnifiedVideoStyle.model_validate(project["video_style"]) if project.get("video_style") is not None else None
         return H3PromptContext(
             episode=episode,
             unit=unit,
@@ -359,6 +376,7 @@ class H3PromptOptimizationService:
             audio_paths=audio_paths,
             basis_digest=canonical_basis_digest(payload),
             user_prompt=_optimizer_user_prompt(payload),
+            video_style=video_style,
         )
 
     async def _context(
@@ -413,6 +431,7 @@ class H3PromptOptimizationService:
         unit_ids: Sequence[str] | None,
         narration_delivery: NarrationDelivery,
         confirmed_request_durations: Mapping[str, int] | None,
+        ensure_video_style: bool = False,
     ) -> tuple[Path, list[H3PromptContext]]:
         project, project_path, script, script_file = await asyncio.to_thread(self._load, project_name, episode)
         if project.get("generation_mode") != "reference_video":
@@ -421,6 +440,9 @@ class H3PromptOptimizationService:
                 "h3_prompt_not_applicable",
                 ",".join(str(unit.get("unit_id") or "") for unit in units),
             )
+        if ensure_video_style and project.get("video_style") is None:
+            style, _created = await self.ensure_video_style(project_name, episode)
+            project["video_style"] = style.model_dump(mode="json")
         units = _find_units(script, unit_ids)
         contexts: list[H3PromptContext] = []
         for unit in units:
@@ -504,6 +526,7 @@ class H3PromptOptimizationService:
             unit_ids=unit_ids,
             narration_delivery=narration_delivery,
             confirmed_request_durations=confirmed_request_durations,
+            ensure_video_style=True,
         )
         return await self._optimize_contexts(project_name, project_path, contexts)
 

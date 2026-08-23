@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 H3_PROGRESS_KIND = "minimax_h3"
 
 H3ProgressPhase = Literal[
+    "style_analyzing",
     "prompt_optimizing",
     "submitted",
     "queued",

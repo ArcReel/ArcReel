@@ -4,6 +4,7 @@ import shutil
 import unicodedata
 from contextlib import contextmanager
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from lib.script_batch_edit import (
 )
 from lib.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.speech_composition import admit_script_unit
+from lib.video_style import UnifiedVideoStyle
 from lib.workflow_state import ArtifactCount, EpisodesSummary, EpisodeSummary, ProjectSummary
 
 
@@ -445,6 +447,54 @@ def _client(monkeypatch, fake_pm, fake_summaries=None):
 
 
 class TestProjectsRouter:
+    @pytest.mark.unit
+    def test_video_style_web_paths_delegate_to_shared_service(self, monkeypatch, tmp_path):
+        fake_pm = _FakePM(tmp_path)
+        calls: list[tuple[str, object]] = []
+        style = UnifiedVideoStyle(
+            camera_language="微距慢移",
+            sound_focus="asmr",
+            music_policy="none",
+            sound_design="铜丝与釉料声",
+            source="user",
+            updated_at=datetime.now(UTC),
+        )
+
+        class _Service:
+            def update(self, name, draft, *, source):
+                calls.append(("update", (name, draft, source)))
+                return style
+
+            async def ensure(self, name, *, preferred_episode=None):
+                calls.append(("ensure", (name, preferred_episode)))
+                return style.model_copy(update={"source": "agent"}), True
+
+        monkeypatch.setattr(projects, "get_video_style_service", lambda: _Service())
+        client = _client(monkeypatch, fake_pm)
+
+        updated = client.put(
+            "/api/v1/projects/ready/video-style",
+            json={
+                "visual_treatment": "",
+                "camera_language": "微距慢移",
+                "pacing": "",
+                "sound_focus": "asmr",
+                "music_policy": "none",
+                "music_description": "",
+                "sound_design": "铜丝与釉料声",
+                "additional_instructions": "",
+            },
+        )
+        analyzed = client.post("/api/v1/projects/ready/video-style/analyze", json={"episode": 1})
+
+        assert updated.status_code == 200
+        assert updated.json()["video_style"]["music_policy"] == "none"
+        assert analyzed.status_code == 200
+        assert analyzed.json()["created"] is True
+        assert [call[0] for call in calls] == ["update", "ensure"]
+        assert calls[0][1][2] == "user"
+        assert calls[1][1] == ("ready", 1)
+
     @pytest.mark.unit
     @pytest.mark.parametrize(
         ("project_name", "script_file", "endpoint", "script", "request_body", "kind"),

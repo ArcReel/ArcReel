@@ -26,6 +26,7 @@ from server.agent_runtime.sdk_tools.patch_script import (
     split_segment_tool,
 )
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
+from server.agent_runtime.sdk_tools.video_style import analyze_video_style_tool, update_video_style_tool
 
 
 def _segment(segment_id: str, duration: int = 4) -> dict[str, Any]:
@@ -185,6 +186,27 @@ def _text(out: dict[str, Any]) -> str:
     """从 tool 返回的 ``{"content": [{"type": "text", "text": ...}]}`` 中抽出文本。"""
     blocks = out.get("content") or []
     return "\n".join(b.get("text", "") for b in blocks if isinstance(b, dict))
+
+
+@pytest.mark.unit
+async def test_agent_video_style_tools_edit_and_reuse_one_project_object(ref_ctx: ToolContext) -> None:
+    updated = await _call(
+        update_video_style_tool(ref_ctx),
+        {
+            "camera_language": "微距慢移",
+            "pacing": "长镜头",
+            "sound_focus": "asmr",
+            "music_policy": "none",
+            "sound_design": "突出铜丝和釉料声",
+        },
+    )
+    reused = await _call(analyze_video_style_tool(ref_ctx), {"episode": 1})
+
+    assert updated["video_style"]["source"] == "user"
+    assert updated["video_style"]["music_policy"] == "none"
+    assert reused["created"] is False
+    assert reused["video_style"] == updated["video_style"]
+    assert ref_ctx.pm.load_project_readonly("demo")["video_style"] == updated["video_style"]
 
 
 class TestPatchEpisodeScript:

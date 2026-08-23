@@ -16,6 +16,7 @@ export type TaskStatus =
 export type TaskMediaType = "image" | "video" | "audio";
 
 export type H3ProgressPhase =
+  | "style_analyzing"
   | "prompt_optimizing"
   | "submitted"
   | "queued"

@@ -256,9 +256,11 @@ export function UnitPreviewPanel({
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
               <span>
-                {h3Progress?.phase === "prompt_optimizing"
-                  ? t("h3_progress_optimize_detail")
-                  : t("reference_preview_generating")}
+                {h3Progress?.phase === "style_analyzing"
+                  ? t("h3_progress_style_detail")
+                  : h3Progress?.phase === "prompt_optimizing"
+                    ? t("h3_progress_optimize_detail")
+                    : t("reference_preview_generating")}
               </span>
             </>
           ) : (

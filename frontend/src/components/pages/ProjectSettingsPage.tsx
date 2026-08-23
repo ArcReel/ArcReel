@@ -13,7 +13,14 @@ import { executingImageModel, executingVideoModel } from "@/components/shared/La
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
-import type { CustomProviderInfo, ProviderInfo } from "@/types";
+import type {
+  CustomProviderInfo,
+  ProviderInfo,
+  UnifiedVideoStyle,
+  UnifiedVideoStyleDraft,
+  VideoMusicPolicy,
+  VideoSoundFocus,
+} from "@/types";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
@@ -57,6 +64,23 @@ function sameProfileFiles(left: string[], right: string[]) {
   return left.length === right.length && left.every((file, index) => file === right[index]);
 }
 
+const EMPTY_VIDEO_STYLE: UnifiedVideoStyleDraft = {
+  visual_treatment: "",
+  camera_language: "",
+  pacing: "",
+  sound_focus: "balanced",
+  music_policy: "auto",
+  music_description: "",
+  sound_design: "",
+  additional_instructions: "",
+};
+
+function editableVideoStyle(style: UnifiedVideoStyle | null | undefined): UnifiedVideoStyleDraft {
+  if (!style) return { ...EMPTY_VIDEO_STYLE };
+  const { source: _source, updated_at: _updatedAt, ...draft } = style;
+  return draft;
+}
+
 // ─── Section card primitive ─────────────────────────────────────────────────
 
 interface SectionCardProps {
@@ -96,6 +120,34 @@ function SectionCard({ kicker, title, description, children, footer }: SectionCa
         </footer>
       ) : null}
     </section>
+  );
+}
+
+function VideoStyleTextArea({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <label htmlFor={id} className="block">
+      <span className="mb-1.5 block text-[12px] font-medium text-text-2">{label}</span>
+      <textarea
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        rows={3}
+        className="w-full resize-y rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] leading-[1.6] text-text outline-none transition-colors placeholder:text-text-4 focus:border-accent/55 focus:ring-2 focus:ring-accent/15"
+      />
+    </label>
   );
 }
 
@@ -193,6 +245,14 @@ export function ProjectSettingsPage() {
   const [analyzingStyle, setAnalyzingStyle] = useState(false);
   const [customStyles, setCustomStyles] = useState<CustomStyle[]>([]);
   const [customStylesLoading, setCustomStylesLoading] = useState(true);
+  const [videoStyle, setVideoStyle] = useState<UnifiedVideoStyle | null>(null);
+  const [videoStyleDraft, setVideoStyleDraft] = useState<UnifiedVideoStyleDraft>(() => ({ ...EMPTY_VIDEO_STYLE }));
+  const [initialVideoStyleDraft, setInitialVideoStyleDraft] = useState<UnifiedVideoStyleDraft>(() => ({
+    ...EMPTY_VIDEO_STYLE,
+  }));
+  const [videoStyleLoaded, setVideoStyleLoaded] = useState(false);
+  const [savingVideoStyle, setSavingVideoStyle] = useState(false);
+  const [analyzingVideoStyle, setAnalyzingVideoStyle] = useState(false);
   const initialRef = useRef({
     videoBackend: "", videoProviderI2V: "", videoProviderR2V: "",
     imageBackendDefault: "", imageBackendT2I: "", imageBackendI2I: "",
@@ -319,6 +379,12 @@ export function ProjectSettingsPage() {
       setSourceLanguage(sl);
       setProjectTitle(typeof project.title === "string" ? project.title : "");
       setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
+      const nextVideoStyle = (project.video_style ?? null) as UnifiedVideoStyle | null;
+      const nextVideoStyleDraft = editableVideoStyle(nextVideoStyle);
+      setVideoStyle(nextVideoStyle);
+      setVideoStyleDraft(nextVideoStyleDraft);
+      setInitialVideoStyleDraft(nextVideoStyleDraft);
+      setVideoStyleLoaded(true);
 
       // model_settings 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与
       // handleSave 一字不差——后端 resolve_resolution 就是按执行模型查这张表，键位对不上
@@ -401,6 +467,7 @@ export function ProjectSettingsPage() {
   const hasInitialStyle = !!initialStyleRef.current
     && (initialStyleRef.current.templateId !== null
       || initialStyleRef.current.uploadedPreview !== null);
+  const videoStyleIsDirty = JSON.stringify(videoStyleDraft) !== JSON.stringify(initialVideoStyleDraft);
 
   const isDirty =
     videoBackend !== initialRef.current.videoBackend ||
@@ -422,6 +489,7 @@ export function ProjectSettingsPage() {
     speechRate !== initialRef.current.speechRate ||
     videoResolution !== initialRef.current.videoResolution ||
     imageResolution !== initialRef.current.imageResolution ||
+    videoStyleIsDirty ||
     styleIsDirty ||
     styleDescriptionIsDirty;
   /* eslint-enable react-hooks/refs */
@@ -444,6 +512,42 @@ export function ProjectSettingsPage() {
     setPendingNavigation(null);
     navigate(target);
   }, [pendingNavigation, navigate]);
+
+  const acceptVideoStyle = useCallback((style: UnifiedVideoStyle) => {
+    const draft = editableVideoStyle(style);
+    setVideoStyle(style);
+    setVideoStyleDraft(draft);
+    setInitialVideoStyleDraft(draft);
+  }, []);
+
+  const handleAnalyzeVideoStyle = useCallback(async () => {
+    setAnalyzingVideoStyle(true);
+    try {
+      const result = await API.analyzeVideoStyle(projectName);
+      acceptVideoStyle(result.video_style);
+      useAppStore.getState().pushToast(
+        result.created ? t("video_style_analysis_complete") : t("video_style_existing_reused"),
+        "success",
+      );
+    } catch (error: unknown) {
+      useAppStore.getState().pushToast(t("video_style_analysis_failed", { message: errMsg(error) }), "error");
+    } finally {
+      setAnalyzingVideoStyle(false);
+    }
+  }, [acceptVideoStyle, projectName, t]);
+
+  const handleSaveVideoStyle = useCallback(async () => {
+    setSavingVideoStyle(true);
+    try {
+      const result = await API.updateVideoStyle(projectName, videoStyleDraft);
+      acceptVideoStyle(result.video_style);
+      useAppStore.getState().pushToast(t("video_style_saved"), "success");
+    } catch (error: unknown) {
+      useAppStore.getState().pushToast(t("video_style_save_failed", { message: errMsg(error) }), "error");
+    } finally {
+      setSavingVideoStyle(false);
+    }
+  }, [acceptVideoStyle, projectName, t, videoStyleDraft]);
 
   // Cross-tab switch from custom → template may leave {mode:"template", templateId:null}
   // while an uploaded preview still lingers — no user-chosen card. Block save so
@@ -859,6 +963,162 @@ export function ProjectSettingsPage() {
                   </p>
                 </div>
               )}
+            </SectionCard>
+          )}
+
+          {videoStyleLoaded && (
+            <SectionCard
+              kicker="Video Direction"
+              title={t("video_style_section_title")}
+              description={t("video_style_section_description")}
+              footer={(
+                <div className="flex flex-wrap items-center gap-3">
+                  {!videoStyle && (
+                    <button
+                      type="button"
+                      onClick={voidPromise(handleAnalyzeVideoStyle)}
+                      disabled={analyzingVideoStyle || savingVideoStyle}
+                      className={ACCENT_BTN_CLS}
+                      style={ACCENT_BUTTON_STYLE}
+                    >
+                      {analyzingVideoStyle && (
+                        <Loader2 aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                      )}
+                      {analyzingVideoStyle ? t("video_style_analyzing") : t("video_style_analyze")}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={voidPromise(handleSaveVideoStyle)}
+                    disabled={
+                      savingVideoStyle
+                      || analyzingVideoStyle
+                      || !videoStyleIsDirty
+                      || (videoStyleDraft.music_policy === "custom" && !videoStyleDraft.music_description.trim())
+                    }
+                    className={videoStyle ? ACCENT_BTN_CLS : GHOST_BTN_LG_CLS}
+                    style={videoStyle ? ACCENT_BUTTON_STYLE : undefined}
+                  >
+                    {savingVideoStyle && (
+                      <Loader2 aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                    )}
+                    {savingVideoStyle ? t("common:saving") : t("video_style_save")}
+                  </button>
+                  {!videoStyle && (
+                    <span className="text-[11px] text-text-4">{t("video_style_missing_hint")}</span>
+                  )}
+                </div>
+              )}
+            >
+              {videoStyle && (
+                <div className="mb-4 flex items-center gap-2">
+                  <span className={`rounded-full border px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.12em] ${
+                    videoStyle.source === "agent"
+                      ? "border-accent/35 bg-accent-soft text-accent-2"
+                      : "border-hairline bg-bg-grad-a/70 text-text-3"
+                  }`}>
+                    {videoStyle.source === "agent" ? t("video_style_source_agent") : t("video_style_source_user")}
+                  </span>
+                  <span className="text-[11px] text-text-4">
+                    {videoStyle.source === "agent"
+                      ? t("video_style_source_agent_hint")
+                      : t("video_style_source_user_hint")}
+                  </span>
+                </div>
+              )}
+              <div className="space-y-4">
+                <VideoStyleTextArea
+                  id="project-video-style-visual"
+                  label={t("video_style_visual_treatment")}
+                  value={videoStyleDraft.visual_treatment}
+                  onChange={(visual_treatment) => setVideoStyleDraft((current) => ({ ...current, visual_treatment }))}
+                  placeholder={t("video_style_visual_treatment_placeholder")}
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <VideoStyleTextArea
+                    id="project-video-style-camera"
+                    label={t("video_style_camera_language")}
+                    value={videoStyleDraft.camera_language}
+                    onChange={(camera_language) => setVideoStyleDraft((current) => ({ ...current, camera_language }))}
+                    placeholder={t("video_style_camera_language_placeholder")}
+                  />
+                  <VideoStyleTextArea
+                    id="project-video-style-pacing"
+                    label={t("video_style_pacing")}
+                    value={videoStyleDraft.pacing}
+                    onChange={(pacing) => setVideoStyleDraft((current) => ({ ...current, pacing }))}
+                    placeholder={t("video_style_pacing_placeholder")}
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label htmlFor="project-video-style-sound-focus" className="block">
+                    <span className="mb-1.5 block text-[12px] font-medium text-text-2">
+                      {t("video_style_sound_focus")}
+                    </span>
+                    <select
+                      id="project-video-style-sound-focus"
+                      value={videoStyleDraft.sound_focus}
+                      onChange={(event) => setVideoStyleDraft((current) => ({
+                        ...current,
+                        sound_focus: event.target.value as VideoSoundFocus,
+                      }))}
+                      className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus:border-accent/55 focus:outline-none focus:ring-2 focus:ring-accent/15"
+                    >
+                      {(["balanced", "asmr", "dialogue", "ambience", "silent"] as const).map((value) => (
+                        <option key={value} value={value}>{t(`video_style_sound_focus_${value}`)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label htmlFor="project-video-style-music-policy" className="block">
+                    <span className="mb-1.5 block text-[12px] font-medium text-text-2">
+                      {t("video_style_music_policy")}
+                    </span>
+                    <select
+                      id="project-video-style-music-policy"
+                      value={videoStyleDraft.music_policy}
+                      onChange={(event) => setVideoStyleDraft((current) => ({
+                        ...current,
+                        music_policy: event.target.value as VideoMusicPolicy,
+                        ...(event.target.value !== "custom" ? { music_description: "" } : {}),
+                      }))}
+                      className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus:border-accent/55 focus:outline-none focus:ring-2 focus:ring-accent/15"
+                    >
+                      {(["auto", "none", "custom"] as const).map((value) => (
+                        <option key={value} value={value}>{t(`video_style_music_policy_${value}`)}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {videoStyleDraft.music_policy === "custom" && (
+                  <VideoStyleTextArea
+                    id="project-video-style-music-description"
+                    label={t("video_style_music_description")}
+                    value={videoStyleDraft.music_description}
+                    onChange={(music_description) => setVideoStyleDraft((current) => ({
+                      ...current,
+                      music_description,
+                    }))}
+                    placeholder={t("video_style_music_description_placeholder")}
+                  />
+                )}
+                <VideoStyleTextArea
+                  id="project-video-style-sound-design"
+                  label={t("video_style_sound_design")}
+                  value={videoStyleDraft.sound_design}
+                  onChange={(sound_design) => setVideoStyleDraft((current) => ({ ...current, sound_design }))}
+                  placeholder={t("video_style_sound_design_placeholder")}
+                />
+                <VideoStyleTextArea
+                  id="project-video-style-additional"
+                  label={t("video_style_additional_instructions")}
+                  value={videoStyleDraft.additional_instructions}
+                  onChange={(additional_instructions) => setVideoStyleDraft((current) => ({
+                    ...current,
+                    additional_instructions,
+                  }))}
+                  placeholder={t("video_style_additional_instructions_placeholder")}
+                />
+              </div>
             </SectionCard>
           )}
 

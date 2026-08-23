@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "wouter";
 import {
   ChevronLeft,
   ChevronRight,
@@ -7,6 +8,7 @@ import {
   Loader2,
   Save,
   Scissors,
+  SlidersHorizontal,
   Sparkles,
 } from "lucide-react";
 import { UnitList } from "./UnitList";
@@ -165,6 +167,7 @@ export function ReferenceVideoCanvas({
   requestOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
+  const [, navigate] = useLocation();
   const [narrationDelivery, setNarrationDelivery] = useState<"post_production" | "use_tts">(
     requestOptions?.narration_delivery ?? "post_production",
   );
@@ -192,6 +195,15 @@ export function ReferenceVideoCanvas({
   const error = useReferenceVideoStore((s) => s.error);
   const loading = useReferenceVideoStore((s) => s.loading);
   const project = useProjectsStore((s) => s.currentProjectData);
+  const videoStyleSummary = useMemo(() => {
+    const style = project?.video_style;
+    if (!style) return t("reference_video_style_missing");
+    const parts = [t(`video_style_sound_focus_${style.sound_focus}`)];
+    if (style.music_policy === "none") parts.push(t("video_style_music_policy_none"));
+    else if (style.music_policy === "custom" && style.music_description) parts.push(style.music_description);
+    if (style.camera_language) parts.push(style.camera_language);
+    return parts.join(" · ");
+  }, [project?.video_style, t]);
   // schema v6 起各 bucket 共用名称空间，每个名字只会声明一次。
   const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
 
@@ -1057,6 +1069,16 @@ export function ReferenceVideoCanvas({
                 compact
               />
             )}
+            <button
+              type="button"
+              onClick={() => navigate(`/app/projects/${encodeURIComponent(projectName)}/settings`)}
+              title={videoStyleSummary}
+              aria-label={t("reference_video_style_edit_aria")}
+              className="focus-ring inline-flex max-w-[280px] items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text-2)]"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{t("reference_video_style_summary", { summary: videoStyleSummary })}</span>
+            </button>
             <button
               type="button"
               onClick={() => void handleBatchGenerate()}

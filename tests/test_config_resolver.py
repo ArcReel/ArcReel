@@ -1827,6 +1827,7 @@ class TestTextBackendTierResolution:
         for task in (
             TextTaskType.OVERVIEW,
             TextTaskType.STYLE_ANALYSIS,
+            TextTaskType.VIDEO_STYLE_ANALYSIS,
             TextTaskType.H3_PROMPT_OPTIMIZATION,
         ):
             result = await resolver._resolve_text_backend(fake_svc, MagicMock(), task, None)

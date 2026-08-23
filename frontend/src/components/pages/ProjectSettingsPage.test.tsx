@@ -130,6 +130,82 @@ describe("ProjectSettingsPage – style picker", () => {
     expect(await screen.findByText(/使用内置配置|Using built-in/)).toBeInTheDocument();
   });
 
+  it("shows one Agent-inferred video style and saves user edits to the shared endpoint", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        content_mode: "narration",
+        generation_mode: "reference_video",
+        episodes: [],
+        characters: {},
+        video_style: {
+          visual_treatment: "写实工艺纪录片",
+          camera_language: "微距慢移",
+          pacing: "长镜头",
+          sound_focus: "asmr",
+          music_policy: "none",
+          music_description: "",
+          sound_design: "突出铜丝声",
+          additional_instructions: "",
+          source: "agent",
+          updated_at: "2026-08-23T00:00:00Z",
+        },
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateVideoStyle").mockImplementation(async (_name, draft) => ({
+      video_style: { ...draft, source: "user", updated_at: "2026-08-23T01:00:00Z" },
+    }));
+
+    renderAt("/app/projects/demo/settings");
+
+    expect(await screen.findByText(/Agent 推断|Agent inferred/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/节奏|Pacing/), { target: { value: "更低切换密度" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存视频风格|Save video style/ }));
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1]).toMatchObject({
+      pacing: "更低切换密度",
+      sound_focus: "asmr",
+      music_policy: "none",
+    });
+    expect(await screen.findByText(/用户设置|User defined/)).toBeInTheDocument();
+  });
+
+  it("analyzes video style only when the project has no existing configuration", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        content_mode: "narration",
+        generation_mode: "reference_video",
+        episodes: [],
+        characters: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const analyzeSpy = vi.spyOn(API, "analyzeVideoStyle").mockResolvedValue({
+      created: true,
+      video_style: {
+        visual_treatment: "写实",
+        camera_language: "稳定微距",
+        pacing: "舒缓",
+        sound_focus: "asmr",
+        music_policy: "auto",
+        music_description: "",
+        sound_design: "材质声",
+        additional_instructions: "",
+        source: "agent",
+        updated_at: "2026-08-23T00:00:00Z",
+      },
+    });
+
+    renderAt("/app/projects/demo/settings");
+    fireEvent.click(await screen.findByRole("button", { name: /Agent 分析并创建|Analyze with Agent/ }));
+
+    await waitFor(() => expect(analyzeSpy).toHaveBeenCalledWith("demo"));
+    expect(await screen.findByText(/Agent 推断|Agent inferred/)).toBeInTheDocument();
+  });
+
   it("does not carry Agent Profile state or reset confirmation across projects", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: { title: "Demo", episodes: [], characters: {}, clues: {} },

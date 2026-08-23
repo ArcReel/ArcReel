@@ -48,6 +48,7 @@ from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, Sou
 from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, script_revision
 from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.style_templates import is_known_template, resolve_template_prompt
+from lib.video_style import UnifiedVideoStyleDraft
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import ProjectSummary, WorkflowRequestError, WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
@@ -65,6 +66,7 @@ from server.services.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project_cover import resolve_project_cover
+from server.services.video_style import VideoStyleService
 
 router = APIRouter()
 
@@ -117,6 +119,10 @@ def get_archive_service() -> ProjectArchiveService:
 
 def get_script_batch_editor(manager: Any | None = None) -> ScriptBatchEditor:
     return ScriptBatchEditor(manager or get_project_manager())
+
+
+def get_video_style_service() -> VideoStyleService:
+    return VideoStyleService(get_project_manager())
 
 
 # 项目级模型字段：创建时逐一校验并写入 project.json，PATCH 时另加 audio_backend。
@@ -252,6 +258,10 @@ class UpdateProjectRequest(BaseModel):
     clear_style_image: bool | None = None
     episodes: list[EpisodePatch] | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
+
+
+class AnalyzeVideoStyleRequest(BaseModel):
+    episode: int | None = Field(default=None, ge=1)
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -798,6 +808,44 @@ async def get_project(
         raise
     except Exception:
         logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.put("/projects/{name}/video-style")
+async def update_video_style(name: str, draft: UnifiedVideoStyleDraft, _t: Translator):
+    """Edit the single project-level video style through the shared operation."""
+
+    try:
+        with project_change_source("webui"):
+            style = await asyncio.to_thread(get_video_style_service().update, name, draft, source="user")
+        return {"video_style": style.model_dump(mode="json")}
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ApiError:
+        raise
+    except Exception:
+        logger.exception("更新项目统一视频风格失败: project=%s", name)
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.post("/projects/{name}/video-style/analyze")
+async def analyze_video_style(name: str, req: AnalyzeVideoStyleRequest, _t: Translator):
+    """Infer the project style only when it does not already exist."""
+
+    try:
+        with project_change_source("webui"):
+            style, created = await get_video_style_service().ensure(name, preferred_episode=req.episode)
+        return {"video_style": style.model_dump(mode="json"), "created": created}
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ApiError:
+        raise
+    except Exception:
+        logger.exception("分析项目统一视频风格失败: project=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
