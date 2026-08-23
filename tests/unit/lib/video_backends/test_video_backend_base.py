@@ -1,4 +1,6 @@
+import itertools
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -28,11 +30,18 @@ from lib.video_backends.base import (
     should_retry_submit,
     submit_post,
 )
+from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 
 
 class _FakeClock:
-    def __init__(self, times: list[float]) -> None:
-        self._times = iter(times)
+    """轮询时钟替身：sleep 只记不等，monotonic 按给定序列或固定步长推进。
+
+    不传 times 时表按 step 无限推进——终态判定失灵的回归会在若干轮内撞上 max_wait 抛
+    TimeoutError，而不是以近乎为零的真实耗时空转成挂起。
+    """
+
+    def __init__(self, times: list[float] | None = None, *, step: float = 1.0) -> None:
+        self._times: Iterator[float] = iter(times) if times is not None else itertools.count(0.0, step)
         self.sleeps: list[float] = []
 
     def monotonic(self) -> float:
@@ -113,14 +122,14 @@ class TestPollWithRetry:
         """poll_fn 首次返回即完成。"""
         poll_fn = AsyncMock(return_value="done_result")
 
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-            result = await poll_with_retry(
-                poll_fn=poll_fn,
-                is_done=lambda r: r == "done_result",
-                is_failed=lambda r: None,
-                poll_interval=1,
-                max_wait=10,
-            )
+        result = await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done_result",
+            is_failed=lambda r: None,
+            poll_interval=1,
+            max_wait=10,
+            clock=_FakeClock(),
+        )
 
         assert result == "done_result"
         assert poll_fn.await_count == 1
@@ -129,14 +138,14 @@ class TestPollWithRetry:
         """多次轮询后完成。"""
         poll_fn = AsyncMock(side_effect=["pending", "pending", "done"])
 
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-            result = await poll_with_retry(
-                poll_fn=poll_fn,
-                is_done=lambda r: r == "done",
-                is_failed=lambda r: None,
-                poll_interval=1,
-                max_wait=60,
-            )
+        result = await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done",
+            is_failed=lambda r: None,
+            poll_interval=1,
+            max_wait=60,
+            clock=_FakeClock(),
+        )
 
         assert result == "done"
         assert poll_fn.await_count == 3
@@ -145,14 +154,14 @@ class TestPollWithRetry:
         """轮询瞬态错误后重试成功。"""
         poll_fn = AsyncMock(side_effect=[ConnectionError("reset"), "done"])
 
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-            result = await poll_with_retry(
-                poll_fn=poll_fn,
-                is_done=lambda r: r == "done",
-                is_failed=lambda r: None,
-                poll_interval=1,
-                max_wait=60,
-            )
+        result = await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done",
+            is_failed=lambda r: None,
+            poll_interval=1,
+            max_wait=60,
+            clock=_FakeClock(),
+        )
 
         assert result == "done"
         assert poll_fn.await_count == 2
@@ -162,14 +171,14 @@ class TestPollWithRetry:
         poll_fn = AsyncMock(side_effect=ValueError("invalid"))
 
         with pytest.raises(ValueError, match="invalid"):
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-                await poll_with_retry(
-                    poll_fn=poll_fn,
-                    is_done=lambda r: True,
-                    is_failed=lambda r: None,
-                    poll_interval=1,
-                    max_wait=60,
-                )
+            await poll_with_retry(
+                poll_fn=poll_fn,
+                is_done=lambda r: True,
+                is_failed=lambda r: None,
+                poll_interval=1,
+                max_wait=60,
+                clock=_FakeClock(),
+            )
 
         assert poll_fn.await_count == 1
 
@@ -212,30 +221,33 @@ class TestPollWithRetry:
         poll_fn = AsyncMock(return_value="failed_result")
 
         with pytest.raises(RuntimeError, match="任务失败"):
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-                await poll_with_retry(
-                    poll_fn=poll_fn,
-                    is_done=lambda r: False,
-                    is_failed=lambda r: "任务失败" if r == "failed_result" else None,
-                    poll_interval=1,
-                    max_wait=60,
-                )
-
-    async def test_on_progress_called(self):
-        """on_progress 回调被调用。"""
-        poll_fn = AsyncMock(side_effect=["pending", "done"])
-        progress_calls = []
-
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
             await poll_with_retry(
                 poll_fn=poll_fn,
-                is_done=lambda r: r == "done",
-                is_failed=lambda r: None,
+                is_done=lambda r: False,
+                is_failed=lambda r: "任务失败" if r == "failed_result" else None,
                 poll_interval=1,
                 max_wait=60,
-                on_progress=lambda r, elapsed: progress_calls.append(r),
+                clock=_FakeClock(),
             )
 
+    async def test_on_progress_called(self):
+        """on_progress 每轮非终态回调一次，终态轮不回调。"""
+        poll_fn = AsyncMock(side_effect=["pending", "done"])
+        progress_calls = []
+        clock = _FakeClock([0.0, 1.0, 2.0, 3.0])
+
+        result = await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done",
+            is_failed=lambda r: None,
+            poll_interval=1,
+            max_wait=60,
+            on_progress=lambda r, elapsed: progress_calls.append(r),
+            clock=clock,
+        )
+
+        assert result == "done"
+        assert clock.sleeps == [1]
         assert progress_calls == ["pending"]
 
     async def test_retry_if_overrides_default_and_fails_fast(self):
@@ -243,15 +255,15 @@ class TestPollWithRetry:
         poll_fn = AsyncMock(side_effect=ConnectionError("would normally retry"))
 
         with pytest.raises(ConnectionError):
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-                await poll_with_retry(
-                    poll_fn=poll_fn,
-                    is_done=lambda r: True,
-                    is_failed=lambda r: None,
-                    poll_interval=1,
-                    max_wait=60,
-                    retry_if=lambda e: False,
-                )
+            await poll_with_retry(
+                poll_fn=poll_fn,
+                is_done=lambda r: True,
+                is_failed=lambda r: None,
+                poll_interval=1,
+                max_wait=60,
+                retry_if=lambda e: False,
+                clock=_FakeClock(),
+            )
 
         assert poll_fn.await_count == 1
 
@@ -259,15 +271,15 @@ class TestPollWithRetry:
         """retry_if 返回 True 时重试，即便异常类型默认不可重试。"""
         poll_fn = AsyncMock(side_effect=[ValueError("transient"), "done"])
 
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-            result = await poll_with_retry(
-                poll_fn=poll_fn,
-                is_done=lambda r: r == "done",
-                is_failed=lambda r: None,
-                poll_interval=1,
-                max_wait=60,
-                retry_if=lambda e: isinstance(e, ValueError),
-            )
+        result = await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done",
+            is_failed=lambda r: None,
+            poll_interval=1,
+            max_wait=60,
+            retry_if=lambda e: isinstance(e, ValueError),
+            clock=_FakeClock(),
+        )
 
         assert result == "done"
         assert poll_fn.await_count == 2
@@ -598,7 +610,7 @@ class TestPersistJobIdRetry:
 
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            bounded_poll_clock(),
             caplog.at_level(logging.INFO, logger="lib.video_backends.base"),
         ):
             await persist_provider_job_id("task-1", "job-1", provider="openai")
@@ -622,7 +634,7 @@ class TestPersistJobIdRetry:
 
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            bounded_poll_clock(),
             caplog.at_level(logging.ERROR, logger="lib.video_backends.base"),
         ):
             with pytest.raises(OperationalError):
@@ -654,7 +666,7 @@ class TestPersistJobIdRetry:
 
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            bounded_poll_clock(),
         ):
             with pytest.raises(ValueError, match="not retryable"):
                 await persist_provider_job_id("task-V", "job-V", provider="newapi")
@@ -685,7 +697,7 @@ class TestPersistJobIdRetry:
 
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            bounded_poll_clock(),
         ):
             with pytest.raises(ValueError, match="timed out"):
                 await persist_provider_job_id("task-T", "job-T", provider="gemini")
@@ -705,56 +717,56 @@ class TestProviderJobIdPersistenceMixin:
 
     async def test_worker_path_persists_via_module_helper(self):
         """worker 路径（task_id 非空）经统一点转调模块级 persist_provider_job_id。"""
-        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
+        with captured_provider_job_ids() as persisted:
             await self._backend()._persist_provider_job_id(
                 self._request(task_id="local-task-1"), "job-1", provider="ark"
             )
-        persist.assert_awaited_once_with("local-task-1", "job-1", provider="ark", endpoint=None, base_url=None)
+        assert persisted == [
+            {
+                "task_id": "local-task-1",
+                "job_id": "job-1",
+                "provider": "ark",
+                "endpoint": None,
+                "base_url": None,
+            }
+        ]
 
     async def test_worker_path_persists_execution_endpoint(self):
         """自定义供应商包装层注入的 endpoint 与 job_id 一并落库，供续跑比对协议是否被换掉。"""
         request = self._request(task_id="local-task-1")
         request.execution_endpoint = "openai-video"
-        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
+        with captured_provider_job_ids() as persisted:
             await self._backend()._persist_provider_job_id(request, "job-1", provider="ark")
-        persist.assert_awaited_once_with(
-            "local-task-1", "job-1", provider="ark", endpoint="openai-video", base_url=None
-        )
+        assert [(r["endpoint"], r["base_url"]) for r in persisted] == [("openai-video", None)]
 
     async def test_worker_path_persists_backend_domain_when_builtin(self):
         """内置供应商由 backend 传入实际请求域名 → 落域名列供续跑回放，协议标识位保持空。"""
-        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
+        with captured_provider_job_ids() as persisted:
             await self._backend()._persist_provider_job_id(
                 self._request(task_id="local-task-1"),
                 "job-1",
                 provider="dashscope",
                 endpoint="https://maas.example.com/api/v1",
             )
-        persist.assert_awaited_once_with(
-            "local-task-1", "job-1", provider="dashscope", endpoint=None, base_url="https://maas.example.com/api/v1"
-        )
+        assert [(r["endpoint"], r["base_url"]) for r in persisted] == [(None, "https://maas.example.com/api/v1")]
 
     async def test_execution_endpoint_and_backend_domain_land_in_separate_columns(self):
         """自定义供应商：协议标识走 endpoint 位供比对，域名走 base_url 位供回放，互不覆盖。"""
         request = self._request(task_id="local-task-1")
         request.execution_endpoint = "dashscope-async-video"
-        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
+        with captured_provider_job_ids() as persisted:
             await self._backend()._persist_provider_job_id(
                 request, "job-1", provider="dashscope", endpoint="https://maas.example.com/api/v1"
             )
-        persist.assert_awaited_once_with(
-            "local-task-1",
-            "job-1",
-            provider="dashscope",
-            endpoint="dashscope-async-video",
-            base_url="https://maas.example.com/api/v1",
-        )
+        assert [(r["endpoint"], r["base_url"]) for r in persisted] == [
+            ("dashscope-async-video", "https://maas.example.com/api/v1")
+        ]
 
     async def test_non_worker_path_skips_persist(self):
         """非 worker 路径（grid / 直生 / 测试，task_id=None）跳过持久化，不触碰 DB。"""
-        with patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist:
+        with captured_provider_job_ids() as persisted:
             await self._backend()._persist_provider_job_id(self._request(task_id=None), "job-1", provider="ark")
-        persist.assert_not_awaited()
+        assert persisted == []
 
     async def test_persist_failure_propagates_fail_fast(self):
         """持久化失败抛出原异常，由 worker finally 兜底 mark_failed（fail-fast，不吞）。"""
@@ -793,7 +805,7 @@ class TestPersistApiCallIdRetry:
 
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            bounded_poll_clock(),
             caplog.at_level(logging.INFO, logger="lib.video_backends.base"),
         ):
             await persist_api_call_id("task-1", 42)
@@ -815,7 +827,7 @@ class TestPersistApiCallIdRetry:
 
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            bounded_poll_clock(),
             caplog.at_level(logging.ERROR, logger="lib.video_backends.base"),
         ):
             with pytest.raises(OperationalError):
@@ -844,7 +856,7 @@ class TestPersistApiCallIdRetry:
 
         with (
             patch("lib.generation_queue.get_generation_queue", return_value=fake_queue),
-            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            bounded_poll_clock(),
         ):
             with pytest.raises(ValueError, match="not retryable"):
                 await persist_api_call_id("task-V", 7)
