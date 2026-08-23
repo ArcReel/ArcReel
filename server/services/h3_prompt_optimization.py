@@ -441,6 +441,18 @@ class H3PromptOptimizationService:
             narration_delivery=narration_delivery,
             confirmed_request_durations=confirmed_request_durations,
         )
+        return await self._optimize_contexts(project_name, project_path, contexts)
+
+    async def _optimize_contexts(
+        self,
+        project_name: str,
+        project_path: Path,
+        contexts: Sequence[H3PromptContext],
+    ) -> list[H3PromptArtifact]:
+        """Optimize already-projected request contexts and persist their artifacts."""
+
+        if not contexts:
+            return []
         generator = await self._generator_factory(project_name)
         system_prompt = load_h3_system_prompt()
         artifacts: list[H3PromptArtifact] = []
@@ -465,7 +477,7 @@ class H3PromptOptimizationService:
             )
             unit_id = str(context.unit.get("unit_id") or "")
             artifact = H3PromptArtifact(
-                episode=episode,
+                episode=context.episode,
                 unit_id=unit_id,
                 sections=sections,
                 rendered_prompt=sections.render(),
@@ -476,7 +488,7 @@ class H3PromptOptimizationService:
                 request_duration_seconds=duration.seconds,
                 resolution=candidate.resolution,
                 aspect_ratio=context.aspect_ratio,
-                narration_delivery=narration_delivery,
+                narration_delivery=context.narration_delivery,
                 reference_images=list(context.image_references),
                 reference_audio=list(context.audio_references),
                 optimized_at=datetime.now(UTC).isoformat(),
@@ -484,6 +496,23 @@ class H3PromptOptimizationService:
             await asyncio.to_thread(save_h3_prompt_artifact, project_path, artifact)
             artifacts.append(artifact)
         return artifacts
+
+    async def optimized_prompt_for_context(
+        self,
+        project_name: str,
+        project_path: Path,
+        context: H3PromptContext,
+    ) -> str:
+        """Return the current prompt, optimizing automatically when absent or stale."""
+
+        unit_id = str(context.unit.get("unit_id") or "")
+        artifact = load_h3_prompt_artifact(project_path, context.episode, unit_id)
+        if artifact is not None and artifact.basis_digest == context.basis_digest:
+            return artifact.rendered_prompt
+        artifacts = await self._optimize_contexts(project_name, project_path, [context])
+        if not artifacts:
+            raise H3PromptOptimizationError("h3_prompt_missing", unit_id)
+        return artifacts[0].rendered_prompt
 
     async def confirm(
         self,

@@ -72,21 +72,4 @@ def optimize_h3_video_prompts_tool(ctx: ToolContext):
     return _handler
 
 
-def confirm_h3_video_prompts_tool(ctx: ToolContext):
-    @tool(
-        "confirm_h3_video_prompts",
-        "确认当前且已审核的 MiniMax H3 六段式提示词，使对应视频单元可以进入付费生成队列。",
-        _SCHEMA,
-    )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        try:
-            request = _args(args)
-            values = await H3PromptOptimizationService(ctx.pm).confirm(ctx.project_name, **request)
-            return _response("artifacts", values)
-        except Exception as exc:  # noqa: BLE001 - MCP adapters return a controlled error envelope
-            return tool_error("confirm_h3_video_prompts", exc)
-
-    return _handler
-
-
-__all__ = ["confirm_h3_video_prompts_tool", "optimize_h3_video_prompts_tool"]
+__all__ = ["optimize_h3_video_prompts_tool"]

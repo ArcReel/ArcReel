@@ -211,32 +211,16 @@ def test_use_tts_preserves_structured_admission_blockers() -> None:
     assert plan.next_action.type == GenerationAction.GENERATE_TTS.value
 
 
-def test_h3_prompt_blocker_owns_an_independent_step_before_video() -> None:
-    problem = GenerationProblem(
-        code="h3_prompt_missing",
-        detail="optimized prompt is missing",
-        action=GenerationAction.OPTIMIZE_VIDEO_PROMPT,
-        params={"unit_id": "E1U01"},
-    )
-    admission = BatchAdmission(
-        operation="generate_videos",
-        selection=GenerationSelectionMode.MISSING_ONLY,
-        narration_delivery=POST_PRODUCTION,
-        tickets=(UnitAdmissionTicket("E1U01", problems=(problem,)),),
-    )
-
+def test_h3_prompt_step_is_automatic_and_has_no_manual_action() -> None:
     plan = build_workflow_plan(
         _status(generation_mode="reference_video", requested_ids=["E1U01"]),
         narration_delivery=POST_PRODUCTION,
-        admission=admission.to_payload(),
     )
 
     prompt_step = _step(plan, "video_prompt_optimization")
-    assert prompt_step.state is WorkflowStepState.BLOCKED
-    assert prompt_step.problems == [problem]
-    assert prompt_step.action is not None
-    assert prompt_step.action.type == WorkflowActionType.OPTIMIZE_VIDEO_PROMPT
-    assert _step(plan, "video").state is WorkflowStepState.PENDING
+    assert prompt_step.state is WorkflowStepState.COMPLETED
+    assert prompt_step.problems == []
+    assert prompt_step.action is None
 
 
 def test_multiple_admission_repairs_preserve_the_first_structured_action() -> None:

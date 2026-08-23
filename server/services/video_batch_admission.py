@@ -14,7 +14,6 @@ different conclusions about the same project.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -47,7 +46,6 @@ from lib.generation_result import (
     observe_artifact_status,
     select_generation_targets,
 )
-from lib.minimax_h3_prompt import is_minimax_h3_model
 from lib.narration_delivery import (
     USE_TTS,
     NarratedVideoDurationPreparation,
@@ -75,7 +73,6 @@ from lib.speech_composition import SpeechAdmission, SpeechAdmissionError, requir
 from lib.storyboard_sequence import StoryboardImageUnavailable
 from lib.version_manager import VersionManager
 from server.services.cost_estimation import quote_video_request
-from server.services.h3_prompt_optimization import H3PromptOptimizationService
 from server.services.narration_delivery_tasks import (
     active_tts_resource_ids,
     prepare_current_reference_video_request_options,
@@ -568,58 +565,10 @@ async def admit_reference_video_batch(
                 )
             )
             continue
-        prompt_problems: list[GenerationProblem] = []
-        candidate = getattr(projection, "provider_candidate", None)
-        if not projection.blocking_problems and candidate is not None and is_minimax_h3_model(candidate.model_id):
-            match = re.match(r"E0*(\d+)U", unit_id, re.IGNORECASE)
-            prompt_episode = episode or (int(match.group(1)) if match is not None else None)
-            if prompt_episode is None:
-                match = re.search(r"episode_(\d+)\.json$", script_file)
-                prompt_episode = int(match.group(1)) if match is not None else None
-            if prompt_episode is None:
-                raise ValueError(f"cannot resolve episode from script file: {script_file}")
-            prompt_service = H3PromptOptimizationService()
-            context = await prompt_service.context_from_projection(
-                episode=prompt_episode,
-                project=project,
-                project_path=project_path,
-                unit=unit,
-                narration_delivery=current_options.narration_delivery,
-                projection=projection,
-            )
-            prompt_state = prompt_service.state_for_context(project_path, context)
-            if prompt_state.state in {"missing", "stale"}:
-                code = (
-                    GenerationProblemCode.H3_PROMPT_MISSING
-                    if prompt_state.state == "missing"
-                    else GenerationProblemCode.H3_PROMPT_STALE
-                )
-                prompt_problems.append(
-                    GenerationProblem(
-                        code=code,
-                        detail=(
-                            f"{unit_id} 还没有 MiniMax H3 优化提示词"
-                            if prompt_state.state == "missing"
-                            else f"{unit_id} 的 MiniMax H3 优化提示词已过期"
-                        ),
-                        action=GenerationAction.OPTIMIZE_VIDEO_PROMPT,
-                        params={"unit_id": unit_id, "state": prompt_state.state},
-                    )
-                )
-            elif prompt_state.state == "pending_review":
-                prompt_problems.append(
-                    GenerationProblem(
-                        code=GenerationProblemCode.H3_PROMPT_PENDING_REVIEW,
-                        detail=f"{unit_id} 的 MiniMax H3 优化提示词等待确认",
-                        action=GenerationAction.CONFIRM_VIDEO_PROMPT,
-                        params={"unit_id": unit_id, "state": prompt_state.state},
-                    )
-                )
         tickets.append(
             await _reference_ticket(
                 projection=projection,
                 current_options=current_options,
-                extra_problems=prompt_problems,
             )
         )
 
@@ -635,7 +584,6 @@ async def _reference_ticket(
     *,
     projection: ReferenceUnitRequestProjection,
     current_options: ReferenceRequestOptions,
-    extra_problems: Sequence[GenerationProblem] = (),
 ) -> UnitAdmissionTicket:
     unit_id = projection.unit_id
     payload = projection.to_advisory_payload()
@@ -645,27 +593,7 @@ async def _reference_ticket(
         current_reusable_visual_duration_seconds=current_options.current_reusable_visual_duration_seconds,
     )
     cost_payload = await _quote_for_display(projection.cost, reuses_current_visual=reuses)
-    problems = [
-        *[_generation_problem(problem, unit_id=unit_id) for problem in projection.blocking_problems],
-        *extra_problems,
-    ]
-    if extra_problems:
-        payload["allowed"] = False
-        payload["problems"] = [
-            *_payload_problems(payload),
-            *[
-                {
-                    "code": problem.code,
-                    "blocking": True,
-                    "unit_id": unit_id,
-                    "locations": [{"path": ["video_units", unit_id], "line": None}],
-                    "params": problem.params,
-                    "action": problem.action.value,
-                    "reason": problem.detail,
-                }
-                for problem in extra_problems
-            ],
-        ]
+    problems = [_generation_problem(problem, unit_id=unit_id) for problem in projection.blocking_problems]
     # A missing quote only fails the request closed when TTS is what moved the tier:
     # post-production takes its tier from the script alone, and any tier change there is
     # already held by the duration confirmation the user must answer.

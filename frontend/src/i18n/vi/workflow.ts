@@ -123,8 +123,6 @@ export default {
   'action_confirm_request_duration': 'xác nhận mức thời lượng yêu cầu',
   'action_configure_provider': 'chọn mô hình video hoặc âm thanh trong Cài đặt',
   'action_repair_artifact_state': 'sửa trạng thái tệp của đơn vị này',
-  'action_optimize_video_prompt': 'tạo hoặc cập nhật lời nhắc video H3',
-  'action_confirm_video_prompt': 'duyệt và xác nhận lời nhắc video H3',
   'action_repair_project_data': 'nhờ Agent sửa tệp dự án bị hỏng',
   'action_collect_project_input': 'bổ sung văn bản gốc và thiết lập dự án',
   'action_analyze_assets': 'phân tích nhân vật, bối cảnh và đạo cụ từ văn bản gốc',

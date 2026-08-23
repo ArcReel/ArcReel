@@ -48,13 +48,12 @@ description: 为剧本场景或自包含 video unit 生成视频。当用户要�
 
 把 `scene_id` / `scene_ids` 在分镜图生视频解释为分镜 ID，在参考生视频解释为 `unit_id`。集号由剧本元数据或文件名解析。
 
-### MiniMax H3 提示词门禁
+### MiniMax H3 提示词优化
 
-参考生视频且当前模型为 MiniMax H3 时，视频准入前有独立提示词步骤。`optimize_video_prompt` 表示调用
-`mcp__arcreel__optimize_h3_video_prompts` 生成六段式提示词；它只保存待审核产物，不会提交付费视频。
-随后把提示词展示给用户，用户明确确认后调用 `mcp__arcreel__confirm_h3_video_prompts`。两次调用必须携带
-同一份 `episode`、`unit_ids`、`narration_delivery` 与 `confirmed_request_durations`，任一参考图、音频、正文、
-时长或模型事实变化都会使旧提示词变成 stale 并重新关闭视频准入。非 H3 模型不经过此步骤。
+参考生视频且当前模型为 MiniMax H3 时，生成 worker 会在提交付费视频前自动检查六段式提示词产物：
+产物缺失或依据已变时，使用同一次请求的 unit、旁白交付、确认时长、参考图、音频与模型事实自动优化并落盘；
+产物仍为 current 时直接复用。此步骤不设人工确认门禁，非 H3 模型不经过此步骤。用户只想预览或单独刷新
+提示词时，Agent 仍可调用 `mcp__arcreel__optimize_h3_video_prompts`，但正常视频生成无需预先手动调用。
 
 ### 点名重新生成 unit
 

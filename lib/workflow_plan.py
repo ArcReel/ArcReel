@@ -288,23 +288,10 @@ def build_workflow_plan(
             step.state = WorkflowStepState.ACTIVE
 
     video_step = by_id["video"]
-    prompt_step = by_id["video_prompt_optimization"]
     video_step.admission = admission
-    prompt_actions = {
-        GenerationAction.OPTIMIZE_VIDEO_PROMPT,
-        GenerationAction.CONFIRM_VIDEO_PROMPT,
-    }
-    prompt_problems = [problem for problem in admission_problems if problem.action in prompt_actions]
-    video_step.problems = [problem for problem in admission_problems if problem.action not in prompt_actions]
-    if prompt_problems:
-        prompt_step.state = WorkflowStepState.BLOCKED
-        prompt_step.problems = prompt_problems
-        prompt_step.requested_ids = _problem_unit_ids(prompt_problems)
-        video_step.state = WorkflowStepState.PENDING
-        video_step.action = None
+    video_step.problems = admission_problems
     if admission is not None and admission.get("decision") != "admitted" and not video_step.tasks:
-        if not prompt_problems:
-            video_step.state = WorkflowStepState.BLOCKED
+        video_step.state = WorkflowStepState.BLOCKED
 
     active_tasks = [task for task in task_observations if task.status in {"queued", "running", "cancelling"}]
     if status.blockers:
@@ -339,10 +326,7 @@ def build_workflow_plan(
         video_step.action = None
     elif admission is not None and admission.get("decision") != "admitted":
         next_action = _admission_action(admission, admission_problems, list(status.next_action.requested_ids))
-        if prompt_problems:
-            prompt_step.action = next_action
-        else:
-            video_step.action = next_action
+        video_step.action = next_action
     else:
         next_action = status.next_action
 

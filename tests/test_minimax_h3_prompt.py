@@ -145,3 +145,53 @@ async def test_optimizer_keeps_pinned_system_prompt_separate_and_saves_pending_r
     assert project_name == "demo"
     assert artifacts[0].status == "pending_review"
     assert load_h3_prompt_artifact(tmp_path, 1, "E1U01") == artifacts[0]
+
+    captured.clear()
+    rendered = await service.optimized_prompt_for_context("demo", tmp_path, context)
+    assert rendered == artifacts[0].rendered_prompt
+    assert captured == []
+
+
+async def test_worker_prompt_step_reoptimizes_a_stale_artifact(
+    tmp_path: Path,
+) -> None:
+    captured: list[Any] = []
+
+    class _Generator:
+        async def generate(self, request: Any, *, project_name: str) -> TextGenerationResult:
+            captured.append((request, project_name))
+            return TextGenerationResult(text=_prompt(), provider="test", model="optimizer")
+
+    async def _factory(_project_name: str) -> Any:
+        return _Generator()
+
+    stale = _artifact()
+    save_h3_prompt_artifact(tmp_path, stale)
+    projection = SimpleNamespace(
+        request_duration=SimpleNamespace(seconds=8),
+        provider_candidate=SimpleNamespace(model_id="MiniMax-H3", resolution="720p"),
+    )
+    context = H3PromptContext(
+        episode=1,
+        unit={"unit_id": "E1U01", "text": "updated runtime facts"},
+        projection=projection,
+        narration_delivery="post_production",
+        aspect_ratio="16:9",
+        image_references=(H3PromptReference(label="Picture 1", kind="prop", name="Bowl"),),
+        image_paths=(tmp_path / "bowl.png",),
+        audio_references=(H3PromptReference(label="Audio 1", kind="speaker", name="Dad"),),
+        audio_paths=(tmp_path / "dad.mp3",),
+        basis_digest="basis-v2",
+        user_prompt="updated runtime facts only",
+    )
+    service = H3PromptOptimizationService(generator_factory=_factory)
+
+    rendered = await service.optimized_prompt_for_context("demo", tmp_path, context)
+
+    assert len(captured) == 1
+    assert captured[0][0].system_prompt == load_h3_system_prompt()
+    assert captured[0][1] == "demo"
+    refreshed = load_h3_prompt_artifact(tmp_path, 1, "E1U01")
+    assert refreshed is not None
+    assert rendered == refreshed.rendered_prompt
+    assert refreshed.basis_digest == "basis-v2"

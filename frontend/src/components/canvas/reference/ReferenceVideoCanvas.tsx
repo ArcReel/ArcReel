@@ -49,6 +49,7 @@ import {
   splitScriptLines,
 } from "@/utils/reference-mentions";
 import type {
+  H3PromptState,
   ReferenceBatchAdmission,
   ReferenceRequestOptions,
   ReferenceVideoUnit,
@@ -719,9 +720,56 @@ export function ReferenceVideoCanvas({
 
   const isDirty = !!(selected && dirtyMap[selected.unit_id]);
 
-  // 编辑器列内的两种视图：写文稿 / 看解析结果。解析预览是只读派生视图，与正文同一份
-  // 文本，故共用编辑器列的空间而非再占一栏（右栏留给成片预览）。
-  const [editorView, setEditorView] = useState<"script" | "parse">("script");
+  // 编辑器列内的内容视图：H3 提示词与当前 unit 绑定，不再占用工作台主 tab。
+  const [editorView, setEditorView] = useState<"script" | "parse" | "h3">("script");
+  const [h3PromptState, setH3PromptState] = useState<H3PromptState | null>(null);
+  const [h3PromptLoading, setH3PromptLoading] = useState(false);
+  const [h3PromptError, setH3PromptError] = useState<string | null>(null);
+  const h3RequestSequence = useRef(0);
+  const selectedH3UnitId = selected?.unit_id ?? null;
+  const refreshH3Prompt = useCallback(async () => {
+    if (!selectedH3UnitId) {
+      setH3PromptState(null);
+      return;
+    }
+    const sequence = ++h3RequestSequence.current;
+    setH3PromptLoading(true);
+    try {
+      const response = await API.getH3PromptStates(projectName, episode, {
+        unit_ids: [selectedH3UnitId],
+        narration_delivery: narrationDelivery,
+      });
+      if (sequence !== h3RequestSequence.current) return;
+      setH3PromptState(response.states[0] ?? null);
+      setH3PromptError(null);
+    } catch (cause) {
+      if (sequence !== h3RequestSequence.current) return;
+      setH3PromptError(errMsg(cause));
+    } finally {
+      if (sequence === h3RequestSequence.current) setH3PromptLoading(false);
+    }
+  }, [episode, narrationDelivery, projectName, selectedH3UnitId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch lifecycle synchronizes the selected unit with its durable H3 artifact
+    void refreshH3Prompt();
+  }, [refreshH3Prompt, unitsRevision]);
+
+  useEffect(() => {
+    if (!selectedBusy) return;
+    const timer = window.setInterval(() => void refreshH3Prompt(), 1500);
+    return () => window.clearInterval(timer);
+  }, [refreshH3Prompt, selectedBusy]);
+
+  const currentH3PromptState =
+    h3PromptState?.unit_id === selectedH3UnitId ? h3PromptState : null;
+  const h3Applicable =
+    currentH3PromptState !== null && currentH3PromptState.state !== "not_applicable";
+  const editorViews = useMemo<readonly ("script" | "parse" | "h3")[]>(
+    () => (h3Applicable ? ["script", "parse", "h3"] : ["script", "parse"]),
+    [h3Applicable],
+  );
+  const activeEditorView = editorViews.includes(editorView) ? editorView : "script";
 
   const hasAnyDurationDraft = units.some((unit) => {
     const raw = durationDrafts[draftKey(projectName, episode, unit.unit_id)];
@@ -768,7 +816,7 @@ export function ReferenceVideoCanvas({
   // Reset tab to units on project/episode change (render-time derived-state pattern).
   // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
   // units 面板无脚本可读、请求会 404，应先落到 preproc 审阅 gate。
-  const [tab, setTab] = useState<"units" | "preproc" | "prompts">(
+  const [tab, setTab] = useState<"units" | "preproc">(
     hasScript || !showPreprocess ? "units" : "preproc",
   );
   const [lastEpisode, setLastEpisode] = useState(episode);
@@ -938,18 +986,6 @@ export function ReferenceVideoCanvas({
               />
             )}
           </button>
-          {hasScript && <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "prompts"}
-            onClick={() => setTab("prompts")}
-            className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
-              tab === "prompts" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
-            }`}
-          >
-            {t("reference_tab_h3_prompts")}
-            {tab === "prompts" && <span aria-hidden="true" className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]" />}
-          </button>}
         </div>
         <span className="flex-1" />
         {tab === "units" && (
@@ -1001,15 +1037,6 @@ export function ReferenceVideoCanvas({
               lookup={mentionLookup}
             />
           </div>
-        </div>
-      ) : tab === "prompts" ? (
-        <div className="min-h-0 flex-1 bg-[oklch(0.18_0.011_250_/_0.25)]">
-          <H3PromptPanel
-            projectName={projectName}
-            episode={episode}
-            units={units}
-            narrationDelivery={narrationDelivery}
-          />
         </div>
       ) : (
         <div
@@ -1205,38 +1232,42 @@ export function ReferenceVideoCanvas({
                           aria-label={t("reference_editor_view_aria")}
                           className="flex items-center gap-1 px-3 pt-2.5"
                         >
-                          {(["script", "parse"] as const).map((view) => (
+                          {editorViews.map((view) => (
                             <button
                               key={view}
                               type="button"
                               role="tab"
                               id={`reference-editor-view-tab-${view}`}
-                              aria-selected={editorView === view}
+                              aria-selected={activeEditorView === view}
                               aria-controls={`reference-editor-view-panel-${view}`}
-                              // 未选中的 tab 退出 Tab 序列，左右方向键在两者间移动：
+                              // 未选中的 tab 退出 Tab 序列，左右方向键在当前可见视图间移动：
                               // tablist 的键盘约定是「Tab 进出控件组、方向键在组内切换」。
-                              tabIndex={editorView === view ? 0 : -1}
+                              tabIndex={activeEditorView === view ? 0 : -1}
                               onKeyDown={(e) => {
                                 if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
                                 e.preventDefault();
-                                const next = view === "script" ? "parse" : "script";
+                                const index = editorViews.indexOf(view);
+                                const offset = e.key === "ArrowRight" ? 1 : -1;
+                                const next = editorViews[(index + offset + editorViews.length) % editorViews.length];
                                 setEditorView(next);
                                 document.getElementById(`reference-editor-view-tab-${next}`)?.focus();
                               }}
                               onClick={() => setEditorView(view)}
                               className={`focus-ring rounded-md border px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
-                                editorView === view
+                                activeEditorView === view
                                   ? "border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)] text-[var(--color-text)]"
                                   : "border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-3)] hover:text-[var(--color-text-2)]"
                               }`}
                             >
                               {view === "script"
                                 ? t("reference_editor_view_script")
-                                : t("reference_editor_view_parse")}
+                                : view === "parse"
+                                  ? t("reference_editor_view_parse")
+                                  : t("reference_editor_view_h3")}
                             </button>
                           ))}
                         </div>
-                        {editorView === "script" ? (
+                        {activeEditorView === "script" ? (
                           <div
                             id="reference-editor-view-panel-script"
                             role="tabpanel"
@@ -1252,7 +1283,7 @@ export function ReferenceVideoCanvas({
                               onChange={handlePromptChange}
                             />
                           </div>
-                        ) : (
+                        ) : activeEditorView === "parse" ? (
                           <div
                             id="reference-editor-view-panel-parse"
                             role="tabpanel"
@@ -1271,9 +1302,24 @@ export function ReferenceVideoCanvas({
                               lookup={mentionLookup}
                             />
                           </div>
+                        ) : (
+                          <div
+                            id="reference-editor-view-panel-h3"
+                            role="tabpanel"
+                            aria-labelledby="reference-editor-view-tab-h3"
+                            tabIndex={0}
+                            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                          >
+                            <H3PromptPanel
+                              state={currentH3PromptState}
+                              loading={h3PromptLoading}
+                              optimizing={selectedBusy}
+                              error={h3PromptError}
+                            />
+                          </div>
                         )}
                         {/* Editor bottom bar */}
-                        <div className="flex flex-shrink-0 items-center gap-2 border-t border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] px-3.5 py-2">
+                        {activeEditorView !== "h3" && <div className="flex flex-shrink-0 items-center gap-2 border-t border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] px-3.5 py-2">
                           <span
                             className={`inline-flex items-center gap-1.5 text-[11px] ${
                               isDirty ? "text-amber-300" : "text-[var(--color-text-4)]"
@@ -1315,7 +1361,7 @@ export function ReferenceVideoCanvas({
                             )}
                             {saving ? t("common:saving") : t("common:save")}
                           </button>
-                        </div>
+                        </div>}
                       </div>
                     )}
                     {stackPreview && stackTab === "preview" && (

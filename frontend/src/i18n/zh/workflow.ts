@@ -123,8 +123,6 @@ export default {
   'action_confirm_request_duration': '确认申请的时长档位',
   'action_configure_provider': '到设置里选定视频或音频模型',
   'action_repair_artifact_state': '修复这个单元的产物状态',
-  'action_optimize_video_prompt': '生成或更新 H3 视频提示词',
-  'action_confirm_video_prompt': '审核并确认 H3 视频提示词',
   'action_repair_project_data': '请 Agent 修复损坏的项目文件',
   'action_collect_project_input': '补齐故事原文与项目设置',
   'action_analyze_assets': '从原文中分析角色、场景与道具',

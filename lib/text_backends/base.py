@@ -181,7 +181,7 @@ TEXT_TASK_TIERS: dict[TextTaskType, TextTaskTier] = {
     TextTaskType.SCRIPT: TextTaskTier.COMPLEX,
     TextTaskType.OVERVIEW: TextTaskTier.SIMPLE,
     TextTaskType.STYLE_ANALYSIS: TextTaskTier.SIMPLE,
-    TextTaskType.H3_PROMPT_OPTIMIZATION: TextTaskTier.COMPLEX,
+    TextTaskType.H3_PROMPT_OPTIMIZATION: TextTaskTier.SIMPLE,
 }
 
 if _missing := set(TextTaskType) - set(TEXT_TASK_TIERS):

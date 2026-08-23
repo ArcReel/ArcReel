@@ -33,7 +33,6 @@ from lib.generation_result import (
     normalize_requested_ids,
 )
 from lib.i18n import Translator
-from lib.minimax_h3_prompt import is_minimax_h3_model
 from lib.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
@@ -680,32 +679,6 @@ async def generate_unit(
         allow_duration_confirmation=False,
         request_cost=request_cost,
     )
-    candidate = projection.provider_candidate
-    if candidate is not None and is_minimax_h3_model(candidate.model_id):
-        prompt_service = H3PromptOptimizationService()
-        prompt_context = await prompt_service.context_from_projection(
-            episode=episode,
-            project=project,
-            project_path=project_path,
-            unit=unit,
-            narration_delivery=current_options.narration_delivery,
-            projection=projection,
-        )
-        prompt_state = prompt_service.state_for_context(project_path, prompt_context)
-        if prompt_state.state != "confirmed":
-            action = (
-                "confirm_video_prompt" if prompt_state.state == "pending_review" else "optimize_video_prompt"
-            )
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": f"h3_prompt_{prompt_state.state}",
-                    "unit_id": unit_id,
-                    "state": prompt_state.state,
-                    "action": action,
-                },
-            )
-
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
     # 不再漏到执行层失败（见 ADR-0001）。
     try:

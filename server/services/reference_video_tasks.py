@@ -569,7 +569,11 @@ async def execute_reference_video_task(
             projection=projection,
             audio_map=audio_paths,
         )
-        rendered_prompt = await prompt_service.confirmed_prompt_for_context(project_path, prompt_context)
+        rendered_prompt = await prompt_service.optimized_prompt_for_context(
+            project_name,
+            project_path,
+            prompt_context,
+        )
     reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(
         rendered, audio_paths, reference_audio_per_image=voice_settings.requires_reference_image
     )

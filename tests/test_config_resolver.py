@@ -1817,14 +1817,18 @@ class TestTextBackendTierResolution:
 
     @pytest.mark.unit
     async def test_simple_tier_tasks_read_simple_key(self):
-        """OVERVIEW / STYLE_ANALYSIS 归简单档，读 text_backend_simple 而非复杂档键。"""
+        """简单档任务统一读取 text_backend_simple，而不是复杂档键。"""
         from unittest.mock import MagicMock
 
         from lib.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "simple/m", "text_backend_complex": "complex/m"})
-        for task in (TextTaskType.OVERVIEW, TextTaskType.STYLE_ANALYSIS):
+        for task in (
+            TextTaskType.OVERVIEW,
+            TextTaskType.STYLE_ANALYSIS,
+            TextTaskType.H3_PROMPT_OPTIMIZATION,
+        ):
             result = await resolver._resolve_text_backend(fake_svc, MagicMock(), task, None)
             assert result == ("simple", "m")
 

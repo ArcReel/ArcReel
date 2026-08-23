@@ -134,8 +134,6 @@ class WorkflowActionType(StrEnum):
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
-    OPTIMIZE_VIDEO_PROMPT = "optimize_video_prompt"
-    CONFIRM_VIDEO_PROMPT = "confirm_video_prompt"
 
 
 class WorkflowNextAction(BaseModel):

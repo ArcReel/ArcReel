@@ -36,6 +36,7 @@ class TestTextTaskType:
         assert TextTaskType.SCRIPT == "script"
         assert TextTaskType.OVERVIEW == "overview"
         assert TextTaskType.STYLE_ANALYSIS == "style"
+        assert TextTaskType.H3_PROMPT_OPTIMIZATION == "h3_prompt_optimization"
 
 
 class TestTextTaskTiers:
@@ -47,10 +48,12 @@ class TestTextTaskTiers:
         assert TEXT_TASK_TIERS[TextTaskType.SCRIPT] is TextTaskTier.COMPLEX
         assert TEXT_TASK_TIERS[TextTaskType.OVERVIEW] is TextTaskTier.SIMPLE
         assert TEXT_TASK_TIERS[TextTaskType.STYLE_ANALYSIS] is TextTaskTier.SIMPLE
+        assert TEXT_TASK_TIERS[TextTaskType.H3_PROMPT_OPTIMIZATION] is TextTaskTier.SIMPLE
 
     def test_vision_required_tasks_are_valid_members(self):
         assert VISION_REQUIRED_TASKS <= set(TextTaskType)
         assert TextTaskType.STYLE_ANALYSIS in VISION_REQUIRED_TASKS
+        assert TextTaskType.H3_PROMPT_OPTIMIZATION in VISION_REQUIRED_TASKS
 
 
 class TestImageInput:

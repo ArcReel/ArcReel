@@ -119,6 +119,15 @@ describe("ReferenceVideoCanvas", () => {
       model_id: "kling-v2-1-master",
       problems: [],
     });
+    vi.spyOn(API, "getH3PromptStates").mockImplementation(async (_project, _episode, payload) => ({
+      states: [
+        {
+          unit_id: payload?.unit_ids?.[0] ?? "",
+          state: "not_applicable",
+          artifact: null,
+        },
+      ],
+    }));
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -140,7 +149,8 @@ describe("ReferenceVideoCanvas", () => {
       name: /Workspace main tabs|工作台主面板切换|Tab chính của workspace/,
     });
     const delivery = screen.getByRole("group", { name: /Narration delivery|旁白交付/ });
-    expect(within(tablist).getAllByRole("tab")).toHaveLength(3);
+    expect(within(tablist).getAllByRole("tab")).toHaveLength(2);
+    expect(within(tablist).queryByRole("tab", { name: /H3/ })).toBeNull();
     expect(tablist).not.toContainElement(delivery);
   });
 
@@ -188,6 +198,22 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /^(Script|文稿)$/ }));
     expect(await screen.findByRole("combobox")).toBeInTheDocument();
+  });
+
+  it("shows a read-only H3 tab inside the selected video unit only when applicable", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "中景。")] });
+    vi.mocked(API.getH3PromptStates).mockResolvedValue({
+      states: [{ unit_id: "E1U1", state: "missing", artifact: null }],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const h3Tab = await screen.findByRole("tab", { name: /H3/ });
+    fireEvent.click(h3Tab);
+
+    expect(await screen.findByText(/生成视频时将自动优化|optimized automatically when video generation starts/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /优化提示词|Optimize prompt/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /确认并放行|Confirm and release/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^(Save|保存)$/ })).toBeNull();
   });
 
   // 两个 tabpanel 同时刻只挂载一个，共用静态 id 会让未选中 tab 的 aria-controls
