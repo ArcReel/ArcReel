@@ -477,3 +477,44 @@ def captured_provider_job_ids() -> Iterator[list[dict[str, Any]]]:
 
     with patch("lib.video_backends.base.persist_provider_job_id", _record):
         yield records
+
+
+@contextmanager
+def captured_backend_construction() -> Iterator[list[dict[str, Any]]]:
+    """四个后端 registry 的构造记录器：工厂换成只记参数的哑后端，不建 SDK 客户端。
+
+    装配层（``ProviderSpec.build_backend``、``lib.text_backends.factory``）的产出就是
+    「往哪个 media registry、用什么后端名、什么构造参数建后端」，真实后端要凭证要网络。
+    按名逐个换工厂（保留键集合，``get_registered_backends`` 的读者不受影响），记录列表让
+    断言落在构造参数本身；未注册名照旧由 ``create_backend`` fail-loud。
+    """
+    from lib.audio_backends import registry as audio_registry
+    from lib.image_backends import registry as image_registry
+    from lib.text_backends import registry as text_registry
+    from lib.video_backends import registry as video_registry
+
+    records: list[dict[str, Any]] = []
+    factories: dict[str, dict[str, Any]] = {
+        "text": text_registry._BACKEND_FACTORIES,
+        "image": image_registry._BACKEND_FACTORIES,
+        "video": video_registry._BACKEND_FACTORIES,
+        "audio": audio_registry._BACKEND_FACTORIES,
+    }
+
+    def _recorder(media: str, name: str) -> Callable[..., Any]:
+        def _build(**kwargs: Any) -> Any:
+            records.append({"media": media, "backend": name, "kwargs": kwargs})
+            return object()
+
+        return _build
+
+    saved = {media: dict(table) for media, table in factories.items()}
+    for media, table in factories.items():
+        for name in list(table):
+            table[name] = _recorder(media, name)
+    try:
+        yield records
+    finally:
+        for media, table in factories.items():
+            table.clear()
+            table.update(saved[media])
