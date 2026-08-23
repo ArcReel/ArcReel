@@ -1249,10 +1249,10 @@ class ProjectManager:
         filename = self.normalize_script_filename(filename)
         real = Path(self._safe_subpath(project_dir / "scripts", filename))
 
-        if not real.exists():
-            raise FileNotFoundError(f"剧本文件不存在: {real}")
-
         if self._script_reader is None:
+            # 存在性检查只对文件系统这条路径成立；剧本是否存在由实际读取方判定。
+            if not real.exists():
+                raise FileNotFoundError(f"剧本文件不存在: {real}")
             with open(real, encoding="utf-8") as f:  # noqa: PTH123
                 script = json.load(f)
         else:
