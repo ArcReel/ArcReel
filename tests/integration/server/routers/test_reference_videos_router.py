@@ -1654,8 +1654,8 @@ def test_generate_batch_regenerates_a_unit_whose_recorded_clip_is_gone(
 ) -> None:
     """旧 schema 项目里剧本仍登记着成片路径、文件却已被删：该 unit 判为缺失重新入队。
 
-    这条腿上「另一条可复用的判定」（手动上传/登记路径可用）曾能越过存在性核实，
-    用户删掉文件后整批永远补不回这一个 unit。
+    这条腿上「另一条可复用的判定」（手动上传/登记路径可用）同样要过存在性核实：
+    登记路径指向的文件已删时该 unit 不算可复用，否则整批永远补不回它。
     """
 
     first = _seed_unit(reference_videos_client)
