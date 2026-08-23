@@ -128,6 +128,12 @@ export interface H3PromptOperationRequest {
   confirmed_request_durations?: Record<string, number>;
 }
 
+export interface H3PromptUpdateRequest {
+  rendered_prompt: string;
+  narration_delivery?: "post_production" | "use_tts";
+  confirmed_request_duration_seconds?: number | null;
+}
+
 export interface ReferenceProjectionLocation {
   path: (string | number)[];
   line: number | null;

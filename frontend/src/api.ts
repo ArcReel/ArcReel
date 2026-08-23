@@ -65,6 +65,7 @@ import type {
   H3PromptArtifact,
   H3PromptOperationRequest,
   H3PromptState,
+  H3PromptUpdateRequest,
   ScriptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
@@ -3408,6 +3409,18 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/h3-prompts/confirm`,
       { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  static async updateH3Prompt(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    payload: H3PromptUpdateRequest,
+  ): Promise<{ artifact: H3PromptArtifact }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/h3-prompts/${encodeURIComponent(unitId)}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
     );
   }
 

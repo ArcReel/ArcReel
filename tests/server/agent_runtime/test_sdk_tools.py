@@ -55,6 +55,7 @@ from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_scene_tool,
     generate_video_selected_tool,
 )
+from server.agent_runtime.sdk_tools.h3_prompt_optimization import update_h3_video_prompt_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     _parse_normalized_content,
     generate_episode_script_tool,
@@ -525,6 +526,61 @@ def test_delete_project_asset_registered_as_controlled_editor() -> None:
 
     assert "delete_project_asset" in ARCREEL_MCP_TOOL_IDS
     assert "delete_project_asset" not in MIGRATION_BLOCKED_TOOL_IDS
+
+
+@pytest.mark.unit
+def test_update_h3_video_prompt_is_registered_and_migration_guarded() -> None:
+    from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
+
+    assert "update_h3_video_prompt" in ARCREEL_MCP_TOOL_IDS
+    assert "update_h3_video_prompt" in MIGRATION_BLOCKED_TOOL_IDS
+
+
+@pytest.mark.unit
+async def test_update_h3_video_prompt_uses_the_shared_operation(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import h3_prompt_optimization as mod
+
+    captured: dict[str, Any] = {}
+
+    class _Artifact:
+        def model_dump(self, *, mode: str) -> dict[str, Any]:
+            assert mode == "json"
+            return {"unit_id": "E1U01", "rendered_prompt": "edited"}
+
+    class _Service:
+        def __init__(self, pm: ProjectManager) -> None:
+            assert pm is fake_ctx.pm
+
+        async def update_prompt(self, project_name: str, episode: int, **kwargs: Any) -> _Artifact:
+            captured.update({"project_name": project_name, "episode": episode, **kwargs})
+            return _Artifact()
+
+    monkeypatch.setattr(mod, "H3PromptOptimizationService", _Service)
+    tool_obj = update_h3_video_prompt_tool(fake_ctx)
+
+    out = await _call(
+        tool_obj,
+        {
+            "episode": 1,
+            "unit_id": "E1U01",
+            "rendered_prompt": "edited",
+            "narration_delivery": "use_tts",
+        },
+    )
+
+    assert out.get("is_error") is not True
+    assert out["artifacts"] == [{"unit_id": "E1U01", "rendered_prompt": "edited"}]
+    assert captured == {
+        "project_name": fake_ctx.project_name,
+        "episode": 1,
+        "unit_id": "E1U01",
+        "rendered_prompt": "edited",
+        "narration_delivery": "use_tts",
+        "confirmed_request_duration_seconds": None,
+    }
 
 
 # ---------------------------------------------------------------------------

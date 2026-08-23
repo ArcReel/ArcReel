@@ -159,6 +159,16 @@ class H3PromptOperationRequest(BaseModel):
     confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
 
 
+class UpdateH3PromptRequest(BaseModel):
+    """One manually edited H3 prompt and the request facts needed to validate it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rendered_prompt: str = Field(min_length=1)
+    narration_delivery: NarrationDelivery = POST_PRODUCTION
+    confirmed_request_duration_seconds: PositiveInt | None = None
+
+
 class AddKeyframeRequest(BaseModel):
     unit_id: str
     description: str = Field(min_length=1)
@@ -837,6 +847,32 @@ async def confirm_h3_prompts(
     req: H3PromptOperationRequest,
 ) -> dict[str, Any]:
     return {"artifacts": await _run_h3_prompt_operation("confirm", project_name, episode, req)}
+
+
+@router.patch("/episodes/{episode}/h3-prompts/{unit_id}")
+async def update_h3_prompt(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    req: UpdateH3PromptRequest,
+) -> dict[str, Any]:
+    try:
+        artifact = await H3PromptOptimizationService().update_prompt(
+            project_name,
+            episode,
+            unit_id=unit_id,
+            rendered_prompt=req.rendered_prompt,
+            narration_delivery=req.narration_delivery,
+            confirmed_request_duration_seconds=req.confirmed_request_duration_seconds,
+        )
+    except H3PromptOptimizationError as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "h3_prompt_output_invalid", "message": str(exc)},
+        ) from exc
+    return {"artifact": artifact.model_dump(mode="json")}
 
 
 @router.post(

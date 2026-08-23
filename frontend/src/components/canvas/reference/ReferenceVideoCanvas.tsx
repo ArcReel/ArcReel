@@ -242,7 +242,10 @@ export function ReferenceVideoCanvas({
   // Drafts persist across unit switches; entry is dropped when text matches server value.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [durationDrafts, setDurationDrafts] = useState<Record<string, string>>({});
+  const [h3PromptDrafts, setH3PromptDrafts] = useState<Record<string, string>>({});
+  const [editingH3PromptKey, setEditingH3PromptKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [h3PromptSaving, setH3PromptSaving] = useState(false);
 
   // resource（=unit）→ 最新任务行。「最新行胜出」下沉到 store selector：
   // store 不保证 tasks 顺序（SSE 原位 upsert），重试的新行不被旧失败行盖住。
@@ -797,6 +800,76 @@ export function ReferenceVideoCanvas({
 
   const currentH3PromptState =
     h3PromptState?.unit_id === selectedH3UnitId ? h3PromptState : null;
+  const currentH3PromptKey = selectedH3UnitId
+    ? draftKey(projectName, episode, selectedH3UnitId)
+    : null;
+  const savedH3Prompt = currentH3PromptState?.artifact?.rendered_prompt ?? "";
+  const currentH3PromptDraft = currentH3PromptKey
+    ? (h3PromptDrafts[currentH3PromptKey] ?? savedH3Prompt)
+    : "";
+  const h3PromptDirty = Boolean(
+    currentH3PromptKey &&
+      currentH3PromptKey in h3PromptDrafts &&
+      currentH3PromptDraft !== savedH3Prompt,
+  );
+  const editingH3Prompt = currentH3PromptKey !== null && editingH3PromptKey === currentH3PromptKey;
+  const handleEditH3Prompt = useCallback(() => {
+    if (!currentH3PromptKey || !savedH3Prompt) return;
+    setEditingH3PromptKey(currentH3PromptKey);
+  }, [currentH3PromptKey, savedH3Prompt]);
+  const handleH3PromptChange = useCallback(
+    (next: string) => {
+      if (!currentH3PromptKey) return;
+      setH3PromptDrafts((draftsByUnit) => {
+        if (next === savedH3Prompt) {
+          if (!(currentH3PromptKey in draftsByUnit)) return draftsByUnit;
+          const copy = { ...draftsByUnit };
+          delete copy[currentH3PromptKey];
+          return copy;
+        }
+        return { ...draftsByUnit, [currentH3PromptKey]: next };
+      });
+    },
+    [currentH3PromptKey, savedH3Prompt],
+  );
+  const handleSaveH3Prompt = useCallback(async () => {
+    if (!selectedH3UnitId || !currentH3PromptKey || !h3PromptDirty) return;
+    const flushed = currentH3PromptDraft;
+    const sequence = ++h3RequestSequence.current;
+    setH3PromptSaving(true);
+    setH3PromptError(null);
+    try {
+      const response = await API.updateH3Prompt(projectName, episode, selectedH3UnitId, {
+        rendered_prompt: flushed,
+        narration_delivery: narrationDelivery,
+      });
+      if (sequence !== h3RequestSequence.current) return;
+      setH3PromptState({
+        unit_id: selectedH3UnitId,
+        state: response.artifact.status,
+        artifact: response.artifact,
+      });
+      setH3PromptDrafts((draftsByUnit) => {
+        if (draftsByUnit[currentH3PromptKey] !== flushed) return draftsByUnit;
+        const copy = { ...draftsByUnit };
+        delete copy[currentH3PromptKey];
+        return copy;
+      });
+      setEditingH3PromptKey((key) => (key === currentH3PromptKey ? null : key));
+    } catch (cause) {
+      if (sequence === h3RequestSequence.current) setH3PromptError(errMsg(cause));
+    } finally {
+      setH3PromptSaving(false);
+    }
+  }, [
+    currentH3PromptDraft,
+    currentH3PromptKey,
+    episode,
+    h3PromptDirty,
+    narrationDelivery,
+    projectName,
+    selectedH3UnitId,
+  ]);
   const h3Applicable =
     currentH3PromptState !== null && currentH3PromptState.state !== "not_applicable";
   const editorViews = useMemo<readonly ("script" | "keyframes" | "parse" | "h3")[]>(
@@ -817,7 +890,10 @@ export function ReferenceVideoCanvas({
       Boolean(unit.needs_replan)
     );
   });
-  const hasAnyDraft = Object.keys(drafts).length > 0 || hasAnyDurationDraft;
+  const hasAnyDraft =
+    Object.keys(drafts).length > 0 ||
+    Object.keys(h3PromptDrafts).length > 0 ||
+    hasAnyDurationDraft;
 
   // 草稿已落盘 → 丢弃本地草稿。若这期间用户又敲了字（草稿值已变），保留新草稿不动，
   // 否则落盘响应回来时会把用户刚输入的内容抹掉。
@@ -1428,6 +1504,13 @@ export function ReferenceVideoCanvas({
                               loading={h3PromptLoading}
                               optimizing={selectedBusy}
                               error={h3PromptError}
+                              editing={editingH3Prompt}
+                              draft={currentH3PromptDraft}
+                              dirty={h3PromptDirty}
+                              saving={h3PromptSaving}
+                              onEdit={handleEditH3Prompt}
+                              onChange={handleH3PromptChange}
+                              onSave={() => void handleSaveH3Prompt()}
                             />
                           </div>
                         )}

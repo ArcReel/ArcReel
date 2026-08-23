@@ -100,6 +100,44 @@ def test_list_units_404_for_unknown_project(client: TestClient):
 
 
 @pytest.mark.unit
+def test_update_h3_prompt_routes_through_the_shared_operation(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from server.routers import reference_videos as router_mod
+
+    captured: dict[str, Any] = {}
+
+    class _Artifact:
+        def model_dump(self, *, mode: str) -> dict[str, Any]:
+            assert mode == "json"
+            return {"unit_id": "E1U01", "status": "pending_review", "rendered_prompt": "edited"}
+
+    class _Service:
+        async def update_prompt(self, project_name: str, episode: int, **kwargs: Any) -> _Artifact:
+            captured.update({"project_name": project_name, "episode": episode, **kwargs})
+            return _Artifact()
+
+    monkeypatch.setattr(router_mod, "H3PromptOptimizationService", _Service)
+
+    response = client.patch(
+        "/api/v1/projects/demo/reference-videos/episodes/1/h3-prompts/E1U01",
+        json={"rendered_prompt": "edited", "narration_delivery": "use_tts"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["artifact"]["rendered_prompt"] == "edited"
+    assert captured == {
+        "project_name": "demo",
+        "episode": 1,
+        "unit_id": "E1U01",
+        "rendered_prompt": "edited",
+        "narration_delivery": "use_tts",
+        "confirmed_request_duration_seconds": None,
+    }
+
+
+@pytest.mark.unit
 def test_add_unit_creates_minimal_entry(client: TestClient):
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",

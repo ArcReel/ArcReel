@@ -9,7 +9,7 @@ import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
-import type { ReferenceDurationPrecheck, ReferenceVideoUnit } from "@/types";
+import type { H3PromptArtifact, ReferenceDurationPrecheck, ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
 
 // useActiveResourceIds / useLatestTasksByResource 默认包裹真实实现，仅在个别用例里
@@ -48,6 +48,26 @@ function mkUnit(id: string, text = "x"): ReferenceVideoUnit {
       status: "pending",
       video_generated_at: null,
     },
+  };
+}
+
+function mkH3Artifact(renderedPrompt: string): H3PromptArtifact {
+  return {
+    unit_id: "E1U1",
+    status: "pending_review",
+    rendered_prompt: renderedPrompt,
+    basis_digest: "basis-v1",
+    model_id: "MiniMax-H3",
+    optimizer_provider: "test",
+    optimizer_model: "test-model",
+    request_duration_seconds: 8,
+    resolution: "768p",
+    aspect_ratio: "16:9",
+    narration_delivery: "post_production",
+    reference_images: [],
+    reference_audio: [],
+    optimized_at: "2026-08-24T00:00:00Z",
+    confirmed_at: null,
   };
 }
 
@@ -224,20 +244,43 @@ describe("ReferenceVideoCanvas", () => {
     expect(await screen.findByRole("combobox")).toBeInTheDocument();
   });
 
-  it("shows a read-only H3 tab inside the selected video unit only when applicable", async () => {
+  it("edits an existing H3 prompt from the pencil icon and saves below the textarea", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "中景。")] });
+    const original = "subject_definitions:\nOriginal";
+    const edited = "subject_definitions:\nEdited";
     vi.mocked(API.getH3PromptStates).mockResolvedValue({
-      states: [{ unit_id: "E1U1", state: "missing", artifact: null }],
+      states: [{ unit_id: "E1U1", state: "pending_review", artifact: mkH3Artifact(original) }],
+    });
+    const updateSpy = vi.spyOn(API, "updateH3Prompt").mockResolvedValue({
+      artifact: mkH3Artifact(edited),
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
 
     const h3Tab = await screen.findByRole("tab", { name: /H3/ });
     fireEvent.click(h3Tab);
 
-    expect(await screen.findByText(/生成视频时将自动优化|optimized automatically when video generation starts/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /优化提示词|Optimize prompt/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /确认并放行|Confirm and release/ })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveTextContent("subject_definitions: Original"));
+    expect(screen.queryByRole("button", { name: /^(Edit|编辑)$/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^(Save|保存)$/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^(Edit|编辑)$/ }));
+    const textarea = screen.getByRole("textbox", { name: /MiniMax H3/ });
+    expect(textarea).toHaveValue(original);
+    const saveButton = screen.getByRole("button", { name: /^(Save|保存)$/ });
+    expect(saveButton).toBeDisabled();
+
+    fireEvent.change(textarea, { target: { value: edited } });
+    expect(saveButton).not.toBeDisabled();
+    fireEvent.click(saveButton);
+
+    await waitFor(() =>
+      expect(updateSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
+        rendered_prompt: edited,
+        narration_delivery: "post_production",
+      }),
+    );
+    await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveTextContent("subject_definitions: Edited"));
+    expect(screen.queryByRole("textbox", { name: /MiniMax H3/ })).toBeNull();
   });
 
   // 两个 tabpanel 同时刻只挂载一个，共用静态 id 会让未选中 tab 的 aria-controls
