@@ -385,7 +385,7 @@ def test_migration_failure_leaves_original_tree_untouched(tmp_path: Path) -> Non
     broken.write_text("{ 这不是合法 JSON", encoding="utf-8")
     original = (project_dir / "project.json").read_bytes()
 
-    with pytest.raises(Exception):  # noqa: B017 - 坏 JSON 的具体异常类型由 load_json 决定
+    with pytest.raises(json.JSONDecodeError):
         migrate_v5_to_v6(project_dir)
 
     assert (project_dir / "project.json").read_bytes() == original

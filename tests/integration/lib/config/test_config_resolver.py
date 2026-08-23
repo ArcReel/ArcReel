@@ -61,6 +61,12 @@ class _FakeConfigService:
         return [_make_ready_provider("gemini-aistudio", ["text", "image", "video"])]
 
 
+async def _video_caps(db_factory, project: dict) -> dict:
+    """按项目字典解析视频能力；项目落盘不参与本组判据，故 project_manager 只做占位。"""
+    with patch("lib.config.resolver.get_project_manager"):
+        return await ConfigResolver(db_factory).video_capabilities_for_project(project)
+
+
 class TestVideoGenerateAudio:
     """验证 video_generate_audio 的默认值、全局配置、项目级覆盖优先级。"""
 
@@ -375,10 +381,6 @@ class TestVideoBackendThreeLevelPriority:
 class TestVideoCapabilitiesBucketing:
     """读侧按 generation_mode 定桶：能力查询回答的是当前配置真正会执行的那个模型。"""
 
-    async def _caps(self, db_factory, project: dict) -> dict:
-        with patch("lib.config.resolver.get_project_manager"):
-            return await ConfigResolver(db_factory).video_capabilities_for_project(project)
-
     def test_generation_mode_maps_to_bucket(self):
         assert video_bucket_for_generation_mode("storyboard") == "i2v"
         assert video_bucket_for_generation_mode("reference_video") == "r2v"
@@ -390,7 +392,7 @@ class TestVideoCapabilitiesBucketing:
 
     async def test_i2v_bucket_shadows_project_default(self, db_factory):
         """图生视频项目读 i2v 桶，遮蔽项目默认层。"""
-        caps = await self._caps(
+        caps = await _video_caps(
             db_factory,
             {
                 "video_backend": "grok/grok-imagine-video",
@@ -402,7 +404,7 @@ class TestVideoCapabilitiesBucketing:
 
     async def test_r2v_bucket_shadows_project_default(self, db_factory):
         """参考生视频项目读 r2v 桶，遮蔽项目默认层。"""
-        caps = await self._caps(
+        caps = await _video_caps(
             db_factory,
             {
                 "video_backend": "grok/grok-imagine-video",
@@ -418,8 +420,8 @@ class TestVideoCapabilitiesBucketing:
             "video_provider_i2v": "kling/kling-v3",
             "video_provider_r2v": "minimax/S2V-01",
         }
-        i2v_caps = await self._caps(db_factory, {**project, "generation_mode": "storyboard"})
-        r2v_caps = await self._caps(db_factory, {**project, "generation_mode": "reference_video"})
+        i2v_caps = await _video_caps(db_factory, {**project, "generation_mode": "storyboard"})
+        r2v_caps = await _video_caps(db_factory, {**project, "generation_mode": "reference_video"})
         assert i2v_caps["model"] == "kling-v3"
         assert r2v_caps["model"] == "S2V-01"
         # 能力字典本身随之变：i2v 桶的型号不接受参考图
@@ -429,14 +431,14 @@ class TestVideoCapabilitiesBucketing:
     async def test_reference_video_project_errors_when_model_lacks_reference_support(self, db_factory):
         """参考生视频项目解析到无参考图能力的模型时报结构化错误，不静默换模型。"""
         with pytest.raises(VideoBucketCapabilityError) as excinfo:
-            await self._caps(db_factory, {"video_backend": "kling/kling-v3", "generation_mode": "reference_video"})
+            await _video_caps(db_factory, {"video_backend": "kling/kling-v3", "generation_mode": "reference_video"})
         assert excinfo.value.code == "video_capability_missing_r2v"
         assert excinfo.value.params == {"provider": "kling", "model": "kling-v3"}
 
     async def test_storyboard_project_errors_when_model_lacks_first_frame(self, db_factory):
         """图生视频项目解析到无首帧能力的模型时同样报错（桶换成 i2v）。"""
         with pytest.raises(VideoBucketCapabilityError) as excinfo:
-            await self._caps(db_factory, {"video_backend": "minimax/S2V-01", "generation_mode": "storyboard"})
+            await _video_caps(db_factory, {"video_backend": "minimax/S2V-01", "generation_mode": "storyboard"})
         assert excinfo.value.code == "video_capability_missing_i2v"
 
     async def test_duration_constraints_evaluate_on_bucket_model(self, db_factory):
@@ -446,7 +448,7 @@ class TestVideoCapabilitiesBucketing:
             "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
             "generation_mode": "reference_video",
         }
-        caps = await self._caps(db_factory, project)
+        caps = await _video_caps(db_factory, project)
         assert caps["model"] == "veo-3.1-generate-preview"
         assert caps["supported_durations"] == [4, 6, 8]
         constrained = constrain_durations_for_project(
@@ -460,7 +462,7 @@ class TestVideoCapabilitiesBucketing:
 
     async def test_max_reference_images_follows_backend_declaration(self, db_factory):
         """viduq3-pro 不在 /reference2video 白名单：能力查询报 0，不报 registry 的并行声明。"""
-        caps = await self._caps(db_factory, {"video_backend": "vidu/viduq3-pro", "generation_mode": "storyboard"})
+        caps = await _video_caps(db_factory, {"video_backend": "vidu/viduq3-pro", "generation_mode": "storyboard"})
         assert caps["max_reference_images"] == 0
 
 
@@ -1652,10 +1654,6 @@ class TestStyleAnalysisVisionGuard:
 class TestProjectGenerationModeCaps:
     """能力解析按项目生成模式定轴：创建即定、全项目一种，能力不需要剧集上下文。"""
 
-    async def _caps(self, db_factory, project: dict) -> dict:
-        with patch("lib.config.resolver.get_project_manager"):
-            return await ConfigResolver(db_factory).video_capabilities_for_project(project)
-
     def test_caps_generation_mode_reads_project_field(self):
         assert caps_generation_mode({"generation_mode": "reference_video"}) == "reference_video"
         assert caps_generation_mode({"generation_mode": "storyboard"}) == "storyboard"
@@ -1675,8 +1673,8 @@ class TestProjectGenerationModeCaps:
             "video_provider_r2v": "minimax/S2V-01",
         }
         reference_project = {**storyboard_project, "generation_mode": "reference_video"}
-        assert (await self._caps(db_factory, storyboard_project))["model"] == "kling-v3"
-        assert (await self._caps(db_factory, reference_project))["model"] == "S2V-01"
+        assert (await _video_caps(db_factory, storyboard_project))["model"] == "kling-v3"
+        assert (await _video_caps(db_factory, reference_project))["model"] == "S2V-01"
 
     async def test_voice_consistency_follows_project_route(self, db_factory):
         """参考生视频按 native 解析，分镜图生视频降格 soft。"""
@@ -1685,16 +1683,16 @@ class TestProjectGenerationModeCaps:
             "video_provider_r2v": "ark/doubao-seedance-2-0-260128",
             "video_backend": "ark/doubao-seedance-2-0-260128",
         }
-        caps = await self._caps(db_factory, project)
+        caps = await _video_caps(db_factory, project)
         assert caps["voice_consistency"] == "native"
         assert caps["generation_mode"] == "reference_video"
-        assert (await self._caps(db_factory, {**project, "generation_mode": "storyboard"}))[
+        assert (await _video_caps(db_factory, {**project, "generation_mode": "storyboard"}))[
             "voice_consistency"
         ] == "soft"
 
     async def test_uses_reference_images_constraint_follows_project_route(self, db_factory):
         """caps 的 generation_mode 是下游时长约束的入参，参考生视频据此施加「参考图↔时长」约束。"""
-        caps = await self._caps(
+        caps = await _video_caps(
             db_factory, {"generation_mode": "reference_video", "video_provider_r2v": "minimax/S2V-01"}
         )
         assert caps["generation_mode"] == "reference_video"

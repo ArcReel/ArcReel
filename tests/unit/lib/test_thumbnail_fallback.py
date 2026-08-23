@@ -242,7 +242,7 @@ async def test_last_frame_retries_precise_count_when_fast_extract_writes_nothing
 
 
 def test_ffprobe_available_is_cached():
-    """_ffprobe_available() 同样走 @functools.cache：独立于 ffmpeg 各缓存各的结论。"""
+    """_ffprobe_available() 走 @functools.cache：首次结论定死，之后 which 换答案也不再重探。"""
     thumbnail_module._reset_for_tests()
     with patch("lib.thumbnail.shutil.which", return_value=None):
         assert thumbnail_module._ffprobe_available() is False

@@ -334,7 +334,6 @@ def test_project_adapter_replace_failure_preserves_manifest_and_cleans_temp_file
 @pytest.mark.parametrize("force_python_link_fallback", [False, True])
 def test_project_adapter_blocks_escape_and_symlink_artifact_paths(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     force_python_link_fallback: bool,
 ) -> None:
     project = tmp_path / "project"
@@ -724,7 +723,6 @@ def test_project_adapter_reports_unavailable_opened_posix_root(tmp_path: Path) -
 @pytest.mark.skipif(os.name != "posix", reason="Python link checks backstop platforms without O_NOFOLLOW")
 def test_project_adapter_rejects_replaced_posix_project_root_symlink_without_no_follow(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -836,7 +834,6 @@ def test_project_adapter_keeps_manifest_write_on_opened_root_during_swap(
 @pytest.mark.parametrize("force_python_link_fallback", [False, True])
 def test_project_adapter_refuses_runtime_file_symlinks(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     runtime_path: str,
     force_python_link_fallback: bool,
 ) -> None:
