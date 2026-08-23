@@ -13,6 +13,13 @@
 同名 fixture 在 ≥3 个测试文件重复定义；局部 conftest 与祖先 conftest 同名 fixture。
 只统计模块顶层 fixture——类内 fixture 的作用域限于该类，不构成跨文件的共享设施重复。
 
+类 4「文件形态」：`_more` / `_full` / `_coverage` / `_extra` / `_additional` 分裂后缀；
+单文件 3000 行熔断；前端测试文件位于 `__tests__/` 目录。后端 `tests/**/*.py` 与前端
+`frontend/src/**/*.test.*` 同受此类约束，前端语义类规则归 eslint、不在本脚本内。
+
+`--check` 是闸门形态：以 `规则号 file:line 修复指引` 列出上述全部命中，非零即退出码 1。
+零容忍，无基线、无豁免标注——误报通过修改本脚本解决。
+
 零第三方依赖，只用 `ast`。用法见 `--help`。
 """
 
@@ -201,6 +208,14 @@ class PatchSite:
     module_under_test: str | None
     hits_module_under_test: bool
     motive: str
+
+
+@dataclass
+class NoAssertionTest:
+    path: str
+    line: int
+    func: str
+    marks: list[str]
 
 
 @dataclass
@@ -684,6 +699,7 @@ class FileScanner:
         self.module_marks = ([tier] if tier else []) + self._module_marks()
         self.stat = FileStat(path=self.rel)
         self.double_only: list[DoubleOnlyTest] = []
+        self.no_assertion: list[NoAssertionTest] = []
         self.patches: list[PatchSite] = []
 
     def _module_marks(self) -> list[str]:
@@ -729,6 +745,7 @@ class FileScanner:
         qual = f"{class_name}::{node.name}" if class_name else node.name
         if double_hits == 0 and real_hits == 0:
             self.stat.no_assertion += 1
+            self.no_assertion.append(NoAssertionTest(path=self.rel, line=node.lineno, func=qual, marks=marks))
         elif real_hits == 0:
             self.stat.double_only += 1
             self.double_only.append(
@@ -988,13 +1005,84 @@ def scan_shared_facilities(root: Path, tests_dir: Path) -> list[StructureFinding
     return sorted(findings, key=lambda f: (f.rule, f.path, f.line))
 
 
+# ---------------------------------------------------------------- 类 4：文件形态
+
+SPLIT_SUFFIX_RE = re.compile(r"_(more|full|coverage|extra|additional)$")
+FILE_LINE_LIMIT = 3000
+FRONTEND_TESTS_DIR = "__tests__"
+
+
+def file_stem(path: Path) -> str:
+    """去掉全部扩展名后的基名：`Foo.drama.test.tsx` → `Foo.drama`、`test_x_more.py` → `test_x_more`。"""
+    name = path.name
+    while True:
+        stem = Path(name).stem
+        if stem == name:
+            return stem
+        name = stem
+
+
+def scan_file_shape(root: Path, paths: list[Path]) -> list[StructureFinding]:
+    """分裂命名后缀禁令与单文件 3000 行熔断。后端与前端测试文件共用同一判定。
+
+    后缀锚定基名结尾，`test_usage_extraction.py` 这类含子串的文件名不命中。
+    """
+    findings: list[StructureFinding] = []
+    for path in sorted(paths):
+        rel = path.relative_to(root).as_posix()
+        stem = file_stem(path)
+        match = SPLIT_SUFFIX_RE.search(stem)
+        if match:
+            findings.append(
+                StructureFinding(
+                    "NAME-SPLIT",
+                    rel,
+                    1,
+                    f"文件名带分裂后缀 `_{match.group(1)}`",
+                    "按行为域取语义化主题后缀重命名，或并回主文件",
+                )
+            )
+        lines = len(path.read_text(encoding="utf-8").splitlines())
+        if lines > FILE_LINE_LIMIT:
+            findings.append(
+                StructureFinding(
+                    "SIZE-LIMIT",
+                    rel,
+                    lines,
+                    f"{lines} 行，超出单文件 {FILE_LINE_LIMIT} 行熔断",
+                    "按被测对象或行为域拆分为多个文件",
+                )
+            )
+    return findings
+
+
+def frontend_test_files(frontend_src: Path) -> list[Path]:
+    return sorted(p for p in frontend_src.rglob("*") if p.is_file() and ".test." in p.name)
+
+
+def scan_frontend_layout(root: Path, paths: list[Path]) -> list[StructureFinding]:
+    """前端测试文件与源文件同级并放，不使用 `__tests__/` 目录。"""
+    return [
+        StructureFinding(
+            "FE-TESTS-DIR",
+            path.relative_to(root).as_posix(),
+            1,
+            f"测试文件位于 `{FRONTEND_TESTS_DIR}/` 目录",
+            "迁出为与源文件同级并放",
+        )
+        for path in sorted(paths)
+        if FRONTEND_TESTS_DIR in path.parts
+    ]
+
+
 # ---------------------------------------------------------------- 汇总输出
 
 
-def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
+def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None) -> dict[str, object]:
     files = sorted(p for p in tests_dir.rglob("*.py") if p.name != "__init__.py")
     stats: list[FileStat] = []
     double_only: list[DoubleOnlyTest] = []
+    no_assertion_cases: list[NoAssertionTest] = []
     patches: list[PatchSite] = []
     failures: list[str] = []
     prod = ProductionIndex(root)
@@ -1008,6 +1096,7 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
             continue
         stats.append(scanner.stat)
         double_only.extend(scanner.double_only)
+        no_assertion_cases.extend(scanner.no_assertion)
         patches.extend(scanner.patches)
 
     private = [p for p in patches if p.private]
@@ -1048,6 +1137,10 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
     structure = scan_shared_facilities(root, tests_dir)
     structure_counter = Counter(f.rule for f in structure)
 
+    frontend_files = frontend_test_files(frontend_src) if frontend_src and frontend_src.is_dir() else []
+    shape = scan_file_shape(root, files + frontend_files) + scan_frontend_layout(root, frontend_files)
+    shape_counter = Counter(f.rule for f in shape)
+
     return {
         "totals": {
             "test_files": len(stats),
@@ -1066,6 +1159,10 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
             "conftest_fixture_override_sites": structure_counter["FIXTURE-OVERRIDE"],
             "conftest_shadow_sites": structure_counter["CONFTEST-SHADOW"],
             "duplicate_fixture_sites": structure_counter["FIXTURE-DUP"],
+            "frontend_test_files": len(frontend_files),
+            "split_suffix_files": shape_counter["NAME-SPLIT"],
+            "oversized_files": shape_counter["SIZE-LIMIT"],
+            "frontend_tests_dir_files": shape_counter["FE-TESTS-DIR"],
         },
         "double_only_by_file": [
             {"path": s.path, "double_only": s.double_only, "test_funcs": s.test_funcs}
@@ -1073,6 +1170,7 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
             if s.double_only
         ][:top],
         "double_only_cases": [asdict(d) for d in double_only],
+        "no_assertion_cases": [asdict(c) for c in no_assertion_cases],
         "double_only_subjects_top": Counter(s for d in double_only for s in d.subjects).most_common(top),
         "private_targets_top": by_symbol.most_common(top),
         "integration_self_targets_top": by_symbol_integ.most_common(top),
@@ -1087,8 +1185,79 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
         "integration_self_patch_sites": [asdict(p) for p in integ_self],
         "integration_collaborator_patch_sites": [asdict(p) for p in integ_collaborator],
         "shared_facility_findings": [asdict(f) for f in structure],
+        "file_shape_findings": [asdict(f) for f in shape],
         "parse_failures": failures,
     }
+
+
+@dataclass
+class Violation:
+    rule: str
+    path: str
+    line: int
+    guidance: str
+
+
+def gate_violations(result: dict[str, object]) -> list[Violation]:
+    """把审计结果压平成闸门违规清单。零容忍：任一条命中即闸门红。"""
+    out: list[Violation] = []
+
+    def rows(key: str) -> list[dict[str, object]]:
+        value = result[key]
+        assert isinstance(value, list)
+        return value
+
+    for case in rows("double_only_cases"):
+        out.append(
+            Violation(
+                "DOUBLE-ONLY",
+                str(case["path"]),
+                int(str(case["line"])),
+                f"`{case['func']}` 的断言全部落在替身调用记录上，改断言真实产出或删除",
+            )
+        )
+    for case in rows("no_assertion_cases"):
+        out.append(
+            Violation(
+                "NO-ASSERTION",
+                str(case["path"]),
+                int(str(case["line"])),
+                f"`{case['func']}` 零断言，补上要保护的行为断言或删除",
+            )
+        )
+    for site in rows("private_patch_sites"):
+        out.append(
+            Violation(
+                "PRIVATE-PATCH",
+                str(site["path"]),
+                int(str(site["line"])),
+                f"patch 生产代码私有符号 `{site['target']}`，改走显式参数注入的 seam",
+            )
+        )
+    for site in rows("integration_self_patch_sites"):
+        out.append(
+            Violation(
+                "INTEG-SELF-PATCH",
+                str(site["path"]),
+                int(str(site["line"])),
+                f"integration 用例 patch 被测 module 的公共入口 `{site['target']}`，改走真实协作",
+            )
+        )
+    for finding in rows("shared_facility_findings") + rows("file_shape_findings"):
+        out.append(
+            Violation(
+                str(finding["rule"]),
+                str(finding["path"]),
+                int(str(finding["line"])),
+                f"{finding['detail']}；{finding['guidance']}",
+            )
+        )
+    failures = result["parse_failures"]
+    assert isinstance(failures, list)
+    for failure in failures:
+        out.append(Violation("PARSE-FAIL", str(failure), 0, "测试文件无法解析，审计无法覆盖，先修复语法"))
+
+    return sorted(out, key=lambda v: (v.rule, v.path, v.line))
 
 
 def _print_ranking(title: str, rows: object) -> None:
@@ -1107,6 +1276,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tests", default="tests", help="测试目录，相对 root（默认 tests）")
     parser.add_argument("--top", type=int, default=30, help="Top N 榜单长度（默认 30）")
     parser.add_argument("--json", dest="json_out", help="把完整明细写入该 JSON 文件")
+    parser.add_argument(
+        "--frontend",
+        default="frontend/src",
+        help="前端源码目录，相对 root（默认 frontend/src）；目录不存在时跳过前端段",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="闸门模式：按 `规则号 file:line 修复指引` 列出全部违规，非零命中时退出码 1",
+    )
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve()
@@ -1115,9 +1294,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"测试目录不存在：{tests_dir}", file=sys.stderr)
         return 2
 
-    result = run(root, tests_dir, args.top)
+    result = run(root, tests_dir, args.top, root / args.frontend)
     totals = result["totals"]
     assert isinstance(totals, dict)
+
+    if args.check:
+        violations = gate_violations(result)
+        for v in violations:
+            print(f"{v.rule} {v.path}:{v.line} {v.guidance}")
+        if violations:
+            print(f"\n闸门未通过：{len(violations)} 处违规", file=sys.stderr)
+            return 1
+        print("闸门通过：0 处违规")
+        return 0
 
     print("== 总量 ==")
     for key, value in totals.items():
@@ -1149,6 +1338,14 @@ def main(argv: list[str] | None = None) -> int:
     for row in structure:
         print(f"{row['rule']:17s} {row['path']}:{row['line']}  {row['detail']}  → {row['guidance']}")
     if not structure:
+        print("无命中")
+
+    print("\n== 类 4：文件形态（后端 + 前端） ==")
+    shape = result["file_shape_findings"]
+    assert isinstance(shape, list)
+    for row in shape:
+        print(f"{row['rule']:13s} {row['path']}:{row['line']}  {row['detail']}  → {row['guidance']}")
+    if not shape:
         print("无命中")
 
     if args.json_out:
