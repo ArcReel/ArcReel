@@ -502,6 +502,20 @@ export function CreateProjectModal() {
               onAnalyze={voidPromise(handleAnalyzeStyle)}
               customStyles={customStyles}
               customStylesLoading={customStylesLoading}
+              onCustomStyleUpdated={(updated) => {
+                setCustomStyles((current) => [
+                  updated,
+                  ...current.filter((item) => item.id !== updated.id),
+                ]);
+                setStyle((current) => current.customStyleId === updated.id
+                  ? {
+                    ...current,
+                    styleDescription: updated.description,
+                    uploadedFile: null,
+                    uploadedPreview: API.getGlobalAssetUrl(updated.image_path, updated.updated_at),
+                  }
+                  : current);
+              }}
             />
           )}
         </div>

@@ -811,6 +811,10 @@ export function ProjectSettingsPage() {
                 onChange={setStyleValue}
                 customStyles={customStyles}
                 customStylesLoading={customStylesLoading}
+                onCustomStyleUpdated={(updated) => setCustomStyles((current) => [
+                  updated,
+                  ...current.filter((item) => item.id !== updated.id),
+                ])}
                 onSelectCustomStyle={(style) => setStyleDescription(style.description)}
                 onCreateCustomStyle={() => setStyleDescription("")}
                 customPreviewAction={styleValue.uploadedPreview ? (

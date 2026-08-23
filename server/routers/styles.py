@@ -11,8 +11,9 @@ import asyncio
 import logging
 import shutil
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from lib.api_errors import NotFoundError
@@ -22,6 +23,14 @@ from lib.i18n import Translator
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
+from server.services.custom_styles import (
+    CustomStyleEmptyError,
+    CustomStyleImage,
+    CustomStyleImageError,
+    CustomStyleNameConflictError,
+    CustomStyleNotFoundError,
+    update_custom_style,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +88,47 @@ async def list_styles(_t: Translator):
     async with async_session_factory() as session:
         items = await AssetRepository(session).list(type=STYLE_ASSET_TYPE, q=None, limit=200, offset=0)
         return {"items": [_serialize(item) for item in items]}
+
+
+@router.patch("/{style_id}")
+async def edit_style(
+    style_id: str,
+    _t: Translator,
+    name: str = Form(...),
+    description: str = Form(""),
+    remove_image: bool = Form(False),
+    image: UploadFile | None = File(None),
+):
+    """Edit a reusable style card without changing any linked project snapshot."""
+
+    replacement: CustomStyleImage | None = None
+    if image is not None and image.filename:
+        replacement = CustomStyleImage(
+            content=await image.read(),
+            extension=Path(image.filename).suffix.lower(),
+        )
+    try:
+        style = await update_custom_style(
+            style_id,
+            name=name,
+            description=description,
+            replacement_image=replacement,
+            remove_image=remove_image,
+            session_factory=async_session_factory,
+            projects_root=get_project_manager().projects_root,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name)) from exc
+    except CustomStyleNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=_t("style_library_item_not_found")) from exc
+    except CustomStyleNameConflictError as exc:
+        raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=name.strip())) from exc
+    except CustomStyleEmptyError as exc:
+        raise HTTPException(status_code=400, detail=_t("style_library_empty")) from exc
+    except CustomStyleImageError as exc:
+        key = "asset_upload_too_large" if exc.reason == "size" else "asset_unsupported_format"
+        raise HTTPException(status_code=413 if exc.reason == "size" else 415, detail=_t(key)) from exc
+    return {"style": style.serialize()}
 
 
 class SaveProjectStyleRequest(BaseModel):
