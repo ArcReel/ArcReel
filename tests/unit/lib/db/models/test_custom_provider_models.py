@@ -4,37 +4,19 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import inspect, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import lib.db.models  # noqa: F401 — ensure all models registered
-from lib.db.base import Base
 from lib.db.models import CustomProvider, CustomProviderModel
 
 
-@pytest.fixture
-async def engine():
-    eng = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield eng
-    await eng.dispose()
-
-
-@pytest.fixture
-async def session(engine):
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-
-
 class TestCustomProviderTable:
-    async def test_table_exists(self, engine):
-        async with engine.connect() as conn:
+    async def test_table_exists(self, db_engine):
+        async with db_engine.connect() as conn:
             table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
         assert "custom_provider" in table_names
 
-    async def test_table_columns(self, engine):
-        async with engine.connect() as conn:
+    async def test_table_columns(self, db_engine):
+        async with db_engine.connect() as conn:
             columns = await conn.run_sync(
                 lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("custom_provider")}
             )
@@ -54,17 +36,17 @@ class TestCustomProviderTable:
 
 
 class TestCustomProviderRoundTrip:
-    async def test_create_and_read_back(self, session):
+    async def test_create_and_read_back(self, db_session):
         provider = CustomProvider(
             display_name="My Ollama",
             discovery_format="openai",
             base_url="http://localhost:11434/v1",
             api_key="sk-local-test",
         )
-        session.add(provider)
-        await session.commit()
+        db_session.add(provider)
+        await db_session.commit()
 
-        result = await session.execute(select(CustomProvider).where(CustomProvider.display_name == "My Ollama"))
+        result = await db_session.execute(select(CustomProvider).where(CustomProvider.display_name == "My Ollama"))
         loaded = result.scalar_one()
         assert loaded.display_name == "My Ollama"
         assert loaded.discovery_format == "openai"
@@ -74,29 +56,29 @@ class TestCustomProviderRoundTrip:
         assert loaded.created_at is not None
         assert loaded.updated_at is not None
 
-    async def test_provider_id_property(self, session):
+    async def test_provider_id_property(self, db_session):
         provider = CustomProvider(
             display_name="Test Provider",
             discovery_format="openai",
             base_url="http://example.com/v1",
             api_key="sk-test",
         )
-        session.add(provider)
-        await session.commit()
+        db_session.add(provider)
+        await db_session.commit()
 
-        result = await session.execute(select(CustomProvider).where(CustomProvider.display_name == "Test Provider"))
+        result = await db_session.execute(select(CustomProvider).where(CustomProvider.display_name == "Test Provider"))
         loaded = result.scalar_one()
         assert loaded.provider_id == f"custom-{loaded.id}"
 
 
 class TestCustomProviderModelTable:
-    async def test_table_exists(self, engine):
-        async with engine.connect() as conn:
+    async def test_table_exists(self, db_engine):
+        async with db_engine.connect() as conn:
             table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
         assert "custom_provider_model" in table_names
 
-    async def test_table_columns(self, engine):
-        async with engine.connect() as conn:
+    async def test_table_columns(self, db_engine):
+        async with db_engine.connect() as conn:
             columns = await conn.run_sync(
                 lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("custom_provider_model")}
             )
@@ -122,7 +104,7 @@ class TestCustomProviderModelTable:
 
 
 class TestCustomProviderModelRoundTrip:
-    async def test_create_linked_model(self, session):
+    async def test_create_linked_model(self, db_session):
         """Create a CustomProviderModel linked to a provider and read back."""
         provider = CustomProvider(
             display_name="OpenRouter",
@@ -130,8 +112,8 @@ class TestCustomProviderModelRoundTrip:
             base_url="https://openrouter.ai/api/v1",
             api_key="sk-or-xxx",
         )
-        session.add(provider)
-        await session.commit()
+        db_session.add(provider)
+        await db_session.commit()
 
         model = CustomProviderModel(
             provider_id=provider.id,
@@ -145,10 +127,10 @@ class TestCustomProviderModelRoundTrip:
             price_output=15.0,
             currency="USD",
         )
-        session.add(model)
-        await session.commit()
+        db_session.add(model)
+        await db_session.commit()
 
-        result = await session.execute(
+        result = await db_session.execute(
             select(CustomProviderModel).where(CustomProviderModel.provider_id == provider.id)
         )
         loaded = result.scalar_one()
@@ -164,7 +146,7 @@ class TestCustomProviderModelRoundTrip:
         assert loaded.created_at is not None
         assert loaded.updated_at is not None
 
-    async def test_price_fields_nullable(self, session):
+    async def test_price_fields_nullable(self, db_session):
         """Price fields should be nullable for local/free providers (e.g., Ollama)."""
         provider = CustomProvider(
             display_name="Local Ollama",
@@ -172,8 +154,8 @@ class TestCustomProviderModelRoundTrip:
             base_url="http://localhost:11434/v1",
             api_key="ollama",
         )
-        session.add(provider)
-        await session.commit()
+        db_session.add(provider)
+        await db_session.commit()
 
         model = CustomProviderModel(
             provider_id=provider.id,
@@ -181,10 +163,10 @@ class TestCustomProviderModelRoundTrip:
             display_name="Llama 3",
             endpoint="openai-chat",
         )
-        session.add(model)
-        await session.commit()
+        db_session.add(model)
+        await db_session.commit()
 
-        result = await session.execute(select(CustomProviderModel).where(CustomProviderModel.model_id == "llama3"))
+        result = await db_session.execute(select(CustomProviderModel).where(CustomProviderModel.model_id == "llama3"))
         loaded = result.scalar_one()
         assert loaded.price_unit is None
         assert loaded.price_input is None
@@ -193,7 +175,7 @@ class TestCustomProviderModelRoundTrip:
         assert loaded.is_default is False
         assert loaded.is_enabled is True
 
-    async def test_unique_constraint_provider_model(self, session):
+    async def test_unique_constraint_provider_model(self, db_session):
         """UniqueConstraint on (provider_id, model_id) should prevent duplicates."""
         provider = CustomProvider(
             display_name="Dup Test",
@@ -201,8 +183,8 @@ class TestCustomProviderModelRoundTrip:
             base_url="http://example.com/v1",
             api_key="sk-test",
         )
-        session.add(provider)
-        await session.commit()
+        db_session.add(provider)
+        await db_session.commit()
 
         model1 = CustomProviderModel(
             provider_id=provider.id,
@@ -210,8 +192,8 @@ class TestCustomProviderModelRoundTrip:
             display_name="GPT-4o",
             endpoint="openai-chat",
         )
-        session.add(model1)
-        await session.commit()
+        db_session.add(model1)
+        await db_session.commit()
 
         model2 = CustomProviderModel(
             provider_id=provider.id,
@@ -219,6 +201,6 @@ class TestCustomProviderModelRoundTrip:
             display_name="GPT-4o Dup",
             endpoint="openai-chat",
         )
-        session.add(model2)
+        db_session.add(model2)
         with pytest.raises(Exception):  # IntegrityError
-            await session.commit()
+            await db_session.commit()

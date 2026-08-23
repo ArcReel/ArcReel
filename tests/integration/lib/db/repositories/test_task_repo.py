@@ -18,22 +18,6 @@ def _translator(locale: str):
     return translate
 
 
-@pytest.fixture
-async def engine():
-    eng = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield eng
-    await eng.dispose()
-
-
-@pytest.fixture
-async def db_session(engine):
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-
-
 class TestTaskRepository:
     async def test_enqueue_dedupe_claim_succeed(self, db_session):
         repo = TaskRepository(db_session)
@@ -356,17 +340,17 @@ class TestTaskRepository:
 
     async def test_worker_lease_concurrent_first_acquire(self, tmp_path):
         db_path = tmp_path / "lease-race.db"
-        engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
-        async with engine.begin() as conn:
+        db_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+        async with db_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-        factory = async_sessionmaker(engine, expire_on_commit=False)
+        factory = async_sessionmaker(db_engine, expire_on_commit=False)
         start = asyncio.Event()
 
         async def _attempt(owner_id: str) -> bool:
             await start.wait()
-            async with factory() as session:
-                repo = TaskRepository(session)
+            async with factory() as db_session:
+                repo = TaskRepository(db_session)
                 return await repo.acquire_or_renew_lease(
                     name="default",
                     owner_id=owner_id,
@@ -380,13 +364,13 @@ class TestTaskRepository:
         a_ok, b_ok = await asyncio.gather(first, second)
         assert sorted([a_ok, b_ok]) == [False, True]
 
-        async with factory() as session:
-            repo = TaskRepository(session)
+        async with factory() as db_session:
+            repo = TaskRepository(db_session)
             lease = await repo.get_worker_lease(name="default")
             assert lease is not None
             assert lease["owner_id"] in {"worker-a", "worker-b"}
 
-        await engine.dispose()
+        await db_engine.dispose()
 
     async def test_list_tasks_with_filters(self, db_session):
         repo = TaskRepository(db_session)

@@ -8,11 +8,12 @@ import shutil
 import tempfile
 import uuid as _uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
 from sqlalchemy import event, pool, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 # `lib.db.engine` 的模块级 engine 在 import 期就按 `DATABASE_URL` 绑定，进程内不再重建，
 # 所以覆写必须发生在下方任何会传染到该模块的 import 之前。未显式指定时它落在仓库根的
@@ -134,17 +135,6 @@ def _shared_db_schema():
     command.upgrade(cfg, "head")
 
 
-@pytest.fixture()
-async def db_factory():
-    """Create an async session factory backed by an isolated in-memory database."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
-
-
 def _pg_url_from_env() -> str | None:
     """Return DATABASE_URL iff it's a PostgreSQL+asyncpg URL, else None."""
     url = os.environ.get("DATABASE_URL")
@@ -159,7 +149,7 @@ def _pg_url_from_env() -> str | None:
 _PG_TEST_USER_IDS = ("default", "u1", "conformance", "e2e", "crash-recover", "long-turn")
 
 
-async def _seed_pg_users(engine) -> None:
+async def _seed_pg_users(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         for uid in _PG_TEST_USER_IDS:
             await conn.execute(
@@ -172,56 +162,99 @@ async def _seed_pg_users(engine) -> None:
             )
 
 
-@pytest.fixture
-async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """Session factory with all tables created.
+def _register_models() -> None:
+    """把全部 ORM 模型登记到 ``Base.metadata``。
 
-    By default uses in-memory SQLite. When ``DATABASE_URL`` points at PG
-    (postgresql+asyncpg://...), uses a per-test isolated PG schema so
-    dialect-specific code paths (partial unique indexes + ON CONFLICT,
-    SELECT ... FOR UPDATE) are actually exercised.
+    不这么做时建表范围取决于被测模块的 import 链，同一 fixture 在不同文件下建出的
+    schema 不同。
     """
-    pg_url = _pg_url_from_env()
+    import lib.agent_session_store.models  # noqa: F401
+    import lib.db.models  # noqa: F401  (users / agent_sessions / config etc.)
+
+
+@asynccontextmanager
+async def test_engine(*, dialect_aware: bool = True, file_path: Path | None = None) -> AsyncIterator[AsyncEngine]:
+    """全部 DB fixture 的唯一 engine 来源。
+
+    ``dialect_aware`` 且 ``DATABASE_URL`` 指向 PG 时建 per-test schema 并按 search_path
+    建表、播种 FK 依赖的 user 行，退出时 ``DROP SCHEMA CASCADE``——方言相关代码路径
+    （partial unique index + ON CONFLICT、SELECT ... FOR UPDATE）由此被真实覆盖。
+
+    其余情况建 SQLite：``file_path`` 为 None 时用内存库；给了路径则用 NullPool 文件库，
+    供必须绕开 StaticPool 串行化的并发用例。``dialect_aware=False`` 固定走 SQLite，
+    postgres-compat job 里也不改道——unit 档用例不该被拉去跑 PG。
+    """
+    pg_url = _pg_url_from_env() if dialect_aware else None
     if pg_url:
-        # Per-test schema for isolation; tables created against it via search_path.
         schema = f"test_{_uuid.uuid4().hex[:12]}"
-        engine = create_async_engine(
-            pg_url,
-            connect_args={"server_settings": {"search_path": schema}},
-        )
+        engine = create_async_engine(pg_url, connect_args={"server_settings": {"search_path": schema}})
         async with engine.begin() as conn:
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
         async with engine.begin() as conn:
-            import lib.agent_session_store.models  # noqa: F401
-            import lib.db.models  # noqa: F401
-
+            _register_models()
             await conn.run_sync(Base.metadata.create_all)
         # PG enforces FK constraints (SQLite tests run with PRAGMA foreign_keys=OFF).
-        # Seed the user rows that test cases attribute writes to so FK checks pass.
         await _seed_pg_users(engine)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
         try:
-            yield factory
+            yield engine
         finally:
             async with engine.begin() as conn:
                 await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
             await engine.dispose()
         return
 
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        # Import model modules to register tables on Base.metadata.
-        import lib.agent_session_store.models  # noqa: F401
-        import lib.db.models  # noqa: F401  (users / agent_sessions / config etc.)
+    if file_path is None:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    else:
+        engine = create_async_engine(f"sqlite+aiosqlite:///{file_path}", poolclass=pool.NullPool)
 
+        @event.listens_for(engine.sync_engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, _record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA foreign_keys=OFF")
+            cursor.close()
+
+    async with engine.begin() as conn:
+        _register_models()
         await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture()
+async def db_engine() -> AsyncIterator[AsyncEngine]:
+    """内存 SQLite engine —— models / repositories 单测的共享入口。"""
+    async with test_engine(dialect_aware=False) as engine:
+        yield engine
+
+
+@pytest.fixture()
+async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    """``db_engine`` 上的 AsyncSession。"""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+
+
+@pytest.fixture()
+async def db_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """``db_engine`` 上的 session factory。"""
+    return async_sessionmaker(db_engine, expire_on_commit=False)
 
 
 @pytest.fixture
-async def file_session_factory(tmp_path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """方言敏感的 session factory：PG 下走 per-test schema，否则内存 SQLite。"""
+    async with test_engine() as engine:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+
+
+@pytest.fixture
+async def file_session_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """File-backed SQLite with NullPool — each connection is independent.
 
     Required for concurrency tests that must NOT serialize via StaticPool
@@ -230,28 +263,8 @@ async def file_session_factory(tmp_path) -> AsyncIterator[async_sessionmaker[Asy
     Always SQLite regardless of ``DATABASE_URL`` — tests that depend on this
     fixture are SQLite-specific edge cases marked ``@pytest.mark.sqlite_only``.
     """
-    db_path = tmp_path / "concurrency.db"
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{db_path}",
-        poolclass=pool.NullPool,
-    )
-
-    @event.listens_for(engine.sync_engine, "connect")
-    def _set_sqlite_pragma(dbapi_conn, _record):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA busy_timeout=30000")
-        cursor.execute("PRAGMA foreign_keys=OFF")
-        cursor.close()
-
-    async with engine.begin() as conn:
-        import lib.agent_session_store.models  # noqa: F401
-        import lib.db.models  # noqa: F401
-
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
+    async with test_engine(dialect_aware=False, file_path=tmp_path / "concurrency.db") as engine:
+        yield async_sessionmaker(engine, expire_on_commit=False)
 
 
 # ---------------------------------------------------------------------------
@@ -260,16 +273,9 @@ async def file_session_factory(tmp_path) -> AsyncIterator[async_sessionmaker[Asy
 
 
 @pytest.fixture()
-async def meta_store():
+async def meta_store(db_factory: async_sessionmaker[AsyncSession]) -> SessionMetaStore:
     """Create an async SessionMetaStore backed by in-memory SQLite."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    store = SessionMetaStore(session_factory=factory)
-    yield store
-    await engine.dispose()
+    return SessionMetaStore(session_factory=db_factory)
 
 
 @pytest.fixture()
@@ -395,6 +401,8 @@ async def async_session():
     """
     url = os.environ.get("DATABASE_URL", "")
     if url.startswith("postgresql"):
+        # 唯一不走 `test_engine` 的分支：它绑定 CI job 已 alembic 建好的 public schema，
+        # 而 `test_engine` 建 per-test schema 并 create_all，两者的隔离原语不同。
         # Per-test engine with NullPool: avoids cross-event-loop reuse of
         # asyncpg connections (each pytest-asyncio test runs on a fresh loop).
         from sqlalchemy.pool import NullPool
@@ -418,13 +426,10 @@ async def async_session():
         return
 
     # SQLite in-memory — engine is throwaway, ORM-driven schema.
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-    await engine.dispose()
+    async with test_engine(dialect_aware=False) as engine:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            yield session
 
 
 # ---------------------------------------------------------------------------
@@ -433,18 +438,12 @@ async def async_session():
 
 
 @pytest.fixture()
-async def generation_queue():
+async def generation_queue(db_factory: async_sessionmaker[AsyncSession]):
     """Create an async GenerationQueue backed by in-memory SQLite.
 
     Automatically resets the module singleton on teardown.
     """
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    queue = generation_queue_module.GenerationQueue(session_factory=factory)
+    queue = generation_queue_module.GenerationQueue(session_factory=db_factory)
     generation_queue_module._QUEUE_INSTANCE = queue
     yield queue
     generation_queue_module._QUEUE_INSTANCE = None
-    await engine.dispose()
