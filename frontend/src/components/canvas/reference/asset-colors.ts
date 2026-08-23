@@ -17,7 +17,7 @@
  * valid project assets. This separation lets the UI render a warning appearance
  * for missing or unresolved references without polluting the domain model.
  */
-export type MentionKind = "product" | "character" | "scene" | "prop" | "unknown";
+export type MentionKind = "product" | "character" | "scene" | "prop" | "keyframe" | "unknown";
 
 export interface AssetColorPalette {
   /** Text color class (tailwind) */
@@ -54,6 +54,12 @@ export const ASSET_COLORS: Record<MentionKind, AssetColorPalette> = {
     bgClass: "bg-amber-500/15",
     borderClass: "border-amber-500/40",
     dotClass: "bg-amber-300",
+  },
+  keyframe: {
+    textClass: "text-cyan-300",
+    bgClass: "bg-cyan-500/15",
+    borderClass: "border-cyan-500/40",
+    dotClass: "bg-cyan-300",
   },
   unknown: {
     textClass: "text-red-300",

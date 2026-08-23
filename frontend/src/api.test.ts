@@ -611,6 +611,46 @@ describe("API", () => {
       });
     });
 
+    it("forwards a request-scoped image model without changing the project default", async () => {
+      const requestSpy = vi
+        .spyOn(API, "request")
+        .mockResolvedValue({ success: true, task_id: "t3", message: "ok" } as never);
+
+      await API.generateStoryboard("demo", "E1S01", "prompt", "episode_1.json", {
+        imageProvider: "openai",
+        imageModel: "gpt-image-1",
+      });
+      await API.editImage("demo", {
+        resourceType: "reference_keyframe",
+        resourceId: "E1U01K01",
+        instruction: "调整晨光",
+        scriptFile: "episode_1.json",
+        imageProvider: "openai",
+        imageModel: "gpt-image-1",
+      });
+
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/storyboard/E1S01", {
+        method: "POST",
+        body: JSON.stringify({
+          prompt: "prompt",
+          script_file: "episode_1.json",
+          image_provider: "openai",
+          image_model: "gpt-image-1",
+        }),
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/edit/image", {
+        method: "POST",
+        body: JSON.stringify({
+          resource_type: "reference_keyframe",
+          resource_id: "E1U01K01",
+          instruction: "调整晨光",
+          script_file: "episode_1.json",
+          image_provider: "openai",
+          image_model: "gpt-image-1",
+        }),
+      });
+    });
+
     it("rejects unsupported project mode updates before sending the request", async () => {
       const requestSpy = vi
         .spyOn(API, "request")

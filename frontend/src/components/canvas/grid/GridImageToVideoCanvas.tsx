@@ -5,6 +5,7 @@ import { EpisodeHeader } from "../timeline/EpisodeHeader";
 import { ScriptReviewGate } from "../timeline/ScriptReviewGate";
 import { ShotSplitView } from "../timeline/ShotSplitView";
 import { GridPreviewView } from "./GridPreviewView";
+import { ImageModelSelect, imageSelectionFromValue } from "@/components/shared/ImageModelSelect";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds, useHasActiveTaskForScriptFile } from "@/stores/tasks-store";
@@ -18,6 +19,7 @@ import type {
   DramaScene,
   ProjectData,
   ReferenceGenerationRequestOptions,
+  ImageModelSelection,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene;
@@ -40,7 +42,7 @@ interface GridImageToVideoCanvasProps {
     value?: unknown,
     scriptFile?: string,
   ) => void | Promise<void>;
-  onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateStoryboard?: (segmentId: string, scriptFile?: string, selection?: ImageModelSelection) => void;
   onGenerateVideo?: (
     segmentId: string,
     scriptFile?: string,
@@ -52,6 +54,7 @@ interface GridImageToVideoCanvasProps {
     episode: number,
     scriptFile: string,
     sceneIds?: string[],
+    selection?: ImageModelSelection,
   ) => Promise<void> | void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
@@ -160,16 +163,17 @@ export function GridImageToVideoCanvas({
 
   const invalidateGrids = useAppStore((s) => s.invalidateGrids);
   const [generatingAllGrids, setGeneratingAllGrids] = useState(false);
+  const [gridImageModel, setGridImageModel] = useState("");
   const handleGenerateAllGrids = useCallback(async () => {
     if (!onGenerateGrid || !scriptFile) return;
     setGeneratingAllGrids(true);
     try {
-      await onGenerateGrid(episode, scriptFile);
+      await onGenerateGrid(episode, scriptFile, undefined, imageSelectionFromValue(gridImageModel));
     } finally {
       setGeneratingAllGrids(false);
       invalidateGrids();
     }
-  }, [onGenerateGrid, scriptFile, episode, invalidateGrids]);
+  }, [onGenerateGrid, scriptFile, episode, invalidateGrids, gridImageModel]);
 
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
@@ -201,7 +205,8 @@ export function GridImageToVideoCanvas({
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
   ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
-  const handleGenSb = (segId: string) => onGenerateStoryboard?.(segId, scriptFile);
+  const handleGenSb = (segId: string, selection?: ImageModelSelection) =>
+    onGenerateStoryboard?.(segId, scriptFile, selection);
   const handleGenVid = (
     segId: string,
     requestOptions?: ReferenceGenerationRequestOptions,
@@ -265,6 +270,12 @@ export function GridImageToVideoCanvas({
 
         {activeTab === "grid_preview" && hasScript && onGenerateGrid && scriptFile && (
           <div className="mr-1 inline-flex items-center gap-1.5">
+            <ImageModelSelect
+              value={gridImageModel}
+              onChange={setGridImageModel}
+              capability="any"
+              className="w-60"
+            />
             <button
               type="button"
               onClick={() => void handleGenerateAllGrids()}

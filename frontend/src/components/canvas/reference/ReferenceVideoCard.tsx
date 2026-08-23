@@ -3,11 +3,12 @@ import { useTranslation } from "react-i18next";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useUnitPromptHighlight, type Token } from "@/hooks/useUnitPromptHighlight";
-import { buildMentionLookup, MENTION_RE } from "@/utils/reference-mentions";
+import { buildMentionLookup, MENTION_RE, normalizeAssetName } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   SHEET_FIELD,
   type AssetKind,
+  type MentionReferenceKind,
   type ReferenceVideoUnit,
 } from "@/types/reference-video";
 
@@ -121,7 +122,13 @@ export function ReferenceVideoCard({
 
   const project = useProjectsStore((s) => s.currentProjectData);
 
-  const lookup = useMemo(() => buildMentionLookup(project), [project]);
+  const lookup = useMemo(() => {
+    const next = buildMentionLookup(project);
+    for (const keyframe of unit.keyframes ?? []) {
+      next[normalizeAssetName(`关键分镜 ${keyframe.keyframe_id}`)] = "keyframe";
+    }
+    return next;
+  }, [project, unit.keyframes]);
 
   const tokens = useUnitPromptHighlight(currentText, lookup);
 
@@ -154,14 +161,14 @@ export function ReferenceVideoCard({
   // 定位 @ 插入点。用 state 以便 re-render 时 pre 能在正确位置插 caret anchor。
   const [atStart, setAtStart] = useState<number | null>(null);
 
-  const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
+  const candidates: Record<MentionReferenceKind, MentionCandidate[]> = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
       product: project?.products,
       character: project?.characters,
       scene: project?.scenes,
       prop: project?.props,
     };
-    const out = {} as Record<AssetKind, MentionCandidate[]>;
+    const out = {} as Record<MentionReferenceKind, MentionCandidate[]>;
     for (const kind of ["product", "character", "scene", "prop"] as const) {
       const bucket = buckets[kind];
       out[kind] = Object.entries(bucket ?? {}).map(([name, data]) => ({
@@ -169,8 +176,12 @@ export function ReferenceVideoCard({
         imagePath: (data as Partial<Record<(typeof SHEET_FIELD)[AssetKind], string>>)[SHEET_FIELD[kind]] ?? null,
       }));
     }
+    out.keyframe = (unit.keyframes ?? []).map((keyframe) => ({
+      name: `关键分镜 ${keyframe.keyframe_id}`,
+      imagePath: keyframe.image_path,
+    }));
     return out;
-  }, [project?.products, project?.characters, project?.scenes, project?.props]);
+  }, [project?.products, project?.characters, project?.scenes, project?.props, unit.keyframes]);
 
   const updatePickerFromCursor = useCallback((nextValue: string, cursor: number) => {
     // 向左扫描寻找 @ 触发符。旧格式只允许 `\w` + CJK 作为正在输入的 query；
@@ -248,7 +259,7 @@ export function ReferenceVideoCard({
   }, []);
 
   const handlePickerSelect = useCallback(
-    (ref: { type: AssetKind; name: string }) => {
+    (ref: { type: MentionReferenceKind; name: string }) => {
       const ta = taRef.current;
       const start = atStart;
       if (!ta || start === null) {

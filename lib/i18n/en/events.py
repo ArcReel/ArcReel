@@ -3,6 +3,7 @@
 MESSAGES = {
     "event_label_grid": 'Multi-grid storyboard "{id}"',
     "event_label_grid_split": 'Multi-grid storyboard "{id}" split',
+    "event_label_reference_keyframe": 'Reference keyframe "{id}"',
     "event_label_voice_sample": 'Voice preview for "{id}"',
     "event_label_asset_image_character": 'Asset image for character "{id}"',
     "event_label_asset_image_scene": 'Asset image for scene "{id}"',

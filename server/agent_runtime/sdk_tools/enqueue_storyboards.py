@@ -43,6 +43,7 @@ from server.agent_runtime.sdk_tools._context import (
     tool_error,
     validate_script_filename,
 )
+from server.services.image_model_selection import IMAGE_MODEL_TOOL_PROPERTIES, image_override_from_args
 
 _OPERATION = "generate_storyboards"
 
@@ -104,6 +105,7 @@ def generate_storyboards_tool(ctx: ToolContext):
         {
             "type": "object",
             "properties": {
+                **IMAGE_MODEL_TOOL_PROPERTIES,
                 "script": {
                     "type": "string",
                     "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
@@ -121,6 +123,7 @@ def generate_storyboards_tool(ctx: ToolContext):
         try:
             script_filename = validate_script_filename(args["script"])
             segment_ids = normalize_requested_ids(args.get("segment_ids"), field="segment_ids")
+            image_override = image_override_from_args(args)
 
             script = ctx.pm.load_script(ctx.project_name, script_filename)
             project_dir = ctx.project_path
@@ -204,6 +207,7 @@ def generate_storyboards_tool(ctx: ToolContext):
                     dependency_resource_id=plan.dependency_resource_id,
                     dependency_group=plan.dependency_group,
                     dependency_index=plan.dependency_index,
+                    extra_payload=image_override,
                 )
                 for plan in plans
             ]

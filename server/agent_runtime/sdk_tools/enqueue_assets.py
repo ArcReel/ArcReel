@@ -36,6 +36,7 @@ from server.agent_runtime.sdk_tools._context import (
     generation_result_response,
     tool_error,
 )
+from server.services.image_model_selection import IMAGE_MODEL_TOOL_PROPERTIES, image_override_from_args
 
 # Asset-type emoji shown in tool output. Other display fields (bucket_key,
 # label_zh, subdir) come from lib.asset_types.ASSET_SPECS — the cross-app
@@ -173,6 +174,7 @@ def generate_assets_tool(ctx: ToolContext):
         {
             "type": "object",
             "properties": {
+                **IMAGE_MODEL_TOOL_PROPERTIES,
                 "type": {
                     "type": "string",
                     "enum": list(ALL_TYPES),
@@ -207,6 +209,7 @@ def generate_assets_tool(ctx: ToolContext):
                 }
 
             project = ctx.pm.load_project(ctx.project_name)
+            image_override = image_override_from_args(args)
             resolver = active_artifact_currency_resolver(ctx.project_path, project)
             types = (asset_type,) if asset_type else ALL_TYPES
 
@@ -254,6 +257,7 @@ def generate_assets_tool(ctx: ToolContext):
                         media_type="image",
                         resource_id=asset_name_of(state.unit_id),
                         prompt=_description_of(project, t, state.unit_id),
+                        extra_payload=image_override,
                     )
                     for state in type_targets
                 ]

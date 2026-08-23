@@ -48,6 +48,7 @@ from lib.episode_paths import (
     STEP1_LEGACY_FILENAMES,
     episode_drafts_dir,
 )
+from lib.generation_queue_client import batch_enqueue_only
 from lib.i18n import _ as translate
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
@@ -60,6 +61,7 @@ from lib.reference_video.draft_validation import (
     validate_dialogue_load,
     validate_unit_text,
 )
+from lib.reference_video.keyframes import MAX_KEYFRAMES_PER_UNIT
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_EPISODE,
@@ -68,7 +70,7 @@ from lib.reference_video.script_preview import (
     derive_utterances,
     derive_voice_bindings,
 )
-from lib.reference_video.text_parser import extract_mentions
+from lib.reference_video.text_parser import derive_references_from_text, extract_mentions
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
@@ -90,6 +92,7 @@ from server.agent_runtime.sdk_tools._context import (
     resolve_video_caps,
     tool_error,
 )
+from server.services.reference_keyframe_tasks import reference_keyframe_task_specs
 
 # 四个分集数据生成工具共用的 instructions 参数 schema：用户意见原样注入 prompt 末尾的
 # 「用户意见」分节，遵循强度由正文表达（需要强约束时在正文写明）。
@@ -102,6 +105,21 @@ _INSTRUCTIONS_SCHEMA: dict[str, Any] = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+async def _enqueue_auto_keyframes(ctx: ToolContext, result_path: Path) -> str:
+    """Queue every missing keyframe after a reference-video script is committed."""
+
+    script_file = result_path.name
+    script = ctx.pm.load_script(ctx.project_name, script_file)
+    specs = reference_keyframe_task_specs(script, script_file, missing_only=True)
+    if not specs:
+        return ""
+    enqueued, failures = await batch_enqueue_only(project_name=ctx.project_name, specs=specs)
+    message = f"；已自动提交 {len(enqueued)} 个关键分镜首帧任务（使用项目默认图片模型）"
+    if failures:
+        message += f"，另有 {len(failures)} 个任务未能入队"
+    return message
 
 
 def _parse_step1_json(response_text: str, model: type[BaseModel], *, label: str, top_shape: str) -> dict:
@@ -399,7 +417,10 @@ def generate_episode_script_tool(ctx: ToolContext):
 
             generator = await ScriptGenerator.create(project_path)
             result_path = await generator.generate(episode=episode, instructions=instructions)
-            return {"content": [{"type": "text", "text": f"✅ 剧本生成完成: {result_path}"}]}
+            auto_note = (
+                await _enqueue_auto_keyframes(ctx, result_path) if _uses_reference_video_units(project_data) else ""
+            )
+            return {"content": [{"type": "text", "text": f"✅ 剧本生成完成: {result_path}{auto_note}"}]}
         except FileNotFoundError as exc:
             return {"content": [{"type": "text", "text": f"❌ 文件错误: {exc}"}], "is_error": True}
         except Exception as exc:  # noqa: BLE001
@@ -763,6 +784,8 @@ def _collect_reference_flat_violations(
         label = f"unit E{episode}U{index:02d}"
         duration = flat["duration_seconds"]
         text = flat["text"]
+        keyframe_plan = flat.get("keyframe_plan")
+        keyframe_count = len(keyframe_plan) if isinstance(keyframe_plan, list) else 0
 
         def _check_text_and_tier(la: str = label, tx: str = text, d: int = duration) -> None:
             refs = validate_unit_text(la, tx, project, max_refs=caps.max_refs)
@@ -778,6 +801,26 @@ def _collect_reference_flat_violations(
                 ]
             )
         )
+        if keyframe_count > MAX_KEYFRAMES_PER_UNIT:
+            violations.append(
+                DraftViolation(
+                    f"{label} 规划了 {keyframe_count} 个关键分镜，超过单 unit 上限 {MAX_KEYFRAMES_PER_UNIT}；"
+                    "请在核心场景切换处继续拆分 unit",
+                    code="keyframe_limit_exceeded",
+                    label=label,
+                )
+            )
+        if caps.max_refs is not None:
+            ordinary_refs = len(derive_references_from_text(text, project)[0])
+            if ordinary_refs + keyframe_count > caps.max_refs:
+                violations.append(
+                    DraftViolation(
+                        f"{label} 的普通资产引用（{ordinary_refs}）与关键分镜（{keyframe_count}）合计超过"
+                        f"视频模型 reference image 上限 {caps.max_refs}；请继续拆分 unit 或去掉次要资产引用",
+                        code="reference_limit_with_keyframes",
+                        label=label,
+                    )
+                )
     return violations
 
 
@@ -799,14 +842,17 @@ def _build_reference_units_from_flat(
     for index, flat in enumerate(flat_units, start=1):
         unit_id = f"E{episode}U{index:02d}"
         validate_unit_text(f"unit {unit_id}", flat["text"], project, max_refs=max_refs)
-        units.append(
-            {
-                "unit_id": unit_id,
-                "text": flat["text"],
-                "duration_seconds": flat["duration_seconds"],
-                "source_text": flat["source_text"],
-            }
-        )
+        unit = {
+            "unit_id": unit_id,
+            "text": flat["text"],
+            "duration_seconds": flat["duration_seconds"],
+            "source_text": flat["source_text"],
+        }
+        # Empty plans carry no information. Omitting them keeps a no-op edit byte-equivalent
+        # to legacy step1 files, so an unrelated in-progress step2 repair is not invalidated.
+        if flat.get("keyframe_plan"):
+            unit["keyframe_plan"] = flat["keyframe_plan"]
+        units.append(unit)
     return units
 
 
@@ -1103,6 +1149,7 @@ def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
                 "duration_seconds": unit.get("duration_seconds"),
                 "source_text": unit.get("source_text", ""),
                 "text": text if isinstance(text, str) else "",
+                "keyframe_plan": unit.get("keyframe_plan") if isinstance(unit.get("keyframe_plan"), list) else [],
             }
         )
     return flat
@@ -1718,7 +1765,12 @@ def validate_and_promote_draft_tool(ctx: ToolContext):
                 # metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。
                 generator = await ScriptGenerator.create(project_path)
                 result_path = await generator.promote_reference_step2_draft(episode)
-                return {"content": [{"type": "text", "text": f"✅ step2 视觉展开已校验通过并晋升: {result_path}"}]}
+                auto_note = await _enqueue_auto_keyframes(ctx, result_path)
+                return {
+                    "content": [
+                        {"type": "text", "text": f"✅ step2 视觉展开已校验通过并晋升: {result_path}{auto_note}"}
+                    ]
+                }
 
             return {
                 "content": [{"type": "text", "text": f"❌ 第 {episode} 集没有待处置的隔离草稿"}],

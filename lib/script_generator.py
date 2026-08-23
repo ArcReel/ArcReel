@@ -76,6 +76,7 @@ from lib.reference_video.draft_validation import (
     violation_items,
 )
 from lib.reference_video.duration_slots import resolve_duration_slot
+from lib.reference_video.keyframes import materialize_keyframes
 from lib.reference_video.text_parser import extract_mentions
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
@@ -1250,16 +1251,32 @@ class ScriptGenerator:
             # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，agent 一轮就能看全要改什么。
             # 一个 unit 内部仍是首个违约即停——正文解析不出时，后续判定都建立在同一个问题上。
             try:
-                validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
+                descriptions = [keyframe.description for keyframe in flat_unit.keyframes]
+                rendered_text, keyframes = materialize_keyframes(
+                    str(step1_unit["unit_id"]), flat_unit.text, descriptions
+                )
+                ordinary_ref_limit = None if max_refs is None else max(0, max_refs - len(keyframes))
+                validate_unit_text(label, flat_unit.text, self.project_json, max_refs=ordinary_ref_limit)
                 assert_dialogue_preserved(label, step1_text, flat_unit.text)
+                planned = step1_unit.get("keyframe_plan")
+                if isinstance(planned, list) and planned and len(planned) != len(keyframes):
+                    raise DraftViolation(
+                        f"{label} 的关键分镜数量（{len(keyframes)}）与 step1 已确认规划（{len(planned)}）不一致",
+                        code="keyframe_count_changed",
+                        label=label,
+                    )
             except DraftViolation as exc:
                 violations.extend(violation_items(exc))
+                continue
+            except ValueError as exc:
+                violations.append(DraftViolation(str(exc), code="keyframe_marker_invalid", label=label))
                 continue
             video_units.append(
                 {
                     "unit_id": step1_unit["unit_id"],
-                    "text": flat_unit.text,
+                    "text": rendered_text,
                     "duration_seconds": step1_unit["duration_seconds"],
+                    "keyframes": keyframes,
                 }
             )
 

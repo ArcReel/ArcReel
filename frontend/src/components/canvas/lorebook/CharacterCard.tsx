@@ -12,6 +12,7 @@ import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
+import { ImageModelSelect, imageSelectionFromValue } from "@/components/shared/ImageModelSelect";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
@@ -21,7 +22,7 @@ import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
 import { ProjectAssetDeleteButton } from "./ProjectAssetDeleteButton";
 import { VoiceSampleButton } from "./VoiceSampleButton";
-import type { Character } from "@/types";
+import type { Character, ImageModelSelection } from "@/types";
 import type { Asset } from "@/types/asset";
 
 interface CharacterSavePayload {
@@ -45,7 +46,7 @@ interface CharacterCardProps {
   character: Character;
   projectName: string;
   onSave: (name: string, payload: CharacterSavePayload) => Promise<void>;
-  onGenerate: (name: string) => void;
+  onGenerate: (name: string, selection?: ImageModelSelection) => void;
   onRestoreVersion?: () => Promise<void> | void;
   onReload?: () => Promise<unknown> | void;
   generating?: boolean;
@@ -96,6 +97,7 @@ export function CharacterCard({
   const [saving, setSaving] = useState(false);
   const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [imageModel, setImageModel] = useState("");
   const [linkedAsset, setLinkedAsset] = useState<Asset | null>(null);
   const handleLinkedAssetResolved = useCallback((asset: Asset | null) => setLinkedAsset(asset), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -803,12 +805,15 @@ export function CharacterCard({
 
       {readOnly ? null : (
       <div className="mt-4">
+        <ImageModelSelect value={imageModel} onChange={setImageModel} capability="any" />
         <GenerateButton
-          onClick={() => onGenerate(name)}
+          onClick={() => imageModel
+            ? onGenerate(name, imageSelectionFromValue(imageModel))
+            : onGenerate(name)}
           loading={generating}
           disabled={usingGlobalMain}
           label={character.character_sheet ? t("regenerate_design") : t("generate_design")}
-          className="w-full justify-center"
+          className="mt-2 w-full justify-center"
         />
       </div>
       )}

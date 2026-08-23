@@ -3,6 +3,7 @@ import type enEvents from '../en/events';
 export default {
   "label.grid": 'Phân cảnh đa lưới "{{id}}"',
   "label.grid_split": 'Tách phân cảnh đa lưới "{{id}}"',
+  "label.reference_keyframe": 'Khung hình chính "{{id}}"',
   "label.voice_sample": 'Mẫu giọng thử của "{{id}}"',
   "label.asset_image_character": 'Ảnh tài sản của nhân vật "{{id}}"',
   "label.asset_image_scene": 'Ảnh tài sản của cảnh "{{id}}"',

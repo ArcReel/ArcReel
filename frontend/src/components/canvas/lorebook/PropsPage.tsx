@@ -9,14 +9,14 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
-import type { Prop } from "@/types";
+import type { ImageModelSelection, Prop } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
 
 interface Props {
   projectName: string;
   props: Record<string, Prop>;
   onUpdateProp: (name: string, updates: Partial<Prop>) => void;
-  onGenerateProp: (name: string) => void;
+  onGenerateProp: (name: string, selection?: ImageModelSelection) => void;
   onAddProp: (name: string, description: string) => Promise<void>;
   onRestorePropVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;

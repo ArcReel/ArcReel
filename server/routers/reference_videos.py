@@ -45,6 +45,7 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager, is_reference_video_project
 from lib.reference_video import derive_references_from_text
+from lib.reference_video.keyframes import MAX_KEYFRAMES_PER_UNIT, find_keyframe, keyframe_id, keyframe_mention
 from lib.reference_video.request_projection import (
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
@@ -64,10 +65,12 @@ from server.routers._script_edits import execute_current_episode_edit, require_s
 from server.services.cost_estimation import quote_video_request
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.h3_prompt_optimization import H3PromptOptimizationError, H3PromptOptimizationService
+from server.services.image_model_selection import ImageModelSelection
 from server.services.narration_delivery_tasks import (
     prepare_current_reference_video_request_options,
     tts_task_in_progress,
 )
+from server.services.reference_keyframe_tasks import reference_keyframe_task_specs
 from server.services.reference_video_tasks import (
     apply_unit_video_assets,
     default_unit_duration,
@@ -154,6 +157,19 @@ class H3PromptOperationRequest(BaseModel):
     unit_ids: list[str] | None = None
     narration_delivery: NarrationDelivery = POST_PRODUCTION
     confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
+
+
+class AddKeyframeRequest(BaseModel):
+    unit_id: str
+    description: str = Field(min_length=1)
+
+
+class PatchKeyframeRequest(BaseModel):
+    description: str = Field(min_length=1)
+
+
+class GenerateKeyframesRequest(ImageModelSelection):
+    keyframe_ids: list[str] | None = None
 
 
 # ============ 辅助 ============
@@ -371,6 +387,203 @@ def _find_unit(script: dict, unit_id: str, _t: Translator) -> dict:
 
 def _find_unit_for_project(_project: dict, script: dict, unit_id: str, _t: Translator) -> dict:
     return _find_unit(script, unit_id, _t)
+
+
+def _next_keyframe_id(unit: dict[str, Any]) -> str:
+    used = {
+        str(item.get("keyframe_id"))
+        for item in unit.get("keyframes") or []
+        if isinstance(item, dict) and item.get("keyframe_id")
+    }
+    for index in range(1, MAX_KEYFRAMES_PER_UNIT + 1):
+        candidate = keyframe_id(str(unit.get("unit_id") or ""), index)
+        if candidate not in used:
+            return candidate
+    raise BadRequestError("reference_keyframe_limit", max_count=MAX_KEYFRAMES_PER_UNIT)
+
+
+def _remove_keyframe_tag(text: str, keyframe_id_value: str) -> str:
+    return text.replace(keyframe_mention(keyframe_id_value), "").replace("\n\n\n", "\n\n").strip()
+
+
+@router.post("/episodes/{episode}/keyframes", status_code=status.HTTP_201_CREATED)
+async def add_keyframe(
+    project_name: str,
+    episode: int,
+    req: AddKeyframeRequest,
+    _t: Translator,
+) -> dict[str, Any]:
+    _project, current, script_file = _load_episode_script(project_name, episode, _t)
+    unit = _find_unit(current, req.unit_id, _t)
+    keyframes = [item for item in unit.get("keyframes") or [] if isinstance(item, dict)]
+    if len(keyframes) >= MAX_KEYFRAMES_PER_UNIT:
+        raise BadRequestError("reference_keyframe_limit", max_count=MAX_KEYFRAMES_PER_UNIT)
+    value = _next_keyframe_id(unit)
+    item = {"keyframe_id": value, "description": req.description.strip(), "image_path": None}
+    next_text = f"{str(unit.get('text') or '').rstrip()}\n\n{keyframe_mention(value)}".strip()
+    result = execute_current_episode_edit(
+        get_project_manager(),
+        project_name,
+        episode,
+        script_file,
+        current,
+        [{"op": "update", "id": req.unit_id, "fields": {"text": next_text, "keyframes": [*keyframes, item]}}],
+    )
+    require_script_edit_result(result)
+    return {"keyframe": item, "edit_result": result.model_dump(mode="json")}
+
+
+@router.patch("/episodes/{episode}/keyframes/{keyframe_id_value}")
+async def patch_keyframe(
+    project_name: str,
+    episode: int,
+    keyframe_id_value: str,
+    req: PatchKeyframeRequest,
+    _t: Translator,
+) -> dict[str, Any]:
+    _project, current, script_file = _load_episode_script(project_name, episode, _t)
+    found = find_keyframe(current, keyframe_id_value)
+    if found is None:
+        raise NotFoundError("reference_keyframe_not_found", id=keyframe_id_value)
+    unit, _existing = found
+    keyframes = [dict(item) for item in unit.get("keyframes") or [] if isinstance(item, dict)]
+    updated = next(item for item in keyframes if item.get("keyframe_id") == keyframe_id_value)
+    updated["description"] = req.description.strip()
+    result = execute_current_episode_edit(
+        get_project_manager(),
+        project_name,
+        episode,
+        script_file,
+        current,
+        [{"op": "update", "id": unit["unit_id"], "fields": {"keyframes": keyframes}}],
+    )
+    require_script_edit_result(result)
+    return {"keyframe": updated, "edit_result": result.model_dump(mode="json")}
+
+
+@router.delete("/episodes/{episode}/keyframes/{keyframe_id_value}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_keyframe(
+    project_name: str,
+    episode: int,
+    keyframe_id_value: str,
+    _t: Translator,
+) -> Response:
+    _project, current, script_file = _load_episode_script(project_name, episode, _t)
+    found = find_keyframe(current, keyframe_id_value)
+    if found is None:
+        raise NotFoundError("reference_keyframe_not_found", id=keyframe_id_value)
+    unit, _existing = found
+    keyframes = [
+        dict(item)
+        for item in unit.get("keyframes") or []
+        if isinstance(item, dict) and item.get("keyframe_id") != keyframe_id_value
+    ]
+    result = execute_current_episode_edit(
+        get_project_manager(),
+        project_name,
+        episode,
+        script_file,
+        current,
+        [
+            {
+                "op": "update",
+                "id": unit["unit_id"],
+                "fields": {
+                    "text": _remove_keyframe_tag(str(unit.get("text") or ""), keyframe_id_value),
+                    "keyframes": keyframes,
+                },
+            }
+        ],
+    )
+    require_script_edit_result(result)
+    current_path = get_project_manager().get_project_path(project_name) / resource_relative_path(
+        "keyframes", keyframe_id_value
+    )
+    await asyncio.to_thread(current_path.unlink, missing_ok=True)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _enqueue_keyframe_specs(
+    *,
+    project_name: str,
+    specs: list[TaskSpec],
+    user_id: str,
+) -> tuple[list[str], bool]:
+    queue = get_generation_queue()
+    task_ids: list[str] = []
+    deduped: list[bool] = []
+    for spec in specs:
+        result = await queue.enqueue_task(
+            project_name=project_name,
+            task_type=spec.task_type,
+            media_type=spec.media_type,
+            resource_id=spec.resource_id,
+            script_file=spec.script_file,
+            payload=spec.payload,
+            source="webui",
+            user_id=user_id,
+        )
+        task_ids.append(result["task_id"])
+        deduped.append(bool(result.get("deduped")))
+    return task_ids, bool(task_ids) and all(deduped)
+
+
+@router.post("/episodes/{episode}/keyframes/generate-batch")
+async def generate_keyframes_batch(
+    project_name: str,
+    episode: int,
+    req: GenerateKeyframesRequest,
+    user: CurrentUser,
+    _t: Translator,
+) -> dict[str, Any]:
+    _project, script, script_file = _load_episode_script(project_name, episode, _t)
+    requested = set(req.keyframe_ids) if req.keyframe_ids is not None else None
+    specs = reference_keyframe_task_specs(
+        script,
+        script_file,
+        keyframe_ids=requested,
+        missing_only=requested is None,
+        image_override=req.image_override_payload(),
+    )
+    if requested is not None:
+        found = {spec.resource_id for spec in specs}
+        missing = sorted(requested - found)
+        if missing:
+            raise NotFoundError("reference_keyframe_not_found", id=", ".join(missing))
+    task_ids, deduped = await _enqueue_keyframe_specs(project_name=project_name, specs=specs, user_id=user.id)
+    return {
+        "success": True,
+        "task_ids": task_ids,
+        "deduped": deduped,
+        "message": _t("reference_keyframes_task_submitted", count=len(task_ids)),
+    }
+
+
+@router.post("/episodes/{episode}/keyframes/{keyframe_id_value}/generate")
+async def generate_keyframe(
+    project_name: str,
+    episode: int,
+    keyframe_id_value: str,
+    req: ImageModelSelection,
+    user: CurrentUser,
+    _t: Translator,
+) -> dict[str, Any]:
+    _project, script, script_file = _load_episode_script(project_name, episode, _t)
+    specs = reference_keyframe_task_specs(
+        script,
+        script_file,
+        keyframe_ids={keyframe_id_value},
+        image_override=req.image_override_payload(),
+    )
+    if not specs:
+        raise NotFoundError("reference_keyframe_not_found", id=keyframe_id_value)
+    task_ids, deduped = await _enqueue_keyframe_specs(project_name=project_name, specs=specs, user_id=user.id)
+    return {
+        "success": True,
+        "task_id": task_ids[0],
+        "deduped": deduped,
+        "message": _t("reference_keyframe_task_submitted", id=keyframe_id_value),
+    }
 
 
 @router.patch("/episodes/{episode}/units/{unit_id}")

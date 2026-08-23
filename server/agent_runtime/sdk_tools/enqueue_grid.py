@@ -55,6 +55,7 @@ from server.agent_runtime.sdk_tools._context import (
 )
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import apply_grid_split
+from server.services.image_model_selection import IMAGE_MODEL_TOOL_PROPERTIES, image_override_from_args
 
 _OPERATION = "generate_grid"
 
@@ -158,6 +159,7 @@ def generate_grid_tool(ctx: ToolContext):
         {
             "type": "object",
             "properties": {
+                **IMAGE_MODEL_TOOL_PROPERTIES,
                 "script": {
                     "type": "string",
                     "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
@@ -177,6 +179,7 @@ def generate_grid_tool(ctx: ToolContext):
             script_filename = validate_script_filename(args["script"])
             scene_ids = normalize_requested_ids(args.get("scene_ids"), field="scene_ids")
             list_only = bool(args.get("list_only"))
+            image_override = image_override_from_args(args)
 
             project = ctx.pm.load_project(ctx.project_name)
             script = ctx.pm.load_script(ctx.project_name, script_filename)
@@ -378,16 +381,19 @@ def generate_grid_tool(ctx: ToolContext):
                             task_type="grid",
                             media_type="image",
                             resource_id=grid.id,
-                            payload=build_grid_task_payload(
-                                prompt=prompt,
-                                script_file=script_filename,
-                                scene_ids=chunk_ids,
-                                grid_size=layout.grid_size,
-                                rows=layout.rows,
-                                cols=layout.cols,
-                                grid_aspect_ratio=layout.grid_aspect_ratio,
-                                video_aspect_ratio=aspect_ratio,
-                            ),
+                            payload={
+                                **build_grid_task_payload(
+                                    prompt=prompt,
+                                    script_file=script_filename,
+                                    scene_ids=chunk_ids,
+                                    grid_size=layout.grid_size,
+                                    rows=layout.rows,
+                                    cols=layout.cols,
+                                    grid_aspect_ratio=layout.grid_aspect_ratio,
+                                    video_aspect_ratio=aspect_ratio,
+                                ),
+                                **image_override,
+                            },
                             script_file=script_filename,
                             source="skill",
                         )

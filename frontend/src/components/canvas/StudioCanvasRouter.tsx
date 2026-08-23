@@ -63,6 +63,7 @@ import type {
   CustomProviderInfo,
   ProviderInfo,
   ReferenceGenerationRequestOptions,
+  ImageModelSelection,
 } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
@@ -278,7 +279,11 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateStoryboard = useCallback(async (segmentId: string, scriptFile?: string) => {
+  const handleGenerateStoryboard = useCallback(async (
+    segmentId: string,
+    scriptFile?: string,
+    selection: ImageModelSelection = {},
+  ) => {
     if (!currentProjectName || !currentScripts) return;
     const resolved = resolveSegmentPrompt(currentScripts, segmentId, "image_prompt", scriptFile);
     if (!resolved) return;
@@ -288,6 +293,7 @@ export function StudioCanvasRouter() {
         segmentId,
         resolved.prompt as string | Record<string, unknown>,
         resolved.resolvedFile,
+        selection,
       );
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_storyboard_failed", { message: errMsg(err) }), "error");
@@ -448,13 +454,14 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateCharacter = useCallback(async (name: string) => {
+  const handleGenerateCharacter = useCallback(async (name: string, selection: ImageModelSelection = {}) => {
     if (!currentProjectName) return;
     try {
       await enqueueCharacter(
         currentProjectName,
         name,
         currentProjectData?.characters?.[name]?.description ?? "",
+        selection,
       );
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
@@ -498,10 +505,10 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateScene = useCallback(async (name: string) => {
+  const handleGenerateScene = useCallback(async (name: string, selection: ImageModelSelection = {}) => {
     if (!currentProjectName) return;
     try {
-      await enqueueScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
+      await enqueueScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "", selection);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
@@ -530,10 +537,10 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateProp = useCallback(async (name: string) => {
+  const handleGenerateProp = useCallback(async (name: string, selection: ImageModelSelection = {}) => {
     if (!currentProjectName) return;
     try {
-      await enqueueProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
+      await enqueueProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "", selection);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
@@ -562,13 +569,14 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateProduct = useCallback(async (name: string) => {
+  const handleGenerateProduct = useCallback(async (name: string, selection: ImageModelSelection = {}) => {
     if (!currentProjectName) return;
     try {
       await enqueueProduct(
         currentProjectName,
         name,
         currentProjectData?.products?.[name]?.description ?? "",
+        selection,
       );
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
@@ -587,10 +595,15 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
-  const handleGenerateGrid = useCallback(async (episode: number, scriptFile: string, sceneIds?: string[]) => {
+  const handleGenerateGrid = useCallback(async (
+    episode: number,
+    scriptFile: string,
+    sceneIds?: string[],
+    selection: ImageModelSelection = {},
+  ) => {
     if (!currentProjectName) return;
     try {
-      await enqueueGrid(currentProjectName, episode, scriptFile, sceneIds);
+      await enqueueGrid(currentProjectName, episode, scriptFile, sceneIds, selection);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("grid_generation_failed", { message: errMsg(err) }), "error");
     }
@@ -808,6 +821,7 @@ export function StudioCanvasRouter() {
                     onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
                     canEditTitle={Boolean(episode?.script_file)}
                     hasScript={Boolean(script)}
+                    scriptFile={scriptFile ?? undefined}
                     showPreprocess={!isAd}
                     freeDuration={isAd}
                     // unit 时长档位随所选模型能力变化（已按本集参考图路径收窄）

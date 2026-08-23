@@ -4,7 +4,7 @@ import { assetColor } from "./asset-colors";
 import { Popover } from "@/components/ui/Popover";
 import { API } from "@/api";
 import { normalizeAssetName } from "@/utils/reference-mentions";
-import type { AssetKind } from "@/types/reference-video";
+import type { MentionReferenceKind } from "@/types/reference-video";
 
 /** Default DOM id for the listbox; paired with combobox aria-controls in ReferenceVideoCard. */
 export const MENTION_PICKER_DEFAULT_ID = "reference-editor-picker";
@@ -14,13 +14,13 @@ export interface MentionCandidate {
   imagePath: string | null;
 }
 
-type TabKey = "all" | AssetKind;
+type TabKey = "all" | MentionReferenceKind;
 
 export interface MentionPickerProps {
   open: boolean;
   query: string;
-  candidates: Partial<Record<AssetKind, MentionCandidate[]>>;
-  onSelect: (ref: { type: AssetKind; name: string }) => void;
+  candidates: Partial<Record<MentionReferenceKind, MentionCandidate[]>>;
+  onSelect: (ref: { type: MentionReferenceKind; name: string }) => void;
   onClose: () => void;
   /** Project used to construct asset thumbnail URLs via API.getFileUrl. */
   projectName?: string;
@@ -37,7 +37,7 @@ export interface MentionPickerProps {
   anchorElement?: HTMLElement | null;
 }
 
-function optionId(kind: AssetKind, name: string): string {
+function optionId(kind: MentionReferenceKind, name: string): string {
   // 安全化：把 CSS 不友好字符替换，避免选择器查询出错。
   // CJK 范围用 `一-鿿` unicode escape，与 utils/reference-mentions.ts
   // 的 MENTION_RE 保持字面一致，便于 grep。
@@ -46,14 +46,14 @@ function optionId(kind: AssetKind, name: string): string {
 }
 
 interface FlatItem {
-  type: AssetKind;
+  type: MentionReferenceKind;
   name: string;
   imagePath: string | null;
   globalIndex: number;
 }
 
-const GROUP_ORDER: AssetKind[] = ["product", "character", "scene", "prop"];
-const TAB_ORDER: TabKey[] = ["all", "product", "character", "scene", "prop"];
+const GROUP_ORDER: MentionReferenceKind[] = ["product", "character", "scene", "prop", "keyframe"];
+const TAB_ORDER: TabKey[] = ["all", "product", "character", "scene", "prop", "keyframe"];
 
 export function MentionPicker({
   open,
@@ -86,7 +86,9 @@ export function MentionPicker({
     // 比较侧统一 NFC：candidates 携带资产原始名（落盘可能是 NFD），query 来自用户输入法产出，
     // 两者编码不保证一致，只归一比较用的副本，展示与选中回传仍用原始 name。
     const q = normalizeAssetName(query.trim()).toLowerCase();
-    const result: Record<AssetKind, MentionCandidate[]> = { product: [], character: [], scene: [], prop: [] };
+    const result: Record<MentionReferenceKind, MentionCandidate[]> = {
+      product: [], character: [], scene: [], prop: [], keyframe: [],
+    };
     for (const kind of GROUP_ORDER) {
       const arr = candidates[kind] ?? [];
       result[kind] = q.length === 0 ? arr : arr.filter((c) => normalizeAssetName(c.name).toLowerCase().includes(q));
@@ -102,15 +104,17 @@ export function MentionPicker({
       character: activeTab === "character" ? filteredByQuery.character : [],
       scene: activeTab === "scene" ? filteredByQuery.scene : [],
       prop: activeTab === "prop" ? filteredByQuery.prop : [],
-    } satisfies Record<AssetKind, MentionCandidate[]>;
+      keyframe: activeTab === "keyframe" ? filteredByQuery.keyframe : [],
+    } satisfies Record<MentionReferenceKind, MentionCandidate[]>;
   }, [filteredByQuery, activeTab]);
 
-  const totalsByKind: Record<AssetKind, number> = useMemo(
+  const totalsByKind: Record<MentionReferenceKind, number> = useMemo(
     () => ({
       product: filteredByQuery.product.length,
       character: filteredByQuery.character.length,
       scene: filteredByQuery.scene.length,
       prop: filteredByQuery.prop.length,
+      keyframe: filteredByQuery.keyframe.length,
     }),
     [filteredByQuery],
   );
@@ -213,7 +217,7 @@ export function MentionPicker({
           {TAB_ORDER.map((tab) => {
             const count =
               tab === "all"
-                ? totalsByKind.product + totalsByKind.character + totalsByKind.scene + totalsByKind.prop
+                ? GROUP_ORDER.reduce((sum, kind) => sum + totalsByKind[kind], 0)
                 : totalsByKind[tab];
             const isActive = tab === activeTab;
             return (

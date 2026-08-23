@@ -21,6 +21,7 @@ import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { H3PromptPanel } from "./H3PromptPanel";
+import { KeyframePreviewPanel } from "./KeyframePreviewPanel";
 import { HyperframesStudioTab } from "./HyperframesStudioTab";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
@@ -50,7 +51,9 @@ import {
   buildMentionLookup,
   extractMentions,
   lineSpeechMarks,
+  normalizeAssetName,
   splitScriptLines,
+  type MentionLookup,
 } from "@/utils/reference-mentions";
 import type {
   H3PromptState,
@@ -85,6 +88,8 @@ export interface ReferenceVideoCanvasProps {
   durationOptionsNoReference?: number[];
   /** 上游旁白工作流给出的请求事实；不在画布内探测或推断 TTS 状态。 */
   requestOptions?: ReferenceRequestOptions;
+  /** Script owner required for keyframe image edits. */
+  scriptFile?: string;
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -165,6 +170,7 @@ export function ReferenceVideoCanvas({
   durationOptions,
   durationOptionsNoReference,
   requestOptions,
+  scriptFile,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
   const [, navigate] = useLocation();
@@ -259,6 +265,13 @@ export function ReferenceVideoCanvas({
     () => units.find((u) => u.unit_id === selectedUnitId) ?? null,
     [units, selectedUnitId],
   );
+  const selectedMentionLookup = useMemo(() => {
+    const next = Object.assign(Object.create(null) as MentionLookup, mentionLookup);
+    for (const keyframe of selected?.keyframes ?? []) {
+      next[normalizeAssetName(`关键分镜 ${keyframe.keyframe_id}`)] = "keyframe";
+    }
+    return next;
+  }, [mentionLookup, selected?.keyframes]);
   const selectedDurationKey = selected
     ? draftKey(projectName, episode, selected.unit_id)
     : null;
@@ -273,9 +286,9 @@ export function ReferenceVideoCanvas({
   const selectedHasReference = useMemo(
     () =>
       selected
-        ? extractMentions(selected.text).some((name) => Boolean(mentionLookup[name]))
+        ? extractMentions(selected.text).some((name) => Boolean(selectedMentionLookup[name]))
         : false,
-    [selected, mentionLookup],
+    [selected, selectedMentionLookup],
   );
   const effectiveDurationOptions = selectedHasReference ? durationOptions : durationOptionsNoReference;
 
@@ -745,7 +758,7 @@ export function ReferenceVideoCanvas({
   const isDirty = !!(selected && dirtyMap[selected.unit_id]);
 
   // 编辑器列内的内容视图：H3 提示词与当前 unit 绑定，不再占用工作台主 tab。
-  const [editorView, setEditorView] = useState<"script" | "parse" | "h3">("script");
+  const [editorView, setEditorView] = useState<"script" | "keyframes" | "parse" | "h3">("script");
   const [h3PromptState, setH3PromptState] = useState<H3PromptState | null>(null);
   const [h3PromptLoading, setH3PromptLoading] = useState(false);
   const [h3PromptError, setH3PromptError] = useState<string | null>(null);
@@ -789,8 +802,8 @@ export function ReferenceVideoCanvas({
     h3PromptState?.unit_id === selectedH3UnitId ? h3PromptState : null;
   const h3Applicable =
     currentH3PromptState !== null && currentH3PromptState.state !== "not_applicable";
-  const editorViews = useMemo<readonly ("script" | "parse" | "h3")[]>(
-    () => (h3Applicable ? ["script", "parse", "h3"] : ["script", "parse"]),
+  const editorViews = useMemo<readonly ("script" | "keyframes" | "parse" | "h3")[]>(
+    () => (h3Applicable ? ["script", "keyframes", "parse", "h3"] : ["script", "keyframes", "parse"]),
     [h3Applicable],
   );
   const activeEditorView = editorViews.includes(editorView) ? editorView : "script";
@@ -1347,6 +1360,8 @@ export function ReferenceVideoCanvas({
                             >
                               {view === "script"
                                 ? t("reference_editor_view_script")
+                                : view === "keyframes"
+                                  ? t("reference_editor_view_keyframes")
                                 : view === "parse"
                                   ? t("reference_editor_view_parse")
                                   : t("reference_editor_view_h3")}
@@ -1369,6 +1384,21 @@ export function ReferenceVideoCanvas({
                               onChange={handlePromptChange}
                             />
                           </div>
+                        ) : activeEditorView === "keyframes" ? (
+                          <div
+                            id="reference-editor-view-panel-keyframes"
+                            role="tabpanel"
+                            aria-labelledby="reference-editor-view-tab-keyframes"
+                            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                          >
+                            <KeyframePreviewPanel
+                              projectName={projectName}
+                              episode={episode}
+                              unit={selected}
+                              scriptFile={scriptFile}
+                              onChanged={() => loadUnits(projectName, episode)}
+                            />
+                          </div>
                         ) : activeEditorView === "parse" ? (
                           <div
                             id="reference-editor-view-panel-parse"
@@ -1385,7 +1415,7 @@ export function ReferenceVideoCanvas({
                               projectName={projectName}
                               episode={episode}
                               text={currentText}
-                              lookup={mentionLookup}
+                              lookup={selectedMentionLookup}
                             />
                           </div>
                         ) : (
@@ -1405,7 +1435,7 @@ export function ReferenceVideoCanvas({
                           </div>
                         )}
                         {/* Editor bottom bar */}
-                        {activeEditorView !== "h3" && <div className="flex flex-shrink-0 items-center gap-2 border-t border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] px-3.5 py-2">
+                        {activeEditorView !== "h3" && activeEditorView !== "keyframes" && <div className="flex flex-shrink-0 items-center gap-2 border-t border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] px-3.5 py-2">
                           <span
                             className={`inline-flex items-center gap-1.5 text-[11px] ${
                               isDirty ? "text-amber-300" : "text-[var(--color-text-4)]"

@@ -39,6 +39,7 @@ from server.agent_runtime.sdk_tools._context import (
     validate_script_filename,
 )
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
+from server.services.image_model_selection import IMAGE_MODEL_TOOL_PROPERTIES, image_override_from_args
 
 # 编辑始终是显式选择：一次编辑必须携带自己的指令，没有可由 Manifest 推导的
 # "缺失的编辑"，因此本工具不提供 missing-only 选择。
@@ -52,16 +53,17 @@ _LABEL_ZH: dict[str, str] = {
     "prop": "道具",
     "product": "商品",
     "storyboard": "分镜图",
+    "reference_keyframe": "关键分镜",
 }
 
 
-async def _i2i_provider_available(project: dict[str, Any]) -> bool:
+async def _i2i_provider_available(project: dict[str, Any], payload: dict[str, str] | None = None) -> bool:
     """项目 i2i 槽解析不出可用供应商时返回 False——与 HTTP 端点入队前 fail-fast 同一判断点
     （见 ``server/routers/generate.py::_require_i2i_image_provider_configured``），批量编辑
     只需要一次「是否可用」的项目级判断，不像端点那样需要拿到 provider_id 传给入队。
     """
     try:
-        await ConfigResolver(async_session_factory).resolve_image_backend(project, None, capability="i2i")
+        await ConfigResolver(async_session_factory).resolve_image_backend(project, payload or {}, capability="i2i")
     except ValueError:
         return False
     return True
@@ -80,6 +82,7 @@ def _build_specs(
     warnings: list[str],
     builder: GenerationResultBuilder,
     states: dict[str, GenerationTargetState],
+    image_override: dict[str, str],
 ) -> list[TaskSpec]:
     """Turn the requested edits into task specs, blocking the ones that cannot run.
 
@@ -168,8 +171,8 @@ def _build_specs(
                 media_type="image",
                 resource_id=resource_id,
                 prompt=instruction,
-                script_file=script_filename if resource_type == "storyboard" else None,
-                extra_payload={"resource_type": resource_type},
+                script_file=(script_filename if resource_type in {"storyboard", "reference_keyframe"} else None),
+                extra_payload={"resource_type": resource_type, **image_override},
             )
         )
     return specs
@@ -183,12 +186,14 @@ def edit_images_tool(ctx: ToolContext):
         "与「重新生成」的区别：编辑=保底图微调、不改变原 image_prompt，重生成会作废本次编辑效果"
         "（仍按原 prompt 重画）；重新生成=按原 prompt 整图重画，会推翻已满意的部分。"
         "用户只想改局部时用编辑；用户想推翻构图/内容重来、或原 image_prompt 本身要改时用重新生成。"
-        "resource_type 支持 character/scene/prop/product/storyboard 五类，storyboard 必须带 script_file。"
+        "resource_type 支持 character/scene/prop/product/storyboard/reference_keyframe 六类，"
+        "storyboard/reference_keyframe 必须带 script_file。"
         "编辑必然走图生图（i2i）；当前项目图片供应商不支持 i2i 时直接返回错误，不创建任何任务。"
         "编辑始终是显式选择（每条编辑自带指令），结果按 requested / succeeded / failed / blocked 逐 ID 返回。",
         {
             "type": "object",
             "properties": {
+                **IMAGE_MODEL_TOOL_PROPERTIES,
                 "resource_type": {
                     "type": "string",
                     "enum": list(EDITABLE_RESOURCE_TYPES),
@@ -238,13 +243,14 @@ def edit_images_tool(ctx: ToolContext):
                 return {"content": [{"type": "text", "text": "edits 不能为空"}], "is_error": True}
 
             is_storyboard = resource_type == "storyboard"
+            is_script_owned = is_storyboard or resource_type == "reference_keyframe"
             script_filename: str | None = None
             script: dict[str, Any] | None = None
-            if is_storyboard:
+            if is_script_owned:
                 raw_script = args.get("script_file")
                 if not raw_script:
                     return {
-                        "content": [{"type": "text", "text": "resource_type=storyboard 时 script_file 必填"}],
+                        "content": [{"type": "text", "text": "storyboard/reference_keyframe 编辑时 script_file 必填"}],
                         "is_error": True,
                     }
                 script_filename = validate_script_filename(raw_script)
@@ -265,7 +271,13 @@ def edit_images_tool(ctx: ToolContext):
             builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
             states: dict[str, GenerationTargetState] = {}
 
-            if not await _i2i_provider_available(project):
+            image_override = image_override_from_args(args)
+            provider_available = (
+                await _i2i_provider_available(project, image_override)
+                if image_override
+                else await _i2i_provider_available(project)
+            )
+            if not provider_available:
                 # 拦截在入队前：不是某个 ID 的产物问题，是整批共享的前置条件不满足，
                 # 但调用方仍按逐 ID 契约读结果，因此每个请求到的 ID 各记一条 blocked，
                 # 而不是只回一段无法编程消费的文本。
@@ -300,6 +312,7 @@ def edit_images_tool(ctx: ToolContext):
                 warnings=warnings,
                 builder=builder,
                 states=states,
+                image_override=image_override,
             )
             if not specs and not builder.recorded_ids:
                 return {

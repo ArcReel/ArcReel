@@ -6,13 +6,14 @@ import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
+import { ImageModelSelect, imageSelectionFromValue } from "@/components/shared/ImageModelSelect";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
-import type { Product } from "@/types";
+import type { ImageModelSelection, Product } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -23,7 +24,7 @@ interface ProductCardProps {
   product: Product;
   projectName: string;
   onUpdate: (name: string, updates: Partial<Product>) => void;
-  onGenerate: (name: string) => void;
+  onGenerate: (name: string, selection?: ImageModelSelection) => void;
   onRestoreVersion?: () => void | Promise<void>;
   onReload?: () => void | Promise<unknown>;
   generating?: boolean;
@@ -67,6 +68,7 @@ export function ProductCard({
   const [uploadingSheet, setUploadingSheet] = useState(false);
   const [uploadingRefs, setUploadingRefs] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [imageModel, setImageModel] = useState("");
   const sheetInputRef = useRef<HTMLInputElement>(null);
   const refsInputRef = useRef<HTMLInputElement>(null);
 
@@ -416,12 +418,17 @@ export function ProductCard({
       )}
 
       {readOnly ? null : (
-      <GenerateButton
-        onClick={() => onGenerate(name)}
-        loading={generating}
-        label={product.product_sheet ? t("dashboard:regenerate_design") : t("dashboard:generate_design")}
-        className="w-full justify-center"
-      />
+      <div className="grid gap-2">
+        <ImageModelSelect value={imageModel} onChange={setImageModel} capability="any" />
+        <GenerateButton
+          onClick={() => imageModel
+            ? onGenerate(name, imageSelectionFromValue(imageModel))
+            : onGenerate(name)}
+          loading={generating}
+          label={product.product_sheet ? t("dashboard:regenerate_design") : t("dashboard:generate_design")}
+          className="w-full justify-center"
+        />
+      </div>
       )}
     </div>
   );

@@ -8,14 +8,14 @@ import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
-import type { Product } from "@/types";
+import type { ImageModelSelection, Product } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
 
 interface Props {
   projectName: string;
   products: Record<string, Product>;
   onUpdateProduct: (name: string, updates: Partial<Product>) => void;
-  onGenerateProduct: (name: string) => void;
+  onGenerateProduct: (name: string, selection?: ImageModelSelection) => void;
   onAddProduct: (name: string, description: string, brand: string) => Promise<void>;
   onRestoreProductVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;

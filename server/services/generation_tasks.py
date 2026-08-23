@@ -1448,6 +1448,9 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
                 project_path / "reference_videos" / f"{resource_id}.mp4",
             )
         )
+    elif task_type == "reference_keyframe":
+        rel = resource_relative_path("keyframes", resource_id)
+        paths.append((rel, project_path / rel))
         paths.append(
             (
                 f"reference_videos/thumbnails/{resource_id}.jpg",
@@ -1477,6 +1480,7 @@ _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "grid": ("grid", "grid_ready", "grid", True),
     "grid_split": ("grid", "grid_split_done", "grid_split", True),
     "voice_sample": ("character", "voice_sample_ready", "voice_sample", False),
+    "reference_keyframe": ("reference_keyframe", "updated", "reference_keyframe", True),
     **{atype: (atype, "updated", f"asset_image_{atype}", False) for atype in ASSET_SPECS},
 }
 
@@ -3577,6 +3581,19 @@ async def _execute_image_edit_task_proxy(
     return await execute_image_edit_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
+async def _execute_reference_keyframe_task_proxy(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    from server.services.reference_keyframe_tasks import execute_reference_keyframe_task
+
+    return await execute_reference_keyframe_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+
+
 _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
@@ -3589,6 +3606,7 @@ _TASK_EXECUTORS = {
     "grid": execute_grid_task,
     "reference_video": _execute_reference_video_task_proxy,
     "image_edit": _execute_image_edit_task_proxy,
+    "reference_keyframe": _execute_reference_keyframe_task_proxy,
 }
 
 

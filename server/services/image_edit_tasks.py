@@ -30,6 +30,7 @@ from lib.asset_types import ASSET_SPECS, resolve_asset_key
 from lib.async_thread import run_noninterruptible_sync
 from lib.db.base import DEFAULT_USER_ID
 from lib.image_reference_snapshot import freeze_image_references
+from lib.reference_video.keyframes import find_keyframe
 from lib.resource_paths import resource_relative_path
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
@@ -54,7 +55,7 @@ from server.services.generation_tasks import (
 IMAGE_EDIT_VERSION_SOURCE = "image_edit"
 
 # 可编辑的资源类型白名单（API 契约用的单数形态；storyboard 之外与 ASSET_SPECS 同源）
-EDITABLE_RESOURCE_TYPES: tuple[str, ...] = (*ASSET_SPECS.keys(), "storyboard")
+EDITABLE_RESOURCE_TYPES: tuple[str, ...] = (*ASSET_SPECS.keys(), "storyboard", "reference_keyframe")
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +102,8 @@ def edit_version_resource_type(resource_type: str) -> str:
     """API 契约的单数 resource_type → VersionManager / 事件层的复数资源类型。"""
     if resource_type == "storyboard":
         return "storyboards"
+    if resource_type == "reference_keyframe":
+        return "keyframes"
     return ASSET_SPECS[resource_type].bucket_key
 
 
@@ -128,6 +131,13 @@ def _resolve_current_image_pointer(
     script: dict[str, Any] | None,
 ) -> tuple[str, str | None]:
     """Resolve the canonical resource identity and its metadata-owned image pointer."""
+
+    if resource_type == "reference_keyframe":
+        found = find_keyframe(script or {}, resource_id)
+        if found is None:
+            raise KeyError(f"reference keyframe not found: {resource_id}")
+        pointer = found[1].get("image_path")
+        return resource_id, pointer if isinstance(pointer, str) and pointer else None
 
     if resource_type == "storyboard":
         items, id_field, _, _, _ = get_storyboard_items(script or {})
@@ -174,6 +184,15 @@ def resolve_usable_image_edit_source(
     resolved_id, artifact_path = _resolve_current_image_pointer(project, resource_type, resource_id, script)
     if not artifact_path:
         return None
+    if resource_type == "reference_keyframe":
+        current = project_path / artifact_path
+        if not current.is_file():
+            return None
+        return _ImageEditSource(
+            resource_id=resolved_id,
+            artifact_path=artifact_path,
+            formal_claims=(),
+        )
     if resource_type == "storyboard":
         if type(artifact_episode) is not int or artifact_episode < 1:
             raise ValueError("artifact_episode is required for an active storyboard edit source")
@@ -225,7 +244,7 @@ def _assert_selected_image_edit_source_usable(
         )
 
     try:
-        if resource_type == "storyboard":
+        if resource_type in {"storyboard", "reference_keyframe"}:
             if script_file is None:
                 raise ValueError("script_file is required for storyboard image edit admission")
             with pm.locked_project_script_snapshot(project_name, script_file) as (current_project, current_script):
@@ -244,6 +263,102 @@ def _assert_selected_image_edit_source_usable(
         raise ValueError(f"selected image edit source is no longer available: {selected.artifact_path}")
     if refreshed.formal_claims != selected.formal_claims:
         raise ValueError(f"selected image edit source changed since it was selected: {selected.artifact_path}")
+
+
+async def _execute_reference_keyframe_edit(
+    *,
+    project_name: str,
+    resource_id: str,
+    instruction: str,
+    script_file: str,
+    payload: dict[str, Any],
+    user_id: str,
+) -> dict[str, Any]:
+    """Edit a script-owned keyframe without inventing an Artifact Manifest owner."""
+
+    def _prepare():
+        pm = get_project_manager()
+        project = pm.load_project(project_name)
+        project_path = pm.get_project_path(project_name)
+        script = pm.load_script(project_name, script_file)
+        source = resolve_usable_image_edit_source(
+            project=project,
+            project_path=project_path,
+            resource_type="reference_keyframe",
+            resource_id=resource_id,
+            script=script,
+            artifact_episode=None,
+            resolver=active_artifact_currency_resolver(project_path, project),
+        )
+        if source is None:
+            raise ValueError(f"no current image to edit: reference_keyframe/{resource_id}")
+        current = project_path / source.artifact_path
+        frozen = freeze_image_references(
+            [current],
+            [
+                VisualReference(
+                    path=current,
+                    role="edit_source",
+                    logical_type="reference_keyframe",
+                    logical_id=resource_id,
+                    kind="current",
+                )
+            ],
+        )
+        return project, project_path, source, current, frozen
+
+    project, project_path, selected, current_image, frozen = await asyncio.to_thread(_prepare)
+    try:
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            image=ImageLaneRequest(capability="i2i"),
+        )
+        await asyncio.to_thread(
+            ctx.generator.versions.ensure_current_tracked,
+            "keyframes",
+            resource_id,
+            current_image,
+            "",
+        )
+
+        async def _before_submit() -> None:
+            await asyncio.to_thread(
+                _assert_selected_image_edit_source_usable,
+                project_name=project_name,
+                project_path=project_path,
+                resource_type="reference_keyframe",
+                requested_resource_id=resource_id,
+                script_file=script_file,
+                selected=selected,
+            )
+
+        _output, version = await ctx.generator.generate_image_async(
+            prompt=instruction,
+            resource_type="keyframes",
+            resource_id=resource_id,
+            reference_images=frozen.reference_images,
+            aspect_ratio=get_aspect_ratio(project, "storyboards"),
+            image_size=ctx.image.resolution,
+            before_submit=_before_submit,
+            source=IMAGE_EDIT_VERSION_SOURCE,
+            script_file=script_file,
+        )
+    finally:
+        await run_noninterruptible_sync(frozen.cleanup)
+
+    versions = await asyncio.to_thread(ctx.generator.versions.get_versions, "keyframes", resource_id)
+    records = versions.get("versions") if isinstance(versions, dict) else None
+    created_at = records[-1].get("created_at") if isinstance(records, list) and records else None
+    return {
+        "version": version,
+        "file_path": resource_relative_path("keyframes", resource_id),
+        "created_at": created_at,
+        "resource_type": "keyframes",
+        "resource_id": resource_id,
+    }
 
 
 async def execute_image_edit_task(
@@ -273,8 +388,18 @@ async def execute_image_edit_task(
     instruction = instruction.strip()
 
     script_file = payload.get("script_file")
-    if resource_type == "storyboard" and not script_file:
-        raise ValueError("script_file is required for storyboard image_edit task")
+    if resource_type in {"storyboard", "reference_keyframe"} and not script_file:
+        raise ValueError("script_file is required for script-owned image_edit task")
+
+    if resource_type == "reference_keyframe":
+        return await _execute_reference_keyframe_edit(
+            project_name=project_name,
+            resource_id=resource_id,
+            instruction=instruction,
+            script_file=str(script_file),
+            payload=payload,
+            user_id=user_id,
+        )
 
     version_resource_type = edit_version_resource_type(resource_type)
 

@@ -22,6 +22,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
+import { ImageModelSelect, imageSelectionFromValue } from "@/components/shared/ImageModelSelect";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
 // ---------------------------------------------------------------------------
@@ -170,6 +171,7 @@ export function GridPreviewPanel({
   const [splitting, setSplitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [imageModel, setImageModel] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useTranslation("dashboard");
 
@@ -406,6 +408,12 @@ export function GridPreviewPanel({
                     )}
 
                     <div className="ml-auto flex shrink-0 items-center gap-1">
+                      <ImageModelSelect
+                        value={imageModel}
+                        onChange={setImageModel}
+                        capability="any"
+                        className="w-52"
+                      />
                       {selectedGridId && (
                         <VersionTimeMachine
                           projectName={projectName}
@@ -484,7 +492,12 @@ export function GridPreviewPanel({
                             return;
                           }
                           setRegenerating(true);
-                          enqueueGridRegenerate(projectName, selectedGridId, grid?.script_file ?? null)
+                          enqueueGridRegenerate(
+                            projectName,
+                            selectedGridId,
+                            grid?.script_file ?? null,
+                            imageSelectionFromValue(imageModel),
+                          )
                             .then(() => {
                               setGrid((prev) => prev ? { ...prev, status: "pending" } : prev);
                               onRegenerated?.();
