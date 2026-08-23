@@ -27,6 +27,7 @@ from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_ass
 from lib.audio_utils import resolve_audio_ref_path
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.prompt_utils import normalize_style
+from lib.reference_video.keyframes import KEYFRAME_MENTION_PREFIX
 from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
     derive_utterances,
@@ -134,6 +135,7 @@ def render_unit_prompt(
     # 主体记号按**资产表登记**判定，与参考图编号解耦：被能力上限裁掉的名字仍是画面主体，
     # 只是这次没随请求发图（纯画外角色同理——有主体、无图）。未登记的 mention 才留原文。
     subjects = {ref.name for ref in registered}
+    subjects.update(f"{KEYFRAME_MENTION_PREFIX}{ref.name}" for ref in references if ref.type == "keyframe")
 
     # 音频只能挂到 character 参考图；按类型过滤后建 name → 序号映射。
     character_image_no = {ref.name: i for i, ref in enumerate(references, start=1) if ref.type == "character"}
@@ -150,7 +152,13 @@ def render_unit_prompt(
     audio_no, audio_speaker_reference_index = _number_audio_speakers(bindings.audio_speakers, character_image_no)
 
     segments = [
-        _render_segment_one([ref.name for ref in references], bindings.speakers, audio_no, characters, settings),
+        _render_segment_one(
+            [f"{KEYFRAME_MENTION_PREFIX}{ref.name}" if ref.type == "keyframe" else ref.name for ref in references],
+            bindings.speakers,
+            audio_no,
+            characters,
+            settings,
+        ),
         _render_segment_two(text, subjects, characters),
         _render_segment_three(sum(1 for ref in references if ref.type == "character"), style),
     ]

@@ -64,6 +64,7 @@ from server.services.character_voice_references import (
 from server.services.cost_estimation import quote_video_request
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
+from server.services.image_model_selection import ImageModelSelection
 from server.services.narration_delivery_tasks import (
     active_narrated_video_resource_ids,
     prepare_current_storyboard_narrated_video_duration,
@@ -92,7 +93,7 @@ def _resolve_request_artifact_episode(
 # ==================== 请求模型 ====================
 
 
-class GenerateStoryboardRequest(BaseModel):
+class GenerateStoryboardRequest(ImageModelSelection):
     prompt: str | dict
     script_file: str
 
@@ -157,23 +158,23 @@ async def _localized_narrated_video_payload(
     return payload
 
 
-class GenerateCharacterRequest(BaseModel):
+class GenerateCharacterRequest(ImageModelSelection):
     prompt: str
 
 
-class GenerateSceneRequest(BaseModel):
+class GenerateSceneRequest(ImageModelSelection):
     prompt: str
 
 
-class GeneratePropRequest(BaseModel):
+class GeneratePropRequest(ImageModelSelection):
     prompt: str
 
 
-class GenerateProductRequest(BaseModel):
+class GenerateProductRequest(ImageModelSelection):
     prompt: str
 
 
-class EditImageRequest(BaseModel):
+class EditImageRequest(ImageModelSelection):
     resource_type: str
     resource_id: str
     instruction: str
@@ -217,6 +218,7 @@ async def generate_storyboard(
         resource_id=segment_id,
         prompt=req.prompt,
         script_file=req.script_file,
+        extra_payload=req.image_override_payload(),
     )
 
     # 入队
@@ -685,6 +687,7 @@ async def _enqueue_asset_generation(
     prompt: str,
     user_id: str,
     _t: Translator,
+    image_override: dict[str, str] | None = None,
 ) -> dict:
     """项目级资产（character / scene / prop / product）设计图生成共用入队逻辑。"""
     spec = ASSET_SPECS[asset_type]
@@ -706,6 +709,7 @@ async def _enqueue_asset_generation(
         media_type="image",
         resource_id=resource_key,
         prompt=prompt,
+        extra_payload=image_override,
     )
 
     queue = get_generation_queue()
@@ -743,6 +747,7 @@ async def generate_character(
         prompt=req.prompt,
         user_id=user.id,
         _t=_t,
+        image_override=req.image_override_payload(),
     )
 
 
@@ -762,6 +767,7 @@ async def generate_scene(
         prompt=req.prompt,
         user_id=user.id,
         _t=_t,
+        image_override=req.image_override_payload(),
     )
 
 
@@ -781,6 +787,7 @@ async def generate_prop(
         prompt=req.prompt,
         user_id=user.id,
         _t=_t,
+        image_override=req.image_override_payload(),
     )
 
 
@@ -800,13 +807,14 @@ async def generate_product(
         prompt=req.prompt,
         user_id=user.id,
         _t=_t,
+        image_override=req.image_override_payload(),
     )
 
 
 # ==================== 图片指令式编辑（image edit） ====================
 
 
-async def _require_i2i_image_provider_configured(project: dict) -> str:
+async def _require_i2i_image_provider_configured(project: dict, payload: dict[str, str] | None = None) -> str:
     """项目 i2i 槽解析不出可用供应商时直接 400，不创建任务。
 
     图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 CONTEXT.md「图片编辑」），
@@ -816,7 +824,7 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
     from lib.db import async_session_factory
 
     try:
-        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(project, None, capability="i2i")
+        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(project, payload, capability="i2i")
     except ValueError:
         raise BadRequestError("image_edit_i2i_unavailable")
     return resolved.provider_id
@@ -840,15 +848,16 @@ async def edit_image(
     if not instruction:
         raise BadRequestError("image_edit_instruction_required")
     is_storyboard = req.resource_type == "storyboard"
+    is_script_owned = is_storyboard or req.resource_type == "reference_keyframe"
     script_file = req.script_file.strip() if req.script_file else None
-    if is_storyboard and not script_file:
+    if is_script_owned and not script_file:
         raise BadRequestError("image_edit_script_file_required")
 
     def _sync() -> dict:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
-        script = pm_local.load_script(project_name, str(script_file)) if is_storyboard else None
+        script = pm_local.load_script(project_name, str(script_file)) if is_script_owned else None
         artifact_episode = None
         if script is not None:
             artifact_episode = _resolve_request_artifact_episode(project, script, str(script_file))
@@ -865,6 +874,8 @@ async def edit_image(
         except KeyError:
             if is_storyboard:
                 raise NotFoundError("segment_not_found", id=req.resource_id)
+            if req.resource_type == "reference_keyframe":
+                raise NotFoundError("reference_keyframe_not_found", id=req.resource_id)
             raise NotFoundError(_ASSET_GENERATE_I18N[req.resource_type]["not_found"], name=req.resource_id)
         if source is None:
             raise BadRequestError("image_edit_no_current_image", id=req.resource_id)
@@ -872,7 +883,8 @@ async def edit_image(
 
     project = await asyncio.to_thread(_sync)
 
-    provider_id = await _require_i2i_image_provider_configured(project)
+    image_override = req.image_override_payload()
+    provider_id = await _require_i2i_image_provider_configured(project, image_override)
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）
     spec = TaskSpec.from_request(
@@ -880,8 +892,8 @@ async def edit_image(
         media_type="image",
         resource_id=req.resource_id,
         prompt=instruction,
-        script_file=script_file if is_storyboard else None,
-        extra_payload={"resource_type": req.resource_type},
+        script_file=script_file if is_script_owned else None,
+        extra_payload={"resource_type": req.resource_type, **image_override},
     )
 
     queue = get_generation_queue()

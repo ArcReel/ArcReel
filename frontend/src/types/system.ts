@@ -55,6 +55,12 @@ export interface ModelCandidatesResponse {
   provider_names: Record<string, string>;
 }
 
+/** A request-scoped image backend override. Empty means “follow project default”. */
+export interface ImageModelSelection {
+  imageProvider?: string;
+  imageModel?: string;
+}
+
 export interface SystemVersionReleaseInfo {
   version: string;
   tag_name: string;

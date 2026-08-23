@@ -1,5 +1,5 @@
 import type { ProjectData } from "@/types";
-import type { AssetKind } from "@/types/reference-video";
+import type { AssetKind, MentionReferenceKind } from "@/types/reference-video";
 
 /**
  * Mention regex shared across frontend tokenizers. Mirrors backend
@@ -245,7 +245,7 @@ export function dialogueSpeakers(text: string): string[] {
 
 type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props" | "products">;
 type ProjectAssetKind = AssetKind;
-export type MentionLookup = Record<string, ProjectAssetKind>;
+export type MentionLookup = Record<string, MentionReferenceKind>;
 
 // Python str.strip() whitespace set. JavaScript trim() additionally removes U+FEFF,
 // but backend asset-name comparison deliberately treats U+FEFF as a name character.

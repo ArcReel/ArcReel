@@ -28,6 +28,7 @@ import type {
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
   GetSystemConfigResponse,
+  ImageModelSelection,
   CharacterCatalogSyncJob,
   GetSystemVersionResponse,
   ModelCandidatesResponse,
@@ -1845,13 +1846,19 @@ class API {
     projectName: string,
     segmentId: string,
     prompt: string | Record<string, unknown>,
-    scriptFile: string
+    scriptFile: string,
+    selection: ImageModelSelection = {},
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/storyboard/${encodeURIComponent(segmentId)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt, script_file: scriptFile }),
+        body: JSON.stringify({
+          prompt,
+          script_file: scriptFile,
+          image_provider: selection.imageProvider,
+          image_model: selection.imageModel,
+        }),
       }
     );
   }
@@ -2004,7 +2011,8 @@ class API {
   static async generateCharacter(
     projectName: string,
     charName: string,
-    prompt: string
+    prompt: string,
+    selection: ImageModelSelection = {},
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2015,7 +2023,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, image_provider: selection.imageProvider, image_model: selection.imageModel }),
       }
     );
   }
@@ -2029,7 +2037,8 @@ class API {
   static async generateProjectScene(
     projectName: string,
     sceneName: string,
-    prompt: string
+    prompt: string,
+    selection: ImageModelSelection = {},
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2040,7 +2049,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/scene/${encodeURIComponent(sceneName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, image_provider: selection.imageProvider, image_model: selection.imageModel }),
       }
     );
   }
@@ -2054,7 +2063,8 @@ class API {
   static async generateProjectProp(
     projectName: string,
     propName: string,
-    prompt: string
+    prompt: string,
+    selection: ImageModelSelection = {},
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2065,7 +2075,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/prop/${encodeURIComponent(propName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, image_provider: selection.imageProvider, image_model: selection.imageModel }),
       }
     );
   }
@@ -2079,7 +2089,8 @@ class API {
   static async generateProjectProduct(
     projectName: string,
     productName: string,
-    prompt: string
+    prompt: string,
+    selection: ImageModelSelection = {},
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2090,7 +2101,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/product/${encodeURIComponent(productName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, image_provider: selection.imageProvider, image_model: selection.imageModel }),
       }
     );
   }
@@ -2102,10 +2113,12 @@ class API {
   static async editImage(
     projectName: string,
     params: {
-      resourceType: "character" | "scene" | "prop" | "product" | "storyboard";
+      resourceType: "character" | "scene" | "prop" | "product" | "storyboard" | "reference_keyframe";
       resourceId: string;
       instruction: string;
       scriptFile?: string | null;
+      imageProvider?: string;
+      imageModel?: string;
     }
   ): Promise<{
     success: boolean;
@@ -2122,6 +2135,8 @@ class API {
           resource_id: params.resourceId,
           instruction: params.instruction,
           script_file: params.scriptFile ?? null,
+          image_provider: params.imageProvider,
+          image_model: params.imageModel,
         }),
       }
     );
@@ -2889,11 +2904,20 @@ class API {
     projectName: string,
     episode: number,
     scriptFile: string,
-    sceneIds?: string[]
+    sceneIds?: string[],
+    selection: ImageModelSelection = {},
   ): Promise<{ success: boolean; grid_ids: string[]; task_ids: string[]; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/grid/${episode}`,
-      { method: "POST", body: JSON.stringify({ script_file: scriptFile, scene_ids: sceneIds }) }
+      {
+        method: "POST",
+        body: JSON.stringify({
+          script_file: scriptFile,
+          scene_ids: sceneIds,
+          image_provider: selection.imageProvider,
+          image_model: selection.imageModel,
+        }),
+      }
     );
   }
 
@@ -2939,11 +2963,15 @@ class API {
    */
   static async regenerateGrid(
     projectName: string,
-    gridId: string
+    gridId: string,
+    selection: ImageModelSelection = {},
   ): Promise<{ success: boolean; task_id: string; deduped: boolean }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/grids/${encodeURIComponent(gridId)}/regenerate`,
-      { method: "POST" }
+      {
+        method: "POST",
+        body: JSON.stringify({ image_provider: selection.imageProvider, image_model: selection.imageModel }),
+      }
     );
   }
 
@@ -3200,6 +3228,75 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/reorder`,
       { method: "POST", body: JSON.stringify({ unit_ids: unitIds }) },
+    );
+  }
+
+  static async addReferenceKeyframe(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    description: string,
+  ): Promise<{ keyframe: import("@/types").ReferenceKeyframe }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/keyframes`,
+      { method: "POST", body: JSON.stringify({ unit_id: unitId, description }) },
+    );
+  }
+
+  static async patchReferenceKeyframe(
+    projectName: string,
+    episode: number,
+    keyframeId: string,
+    description: string,
+  ): Promise<{ keyframe: import("@/types").ReferenceKeyframe }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/keyframes/${encodeURIComponent(keyframeId)}`,
+      { method: "PATCH", body: JSON.stringify({ description }) },
+    );
+  }
+
+  static async deleteReferenceKeyframe(
+    projectName: string,
+    episode: number,
+    keyframeId: string,
+  ): Promise<void> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/keyframes/${encodeURIComponent(keyframeId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  static async generateReferenceKeyframe(
+    projectName: string,
+    episode: number,
+    keyframeId: string,
+    selection: ImageModelSelection = {},
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/keyframes/${encodeURIComponent(keyframeId)}/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ image_provider: selection.imageProvider, image_model: selection.imageModel }),
+      },
+    );
+  }
+
+  static async generateReferenceKeyframes(
+    projectName: string,
+    episode: number,
+    keyframeIds?: string[],
+    selection: ImageModelSelection = {},
+  ): Promise<{ success: boolean; task_ids: string[]; deduped: boolean; message: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/keyframes/generate-batch`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          keyframe_ids: keyframeIds,
+          image_provider: selection.imageProvider,
+          image_model: selection.imageModel,
+        }),
+      },
     );
   }
 

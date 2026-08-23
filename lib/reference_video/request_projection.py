@@ -38,7 +38,8 @@ from lib.narration_delivery import (
 )
 from lib.path_safety import PathTraversalError, safe_join
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
-from lib.reference_video.text_parser import derive_references_from_text
+from lib.reference_video.keyframes import keyframe_id_from_mention_name, keyframe_references_in_text
+from lib.reference_video.text_parser import extract_mentions, resolve_references, strip_speech_marks
 from lib.script_models import ReferenceResource
 from lib.speech_composition import admit_script_unit
 
@@ -410,7 +411,26 @@ def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceRes
 
     raw_text = unit.get("text")
     text = raw_text if isinstance(raw_text, str) else ""
-    references, _missing = derive_references_from_text(text, project)
+    owned_keyframes = keyframe_references_in_text(unit)
+    references: list[ReferenceResource] = []
+    seen: set[tuple[str, str]] = set()
+    for name in extract_mentions(strip_speech_marks(text)):
+        keyframe = owned_keyframes.get(name)
+        if keyframe is not None:
+            candidate = keyframe
+        elif keyframe_id_from_mention_name(name) is not None:
+            # A keyframe tag may only address a keyframe owned by this unit.
+            continue
+        else:
+            resolved, _missing = resolve_references([name], project)
+            if not resolved:
+                continue
+            candidate = resolved[0]
+        identity = (candidate.type, asset_name_comparison_key(candidate.name))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        references.append(candidate)
     return tuple(references)
 
 
@@ -425,6 +445,19 @@ def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> t
 
     result: list[ResolvedReferenceAsset] = []
     for reference in unit_reference_declarations(project, unit):
+        if reference.type == "keyframe":
+            owned = next(
+                (
+                    item
+                    for item in unit.get("keyframes") or []
+                    if isinstance(item, dict) and item.get("keyframe_id") == reference.name
+                ),
+                None,
+            )
+            path = _candidate_path(project_path, owned.get("image_path") if isinstance(owned, dict) else None)
+            if path is not None:
+                result.append(ResolvedReferenceAsset(path=path, reference=reference, kind="keyframe"))
+            continue
         spec = ASSET_SPECS[reference.type]
         bucket = normalize_asset_bucket(project.get(spec.bucket_key))
         entry = bucket.get(asset_name_comparison_key(reference.name))

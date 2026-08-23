@@ -47,7 +47,7 @@ import {
   isStructuredVideoPrompt,
 } from "@/utils/prompt-shape";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
-import type { NarratedVideoDurationAdmission, ReferenceGenerationRequestOptions } from "@/types";
+import type { ImageModelSelection, NarratedVideoDurationAdmission, ReferenceGenerationRequestOptions } from "@/types";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
@@ -77,7 +77,7 @@ interface ShotDetailProps {
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => void | Promise<void>;
   /** 镜头重排请求在途，移动按钮禁用 */
   movePending?: boolean;
-  onGenerateStoryboard?: (segmentId: string) => void;
+  onGenerateStoryboard?: (segmentId: string, selection?: ImageModelSelection) => void;
   onGenerateVideo?: (
     segmentId: string,
     requestOptions?: ReferenceGenerationRequestOptions,
@@ -975,7 +975,7 @@ export function ShotDetail({
         hideGenerateButton={isGridMode}
         generating={generatingStoryboard}
         estimatedCost={sbEstimate ?? undefined}
-        onGenerate={onGenerateStoryboard ? () => onGenerateStoryboard(segmentId) : undefined}
+        onGenerate={onGenerateStoryboard ? (selection) => onGenerateStoryboard(segmentId, selection) : undefined}
         onRestore={onRestoreStoryboard}
         onUpload={
           scriptFile && !refsReadOnly ? (file) => handleUpload("storyboard", file) : undefined

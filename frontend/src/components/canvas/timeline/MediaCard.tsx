@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Sparkles, ImageIcon, Film } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -16,6 +17,8 @@ import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
 import { ImageEditButton } from "./ImageEditButton";
 import { VersionTimeMachine } from "./VersionTimeMachine";
+import { ImageModelSelect, imageSelectionFromValue } from "@/components/shared/ImageModelSelect";
+import type { ImageModelSelection } from "@/types";
 
 type MediaKind = "storyboard" | "video";
 
@@ -40,7 +43,7 @@ interface MediaCardProps {
   /** 估算费用（按币种 breakdown，例如 {USD: 0.12} 或 {CNY: 5.25}） */
   estimatedCost?: CostBreakdown;
   /** 触发生成 */
-  onGenerate?: () => void;
+  onGenerate?: (selection?: ImageModelSelection) => void;
   /** 版本恢复回调；未提供时不显示版本入口（只读展示无版本可回滚） */
   onRestore?: () => Promise<void> | void;
   /** 自主上传回调（替换该镜头的分镜图/视频）；未提供时不显示上传入口 */
@@ -81,6 +84,7 @@ export function MediaCard({
   // 演示态只读：卡片上的四个写入口（上传 / 编辑 / 版本恢复 / 生成）从同一处判定关闭，
   // 不再各自靠「对应回调是否传入」推断——那让版本入口与其余入口分属两套机制。
   const demoReadOnly = useDemoWorkbench();
+  const [imageModel, setImageModel] = useState("");
 
   const assetFp = useProjectsStore((s) =>
     assetPath ? s.getAssetFingerprint(assetPath) : null,
@@ -201,31 +205,36 @@ export function MediaCard({
 
       {/* Generate CTA */}
       {!hideGenerateButton && onGenerate && !demoReadOnly && (
-        <button
-          type="button"
-          onClick={onGenerate}
-          disabled={generateDisabled || resourceBusy}
-          title={
-            generateDisabled
-              ? (generateDisabledHint ?? t("media_generate_video_disabled_hint"))
-              : undefined
-          }
-          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-[10px] px-3.5 py-2.5 text-[13px] font-semibold transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-          style={{
-            color: "oklch(0.14 0 0)",
-            background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-            boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--color-accent-glow)",
-          }}
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>{generateLabel}</span>
-          {estimatedCost && Object.values(estimatedCost).some((v) => v > 0) && (
-            <span className="num ml-1 text-[11px] opacity-70">
-              ~{formatCost(estimatedCost)}
-            </span>
+        <div className="mt-2.5 grid gap-2">
+          {kind === "storyboard" && (
+            <ImageModelSelect value={imageModel} onChange={setImageModel} capability="any" />
           )}
-        </button>
+          <button
+            type="button"
+            onClick={() => onGenerate(imageSelectionFromValue(imageModel))}
+            disabled={generateDisabled || resourceBusy}
+            title={
+              generateDisabled
+                ? (generateDisabledHint ?? t("media_generate_video_disabled_hint"))
+                : undefined
+            }
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-[10px] px-3.5 py-2.5 text-[13px] font-semibold transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+            style={{
+              color: "oklch(0.14 0 0)",
+              background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+              boxShadow:
+                "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--color-accent-glow)",
+            }}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>{generateLabel}</span>
+            {estimatedCost && Object.values(estimatedCost).some((v) => v > 0) && (
+              <span className="num ml-1 text-[11px] opacity-70">
+                ~{formatCost(estimatedCost)}
+              </span>
+            )}
+          </button>
+        </div>
       )}
     </div>
   );

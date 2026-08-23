@@ -5,8 +5,9 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { groupBySegmentBreak, computeGridSize, matchGridsForGroup } from "@/utils/grid-layout";
 import { GridPreviewPanel } from "@/components/canvas/timeline/GridPreviewPanel";
+import { ImageModelSelect, imageSelectionFromValue } from "@/components/shared/ImageModelSelect";
 import type { GridGeneration } from "@/types/grid";
-import type { NarrationSegment, DramaScene } from "@/types";
+import type { DramaScene, ImageModelSelection, NarrationSegment } from "@/types";
 
 type Segment = NarrationSegment | DramaScene;
 
@@ -20,6 +21,7 @@ interface GridPreviewViewProps {
     episode: number,
     scriptFile: string,
     sceneIds?: string[],
+    selection?: ImageModelSelection,
   ) => Promise<void> | void;
 }
 
@@ -45,6 +47,7 @@ export function GridPreviewView({
   // 单张宫格的格数上限由后端给：4×4 / 5×5 的 4K 门控要经供应商解析才能定，前端自行推导
   // 必然与入队口径漂移。取不到时 computeGridSize 用保守默认值。
   const [maxCellCount, setMaxCellCount] = useState<number | undefined>(undefined);
+  const [imageModel, setImageModel] = useState("");
 
   const groups = useMemo(() => groupBySegmentBreak(segments), [segments]);
 
@@ -91,7 +94,7 @@ export function GridPreviewView({
       const sceneIds = group.map((s) => getSegmentId(s, contentMode));
       setGeneratingGroups((prev) => new Set(prev).add(groupKey));
       try {
-        await onGenerateGrid(episode, scriptFile, sceneIds);
+        await onGenerateGrid(episode, scriptFile, sceneIds, imageSelectionFromValue(imageModel));
       } finally {
         setGeneratingGroups((prev) => {
           const next = new Set(prev);
@@ -101,7 +104,7 @@ export function GridPreviewView({
         refreshGrids();
       }
     },
-    [onGenerateGrid, scriptFile, contentMode, episode, refreshGrids],
+    [onGenerateGrid, scriptFile, contentMode, episode, refreshGrids, imageModel],
   );
 
   const stats = useMemo(() => {
@@ -156,6 +159,13 @@ export function GridPreviewView({
         >
           {t("grid_preview_summary", stats)}
         </span>
+        <span className="flex-1" />
+        <ImageModelSelect
+          value={imageModel}
+          onChange={setImageModel}
+          capability="any"
+          className="w-64"
+        />
       </div>
 
       <div className="flex flex-col gap-3">

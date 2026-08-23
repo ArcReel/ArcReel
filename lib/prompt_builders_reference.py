@@ -158,8 +158,8 @@ def build_reference_units_split_prompt(
     # 上限按机械派生的 references 计数，故这里与 `reference_rule` 同口径点明说话人不计入：
     # 少这句会让模型把只出现在台词记号里的角色也算进配额，凭空压掉真正要进画面的资产。
     max_refs_rule = (
-        f"\n- **references 上限**：一个 unit 的**画面描述里** `@` 引用的资产名（去重后）不超过 "
-        f"{max_reference_images} 个（台词记号 `@[角色]{{台词}}` 的说话人不计入——它不生成参考图）；"
+        f"\n- **references 上限**：一个 unit 的 `@` 资产引用（去重）与 `keyframe_plan` 数量之和不超过 "
+        f"{max_reference_images}（台词记号 `@[角色]{{台词}}` 的说话人不计入——它不生成参考图）；"
         "超出时把次要角色融入背景描述（不用 `@` 引用），不要压缩主体资产。"
         if max_reference_images is not None
         else ""
@@ -217,6 +217,9 @@ def build_reference_units_split_prompt(
   时间 / 空间 / 情节重大切换点开新 unit。
 - **source_text**：记录该 unit 所依据的源文内容，供人工审阅与追溯。可摘录、概括或整理表达，
   但须保留与本 unit 对应的关键情节；它不进入视频提示词，也不参与逐字机械校验。
+- **keyframe_plan**：列出这个 unit 内每次核心场景建立或明显场景切换所需的首帧规划，按出现顺序书写。
+  它不是固定数量，也不能照抄示例；应覆盖该 unit 实际发生的关键画面变化。一个 unit 最多 5 项，超过 5 项时必须
+  在对应的场景切换处继续拆成多个 unit，不能删掉关键画面来凑上限。
 - **时长决策序**（自上而下，高优先级是硬边界，低优先级在其内做优化）：
   1. 硬约束：`duration_seconds` 是 unit 时长（一次生成调用一个时长），必须取支持档位（{durations_str}）中的值。
      叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。{reference_rule}
@@ -253,7 +256,14 @@ def render_reference_units_for_step2(units: list[dict]) -> str:
     for index, unit in enumerate(units, start=1):
         duration = int(unit.get("duration_seconds") or 0)
         body = str(unit.get("text") or "")
-        blocks.append(f"#### unit {index}（时长 {duration}s）\n{body}")
+        raw_plan = unit.get("keyframe_plan")
+        plan = raw_plan if isinstance(raw_plan, list) else []
+        plan_lines = "\n".join(f"- {item}" for item in plan if isinstance(item, str) and item.strip())
+        blocks.append(
+            f"#### unit {index}（时长 {duration}s）\n"
+            f"关键首帧规划：\n{plan_lines or '- 按正文识别核心场景首帧'}\n"
+            f"正文：\n{body}"
+        )
     return "\n\n".join(blocks)
 
 
@@ -285,7 +295,7 @@ def build_reference_video_prompt(
         max_refs: 当前视频模型支持的最大参考图数；为 None 时不写入硬性数量约束。
     """
     max_refs_line = (
-        f"\n- 单个 unit 的**画面描述里** `@` 引用的资产名（去重后）不超过 {max_refs} 个（模型上限）；"
+        f"\n- 单个 unit 的普通 `@` 资产引用（去重）与关键分镜数量之和不超过 {max_refs}（模型上限）；"
         "台词记号 `@[角色]{台词}` 的说话人不计入——它不生成参考图，只驱动音色声明。"
         "超出时把次要角色合并到背景描述，不用 `@` 引用。"
         if max_refs is not None
@@ -346,6 +356,12 @@ def build_reference_video_prompt(
 # 视觉展开写作指引
 
 正文将直接驱动该 unit 的视频生成，按「景别 → 构图 → 运镜 → 画面内容」四要素依次组织，写足画面信息、宁详勿略：
+
+- 每个 unit 同时输出 `keyframes`：根据 step1 的关键首帧规划与最终视觉展开，为每次核心场景建立或明显场景切换
+  写一条**静态第一帧**描述。数量由实际内容决定，不能套用示例；最多 5 条。
+- 在正文中按同一顺序把 `[[关键分镜1]]`、`[[关键分镜2]]`……放到对应核心场景描述开始的位置。
+  占位符与 `keyframes` 必须等量、连续、各出现一次；后端会把它们替换为稳定的 `@[关键分镜 ID]` 标签。
+- 关键帧描述只写单帧可见事实：景别、角度、构图、主体位置、环境、光线和当下姿态；不要写运镜过程或连续动作。
 
 - 景别：大全景 / 全景 / 中景 / 近景 / 特写，及拍摄角度（俯拍 / 仰拍 / 平视）。
 - 构图：主体在画面中的位置、前景与背景的关系（如中心构图、对角线构图、以公路 / 廊柱作引导线）。

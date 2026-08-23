@@ -7448,10 +7448,11 @@ async def test_open_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolCont
     assert envelope["violations"] == []
     assert envelope["meta"]["source"] == "source/episode_1.txt"
     unit = envelope["content"]["units"][0]
-    assert set(unit) == {"duration_seconds", "source_text", "text"}
+    assert set(unit) == {"duration_seconds", "source_text", "text", "keyframe_plan"}
     assert unit["duration_seconds"] == 8
     assert unit["source_text"] == _RV_NOVEL
     assert unit["text"] == "@[张三] 起身\n@[张三] 走向 @[村口]"
+    assert unit["keyframe_plan"] == []
 
 
 @pytest.mark.unit

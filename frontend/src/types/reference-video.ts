@@ -17,6 +17,8 @@ import type {
 } from "./workflow";
 
 export type AssetKind = "product" | "character" | "scene" | "prop";
+/** References accepted by the manuscript mention editor. Keyframes are unit-owned, not project assets. */
+export type MentionReferenceKind = AssetKind | "keyframe";
 
 /** Project.json sheet field for each asset kind. Mirrors lib/asset_types.py SHEET_KEY. */
 export const SHEET_FIELD: Record<AssetKind, "product_sheet" | "character_sheet" | "scene_sheet" | "prop_sheet"> = {
@@ -58,6 +60,12 @@ export interface UnitGeneratedAssets {
   source_signature?: string | null;
 }
 
+export interface ReferenceKeyframe {
+  keyframe_id: string;
+  description: string;
+  image_path: string | null;
+}
+
 export interface ReferenceVideoUnit {
   /** Format: "E{episode}U{index}" */
   unit_id: string;
@@ -68,6 +76,8 @@ export interface ReferenceVideoUnit {
   transition_to_next: TransitionType;
   note: string | null;
   generated_assets: UnitGeneratedAssets;
+  /** Core-scene first frames, in manuscript order. Maximum five per unit. */
+  keyframes?: ReferenceKeyframe[];
   /** Problem shell or mixed-speech marker; generation is blocked until repaired. */
   needs_replan?: boolean;
 }

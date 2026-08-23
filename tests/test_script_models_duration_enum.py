@@ -199,7 +199,7 @@ class TestReferenceUnitsStep1Model:
         unit_def = next(d for d in schema.get("$defs", {}).values() if "text" in d.get("properties", {}))
         assert unit_def["properties"]["duration_seconds"]["enum"] == [4, 6, 8]
         # 机械可派生的字段一律不进 LLM 输出 schema
-        assert set(unit_def["properties"]) == {"duration_seconds", "source_text", "text"}
+        assert set(unit_def["properties"]) == {"duration_seconds", "source_text", "text", "keyframe_plan"}
 
     def test_member_duration_accepted(self):
         draft = self._model().model_validate({"units": [self._unit()]})

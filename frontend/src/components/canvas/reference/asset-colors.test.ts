@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { ASSET_COLORS, assetColor, type MentionKind } from "./asset-colors";
 
 describe("asset-colors", () => {
-  it("exposes three asset kinds plus 'unknown'", () => {
-    const keys: MentionKind[] = ["character", "scene", "prop", "unknown"];
+  it("exposes every mention kind plus 'unknown'", () => {
+    const keys: MentionKind[] = ["product", "character", "scene", "prop", "keyframe", "unknown"];
     for (const k of keys) {
       expect(ASSET_COLORS[k]).toBeDefined();
       expect(typeof ASSET_COLORS[k].textClass).toBe("string");
@@ -15,6 +15,7 @@ describe("asset-colors", () => {
     expect(assetColor("character")).toBe(ASSET_COLORS.character);
     expect(assetColor("scene")).toBe(ASSET_COLORS.scene);
     expect(assetColor("prop")).toBe(ASSET_COLORS.prop);
+    expect(assetColor("keyframe")).toBe(ASSET_COLORS.keyframe);
   });
 
   it("assetColor falls back to 'unknown' for undefined", () => {

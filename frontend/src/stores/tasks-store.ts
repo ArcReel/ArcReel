@@ -24,12 +24,13 @@ export type ResourceKind =
   | "tts"
   | "voice_sample"
   | "reference_video"
+  | "reference_keyframe"
   | "grid";
 
 /** 可做指令式编辑的资源种类；`image_edit` 任务按此归入对应资源槽。 */
 export type ImageEditResourceKind = Extract<
   ResourceKind,
-  "character" | "scene" | "prop" | "product" | "storyboard"
+  "character" | "scene" | "prop" | "product" | "storyboard" | "reference_keyframe"
 >;
 
 /**
@@ -228,7 +229,12 @@ export const useTasksStore = create<TasksState>((set, get) => {
     const prevStatus = new Map(prev.map((t) => [t.task_id, t.status]));
     return next.some(
       (t) =>
-        (t.task_type === "reference_video" || t.task_type === "tts") &&
+        (
+          t.task_type === "reference_video" ||
+          t.task_type === "reference_keyframe" ||
+          t.task_type === "tts" ||
+          (t.task_type === "image_edit" && t.resource_type === "reference_keyframe")
+        ) &&
         t.status === "succeeded" &&
         prevStatus.get(t.task_id) !== "succeeded",
     );

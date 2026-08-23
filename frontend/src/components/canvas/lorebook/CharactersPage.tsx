@@ -9,7 +9,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
-import type { Character } from "@/types";
+import type { Character, ImageModelSelection } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 
@@ -17,7 +17,7 @@ interface Props {
   projectName: string;
   characters: Record<string, Character>;
   onSaveCharacter: (name: string, payload: { description: string; voiceStyle: string; referenceFile?: File | null }) => Promise<void>;
-  onGenerateCharacter: (name: string) => void;
+  onGenerateCharacter: (name: string, selection?: ImageModelSelection) => void;
   onAddCharacter: (name: string, description: string, voiceStyle: string, referenceFile?: File | null) => Promise<void>;
   onRestoreCharacterVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;

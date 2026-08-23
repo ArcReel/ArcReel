@@ -37,6 +37,7 @@ from server.auth import CurrentUser
 from server.services.grid_access import ensure_grid_writable
 from server.services.grid_resolution import resolve_large_grid_allowed
 from server.services.grid_split import GridImageNotReadyError, apply_grid_split
+from server.services.image_model_selection import ImageModelSelection
 from server.services.upload_finalize import (
     UPLOAD_VERSION_SOURCE,
     UploadTooLargeError,
@@ -51,7 +52,7 @@ router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 # ==================== 请求/响应模型 ====================
 
 
-class GenerateGridRequest(BaseModel):
+class GenerateGridRequest(ImageModelSelection):
     script_file: str
     scene_ids: list[str] | None = None
 
@@ -182,16 +183,19 @@ async def generate_grid(
                 task_type="grid",
                 media_type="image",
                 resource_id=grid.id,
-                payload=build_grid_task_payload(
-                    prompt=prompt,
-                    script_file=req.script_file,
-                    scene_ids=chunk_ids,
-                    grid_size=chunk_layout.grid_size,
-                    rows=chunk_layout.rows,
-                    cols=chunk_layout.cols,
-                    grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
-                    video_aspect_ratio=aspect_ratio,
-                ),
+                payload={
+                    **build_grid_task_payload(
+                        prompt=prompt,
+                        script_file=req.script_file,
+                        scene_ids=chunk_ids,
+                        grid_size=chunk_layout.grid_size,
+                        rows=chunk_layout.rows,
+                        cols=chunk_layout.cols,
+                        grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
+                        video_aspect_ratio=aspect_ratio,
+                    ),
+                    **req.image_override_payload(),
+                },
                 script_file=req.script_file,
                 source="webui",
                 user_id=user.id,
@@ -292,7 +296,12 @@ def _ensure_grid_idle(grid: GridGeneration) -> None:
 
 
 @router.post("/grids/{grid_id}/regenerate")
-async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
+async def regenerate_grid(
+    project_name: str,
+    grid_id: str,
+    user: CurrentUser,
+    req: ImageModelSelection | None = None,
+):
     """重置宫格图状态并重新入队联合图生成任务（不隐含落格，切分另行显式触发）。"""
     project = _load_project_for_grid_write(project_name)
     project_path = get_project_manager().get_project_path(project_name)
@@ -322,16 +331,19 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
         task_type="grid",
         media_type="image",
         resource_id=grid.id,
-        payload=build_grid_task_payload(
-            prompt=grid.prompt,
-            script_file=grid.script_file,
-            scene_ids=grid.scene_ids,
-            grid_size=grid.grid_size,
-            rows=grid.rows,
-            cols=grid.cols,
-            grid_aspect_ratio=grid_aspect_ratio,
-            video_aspect_ratio=aspect_ratio,
-        ),
+        payload={
+            **build_grid_task_payload(
+                prompt=grid.prompt,
+                script_file=grid.script_file,
+                scene_ids=grid.scene_ids,
+                grid_size=grid.grid_size,
+                rows=grid.rows,
+                cols=grid.cols,
+                grid_aspect_ratio=grid_aspect_ratio,
+                video_aspect_ratio=aspect_ratio,
+            ),
+            **(req.image_override_payload() if req is not None else {}),
+        },
         script_file=grid.script_file,
         source="webui",
         user_id=user.id,

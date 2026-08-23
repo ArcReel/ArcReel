@@ -387,7 +387,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           if (
             entityChanges.some((c) => c.entity_type === "reference_unit") ||
             taskChanges.some(
-              (c) => c.action === "task_succeeded" && c.task_type === "reference_video",
+              (c) =>
+                c.action === "task_succeeded" &&
+                (c.task_type === "reference_video" ||
+                  c.task_type === "reference_keyframe"),
             )
           ) {
             useAppStore.getState().invalidateReferenceVideoUnits();

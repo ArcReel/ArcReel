@@ -47,7 +47,18 @@ router = APIRouter()
 # 仅放行有还原后元数据同步分支的这几类。grids 的还原只换回联合图文件并复位宫格记录的
 # 切分态，不触发切分、不碰任何分镜图——落格由宫格切分端点显式执行。
 _RESTORABLE_RESOURCE_TYPES = frozenset(
-    {"storyboards", "videos", "audio", "characters", "scenes", "props", "products", "reference_videos", "grids"}
+    {
+        "storyboards",
+        "videos",
+        "audio",
+        "characters",
+        "scenes",
+        "props",
+        "products",
+        "reference_videos",
+        "grids",
+        "keyframes",
+    }
 )
 
 
@@ -120,6 +131,11 @@ def _commit_non_typed_restore_claim(
     owner_present: bool,
 ) -> None:
     """Apply the claim half of a non-typed restore inside its metadata locks."""
+
+    # Keyframes are script-owned pointers but intentionally not formal Artifact Manifest
+    # resources. Restoring bytes/version state must not create or erase a synthetic claim.
+    if resource_type == "keyframes":
+        return
 
     if not owner_present:
         if resource_type == "storyboards":

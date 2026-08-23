@@ -20,6 +20,7 @@ import type {
   AdShot,
   ProjectData,
   ReferenceGenerationRequestOptions,
+  ImageModelSelection,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
@@ -40,7 +41,7 @@ interface TimelineCanvasProps {
   ) => void | Promise<void>;
   /** ad 模式镜头顺序调整（向前/向后移动一位），resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => Promise<boolean>;
-  onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
+  onGenerateStoryboard?: (segmentId: string, scriptFile?: string, selection?: ImageModelSelection) => void;
   onGenerateVideo?: (
     segmentId: string,
     scriptFile?: string,
@@ -213,7 +214,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   // 生成回调保持可选透传：未提供时编辑器隐藏对应生成入口，
   // 而非渲染一个点了没反应的按钮。
   const handleGenSb = onGenerateStoryboard
-    ? (segId: string) => onGenerateStoryboard(segId, scriptFile)
+    ? (segId: string, selection?: ImageModelSelection) => onGenerateStoryboard(segId, scriptFile, selection)
     : undefined;
   const handleGenVid = onGenerateVideo
     ? (segId: string, requestOptions?: ReferenceGenerationRequestOptions) =>

@@ -21,6 +21,7 @@ import type {
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
   ReferenceGenerationRequestOptions,
+  ImageModelSelection,
 } from "@/types";
 import {
   useTasksStore,
@@ -106,10 +107,13 @@ export async function enqueueStoryboard(
   segmentId: string,
   prompt: string | Record<string, unknown>,
   scriptFile: string,
+  selection: ImageModelSelection = {},
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "storyboard", segmentId, "storyboard")],
-    () => API.generateStoryboard(projectName, segmentId, prompt, scriptFile),
+    () => selection.imageProvider
+      ? API.generateStoryboard(projectName, segmentId, prompt, scriptFile, selection)
+      : API.generateStoryboard(projectName, segmentId, prompt, scriptFile),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:storyboard_task_submitted_toast", { id: segmentId }));
@@ -169,10 +173,13 @@ export async function enqueueCharacter(
   projectName: string,
   name: string,
   prompt: string,
+  selection: ImageModelSelection = {},
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "character", name, "character")],
-    () => API.generateCharacter(projectName, name, prompt),
+    () => selection.imageProvider
+      ? API.generateCharacter(projectName, name, prompt, selection)
+      : API.generateCharacter(projectName, name, prompt),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:character_task_submitted_toast", { name }));
@@ -199,10 +206,13 @@ export async function enqueueScene(
   projectName: string,
   name: string,
   prompt: string,
+  selection: ImageModelSelection = {},
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "scene", name, "scene")],
-    () => API.generateProjectScene(projectName, name, prompt),
+    () => selection.imageProvider
+      ? API.generateProjectScene(projectName, name, prompt, selection)
+      : API.generateProjectScene(projectName, name, prompt),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:scene_task_submitted_toast", { name }));
@@ -213,10 +223,13 @@ export async function enqueueProp(
   projectName: string,
   name: string,
   prompt: string,
+  selection: ImageModelSelection = {},
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "prop", name, "prop")],
-    () => API.generateProjectProp(projectName, name, prompt),
+    () => selection.imageProvider
+      ? API.generateProjectProp(projectName, name, prompt, selection)
+      : API.generateProjectProp(projectName, name, prompt),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:prop_task_submitted_toast", { name }));
@@ -227,10 +240,13 @@ export async function enqueueProduct(
   projectName: string,
   name: string,
   prompt: string,
+  selection: ImageModelSelection = {},
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "product", name, "product")],
-    () => API.generateProjectProduct(projectName, name, prompt),
+    () => selection.imageProvider
+      ? API.generateProjectProduct(projectName, name, prompt, selection)
+      : API.generateProjectProduct(projectName, name, prompt),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:product_task_submitted_toast", { name }));
@@ -244,6 +260,8 @@ export async function enqueueImageEdit(
     resourceId: string;
     instruction: string;
     scriptFile?: string | null;
+    imageProvider?: string;
+    imageModel?: string;
   },
 ): Promise<EnqueueResult> {
   // image_edit 与生成任务共享同一资源槽位：kind 按被编辑资源类型归槽，
@@ -262,12 +280,15 @@ export async function enqueueGrid(
   episode: number,
   scriptFile: string,
   sceneIds?: string[],
+  selection: ImageModelSelection = {},
 ): Promise<EnqueueResult> {
   // task_ids 可能为空数组（如 scene_ids 过滤后无匹配分组）：此时后端不产生任何任务行，
   // settle([]) 会把标记回滚掉，不留下永远等不到真实行的残留。
   const res = await submit(
     [markScriptFile(projectName, "grid", scriptFile)],
-    () => API.generateGrid(projectName, episode, scriptFile, sceneIds),
+    () => selection.imageProvider
+      ? API.generateGrid(projectName, episode, scriptFile, sceneIds, selection)
+      : API.generateGrid(projectName, episode, scriptFile, sceneIds),
     manyTaskIds,
   );
   notifyEnqueued(res.deduped, res.message);
@@ -278,17 +299,35 @@ export async function enqueueGridRegenerate(
   projectName: string,
   gridId: string,
   scriptFile: string | null,
+  selection: ImageModelSelection = {},
 ): Promise<EnqueueResult> {
   const res = await submit(
     [
       markResource(projectName, "grid", gridId, "grid"),
       ...(scriptFile ? [markScriptFile(projectName, "grid", scriptFile)] : []),
     ],
-    () => API.regenerateGrid(projectName, gridId),
+    () => selection.imageProvider
+      ? API.regenerateGrid(projectName, gridId, selection)
+      : API.regenerateGrid(projectName, gridId),
     oneTaskId,
   );
   // 重生成入口成功时静默（面板内已有状态反馈），仅 deduped 时弹提示。
   notifyEnqueued(res.deduped, null);
+  return { taskIds: [res.task_id], deduped: res.deduped };
+}
+
+export async function enqueueReferenceKeyframe(
+  projectName: string,
+  episode: number,
+  keyframeId: string,
+  selection: ImageModelSelection = {},
+): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "reference_keyframe", keyframeId, "reference_keyframe")],
+    () => API.generateReferenceKeyframe(projectName, episode, keyframeId, selection),
+    oneTaskId,
+  );
+  notifyEnqueued(res.deduped, res.message);
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 

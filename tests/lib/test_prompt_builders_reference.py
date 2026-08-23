@@ -73,7 +73,7 @@ def test_build_reference_video_prompt_contains_required_sections():
     assert "@[主角] 推门走进 @[酒馆]\n@[主角] 按住 @[长剑]" in prompt
     assert "（时长 8s）" in prompt
     # 断言完整约束句：单看 "9" 会被默认 aspect_ratio "9:16" 满足，max_refs 未注入也能通过
-    assert "不超过 9 个（模型上限）" in prompt
+    assert "普通 `@` 资产引用（去重）与关键分镜数量之和不超过 9（模型上限）" in prompt
 
 
 def test_build_reference_video_prompt_emphasizes_no_appearance_description():
@@ -123,7 +123,7 @@ def test_build_reference_units_split_prompt_contains_constraints_and_candidates(
     # 能力约束：档位集合、总时长上限、references 上限、默认偏好
     assert "4, 6, 8" in prompt
     assert "12 秒" in prompt
-    assert "不超过 3 个" in prompt
+    assert "`@` 资产引用（去重）与 `keyframe_plan` 数量之和不超过 3" in prompt
     assert "默认取 4 秒" in prompt
     # 关键写作纪律
     assert "@[名称]" in prompt

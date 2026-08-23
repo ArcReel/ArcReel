@@ -5,6 +5,7 @@
 export default {
   "label.grid": 'Multi-grid storyboard "{{id}}"',
   "label.grid_split": 'Multi-grid storyboard "{{id}}" split',
+  "label.reference_keyframe": 'Reference keyframe "{{id}}"',
   "label.voice_sample": 'Voice preview for "{{id}}"',
   "label.asset_image_character": 'Asset image for character "{{id}}"',
   "label.asset_image_scene": 'Asset image for scene "{{id}}"',

@@ -801,8 +801,18 @@ class ReferenceResource(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    type: Literal["product", "character", "scene", "prop"] = Field(description="引用的资源类型")
+    type: Literal["product", "character", "scene", "prop", "keyframe"] = Field(description="引用的资源类型")
     name: str = Field(description="产品/角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
+
+
+class ReferenceKeyframe(BaseModel):
+    """一个 video unit 内可独立生成、编辑和版本回溯的关键分镜首帧。"""
+
+    model_config = _STRICT_CONFIG
+
+    keyframe_id: str = Field(min_length=1, description="稳定 ID，格式 E{集}U{序号}K{序号}")
+    description: str = Field(min_length=1, description="该核心场景首帧的静态画面描述，可包含已登记资产引用")
+    image_path: SkipJsonSchema[str | None] = Field(default=None, description="当前首帧图片的项目内相对路径")
 
 
 class ReferenceVideoUnit(BaseModel):
@@ -825,6 +835,11 @@ class ReferenceVideoUnit(BaseModel):
     # transition_to_next / note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注")
+    keyframes: SkipJsonSchema[list[ReferenceKeyframe]] = Field(
+        default_factory=list,
+        max_length=5,
+        description="该 unit 的关键分镜首帧；正文中的 @[关键分镜 ID] 是其位置引用",
+    )
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
@@ -901,6 +916,11 @@ class ReferenceStep1Unit(BaseModel):
     # 辅助源文映射：供 gate 对照与失真定位，不作为逐字机械校验依据。
     # 默认空串：不带该字段的存量草稿照常通过校验。
     source_text: SkipJsonSchema[str] = Field(default="", description="该 unit 所依据的源文内容（辅助追溯）")
+    keyframe_plan: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="核心场景首帧规划；仅用于确认拆分边界，step2 会据此生成正式关键分镜",
+    )
 
 
 class ReferenceStep1Draft(BaseModel):
@@ -937,6 +957,19 @@ class ReferenceStep1FlatUnit(BaseModel):
     )
     source_text: str = Field(min_length=1, description="该单元所依据的源文内容（辅助审阅与追溯，不做逐字校验）")
     text: str = Field(min_length=1, description="该单元的书写层正文：画面描述 + 行内的台词 / 画外音记号")
+    keyframe_plan: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="该 unit 内按出现顺序排列的核心场景首帧规划；超过 5 个必须拆成多个 unit",
+    )
+
+
+class ReferenceStep2Keyframe(BaseModel):
+    """step2 产出的关键首帧描述；正文用同序 ``[[关键分镜N]]`` 标出插入位置。"""
+
+    model_config = _STRICT_CONFIG
+
+    description: str = Field(min_length=1, description="只描述该核心场景第一帧的静态构图、主体、环境与光线")
 
 
 class ReferenceStep1FlatDraft(BaseModel):
@@ -957,6 +990,11 @@ class ReferenceStep2FlatUnit(BaseModel):
     model_config = _STRICT_CONFIG
 
     text: str = Field(min_length=1, description="视觉展开后的书写层正文：画面描述 + 行内的台词 / 画外音记号")
+    keyframes: list[ReferenceStep2Keyframe] = Field(
+        default_factory=list,
+        max_length=5,
+        description="与正文 [[关键分镜N]] 标记一一对应、按场景发生顺序排列的关键首帧",
+    )
 
 
 class ReferenceStep2FlatScript(BaseModel):

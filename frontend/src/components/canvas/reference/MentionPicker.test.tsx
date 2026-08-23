@@ -299,7 +299,7 @@ describe("MentionPicker", () => {
     expect(bob.getAttribute("aria-selected")).toBe("true");
   });
 
-  it("renders five tabs (all/product/character/scene/prop) with counts", () => {
+  it("renders asset and keyframe tabs with counts", () => {
     render(
       <MentionPicker
         open
@@ -310,11 +310,29 @@ describe("MentionPicker", () => {
       />,
     );
     const tabs = screen.getAllByRole("tab");
-    expect(tabs).toHaveLength(5);
+    expect(tabs).toHaveLength(6);
     // 第一个 tab 是 "全部/All"，默认选中
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     // 全部 count = 2 (chars) + 1 (scene) + 1 (prop) = 4
     expect(tabs[0].textContent).toMatch(/4/);
+  });
+
+  it("returns a unit-owned keyframe reference from the keyframe tab", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <MentionPicker
+        open
+        query=""
+        candidates={{ keyframe: [{ name: "关键分镜 E1U01K01", imagePath: "keyframes/E1U01K01.png" }] }}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getAllByRole("tab")[5]);
+    await user.click(screen.getByRole("option", { name: "关键分镜 E1U01K01" }));
+    expect(onSelect).toHaveBeenCalledWith({ type: "keyframe", name: "关键分镜 E1U01K01" });
   });
 
   it("activating the scene tab restricts visible options to that kind", async () => {

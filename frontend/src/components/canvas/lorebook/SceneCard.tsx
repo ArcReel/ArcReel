@@ -8,6 +8,7 @@ import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { GenerateButton } from "@/components/ui/GenerateButton";
+import { ImageModelSelect, imageSelectionFromValue } from "@/components/shared/ImageModelSelect";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -15,7 +16,7 @@ import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
 import { ProjectAssetDeleteButton } from "./ProjectAssetDeleteButton";
-import type { Scene } from "@/types";
+import type { ImageModelSelection, Scene } from "@/types";
 import type { Asset } from "@/types/asset";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +28,7 @@ interface SceneCardProps {
   scene: Scene;
   projectName: string;
   onUpdate: (name: string, updates: Partial<Scene>) => void;
-  onGenerate: (name: string) => void;
+  onGenerate: (name: string, selection?: ImageModelSelection) => void;
   onRestoreVersion?: () => void | Promise<void>;
   onReload?: () => void | Promise<unknown>;
   generating?: boolean;
@@ -66,6 +67,7 @@ export function SceneCard({
   const [imgError, setImgError] = useState(false);
   const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [imageModel, setImageModel] = useState("");
   const [linkedAsset, setLinkedAsset] = useState<Asset | null>(null);
   const handleLinkedAssetResolved = useCallback((asset: Asset | null) => setLinkedAsset(asset), []);
   const sheetInputRef = useRef<HTMLInputElement>(null);
@@ -305,13 +307,18 @@ export function SceneCard({
       )}
 
       {readOnly ? null : (
-        <GenerateButton
-          onClick={() => onGenerate(name)}
-          loading={generating}
-          disabled={usingGlobalMain}
-          label={scene.scene_sheet ? t("regenerate_design") : t("generate_design")}
-          className="w-full justify-center"
-        />
+        <div className="grid gap-2">
+          <ImageModelSelect value={imageModel} onChange={setImageModel} capability="any" />
+          <GenerateButton
+            onClick={() => imageModel
+              ? onGenerate(name, imageSelectionFromValue(imageModel))
+              : onGenerate(name)}
+            loading={generating}
+            disabled={usingGlobalMain}
+            label={scene.scene_sheet ? t("regenerate_design") : t("generate_design")}
+            className="w-full justify-center"
+          />
+        </div>
       )}
     </div>
   );

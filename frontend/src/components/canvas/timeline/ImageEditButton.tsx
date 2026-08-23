@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Wand2 } from "lucide-react";
 import { enqueueImageEdit } from "@/actions/generation";
 import { GlassModal } from "@/components/ui/GlassModal";
+import { ImageModelSelect, imageSelectionFromValue } from "@/components/shared/ImageModelSelect";
 import { useAppStore } from "@/stores/app-store";
 import {
   isResourceBusy,
@@ -50,6 +51,7 @@ export function ImageEditButton({
   const [open, setOpen] = useState(false);
   const [instruction, setInstruction] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [model, setModel] = useState("");
   const titleId = useId();
   const descId = useId();
   const fieldId = useId();
@@ -84,7 +86,7 @@ export function ImageEditButton({
     // 的这一维度，见 selectHasActiveTaskForScriptFile 与 GridImageToVideoCanvas 的
     // gridActiveForEpisode。
     if (
-      resourceType === "storyboard" &&
+      (resourceType === "storyboard" || resourceType === "reference_keyframe") &&
       scriptFile &&
       selectHasActiveTaskForScriptFile(tasks, "grid", scriptFile, projectName, optimisticActiveScriptFile)
     ) {
@@ -93,11 +95,16 @@ export function ImageEditButton({
     }
     setSubmitting(true);
     try {
+      const selection = imageSelectionFromValue(model);
       await enqueueImageEdit(projectName, {
         resourceType,
         resourceId,
         instruction: trimmed,
-        scriptFile: resourceType === "storyboard" ? scriptFile ?? null : null,
+        scriptFile:
+          resourceType === "storyboard" || resourceType === "reference_keyframe"
+            ? scriptFile ?? null
+            : null,
+        ...selection,
       });
       setInstruction("");
       setOpen(false);
@@ -171,6 +178,16 @@ export function ImageEditButton({
             className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
             style={FIELD_STYLE}
           />
+
+          <label className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-4)]">
+            {t("image_model_label")}
+            <ImageModelSelect
+              value={model}
+              onChange={setModel}
+              capability="i2i"
+              className="mt-1.5"
+            />
+          </label>
 
           <div className="mt-4 flex items-center justify-end gap-2">
             <button
