@@ -15,11 +15,11 @@ from server.agent_runtime.sdk_tools.text_generation import (
 )
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
-    _nr_caps,
     _nr_generator_returning,
     _nr_project,
     _nr_segment,
     _nr_source,
+    _use_fake_caps,
 )
 
 pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
@@ -33,7 +33,7 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, monkeypat
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _nr_source(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
 
     tool_obj = split_narration_segments_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
@@ -53,7 +53,7 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolConte
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _nr_source(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
 
     tool_obj = split_narration_segments_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单个分镜出场人物尽量不超过两人"})
@@ -69,7 +69,7 @@ async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolC
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _nr_source(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     tool_obj = split_narration_segments_tool(fake_ctx)
 
     out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "长" * 4001})
@@ -97,7 +97,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
         _nr_segment("E1S01", 4, "张三走向村口。", characters_in_segment=["张三"], scenes=["村口"]),
         _nr_segment("E1S02", 6, "他停下脚步，久久凝望。", segment_break=True),
     ]
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments, captured))
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -142,9 +142,6 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
     frozen_source = "第一段原文。\n\n第二段原文。"
     expected = build_step1_basis(frozen_source, episode=1, project=project)
 
-    async def fake_caps(_project, _episode=None):
-        return 4, [4, 6, 8]
-
     class _Generator:
         async def generate(self, _request, project_name=None):
             second_source.write_text("等待供应商期间改过的第二段。", encoding="utf-8")
@@ -164,7 +161,7 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
     async def fake_create(_task_type, project_name=None):
         return _Generator()
 
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1})
@@ -181,7 +178,7 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: T
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 5)]
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -196,7 +193,7 @@ async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: 
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4), _nr_segment("E1S01", 6)]
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -212,7 +209,7 @@ async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolC
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4, "张三在村口等人"), _nr_segment("E1S02", 4, novel_text=" ")]
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -227,7 +224,7 @@ async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolCon
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _nr_source(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([]))
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -242,7 +239,7 @@ async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolCont
 
     _nr_source(fake_ctx)
     bad = {"segment_id": "E1S01", "novel_text": "缺字段", "duration_seconds": 4, "segment_break": False}
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([bad]))
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -260,7 +257,7 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["王五"])]
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
     tool_obj = split_narration_segments_tool(fake_ctx)
@@ -287,7 +284,7 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
     segments = [
         _nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=[unicodedata.normalize("NFD", nfc_name)])
     ]
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
     out = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1})
@@ -303,7 +300,7 @@ async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: s
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(source_text, encoding="utf-8")
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
     tool_obj = split_narration_segments_tool(fake_ctx)

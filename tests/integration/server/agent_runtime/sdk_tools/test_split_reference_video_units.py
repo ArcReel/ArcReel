@@ -7,47 +7,61 @@ from typing import Any
 
 import pytest
 
-from lib.reference_video.voice_settings import VoiceRenderSettings
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
     split_reference_video_units_tool,
 )
-from tests.fakes import fake_reference_caps_fetcher
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     _call,
     _derived_reference_names,
+    _fake_caps_resolver,
     _read_rv_quarantine,
     _run_rv_split,
     _rv_generator_returning,
     _rv_source,
     _rv_step1_path,
     _rv_unit,
+    _use_fake_caps,
 )
 
 pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
+
+# i2v 桶不可解析：不带图档位随之回退按 r2v 桶求值（``reference_unit_duration_tiers``）。
+_NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
+
+# Veo 在 720p 下声明「带参考图仅 8 秒」，是两套逐 unit 档位分叉的现成型号。
+_VEO_CAPS = {
+    "provider_id": "gemini-aistudio",
+    "model": "veo-3.1-generate-preview",
+    "supported_durations": (4, 6, 8),
+    "capability_errors": _NO_I2V,
+}
+
+
+def _veo_720p(fake_ctx: ToolContext) -> None:
+    """把项目的生效分辨率钉在 720p——联动约束按已保存的档位求值。"""
+    fake_ctx.pm.project_payload["model_settings"] = {  # pyright: ignore[reportAttributeAccessIssue]
+        "gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}
+    }
 
 # ---------------------------------------------------------------------------
 # split_reference_video_units
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_reference_caps_with_fallback_returns_declared_slots(monkeypatch) -> None:
+async def test_fetch_reference_caps_with_fallback_returns_declared_slots() -> None:
     """unit 时长就是发给供应商的那个值，档位原样取自模型声明（不与任何静态区间求交）。"""
-    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _fake_caps(_project, _episode=None):
-        return {"supported_durations": [1, 8, 16, 18], "max_duration": 18, "default_duration": 16}
+    resolver = _fake_caps_resolver(
+        supported_durations=[1, 8, 16, 18],
+        default_duration=16,
+        max_reference_images=None,
+        capability_errors=_NO_I2V,
+    )
 
-    monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
-
-    async def _no_i2v(_project, *, capability=None):
-        raise ValueError("i2v bucket unresolvable in this test")
-
-    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
-
-    caps = await mod._fetch_reference_caps_with_fallback({}, 1)
+    caps = await mod._fetch_reference_caps_with_fallback({}, 1, config_resolver=resolver)
 
     assert caps.durations == [1, 8, 16, 18]
     assert caps.reference_durations == [1, 8, 16, 18]
@@ -57,59 +71,41 @@ async def test_fetch_reference_caps_with_fallback_returns_declared_slots(monkeyp
     assert caps.max_refs is None
 
 
-async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monkeypatch) -> None:
+async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap() -> None:
     """档位随联动约束收窄：海螺在 1080p 下只接受 6 秒，全集是 [6, 10]。
 
     不收窄的话 step1 会按 10 秒拆出 unit，step2 的枚举 schema 再把它判非法。
     """
-    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _fake_caps(_project, _episode=None):
-        return {
-            "provider_id": "minimax",
-            "model": "MiniMax-Hailuo-2.3",
-            "supported_durations": [6, 10],
-            "max_duration": 10,
-            "default_duration": None,
-        }
-
-    monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
-
-    async def _no_i2v(_project, *, capability=None):
-        raise ValueError("i2v bucket unresolvable in this test")
-
-    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+    resolver = _fake_caps_resolver(
+        provider_id="minimax",
+        model="MiniMax-Hailuo-2.3",
+        supported_durations=[6, 10],
+        default_duration=None,
+        capability_errors=_NO_I2V,
+    )
 
     project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
-    caps = await mod._fetch_reference_caps_with_fallback(project, 1)
+    caps = await mod._fetch_reference_caps_with_fallback(project, 1, config_resolver=resolver)
     assert caps.durations == [6]
     assert caps.max_duration == 6
 
 
-async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(monkeypatch) -> None:
+async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution() -> None:
     """分辨率联动约束同样收窄 unit 档位：Veo 1080p 下只接受 8 秒。"""
-    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _fake_caps(_project, _episode=None):
-        return {
-            "provider_id": "gemini-aistudio",
-            "model": "veo-3.1-generate-preview",
-            "supported_durations": [4, 6, 8],
-            "max_duration": 8,
-            "default_duration": None,
-        }
-
-    monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
-
-    async def _no_i2v(_project, *, capability=None):
-        raise ValueError("i2v bucket unresolvable in this test")
-
-    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+    resolver = _fake_caps_resolver(
+        provider_id="gemini-aistudio",
+        model="veo-3.1-generate-preview",
+        supported_durations=[4, 6, 8],
+        default_duration=None,
+        capability_errors=_NO_I2V,
+    )
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
-    caps = await mod._fetch_reference_caps_with_fallback(project, 1)
+    caps = await mod._fetch_reference_caps_with_fallback(project, 1, config_resolver=resolver)
     assert caps.durations == [8]
     assert caps.max_duration == 8
 
@@ -135,14 +131,12 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
     )
     monkeypatch.setattr(resolver_mod, "model_info_for", lambda *_args: contradictory)
 
-    async def _no_i2v(_project, *, capability=None):
-        raise ValueError("i2v bucket unresolvable")
-
-    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
-
     project = {"model_settings": {"p/m": {"resolution": "1080p"}}}
     with_refs, without_refs = await _context.reference_unit_duration_tiers(
-        project, {"provider_id": "p", "model": "m"}, [4, 6, 8]
+        project,
+        {"provider_id": "p", "model": "m"},
+        [4, 6, 8],
+        config_resolver=_fake_caps_resolver(capability_errors=_NO_I2V),
     )
 
     assert with_refs == [4, 6, 8]
@@ -150,51 +144,48 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
     assert not set(with_refs) <= set(without_refs)
 
 
-async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket(monkeypatch) -> None:
+async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket() -> None:
     """不带图档位按 i2v 桶模型求值：无引用 unit 执行期降级到 i2v 桶执行，创作侧放行的秒数
     须与该桶模型的声明一致，否则会放行 r2v 独有档位、漏掉 i2v 独有档位。"""
     from server.agent_runtime.sdk_tools import _context
 
-    async def _i2v_caps(_project, *, capability=None):
-        assert capability == "i2v"
-        return {"provider_id": "ark", "model": "doubao-seedance-1-5-pro-251215", "supported_durations": [5, 10]}
-
-    monkeypatch.setattr(_context, "resolve_video_caps", _i2v_caps)
+    resolver = _fake_caps_resolver(
+        by_capability={
+            "i2v": {
+                "provider_id": "ark",
+                "model": "doubao-seedance-1-5-pro-251215",
+                "supported_durations": [5, 10],
+            }
+        },
+    )
 
     with_refs, without_refs = await _context.reference_unit_duration_tiers(
-        {}, {"provider_id": "minimax", "model": "S2V-01"}, [6, 10]
+        {}, {"provider_id": "minimax", "model": "S2V-01"}, [6, 10], config_resolver=resolver
     )
 
     assert with_refs == [6, 10]
     assert without_refs == [5, 10]
+    # 不带图那套只按 i2v 桶解析一次，r2v 的档位由调用方传入、不再回查
+    assert resolver.capability_calls == ["i2v"]
 
 
-async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_state(monkeypatch) -> None:
+async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_state() -> None:
     """「参考图↔时长」约束逐 unit 生效：Veo 720p 下带引用只剩 8 秒，无引用仍有 4/6/8。
 
     枚举与 prompt 候选取并集——一律按带图收窄会把无引用 unit 本可申请的短档也收掉。
     """
-    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _fake_caps(_project, _episode=None):
-        return {
-            "provider_id": "gemini-aistudio",
-            "model": "veo-3.1-generate-preview",
-            "supported_durations": [4, 6, 8],
-            "max_duration": 8,
-            "default_duration": None,
-        }
-
-    monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
-
-    async def _no_i2v(_project, *, capability=None):
-        raise ValueError("i2v bucket unresolvable in this test")
-
-    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+    resolver = _fake_caps_resolver(
+        provider_id="gemini-aistudio",
+        model="veo-3.1-generate-preview",
+        supported_durations=[4, 6, 8],
+        default_duration=None,
+        capability_errors=_NO_I2V,
+    )
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
-    caps = await mod._fetch_reference_caps_with_fallback(project, 1)
+    caps = await mod._fetch_reference_caps_with_fallback(project, 1, config_resolver=resolver)
     assert caps.reference_durations == [8]
     assert caps.text_durations == [4, 6, 8]
     assert caps.durations == [4, 6, 8]
@@ -203,77 +194,58 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
     assert caps.tiers_for(has_references=False) == [4, 6, 8]
 
 
-async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
+async def test_fetch_reference_caps_with_fallback_uses_write_layer_default() -> None:
     """rv 路径的软回退与 _fetch_caps_with_fallback 同口径，取 duration_presets.DEFAULT_FALLBACK。"""
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
-    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _raising_caps(_project, _episode=None):
-        raise ValueError("no provider configured")
-
-    monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
-
-    async def _no_i2v(_project, *, capability=None):
-        raise ValueError("i2v bucket unresolvable in this test")
-
-    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
-    caps = await mod._fetch_reference_caps_with_fallback({}, 1)
+    resolver = _fake_caps_resolver(error=ValueError("no provider configured"))
+    caps = await mod._fetch_reference_caps_with_fallback({}, 1, config_resolver=resolver)
     assert caps.default_duration is None
     assert caps.durations == DEFAULT_FALLBACK
     assert caps.max_duration == max(DEFAULT_FALLBACK)
     assert caps.max_refs is None
 
 
-async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_failure(monkeypatch) -> None:
-    """能力查询失败时，`raw["requested_generate_audio"]` 仍随项目覆盖走，不回退成 True。
+async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_failure() -> None:
+    """能力查询失败时，`raw["requested_generate_audio"]` 仍随项目的无声意图走，不回退成 True。
 
     它不依赖能力接口独立解析（同 generation_context.py），否则声音提示层会漏发
-    WARN_SILENT_EPISODE，误导用户以为本集仍会尝试组装参考音频。独立解析本身照原样
-    mock 掉（不经 async_session_factory 打真实 DB）：这条测不验证 DB 读取，只验证
-    能力查询失败下 caps 字典的组装口径，打真 DB 只会让结果依赖本机是否已初始化好应用库。
+    WARN_SILENT_EPISODE，误导用户以为本集仍会尝试组装参考音频。
     """
-    from lib.config.resolver import ConfigResolver
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _raising_caps(_project, _episode=None):
-        raise ValueError("no provider configured")
-
-    async def _fake_project_audio(self, project):
-        return bool(project.get("video_generate_audio", True))
-
-    monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
-    monkeypatch.setattr(ConfigResolver, "video_generate_audio_for_project", _fake_project_audio)
-    caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1)
+    resolver = _fake_caps_resolver(
+        error=ValueError("no provider configured"),
+        requested_generate_audio=False,
+    )
+    caps = await mod._fetch_reference_caps_with_fallback(
+        {"video_generate_audio": False}, 1, config_resolver=resolver
+    )
     assert caps.voice.requested_generate_audio is False
 
 
-async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_failure(monkeypatch) -> None:
+async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_failure() -> None:
     """独立解析也失败（双重故障）时收紧到 False，不得落回 True。
 
     与其余能力字段「不明时不额外收紧」相反：这里不明时假定无声，代价只是少发一条声音
     提示；假定有声则会让 `derive_voice_bindings` 在派生阶段继续算参考音频，误导排查方向。
     """
-    from lib.config.resolver import ConfigResolver
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _raising_caps(_project, _episode=None):
-        raise ValueError("no provider configured")
-
-    async def _raising_project_audio(self, _project):
-        raise RuntimeError("db unavailable")
-
-    monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
-    monkeypatch.setattr(ConfigResolver, "video_generate_audio_for_project", _raising_project_audio)
-    caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1)
+    resolver = _fake_caps_resolver(
+        error=ValueError("no provider configured"),
+        generate_audio_error=RuntimeError("db unavailable"),
+    )
+    caps = await mod._fetch_reference_caps_with_fallback(
+        {"video_generate_audio": False}, 1, config_resolver=resolver
+    )
     assert caps.voice.requested_generate_audio is False
 
 
-async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
+async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext) -> None:
     _rv_source(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher())
+    _use_fake_caps(fake_ctx)
 
     tool_obj = split_reference_video_units_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
@@ -283,7 +255,8 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkey
     # 集号、资产候选与能力约束进 prompt；引用语法规范随之注入
     assert "第 1 集" in prompt_text
     assert "张三" in prompt_text
-    assert "12 秒" in prompt_text
+    # 上限是两套逐 unit 档位并集的最大值，随能力解析派生
+    assert "8 秒" in prompt_text
     assert "分段前缀" in prompt_text
 
 
@@ -295,7 +268,7 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
     captured: dict[str, Any] = {}
     text = "@[张三] 走向 @[村口]\n@[张三] 停下脚步"
     units = [_rv_unit(text)]
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units, captured))
 
     out = await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1})
@@ -356,7 +329,9 @@ async def test_split_reference_video_units_rejects_unregistered_speaker(fake_ctx
 
 async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolContext, monkeypatch) -> None:
     _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 与 @[李四] 在 @[村口]")], max_refs=2)
+    out = await _run_rv_split(
+        fake_ctx, monkeypatch, [_rv_unit("@[张三] 与 @[李四] 在 @[村口]")], max_reference_images=2
+    )
     assert out.get("is_error") is True
     assert "参考图数" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
@@ -370,12 +345,8 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     枚举卡的是两套档位的并集，这类越界过得了 schema；不在此拦，执行期才会申请不到。
     """
     _rv_source(fake_ctx)
-    out = await _run_rv_split(
-        fake_ctx,
-        monkeypatch,
-        [_rv_unit("@[张三] 起身", duration=4)],
-        reference_durations=(8,),
-    )
+    _veo_720p(fake_ctx)
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[张三] 起身", duration=4)], **_VEO_CAPS)
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "生效档位" in text and "[8]" in text
@@ -389,12 +360,8 @@ async def test_split_reference_video_units_accepts_wide_tier_without_references(
 ) -> None:
     """无 `@` 引用的 unit 不受「参考图↔时长」约束，仍可取更短的档位。"""
     _rv_source(fake_ctx)
-    out = await _run_rv_split(
-        fake_ctx,
-        monkeypatch,
-        [_rv_unit("门被风吹开", duration=4)],
-        reference_durations=(8,),
-    )
+    _veo_720p(fake_ctx)
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("门被风吹开", duration=4)], **_VEO_CAPS)
     assert out.get("is_error") is not True, out
     saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["units"][0]["duration_seconds"] == 4
@@ -461,11 +428,9 @@ async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> N
     assert out.get("is_error") is True
 
 
-async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
+async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolContext) -> None:
     _rv_source(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher())
+    _use_fake_caps(fake_ctx)
 
     tool_obj = split_reference_video_units_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单 unit 出场人物尽量不超过两人"})
@@ -484,7 +449,9 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
         fake_ctx,
         monkeypatch,
         [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}")],
-        voice=VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, model_id="m"),
+        voice_consistency="native",
+        max_reference_audio_count=2,
+        model="m",
     )
 
     assert out.get("is_error") is not True, out
@@ -511,9 +478,10 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
         fake_ctx,
         monkeypatch,
         [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
-        voice=VoiceRenderSettings(
-            voice_consistency="native", max_reference_audio=1, model_id="m", requires_reference_image=True
-        ),
+        voice_consistency="native",
+        max_reference_audio_count=1,
+        model="m",
+        reference_audio_per_image=True,
     )
 
     assert out.get("is_error") is not True, out

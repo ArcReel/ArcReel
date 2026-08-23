@@ -94,7 +94,7 @@ async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolCon
     envelope["content"]["units"][0]["text"] = "@[张三] 在 @[村口] 出场"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
@@ -233,7 +233,7 @@ async def test_open_step1_for_edit_drama_round_trips_through_promote(fake_ctx: T
     envelope["content"]["scenes"][0]["scene_description"] = "阿离推开山门。"
     _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote_drama(fake_ctx, monkeypatch)
+    out = await _promote_drama(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert not _drama_quarantine_path(fake_ctx).exists()
@@ -300,7 +300,7 @@ async def test_open_step1_for_edit_narration_round_trips_through_promote(fake_ct
     envelope["content"]["segments"][0]["duration_seconds"] = 8
     _nr_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote_nr(fake_ctx, monkeypatch)
+    out = await _promote_nr(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert not _nr_quarantine_path(fake_ctx).exists()

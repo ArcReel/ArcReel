@@ -24,7 +24,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     split_reference_video_units_tool,
     validate_and_promote_draft_tool,
 )
-from tests.fakes import fake_reference_caps_fetcher
+from tests.fakes import FakeConfigResolver
 
 # ---------------------------------------------------------------------------
 # Generation result contract helpers
@@ -291,6 +291,27 @@ def _fake_reference_projection(
     return _project
 
 
+def _fake_caps_resolver(**kwargs: Any) -> Any:
+    """构造假能力解析器（见 ``tests.fakes.FakeConfigResolver``）。
+
+    返回值按 ``Any`` 交出：注入点标注的是生产的 ``ConfigResolver``，替身只实现被调到的那几个
+    方法，逐个调用点写类型豁免不如在这唯一的构造点交出去。
+    """
+    return FakeConfigResolver(**kwargs)
+
+
+def _use_fake_caps(fake_ctx: ToolContext, **kwargs: Any) -> Any:
+    """给这个会话装上假能力解析器并返回它。
+
+    工具经 ``ToolContext.config_resolver`` 把解析器透传给能力取值器，注入后取值器里的软回退、
+    时长联动约束收窄与声音档派生照常执行——那些正是用例要保护的行为，整体替换取值器会把它们
+    一并旁路掉。
+    """
+    resolver = _fake_caps_resolver(**kwargs)
+    fake_ctx.config_resolver = resolver
+    return resolver
+
+
 async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
     """调工具处理器；工具声明为必填的交付方式在未点名时补成后期配音。
 
@@ -406,7 +427,7 @@ def _rv_step1_path(fake_ctx: ToolContext):
 async def _run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **caps_kwargs) -> dict:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher(**caps_kwargs))
+    _use_fake_caps(fake_ctx, **caps_kwargs)
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
     return await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1})
 
@@ -419,12 +440,10 @@ def _read_rv_quarantine(fake_ctx: ToolContext) -> dict:
     return json.loads(_rv_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
 
 
-async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
+async def _promote(fake_ctx: ToolContext, **caps_kwargs) -> dict:
     if not (fake_ctx.project_path / "project.json").exists():
         _rv_project(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher(**caps_kwargs))
+    _use_fake_caps(fake_ctx, **caps_kwargs)
     return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
 
 
@@ -559,13 +578,8 @@ async def _open_drama_for_edit(fake_ctx: ToolContext, **args) -> dict:
     return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
 
 
-async def _promote_drama(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)) -> dict:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
-    async def fake_caps(_project, _episode=None):
-        return durations[0], list(durations)
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+async def _promote_drama(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
+    _use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
     return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
 
 
@@ -591,8 +605,6 @@ async def _open_nr_for_edit(fake_ctx: ToolContext, **args) -> dict:
     return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
 
 
-async def _promote_nr(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)) -> dict:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps(durations[0], durations))
+async def _promote_nr(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
+    _use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
     return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})

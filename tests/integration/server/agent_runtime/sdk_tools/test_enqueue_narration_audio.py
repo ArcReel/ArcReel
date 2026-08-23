@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifact_manifest import ArtifactStatus
+from lib.artifact_manifest import ArtifactKey, ArtifactStatus
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools._context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
@@ -231,25 +231,23 @@ async def test_generate_narration_audio_uses_canonical_filename_when_episode_fie
         encoding="utf-8",
     )
     captured: list[Any] = []
-    selected_episodes: list[int] = []
-    build_candidates = mod._candidates
-
-    def _capture_episode(*args, **kwargs):
-        selected_episodes.append(kwargs["episode"])
-        return build_candidates(*args, **kwargs)
 
     async def _batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        captured.extend(specs)
-        return [], []
+        from lib.generation_queue_client import BatchTaskResult
 
-    monkeypatch.setattr(mod, "_candidates", _capture_episode)
+        captured.extend(specs)
+        return [
+            BatchTaskResult(resource_id=s.resource_id, task_id="t1", status="succeeded", result={}) for s in specs
+        ], []
+
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _batch)
 
     out = await _call(mod.generate_narration_audio_tool(fake_ctx), {"script": "episode_2.json"})
 
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in captured] == ["E1S01"]
-    assert selected_episodes == [2]
+    # 集号取自项目绑定而非剧本自述：产物身份随之落在第 2 集
+    assert _generation_result(out).items[0].artifact_key == ArtifactKey.episode_audio(2, "E1S01").encode()
 
 
 async def test_generate_narration_audio_selects_item_with_corrupt_generated_assets(

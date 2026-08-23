@@ -29,7 +29,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _drama_quarantine_path,
     _drama_scene,
     _drama_step1_path,
-    _nr_caps,
     _nr_generator_returning,
     _nr_quarantine_path,
     _nr_segment,
@@ -51,6 +50,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _rv_source,
     _rv_step1_path,
     _rv_unit,
+    _use_fake_caps,
     _write_drama_step1,
     _write_nr_step1,
     _write_rv_step1,
@@ -135,7 +135,7 @@ async def test_validate_and_promote_draft_promotes_after_repair(fake_ctx: ToolCo
     envelope["content"]["units"][0]["text"] = "@[张三] 在 @[村口] 出场"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
@@ -150,7 +150,7 @@ async def test_validate_and_promote_draft_reports_again_without_round_limit(fake
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
 
     for _round in range(3):
-        out = await _promote(fake_ctx, monkeypatch)
+        out = await _promote(fake_ctx)
         assert out.get("is_error") is True
         assert "unregistered_asset" in out["content"][0]["text"]
         assert _rv_quarantine_path(fake_ctx).exists()
@@ -160,7 +160,7 @@ async def test_validate_and_promote_draft_reports_again_without_round_limit(fake
     envelope = _read_rv_quarantine(fake_ctx)
     envelope["content"]["units"][0]["text"] = "@[张三] 推门，音量 {}"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-    await _promote(fake_ctx, monkeypatch)
+    await _promote(fake_ctx)
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["braces_in_description"]
 
 
@@ -181,7 +181,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 在 @[村口] 等候")])
     web_version = _rv_step1_path(fake_ctx).read_text(encoding="utf-8")
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is True
     report = out["content"][0]["text"]
@@ -197,7 +197,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     envelope = _read_rv_quarantine(fake_ctx)
     envelope["meta"]["base_fingerprint"] = script_review.content_fingerprint(_rv_step1_path(fake_ctx))
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
 
@@ -212,7 +212,7 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
     await _open_for_edit(fake_ctx, source="source/episode_1.txt")
     _rv_step1_path(fake_ctx).unlink()
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is True
     report = out["content"][0]["text"]
@@ -222,7 +222,7 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
     envelope = _read_rv_quarantine(fake_ctx)
     envelope["meta"]["base_fingerprint"] = None
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
 
@@ -238,7 +238,7 @@ async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx
     # 取回后正式文件又被改过——存量草稿无基线可比，照旧覆盖（维持引入前语义）
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 在 @[村口] 等候")])
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
@@ -260,7 +260,7 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
     envelope["content"]["units"][0]["text"] = "@[张三] 出场"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is True
     assert "并发冲突" in out["content"][0]["text"]
@@ -291,7 +291,7 @@ async def test_validate_and_promote_draft_rejects_schema_breach(
     envelope["content"]["units"][0]["text"] = "@[张三] 起身"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is True
     assert hint in out["content"][0]["text"]
@@ -324,7 +324,7 @@ async def test_validate_and_promote_draft_reports_broken_outer_shape(
     edited_content = copy.deepcopy(envelope["content"])
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is True
     assert "content.units" in out["content"][0]["text"]
@@ -348,7 +348,7 @@ async def test_validate_and_promote_draft_requires_source_provenance(fake_ctx: T
     envelope["content"]["units"][0]["text"] = "@[张三] 起身"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
     assert out.get("is_error") is True
     assert "meta.source 缺失" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
@@ -362,7 +362,7 @@ async def test_validate_and_promote_draft_reports_promotion_not_split(fake_ctx: 
     envelope["content"]["units"][0]["text"] = "@[张三] 起身"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert "晋升" in out["content"][0]["text"]
@@ -406,7 +406,7 @@ async def test_promote_reference_step1_preserves_step2_draft_when_content_unchan
     assert step2_path.exists()
 
     await _open_for_edit(fake_ctx, source="source/episode_1.txt")
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert step2_path.exists()
@@ -430,7 +430,7 @@ async def test_validate_and_promote_draft_step2_uses_async_factory(fake_ctx: Too
             raise AssertionError("晋升不得裸构造 ScriptGenerator")
 
         @classmethod
-        async def create(cls, project_path):
+        async def create(cls, project_path, **_kwargs):
             obj = cls.__new__(cls)
             obj.project_path = project_path
             return obj
@@ -439,7 +439,7 @@ async def test_validate_and_promote_draft_step2_uses_async_factory(fake_ctx: Too
             return self.project_path / "scripts" / f"episode_{episode}.json"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
     assert out.get("is_error") is not True, out
     assert "episode_1.json" in out["content"][0]["text"]
 
@@ -455,7 +455,7 @@ async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: To
         violations=[],
     )
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
     assert out.get("is_error") is True
     # 项目已是 narration + storyboard，晋升按该变体的草稿位分派：残留的参考路径 step2 草稿不在
     # 它的视野内，故报「本集没有待处置的草稿」而不是去晋升它。
@@ -486,13 +486,13 @@ async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx:
     )
     monkeypatch.setattr(mod.script_review, "gate_blocks_step2", lambda *_args, **_kw: True)
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
     assert out.get("is_error") is True
     assert "尚未完成内容确认" in out["content"][0]["text"]
 
 
 async def test_validate_and_promote_draft_without_draft(fake_ctx: ToolContext, monkeypatch) -> None:
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
     assert out.get("is_error") is True
     assert "没有待处置的草稿" in out["content"][0]["text"]
 
@@ -593,7 +593,7 @@ async def test_promote_drama_step1_rederives_needs_replan(fake_ctx: ToolContext,
     scene["needs_replan"] = False
     _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote_drama(fake_ctx, monkeypatch)
+    out = await _promote_drama(fake_ctx)
 
     assert out.get("is_error") is not True, out
     saved = json.loads(_drama_step1_path(fake_ctx).read_text(encoding="utf-8"))
@@ -611,7 +611,7 @@ async def test_promote_drama_step1_reports_schema_breach_without_writing(fake_ct
     envelope["content"]["scenes"][0]["duration_seconds"] = 7  # 不在档位内
     _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote_drama(fake_ctx, monkeypatch)
+    out = await _promote_drama(fake_ctx)
 
     assert out.get("is_error") is True
     assert _drama_step1_path(fake_ctx).read_text(encoding="utf-8") == before
@@ -628,7 +628,7 @@ async def test_promote_drama_step1_aborts_on_concurrent_write(fake_ctx: ToolCont
     _write_drama_step1(fake_ctx, [_drama_scene(scene_description="别处改过的描述。")])
     concurrent = _drama_step1_path(fake_ctx).read_text(encoding="utf-8")
 
-    out = await _promote_drama(fake_ctx, monkeypatch)
+    out = await _promote_drama(fake_ctx)
 
     assert out.get("is_error") is True
     assert _drama_step1_path(fake_ctx).read_text(encoding="utf-8") == concurrent
@@ -668,13 +668,10 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
 
             return _R()
 
-    async def fake_caps(_p, _episode=None):
-        return 4, [4, 6, 8]
-
     async def fake_create(_task_type, project_name=None):
         return _Generator()
 
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     out = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
@@ -702,7 +699,7 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 5, _RV_NOVEL, characters_in_segment=["王五"])]
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning(segments))
 
     out = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
@@ -735,7 +732,7 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
         content={"segments": [_nr_segment("E1S01", 5)]},
         violations=[],
     )
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps())
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", _nr_generator_returning([_nr_segment("E1S01", 4, _RV_NOVEL)]))
 
     out = await _call(split_narration_segments_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
@@ -758,7 +755,7 @@ async def test_promote_narration_step1_reports_schema_breach_without_writing(
     del envelope["content"]["segments"][0]["novel_text"]
     _nr_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote_nr(fake_ctx, monkeypatch)
+    out = await _promote_nr(fake_ctx)
 
     assert out.get("is_error") is True
     assert "[schema_invalid]" in out["content"][0]["text"]
@@ -773,7 +770,7 @@ async def test_promote_narration_step1_aborts_on_concurrent_write(fake_ctx: Tool
     await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
     _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 6, _RV_NOVEL)])
 
-    out = await _promote_nr(fake_ctx, monkeypatch)
+    out = await _promote_nr(fake_ctx)
 
     assert out.get("is_error") is True
     assert "并发冲突" in out["content"][0]["text"]
@@ -793,7 +790,7 @@ async def test_promote_narration_step1_revalidates_against_current_source(fake_c
     envelope["content"]["segments"][0]["novel_text"] = "张三在村口等候"
     _nr_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote_nr(fake_ctx, monkeypatch)
+    out = await _promote_nr(fake_ctx)
 
     assert out.get("is_error") is True
     assert "[novel_text_coverage]" in out["content"][0]["text"]
@@ -814,7 +811,7 @@ async def test_promote_narration_step1_names_source_scope_on_coverage_violation(
     await _open_nr_for_edit(fake_ctx)
     assert _read_nr_quarantine(fake_ctx)["meta"]["source"] is None
 
-    out = await _promote_nr(fake_ctx, monkeypatch)
+    out = await _promote_nr(fake_ctx)
 
     text = out["content"][0]["text"]
     assert out.get("is_error") is True

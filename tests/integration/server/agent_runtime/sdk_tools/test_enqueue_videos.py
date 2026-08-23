@@ -393,7 +393,6 @@ async def test_generate_video_episode_rejects_unbound_active_script_before_enque
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     _activate_unbound_project(fake_ctx)
-    submitted = False
     spec = TaskSpec.from_request(
         task_type="video",
         media_type="video",
@@ -405,19 +404,15 @@ async def test_generate_video_episode_rejects_unbound_active_script_before_enque
     def fake_build_specs(**_kwargs):
         return [spec], {"E1S01": 0}, []
 
-    async def fake_submit(**_kwargs):
-        nonlocal submitted
-        submitted = True
-        return []
-
+    enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "build_storyboard_video_specs", fake_build_specs)
-    monkeypatch.setattr(mod, "_submit_with_checkpoint", fake_submit)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
     out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     assert "not bound" in out["content"][0]["text"]
-    assert submitted is False
+    enqueue.assert_not_awaited()
 
 
 async def test_generate_video_episode_resolves_episode_from_canonical_filename(
@@ -532,20 +527,14 @@ async def test_generate_reference_video_rejects_unbound_active_script_before_gen
 
     _activate_unbound_project(fake_ctx, generation_mode="reference_video")
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
-    generated = False
-
-    async def fake_generate(**_kwargs):
-        nonlocal generated
-        generated = True
-        return mod.ReferenceGenerationComplete(paths=[], projections=[])
-
-    monkeypatch.setattr(mod, "_generate_reference_units", fake_generate)
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
     out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     assert "not bound" in out["content"][0]["text"]
-    assert generated is False
+    enqueue.assert_not_awaited()
 
 
 async def test_generate_reference_video_legacy_unresolvable_episode_fails_before_generation(
@@ -557,14 +546,14 @@ async def test_generate_reference_video_legacy_unresolvable_episode_fails_before
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
-    generate = AsyncMock(return_value=mod.ReferenceGenerationComplete(paths=[], projections=[]))
-    monkeypatch.setattr(mod, "_generate_reference_units", generate)
+    enqueue = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
     out = await _call(mod.generate_video_episode_tool(fake_ctx), {"script": "draft.json"})
 
     assert out.get("is_error") is True
     assert "无法确定集号" in out["content"][0]["text"]
-    generate.assert_not_awaited()
+    enqueue.assert_not_awaited()
 
 
 async def test_generate_video_episode_reference_rejects_malformed_unit_container(fake_ctx: ToolContext) -> None:
