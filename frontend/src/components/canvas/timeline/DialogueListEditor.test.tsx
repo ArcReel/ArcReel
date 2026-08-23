@@ -4,13 +4,6 @@ import { describe, it, expect, vi } from "vitest";
 import { DialogueListEditor } from "./DialogueListEditor";
 import type { Dialogue } from "@/types";
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { language: "en" },
-  }),
-}));
-
 const dialogue: Dialogue[] = [
   { speaker: "韩青", line: "好险的关隘！田单未能攻破，正面尚未被攻破？" },
 ];
@@ -62,7 +55,7 @@ describe("DialogueListEditor", () => {
   it("appends an empty pair on add", () => {
     const onChange = vi.fn();
     render(<DialogueListEditor dialogue={dialogue} onChange={onChange} />);
-    fireEvent.click(screen.getByRole("button", { name: "add_dialogue" }));
+    fireEvent.click(screen.getByRole("button", { name: "添加对话" }));
     expect(onChange).toHaveBeenCalledWith([
       ...dialogue,
       { speaker: "", line: "" },
@@ -72,7 +65,7 @@ describe("DialogueListEditor", () => {
   it("removes a pair on delete", () => {
     const onChange = vi.fn();
     render(<DialogueListEditor dialogue={dialogue} onChange={onChange} />);
-    fireEvent.click(screen.getByRole("button", { name: "dialogue_remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除对话" }));
     expect(onChange).toHaveBeenCalledWith([]);
   });
 
@@ -93,7 +86,7 @@ describe("DialogueListEditor", () => {
     const thirdLineNode = screen.getByDisplayValue("第三行");
 
     // Delete the middle row (乙/第二行).
-    const removeButtons = screen.getAllByRole("button", { name: "dialogue_remove" });
+    const removeButtons = screen.getAllByRole("button", { name: "删除对话" });
     fireEvent.click(removeButtons[1]);
 
     // With a stable per-row key, the surviving rows keep their own DOM nodes
