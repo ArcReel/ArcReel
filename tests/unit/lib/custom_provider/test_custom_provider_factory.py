@@ -78,7 +78,9 @@ def _built(provider: MagicMock, model_id: str, endpoint: str, **kwargs: Any) -> 
 
 class TestEndpointDispatch:
     def test_openai_chat(self):
-        result, built = _built(_make_provider(), "gpt-4o", "openai-chat")
+        # host-only base_url：openai 端点补 /v1 的接线在此覆盖
+        provider = _make_provider(base_url="https://api.example.com")
+        result, built = _built(provider, "gpt-4o", "openai-chat")
         assert isinstance(result, CustomTextBackend)
         assert result.model == "gpt-4o"
         assert built == {
