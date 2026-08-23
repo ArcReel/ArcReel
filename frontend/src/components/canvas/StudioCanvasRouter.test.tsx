@@ -785,7 +785,6 @@ describe("StudioCanvasRouter", () => {
     vi.spyOn(API, "updateCharacter").mockResolvedValue({ success: true });
     vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true, path: "x", url: "y" });
     vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "t-1", deduped: false, message: "已提交" });
-    vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
 
     renderAt("/characters");
 
@@ -819,10 +818,6 @@ describe("StudioCanvasRouter", () => {
       const { tasks, optimisticActive } = useTasksStore.getState();
       expect(selectActiveResourceIds(tasks, "character", "demo", optimisticActive).has("Hero")).toBe(true);
     });
-
-    // Test add character flow: click "add" button is not directly accessible in CharacterCard mock;
-    // instead, we test the AddCharacterForm path by navigating with the form already showing.
-    // The add-character button is on CharactersPage which is not directly exposed; we test the form submit instead.
   });
 
   it("refreshes the project even when the audio upload step fails partway through save", async () => {
