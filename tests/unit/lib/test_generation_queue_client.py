@@ -569,15 +569,19 @@ class TestBatchEnqueueAndWaitSync:
             TaskSpec(task_type="character", media_type="image", resource_id="A"),
             TaskSpec(task_type="character", media_type="image", resource_id="B"),
         ]
-        batch_enqueue_and_wait_sync(
+        successes, failures = batch_enqueue_and_wait_sync(
             project_name="demo",
             specs=specs,
             on_success=on_success,
             on_failure=on_failure,
         )
 
-        assert len(success_ids) == 1
-        assert len(failure_ids) == 1
+        # 返回值与回调同口径：终态决定去向，两边都要认得出是哪个 resource
+        assert [r.resource_id for r in successes] == ["A"]
+        assert [r.resource_id for r in failures] == ["B"]
+        assert [r.status for r in failures] == ["failed"]
+        assert success_ids == ["A"]
+        assert failure_ids == ["B"]
 
     @patch("lib.generation_queue_client.wait_for_task", new_callable=AsyncMock)
     @patch("lib.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
