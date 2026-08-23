@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.artifact_activation import ArtifactKey, register_current_artifact_if_provable
+from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
@@ -201,7 +202,13 @@ class TestGenerateRouter:
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
-        monkeypatch.setattr(generate, "_require_audio_provider_configured", AsyncMock(return_value="audio"))
+
+        async def _resolve_audio(_self, _project, _payload):
+            return ProviderModel("dashscope", "qwen3-tts-flash")
+
+        # 音频供应商解析器本身有 DB 依赖，替身落在解析这个协作者上；入口的「未配置即 400」
+        # 由 test_generate_router_tts 覆盖。
+        monkeypatch.setattr(ConfigResolver, "resolve_audio_backend", _resolve_audio)
         monkeypatch.setattr(
             generate,
             "active_narrated_video_resource_ids",
@@ -385,15 +392,37 @@ class TestGenerateRouter:
         client = _client(monkeypatch, fake_pm, fake_queue)
         captured: dict[str, object] = {}
 
+        from lib.narration_delivery import (
+            USE_TTS,
+            NarratedVideoDurationPreparation,
+            NarrationDeliveryPreparation,
+            NarrationTtsStatus,
+        )
+
         async def _project(**kwargs):
             captured.update(kwargs)
-            return object()
-
-        async def _localized(_preparation, _translator):
-            return {"allowed": True}
+            # 重投影的产物照真实形状给出，路由的本地化与放行判定因而照跑；
+            # cost 留空即不触发报价查询（该分支由本文件的报价用例覆盖）。
+            return NarratedVideoDurationPreparation(
+                narration=NarrationDeliveryPreparation(
+                    delivery=USE_TTS,
+                    unit_id="E1S01",
+                    speech_mode=None,
+                    tts_status=NarrationTtsStatus.CURRENT,
+                    artifact_path="audio/segment_E1S01.wav",
+                    basis_digest="current-audio-basis",
+                    actual_duration_seconds=3.5,
+                    problems=(),
+                ),
+                planned_duration_seconds=4,
+                duration_input=4,
+                request_duration_seconds=4,
+                adjustment="exact",
+                problems=(),
+                current_visual_duration_seconds=4,
+            )
 
         monkeypatch.setattr(generate, "prepare_current_storyboard_narrated_video_duration", _project)
-        monkeypatch.setattr(generate, "_localized_narrated_video_payload", _localized)
 
         with client:
             response = client.post(
