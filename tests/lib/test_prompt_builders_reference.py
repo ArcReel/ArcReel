@@ -133,6 +133,10 @@ def test_build_reference_units_split_prompt_contains_constraints_and_candidates(
     assert "不参与逐字机械校验" in prompt
     assert "source_text` 须逐字复制" not in prompt
     assert "口播语速约" in prompt
+    assert "keyframe_plan（不可为空）" in prompt
+    assert "每个 unit 至少有一个场景" in prompt
+    assert "不是传统 Storyboard 图片" in prompt
+    assert "不是等到视频生成时再截取的首帧" in prompt
 
 
 def test_build_reference_units_split_prompt_speech_rate_override():

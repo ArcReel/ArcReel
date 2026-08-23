@@ -20,6 +20,8 @@ from lib.reference_video.draft_validation import DraftViolation
 from lib.reference_video.text_parser import extract_mentions
 from lib.script_generator import ScriptGenerator
 
+KEYFRAME_PLAN = "中景平视，主角推开酒馆门的核心场景静态首帧"
+
 STEP1_UNITS_JSON = _json.dumps(
     {
         "units": [
@@ -27,6 +29,7 @@ STEP1_UNITS_JSON = _json.dumps(
                 "unit_id": "E1U01",
                 "text": "@[主角] 推开 @[酒馆] 的门",
                 "duration_seconds": 4,
+                "keyframe_plan": [KEYFRAME_PLAN],
             }
         ]
     },
@@ -35,8 +38,15 @@ STEP1_UNITS_JSON = _json.dumps(
 
 
 def _step2_response(*texts: str, title: str = "t") -> str:
-    """step2 的 LLM 产出：扁平 ``{title, units: [{text}]}``——unit_id 与时长不进输出。"""
-    return _json.dumps({"title": title, "units": [{"text": t} for t in texts]}, ensure_ascii=False)
+    """step2 产出：每个 unit 展开已确认的单个关键分镜规划。"""
+    units = [
+        {
+            "text": f"{text} [[关键分镜1]]",
+            "keyframes": [{"description": KEYFRAME_PLAN}],
+        }
+        for text in texts
+    ]
+    return _json.dumps({"title": title, "units": units}, ensure_ascii=False)
 
 
 def _fake_step2_generator(*texts: str) -> MagicMock:
@@ -136,7 +146,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     assert unit["unit_id"] == "E1U01"
     assert unit["duration_seconds"] == 4
     assert unit["text"].startswith("镜头1：中景，平视。")
-    assert extract_mentions(unit["text"]) == ["主角", "酒馆"]
+    assert extract_mentions(unit["text"]) == ["主角", "酒馆", "关键分镜 E1U01K01"]
 
     # step2 的 response_schema 是扁平形状，且不含 duration_seconds——时长没让 LLM 写
     schema = fake_generator.generate.await_args.args[0].response_schema
@@ -197,11 +207,8 @@ async def test_script_generator_rejects_confirmed_duration_outside_effective_tie
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide(reference_project: Path):
-    """同集内一个 unit 带参考图（收窄到 [8]）、另一个不带（仍是 [4,8]）：后者本已合法的
-    确认值 4 秒不应因前者的收窄被连带改成 8——取档须按每个 unit 自己的参考图状态重算
-    生效档位，不套用 episode 级 any(...) 收窄出的粗粒度集合。
-    """
+async def test_script_generator_treats_each_required_keyframe_as_a_reference_image(reference_project: Path):
+    """每个 unit 都有关键分镜引用，因此即使正文没有普通资产引用，也都按带参考图档位校验。"""
     drafts = reference_project / "drafts" / "episode_1"
     (drafts / "step1_reference_units.json").write_text(
         _json.dumps(
@@ -211,11 +218,13 @@ async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide
                         "unit_id": "E1U01",
                         "text": "@[主角] 推门",
                         "duration_seconds": 8,
+                        "keyframe_plan": [KEYFRAME_PLAN],
                     },
                     {
                         "unit_id": "E1U02",
                         "text": "空镜",
-                        "duration_seconds": 4,
+                        "duration_seconds": 8,
+                        "keyframe_plan": ["全景平视，风吹过酒馆门廊的空镜静态首帧"],
                     },
                 ]
             },
@@ -236,18 +245,15 @@ async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide
     data = _json.loads(out.read_text(encoding="utf-8"))
     units_by_id = {u["unit_id"]: u for u in data["video_units"]}
     assert units_by_id["E1U01"]["duration_seconds"] == 8
-    assert units_by_id["E1U02"]["duration_seconds"] == 4  # 未被另一个带图 unit 的收窄连带改动
+    assert units_by_id["E1U02"]["duration_seconds"] == 8
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_script_generator_takes_duration_tier_from_final_output_references_not_step1(
+async def test_script_generator_required_keyframe_keeps_final_output_in_reference_tier(
     reference_project: Path,
 ):
-    """step1 拆分时某 unit 带引用（按带图档位确认，仅 8 秒合法），但 step2 输出给这个 unit
-    去掉了引用（回落到纯文本档位 [4, 8]，4 秒合法）：取档须按最终落地的 references 状态
-    重算，不能沿用 step1 的旧状态——按 step1 状态取档会把本已合法的确认值误判为不合法。
-    """
+    """step2 即使去掉普通资产引用，必需的关键分镜引用仍让最终 unit 使用带图档位。"""
     drafts = reference_project / "drafts" / "episode_1"
     (drafts / "step1_reference_units.json").write_text(
         _json.dumps(
@@ -256,7 +262,8 @@ async def test_script_generator_takes_duration_tier_from_final_output_references
                     {
                         "unit_id": "E1U01",
                         "text": "@[主角] 推门",
-                        "duration_seconds": 4,
+                        "duration_seconds": 8,
+                        "keyframe_plan": [KEYFRAME_PLAN],
                     }
                 ]
             },
@@ -281,8 +288,8 @@ async def test_script_generator_takes_duration_tier_from_final_output_references
 
     data = _json.loads(out.read_text(encoding="utf-8"))
     unit = data["video_units"][0]
-    assert extract_mentions(unit["text"]) == []
-    assert unit["duration_seconds"] == 4  # 按最终正文（无引用）取档合法，不因 step1 的带图状态被误判
+    assert extract_mentions(unit["text"]) == ["关键分镜 E1U01K01"]
+    assert unit["duration_seconds"] == 8
 
 
 @pytest.mark.asyncio
@@ -345,6 +352,7 @@ async def test_script_generator_rejects_step2_dialogue_rewrite(reference_project
                         "unit_id": "E1U01",
                         "text": "@[主角] 推门\n@[主角]：{我来了。}",
                         "duration_seconds": 4,
+                        "keyframe_plan": [KEYFRAME_PLAN],
                     }
                 ]
             },
@@ -373,6 +381,7 @@ async def test_script_generator_accepts_step2_expansion_keeping_dialogue(referen
                         "unit_id": "E1U01",
                         "text": "@[主角] 推门\n@[主角]：{我来了。}",
                         "duration_seconds": 4,
+                        "keyframe_plan": [KEYFRAME_PLAN],
                     }
                 ]
             },
@@ -386,7 +395,7 @@ async def test_script_generator_accepts_step2_expansion_keeping_dialogue(referen
     )
     out = await gen.generate(episode=1)
     unit = _json.loads(out.read_text(encoding="utf-8"))["video_units"][0]
-    assert extract_mentions(unit["text"]) == ["主角", "酒馆"]
+    assert extract_mentions(unit["text"]) == ["主角", "酒馆", "关键分镜 E1U01K01"]
 
 
 @pytest.mark.asyncio
@@ -652,7 +661,18 @@ async def test_reference_step1_rejects_out_of_enum_duration(reference_project: P
     """读取侧复验 unit 时长 ∈ supported_durations，防手工编辑漂移出非法时长。"""
     drafts = reference_project / "drafts" / "episode_1"
     (drafts / "step1_reference_units.json").write_text(
-        _json.dumps({"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 5}]}),
+        _json.dumps(
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "text": "@[主角] 转身",
+                        "duration_seconds": 5,
+                        "keyframe_plan": [KEYFRAME_PLAN],
+                    }
+                ]
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -670,7 +690,12 @@ async def test_reference_step1_rejects_out_of_enum_duration(reference_project: P
 @pytest.mark.asyncio
 async def test_reference_step1_rejects_duplicate_unit_ids(reference_project: Path):
     drafts = reference_project / "drafts" / "episode_1"
-    unit = {"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4}
+    unit = {
+        "unit_id": "E1U01",
+        "text": "@[主角] 转身",
+        "duration_seconds": 4,
+        "keyframe_plan": [KEYFRAME_PLAN],
+    }
     (drafts / "step1_reference_units.json").write_text(_json.dumps({"units": [unit, dict(unit)]}), encoding="utf-8")
 
     gen = ScriptGenerator(reference_project)
@@ -685,7 +710,17 @@ def test_reference_step1_migration_carries_confirmation_forward(reference_projec
     """
     drafts = reference_project / "drafts" / "episode_1"
     # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
-    legacy = {"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4, "duration_override": True}]}
+    legacy = {
+        "units": [
+            {
+                "unit_id": "E1U01",
+                "text": "@[主角] 转身",
+                "duration_seconds": 4,
+                "duration_override": True,
+                "keyframe_plan": [KEYFRAME_PLAN],
+            }
+        ]
+    }
     step1_path = drafts / "step1_reference_units.json"
     step1_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
     before = script_review.content_fingerprint(step1_path)
@@ -713,7 +748,17 @@ def test_reference_step1_migration_carries_confirmation_confirmed_after_construc
     """
     drafts = reference_project / "drafts" / "episode_1"
     # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
-    legacy = {"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4, "duration_override": True}]}
+    legacy = {
+        "units": [
+            {
+                "unit_id": "E1U01",
+                "text": "@[主角] 转身",
+                "duration_seconds": 4,
+                "duration_override": True,
+                "keyframe_plan": [KEYFRAME_PLAN],
+            }
+        ]
+    }
     step1_path = drafts / "step1_reference_units.json"
     step1_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
     before = script_review.content_fingerprint(step1_path)
@@ -748,7 +793,17 @@ def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_
     """
     drafts = reference_project / "drafts" / "episode_1"
     # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
-    legacy = {"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4, "duration_override": True}]}
+    legacy = {
+        "units": [
+            {
+                "unit_id": "E1U01",
+                "text": "@[主角] 转身",
+                "duration_seconds": 4,
+                "duration_override": True,
+                "keyframe_plan": [KEYFRAME_PLAN],
+            }
+        ]
+    }
     step1_path = drafts / "step1_reference_units.json"
     step1_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
     before = script_review.content_fingerprint(step1_path)
@@ -782,7 +837,16 @@ async def test_step1_text_violation_is_caught_before_the_paid_step2_call(referen
     drafts = reference_project / "drafts" / "episode_1"
     (drafts / "step1_reference_units.json").write_text(
         _json.dumps(
-            {"units": [{"unit_id": "E1U01", "duration_seconds": 4, "text": "@[查无此人} 推门"}]},
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "duration_seconds": 4,
+                        "text": "@[查无此人} 推门",
+                        "keyframe_plan": [KEYFRAME_PLAN],
+                    }
+                ]
+            },
             ensure_ascii=False,
         ),
         encoding="utf-8",
@@ -838,6 +902,7 @@ async def test_step1_dialogue_overload_is_caught_before_the_paid_step2_call(refe
                         "unit_id": "E1U01",
                         "duration_seconds": 4,
                         "text": f"@[主角] 推开 @[酒馆] 的门\n@[主角]：{{{long_line}}}",
+                        "keyframe_plan": [KEYFRAME_PLAN],
                     }
                 ]
             },
@@ -862,7 +927,19 @@ async def test_step2_missing_title_falls_back_instead_of_failing_the_paid_call(r
     generator = MagicMock()
     generator.model = "mock"
     generator.generate = AsyncMock(
-        return_value=MagicMock(text=_json.dumps({"units": [{"text": STEP2_UNIT_TEXT}]}, ensure_ascii=False))
+        return_value=MagicMock(
+            text=_json.dumps(
+                {
+                    "units": [
+                        {
+                            "text": f"{STEP2_UNIT_TEXT} [[关键分镜1]]",
+                            "keyframes": [{"description": KEYFRAME_PLAN}],
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        )
     )
 
     gen = ScriptGenerator(reference_project, generator=generator)
@@ -905,7 +982,7 @@ async def test_step2_violation_quarantines_instead_of_discarding(reference_proje
     assert envelope["kind"] == QUARANTINE_KIND_STEP2
     assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset"]
     # 草稿装的是扁平书写层产物（agent 要改的那一层）
-    assert envelope["content"]["units"][0]["text"] == BAD_STEP2_UNIT_TEXT
+    assert envelope["content"]["units"][0]["text"] == f"{BAD_STEP2_UNIT_TEXT} [[关键分镜1]]"
 
 
 @pytest.mark.asyncio
@@ -918,7 +995,7 @@ async def test_promote_step2_draft_after_repair(reference_project: Path):
 
     path = _step2_quarantine(reference_project)
     envelope = _json.loads(path.read_text(encoding="utf-8"))
-    envelope["content"]["units"][0]["text"] = STEP2_UNIT_TEXT
+    envelope["content"]["units"][0]["text"] = f"{STEP2_UNIT_TEXT} [[关键分镜1]]"
     path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
@@ -929,7 +1006,7 @@ async def test_promote_step2_draft_after_repair(reference_project: Path):
     unit = data["video_units"][0]
     assert unit["unit_id"] == "E1U01"
     assert unit["duration_seconds"] == 4
-    assert extract_mentions(unit["text"]) == ["主角", "酒馆"]
+    assert extract_mentions(unit["text"]) == ["主角", "酒馆", "关键分镜 E1U01K01"]
 
 
 @pytest.mark.asyncio
@@ -948,7 +1025,7 @@ async def test_promote_step2_draft_reports_again_without_round_limit(reference_p
         assert not _script_path(reference_project).exists()
 
     envelope = _json.loads(path.read_text(encoding="utf-8"))
-    envelope["content"]["units"][0]["text"] = "门开了\n@[主角]：{我来了"
+    envelope["content"]["units"][0]["text"] = "门开了\n@[主角]：{我来了 [[关键分镜1]]"
     path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
     with pytest.raises(DraftViolation):
         await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
@@ -993,17 +1070,12 @@ def _tiers_by_reference_state(with_refs: list[int], without_refs: list[int]):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_step2_duration_off_tier_after_merge_quarantines(reference_project: Path):
-    """合并之后才判出的档位越界同样落隔离草稿——这份展开已经付过费了。
-
-    step2 可以给 unit 增删 `@` 引用，生效档位随之换一套：step1 那个 4 秒的带图 unit 在展开时
-    丢掉了引用，档位就从 [4] 变成 [8]。这一判在 `_add_metadata` 里、在保结构 diff 之后，
-    不接住的话产物只存在于内存里，错误却让调用方重新生成。
-    """
+async def test_step2_keyframe_reference_duration_off_tier_after_merge_quarantines(reference_project: Path):
+    """必需关键分镜让最终 unit 使用带图档位；越界仍须把已付费的 step2 产出落隔离草稿。"""
     no_reference_text = "镜头1：中景，平视。他推开门，侧身跨过门槛。"
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(no_reference_text))
 
-    with patch.object(ScriptGenerator, "_resolve_supported_durations", _tiers_by_reference_state([4], [8])):
+    with patch.object(ScriptGenerator, "_resolve_supported_durations", _tiers_by_reference_state([8], [4])):
         with pytest.raises(DraftViolation) as excinfo:
             await gen.generate(episode=1)
 
@@ -1012,7 +1084,7 @@ async def test_step2_duration_off_tier_after_merge_quarantines(reference_project
     envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
     assert [v["code"] for v in envelope["violations"]] == ["duration_off_tier"]
     # 草稿装的仍是 agent 要改的那一层正文，改回 `@` 引用即可重新晋升
-    assert envelope["content"]["units"][0]["text"] == no_reference_text
+    assert envelope["content"]["units"][0]["text"] == f"{no_reference_text} [[关键分镜1]]"
 
 
 @pytest.mark.asyncio
@@ -1029,7 +1101,7 @@ async def test_promote_step2_draft_revalidates_edited_step1(reference_project: P
 
     path = _step2_quarantine(reference_project)
     envelope = _json.loads(path.read_text(encoding="utf-8"))
-    envelope["content"]["units"][0]["text"] = STEP2_UNIT_TEXT
+    envelope["content"]["units"][0]["text"] = f"{STEP2_UNIT_TEXT} [[关键分镜1]]"
     path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     step1 = reference_project / "drafts" / "episode_1" / "step1_reference_units.json"

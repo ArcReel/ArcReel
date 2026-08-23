@@ -9,7 +9,7 @@ script_models.py - 剧本数据模型
 import logging
 from typing import Annotated, Any, ClassVar, Literal, get_args
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.script_skeleton import resolve_declared_kind
@@ -23,6 +23,8 @@ from lib.script_skeleton import resolve_declared_kind
 # ScriptGenerator 路径(LLM 输出走 model_validate + model_dump)也会被这层保护:LLM 在
 # Structured Outputs 下不太会产出额外字段,产出即 hallucination,拒比静默丢更安全。
 _STRICT_CONFIG = ConfigDict(extra="forbid")
+
+ReferenceKeyframePlanItem = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 # ============ 枚举类型定义 ============
 
@@ -916,10 +918,10 @@ class ReferenceStep1Unit(BaseModel):
     # 辅助源文映射：供 gate 对照与失真定位，不作为逐字机械校验依据。
     # 默认空串：不带该字段的存量草稿照常通过校验。
     source_text: SkipJsonSchema[str] = Field(default="", description="该 unit 所依据的源文内容（辅助追溯）")
-    keyframe_plan: list[str] = Field(
-        default_factory=list,
+    keyframe_plan: list[ReferenceKeyframePlanItem] = Field(
+        min_length=1,
         max_length=5,
-        description="核心场景首帧规划；仅用于确认拆分边界，step2 会据此生成正式关键分镜",
+        description="按场景顺序排列的核心场景首帧规划；每个 unit 至少 1 个，step2 据此生成正式关键分镜",
     )
 
 
@@ -957,10 +959,10 @@ class ReferenceStep1FlatUnit(BaseModel):
     )
     source_text: str = Field(min_length=1, description="该单元所依据的源文内容（辅助审阅与追溯，不做逐字校验）")
     text: str = Field(min_length=1, description="该单元的书写层正文：画面描述 + 行内的台词 / 画外音记号")
-    keyframe_plan: list[str] = Field(
-        default_factory=list,
+    keyframe_plan: list[ReferenceKeyframePlanItem] = Field(
+        min_length=1,
         max_length=5,
-        description="该 unit 内按出现顺序排列的核心场景首帧规划；超过 5 个必须拆成多个 unit",
+        description="该 unit 内按出现顺序排列的 1–5 个核心场景首帧规划；超过 5 个必须拆成多个 unit",
     )
 
 
@@ -991,7 +993,7 @@ class ReferenceStep2FlatUnit(BaseModel):
 
     text: str = Field(min_length=1, description="视觉展开后的书写层正文：画面描述 + 行内的台词 / 画外音记号")
     keyframes: list[ReferenceStep2Keyframe] = Field(
-        default_factory=list,
+        min_length=1,
         max_length=5,
         description="与正文 [[关键分镜N]] 标记一一对应、按场景发生顺序排列的关键首帧",
     )

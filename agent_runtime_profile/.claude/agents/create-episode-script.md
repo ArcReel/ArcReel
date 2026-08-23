@@ -37,7 +37,7 @@ skills:
 
 只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的预处理子任务。
 
-> reference_video 同样走两段式：step1 已定稿的是内容契约（unit 边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做视觉展开——unit 数、unit 时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
+> reference_video 同样走两段式：step1 已定稿的是内容契约（unit 边界 / 时长 / 台词 / 核心资产指认 / 每个 unit 的 1–5 个非空 keyframe_plan），`generate_episode_script` 只做视觉展开——unit 数、unit 时长、台词规范行与关键分镜数量由工具机械保结构，模型改动其中任一项即整份产出被拒。
 >
 > drama 走两段式（见 ADR 0041）：step1 已定稿内容（场景边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt）并按 scene_id 透传 step1 内容、不重新识别口播。
 
@@ -60,6 +60,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 - 文件存在且为有效 JSON
 - 包含 episode、content_mode 字段
 - reference_video 模式：video_units 数组不为空
+- reference_video 模式：每个 video_unit 含 1–5 个 keyframes，正文含与其同序的 `@[关键分镜 ID]`；工具返回已自动提交关键分镜首图任务
 - storyboard + narration：segments 数组不为空
 - storyboard + drama：scenes 数组不为空
 
@@ -82,7 +83,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 
 ✅ 数据验证通过
 
-下一步：主 agent 可继续 dispatch 资产生成子任务（角色资产图、分镜图等）。
+下一步：reference_video 先等待并审阅自动生成的关键分镜首图，再进入视频生成；它只跳过传统 Storyboard 图片，不跳过 Keyframes。storyboard 模式则继续对应的分镜图片流程。
 ```
 
 如果生成失败：

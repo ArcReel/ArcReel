@@ -649,12 +649,11 @@ def normalize_drama_script_tool(ctx: ToolContext):
 
 
 class ReferenceSplitCaps(NamedTuple):
-    """rv 拆分用的视频能力：两套逐 unit 档位 + 派生上限 + 用户偏好 + 声音输入档。
+    """rv 拆分用的视频能力：参考图档位、兼容校验档位、派生上限、用户偏好与声音输入档。
 
     ``reference_durations`` / ``text_durations`` 是带 / 不带 ``@`` 引用的 unit 各自的生效档位，
-    ``durations`` 是二者的并集——schema 枚举与 prompt 候选集合取并集，因为落在任一套内的时长都
-    可能合法；归属哪一套要等正文里的 `@[名称]` 提及确定后才知道。三者相等即该型号在当前分辨率下未声明
-    生效的「参考图↔时长」联动约束，多数型号如此。
+    ``durations`` 保留二者并集供隔离草稿兼容校验。新拆分的每个 unit 都有非空 keyframe_plan，
+    因而 prompt 与实际准入统一使用 ``reference_durations``；正文有没有普通资产引用不再改变档位。
 
     ``voice`` 是同一次能力解析派生出的声音输入档，供声音相关的容忍 warning 消费——与时长档位同源
     于这一次解析，分两次查会让同一份产物的档位与声音提示描述不同时刻的配置。能力解析故障回退时
@@ -687,12 +686,8 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     联动约束收窄后**的集合：不收窄的话（海螺 1080p 只接受 6 秒）step1 会按全集拆出超标的 unit，
     step2 的枚举 schema 再把它判非法。
 
-    收窄逐 unit 分两套（``reference_unit_duration_tiers``）：「参考图↔时长」约束只对真的带参考图
-    的请求生效，整集一律按带图收窄会把无引用 unit 本可申请的短档也收掉。schema 枚举与 prompt
-    候选取两套的并集——落在任一套内的时长都可能合法，具体归属由该 unit 正文里的 `@[名称]`
-    提及决定，在正文解析之后逐 unit 判（见 ``_collect_reference_flat_violations``）。
-    ``max_duration`` 随之是并集的最大值。
-    ``default_duration`` 非并集成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
+    能力层仍返回带 / 不带参考图两套档位；拆分层保留并集用于把存量错误落隔离草稿而非直接丢弃，
+    但新契约要求每个 unit 至少一个关键帧，所以 prompt、默认值、最大时长与最终准入都按带图档位。
     """
     try:
         caps = await resolve_video_caps(project)
@@ -714,12 +709,12 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
         durations = list(DEFAULT_FALLBACK)
     with_refs, without_refs = await reference_unit_duration_tiers(project, caps, durations)
     unit_durations = sorted(set(with_refs) | set(without_refs))
-    max_duration = max(unit_durations)
+    max_duration = max(with_refs)
     raw_refs = caps.get("max_reference_images")
     max_refs = int(raw_refs) if isinstance(raw_refs, int | float) else None
     raw_default = caps.get("default_duration")
     default = int(raw_default) if isinstance(raw_default, int | float) else None
-    if default is not None and default not in unit_durations:
+    if default is not None and default not in with_refs:
         default = None
     return ReferenceSplitCaps(
         default_duration=default,
@@ -735,9 +730,8 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
 def _validate_unit_duration_tier(label: str, duration: int, *, has_references: bool, caps: ReferenceSplitCaps) -> None:
     """按该 unit 的引用状态判时长是否落在生效档位内，出档抛 ``DraftViolation``。
 
-    schema 的枚举卡的是两套档位的并集，一个带引用的 unit 因此仍可能取到只有无引用 unit 才
-    合法的秒数——那样的 unit 执行期申请不到，等到入队才失败已无统一纠正入口。错误消息给出
-    两条出路（换档位 / 去引用），与 prompt 里的教学同一口径。
+    schema 为了让存量 / 手工编辑的越界值进入隔离修复闭环，仍可卡两套档位的并集；实际准入在此
+    复判。新拆分的 unit 因非空 keyframe_plan 必然 ``has_references=True``。
 
     抛的是内容违约而非 ``ValueError``：这一类同样是 agent 改一改草稿就能修好的，走隔离草稿
     的修复闭环，不该退回丢弃重抽。
@@ -745,12 +739,8 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
     tiers = caps.tiers_for(has_references=has_references)
     if duration in tiers:
         return
-    state = "带 `@` 资产引用" if has_references else "无 `@` 资产引用"
-    remedy = (
-        "；请改取该档位内的时长，或把次要资产融入描述文字、不用 `@` 引用"
-        if has_references
-        else "；请改取该档位内的时长"
-    )
+    state = "含关键分镜参考图" if has_references else "无参考图"
+    remedy = "；请改取该档位内的时长"
     raise DraftViolation(
         f"{label} 时长 {duration}s 不在{state}的 unit 的生效档位 {tiers} 内{remedy}",
         code="duration_off_tier",
@@ -774,8 +764,8 @@ def _collect_reference_flat_violations(
     报告要能一次列全所有坏 unit，否则 agent 每修一处就要再跑
     一轮才知道下一处。
 
-    时长档位与正文合并为一个入口：适用哪套档位取决于该 unit 正文里有没有 `@[名称]` 提及——
-    正文解析不出时无从判档位，此时报出的也只会是同一个问题的另一种说法。
+    时长档位与正文合并为一个入口：keyframe_plan 必定会生成参考图，因此每个合法 unit 都按
+    ``with_references`` 档位校验；正文解析仍负责普通资产引用语法与数量。
     """
     # 台词口播量的语速与 prompt 侧同源：项目级覆盖优先，否则按语言默认。
     speech_rate_override = project_speech_rate_override(project)
@@ -787,9 +777,9 @@ def _collect_reference_flat_violations(
         keyframe_plan = flat.get("keyframe_plan")
         keyframe_count = len(keyframe_plan) if isinstance(keyframe_plan, list) else 0
 
-        def _check_text_and_tier(la: str = label, tx: str = text, d: int = duration) -> None:
-            refs = validate_unit_text(la, tx, project, max_refs=caps.max_refs)
-            _validate_unit_duration_tier(la, d, has_references=bool(refs), caps=caps)
+        def _check_text_and_tier(la: str = label, tx: str = text, d: int = duration, kc: int = keyframe_count) -> None:
+            validate_unit_text(la, tx, project, max_refs=caps.max_refs)
+            _validate_unit_duration_tier(la, d, has_references=kc > 0, caps=caps)
 
         violations.extend(
             collect_violations(
@@ -913,7 +903,8 @@ def _reference_result_text(step1_path: Path, units: list[dict], warning_lines: l
     text = (
         f"✅ 参考视频单元{action}（结构化 step1）已保存: {step1_path}\n"
         f"📊 生成统计: {len(units)} 个 unit，总时长 {total_seconds} 秒；"
-        f"单 unit `@` 提及最多 {max_unit_refs} 个"
+        f"单 unit `@` 提及最多 {max_unit_refs} 个；"
+        f"关键首帧规划共 {sum(len(u.get('keyframe_plan') or []) for u in units)} 个"
     )
     if warning_lines:
         text += "\n⚠️ 声音降级提示（不阻断，产物已落盘）:\n" + "\n".join(f"- {line}" for line in warning_lines)
@@ -1522,7 +1513,8 @@ def open_step1_for_edit_tool(ctx: ToolContext):
 def split_reference_video_units_tool(ctx: ToolContext):
     @tool(
         "split_reference_video_units",
-        "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + 辅助源文映射 + 书写层正文），"
+        "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + 辅助源文映射 + 书写层正文 + "
+        "1–5 个不可为空的关键场景首帧规划），"
         "保存到 drafts/episode_N/step1_reference_units.json，供 generate_episode_script"
         "（reference_video 模式）消费。unit_id 由工具按序号机械派生，"
         "并校验正文语法、资产引用与台词量；source_text 保留用于审阅追溯，不做逐字校验。"
@@ -1575,9 +1567,11 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                supported_durations=split_caps.durations,
+                # 每个 unit 的非空 keyframe_plan 会生成参考图，拆分 prompt 只给带图档位；
+                # ``durations`` 并集仅保留给隔离草稿的兼容校验。
+                supported_durations=split_caps.reference_durations,
                 reference_supported_durations=split_caps.reference_durations,
-                text_supported_durations=split_caps.text_durations,
+                text_supported_durations=split_caps.reference_durations,
                 max_duration=split_caps.max_duration,
                 max_reference_images=split_caps.max_refs,
                 default_duration=split_caps.default_duration,

@@ -7012,9 +7012,20 @@ def _rv_source(fake_ctx: ToolContext) -> None:
     (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
 
 
-def _rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> dict:
-    """step1 的 LLM 产出形状：一层扁平（时长 + 原文锚 + 书写层正文）。"""
-    return {"duration_seconds": duration, "source_text": source_text, "text": text}
+def _rv_unit(
+    text: str,
+    *,
+    duration: int = 8,
+    source_text: str = _RV_NOVEL,
+    keyframe_plan: list[str] | None = None,
+) -> dict:
+    """step1 的 LLM 产出形状：正文契约与至少一个关键场景首帧规划。"""
+    return {
+        "duration_seconds": duration,
+        "source_text": source_text,
+        "text": text,
+        "keyframe_plan": keyframe_plan or ["全景平视，核心场景建立帧"],
+    }
 
 
 def _derived_reference_names(fake_ctx: ToolContext, text: str) -> list[str]:
@@ -7058,6 +7069,33 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkey
 
 
 @pytest.mark.unit
+async def test_split_reference_video_units_prompt_uses_keyframe_reference_tier(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_source(fake_ctx)
+    monkeypatch.setattr(
+        mod,
+        "_fetch_reference_caps_with_fallback",
+        fake_reference_caps_fetcher(
+            default_duration=None,
+            durations=(4, 6, 8),
+            reference_durations=(8,),
+            text_durations=(4, 6, 8),
+            max_duration=8,
+        ),
+    )
+
+    out = await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "必须取支持档位（8）" in prompt_text
+    assert "不带取（4, 6, 8）" not in prompt_text
+
+
+@pytest.mark.unit
 async def test_split_reference_video_units_happy_derives_structure(fake_ctx: ToolContext, monkeypatch) -> None:
     """happy path：LLM 只写扁平正文，正文逐字落盘，只有 unit_id 由工具机械派生。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -7080,6 +7118,7 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
     assert "references" not in unit
     assert _derived_reference_names(fake_ctx, unit["text"]) == ["张三", "村口"]
     assert unit["source_text"] == _RV_NOVEL
+    assert unit["keyframe_plan"] == ["全景平视，核心场景建立帧"]
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
     assert captured["create_project_name"] == "demo"
     assert captured["generate_project_name"] == "demo"
@@ -7138,11 +7177,33 @@ async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolC
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
+async def test_split_reference_video_units_counts_keyframes_toward_reference_limit(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    _rv_source(fake_ctx)
+    out = await _run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [
+            _rv_unit(
+                "@[张三] 在门口等待",
+                keyframe_plan=["全景平视，门口建立帧", "中景平视，张三转入屋内的场景切换帧"],
+            )
+        ],
+        max_refs=2,
+    )
+
+    assert out.get("is_error") is True
+    assert "普通资产引用（1）与关键分镜（2）合计超过" in out["content"][0]["text"]
+    assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["reference_limit_with_keyframes"]
+
+
 @pytest.mark.integration
 async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """带 `@` 引用的 unit 取了只有无引用 unit 才合法的时长 → 判违约、不写正式文件。
+    """有关键帧的 unit 取了只有无引用 unit 才合法的时长 → 判违约、不写正式文件。
 
     枚举卡的是两套档位的并集，这类越界过得了 schema；不在此拦，执行期才会申请不到。
     """
@@ -7152,6 +7213,7 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
         monkeypatch,
         [_rv_unit("@[张三] 起身", duration=4)],
         reference_durations=(8,),
+        default_duration=None,
     )
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
@@ -7162,21 +7224,21 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
 
 
 @pytest.mark.integration
-async def test_split_reference_video_units_accepts_wide_tier_without_references(
+async def test_split_reference_video_units_keyframe_uses_reference_tier_without_asset_mentions(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """无 `@` 引用的 unit 不受「参考图↔时长」约束，仍可取更短的档位。"""
+    """正文即使没有普通 `@` 资产引用，非空 keyframe_plan 仍使 unit 使用带参考图档位。"""
     _rv_source(fake_ctx)
     out = await _run_rv_split(
         fake_ctx,
         monkeypatch,
         [_rv_unit("门被风吹开", duration=4)],
         reference_durations=(8,),
+        default_duration=None,
     )
-    assert out.get("is_error") is not True, out
-    saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
-    assert saved["units"][0]["duration_seconds"] == 4
-    assert _derived_reference_names(fake_ctx, saved["units"][0]["text"]) == []
+    assert out.get("is_error") is True
+    assert "生效档位" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
 
 
 @pytest.mark.unit
@@ -7194,6 +7256,27 @@ async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolCon
     _rv_source(fake_ctx)
     out = await _run_rv_split(fake_ctx, monkeypatch, [])
     assert out.get("is_error") is True
+    assert not _rv_step1_path(fake_ctx).exists()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("keyframe_plan", [None, [], ["   "]])
+async def test_split_reference_video_units_requires_nonempty_keyframe_plan(
+    fake_ctx: ToolContext, monkeypatch, keyframe_plan
+) -> None:
+    _rv_source(fake_ctx)
+    unit = {
+        "duration_seconds": 8,
+        "source_text": _RV_NOVEL,
+        "text": "@[张三] 在 @[村口] 等人",
+    }
+    if keyframe_plan is not None:
+        unit["keyframe_plan"] = keyframe_plan
+
+    out = await _run_rv_split(fake_ctx, monkeypatch, [unit])
+
+    assert out.get("is_error") is True
+    assert "keyframe_plan" in out["content"][0]["text"]
     assert not _rv_step1_path(fake_ctx).exists()
 
 
@@ -7424,6 +7507,7 @@ def _rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> d
         "text": text,
         "duration_seconds": duration,
         "source_text": _RV_NOVEL,
+        "keyframe_plan": ["全景平视，核心场景建立帧"],
     }
 
 
@@ -7452,7 +7536,7 @@ async def test_open_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolCont
     assert unit["duration_seconds"] == 8
     assert unit["source_text"] == _RV_NOVEL
     assert unit["text"] == "@[张三] 起身\n@[张三] 走向 @[村口]"
-    assert unit["keyframe_plan"] == []
+    assert unit["keyframe_plan"] == ["全景平视，核心场景建立帧"]
 
 
 @pytest.mark.unit

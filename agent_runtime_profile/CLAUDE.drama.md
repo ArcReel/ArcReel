@@ -15,7 +15,7 @@
   - 两者的真值均由子任务运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 step1 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
-- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个片段/场景独立生成、以分镜图作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；reference_video 模式按 video_unit 直出、以资产 sheet 图作 `reference_images`，无分镜图
+- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个片段/场景独立生成、以 Storyboard 图片作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；reference_video 模式按 video_unit 直出，不生成传统 Storyboard 图片，但拆分时每个 unit 必须定义 1–5 个 `keyframe_plan`，确认后生成正式 Keyframes 与首图并作为 `reference_images`
 
 > **关于 extend 功能**：Veo 3.1 extend 功能仅用于延长单个片段/场景，
 > 每次固定 +7 秒，不适合用于串联不同镜头。不同片段/场景之间使用 ffmpeg 拼接。
@@ -150,7 +150,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 分集规划的常驻偏好（如按章节对齐切分）不持久化，须经 `plan_episodes` 的 `instructions` 在**每一批
   调用上重复带上**；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
 - 预处理中间文件被修改 / 重拆后必须重新生成剧本 JSON，剧本不会自动跟随中间文件更新
-- `reference_video` **只跳过分镜图**，不跳过 audio：旁白交付选择在两种生成模式下都要逐次做
+- `reference_video` **只跳过传统 Storyboard 图片**，不跳过 Video Unit 的 `keyframe_plan`、正式 Keyframes 或 audio：拆分时每个 unit 至少规划一个关键场景首帧，确认后自动生成 Keyframe 图片；旁白交付选择在两种生成模式下都要逐次做
 - 批量旁白配音由用户显式要求触发，不由 `next_action` 驱动
 
 工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，支持中断后恢复。

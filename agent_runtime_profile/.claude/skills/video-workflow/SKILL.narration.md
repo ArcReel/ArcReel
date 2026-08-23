@@ -234,7 +234,8 @@ dispatch `generate-assets` 子任务：
 ## `generate_storyboards` / `generate_grid`：分镜图生成
 
 **触发**：`next_action.type` 为 `"generate_storyboards"` 或 `"generate_grid"`；服务端不会在
-reference_video 模式返回这两个动作。
+reference_video 模式返回这两个传统 Storyboard 动作。reference_video 仍须在拆分时生成非空
+`keyframe_plan`，并在确认后由 `generate_episode_script` 生成及自动提交正式 Keyframes，不属于本节。
 
 按动作直接选择工具，不二次检查 `generation_mode` 或 `grid_storyboard`：
 
@@ -309,7 +310,7 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 旁白配音以各段 `novel_text` 原文逐段合成语音，只依赖剧本、独立于分镜图/视频：
 用户要求时可在 `generate_script` 产出剧本后随时执行。
 
-`generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：参考生视频没有按段批量 TTS 的
+`generation_mode == "reference_video"` **只跳过传统 Storyboard 图片**，不跳过 `keyframe_plan`、正式 Keyframes 或 audio：参考生视频没有按段批量 TTS 的
 入口（无 `segments[]`），但每个叙述旁白 unit 的旁白交付选择照样要逐次做，见 `generate_videos`。
 
 **dispatch `generate-assets` 子任务**：

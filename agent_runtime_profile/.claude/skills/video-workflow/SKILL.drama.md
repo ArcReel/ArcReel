@@ -230,7 +230,8 @@ dispatch `generate-assets` 子任务：
 ## `generate_storyboards` / `generate_grid`：分镜图生成
 
 **触发**：`next_action.type` 为 `"generate_storyboards"` 或 `"generate_grid"`；服务端不会在
-reference_video 模式返回这两个动作。
+reference_video 模式返回这两个传统 Storyboard 动作。reference_video 仍须在拆分时生成非空
+`keyframe_plan`，并在确认后由 `generate_episode_script` 生成及自动提交正式 Keyframes，不属于本节。
 
 按动作直接选择工具，不二次检查 `generation_mode` 或 `grid_storyboard`：
 
