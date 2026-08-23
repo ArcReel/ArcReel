@@ -24,7 +24,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     split_reference_video_units_tool,
 )
 from tests.fakes import fake_reference_caps_fetcher
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
     _generation_result,
     _nr_caps,
@@ -36,6 +36,8 @@ from tests.integration.server.agent_runtime.sdk_tools.conftest import (
     _rv_source,
     _use_reference_route,
 )
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # split_narration_segments

@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.integration.server.routers.conftest import (
+from tests.integration.server.routers.projects_router_support import (
     _client,
     _FakePM,
 )

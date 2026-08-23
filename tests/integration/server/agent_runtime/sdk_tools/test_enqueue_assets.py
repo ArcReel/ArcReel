@@ -4,16 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from lib.project_manager import ProjectManager
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
     list_pending_assets_tool,
 )
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
     _generation_result,
 )
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # enqueue_assets

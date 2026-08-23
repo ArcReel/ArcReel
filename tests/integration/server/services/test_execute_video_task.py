@@ -26,7 +26,7 @@ from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 from lib.video_frame_slots import gate_video_request
 from lib.video_visual_provenance import build_storyboard_video_visual_basis
 from server.services import generation_tasks
-from tests.integration.server.services.conftest import (
+from tests.integration.server.services.generation_tasks_support import (
     _ad_pm,
     _async_return,
     _fake_resolve_ctx,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lib.reference_video.request_projection import resolve_reference_assets
-from tests.integration.server.services.conftest_reference_video_tasks import (
+from tests.integration.server.services.reference_video_tasks_support import (
     _load_project_and_unit,
     _write_project,
 )

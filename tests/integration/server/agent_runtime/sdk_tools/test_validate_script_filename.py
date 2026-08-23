@@ -6,9 +6,11 @@ import pytest
 
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
 )
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # validate_script_filename — shared guard for all enqueue tools

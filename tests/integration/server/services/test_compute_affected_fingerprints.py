@@ -1,7 +1,7 @@
 """Tests for compute_affected_fingerprints (split from test_generation_tasks_service.py)."""
 
 from server.services import generation_tasks
-from tests.integration.server.services.conftest import (
+from tests.integration.server.services.generation_tasks_support import (
     _FakePM,
 )
 

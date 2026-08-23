@@ -436,7 +436,3 @@ def _ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
     }
     _register_asset_sheet_claims(pm)
     return pm
-
-
-def _ref_paths(refs: list) -> list:
-    return [r["image"] if isinstance(r, dict) else r for r in refs]

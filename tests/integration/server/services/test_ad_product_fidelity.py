@@ -2,16 +2,19 @@
 
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services import generation_tasks
-from tests.integration.server.services.conftest import (
+from tests.integration.server.services.generation_tasks_support import (
     _ad_pm,
     _async_return,
     _currency_resolver,
     _fake_resolve_ctx,
     _FakeGenerator,
     _prepare_files,
-    _ref_paths,
     _seed_current_storyboard,
 )
+
+
+def _ref_paths(refs: list) -> list:
+    return [r["image"] if isinstance(r, dict) else r for r in refs]
 
 
 class TestAdProductFidelityStoryboard:

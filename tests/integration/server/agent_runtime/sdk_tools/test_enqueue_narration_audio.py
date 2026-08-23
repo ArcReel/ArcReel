@@ -15,7 +15,7 @@ from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboa
 from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_scene_tool,
 )
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _activate_unbound_project,
     _call,
     _fake_scene_batch,
@@ -23,6 +23,8 @@ from tests.integration.server.agent_runtime.sdk_tools.conftest import (
     _reference_video_script,
     _use_reference_route,
 )
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # enqueue_narration_audio

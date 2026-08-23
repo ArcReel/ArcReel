@@ -3,7 +3,7 @@
 import pytest
 
 from server.services import generation_tasks
-from tests.integration.server.services.conftest import (
+from tests.integration.server.services.generation_tasks_support import (
     _FakePM,
 )
 

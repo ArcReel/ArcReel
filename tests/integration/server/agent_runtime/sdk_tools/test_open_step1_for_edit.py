@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from lib.draft_quarantine import (
     QUARANTINE_KIND_STEP1,
 )
 from server.agent_runtime.sdk_tools._context import ToolContext
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     _derived_reference_names,
     _open_for_edit,
@@ -23,6 +25,8 @@ from tests.integration.server.agent_runtime.sdk_tools.conftest import (
     _rv_unit,
     _write_rv_step1,
 )
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # open_step1_for_edit

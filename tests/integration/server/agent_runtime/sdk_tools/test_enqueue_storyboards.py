@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _activate_unbound_project,
     _call,
     _generation_result,
 )
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # enqueue_storyboards

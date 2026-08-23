@@ -19,9 +19,11 @@ from server.agent_runtime.sdk_tools.text_generation import (
     split_narration_segments_tool,
     split_reference_video_units_tool,
 )
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
 )
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # text_generation

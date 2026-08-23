@@ -4,7 +4,7 @@ from lib.artifact_manifest import (
     ArtifactKey,
 )
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from tests.integration.server.services.conftest import (
+from tests.integration.server.services.generation_tasks_support import (
     _currency_resolver,
     _register_stale_visual_claim,
 )

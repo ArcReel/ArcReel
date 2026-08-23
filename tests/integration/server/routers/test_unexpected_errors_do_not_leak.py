@@ -1,10 +1,10 @@
 """Tests for unexpected_errors_do_not_leak (split from test_projects_router.py)."""
 
 from lib.i18n.zh import errors as zh_errors
-from tests.integration.server.routers.conftest import (
+from server.routers import projects
+from tests.integration.server.routers.projects_router_support import (
     _client,
     _FakePM,
-    projects,
 )
 
 

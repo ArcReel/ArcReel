@@ -12,14 +12,13 @@ from lib.project_manager import ProjectManager
 from lib.script_batch_edit import (
     ScriptBatchEditResult,
 )
-from tests.integration.server.routers.conftest import (
-    AUTH_DEPENDENCIES,
-    CurrentUserInfo,
+from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
+from server.routers import projects
+from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.integration.server.routers.projects_router_support import (
     _client,
     _FakePM,
-    get_current_user,
-    projects,
-    register_error_handlers,
 )
 
 

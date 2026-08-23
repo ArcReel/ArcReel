@@ -27,7 +27,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     split_narration_segments_tool,
     validate_and_promote_draft_tool,
 )
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     _call,
     _nr_caps,
@@ -46,6 +46,8 @@ from tests.integration.server.agent_runtime.sdk_tools.conftest import (
     _rv_unit,
     _write_rv_step1,
 )
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # 草稿与修复晋升闭环（step1）

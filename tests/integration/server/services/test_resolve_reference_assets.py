@@ -9,12 +9,15 @@ from lib.reference_video.request_projection import resolve_reference_assets
 from server.services.reference_video_tasks import (
     _clamp_resolved_reference_images,
 )
-from tests.integration.server.services.conftest_reference_video_tasks import (
+from tests.integration.server.services.reference_video_tasks_support import (
     _load_project_and_unit,
     _register_asset_sheet,
-    _resolved_names,
     _write_project,
 )
+
+
+def _resolved_names(project: dict, proj_dir: Path, text: str) -> list[str]:
+    return [asset.path.name for asset in resolve_reference_assets(project, proj_dir, {"text": text})]
 
 
 def test_resolve_reference_assets_maps_sheets(tmp_path: Path):

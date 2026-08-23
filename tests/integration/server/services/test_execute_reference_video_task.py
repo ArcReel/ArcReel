@@ -14,13 +14,118 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from lib.reference_video.request_projection import resolve_reference_assets
-from tests.integration.server.services.conftest_reference_video_tasks import (
+from tests.integration.server.services.reference_video_tasks_support import (
     _TINY_PNG,
     _register_asset_sheet,
-    _wire_context,
-    _wire_locked_script,
     _write_project,
 )
+
+
+def _wire_locked_script(fake_pm: MagicMock) -> None:
+    """让 fake_pm.locked_script 产出磁盘上的真实剧本 dict。
+
+    finalize 写回 unit 资产时会在剧本中查找 unit 并在缺失时抛 KeyError，
+    裸 MagicMock 的 script.get("video_units") 不是 list 会直接炸。
+    """
+    proj_dir = fake_pm.get_project_path.return_value
+
+    @contextmanager
+    def _locked(_name, script_file, *, validate=True):
+        yield json.loads((proj_dir / script_file).read_text(encoding="utf-8"))
+
+    fake_pm.locked_script.side_effect = _locked
+
+
+def _wire_context(
+    monkeypatch: pytest.MonkeyPatch,
+    rvt,
+    fake_generator,
+    *,
+    backend_name: str,
+    backend_model: str,
+    registry_provider_id: str | None = None,
+    resolution_or_fallback: str = "1080p",
+    resolution: str | None = None,
+    max_refs: int | None = None,
+    max_duration: int | None = None,
+    supported_durations: tuple[int, ...] = (3,),
+    voice_consistency: str = "soft",
+    max_reference_audio_count: int = 0,
+    reference_audio_per_image: bool = False,
+    requested_generate_audio: bool = True,
+    generate_audio: bool = False,
+    seen_lane_requests: list[dict[str, Any]] | None = None,
+) -> None:
+    """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
+
+    执行器不触碰 MediaGenerator 私有属性、不手工重建 provider 身份——所有
+    provider/backend 身份、能力上限、resolution 均由 GenerationContext 的 video lane 提供。
+    能力上限与 resolution 的解析逻辑本身在 tests/server/test_generation_context.py 覆盖，此处
+    只需喂入 lane 值验证执行器的下游 clamp / 守卫 / 透传行为。
+
+    ``registry_provider_id`` 缺省与 ``backend_name`` 相同（多数供应商如此）；族别名供应商
+    （如 ark-agent-plan 族复用 Ark backend）两者不同，需显式区分以覆盖 registry 查表路径。
+    """
+    from lib.config.resolver import ProviderModel
+    from lib.version_manager import PaidVersionCommit
+    from server.services.generation_context import AudioLaneResult, GenerationContext, VideoLaneResult
+
+    class _SelectedArtifactCommitter:
+        def __init__(self, **_kwargs):
+            self.outcome = PaidVersionCommit(version=1, selected=True)
+            self.selection_error = None
+
+        async def prepare_selection(self, *_args, **_kwargs):
+            return None
+
+        async def release_admission_guard(self):
+            return None
+
+        def __call__(self, *_args, **_kwargs):
+            return self.outcome
+
+    monkeypatch.setattr(rvt, "VideoArtifactCommitter", _SelectedArtifactCommitter)
+    if isinstance(fake_generator.versions, MagicMock):
+        fake_generator.versions.get_current_version.return_value = 0
+
+    lane = VideoLaneResult(
+        provider_model=ProviderModel(provider_id=registry_provider_id or backend_name, model_id=backend_model),
+        backend_name=backend_name,
+        backend_model=backend_model,
+        resolution=resolution,
+        resolution_or_fallback=resolution_or_fallback,
+        supported_durations=supported_durations,
+        max_duration=max_duration,
+        max_reference_images=max_refs,
+        voice_consistency=voice_consistency,  # type: ignore[arg-type]
+        max_reference_audio_count=max_reference_audio_count,
+        reference_audio_per_image=reference_audio_per_image,
+        requested_generate_audio=requested_generate_audio,
+        generate_audio=generate_audio,
+    )
+
+    async def _fake_resolve(*_args, **kwargs):
+        if seen_lane_requests is not None:
+            seen_lane_requests.append(
+                {
+                    "image": kwargs.get("image"),
+                    "video": kwargs.get("video"),
+                    "audio": kwargs.get("audio"),
+                }
+            )
+        audio_lane = None
+        if kwargs.get("audio") is not None:
+            audio_lane = AudioLaneResult(
+                provider_model=ProviderModel("dashscope", "configured-tts"),
+                backend_name="dashscope",
+                backend_model="actual-tts",
+                narration_voice="Cherry",
+                narration_speed=1.1,
+                voices=(),
+            )
+        return GenerationContext(generator=fake_generator, video_lane=lane, audio_lane=audio_lane)
+
+    monkeypatch.setattr(rvt, "resolve_generation_context", _fake_resolve)
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 """Tests for projects_ad_creation (split from test_projects_router.py)."""
 
-from tests.integration.server.routers.conftest import (
+from tests.integration.server.routers.projects_router_support import (
     _client,
     _FakePM,
 )

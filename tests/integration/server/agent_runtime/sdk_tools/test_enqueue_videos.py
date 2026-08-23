@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import unicodedata
 from dataclasses import replace
 from pathlib import Path
@@ -12,8 +13,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.artifact_manifest import ArtifactStatus
+from lib.generation_result import GenerationBatchResult
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.resource_paths import resource_relative_path
 from lib.script_skeleton import SkeletonRouteMismatchError
+from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from server.agent_runtime.sdk_tools import enqueue_videos as enqueue_videos_mod
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_videos import (
@@ -22,21 +26,96 @@ from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_scene_tool,
     generate_video_selected_tool,
 )
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+    _CLAIMED_BASIS_DIGEST,
     _activate_unbound_project,
-    _activated_project,
-    _blocked_problems_of,
     _call,
     _fake_reference_projection,
     _fake_scene_batch,
     _generation_result,
-    _MissingEverythingResolver,
     _reference_video_script,
-    _refused_problems,
-    _select_manual_video,
     _use_reference_route,
 )
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
+
+
+def _select_manual_video(
+    project_path: Path,
+    *,
+    resource_type: str,
+    resource_id: str,
+    content: bytes,
+) -> str:
+    artifact_path = resource_relative_path(resource_type, resource_id)
+    staged = project_path / f".{resource_type}-{resource_id}.upload.mp4"
+    staged.write_bytes(content)
+    VersionManager(project_path).commit_staged_version(
+        resource_type,
+        resource_id,
+        "",
+        staged_file=staged,
+        current_file=project_path / artifact_path,
+        source=MANUAL_UPLOAD_VERSION_SOURCE,
+    )
+    return artifact_path
+
+
+class _MissingEverythingResolver:
+    """An active Manifest that never admits a formal artifact as usable."""
+
+    def compare(self, key, *, artifact_path=None):
+        from lib.artifact_manifest import ArtifactComparison
+
+        return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path or "")
+
+
+def _activated_project(project_dir: Path, storyboard_ids: dict[str, str] | None = None) -> dict[str, Any]:
+    """构造一个已迁移到当前 schema 的项目，并把点名的分镜图登记进产物清单。
+
+    直接调用入队构造函数的用例不经 pm，项目形态得在这里补齐：清单是读取已生成产物的
+    唯一口径，没有登记的分镜图不能作为视频输入。
+    """
+
+    from lib.artifact_manifest import (
+        ArtifactKey,
+        ArtifactManifest,
+        ArtifactManifestEntry,
+        ProjectArtifactManifestAdapter,
+    )
+
+    project: dict[str, Any] = {
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+    }
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir))
+    for resource_id, artifact_path in (storyboard_ids or {}).items():
+        manifest.register_entry_transactionally(
+            ArtifactKey.episode_storyboard(1, resource_id),
+            ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=_CLAIMED_BASIS_DIGEST),
+        )
+    return project
+
+
+def _blocked_problems_of(result: GenerationBatchResult) -> dict[str, tuple[str, str]]:
+    """Map each problem-carrying unit of a finished result to its ``(code, action)`` pair."""
+
+    return {
+        item.unit_id: (item.problem.code, item.problem.action.value)
+        for item in result.items
+        if item.problem is not None
+    }
+
+
+def _refused_problems(refused: list[Any]) -> dict[str, tuple[str, str]]:
+    """Map each refused ticket's unit ID to its ``(code, action)`` pair."""
+
+    return {ticket.unit_id: (problem.code, problem.action.value) for ticket in refused for problem in ticket.problems}
+
 
 # ---------------------------------------------------------------------------
 # enqueue_videos

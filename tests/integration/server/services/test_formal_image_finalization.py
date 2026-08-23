@@ -15,7 +15,7 @@ from lib.artifact_manifest import (
 from lib.generation_queue import CompensableGenerationResult
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services import generation_tasks
-from tests.integration.server.services.conftest import (
+from tests.integration.server.services.generation_tasks_support import (
     _fake_resolve_ctx,
     _FakeGenerator,
     _FakePM,

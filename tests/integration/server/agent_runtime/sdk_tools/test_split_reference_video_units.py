@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
     split_reference_video_units_tool,
 )
 from tests.fakes import fake_reference_caps_fetcher
-from tests.integration.server.agent_runtime.sdk_tools.conftest import (
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     _call,
     _derived_reference_names,
@@ -21,6 +23,8 @@ from tests.integration.server.agent_runtime.sdk_tools.conftest import (
     _rv_step1_path,
     _rv_unit,
 )
+
+pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
 
 # ---------------------------------------------------------------------------
 # split_reference_video_units
