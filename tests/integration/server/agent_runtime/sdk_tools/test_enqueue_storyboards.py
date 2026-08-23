@@ -178,3 +178,55 @@ async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) ->
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
+
+
+async def test_generate_storyboards_reports_a_partial_batch_per_id(fake_ctx: ToolContext, monkeypatch) -> None:
+    """一批里有成有败时逐 ID 分账，失败项带稳定 code，不需要读文本判断重试。"""
+    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": "E1S01", "image_prompt": "村口黄昏", "generated_assets": {}},
+        {"segment_id": "E1S02", "image_prompt": "山道清晨", "generated_assets": {}},
+    ]
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+        from lib.generation_queue_client import BatchTaskResult
+        from lib.task_failure import encode_failure
+
+        succeeded = [
+            BatchTaskResult(
+                resource_id="E1S01",
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": "storyboards/scene_E1S01.png"},
+                task={"provider_id": "openai", "provider_job_id": "job-1"},
+            )
+        ]
+        failed = [
+            BatchTaskResult(
+                resource_id="E1S02",
+                task_id="t2",
+                status="failed",
+                error=encode_failure("video_capability_missing_i2v"),
+                task={"provider_id": "openai", "provider_job_id": None},
+            )
+        ]
+        return succeeded, failed
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    out = await _call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    result = _generation_result(out)
+    assert result.succeeded == ["E1S01"]
+    assert result.failed == ["E1S02"]
+    assert set(result.requested) == {"E1S01", "E1S02"}
+    failed_item = next(item for item in result.items if item.unit_id == "E1S02")
+    assert failed_item.problem is not None
+    assert failed_item.problem.code == "video_capability_missing_i2v"
+    assert failed_item.problem.action.value == "configure_provider"
+    # 供应商提交与任务状态分开报告：这一条任务失败但从未提交给供应商。
+    assert failed_item.task_state.value == "failed"
+    assert failed_item.provider_checkpoint is not None
+    assert failed_item.provider_checkpoint.submitted is False

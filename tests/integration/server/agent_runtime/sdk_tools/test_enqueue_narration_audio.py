@@ -11,14 +11,9 @@ import pytest
 from lib.artifact_manifest import ArtifactStatus
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
-from server.agent_runtime.sdk_tools.enqueue_videos import (
-    generate_video_scene_tool,
-)
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _activate_unbound_project,
     _call,
-    _fake_scene_batch,
     _generation_result,
     _reference_video_script,
     _use_reference_route,
@@ -116,79 +111,6 @@ async def test_generate_narration_audio_explicit_ids_regenerate_a_stale_recordin
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in captured] == ["E1S01"]
     assert _generation_result(out).succeeded == ["E1S01"]
-
-
-async def test_post_production_video_never_asks_for_the_missing_tts(fake_ctx: ToolContext, monkeypatch) -> None:
-    """后期配音的视频请求既不自动补 TTS，也不把缺 TTS 报成一条待办。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
-    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {  # type: ignore[attr-defined]
-        "storyboard_image": "storyboards/scene_E1S01.png"
-    }
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
-
-    out = await _call(
-        generate_video_scene_tool(fake_ctx),
-        {"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "post_production"},
-    )
-
-    assert out.get("is_error") is not True, out
-    result = _generation_result(out)
-    assert result.succeeded == ["E1S01"]
-    assert all(item.problem is None for item in result.items)
-
-
-async def test_generate_storyboards_reports_a_partial_batch_per_id(fake_ctx: ToolContext, monkeypatch) -> None:
-    """一批里有成有败时逐 ID 分账，失败项带稳定 code，不需要读文本判断重试。"""
-    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
-
-    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
-        {"segment_id": "E1S01", "image_prompt": "村口黄昏", "generated_assets": {}},
-        {"segment_id": "E1S02", "image_prompt": "山道清晨", "generated_assets": {}},
-    ]
-
-    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
-        from lib.task_failure import encode_failure
-
-        succeeded = [
-            BatchTaskResult(
-                resource_id="E1S01",
-                task_id="t1",
-                status="succeeded",
-                result={"file_path": "storyboards/scene_E1S01.png"},
-                task={"provider_id": "openai", "provider_job_id": "job-1"},
-            )
-        ]
-        failed = [
-            BatchTaskResult(
-                resource_id="E1S02",
-                task_id="t2",
-                status="failed",
-                error=encode_failure("video_capability_missing_i2v"),
-                task={"provider_id": "openai", "provider_job_id": None},
-            )
-        ]
-        return succeeded, failed
-
-    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-
-    out = await _call(generate_storyboards_tool(fake_ctx), {"script": "episode_1.json"})
-
-    assert out.get("is_error") is True
-    result = _generation_result(out)
-    assert result.succeeded == ["E1S01"]
-    assert result.failed == ["E1S02"]
-    assert set(result.requested) == {"E1S01", "E1S02"}
-    failed_item = next(item for item in result.items if item.unit_id == "E1S02")
-    assert failed_item.problem is not None
-    assert failed_item.problem.code == "video_capability_missing_i2v"
-    assert failed_item.problem.action.value == "configure_provider"
-    # 供应商提交与任务状态分开报告：这一条任务失败但从未提交给供应商。
-    assert failed_item.task_state.value == "failed"
-    assert failed_item.provider_checkpoint is not None
-    assert failed_item.provider_checkpoint.submitted is False
 
 
 async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -554,51 +476,6 @@ async def test_generate_narration_audio_accepts_reference_narrator_unit(
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True, out
     assert [spec.resource_id for spec in captured] == ["E1U1"]
-
-
-@pytest.mark.parametrize(
-    ("tool_name", "args"),
-    [
-        ("generate_video_episode_tool", {"script": "episode_1.json"}),
-        ("generate_video_scene_tool", {"script": "episode_1.json", "scene_id": "E1U1"}),
-        ("generate_video_all_tool", {"script": "episode_1.json"}),
-        ("generate_video_selected_tool", {"script": "episode_1.json", "scene_ids": ["E1U1"]}),
-    ],
-)
-async def test_generate_video_rejects_mismatched_unit_script_on_storyboard_route(
-    fake_ctx: ToolContext, tool_name: str, args: dict[str, Any]
-) -> None:
-    """分镜图生视频项目下的 video_units 骨架剧本：四个入口一律结构报错 + 重拆指引。
-
-    静默降档与悄悄换路径都不可构造——存量混排集的唯一出路是重拆重生成。
-    """
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
-        "content_mode": "narration",
-        "episode": 1,
-        "video_units": [{"unit_id": "E1U1", "text": "x", "duration_seconds": 5}],
-    }
-    tool_obj = getattr(mod, tool_name)(fake_ctx)
-    out = await _call(tool_obj, args)
-
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
-    assert "骨架" in text and "重新拆分" in text
-
-
-async def test_generate_video_episode_rejects_mismatched_storyboard_script_on_reference_route(
-    fake_ctx: ToolContext,
-) -> None:
-    """反向：参考生视频项目下的分镜骨架剧本同样被拒，指引重跑 unit 拆分。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
-
-    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
-    tool_obj = mod.generate_video_episode_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
-
-    assert out.get("is_error") is True
-    assert "split-reference-video-units" in out["content"][0]["text"]
 
 
 async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: ToolContext) -> None:

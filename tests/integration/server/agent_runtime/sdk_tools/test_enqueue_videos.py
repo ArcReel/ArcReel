@@ -2809,3 +2809,69 @@ def test_video_generation_refuses_a_script_from_the_other_generation_mode(
 
     with pytest.raises(SkeletonRouteMismatchError):
         enqueue_videos_mod._resolve_reference_route(fake_ctx, script)
+
+
+async def test_post_production_video_never_asks_for_the_missing_tts(fake_ctx: ToolContext, monkeypatch) -> None:
+    """后期配音的视频请求既不自动补 TTS，也不把缺 TTS 报成一条待办。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {  # type: ignore[attr-defined]
+        "storyboard_image": "storyboards/scene_E1S01.png"
+    }
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
+
+    out = await _call(
+        generate_video_scene_tool(fake_ctx),
+        {"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": "post_production"},
+    )
+
+    assert out.get("is_error") is not True, out
+    result = _generation_result(out)
+    assert result.succeeded == ["E1S01"]
+    assert all(item.problem is None for item in result.items)
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "args"),
+    [
+        ("generate_video_episode_tool", {"script": "episode_1.json"}),
+        ("generate_video_scene_tool", {"script": "episode_1.json", "scene_id": "E1U1"}),
+        ("generate_video_all_tool", {"script": "episode_1.json"}),
+        ("generate_video_selected_tool", {"script": "episode_1.json", "scene_ids": ["E1U1"]}),
+    ],
+)
+async def test_generate_video_rejects_mismatched_unit_script_on_storyboard_route(
+    fake_ctx: ToolContext, tool_name: str, args: dict[str, Any]
+) -> None:
+    """分镜图生视频项目下的 video_units 骨架剧本：四个入口一律结构报错 + 重拆指引。
+
+    静默降档与悄悄换路径都不可构造——存量混排集的唯一出路是重拆重生成。
+    """
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "narration",
+        "episode": 1,
+        "video_units": [{"unit_id": "E1U1", "text": "x", "duration_seconds": 5}],
+    }
+    tool_obj = getattr(mod, tool_name)(fake_ctx)
+    out = await _call(tool_obj, args)
+
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "骨架" in text and "重新拆分" in text
+
+
+async def test_generate_video_episode_rejects_mismatched_storyboard_script_on_reference_route(
+    fake_ctx: ToolContext,
+) -> None:
+    """反向：参考生视频项目下的分镜骨架剧本同样被拒，指引重跑 unit 拆分。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
+    tool_obj = mod.generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "split-reference-video-units" in out["content"][0]["text"]

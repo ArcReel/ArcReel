@@ -856,3 +856,99 @@ class TestBuildPrompt:
         assert out.startswith("Style: 真人电视剧风格")
         assert "\n\n村口黄昏的长镜头\n\n" in out
         assert out.endswith("画面避免：水印、多余文字、Logo。")
+
+
+async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    src = project_path / "source"
+    src.mkdir(parents=True)
+    (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
+
+    async def fake_caps(_p, _episode=None):
+        return 4, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    tool_obj = normalize_drama_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"})
+    assert out.get("is_error") is not True, out
+    prompt_text = out["content"][0]["text"]
+    assert "# 用户意见" in prompt_text
+    assert "打斗场面多拆几个短镜头" in prompt_text
+
+
+async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+    """handler 把 instructions 原样转交 ScriptGenerator（dry_run 与生成路径同口径）。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    drafts = project_path / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    step1 = drafts / "step1_segments.json"
+    step1.write_text("step1", encoding="utf-8")
+    fingerprint = script_review.content_fingerprint(step1)
+    (project_path / "project.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "narration",
+                "episodes": [{"episode": 1, "step1_review": {"fingerprint": fingerprint, "confirmed_at": "t"}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _FakeGenerator:
+        def __init__(self, _path):
+            pass
+
+        @classmethod
+        async def create(cls, _path):
+            return cls(_path)
+
+        async def build_prompt(self, _episode, *, instructions=None):
+            captured["build_prompt"] = instructions
+            return "fake prompt"
+
+        async def generate(self, *, episode, instructions=None):
+            captured["generate"] = instructions
+            return project_path / "scripts" / "episode_1.json"
+
+    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
+    tool_obj = generate_episode_script_tool(fake_ctx)
+
+    out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "偏好特写镜头"})
+    assert out.get("is_error") is not True, out
+    assert captured["build_prompt"] == "偏好特写镜头"
+
+    out = await _call(tool_obj, {"episode": 1, "instructions": "偏好特写镜头"})
+    assert out.get("is_error") is not True, out
+    assert captured["generate"] == "偏好特写镜头"
+
+
+async def test_generate_episode_script_reference_legacy_md_hints_resplit(fake_ctx: ToolContext) -> None:
+    """reference_video 集仅存旧 .md 拆分表时，generate_episode_script 给出重跑拆分提示。"""
+    project_path = fake_ctx.project_path
+    (project_path / "project.json").write_text(
+        json.dumps(
+            {
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
+                "episodes": [{"episode": 1, "generation_mode": "reference_video"}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    drafts = project_path / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    (drafts / "step1_reference_units.md").write_text("| E1U1 |", encoding="utf-8")
+
+    tool_obj = generate_episode_script_tool(fake_ctx)
+    out = await _call(tool_obj, {"episode": 1})
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "重跑 split-reference-video-units" in text
+    assert "step1_reference_units.json" in text
