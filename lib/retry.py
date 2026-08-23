@@ -149,13 +149,7 @@ async def retry_async[T](
             is_last = attempt >= max_attempts - 1
             if is_last or isinstance(exc, NonRetryableError) or not predicate(exc):
                 raise
-            # 未注入 jitter 时按两个位置参调用：仍有测试把 `_compute_wait` 整体替换成
-            # 只接 (attempt, backoff) 的确定化替身，多传 jitter= 会让它们 TypeError。
-            wait_time = (
-                _compute_wait(attempt, backoff_seconds)
-                if jitter is None
-                else _compute_wait(attempt, backoff_seconds, jitter=jitter)
-            )
+            wait_time = _compute_wait(attempt, backoff_seconds, jitter=jitter)
             logger.warning("API 调用异常: %s - %s", type(exc).__name__, str(exc)[:200])
             logger.warning("重试 %d/%d, %.1f 秒后...", attempt + 1, max_attempts - 1, wait_time)
             await active_clock.sleep(wait_time)

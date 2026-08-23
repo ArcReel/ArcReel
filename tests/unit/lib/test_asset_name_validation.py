@@ -131,7 +131,7 @@ class TestResolveAssetKey:
 
 
 @pytest.fixture
-def pm(tmp_path):
+def demo_pm(tmp_path):
     manager = ProjectManager(tmp_path / "projects")
     manager.create_project("demo")
     manager.create_project_metadata("demo", "Demo")
@@ -139,105 +139,105 @@ def pm(tmp_path):
 
 
 class TestProjectManagerCreationEntryPoints:
-    def test_add_character_rejects_slash(self, pm):
+    def test_add_character_rejects_slash(self, demo_pm):
         with pytest.raises(ValueError):
-            pm.add_character("demo", "李白/诗人", "desc")
-        assert "李白/诗人" not in pm.load_project("demo")["characters"]
+            demo_pm.add_character("demo", "李白/诗人", "desc")
+        assert "李白/诗人" not in demo_pm.load_project("demo")["characters"]
 
-    def test_add_project_character_rejects_slash(self, pm):
+    def test_add_project_character_rejects_slash(self, demo_pm):
         with pytest.raises(ValueError):
-            pm.add_project_character("demo", "李白/诗人", "desc")
+            demo_pm.add_project_character("demo", "李白/诗人", "desc")
 
-    def test_add_batch_rejects_slash(self, pm):
+    def test_add_batch_rejects_slash(self, demo_pm):
         with pytest.raises(ValueError):
-            pm.add_scenes_batch("demo", {"庙/宇": {"description": "d"}})
-        assert "庙/宇" not in pm.load_project("demo").get("scenes", {})
+            demo_pm.add_scenes_batch("demo", {"庙/宇": {"description": "d"}})
+        assert "庙/宇" not in demo_pm.load_project("demo").get("scenes", {})
 
-    def test_add_batch_rejects_normalized_collision(self, pm):
+    def test_add_batch_rejects_normalized_collision(self, demo_pm):
         """strip 后等价的两个 key 不允许静默覆盖，整批 fail-loud 不落盘（与 upsert_assets 一致）。"""
         with pytest.raises(ValueError, match="冲突"):
-            pm.add_scenes_batch("demo", {"庙宇": {"description": "a"}, "  庙宇  ": {"description": "b"}})
-        assert "庙宇" not in pm.load_project("demo").get("scenes", {})
+            demo_pm.add_scenes_batch("demo", {"庙宇": {"description": "a"}, "  庙宇  ": {"description": "b"}})
+        assert "庙宇" not in demo_pm.load_project("demo").get("scenes", {})
 
-    def test_upsert_assets_rejects_slash(self, pm):
+    def test_upsert_assets_rejects_slash(self, demo_pm):
         with pytest.raises(ValueError):
-            pm.upsert_assets("demo", "props", {"玉/佩": {"description": "d"}})
-        assert "玉/佩" not in pm.load_project("demo").get("props", {})
+            demo_pm.upsert_assets("demo", "props", {"玉/佩": {"description": "d"}})
+        assert "玉/佩" not in demo_pm.load_project("demo").get("props", {})
 
-    def test_add_asset_strips_name(self, pm):
-        assert pm.add_character("demo", "  李白  ", "desc") is True
-        chars = pm.load_project("demo")["characters"]
+    def test_add_asset_strips_name(self, demo_pm):
+        assert demo_pm.add_character("demo", "  李白  ", "desc") is True
+        chars = demo_pm.load_project("demo")["characters"]
         assert "李白" in chars
         assert "  李白  " not in chars
 
-    def test_legal_names_still_work(self, pm):
-        assert pm.add_character("demo", "李白", "desc") is True
-        result = pm.upsert_assets("demo", "scenes", {"庙宇": {"description": "d"}})
+    def test_legal_names_still_work(self, demo_pm):
+        assert demo_pm.add_character("demo", "李白", "desc") is True
+        result = demo_pm.upsert_assets("demo", "scenes", {"庙宇": {"description": "d"}})
         assert "庙宇" in result["added"]
-        assert pm.add_props_batch("demo", {"玉佩": {"description": "d"}}) == 1
+        assert demo_pm.add_props_batch("demo", {"玉佩": {"description": "d"}}) == 1
 
 
-def _seed_nfd_character(pm: ProjectManager) -> None:
+def _seed_nfd_character(demo_pm: ProjectManager) -> None:
     """绕过登记闸口直写 NFD key，模拟存量数据（存量无需迁移，读写按坐标系解析）。"""
 
     def _mutate(project: dict) -> None:
         project.setdefault("characters", {})[_NAME_NFD] = {"description": "legacy", "voice_style": ""}
 
-    pm.update_project("demo", _mutate)
+    demo_pm.update_project("demo", _mutate)
 
 
 class TestNfcConvergence:
-    def test_add_character_nfd_input_lands_nfc(self, pm):
-        assert pm.add_character("demo", _NAME_NFD, "desc") is True
-        chars = pm.load_project("demo")["characters"]
+    def test_add_character_nfd_input_lands_nfc(self, demo_pm):
+        assert demo_pm.add_character("demo", _NAME_NFD, "desc") is True
+        chars = demo_pm.load_project("demo")["characters"]
         assert _NAME_NFC in chars
         assert _NAME_NFD not in chars
 
-    def test_add_character_nfc_input_skips_nfd_registered(self, pm):
-        _seed_nfd_character(pm)
-        assert pm.add_character("demo", _NAME_NFC, "desc") is False
-        chars = pm.load_project("demo")["characters"]
+    def test_add_character_nfc_input_skips_nfd_registered(self, demo_pm):
+        _seed_nfd_character(demo_pm)
+        assert demo_pm.add_character("demo", _NAME_NFC, "desc") is False
+        chars = demo_pm.load_project("demo")["characters"]
         assert list(chars) == [_NAME_NFD]
 
-    def test_add_batch_rejects_nfc_nfd_collision(self, pm):
+    def test_add_batch_rejects_nfc_nfd_collision(self, demo_pm):
         with pytest.raises(ValueError, match="冲突"):
-            pm.add_scenes_batch("demo", {_NAME_NFC: {"description": "a"}, _NAME_NFD: {"description": "b"}})
-        assert pm.load_project("demo").get("scenes", {}) == {}
+            demo_pm.add_scenes_batch("demo", {_NAME_NFC: {"description": "a"}, _NAME_NFD: {"description": "b"}})
+        assert demo_pm.load_project("demo").get("scenes", {}) == {}
 
-    def test_add_batch_nfc_input_skips_nfd_registered(self, pm):
-        _seed_nfd_character(pm)
-        assert pm.add_characters_batch("demo", {_NAME_NFC: {"description": "new"}}) == 0
-        chars = pm.load_project("demo")["characters"]
+    def test_add_batch_nfc_input_skips_nfd_registered(self, demo_pm):
+        _seed_nfd_character(demo_pm)
+        assert demo_pm.add_characters_batch("demo", {_NAME_NFC: {"description": "new"}}) == 0
+        chars = demo_pm.load_project("demo")["characters"]
         assert list(chars) == [_NAME_NFD]
         assert chars[_NAME_NFD]["description"] == "legacy"
 
-    def test_upsert_nfc_updates_nfd_registered_entry_in_place(self, pm):
-        _seed_nfd_character(pm)
-        result = pm.upsert_assets("demo", "characters", {_NAME_NFC: {"description": "updated"}})
+    def test_upsert_nfc_updates_nfd_registered_entry_in_place(self, demo_pm):
+        _seed_nfd_character(demo_pm)
+        result = demo_pm.upsert_assets("demo", "characters", {_NAME_NFC: {"description": "updated"}})
         assert result["merged"] == [_NAME_NFC]
-        chars = pm.load_project("demo")["characters"]
+        chars = demo_pm.load_project("demo")["characters"]
         assert list(chars) == [_NAME_NFD]
         assert chars[_NAME_NFD]["description"] == "updated"
 
-    def test_update_reference_audio_resolves_nfd_registered_key(self, pm):
-        _seed_nfd_character(pm)
-        pm.update_character_reference_audio("demo", _NAME_NFC, "characters/refs_audio/x.wav")
-        chars = pm.load_project("demo")["characters"]
+    def test_update_reference_audio_resolves_nfd_registered_key(self, demo_pm):
+        _seed_nfd_character(demo_pm)
+        demo_pm.update_character_reference_audio("demo", _NAME_NFC, "characters/refs_audio/x.wav")
+        chars = demo_pm.load_project("demo")["characters"]
         assert list(chars) == [_NAME_NFD]
         assert chars[_NAME_NFD]["reference_audio"] == "characters/refs_audio/x.wav"
 
-    def test_collect_reference_images_matches_across_forms(self, pm):
+    def test_collect_reference_images_matches_across_forms(self, demo_pm):
         """剧本里的名字与桶 key 形态可以不同（登记闸口落 NFC，剧本原文未归一）。"""
-        pm.add_character("demo", _NAME_NFD, "desc")
+        demo_pm.add_character("demo", _NAME_NFD, "desc")
         sheet = "characters/sheet.png"
-        sheet_path = pm.get_project_path("demo") / sheet
+        sheet_path = demo_pm.get_project_path("demo") / sheet
         sheet_path.parent.mkdir(parents=True, exist_ok=True)
         sheet_path.write_bytes(b"png")
 
         def _mutate(project: dict) -> None:
             project["characters"][_NAME_NFC]["character_sheet"] = sheet
 
-        pm.update_project("demo", _mutate)
+        demo_pm.update_project("demo", _mutate)
 
-        refs = pm.collect_reference_images("demo", {"characters_in_scene": [_NAME_NFD]})
+        refs = demo_pm.collect_reference_images("demo", {"characters_in_scene": [_NAME_NFD]})
         assert refs == [sheet_path]

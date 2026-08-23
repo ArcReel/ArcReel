@@ -17,7 +17,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture()
-def client():
+def auth_router_client():
     """创建测试客户端，设置固定的认证环境变量"""
     auth_module._cached_token_secret = None
     auth_module._cached_password_hash = None
@@ -37,9 +37,9 @@ def client():
 
 
 class TestLoginRoute:
-    def test_login_success(self, client):
+    def test_login_success(self, auth_router_client):
         """正确凭据返回 200 + access_token"""
-        resp = client.post(
+        resp = auth_router_client.post(
             "/api/v1/auth/token",
             data={"username": "testuser", "password": "testpass"},
         )
@@ -49,17 +49,17 @@ class TestLoginRoute:
         assert data["token_type"] == "bearer"
         assert len(data["access_token"]) > 0
 
-    def test_login_wrong_password(self, client):
+    def test_login_wrong_password(self, auth_router_client):
         """错误密码返回 401"""
-        resp = client.post(
+        resp = auth_router_client.post(
             "/api/v1/auth/token",
             data={"username": "testuser", "password": "wrongpass"},
         )
         assert resp.status_code == 401
 
-    def test_login_wrong_username(self, client):
+    def test_login_wrong_username(self, auth_router_client):
         """错误用户名返回 401"""
-        resp = client.post(
+        resp = auth_router_client.post(
             "/api/v1/auth/token",
             data={"username": "wronguser", "password": "testpass"},
         )
@@ -67,15 +67,15 @@ class TestLoginRoute:
 
 
 class TestVerifyRoute:
-    def test_verify_valid_token(self, client):
+    def test_verify_valid_token(self, auth_router_client):
         """有效 token 验证通过"""
-        login_resp = client.post(
+        login_resp = auth_router_client.post(
             "/api/v1/auth/token",
             data={"username": "testuser", "password": "testpass"},
         )
         token = login_resp.json()["access_token"]
 
-        resp = client.get(
+        resp = auth_router_client.get(
             "/api/v1/auth/verify",
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -84,14 +84,14 @@ class TestVerifyRoute:
         assert data["valid"] is True
         assert data["username"] == "testuser"
 
-    def test_verify_no_token(self, client):
+    def test_verify_no_token(self, auth_router_client):
         """缺少 token 返回 401"""
-        resp = client.get("/api/v1/auth/verify")
+        resp = auth_router_client.get("/api/v1/auth/verify")
         assert resp.status_code == 401
 
-    def test_verify_invalid_token(self, client):
+    def test_verify_invalid_token(self, auth_router_client):
         """无效 token 返回 401"""
-        resp = client.get(
+        resp = auth_router_client.get(
             "/api/v1/auth/verify",
             headers={"Authorization": "Bearer invalid-token"},
         )

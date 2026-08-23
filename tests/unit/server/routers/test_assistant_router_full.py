@@ -7,8 +7,7 @@ from server.auth import CurrentUserInfo, get_current_user, get_current_user_flex
 from server.error_handlers import register_error_handlers
 from server.routers import assistant
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.conftest import make_translator
-from tests.factories import make_session_meta
+from tests.factories import make_session_meta, make_translator
 
 PROJECT = "demo"
 PREFIX = f"/api/v1/projects/{PROJECT}/assistant"

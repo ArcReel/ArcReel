@@ -28,11 +28,10 @@ from typing import Any, cast
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from lib.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
 from lib.config.resolver import ConfigResolver
-from lib.db.base import Base
 from lib.db.models.api_call import ApiCall
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
@@ -111,14 +110,8 @@ class _AccountingDb:
 
 
 @pytest.fixture
-async def acct(frozen_clock: _SteppingClock) -> Any:
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    db = _AccountingDb(engine=engine, factory=factory)
-    yield db
-    await engine.dispose()
+async def acct(frozen_clock: _SteppingClock, db_engine: AsyncEngine, db_factory) -> Any:
+    return _AccountingDb(engine=db_engine, factory=db_factory)
 
 
 def _assert_full_row(actual: dict[str, Any], expected: dict[str, Any]) -> None:

@@ -12,7 +12,7 @@ from lib.video_backends.base import VideoGenerationRequest
 
 
 @pytest.fixture
-def output_path(tmp_path: Path) -> Path:
+def video_output_path(tmp_path: Path) -> Path:
     return tmp_path / "output.mp4"
 
 
@@ -45,7 +45,7 @@ class TestGrokVideoBackend:
         with pytest.raises(ValueError, match="xAI API Key"):
             GrokVideoBackend(api_key=None)
 
-    async def test_text_to_video(self, output_path: Path):
+    async def test_text_to_video(self, video_output_path: Path):
         from lib.video_backends.grok import GrokVideoBackend
 
         mock_response = MagicMock()
@@ -74,7 +74,7 @@ class TestGrokVideoBackend:
             with patch("lib.video_backends.base.httpx.AsyncClient", return_value=mock_http_client):
                 request = VideoGenerationRequest(
                     prompt="A cat walking",
-                    output_path=output_path,
+                    output_path=video_output_path,
                     aspect_ratio="16:9",
                     duration_seconds=5,
                     resolution="720p",
@@ -85,7 +85,7 @@ class TestGrokVideoBackend:
             assert result.provider == PROVIDER_GROK
             assert result.model == "grok-imagine-video"
             assert result.duration_seconds == 5
-            assert result.video_path == output_path
+            assert result.video_path == video_output_path
 
             mock_video.generate.assert_awaited_once()
             call_kwargs = mock_video.generate.call_args[1]
@@ -96,7 +96,7 @@ class TestGrokVideoBackend:
             assert call_kwargs["resolution"] == "720p"
             assert "image_url" not in call_kwargs
 
-    async def test_marks_resubmit_unsafe_before_opaque_provider_call(self, output_path: Path):
+    async def test_marks_resubmit_unsafe_before_opaque_provider_call(self, video_output_path: Path):
         from lib.video_backends.grok import GrokVideoBackend
 
         mock_video = MagicMock()
@@ -112,7 +112,7 @@ class TestGrokVideoBackend:
             backend = GrokVideoBackend(api_key="test-key")
             request = VideoGenerationRequest(
                 prompt="A cat walking",
-                output_path=output_path,
+                output_path=video_output_path,
                 duration_seconds=5,
                 on_provider_resubmit_unsafe=resubmit_unsafe,
             )
@@ -123,7 +123,7 @@ class TestGrokVideoBackend:
         resubmit_unsafe.assert_called_once_with()
         assert mock_video.generate.await_count == 1
 
-    async def test_image_to_video(self, output_path: Path, tmp_path: Path):
+    async def test_image_to_video(self, video_output_path: Path, tmp_path: Path):
         from lib.video_backends.grok import GrokVideoBackend
 
         image_path = tmp_path / "start.png"
@@ -155,7 +155,7 @@ class TestGrokVideoBackend:
             with patch("lib.video_backends.base.httpx.AsyncClient", return_value=mock_http_client):
                 request = VideoGenerationRequest(
                     prompt="Animate this scene",
-                    output_path=output_path,
+                    output_path=video_output_path,
                     start_image=image_path,
                     duration_seconds=8,
                     resolution="720p",
@@ -186,7 +186,7 @@ class TestGrokVideoBackend:
             (None, 5),  # 缺失回落请求时长
         ],
     )
-    async def test_duration_narrowed_to_int_with_fallback(self, output_path: Path, raw_duration, expected):
+    async def test_duration_narrowed_to_int_with_fallback(self, video_output_path: Path, raw_duration, expected):
         """SDK 回报的 duration 未类型化：可解析数值收窄为 int 作为实际计费时长，否则回落请求时长。"""
         from lib.video_backends.grok import GrokVideoBackend
 
@@ -216,7 +216,7 @@ class TestGrokVideoBackend:
             with patch("lib.video_backends.base.httpx.AsyncClient", return_value=mock_http_client):
                 request = VideoGenerationRequest(
                     prompt="A cat walking",
-                    output_path=output_path,
+                    output_path=video_output_path,
                     duration_seconds=5,
                     resolution="720p",
                 )

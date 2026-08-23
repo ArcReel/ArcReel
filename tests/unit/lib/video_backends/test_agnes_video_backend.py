@@ -15,6 +15,7 @@ from lib.video_backends.base import (
     VideoCapabilityError,
     VideoGenerationRequest,
 )
+from tests.fakes import bounded_poll_clock
 
 
 def _make_response(status_code: int, json_body: dict) -> MagicMock:
@@ -881,7 +882,7 @@ class TestSubmitResilience:
         with (
             patch("httpx.AsyncClient", return_value=client),
             patch("lib.video_backends.agnes._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
             patch("lib.video_backends.agnes.download_video", fake_download),
         ):
             from lib.video_backends.agnes import AgnesVideoBackend
@@ -906,7 +907,7 @@ class TestSubmitResilience:
 
         with (
             patch("httpx.AsyncClient", return_value=client),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
         ):
             from lib.video_backends.agnes import AgnesVideoBackend
 
@@ -929,7 +930,7 @@ class TestSubmitResilience:
 
         with (
             patch("httpx.AsyncClient", return_value=client),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
         ):
             from lib.video_backends.agnes import AgnesVideoBackend
 

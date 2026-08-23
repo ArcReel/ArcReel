@@ -74,7 +74,7 @@ def _auth_env():
 
 
 @pytest.fixture(scope="module")
-def client():
+def auth_coverage_client():
     from server.app import app
 
     # 不进 lifespan（不用 with）：认证依赖只读环境变量与 JWT，路由和 openapi 在 import 时即就绪。
@@ -99,7 +99,7 @@ def _all_operations() -> list[str]:
     return [f"{m.upper()} {path}" for path, ops in spec["paths"].items() for m in ops if m in _HTTP_METHODS]
 
 
-def test_every_protected_endpoint_rejects_anonymous(client):
+def test_every_protected_endpoint_rejects_anonymous(auth_coverage_client):
     """豁免清单之外的操作，无 token 请求一律 401。"""
     operations = _all_operations()
     assert len(operations) > 100, "枚举结果异常，覆盖断言会变成空跑"
@@ -109,7 +109,7 @@ def test_every_protected_endpoint_rejects_anonymous(client):
         if op in EXEMPT_OPERATIONS:
             continue
         method, path = op.split(" ", 1)
-        resp = client.request(method, _fill(path), json={})
+        resp = auth_coverage_client.request(method, _fill(path), json={})
         if resp.status_code != 401:
             unprotected.append(f"{op} -> {resp.status_code}")
 
@@ -122,20 +122,20 @@ def test_exempt_operations_are_registered():
     assert not stale, f"豁免清单引用了不存在的操作：{sorted(stale)}"
 
 
-def test_public_endpoints_stay_reachable(client):
+def test_public_endpoints_stay_reachable(auth_coverage_client):
     """公开端点不被 router 级依赖误伤。"""
-    assert client.get("/health").status_code == 200
-    assert client.get("/api/v1/auth/status").status_code == 200
+    assert auth_coverage_client.get("/health").status_code == 200
+    assert auth_coverage_client.get("/api/v1/auth/status").status_code == 200
     assert (
-        client.post(
+        auth_coverage_client.post(
             "/api/v1/auth/token",
             data={"username": "testuser", "password": "testpass"},
         ).status_code
         == 200
     )
     # 静态媒体：项目不存在时是 404，不该是 401。
-    assert client.get("/api/v1/files/demo/x.png").status_code != 401
-    assert client.get("/api/v1/global-assets/characters/x.png").status_code != 401
+    assert auth_coverage_client.get("/api/v1/files/demo/x.png").status_code != 401
+    assert auth_coverage_client.get("/api/v1/global-assets/characters/x.png").status_code != 401
 
 
 @pytest.mark.parametrize(
@@ -146,9 +146,9 @@ def test_public_endpoints_stay_reachable(client):
         "/api/v1/projects/demo/events/stream",
     ],
 )
-def test_sse_endpoints_reject_anonymous(client, path):
+def test_sse_endpoints_reject_anonymous(auth_coverage_client, path):
     """SSE 不挂 router 级依赖，其 CurrentUserFlexible 必须仍拦住无 token 的请求。"""
-    assert client.get(path).status_code == 401
+    assert auth_coverage_client.get(path).status_code == 401
 
 
 @pytest.mark.parametrize(
@@ -158,21 +158,21 @@ def test_sse_endpoints_reject_anonymous(client, path):
         "/api/v1/projects/demo/export/jianying-draft?download_token=not-a-valid-token&episode=1&draft_path=/tmp/d",
     ],
 )
-def test_export_endpoints_reject_forged_token(client, path):
+def test_export_endpoints_reject_forged_token(auth_coverage_client, path):
     """导出走短时效下载 token，伪造的必须被 verify_download_token 拒绝。"""
-    assert client.get(path).status_code in (401, 403)
+    assert auth_coverage_client.get(path).status_code in (401, 403)
 
 
-def test_authenticated_request_passes(client):
+def test_authenticated_request_passes(auth_coverage_client):
     """带合法 token 时 router 级依赖放行。"""
-    token = client.post(
+    token = auth_coverage_client.post(
         "/api/v1/auth/token",
         data={"username": "testuser", "password": "testpass"},
     ).json()["access_token"]
-    assert client.get(_PROBE_ENDPOINT, headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    assert auth_coverage_client.get(_PROBE_ENDPOINT, headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
 
-def test_auth_disabled_bypasses_enforcement(client):
+def test_auth_disabled_bypasses_enforcement(auth_coverage_client):
     """AUTH_ENABLED=false 时不拦截，保持本地无认证部署可用。"""
     with patch.dict(os.environ, {"AUTH_ENABLED": "false"}):
-        assert client.get(_PROBE_ENDPOINT).status_code == 200
+        assert auth_coverage_client.get(_PROBE_ENDPOINT).status_code == 200

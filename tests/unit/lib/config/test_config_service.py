@@ -1,25 +1,13 @@
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.service import ConfigService
-from lib.db.base import Base
 from lib.db.repositories.credential_repository import CredentialRepository
 
 
 @pytest.fixture
-async def session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    sm = async_sessionmaker(engine, expire_on_commit=False)
-    async with sm() as s:
-        yield s
-    await engine.dispose()
-
-
-@pytest.fixture
-def config_service(session: AsyncSession) -> ConfigService:
-    return ConfigService(session)
+def config_service(db_session: AsyncSession) -> ConfigService:
+    return ConfigService(db_session)
 
 
 async def test_get_all_providers_status_empty(config_service: ConfigService):
@@ -44,11 +32,11 @@ async def test_provider_status_models_isolated_from_registry(config_service: Con
     assert PROVIDER_REGISTRY[target.name].models[mid].capabilities == before
 
 
-async def test_provider_becomes_ready(config_service: ConfigService, session: AsyncSession):
+async def test_provider_becomes_ready(config_service: ConfigService, db_session: AsyncSession):
     # status 由凭证表中的生效凭证决定，而不是 ProviderConfig 表
-    cred_repo = CredentialRepository(session)
+    cred_repo = CredentialRepository(db_session)
     await cred_repo.create("gemini-aistudio", "default", api_key="AIza-test")
-    await session.flush()
+    await db_session.flush()
     statuses = await config_service.get_all_providers_status()
     aistudio = next(s for s in statuses if s.name == "gemini-aistudio")
     assert aistudio.status == "ready"

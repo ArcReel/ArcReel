@@ -25,7 +25,7 @@ def mock_ark_client():
 
 
 @pytest.fixture
-def backend(mock_ark_client):
+def ark_backend(mock_ark_client):
     with patch("lib.video_backends.ark.create_ark_client", return_value=mock_ark_client):
         b = ArkVideoBackend(
             api_key="test-ark-key",
@@ -60,18 +60,18 @@ def _mock_httpx_stream(data: bytes = b"fake-mp4-data"):
 
 
 class TestArkProperties:
-    def test_name(self, backend):
-        assert backend.name == "ark"
+    def test_name(self, ark_backend):
+        assert ark_backend.name == "ark"
 
 
 class TestArkGenerate:
-    async def test_text_to_video(self, backend, tmp_path):
+    async def test_text_to_video(self, ark_backend, tmp_path):
         """文生视频：无 start_image。"""
         output = tmp_path / "out.mp4"
 
         create_result = MagicMock()
         create_result.id = "cgt-20250101-test"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -80,7 +80,7 @@ class TestArkGenerate:
         get_result.seed = 58944
         get_result.usage = MagicMock()
         get_result.usage.completion_tokens = 246840
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
@@ -89,7 +89,7 @@ class TestArkGenerate:
                 output_path=output,
                 duration_seconds=5,
             )
-            result = await backend.generate(request)
+            result = await ark_backend.generate(request)
         finally:
             patcher.stop()
 
@@ -100,7 +100,7 @@ class TestArkGenerate:
         assert result.usage_tokens == 246840
         assert result.task_id == "cgt-20250101-test"
 
-    async def test_image_to_video(self, backend, tmp_path):
+    async def test_image_to_video(self, ark_backend, tmp_path):
         """图生视频：有 start_image，必须带 role=first_frame。"""
         output = tmp_path / "out.mp4"
         frame = tmp_path / "scene_E1S01.png"
@@ -108,7 +108,7 @@ class TestArkGenerate:
 
         create_result = MagicMock()
         create_result.id = "cgt-i2v-test"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -117,7 +117,7 @@ class TestArkGenerate:
         get_result.seed = 12345
         get_result.usage = MagicMock()
         get_result.usage.completion_tokens = 200000
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
@@ -127,12 +127,12 @@ class TestArkGenerate:
                 start_image=frame,
                 generate_audio=True,
             )
-            result = await backend.generate(request)
+            result = await ark_backend.generate(request)
         finally:
             patcher.stop()
 
         assert result.provider == "ark"
-        create_call = backend._client.content_generation.tasks.create
+        create_call = ark_backend._client.content_generation.tasks.create
         call_kwargs = create_call.call_args
         content_arg = call_kwargs.kwargs.get("content") or call_kwargs[1].get("content")
         assert len(content_arg) == 2
@@ -140,7 +140,7 @@ class TestArkGenerate:
         assert content_arg[1]["image_url"]["url"].startswith("data:image/")
         assert content_arg[1]["role"] == "first_frame"
 
-    async def test_first_last_frame_role_fields(self, backend, tmp_path):
+    async def test_first_last_frame_role_fields(self, ark_backend, tmp_path):
         """首尾帧：start_image/end_image 必须分别带 role=first_frame / role=last_frame，
         且 image_url 对象不再使用 position（由 role 表达位置）。"""
         output = tmp_path / "out.mp4"
@@ -151,7 +151,7 @@ class TestArkGenerate:
 
         create_result = MagicMock()
         create_result.id = "cgt-fl-test"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -159,7 +159,7 @@ class TestArkGenerate:
         get_result.content.video_url = "https://cdn.example.com/video.mp4"
         get_result.seed = None
         get_result.usage = None
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
@@ -169,11 +169,11 @@ class TestArkGenerate:
                 start_image=first,
                 end_image=last,
             )
-            await backend.generate(request)
+            await ark_backend.generate(request)
         finally:
             patcher.stop()
 
-        create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
+        create_kwargs = ark_backend._client.content_generation.tasks.create.call_args.kwargs
         content_arg = create_kwargs["content"]
         image_items = [c for c in content_arg if c["type"] == "image_url"]
         assert len(image_items) == 2
@@ -182,7 +182,7 @@ class TestArkGenerate:
         # role 表达位置后，不应再塞 position 到 image_url
         assert "position" not in image_items[1]["image_url"]
 
-    async def test_reference_images_role(self, backend, tmp_path):
+    async def test_reference_images_role(self, ark_backend, tmp_path):
         """参考图：每张 reference_images 必须带 role=reference_image（Ark 多图触发条件）。"""
         output = tmp_path / "out.mp4"
         ref1 = tmp_path / "ref1.jpg"
@@ -192,7 +192,7 @@ class TestArkGenerate:
 
         create_result = MagicMock()
         create_result.id = "cgt-refs-test"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -200,7 +200,7 @@ class TestArkGenerate:
         get_result.content.video_url = "https://cdn.example.com/video.mp4"
         get_result.seed = None
         get_result.usage = None
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
@@ -209,19 +209,19 @@ class TestArkGenerate:
                 output_path=output,
                 reference_images=[ref1, ref2],
             )
-            await backend.generate(request)
+            await ark_backend.generate(request)
         finally:
             patcher.stop()
 
-        create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
+        create_kwargs = ark_backend._client.content_generation.tasks.create.call_args.kwargs
         content_arg = create_kwargs["content"]
         image_items = [c for c in content_arg if c["type"] == "image_url"]
         assert len(image_items) == 2
         assert all(item["role"] == "reference_image" for item in image_items)
 
-    async def test_missing_end_image_fails_loud(self, backend, tmp_path):
+    async def test_missing_end_image_fails_loud(self, ark_backend, tmp_path):
         """尾帧文件不存在时中止提交：静默跳过会照常计费并产出没有尾帧的成片。"""
-        backend._client.content_generation.tasks.create = MagicMock()
+        ark_backend._client.content_generation.tasks.create = MagicMock()
 
         request = VideoGenerationRequest(
             prompt="morph",
@@ -229,15 +229,15 @@ class TestArkGenerate:
             end_image=tmp_path / "gone.png",
         )
         with pytest.raises(VideoCapabilityError) as exc:
-            await backend.generate(request)
+            await ark_backend.generate(request)
         assert exc.value.code == "video_end_image_unreadable"
-        backend._client.content_generation.tasks.create.assert_not_called()
+        ark_backend._client.content_generation.tasks.create.assert_not_called()
 
-    async def test_missing_reference_image_fails_loud(self, backend, tmp_path):
+    async def test_missing_reference_image_fails_loud(self, ark_backend, tmp_path):
         """参考图缺失时中止提交，理由同尾帧：少一张仍会出片，成片却与意图不符。"""
         present = tmp_path / "ref1.jpg"
         present.write_bytes(b"fake-ref-1")
-        backend._client.content_generation.tasks.create = MagicMock()
+        ark_backend._client.content_generation.tasks.create = MagicMock()
 
         request = VideoGenerationRequest(
             prompt="[图1] 与 [图2] 对话",
@@ -245,32 +245,32 @@ class TestArkGenerate:
             reference_images=[present, tmp_path / "gone.jpg"],
         )
         with pytest.raises(VideoCapabilityError) as exc:
-            await backend.generate(request)
+            await ark_backend.generate(request)
         assert exc.value.code == "video_reference_images_unreadable"
-        backend._client.content_generation.tasks.create.assert_not_called()
+        ark_backend._client.content_generation.tasks.create.assert_not_called()
 
-    async def test_failed_task_raises(self, backend, tmp_path):
+    async def test_failed_task_raises(self, ark_backend, tmp_path):
         output = tmp_path / "out.mp4"
 
         create_result = MagicMock()
         create_result.id = "cgt-fail"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "failed"
         get_result.error = "content violation"
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(RuntimeError, match="Ark 视频生成失败"):
-            await backend.generate(request)
+            await ark_backend.generate(request)
 
-    async def test_with_seed_and_flex(self, backend, tmp_path):
+    async def test_with_seed_and_flex(self, ark_backend, tmp_path):
         output = tmp_path / "out.mp4"
 
         create_result = MagicMock()
         create_result.id = "cgt-flex"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -279,7 +279,7 @@ class TestArkGenerate:
         get_result.seed = 42
         get_result.usage = MagicMock()
         get_result.usage.completion_tokens = 100000
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
@@ -289,11 +289,11 @@ class TestArkGenerate:
                 seed=42,
                 service_tier="flex",
             )
-            await backend.generate(request)
+            await ark_backend.generate(request)
         finally:
             patcher.stop()
 
-        create_call = backend._client.content_generation.tasks.create
+        create_call = ark_backend._client.content_generation.tasks.create
         call_kwargs = create_call.call_args
         assert call_kwargs.kwargs.get("seed") == 42 or call_kwargs[1].get("seed") == 42
         assert call_kwargs.kwargs.get("service_tier") == "flex" or call_kwargs[1].get("service_tier") == "flex"
@@ -307,13 +307,13 @@ class TestArkGenerate:
 class TestArkRetryBehavior:
     """测试任务创建与轮询的重试分离行为。"""
 
-    async def test_poll_transient_error_retries_without_recreating_task(self, backend, tmp_path):
+    async def test_poll_transient_error_retries_without_recreating_task(self, ark_backend, tmp_path):
         """轮询阶段瞬态错误应重试轮询，而不是重新创建任务。"""
         output = tmp_path / "out.mp4"
 
         create_result = MagicMock()
         create_result.id = "cgt-retry-test"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_success = MagicMock()
         get_success.status = "succeeded"
@@ -323,7 +323,7 @@ class TestArkRetryBehavior:
         get_success.usage = None
 
         # 第一次轮询抛 ConnectionError，第二次成功
-        backend._client.content_generation.tasks.get = MagicMock(
+        ark_backend._client.content_generation.tasks.get = MagicMock(
             side_effect=[ConnectionError("connection reset"), get_success]
         )
 
@@ -331,24 +331,24 @@ class TestArkRetryBehavior:
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
             with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-                result = await backend.generate(request)
+                result = await ark_backend.generate(request)
         finally:
             patcher.stop()
 
         assert result.task_id == "cgt-retry-test"
         # 关键断言：任务只创建了一次
-        assert backend._client.content_generation.tasks.create.call_count == 1
+        assert ark_backend._client.content_generation.tasks.create.call_count == 1
         # 轮询调用了两次（一次失败 + 一次成功）
-        assert backend._client.content_generation.tasks.get.call_count == 2
+        assert ark_backend._client.content_generation.tasks.get.call_count == 2
 
-    async def test_create_retries_on_transient_error(self, backend, tmp_path):
+    async def test_create_retries_on_transient_error(self, ark_backend, tmp_path):
         """任务创建阶段的瞬态错误应由 @with_retry_async 重试。"""
         output = tmp_path / "out.mp4"
 
         create_result = MagicMock()
         create_result.id = "cgt-create-retry"
         # 第一次创建抛 ConnectionError，第二次成功
-        backend._client.content_generation.tasks.create = MagicMock(
+        ark_backend._client.content_generation.tasks.create = MagicMock(
             side_effect=[ConnectionError("connection reset"), create_result]
         )
 
@@ -358,7 +358,7 @@ class TestArkRetryBehavior:
         get_result.content.video_url = "https://cdn.example.com/video.mp4"
         get_result.seed = None
         get_result.usage = None
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
@@ -367,39 +367,39 @@ class TestArkRetryBehavior:
                 patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
                 patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
             ):
-                result = await backend.generate(request)
+                result = await ark_backend.generate(request)
         finally:
             patcher.stop()
 
         assert result.task_id == "cgt-create-retry"
         # 创建调用了两次（一次失败 + 一次成功）
-        assert backend._client.content_generation.tasks.create.call_count == 2
+        assert ark_backend._client.content_generation.tasks.create.call_count == 2
 
-    async def test_poll_non_retryable_error_propagates(self, backend, tmp_path):
+    async def test_poll_non_retryable_error_propagates(self, ark_backend, tmp_path):
         """轮询阶段不可重试的错误应直接抛出。"""
         output = tmp_path / "out.mp4"
 
         create_result = MagicMock()
         create_result.id = "cgt-no-retry"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
-        backend._client.content_generation.tasks.get = MagicMock(side_effect=ValueError("invalid response"))
+        ark_backend._client.content_generation.tasks.get = MagicMock(side_effect=ValueError("invalid response"))
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(ValueError, match="invalid response"):
             with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-                await backend.generate(request)
+                await ark_backend.generate(request)
 
         # 创建只调用一次，轮询只尝试一次就抛出
-        assert backend._client.content_generation.tasks.create.call_count == 1
-        assert backend._client.content_generation.tasks.get.call_count == 1
+        assert ark_backend._client.content_generation.tasks.create.call_count == 1
+        assert ark_backend._client.content_generation.tasks.get.call_count == 1
 
 
 class TestArkModelCapabilities:
     """测试不同模型的能力映射。"""
 
     def test_seedance_1_5_pro_default_model_supports_last_frame(self):
-        """DEFAULT_MODEL：能力表标首尾帧 ✅，实测 generate() 正常下发 role=last_frame。"""
+        """DEFAULT_MODEL：能力表标首尾帧，generate() 下发 role=last_frame。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-251215")
         assert caps.last_frame is True
 
@@ -535,18 +535,18 @@ class TestArkPollBudget:
         ("duration", "expected_max_wait"),
         [(5, 600), (10, 600), (15, 900), (30, 1800)],
     )
-    async def test_default_tier_max_wait_scales_with_duration(self, backend, tmp_path, duration, expected_max_wait):
+    async def test_default_tier_max_wait_scales_with_duration(self, ark_backend, tmp_path, duration, expected_max_wait):
         request = VideoGenerationRequest(
             prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=duration, service_tier="default"
         )
         with patch("lib.video_backends.ark.poll_with_retry", new_callable=AsyncMock) as poll:
             poll.side_effect = RuntimeError("stop")
             with pytest.raises(RuntimeError):
-                await backend._poll_until_done("task-1", request)
+                await ark_backend._poll_until_done("task-1", request)
         assert poll.call_args.kwargs["max_wait"] == expected_max_wait
         assert poll.call_args.kwargs["poll_interval"] == 10
 
-    async def test_flex_tier_keeps_hour_long_budget(self, backend, tmp_path):
+    async def test_flex_tier_keeps_hour_long_budget(self, ark_backend, tmp_path):
         """flex 队列本就按小时级排队，不随时长缩放。"""
         request = VideoGenerationRequest(
             prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=30, service_tier="flex"
@@ -554,7 +554,7 @@ class TestArkPollBudget:
         with patch("lib.video_backends.ark.poll_with_retry", new_callable=AsyncMock) as poll:
             poll.side_effect = RuntimeError("stop")
             with pytest.raises(RuntimeError):
-                await backend._poll_until_done("task-1", request)
+                await ark_backend._poll_until_done("task-1", request)
         assert poll.call_args.kwargs["max_wait"] == 3600
         assert poll.call_args.kwargs["poll_interval"] == 60
 
@@ -602,12 +602,12 @@ class TestArkServiceTierParam:
         mock_client.content_generation.tasks = MagicMock()
 
         with patch("lib.video_backends.ark.create_ark_client", return_value=mock_client):
-            backend = ArkVideoBackend(api_key="test", model=model)
-        backend._client = mock_client
+            ark_backend = ArkVideoBackend(api_key="test", model=model)
+        ark_backend._client = mock_client
 
         create_result = MagicMock()
         create_result.id = "cgt-seedance2"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -615,25 +615,25 @@ class TestArkServiceTierParam:
         get_result.content.video_url = "https://cdn.example.com/v.mp4"
         get_result.seed = None
         get_result.usage = None
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
             with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-                await backend.generate(request)
+                await ark_backend.generate(request)
         finally:
             patcher.stop()
 
-        create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
+        create_kwargs = ark_backend._client.content_generation.tasks.create.call_args.kwargs
         assert "service_tier" not in create_kwargs
 
-    async def test_seedance_1_5_sends_service_tier(self, backend, tmp_path):
+    async def test_seedance_1_5_sends_service_tier(self, ark_backend, tmp_path):
         output = tmp_path / "out.mp4"
 
         create_result = MagicMock()
         create_result.id = "cgt-seedance15"
-        backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
 
         get_result = MagicMock()
         get_result.status = "succeeded"
@@ -641,17 +641,17 @@ class TestArkServiceTierParam:
         get_result.content.video_url = "https://cdn.example.com/v.mp4"
         get_result.seed = None
         get_result.usage = None
-        backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
+        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
 
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
             with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
-                await backend.generate(request)
+                await ark_backend.generate(request)
         finally:
             patcher.stop()
 
-        create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
+        create_kwargs = ark_backend._client.content_generation.tasks.create.call_args.kwargs
         assert create_kwargs.get("service_tier") == "default"
 
 
@@ -671,7 +671,7 @@ class TestArkVideoBackendBaseUrl:
 
 
 class TestIsArkNotFound:
-    """fix #647 #6：用 task_not_found / tasknotfound 精确匹配，剔除宽泛 "not found" 兜底；
+    """用 task_not_found / tasknotfound 精确匹配，剔除宽泛 "not found" 兜底；
     保留 "expired" 字串识别（_poll_until_done 把 status=expired 转 RuntimeError）。"""
 
     def test_excludes_business_not_found(self):
@@ -751,7 +751,7 @@ class TestArkReferenceAudio:
 
     async def test_reference_audio_sent_as_audio_url_entries(self, tmp_path):
         """每段音频发一条 type=audio_url + role=reference_audio，且顺序与请求字段一致。"""
-        backend = self._seedance_2_backend()
+        ark_backend = self._seedance_2_backend()
         first_audio = tmp_path / "a.mp3"
         first_audio.write_bytes(b"id3-first")
         second_audio = tmp_path / "b.wav"
@@ -759,7 +759,7 @@ class TestArkReferenceAudio:
         ref = tmp_path / "r.png"
         ref.write_bytes(b"fake-ref")
 
-        backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
+        ark_backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
 
         request = VideoGenerationRequest(
             prompt="两人对话",
@@ -768,9 +768,9 @@ class TestArkReferenceAudio:
             reference_audio_files=[first_audio, second_audio],
         )
         with pytest.raises(RuntimeError):
-            await backend._create_task(request)
+            await ark_backend._create_task(request)
 
-        content = backend._client.content_generation.tasks.create.call_args.kwargs["content"]
+        content = ark_backend._client.content_generation.tasks.create.call_args.kwargs["content"]
         audio_items = [c for c in content if c["type"] == "audio_url"]
         assert len(audio_items) == 2
         assert [c["role"] for c in audio_items] == ["reference_audio", "reference_audio"]
@@ -779,37 +779,37 @@ class TestArkReferenceAudio:
         assert audio_items[1]["audio_url"]["url"].startswith("data:audio/wav;base64,")
 
     async def test_no_audio_entries_when_request_has_none(self, tmp_path):
-        backend = self._seedance_2_backend()
+        ark_backend = self._seedance_2_backend()
         ref = tmp_path / "r.png"
         ref.write_bytes(b"fake-ref")
-        backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
+        ark_backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
 
         with pytest.raises(RuntimeError):
-            await backend._create_task(
+            await ark_backend._create_task(
                 VideoGenerationRequest(prompt="x", output_path=tmp_path / "o.mp4", reference_images=[ref])
             )
 
-        content = backend._client.content_generation.tasks.create.call_args.kwargs["content"]
+        content = ark_backend._client.content_generation.tasks.create.call_args.kwargs["content"]
         assert not [c for c in content if c["type"] == "audio_url"]
 
     async def test_unsupported_audio_format_raises(self, tmp_path):
         """格式不受支持时抛错而非跳过：跳过会让其后所有音频编号整体前移、错绑角色音色。"""
-        backend = self._seedance_2_backend()
+        ark_backend = self._seedance_2_backend()
         bad = tmp_path / "a.ogg"
         bad.write_bytes(b"ogg")
 
         with pytest.raises(VideoCapabilityError) as exc:
-            await backend._create_task(
+            await ark_backend._create_task(
                 VideoGenerationRequest(prompt="x", output_path=tmp_path / "o.mp4", reference_audio_files=[bad])
             )
 
         assert exc.value.code == "video_reference_audio_format_unsupported"
 
     async def test_missing_audio_file_raises(self, tmp_path):
-        backend = self._seedance_2_backend()
+        ark_backend = self._seedance_2_backend()
 
         with pytest.raises(VideoCapabilityError) as exc:
-            await backend._create_task(
+            await ark_backend._create_task(
                 VideoGenerationRequest(
                     prompt="x",
                     output_path=tmp_path / "o.mp4",

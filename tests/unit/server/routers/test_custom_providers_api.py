@@ -6,19 +6,18 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.config.service import ConfigService
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 from lib.db import get_async_session
-from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
@@ -30,28 +29,18 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture()
-async def db_engine():
-    """内存 SQLite 引擎。"""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    await engine.dispose()
-
-
-@pytest.fixture()
-async def session_factory(db_engine):
+async def app_session_factory(db_engine):
     return async_sessionmaker(db_engine, expire_on_commit=False)
 
 
 @pytest.fixture()
-def app(session_factory) -> FastAPI:
+def app(app_session_factory) -> FastAPI:
     """创建绑定内存数据库的 FastAPI 应用。"""
     _app = FastAPI()
 
     async def _override_session():
-        async with session_factory() as session:
-            yield session
+        async with app_session_factory() as db_session:
+            yield db_session
 
     _app.dependency_overrides[get_async_session] = _override_session
     _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
@@ -61,13 +50,7 @@ def app(session_factory) -> FastAPI:
 
 
 @pytest.fixture()
-async def session(session_factory) -> AsyncGenerator[AsyncSession, None]:
-    async with session_factory() as s:
-        yield s
-
-
-@pytest.fixture()
-def client(app) -> Generator[TestClient, None, None]:
+def custom_providers_client(app) -> Generator[TestClient, None, None]:
     with TestClient(app) as c:
         yield c
 
@@ -78,8 +61,8 @@ def client(app) -> Generator[TestClient, None, None]:
 
 
 class TestCreateProvider:
-    def test_returns_201(self, client: TestClient):
-        resp = client.post(
+    def test_returns_201(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Test Provider",
@@ -97,8 +80,8 @@ class TestCreateProvider:
         )
         assert resp.status_code == 201
 
-    def test_response_structure(self, client: TestClient):
-        resp = client.post(
+    def test_response_structure(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Test Provider",
@@ -125,8 +108,8 @@ class TestCreateProvider:
         assert body["models"][0]["model_id"] == "gpt-4"
         assert "created_at" in body
 
-    def test_create_without_models(self, client: TestClient):
-        resp = client.post(
+    def test_create_without_models(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Empty Provider",
@@ -138,9 +121,9 @@ class TestCreateProvider:
         assert resp.status_code == 201
         assert resp.json()["models"] == []
 
-    def test_create_openai_discovery_format_provider(self, client: TestClient):
+    def test_create_openai_discovery_format_provider(self, custom_providers_client: TestClient):
         """回归: POST /custom-providers 接受 discovery_format=openai 且持久化正确字段。"""
-        resp = client.post(
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "OpenAI Gateway",
@@ -167,14 +150,14 @@ class TestCreateProvider:
 
 
 class TestListProviders:
-    def test_empty_list(self, client: TestClient):
-        resp = client.get("/api/v1/custom-providers")
+    def test_empty_list(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.get("/api/v1/custom-providers")
         assert resp.status_code == 200
         assert resp.json() == {"providers": []}
 
-    def test_lists_created_providers(self, client: TestClient):
+    def test_lists_created_providers(self, custom_providers_client: TestClient):
         # Create two providers
-        client.post(
+        custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Provider A",
@@ -183,7 +166,7 @@ class TestListProviders:
                 "api_key": "sk-aaaa-key-12345678",
             },
         )
-        client.post(
+        custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Provider B",
@@ -192,7 +175,7 @@ class TestListProviders:
                 "api_key": "AIza-bbbb-12345678",
             },
         )
-        resp = client.get("/api/v1/custom-providers")
+        resp = custom_providers_client.get("/api/v1/custom-providers")
         assert resp.status_code == 200
         body = resp.json()["providers"]
         assert len(body) == 2
@@ -203,8 +186,8 @@ class TestListProviders:
 class TestEndpointCatalog:
     """GET /endpoints 暴露 ENDPOINT_REGISTRY 作为前端单一真相源。"""
 
-    def test_lists_all_endpoints(self, client: TestClient):
-        resp = client.get("/api/v1/custom-providers/endpoints")
+    def test_lists_all_endpoints(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints")
         assert resp.status_code == 200
         body = resp.json()
         keys = {e["key"] for e in body["endpoints"]}
@@ -229,8 +212,8 @@ class TestEndpointCatalog:
             "openai-tts",
         }
 
-    def test_descriptor_shape(self, client: TestClient):
-        resp = client.get("/api/v1/custom-providers/endpoints")
+    def test_descriptor_shape(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints")
         assert resp.status_code == 200
         for entry in resp.json()["endpoints"]:
             assert set(entry.keys()) == {
@@ -246,10 +229,10 @@ class TestEndpointCatalog:
             assert entry["request_method"] == "POST"
             assert entry["request_path_template"].startswith("/")
 
-    def test_endpoints_expose_end_image_capable(self, client: TestClient):
+    def test_endpoints_expose_end_image_capable(self, custom_providers_client: TestClient):
         """catalog 带出 end_image_capable：前端据此禁用不下传尾帧的 endpoint 的 last_frame 强制开，
         用户不必撞上写入侧的 422 才知道这条路不通。非 video 类恒为 False。"""
-        resp = client.get("/api/v1/custom-providers/endpoints")
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints")
         assert resp.status_code == 200
         by_key = {e["key"]: e for e in resp.json()["endpoints"]}
         assert by_key["kling-video"]["end_image_capable"] is True
@@ -259,9 +242,9 @@ class TestEndpointCatalog:
         for key, spec in ENDPOINT_REGISTRY.items():
             assert by_key[key]["end_image_capable"] is spec.end_image_capable
 
-    def test_endpoints_expose_image_capabilities(self, client: TestClient):
+    def test_endpoints_expose_image_capabilities(self, custom_providers_client: TestClient):
         """每个 entry 上返回 image_capabilities：image 类填能力数组，其他为 None。"""
-        resp = client.get("/api/v1/custom-providers/endpoints")
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints")
         assert resp.status_code == 200
         by_key = {e["key"]: e for e in resp.json()["endpoints"]}
         assert by_key["openai-chat"]["image_capabilities"] is None
@@ -270,15 +253,15 @@ class TestEndpointCatalog:
         assert by_key["openai-images-edits"]["image_capabilities"] == ["image_to_image"]
         assert sorted(by_key["gemini-image"]["image_capabilities"]) == ["image_to_image", "text_to_image"]
 
-    def test_endpoint_route_not_shadowed_by_provider_id(self, client: TestClient):
+    def test_endpoint_route_not_shadowed_by_provider_id(self, custom_providers_client: TestClient):
         """回归：/endpoints 必须先于 /{provider_id} 注册，不能被解析为整型 provider_id。"""
-        resp = client.get("/api/v1/custom-providers/endpoints")
+        resp = custom_providers_client.get("/api/v1/custom-providers/endpoints")
         assert resp.status_code == 200, resp.text
 
 
 class TestGetProvider:
-    def test_returns_provider(self, client: TestClient):
-        create_resp = client.post(
+    def test_returns_provider(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "My Provider",
@@ -295,20 +278,20 @@ class TestGetProvider:
             },
         )
         pid = create_resp.json()["id"]
-        resp = client.get(f"/api/v1/custom-providers/{pid}")
+        resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 200
         body = resp.json()
         assert body["display_name"] == "My Provider"
         assert len(body["models"]) == 1
 
-    def test_returns_404_for_nonexistent(self, client: TestClient):
-        resp = client.get("/api/v1/custom-providers/9999")
+    def test_returns_404_for_nonexistent(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.get("/api/v1/custom-providers/9999")
         assert resp.status_code == 404
 
 
 class TestUpdateProvider:
-    def test_update_display_name(self, client: TestClient):
-        create_resp = client.post(
+    def test_update_display_name(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Old Name",
@@ -318,15 +301,15 @@ class TestUpdateProvider:
             },
         )
         pid = create_resp.json()["id"]
-        resp = client.patch(
+        resp = custom_providers_client.patch(
             f"/api/v1/custom-providers/{pid}",
             json={"display_name": "New Name"},
         )
         assert resp.status_code == 200
         assert resp.json()["display_name"] == "New Name"
 
-    def test_update_api_key_is_masked(self, client: TestClient):
-        create_resp = client.post(
+    def test_update_api_key_is_masked(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Key Test",
@@ -336,7 +319,7 @@ class TestUpdateProvider:
             },
         )
         pid = create_resp.json()["id"]
-        resp = client.patch(
+        resp = custom_providers_client.patch(
             f"/api/v1/custom-providers/{pid}",
             json={"api_key": "sk-new-key-87654321"},
         )
@@ -345,15 +328,15 @@ class TestUpdateProvider:
         assert "sk-new-key-87654321" not in body["api_key_masked"]
         assert body["api_key_masked"].startswith("sk-n")
 
-    def test_returns_404_for_nonexistent(self, client: TestClient):
-        resp = client.patch(
+    def test_returns_404_for_nonexistent(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.patch(
             "/api/v1/custom-providers/9999",
             json={"display_name": "Nope"},
         )
         assert resp.status_code == 404
 
-    def test_returns_400_for_empty_body(self, client: TestClient):
-        create_resp = client.post(
+    def test_returns_400_for_empty_body(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Empty Update",
@@ -363,13 +346,13 @@ class TestUpdateProvider:
             },
         )
         pid = create_resp.json()["id"]
-        resp = client.patch(f"/api/v1/custom-providers/{pid}", json={})
+        resp = custom_providers_client.patch(f"/api/v1/custom-providers/{pid}", json={})
         assert resp.status_code == 400
 
 
 class TestDeleteProvider:
-    def test_delete_existing(self, client: TestClient):
-        create_resp = client.post(
+    def test_delete_existing(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "To Delete",
@@ -379,15 +362,15 @@ class TestDeleteProvider:
             },
         )
         pid = create_resp.json()["id"]
-        resp = client.delete(f"/api/v1/custom-providers/{pid}")
+        resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 204
 
         # Verify it's gone
-        get_resp = client.get(f"/api/v1/custom-providers/{pid}")
+        get_resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         assert get_resp.status_code == 404
 
-    def test_returns_404_for_nonexistent(self, client: TestClient):
-        resp = client.delete("/api/v1/custom-providers/9999")
+    def test_returns_404_for_nonexistent(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.delete("/api/v1/custom-providers/9999")
         assert resp.status_code == 404
 
 
@@ -397,8 +380,8 @@ class TestDeleteProvider:
 
 
 class TestReplaceModels:
-    def test_replace_entire_model_list(self, client: TestClient):
-        create_resp = client.post(
+    def test_replace_entire_model_list(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Model Test",
@@ -430,18 +413,18 @@ class TestReplaceModels:
                 "is_default": True,
             },
         ]
-        resp = client.put(f"/api/v1/custom-providers/{pid}/models", json={"models": new_models})
+        resp = custom_providers_client.put(f"/api/v1/custom-providers/{pid}/models", json={"models": new_models})
         assert resp.status_code == 200
         body = resp.json()
         assert len(body) == 2
         assert {m["model_id"] for m in body} == {"new-text", "new-image"}
 
-    def test_returns_404_for_nonexistent_provider(self, client: TestClient):
-        resp = client.put("/api/v1/custom-providers/9999/models", json={"models": []})
+    def test_returns_404_for_nonexistent_provider(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.put("/api/v1/custom-providers/9999/models", json={"models": []})
         assert resp.status_code == 404
 
-    def test_verify_old_models_removed(self, client: TestClient):
-        create_resp = client.post(
+    def test_verify_old_models_removed(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Replace Verify",
@@ -459,7 +442,7 @@ class TestReplaceModels:
         )
         pid = create_resp.json()["id"]
 
-        client.put(
+        custom_providers_client.put(
             f"/api/v1/custom-providers/{pid}/models",
             json={
                 "models": [
@@ -473,7 +456,7 @@ class TestReplaceModels:
         )
 
         # Verify via get provider
-        get_resp = client.get(f"/api/v1/custom-providers/{pid}")
+        get_resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         models = get_resp.json()["models"]
         assert len(models) == 1
         assert models[0]["model_id"] == "replacement"
@@ -485,7 +468,7 @@ class TestReplaceModels:
 
 
 class TestDiscoverModels:
-    def test_discover_openai(self, client: TestClient):
+    def test_discover_openai(self, custom_providers_client: TestClient):
         fake_models = [
             {
                 "model_id": "gpt-4",
@@ -500,7 +483,7 @@ class TestDiscoverModels:
             new_callable=AsyncMock,
             return_value=fake_models,
         ):
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/discover",
                 json={
                     "discovery_format": "openai",
@@ -512,7 +495,7 @@ class TestDiscoverModels:
         assert len(resp.json()["models"]) == 1
         assert resp.json()["models"][0]["model_id"] == "gpt-4"
 
-    def test_discover_google(self, client: TestClient):
+    def test_discover_google(self, custom_providers_client: TestClient):
         """google discovery_format 透传到 discover_models。"""
         fake_models = [
             {
@@ -528,7 +511,7 @@ class TestDiscoverModels:
             new_callable=AsyncMock,
             return_value=fake_models,
         ) as mock_discover:
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/discover",
                 json={
                     "discovery_format": "google",
@@ -541,7 +524,7 @@ class TestDiscoverModels:
         # 确认 discovery_format 透传
         assert mock_discover.call_args.kwargs["discovery_format"] == "google"
 
-    def test_discover_invalid_format(self, client: TestClient):
+    def test_discover_invalid_format(self, custom_providers_client: TestClient):
         """discover_models 抛 UnsupportedDiscoveryFormatError 时返回 400。"""
         from lib.custom_provider.discovery import UnsupportedDiscoveryFormatError
 
@@ -550,7 +533,7 @@ class TestDiscoverModels:
             new_callable=AsyncMock,
             side_effect=UnsupportedDiscoveryFormatError("不支持的 discovery_format: 'unknown'"),
         ):
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/discover",
                 json={
                     "discovery_format": "openai",
@@ -560,14 +543,14 @@ class TestDiscoverModels:
             )
         assert resp.status_code == 400
 
-    def test_discover_sdk_value_error_returns_502_not_400(self, client: TestClient):
+    def test_discover_sdk_value_error_returns_502_not_400(self, custom_providers_client: TestClient):
         """SDK 内部校验（如 Google 凭证被拒绝）抛的普通 ValueError 不应被误判为格式错误 -> 502。"""
         with patch(
             "lib.custom_provider.discovery.discover_models",
             new_callable=AsyncMock,
             side_effect=ValueError("Invalid API key provided"),
         ):
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/discover",
                 json={
                     "discovery_format": "google",
@@ -577,13 +560,13 @@ class TestDiscoverModels:
             )
         assert resp.status_code == 502
 
-    def test_discover_api_failure(self, client: TestClient):
+    def test_discover_api_failure(self, custom_providers_client: TestClient):
         with patch(
             "lib.custom_provider.discovery.discover_models",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Connection refused"),
         ):
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/discover",
                 json={
                     "discovery_format": "openai",
@@ -597,8 +580,8 @@ class TestDiscoverModels:
 class TestDiscoverModelsByStoredProvider:
     """回归: 编辑已保存供应商时，前端无法重新提交明文 api_key，需用 stored 凭证调用 by-id 端点。"""
 
-    def _create(self, client: TestClient) -> int:
-        resp = client.post(
+    def _create(self, custom_providers_client: TestClient) -> int:
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Stored Cred Provider",
@@ -609,9 +592,9 @@ class TestDiscoverModelsByStoredProvider:
         )
         return resp.json()["id"]
 
-    def test_uses_stored_credentials(self, client: TestClient):
+    def test_uses_stored_credentials(self, custom_providers_client: TestClient):
         """by-id discover 应把 stored discovery_format/base_url/api_key 透传到 discover_models。"""
-        pid = self._create(client)
+        pid = self._create(custom_providers_client)
         fake_models = [
             {
                 "model_id": "gpt-4",
@@ -626,7 +609,7 @@ class TestDiscoverModelsByStoredProvider:
             new_callable=AsyncMock,
             return_value=fake_models,
         ) as mock_discover:
-            resp = client.post(f"/api/v1/custom-providers/{pid}/discover")
+            resp = custom_providers_client.post(f"/api/v1/custom-providers/{pid}/discover")
         assert resp.status_code == 200
         assert resp.json()["models"][0]["model_id"] == "gpt-4"
         # 验证 stored 凭证被透传（明文 api_key，不是 mask 后的）
@@ -635,18 +618,18 @@ class TestDiscoverModelsByStoredProvider:
         assert kwargs["base_url"] == "https://api.example.com/v1"
         assert kwargs["api_key"] == "sk-stored-discover-1234"
 
-    def test_returns_404_for_nonexistent(self, client: TestClient):
-        resp = client.post("/api/v1/custom-providers/9999/discover")
+    def test_returns_404_for_nonexistent(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post("/api/v1/custom-providers/9999/discover")
         assert resp.status_code == 404
 
-    def test_upstream_failure_returns_502(self, client: TestClient):
-        pid = self._create(client)
+    def test_upstream_failure_returns_502(self, custom_providers_client: TestClient):
+        pid = self._create(custom_providers_client)
         with patch(
             "lib.custom_provider.discovery.discover_models",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Connection refused"),
         ):
-            resp = client.post(f"/api/v1/custom-providers/{pid}/discover")
+            resp = custom_providers_client.post(f"/api/v1/custom-providers/{pid}/discover")
         assert resp.status_code == 502
 
 
@@ -656,12 +639,12 @@ class TestDiscoverModelsByStoredProvider:
 
 
 class TestConnectionTest:
-    def test_openai_success(self, client: TestClient):
+    def test_openai_success(self, custom_providers_client: TestClient):
         with patch(
             "server.routers.custom_providers._test_openai",
             return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=5),
         ):
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/test",
                 json={
                     "discovery_format": "openai",
@@ -674,12 +657,12 @@ class TestConnectionTest:
         assert body["success"] is True
         assert body["model_count"] == 5
 
-    def test_google_success(self, client: TestClient):
+    def test_google_success(self, custom_providers_client: TestClient):
         with patch(
             "server.routers.custom_providers._test_google",
             return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=10),
         ):
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/test",
                 json={
                     "discovery_format": "google",
@@ -692,13 +675,13 @@ class TestConnectionTest:
         assert body["success"] is True
         assert body["model_count"] == 10
 
-    def test_openai_routes_to_test_openai(self, client: TestClient):
+    def test_openai_routes_to_test_openai(self, custom_providers_client: TestClient):
         """discovery_format=openai 应路由到 _test_openai。"""
         with patch(
             "server.routers.custom_providers._test_openai",
             return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=42),
         ) as mock_openai_test:
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/test",
                 json={
                     "discovery_format": "openai",
@@ -712,9 +695,9 @@ class TestConnectionTest:
         assert body["model_count"] == 42
         mock_openai_test.assert_called_once()
 
-    def test_unsupported_format_returns_false(self, client: TestClient):
+    def test_unsupported_format_returns_false(self, custom_providers_client: TestClient):
         """不支持的 discovery_format 应返回 success=False。"""
-        resp = client.post(
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers/test",
             json={
                 "discovery_format": "unsupported",
@@ -726,12 +709,12 @@ class TestConnectionTest:
         body = resp.json()
         assert body["success"] is False
 
-    def test_connection_failure(self, client: TestClient):
+    def test_connection_failure(self, custom_providers_client: TestClient):
         with patch(
             "server.routers.custom_providers._test_openai",
             side_effect=RuntimeError("Connection refused"),
         ):
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/test",
                 json={
                     "discovery_format": "openai",
@@ -776,25 +759,27 @@ _PROVIDER_PAYLOAD = {
 class TestDeleteProviderCleansGlobalSettings:
     """回归: 删除 provider 时应清理全局 DB 中引用该 provider 的 default_*_backend。"""
 
-    async def test_global_settings_cleaned_on_delete(self, client: TestClient, session: AsyncSession):
+    async def test_global_settings_cleaned_on_delete(
+        self, custom_providers_client: TestClient, db_session: AsyncSession
+    ):
         # 创建供应商
-        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+        resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = resp.json()["id"]
 
         # 模拟全局配置引用该供应商
-        svc = ConfigService(session)
+        svc = ConfigService(db_session)
         await svc.set_setting("default_text_backend", f"custom-{pid}/gpt-4o")
         await svc.set_setting("default_image_backend", f"custom-{pid}/dall-e-3")
         await svc.set_setting("default_audio_backend", f"custom-{pid}/tts-1")
         await svc.set_setting("default_video_backend", "gemini-aistudio/veo-3")  # 不应被清理
-        await session.commit()
+        await db_session.commit()
 
         # 删除供应商（mock 掉项目清理和缓存失效）
         with (
             patch("server.routers.custom_providers._cleanup_project_refs"),
             patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock),
         ):
-            del_resp = client.delete(f"/api/v1/custom-providers/{pid}")
+            del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert del_resp.status_code == 204
 
         # 验证引用被清理
@@ -808,8 +793,8 @@ class TestDeleteProviderCleansGlobalSettings:
 class TestDeleteProviderCleansProjectRefs:
     """回归: 删除 provider 时应清理项目级 project.json 中的悬空引用。"""
 
-    def test_project_refs_cleaned_on_delete(self, client: TestClient):
-        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+    def test_project_refs_cleaned_on_delete(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = resp.json()["id"]
         prefix = f"custom-{pid}/"
 
@@ -823,7 +808,7 @@ class TestDeleteProviderCleansProjectRefs:
             patch("lib.config.resolver.get_project_manager", return_value=mock_pm),
             patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock),
         ):
-            del_resp = client.delete(f"/api/v1/custom-providers/{pid}")
+            del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert del_resp.status_code == 204
 
         # 验证 update_project 被调用来清理引用
@@ -852,18 +837,18 @@ class TestDeleteProviderCleansProjectRefs:
 class TestReplaceModelsCleansStaleRefs:
     """回归: 替换 models 时应清理引用已删除 model 的全局配置。"""
 
-    async def test_stale_model_refs_cleaned(self, client: TestClient, session: AsyncSession):
-        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+    async def test_stale_model_refs_cleaned(self, custom_providers_client: TestClient, db_session: AsyncSession):
+        resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = resp.json()["id"]
 
         # 模拟全局配置引用 gpt-4o
-        svc = ConfigService(session)
+        svc = ConfigService(db_session)
         await svc.set_setting("default_text_backend", f"custom-{pid}/gpt-4o")
-        await session.commit()
+        await db_session.commit()
 
         # 替换 models — 移除 gpt-4o，保留 dall-e-3
         with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            replace_resp = client.put(
+            replace_resp = custom_providers_client.put(
                 f"/api/v1/custom-providers/{pid}/models",
                 json={
                     "models": [
@@ -886,41 +871,45 @@ class TestReplaceModelsCleansStaleRefs:
 class TestGlobalBucketRefsHint:
     """回归: 能力编辑响应应非阻塞地提示模型正被哪些全局桶键引用。"""
 
-    async def test_referenced_model_lists_global_keys(self, client: TestClient, session: AsyncSession):
-        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+    async def test_referenced_model_lists_global_keys(
+        self, custom_providers_client: TestClient, db_session: AsyncSession
+    ):
+        resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = resp.json()["id"]
 
-        svc = ConfigService(session)
+        svc = ConfigService(db_session)
         await svc.set_setting("default_text_backend", f"custom-{pid}/gpt-4o")
         await svc.set_setting("default_video_backend_i2v", f"custom-{pid}/gpt-4o")
-        await session.commit()
+        await db_session.commit()
 
-        get_resp = client.get(f"/api/v1/custom-providers/{pid}")
+        get_resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         assert get_resp.status_code == 200
         models = {m["model_id"]: m for m in get_resp.json()["models"]}
         assert set(models["gpt-4o"]["global_bucket_refs"]) == {"default_text_backend", "default_video_backend_i2v"}
         # 未被引用的模型不带提示
         assert models["dall-e-3"]["global_bucket_refs"] is None
 
-    async def test_unreferenced_models_have_no_hint(self, client: TestClient):
-        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+    async def test_unreferenced_models_have_no_hint(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = resp.json()["id"]
 
-        get_resp = client.get(f"/api/v1/custom-providers/{pid}")
+        get_resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         for m in get_resp.json()["models"]:
             assert m["global_bucket_refs"] is None
 
-    async def test_save_not_blocked_when_referenced(self, client: TestClient, session: AsyncSession):
+    async def test_save_not_blocked_when_referenced(
+        self, custom_providers_client: TestClient, db_session: AsyncSession
+    ):
         """提示不阻塞保存：被全局桶引用的模型仍可正常被替换/删除。"""
-        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+        resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = resp.json()["id"]
 
-        svc = ConfigService(session)
+        svc = ConfigService(db_session)
         await svc.set_setting("default_video_backend_i2v", f"custom-{pid}/gpt-4o")
-        await session.commit()
+        await db_session.commit()
 
         with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            replace_resp = client.put(
+            replace_resp = custom_providers_client.put(
                 f"/api/v1/custom-providers/{pid}/models",
                 json={
                     "models": [
@@ -950,8 +939,8 @@ class TestGlobalBucketRefsHint:
 class TestEmptyModelIdRejected:
     """回归: 启用模型必须有非空 model_id。"""
 
-    def test_create_with_empty_model_id(self, client: TestClient):
-        resp = client.post(
+    def test_create_with_empty_model_id(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Bad Provider",
@@ -965,11 +954,11 @@ class TestEmptyModelIdRejected:
         )
         assert resp.status_code == 422
 
-    def test_replace_models_with_empty_model_id(self, client: TestClient):
-        create_resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+    def test_replace_models_with_empty_model_id(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = create_resp.json()["id"]
         with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            resp = client.put(
+            resp = custom_providers_client.put(
                 f"/api/v1/custom-providers/{pid}/models",
                 json={
                     "models": [
@@ -983,8 +972,8 @@ class TestEmptyModelIdRejected:
 class TestUnknownEndpointRejected:
     """回归：写入路径用未注册 endpoint key 应被 AfterValidator 拦下，返回 422。"""
 
-    def test_create_with_unknown_endpoint(self, client: TestClient):
-        resp = client.post(
+    def test_create_with_unknown_endpoint(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Unknown Endpoint",
@@ -1008,8 +997,8 @@ class TestUnknownEndpointRejected:
 class TestDuplicateModelIdRejected:
     """回归: 同一供应商下不允许重复 model_id。"""
 
-    def test_create_with_duplicate(self, client: TestClient):
-        resp = client.post(
+    def test_create_with_duplicate(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Dup Provider",
@@ -1029,11 +1018,11 @@ class TestDuplicateModelIdRejected:
 class TestFullUpdateProvider:
     """回归: PUT 全量更新端点应原子更新 provider + models。"""
 
-    def test_full_update(self, client: TestClient):
-        create_resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+    def test_full_update(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = create_resp.json()["id"]
         with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            resp = client.put(
+            resp = custom_providers_client.put(
                 f"/api/v1/custom-providers/{pid}",
                 json={
                     "display_name": "Updated Name",
@@ -1056,10 +1045,10 @@ class TestFullUpdateProvider:
         assert len(body["models"]) == 1
         assert body["models"][0]["model_id"] == "new-model"
 
-    def test_full_update_rejects_empty_model_id(self, client: TestClient):
-        create_resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+    def test_full_update_rejects_empty_model_id(self, custom_providers_client: TestClient):
+        create_resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = create_resp.json()["id"]
-        resp = client.put(
+        resp = custom_providers_client.put(
             f"/api/v1/custom-providers/{pid}",
             json={
                 "display_name": "X",
@@ -1071,8 +1060,8 @@ class TestFullUpdateProvider:
         )
         assert resp.status_code == 422
 
-    def test_full_update_404_for_nonexistent(self, client: TestClient):
-        resp = client.put(
+    def test_full_update_404_for_nonexistent(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.put(
             "/api/v1/custom-providers/9999",
             json={
                 "display_name": "X",
@@ -1086,9 +1075,9 @@ class TestFullUpdateProvider:
 class TestConcurrencyFields:
     """image/video/audio_max_workers 经 POST / PUT 保存后回显，留空 → null，0/负值 → 422。"""
 
-    def test_create_echoes_workers(self, client: TestClient):
+    def test_create_echoes_workers(self, custom_providers_client: TestClient):
         with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers",
                 json={
                     "display_name": "P",
@@ -1107,9 +1096,9 @@ class TestConcurrencyFields:
         assert body["video_max_workers"] == 7
         assert body["audio_max_workers"] == 1
 
-    def test_create_defaults_to_null_when_omitted(self, client: TestClient):
+    def test_create_defaults_to_null_when_omitted(self, custom_providers_client: TestClient):
         with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers",
                 json={
                     "display_name": "P",
@@ -1126,8 +1115,8 @@ class TestConcurrencyFields:
         assert body["audio_max_workers"] is None
 
     @pytest.mark.parametrize("bad_value", [-1, 0])
-    def test_create_rejects_below_one(self, client: TestClient, bad_value: int):
-        resp = client.post(
+    def test_create_rejects_below_one(self, custom_providers_client: TestClient, bad_value: int):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "P",
@@ -1140,9 +1129,9 @@ class TestConcurrencyFields:
         )
         assert resp.status_code == 422
 
-    def test_full_update_overwrites_and_clears(self, client: TestClient):
+    def test_full_update_overwrites_and_clears(self, custom_providers_client: TestClient):
         with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            create_resp = client.post(
+            create_resp = custom_providers_client.post(
                 "/api/v1/custom-providers",
                 json={
                     "display_name": "P",
@@ -1156,7 +1145,7 @@ class TestConcurrencyFields:
             )
             pid = create_resp.json()["id"]
             # PUT 不带 image_max_workers → 视为 null（权威清除）；video 覆盖为 9
-            resp = client.put(
+            resp = custom_providers_client.put(
                 f"/api/v1/custom-providers/{pid}",
                 json={
                     "display_name": "P",
@@ -1195,9 +1184,9 @@ class TestValidateBackendValueCustomPrefix:
 class TestDuplicateDefaultRejected:
     """回归: 同一 media_type 下最多只能有一个 is_default=True 的模型。"""
 
-    def test_create_with_duplicate_defaults(self, client: TestClient):
+    def test_create_with_duplicate_defaults(self, custom_providers_client: TestClient):
         """创建供应商时同一 media_type 有两个 is_default=true 的模型，期望 422。"""
-        resp = client.post(
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Dup Default Provider",
@@ -1225,9 +1214,9 @@ class TestDuplicateDefaultRejected:
         assert resp.status_code == 422
         assert "默认模型" in resp.json()["detail"]
 
-    def test_single_default_per_type_allowed(self, client: TestClient):
+    def test_single_default_per_type_allowed(self, custom_providers_client: TestClient):
         """不同 media_type 各一个 default，期望 201 成功。"""
-        resp = client.post(
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Multi Default Provider",
@@ -1265,8 +1254,8 @@ class TestDuplicateDefaultRejected:
 class TestPriceFieldConsistency:
     """回归: price_output 不能脱离 price_input 单独存在；currency 可独立存在。"""
 
-    def test_output_without_input_rejected(self, client: TestClient):
-        resp = client.post(
+    def test_output_without_input_rejected(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Bad Price",
@@ -1286,9 +1275,9 @@ class TestPriceFieldConsistency:
         )
         assert resp.status_code == 422
 
-    def test_currency_without_input_accepted(self, client: TestClient):
+    def test_currency_without_input_accepted(self, custom_providers_client: TestClient):
         """currency 可独立存在（用户先选币种，稍后填价格）。"""
-        resp = client.post(
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Currency Only",
@@ -1308,8 +1297,8 @@ class TestPriceFieldConsistency:
         )
         assert resp.status_code == 201
 
-    def test_valid_price_fields_accepted(self, client: TestClient):
-        resp = client.post(
+    def test_valid_price_fields_accepted(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Good Price",
@@ -1335,8 +1324,8 @@ class TestPriceFieldConsistency:
 class TestResolutionField:
     """验证 ModelInput / ModelResponse 的 resolution 字段贯通读写。"""
 
-    def test_create_with_resolution_and_read_back(self, client: TestClient):
-        resp = client.post(
+    def test_create_with_resolution_and_read_back(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "X",
@@ -1359,15 +1348,15 @@ class TestResolutionField:
         pid = resp.json()["id"]
 
         # 读取，确认 resolution 返回
-        resp = client.get(f"/api/v1/custom-providers/{pid}")
+        resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 200
         models = resp.json()["models"]
         assert len(models) == 1
         assert models[0]["resolution"] == "720p"
 
-    def test_resolution_defaults_to_null_when_omitted(self, client: TestClient):
+    def test_resolution_defaults_to_null_when_omitted(self, custom_providers_client: TestClient):
         """未指定 resolution 时应返回 None。"""
-        resp = client.post(
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Y",
@@ -1387,14 +1376,14 @@ class TestResolutionField:
         assert resp.status_code == 201
         pid = resp.json()["id"]
 
-        resp = client.get(f"/api/v1/custom-providers/{pid}")
+        resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 200
         assert resp.json()["models"][0]["resolution"] is None
 
-    def test_replace_models_updates_resolution_to_null(self, client: TestClient):
+    def test_replace_models_updates_resolution_to_null(self, custom_providers_client: TestClient):
         """通过 PUT /models 更新 resolution 为 null。"""
         # 先创建带 resolution 的 provider
-        resp = client.post(
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "Z",
@@ -1416,7 +1405,7 @@ class TestResolutionField:
         pid = resp.json()["id"]
 
         # 替换模型列表，resolution 省略即为 null
-        resp = client.put(
+        resp = custom_providers_client.put(
             f"/api/v1/custom-providers/{pid}/models",
             json={
                 "models": [
@@ -1432,7 +1421,7 @@ class TestResolutionField:
         assert resp.status_code == 200
 
         # 读取验证为 null
-        resp = client.get(f"/api/v1/custom-providers/{pid}")
+        resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 200
         assert resp.json()["models"][0]["resolution"] is None
 
@@ -1443,7 +1432,7 @@ class TestResolutionField:
 
 
 @pytest.mark.asyncio
-async def test_create_provider_with_unknown_endpoint_returns_422(client):
+async def test_create_provider_with_unknown_endpoint_returns_422(custom_providers_client):
     payload = {
         "display_name": "X",
         "discovery_format": "openai",
@@ -1459,13 +1448,13 @@ async def test_create_provider_with_unknown_endpoint_returns_422(client):
             }
         ],
     }
-    resp = client.post("/api/v1/custom-providers", json=payload)
+    resp = custom_providers_client.post("/api/v1/custom-providers", json=payload)
     assert resp.status_code == 422
     assert "unknown_endpoint" in resp.text or "anthropic-messages" in resp.text
 
 
 @pytest.mark.asyncio
-async def test_create_provider_unknown_discovery_format_returns_422(client):
+async def test_create_provider_unknown_discovery_format_returns_422(custom_providers_client):
     payload = {
         "display_name": "X",
         "discovery_format": "newapi",  # 已被剔除
@@ -1473,12 +1462,12 @@ async def test_create_provider_unknown_discovery_format_returns_422(client):
         "api_key": "k",
         "models": [],
     }
-    resp = client.post("/api/v1/custom-providers", json=payload)
+    resp = custom_providers_client.post("/api/v1/custom-providers", json=payload)
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_default_conflict_grouped_by_endpoint_media(client):
+async def test_default_conflict_grouped_by_endpoint_media(custom_providers_client):
     """两条 endpoint 不同但推算 media_type 相同的模型不能同时 is_default。"""
     payload = {
         "display_name": "X",
@@ -1502,7 +1491,7 @@ async def test_default_conflict_grouped_by_endpoint_media(client):
             },  # 都是 text → 冲突
         ],
     }
-    resp = client.post("/api/v1/custom-providers", json=payload)
+    resp = custom_providers_client.post("/api/v1/custom-providers", json=payload)
     assert resp.status_code == 422
 
 
@@ -1586,7 +1575,7 @@ def test_check_unique_defaults_text_still_media_type_exclusive():
 
 
 class TestDiscoverAnthropic:
-    def test_explicit_credentials(self, client: TestClient):
+    def test_explicit_credentials(self, custom_providers_client: TestClient):
         """显式传入 base_url + api_key，调用 _run_discover('anthropic', ...)。"""
         mock_models = [
             {"model_id": "claude-x", "display_name": "X", "endpoint": "", "is_default": False, "is_enabled": True}
@@ -1596,7 +1585,7 @@ class TestDiscoverAnthropic:
 
             mock_run.return_value = DiscoverResponse(models=mock_models)
 
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/discover-anthropic",
                 json={"base_url": "https://example.com", "api_key": "sk-ant"},
             )
@@ -1609,11 +1598,11 @@ class TestDiscoverAnthropic:
         assert args[1] == "https://example.com"
         assert args[2] == "sk-ant"
 
-    async def test_falls_back_to_stored_api_key(self, client: TestClient, session: AsyncSession):
+    async def test_falls_back_to_stored_api_key(self, custom_providers_client: TestClient, db_session: AsyncSession):
         """请求未带 api_key 时，从 active AgentAnthropicCredential fallback。"""
         from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
-        repo = AgentCredentialRepository(session)
+        repo = AgentCredentialRepository(db_session)
         cred = await repo.create(
             preset_id="__custom__",
             display_name="stored",
@@ -1621,32 +1610,34 @@ class TestDiscoverAnthropic:
             api_key="sk-stored",
         )
         await repo.set_active(cred.id)
-        await session.commit()
+        await db_session.commit()
 
         with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
             from server.routers.custom_providers import DiscoverResponse
 
             mock_run.return_value = DiscoverResponse(models=[])
 
-            resp = client.post("/api/v1/custom-providers/discover-anthropic", json={})
+            resp = custom_providers_client.post("/api/v1/custom-providers/discover-anthropic", json={})
 
         assert resp.status_code == 200
         args = mock_run.call_args.args
         assert args[1] == "https://stored.example"
         assert args[2] == "sk-stored"
 
-    def test_returns_400_when_no_key_anywhere(self, client: TestClient):
+    def test_returns_400_when_no_key_anywhere(self, custom_providers_client: TestClient):
         """请求未带 api_key 且 DB 也没有 → 400。"""
-        resp = client.post("/api/v1/custom-providers/discover-anthropic", json={})
+        resp = custom_providers_client.post("/api/v1/custom-providers/discover-anthropic", json={})
         assert resp.status_code == 400
         # i18n 默认 zh
         assert "API Key" in resp.json()["detail"]
 
-    async def test_whitespace_only_api_key_falls_back_to_stored(self, client: TestClient, session: AsyncSession):
+    async def test_whitespace_only_api_key_falls_back_to_stored(
+        self, custom_providers_client: TestClient, db_session: AsyncSession
+    ):
         """body.api_key 仅含空白时按缺失处理，回退至 active credential 而非送上游空白 key。"""
         from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
-        repo = AgentCredentialRepository(session)
+        repo = AgentCredentialRepository(db_session)
         cred = await repo.create(
             preset_id="__custom__",
             display_name="stored",
@@ -1654,14 +1645,14 @@ class TestDiscoverAnthropic:
             api_key="sk-stored",
         )
         await repo.set_active(cred.id)
-        await session.commit()
+        await db_session.commit()
 
         with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
             from server.routers.custom_providers import DiscoverResponse
 
             mock_run.return_value = DiscoverResponse(models=[])
 
-            resp = client.post(
+            resp = custom_providers_client.post(
                 "/api/v1/custom-providers/discover-anthropic",
                 json={"api_key": "   "},
             )
@@ -1673,10 +1664,10 @@ class TestDiscoverAnthropic:
 
 
 class TestGetProviderCredentials:
-    def test_returns_plaintext(self, client: TestClient):
+    def test_returns_plaintext(self, custom_providers_client: TestClient):
         """正常路径返回明文 base_url + api_key。"""
         # 先创建 provider
-        create_resp = client.post(
+        create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "OneAPI",
@@ -1689,22 +1680,22 @@ class TestGetProviderCredentials:
         assert create_resp.status_code == 201
         provider_id = create_resp.json()["id"]
 
-        resp = client.get(f"/api/v1/custom-providers/{provider_id}/credentials")
+        resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}/credentials")
         assert resp.status_code == 200
         body = resp.json()
         assert body["base_url"] == "https://oneapi.example.com"
         assert body["api_key"] == "sk-secret"
 
-    def test_returns_404_for_unknown_provider(self, client: TestClient):
-        resp = client.get("/api/v1/custom-providers/99999/credentials")
+    def test_returns_404_for_unknown_provider(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.get("/api/v1/custom-providers/99999/credentials")
         assert resp.status_code == 404
 
 
 class TestSupportedDurationsAutoFill:
     """video endpoint 模型创建时若未传 supported_durations，应由预设表自动填充。"""
 
-    def test_create_video_model_without_durations_autofills(self, client: TestClient):
-        resp = client.post(
+    def test_create_video_model_without_durations_autofills(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "test-cp",
@@ -1726,13 +1717,13 @@ class TestSupportedDurationsAutoFill:
         assert resp.status_code == 201, resp.text
         provider_id = resp.json()["id"]
 
-        resp = client.get(f"/api/v1/custom-providers/{provider_id}")
+        resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
         assert resp.status_code == 200
         model = resp.json()["models"][0]
         assert model["supported_durations"] == [4, 8, 12]
 
-    def test_create_video_model_user_provided_durations_kept(self, client: TestClient):
-        resp = client.post(
+    def test_create_video_model_user_provided_durations_kept(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "test-cp-2",
@@ -1754,12 +1745,12 @@ class TestSupportedDurationsAutoFill:
         assert resp.status_code == 201, resp.text
         provider_id = resp.json()["id"]
 
-        resp = client.get(f"/api/v1/custom-providers/{provider_id}")
+        resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
         model = resp.json()["models"][0]
         assert model["supported_durations"] == [6, 10, 12, 16, 20]
 
-    def test_text_endpoint_does_not_get_durations(self, client: TestClient):
-        resp = client.post(
+    def test_text_endpoint_does_not_get_durations(self, custom_providers_client: TestClient):
+        resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
                 "display_name": "test-cp-3",
@@ -1779,6 +1770,6 @@ class TestSupportedDurationsAutoFill:
         )
         assert resp.status_code == 201
         provider_id = resp.json()["id"]
-        resp = client.get(f"/api/v1/custom-providers/{provider_id}")
+        resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
         model = resp.json()["models"][0]
         assert model["supported_durations"] is None

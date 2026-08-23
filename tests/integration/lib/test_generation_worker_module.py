@@ -3,10 +3,8 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
-from lib.db import Base
 from lib.generation_worker import (
     _ORPHAN_RESCAN_LEASE_LOST_MULT,
     DEFAULT_PROVIDER,
@@ -264,19 +262,14 @@ def _patch_pm(monkeypatch, project: dict | None):
 
 
 @pytest.fixture()
-async def _patch_empty_db(monkeypatch):
+async def _patch_empty_db(db_factory, monkeypatch):
     """把全局 async_session_factory 换成空内存库，隔离掉真实数据库。
 
     无 project_name 的 _extract_provider 会用 lib.db.async_session_factory 经 ConfigResolver
     解析全局默认供应商；不隔离时它读真实 dev 库，本机一旦配了其它 ready 供应商，回退断言就被污染。
     """
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    monkeypatch.setattr("lib.db.async_session_factory", factory)
-    yield factory
-    await engine.dispose()
+    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+    return db_factory
 
 
 class TestExtractProvider:

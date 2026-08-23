@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
 from server.auth import create_download_token
-from tests.conftest import make_test_video
+from tests.factories import make_test_video
 
 
 def _setup_project(pm: ProjectManager):

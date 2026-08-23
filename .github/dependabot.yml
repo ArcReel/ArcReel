@@ -101,6 +101,7 @@ updates:
           - "pre-commit"
           - "python-docx"
           - "import-linter"
+          - "respx"
         update-types:
           - "minor"
           - "patch"
