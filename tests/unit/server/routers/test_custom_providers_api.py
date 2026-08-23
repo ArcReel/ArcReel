@@ -1492,20 +1492,35 @@ async def test_default_conflict_grouped_by_endpoint_media(custom_providers_clien
     assert resp.status_code == 422
 
 
-def test_check_unique_defaults_allows_split_image_endpoints():
+@pytest.mark.asyncio
+async def test_split_image_endpoints_may_both_be_default(custom_providers_client):
     """同 provider 内 -generations 与 -edits 两条都设默认 → 允许（capability 不交叠）。"""
-    from server.routers.custom_providers import ModelInput, _check_unique_defaults
-
-    models = [
-        ModelInput(model_id="m1", display_name="m1", endpoint="openai-images-generations", is_default=True),
-        ModelInput(model_id="m2", display_name="m2", endpoint="openai-images-edits", is_default=True),
-    ]
-
-    def t(key, **params):
-        return f"{key}:{params}"
-
-    # 不应抛
-    _check_unique_defaults(models, t)
+    payload = {
+        "display_name": "X",
+        "discovery_format": "openai",
+        "base_url": "https://x",
+        "api_key": "k",
+        "models": [
+            {
+                "model_id": "m1",
+                "display_name": "m1",
+                "endpoint": "openai-images-generations",
+                "is_default": True,
+                "is_enabled": True,
+            },
+            {
+                "model_id": "m2",
+                "display_name": "m2",
+                "endpoint": "openai-images-edits",
+                "is_default": True,
+                "is_enabled": True,
+            },
+        ],
+    }
+    resp = custom_providers_client.post("/api/v1/custom-providers", json=payload)
+    assert resp.status_code == 201, resp.text
+    defaults = {model["model_id"]: model["is_default"] for model in resp.json()["models"]}
+    assert defaults == {"m1": True, "m2": True}
 
 
 def test_check_unique_defaults_rejects_two_generations_defaults():
