@@ -130,7 +130,9 @@ describe("ReferenceVideoCanvas", () => {
   });
 
   it("keeps request controls outside the tablist semantics", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头推进。\n{夜色深沉。}")],
+    });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
 
     await screen.findByTestId("unit-row-E1U1");
@@ -140,6 +142,22 @@ describe("ReferenceVideoCanvas", () => {
     const delivery = screen.getByRole("group", { name: /Narration delivery|旁白交付/ });
     expect(within(tablist).getAllByRole("tab")).toHaveLength(3);
     expect(tablist).not.toContainElement(delivery);
+  });
+
+  it("hides narration delivery when every unit is dialogue-owned or silent", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [
+        mkUnit("E1U1", "@[鳄鱼爸爸]：{今天开始制作。}"),
+        mkUnit("E1U2", "工作台上的材料整齐排列。"),
+      ],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByTestId("unit-row-E1U1");
+    expect(screen.queryByRole("group", { name: /Narration delivery|旁白交付/ })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Batch generate videos|批量生成视频/ }),
+    ).toBeInTheDocument();
   });
 
   it("auto-selects first unit on load and shows preview generate button", async () => {
@@ -794,7 +812,9 @@ describe("ReferenceVideoCanvas", () => {
   // 交付方式是本次请求的一部分，批量与单元入口读同一个画布选择：批量不带上它，
   // 整批会按服务端默认的「后期配音」准入，用户选的「使用当前 TTS」被静默丢弃。
   it("批量入口带上本次的旁白交付选择", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头推进。\n{夜色深沉。}")],
+    });
     const batchSpy = vi
       .spyOn(API, "generateReferenceVideoBatch")
       .mockResolvedValue(mkAdmission());

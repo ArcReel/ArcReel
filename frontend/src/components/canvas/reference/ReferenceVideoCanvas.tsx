@@ -181,6 +181,10 @@ export function ReferenceVideoCanvas({
   const units =
     useReferenceVideoStore((s) => s.unitsByEpisode[referenceVideoCacheKey(projectName, episode)]) ??
     (EMPTY_UNITS as ReferenceVideoUnit[]);
+  const hasNarration = useMemo(
+    () => units.some((unit) => unitNarrationText(unit).trim().length > 0),
+    [units],
+  );
   const selectedUnitId = useReferenceVideoStore((s) => s.selectedUnitId);
   const error = useReferenceVideoStore((s) => s.error);
   const loading = useReferenceVideoStore((s) => s.loading);
@@ -950,11 +954,13 @@ export function ReferenceVideoCanvas({
         <span className="flex-1" />
         {tab === "units" && (
           <>
-            <NarrationDeliveryChoice
-              value={narrationDelivery}
-              onChange={setNarrationDelivery}
-              compact
-            />
+            {hasNarration && (
+              <NarrationDeliveryChoice
+                value={narrationDelivery}
+                onChange={setNarrationDelivery}
+                compact
+              />
+            )}
             <button
               type="button"
               onClick={() => void handleBatchGenerate()}
