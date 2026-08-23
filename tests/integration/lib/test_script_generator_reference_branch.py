@@ -2,13 +2,15 @@
 
 import json as _json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.exc import OperationalError
 
 from lib import script_review
 from lib.artifact_activation import activate_artifact_target_state
+from lib.config.resolver import ConfigResolver
 from lib.draft_quarantine import (
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
@@ -70,9 +72,28 @@ def _write_step1(project_dir: Path, payload: str, episode: int = 1) -> None:
     _activate_project_artifacts(project_dir, episode)
 
 
-@pytest.fixture
-def reference_project(tmp_path: Path) -> Path:
-    """造一个 参考生视频的最小项目。"""
+class _StubConfigResolver:
+    """能力解析替身：``ScriptGenerator`` 只消费 ``video_capabilities_for_project`` 这一个读点。
+
+    ``caps=None`` 表达「解析不可用」，按生产上的真实形态抛 DB 错误，让
+    ``_fetch_video_capabilities`` 走它自己那条吞异常回退，而不是绕过回退直接喂进一个 None。
+    """
+
+    def __init__(self, caps: dict | None = None) -> None:
+        self._caps = caps
+
+    async def video_capabilities_for_project(self, project: dict, *, capability: object = None) -> dict:
+        if self._caps is None:
+            raise OperationalError("SELECT ...", {}, Exception("no such table: system_setting"))
+        return self._caps
+
+
+def _stub_resolver(caps: dict | None = None) -> ConfigResolver:
+    return cast(ConfigResolver, _StubConfigResolver(caps))
+
+
+def _write_reference_project(tmp_path: Path, *, video_backend: str) -> Path:
+    """造一个参考生视频的最小项目；``video_backend`` 决定 registry 侧的真实时长档位。"""
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     (project_dir / "project.json").write_text(
@@ -81,7 +102,7 @@ def reference_project(tmp_path: Path) -> Path:
           "title": "t",
           "content_mode": "narration",
           "generation_mode": "reference_video",
-          "video_backend": "vidu/vidu2.0",
+          "video_backend": "__BACKEND__",
           "overview": {"synopsis": "s", "genre": "g", "theme": "th", "world_setting": "w"},
           "style": "国漫",
           "style_description": "水墨",
@@ -92,11 +113,27 @@ def reference_project(tmp_path: Path) -> Path:
             {"episode": 1, "title": "t1", "script_file": "scripts/episode_1.json",
              "generation_mode": "reference_video"}
           ]
-        }""".replace("__SCHEMA__", str(CURRENT_PROJECT_SCHEMA_VERSION)),
+        }""".replace("__SCHEMA__", str(CURRENT_PROJECT_SCHEMA_VERSION)).replace("__BACKEND__", video_backend),
         encoding="utf-8",
     )
     _write_step1(project_dir, STEP1_UNITS_JSON)
     return project_dir
+
+
+@pytest.fixture
+def reference_project(tmp_path: Path) -> Path:
+    """vidu2.0：raw 档位 [4, 8]，参考生视频下被参考图与分辨率两条约束收窄到 [4]。"""
+    return _write_reference_project(tmp_path, video_backend="vidu/vidu2.0")
+
+
+@pytest.fixture
+def wide_tier_reference_project(tmp_path: Path) -> Path:
+    """viduq3-turbo：raw 档位 1–16 秒，带参考图的 unit 收窄到 3–16 秒。
+
+    参考图约束只做收窄，故「带图档位严于不带图」是真实型号唯一能表达的方向；两档之间需要
+    差异的用例都取这个型号，不再拿替身编造反向的档位。
+    """
+    return _write_reference_project(tmp_path, video_backend="vidu/viduq3-turbo")
 
 
 @pytest.mark.asyncio
@@ -158,162 +195,113 @@ async def test_script_generator_overrides_llm_duration_with_step1_confirmed_valu
 
 @pytest.mark.asyncio
 async def test_script_generator_rejects_confirmed_duration_outside_effective_tiers(reference_project: Path):
-    """step1 校验用未收窄的 raw 档位（此处 [4,8]），但本集实际按参考图收窄到 [8]：确认时
-    合法的 4 秒不再是收窄后的合法值。这种情况下不能静默取档改写落盘——用户审阅通过的
-    时长/费用会被换成一个从未过目的值，须 fail-loud 要求重新审阅确认。
+    """step1 校验用未收窄的 raw 档位（vidu2.0 的 [4, 8]），但参考生视频下的生效档位被参考图与
+    分辨率两条约束收窄到 [4]：确认时合法的 8 秒不再是收窄后的合法值。这种情况下不能静默取档
+    改写落盘——用户审阅通过的时长/费用会被换成一个从未过目的值，须 fail-loud 要求重新审阅确认。
 
     拦截须发生在 TextBackend 调用之前：带引用与不带引用两种生效档位都不接受该确认时长时，
-    本次生成必然失败：放到输出解析阶段才拦，用户已经为它付了费。
+    本次生成必然失败；放到输出解析阶段才拦，用户已经为它付了费。
     """
+    _write_step1(
+        reference_project,
+        _json.dumps(
+            {"units": [{"unit_id": "E1U01", "text": "@[主角] 推开 @[酒馆] 的门", "duration_seconds": 8}]},
+            ensure_ascii=False,
+        ),
+    )
     fake_generator = MagicMock()
     fake_generator.model = "mock"
-    fake_generator.generate = AsyncMock(
-        return_value=MagicMock(
-            text=(
-                '{"episode":1,"title":"t",'
-                '"summary":"s","novel":{"title":"t","chapter":"1"},'
-                '"video_units":[{"unit_id":"E1U01",'
-                '"text":"@[主角] 推门",'
-                '"duration_seconds":8,"transition_to_next":"cut"}]}'
-            )
-        )
-    )
+    fake_generator.generate = AsyncMock()
 
-    gen = ScriptGenerator(reference_project, generator=fake_generator)
-    with (
-        # 显式固定 caps，不依赖真实 DB 解析结果——同 test_script_generator_takes_duration_
-        # tier_from_final_output_references_not_step1 的理由。
-        patch.object(ScriptGenerator, "_fetch_video_capabilities", AsyncMock(return_value={})),
-        patch.object(ScriptGenerator, "_resolve_supported_durations", return_value=[8]),
-    ):
-        with pytest.raises(ValueError, match="不在当前生效档位"):
-            await gen.generate(episode=1)
+    # caps 给空字典：档位一律回落到 project.json 自报身份查 registry，不受 DB 全局默认干扰。
+    gen = ScriptGenerator(reference_project, generator=fake_generator, config_resolver=_stub_resolver({}))
+    with pytest.raises(ValueError, match="不在当前生效档位"):
+        await gen.generate(episode=1)
     fake_generator.generate.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide(reference_project: Path):
-    """同集内一个 unit 带参考图（收窄到 [8]）、另一个不带（仍是 [4,8]）：后者本已合法的
-    确认值 4 秒不应因前者的收窄被连带改成 8——取档须按每个 unit 自己的参考图状态重算
+async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide(
+    wide_tier_reference_project: Path,
+):
+    """同集内一个 unit 带参考图（收窄到 3–16 秒）、另一个不带（仍是 1–16 秒）：后者本已合法的
+    确认值 2 秒不应因前者的收窄被连带改成 3——取档须按每个 unit 自己的参考图状态重算
     生效档位，不套用 episode 级 any(...) 收窄出的粗粒度集合。
     """
-    drafts = reference_project / "drafts" / "episode_1"
-    (drafts / "step1_reference_units.json").write_text(
+    project = wide_tier_reference_project
+    _write_step1(
+        project,
         _json.dumps(
             {
                 "units": [
-                    {
-                        "unit_id": "E1U01",
-                        "text": "@[主角] 推门",
-                        "duration_seconds": 8,
-                    },
-                    {
-                        "unit_id": "E1U02",
-                        "text": "空镜",
-                        "duration_seconds": 4,
-                    },
+                    {"unit_id": "E1U01", "text": "@[主角] 推门", "duration_seconds": 3},
+                    {"unit_id": "E1U02", "text": "空镜", "duration_seconds": 2},
                 ]
             },
             ensure_ascii=False,
         ),
-        encoding="utf-8",
     )
 
     fake_generator = _fake_step2_generator("镜头1：中景。@[主角] 推门", "镜头1：空镜，风吹过门廊")
-
-    def _fake_supported_durations(self, caps=None, *, gen_mode, uses_reference_images=None):
-        return [8] if uses_reference_images else [4, 8]
-
-    gen = ScriptGenerator(reference_project, generator=fake_generator)
-    with patch.object(ScriptGenerator, "_resolve_supported_durations", _fake_supported_durations):
-        out = await gen.generate(episode=1)
+    gen = ScriptGenerator(project, generator=fake_generator, config_resolver=_stub_resolver({}))
+    out = await gen.generate(episode=1)
 
     data = _json.loads(out.read_text(encoding="utf-8"))
     units_by_id = {u["unit_id"]: u for u in data["video_units"]}
-    assert units_by_id["E1U01"]["duration_seconds"] == 8
-    assert units_by_id["E1U02"]["duration_seconds"] == 4  # 未被另一个带图 unit 的收窄连带改动
+    assert units_by_id["E1U01"]["duration_seconds"] == 3
+    assert units_by_id["E1U02"]["duration_seconds"] == 2  # 未被另一个带图 unit 的收窄连带改动
 
 
 @pytest.mark.asyncio
 async def test_script_generator_takes_duration_tier_from_final_output_references_not_step1(
-    reference_project: Path,
+    wide_tier_reference_project: Path,
 ):
-    """step1 拆分时某 unit 带引用（按带图档位确认，仅 8 秒合法），但 step2 输出给这个 unit
-    去掉了引用（回落到纯文本档位 [4, 8]，4 秒合法）：取档须按最终落地的 references 状态
-    重算，不能沿用 step1 的旧状态——按 step1 状态取档会把本已合法的确认值误判为不合法。
+    """step1 拆分时某 unit 带引用（带图档位最短 3 秒，2 秒只在未收窄的 raw 档位上过了校验），
+    但 step2 输出给这个 unit 去掉了引用（回落到纯文本档位 1–16 秒，2 秒合法）：取档须按最终
+    落地的 references 状态重算，不能沿用 step1 的旧状态——按 step1 状态取档会把本已合法的
+    确认值改写成 3 秒。
     """
-    drafts = reference_project / "drafts" / "episode_1"
-    (drafts / "step1_reference_units.json").write_text(
+    project = wide_tier_reference_project
+    _write_step1(
+        project,
         _json.dumps(
-            {
-                "units": [
-                    {
-                        "unit_id": "E1U01",
-                        "text": "@[主角] 推门",
-                        "duration_seconds": 4,
-                    }
-                ]
-            },
+            {"units": [{"unit_id": "E1U01", "text": "@[主角] 推门", "duration_seconds": 2}]},
             ensure_ascii=False,
         ),
-        encoding="utf-8",
     )
 
     fake_generator = _fake_step2_generator("镜头1：空镜，门廊在风里轻响")
-
-    def _fake_supported_durations(self, caps=None, *, gen_mode, uses_reference_images=None):
-        return [8] if uses_reference_images else [4, 8]
-
-    gen = ScriptGenerator(reference_project, generator=fake_generator)
-    with (
-        # 显式固定 caps，不依赖真实 DB 解析结果——_fetch_video_capabilities 解析失败时按
-        # 文档返回 None，环境不同（如缺 DB 迁移的测试容器）会让本测试的前提静默漂移。
-        patch.object(ScriptGenerator, "_fetch_video_capabilities", AsyncMock(return_value={})),
-        patch.object(ScriptGenerator, "_resolve_supported_durations", _fake_supported_durations),
-    ):
-        out = await gen.generate(episode=1)
+    gen = ScriptGenerator(project, generator=fake_generator, config_resolver=_stub_resolver({}))
+    out = await gen.generate(episode=1)
 
     data = _json.loads(out.read_text(encoding="utf-8"))
     unit = data["video_units"][0]
     assert extract_mentions(unit["text"]) == []
-    assert unit["duration_seconds"] == 4  # 按最终正文（无引用）取档合法，不因 step1 的带图状态被误判
+    assert unit["duration_seconds"] == 2  # 按最终正文（无引用）取档合法，不因 step1 的带图状态被误判
 
 
 @pytest.mark.asyncio
 async def test_script_generator_reclamps_duration_even_when_caps_unavailable(reference_project: Path):
-    """caps 解析失败（``_fetch_video_capabilities`` 按其文档在这种情况下返回 None）不代表
+    """caps 解析失败（DB 不可用，``_fetch_video_capabilities`` 按其文档吞掉异常返回 None）不代表
     取不到任何档位——``_resolve_supported_durations`` 自带 caps → registry 两级回退，
-    project.json 自报的模型身份仍能兜底。回填逻辑须无条件取档，
-    不能因为 caps 是 None 就保留一个未经取档的值。
-
-    与其它同类测试一样另 mock ``_resolve_supported_durations`` 本身（而非验证真实回退链
-    ——那是 config resolver 层的测试范畴）：caps=None 时的回退结果与 caps 非 None 时一样
-    都是 registry 声明的 [4, 8]，raw 值只要合法就不会触发
-    任何取档，测不出「取档有没有被跳过」这个真正要验证的行为；只有固定取档结果本身，
-    才能构造出「已确认值不在生效档位内」的场景来证明重取档确实执行了——如今这种不合法
-    直接 fail-loud，执行了就必抛错，不执行就会静默用未取档的 4 落盘成功。
+    project.json 自报的 vidu2.0 仍能兜底出 raw [4, 8] 并收窄到 [4]。回填逻辑须无条件取档，
+    不能因为 caps 是 None 就保留一个未经取档的值：确认值 8 秒落在收窄后的生效档位外，取档
+    执行了就必抛错，不执行则会静默用未取档的 8 落盘成功。
     """
+    _write_step1(
+        reference_project,
+        _json.dumps(
+            {"units": [{"unit_id": "E1U01", "text": "@[主角] 推开 @[酒馆] 的门", "duration_seconds": 8}]},
+            ensure_ascii=False,
+        ),
+    )
     fake_generator = MagicMock()
     fake_generator.model = "mock"
-    fake_generator.generate = AsyncMock(
-        return_value=MagicMock(
-            text=(
-                '{"episode":1,"title":"t",'
-                '"summary":"s","novel":{"title":"t","chapter":"1"},'
-                '"video_units":[{"unit_id":"E1U01",'
-                '"text":"@[主角] 推门",'
-                '"duration_seconds":8,"transition_to_next":"cut"}]}'
-            )
-        )
-    )
+    fake_generator.generate = AsyncMock()
 
-    gen = ScriptGenerator(reference_project, generator=fake_generator)
-    with (
-        patch.object(ScriptGenerator, "_fetch_video_capabilities", AsyncMock(return_value=None)),
-        patch.object(ScriptGenerator, "_resolve_supported_durations", return_value=[8]),
-    ):
-        with pytest.raises(ValueError, match="不在当前生效档位"):
-            await gen.generate(episode=1)
+    gen = ScriptGenerator(reference_project, generator=fake_generator, config_resolver=_stub_resolver(None))
+    with pytest.raises(ValueError, match="不在当前生效档位"):
+        await gen.generate(episode=1)
 
 
 @pytest.mark.asyncio
@@ -503,7 +491,7 @@ async def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
 
     设计意图：supported_durations 是单一真相源，必须由 caps（DB 全局默认）或 project.json 自报身份查 registry 提供；
     都拿不到才 fail loud，避免向 LLM 注入兜底 [4, 8] 误导生成。
-    用 mock 把 _fetch_video_capabilities 强制返 None，模拟无任何 model 配置的环境。
+    经 config_resolver seam 注入一个解析不可用的替身，模拟无任何 model 配置的环境。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
@@ -530,13 +518,9 @@ async def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
     drafts.mkdir(parents=True)
     (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
 
-    gen = ScriptGenerator(project_dir)
-    with patch(
-        "lib.script_generator.ScriptGenerator._fetch_video_capabilities",
-        new=AsyncMock(return_value=None),
-    ):
-        with pytest.raises(ValueError, match="supported_durations"):
-            await gen.build_prompt(episode=1)
+    gen = ScriptGenerator(project_dir, config_resolver=_stub_resolver(None))
+    with pytest.raises(ValueError, match="supported_durations"):
+        await gen.build_prompt(episode=1)
 
 
 @pytest.mark.asyncio
@@ -544,12 +528,8 @@ async def test_fetch_video_capabilities_swallows_db_errors(reference_project: Pa
     """CI 回归：裸测试容器缺 migration 时 ConfigResolver 会抛 OperationalError；
     _fetch_video_capabilities 必须 fallback 返 None，不让 generate() 崩溃。
     """
-    gen = ScriptGenerator(reference_project)
-    with patch(
-        "lib.script_generator.ConfigResolver.video_capabilities_for_project",
-        new=AsyncMock(side_effect=OperationalError("SELECT ...", {}, Exception("no such table: system_setting"))),
-    ):
-        caps = await gen._fetch_video_capabilities()
+    gen = ScriptGenerator(reference_project, config_resolver=_stub_resolver(None))
+    caps = await gen._fetch_video_capabilities()
     assert caps is None
 
 
@@ -635,14 +615,10 @@ async def test_reference_step1_rejects_out_of_enum_duration(reference_project: P
         encoding="utf-8",
     )
 
-    gen = ScriptGenerator(reference_project)
     # 固定能力来源为 project.json 自报身份查 registry（vidu2.0 → [4, 8]），隔离 DB 全局默认干扰
-    with patch(
-        "lib.script_generator.ScriptGenerator._fetch_video_capabilities",
-        new=AsyncMock(return_value=None),
-    ):
-        with pytest.raises(ValueError, match="时长非法"):
-            await gen.build_prompt(episode=1)
+    gen = ScriptGenerator(reference_project, config_resolver=_stub_resolver(None))
+    with pytest.raises(ValueError, match="时长非法"):
+        await gen.build_prompt(episode=1)
 
 
 @pytest.mark.asyncio
@@ -949,36 +925,36 @@ async def test_promote_step2_draft_rejects_schema_breach_with_report(reference_p
     assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
 
 
-def _tiers_by_reference_state(with_refs: list[int], without_refs: list[int]):
-    """按 uses_reference_images 分流的 _resolve_supported_durations 替身。"""
-
-    def _resolve(_self, _caps=None, *, gen_mode, uses_reference_images=None):  # noqa: ANN001
-        return with_refs if uses_reference_images else without_refs
-
-    return _resolve
-
-
 @pytest.mark.asyncio
-async def test_step2_duration_off_tier_after_merge_quarantines(reference_project: Path):
+async def test_step2_duration_off_tier_after_merge_quarantines(wide_tier_reference_project: Path):
     """合并之后才判出的档位越界同样落待修复草稿——这份展开已经付过费了。
 
-    step2 可以给 unit 增删 `@` 引用，生效档位随之换一套：step1 那个 4 秒的带图 unit 在展开时
-    丢掉了引用，档位就从 [4] 变成 [8]。这一判在 `_add_metadata` 里、在保结构 diff 之后，
-    不接住的话产物只存在于内存里，错误却让调用方重新生成。
+    step2 可以给 unit 增删 `@` 引用，生效档位随之换一套：step1 那个 2 秒的无引用 unit 在展开时
+    加进了引用，档位就从 1–16 秒收窄到 3–16 秒。参考图约束只做收窄，故「展开后才越界」只可能
+    发生在增加引用的方向上。这一判在 `_add_metadata` 里、在保结构 diff 之后，不接住的话产物
+    只存在于内存里，错误却让调用方重新生成。
     """
-    no_reference_text = "镜头1：中景，平视。他推开门，侧身跨过门槛。"
-    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(no_reference_text))
+    project = wide_tier_reference_project
+    _write_step1(
+        project,
+        _json.dumps({"units": [{"unit_id": "E1U01", "text": "他推门", "duration_seconds": 2}]}, ensure_ascii=False),
+    )
+    with_reference_text = "镜头1：中景，平视。@[主角] 推开门，侧身跨过门槛。"
+    gen = ScriptGenerator(
+        project,
+        generator=_fake_step2_generator(with_reference_text),
+        config_resolver=_stub_resolver({}),
+    )
 
-    with patch.object(ScriptGenerator, "_resolve_supported_durations", _tiers_by_reference_state([4], [8])):
-        with pytest.raises(DraftViolation) as excinfo:
-            await gen.generate(episode=1)
+    with pytest.raises(DraftViolation) as excinfo:
+        await gen.generate(episode=1)
 
     assert "生效档位" in str(excinfo.value)
-    assert not _script_path(reference_project).exists()
-    envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
+    assert not _script_path(project).exists()
+    envelope = _json.loads(_step2_quarantine(project).read_text(encoding="utf-8"))
     assert [v["code"] for v in envelope["violations"]] == ["duration_off_tier"]
-    # 草稿装的仍是 Agent 要改的那一层正文，改回 `@` 引用即可重新晋升
-    assert envelope["content"]["units"][0]["text"] == no_reference_text
+    # 草稿装的仍是 Agent 要改的那一层正文，去掉 `@` 引用即可重新晋升
+    assert envelope["content"]["units"][0]["text"] == with_reference_text
 
 
 @pytest.mark.asyncio
