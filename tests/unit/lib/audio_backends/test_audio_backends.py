@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -271,12 +273,25 @@ class TestDashScopeAudioBackend:
         assert not out.exists()
 
 
-def _mock_speech_client(content: bytes = b"RIFFwavbytes") -> AsyncMock:
-    speech_resp = MagicMock()
-    speech_resp.content = content
-    client = AsyncMock()
-    client.audio.speech.create = AsyncMock(return_value=speech_resp)
-    return client
+class _RecordingSpeechClient:
+    """OpenAI 兼容 TTS 客户端替身：记录每次 speech.create 的请求参数，回固定字节。
+
+    上线参数、落盘格式这些契约都是「发出去的请求长什么样」，断言落在 ``requests`` 里的
+    请求内容上，而不是替身的调用对象。
+    """
+
+    def __init__(self, content: bytes = b"RIFFwavbytes") -> None:
+        self.requests: list[dict[str, Any]] = []
+        self._response = SimpleNamespace(content=content)
+        self.audio = SimpleNamespace(speech=SimpleNamespace(create=self._create))
+
+    async def _create(self, **kwargs: Any) -> SimpleNamespace:
+        self.requests.append(kwargs)
+        return self._response
+
+
+def _mock_speech_client(content: bytes = b"RIFFwavbytes") -> _RecordingSpeechClient:
+    return _RecordingSpeechClient(content)
 
 
 class TestOpenAIAudioBackend:
@@ -289,7 +304,7 @@ class TestOpenAIAudioBackend:
             out = tmp_path / "o.wav"
             result = await b.synthesize(AudioSynthesisRequest(text="你好世界", output_path=out, voice="alloy"))
 
-        kwargs = mock_client.audio.speech.create.call_args.kwargs
+        kwargs = mock_client.requests[-1]
         assert kwargs["model"] == "tts-1"
         assert kwargs["input"] == "你好世界"
         assert kwargs["voice"] == "alloy"
@@ -367,12 +382,12 @@ class TestOpenAIAudioBackend:
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
             await b.synthesize(AudioSynthesisRequest(text="hi", output_path=tmp_path / "a.wav", voice="alloy"))
-            assert "speed" not in mock_client.audio.speech.create.call_args.kwargs
+            assert "speed" not in mock_client.requests[-1]
 
             await b.synthesize(
                 AudioSynthesisRequest(text="hi", output_path=tmp_path / "b.wav", voice="alloy", speed=1.5)
             )
-            assert mock_client.audio.speech.create.call_args.kwargs["speed"] == 1.5
+            assert mock_client.requests[-1]["speed"] == 1.5
 
     async def test_language_type_not_sent(self, tmp_path: Path):
         # /v1/audio/speech 无语种字段（DashScope 特有），不应混入请求
@@ -384,7 +399,7 @@ class TestOpenAIAudioBackend:
             await b.synthesize(
                 AudioSynthesisRequest(text="hi", output_path=tmp_path / "c.wav", voice="alloy", language_type="Chinese")
             )
-        kwargs = mock_client.audio.speech.create.call_args.kwargs
+        kwargs = mock_client.requests[-1]
         assert "language_type" not in kwargs
         assert "language" not in kwargs
 
@@ -395,7 +410,7 @@ class TestOpenAIAudioBackend:
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
             await b.synthesize(AudioSynthesisRequest(text="hi", output_path=tmp_path / "x.bin", voice="alloy"))
-        assert mock_client.audio.speech.create.call_args.kwargs["response_format"] == "wav"
+        assert mock_client.requests[-1]["response_format"] == "wav"
 
     async def test_empty_body_rejected_no_file_no_rebill(self, tmp_path: Path):
         # 200 + 空体：不落 0 字节文件、不重试（重试 = 再次计费）
@@ -408,7 +423,7 @@ class TestOpenAIAudioBackend:
             with pytest.raises(RuntimeError, match="空响应体"):
                 await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="alloy"))
 
-        assert mock_client.audio.speech.create.call_count == 1
+        assert len(mock_client.requests) == 1
         assert not out.exists()
 
     async def test_write_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
@@ -426,4 +441,4 @@ class TestOpenAIAudioBackend:
                 with patch.object(type(req.output_path), "write_bytes", side_effect=OSError("Connection timed out")):
                     await b.synthesize(req)
 
-        assert mock_client.audio.speech.create.call_count == 1, "写盘失败不得重跑计费的合成调用"
+        assert len(mock_client.requests) == 1, "写盘失败不得重跑计费的合成调用"
