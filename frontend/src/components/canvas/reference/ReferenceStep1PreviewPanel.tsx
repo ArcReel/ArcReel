@@ -320,6 +320,10 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
 
   const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
 
+  const handleSaved = useCallback(() => {
+    setEditingUnitKey(null);
+  }, []);
+
   const handleConfirmed = useCallback(() => {
     // 保存 / 确认两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目
     // 本身变了才抑制全局副作用，否则会把续写消息写进用户切换到的别的项目/会话。同项目内切
@@ -349,6 +353,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     projectName,
     episode,
     selectContent: selectUnitsContent,
+    onSaved: handleSaved,
     onConfirmed: handleConfirmed,
   });
 

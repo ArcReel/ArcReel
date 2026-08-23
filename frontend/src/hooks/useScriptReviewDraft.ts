@@ -29,6 +29,8 @@ interface ScriptReviewDraftOptions<TDraft extends ScriptReviewContent> {
    * 须是稳定引用（模块级函数或 `useCallback`）——它参与拉取 effect 的依赖。
    */
   selectContent: (state: ScriptReviewState) => TDraft | null;
+  /** 显式保存成功后的面板专属处理；保存失败时不调用。 */
+  onSaved?: () => void;
   /** 确认成功后的面板专属处理（含成功提示）；失败提示由本 hook 统一给出。 */
   onConfirmed: () => void;
 }
@@ -60,6 +62,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   projectName,
   episode,
   selectContent,
+  onSaved,
   onConfirmed,
 }: ScriptReviewDraftOptions<TDraft>): ScriptReviewDraftHandle<TDraft> {
   const { t } = useTranslation("dashboard");
@@ -166,13 +169,14 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     setSaving(true);
     try {
       adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
+      onSaved?.();
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {
       setSaving(false);
     }
-  }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
+  }, [draft, baseFingerprint, projectName, episode, adopt, onSaved, pushToast, t]);
 
   const confirm = useCallback(async () => {
     setConfirming(true);

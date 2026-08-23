@@ -232,6 +232,24 @@ describe("ReferenceStep1PreviewPanel", () => {
     });
     // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
     expect(baseFingerprint).toBe("fp1");
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "E1U01 正文" })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "编辑文稿" })).toBeInTheDocument();
+  });
+
+  it("keeps the unit in edit mode when saving fails", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockRejectedValue(new Error("保存失败"));
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    const textarea = await screen.findByDisplayValue("@[阿离] 撑伞走过 @[长街]");
+    fireEvent.change(textarea, { target: { value: "@[阿离] 缓步走过 @[长街]" } });
+
+    fireEvent.click(await screen.findByText("保存"));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(textarea).not.toBeDisabled());
+    expect(screen.getByRole("button", { name: "完成编辑" })).toBeInTheDocument();
   });
 
   it("renders the spoken-line count in the unit header", async () => {
@@ -323,7 +341,8 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(select).toBeDisabled();
 
     resolveSave(pendingState());
-    await waitFor(() => expect(textarea).not.toBeDisabled());
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "E1U01 正文" })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "编辑文稿" })).toBeInTheDocument();
   });
 
   it("picks the with-references duration tier for a unit that carries references", async () => {
