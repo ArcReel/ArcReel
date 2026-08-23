@@ -49,7 +49,7 @@ from lib.asset_types import (
     resolve_asset_key,
     validate_asset_name,
 )
-from lib.async_thread import EventLoopBridge, run_noninterruptible_sync
+from lib.async_thread import EventLoopBridge, run_noninterruptible_async, run_noninterruptible_sync
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
@@ -147,6 +147,7 @@ from server.services.generation_context import (
     VideoLaneRequest,
     resolve_generation_context,
 )
+from server.services.global_asset_candidates import register_linked_character_image_candidate
 from server.services.image_artifact_currency import (
     OptimisticMappingMemberPatch,
     OptimisticMappingPatch,
@@ -1307,7 +1308,7 @@ async def _run_asset_sheet_image_task(
             basis=basis,
         )
 
-    return await _run_formal_image_task(
+    result = await _run_formal_image_task(
         project_name=project_name,
         payload=payload,
         project=project,
@@ -1324,6 +1325,22 @@ async def _run_asset_sheet_image_task(
             finalize=_finalize,
         ),
     )
+    if asset_type == "character":
+        try:
+            await run_noninterruptible_async(
+                register_linked_character_image_candidate(
+                    project_name,
+                    resource_id,
+                    sheet_path,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "failed to register linked global image candidate project=%s character=%s",
+                project_name,
+                resource_id,
+            )
+    return result
 
 
 def _episode_from_script(script: dict[str, Any] | None) -> int | None:
