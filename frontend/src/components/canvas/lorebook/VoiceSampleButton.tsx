@@ -145,7 +145,7 @@ export function VoiceSampleButton({
   };
 
   const close = () => {
-    if (generating || confirming) return;
+    if (confirming) return;
     setOpen(false);
     setIsPreviewPlaying(false);
   };
@@ -172,6 +172,10 @@ export function VoiceSampleButton({
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }
+    // Generation and audio extraction are background work. Dismiss the editor
+    // immediately after client-side validation instead of pinning the user to a
+    // modal while the enqueue request or worker task is in progress.
+    setOpen(false);
     setLocalSubmitting(true);
     setTaskId(null);
     setLastSeenTask(null);
@@ -232,8 +236,8 @@ export function VoiceSampleButton({
         onClose={close}
         labelledBy={titleId}
         describedBy={descId}
-        closeOnBackdrop={!generating && !confirming}
-        closeOnEscape={!generating && !confirming}
+        closeOnBackdrop={!confirming}
+        closeOnEscape={!confirming}
       >
         <div className="p-5">
           <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight" style={{ color: "var(--color-text)" }}>
@@ -335,7 +339,7 @@ export function VoiceSampleButton({
           )}
 
           <div className="mt-4 flex items-center justify-end gap-2">
-            <button type="button" onClick={close} disabled={generating || confirming} className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium disabled:cursor-not-allowed disabled:opacity-50" style={{ color: "var(--color-text-2)" }}>
+            <button type="button" onClick={close} disabled={confirming} className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium disabled:cursor-not-allowed disabled:opacity-50" style={{ color: "var(--color-text-2)" }}>
               {t("common:cancel")}
             </button>
             {succeeded && (

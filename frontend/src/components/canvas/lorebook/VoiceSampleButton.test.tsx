@@ -43,17 +43,21 @@ describe("VoiceSampleButton", () => {
     expect(screen.getByRole("button", { name: "生成角色参考音频" })).not.toBeDisabled();
   });
 
-  it("submits the default video strategy through the generation action", async () => {
+  it("closes immediately while submitting the default video strategy in the background", async () => {
     configure(["video"]);
     noCandidate();
-    const enqueue = vi.spyOn(generationActions, "enqueueCharacterVoiceSample").mockResolvedValue({
-      taskIds: ["task-video"],
-      deduped: false,
-    });
+    let resolveEnqueue: ((value: { taskIds: string[]; deduped: boolean }) => void) | undefined;
+    const enqueue = vi.spyOn(generationActions, "enqueueCharacterVoiceSample").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveEnqueue = resolve;
+        }),
+    );
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "生成角色参考音频" }));
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
 
+    expect(screen.queryByRole("heading", { name: "生成语音参考样本" })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(enqueue).toHaveBeenCalledWith(
         "demo",
@@ -61,6 +65,15 @@ describe("VoiceSampleButton", () => {
         expect.objectContaining({ strategy: "video", text: expect.stringContaining("艾莉") }),
       );
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "生成角色参考音频" }));
+    expect(screen.getByRole("heading", { name: "生成语音参考样本" })).toBeInTheDocument();
+    const cancel = screen.getByRole("button", { name: "取消" });
+    expect(cancel).not.toBeDisabled();
+    fireEvent.click(cancel);
+    expect(screen.queryByRole("heading", { name: "生成语音参考样本" })).not.toBeInTheDocument();
+
+    resolveEnqueue?.({ taskIds: ["task-video"], deduped: false });
   });
 
   it("preserves TTS as an optional mode and submits its selected voice", async () => {
