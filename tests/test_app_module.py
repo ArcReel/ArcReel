@@ -29,6 +29,11 @@ class _FakeWorker:
 
 
 class TestAppModule:
+    def test_lifespan_project_manager_uses_isolated_test_data_root(self, tmp_path):
+        from lib.project_manager import get_project_manager
+
+        assert get_project_manager().projects_root == (tmp_path / "app-data").resolve()
+
     def test_create_generation_worker(self, monkeypatch):
         worker = _FakeWorker()
         monkeypatch.setattr(app_module, "GenerationWorker", lambda: worker)

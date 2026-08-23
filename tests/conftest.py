@@ -163,6 +163,17 @@ def _profile_env(monkeypatch, tmp_path):
     Tests that explicitly need profile-missing / empty scenarios still work because
     they ``setenv`` to a different path under tmp_path.
     """
+    # Lifespan tests call ``sync_all_agent_profiles``.  The profile and project
+    # roots must therefore move together: pairing this per-test profile with the
+    # process-wide production ProjectManager can otherwise prune real project
+    # files as if the minimal test profile were a shipped upgrade.
+    from lib.app_data_dir import _reset_for_tests as _reset_app_data_dir_for_tests
+    from lib.project_manager import _reset_project_manager_for_tests
+
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "app-data"))
+    _reset_app_data_dir_for_tests()
+    _reset_project_manager_for_tests()
+
     profile_dir = tmp_path / "agent_runtime_profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
     # 仅 touch 顶层 CLAUDE.md（最少 1 个可同步文件以避开 ProfileEmptyError）。
@@ -170,6 +181,9 @@ def _profile_env(monkeypatch, tmp_path):
     # 不撞 FileExistsError；那些测试自己会构造完整 profile 内容。
     (profile_dir / "CLAUDE.md").write_text("")
     monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
+    yield
+    _reset_project_manager_for_tests()
+    _reset_app_data_dir_for_tests()
 
 
 @pytest.fixture()
