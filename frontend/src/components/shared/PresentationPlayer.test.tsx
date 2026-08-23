@@ -7,14 +7,6 @@ import type { ProjectData } from "@/types";
 import type { PresentationReadModel } from "@/types/presentation";
 import { PresentationPlayer } from "./PresentationPlayer";
 
-vi.mock("@/api", () => ({
-  API: {
-    getPresentation: vi.fn(),
-    getFileUrl: vi.fn((_project: string, path: string) => `/media/${path}`),
-    downloadPresentationBundle: vi.fn(),
-  },
-}));
-
 const post: PresentationReadModel = {
   schema_version: 1,
   provenance: "verified",
@@ -76,10 +68,10 @@ const tts: PresentationReadModel = {
 describe("PresentationPlayer", () => {
   beforeEach(() => {
     useProjectsStore.setState({ assetFingerprints: {}, projectSnapshotRevisions: {} });
-    vi.mocked(API.getPresentation).mockImplementation(async (_project, _type, _id, options) =>
+    vi.spyOn(API, "getPresentation").mockImplementation(async (_project, _type, _id, options) =>
       options?.variant === "use_tts" ? tts : post,
     );
-    vi.mocked(API.downloadPresentationBundle).mockResolvedValue({
+    vi.spyOn(API, "downloadPresentationBundle").mockResolvedValue({
       blob: new Blob(["zip"]),
       filename: "presentation.zip",
     });
@@ -94,7 +86,10 @@ describe("PresentationPlayer", () => {
     );
 
     const video = await screen.findByLabelText("E1S01 成片预览");
-    expect(video).toHaveAttribute("src", "/media/versions/videos/E1S01_v3.mp4");
+    expect(video).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/versions/videos/E1S01_v3.mp4?v=sha256-v1%3Avideo",
+    );
     expect(video).toHaveProperty("muted", true);
     await waitFor(() => expect(video).toHaveProperty("volume", 0));
     Object.defineProperty(video, "muted", { configurable: true, writable: true, value: false });
@@ -128,7 +123,10 @@ describe("PresentationPlayer", () => {
     expect(screen.getByText("当前版本")).toBeInTheDocument();
     expect(screen.getByText("与当前内容一致")).toBeInTheDocument();
     expect(video).toHaveProperty("muted", false);
-    expect(audio).toHaveAttribute("src", "/media/versions/audio/E1S01_v2.wav");
+    expect(audio).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/versions/audio/E1S01_v2.wav?v=sha256-v1%3Aaudio",
+    );
     fireEvent.play(video);
     await waitFor(() => expect(play).toHaveBeenCalled());
 
@@ -186,7 +184,7 @@ describe("PresentationPlayer", () => {
   });
 
   it("keeps TTS at unity when the provider track is explicitly disabled", async () => {
-    vi.mocked(API.getPresentation).mockResolvedValue({
+    vi.spyOn(API, "getPresentation").mockResolvedValue({
       ...tts,
       video: { ...tts.video, audio_enabled: false, gain: 0 },
     });
@@ -247,7 +245,7 @@ describe("PresentationPlayer", () => {
   });
 
   it("keeps rendition recovery available when a TTS presentation cannot be built", async () => {
-    vi.mocked(API.getPresentation).mockImplementation(async (_project, _type, _id, options) => {
+    vi.spyOn(API, "getPresentation").mockImplementation(async (_project, _type, _id, options) => {
       if (options?.variant === "use_tts") throw new Error("TTS unavailable");
       return post;
     });
@@ -286,7 +284,7 @@ describe("PresentationPlayer", () => {
   it("discards a late response after the requested unit changes", async () => {
     let resolveFirst: ((value: PresentationReadModel) => void) | undefined;
     let resolveSecond: ((value: PresentationReadModel) => void) | undefined;
-    vi.mocked(API.getPresentation).mockImplementation(
+    vi.spyOn(API, "getPresentation").mockImplementation(
       (_project, _type, id) =>
         new Promise<PresentationReadModel>((resolve) => {
           if (id === "E1S01") resolveFirst = resolve;
@@ -305,17 +303,12 @@ describe("PresentationPlayer", () => {
       unit_id: "E1S02",
       video: { ...post.video, artifact_path: "versions/videos/E1S02_v1.mp4" },
     });
-    expect(await screen.findByLabelText("E1S02 成片预览")).toHaveAttribute(
-      "src",
-      "/media/versions/videos/E1S02_v1.mp4",
-    );
+    const secondUrl = "/api/v1/files/demo/versions/videos/E1S02_v1.mp4?v=sha256-v1%3Avideo";
+    expect(await screen.findByLabelText("E1S02 成片预览")).toHaveAttribute("src", secondUrl);
 
     resolveFirst?.(post);
     await waitFor(() => {
-      expect(screen.getByLabelText("E1S02 成片预览")).toHaveAttribute(
-        "src",
-        "/media/versions/videos/E1S02_v1.mp4",
-      );
+      expect(screen.getByLabelText("E1S02 成片预览")).toHaveAttribute("src", secondUrl);
     });
     expect(screen.queryByLabelText("E1S01 成片预览")).not.toBeInTheDocument();
   });
