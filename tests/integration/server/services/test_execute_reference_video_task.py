@@ -1,3 +1,5 @@
+"""Tests for execute_reference_video_task."""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,133 +7,33 @@ import json
 import threading
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
-from functools import partial
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from lib.reference_video.request_projection import resolve_reference_assets
-from lib.reference_video.voice_settings import VoiceRenderSettings
-from lib.script_models import ReferenceResource
-from server.services.reference_video_tasks import (
-    FALLBACK_UNIT_DURATION,
-    ProjectDurationContext,
-    _clamp_resolved_reference_images,
-    _render_unit_prompt,
-    default_unit_duration,
-    effective_reference_durations,
+from tests.integration.server.services.reference_video_tasks_support import (
+    _TINY_PNG,
+    _register_asset_sheet,
+    _write_project,
 )
 
 
-def _load_project_and_unit(proj_dir: Path, unit_id: str) -> tuple[dict, dict]:
-    project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
-    script = json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-    unit = next(u for u in script["video_units"] if u["unit_id"] == unit_id)
-    return project, unit
+def _wire_locked_script(fake_pm: MagicMock) -> None:
+    """让 fake_pm.locked_script 产出磁盘上的真实剧本 dict。
 
-
-_TINY_PNG = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
-    b"\x08\x02\x00\x00\x00&\x93\t)\x00\x00\x00\x13IDATx\x9cc<\x91b\xc4\x00"
-    b"\x03Lp\x16^\x0e\x00E\xf6\x01f\xac\xf5\x15\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
-)
-
-
-def _write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
-    project = {
-        "title": "T",
-        "content_mode": "narration",
-        "generation_mode": "reference_video",
-        "style": "s",
-        "characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}},
-        "scenes": {"酒馆": {"description": "x", "scene_sheet": "scenes/酒馆.png"}},
-        "props": {},
-        "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
-    }
-    script = {
-        "episode": 1,
-        "title": "E1",
-        "content_mode": "narration",
-        "generation_mode": "reference_video",
-        "summary": "x",
-        "novel": {"title": "t", "chapter": "c"},
-        "duration_seconds": 8,
-        "video_units": [
-            {
-                "unit_id": "E1U1",
-                "text": "@张三 推门，走进 @酒馆",
-                "duration_seconds": 3,
-                "transition_to_next": "cut",
-                "note": None,
-                "generated_assets": {
-                    "storyboard_image": None,
-                    "storyboard_last_image": None,
-                    "grid_id": None,
-                    "grid_cell_index": None,
-                    "video_clip": None,
-                    "video_uri": None,
-                    "status": "pending",
-                },
-            },
-        ],
-    }
-    proj_dir = tmp_path / "demo"
-    proj_dir.mkdir()
-    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    (proj_dir / "scripts").mkdir()
-    (proj_dir / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-    (proj_dir / "characters").mkdir()
-    (proj_dir / "characters" / "张三.png").write_bytes(_TINY_PNG)
-    (proj_dir / "scenes").mkdir()
-    (proj_dir / "scenes" / "酒馆.png").write_bytes(_TINY_PNG)
-    _activate_project_manifest(proj_dir, register_script=register_script)
-    return proj_dir
-
-
-def _register_asset_sheet(proj_dir: Path, asset_type: str, name: str, relative_path: str) -> None:
-    """把新增资产补成生产形态：sheet 文件在盘上，且在产物清单里登记。
-
-    调用前 project.json 必须已经写盘并带上该资产的 sheet 指针——清单登记的依据来自
-    project.json 的当前指针，只改内存里的 project 副本不构成一个可登记的资产。
+    finalize 写回 unit 资产时会在剧本中查找 unit 并在缺失时抛 KeyError，
+    裸 MagicMock 的 script.get("video_units") 不是 list 会直接炸。
     """
+    proj_dir = fake_pm.get_project_path.return_value
 
-    from lib.artifact_activation import register_current_artifact
-    from lib.artifact_manifest import ArtifactKey
+    @contextmanager
+    def _locked(_name, script_file, *, validate=True):
+        yield json.loads((proj_dir / script_file).read_text(encoding="utf-8"))
 
-    path = proj_dir / relative_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        path.write_bytes(_TINY_PNG)
-    register_current_artifact(proj_dir, ArtifactKey.asset_sheet(asset_type, name))
-
-
-def _activate_project_manifest(proj_dir: Path, *, register_script: bool = True) -> None:
-    """Activate the fixture through the production v7 -> v8 boundary, then finish the chain."""
-
-    from lib.artifact_activation import activate_artifact_target_state
-    from lib.artifact_manifest import (
-        ArtifactBasis,
-        ArtifactKey,
-        ArtifactManifest,
-        ProjectArtifactManifestAdapter,
-    )
-
-    project_path = proj_dir / "project.json"
-    project = json.loads(project_path.read_text(encoding="utf-8"))
-    project["schema_version"] = 7
-    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    assert activate_artifact_target_state(proj_dir, bump_schema=True) is True
-    # 清单激活只落到 v8；产物读写要求当前 schema，故补齐剩余迁移。
-    migrate_v8_to_v9(proj_dir)
-    if register_script:
-        ArtifactManifest(ProjectArtifactManifestAdapter(proj_dir)).register(
-            ArtifactKey.episode_script(1),
-            artifact_path="scripts/episode_1.json",
-            basis=ArtifactBasis.build("test/episode-script", kind_version=1, inputs={}),
-        )
+    fake_pm.locked_script.side_effect = _locked
 
 
 def _wire_context(
@@ -224,314 +126,6 @@ def _wire_context(
         return GenerationContext(generator=fake_generator, video_lane=lane, audio_lane=audio_lane)
 
     monkeypatch.setattr(rvt, "resolve_generation_context", _fake_resolve)
-
-
-def _wire_locked_script(fake_pm: MagicMock) -> None:
-    """让 fake_pm.locked_script 产出磁盘上的真实剧本 dict。
-
-    finalize 写回 unit 资产时会在剧本中查找 unit 并在缺失时抛 KeyError，
-    裸 MagicMock 的 script.get("video_units") 不是 list 会直接炸。
-    """
-    proj_dir = fake_pm.get_project_path.return_value
-
-    @contextmanager
-    def _locked(_name, script_file, *, validate=True):
-        yield json.loads((proj_dir / script_file).read_text(encoding="utf-8"))
-
-    fake_pm.locked_script.side_effect = _locked
-
-
-def _resolved_names(project: dict, proj_dir: Path, text: str) -> list[str]:
-    return [asset.path.name for asset in resolve_reference_assets(project, proj_dir, {"text": text})]
-
-
-def test_resolve_reference_assets_maps_sheets(tmp_path: Path):
-    proj_dir = _write_project(tmp_path)
-    project, unit = _load_project_and_unit(proj_dir, "E1U1")
-    assert _resolved_names(project, proj_dir, unit["text"]) == ["张三.png", "酒馆.png"]
-
-
-def test_product_reference_uses_its_sheet_without_type_priority(tmp_path: Path):
-    """商品与其它资产同一条规则：有资产图就只用资产图，且不排到提及顺序之前。"""
-    proj_dir = _write_project(tmp_path)
-    project, _unit = _load_project_and_unit(proj_dir, "E1U1")
-    products_dir = proj_dir / "products"
-    refs_dir = products_dir / "refs"
-    refs_dir.mkdir(parents=True)
-    image = (proj_dir / "characters" / "张三.png").read_bytes()
-    for filename in ("甲-sheet.png", "甲-original.png"):
-        target_dir = refs_dir if "original" in filename else products_dir
-        (target_dir / filename).write_bytes(image)
-    project["products"] = {
-        "商品甲": {
-            "description": "x",
-            "product_sheet": "products/甲-sheet.png",
-            "reference_images": ["products/refs/甲-original.png"],
-        },
-    }
-    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
-
-    assert _resolved_names(project, proj_dir, "@[张三] 拿起 @[商品甲]") == ["张三.png", "甲-sheet.png"]
-
-
-def test_clamp_keeps_the_first_mentions_without_type_priority(tmp_path: Path):
-    """超上限时按正文提及顺序截断，并附一条超限 warning。"""
-    proj_dir = _write_project(tmp_path)
-    project, _unit = _load_project_and_unit(proj_dir, "E1U1")
-    products_dir = proj_dir / "products"
-    products_dir.mkdir(exist_ok=True)
-    image = (proj_dir / "characters" / "张三.png").read_bytes()
-    (products_dir / "甲-sheet.png").write_bytes(image)
-    project["products"] = {"商品甲": {"description": "x", "product_sheet": "products/甲-sheet.png"}}
-    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "product", "商品甲", "products/甲-sheet.png")
-
-    entries = list(resolve_reference_assets(project, proj_dir, {"text": "@[张三] 在 @[酒馆] 拿起 @[商品甲]"}))
-    clamped, warnings = _clamp_resolved_reference_images(
-        entries,
-        2,
-        provider="custom-openai",
-        model="video-model",
-    )
-
-    assert [entry.path.name for entry in clamped] == ["张三.png", "酒馆.png"]
-    assert warnings == [
-        {
-            "key": "ref_too_many_images",
-            "params": {"count": 3, "model": "video-model", "max_count": 2},
-        }
-    ]
-
-
-def test_product_reference_with_original_only_is_executable(tmp_path: Path):
-    """尚无标准 sheet 的商品仍以实拍原图作为保真锚点，不被误判为缺图。"""
-    proj_dir = _write_project(tmp_path)
-    project, _unit = _load_project_and_unit(proj_dir, "E1U1")
-    refs_dir = proj_dir / "products" / "refs"
-    refs_dir.mkdir(parents=True)
-    (refs_dir / "original.png").write_bytes((proj_dir / "characters" / "张三.png").read_bytes())
-    project["products"] = {
-        "商品甲": {
-            "product_sheet": "",
-            "reference_images": ["products/refs/original.png"],
-        }
-    }
-
-    entries = resolve_reference_assets(project, proj_dir, {"text": "@[商品甲] 出现"})
-
-    assert [entry.path.name for entry in entries] == ["original.png"]
-    assert entries[0].kind == "original"
-
-
-def test_resolve_reference_assets_ignores_an_unregistered_mention(tmp_path: Path):
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
-
-    assert _resolved_names(project, proj_dir, "@[不存在的道具] 掉在地上") == []
-
-
-def test_resolve_reference_assets_resolves_nfd_registered_name_by_nfc_mention(tmp_path: Path):
-    """资产以 NFD key 登记、正文写的是解析器归一后的 NFC 名字：解析须仍能命中。"""
-    import unicodedata
-
-    name_nfc = unicodedata.normalize("NFC", "Hiếu")
-    name_nfd = unicodedata.normalize("NFD", "Hiếu")
-    assert name_nfc != name_nfd
-
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
-    project["characters"][name_nfd] = {"description": "x", "character_sheet": "characters/hieu.png"}
-    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "character", name_nfd, "characters/hieu.png")
-
-    assert _resolved_names(project, proj_dir, f"@[{name_nfc}] 推门") == ["hieu.png"]
-
-
-def test_resolve_reference_assets_dedupes_a_repeated_mention(tmp_path: Path):
-    """同一资产在正文里被提及两次只占一个参考图名额，不给 provider 发重复图片。"""
-    import unicodedata
-
-    name_nfc = unicodedata.normalize("NFC", "Hiếu")
-    name_nfd = unicodedata.normalize("NFD", "Hiếu")
-    assert name_nfc != name_nfd
-
-    proj_dir = _write_project(tmp_path)
-    project, _ = _load_project_and_unit(proj_dir, "E1U1")
-    project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
-    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    _register_asset_sheet(proj_dir, "character", name_nfc, "characters/hieu.png")
-
-    assert _resolved_names(project, proj_dir, f"@[{name_nfc}] 推门，@[{name_nfd}] 回头") == ["hieu.png"]
-
-
-def test_render_unit_prompt_rejects_empty_text():
-    """执行层保留一道防御性空检查：提示词源是可变 script、执行期重读，结构校验上移到
-    入队守卫点后仍需挡住「入队后被改空 / 在途遗留任务」漏过的空提示词，避免尾词追加后
-    被当成有效 prompt 提交给付费 backend。"""
-    with pytest.raises(ValueError, match="empty"):
-        _render_unit_prompt(
-            {"text": "   \n  "},
-            {},
-            VoiceRenderSettings(model_id="m", audio_ready=set()),
-        )
-
-
-def test_render_unit_prompt_binds_subjects_in_first_mention_order():
-    unit = {"text": "镜头1：@张三 推门\n镜头2：对面的 @张三 抬眼，背景是 @酒馆"}
-    project = {"characters": {"张三": {}}, "scenes": {"酒馆": {}}}
-    rendered = _render_unit_prompt(
-        unit,
-        project,
-        VoiceRenderSettings(model_id="m", audio_ready=set()),
-    )
-    assert "<张三>@图片1、<酒馆>@图片2。" in rendered.prompt
-    assert "@张三" not in rendered.prompt
-    assert "[图1]" not in rendered.prompt
-
-
-def test_render_unit_prompt_binds_all_product_images_and_adds_fidelity_guard():
-    rendered = _render_unit_prompt(
-        {"text": "镜头1：@[商品甲] 出现在画面中央"},
-        {"products": {"商品甲": {}}},
-        VoiceRenderSettings(model_id="m", audio_ready=set()),
-        request_references=[
-            ReferenceResource(type="product", name="商品甲"),
-            ReferenceResource(type="product", name="商品甲"),
-        ],
-    )
-
-    assert "<商品甲>@图片1、<商品甲>@图片2。" in rendered.prompt
-    assert "商品高保真还原（最高优先级" in rendered.prompt
-
-
-def test_effective_reference_durations_applies_reference_constraint_only_when_images_sent():
-    """参考图约束只在确实带图时施加：backend 同样只在 reference_images 非空时施加它。"""
-    narrow = partial(effective_reference_durations, "gemini-aistudio", "veo-3.1-generate-preview", [4, 6, 8], "720p")
-    # Veo 3.1 全局支持 [4, 6, 8]，带参考图时只接受 8 秒
-    assert narrow(with_reference_images=True) == [8]
-    # 无图单元（通用路径允许空 references、ad 缺图退化为纯文本）：720p 纯文本路径仍是全集
-    assert narrow(with_reference_images=False) == [4, 6, 8]
-    # 未登记型号（中转站 / 自定义供应商包装）无声明可依：退回原全集，不比收窄前更严
-    assert effective_reference_durations(
-        "gemini-aistudio", "veo-3.1-via-relay", [4, 6, 8], "720p", with_reference_images=True
-    ) == [4, 6, 8]
-
-
-async def test_project_video_resolution_falls_back_like_executor(monkeypatch: pytest.MonkeyPatch):
-    """未显式配置分辨率时预检取 provider fallback，与执行层的 resolution_or_fallback 同源。
-
-    停在 None 会漏掉「按 fallback 分辨率才生效」的档位约束：Veo 未配分辨率时执行层按 1080p
-    下发、只接受 8 秒，预检却按全集判 6 秒为档位成员而不弹确认——成片比剧本长且没问过用户。
-    """
-    from server.services import reference_video_tasks as rvt
-
-    class _FakeResolver:
-        def __init__(self, *_a, **_kw):
-            pass
-
-        async def resolve_resolution(self, *_a, **_kw):
-            return None
-
-    monkeypatch.setattr(rvt, "ConfigResolver", _FakeResolver)
-    assert await rvt._project_video_resolution({}, "gemini-aistudio", "veo-3.1-generate-preview") == "1080p"
-
-
-async def test_resolve_project_duration_context_resolves_caps_and_resolution_once(monkeypatch: pytest.MonkeyPatch):
-    """项目能力与分辨率各只解析一次：批量预检把这次结果复用给每个 unit。"""
-    from server.services import reference_video_tasks as rvt
-
-    caps_calls = 0
-    resolution_calls = 0
-
-    async def fake_caps(_project, *, degraded_to, capability=None, episode=None):
-        nonlocal caps_calls
-        caps_calls += 1
-        return {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview", "supported_durations": [4, 6, 8]}
-
-    async def fake_resolution(_project, _provider_id, _model_id):
-        nonlocal resolution_calls
-        resolution_calls += 1
-        return "720p"
-
-    monkeypatch.setattr(rvt, "project_video_caps", fake_caps)
-    monkeypatch.setattr(rvt, "_project_video_resolution", fake_resolution)
-
-    ctx = await rvt.resolve_project_duration_context({})
-
-    assert caps_calls == 1
-    assert resolution_calls == 1
-    assert ctx == ProjectDurationContext(
-        supported_durations=(4, 6, 8),
-        resolution="720p",
-        provider_id="gemini-aistudio",
-        model_name="veo-3.1-generate-preview",
-    )
-
-
-async def test_resolve_project_duration_context_skips_resolution_when_no_durations(monkeypatch: pytest.MonkeyPatch):
-    """档位不可解析时分辨率也不解析——空档位下分辨率约束无意义，省一趟 IO。"""
-    from server.services import reference_video_tasks as rvt
-
-    resolution_calls = 0
-
-    async def fake_caps(_project, *, degraded_to, capability=None, episode=None):
-        return {}
-
-    async def fake_resolution(*_a, **_kw):
-        nonlocal resolution_calls
-        resolution_calls += 1
-        return "720p"
-
-    monkeypatch.setattr(rvt, "project_video_caps", fake_caps)
-    monkeypatch.setattr(rvt, "_project_video_resolution", fake_resolution)
-
-    ctx = await rvt.resolve_project_duration_context({})
-
-    assert resolution_calls == 0
-    assert ctx.supported_durations == ()
-    assert ctx.resolution is None
-
-
-def test_default_unit_duration_narrows_by_references():
-    """新建 unit 若已带 references，默认时长要按参考图约束收窄——否则会给出一个立刻被
-    请求投影打回、要求用户确认的默认值——两处判据须保持一致。"""
-    ctx = ProjectDurationContext(
-        supported_durations=(4, 6, 8),
-        resolution="720p",
-        provider_id="gemini-aistudio",
-        model_name="veo-3.1-generate-preview",
-    )
-    project = {}
-    # 不带参考图：720p 纯文本路径仍是全集，首档 4 秒。
-    assert default_unit_duration(ctx, project, with_references=False) == 4
-    # 带参考图：Veo 3.1 720p 带图仅接受 8 秒，默认值须落在这个收窄后的集合内。
-    assert default_unit_duration(ctx, project, with_references=True) == 8
-
-
-def test_default_unit_duration_falls_back_when_tiers_unavailable():
-    """档位解析失败（supported_durations 为空）时直接退到兜底值——档位缺位下无从校验
-    偏好是否可申请，不采信项目偏好。"""
-    ctx = ProjectDurationContext(
-        supported_durations=(),
-        resolution=None,
-        provider_id="gemini-aistudio",
-        model_name=None,
-    )
-    assert default_unit_duration(ctx, {"default_duration": 120}, with_references=False) == FALLBACK_UNIT_DURATION
-    assert default_unit_duration(ctx, {"default_duration": 12}, with_references=False) == FALLBACK_UNIT_DURATION
-
-
-def test_default_unit_duration_takes_min_of_unordered_custom_tiers():
-    """自定义供应商声明的档位可能不按升序排列（如 [8, 4]）：取最小值而非第一项，
-    否则默认值会比前端下拉展示的首选项（升序排序后的最短档位）更贵。"""
-    ctx = ProjectDurationContext(
-        supported_durations=(8, 4),
-        resolution=None,
-        provider_id="gemini-aistudio",
-        model_name="veo-3.1-via-relay",  # 未登记型号：不施加约束，原样传递声明顺序
-    )
-    assert default_unit_duration(ctx, {}, with_references=False) == 4
 
 
 @pytest.mark.asyncio
@@ -2023,7 +1617,6 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     from lib.reference_video.request_projection import (
         ProviderProjectionCandidate,
         clamp_reference_assets,
-        resolve_reference_assets,
     )
     from server.services.narration_delivery_tasks import reference_video_visual_basis_digest
 
@@ -2050,75 +1643,6 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
         candidate=expected_candidate,
     )
     assert captured["visual_basis_digest"] == expected_digest
-
-
-def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Path) -> None:
-    from lib.reference_video.request_projection import ProviderProjectionCandidate, resolve_reference_assets
-    from server.services.narration_delivery_tasks import reference_video_visual_basis_digest
-
-    proj_dir = _write_project(tmp_path)
-    project, unit = _load_project_and_unit(proj_dir, "E1U1")
-    project["characters"]["张三"].update(
-        {
-            "voice_style": "低沉男声",
-            "reference_audio": "characters/refs_audio/张三.wav",
-        }
-    )
-    project["characters"]["李四"] = {
-        "description": "x",
-        "character_sheet": "characters/张三.png",
-        "voice_style": "清亮女声",
-        "reference_audio": "characters/refs_audio/李四.wav",
-    }
-    unit["text"] = "@[张三] 站在门口。\n@[张三]：{出发。}"
-    audio_dir = proj_dir / "characters" / "refs_audio"
-    audio_dir.mkdir(parents=True)
-    used_audio = audio_dir / "张三.wav"
-    unrelated_audio = audio_dir / "李四.wav"
-    used_audio.write_bytes(b"used-v1")
-    unrelated_audio.write_bytes(b"unrelated-v1")
-    candidate = ProviderProjectionCandidate(
-        capability="r2v",
-        provider_id="ark",
-        model_id="doubao-seedance-2-0-260128",
-        supported_durations=(4, 8, 12),
-        max_reference_images=9,
-        resolution="1080p",
-        generate_audio=True,
-        requested_generate_audio=True,
-        has_audio_track=True,
-        audio_switch_controllable=True,
-        voice_consistency="native",
-        max_reference_audio_count=3,
-    )
-    request_assets = resolve_reference_assets(project, proj_dir, unit)
-
-    original = reference_video_visual_basis_digest(
-        project=project,
-        project_path=proj_dir,
-        unit=unit,
-        request_assets=request_assets,
-        candidate=candidate,
-    )
-    unrelated_audio.write_bytes(b"unrelated-v2")
-    after_unrelated_change = reference_video_visual_basis_digest(
-        project=project,
-        project_path=proj_dir,
-        unit=unit,
-        request_assets=request_assets,
-        candidate=candidate,
-    )
-    used_audio.write_bytes(b"used-v2")
-    after_used_change = reference_video_visual_basis_digest(
-        project=project,
-        project_path=proj_dir,
-        unit=unit,
-        request_assets=request_assets,
-        candidate=candidate,
-    )
-
-    assert after_unrelated_change == original
-    assert after_used_change != original
 
 
 @pytest.mark.asyncio
@@ -2362,7 +1886,6 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     from lib.reference_video.request_projection import (
         ProviderProjectionCandidate,
         reference_audio_model_facts,
-        resolve_reference_assets,
     )
     from lib.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
     from lib.speech_composition import admit_script_unit
@@ -2920,121 +2443,3 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
             task_id="task-checkpoint-failure",
         )
     assert not (proj_dir / ".arcreel" / "tasks" / "task-checkpoint-failure" / "provider_media").exists()
-
-
-@pytest.mark.asyncio
-async def test_provider_media_staging_cleanup_survives_repeated_cancellation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    from lib.reference_video.execution_checkpoint import ProviderMediaInput
-    from server.services import reference_video_tasks as rvt
-
-    project_path = tmp_path / "demo"
-    image = project_path / "characters" / "Alice.png"
-    image.parent.mkdir(parents=True)
-    image.write_bytes(b"image")
-    staging_started = threading.Event()
-    release_staging = threading.Event()
-    staging_finished = threading.Event()
-    real_stage_provider_media = rvt.stage_provider_media
-
-    def _delayed_stage(*args, **kwargs):
-        try:
-            staged = real_stage_provider_media(*args, **kwargs)
-            staging_started.set()
-            release_staging.wait(timeout=5)
-            return staged
-        finally:
-            staging_finished.set()
-
-    monkeypatch.setattr(rvt, "stage_provider_media", _delayed_stage)
-    task = asyncio.create_task(
-        rvt._stage_provider_media_for_task(
-            project_path,
-            "task-double-cancel",
-            (ProviderMediaInput(image, "reference_image", "character", "Alice", "sheet"),),
-        )
-    )
-    assert await asyncio.to_thread(staging_started.wait, 5)
-    task.cancel()
-    await asyncio.sleep(0)
-    task.cancel()
-    release_staging.set()
-
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=5)
-    assert await asyncio.to_thread(staging_finished.wait, 5)
-    assert not (project_path / ".arcreel" / "tasks" / "task-double-cancel" / "provider_media").exists()
-
-
-def test_apply_unit_video_assets_distinguishes_failures():
-    """结构损坏与 unit 不存在抛不同异常：还原侧据此区分「脏脚本告警」与「正常跳过」。
-
-    结构损坏的两类异常会经 upload_unit_video 路由回传终端用户，故须带具体 i18n key
-    （默认兜底 key 会让 en/vi 用户只看到无信息的通用句）。
-    """
-    from lib.script_editor import ScriptEditError
-    from server.services.reference_video_tasks import apply_unit_video_assets
-
-    with pytest.raises(ScriptEditError) as unit_lists_broken:
-        apply_unit_video_assets({"video_units": "broken"}, "E1U1", video_uri=None, thumb_rel=None)
-    assert unit_lists_broken.value.key == "script_edit_unit_lists_invalid"
-    with pytest.raises(ScriptEditError) as unit_lists_missing:
-        apply_unit_video_assets({}, "E1U1", video_uri=None, thumb_rel=None)
-    assert unit_lists_missing.value.key == "script_edit_unit_lists_invalid"
-    with pytest.raises(ScriptEditError) as assets_broken:
-        apply_unit_video_assets(
-            {"video_units": [{"unit_id": "E1U1", "generated_assets": "broken"}]},
-            "E1U1",
-            video_uri=None,
-            thumb_rel=None,
-        )
-    assert assets_broken.value.key == "script_edit_generated_assets_invalid"
-    with pytest.raises(KeyError):
-        apply_unit_video_assets({"video_units": []}, "E1U1", video_uri=None, thumb_rel=None)
-
-    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {"video_uri": "https://old"}}]}
-    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel="reference_videos/thumbnails/E1U1.jpg")
-    ga = script["video_units"][0]["generated_assets"]
-    assert ga["video_clip"] == "reference_videos/E1U1.mp4"
-    assert "video_uri" not in ga
-    assert ga["video_thumbnail"] == "reference_videos/thumbnails/E1U1.jpg"
-    assert ga["status"] == "completed"
-
-
-def test_apply_unit_video_assets_stamps_video_generated_at():
-    """每次写回 video_clip 都机械戳 video_generated_at（存量过渡横幅的计数依据）。"""
-    from server.services.reference_video_tasks import apply_unit_video_assets
-
-    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}
-    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
-    first_stamp = script["video_units"][0]["generated_assets"]["video_generated_at"]
-    assert isinstance(first_stamp, str) and first_stamp
-
-    # 重新生成（第二次写回）必须刷新时间戳，不能沿用旧值
-    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
-    second_stamp = script["video_units"][0]["generated_assets"]["video_generated_at"]
-    assert isinstance(second_stamp, str) and second_stamp
-
-
-def test_apply_unit_video_assets_preserves_legacy_source_signature_without_reading_it():
-    """遗留来源签名只是历史资产键；生成写回应原样保留，不能再新增、比较或清理它。"""
-    from server.services.reference_video_tasks import apply_unit_video_assets
-
-    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {"source_signature": "legacy"}}]}
-    written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
-    assert written is None
-    assert script["video_units"][0]["generated_assets"]["source_signature"] == "legacy"
-
-
-def test_apply_unit_video_assets_honors_explicit_generated_at():
-    """版本还原传入被还原版本的原始入库时间，不把旧内容洗成「刚生成」。"""
-    from server.services.reference_video_tasks import apply_unit_video_assets
-
-    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}
-    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
-
-    restored_at = "2020-01-01T00:00:00+00:00"
-    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None, generated_at=restored_at)
-    assert script["video_units"][0]["generated_assets"]["video_generated_at"] == restored_at

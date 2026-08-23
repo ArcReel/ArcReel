@@ -430,7 +430,10 @@ def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:
 
 @contextmanager
 def bounded_poll_clock(step: float = 30.0):
-    """把 ``poll_with_retry`` 的时钟换成假表：sleep 不真等，每读一次表推进 step 秒。
+    """轮询与重试等待的唯一替身入口：sleep 不真等，每读一次表推进 step 秒。
+
+    ``retry_async`` 的退避与 ``poll_with_retry`` 的轮询间隔都经 ``lib.retry`` 的
+    ``SystemClock`` 落到这两个符号上，压缩等待无需触碰 ``_compute_wait`` 等私有符号。
 
     终态判定失灵时（把已就绪的任务当成"仍在跑"），真实时钟下 sleep 被 mock 掉的轮询会以近乎
     为零的真实耗时空转到天荒地老——测试表现为挂起而不是失败。假表让这类回归在几十次轮询内

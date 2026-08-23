@@ -6,10 +6,8 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db import get_async_session
-from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import agent_config
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -30,18 +28,8 @@ def _make_app(session_factory) -> FastAPI:
 
 
 @pytest_asyncio.fixture
-async def _session_factory():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
-
-
-@pytest_asyncio.fixture
-async def authed_client(_session_factory):
-    app = _make_app(_session_factory)
+async def agent_config_client(db_factory):
+    app = _make_app(db_factory)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -49,11 +37,11 @@ async def authed_client(_session_factory):
 
 
 @pytest_asyncio.fixture
-async def unauth_client(_session_factory, monkeypatch):
+async def unauth_client(db_factory, monkeypatch):
     """No dependency override → real auth applies → expects 401/403."""
     # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，本 fixture 就测不到拒绝。
     monkeypatch.setenv("AUTH_ENABLED", "true")
-    app = _make_app(_session_factory)
+    app = _make_app(db_factory)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
@@ -63,8 +51,8 @@ async def unauth_client(_session_factory, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_list_preset_providers_returns_catalog(authed_client) -> None:
-    resp = await authed_client.get("/api/v1/agent/preset-providers")
+async def test_list_preset_providers_returns_catalog(agent_config_client) -> None:
+    resp = await agent_config_client.get("/api/v1/agent/preset-providers")
     assert resp.status_code == 200
     data = resp.json()
     assert "providers" in data
@@ -93,16 +81,16 @@ async def test_list_preset_providers_requires_auth(unauth_client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_credentials_initially_empty(authed_client) -> None:
-    resp = await authed_client.get("/api/v1/agent/credentials")
+async def test_list_credentials_initially_empty(agent_config_client) -> None:
+    resp = await agent_config_client.get("/api/v1/agent/credentials")
     assert resp.status_code == 200
     assert resp.json() == {"credentials": []}
 
 
 @pytest.mark.asyncio
-async def test_create_with_preset(authed_client) -> None:
+async def test_create_with_preset(agent_config_client) -> None:
     body = {"preset_id": "deepseek", "api_key": "sk-testkey12345"}
-    resp = await authed_client.post("/api/v1/agent/credentials", json=body)
+    resp = await agent_config_client.post("/api/v1/agent/credentials", json=body)
     assert resp.status_code == 201
     cred = resp.json()
     assert cred["preset_id"] == "deepseek"
@@ -116,14 +104,14 @@ async def test_create_with_preset(authed_client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_custom_requires_base_url(authed_client) -> None:
+async def test_create_custom_requires_base_url(agent_config_client) -> None:
     body = {"preset_id": "__custom__", "api_key": "sk"}
-    resp = await authed_client.post("/api/v1/agent/credentials", json=body)
+    resp = await agent_config_client.post("/api/v1/agent/credentials", json=body)
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_create_custom_with_base_url(authed_client) -> None:
+async def test_create_custom_with_base_url(agent_config_client) -> None:
     body = {
         "preset_id": "__custom__",
         "display_name": "My Proxy",
@@ -131,15 +119,15 @@ async def test_create_custom_with_base_url(authed_client) -> None:
         "api_key": "sk",
         "model": "claude-sonnet-4",
     }
-    resp = await authed_client.post("/api/v1/agent/credentials", json=body)
+    resp = await agent_config_client.post("/api/v1/agent/credentials", json=body)
     assert resp.status_code == 201
     assert resp.json()["base_url"] == "https://proxy.example.com/anthropic"
     assert resp.json()["icon_key"] is None
 
 
 @pytest.mark.asyncio
-async def test_create_unknown_preset_rejected(authed_client) -> None:
-    resp = await authed_client.post(
+async def test_create_unknown_preset_rejected(agent_config_client) -> None:
+    resp = await agent_config_client.post(
         "/api/v1/agent/credentials",
         json={"preset_id": "nonexistent", "api_key": "sk"},
     )
@@ -147,15 +135,15 @@ async def test_create_unknown_preset_rejected(authed_client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_patch_credential(authed_client) -> None:
+async def test_patch_credential(agent_config_client) -> None:
     created = (
-        await authed_client.post(
+        await agent_config_client.post(
             "/api/v1/agent/credentials",
             json={"preset_id": "deepseek", "api_key": "sk1"},
         )
     ).json()
     cid = created["id"]
-    resp = await authed_client.patch(
+    resp = await agent_config_client.patch(
         f"/api/v1/agent/credentials/{cid}",
         json={"display_name": "Renamed", "api_key": "sk2"},
     )
@@ -164,38 +152,38 @@ async def test_patch_credential(authed_client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_active_blocked(authed_client) -> None:
+async def test_delete_active_blocked(agent_config_client) -> None:
     created = (
-        await authed_client.post(
+        await agent_config_client.post(
             "/api/v1/agent/credentials",
             json={"preset_id": "deepseek", "api_key": "sk"},
         )
     ).json()
-    resp = await authed_client.delete(f"/api/v1/agent/credentials/{created['id']}")
+    resp = await agent_config_client.delete(f"/api/v1/agent/credentials/{created['id']}")
     assert resp.status_code == 409
 
 
 @pytest.mark.asyncio
-async def test_delete_nonexistent_returns_404(authed_client) -> None:
-    resp = await authed_client.delete("/api/v1/agent/credentials/9999")
+async def test_delete_nonexistent_returns_404(agent_config_client) -> None:
+    resp = await agent_config_client.delete("/api/v1/agent/credentials/9999")
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_delete_inactive_returns_204(authed_client) -> None:
+async def test_delete_inactive_returns_204(agent_config_client) -> None:
     # 第一条自动 active
-    await authed_client.post(
+    await agent_config_client.post(
         "/api/v1/agent/credentials",
         json={"preset_id": "deepseek", "api_key": "sk-A"},
     )
     # 第二条显式 activate=False，可删
     second = (
-        await authed_client.post(
+        await agent_config_client.post(
             "/api/v1/agent/credentials",
             json={"preset_id": "kimi", "api_key": "sk-B", "activate": False},
         )
     ).json()
-    resp = await authed_client.delete(f"/api/v1/agent/credentials/{second['id']}")
+    resp = await agent_config_client.delete(f"/api/v1/agent/credentials/{second['id']}")
     assert resp.status_code == 204
 
 
@@ -203,15 +191,15 @@ async def test_delete_inactive_returns_204(authed_client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_activate_credential_switches(authed_client, monkeypatch) -> None:
+async def test_activate_credential_switches(agent_config_client, monkeypatch) -> None:
     a = (
-        await authed_client.post(
+        await agent_config_client.post(
             "/api/v1/agent/credentials",
             json={"preset_id": "deepseek", "api_key": "sk-A"},
         )
     ).json()
     b = (
-        await authed_client.post(
+        await agent_config_client.post(
             "/api/v1/agent/credentials",
             json={"preset_id": "kimi", "api_key": "sk-B", "activate": False},
         )
@@ -219,24 +207,24 @@ async def test_activate_credential_switches(authed_client, monkeypatch) -> None:
     assert a["is_active"] is True
     assert b["is_active"] is False
 
-    resp = await authed_client.post(f"/api/v1/agent/credentials/{b['id']}/activate")
+    resp = await agent_config_client.post(f"/api/v1/agent/credentials/{b['id']}/activate")
     assert resp.status_code == 200
     assert resp.json() == {"active_id": b["id"]}
 
-    listing = (await authed_client.get("/api/v1/agent/credentials")).json()["credentials"]
+    listing = (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"]
     flags = {c["id"]: c["is_active"] for c in listing}
     assert flags[a["id"]] is False
     assert flags[b["id"]] is True
 
 
 @pytest.mark.asyncio
-async def test_activate_unknown_id(authed_client) -> None:
-    resp = await authed_client.post("/api/v1/agent/credentials/99999/activate")
+async def test_activate_unknown_id(agent_config_client) -> None:
+    resp = await agent_config_client.post("/api/v1/agent/credentials/99999/activate")
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_test_connection_draft_calls_run_test(authed_client, monkeypatch) -> None:
+async def test_test_connection_draft_calls_run_test(agent_config_client, monkeypatch) -> None:
     """POST /agent/test-connection 调 run_test 并把结果序列化为 JSON。"""
     from unittest.mock import AsyncMock
 
@@ -254,7 +242,7 @@ async def test_test_connection_draft_calls_run_test(authed_client, monkeypatch) 
     fake = AsyncMock(return_value=expected)
     monkeypatch.setattr("server.routers.agent_config.run_test", fake)
 
-    resp = await authed_client.post(
+    resp = await agent_config_client.post(
         "/api/v1/agent/test-connection",
         json={"preset_id": "deepseek", "api_key": "sk", "model": None, "base_url": None},
     )
@@ -267,7 +255,7 @@ async def test_test_connection_draft_calls_run_test(authed_client, monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_test_credential_uses_stored(authed_client, monkeypatch) -> None:
+async def test_test_credential_uses_stored(agent_config_client, monkeypatch) -> None:
     from unittest.mock import AsyncMock
 
     from lib.config import anthropic_probe as probe_mod
@@ -285,12 +273,12 @@ async def test_test_credential_uses_stored(authed_client, monkeypatch) -> None:
     monkeypatch.setattr("server.routers.agent_config.run_test", fake)
 
     cred = (
-        await authed_client.post(
+        await agent_config_client.post(
             "/api/v1/agent/credentials",
             json={"preset_id": "deepseek", "api_key": "sk-stored"},
         )
     ).json()
-    resp = await authed_client.post(f"/api/v1/agent/credentials/{cred['id']}/test")
+    resp = await agent_config_client.post(f"/api/v1/agent/credentials/{cred['id']}/test")
     assert resp.status_code == 200
     body = resp.json()
     assert body["overall"] == "fail"

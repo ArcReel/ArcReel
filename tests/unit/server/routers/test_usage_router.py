@@ -1,9 +1,7 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import usage
@@ -11,13 +9,8 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture
-async def _usage_env(monkeypatch):
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-
-    async with factory() as session:
+async def _usage_env(db_factory, monkeypatch):
+    async with db_factory() as session:
         repo = UsageRepository(session)
         cid1 = await repo.start_call(project_name="demo", call_type="image", model="gemini-3.1-flash-image-preview")
         await repo.finish_call(cid1, status="success", settlement=SettlementInput())
@@ -28,14 +21,13 @@ async def _usage_env(monkeypatch):
         cid4 = await repo.start_call(project_name="demo2", call_type="image", model="gemini-3.1-flash-image-preview")
         await repo.finish_call(cid4, status="success", settlement=SettlementInput())
 
-    monkeypatch.setattr(usage, "async_session_factory", factory)
+    monkeypatch.setattr(usage, "async_session_factory", db_factory)
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
-    yield TestClient(app)
-    await engine.dispose()
+    return TestClient(app)
 
 
 class TestUsageRouter:

@@ -104,10 +104,10 @@ def _providers() -> str:
     return ", ".join(ids) if ids else "<none>"
 
 
-def collect_diagnostics() -> str:
+def collect_diagnostics(*, app_version: Callable[[], object] | None = None) -> str:
     """返回脱敏的 plain-text 诊断报告。任一字段失败用 <unavailable> 占位，整体不抛。"""
     fields: list[tuple[str, Callable[[], object]]] = [
-        ("App version", _app_version),
+        ("App version", app_version or _app_version),
         ("Python", _python_version),
         ("OS", _os_info),
         ("Data directory", _data_dir),

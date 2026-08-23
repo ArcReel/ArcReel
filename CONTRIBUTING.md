@@ -68,7 +68,7 @@ cd frontend && pnpm check
 
 pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
-> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、eslint 强制项的现行 CI/lint 配置、`testTimeout` 等 vitest 配置、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线。整改完成后删除本段。
+> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、eslint 强制项的现行 CI/lint 配置、`testTimeout` 等 vitest 配置、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 的 `--check` 形态与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线。整改完成后删除本段。
 
 ### 分层与目录
 
@@ -112,8 +112,8 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 - **三角色**：`tests/conftest.py` 只放 fixture 与收集期钩子，禁止被 import（闸门）；`tests/fakes.py` 放替身实现，不含 fixture；`tests/factories.py` 放测试输入构造器（数据与媒体文件 builder）。专题共享模块（如 `tests/auth_deps.py`）允许存在；fakes / factories / 专题模块的公开符号须被 ≥2 个测试文件使用（闸门），仅单个文件使用的移回该文件。
 - **局部 conftest**：只为本目录提供 fixture；不得与根 conftest 的 fixture 同名；跨目录共用的 fixture 上提到根 conftest；conftest 之间不互相 import（闸门）。
-- **fixture 覆写与重复**（闸门）：测试文件不得定义与任一 conftest 同名的 fixture；同名 fixture 在 ≥3 个测试文件重复定义时上提 conftest。
-- **DB fixture**：一律派生自唯一的方言感知 engine fixture，由此自动获得 `uses_db` 标记与 PostgreSQL 兼容选集。
+- **fixture 覆写与重复**（闸门）：测试文件不得定义与任一 conftest 同名的 fixture——供给同一实体的改为直接消费 conftest 版本，供给不同实体的改一个有区分度的名字；同一实体的 fixture 在 ≥3 个测试文件重复定义时上提 conftest。
+- **DB fixture**：一律派生自 `tests/conftest.py` 唯一的 engine 构造点 `test_engine`。`session_factory` / `async_session` 方言感知，`DATABASE_URL` 指向 PostgreSQL 时走真实 PG；`file_session_factory` 恒为文件 SQLite，消费方是标了 `sqlite_only` 的边界用例。三者携带 `uses_db` 标记，构成需要数据库的选择集；PostgreSQL 兼容 job 取其中 `uses_db and not sqlite_only` 的部分，`file_session_factory` 的消费方不在其内。`db_engine` / `db_session` / `db_factory`（内存）与 `file_db_factory`（文件）固定走 SQLite、不带 `uses_db`，供不进该选集的 models 与 repositories 单测使用。唯一登记的例外是 `async_session` 的 PG 分支：它绑定 CI job 已 `alembic upgrade head` 建好的 public schema，隔离原语是外层事务 + SAVEPOINT，与 `test_engine` 的 per-test schema + `create_all` 不同，故自建 engine。
 
 ### 时序与偶发失败
 

@@ -1,22 +1,13 @@
 """Tests for SessionMetaStore (async wrapper over SessionRepository)."""
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from server.agent_runtime.session_store import SessionMetaStore
 
 
 @pytest.fixture
-async def store():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    s = SessionMetaStore(session_factory=factory)
-    yield s
-    await engine.dispose()
+async def store(db_factory):
+    return SessionMetaStore(session_factory=db_factory)
 
 
 class TestSessionMetaStore:

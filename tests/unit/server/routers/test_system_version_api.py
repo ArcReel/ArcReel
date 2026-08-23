@@ -13,7 +13,7 @@ from server.dependencies import get_config_service
 from server.routers import system_config
 from server.routers.system_config import _parse_version
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.conftest import make_translator
+from tests.factories import make_translator
 
 _FIXED_FETCHED_AT = datetime(2026, 4, 21, 8, 5, 0, tzinfo=UTC)
 

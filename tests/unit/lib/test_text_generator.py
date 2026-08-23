@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lib.db.base import Base
 from lib.db.repositories.usage_repo import UsageRepository
 from lib.ledger import Ledger
 from lib.text_backends.base import TextGenerationRequest, TextGenerationResult
@@ -26,13 +25,8 @@ class _Wired:
 
 
 @pytest.fixture
-async def wired():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield _Wired(ledger=Ledger(session_factory=factory), session_factory=factory)
-    await engine.dispose()
+async def wired(db_factory):
+    return _Wired(ledger=Ledger(session_factory=db_factory), session_factory=db_factory)
 
 
 def _make_backend(provider="gemini", model="gemini-3-flash-preview"):

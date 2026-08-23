@@ -24,10 +24,11 @@ from lib.video_backends.vidu import (
     _coerce_duration,
     _coerce_resolution,
 )
+from tests.fakes import bounded_poll_clock
 
 
 @pytest.fixture
-def output_path(tmp_path: Path) -> Path:
+def video_output_path(tmp_path: Path) -> Path:
     return tmp_path / "out.mp4"
 
 
@@ -57,7 +58,7 @@ class TestBackendBasics:
         backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
         assert backend.video_capabilities.last_frame is True
 
-    async def test_marks_resubmit_unsafe_after_task_creation(self, output_path: Path):
+    async def test_marks_resubmit_unsafe_after_task_creation(self, video_output_path: Path):
         backend = ViduVideoBackend(api_key="test-key")
         client = MagicMock()
         client_context = MagicMock()
@@ -66,7 +67,7 @@ class TestBackendBasics:
         resubmit_unsafe = MagicMock()
         request = VideoGenerationRequest(
             prompt="x",
-            output_path=output_path,
+            output_path=video_output_path,
             on_provider_resubmit_unsafe=resubmit_unsafe,
         )
 
@@ -88,32 +89,32 @@ class TestEndpointSelection:
     def _backend(self, model: str = "viduq3-turbo") -> ViduVideoBackend:
         return ViduVideoBackend(api_key="test-key", model=model)
 
-    def test_text_only_picks_text2video(self, output_path: Path):
+    def test_text_only_picks_text2video(self, video_output_path: Path):
         backend = self._backend()
-        req = VideoGenerationRequest(prompt="x", output_path=output_path)
+        req = VideoGenerationRequest(prompt="x", output_path=video_output_path)
         assert backend._select_endpoint(req) == "/text2video"
 
-    def test_start_image_picks_img2video(self, tmp_path: Path, output_path: Path):
+    def test_start_image_picks_img2video(self, tmp_path: Path, video_output_path: Path):
         backend = self._backend()
         start = tmp_path / "start.png"
         start.write_bytes(b"x")
-        req = VideoGenerationRequest(prompt="x", output_path=output_path, start_image=start)
+        req = VideoGenerationRequest(prompt="x", output_path=video_output_path, start_image=start)
         assert backend._select_endpoint(req) == "/img2video"
 
-    def test_start_and_end_image_picks_start_end2video(self, tmp_path: Path, output_path: Path):
+    def test_start_and_end_image_picks_start_end2video(self, tmp_path: Path, video_output_path: Path):
         backend = self._backend()
         start, end = tmp_path / "s.png", tmp_path / "e.png"
         for p in (start, end):
             p.write_bytes(b"x")
-        req = VideoGenerationRequest(prompt="x", output_path=output_path, start_image=start, end_image=end)
+        req = VideoGenerationRequest(prompt="x", output_path=video_output_path, start_image=start, end_image=end)
         assert backend._select_endpoint(req) == "/start-end2video"
 
-    def test_reference_images_take_priority(self, tmp_path: Path, output_path: Path):
+    def test_reference_images_take_priority(self, tmp_path: Path, video_output_path: Path):
         """有 refs 时即使带 start_image 也应走 reference2video（依实现：refs 先判）。"""
         backend = self._backend()
         ref = tmp_path / "ref.png"
         ref.write_bytes(b"x")
-        req = VideoGenerationRequest(prompt="x", output_path=output_path, reference_images=[ref])
+        req = VideoGenerationRequest(prompt="x", output_path=video_output_path, reference_images=[ref])
         assert backend._select_endpoint(req) == "/reference2video"
 
 
@@ -201,11 +202,11 @@ class TestBuildRequest:
     """_build_request 是核心串联函数：endpoint 选择 + duration/resolution/aspect_ratio/audio 字段拼装。"""
 
     @patch("lib.video_backends.vidu.image_to_data_uri")
-    def test_text2video_body_minimal(self, mock_data_uri, output_path: Path):
+    def test_text2video_body_minimal(self, mock_data_uri, video_output_path: Path):
         backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
         req = VideoGenerationRequest(
             prompt="hello",
-            output_path=output_path,
+            output_path=video_output_path,
             aspect_ratio="9:16",
             duration_seconds=8,
             resolution="720p",
@@ -224,14 +225,14 @@ class TestBuildRequest:
         assert "images" not in body
 
     @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
-    def test_img2video_passes_one_image_no_aspect_ratio(self, _mock, tmp_path: Path, output_path: Path):
+    def test_img2video_passes_one_image_no_aspect_ratio(self, _mock, tmp_path: Path, video_output_path: Path):
         start = tmp_path / "s.png"
         start.write_bytes(b"x")
 
         backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
         req = VideoGenerationRequest(
             prompt="x",
-            output_path=output_path,
+            output_path=video_output_path,
             start_image=start,
             aspect_ratio="9:16",  # 应被丢弃
             duration_seconds=5,
@@ -244,7 +245,7 @@ class TestBuildRequest:
         assert "aspect_ratio" not in body
 
     @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
-    def test_reference2video_with_q3_turbo(self, _mock, tmp_path: Path, output_path: Path):
+    def test_reference2video_with_q3_turbo(self, _mock, tmp_path: Path, video_output_path: Path):
         ref1, ref2 = tmp_path / "r1.png", tmp_path / "r2.png"
         for p in (ref1, ref2):
             p.write_bytes(b"x")
@@ -252,7 +253,7 @@ class TestBuildRequest:
         backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
         req = VideoGenerationRequest(
             prompt="x",
-            output_path=output_path,
+            output_path=video_output_path,
             reference_images=[ref1, ref2],
             aspect_ratio="9:16",
             duration_seconds=5,
@@ -266,28 +267,28 @@ class TestBuildRequest:
         # range 3..16，5 透传
         assert body["duration"] == 5
 
-    def test_reference2video_with_q3_pro_raises_model_mismatch(self, tmp_path: Path, output_path: Path):
+    def test_reference2video_with_q3_pro_raises_model_mismatch(self, tmp_path: Path, video_output_path: Path):
         ref = tmp_path / "r.png"
         ref.write_bytes(b"x")
 
         backend = ViduVideoBackend(api_key="test-key", model="viduq3-pro")
         req = VideoGenerationRequest(
             prompt="x",
-            output_path=output_path,
+            output_path=video_output_path,
             reference_images=[ref],
             duration_seconds=5,
         )
         with pytest.raises(RuntimeError, match="不支持"):
             backend._build_request(req)
 
-    def test_non_q3_model_does_not_send_audio(self, output_path: Path):
+    def test_non_q3_model_does_not_send_audio(self, video_output_path: Path):
         backend = ViduVideoBackend(api_key="test-key", model="vidu2.0")
         # vidu2.0 走 img2video，不能 text2video
         # 这里直接用 reference2video 路径需 ref；走 start-image 演示
         # 用 monkeypatch 跳过 image_to_data_uri
         # 简化：直接构造一个 text2video 请求验证 audio 不写入
         # —— 但 vidu2.0 不在 text2video 集合里，应该 raise
-        req = VideoGenerationRequest(prompt="x", output_path=output_path, duration_seconds=4)
+        req = VideoGenerationRequest(prompt="x", output_path=video_output_path, duration_seconds=4)
         with pytest.raises(RuntimeError, match="不支持"):
             backend._build_request(req)
 
@@ -307,11 +308,11 @@ class TestPromptLength:
         """未登记 model（中转自定义命名）取宽值：能力不明时误拒是更糟的降级。"""
         assert ViduVideoBackend.video_capabilities_for_model("proxy-x").max_prompt_chars == 5000
 
-    def test_reference2video_over_limit_raises(self, output_path: Path):
+    def test_reference2video_over_limit_raises(self, video_output_path: Path):
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
         req = VideoGenerationRequest(
             prompt="字" * 2001,
-            output_path=output_path,
+            output_path=video_output_path,
             duration_seconds=8,
             reference_images=[Path("a.png")],
         )
@@ -327,12 +328,12 @@ class TestPromptLength:
         }
 
     @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
-    def test_reference2video_at_limit_passes_untruncated(self, _mock_data_uri, output_path: Path):
+    def test_reference2video_at_limit_passes_untruncated(self, _mock_data_uri, video_output_path: Path):
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
         prompt = "字" * 2000
         req = VideoGenerationRequest(
             prompt=prompt,
-            output_path=output_path,
+            output_path=video_output_path,
             duration_seconds=8,
             reference_images=[Path("a.png")],
         )
@@ -340,10 +341,10 @@ class TestPromptLength:
 
         assert body["prompt"] == prompt
 
-    def test_text2video_allows_longer_than_reference_limit(self, output_path: Path):
+    def test_text2video_allows_longer_than_reference_limit(self, video_output_path: Path):
         """端点上限按端点各算：t2v 的 5000 不受 /reference2video 的 2000 牵连。"""
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
-        req = VideoGenerationRequest(prompt="字" * 3000, output_path=output_path, duration_seconds=8)
+        req = VideoGenerationRequest(prompt="字" * 3000, output_path=video_output_path, duration_seconds=8)
         _endpoint, body = backend._build_request(req)
 
         assert len(body["prompt"]) == 3000
@@ -441,7 +442,7 @@ class TestCreateTaskAmbiguity:
 
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
         with (
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
             pytest.raises(AmbiguousSubmitError, match="手动重试"),
         ):
             await backend._create_task(client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8})
@@ -460,7 +461,7 @@ class TestCreateTaskAmbiguity:
         client.post = AsyncMock(side_effect=[httpx.ConnectError("refused"), httpx.ConnectError("refused"), ok])
 
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
-        with patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0):
+        with bounded_poll_clock():
             data = await backend._create_task(
                 client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8}
             )

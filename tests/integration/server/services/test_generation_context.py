@@ -14,14 +14,12 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.audio_backends.base import VoiceOption
 from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, ProviderModel, VoiceConsistency, get_provider_fallback
 from lib.custom_provider import make_provider_id
-from lib.db.base import Base
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
@@ -64,15 +62,10 @@ class _FakeBackend:
 
 
 @pytest.fixture
-async def session_factory(monkeypatch):
+async def patched_session_factory(db_factory, monkeypatch):
     """真实内存 DB：建全部 ORM 表，并把 lib.db.async_session_factory 指向它。"""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr("lib.db.async_session_factory", factory)
-    yield factory
-    await engine.dispose()
+    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+    return db_factory
 
 
 @pytest.fixture
@@ -116,9 +109,9 @@ def fake_assemble(monkeypatch):
     return calls
 
 
-async def _seed_custom_video_provider(session_factory) -> str:
+async def _seed_custom_video_provider(patched_session_factory) -> str:
     """种一个自定义供应商：目标 model 已禁用、默认 model 存活（带 resolution 与时长表）。"""
-    async with session_factory() as session:
+    async with patched_session_factory() as session:
         provider = CustomProvider(
             display_name="Prov",
             discovery_format="openai",
@@ -154,7 +147,7 @@ async def _seed_custom_video_provider(session_factory) -> str:
 
 
 class TestLaneDeclaration:
-    async def test_only_declared_lanes_are_constructed(self, session_factory, project_env, fake_assemble):
+    async def test_only_declared_lanes_are_constructed(self, patched_session_factory, project_env, fake_assemble):
         """只声明 image lane：不解析、不构造 video/audio，视频供应商缺配置不影响图片任务。"""
         project = {"image_provider_t2i": "ark/img-model-x"}
         ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
@@ -168,7 +161,7 @@ class TestLaneDeclaration:
         with pytest.raises(RuntimeError, match="audio lane 未声明"):
             _ = ctx.audio
 
-    async def test_no_lane_declared_still_returns_generator(self, session_factory, project_env, fake_assemble):
+    async def test_no_lane_declared_still_returns_generator(self, patched_session_factory, project_env, fake_assemble):
         ctx = await resolve_generation_context("demo", None, project={})
         assert isinstance(ctx.generator, MediaGenerator)
         assert fake_assemble == []
@@ -177,7 +170,7 @@ class TestLaneDeclaration:
 
     async def test_preloaded_project_path_avoids_the_default_executor(
         self,
-        session_factory,
+        patched_session_factory,
         project_env,
         fake_assemble,
         monkeypatch,
@@ -199,7 +192,7 @@ class TestLaneDeclaration:
 
         assert ctx.generator.project_path == project_path
 
-    async def test_i2i_capability_selects_i2i_slot(self, session_factory, project_env, fake_assemble):
+    async def test_i2i_capability_selects_i2i_slot(self, patched_session_factory, project_env, fake_assemble):
         project = {
             "image_provider_t2i": "ark/img-t2i",
             "image_provider_i2i": "ark/img-i2i",
@@ -207,7 +200,7 @@ class TestLaneDeclaration:
         ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest(capability="i2i"))
         assert ctx.image.provider_model == ProviderModel("ark", "img-i2i")
 
-    async def test_all_three_lanes(self, session_factory, project_env, fake_assemble):
+    async def test_all_three_lanes(self, patched_session_factory, project_env, fake_assemble):
         video_model = _registry_video_model("ark")
         project = {
             "image_provider_t2i": "ark/img-model-x",
@@ -228,7 +221,9 @@ class TestLaneDeclaration:
 
 
 class TestVideoLane:
-    async def test_registry_capabilities_and_fallback_resolution(self, session_factory, project_env, fake_assemble):
+    async def test_registry_capabilities_and_fallback_resolution(
+        self, patched_session_factory, project_env, fake_assemble
+    ):
         video_model = _registry_video_model("ark")
         expected = PROVIDER_REGISTRY["ark"].models[video_model]
         ctx = await resolve_generation_context(
@@ -242,7 +237,7 @@ class TestVideoLane:
         assert ctx.video.resolution is None
         assert ctx.video.resolution_or_fallback == get_provider_fallback("ark")
 
-    async def test_resolution_from_model_settings(self, session_factory, project_env, fake_assemble):
+    async def test_resolution_from_model_settings(self, patched_session_factory, project_env, fake_assemble):
         video_model = _registry_video_model("ark")
         project = {
             "video_backend": f"ark/{video_model}",
@@ -252,7 +247,7 @@ class TestVideoLane:
         assert ctx.video.resolution == "480p"
         assert ctx.video.resolution_or_fallback == "480p"
 
-    async def test_capability_query_failure_degrades_to_empty(self, session_factory, project_env, monkeypatch):
+    async def test_capability_query_failure_degrades_to_empty(self, patched_session_factory, project_env, monkeypatch):
         """fake backend 报告 registry 之外的 model：能力查询失败降级空值，整次调用照常成功。"""
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
@@ -269,7 +264,9 @@ class TestVideoLane:
         assert ctx.video.generate_audio is False
         assert ctx.video.backend_model == "mystery-model"
 
-    async def test_requested_generate_audio_follows_project_override(self, session_factory, project_env, fake_assemble):
+    async def test_requested_generate_audio_follows_project_override(
+        self, patched_session_factory, project_env, fake_assemble
+    ):
         """本集无声开关随 project.json 覆盖进 lane，编排层据此决定要不要组装参考音频。"""
         video_model = _registry_video_model("ark")
         ctx = await resolve_generation_context(
@@ -281,7 +278,7 @@ class TestVideoLane:
         assert ctx.video.requested_generate_audio is False
 
     async def test_requested_generate_audio_survives_capability_failure(
-        self, session_factory, project_env, monkeypatch
+        self, patched_session_factory, project_env, monkeypatch
     ):
         """能力查询失败不得连带丢失用户的无声意图：它不来自能力接口，独立解析。"""
 
@@ -298,7 +295,7 @@ class TestVideoLane:
         )
         assert ctx.video.requested_generate_audio is False
 
-    async def test_payload_overrides_project(self, session_factory, project_env, fake_assemble):
+    async def test_payload_overrides_project(self, patched_session_factory, project_env, fake_assemble):
         """payload > project：显式的请求身份（如 checkpoint 回放）决定实际解析身份。"""
         ark_model = _registry_video_model("ark")
         grok_model = _registry_video_model("grok")
@@ -312,9 +309,11 @@ class TestVideoLane:
 
 
 class TestActualIdentityQueries:
-    async def test_custom_model_fallback_queries_by_actual_model(self, session_factory, project_env, monkeypatch):
+    async def test_custom_model_fallback_queries_by_actual_model(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
         """自定义供应商目标 model 被禁用回退：resolution 与能力按 backend 实际 model 查询。"""
-        provider_id = await _seed_custom_video_provider(session_factory)
+        provider_id = await _seed_custom_video_provider(patched_session_factory)
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
             # 模拟 load_custom_backend 的回退：请求 m-dead，实际构造出默认启用的 m-live
@@ -337,7 +336,7 @@ class TestActualIdentityQueries:
 
 
 class TestAudioLane:
-    async def test_narration_voice_and_speed_from_project(self, session_factory, project_env, fake_assemble):
+    async def test_narration_voice_and_speed_from_project(self, patched_session_factory, project_env, fake_assemble):
         project = {
             "audio_backend": "dashscope/tts-model-x",
             "narration_voice": "Cherry",
@@ -349,13 +348,13 @@ class TestAudioLane:
         assert ctx.audio.backend_name == "dashscope"
         assert ctx.audio.backend_model == "tts-model-x"
 
-    async def test_narration_defaults_when_unset(self, session_factory, project_env, fake_assemble):
+    async def test_narration_defaults_when_unset(self, patched_session_factory, project_env, fake_assemble):
         project = {"audio_backend": "dashscope/tts-model-x"}
         ctx = await resolve_generation_context("demo", None, project=project, audio=AudioLaneRequest())
         assert isinstance(ctx.audio.narration_voice, str) and ctx.audio.narration_voice
         assert ctx.audio.narration_speed is None
 
-    async def test_voice_catalog_snapshot_passed_through(self, session_factory, project_env, monkeypatch):
+    async def test_voice_catalog_snapshot_passed_through(self, patched_session_factory, project_env, monkeypatch):
         """ctx.audio.voices 须是 backend.list_voices() 的真实快照，而非默认的空元组——
         断言字段存在不够，须证明 resolve_generation_context 确实转发了 backend 的音色目录。
         """
@@ -372,7 +371,9 @@ class TestAudioLane:
 
 
 class TestAtomicFailure:
-    async def test_declared_lane_construction_failure_fails_whole_call(self, session_factory, project_env, monkeypatch):
+    async def test_declared_lane_construction_failure_fails_whole_call(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
         """image 成功后 video 构造失败：整次调用原样上抛，无部分结果。"""
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
@@ -391,13 +392,13 @@ class TestAtomicFailure:
                 video=VideoLaneRequest(),
             )
 
-    async def test_missing_project_dir_raises(self, session_factory, project_env, fake_assemble):
+    async def test_missing_project_dir_raises(self, patched_session_factory, project_env, fake_assemble):
         with pytest.raises(FileNotFoundError):
             await resolve_generation_context("nope", None, project={}, image=ImageLaneRequest())
 
 
 class TestBackendCache:
-    async def test_backend_reused_until_invalidated(self, session_factory, project_env, fake_assemble):
+    async def test_backend_reused_until_invalidated(self, patched_session_factory, project_env, fake_assemble):
         project = {"image_provider_t2i": "ark/img-model-x"}
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())

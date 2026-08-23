@@ -9,9 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.sse import ServerSentEvent
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from lib.i18n import DEFAULT_LOCALE, get_translator
 from server.agent_runtime.event_log import EventLogService, EventLogStore
 from server.agent_runtime.models import LiveMessage, SubscriptionReady
@@ -19,8 +17,7 @@ from server.agent_runtime.service import AssistantService
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.conftest import make_translator
-from tests.factories import make_session_meta
+from tests.factories import make_session_meta, make_translator
 
 SESSION_ID = "entry-stream-s1"
 
@@ -78,20 +75,15 @@ class _FakeEntrySessionManager:
 
 
 @pytest.fixture()
-async def entry_service(tmp_path):
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    store = EventLogStore(session_factory=factory)
+async def entry_service(db_factory, tmp_path):
+    store = EventLogStore(session_factory=db_factory)
 
     service = AssistantService(project_root=tmp_path)
     meta = make_session_meta(id=SESSION_ID, status="running")
     service.meta_store = _FakeMetaStore(meta)
     service.event_log_store = store
     service.event_log = EventLogService(store, _FakeAdapter())
-    yield service, store
-    await engine.dispose()
+    return service, store
 
 
 def _collect(event: ServerSentEvent) -> tuple[str, dict, str | None]:

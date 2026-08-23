@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.capability_buckets import builtin_model_buckets, custom_model_buckets
 from lib.config.registry import PROVIDER_REGISTRY
@@ -73,9 +72,8 @@ def _make_mock_svc(ready_providers: list[str]) -> ConfigService:
 
 
 @pytest.fixture()
-def session_factory():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    return async_sessionmaker(engine, expire_on_commit=False), engine
+def session_factory_and_engine(db_engine, db_factory):
+    return db_factory, db_engine
 
 
 def _make_app(mock_svc: ConfigService, engine, factory) -> FastAPI:
@@ -100,8 +98,8 @@ def _make_app(mock_svc: ConfigService, engine, factory) -> FastAPI:
 
 
 @pytest.fixture()
-def make_client(session_factory):
-    factory, engine = session_factory
+def make_client(session_factory_and_engine):
+    factory, engine = session_factory_and_engine
 
     def _make(ready_providers: list[str] | None = None) -> TestClient:
         return TestClient(_make_app(_make_mock_svc(ready_providers or []), engine, factory))
@@ -189,8 +187,10 @@ class TestBuiltinBucketFiltering:
 
 
 class TestCustomProviderBucketFiltering:
-    async def test_custom_video_model_enters_buckets_by_endpoint_judgement(self, make_client, session_factory):
-        factory, _engine = session_factory
+    async def test_custom_video_model_enters_buckets_by_endpoint_judgement(
+        self, make_client, session_factory_and_engine
+    ):
+        factory, _engine = session_factory_and_engine
         with make_client([]) as client:
             # openai-video 系统判定 max_reference_images=1、first_frame=True
             await _seed_custom_models(
@@ -203,8 +203,8 @@ class TestCustomProviderBucketFiltering:
         assert option in body["video"]["buckets"]["i2v"]
         assert option in body["video"]["default"]
 
-    async def test_capability_override_removes_model_from_r2v(self, make_client, session_factory):
-        factory, _engine = session_factory
+    async def test_capability_override_removes_model_from_r2v(self, make_client, session_factory_and_engine):
+        factory, _engine = session_factory_and_engine
         with make_client([]) as client:
             await _seed_custom_models(
                 factory,
@@ -225,8 +225,8 @@ class TestCustomProviderBucketFiltering:
         assert option in body["video"]["buckets"]["i2v"]
         assert option in body["video"]["default"]
 
-    async def test_custom_image_model_filtered_by_endpoint_capabilities(self, make_client, session_factory):
-        factory, _engine = session_factory
+    async def test_custom_image_model_filtered_by_endpoint_capabilities(self, make_client, session_factory_and_engine):
+        factory, _engine = session_factory_and_engine
         with make_client([]) as client:
             # openai-images-edits 只声明 image_to_image
             await _seed_custom_models(
@@ -246,8 +246,8 @@ class TestCustomProviderBucketFiltering:
         assert option not in body["image"]["buckets"]["t2i"]
         assert option in body["image"]["default"]
 
-    async def test_disabled_custom_models_absent(self, make_client, session_factory):
-        factory, _engine = session_factory
+    async def test_disabled_custom_models_absent(self, make_client, session_factory_and_engine):
+        factory, _engine = session_factory_and_engine
         with make_client([]) as client:
             await _seed_custom_models(
                 factory,

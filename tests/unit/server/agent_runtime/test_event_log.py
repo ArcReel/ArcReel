@@ -5,9 +5,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from server.agent_runtime.event_log import (
     REPLAYED_USER_ECHO_KEY,
     EventLogService,
@@ -21,36 +19,14 @@ from server.agent_runtime.event_log import (
 
 
 @pytest.fixture()
-async def log_store():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield EventLogStore(session_factory=factory)
-    await engine.dispose()
+async def log_store(db_factory):
+    return EventLogStore(session_factory=db_factory)
 
 
 @pytest.fixture()
-async def file_log_store(tmp_path):
+async def file_log_store(file_db_factory):
     """文件 SQLite + NullPool：并发测试需要独立连接（内存库 StaticPool 会串扰）。"""
-    from sqlalchemy import event, pool
-
-    db_path = tmp_path / "event-log.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", poolclass=pool.NullPool)
-
-    @event.listens_for(engine.sync_engine, "connect")
-    def _set_sqlite_pragma(dbapi_conn, _record):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA busy_timeout=30000")
-        cursor.execute("PRAGMA foreign_keys=OFF")
-        cursor.close()
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield EventLogStore(session_factory=factory)
-    await engine.dispose()
+    return EventLogStore(session_factory=file_db_factory)
 
 
 class _FakeDriverError(Exception):

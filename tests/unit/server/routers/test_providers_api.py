@@ -22,7 +22,7 @@ from lib.i18n import get_translator
 from server.dependencies import get_config_service
 from server.routers import providers
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
-from tests.conftest import make_translator
+from tests.factories import make_translator
 
 # ---------------------------------------------------------------------------
 # 测试应用工厂

@@ -3,25 +3,16 @@
 import asyncio
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from lib.generation_admission import generation_admission_lock
 from lib.generation_queue import CompensableGenerationResult, GenerationQueue, reference_projection_for_queued_task
 from lib.task_failure import encode_failure
 
 
 @pytest.fixture
-async def queue():
+async def queue(db_factory):
     """Create a GenerationQueue backed by in-memory SQLite."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    q = GenerationQueue(session_factory=factory)
-    yield q
-    await engine.dispose()
+    return GenerationQueue(session_factory=db_factory)
 
 
 class TestGenerationQueue:

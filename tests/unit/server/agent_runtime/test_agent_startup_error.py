@@ -44,7 +44,7 @@ def test_agent_startup_error_without_stderr_keeps_message() -> None:
 
 
 @pytest.fixture
-def session_manager(tmp_path: Path) -> SessionManager:
+def seeded_session_manager(tmp_path: Path) -> SessionManager:
     project_root = tmp_path / "repo"
     project_root.mkdir()
     (project_root / "projects").mkdir()
@@ -58,7 +58,7 @@ def session_manager(tmp_path: Path) -> SessionManager:
 
 @pytest.mark.asyncio
 async def test_build_options_forwards_stderr_callback(
-    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+    seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """_build_options 必须把 stderr 回调透传给 ClaudeAgentOptions。"""
 
@@ -72,7 +72,7 @@ async def test_build_options_forwards_stderr_callback(
     def collector(line: str) -> None:
         captured.append(line)
 
-    opts = await session_manager._build_options("demo", stderr=collector)
+    opts = await seeded_session_manager._build_options("demo", stderr=collector)
     assert opts.stderr is collector
 
     # 模拟 SDK 透传一行 stderr
@@ -82,7 +82,7 @@ async def test_build_options_forwards_stderr_callback(
 
 @pytest.mark.asyncio
 async def test_send_new_session_wraps_actor_failure_with_stderr(
-    session_manager: SessionManager,
+    seeded_session_manager: SessionManager,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -130,7 +130,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
     caplog.set_level("ERROR", logger="server.agent_runtime.session_manager")
 
     with pytest.raises(AgentStartupError) as exc_info:
-        await session_manager.send_new_session("demo", "你好")
+        await seeded_session_manager.send_new_session("demo", "你好")
 
     err = exc_info.value
     assert "Git for Windows" in err.sdk_stderr
@@ -154,7 +154,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
 
 @pytest.mark.asyncio
 async def test_send_new_session_no_stderr_still_wraps(
-    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+    seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """即使 SDK 没产生 stderr，actor.start 失败也应包装为 AgentStartupError（保留原因链）。"""
 
@@ -177,7 +177,7 @@ async def test_send_new_session_no_stderr_still_wraps(
     monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
 
     with pytest.raises(AgentStartupError) as exc_info:
-        await session_manager.send_new_session("demo", "你好")
+        await seeded_session_manager.send_new_session("demo", "你好")
 
     assert exc_info.value.sdk_stderr == ""
     assert "ENOENT" in str(exc_info.value)
@@ -187,25 +187,25 @@ async def test_send_new_session_no_stderr_still_wraps(
 
 @pytest.mark.asyncio
 async def test_send_new_session_wraps_option_assembly_failure(
-    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+    seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
     monkeypatch.setattr(SessionManager, "_build_options", AsyncMock(side_effect=LookupError("credential missing")))
 
     with pytest.raises(AgentStartupError) as exc_info:
-        await session_manager.send_new_session("demo", "你好")
+        await seeded_session_manager.send_new_session("demo", "你好")
 
     failure = exc_info.value.failure_observation
     assert failure is not None
     assert failure["phase"] == "startup"
     assert failure["summary"]["type"] == "LookupError"
     assert failure["summary"]["message"] == "credential missing"
-    assert session_manager.sessions == {}
+    assert seeded_session_manager.sessions == {}
 
 
 @pytest.mark.asyncio
 async def test_get_or_connect_wraps_actor_failure_with_stderr(
-    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+    seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """恢复历史会话路径同样要把 actor.start 失败包装为 AgentStartupError。
 
@@ -247,18 +247,18 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
     meta = make_session_meta(id="resumed-session", project_name="demo", status="idle")
 
     with pytest.raises(AgentStartupError) as exc_info:
-        await session_manager.get_or_connect("resumed-session", meta=meta)
+        await seeded_session_manager.get_or_connect("resumed-session", meta=meta)
 
     err = exc_info.value
     assert "resume-failed" in err.sdk_stderr
     assert "Command failed with exit code 1" in str(err)
     # 失败后会话不应残留在内存里
-    assert "resumed-session" not in session_manager.sessions
+    assert "resumed-session" not in seeded_session_manager.sessions
 
 
 @pytest.mark.asyncio
 async def test_startup_stderr_is_not_truncated(
-    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+    seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """启动阶段实际收到的 stderr 必须完整进入故障观测，不做行数裁剪。"""
 
@@ -295,7 +295,7 @@ async def test_startup_stderr_is_not_truncated(
     monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
 
     with pytest.raises(AgentStartupError) as exc_info:
-        await session_manager.send_new_session("demo", "你好")
+        await seeded_session_manager.send_new_session("demo", "你好")
 
     lines = exc_info.value.sdk_stderr.split("\n")
     assert len(lines) == observed_count

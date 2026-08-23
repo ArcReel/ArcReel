@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -26,17 +25,6 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-async def db_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    sm = async_sessionmaker(engine, expire_on_commit=False)
-    async with sm() as session:
-        yield session
-    await engine.dispose()
 
 
 def _make_app_with_mock(mock_svc: ConfigService) -> FastAPI:
@@ -57,8 +45,8 @@ def _make_app_with_mock(mock_svc: ConfigService) -> FastAPI:
     app.dependency_overrides[get_config_service] = lambda: mock_svc
 
     async def _override_session():
-        async with mem_factory() as session:
-            yield session
+        async with mem_factory() as db_session:
+            yield db_session
 
     app.dependency_overrides[get_async_session] = _override_session
     app.include_router(system_config_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)

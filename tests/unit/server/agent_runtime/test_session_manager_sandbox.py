@@ -16,7 +16,7 @@ from server.agent_runtime.session_store import SessionMetaStore
 
 
 @pytest.fixture
-def session_manager(tmp_path: Path) -> SessionManager:
+def fs_session_manager(tmp_path: Path) -> SessionManager:
     project_root = tmp_path / "repo"
     project_root.mkdir()
     (project_root / "projects").mkdir()
@@ -26,9 +26,9 @@ def session_manager(tmp_path: Path) -> SessionManager:
 
 @pytest.mark.asyncio
 async def test_build_options_includes_sandbox_settings(
-    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    fs_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    proj_dir = session_manager.project_root / "projects" / "test_proj"
+    proj_dir = fs_session_manager.project_root / "projects" / "test_proj"
     proj_dir.mkdir(parents=True)
     (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 
@@ -37,7 +37,7 @@ async def test_build_options_includes_sandbox_settings(
 
     monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
-    opts = await session_manager._build_options("test_proj")
+    opts = await fs_session_manager._build_options("test_proj")
 
     assert opts.sandbox is not None
     assert opts.sandbox.get("enabled") is True
@@ -103,12 +103,12 @@ def test_configure_sandbox_runtime_swaps_policy(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_bash_env_scrub_hook_wraps_command_with_env_unset(session_manager: SessionManager) -> None:
+async def test_bash_env_scrub_hook_wraps_command_with_env_unset(fs_session_manager: SessionManager) -> None:
     """hook 把 policy 的包装结果塞进 ``updatedInput.command``，且不返回
     permissionDecision——PreToolUse hook 是权限链第 1 步，allow 会短路后续所有步骤。
     包装内容（``env -u <keys> sh -c '<orig>'``）由 test_agent_access_policy.py 的
     ``test_wrap_bash_command_unsets_provider_keys`` 覆盖，此处只验接线。"""
-    result = await session_manager._options_assembler._bash_env_scrub_hook(
+    result = await fs_session_manager._options_assembler._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {"command": "env | grep ANTHROPIC"}},
         None,
         None,
@@ -138,9 +138,9 @@ async def test_bash_env_scrub_hook_skips_wrap_when_sandbox_disabled(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_bash_env_scrub_hook_passthrough_when_no_command(session_manager: SessionManager) -> None:
+async def test_bash_env_scrub_hook_passthrough_when_no_command(fs_session_manager: SessionManager) -> None:
     """空 command 时直接放行，不做包装。"""
-    result = await session_manager._options_assembler._bash_env_scrub_hook(
+    result = await fs_session_manager._options_assembler._bash_env_scrub_hook(
         {"tool_name": "Bash", "tool_input": {}},
         None,
         None,

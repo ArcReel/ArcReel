@@ -2,41 +2,23 @@
 
 from datetime import UTC, datetime
 
-import pytest
 from sqlalchemy import inspect, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import lib.db.models  # noqa: F401 — ensure all models registered for Base.metadata
-from lib.db.base import Base, TimestampMixin, UserOwnedMixin
+from lib.db.base import TimestampMixin, UserOwnedMixin
 from lib.db.models import AgentSession, Task, User
 
 
-@pytest.fixture
-async def engine():
-    eng = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield eng
-    await eng.dispose()
-
-
-@pytest.fixture
-async def session(engine):
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-
-
 class TestModelsCreateTables:
-    async def test_all_tables_exist(self, engine):
-        async with engine.connect() as conn:
+    async def test_all_tables_exist(self, db_engine):
+        async with db_engine.connect() as conn:
             table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
         assert "tasks" in table_names
         assert "worker_lease" in table_names
         assert "api_calls" in table_names
         assert "agent_sessions" in table_names
 
-    async def test_task_round_trip(self, session):
+    async def test_task_round_trip(self, db_session):
         now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
         task = Task(
             task_id="abc123",
@@ -48,17 +30,17 @@ class TestModelsCreateTables:
             queued_at=now,
             updated_at=now,
         )
-        session.add(task)
-        await session.commit()
+        db_session.add(task)
+        await db_session.commit()
 
         from sqlalchemy import select
 
-        result = await session.execute(select(Task).where(Task.task_id == "abc123"))
+        result = await db_session.execute(select(Task).where(Task.task_id == "abc123"))
         loaded = result.scalar_one()
         assert loaded.project_name == "demo"
         assert loaded.status == "queued"
 
-    async def test_agent_session_round_trip(self, session):
+    async def test_agent_session_round_trip(self, db_session):
         now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
         s = AgentSession(
             id="sess123",
@@ -68,31 +50,31 @@ class TestModelsCreateTables:
             created_at=now,
             updated_at=now,
         )
-        session.add(s)
-        await session.commit()
+        db_session.add(s)
+        await db_session.commit()
 
         from sqlalchemy import select
 
-        result = await session.execute(select(AgentSession).where(AgentSession.id == "sess123"))
+        result = await db_session.execute(select(AgentSession).where(AgentSession.id == "sess123"))
         loaded = result.scalar_one()
         assert loaded.project_name == "demo"
 
 
 class TestUserModel:
-    async def test_user_model_columns(self, engine):
+    async def test_user_model_columns(self, db_engine):
         """Verify User table has correct columns."""
-        async with engine.connect() as conn:
+        async with db_engine.connect() as conn:
             columns = await conn.run_sync(
                 lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("users")}
             )
         assert columns == {"id", "username", "role", "is_active", "created_at", "updated_at"}
 
-    async def test_user_round_trip(self, session):
+    async def test_user_round_trip(self, db_session):
         user = User(id="u1", username="alice")
-        session.add(user)
-        await session.commit()
+        db_session.add(user)
+        await db_session.commit()
 
-        result = await session.execute(select(User).where(User.id == "u1"))
+        result = await db_session.execute(select(User).where(User.id == "u1"))
         loaded = result.scalar_one()
         assert loaded.username == "alice"
         assert loaded.role == "user"  # server_default
@@ -124,17 +106,17 @@ class TestUserOwnedMixin:
 class TestMixinApplicationToModels:
     """Verify Mixin columns are present on ORM models after refactoring."""
 
-    async def test_task_has_user_id(self, engine):
+    async def test_task_has_user_id(self, db_engine):
         """Task model should have user_id from UserOwnedMixin."""
-        async with engine.connect() as conn:
+        async with db_engine.connect() as conn:
             columns = await conn.run_sync(
                 lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("tasks")}
             )
         assert "user_id" in columns
 
-    async def test_api_call_has_timestamp_and_user_id(self, engine):
+    async def test_api_call_has_timestamp_and_user_id(self, db_engine):
         """ApiCall should have created_at (NOT NULL), updated_at, and user_id from Mixins."""
-        async with engine.connect() as conn:
+        async with db_engine.connect() as conn:
             col_info = await conn.run_sync(
                 lambda sync_conn: {c["name"]: c for c in inspect(sync_conn).get_columns("api_calls")}
             )
@@ -143,18 +125,18 @@ class TestMixinApplicationToModels:
         assert "updated_at" in col_info
         assert "user_id" in col_info
 
-    async def test_api_key_has_timestamp_and_user_id(self, engine):
+    async def test_api_key_has_timestamp_and_user_id(self, db_engine):
         """ApiKey should have updated_at and user_id from Mixins."""
-        async with engine.connect() as conn:
+        async with db_engine.connect() as conn:
             columns = await conn.run_sync(
                 lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("api_keys")}
             )
         assert "updated_at" in columns
         assert "user_id" in columns
 
-    async def test_agent_session_has_timestamp_and_user_id(self, engine):
+    async def test_agent_session_has_timestamp_and_user_id(self, db_engine):
         """AgentSession should have created_at, updated_at, and user_id from Mixins."""
-        async with engine.connect() as conn:
+        async with db_engine.connect() as conn:
             columns = await conn.run_sync(
                 lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("agent_sessions")}
             )
@@ -162,9 +144,9 @@ class TestMixinApplicationToModels:
         assert "updated_at" in columns
         assert "user_id" in columns
 
-    async def test_worker_lease_no_user_id(self, engine):
+    async def test_worker_lease_no_user_id(self, db_engine):
         """WorkerLease should NOT have user_id — it was not given UserOwnedMixin."""
-        async with engine.connect() as conn:
+        async with db_engine.connect() as conn:
             columns = await conn.run_sync(
                 lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("worker_lease")}
             )

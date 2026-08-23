@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 import lib.audio_utils as audio_utils_module
-from tests.conftest import _wav_bytes, make_test_video_with_audio_tail
+from tests.factories import make_test_video_with_audio_tail, wav_bytes
 
 
 @pytest.fixture(autouse=True)
@@ -72,7 +72,7 @@ class TestFfprobeUnavailable:
     async def test_returns_none_without_spawning(self):
         with patch("lib.audio_utils.shutil.which", return_value=None):
             with patch("lib.audio_utils.asyncio.create_subprocess_exec") as spawn:
-                result = await audio_utils_module.probe_audio_duration_seconds(_wav_bytes(3), ".wav")
+                result = await audio_utils_module.probe_audio_duration_seconds(wav_bytes(3), ".wav")
         assert result is None
         spawn.assert_not_called()
 
@@ -86,7 +86,7 @@ class TestFfprobeAvailable:
             pytest.skip("ffprobe not available")
 
     async def test_probes_real_duration(self):
-        duration = await audio_utils_module.probe_audio_duration_seconds(_wav_bytes(3), ".wav")
+        duration = await audio_utils_module.probe_audio_duration_seconds(wav_bytes(3), ".wav")
         assert duration is not None
         assert 2.5 < duration < 3.5
 
@@ -118,7 +118,7 @@ class TestFfprobeAvailable:
             return await orig_exec(*args, **kwargs)
 
         with patch("lib.audio_utils.asyncio.create_subprocess_exec", side_effect=_spy):
-            await audio_utils_module.probe_audio_duration_seconds(_wav_bytes(3), ".wav")
+            await audio_utils_module.probe_audio_duration_seconds(wav_bytes(3), ".wav")
 
         assert calls, "ffprobe 应至少被调用一次"
         for call_args in calls:
@@ -177,8 +177,8 @@ class TestProbeReferenceAudioTotalSeconds:
     async def test_sums_durations_of_existing_files(self, tmp_path):
         path_a = tmp_path / "a.wav"
         path_b = tmp_path / "b.wav"
-        path_a.write_bytes(_wav_bytes(3))
-        path_b.write_bytes(_wav_bytes(5))
+        path_a.write_bytes(wav_bytes(3))
+        path_b.write_bytes(wav_bytes(5))
 
         total = await audio_utils_module.probe_reference_audio_total_seconds([path_a, path_b])
 
@@ -194,7 +194,7 @@ class TestProbeReferenceAudioTotalSeconds:
         """半截总时长比跳过校验更危险：任一文件探测失败就整体判 None，不能只算成功的部分。"""
         path_a = tmp_path / "a.wav"
         path_missing = tmp_path / "missing.wav"
-        path_a.write_bytes(_wav_bytes(3))
+        path_a.write_bytes(wav_bytes(3))
 
         total = await audio_utils_module.probe_reference_audio_total_seconds([path_a, path_missing])
 
@@ -202,7 +202,7 @@ class TestProbeReferenceAudioTotalSeconds:
 
     async def test_ffprobe_unavailable_returns_none(self, tmp_path):
         path_a = tmp_path / "a.wav"
-        path_a.write_bytes(_wav_bytes(3))
+        path_a.write_bytes(wav_bytes(3))
         with patch("lib.audio_utils.shutil.which", return_value=None):
             total = await audio_utils_module.probe_reference_audio_total_seconds([path_a])
         assert total is None

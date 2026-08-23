@@ -15,24 +15,14 @@ from typing import Any
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from lib.db.base import Base
 from lib.db.models.api_call import ApiCall
 from lib.ledger import Ledger, _settlement_from_result
 
 
-@pytest.fixture
-async def factory() -> Any:
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
-
-
-async def _only_row(factory: async_sessionmaker) -> ApiCall:
-    async with factory() as session:
+async def _only_row(db_factory: async_sessionmaker) -> ApiCall:
+    async with db_factory() as session:
         rows = (await session.execute(select(ApiCall))).scalars().all()
     assert len(rows) == 1, f"期望恰好 1 行，实际 {len(rows)}"
     return rows[0]
@@ -107,42 +97,42 @@ class TestSettlementDispatch:
 
 
 class TestRecordBracket:
-    async def test_call_id_available_in_block_and_success_flips_row(self, factory: async_sessionmaker) -> None:
-        ledger = Ledger(session_factory=factory)
+    async def test_call_id_available_in_block_and_success_flips_row(self, db_factory: async_sessionmaker) -> None:
+        ledger = Ledger(session_factory=db_factory)
         seen_call_id: int | None = None
         async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
             seen_call_id = call.call_id
             call.success(_TextResult(input_tokens=100, output_tokens=50))
 
         assert seen_call_id is not None and seen_call_id > 0
-        row = await _only_row(factory)
+        row = await _only_row(db_factory)
         assert row.status == "success"
         assert row.input_tokens == 100
         assert row.output_tokens == 50
 
-    async def test_missing_success_declaration_raises_runtime_error(self, factory: async_sessionmaker) -> None:
-        ledger = Ledger(session_factory=factory)
+    async def test_missing_success_declaration_raises_runtime_error(self, db_factory: async_sessionmaker) -> None:
+        ledger = Ledger(session_factory=db_factory)
         with pytest.raises(RuntimeError, match="未调用 call.success"):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
                 pass  # 正常退出但未声明成功
 
         # 未声明成功 → 未 finish，行停在 pending（不翻 success/failed）
-        row = await _only_row(factory)
+        row = await _only_row(db_factory)
         assert row.status == "pending"
 
-    async def test_exception_flips_failed_and_reraises(self, factory: async_sessionmaker) -> None:
-        ledger = Ledger(session_factory=factory)
+    async def test_exception_flips_failed_and_reraises(self, db_factory: async_sessionmaker) -> None:
+        ledger = Ledger(session_factory=db_factory)
         with pytest.raises(ValueError, match="boom"):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
                 raise ValueError("boom" * 200)
 
-        row = await _only_row(factory)
+        row = await _only_row(db_factory)
         assert row.status == "failed"
         assert row.error_message is not None
         assert len(row.error_message) == 500  # 错误信息截断由仓储承担
 
-    async def test_cancellation_passes_through_leaving_pending(self, factory: async_sessionmaker) -> None:
-        ledger = Ledger(session_factory=factory)
+    async def test_cancellation_passes_through_leaving_pending(self, db_factory: async_sessionmaker) -> None:
+        ledger = Ledger(session_factory=db_factory)
         caught = False
         try:
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
@@ -153,7 +143,7 @@ class TestRecordBracket:
         assert caught, "expected CancelledError to propagate"
 
         # 穿透不记账：行停在 pending，不翻 failed
-        row = await _only_row(factory)
+        row = await _only_row(db_factory)
         assert row.status == "pending"
 
     async def test_accounting_failure_does_not_swallow_original_exception(
@@ -223,10 +213,10 @@ class TestRecordBracket:
 
 
 class TestResumeAndBackfill:
-    async def _seed_pending_video(self, factory: async_sessionmaker) -> int:
+    async def _seed_pending_video(self, db_factory: async_sessionmaker) -> int:
         from lib.db.repositories.usage_repo import UsageRepository
 
-        async with factory() as session:
+        async with db_factory() as session:
             return await UsageRepository(session).start_call(
                 project_name="demo",
                 call_type="video",
@@ -235,41 +225,41 @@ class TestResumeAndBackfill:
                 provider="gemini",
             )
 
-    async def test_resume_success_flips_pending_by_call_id(self, factory: async_sessionmaker) -> None:
-        call_id = await self._seed_pending_video(factory)
-        ledger = Ledger(session_factory=factory)
+    async def test_resume_success_flips_pending_by_call_id(self, db_factory: async_sessionmaker) -> None:
+        call_id = await self._seed_pending_video(db_factory)
+        ledger = Ledger(session_factory=db_factory)
 
         affected = await ledger.resume_success(
             call_id=call_id, result=_VideoResult(duration_seconds=6, generate_audio=False)
         )
         assert affected == 1
 
-        row = await _only_row(factory)
+        row = await _only_row(db_factory)
         assert row.status == "success"
         assert row.duration_seconds == 6  # backend 实际计费时长覆盖请求 8s
 
-    async def test_resume_failed_flips_pending_zero_cost(self, factory: async_sessionmaker) -> None:
-        call_id = await self._seed_pending_video(factory)
-        ledger = Ledger(session_factory=factory)
+    async def test_resume_failed_flips_pending_zero_cost(self, db_factory: async_sessionmaker) -> None:
+        call_id = await self._seed_pending_video(db_factory)
+        ledger = Ledger(session_factory=db_factory)
 
         affected = await ledger.resume_failed(call_id=call_id)
         assert affected == 1
 
-        row = await _only_row(factory)
+        row = await _only_row(db_factory)
         assert row.status == "failed"
         assert row.cost_amount == 0.0
 
-    async def test_resume_success_idempotent_on_terminal_row(self, factory: async_sessionmaker) -> None:
-        call_id = await self._seed_pending_video(factory)
-        ledger = Ledger(session_factory=factory)
+    async def test_resume_success_idempotent_on_terminal_row(self, db_factory: async_sessionmaker) -> None:
+        call_id = await self._seed_pending_video(db_factory)
+        ledger = Ledger(session_factory=db_factory)
         await ledger.resume_success(call_id=call_id, result=_VideoResult())
 
         # 二次 finalize 命中 0 行（WHERE status='pending' 幂等守卫），不抛异常
         affected = await ledger.resume_success(call_id=call_id, result=_VideoResult())
         assert affected == 0
 
-    async def test_backfill_writes_single_terminal_row(self, factory: async_sessionmaker) -> None:
-        ledger = Ledger(session_factory=factory)
+    async def test_backfill_writes_single_terminal_row(self, db_factory: async_sessionmaker) -> None:
+        ledger = Ledger(session_factory=db_factory)
         await ledger.backfill(
             project_name="demo",
             call_type="text",
@@ -285,7 +275,7 @@ class TestResumeAndBackfill:
             currency="USD",
         )
 
-        row = await _only_row(factory)
+        row = await _only_row(db_factory)
         assert row.status == "success"
         assert row.cost_amount == pytest.approx(0.123)  # SDK 直报费用优先
         assert row.usage_tokens == 1_200_000

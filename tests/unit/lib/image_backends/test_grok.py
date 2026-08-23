@@ -22,7 +22,7 @@ def _patch_xai_sdk():
 
 
 @pytest.fixture()
-def backend(_patch_xai_sdk):
+def grok_backend(_patch_xai_sdk):
     from lib.image_backends.grok import GrokImageBackend
 
     return GrokImageBackend(api_key="fake-xai-key")
@@ -41,17 +41,17 @@ def backend_pro(_patch_xai_sdk):
 
 
 class TestProperties:
-    def test_name(self, backend):
-        assert backend.name == "grok"
+    def test_name(self, grok_backend):
+        assert grok_backend.name == "grok"
 
-    def test_model_default(self, backend):
-        assert backend.model == "grok-imagine-image"
+    def test_model_default(self, grok_backend):
+        assert grok_backend.model == "grok-imagine-image"
 
     def test_model_custom(self, backend_pro):
         assert backend_pro.model == "grok-imagine-image-pro"
 
-    def test_capabilities(self, backend):
-        assert backend.capabilities == {
+    def test_capabilities(self, grok_backend):
+        assert grok_backend.capabilities == {
             ImageCapability.TEXT_TO_IMAGE,
             ImageCapability.IMAGE_TO_IMAGE,
         }
@@ -84,13 +84,13 @@ class TestInit:
 
 
 class TestGenerateT2I:
-    async def test_t2i_calls_image_sample(self, backend, tmp_path):
+    async def test_t2i_calls_image_sample(self, grok_backend, tmp_path):
         """T2I 调用 client.image.sample 并下载结果。"""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = True
         mock_response.url = "https://example.com/generated.png"
-        backend._client.image.sample = AsyncMock(return_value=mock_response)
+        grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
@@ -109,10 +109,10 @@ class TestGenerateT2I:
                 aspect_ratio="16:9",
                 image_size="2K",
             )
-            result = await backend.generate(request)
+            result = await grok_backend.generate(request)
 
         # 验证 SDK 调用参数（image_size 透传，不再做小写映射）
-        backend._client.image.sample.assert_awaited_once_with(
+        grok_backend._client.image.sample.assert_awaited_once_with(
             prompt="A beautiful sunset",
             model="grok-imagine-image",
             aspect_ratio="16:9",
@@ -132,7 +132,7 @@ class TestGenerateT2I:
 
 
 class TestGenerateI2I:
-    async def test_i2i_sends_image_urls(self, backend, tmp_path):
+    async def test_i2i_sends_image_urls(self, grok_backend, tmp_path):
         """I2I 将参考图转为 data URI 列表传给 image_urls。"""
         ref_image = tmp_path / "ref.png"
         ref_image.write_bytes(b"\x89PNG\r\n\x1a\nfake_png_data")
@@ -141,7 +141,7 @@ class TestGenerateI2I:
         mock_response = MagicMock()
         mock_response.respect_moderation = True
         mock_response.url = "https://example.com/edited.png"
-        backend._client.image.sample = AsyncMock(return_value=mock_response)
+        grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
 
@@ -159,16 +159,16 @@ class TestGenerateI2I:
                 output_path=output,
                 reference_images=[ReferenceImage(path=str(ref_image), label="base")],
             )
-            result = await backend.generate(request)
+            result = await grok_backend.generate(request)
 
-        call_kwargs = backend._client.image.sample.call_args.kwargs
+        call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert "image_urls" in call_kwargs
         assert "image_url" not in call_kwargs
         assert len(call_kwargs["image_urls"]) == 1
         assert call_kwargs["image_urls"][0].startswith("data:image/png;base64,")
         assert result.provider == "grok"
 
-    async def test_i2i_multiple_refs(self, backend, tmp_path):
+    async def test_i2i_multiple_refs(self, grok_backend, tmp_path):
         """多张参考图全部通过 image_urls 传递。"""
         ref1 = tmp_path / "ref1.png"
         ref1.write_bytes(b"\x89PNG\r\n\x1a\nfake1")
@@ -179,7 +179,7 @@ class TestGenerateI2I:
         mock_response = MagicMock()
         mock_response.respect_moderation = True
         mock_response.url = "https://example.com/merged.png"
-        backend._client.image.sample = AsyncMock(return_value=mock_response)
+        grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
 
@@ -200,18 +200,18 @@ class TestGenerateI2I:
                     ReferenceImage(path=str(ref2)),
                 ],
             )
-            await backend.generate(request)
+            await grok_backend.generate(request)
 
-        call_kwargs = backend._client.image.sample.call_args.kwargs
+        call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert len(call_kwargs["image_urls"]) == 2
 
-    async def test_i2i_skips_missing_ref(self, backend, tmp_path):
+    async def test_i2i_skips_missing_ref(self, grok_backend, tmp_path):
         """参考图不存在时退化为 T2I。"""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = True
         mock_response.url = "https://example.com/generated.png"
-        backend._client.image.sample = AsyncMock(return_value=mock_response)
+        grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
 
         fake_image_bytes = b"\x89PNG\r\n\x1a\n"
 
@@ -229,9 +229,9 @@ class TestGenerateI2I:
                 output_path=output,
                 reference_images=[ReferenceImage(path="/nonexistent/ref.png")],
             )
-            await backend.generate(request)
+            await grok_backend.generate(request)
 
-        call_kwargs = backend._client.image.sample.call_args.kwargs
+        call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert "image_urls" not in call_kwargs
         assert "image_url" not in call_kwargs
 
@@ -242,19 +242,19 @@ class TestGenerateI2I:
 
 
 class TestModeration:
-    async def test_moderation_failure_raises(self, backend, tmp_path):
+    async def test_moderation_failure_raises(self, grok_backend, tmp_path):
         """respect_moderation=False 时抛出 RuntimeError。"""
         output = tmp_path / "output.png"
         mock_response = MagicMock()
         mock_response.respect_moderation = False
-        backend._client.image.sample = AsyncMock(return_value=mock_response)
+        grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
 
         request = ImageGenerationRequest(
             prompt="Something problematic",
             output_path=output,
         )
         with pytest.raises(RuntimeError, match="内容审核"):
-            await backend.generate(request)
+            await grok_backend.generate(request)
 
 
 # ---------------------------------------------------------------------------
@@ -264,14 +264,14 @@ class TestModeration:
 
 class TestResolutionPassthrough:
     @pytest.mark.asyncio
-    async def test_image_size_none_omits_resolution_kwarg(self, backend, tmp_path):
+    async def test_image_size_none_omits_resolution_kwarg(self, grok_backend, tmp_path):
         captured: dict = {}
 
         async def fake_sample(**kwargs):
             captured.update(kwargs)
             raise RuntimeError("stop")
 
-        backend._client.image.sample = fake_sample
+        grok_backend._client.image.sample = fake_sample
         request = ImageGenerationRequest(
             prompt="hi",
             output_path=tmp_path / "o.png",
@@ -279,19 +279,19 @@ class TestResolutionPassthrough:
             image_size=None,
         )
         with pytest.raises(RuntimeError):
-            await backend.generate(request)
+            await grok_backend.generate(request)
 
         assert "resolution" not in captured
 
     @pytest.mark.asyncio
-    async def test_image_size_passed_as_is(self, backend, tmp_path):
+    async def test_image_size_passed_as_is(self, grok_backend, tmp_path):
         captured: dict = {}
 
         async def fake_sample(**kwargs):
             captured.update(kwargs)
             raise RuntimeError("stop")
 
-        backend._client.image.sample = fake_sample
+        grok_backend._client.image.sample = fake_sample
         request = ImageGenerationRequest(
             prompt="hi",
             output_path=tmp_path / "o.png",
@@ -299,7 +299,7 @@ class TestResolutionPassthrough:
             image_size="2K",
         )
         with pytest.raises(RuntimeError):
-            await backend.generate(request)
+            await grok_backend.generate(request)
 
         assert captured["resolution"] == "2K"
 

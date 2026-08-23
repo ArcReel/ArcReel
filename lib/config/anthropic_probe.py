@@ -51,9 +51,10 @@ async def _post(
     headers: dict[str, str],
     payload: dict[str, Any],
     timeout_s: float,
+    http_client: httpx.AsyncClient | None = None,
 ) -> httpx.Response:
-    """间接层：测试时 patch 这一个。"""
-    client = get_http_client()
+    """POST 出站间接层；``http_client`` 缺省时用共享客户端。"""
+    client = http_client or get_http_client()
     return await client.post(url, headers=headers, json=payload, timeout=timeout_s)
 
 
@@ -69,6 +70,7 @@ async def probe_messages(
     api_key: str,
     model: str,
     timeout_s: float = 10.0,
+    http_client: httpx.AsyncClient | None = None,
 ) -> ProbeResult:
     """POST {messages_root}/v1/messages 发最小请求 (max_tokens=1)。
 
@@ -91,7 +93,7 @@ async def probe_messages(
     }
     started = time.perf_counter()
     try:
-        resp = await _post(url=url, headers=headers, payload=payload, timeout_s=timeout_s)
+        resp = await _post(url=url, headers=headers, payload=payload, timeout_s=timeout_s, http_client=http_client)
     except httpx.TimeoutException as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         logger.info("probe_messages timeout url=%s elapsed_ms=%d", url, elapsed)
@@ -153,9 +155,11 @@ def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
     return DiagnosisCode.UNKNOWN
 
 
-async def _get(*, url: str, headers: dict[str, str], timeout_s: float) -> httpx.Response:
-    """间接层：测试时 patch 这一个。"""
-    client = get_http_client()
+async def _get(
+    *, url: str, headers: dict[str, str], timeout_s: float, http_client: httpx.AsyncClient | None = None
+) -> httpx.Response:
+    """GET 出站间接层；``http_client`` 缺省时用共享客户端。"""
+    client = http_client or get_http_client()
     return await client.get(url, headers=headers, timeout=timeout_s)
 
 
@@ -164,6 +168,7 @@ async def probe_discovery(
     discovery_root: str | None,
     api_key: str,
     timeout_s: float = 5.0,
+    http_client: httpx.AsyncClient | None = None,
 ) -> ProbeResult | None:
     """GET {discovery_root}/v1/models 体检模型发现端点 (warn 级，仅供参考)。"""
     if not discovery_root:
@@ -172,7 +177,7 @@ async def probe_discovery(
     headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
     started = time.perf_counter()
     try:
-        resp = await _get(url=url, headers=headers, timeout_s=timeout_s)
+        resp = await _get(url=url, headers=headers, timeout_s=timeout_s, http_client=http_client)
     except httpx.TimeoutException as exc:
         elapsed = int((time.perf_counter() - started) * 1000)
         return ProbeResult(success=False, status_code=None, latency_ms=elapsed, error=f"timeout: {exc!s}")
@@ -221,6 +226,7 @@ async def run_test(
     base_url: str | None,
     api_key: str,
     model: str | None,
+    http_client: httpx.AsyncClient | None = None,
 ) -> TestConnectionResponse:
     """完整端到端测试：派生 → messages + discovery 并发 → 自定义模式自愈 → 诊断。"""
     # 1. 派生 endpoints
@@ -253,8 +259,17 @@ async def run_test(
 
     # 2. messages + discovery 并发首轮：discovery 是 warn 级独立信号，串行只浪费墙钟时间
     msg, disc = await asyncio.gather(
-        probe_messages(messages_root=ep.messages_root, api_key=api_key, model=effective_model),
-        probe_discovery(discovery_root=ep.discovery_root or None, api_key=api_key),
+        probe_messages(
+            messages_root=ep.messages_root,
+            api_key=api_key,
+            model=effective_model,
+            http_client=http_client,
+        ),
+        probe_discovery(
+            discovery_root=ep.discovery_root or None,
+            api_key=api_key,
+            http_client=http_client,
+        ),
     )
 
     # 3. 自定义模式 + 失败 + 没显式 anthropic 后缀 + status 命中 retryable → 串行自愈
@@ -268,7 +283,12 @@ async def run_test(
         and msg.status_code in _RETRYABLE_STATUS_FOR_SELF_HEAL
     ):
         retry_root = ep.messages_root.rstrip("/") + "/anthropic"
-        retry = await probe_messages(messages_root=retry_root, api_key=api_key, model=effective_model)
+        retry = await probe_messages(
+            messages_root=retry_root,
+            api_key=api_key,
+            model=effective_model,
+            http_client=http_client,
+        )
         if retry.success:
             msg = retry
             final_messages_root = retry_root

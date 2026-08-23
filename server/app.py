@@ -16,8 +16,10 @@ import platform
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -155,7 +157,12 @@ def _diagnose_bwrap_failure() -> str:
     return "\n".join(parts)
 
 
-def check_sandbox_available() -> bool:
+def check_sandbox_available(
+    *,
+    platform_system: Callable[[], str] | None = None,
+    executable_which: Callable[[str], str | None] | None = None,
+    subprocess_run: Callable[..., subprocess.CompletedProcess[bytes]] | None = None,
+) -> bool:
     """启动期检测 sandbox 工具可用性。
 
     返回 ``True`` 表示沙箱可用且必须启用；返回 ``False`` 表示 SDK 不支持
@@ -165,9 +172,11 @@ def check_sandbox_available() -> bool:
     ``AgentAccessPolicy.WINDOWS_BASH_PREFIX_WHITELIST`` 代码白名单。
     macOS / Linux 工具缺失仍硬失败（受支持平台禁止降级）。
     """
-    system = platform.system()
+    system = (platform_system or platform.system)()
+    which = executable_which or shutil.which
+    run = subprocess_run or subprocess.run
     if system == "Darwin":
-        if shutil.which("sandbox-exec") is None:
+        if which("sandbox-exec") is None:
             raise RuntimeError(
                 "SANDBOX_UNAVAILABLE on macOS\n"
                 "  sandbox-exec: not found in PATH (should be system-installed)\n"
@@ -177,7 +186,7 @@ def check_sandbox_available() -> bool:
     if system == "Linux":
         # Linux 依赖见 https://code.claude.com/docs/en/sandboxing#set-up-linux-and-wsl2：需同时安装
         # （bwrap 做进程/文件隔离，socat 做网络代理转发）。
-        missing = [name for name in ("bwrap", "socat") if shutil.which(name) is None]
+        missing = [name for name in ("bwrap", "socat") if which(name) is None]
         if missing:
             raise RuntimeError(
                 "SANDBOX_UNAVAILABLE on linux\n"
@@ -205,7 +214,7 @@ def check_sandbox_available() -> bool:
             "/bin/true",
         ]
         try:
-            probe = subprocess.run(probe_cmd, capture_output=True, timeout=5, check=False)
+            probe = run(probe_cmd, capture_output=True, timeout=5, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise RuntimeError(
                 "SANDBOX_BWRAP_BROKEN on Linux\n"
@@ -233,15 +242,21 @@ _DOCKERENV_PATH = Path("/.dockerenv")
 _CGROUP_PATH = Path("/proc/1/cgroup")
 
 
-def detect_docker_environment() -> bool:
+def detect_docker_environment(
+    *,
+    dockerenv_path: Path | None = None,
+    cgroup_path: Path | None = None,
+) -> bool:
     """启动期一次性检测当前是否在 Docker / Podman 容器内。
 
     用于决定是否启用 ``SandboxSettings.enableWeakerNestedSandbox``。
     """
-    if _DOCKERENV_PATH.exists():
+    docker_marker = dockerenv_path or _DOCKERENV_PATH
+    cgroup = cgroup_path or _CGROUP_PATH
+    if docker_marker.exists():
         return True
     try:
-        content = _CGROUP_PATH.read_text(encoding="utf-8", errors="ignore")
+        content = cgroup.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return False
     return "docker" in content or "podman" in content
@@ -271,9 +286,14 @@ def _log_profile_sync_outcome(stats: dict, *, log: logging.Logger = logger) -> N
         log.info("agent_runtime profile 物化完成: %s", stats)
 
 
-async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, dict]:
+async def _migrate_source_encoding_on_startup(
+    projects_root: Path,
+    *,
+    migrate_source_encoding: Callable[[Path], Any] | None = None,
+) -> dict[str, dict]:
     """对每个项目执行幂等编码迁移。失败被捕获并写日志，不阻塞启动。"""
     summary: dict[str, dict] = {}
+    migrate = migrate_source_encoding or migrate_project_source_encoding
     if not projects_root.exists():
         return summary
 
@@ -283,7 +303,7 @@ async def _migrate_source_encoding_on_startup(projects_root: Path) -> dict[str, 
         if marker.exists():
             return {"skipped": True}
         try:
-            result = migrate_project_source_encoding(project_dir)
+            result = migrate(project_dir)
             marker_dir.mkdir(exist_ok=True)
             marker.touch()
             if result.failed:

@@ -388,7 +388,7 @@ class TestNewAPIVideoBackend:
             patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
             # 压缩重试退避时间到 0，避免测试变慢
             patch("lib.video_backends.newapi.DEFAULT_BACKOFF_SECONDS", (0, 0, 0)),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
             patch("lib.video_backends.newapi.download_video", fake_download),
         ):
             from lib.video_backends.newapi import NewAPIVideoBackend
@@ -420,7 +420,7 @@ class TestNewAPIVideoBackend:
 
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
         ):
             from lib.video_backends.newapi import NewAPIVideoBackend
 
@@ -444,7 +444,7 @@ class TestNewAPIVideoBackend:
 
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
         ):
             from lib.video_backends.base import AmbiguousSubmitError
             from lib.video_backends.newapi import NewAPIVideoBackend
@@ -478,7 +478,7 @@ class TestNewAPIVideoBackend:
         with (
             patch("httpx.AsyncClient", return_value=mock_client),
             patch("lib.video_backends.newapi._POLL_INTERVAL_SECONDS", 0.0),
-            patch("lib.retry._compute_wait", lambda attempt, backoff: 0.0),
+            bounded_poll_clock(),
             patch("lib.video_backends.newapi.download_video", fake_download),
         ):
             from lib.video_backends.newapi import NewAPIVideoBackend
@@ -592,7 +592,7 @@ class TestNewAPIVideoBackend:
         assert (tmp_path / "out.mp4").read_bytes() == b"resumed"
 
     async def test_poll_recognizes_expired_status(self, tmp_path: Path):
-        """fix #647 #5：poll 返回 status='expired' → 抛 ResumeExpiredError。"""
+        """poll 返回 status='expired' → 抛 ResumeExpiredError。"""
         from lib.video_backends.base import ResumeExpiredError
 
         expired_resp = _make_response(200, {"task_id": "task-x", "status": "expired"})

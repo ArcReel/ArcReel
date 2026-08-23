@@ -55,13 +55,18 @@ _LABEL_ZH: dict[str, str] = {
 }
 
 
-async def _i2i_provider_available(project: dict[str, Any]) -> bool:
+async def _i2i_provider_available(
+    project: dict[str, Any],
+    *,
+    config_resolver: ConfigResolver | None = None,
+) -> bool:
     """项目 i2i 槽解析不出可用供应商时返回 False——与 HTTP 端点入队前 fail-fast 同一判断点
     （见 ``server/routers/generate.py::_require_i2i_image_provider_configured``），批量编辑
     只需要一次「是否可用」的项目级判断，不像端点那样需要拿到 provider_id 传给入队。
     """
     try:
-        await ConfigResolver(async_session_factory).resolve_image_backend(project, None, capability="i2i")
+        resolver = config_resolver or ConfigResolver(async_session_factory)
+        await resolver.resolve_image_backend(project, None, capability="i2i")
     except ValueError:
         return False
     return True
@@ -265,7 +270,11 @@ def edit_images_tool(ctx: ToolContext):
             builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
             states: dict[str, GenerationTargetState] = {}
 
-            if not await _i2i_provider_available(project):
+            if ctx.config_resolver is None:
+                provider_available = await _i2i_provider_available(project)
+            else:
+                provider_available = await _i2i_provider_available(project, config_resolver=ctx.config_resolver)
+            if not provider_available:
                 # 拦截在入队前：不是某个 ID 的产物问题，是整批共享的前置条件不满足，
                 # 但调用方仍按逐 ID 契约读结果，因此每个请求到的 ID 各记一条 blocked，
                 # 而不是只回一段无法编程消费的文本。

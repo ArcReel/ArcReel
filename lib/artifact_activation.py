@@ -90,7 +90,12 @@ _EPISODE_RESOURCE_KINDS = frozenset(
 )
 
 
-def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> bool:
+def activate_artifact_target_state(
+    project_dir: Path,
+    *,
+    bump_schema: bool,
+    backup_file: Callable[[Path, int], None] | None = None,
+) -> bool:
     """Commit one complete target state, optionally advancing schema last."""
 
     plan = plan_artifact_target_state(project_dir)
@@ -105,7 +110,7 @@ def activate_artifact_target_state(project_dir: Path, *, bump_schema: bool) -> b
     if bump_schema:
         with project_metadata_lock(project_dir):
             _assert_preflight_unchanged(project_dir, plan)
-            _backup_activation_inputs(project_dir, plan)
+            _backup_activation_inputs(project_dir, plan, backup_file=backup_file)
             previous_entries = adapter.snapshot_entries()
             changed = adapter.replace_entries_atomically(plan.entries)
             try:
@@ -411,14 +416,22 @@ def _assert_project_unchanged(project_dir: Path, expected: bytes) -> None:
         raise RuntimeError("project.json changed after artifact activation preflight")
 
 
-def _backup_activation_inputs(project_dir: Path, plan: ArtifactTargetStatePlan) -> None:
+def _backup_activation_inputs(
+    project_dir: Path,
+    plan: ArtifactTargetStatePlan,
+    *,
+    backup_file: Callable[[Path, int], None] | None = None,
+) -> None:
     candidates = [project_dir / "project.json", *plan.script_paths]
     manifest = project_dir / MANIFEST_FILENAME
     if manifest.exists():
         candidates.append(manifest)
     stamp = time.time_ns()
     for source in candidates:
-        _ensure_activation_backup(source, stamp=stamp)
+        if backup_file is None:
+            _ensure_activation_backup(source, stamp=stamp)
+        else:
+            backup_file(source, stamp)
 
 
 def _ensure_activation_backup(source: Path, *, stamp: int) -> None:

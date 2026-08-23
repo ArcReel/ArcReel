@@ -5,11 +5,9 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.artifact_activation import ArtifactCurrencyResolver
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ArtifactStatus, ProjectArtifactManifestAdapter
-from lib.db.base import Base
 from lib.i18n import _ as translate_message
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
@@ -19,18 +17,12 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture
-async def _assets_env(tmp_path, monkeypatch):
-    # 1) per-test in-memory DB
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-
-    # 2) per-test ProjectManager pointed at tmp_path/projects
+async def _assets_env(db_factory, tmp_path, monkeypatch):
+    # 1) per-test ProjectManager pointed at tmp_path/projects
     pm = ProjectManager(tmp_path / "projects")
 
-    # 3) monkeypatch symbols used inside assets router
-    monkeypatch.setattr(assets, "async_session_factory", factory)
+    # 2) monkeypatch symbols used inside assets router
+    monkeypatch.setattr(assets, "async_session_factory", db_factory)
     monkeypatch.setattr(assets, "get_project_manager", lambda: pm)
 
     app = FastAPI()
@@ -38,8 +30,7 @@ async def _assets_env(tmp_path, monkeypatch):
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(assets.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
-    yield {"client": TestClient(app), "pm": pm}
-    await engine.dispose()
+    return {"client": TestClient(app), "pm": pm}
 
 
 class TestAssetsCRUD:
