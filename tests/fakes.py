@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -445,3 +445,35 @@ def bounded_poll_clock(step: float = 30.0):
         patch("lib.retry.time.monotonic", side_effect=lambda: next(clock)),
     ):
         yield
+
+
+@contextmanager
+def captured_provider_job_ids() -> Iterator[list[dict[str, Any]]]:
+    """provider_job_id 写回的手写替身：收下写回参数，不落 DB。
+
+    ``persist_provider_job_id`` 是 backend 的 DB 边界，各提交-轮询型 backend 的测试只关心
+    「写回了什么」。产出按参数名归档的记录列表，断言落在记录内容上而不是替身的调用对象上；
+    非 worker 路径（``task_id=None``）跳过写回时列表保持为空。
+    """
+    records: list[dict[str, Any]] = []
+
+    async def _record(
+        task_id: str,
+        job_id: str,
+        *,
+        provider: str,
+        endpoint: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
+        records.append(
+            {
+                "task_id": task_id,
+                "job_id": job_id,
+                "provider": provider,
+                "endpoint": endpoint,
+                "base_url": base_url,
+            }
+        )
+
+    with patch("lib.video_backends.base.persist_provider_job_id", _record):
+        yield records
