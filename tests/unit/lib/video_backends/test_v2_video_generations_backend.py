@@ -405,8 +405,9 @@ class TestV2BackendHttp:
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", duration_seconds=5),
             )
 
-            # resume 只 poll，不再 submit
+            # resume 只 poll，不再 submit；续跑的 id 必须进到轮询 query
             assert routes.submit.call_count == 0
+            assert routes.poll.calls.last.request.url.params["generation_id"] == "gen-resume"
 
         assert result.task_id == "gen-resume"
         assert result.video_path.read_bytes() == b"r"

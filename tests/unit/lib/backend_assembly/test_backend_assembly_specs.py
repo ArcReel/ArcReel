@@ -67,7 +67,7 @@ class TestBuildSimpleBaseUrlPriority:
 
     def test_ark_agent_plan_uses_own_plan_base_url(self):
         # ark-agent-plan 媒体侧复用 Ark backend，但 registry default 是独立的 /api/plan/v3
-        # （非 ark 的 /api/v3）——回归保护：迁移前经简单族构造即取此值，新缝须一致。
+        # （非 ark 的 /api/v3）。
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark-agent-plan")
         assert _built(get_provider_spec("ark-agent-plan", "video"), config, "doubao-seedance-2.0") == {
             "media": "video",
@@ -278,7 +278,7 @@ class TestKlingSpec:
         spec = get_provider_spec("kling", "video")
         assert spec.registry_backend == "kling"
         config = self._kling_config(access_key="ak-1", secret_key="sk-1")
-        # video backend 不接受 api_model_name：即使 model 是别名也不传该参数（迁移前 video 分支即不设）
+        # video backend 不接受 api_model_name：即使 model 是别名也不传该参数
         assert _built(spec, config, "kling-v3") == {
             "media": "video",
             "backend": "kling",
@@ -376,8 +376,7 @@ class TestTextSimpleSpec:
         }
 
     def test_api_key_passed_unconditionally_even_when_missing(self):
-        # 文本简单族 api_key 无条件透传（含 None）：保留迁移前命令式分支语义，
-        # 与媒体简单族「缺省省略」非对称。
+        # 文本简单族 api_key 无条件透传（含 None），与媒体简单族「缺省省略」非对称。
         config = _loaded(credentials={}, provider_id="grok")
         assert _built(get_provider_spec("grok", "text"), config, "grok-4")["kwargs"] == {
             "model": "grok-4",
