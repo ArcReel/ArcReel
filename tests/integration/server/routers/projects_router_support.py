@@ -3,9 +3,11 @@
 import json
 import re
 import shutil
+from collections.abc import Callable
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -441,3 +443,8 @@ def _client(monkeypatch, fake_pm, fake_summaries=None):
     app.include_router(projects.self_auth_router, prefix="/api/v1")
     register_error_handlers(app)
     return TestClient(app)
+
+
+def _override(client: TestClient, dependency: Callable[..., Any], provider: Callable[..., Any]) -> None:
+    """给 ``_client`` 建好的 app 补挂依赖覆盖（``TestClient.app`` 的静态类型只是裸 ASGI 可调用）。"""
+    cast(FastAPI, client.app).dependency_overrides[dependency] = provider

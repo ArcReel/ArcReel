@@ -5,6 +5,7 @@ from server.routers import projects
 from tests.integration.server.routers.projects_router_support import (
     _client,
     _FakePM,
+    _override,
 )
 
 
@@ -241,7 +242,7 @@ class TestUnexpectedErrorsDoNotLeak:
         client = _client(monkeypatch, _FakePM(tmp_path))
         # scope 合法（默认 full）；_sync 里最早命中 get_project_manager()。
         # 归档服务改由依赖覆盖给出，免得同一个哨兵在依赖解析期就抛、绕过处理器兜底。
-        client.app.dependency_overrides[projects.get_archive_service] = lambda: _raising_service(sentinel)
+        _override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.post("/api/v1/projects/ready/export/token")
@@ -253,7 +254,7 @@ class TestUnexpectedErrorsDoNotLeak:
         client = _client(monkeypatch, _FakePM(tmp_path))
         # download_token 校验先放行，再让归档服务抛 RuntimeError 落到兜底
         monkeypatch.setattr(projects, "verify_download_token", lambda token, name: {"sub": "u"})
-        client.app.dependency_overrides[projects.get_archive_service] = lambda: _raising_service(sentinel)
+        _override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
         with client:
             resp = client.get("/api/v1/projects/ready/export?download_token=tok&scope=full")
             assert resp.status_code == 500
@@ -263,7 +264,7 @@ class TestUnexpectedErrorsDoNotLeak:
         sentinel = "LEAKED_SECRET_import_archive"
         client = _client(monkeypatch, _FakePM(tmp_path))
         # 上传副本写盘成功后，_sync 调归档服务抛 RuntimeError，落到 JSONResponse(500) 兜底
-        client.app.dependency_overrides[projects.get_archive_service] = lambda: _raising_service(sentinel)
+        _override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
         with client:
             resp = client.post(
                 "/api/v1/projects/import",
