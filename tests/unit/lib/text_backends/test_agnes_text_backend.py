@@ -129,7 +129,7 @@ class TestGenerate:
 
         with (
             patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
-            patch("lib.text_backends.openai._instructor_fallback") as mock_fallback,
+            patch("instructor.from_openai") as from_openai,
         ):
             from lib.text_backends.agnes import AgnesTextBackend
 
@@ -139,8 +139,8 @@ class TestGenerate:
         assert result.text == schema_response
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["response_format"]["type"] == "json_schema"
-        # 原生成功，不触发降级
-        mock_fallback.assert_not_called()
+        # 原生成功，不触发降级（instructor 客户端未构造）
+        from_openai.assert_not_called()
 
     async def test_non_json_response_triggers_instructor_fallback(self):
         # 原生返回 200 但内容非 JSON（代理静默忽略 response_format）→ 选择性降级到 Instructor。

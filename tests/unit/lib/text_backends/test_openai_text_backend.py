@@ -197,7 +197,7 @@ class TestInstructorFallback:
 
         with (
             patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
-            patch("lib.text_backends.openai._instructor_fallback") as mock_fallback,
+            patch("instructor.from_openai") as from_openai,
         ):
             from lib.text_backends.openai import OpenAITextBackend
 
@@ -209,7 +209,8 @@ class TestInstructorFallback:
             result = await backend.generate(request)
 
         assert result.text == schema_response
-        mock_fallback.assert_not_called()
+        # 降级路径的唯一入口是 instructor 客户端：未构造即证明没走降级
+        from_openai.assert_not_called()
 
     async def test_non_json_response_triggers_instructor_fallback_pydantic(self):
         """原生返回 200 但内容非 JSON（OpenAI 兼容代理静默忽略 response_format），应降级到 Instructor。"""
@@ -371,7 +372,7 @@ class TestInstructorFallback:
 
         with (
             patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client),
-            patch("lib.text_backends.openai._instructor_fallback") as mock_fallback,
+            patch("instructor.from_openai") as from_openai,
         ):
             from lib.text_backends.openai import OpenAITextBackend
 
@@ -386,7 +387,7 @@ class TestInstructorFallback:
             result = await backend.generate(request)
 
         assert result.text == violating_json
-        mock_fallback.assert_not_called()
+        from_openai.assert_not_called()
 
     async def test_bad_request_error_triggers_instructor_fallback_pydantic(self):
         """原生 response_format 抛 BadRequestError 且 schema 为 Pydantic 类时，走 Instructor 降级。"""
