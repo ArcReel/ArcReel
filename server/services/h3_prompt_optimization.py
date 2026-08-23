@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,9 +14,12 @@ from typing import Any
 from lib.asset_types import ASSET_SPECS, normalize_asset_bucket
 from lib.db import async_session_factory
 from lib.minimax_h3_prompt import (
+    H3_MAX_PROMPT_CHARS,
     H3PromptArtifact,
     H3PromptReference,
+    H3PromptSections,
     H3PromptState,
+    H3PromptTooLongError,
     canonical_basis_digest,
     confirm_h3_prompt_artifact,
     file_sha256,
@@ -34,11 +38,15 @@ from lib.reference_video.request_projection import (
     project_reference_unit_request,
 )
 from lib.reference_video.voice_settings import VoiceRenderSettings
-from lib.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
+from lib.text_backends.base import ImageInput, TextGenerationRequest, TextGenerationResult, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.video_visual_provenance import resolve_video_aspect_ratio
 from server.services.effective_global_assets import resolve_linked_global_reference_audio_paths
 from server.services.narration_delivery_tasks import prepare_current_reference_video_request_options
+
+logger = logging.getLogger(__name__)
+
+_H3_OPTIMIZATION_MAX_ATTEMPTS = 3
 
 
 class H3PromptOptimizationError(ValueError):
@@ -178,9 +186,65 @@ def _optimizer_user_prompt(payload: dict[str, Any]) -> str:
         "Rewrite the following ArcReel video unit for the configured MiniMax H3 request. "
         "The attached images appear in the same order as reference_images and map to <Picture N>. "
         "Use only the references listed below, preserve all dialogue verbatim in its original language, "
-        "and keep every timestamp within request.duration_seconds. Return only the six required sections.\n\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
+        "and keep every timestamp within request.duration_seconds. Return only the six required sections. "
+        f"The complete response, including all section headers, must not exceed {H3_MAX_PROMPT_CHARS} "
+        "characters.\n\n" + json.dumps(payload, ensure_ascii=False, indent=2)
     )
+
+
+def _optimizer_retry_prompt(user_prompt: str, error: H3PromptTooLongError) -> str:
+    return (
+        f"{user_prompt}\n\n"
+        f"Your previous response rendered to {error.actual_chars} characters, exceeding the "
+        f"{error.max_chars}-character provider limit. Regenerate all six required sections and compress "
+        f"the wording so the complete response, including all section headers, does not exceed "
+        f"{error.max_chars} characters. Preserve every other instruction and required fact."
+    )
+
+
+async def _generate_valid_h3_prompt(
+    generator: TextGenerator,
+    *,
+    context: H3PromptContext,
+    system_prompt: str,
+    project_name: str,
+) -> tuple[TextGenerationResult, H3PromptSections]:
+    """Generate once normally, retrying only provider-length validation failures."""
+
+    user_prompt = context.user_prompt
+    duration = context.projection.request_duration
+    assert duration is not None
+    for attempt in range(1, _H3_OPTIMIZATION_MAX_ATTEMPTS + 1):
+        result = await generator.generate(
+            TextGenerationRequest(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                images=[ImageInput(path=path) for path in context.image_paths] or None,
+                max_output_tokens=8192,
+            ),
+            project_name=project_name,
+        )
+        try:
+            sections = parse_h3_prompt(
+                result.text,
+                duration_seconds=duration.seconds,
+                picture_count=len(context.image_paths),
+                audio_count=len(context.audio_paths),
+            )
+        except H3PromptTooLongError as exc:
+            if attempt >= _H3_OPTIMIZATION_MAX_ATTEMPTS:
+                raise
+            logger.warning(
+                "H3 prompt optimization attempt %d/%d exceeded the provider limit (%d > %d characters); retrying",
+                attempt,
+                _H3_OPTIMIZATION_MAX_ATTEMPTS,
+                exc.actual_chars,
+                exc.max_chars,
+            )
+            user_prompt = _optimizer_retry_prompt(context.user_prompt, exc)
+            continue
+        return result, sections
+    raise AssertionError("H3 prompt optimization retry loop did not return")
 
 
 class H3PromptOptimizationService:
@@ -457,24 +521,15 @@ class H3PromptOptimizationService:
         system_prompt = load_h3_system_prompt()
         artifacts: list[H3PromptArtifact] = []
         for context in contexts:
-            result = await generator.generate(
-                TextGenerationRequest(
-                    prompt=context.user_prompt,
-                    system_prompt=system_prompt,
-                    images=[ImageInput(path=path) for path in context.image_paths] or None,
-                    max_output_tokens=8192,
-                ),
+            result, sections = await _generate_valid_h3_prompt(
+                generator,
+                context=context,
+                system_prompt=system_prompt,
                 project_name=project_name,
             )
             duration = context.projection.request_duration
             candidate = context.projection.provider_candidate
             assert duration is not None and candidate is not None
-            sections = parse_h3_prompt(
-                result.text,
-                duration_seconds=duration.seconds,
-                picture_count=len(context.image_paths),
-                audio_count=len(context.audio_paths),
-            )
             unit_id = str(context.unit.get("unit_id") or "")
             artifact = H3PromptArtifact(
                 episode=context.episode,

@@ -28,6 +28,7 @@ import httpx
 
 from lib.config.registry import model_info_for
 from lib.logging_utils import format_kwargs_for_log
+from lib.minimax_h3_prompt import H3_MAX_PROMPT_CHARS
 from lib.minimax_shared import (
     MINIMAX_VIDEO_POLL_INTERVAL_SECONDS,
     extract_minimax_download_url,
@@ -104,7 +105,6 @@ _RESOLUTION_DURATIONS: dict[str, set[int]] = {"768p": {6, 10}, "1080p": {6}}
 _H3_MAX_REFERENCE_IMAGES = 9
 _H3_MAX_REFERENCE_AUDIO = 3
 _H3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
-_H3_MAX_PROMPT_CHARS = 7000
 
 # 参考音频的 data URI MIME：官方接受 wav / mp3，要求 `data:audio/<格式>;base64,<内容>` 且格式小写。
 # 与 ark 侧的同名表各存一份——各家对 mp3 的接受口径不同（此处按官方写法 audio/mp3），
@@ -213,7 +213,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
                 # 段数与总时长两个维度独立声明：3 段各 10 秒都在单段合法区间内，合计已超 15 秒。
                 max_reference_audio_count=_H3_MAX_REFERENCE_AUDIO,
                 max_reference_audio_total_seconds=_H3_MAX_REFERENCE_AUDIO_TOTAL_SECONDS,
-                max_prompt_chars=_H3_MAX_PROMPT_CHARS,
+                max_prompt_chars=H3_MAX_PROMPT_CHARS,
                 first_frame_ratio_adaptive_only=True,
             )
         return VideoCapabilities(first_frame=True)

@@ -9,10 +9,12 @@ from typing import Any
 import pytest
 
 from lib.minimax_h3_prompt import (
+    H3_MAX_PROMPT_CHARS,
     H3_SYSTEM_PROMPT_SHA256,
     H3PromptArtifact,
     H3PromptReference,
     H3PromptSections,
+    H3PromptTooLongError,
     confirm_h3_prompt_artifact,
     h3_prompt_artifact_path,
     load_h3_prompt_artifact,
@@ -21,7 +23,11 @@ from lib.minimax_h3_prompt import (
     save_h3_prompt_artifact,
 )
 from lib.text_backends.base import TextGenerationResult
-from server.services.h3_prompt_optimization import H3PromptContext, H3PromptOptimizationService
+from server.services.h3_prompt_optimization import (
+    H3PromptContext,
+    H3PromptOptimizationService,
+    _optimizer_user_prompt,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -44,6 +50,32 @@ Quiet workshop ambience.
 
 non_diegetic_music:
 No music."""
+
+
+def _oversized_prompt() -> str:
+    return _prompt().replace(
+        "At 00:03.000,",
+        f"{'x' * H3_MAX_PROMPT_CHARS}\nAt 00:03.000,",
+    )
+
+
+def _context(tmp_path: Path, *, basis_digest: str = "basis-v1") -> H3PromptContext:
+    return H3PromptContext(
+        episode=1,
+        unit={"unit_id": "E1U01", "text": "runtime facts"},
+        projection=SimpleNamespace(
+            request_duration=SimpleNamespace(seconds=8),
+            provider_candidate=SimpleNamespace(model_id="MiniMax-H3", resolution="720p"),
+        ),
+        narration_delivery="post_production",
+        aspect_ratio="16:9",
+        image_references=(H3PromptReference(label="Picture 1", kind="prop", name="Bowl"),),
+        image_paths=(tmp_path / "bowl.png",),
+        audio_references=(H3PromptReference(label="Audio 1", kind="speaker", name="Dad"),),
+        audio_paths=(tmp_path / "dad.mp3",),
+        basis_digest=basis_digest,
+        user_prompt=_optimizer_user_prompt({"unit": {"unit_id": "E1U01", "text": "runtime facts"}}),
+    )
 
 
 def _artifact() -> H3PromptArtifact:
@@ -71,6 +103,13 @@ def test_pinned_ref_en_is_loaded_byte_exactly() -> None:
     assert hashlib.sha256(raw).hexdigest() == H3_SYSTEM_PROMPT_SHA256
 
 
+def test_optimizer_user_prompt_includes_the_complete_provider_character_limit() -> None:
+    prompt = _optimizer_user_prompt({"unit": {"unit_id": "E1U01"}})
+
+    assert f"must not exceed {H3_MAX_PROMPT_CHARS} characters" in prompt
+    assert "including all section headers" in prompt
+
+
 def test_parser_requires_six_ordered_sections_and_valid_request_facts() -> None:
     sections = parse_h3_prompt(_prompt(), duration_seconds=8, picture_count=1, audio_count=1)
     assert list(sections.model_dump()) == [
@@ -85,6 +124,11 @@ def test_parser_requires_six_ordered_sections_and_valid_request_facts() -> None:
         parse_h3_prompt(_prompt(timestamp="00:08.000"), duration_seconds=8, picture_count=1, audio_count=1)
     with pytest.raises(ValueError, match="only 0 audio"):
         parse_h3_prompt(_prompt(), duration_seconds=8, picture_count=1, audio_count=0)
+
+    with pytest.raises(H3PromptTooLongError) as exc_info:
+        parse_h3_prompt(_oversized_prompt(), duration_seconds=8, picture_count=1, audio_count=1)
+    assert exc_info.value.actual_chars > H3_MAX_PROMPT_CHARS
+    assert exc_info.value.max_chars == H3_MAX_PROMPT_CHARS
 
 
 def test_artifact_supports_zero_padded_unit_ids_and_confirmation_is_basis_guarded(tmp_path: Path) -> None:
@@ -195,3 +239,52 @@ async def test_worker_prompt_step_reoptimizes_a_stale_artifact(
     assert refreshed is not None
     assert rendered == refreshed.rendered_prompt
     assert refreshed.basis_digest == "basis-v2"
+
+
+async def test_optimizer_retries_an_over_limit_response_with_length_feedback(tmp_path: Path) -> None:
+    requests: list[Any] = []
+    responses = iter((_oversized_prompt(), _prompt()))
+
+    class _Generator:
+        async def generate(self, request: Any, *, project_name: str) -> TextGenerationResult:
+            requests.append(request)
+            return TextGenerationResult(text=next(responses), provider="test", model="optimizer")
+
+    async def _factory(_project_name: str) -> Any:
+        return _Generator()
+
+    context = _context(tmp_path)
+    service = H3PromptOptimizationService(generator_factory=_factory)
+
+    artifacts = await service._optimize_contexts("demo", tmp_path, [context])
+
+    assert len(requests) == 2
+    assert requests[0].prompt == context.user_prompt
+    assert requests[1].prompt.startswith(context.user_prompt)
+    assert "Your previous response rendered to" in requests[1].prompt
+    assert f"{H3_MAX_PROMPT_CHARS}-character provider limit" in requests[1].prompt
+    assert (
+        artifacts[0].rendered_prompt
+        == parse_h3_prompt(_prompt(), duration_seconds=8, picture_count=1, audio_count=1).render()
+    )
+    assert load_h3_prompt_artifact(tmp_path, 1, "E1U01") == artifacts[0]
+
+
+async def test_optimizer_stops_after_three_over_limit_responses_without_saving(tmp_path: Path) -> None:
+    requests: list[Any] = []
+
+    class _Generator:
+        async def generate(self, request: Any, *, project_name: str) -> TextGenerationResult:
+            requests.append(request)
+            return TextGenerationResult(text=_oversized_prompt(), provider="test", model="optimizer")
+
+    async def _factory(_project_name: str) -> Any:
+        return _Generator()
+
+    service = H3PromptOptimizationService(generator_factory=_factory)
+
+    with pytest.raises(H3PromptTooLongError):
+        await service._optimize_contexts("demo", tmp_path, [_context(tmp_path)])
+
+    assert len(requests) == 3
+    assert load_h3_prompt_artifact(tmp_path, 1, "E1U01") is None

@@ -15,6 +15,7 @@ from lib.json_io import atomic_write_json, load_json_or_none
 
 H3_MODEL_TOKEN = "minimax-h3"
 H3_PROMPT_SCHEMA_VERSION = 1
+H3_MAX_PROMPT_CHARS = 7000
 H3_PROMPT_SECTIONS = (
     "subject_definitions",
     "summary",
@@ -33,6 +34,15 @@ _HEADER = re.compile(
 _TIMESTAMP = re.compile(r"\bAt\s+(\d{2,}):(\d{2})\.(\d{3})\b")
 _PICTURE_LABEL = re.compile(r"<Picture\s+(\d+)>")
 _AUDIO_LABEL = re.compile(r"<Audio\s+(\d+)>")
+
+
+class H3PromptTooLongError(ValueError):
+    """The rendered optimizer output cannot be submitted to the H3 provider."""
+
+    def __init__(self, actual_chars: int, max_chars: int = H3_MAX_PROMPT_CHARS) -> None:
+        self.actual_chars = actual_chars
+        self.max_chars = max_chars
+        super().__init__(f"H3 prompt exceeds the provider limit: {actual_chars} > {max_chars} characters")
 
 
 def is_minimax_h3_model(model_id: str | None) -> bool:
@@ -140,8 +150,8 @@ def parse_h3_prompt(raw: str, *, duration_seconds: int, picture_count: int, audi
         values[match.group(1)] = value
     sections = H3PromptSections.model_validate(values)
     rendered = sections.render()
-    if len(rendered) > 7000:
-        raise ValueError(f"H3 prompt exceeds the provider limit: {len(rendered)} > 7000 characters")
+    if len(rendered) > H3_MAX_PROMPT_CHARS:
+        raise H3PromptTooLongError(len(rendered))
 
     for minutes, seconds, millis in _TIMESTAMP.findall(sections.detailed_description):
         timestamp = int(minutes) * 60 + int(seconds) + int(millis) / 1000
@@ -192,9 +202,7 @@ def confirm_h3_prompt_artifact(
         raise ValueError(f"H3 prompt is missing for {unit_id}")
     if artifact.basis_digest != expected_basis_digest:
         raise ValueError(f"H3 prompt is stale for {unit_id}")
-    updated = artifact.model_copy(
-        update={"status": "confirmed", "confirmed_at": datetime.now(UTC).isoformat()}
-    )
+    updated = artifact.model_copy(update={"status": "confirmed", "confirmed_at": datetime.now(UTC).isoformat()})
     save_h3_prompt_artifact(project_path, updated)
     return updated
 
@@ -212,10 +220,12 @@ def file_sha256(path: Path) -> str | None:
 
 
 __all__ = [
+    "H3_MAX_PROMPT_CHARS",
     "H3PromptArtifact",
     "H3PromptReference",
     "H3PromptSections",
     "H3PromptState",
+    "H3PromptTooLongError",
     "H3_SYSTEM_PROMPT_SHA256",
     "canonical_basis_digest",
     "confirm_h3_prompt_artifact",
