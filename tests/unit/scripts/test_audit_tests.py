@@ -30,8 +30,10 @@ def test_split_suffix_hits_backend_and_frontend_but_spares_substring_matches(tmp
     (tests / "test_usage_extraction.py").write_text(_HEALTHY_TEST, encoding="utf-8")
     (frontend_src / "Widget_full.test.tsx").write_text("// nothing\n", encoding="utf-8")
     (frontend_src / "Widget.drama.test.tsx").write_text("// nothing\n", encoding="utf-8")
+    (frontend_src / "Widget.drama_more.test.tsx").write_text("// nothing\n", encoding="utf-8")
 
     assert _rules(_audit(tmp_path)) == [
+        ("NAME-SPLIT", "frontend/src/Widget.drama_more.test.tsx"),
         ("NAME-SPLIT", "frontend/src/Widget_full.test.tsx"),
         ("NAME-SPLIT", "tests/test_thing_more.py"),
     ]

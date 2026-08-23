@@ -184,13 +184,12 @@ describe("API", () => {
         }),
       ));
 
-      const call = API.sendAssistantMessage("demo", "hello");
-      await expect(call).rejects.toBeInstanceOf(AgentFailureError);
-      await expect(call).rejects.toMatchObject({
-        message: "Agent 启动失败",
-        code: "agent_startup_failed",
-        failure,
-      });
+      const error: AgentFailureError = await API.sendAssistantMessage("demo", "hello").catch((e) => e);
+
+      expect(error).toBeInstanceOf(AgentFailureError);
+      expect(error.message).toBe("Agent 启动失败");
+      expect(error.code).toBe("agent_startup_failed");
+      expect(error.failure).toEqual(failure);
     });
 
     it("preserves and presents a structured speech admission blocker", async () => {
@@ -219,11 +218,17 @@ describe("API", () => {
         mockResponse({ ok: false, status: 409, jsonData: { detail: admission } }),
       ));
 
-      const call = API.generateVideo("demo", "E1S01", "vid", "episode_1.json");
-      await expect(call).rejects.toBeInstanceOf(SpeechAdmissionError);
-      await expect(call).rejects.toMatchObject({ admission });
-      await expect(call).rejects.toThrow("E1S01");
-      await expect(call).rejects.toThrow("utterances.0.text");
+      const error: SpeechAdmissionError = await API.generateVideo(
+        "demo",
+        "E1S01",
+        "vid",
+        "episode_1.json",
+      ).catch((e) => e);
+
+      expect(error).toBeInstanceOf(SpeechAdmissionError);
+      expect(error.admission).toEqual(admission);
+      expect(error.message).toContain("E1S01");
+      expect(error.message).toContain("utterances.0.text");
     });
 
     it("preserves a narrated-video duration blocker for an exact-tier retry", async () => {
@@ -283,9 +288,12 @@ describe("API", () => {
         mockResponse({ ok: false, status: 409, jsonData: { detail: result } }),
       ));
 
-      const call = API.updateScene("demo", "E1S01", "episode_1.json", { note: "keep" });
-      await expect(call).rejects.toBeInstanceOf(ScriptEditCommandError);
-      await expect(call).rejects.toMatchObject({ result });
+      const error: ScriptEditCommandError = await API.updateScene("demo", "E1S01", "episode_1.json", {
+        note: "keep",
+      }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ScriptEditCommandError);
+      expect(error.result).toEqual(result);
     });
 
     it("preserves a structured reference request projection blocker", async () => {

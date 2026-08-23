@@ -1010,16 +1010,20 @@ def scan_shared_facilities(root: Path, tests_dir: Path) -> list[StructureFinding
 SPLIT_SUFFIX_RE = re.compile(r"_(more|full|coverage|extra|additional)$")
 FILE_LINE_LIMIT = 3000
 FRONTEND_TESTS_DIR = "__tests__"
+FRONTEND_TEST_MARKER = "test"
 
 
 def file_stem(path: Path) -> str:
-    """去掉全部扩展名后的基名：`Foo.drama.test.tsx` → `Foo.drama`、`test_x_more.py` → `test_x_more`。"""
+    """去掉测试扩展名后的基名：`Foo.drama.test.tsx` → `Foo.drama`、`test_x_more.py` → `test_x_more`。
+
+    前端只剥 `.test.<ext>`：按点逐段剥会把 `ShotDetail.drama` 这类语义化主题后缀一并吃掉，
+    使 `ShotDetail.drama_more.test.tsx` 逃过分裂后缀禁令。
+    """
     name = path.name
-    while True:
-        stem = Path(name).stem
-        if stem == name:
-            return stem
-        name = stem
+    marker = f".{FRONTEND_TEST_MARKER}."
+    if marker in name:
+        return name.split(marker, 1)[0]
+    return Path(name).stem
 
 
 def scan_file_shape(root: Path, paths: list[Path]) -> list[StructureFinding]:
@@ -1057,7 +1061,8 @@ def scan_file_shape(root: Path, paths: list[Path]) -> list[StructureFinding]:
 
 
 def frontend_test_files(frontend_src: Path) -> list[Path]:
-    return sorted(p for p in frontend_src.rglob("*") if p.is_file() and ".test." in p.name)
+    marker = f".{FRONTEND_TEST_MARKER}."
+    return sorted(p for p in frontend_src.rglob("*") if p.is_file() and marker in p.name)
 
 
 def scan_frontend_layout(root: Path, paths: list[Path]) -> list[StructureFinding]:
