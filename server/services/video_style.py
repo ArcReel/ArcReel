@@ -27,16 +27,18 @@ _STYLE_LOCKS: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Loc
 
 _ANALYSIS_SYSTEM_PROMPT = """You are ArcReel's project-level video director.
 Infer one unified video style that can guide every video unit in the project.
-Return only the requested JSON schema. Keep descriptive fields concise and write them in the project's source language.
+Return only the requested JSON schema with one `prompt` string. Write one concise, coherent paragraph in the
+project's source language. Do not use headings, bullets, field labels or JSON-like fragments inside the paragraph.
 
-Use these meanings:
-- visual_treatment: moving-image treatment beyond the existing still-image style anchor.
-- camera_language: shot scale, lens feeling, camera motion, movement intensity and stability.
-- pacing: shot duration, cut density, action density and rhythm.
-- sound_focus: balanced, asmr, dialogue, ambience or silent.
-- music_policy: none only when the project material explicitly forbids music; custom only when a concrete music direction is explicit; otherwise auto.
-- sound_design: ambience and physical sounds. For ASMR, name the close-miked material and action sounds.
-- additional_instructions: other project-wide video constraints only.
+Before writing the paragraph, internally check these dimensions:
+- moving-image treatment beyond the existing still-image style anchor;
+- shot scale, lens feeling, camera motion, movement intensity and stability;
+- shot duration, cut density, action density and rhythm;
+- sound focus: balanced, ASMR, dialogue, ambience or silence;
+- background music: forbid it only when project material explicitly forbids it, describe it only when explicit,
+  otherwise leave the choice open in natural language;
+- ambience and physical sound design; for ASMR, name the close-miked material and action sounds;
+- any other constraint that truly applies to every video unit.
 
 Do not invent a hard prohibition such as no music. Do not repeat character, plot or per-shot facts as project-wide style.
 """
@@ -139,7 +141,7 @@ class VideoStyleService:
         def _mutate(project: dict[str, Any]) -> None:
             nonlocal saved
             current = _parse_persisted(project.get("video_style"))
-            base = UnifiedVideoStyleDraft().model_dump()
+            base: dict[str, Any] = {}
             if current is not None:
                 base.update(current.model_dump(exclude={"source", "updated_at"}))
             base.update(values)

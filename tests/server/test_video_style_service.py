@@ -66,12 +66,7 @@ async def test_ensure_analyzes_once_and_persists_agent_source(tmp_path: Path) ->
     pm = _project(tmp_path)
     generator = _Generator(
         UnifiedVideoStyleDraft(
-            visual_treatment="写实工艺纪录片",
-            camera_language="微距特写，缓慢稳定移动",
-            pacing="长镜头，低切换密度",
-            sound_focus="asmr",
-            music_policy="auto",
-            sound_design="突出铜丝、镊子和釉料颗粒声",
+            prompt="写实工艺纪录片，以微距特写和缓慢稳定移动为主，使用长镜头，突出铜丝、镊子和釉料颗粒声。",
         )
     )
 
@@ -86,7 +81,7 @@ async def test_ensure_analyzes_once_and_persists_agent_source(tmp_path: Path) ->
     assert created_again is False
     assert second == first
     assert first.source == "agent"
-    assert first.sound_focus == "asmr"
+    assert "微距特写" in first.prompt
     assert len(generator.requests) == 1
     request, project_name = generator.requests[0]
     assert project_name == "demo"
@@ -101,25 +96,14 @@ def test_update_edits_the_same_object_and_marks_user_source(tmp_path: Path) -> N
 
     initial = service.update(
         "demo",
-        UnifiedVideoStylePatch(camera_language="固定微距", sound_focus="asmr", music_policy="none"),
+        UnifiedVideoStylePatch(prompt="固定微距，以 ASMR 材质声为主，不使用背景音乐。"),
     )
-    updated = service.update("demo", UnifiedVideoStylePatch(pacing="长镜头"))
+    updated = service.update("demo", UnifiedVideoStylePatch(prompt="固定微距与长镜头，突出 ASMR 材质声。"))
 
     assert initial.source == "user"
     assert updated.source == "user"
-    assert updated.camera_language == "固定微距"
-    assert updated.pacing == "长镜头"
-    assert updated.music_policy == "none"
-    assert updated.music_description == ""
+    assert updated.prompt == "固定微距与长镜头，突出 ASMR 材质声。"
     assert "video_style" in pm.load_project_readonly("demo")
-
-    automatic = service.update(
-        "demo",
-        UnifiedVideoStylePatch(music_policy="custom", music_description="轻柔木琴"),
-    )
-    assert automatic.music_description == "轻柔木琴"
-    automatic = service.update("demo", UnifiedVideoStylePatch(music_policy="auto"))
-    assert automatic.music_description == ""
 
 
 def test_video_style_analysis_is_a_simple_text_task() -> None:

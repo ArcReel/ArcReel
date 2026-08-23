@@ -452,10 +452,7 @@ class TestProjectsRouter:
         fake_pm = _FakePM(tmp_path)
         calls: list[tuple[str, object]] = []
         style = UnifiedVideoStyle(
-            camera_language="微距慢移",
-            sound_focus="asmr",
-            music_policy="none",
-            sound_design="铜丝与釉料声",
+            prompt="微距慢移，突出铜丝与釉料声，不使用背景音乐。",
             source="user",
             updated_at=datetime.now(UTC),
         )
@@ -474,21 +471,12 @@ class TestProjectsRouter:
 
         updated = client.put(
             "/api/v1/projects/ready/video-style",
-            json={
-                "visual_treatment": "",
-                "camera_language": "微距慢移",
-                "pacing": "",
-                "sound_focus": "asmr",
-                "music_policy": "none",
-                "music_description": "",
-                "sound_design": "铜丝与釉料声",
-                "additional_instructions": "",
-            },
+            json={"prompt": "微距慢移，突出铜丝与釉料声，不使用背景音乐。"},
         )
         analyzed = client.post("/api/v1/projects/ready/video-style/analyze", json={"episode": 1})
 
         assert updated.status_code == 200
-        assert updated.json()["video_style"]["music_policy"] == "none"
+        assert "不使用背景音乐" in updated.json()["video_style"]["prompt"]
         assert analyzed.status_code == 200
         assert analyzed.json()["created"] is True
         assert [call[0] for call in calls] == ["update", "ensure"]

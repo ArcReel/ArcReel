@@ -143,18 +143,8 @@ export interface ModelSettingEntry {
   resolution?: string | null;
 }
 
-export type VideoSoundFocus = "balanced" | "asmr" | "dialogue" | "ambience" | "silent";
-export type VideoMusicPolicy = "auto" | "none" | "custom";
-
 export interface UnifiedVideoStyleDraft {
-  visual_treatment: string;
-  camera_language: string;
-  pacing: string;
-  sound_focus: VideoSoundFocus;
-  music_policy: VideoMusicPolicy;
-  music_description: string;
-  sound_design: string;
-  additional_instructions: string;
+  prompt: string;
 }
 
 export interface UnifiedVideoStyle extends UnifiedVideoStyleDraft {

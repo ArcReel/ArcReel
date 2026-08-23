@@ -190,9 +190,10 @@ def _optimizer_user_prompt(payload: dict[str, Any]) -> str:
         "Rewrite the following ArcReel video unit for the configured MiniMax H3 request. "
         "The attached images appear in the same order as reference_images and map to <Picture N>. "
         "Use only the references listed below, preserve all dialogue verbatim in its original language, and "
-        "treat project.video_style as the authoritative project-wide direction for visual treatment, camera, "
-        "pacing and sound. When its music_policy is none, write non_diegetic_music as N/A and do not add score. "
-        "When its sound_focus is asmr, foreground the specified close physical sounds in overall_soundscape. "
+        "treat project.video_style.prompt as the authoritative project-wide direction for visual treatment, "
+        "camera, pacing and sound. Treat every explicit prohibition and requirement in that prompt as a hard "
+        "constraint: for example, when it forbids background music, write non_diegetic_music as N/A; when it "
+        "requests ASMR, foreground the specified close physical sounds in overall_soundscape. "
         "Keep every timestamp within request.duration_seconds. Return only the six required sections. "
         f"The complete response, including all section headers, must not exceed {H3_MAX_PROMPT_CHARS} "
         "characters.\n\n" + json.dumps(payload, ensure_ascii=False, indent=2)
@@ -238,8 +239,6 @@ async def _generate_valid_h3_prompt(
                 picture_count=len(context.image_paths),
                 audio_count=len(context.audio_paths),
             )
-            if context.video_style is not None and context.video_style.music_policy == "none":
-                sections = sections.model_copy(update={"non_diegetic_music": "N/A"})
         except H3PromptTooLongError as exc:
             if attempt >= _H3_OPTIMIZATION_MAX_ATTEMPTS:
                 raise
@@ -363,7 +362,9 @@ class H3PromptOptimizationService:
             audios=audio_refs,
             audio_paths=audio_paths,
         )
-        video_style = UnifiedVideoStyle.model_validate(project["video_style"]) if project.get("video_style") is not None else None
+        video_style = (
+            UnifiedVideoStyle.model_validate(project["video_style"]) if project.get("video_style") is not None else None
+        )
         return H3PromptContext(
             episode=episode,
             unit=unit,

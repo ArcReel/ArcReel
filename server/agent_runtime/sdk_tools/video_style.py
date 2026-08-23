@@ -8,22 +8,12 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.project_change_hints import project_change_source
-from lib.video_style import UnifiedVideoStylePatch, video_style_summary
+from lib.video_style import VIDEO_STYLE_PROMPT_MAX_LENGTH, UnifiedVideoStylePatch, video_style_summary
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 from server.services.video_style import VideoStyleService
 
 _STYLE_PROPERTIES: dict[str, Any] = {
-    "visual_treatment": {"type": "string", "maxLength": 2000},
-    "camera_language": {"type": "string", "maxLength": 2000},
-    "pacing": {"type": "string", "maxLength": 2000},
-    "sound_focus": {
-        "type": "string",
-        "enum": ["balanced", "asmr", "dialogue", "ambience", "silent"],
-    },
-    "music_policy": {"type": "string", "enum": ["auto", "none", "custom"]},
-    "music_description": {"type": "string", "maxLength": 2000},
-    "sound_design": {"type": "string", "maxLength": 3000},
-    "additional_instructions": {"type": "string", "maxLength": 3000},
+    "prompt": {"type": "string", "minLength": 1, "maxLength": VIDEO_STYLE_PROMPT_MAX_LENGTH},
 }
 
 
@@ -65,7 +55,7 @@ def analyze_video_style_tool(ctx: ToolContext):
 def update_video_style_tool(ctx: ToolContext):
     @tool(
         "update_video_style",
-        "按用户要求编辑项目唯一的 Unified Video Style。只修改传入字段；该配置供全部视频单元与 H3 提示词优化共同使用。",
+        "按用户要求编辑项目唯一的一段视频风格提示词；该提示词供全部视频单元与 H3 提示词优化共同使用。",
         {
             "type": "object",
             "properties": _STYLE_PROPERTIES,
@@ -77,7 +67,7 @@ def update_video_style_tool(ctx: ToolContext):
         try:
             patch = UnifiedVideoStylePatch.model_validate(args)
             if not patch.model_fields_set:
-                raise ValueError("at least one video style field is required")
+                raise ValueError("video style prompt is required")
             with project_change_source("filesystem"):
                 style = VideoStyleService(ctx.pm).update(ctx.project_name, patch, source="user")
             return _response(style)

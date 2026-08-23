@@ -205,11 +205,7 @@ export function ReferenceVideoCanvas({
   const videoStyleSummary = useMemo(() => {
     const style = project?.video_style;
     if (!style) return t("reference_video_style_missing");
-    const parts = [t(`video_style_sound_focus_${style.sound_focus}`)];
-    if (style.music_policy === "none") parts.push(t("video_style_music_policy_none"));
-    else if (style.music_policy === "custom" && style.music_description) parts.push(style.music_description);
-    if (style.camera_language) parts.push(style.camera_language);
-    return parts.join(" · ");
+    return style.prompt;
   }, [project?.video_style, t]);
   // schema v6 起各 bucket 共用名称空间，每个名字只会声明一次。
   const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
