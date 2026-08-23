@@ -103,7 +103,10 @@ jobs:
         # 必须在并行步骤之前、且不带 -n：xdist 的收集发生在各 worker 内，conftest
         # 的 UsageError 会撞上 dsession 的断言退化成 INTERNALERROR，违规清单一个字
         # 都不剩。--collect-only 由 controller 本地收集，清单完整、全量约 2s。
-        run: uv run python -m pytest --collect-only -q
+        # -qq 而非 -q：-q 会把上万条 nodeid 打进日志，淹掉这一步唯一有消费方的输出。
+        # -qq 只列各文件用例数，违规清单（stderr）与 import 失败的 traceback（stdout）
+        # 都不受影响；不能改成丢弃 stdout，那会连收集期 import 错误一起吞掉。
+        run: uv run python -m pytest --collect-only -qq
 
       - name: Run tests with coverage
         # -n 固定 4 而非 auto：-n auto 优先取 psutil 的物理核数，一旦某传递依赖带进
