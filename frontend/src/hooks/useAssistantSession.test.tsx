@@ -4,6 +4,7 @@ import { AgentFailureError, API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type { EntriesResponse, PendingQuestion, SessionMeta, SkillInfo, TimelineEntry } from "@/types";
 import { useAssistantSession } from "./useAssistantSession";
+import { deferred as createDeferred } from "@/test/deferred";
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -76,16 +77,6 @@ function makeEntriesResponse(overrides: Partial<EntriesResponse> = {}): EntriesR
 
 function userEntry(seq: number, text: string): TimelineEntry {
   return { seq, type: "user", content: [{ type: "text", text }], uuid: `u-${seq}` };
-}
-
-function createDeferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
 }
 
 function mockIdleSession(entries: TimelineEntry[] = []) {
