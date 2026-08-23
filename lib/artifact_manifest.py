@@ -584,8 +584,8 @@ class InMemoryArtifactManifestAdapter:
 class ProjectArtifactManifestAdapter:
     """Safe project-directory adapter backed by a versioned JSON manifest."""
 
-    def __init__(self, project_dir: Path, *, nofollow_flag: int | None = None) -> None:
-        self._nofollow_flag_override = nofollow_flag
+    def __init__(self, project_dir: Path, *, nofollow_supported: bool = True) -> None:
+        self._nofollow_supported = nofollow_supported
         root_fd: int | None = None
         windows_handle: int | None = None
         try:
@@ -629,7 +629,8 @@ class ProjectArtifactManifestAdapter:
 
     @property
     def _nofollow_flag(self) -> int:
-        return _O_NOFOLLOW if self._nofollow_flag_override is None else self._nofollow_flag_override
+        """`O_NOFOLLOW` 的实际取值：不支持（平台缺失或注入声明不支持）时为 0，回退到身份校验路径。"""
+        return _O_NOFOLLOW if self._nofollow_supported else 0
 
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
         return self._inspect_artifact(artifact_path, include_content_digest=False)
