@@ -65,9 +65,7 @@ def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path
     def boom() -> str:
         raise RuntimeError("simulated failure")
 
-    monkeypatch.setattr(diag_mod, "_app_version", boom)
-
-    text = diag_mod.collect_diagnostics()
+    text = diag_mod.collect_diagnostics(app_version=boom)
     assert "<unavailable" in text
     assert "Python" in text
 

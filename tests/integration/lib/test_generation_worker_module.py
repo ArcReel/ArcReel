@@ -2190,7 +2190,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_process_resume_task_script_edit_error_encodes_key(self, monkeypatch, staged_project):
-        """resume_executor 复用 _finalize_reference_video_unit 等 finalize helper，同样会抛
+        """resume_executor 复用 finalize_reference_video_unit 等 finalize helper，同样会抛
         ScriptEditError；resume 路径与常规 _process_task 走同一份 _encode_task_failure_message，
         不能因为是重启自愈这条独立调用链就退回 str(exc) 的固定中文。"""
         queue = _FakeQueue()

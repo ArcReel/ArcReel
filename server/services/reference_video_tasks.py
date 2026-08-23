@@ -776,7 +776,7 @@ async def execute_reference_video_task(
         )
 
         async def _finalize() -> dict[str, Any]:
-            return await _finalize_reference_video_unit(
+            return await finalize_reference_video_unit(
                 project_name=project_name,
                 script_file=script_file,
                 project_path=project_path,
@@ -850,7 +850,7 @@ def apply_unit_video_assets(
     raise KeyError(resource_id)
 
 
-async def _finalize_reference_video_unit(
+async def finalize_reference_video_unit(
     *,
     project_name: str,
     script_file: str,

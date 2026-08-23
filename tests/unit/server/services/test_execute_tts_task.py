@@ -960,6 +960,13 @@ class TestExecuteTtsTask:
 class TestGetOrCreateAudioBackend:
     """audio backend 构造统一委托 assemble_backend；缓存留在调用方编排层。"""
 
+    @pytest.fixture(autouse=True)
+    def _clear_backend_cache(self):
+        """backend 缓存是模块级进程内状态，公开失效入口即用例间的隔离手段。"""
+        generation_context.invalidate_backend_cache()
+        yield
+        generation_context.invalidate_backend_cache()
+
     async def test_custom_provider_routes_through_assemble(self, monkeypatch):
         sentinel = object()
         calls = []
@@ -969,7 +976,6 @@ class TestGetOrCreateAudioBackend:
             return sentinel
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_context, "_backend_cache", generation_context._BackendCache())
 
         resolver = cast(ConfigResolver, None)
         b1 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
@@ -987,7 +993,6 @@ class TestGetOrCreateAudioBackend:
             return sentinel
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_context, "_backend_cache", generation_context._BackendCache())
 
         resolver = cast(ConfigResolver, None)
         b1 = await generation_context._get_or_create_audio_backend(
@@ -1007,7 +1012,6 @@ class TestGetOrCreateAudioBackend:
             return object()
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_context, "_backend_cache", generation_context._BackendCache())
 
         await generation_context._get_or_create_audio_backend(
             "dashscope",

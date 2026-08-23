@@ -650,7 +650,7 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
         AsyncMock(return_value=TtsSynthesisSettings("dashscope", "tts-model", "Cherry", None)),
     )
     finalize = AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"})
-    monkeypatch.setattr(resume_executor, "_finalize_reference_video_unit", finalize)
+    monkeypatch.setattr(resume_executor, "finalize_reference_video_unit", finalize)
     monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
     task = {
         "task_id": "T-ref",
@@ -739,7 +739,7 @@ async def test_reference_resume_post_production_does_not_reproject_tts(monkeypat
     )
     monkeypatch.setattr(
         resume_executor,
-        "_finalize_reference_video_unit",
+        "finalize_reference_video_unit",
         AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"}),
     )
     monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
