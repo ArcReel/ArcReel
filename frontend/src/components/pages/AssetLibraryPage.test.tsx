@@ -7,10 +7,6 @@ import { useAssetsStore } from "@/stores/assets-store";
 import type { Asset } from "@/types/asset";
 import { AssetLibraryPage } from "./AssetLibraryPage";
 
-vi.mock("@/components/assets/AssetFormModal", () => ({
-  AssetFormModal: () => <div data-testid="asset-form-modal" />,
-}));
-
 function renderPage(initialPath = "/app/assets") {
   const location = memoryLocation({ path: initialPath, record: true });
   return {

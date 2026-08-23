@@ -286,37 +286,6 @@ vi.mock("./lorebook/ProductsPage", () => ({
   ),
 }));
 
-vi.mock("./lorebook/AddCharacterForm", () => ({
-  AddCharacterForm: ({
-    onSubmit,
-    onCancel,
-  }: {
-    onSubmit: (
-      name: string,
-      description: string,
-      voice: string,
-      referenceFile?: File | null,
-    ) => Promise<void>;
-    onCancel: () => void;
-  }) => (
-    <div data-testid="add-character-form">
-      <button
-        onClick={() =>
-          void onSubmit(
-            "NewHero",
-            "desc",
-            "voice",
-            new File(["ref"], "new-hero.png", { type: "image/png" }),
-          )
-        }
-      >
-        submit-add-character
-      </button>
-      <button onClick={onCancel}>cancel-add-character</button>
-    </div>
-  ),
-}));
-
 function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
   return {
     title: "Demo",
