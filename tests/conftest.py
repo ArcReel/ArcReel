@@ -174,7 +174,10 @@ def _register_models() -> None:
 
 @asynccontextmanager
 async def test_engine(*, dialect_aware: bool = True, file_path: Path | None = None) -> AsyncIterator[AsyncEngine]:
-    """全部 DB fixture 的唯一 engine 来源。
+    """DB fixture 的 engine 构造点，唯一例外是 `async_session` 的 PG 分支。
+
+    那条分支绑定 CI job 已 `alembic upgrade head` 建好的 public schema，隔离原语是外层
+    事务 + SAVEPOINT，与这里的 per-test schema + `create_all` 不同，故自建 engine。
 
     ``dialect_aware`` 且 ``DATABASE_URL`` 指向 PG 时建 per-test schema 并按 search_path
     建表、播种 FK 依赖的 user 行，退出时 ``DROP SCHEMA CASCADE``——方言相关代码路径
