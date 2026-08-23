@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -47,12 +48,30 @@ def _biz_error_response(status_code: int = 1004, msg: str = "invalid api key") -
     return resp
 
 
-def _mock_client(resp: MagicMock) -> AsyncMock:
-    client = AsyncMock()
-    client.post = AsyncMock(return_value=resp)
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=None)
-    return client
+class _RecordingClient:
+    """httpx.AsyncClient 替身：记录每次 post 的 url 与参数，回固定响应。
+
+    端点派生、请求体字段、鉴权头都是「发出去的请求长什么样」的契约，断言落在 ``posts``
+    里的请求内容上，而不是替身的调用对象。
+    """
+
+    def __init__(self, resp: MagicMock) -> None:
+        self.posts: list[dict[str, Any]] = []
+        self._resp = resp
+
+    async def post(self, url: str, **kwargs: Any) -> MagicMock:
+        self.posts.append({"url": url, **kwargs})
+        return self._resp
+
+    async def __aenter__(self) -> _RecordingClient:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
+
+
+def _mock_client(resp: MagicMock) -> _RecordingClient:
+    return _RecordingClient(resp)
 
 
 def _make_ref(tmp_path: Path, name: str) -> ReferenceImage:
@@ -115,7 +134,7 @@ class TestTextToImage:
             b = MiniMaxImageBackend(api_key="sk", model="image-01", base_url="https://api.minimax.io")
             result = await b.generate(ImageGenerationRequest(prompt="a fox", output_path=tmp_path / "o.png"))
 
-        body = client.post.call_args.kwargs["json"]
+        body = client.posts[-1]["json"]
         assert body["model"] == "image-01"
         assert body["prompt"] == "a fox"
         assert body["response_format"] == "url"
@@ -125,8 +144,8 @@ class TestTextToImage:
         # 默认 aspect_ratio=9:16 精确算、受单边 2048 收口
         assert (body["width"], body["height"]) == (1152, 2048)
         # 端点：base host 派生 /v1 + /image_generation
-        assert client.post.call_args.args[0] == "https://api.minimax.io/v1/image_generation"
-        assert client.post.call_args.kwargs["headers"]["Authorization"] == "Bearer sk"
+        assert client.posts[-1]["url"] == "https://api.minimax.io/v1/image_generation"
+        assert client.posts[-1]["headers"]["Authorization"] == "Bearer sk"
         assert result.provider == PROVIDER_MINIMAX
         assert result.model == "image-01"
         assert result.image_uri == "https://x/out.png"
@@ -142,7 +161,7 @@ class TestTextToImage:
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
-        assert client.post.call_args.args[0] == "https://api.minimaxi.com/v1/image_generation"
+        assert client.posts[-1]["url"] == "https://api.minimaxi.com/v1/image_generation"
 
     async def test_seed_passthrough(self, tmp_path: Path):
         client = _mock_client(_img_response())
@@ -154,7 +173,7 @@ class TestTextToImage:
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", seed=42))
 
-        assert client.post.call_args.kwargs["json"]["seed"] == 42
+        assert client.posts[-1]["json"]["seed"] == 42
 
     async def test_no_seed_field_when_unset(self, tmp_path: Path):
         client = _mock_client(_img_response())
@@ -166,7 +185,7 @@ class TestTextToImage:
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
-        assert "seed" not in client.post.call_args.kwargs["json"]
+        assert "seed" not in client.posts[-1]["json"]
 
 
 class TestDimensions:
@@ -179,7 +198,7 @@ class TestDimensions:
 
             b = MiniMaxImageBackend(api_key="sk")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", **req_kwargs))
-        body = client.post.call_args.kwargs["json"]
+        body = client.posts[-1]["json"]
         return body["width"], body["height"]
 
     async def test_landscape_picks_wide(self, tmp_path: Path):
@@ -230,7 +249,7 @@ class TestSubjectReference:
                 ImageGenerationRequest(prompt="hero portrait", output_path=tmp_path / "o.png", reference_images=[ref])
             )
 
-        subject = client.post.call_args.kwargs["json"]["subject_reference"]
+        subject = client.posts[-1]["json"]["subject_reference"]
         assert len(subject) == 1
         assert subject[0]["type"] == "character"
         assert subject[0]["image_file"].startswith("data:image/png;base64,")
@@ -247,7 +266,7 @@ class TestSubjectReference:
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=refs))
 
         # image-01 单脸参考：仅取首张
-        subject = client.post.call_args.kwargs["json"]["subject_reference"]
+        subject = client.posts[-1]["json"]["subject_reference"]
         assert len(subject) == 1
 
     async def test_missing_ref_raises_unreadable(self, tmp_path: Path):

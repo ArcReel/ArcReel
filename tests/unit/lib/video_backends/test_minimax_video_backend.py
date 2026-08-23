@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,6 +16,20 @@ from lib.providers import PROVIDER_MINIMAX
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.minimax import MiniMaxVideoBackend, _safe_body_for_log
 from lib.video_frame_slots import resolve_first_frame_aspect_ratio
+from tests.fakes import captured_provider_job_ids
+
+
+@contextmanager
+def _recorded_model_lookups() -> Iterator[list[tuple[str, str]]]:
+    """registry 查表的记录器：收下 (provider, model) 查询名，回一份固定的 H3 声明。"""
+    queried: list[tuple[str, str]] = []
+
+    def _lookup(provider: str, name: str) -> Any:
+        queried.append((provider, name))
+        return MagicMock(resolutions=["768p"], supported_durations=[6])
+
+    with patch("lib.video_backends.minimax.model_info_for", _lookup):
+        yield queried
 
 
 def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
@@ -130,11 +147,10 @@ class TestConstructionAndCapabilities:
     def test_h3_output_specs_query_uses_canonical_name(self, model):
         # 直接断言查询参数已归一化为 canonical 名，不依赖兜底值与 registry 声明恰好相等这种
         # 巧合。
-        with patch("lib.video_backends.minimax.model_info_for") as mock_lookup:
-            mock_lookup.return_value = MagicMock(resolutions=["768p"], supported_durations=[6])
+        with _recorded_model_lookups() as queried:
             b = _backend(model)
             b._v2_output_specs()
-        assert mock_lookup.call_args.args[1] == "MiniMax-H3"
+        assert [name for _provider, name in queried] == ["MiniMax-H3"]
 
     def test_h3_output_specs_missing_registry_entry_fails_loud(self):
         # 本方法只查固定的 canonical 名，缺失只可能是 registry 条目被误删/改名——这类配置
@@ -309,12 +325,10 @@ class TestGenerateHappyPath:
             patch("lib.video_backends.minimax.httpx.AsyncClient", return_value=client),
             patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
             patch("lib.video_backends.minimax.download_video", new=AsyncMock()),
-            patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
+            captured_provider_job_ids() as persisted,
         ):
             await _backend().generate(_request(tmp_path, task_id="local-task-1"))
-        persist.assert_awaited_once()
-        assert persist.await_args is not None
-        assert persist.await_args.args[1] == "task-x"
+        assert [(r["task_id"], r["job_id"]) for r in persisted] == [("local-task-1", "task-x")]
 
 
 class TestH3V2Capabilities:

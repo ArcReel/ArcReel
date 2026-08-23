@@ -480,6 +480,26 @@ def captured_provider_job_ids() -> Iterator[list[dict[str, Any]]]:
 
 
 @contextmanager
+def captured_ark_clients(module: str, client: Any = None) -> Iterator[list[dict[str, Any]]]:
+    """create_ark_client 的记录器：收下建客户端的参数，回给定（或空）客户端替身。
+
+    Ark 系三个后端（文本 / 图像 / 视频）各自从自己的模块引用这个工厂，模块路径由调用方给出。
+    base_url 归一化、鉴权透传的断言落在记录的构造参数上，而不是替身的调用对象。
+    """
+    from unittest.mock import MagicMock
+
+    created: list[dict[str, Any]] = []
+    instance = MagicMock() if client is None else client
+
+    def _create(**kwargs: Any) -> Any:
+        created.append(kwargs)
+        return instance
+
+    with patch(f"{module}.create_ark_client", _create):
+        yield created
+
+
+@contextmanager
 def captured_backend_construction() -> Iterator[list[dict[str, Any]]]:
     """四个后端 registry 的构造记录器：工厂换成只记参数的哑后端，不建 SDK 客户端。
 

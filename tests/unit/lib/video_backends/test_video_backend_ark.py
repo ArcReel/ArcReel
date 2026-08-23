@@ -14,6 +14,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
 )
 from lib.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
+from tests.fakes import captured_ark_clients
 
 
 @pytest.fixture
@@ -657,17 +658,14 @@ class TestArkServiceTierParam:
 
 class TestArkVideoBackendBaseUrl:
     def test_custom_base_url_passed_through(self):
-        with patch("lib.video_backends.ark.create_ark_client") as mock_create:
+        with captured_ark_clients("lib.video_backends.ark") as created:
             ArkVideoBackend(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/plan/v3")
-            mock_create.assert_called_once_with(
-                api_key="k",
-                base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
-            )
+        assert created == [{"api_key": "k", "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"}]
 
     def test_default_base_url_is_none(self):
-        with patch("lib.video_backends.ark.create_ark_client") as mock_create:
+        with captured_ark_clients("lib.video_backends.ark") as created:
             ArkVideoBackend(api_key="k")
-            mock_create.assert_called_once_with(api_key="k", base_url=None)
+        assert created == [{"api_key": "k", "base_url": None}]
 
 
 class TestIsArkNotFound:

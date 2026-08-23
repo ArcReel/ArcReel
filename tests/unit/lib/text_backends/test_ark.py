@@ -1,12 +1,57 @@
 """ArkTextBackend tests."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from lib.text_backends.ark import ArkTextBackend
 from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
+from tests.fakes import captured_ark_clients
+
+
+@contextmanager
+def _recorded_openai_clients() -> Iterator[list[dict[str, Any]]]:
+    """OpenAI 兼容客户端构造的记录器：收下建客户端的参数，回一个空替身。"""
+    created: list[dict[str, Any]] = []
+
+    def _create(**kwargs: Any) -> Any:
+        created.append(kwargs)
+        return MagicMock()
+
+    with patch("lib.text_backends.ark.OpenAI", _create):
+        yield created
+
+
+@contextmanager
+def _recorded_instructor_fallback(result: tuple[str, int, int]) -> Iterator[list[dict[str, Any]]]:
+    """instructor 降级入口的记录器：收下降级调用参数，回固定结果。"""
+    calls: list[dict[str, Any]] = []
+
+    def _call(**kwargs: Any) -> tuple[str, int, int]:
+        calls.append(kwargs)
+        return result
+
+    with patch("lib.text_backends.instructor_support.generate_structured_via_instructor", _call):
+        yield calls
+
+
+@contextmanager
+def _recorded_instructor_wire(result: tuple[Any, Any]) -> Iterator[list[dict[str, Any]]]:
+    """instructor patched client 的记录器：收下最终发往端点的参数。"""
+    calls: list[dict[str, Any]] = []
+
+    class _Completions:
+        def create_with_completion(self, **kwargs: Any) -> tuple[Any, Any]:
+            calls.append(kwargs)
+            return result
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()))
+    with patch("instructor.from_openai", return_value=client):
+        yield calls
 
 
 @pytest.fixture
@@ -282,15 +327,11 @@ class TestCapabilityAwareStructured:
             k: str
 
         sample = M(k="v")
-        with patch(
-            "lib.text_backends.instructor_support.generate_structured_via_instructor",
-            return_value=(sample.model_dump_json(), 1, 1),
-        ) as mock_fn:
+        with _recorded_instructor_fallback((sample.model_dump_json(), 1, 1)) as calls:
             await backend_no_structured.generate(
                 TextGenerationRequest(prompt="g", response_schema=M, max_output_tokens=24000)
             )
-            assert mock_fn.call_args.kwargs["max_tokens"] == 24000
-            assert mock_fn.call_args.kwargs["token_param"] == "max_tokens"
+        assert [(c["max_tokens"], c["token_param"]) for c in calls] == [(24000, "max_tokens")]
 
     async def test_instructor_fallback_wire_param_is_max_tokens(self, backend_no_structured, sync_to_thread):
         """导线级守护：Ark 降级链路最终发给端点的参数名必须是 max_tokens。"""
@@ -301,17 +342,15 @@ class TestCapabilityAwareStructured:
 
         sample = M(k="v")
         completion = SimpleNamespace(usage=None)
-        mock_patched = MagicMock()
-        mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(sample, completion))
 
-        with patch("instructor.from_openai", return_value=mock_patched):
+        with _recorded_instructor_wire((sample, completion)) as calls:
             await backend_no_structured.generate(
                 TextGenerationRequest(prompt="g", response_schema=M, max_output_tokens=24000)
             )
 
-        call_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
-        assert call_kwargs["max_tokens"] == 24000
-        assert "max_completion_tokens" not in call_kwargs
+        assert len(calls) == 1
+        assert calls[0]["max_tokens"] == 24000
+        assert "max_completion_tokens" not in calls[0]
 
     async def test_native_failure_falls_back(self, backend_with_structured, sync_to_thread):
         """原生 json_schema 运行时失败后降级到 json_object。"""
@@ -585,23 +624,16 @@ class TestSuccessPathReverify:
 
 class TestBaseUrl:
     def test_custom_base_url_passes_to_both_clients(self):
-        with patch("lib.text_backends.ark.create_ark_client") as mock_ark_create:
-            with patch("lib.text_backends.ark.OpenAI") as mock_openai_ctor:
-                ArkTextBackend(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/plan/v3")
-                mock_ark_create.assert_called_once_with(
-                    api_key="k",
-                    base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
-                )
-                mock_openai_ctor.assert_called_once_with(
-                    base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
-                    api_key="k",
-                )
+        url = "https://ark.cn-beijing.volces.com/api/plan/v3"
+        with captured_ark_clients("lib.text_backends.ark") as ark_created, _recorded_openai_clients() as oa_created:
+            ArkTextBackend(api_key="k", base_url=url)
+        assert ark_created == [{"api_key": "k", "base_url": url}]
+        assert oa_created == [{"base_url": url, "api_key": "k"}]
 
     def test_default_base_url_keeps_ark_v3(self):
         from lib.ark_shared import ARK_BASE_URL
 
-        with patch("lib.text_backends.ark.create_ark_client") as mock_ark_create:
-            with patch("lib.text_backends.ark.OpenAI") as mock_openai_ctor:
-                ArkTextBackend(api_key="k")
-                mock_ark_create.assert_called_once_with(api_key="k", base_url=ARK_BASE_URL)
-                mock_openai_ctor.assert_called_once_with(base_url=ARK_BASE_URL, api_key="k")
+        with captured_ark_clients("lib.text_backends.ark") as ark_created, _recorded_openai_clients() as oa_created:
+            ArkTextBackend(api_key="k")
+        assert ark_created == [{"api_key": "k", "base_url": ARK_BASE_URL}]
+        assert oa_created == [{"base_url": ARK_BASE_URL, "api_key": "k"}]

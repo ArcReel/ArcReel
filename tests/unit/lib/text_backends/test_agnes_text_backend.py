@@ -8,6 +8,9 @@ AgnesTextBackend 复用 OpenAITextBackend 的原生 + Instructor 降级流水线
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +18,19 @@ from pydantic import BaseModel
 
 from lib.providers import PROVIDER_AGNES
 from lib.text_backends.base import TextCapability, TextGenerationRequest
+
+
+@contextmanager
+def _recorded_openai_clients() -> Iterator[list[dict[str, Any]]]:
+    """AsyncOpenAI 构造的记录器：收下建客户端的参数，回一个空替身。"""
+    created: list[dict[str, Any]] = []
+
+    def _create(**kwargs: Any) -> Any:
+        created.append(kwargs)
+        return AsyncMock()
+
+    with patch("lib.openai_shared.AsyncOpenAI", _create):
+        yield created
 
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
@@ -76,18 +92,18 @@ class TestConstruction:
 
     def test_base_url_normalized_to_v1(self):
         # 用户填 host（无 /v1 后缀）→ 归一化为 {host}/v1 后传给 SDK。
-        with patch("lib.openai_shared.AsyncOpenAI") as mock_ctor:
+        with _recorded_openai_clients() as created:
             from lib.text_backends.agnes import AgnesTextBackend
 
             AgnesTextBackend(api_key="sk", base_url="https://apihub.agnes-ai.com")
-            assert mock_ctor.call_args.kwargs["base_url"] == "https://apihub.agnes-ai.com/v1"
+        assert [c["base_url"] for c in created] == ["https://apihub.agnes-ai.com/v1"]
 
     def test_default_base_url_when_unset(self):
-        with patch("lib.openai_shared.AsyncOpenAI") as mock_ctor:
+        with _recorded_openai_clients() as created:
             from lib.text_backends.agnes import AgnesTextBackend
 
             AgnesTextBackend(api_key="sk")
-            assert mock_ctor.call_args.kwargs["base_url"] == "https://apihub.agnes-ai.com/v1"
+        assert [c["base_url"] for c in created] == ["https://apihub.agnes-ai.com/v1"]
 
 
 class TestGenerate:
