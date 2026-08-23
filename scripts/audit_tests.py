@@ -305,16 +305,60 @@ COLLECTED_TEST_CLASS_GLOB = "Test*"
 UNITTEST_BASES = ("TestCase", "IsolatedAsyncioTestCase")
 
 
-def is_collected_test_class(node: ast.ClassDef) -> bool:
-    """pytest 从 `Test*` 类与 unittest 用例基类的子类收集用例。
+def resolve_unittest_cases(tree: ast.Module) -> set[str]:
+    """模块内可解析的 unittest 用例类名：import 别名 + 本模块内的继承闭包。
+
+    判定文法到此为止：只认本模块可见的证据。跨模块继承（基类在别的模块里继承
+    `TestCase`）无从解析，按不匹配处理——那是有意保留的假阴性残留，兜底是人工
+    review；相反方向（把同名的非 unittest 基类误判成用例类）会在必过闸门上卡红
+    合法代码，代价更高，所以宁可漏不可误。
+    """
+    direct: set[str] = set()
+    module_aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "unittest" or alias.name.startswith("unittest."):
+                    module_aliases.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "unittest":
+            for alias in node.names:
+                if alias.name in UNITTEST_BASES:
+                    direct.add(alias.asname or alias.name)
+
+    known = set(direct)
+    classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+    changed = True
+    while changed:
+        changed = False
+        for cls in classes:
+            if cls.name in known:
+                continue
+            if any(_is_unittest_base(base, known, module_aliases) for base in cls.bases):
+                known.add(cls.name)
+                changed = True
+    return known
+
+
+def _is_unittest_base(base: ast.expr, known: set[str], module_aliases: set[str]) -> bool:
+    if isinstance(base, ast.Name):
+        return base.id in known
+    if isinstance(base, ast.Attribute):
+        root = (dotted(base.value) or "").split(".")[0]
+        return base.attr in UNITTEST_BASES and root in module_aliases
+    return False
+
+
+def is_collected_test_class(node: ast.ClassDef, unittest_cases: set[str]) -> bool:
+    """pytest 从 `Test*` 类与 unittest 用例类的子类收集用例。
 
     同 `is_collected_test_module` 的口径下沉一层：支持类（fake、client 包装）上
     `test` 开头的方法是普通 API，按名字当成用例会虚增类 1 计数并误报闸门。
 
-    两条分支不可合并：unittest 用例基类的子类不受名字与 `__init__` 约束，收集由
-    unittest 自身完成；而 `Test*` 类带显式 `__init__` 时 pytest 拒绝收集。
+    两条分支不可合并：unittest 用例类不受名字与 `__init__` 约束，收集由 unittest
+    自身完成；而 `Test*` 类带显式 `__init__` 时 pytest 拒绝收集。名字规则也不沿
+    继承传递——`class Sub(TestHelpers)` 不因基类名叫 `Test*` 就被收集。
     """
-    if any(_base_name(base) in UNITTEST_BASES for base in node.bases):
+    if node.name in unittest_cases:
         return True
     return fnmatch(node.name, COLLECTED_TEST_CLASS_GLOB) and not _has_explicit_init(node)
 
@@ -323,14 +367,6 @@ def _has_explicit_init(node: ast.ClassDef) -> bool:
     return any(
         isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "__init__" for stmt in node.body
     )
-
-
-def _base_name(base: ast.expr) -> str | None:
-    if isinstance(base, ast.Name):
-        return base.id
-    if isinstance(base, ast.Attribute):
-        return base.attr
-    return None
 
 
 TIER_MARKS = ("unit", "integration", "e2e")
@@ -569,14 +605,10 @@ class TestFunctionAnalyzer:
         return double_hits, real_hits, evidence, sorted(subjects)
 
     def _classify_assert(self, node: ast.Assert, double_names: set[str], subjects: set[str]) -> str:
-        attrs = {n.attr for n in ast.walk(node.test) if isinstance(n, ast.Attribute)}
+        owners = self._record_attr_owners(node.test, double_names)
         called = {(dotted(n.func) or "").split(".")[-1] for n in ast.walk(node.test) if isinstance(n, ast.Call)}
-        if attrs & DOUBLE_ATTRS or called & DOUBLE_ASSERT_METHODS:
-            for sub in ast.walk(node.test):
-                if isinstance(sub, ast.Attribute) and (sub.attr in DOUBLE_ATTRS or sub.attr in DOUBLE_ASSERT_METHODS):
-                    owner = dotted(sub.value)
-                    if owner:
-                        subjects.add(owner)
+        if owners or called & DOUBLE_ASSERT_METHODS:
+            subjects.update(owners)
             return "double"
         roots = {n.id for n in ast.walk(node.test) if isinstance(n, ast.Name)} - BUILTIN_NAMES
         if not roots:
@@ -585,6 +617,25 @@ class TestFunctionAnalyzer:
             subjects.update(roots)
             return "double"
         return "real"
+
+    def _record_attr_owners(self, test: ast.expr, double_names: set[str]) -> set[str]:
+        """替身记录属性的属主，只取属主确为替身的那些。
+
+        `called` / `call_count` 同样是域对象的合法属性名，只按属性名分类会把
+        `assert result.called` 这类真实断言判成替身断言；`--check` 升格为必过闸门
+        后，这类误判会直接卡红合法用例。属主无法解析（如 `Foo(called=True).called`）
+        时按非替身处理，落回名字规则。
+        """
+        owners: set[str] = set()
+        for sub in ast.walk(test):
+            if not isinstance(sub, ast.Attribute):
+                continue
+            if sub.attr not in DOUBLE_ATTRS and sub.attr not in DOUBLE_ASSERT_METHODS:
+                continue
+            owner = dotted(sub.value)
+            if owner and owner.split(".")[0] in double_names:
+                owners.add(owner)
+        return owners
 
 
 # ---------------------------------------------------------------- 类 2 识别
@@ -726,6 +777,7 @@ class FileScanner:
         self.rel = str(path.relative_to(root))
         self.tree = ast.parse(path.read_text(encoding="utf-8"))
         self.aliases = AliasIndex(self.tree)
+        self.unittest_cases = resolve_unittest_cases(self.tree)
         self.mut = self.aliases.module_under_test(path, prod.is_module)
         tier = tier_from_path(path, tests_dir)
         self.module_marks = ([tier] if tier else []) + self._module_marks()
@@ -761,7 +813,7 @@ class FileScanner:
     def _scan_scope(self, body: list[ast.stmt], class_marks: list[str], class_name: str | None) -> None:
         for node in body:
             if isinstance(node, ast.ClassDef):
-                if is_collected_test_class(node):
+                if is_collected_test_class(node, self.unittest_cases):
                     self._scan_scope(node.body, class_marks + marks_of(node.decorator_list), node.name)
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
                 self._analyze_test(node, class_marks, class_name)

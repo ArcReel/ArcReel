@@ -67,6 +67,28 @@ def test_zero_assertion_case_is_reported_with_its_line(tmp_path: Path) -> None:
     assert "test_nothing" in violations[0].guidance
 
 
+def test_record_attribute_counts_as_double_only_when_its_owner_is_a_double(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_records.py").write_text(
+        "def test_domain_result(fake_dep):\n"
+        "    result = compute()\n"
+        "    assert result.called\n"
+        "    assert result.call_count == 2\n"
+        "\n"
+        "\n"
+        "def test_double_record(mocker):\n"
+        "    client = mocker.patch('svc.client')\n"
+        "    run()\n"
+        "    assert client.send.called\n",
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.line) for v in violations] == [("DOUBLE-ONLY", 7)]
+    assert "test_double_record" in violations[0].guidance
+
+
 def test_class_scan_follows_pytest_collection_rules(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
     (tests / "test_client.py").write_text(
@@ -122,6 +144,47 @@ def test_class_scan_follows_pytest_collection_rules(tmp_path: Path) -> None:
     assert "CheckBehavior::test_also_silent" in violations[1].guidance
     assert "CheckAsync::test_async_silent" in violations[2].guidance
     assert "LegacyCase::test_still_collected" in violations[3].guidance
+
+
+def test_unittest_ancestry_resolves_aliases_and_in_module_inheritance(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_ancestry.py").write_text(
+        "import unittest as ut\n"
+        "from unittest import TestCase as Base\n"
+        "from other import TestCase as Unrelated\n"
+        "\n"
+        "\n"
+        "class AliasedCase(Base):\n"
+        "    def test_via_alias(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class ModuleAliasedCase(ut.IsolatedAsyncioTestCase):\n"
+        "    async def test_via_module_alias(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class IndirectCase(AliasedCase):\n"
+        "    def test_via_ancestor(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class Impostor(Unrelated):\n"
+        "    def test_not_a_unittest_case(self):\n"
+        "        value = 1\n",
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.line) for v in violations] == [
+        ("NO-ASSERTION", 7),
+        ("NO-ASSERTION", 12),
+        ("NO-ASSERTION", 17),
+    ]
+    assert "AliasedCase::test_via_alias" in violations[0].guidance
+    assert "ModuleAliasedCase::test_via_module_alias" in violations[1].guidance
+    assert "IndirectCase::test_via_ancestor" in violations[2].guidance
 
 
 def test_unparsable_file_is_reported_at_its_syntax_error_line(tmp_path: Path, capsys) -> None:
