@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.httpx_shared import shutdown_http_client, startup_http_client
 from lib.i18n import get_translator
 from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
@@ -14,23 +18,24 @@ from server.routers import system_config
 from server.routers.system_config import _parse_version
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_translator
+from tests.http_capture import capture_http
 
-_FIXED_FETCHED_AT = datetime(2026, 4, 21, 8, 5, 0, tzinfo=UTC)
+_GITHUB_LATEST = "https://api.github.com/repos/ArcReel/ArcReel/releases/latest"
 
 
-def _make_app() -> FastAPI:
+def _make_app(version_reader: Callable[[], str] = lambda: "0.9.0") -> FastAPI:
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
     app.dependency_overrides[get_config_service] = lambda: MagicMock()
     app.dependency_overrides[get_translator] = lambda: make_translator()
+    app.dependency_overrides[system_config.get_app_version_reader] = lambda: version_reader
     app.include_router(system_config.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
 
-def _release(version: str) -> dict[str, str]:
-    """构造 _get_latest_release 处理后的 payload（带 version 字段）。"""
+def _release_body(version: str) -> dict[str, str]:
+    """GitHub releases/latest 的响应体形状。"""
     return {
-        "version": version,
         "tag_name": f"v{version}",
         "name": version,
         "body": "## What's Changed\n- add about tab",
@@ -39,26 +44,29 @@ def _release(version: str) -> dict[str, str]:
     }
 
 
-def _release_tuple(version: str) -> tuple[dict[str, str], datetime]:
-    return _release(version), _FIXED_FETCHED_AT
+@pytest.fixture(autouse=True)
+def _shared_http_client():
+    """生产由 app lifespan 建共享客户端；这里自己建一个，respx 在 transport 层拦它。"""
+    asyncio.run(startup_http_client())
+    yield
+    asyncio.run(shutdown_http_client())
 
 
-def _reset_cache() -> None:
-    system_config._latest_release_cache["expires_at"] = None
-    system_config._latest_release_cache["payload"] = None
-    system_config._latest_release_cache["fetched_at"] = None
+@pytest.fixture(autouse=True)
+def _clear_release_cache():
+    """`_latest_release_cache` 与 `_read_app_version` 的 lru_cache 都是模块级进程内状态。"""
+    system_config._latest_release_cache.update({"expires_at": None, "payload": None, "fetched_at": None})
+    system_config._read_app_version.cache_clear()
+    yield
+    system_config._latest_release_cache.update({"expires_at": None, "payload": None, "fetched_at": None})
+    system_config._read_app_version.cache_clear()
 
 
 class TestSystemVersionApi:
     def test_returns_current_and_latest_release(self):
         app = _make_app()
-        with (
-            patch("server.routers.system_config._read_app_version", return_value="0.9.0"),
-            patch(
-                "server.routers.system_config._get_latest_release",
-                new=AsyncMock(return_value=_release_tuple("0.9.1")),
-            ),
-        ):
+        with capture_http() as http:
+            http.get(_GITHUB_LATEST).respond(json=_release_body("0.9.1"))
             with TestClient(app) as client:
                 resp = client.get("/api/v1/system/version")
 
@@ -66,17 +74,28 @@ class TestSystemVersionApi:
         body = resp.json()
         assert body["current"]["version"] == "0.9.0"
         assert body["latest"]["version"] == "0.9.1"
+        assert body["latest"]["tag_name"] == "v0.9.1"
         assert body["has_update"] is True
         assert body["update_check_error"] is None
-        # checked_at 应反映实际 fetch 时间，而不是请求时间
-        assert body["checked_at"] == _FIXED_FETCHED_AT.isoformat()
+        # checked_at 是实际 fetch 时间，带时区
+        assert datetime.fromisoformat(body["checked_at"]).tzinfo is not None
+
+    def test_sends_github_api_headers(self):
+        """出站请求形状：GitHub 要求 Accept 与 User-Agent，缺 UA 会被 403。"""
+        app = _make_app()
+        with capture_http(assert_all_called=True) as http:
+            route = http.get(_GITHUB_LATEST).respond(json=_release_body("0.9.1"))
+            with TestClient(app) as client:
+                client.get("/api/v1/system/version")
+
+        request = route.calls.last.request
+        assert request.headers["accept"] == "application/vnd.github+json"
+        assert request.headers["user-agent"] == "ArcReel"
 
     def test_returns_current_version_when_github_check_fails(self):
         app = _make_app()
-        with (
-            patch("server.routers.system_config._read_app_version", return_value="0.9.0"),
-            patch("server.routers.system_config._get_latest_release", new=AsyncMock(side_effect=RuntimeError("boom"))),
-        ):
+        with capture_http() as http:
+            http.get(_GITHUB_LATEST).respond(status_code=502)
             with TestClient(app) as client:
                 resp = client.get("/api/v1/system/version")
 
@@ -87,35 +106,26 @@ class TestSystemVersionApi:
         assert body["has_update"] is False
         # 信息不再泄漏：返回固定 i18n 文案，详细错误只在日志
         assert body["update_check_error"] == "检查更新失败，请稍后重试"
-        assert "boom" not in body["update_check_error"]
+        assert "502" not in body["update_check_error"]
 
     def test_handles_v_prefixed_tag_as_semver(self):
         app = _make_app()
-        with (
-            patch("server.routers.system_config._read_app_version", return_value="0.9.0"),
-            patch(
-                "server.routers.system_config._get_latest_release",
-                new=AsyncMock(return_value=_release_tuple("0.9.0")),
-            ),
-        ):
+        with capture_http() as http:
+            http.get(_GITHUB_LATEST).respond(json=_release_body("0.9.0"))
             with TestClient(app) as client:
                 resp = client.get("/api/v1/system/version")
 
         assert resp.status_code == 200
         body = resp.json()
+        assert body["latest"]["version"] == "0.9.0"
         assert body["has_update"] is False
         assert body["update_check_error"] is None
 
     def test_handles_prerelease_tag_without_error(self):
         """GitHub 真实场景：v0.10.0-rc1 这类 tag 不应触发 update_check_error。"""
-        app = _make_app()
-        with (
-            patch("server.routers.system_config._read_app_version", return_value="0.10.0"),
-            patch(
-                "server.routers.system_config._get_latest_release",
-                new=AsyncMock(return_value=_release_tuple("0.10.0-rc1")),
-            ),
-        ):
+        app = _make_app(lambda: "0.10.0")
+        with capture_http() as http:
+            http.get(_GITHUB_LATEST).respond(json=_release_body("0.10.0-rc1"))
             with TestClient(app) as client:
                 resp = client.get("/api/v1/system/version")
 
@@ -128,35 +138,24 @@ class TestSystemVersionApi:
     def test_invalid_remote_version_does_not_break_endpoint(self):
         """远端 tag 解析失败时退化为 has_update=False，不报错。"""
         app = _make_app()
-        broken_payload = {
-            "version": "not-a-version",
-            "tag_name": "weird",
-            "name": "weird",
-            "body": "",
-            "html_url": "",
-            "published_at": "",
-        }
-        with (
-            patch("server.routers.system_config._read_app_version", return_value="0.9.0"),
-            patch(
-                "server.routers.system_config._get_latest_release",
-                new=AsyncMock(return_value=(broken_payload, _FIXED_FETCHED_AT)),
-            ),
-        ):
+        with capture_http() as http:
+            http.get(_GITHUB_LATEST).respond(json={"tag_name": "weird", "name": "weird"})
             with TestClient(app) as client:
                 resp = client.get("/api/v1/system/version")
 
         assert resp.status_code == 200
         body = resp.json()
+        assert body["latest"]["version"] == "weird"
         assert body["has_update"] is False
         assert body["update_check_error"] is None
 
     def test_returns_500_when_local_version_cannot_be_read(self):
-        app = _make_app()
-        # _read_app_version 被 lru_cache 装饰，patch 会替换整个属性
-        # 但需要保险起见 clear cache，避免之前测试 populate
-        system_config._read_app_version.cache_clear()
-        with patch("server.routers.system_config._read_app_version", side_effect=RuntimeError("missing version")):
+        def _unreadable() -> str:
+            raise RuntimeError("missing version")
+
+        app = _make_app(_unreadable)
+        with capture_http() as http:
+            http.get(_GITHUB_LATEST).respond(json=_release_body("0.9.1"))
             with TestClient(app, raise_server_exceptions=False) as client:
                 resp = client.get("/api/v1/system/version")
 
@@ -166,66 +165,66 @@ class TestSystemVersionApi:
         assert "missing version" not in str(body)
 
 
+class TestLoadAppVersion:
+    def test_reads_project_version_from_pyproject(self, tmp_path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[project]\nname = "arcreel"\nversion = "1.2.3"\n', encoding="utf-8")
+        assert system_config._load_app_version(pyproject) == "1.2.3"
+
+    def test_missing_file_propagates(self, tmp_path):
+        with pytest.raises(OSError):
+            system_config._load_app_version(tmp_path / "absent.toml")
+
+    def test_empty_version_is_rejected(self, tmp_path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[project]\nname = "arcreel"\nversion = "  "\n', encoding="utf-8")
+        with pytest.raises(RuntimeError):
+            system_config._load_app_version(pyproject)
+
+
 class TestGetLatestReleaseCache:
-    def test_cache_hit_within_ttl_skips_http_call(self):
+    async def test_cache_hit_within_ttl_skips_http_call(self):
         """5 分钟 TTL 内重复调用应只命中 HTTP 一次。"""
-        _reset_cache()
+        with capture_http(assert_all_called=True) as http:
+            route = http.get(_GITHUB_LATEST).respond(json=_release_body("0.9.1"))
+            first = await system_config._get_latest_release()
+            second = await system_config._get_latest_release()
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "tag_name": "v0.9.1",
-            "name": "0.9.1",
-            "body": "",
-            "html_url": "",
-            "published_at": "",
-        }
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client = MagicMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-
-        async def run():
-            with patch("server.routers.system_config.get_http_client", return_value=mock_client):
-                a = await system_config._get_latest_release()
-                b = await system_config._get_latest_release()
-            return a, b
-
-        import asyncio
-
-        a, b = asyncio.run(run())
-        # payload 与 fetched_at 都来自同一次 fetch
-        assert a == b
-        assert a[1] == b[1]  # fetched_at 不变（关键：缓存命中不重置时间戳）
-        assert mock_client.get.await_count == 1
+        # payload 与 fetched_at 都来自同一次 fetch（缓存命中不重置时间戳）
+        assert first == second
+        assert route.call_count == 1
 
     def test_cached_endpoint_response_preserves_fetched_at(self):
         """端到端：连续两次调用 /system/version 时 checked_at 不变（缓存命中）。"""
-        _reset_cache()
         app = _make_app()
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "tag_name": "v0.9.1",
-            "name": "0.9.1",
-            "body": "",
-            "html_url": "",
-            "published_at": "",
-        }
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client = MagicMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-
-        with (
-            patch("server.routers.system_config._read_app_version", return_value="0.9.0"),
-            patch("server.routers.system_config.get_http_client", return_value=mock_client),
-        ):
+        with capture_http(assert_all_called=True) as http:
+            route = http.get(_GITHUB_LATEST).respond(json=_release_body("0.9.1"))
             with TestClient(app) as client:
                 first = client.get("/api/v1/system/version").json()
                 second = client.get("/api/v1/system/version").json()
 
-        assert mock_client.get.await_count == 1
+        assert route.call_count == 1
         assert first["checked_at"] == second["checked_at"]
+
+    async def test_expired_cache_refetches(self):
+        """TTL 过期后重新出站，fetched_at 随之前进。"""
+        with capture_http(assert_all_called=True) as http:
+            route = http.get(_GITHUB_LATEST).respond(json=_release_body("0.9.1"))
+            _first, first_at = await system_config._get_latest_release(now=datetime(2026, 4, 21, 8, 0, tzinfo=UTC))
+            _second, second_at = await system_config._get_latest_release(now=datetime(2026, 4, 21, 9, 0, tzinfo=UTC))
+
+        assert route.call_count == 2
+        assert second_at > first_at
+
+    async def test_http_error_is_not_cached(self):
+        """失败响应不写缓存，下一次调用仍然出站重试。"""
+        with capture_http(assert_all_called=True) as http:
+            route = http.get(_GITHUB_LATEST).respond(status_code=500)
+            for _ in range(2):
+                with pytest.raises(httpx.HTTPStatusError):
+                    await system_config._get_latest_release()
+
+        assert route.call_count == 2
 
 
 class TestParseVersion:
