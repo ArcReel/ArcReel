@@ -139,14 +139,7 @@ describe("ProjectSettingsPage – style picker", () => {
         episodes: [],
         characters: {},
         video_style: {
-          visual_treatment: "写实工艺纪录片",
-          camera_language: "微距慢移",
-          pacing: "长镜头",
-          sound_focus: "asmr",
-          music_policy: "none",
-          music_description: "",
-          sound_design: "突出铜丝声",
-          additional_instructions: "",
+          prompt: "写实工艺纪录片，微距慢移与长镜头，突出铜丝声，不使用背景音乐。",
           source: "agent",
           updated_at: "2026-08-23T00:00:00Z",
         },
@@ -160,14 +153,14 @@ describe("ProjectSettingsPage – style picker", () => {
     renderAt("/app/projects/demo/settings");
 
     expect(await screen.findByText(/Agent 推断|Agent inferred/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText(/节奏|Pacing/), { target: { value: "更低切换密度" } });
+    fireEvent.change(screen.getByLabelText(/视频风格提示词|Video style prompt/), {
+      target: { value: "写实工艺纪录片，采用更低切换密度，突出材质声。" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /保存视频风格|Save video style/ }));
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
-    expect(updateSpy.mock.calls[0][1]).toMatchObject({
-      pacing: "更低切换密度",
-      sound_focus: "asmr",
-      music_policy: "none",
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      prompt: "写实工艺纪录片，采用更低切换密度，突出材质声。",
     });
     expect(await screen.findByText(/用户设置|User defined/)).toBeInTheDocument();
   });
@@ -186,14 +179,7 @@ describe("ProjectSettingsPage – style picker", () => {
     const analyzeSpy = vi.spyOn(API, "analyzeVideoStyle").mockResolvedValue({
       created: true,
       video_style: {
-        visual_treatment: "写实",
-        camera_language: "稳定微距",
-        pacing: "舒缓",
-        sound_focus: "asmr",
-        music_policy: "auto",
-        music_description: "",
-        sound_design: "材质声",
-        additional_instructions: "",
+        prompt: "写实风格，稳定微距，节奏舒缓，突出材质声。",
         source: "agent",
         updated_at: "2026-08-23T00:00:00Z",
       },
@@ -397,7 +383,7 @@ describe("ProjectSettingsPage – style picker", () => {
     fireEvent.change(screen.getByLabelText(/风格名称|Style name/i), {
       target: { value: "暖调纪实" },
     });
-    fireEvent.change(screen.getByLabelText(/风格提示词|Style prompt/i), {
+    fireEvent.change(screen.getByLabelText(/^风格提示词$|^Style prompt$/i), {
       target: { value: "updated library prompt" },
     });
     fireEvent.click(screen.getByRole("button", { name: /保存修改|Save changes/i }));

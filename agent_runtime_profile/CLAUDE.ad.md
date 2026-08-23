@@ -30,7 +30,7 @@
 
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script_revision`，再把其 revision 原样作为 `patch_episode_script` 的 `expected_revision`，并传有序 `operations[]`（`update` / `insert_after` / `move_after` / `remove`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，增/删/拆分镜的便捷工具也委托同一事务编辑器；角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
-- **统一视频风格**：项目只有一份 Unified Video Style。需要读取或在缺失时从已拆分剧本推断，调用 `analyze_video_style`；已有配置会直接返回、不重复分析。用户要求无 BGM、ASMR、镜头语言、节奏或其他项目级视频方向时调用 `update_video_style`，不要另写第二份 Agent 风格。
+- **统一视频风格**：项目只有一段 Unified Video Style 提示词。需要读取或在缺失时从已拆分剧本按画面、镜头、节奏、声音、音乐等维度分析后归并为一段提示词，调用 `analyze_video_style`；已有配置会直接返回、不重复分析。用户要求无 BGM、ASMR、镜头语言、节奏或其他项目级视频方向时，用完整的新提示词调用 `update_video_style`，不要另写第二份 Agent 风格。
 - **参考生视频 unit 边界修改**：ad 的 reference-video 路线没有 step1；新增、删除或拆分 video unit 直接使用 `insert_segment` / `remove_segment` / `split_segment`。插入和拆分产生的 `E1U01_1` 这类稳定子 ID 是合法身份，后续 unit 不重编号。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `manage-project` / `compose-video` 这两个 skill 内还保留的 Python 脚本。
 - **敏感文件保护**：`.env` / `vertex_keys/` / `.system_config.json*` / `.arcreel.db*` / `.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。

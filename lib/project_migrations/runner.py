@@ -36,6 +36,7 @@ from lib.project_migrations.v5_to_v6_asset_namespace import migrate_v5_to_v6
 from lib.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
+from lib.project_migrations.v9_to_v10_video_style_prompt import migrate_v9_to_v10
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -326,3 +327,4 @@ MIGRATORS[5] = migrate_v5_to_v6
 MIGRATORS[6] = migrate_v6_to_v7
 MIGRATORS[7] = migrate_v7_to_v8
 MIGRATORS[8] = migrate_v8_to_v9
+MIGRATORS[9] = migrate_v9_to_v10

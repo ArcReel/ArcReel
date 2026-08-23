@@ -10,8 +10,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
-from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -62,7 +62,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     )
 
     migrate_v7_to_v8(project_dir)
-    migrate_v8_to_v9(project_dir)
+    migrate_project_dir(project_dir)
 
     from lib.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod

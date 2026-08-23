@@ -11,7 +11,6 @@ from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME, episode_drafts_dir
 from lib.project_migration_failure import MIGRATION_FAILURE_FILENAME, load_migration_failure
 from lib.project_migrations.runner import MIGRATORS, migrate_project_dir, migrate_project_with_verdict
 from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 
 pytestmark = pytest.mark.integration
 
@@ -121,7 +120,7 @@ def test_shot_text_joins_back_into_one_body_for_every_content_mode(tmp_path: Pat
     units = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
     assert [unit["text"] for unit in units] == ["她推开门\n雨落在石板上\n@[阿离]抬头", "伞收起来"]
     assert all("shots" not in unit for unit in units)
-    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    assert _read_json(project_dir / "project.json")["schema_version"] == 9
 
 
 def test_literal_shot_prefixes_stay_verbatim_in_the_body(tmp_path: Path) -> None:
@@ -287,7 +286,7 @@ def test_storyboard_project_only_gets_the_version_bump(tmp_path: Path) -> None:
 
     migrate_v8_to_v9(project_dir)
 
-    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    assert _read_json(project_dir / "project.json")["schema_version"] == 9
     assert (project_dir / "scripts/episode_1.json").read_bytes() == script_before
     # 分镜路线只改 project.json，备份也只有它那一份。
     backups = sorted(path.name.split(".bak.v8-")[0] for path in project_dir.rglob("*.bak.v8-*"))

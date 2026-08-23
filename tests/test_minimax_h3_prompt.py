@@ -119,9 +119,9 @@ def test_optimizer_user_prompt_includes_the_complete_provider_character_limit() 
 
 
 def test_optimizer_user_prompt_includes_unified_video_style_rules() -> None:
-    prompt = _optimizer_user_prompt({"project": {"video_style": {"music_policy": "none"}}})
+    prompt = _optimizer_user_prompt({"project": {"video_style": {"prompt": "No background music."}}})
 
-    assert "project.video_style" in prompt
+    assert "project.video_style.prompt" in prompt
     assert "non_diegetic_music as N/A" in prompt
 
 
@@ -205,7 +205,7 @@ async def test_worker_prompt_step_accepts_the_stable_child_id_created_by_split(t
     assert load_h3_prompt_artifact(tmp_path, 1, "E1U01_1") == artifacts[0]
 
 
-async def test_no_music_policy_mechanically_removes_optimizer_added_score(tmp_path: Path) -> None:
+async def test_video_style_prompt_does_not_mechanically_rewrite_optimizer_sections(tmp_path: Path) -> None:
     class _Generator:
         async def generate(self, request: Any, *, project_name: str) -> TextGenerationResult:
             return TextGenerationResult(
@@ -218,9 +218,7 @@ async def test_no_music_policy_mechanically_removes_optimizer_added_score(tmp_pa
         return _Generator()
 
     style = UnifiedVideoStyle(
-        sound_focus="asmr",
-        music_policy="none",
-        sound_design="Close-miked wire and enamel sounds",
+        prompt="Use close-miked ASMR wire and enamel sounds with no background music.",
         source="user",
         updated_at=datetime.now(UTC),
     )
@@ -231,8 +229,7 @@ async def test_no_music_policy_mechanically_removes_optimizer_added_score(tmp_pa
         [context],
     )
 
-    assert artifacts[0].sections.non_diegetic_music == "N/A"
-    assert artifacts[0].rendered_prompt.endswith("non_diegetic_music:\nN/A")
+    assert artifacts[0].sections.non_diegetic_music == "A warm orchestral score."
 
 
 async def test_optimizer_keeps_pinned_system_prompt_separate_and_saves_pending_review(

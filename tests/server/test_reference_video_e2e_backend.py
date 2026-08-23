@@ -18,8 +18,8 @@ from lib.artifact_manifest import (
     ArtifactKey,
     ProjectArtifactManifestAdapter,
 )
+from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
-from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import fake_reference_request_projector
@@ -88,7 +88,7 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
         encoding="utf-8",
     )
     migrate_v7_to_v8(proj_dir)
-    migrate_v8_to_v9(proj_dir)
+    migrate_project_dir(proj_dir)
     assert ProjectArtifactManifestAdapter(proj_dir).get_entry(ArtifactKey.episode_script(1)) is not None
 
     from lib.project_manager import ProjectManager

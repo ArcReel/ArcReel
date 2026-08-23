@@ -920,7 +920,7 @@ class TestGenerationTasks:
         from lib.artifact_activation import activate_artifact_target_state
         from lib.grid.models import GridGeneration
         from lib.grid_manager import GridManager
-        from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
+        from lib.project_migrations.runner import migrate_project_dir
         from lib.version_manager import VersionManager
 
         project_path = _prepare_files(tmp_path)
@@ -988,7 +988,7 @@ class TestGenerationTasks:
             original_commit_schema(project_dir, project)
             # 清单激活只把项目送到 v8；形式产物注册要求当前 schema，故在同一把项目元数据锁内
             # 走完剩余迁移，模拟启动扫描一次跑完整条链。
-            migrate_v8_to_v9(project_dir)
+            migrate_project_dir(project_dir)
 
         monkeypatch.setattr(artifact_activation, "_commit_schema_version", _pause_before_schema)
 

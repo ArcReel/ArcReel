@@ -193,17 +193,13 @@ async def test_agent_video_style_tools_edit_and_reuse_one_project_object(ref_ctx
     updated = await _call(
         update_video_style_tool(ref_ctx),
         {
-            "camera_language": "微距慢移",
-            "pacing": "长镜头",
-            "sound_focus": "asmr",
-            "music_policy": "none",
-            "sound_design": "突出铜丝和釉料声",
+            "prompt": "微距慢移与长镜头，突出铜丝和釉料的 ASMR 声音，不使用背景音乐。",
         },
     )
     reused = await _call(analyze_video_style_tool(ref_ctx), {"episode": 1})
 
     assert updated["video_style"]["source"] == "user"
-    assert updated["video_style"]["music_policy"] == "none"
+    assert "ASMR" in updated["video_style"]["prompt"]
     assert reused["created"] is False
     assert reused["video_style"] == updated["video_style"]
     assert ref_ctx.pm.load_project_readonly("demo")["video_style"] == updated["video_style"]

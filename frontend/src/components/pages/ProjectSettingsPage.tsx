@@ -18,8 +18,6 @@ import type {
   ProviderInfo,
   UnifiedVideoStyle,
   UnifiedVideoStyleDraft,
-  VideoMusicPolicy,
-  VideoSoundFocus,
 } from "@/types";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
@@ -65,14 +63,7 @@ function sameProfileFiles(left: string[], right: string[]) {
 }
 
 const EMPTY_VIDEO_STYLE: UnifiedVideoStyleDraft = {
-  visual_treatment: "",
-  camera_language: "",
-  pacing: "",
-  sound_focus: "balanced",
-  music_policy: "auto",
-  music_description: "",
-  sound_design: "",
-  additional_instructions: "",
+  prompt: "",
 };
 
 function editableVideoStyle(style: UnifiedVideoStyle | null | undefined): UnifiedVideoStyleDraft {
@@ -144,7 +135,8 @@ function VideoStyleTextArea({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        rows={3}
+        rows={6}
+        maxLength={16000}
         className="w-full resize-y rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] leading-[1.6] text-text outline-none transition-colors placeholder:text-text-4 focus:border-accent/55 focus:ring-2 focus:ring-accent/15"
       />
     </label>
@@ -994,7 +986,7 @@ export function ProjectSettingsPage() {
                       savingVideoStyle
                       || analyzingVideoStyle
                       || !videoStyleIsDirty
-                      || (videoStyleDraft.music_policy === "custom" && !videoStyleDraft.music_description.trim())
+                      || !videoStyleDraft.prompt.trim()
                     }
                     className={videoStyle ? ACCENT_BTN_CLS : GHOST_BTN_LG_CLS}
                     style={videoStyle ? ACCENT_BUTTON_STYLE : undefined}
@@ -1026,99 +1018,16 @@ export function ProjectSettingsPage() {
                   </span>
                 </div>
               )}
-              <div className="space-y-4">
-                <VideoStyleTextArea
-                  id="project-video-style-visual"
-                  label={t("video_style_visual_treatment")}
-                  value={videoStyleDraft.visual_treatment}
-                  onChange={(visual_treatment) => setVideoStyleDraft((current) => ({ ...current, visual_treatment }))}
-                  placeholder={t("video_style_visual_treatment_placeholder")}
-                />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <VideoStyleTextArea
-                    id="project-video-style-camera"
-                    label={t("video_style_camera_language")}
-                    value={videoStyleDraft.camera_language}
-                    onChange={(camera_language) => setVideoStyleDraft((current) => ({ ...current, camera_language }))}
-                    placeholder={t("video_style_camera_language_placeholder")}
-                  />
-                  <VideoStyleTextArea
-                    id="project-video-style-pacing"
-                    label={t("video_style_pacing")}
-                    value={videoStyleDraft.pacing}
-                    onChange={(pacing) => setVideoStyleDraft((current) => ({ ...current, pacing }))}
-                    placeholder={t("video_style_pacing_placeholder")}
-                  />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label htmlFor="project-video-style-sound-focus" className="block">
-                    <span className="mb-1.5 block text-[12px] font-medium text-text-2">
-                      {t("video_style_sound_focus")}
-                    </span>
-                    <select
-                      id="project-video-style-sound-focus"
-                      value={videoStyleDraft.sound_focus}
-                      onChange={(event) => setVideoStyleDraft((current) => ({
-                        ...current,
-                        sound_focus: event.target.value as VideoSoundFocus,
-                      }))}
-                      className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus:border-accent/55 focus:outline-none focus:ring-2 focus:ring-accent/15"
-                    >
-                      {(["balanced", "asmr", "dialogue", "ambience", "silent"] as const).map((value) => (
-                        <option key={value} value={value}>{t(`video_style_sound_focus_${value}`)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label htmlFor="project-video-style-music-policy" className="block">
-                    <span className="mb-1.5 block text-[12px] font-medium text-text-2">
-                      {t("video_style_music_policy")}
-                    </span>
-                    <select
-                      id="project-video-style-music-policy"
-                      value={videoStyleDraft.music_policy}
-                      onChange={(event) => setVideoStyleDraft((current) => ({
-                        ...current,
-                        music_policy: event.target.value as VideoMusicPolicy,
-                        ...(event.target.value !== "custom" ? { music_description: "" } : {}),
-                      }))}
-                      className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus:border-accent/55 focus:outline-none focus:ring-2 focus:ring-accent/15"
-                    >
-                      {(["auto", "none", "custom"] as const).map((value) => (
-                        <option key={value} value={value}>{t(`video_style_music_policy_${value}`)}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                {videoStyleDraft.music_policy === "custom" && (
-                  <VideoStyleTextArea
-                    id="project-video-style-music-description"
-                    label={t("video_style_music_description")}
-                    value={videoStyleDraft.music_description}
-                    onChange={(music_description) => setVideoStyleDraft((current) => ({
-                      ...current,
-                      music_description,
-                    }))}
-                    placeholder={t("video_style_music_description_placeholder")}
-                  />
-                )}
-                <VideoStyleTextArea
-                  id="project-video-style-sound-design"
-                  label={t("video_style_sound_design")}
-                  value={videoStyleDraft.sound_design}
-                  onChange={(sound_design) => setVideoStyleDraft((current) => ({ ...current, sound_design }))}
-                  placeholder={t("video_style_sound_design_placeholder")}
-                />
-                <VideoStyleTextArea
-                  id="project-video-style-additional"
-                  label={t("video_style_additional_instructions")}
-                  value={videoStyleDraft.additional_instructions}
-                  onChange={(additional_instructions) => setVideoStyleDraft((current) => ({
-                    ...current,
-                    additional_instructions,
-                  }))}
-                  placeholder={t("video_style_additional_instructions_placeholder")}
-                />
-              </div>
+              <VideoStyleTextArea
+                id="project-video-style-prompt"
+                label={t("video_style_prompt")}
+                value={videoStyleDraft.prompt}
+                onChange={(prompt) => setVideoStyleDraft({ prompt })}
+                placeholder={t("video_style_prompt_placeholder")}
+              />
+              <p className="mt-1.5 text-[11px] leading-[1.5] text-text-3">
+                {t("video_style_prompt_hint")}
+              </p>
             </SectionCard>
           )}
 
