@@ -415,9 +415,7 @@ class TestWorkerAudioLane:
         w._slots.register("dashscope", "audio", "t", dummy)
         assert w._pool_full_providers("audio") == frozenset({"dashscope"})
 
-    async def test_claim_routes_audio_to_audio_lane(self, monkeypatch):
-        from lib import generation_worker as gw
-
+    async def test_claim_routes_audio_to_audio_lane(self):
         class _Q:
             def __init__(self):
                 self._given = False
@@ -429,8 +427,9 @@ class TestWorkerAudioLane:
                         "task_id": "T1",
                         "task_type": "tts",
                         "media_type": "audio",
-                        "project_name": "demo",
-                        "payload": {},
+                        # 不带 project_name：payload 自报的 audio_provider 即可让真实
+                        # _extract_provider 短路解析出 dashscope，无需项目与 DB 在场。
+                        "payload": {"audio_provider": "dashscope", "audio_model": "qwen3-tts-flash"},
                     }
                 return None
 
@@ -441,11 +440,6 @@ class TestWorkerAudioLane:
                 _defaults={"image": 5, "video": 3, "audio": 10},
             ),
         )
-
-        async def _fake_extract(task):
-            return "dashscope"
-
-        monkeypatch.setattr(gw, "_extract_provider", _fake_extract)
 
         async def _fake_process(task):
             await asyncio.sleep(0)

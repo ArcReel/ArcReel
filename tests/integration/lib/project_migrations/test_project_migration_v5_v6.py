@@ -363,7 +363,12 @@ def test_migration_preserves_distinct_nfd_and_nfc_declared_media(tmp_path: Path)
     assert (scenes / "café.png").read_bytes() == b"nfc"
 
 
-def test_migration_failure_leaves_original_tree_untouched(tmp_path: Path, monkeypatch) -> None:
+def test_migration_failure_leaves_original_tree_untouched(tmp_path: Path) -> None:
+    """迁移在暂存树里失败时，原目录须逐字节不变、暂存目录不残留。
+
+    故障由一份读不动的剧本真实触发：改写剧本是暂存树迁移的必经步骤，坏 JSON 到那一步才炸，
+    此时暂存树已建好、原目录还没换过去——正是回滚要覆盖的窗口。
+    """
     project_dir = tmp_path / "demo"
     _write_json(
         project_dir / "project.json",
@@ -375,19 +380,16 @@ def test_migration_failure_leaves_original_tree_untouched(tmp_path: Path, monkey
             "products": {},
         },
     )
+    broken = project_dir / "scripts" / "episode_1.json"
+    broken.parent.mkdir(parents=True, exist_ok=True)
+    broken.write_text("{ 这不是合法 JSON", encoding="utf-8")
     original = (project_dir / "project.json").read_bytes()
 
-    def fail(_staged: Path) -> None:
-        raise RuntimeError("injected failure")
-
-    monkeypatch.setattr(
-        "lib.project_migrations.v5_to_v6_asset_namespace._migrate_staged_tree",
-        fail,
-    )
-    with pytest.raises(RuntimeError, match="injected failure"):
+    with pytest.raises(Exception):  # noqa: B017 - 坏 JSON 的具体异常类型由 load_json 决定
         migrate_v5_to_v6(project_dir)
 
     assert (project_dir / "project.json").read_bytes() == original
+    assert broken.read_text(encoding="utf-8") == "{ 这不是合法 JSON"
     assert not list(tmp_path.glob(".demo.v6-*"))
 
 

@@ -251,15 +251,18 @@ def test_fallback_returns_fixed_placeholder_not_raw_repr():
     assert out == "<unserializable>"
 
 
-def test_fallback_does_not_leak_sensitive_via_repr(monkeypatch):
-    """即使 _to_safe 抛错，也不应通过 repr 路径把 api_key 等字面量泄漏到日志。"""
-    from lib import logging_utils
+def test_fallback_does_not_leak_sensitive_via_repr():
+    """同一 payload 里既有敏感字面量、又有序列化会炸的对象：走兜底也不能把 api_key 带出来。
 
-    def boom(*args, **kwargs):
-        raise RuntimeError("simulated _to_safe failure")
+    炸点由真实对象触发（``__repr__`` 抛错），不替换脱敏函数——兜底一旦改回 repr(payload)，
+    整个 payload 连同未脱敏的 api_key 会一起进日志。
+    """
 
-    monkeypatch.setattr(logging_utils, "_to_safe", boom)
-    out = logging_utils.format_kwargs_for_log({"api_key": "sk-real-secret-1234"})
+    class Disaster:
+        def __repr__(self) -> str:
+            raise RuntimeError("repr exploded")
+
+    out = format_kwargs_for_log({"api_key": "sk-real-secret-1234", "detail": Disaster()})
     assert "sk-real-secret-1234" not in out
     assert out == "<unserializable>"
 

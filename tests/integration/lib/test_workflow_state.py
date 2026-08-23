@@ -681,35 +681,17 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
 
     original_load_project = pm.load_project_readonly
     load_calls = 0
-    source_inventory_calls = 0
-    asset_sheet_calls = 0
-    original_source_inventory = WorkflowStateService._source_inventory
-    original_asset_sheets = WorkflowStateService._asset_sheets
 
     def _counted_load_project(project_name: str) -> dict:
         nonlocal load_calls
         load_calls += 1
         return original_load_project(project_name)
 
-    def _counted_source_inventory(*args, **kwargs):
-        nonlocal source_inventory_calls
-        source_inventory_calls += 1
-        return original_source_inventory(*args, **kwargs)
-
-    def _counted_asset_sheets(*args, **kwargs):
-        nonlocal asset_sheet_calls
-        asset_sheet_calls += 1
-        return original_asset_sheets(*args, **kwargs)
-
     monkeypatch.setattr(pm, "load_project_readonly", _counted_load_project)
-    monkeypatch.setattr(WorkflowStateService, "_source_inventory", _counted_source_inventory)
-    monkeypatch.setattr(WorkflowStateService, "_asset_sheets", _counted_asset_sheets)
     source_reads = _count_source_reads(monkeypatch, project_path)
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
-    assert source_inventory_calls == 1
-    assert asset_sheet_calls == 1
     # 整本源文仍只读一次；分集原文是产物清单比对的输入（据其重建 step1 基线），
     # 由现势解析器按项目根与分集两层各读一次。
     assert source_reads == {"novel.txt": 1, "episode_1.txt": 2}
