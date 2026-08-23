@@ -394,7 +394,7 @@ class TestGeminiResumeVideo:
 
 
 class TestIsGeminiNotFound:
-    """fix #647 #6：INVALID_ARGUMENT 不归过期，只保留 404 / NOT_FOUND / "not found" / "expired"。"""
+    """INVALID_ARGUMENT 不归过期，只保留 404 / NOT_FOUND / "not found" / "expired"。"""
 
     def test_excludes_invalid_argument(self):
         from lib.video_backends.gemini import _is_gemini_not_found

@@ -592,7 +592,7 @@ class TestNewAPIVideoBackend:
         assert (tmp_path / "out.mp4").read_bytes() == b"resumed"
 
     async def test_poll_recognizes_expired_status(self, tmp_path: Path):
-        """fix #647 #5：poll 返回 status='expired' → 抛 ResumeExpiredError。"""
+        """poll 返回 status='expired' → 抛 ResumeExpiredError。"""
         from lib.video_backends.base import ResumeExpiredError
 
         expired_resp = _make_response(200, {"task_id": "task-x", "status": "expired"})

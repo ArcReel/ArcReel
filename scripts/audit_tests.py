@@ -872,10 +872,6 @@ def scan_shared_facilities(root: Path, tests_dir: Path) -> list[StructureFinding
             continue
         rel = path.relative_to(root).as_posix()
         fixtures = module_level_fixtures(tree)
-        if path.name == "conftest.py":
-            conftest_fixtures[path.parent] = {name: line for name, line in fixtures}
-            continue
-        test_fixtures[path] = fixtures
         for lineno, module in conftest_import_lines(tree):
             findings.append(
                 StructureFinding(
@@ -883,10 +879,14 @@ def scan_shared_facilities(root: Path, tests_dir: Path) -> list[StructureFinding
                     rel,
                     lineno,
                     f"import 了 {module}",
-                    "conftest 只放 fixture 与收集期钩子；被 import 的 helper 移到 tests/fakes.py、"
-                    "tests/factories.py 或专题共享模块",
+                    "conftest 只放 fixture 与收集期钩子，且 conftest 之间不互相 import；"
+                    "被 import 的 helper 移到 tests/fakes.py、tests/factories.py 或专题共享模块",
                 )
             )
+        if path.name == "conftest.py":
+            conftest_fixtures[path.parent] = {name: line for name, line in fixtures}
+            continue
+        test_fixtures[path] = fixtures
 
     def ancestor_conftests(path: Path) -> list[Path]:
         return [d for d in conftest_fixtures if d == path.parent or d in path.parents]

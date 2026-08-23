@@ -655,7 +655,7 @@ class TestPersistApiCallId:
 
 
 class TestCancelCascadeAcrossCancelling:
-    """fix #647 #4：cancel 级联跨过 cancelling 节点，A(running)→B(queued)→C(queued)
+    """cancel 级联跨过 cancelling 节点，A(running)→B(queued)→C(queued)
     在 A 落 cancelled 时通过 finalize_cancelled 自动级联到 B/C。"""
 
     async def _chain_3(self, repo: TaskRepository) -> tuple[str, str, str]:

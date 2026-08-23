@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -23,7 +24,27 @@ from lib.speech_presentation import (
 )
 from server.services.jianying_draft_service import JianyingDraftService, NoCompletedSegmentsError
 from server.services.presentation_read_model import MaterializedEpisode, MaterializedPresentation
-from tests.factories import make_test_audio, make_test_video, make_test_video_with_audio_tail
+from tests.factories import make_test_video, make_test_video_with_audio_tail
+
+
+def make_test_audio(path: Path, *, duration_sec: float = 1.0) -> None:
+    """使用 ffmpeg 生成极短测试音频（正弦波 wav，pcm_s16le 为 ffmpeg 内置编码器）"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:duration={duration_sec}",
+            "-c:a",
+            "pcm_s16le",
+            str(path),
+        ],
+        capture_output=True,
+        check=True,
+    )
 
 
 def _basis(kind: str, identity: str) -> ArtifactBasisDescriptor:

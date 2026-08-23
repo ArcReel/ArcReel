@@ -32,11 +32,6 @@ def request_json(request: httpx.Request) -> Any:
     return json.loads(request.content)
 
 
-def sent_json(route: respx.Route) -> list[Any]:
-    """该路由收到的全部请求体，按发出顺序。"""
-    return [request_json(call.request) for call in route.calls]
-
-
 def only_request(route: respx.Route) -> httpx.Request:
     """断言该路由恰好收到一次请求并返回它。"""
     assert route.call_count == 1, f"期望 1 次请求，实际 {route.call_count} 次"

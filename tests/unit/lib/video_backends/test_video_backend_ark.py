@@ -399,7 +399,7 @@ class TestArkModelCapabilities:
     """测试不同模型的能力映射。"""
 
     def test_seedance_1_5_pro_default_model_supports_last_frame(self):
-        """DEFAULT_MODEL：能力表标首尾帧 ✅，实测 generate() 正常下发 role=last_frame。"""
+        """DEFAULT_MODEL：能力表标首尾帧，generate() 下发 role=last_frame。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-251215")
         assert caps.last_frame is True
 
@@ -671,7 +671,7 @@ class TestArkVideoBackendBaseUrl:
 
 
 class TestIsArkNotFound:
-    """fix #647 #6：用 task_not_found / tasknotfound 精确匹配，剔除宽泛 "not found" 兜底；
+    """用 task_not_found / tasknotfound 精确匹配，剔除宽泛 "not found" 兜底；
     保留 "expired" 字串识别（_poll_until_done 把 status=expired 转 RuntimeError）。"""
 
     def test_excludes_business_not_found(self):
