@@ -76,11 +76,18 @@ def _typed_video_metadata(
     }
 
 
+class _IdleQueue:
+    """在途任务恒为空的生成队列替身；只实现被测路径用到的那一个查询。"""
+
+    async def get_active_tasks_for_resources(self, **_kwargs) -> list[dict]:
+        return []
+
+
 def _stub_current_narration_reload(monkeypatch, tmp_path: Path, *, narration, resource_id: str = "E1S01"):
     """把当前旁白交付重载的三个协作者换成替身，让重载协程本体照跑。
 
-    ``_prepare_current_task_narration_delivery`` 自己的剧本定位与单元准入仍走真实代码，
-    只有项目管理器、交付准备与在途 TTS 查询由替身给出，用例因而不必替换被测模块的步骤。
+    ``_prepare_current_task_narration_delivery`` 自己的剧本定位、单元准入与在途 TTS 判定仍走
+    真实代码，只有项目管理器、交付准备与生成队列由替身给出，用例因而不必替换被测模块的步骤。
     """
     pm = MagicMock()
     pm.load_project.return_value = {
@@ -99,7 +106,7 @@ def _stub_current_narration_reload(monkeypatch, tmp_path: Path, *, narration, re
         "prepare_current_narration_delivery",
         AsyncMock(return_value=narration),
     )
-    monkeypatch.setattr(narration_delivery_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+    monkeypatch.setattr(narration_delivery_tasks, "get_generation_queue", _IdleQueue)
     return pm
 
 
