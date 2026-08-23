@@ -732,10 +732,13 @@ async def test_reference_resume_post_production_does_not_reproject_tts(monkeypat
             )
         ),
     )
-    output_guard = AsyncMock()
+
+    async def _guard_must_not_run(**kwargs):
+        raise AssertionError(f"无 TTS 的续跑不得重投影旁白时长: {kwargs}")
+
     monkeypatch.setattr(
         "server.services.video_artifact_currency.validate_generated_video_covers_tts_duration",
-        output_guard,
+        _guard_must_not_run,
     )
     monkeypatch.setattr(
         resume_executor,
@@ -753,9 +756,11 @@ async def test_reference_resume_post_production_does_not_reproject_tts(monkeypat
         "payload": {},
     }
 
-    await execute_resume_video_task(task, job_id="job-1")
+    # 时长守卫一旦被触碰用例即炸；判据本体落在续跑真正跑完、产出该单元这件事上。
+    result = await execute_resume_video_task(task, job_id="job-1")
 
-    output_guard.assert_not_awaited()
+    assert result["resource_type"] == "reference_videos"
+    assert result["resource_id"] == "E1U1"
 
 
 @pytest.mark.asyncio
