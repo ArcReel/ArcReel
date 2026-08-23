@@ -1146,9 +1146,7 @@ class TestWan3:
                 )
             )
 
-        assert [(r["base_url"], r["endpoint"]) for r in persisted] == [
-            ("https://maas-a.example.com/ws-1/api/v1", None)
-        ]
+        assert [(r["base_url"], r["endpoint"]) for r in persisted] == [("https://maas-a.example.com/ws-1/api/v1", None)]
 
     async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path: Path):
         """在途改 wan3_base_url 后续跑：轮询仍打提交时的域名，而非当下配置解析出的域名。"""

@@ -91,9 +91,7 @@ def _minimax_routes(
             patch("lib.video_backends.minimax.MINIMAX_VIDEO_POLL_INTERVAL_SECONDS", 0),
             patch("lib.video_backends.minimax.download_video", new=AsyncMock()) as download,
         ):
-            yield _MiniMaxRoutes(
-                submit=submit_route, query=query_route, retrieve=retrieve_route, download=download
-            )
+            yield _MiniMaxRoutes(submit=submit_route, query=query_route, retrieve=retrieve_route, download=download)
 
 
 def _v2_query(status: str, *, url: str = "", error: str = "") -> dict:

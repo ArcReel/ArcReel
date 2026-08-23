@@ -59,9 +59,7 @@ def _error_response(status_code: int) -> httpx.Response:
 
 
 @contextmanager
-def _generation_route(
-    resp: httpx.Response, download: AsyncMock | None = None
-) -> Iterator[respx.Route]:
+def _generation_route(resp: httpx.Response, download: AsyncMock | None = None) -> Iterator[respx.Route]:
     """成图端点的出站流：走 respx 在 transport 层拦截。
 
     端点派生、请求体字段、鉴权头都是「发出去的请求长什么样」的契约，断言落在路由捕获的
@@ -318,12 +316,13 @@ class TestResponseHandling:
     async def test_empty_data_raises_runtime(self, tmp_path: Path):
         resp = httpx.Response(200, json={"data": {}, "base_resp": {"status_code": 0}})
         download = AsyncMock()
-        with _generation_route(resp, download) as route:
+        with _generation_route(resp, download):
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
             with pytest.raises(RuntimeError):
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
+        download.assert_not_called()
 
 
 class TestHttpErrors:

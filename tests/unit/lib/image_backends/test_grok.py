@@ -107,7 +107,6 @@ class TestGenerateT2I:
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
         with _image_download(mock_response.url, fake_image_bytes):
-
             request = ImageGenerationRequest(
                 prompt="A beautiful sunset",
                 output_path=output,
@@ -151,7 +150,6 @@ class TestGenerateI2I:
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
 
         with _image_download(mock_response.url, fake_image_bytes):
-
             request = ImageGenerationRequest(
                 prompt="Make it darker",
                 output_path=output,
@@ -182,7 +180,6 @@ class TestGenerateI2I:
         fake_image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
 
         with _image_download(mock_response.url, fake_image_bytes):
-
             request = ImageGenerationRequest(
                 prompt="Merge subjects",
                 output_path=output,
@@ -207,7 +204,6 @@ class TestGenerateI2I:
         fake_image_bytes = b"\x89PNG\r\n\x1a\n"
 
         with _image_download(mock_response.url, fake_image_bytes):
-
             request = ImageGenerationRequest(
                 prompt="A cat",
                 output_path=output,
