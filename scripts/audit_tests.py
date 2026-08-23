@@ -35,6 +35,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from fnmatch import fnmatch
 from pathlib import Path
+from typing import NamedTuple
 
 # ---------------------------------------------------------------- 常量表
 
@@ -89,6 +90,43 @@ ASSERT_HELPER_PREFIXES = ("assert", "_assert", "check_", "_check", "verify_", "_
 
 FAIL_ASSERT_CALLS = {"fail"}
 CALLABLE_ASSERT_CALLS = {"raises", "warns", "deprecated_call"}
+PYTEST_MODULE = "pytest"
+
+
+class PytestAssertNames(NamedTuple):
+    """本模块内 pytest 断言 API 的可见拼写：模块别名 + 直接导入名到规范名的映射。"""
+
+    module_aliases: set[str]
+    direct: dict[str, str]
+
+    def canonical(self, fname: str) -> str | None:
+        """把调用点的点路径还原为 pytest 断言的规范名，非 pytest 出身的返回 None。"""
+        if "." in fname:
+            root, last = fname.split(".", 1)[0], fname.split(".")[-1]
+            return last if root in self.module_aliases else None
+        return self.direct.get(fname)
+
+
+def resolve_pytest_asserts(tree: ast.Module) -> PytestAssertNames:
+    """解析 `import pytest [as pt]` 与 `from pytest import fail [as ...]`。
+
+    只按方法名末段判定会把任意对象的同名方法（`worker.fail("network")`）当成断言，
+    在必过闸门下等于给 NO-ASSERTION 开了一个按名字即可绕过的口子。
+    """
+    module_aliases: set[str] = set()
+    direct: dict[str, str] = {}
+    known = FAIL_ASSERT_CALLS | CALLABLE_ASSERT_CALLS
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == PYTEST_MODULE:
+                    module_aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == PYTEST_MODULE:
+            for alias in node.names:
+                if alias.name in known:
+                    direct[alias.asname or alias.name] = alias.name
+    return PytestAssertNames(module_aliases, direct)
+
 
 BUILTIN_NAMES = {
     "len",
@@ -500,8 +538,11 @@ class AliasIndex:
 class TestFunctionAnalyzer:
     """在单个 test 函数体内识别替身绑定并给断言分类。"""
 
-    def __init__(self, func: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+    def __init__(
+        self, func: ast.FunctionDef | ast.AsyncFunctionDef, pytest_asserts: PytestAssertNames | None = None
+    ) -> None:
         self.func = func
+        self.pytest_asserts = pytest_asserts or PytestAssertNames(set(), {})
         self.doubles: set[str] = set()
         self.recorders: set[str] = set()
         self._collect_doubles()
@@ -606,7 +647,7 @@ class TestFunctionAnalyzer:
                         if len(evidence) < 3:
                             evidence.append(f"L{node.lineno} {fname}(...)")
                         continue
-                    if last.startswith(ASSERT_HELPER_PREFIXES) or self._is_functional_assert(last, node.value):
+                    if last.startswith(ASSERT_HELPER_PREFIXES) or self._is_functional_assert(fname, node.value):
                         real_hits += 1
                         continue
             elif isinstance(node, ast.Assert):
@@ -622,7 +663,7 @@ class TestFunctionAnalyzer:
                     ctx = item.context_expr
                     if isinstance(ctx, ast.Call):
                         cname = dotted(ctx.func) or ""
-                        if cname.endswith(("raises", "warns", "deprecated_call")):
+                        if self.pytest_asserts.canonical(cname) in CALLABLE_ASSERT_CALLS:
                             real_hits += 1
         return double_hits, real_hits, evidence, sorted(subjects)
 
@@ -640,17 +681,23 @@ class TestFunctionAnalyzer:
             return "double"
         return "real"
 
-    def _is_functional_assert(self, last: str, call: ast.Call) -> bool:
+    def _is_functional_assert(self, fname: str, call: ast.Call) -> bool:
         """pytest 的非 with 形式断言：`pytest.raises(Exc, fn, ...)` 与 `pytest.fail(...)`。
 
         `raises` / `warns` 只按上下文管理器识别会漏掉函数式写法；`pytest.fail` 作为
         哨兵（`except X: pytest.fail(...)`）常常是一条用例的唯一断言。闸门必过后，
-        这两种合法写法会被 NO-ASSERTION 卡红。`raises` / `warns` 要求带被调对象，
-        单参数的裸调用是无效写法，不计入。
+        这两种合法写法会被 NO-ASSERTION 卡红。
+
+        必须按接收者判定而非只看方法名末段：`worker.fail("network")` 不是断言，
+        只按名字认会给闸门开一个改个方法名就能绕过的口子。`raises` / `warns` 另外
+        要求带被调对象，单参数的裸调用是无效写法，不计入。
         """
-        if last in FAIL_ASSERT_CALLS:
+        canonical = self.pytest_asserts.canonical(fname)
+        if canonical is None:
+            return False
+        if canonical in FAIL_ASSERT_CALLS:
             return True
-        return last in CALLABLE_ASSERT_CALLS and len(call.args) >= 2
+        return canonical in CALLABLE_ASSERT_CALLS and len(call.args) >= 2
 
     def _record_attr_owners(self, test: ast.expr, double_names: set[str]) -> set[str]:
         """替身记录属性的属主，只取属主确为替身的那些。
@@ -812,6 +859,7 @@ class FileScanner:
         self.tree = ast.parse(path.read_text(encoding="utf-8"))
         self.aliases = AliasIndex(self.tree)
         self.unittest_cases = resolve_unittest_cases(self.tree)
+        self.pytest_asserts = resolve_pytest_asserts(self.tree)
         self.mut = self.aliases.module_under_test(path, prod.is_module)
         tier = tier_from_path(path, tests_dir)
         self.module_marks = ([tier] if tier else []) + self._module_marks()
@@ -860,7 +908,7 @@ class FileScanner:
     ) -> None:
         self.stat.test_funcs += 1
         marks = sorted(set(self.module_marks + class_marks + marks_of(node.decorator_list)))
-        double_hits, real_hits, evidence, subjects = TestFunctionAnalyzer(node).classify()
+        double_hits, real_hits, evidence, subjects = TestFunctionAnalyzer(node, self.pytest_asserts).classify()
         qual = f"{class_name}::{node.name}" if class_name else node.name
         if double_hits == 0 and real_hits == 0:
             self.stat.no_assertion += 1

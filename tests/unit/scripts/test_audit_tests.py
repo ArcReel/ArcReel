@@ -116,6 +116,10 @@ def test_dunder_test_false_opts_a_class_out_of_the_scan(tmp_path: Path) -> None:
 def test_functional_pytest_assertions_count_as_assertions(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
     (tests / "test_functional.py").write_text(
+        "import pytest\n"
+        "from pytest import fail as bail\n"
+        "\n"
+        "\n"
         "def test_functional_raises():\n"
         "    pytest.raises(ValueError, int, 'bad')\n"
         "\n"
@@ -124,18 +128,23 @@ def test_functional_pytest_assertions_count_as_assertions(tmp_path: Path) -> Non
         "    try:\n"
         "        run()\n"
         "    except RuntimeError:\n"
-        "        pytest.fail('should not raise')\n"
+        "        bail('should not raise')\n"
         "\n"
         "\n"
         "def test_bare_raises_is_not_an_assertion():\n"
-        "    pytest.raises(ValueError)\n",
+        "    pytest.raises(ValueError)\n"
+        "\n"
+        "\n"
+        "def test_unrelated_receiver_named_fail():\n"
+        "    worker.fail('network')\n",
         encoding="utf-8",
     )
 
     violations = gate_violations(_audit(tmp_path))
 
-    assert [(v.rule, v.line) for v in violations] == [("NO-ASSERTION", 12)]
+    assert [(v.rule, v.line) for v in violations] == [("NO-ASSERTION", 16), ("NO-ASSERTION", 20)]
     assert "test_bare_raises_is_not_an_assertion" in violations[0].guidance
+    assert "test_unrelated_receiver_named_fail" in violations[1].guidance
 
 
 def test_class_scan_follows_pytest_collection_rules(tmp_path: Path) -> None:
