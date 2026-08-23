@@ -463,8 +463,7 @@ class GenerationWorker:
         provider_projection: ProviderProjection = _extract_provider,
     ):
         self.queue = queue or get_generation_queue()
-        # 认领期的 provider 投影（限流路由用）。显式注入让调度用例能确定地给出投影结果或
-        # 在投影处挂起，无需替换模块级符号。
+        # 认领期与执行期共用的 provider 投影：限流按它的结果路由到对应容量桶。
         self._provider_projection = provider_projection
         self.lease_name = lease_name
         self.owner_id = f"worker-{uuid.uuid4().hex[:10]}"
