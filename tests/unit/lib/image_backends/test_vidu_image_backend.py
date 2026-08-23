@@ -24,7 +24,7 @@ from lib.providers import PROVIDER_VIDU
 
 
 @pytest.fixture
-def output_path(tmp_path: Path) -> Path:
+def image_output_path(tmp_path: Path) -> Path:
     return tmp_path / "out.png"
 
 
@@ -76,13 +76,15 @@ class TestWhitelistConfig:
 
 
 class TestCapabilityMismatchRaises:
-    async def test_q1_without_refs_rejects_t2i(self, output_path: Path):
+    async def test_q1_without_refs_rejects_t2i(self, image_output_path: Path):
         backend = ViduImageBackend(api_key="test-key", model="viduq1")
-        request = ImageGenerationRequest(prompt="hello", output_path=output_path)
+        request = ImageGenerationRequest(prompt="hello", output_path=image_output_path)
         with pytest.raises(ImageCapabilityError):
             await backend.generate(request)
 
-    async def test_q2_with_refs_path_does_not_raise_capability(self, tmp_path: Path, output_path: Path, monkeypatch):
+    async def test_q2_with_refs_path_does_not_raise_capability(
+        self, tmp_path: Path, image_output_path: Path, monkeypatch
+    ):
         # 仅校验 capability 检查不会先拦下来；实际生成走 mock。
         # 让 create_vidu_client 抛错是为了快速短路，避免真正发请求。
         from lib.image_backends import vidu as mod
@@ -96,7 +98,7 @@ class TestCapabilityMismatchRaises:
         backend = ViduImageBackend(api_key="test-key", model="viduq2")
         request = ImageGenerationRequest(
             prompt="hello",
-            output_path=output_path,
+            output_path=image_output_path,
             reference_images=[ReferenceImage(path=str(ref_file))],
         )
         # 不应是 ImageCapabilityError；应是我们注入的 RuntimeError

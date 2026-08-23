@@ -19,7 +19,7 @@ SDK_ID = "sdk-e2e-1"
 
 
 @pytest.fixture()
-async def db_factory(tmp_path):
+async def file_db_factory(tmp_path):
     """文件 SQLite + NullPool：本测试的写入（inbox 任务）与轮询读并发，
     内存库 StaticPool 共享单连接会让事务交错互相破坏。"""
     from sqlalchemy import event, pool
@@ -45,11 +45,11 @@ async def db_factory(tmp_path):
 
 
 @pytest.fixture()
-async def manager(tmp_path, db_factory):
+async def manager(tmp_path, file_db_factory):
     return SessionManager(
         project_root=tmp_path,
-        meta_store=SessionMetaStore(session_factory=db_factory),
-        event_log_store=EventLogStore(session_factory=db_factory),
+        meta_store=SessionMetaStore(session_factory=file_db_factory),
+        event_log_store=EventLogStore(session_factory=file_db_factory),
     )
 
 
@@ -552,7 +552,7 @@ class TestNewSessionEventLogFlow:
         finally:
             await manager.close_session(SDK_ID)
 
-    async def test_send_message_writes_user_entry_before_query(self, manager: SessionManager, db_factory):
+    async def test_send_message_writes_user_entry_before_query(self, manager: SessionManager, file_db_factory):
         meta = await manager.meta_store.create("demo", SDK_ID)
         client = FakeSDKClient(messages=[{"type": "result", "subtype": "success", "session_id": SDK_ID, "uuid": "r-1"}])
         fake_options = SimpleNamespace(env=None)

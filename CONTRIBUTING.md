@@ -112,8 +112,8 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 - **三角色**：`tests/conftest.py` 只放 fixture 与收集期钩子，禁止被 import（闸门）；`tests/fakes.py` 放替身实现，不含 fixture；`tests/factories.py` 放测试输入构造器（数据与媒体文件 builder）。专题共享模块（如 `tests/auth_deps.py`）允许存在；fakes / factories / 专题模块的公开符号须被 ≥2 个测试文件使用（闸门），仅单个文件使用的移回该文件。
 - **局部 conftest**：只为本目录提供 fixture；不得与根 conftest 的 fixture 同名；跨目录共用的 fixture 上提到根 conftest；conftest 之间不互相 import（闸门）。
-- **fixture 覆写与重复**（闸门）：测试文件不得定义与任一 conftest 同名的 fixture；同名 fixture 在 ≥3 个测试文件重复定义时上提 conftest。
-- **DB fixture**：一律派生自唯一的方言感知 engine fixture，由此自动获得 `uses_db` 标记与 PostgreSQL 兼容选集。
+- **fixture 覆写与重复**（闸门）：测试文件不得定义与任一 conftest 同名的 fixture——供给同一实体的改为直接消费 conftest 版本，供给不同实体的改一个有区分度的名字；同一实体的 fixture 在 ≥3 个测试文件重复定义时上提 conftest。
+- **DB fixture**：一律派生自 `tests/conftest.py` 唯一的 engine 构造点 `test_engine`。方言感知的 `session_factory` / `async_session` / `file_session_factory` 携带 `uses_db` 标记并进 PostgreSQL 兼容选集；`db_engine` / `db_session` / `db_factory` 固定走内存 SQLite，供不进该选集的 models 与 repositories 单测使用。
 
 ### 时序与偶发失败
 

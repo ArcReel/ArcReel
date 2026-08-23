@@ -32,7 +32,7 @@ def _auth_env():
 
 
 @pytest.fixture()
-def client():
+def middleware_client():
     """创建使用真实 app 的测试客户端。"""
     from server.app import app
 
@@ -40,9 +40,9 @@ def client():
         yield c
 
 
-def _login(client: TestClient) -> str:
+def _login(middleware_client: TestClient) -> str:
     """辅助函数：登录并返回 access_token。"""
-    resp = client.post(
+    resp = middleware_client.post(
         "/api/v1/auth/token",
         data={"username": "testuser", "password": "testpass"},
     )
@@ -51,49 +51,49 @@ def _login(client: TestClient) -> str:
 
 
 class TestAuthIntegration:
-    def test_health_no_auth(self, client):
+    def test_health_no_auth(self, middleware_client):
         """GET /health 不需要认证，返回 200"""
-        resp = client.get("/health")
+        resp = middleware_client.get("/health")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
-    def test_login_no_auth(self, client):
+    def test_login_no_auth(self, middleware_client):
         """POST /api/v1/auth/token 不需要认证"""
-        resp = client.post(
+        resp = middleware_client.post(
             "/api/v1/auth/token",
             data={"username": "testuser", "password": "testpass"},
         )
         assert resp.status_code == 200
         assert "access_token" in resp.json()
 
-    def test_api_without_token(self, client):
+    def test_api_without_token(self, middleware_client):
         """GET /api/v1/projects 缺少 token 返回 401"""
-        resp = client.get("/api/v1/projects")
+        resp = middleware_client.get("/api/v1/projects")
         assert resp.status_code == 401
 
-    def test_api_with_valid_token(self, client):
+    def test_api_with_valid_token(self, middleware_client):
         """先登录获取 token，再带 token 访问 API，不应返回 401"""
-        token = _login(client)
-        resp = client.get(
+        token = _login(middleware_client)
+        resp = middleware_client.get(
             "/api/v1/projects",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code != 401
 
-    def test_api_with_invalid_token(self, client):
+    def test_api_with_invalid_token(self, middleware_client):
         """带无效 token 访问返回 401"""
-        resp = client.get(
+        resp = middleware_client.get(
             "/api/v1/projects",
             headers={"Authorization": "Bearer invalid-token-value"},
         )
         assert resp.status_code == 401
 
-    def test_docs_page_accessible(self, client):
+    def test_docs_page_accessible(self, middleware_client):
         """/docs Swagger UI 应可访问"""
-        resp = client.get("/docs")
+        resp = middleware_client.get("/docs")
         assert resp.status_code == 200
 
-    def test_frontend_path_no_auth(self, client):
+    def test_frontend_path_no_auth(self, middleware_client):
         """前端路径（非 /api/ 开头）不需要认证"""
-        resp = client.get("/app/projects")
+        resp = middleware_client.get("/app/projects")
         assert resp.status_code != 401

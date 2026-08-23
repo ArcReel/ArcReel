@@ -82,27 +82,27 @@ def _build_client(pm: ProjectManager, monkeypatch) -> TestClient:
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def end_frames_client(tmp_path, monkeypatch):
     pm = _seed_project(tmp_path)
     return _build_client(pm, monkeypatch), pm
 
 
-def _upload(client, content: bytes, filename="frame.jpg", shot_id="E1S01"):
-    return client.post(
+def _upload(end_frames_client, content: bytes, filename="frame.jpg", shot_id="E1S01"):
+    return end_frames_client.post(
         f"/api/v1/projects/demo/shots/{shot_id}/end-frame/upload?script_file=episode_1.json",
         files={"file": (filename, BytesIO(content), "application/octet-stream")},
     )
 
 
-def _select(client, source_path: str, shot_id="E1S01"):
-    return client.post(
+def _select(end_frames_client, source_path: str, shot_id="E1S01"):
+    return end_frames_client.post(
         f"/api/v1/projects/demo/shots/{shot_id}/end-frame/select",
         json={"script_file": "episode_1.json", "source_path": source_path},
     )
 
 
-def _delete(client, shot_id="E1S01"):
-    return client.delete(f"/api/v1/projects/demo/shots/{shot_id}/end-frame?script_file=episode_1.json")
+def _delete(end_frames_client, shot_id="E1S01"):
+    return end_frames_client.delete(f"/api/v1/projects/demo/shots/{shot_id}/end-frame?script_file=episode_1.json")
 
 
 def _segment(pm: ProjectManager, index: int = 0) -> dict:
@@ -116,8 +116,8 @@ def _write_source_image(pm: ProjectManager, rel: str, content: bytes) -> None:
 
 
 class TestUploadChannel:
-    def test_upload_writes_normalized_png_snapshot_and_field(self, client):
-        c, pm = client
+    def test_upload_writes_normalized_png_snapshot_and_field(self, end_frames_client):
+        c, pm = end_frames_client
         resp = _upload(c, _img_bytes("JPEG"))
         assert resp.status_code == 200, resp.text
         assert resp.json()["end_frame_image"] == END_FRAME_REL
@@ -127,8 +127,8 @@ class TestUploadChannel:
         with Image.open(pm.get_project_path("demo") / END_FRAME_REL) as img:
             assert img.format == "PNG"
 
-    def test_replacing_overwrites_in_place(self, client):
-        c, pm = client
+    def test_replacing_overwrites_in_place(self, end_frames_client):
+        c, pm = end_frames_client
         _upload(c, _img_bytes("JPEG", size=(8, 8)))
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
         assert resp.status_code == 200, resp.text
@@ -137,24 +137,24 @@ class TestUploadChannel:
         with Image.open(pm.get_project_path("demo") / END_FRAME_REL) as img:
             assert img.size == (16, 16)
 
-    def test_undecodable_bytes_rejected(self, client):
-        c, pm = client
+    def test_undecodable_bytes_rejected(self, end_frames_client):
+        c, pm = end_frames_client
         resp = _upload(c, b"not an image", filename="frame.png")
         assert resp.status_code == 400
         assert _segment(pm).get("end_frame_image") is None
 
-    def test_unsupported_extension_rejected(self, client):
-        c, _pm = client
+    def test_unsupported_extension_rejected(self, end_frames_client):
+        c, _pm = end_frames_client
         assert _upload(c, _img_bytes("PNG"), filename="frame.gif").status_code == 400
 
-    def test_unknown_shot_returns_404(self, client):
-        c, _pm = client
+    def test_unknown_shot_returns_404(self, end_frames_client):
+        c, _pm = end_frames_client
         assert _upload(c, _img_bytes("PNG"), shot_id="E9S99").status_code == 404
 
 
 class TestSelectChannel:
-    def test_select_project_image_snapshots_to_end_frames(self, client):
-        c, pm = client
+    def test_select_project_image_snapshots_to_end_frames(self, end_frames_client):
+        c, pm = end_frames_client
         _write_source_image(pm, "storyboards/scene_E1S02.png", _img_bytes("PNG", size=(12, 12)))
 
         resp = _select(c, "storyboards/scene_E1S02.png")
@@ -166,23 +166,23 @@ class TestSelectChannel:
             assert img.format == "PNG"
             assert img.size == (12, 12)
 
-    def test_traversal_path_rejected(self, client):
-        c, pm = client
+    def test_traversal_path_rejected(self, end_frames_client):
+        c, pm = end_frames_client
         resp = _select(c, "../../../etc/passwd")
         assert resp.status_code == 400
         assert _segment(pm).get("end_frame_image") is None
 
-    def test_missing_source_returns_404(self, client):
-        c, _pm = client
+    def test_missing_source_returns_404(self, end_frames_client):
+        c, _pm = end_frames_client
         assert _select(c, "storyboards/scene_E1S99.png").status_code == 404
 
-    def test_oversized_source_image_rejected(self, client, monkeypatch):
+    def test_oversized_source_image_rejected(self, end_frames_client, monkeypatch):
         """项目内选图源超过上传通道同一上限时须拒绝（见 read_project_image）。
 
         专属文案 + 400：选图请求体只是路径字符串，413（请求体过大）语义不适用，
         与上传通道自身的 413 + upload_too_large 分流（见 test_shot_uploads_router）。
         """
-        c, pm = client
+        c, pm = end_frames_client
         monkeypatch.setattr(end_frame_service, "UPLOAD_IMAGE_MAX_BYTES", 16)
         _write_source_image(pm, "storyboards/scene_E1S02.png", _img_bytes("PNG", size=(64, 64)))
 
@@ -194,9 +194,9 @@ class TestSelectChannel:
         )
         assert _segment(pm).get("end_frame_image") is None
 
-    def test_source_image_read_is_bounded(self, client, monkeypatch):
+    def test_source_image_read_is_bounded(self, end_frames_client, monkeypatch):
         """超限源图不得整读入内存：单次 read 请求的字节数以上限 +1 为界，够判超限即止。"""
-        _c, pm = client
+        _c, pm = end_frames_client
         _write_source_image(pm, "storyboards/scene_E1S02.png", _img_bytes("PNG", size=(64, 64)))
         project_path = pm.get_project_path("demo")
         monkeypatch.setattr(end_frame_service, "UPLOAD_IMAGE_MAX_BYTES", 16)
@@ -227,8 +227,8 @@ class TestSelectChannel:
 
 
 class TestClear:
-    def test_clear_deletes_snapshot_and_nulls_field(self, client):
-        c, pm = client
+    def test_clear_deletes_snapshot_and_nulls_field(self, end_frames_client):
+        c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         assert snapshot.exists()
@@ -238,21 +238,21 @@ class TestClear:
         assert _segment(pm)["end_frame_image"] is None
         assert not snapshot.exists()
 
-    def test_clear_without_end_frame_is_idempotent(self, client):
-        c, pm = client
+    def test_clear_without_end_frame_is_idempotent(self, end_frames_client):
+        c, pm = end_frames_client
         assert _delete(c).status_code == 200
         assert _segment(pm)["end_frame_image"] is None
 
-    def test_clear_unknown_shot_returns_404(self, client):
-        c, _pm = client
+    def test_clear_unknown_shot_returns_404(self, end_frames_client):
+        c, _pm = end_frames_client
         assert _delete(c, shot_id="E9S99").status_code == 404
 
 
 class TestSnapshotDecoupling:
     """快照与源图彻底解耦：源图后续被改写或删除都动不到已定尾帧。"""
 
-    def test_source_rewrite_and_delete_leave_end_frame_intact(self, client):
-        c, pm = client
+    def test_source_rewrite_and_delete_leave_end_frame_intact(self, end_frames_client):
+        c, pm = end_frames_client
         source_rel = "storyboards/scene_E1S02.png"
         _write_source_image(pm, source_rel, _img_bytes("PNG", size=(12, 12), color=(255, 0, 0)))
         _select(c, source_rel)
@@ -267,9 +267,9 @@ class TestSnapshotDecoupling:
         assert snapshot.read_bytes() == before
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
 
-    def test_source_version_rollback_leaves_end_frame_intact(self, client):
+    def test_source_version_rollback_leaves_end_frame_intact(self, end_frames_client):
         """源图回滚到旧版本后已定尾帧不变——尾帧存的是快照路径，与源图的版本轴无关。"""
-        c, pm = client
+        c, pm = end_frames_client
         source_rel = "storyboards/scene_E1S02.png"
         source_abs = pm.get_project_path("demo") / source_rel
         vm = VersionManager(pm.get_project_path("demo"))
@@ -289,8 +289,8 @@ class TestSnapshotDecoupling:
         assert snapshot.read_bytes() == before
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
 
-    def test_per_shot_snapshots_are_independent(self, client):
-        c, pm = client
+    def test_per_shot_snapshots_are_independent(self, end_frames_client):
+        c, pm = end_frames_client
         _upload(c, _img_bytes("PNG", size=(8, 8)), shot_id="E1S01")
         _upload(c, _img_bytes("PNG", size=(16, 16)), shot_id="E1S02")
 
@@ -381,9 +381,9 @@ def _interleave_across_critical_section(
 class TestConcurrentSetClear:
     """设置与清除并发交错时，字段与快照文件必须同进同退，不留悬空引用。"""
 
-    def test_clear_blocked_until_set_leaves_critical_section(self, client, monkeypatch):
+    def test_clear_blocked_until_set_leaves_critical_section(self, end_frames_client, monkeypatch):
         """设置先进临界区：清除被挡到设置整段完成之后，最终状态是「清除赢」且无残留引用。"""
-        c, pm = client
+        c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
         results = _interleave_across_critical_section(
@@ -398,9 +398,9 @@ class TestConcurrentSetClear:
         assert _segment(pm).get("end_frame_image") is None
         assert not snapshot.exists()
 
-    def test_set_blocked_until_clear_leaves_critical_section(self, client, monkeypatch):
+    def test_set_blocked_until_clear_leaves_critical_section(self, end_frames_client, monkeypatch):
         """清除先进临界区：设置被挡到清除整段完成之后，最终字段非空且快照文件在位。"""
-        c, pm = client
+        c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         assert _upload(c, _img_bytes("PNG")).status_code == 200
 
@@ -466,8 +466,8 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
 class TestPersistFailureRestoresSnapshot:
     """剧本持久化在临界区内失败时，快照文件须回滚到操作前状态，不留悬空引用或静默丢失。"""
 
-    def test_set_failure_restores_previous_snapshot_bytes(self, client, monkeypatch):
-        c, pm = client
+    def test_set_failure_restores_previous_snapshot_bytes(self, end_frames_client, monkeypatch):
+        c, pm = end_frames_client
         _upload(c, _img_bytes("PNG", size=(8, 8)))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         before = snapshot.read_bytes()
@@ -480,9 +480,9 @@ class TestPersistFailureRestoresSnapshot:
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         assert snapshot.read_bytes() == before
 
-    def test_set_failure_on_first_write_removes_snapshot(self, client, monkeypatch):
+    def test_set_failure_on_first_write_removes_snapshot(self, end_frames_client, monkeypatch):
         """此前未设置过尾帧时失败：快照文件此前不存在，须整段撤回而非留下孤儿文件。"""
-        c, pm = client
+        c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
         _fail_first_persist(monkeypatch)
@@ -492,8 +492,8 @@ class TestPersistFailureRestoresSnapshot:
         assert _segment(pm).get("end_frame_image") is None
         assert not snapshot.exists()
 
-    def test_clear_failure_restores_deleted_snapshot(self, client, monkeypatch):
-        c, pm = client
+    def test_clear_failure_restores_deleted_snapshot(self, end_frames_client, monkeypatch):
+        c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         before = snapshot.read_bytes()
@@ -507,10 +507,10 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.exists()
         assert snapshot.read_bytes() == before
 
-    def test_set_failure_skips_restore_when_concurrent_write_supersedes(self, client, monkeypatch):
+    def test_set_failure_skips_restore_when_concurrent_write_supersedes(self, end_frames_client, monkeypatch):
         """回滚重新过锁时若该分镜的操作代次已前移，说明并发请求已经接管，
         必须跳过回滚——否则会用陈旧字节覆盖对方刚成功落盘的内容。"""
-        c, pm = client
+        c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         key = ("demo", "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(32, 32))
@@ -524,8 +524,8 @@ class TestPersistFailureRestoresSnapshot:
 
         assert snapshot.read_bytes() == concurrent_bytes
 
-    def test_clear_failure_skips_restore_when_concurrent_write_recreates_snapshot(self, client, monkeypatch):
-        c, pm = client
+    def test_clear_failure_skips_restore_when_concurrent_write_recreates_snapshot(self, end_frames_client, monkeypatch):
+        c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         key = ("demo", "episode_1.json", "E1S01")
@@ -541,12 +541,12 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.exists()
         assert snapshot.read_bytes() == concurrent_bytes
 
-    def test_clear_failure_skips_restore_when_concurrent_clear_wins(self, client, monkeypatch):
+    def test_clear_failure_skips_restore_when_concurrent_clear_wins(self, end_frames_client, monkeypatch):
         """退化值场景：清除失败后文件已被删（期望内容与「无人接手」的期望值同为 None），
         并发的另一次清除随后也成功完成，结果同样是文件不存在——若
         仅比对文件内容将无法区分两者，误判为无人接手并把旧快照字节回滚出孤儿文件。
         代次判定下，并发清除会推进代次，回滚据此正确跳过。"""
-        c, pm = client
+        c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         key = ("demo", "episode_1.json", "E1S01")
@@ -560,11 +560,11 @@ class TestPersistFailureRestoresSnapshot:
         # 回滚跳过：文件保持并发清除后的「已删除」结果，没有被旧字节重新写回制造孤儿文件
         assert not snapshot.exists()
 
-    def test_set_failure_skips_restore_when_concurrent_takeover_uses_other_alias(self, client, monkeypatch):
+    def test_set_failure_skips_restore_when_concurrent_takeover_uses_other_alias(self, end_frames_client, monkeypatch):
         """别名归一：失败的这次操作用 `scripts/episode_1.json` 这个别名，
         代次键若不归一化会与并发接管（用 `episode_1.json` 归一后的键）各自生成一把代次，
         互相看不见——回滚会误判「无人接手」，用旧字节覆盖对方已成功落盘的内容。"""
-        c, pm = client
+        c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         normalized_key = ("demo", "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(48, 48))
@@ -581,13 +581,13 @@ class TestPersistFailureRestoresSnapshot:
         # 未归一化则代次键不同，回滚会看不到接管、用旧字节覆盖并发写入的新内容
         assert snapshot.read_bytes() == concurrent_bytes
 
-    def test_set_failure_restore_uses_bytes_read_inside_critical_section(self, client, monkeypatch):
+    def test_set_failure_restore_uses_bytes_read_inside_critical_section(self, end_frames_client, monkeypatch):
         """陈旧基线问题：`old_bytes` 若在取得剧本锁之前预读，读到的是「进入临界区之前」
         而非「进入临界区那一刻」的文件内容。这里不推进代次，只在本次操作自己的
         `_read_script_unlocked` 调用（进入临界区的时点）直接改写文件——代次检查不会拦截
         （因为没有别的操作声称接管），能否回滚出这份改写后的内容，才真正区分基线是在
         锁内读还是锁外预读：锁外预读会读到改写前的旧内容，回滚会把改写后的内容覆盖掉。"""
-        c, pm = client
+        c, pm = end_frames_client
         _upload(c, _img_bytes("PNG", size=(8, 8)))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
@@ -616,8 +616,8 @@ class TestPersistFailureRestoresSnapshot:
 class TestErrorMapping:
     """领域错误到 HTTP 的映射：三个端点行为一致，不泄漏服务器路径。"""
 
-    def test_unknown_script_file_returns_404(self, client):
-        c, _pm = client
+    def test_unknown_script_file_returns_404(self, end_frames_client):
+        c, _pm = end_frames_client
         assert (
             c.post(
                 "/api/v1/projects/demo/shots/E1S01/end-frame/upload?script_file=missing.json",
@@ -635,29 +635,29 @@ class TestErrorMapping:
         resp = c.delete("/api/v1/projects/demo/shots/E1S01/end-frame?script_file=missing.json")
         assert resp.status_code == 404
 
-    def test_unknown_project_returns_404(self, client):
-        c, _pm = client
+    def test_unknown_project_returns_404(self, end_frames_client):
+        c, _pm = end_frames_client
         resp = c.post(
             "/api/v1/projects/nope/shots/E1S01/end-frame/upload?script_file=episode_1.json",
             files={"file": ("f.png", BytesIO(_img_bytes("PNG")), "application/octet-stream")},
         )
         assert resp.status_code == 404
 
-    def test_empty_source_path_rejected(self, client):
-        c, pm = client
+    def test_empty_source_path_rejected(self, end_frames_client):
+        c, pm = end_frames_client
         assert _select(c, "   ").status_code == 400
         assert _segment(pm).get("end_frame_image") is None
 
-    def test_oversized_upload_rejected(self, client, monkeypatch):
-        c, pm = client
+    def test_oversized_upload_rejected(self, end_frames_client, monkeypatch):
+        c, pm = end_frames_client
         monkeypatch.setattr(upload_finalize, "UPLOAD_IMAGE_MAX_BYTES", 16)
         resp = _upload(c, _img_bytes("PNG", size=(64, 64)))
         assert resp.status_code == 413
         assert _segment(pm).get("end_frame_image") is None
 
-    def test_traversal_shot_id_rejected_before_write(self, client):
+    def test_traversal_shot_id_rejected_before_write(self, end_frames_client):
         """剧本里存在越界形状的镜头 id 时，快照路径解析必须拒绝而非写出项目目录。"""
-        _c, pm = client
+        _c, pm = end_frames_client
         script = pm.load_script("demo", "episode_1.json")
         script["segments"][0]["segment_id"] = "../../../../evil"
         pm.save_script("demo", script, "episode_1.json", validate=False)
@@ -673,15 +673,15 @@ class TestErrorMapping:
             )
         assert exc.value.key == "invalid_resource_id"
 
-    def test_body_exceeding_limit_rejected_after_read(self, client, monkeypatch):
+    def test_body_exceeding_limit_rejected_after_read(self, end_frames_client, monkeypatch):
         """Content-Length 缺失/被绕过时，按实际读入字节数兜底拒绝。"""
-        c, pm = client
+        c, pm = end_frames_client
         monkeypatch.setattr(end_frames, "validate_upload", lambda *a, **k: 16)
         assert _upload(c, _img_bytes("PNG", size=(64, 64))).status_code == 413
         assert _segment(pm).get("end_frame_image") is None
 
-    def test_script_edit_error_maps_to_400(self, client, monkeypatch):
-        c, _pm = client
+    def test_script_edit_error_maps_to_400(self, end_frames_client, monkeypatch):
+        c, _pm = end_frames_client
 
         async def _boom(**_kwargs):
             raise ScriptEditError("坏掉的剧本结构")
@@ -689,8 +689,8 @@ class TestErrorMapping:
         monkeypatch.setattr(end_frames, "set_end_frame_from_bytes", _boom)
         assert _upload(c, _img_bytes("PNG")).status_code == 400
 
-    def test_unexpected_error_maps_to_500_without_internals(self, client, monkeypatch):
-        c, _pm = client
+    def test_unexpected_error_maps_to_500_without_internals(self, end_frames_client, monkeypatch):
+        c, _pm = end_frames_client
 
         async def _boom(**_kwargs):
             raise RuntimeError("/absolute/server/path/leaked")
@@ -700,18 +700,18 @@ class TestErrorMapping:
         assert resp.status_code == 500
         assert "leaked" not in resp.text
 
-    def test_illegal_project_name_returns_400(self, client):
+    def test_illegal_project_name_returns_400(self, end_frames_client):
         """`get_project_path` 对非法项目名（正则不匹配）抛 ValueError，须映射为 400 而非落 500 兜底。"""
-        c, _pm = client
+        c, _pm = end_frames_client
         resp = c.post(
             "/api/v1/projects/demo.evil/shots/E1S01/end-frame/upload?script_file=episode_1.json",
             files={"file": ("f.png", BytesIO(_img_bytes("PNG")), "application/octet-stream")},
         )
         assert resp.status_code == 400
 
-    def test_illegal_script_file_returns_400(self, client):
+    def test_illegal_script_file_returns_400(self, end_frames_client):
         """`load_script` 底层 `_safe_subpath` 对越界 script_file 抛 ValueError，须映射为 400。"""
-        c, pm = client
+        c, pm = end_frames_client
         resp = c.post(
             "/api/v1/projects/demo/shots/E1S01/end-frame/upload?script_file=../../../../etc/passwd",
             files={"file": ("f.png", BytesIO(_img_bytes("PNG")), "application/octet-stream")},
@@ -719,9 +719,9 @@ class TestErrorMapping:
         assert resp.status_code == 400
         assert _segment(pm).get("end_frame_image") is None
 
-    def test_illegal_path_returns_400_on_select_and_clear(self, client):
+    def test_illegal_path_returns_400_on_select_and_clear(self, end_frames_client):
         """三个端点共用 `_locate_shot`，选图与清除通道同样须落 400 而非 500。"""
-        c, _pm = client
+        c, _pm = end_frames_client
         select_resp = c.post(
             "/api/v1/projects/demo.evil/shots/E1S01/end-frame/select",
             json={"script_file": "episode_1.json", "source_path": "storyboards/scene_E1S01.png"},
@@ -733,18 +733,18 @@ class TestErrorMapping:
         )
         assert clear_resp.status_code == 400
 
-    def test_corrupt_script_still_maps_to_500(self, client):
+    def test_corrupt_script_still_maps_to_500(self, end_frames_client):
         """`JSONDecodeError` 是 `ValueError` 子类：剧本文件损坏须落 500 兜底，
         不能被非法 script_file 的 400 分支吞掉，否则错误原因对排查完全失真。"""
-        c, pm = client
+        c, pm = end_frames_client
         (pm.get_project_path("demo") / "scripts" / "episode_1.json").write_text("{ not json", encoding="utf-8")
 
         assert _upload(c, _img_bytes("PNG")).status_code == 500
 
-    def test_non_utf8_script_still_maps_to_500(self, client):
+    def test_non_utf8_script_still_maps_to_500(self, end_frames_client):
         """`UnicodeDecodeError` 同样是 `ValueError` 子类：剧本文件含非法 UTF-8 字节须落 500 兜底，
         不能被非法 script_file 的 400 分支吞掉。"""
-        c, pm = client
+        c, pm = end_frames_client
         (pm.get_project_path("demo") / "scripts" / "episode_1.json").write_bytes(b"\xff\xfe not utf-8")
 
         assert _upload(c, _img_bytes("PNG")).status_code == 500
@@ -886,8 +886,8 @@ class TestReferenceVideoRejection:
 
 
 class TestValidatorAcceptsWrittenSnapshot:
-    def test_written_project_passes_tree_validation(self, client):
-        c, pm = client
+    def test_written_project_passes_tree_validation(self, end_frames_client):
+        c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
         # end_frames 已登记为允许的项目根目录条目，不被判为未知目录
         assert "end_frames" in DataValidator.ALLOWED_ROOT_ENTRIES

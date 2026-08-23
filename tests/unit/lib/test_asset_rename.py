@@ -140,7 +140,7 @@ def _reference_script(episode: int = 1) -> dict[str, Any]:
 
 
 @pytest.fixture
-def pm(tmp_path: Path) -> ProjectManager:
+def pm_with_assets(tmp_path: Path) -> ProjectManager:
     manager = ProjectManager(str(tmp_path))
     manager.create_project("demo")
     manager.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -150,12 +150,12 @@ def pm(tmp_path: Path) -> ProjectManager:
     return manager
 
 
-def _project_dir(pm: ProjectManager) -> Path:
-    return pm.get_project_path("demo")
+def _project_dir(pm_with_assets: ProjectManager) -> Path:
+    return pm_with_assets.get_project_path("demo")
 
 
-def _load_script(pm: ProjectManager) -> dict[str, Any]:
-    return pm.load_script("demo", "episode_1.json")
+def _load_script(pm_with_assets: ProjectManager) -> dict[str, Any]:
+    return pm_with_assets.load_script("demo", "episode_1.json")
 
 
 class TestRewritePayloadReferences:
@@ -272,11 +272,11 @@ class TestRewritePayloadReferences:
 
 
 class TestRenameAssetCascade:
-    def test_character_rename_cascades_across_modes(self, pm: ProjectManager) -> None:
-        pm.save_script("demo", _narration_script(), "episode_1.json")
-        pm.save_script("demo", _reference_script(2), "episode_2.json")
+    def test_character_rename_cascades_across_modes(self, pm_with_assets: ProjectManager) -> None:
+        pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
+        pm_with_assets.save_script("demo", _reference_script(2), "episode_2.json")
 
-        project_dir = _project_dir(pm)
+        project_dir = _project_dir(pm_with_assets)
         sheet = project_dir / "characters" / "角色A.png"
         sheet.write_bytes(b"png")
         ref_dir = project_dir / "characters" / "refs"
@@ -288,15 +288,15 @@ class TestRenameAssetCascade:
             entry["character_sheet"] = "characters/角色A.png"
             entry["reference_image"] = "characters/refs/角色A.png"
 
-        pm.update_project("demo", _set_paths)
+        pm_with_assets.update_project("demo", _set_paths)
 
-        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.episodes == 2
         assert report.references == 2  # 分段引用数组 + 单元正文 mention
         assert report.files == 2
 
-        project = pm.load_project("demo")
+        project = pm_with_assets.load_project("demo")
         assert "角色A" not in project["characters"]
         entry = project["characters"]["主角甲"]
         assert entry["character_sheet"] == "characters/主角甲.png"
@@ -305,23 +305,23 @@ class TestRenameAssetCascade:
         assert not sheet.exists()
         assert (ref_dir / "主角甲.png").exists()
 
-        assert _load_script(pm)["segments"][0]["characters_in_segment"] == ["主角甲"]
-        unit = pm.load_script("demo", "episode_2.json")["video_units"][0]
+        assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == ["主角甲"]
+        unit = pm_with_assets.load_script("demo", "episode_2.json")["video_units"][0]
         assert unit["text"] == "@[主角甲] 走进 @[场景A]"
 
-    def test_rename_keeps_reference_integrity(self, pm: ProjectManager) -> None:
+    def test_rename_keeps_reference_integrity(self, pm_with_assets: ProjectManager) -> None:
         from lib.data_validator import DataValidator
 
-        pm.save_script("demo", _narration_script(), "episode_1.json")
-        pm.rename_asset("demo", "scenes", "场景A", "新场景")
+        pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
+        pm_with_assets.rename_asset("demo", "scenes", "场景A", "新场景")
 
-        validator = DataValidator(str(pm.projects_root))
+        validator = DataValidator(str(pm_with_assets.projects_root))
         result = validator.validate_episode("demo", "episode_1.json")
         assert not [e for e in result.errors if "新场景" in e or "场景A" in e]
-        assert _load_script(pm)["segments"][0]["scenes"] == ["新场景"]
+        assert _load_script(pm_with_assets)["segments"][0]["scenes"] == ["新场景"]
 
-    def test_step1_draft_rewritten(self, pm: ProjectManager) -> None:
-        draft_dir = _project_dir(pm) / "drafts" / "episode_1"
+    def test_step1_draft_rewritten(self, pm_with_assets: ProjectManager) -> None:
+        draft_dir = _project_dir(pm_with_assets) / "drafts" / "episode_1"
         draft_dir.mkdir(parents=True)
         draft = {
             "units": [
@@ -334,17 +334,17 @@ class TestRenameAssetCascade:
         }
         atomic_write_json(draft_dir / "step1_reference_units.json", draft)
 
-        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.episodes == 1
         assert report.references == 1
         saved = json.loads((draft_dir / "step1_reference_units.json").read_text(encoding="utf-8"))
         assert saved["units"][0]["text"] == "@[主角甲] 在河边"
 
-    def test_sibling_with_numeric_suffix_untouched(self, pm: ProjectManager) -> None:
+    def test_sibling_with_numeric_suffix_untouched(self, pm_with_assets: ProjectManager) -> None:
         """``旧名_2`` 是合法资产名：兄弟资产的资产图不得被序号形态的 stem 匹配卷走。"""
-        pm.upsert_assets("demo", "characters", {"角色A_2": {"description": "副手"}})
-        project_dir = _project_dir(pm)
+        pm_with_assets.upsert_assets("demo", "characters", {"角色A_2": {"description": "副手"}})
+        project_dir = _project_dir(pm_with_assets)
         sibling = project_dir / "characters" / "角色A_2.png"
         sibling.write_bytes(b"sibling")
         (project_dir / "characters" / "角色A.png").write_bytes(b"png")
@@ -353,25 +353,25 @@ class TestRenameAssetCascade:
             project["characters"]["角色A"]["character_sheet"] = "characters/角色A.png"
             project["characters"]["角色A_2"]["character_sheet"] = "characters/角色A_2.png"
 
-        pm.update_project("demo", _set_paths)
+        pm_with_assets.update_project("demo", _set_paths)
 
-        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.files == 1
         assert sibling.exists()
-        project = pm.load_project("demo")
+        project = pm_with_assets.load_project("demo")
         assert project["characters"]["角色A_2"]["character_sheet"] == "characters/角色A_2.png"
         assert project["characters"]["主角甲"]["character_sheet"] == "characters/主角甲.png"
 
     def test_product_sequenced_files_and_paths(self, tmp_path: Path) -> None:
-        pm = ProjectManager(str(tmp_path))
-        pm.create_project("demo", content_mode="ad")
-        pm.create_project_metadata("demo", "Demo", "Anime", "ad")
-        pm.upsert_assets("demo", "products", {"商品A": {"description": "饮料"}})
-        pm.upsert_assets("demo", "characters", {"角色A": {"description": "代言人"}})
-        pm.save_script("demo", _ad_script(), "episode_1.json")
+        pm_with_assets = ProjectManager(str(tmp_path))
+        pm_with_assets.create_project("demo", content_mode="ad")
+        pm_with_assets.create_project_metadata("demo", "Demo", "Anime", "ad")
+        pm_with_assets.upsert_assets("demo", "products", {"商品A": {"description": "饮料"}})
+        pm_with_assets.upsert_assets("demo", "characters", {"角色A": {"description": "代言人"}})
+        pm_with_assets.save_script("demo", _ad_script(), "episode_1.json")
 
-        project_dir = pm.get_project_path("demo")
+        project_dir = pm_with_assets.get_project_path("demo")
         refs = project_dir / "products" / "refs"
         refs.mkdir(parents=True)
         (refs / "商品A_1.png").write_bytes(b"a")
@@ -383,30 +383,30 @@ class TestRenameAssetCascade:
                 "products/refs/商品A_2.png",
             ]
 
-        pm.update_project("demo", _set_paths)
+        pm_with_assets.update_project("demo", _set_paths)
 
-        report = pm.rename_asset("demo", "products", "商品A", "爆款")
+        report = pm_with_assets.rename_asset("demo", "products", "商品A", "爆款")
 
         assert report.files == 2
         assert sorted(f.name for f in refs.iterdir() if f.is_file() and not f.name.startswith(".")) == [
             "爆款_1.png",
             "爆款_2.png",
         ]
-        project = pm.load_project("demo")
+        project = pm_with_assets.load_project("demo")
         assert project["products"]["爆款"]["reference_images"] == [
             "products/refs/爆款_1.png",
             "products/refs/爆款_2.png",
         ]
-        assert pm.load_script("demo", "episode_1.json")["shots"][0]["products_in_shot"] == ["爆款"]
+        assert pm_with_assets.load_script("demo", "episode_1.json")["shots"][0]["products_in_shot"] == ["爆款"]
 
-    def test_version_history_migrated(self, pm: ProjectManager) -> None:
-        project_dir = _project_dir(pm)
+    def test_version_history_migrated(self, pm_with_assets: ProjectManager) -> None:
+        project_dir = _project_dir(pm_with_assets)
         sheet = project_dir / "characters" / "角色A.png"
         sheet.write_bytes(b"v1")
         vm = VersionManager(project_dir)
         vm.add_version("characters", "角色A", "第一版", source_file=sheet)
 
-        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.files == 2  # sheet + 1 个版本快照
         info = vm.get_versions("characters", "主角甲")
@@ -416,11 +416,11 @@ class TestRenameAssetCascade:
         assert version_file.name.startswith("主角甲_v1_")
         assert vm.get_versions("characters", "角色A") == {"current_version": 0, "versions": []}
 
-    def test_active_manifest_claim_migrates_with_sheet_identity(self, pm: ProjectManager) -> None:
-        project_dir = _project_dir(pm)
+    def test_active_manifest_claim_migrates_with_sheet_identity(self, pm_with_assets: ProjectManager) -> None:
+        project_dir = _project_dir(pm_with_assets)
         sheet = project_dir / "characters" / "角色A.png"
         sheet.write_bytes(b"current-sheet")
-        pm.update_project(
+        pm_with_assets.update_project(
             "demo",
             lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
         )
@@ -432,7 +432,7 @@ class TestRenameAssetCascade:
         )
         adapter.put_entry(old_key, old_entry)
 
-        pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert adapter.get_entry(old_key) is None
         assert adapter.get_entry(ArtifactKey.asset_sheet("character", "主角甲")) == ArtifactManifestEntry(
@@ -442,13 +442,13 @@ class TestRenameAssetCascade:
 
     def test_project_binding_commits_before_manifest_claim_rekey(
         self,
-        pm: ProjectManager,
+        pm_with_assets: ProjectManager,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        project_dir = _project_dir(pm)
+        project_dir = _project_dir(pm_with_assets)
         sheet = project_dir / "characters" / "角色A.png"
         sheet.write_bytes(b"current-sheet")
-        pm.update_project(
+        pm_with_assets.update_project(
             "demo",
             lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
         )
@@ -466,17 +466,17 @@ class TestRenameAssetCascade:
 
         monkeypatch.setattr(ArtifactEntryRekeyPlan, "commit", _commit)
 
-        pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert "主角甲" in project_seen_during_commit["characters"]
         assert "角色A" not in project_seen_during_commit["characters"]
 
-    def test_retry_recovers_claim_after_project_binding_committed_first(self, pm: ProjectManager) -> None:
-        project_dir = _project_dir(pm)
+    def test_retry_recovers_claim_after_project_binding_committed_first(self, pm_with_assets: ProjectManager) -> None:
+        project_dir = _project_dir(pm_with_assets)
         old_sheet = project_dir / "characters" / "角色A.png"
         new_sheet = project_dir / "characters" / "主角甲.png"
         old_sheet.write_bytes(b"current-sheet")
-        pm.update_project(
+        pm_with_assets.update_project(
             "demo",
             lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
         )
@@ -495,9 +495,9 @@ class TestRenameAssetCascade:
             entry["character_sheet"] = "characters/主角甲.png"
             characters["主角甲"] = entry
 
-        pm.update_project("demo", _commit_project_binding)
+        pm_with_assets.update_project("demo", _commit_project_binding)
 
-        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert (report.episodes, report.references, report.files, report.dry_run) == (0, 0, 0, False)
         assert adapter.get_entry(old_key) is None
@@ -508,13 +508,13 @@ class TestRenameAssetCascade:
 
     def test_project_write_failure_compensates_manifest_claim_rekey(
         self,
-        pm: ProjectManager,
+        pm_with_assets: ProjectManager,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        project_dir = _project_dir(pm)
+        project_dir = _project_dir(pm_with_assets)
         sheet = project_dir / "characters" / "角色A.png"
         sheet.write_bytes(b"current-sheet")
-        pm.update_project(
+        pm_with_assets.update_project(
             "demo",
             lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
         )
@@ -535,22 +535,22 @@ class TestRenameAssetCascade:
         monkeypatch.setattr("lib.project_manager.atomic_write_json", _write_project_then_fail)
 
         with pytest.raises(OSError, match="project write failed"):
-            pm.rename_asset("demo", "characters", "角色A", "主角甲")
+            pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert adapter.get_entry(old_key) == old_entry
         assert adapter.get_entry(ArtifactKey.asset_sheet("character", "主角甲")) is None
         assert (project_dir / "project.json").read_bytes() == project_before
-        assert "角色A" in pm.load_project("demo")["characters"]
+        assert "角色A" in pm_with_assets.load_project("demo")["characters"]
 
     def test_manifest_rekey_retry_updates_path_after_the_file_move_already_completed(
         self,
-        pm: ProjectManager,
+        pm_with_assets: ProjectManager,
     ) -> None:
-        project_dir = _project_dir(pm)
+        project_dir = _project_dir(pm_with_assets)
         old_sheet = project_dir / "characters" / "角色A.png"
         new_sheet = project_dir / "characters" / "主角甲.png"
         old_sheet.write_bytes(b"current-sheet")
-        pm.update_project(
+        pm_with_assets.update_project(
             "demo",
             lambda project: project["characters"]["角色A"].update({"character_sheet": "characters/角色A.png"}),
         )
@@ -563,7 +563,7 @@ class TestRenameAssetCascade:
         adapter.put_entry(old_key, old_entry)
         old_sheet.replace(new_sheet)
 
-        pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert adapter.get_entry(old_key) is None
         assert adapter.get_entry(ArtifactKey.asset_sheet("character", "主角甲")) == ArtifactManifestEntry(
@@ -571,27 +571,27 @@ class TestRenameAssetCascade:
             basis_digest=old_entry.basis_digest,
         )
 
-    def test_conflict_rejected_atomically(self, pm: ProjectManager) -> None:
-        pm.save_script("demo", _narration_script(), "episode_1.json")
+    def test_conflict_rejected_atomically(self, pm_with_assets: ProjectManager) -> None:
+        pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
         nfd = unicodedata.normalize("NFD", "café")
 
         def _add_nfd_key(project: dict) -> None:
             project["characters"][nfd] = {"description": "存量 NFD key"}
 
-        pm.update_project("demo", _add_nfd_key)
+        pm_with_assets.update_project("demo", _add_nfd_key)
 
         with pytest.raises(AssetRenameConflictError) as exc_info:
-            pm.rename_asset("demo", "characters", "角色A", "café")
+            pm_with_assets.rename_asset("demo", "characters", "角色A", "café")
 
         assert exc_info.value.conflict_name == nfd
-        project = pm.load_project("demo")
+        project = pm_with_assets.load_project("demo")
         assert "角色A" in project["characters"]
-        assert _load_script(pm)["segments"][0]["characters_in_segment"] == ["角色A"]
+        assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == ["角色A"]
 
-    def test_orphan_destination_file_rejected_atomically(self, pm: ProjectManager) -> None:
+    def test_orphan_destination_file_rejected_atomically(self, pm_with_assets: ProjectManager) -> None:
         """新名下的孤儿文件没有对应资产，资产桶冲突检查看不见它，须在迁移前独立拦下。"""
-        pm.save_script("demo", _narration_script(), "episode_1.json")
-        project_dir = _project_dir(pm)
+        pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
+        project_dir = _project_dir(pm_with_assets)
         sheet = project_dir / "characters" / "角色A.png"
         sheet.write_bytes(b"sheet")
         orphan = project_dir / "characters" / "主角甲.png"
@@ -599,50 +599,50 @@ class TestRenameAssetCascade:
 
         # 预览同样拒绝：占用在扫描阶段就已知，不该等到用户确认后才失败。
         with pytest.raises(AssetRenameFileCollisionError):
-            pm.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
+            pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
 
         with pytest.raises(AssetRenameFileCollisionError) as exc_info:
-            pm.rename_asset("demo", "characters", "角色A", "主角甲")
+            pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert exc_info.value.destination == orphan
         assert orphan.read_bytes() == b"orphan"
         assert sheet.read_bytes() == b"sheet"
-        assert "角色A" in pm.load_project("demo")["characters"]
-        assert _load_script(pm)["segments"][0]["characters_in_segment"] == ["角色A"]
+        assert "角色A" in pm_with_assets.load_project("demo")["characters"]
+        assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == ["角色A"]
 
-    def test_case_only_rename_not_treated_as_collision(self, pm: ProjectManager) -> None:
+    def test_case_only_rename_not_treated_as_collision(self, pm_with_assets: ProjectManager) -> None:
         """大小写不敏感的文件系统上目标解析回源文件自身，那不是占用。
 
         文件系统区分大小写时（多数 Linux）走不到该豁免分支，改名照样通过，断言仍成立。
         """
-        pm.upsert_assets("demo", "characters", {"Alice": {"description": "主角"}})
-        sheet = _project_dir(pm) / "characters" / "Alice.png"
+        pm_with_assets.upsert_assets("demo", "characters", {"Alice": {"description": "主角"}})
+        sheet = _project_dir(pm_with_assets) / "characters" / "Alice.png"
         sheet.write_bytes(b"sheet")
 
-        report = pm.rename_asset("demo", "characters", "Alice", "alice")
+        report = pm_with_assets.rename_asset("demo", "characters", "Alice", "alice")
 
         assert report.files == 1
-        assert "alice" in pm.load_project("demo")["characters"]
-        assert (_project_dir(pm) / "characters" / "alice.png").read_bytes() == b"sheet"
+        assert "alice" in pm_with_assets.load_project("demo")["characters"]
+        assert (_project_dir(pm_with_assets) / "characters" / "alice.png").read_bytes() == b"sheet"
 
-    def test_duplicate_destination_rejected(self, pm: ProjectManager) -> None:
+    def test_duplicate_destination_rejected(self, pm_with_assets: ProjectManager) -> None:
         """两个视觉同名的存量文件（NFC / NFD）会撞到同一目标，后一次迁移吃掉前一次的成果。"""
-        chars = _project_dir(pm) / "characters"
+        chars = _project_dir(pm_with_assets) / "characters"
         nfd = unicodedata.normalize("NFD", "café")
         nfc = unicodedata.normalize("NFC", "café")
         (chars / f"{nfd}.png").write_bytes(b"nfd")
         (chars / f"{nfc}.png").write_bytes(b"nfc")
         if len([p for p in chars.iterdir() if p.suffix == ".png"]) < 2:
             pytest.skip("文件系统归一化文件名，两种编码落到同一文件，构造不出同批撞车")
-        pm.upsert_assets("demo", "characters", {nfc: {"description": "存量"}})
+        pm_with_assets.upsert_assets("demo", "characters", {nfc: {"description": "存量"}})
 
         with pytest.raises(AssetRenameFileCollisionError):
-            pm.rename_asset("demo", "characters", nfc, "主角甲")
+            pm_with_assets.rename_asset("demo", "characters", nfc, "主角甲")
 
         assert (chars / f"{nfd}.png").read_bytes() == b"nfd"
         assert (chars / f"{nfc}.png").read_bytes() == b"nfc"
 
-    def test_quarantine_drafts_rewritten(self, pm: ProjectManager) -> None:
+    def test_quarantine_drafts_rewritten(self, pm_with_assets: ProjectManager) -> None:
         """草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。
 
         三条路线的草稿位逐一覆盖：漏改哪一条，那条路线的草稿就带着旧名走进晋升重判，被判
@@ -650,7 +650,7 @@ class TestRenameAssetCascade:
         ``content.units[].text`` 中的引用语法，结构字段（参考生视频的 ``shots`` / ``references``、
         drama 的 ``needs_replan``）尚未派生，按信封原形构造（见 lib/draft_quarantine.py）。
         """
-        draft_dir = _project_dir(pm) / "drafts" / "episode_1"
+        draft_dir = _project_dir(pm_with_assets) / "drafts" / "episode_1"
         draft_dir.mkdir(parents=True)
         drafts = {
             REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME: {
@@ -713,7 +713,7 @@ class TestRenameAssetCascade:
         for filename, payload in drafts.items():
             atomic_write_json(draft_dir / filename, payload)
 
-        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         rewritten = {filename: json.loads((draft_dir / filename).read_text(encoding="utf-8")) for filename in drafts}
         rv_step1 = rewritten[REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME]
@@ -728,16 +728,16 @@ class TestRenameAssetCascade:
         assert report.references == 5
         assert report.episodes == 1
 
-    def test_history_under_new_name_rejected_atomically(self, pm: ProjectManager) -> None:
+    def test_history_under_new_name_rejected_atomically(self, pm_with_assets: ProjectManager) -> None:
         """删除资产只删资产桶 key、版本历史留存，改名过去会不可恢复地覆盖它——整体拒绝。"""
-        project_dir = _project_dir(pm)
-        pm.upsert_assets("demo", "characters", {"角色B": {"description": "配角"}})
+        project_dir = _project_dir(pm_with_assets)
+        pm_with_assets.upsert_assets("demo", "characters", {"角色B": {"description": "配角"}})
         sheet_b = project_dir / "characters" / "角色B.png"
         sheet_b.write_bytes(b"b1")
         vm = VersionManager(project_dir)
         vm.add_version("characters", "角色B", "配角初版", source_file=sheet_b)
         # 与 delete_entry 路由同形：只删资产桶 key，版本记录与快照留在原地。
-        pm.update_project("demo", lambda project: project["characters"].pop("角色B"))
+        pm_with_assets.update_project("demo", lambda project: project["characters"].pop("角色B"))
         sheet_b.unlink()
 
         sheet_a = project_dir / "characters" / "角色A.png"
@@ -746,16 +746,16 @@ class TestRenameAssetCascade:
 
         for dry_run in (True, False):
             with pytest.raises(AssetRenameHistoryCollisionError):
-                pm.rename_asset("demo", "characters", "角色A", "角色B", dry_run=dry_run)
+                pm_with_assets.rename_asset("demo", "characters", "角色A", "角色B", dry_run=dry_run)
 
         assert vm.get_versions("characters", "角色B")["current_version"] == 1
         assert vm.get_versions("characters", "角色A")["current_version"] == 1
-        assert "角色A" in pm.load_project("demo")["characters"]
+        assert "角色A" in pm_with_assets.load_project("demo")["characters"]
 
-    def test_history_under_equivalent_key_is_same_asset(self, pm: ProjectManager) -> None:
+    def test_history_under_equivalent_key_is_same_asset(self, pm_with_assets: ProjectManager) -> None:
         """新名解析回记录自身（仅换编码形式）时是同一份历史，不算占用。"""
-        project_dir = _project_dir(pm)
-        pm.upsert_assets("demo", "characters", {"café": {"description": "存量"}})
+        project_dir = _project_dir(pm_with_assets)
+        pm_with_assets.upsert_assets("demo", "characters", {"café": {"description": "存量"}})
         nfd = unicodedata.normalize("NFD", "café")
         sheet = project_dir / "characters" / f"{nfd}.png"
         sheet.write_bytes(b"v1")
@@ -768,27 +768,27 @@ class TestRenameAssetCascade:
         assert list(bucket) == ["café"]
         assert vm.get_versions("characters", "café")["current_version"] == 1
 
-    def test_equivalent_bucket_keys_collapsed(self, pm: ProjectManager) -> None:
+    def test_equivalent_bucket_keys_collapsed(self, pm_with_assets: ProjectManager) -> None:
         """NFC / NFD 并存的存量资产桶 key 一并收编，否则等价 key 顶着旧名带失效路径残留。"""
-        project = pm.load_project("demo")
+        project = pm_with_assets.load_project("demo")
         nfd = unicodedata.normalize("NFD", "café")
         project["characters"] = {
             nfd: {"description": "存量 NFD", "character_sheet": f"characters/{nfd}.png"},
             "café": {"description": "存量 NFC", "character_sheet": "characters/café.png"},
         }
-        atomic_write_json(_project_dir(pm) / "project.json", project)
+        atomic_write_json(_project_dir(pm_with_assets) / "project.json", project)
 
-        pm.rename_asset("demo", "characters", "café", "主角甲")
+        pm_with_assets.rename_asset("demo", "characters", "café", "主角甲")
 
-        characters = pm.load_project("demo")["characters"]
+        characters = pm_with_assets.load_project("demo")["characters"]
         assert list(characters) == ["主角甲"]
         assert characters["主角甲"]["description"] == "存量 NFC"
 
-    def test_equivalent_version_history_keys_collapsed(self, pm: ProjectManager) -> None:
+    def test_equivalent_version_history_keys_collapsed(self, pm_with_assets: ProjectManager) -> None:
         """版本桶按原始 resource_id 建 key，NFC / NFD 两条记录一并收编到新名下。"""
-        project_dir = _project_dir(pm)
+        project_dir = _project_dir(pm_with_assets)
         nfd = unicodedata.normalize("NFD", "café")
-        pm.upsert_assets("demo", "characters", {"café": {"description": "存量"}})
+        pm_with_assets.upsert_assets("demo", "characters", {"café": {"description": "存量"}})
         sheet = project_dir / "characters" / "café.png"
         sheet.write_bytes(b"v1")
         vm = VersionManager(project_dir)
@@ -800,82 +800,82 @@ class TestRenameAssetCascade:
         bucket = json.loads(vm.versions_file.read_text(encoding="utf-8"))["characters"]
         assert list(bucket) == ["咖啡师"]
 
-    def test_leading_dot_name_files_migrated(self, pm: ProjectManager) -> None:
+    def test_leading_dot_name_files_migrated(self, pm_with_assets: ProjectManager) -> None:
         """前导点是合法资产名：其落盘文件须随改名迁移，否则 entry 路径字段指向不存在的文件。"""
-        project_dir = _project_dir(pm)
-        pm.upsert_assets("demo", "characters", {".甲": {"description": "点号开头"}})
+        project_dir = _project_dir(pm_with_assets)
+        pm_with_assets.upsert_assets("demo", "characters", {".甲": {"description": "点号开头"}})
         sheet = project_dir / "characters" / ".甲.png"
         sheet.write_bytes(b"png")
-        pm.update_project(
+        pm_with_assets.update_project(
             "demo",
             lambda project: project["characters"][".甲"].update({"character_sheet": "characters/.甲.png"}),
         )
 
-        pm.rename_asset("demo", "characters", ".甲", "主角甲")
+        pm_with_assets.rename_asset("demo", "characters", ".甲", "主角甲")
 
         assert not sheet.exists()
         assert (project_dir / "characters" / "主角甲.png").exists()
-        assert pm.load_project("demo")["characters"]["主角甲"]["character_sheet"] == "characters/主角甲.png"
+        assert pm_with_assets.load_project("demo")["characters"]["主角甲"]["character_sheet"] == "characters/主角甲.png"
 
-    def test_missing_old_name_hints_idempotency(self, pm: ProjectManager) -> None:
+    def test_missing_old_name_hints_idempotency(self, pm_with_assets: ProjectManager) -> None:
         with pytest.raises(AssetRenameNotFoundError) as exc_info:
-            pm.rename_asset("demo", "characters", "不存在", "角色A")
+            pm_with_assets.rename_asset("demo", "characters", "不存在", "角色A")
         assert "可能上次重命名已成功" in str(exc_info.value)
 
         with pytest.raises(AssetRenameNotFoundError) as plain:
-            pm.rename_asset("demo", "characters", "不存在", "全新名字")
+            pm_with_assets.rename_asset("demo", "characters", "不存在", "全新名字")
         assert "可能上次重命名已成功" not in str(plain.value)
 
-    def test_dry_run_previews_without_writing(self, pm: ProjectManager) -> None:
-        pm.save_script("demo", _narration_script(), "episode_1.json")
-        project_dir = _project_dir(pm)
+    def test_dry_run_previews_without_writing(self, pm_with_assets: ProjectManager) -> None:
+        pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
+        project_dir = _project_dir(pm_with_assets)
         sheet = project_dir / "characters" / "角色A.png"
         sheet.write_bytes(b"png")
         (project_dir / MANIFEST_FILENAME).unlink(missing_ok=True)
         (project_dir / LOCK_FILENAME).unlink(missing_ok=True)
 
-        preview = pm.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
+        preview = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
 
         assert preview.dry_run is True
         assert sheet.exists()
         assert not (project_dir / MANIFEST_FILENAME).exists()
         assert not (project_dir / LOCK_FILENAME).exists()
-        assert "角色A" in pm.load_project("demo")["characters"]
-        assert _load_script(pm)["segments"][0]["characters_in_segment"] == ["角色A"]
+        assert "角色A" in pm_with_assets.load_project("demo")["characters"]
+        assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == ["角色A"]
 
-        executed = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        executed = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
         assert (executed.episodes, executed.references, executed.files) == (
             preview.episodes,
             preview.references,
             preview.files,
         )
 
-    def test_preexisting_error_naming_the_asset_does_not_block_rename(self, pm: ProjectManager) -> None:
+    def test_preexisting_error_naming_the_asset_does_not_block_rename(self, pm_with_assets: ProjectManager) -> None:
         """历史遗留错误里点名了该资产时，改名不算「更坏」：错误随名字换了措辞，不是新增。"""
-        project = pm.load_project("demo")
+        project = pm_with_assets.load_project("demo")
         project["characters"]["角色A"]["description"] = ""
-        atomic_write_json(_project_dir(pm) / "project.json", project)
+        atomic_write_json(_project_dir(pm_with_assets) / "project.json", project)
 
-        report = pm.rename_asset("demo", "characters", "角色A", "主角甲")
+        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.new_name == "主角甲"
-        assert "主角甲" in pm.load_project("demo")["characters"]
+        assert "主角甲" in pm_with_assets.load_project("demo")["characters"]
 
-    def test_dry_run_leaves_no_version_directory(self, pm: ProjectManager) -> None:
+    def test_dry_run_leaves_no_version_directory(self, pm_with_assets: ProjectManager) -> None:
         """零写入承诺覆盖目录：预演不得在项目下建出空的 ``versions/`` 目录树。"""
-        pm.save_script("demo", _narration_script(), "episode_1.json")
-        versions_dir = _project_dir(pm) / "versions"
+        pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
+        versions_dir = _project_dir(pm_with_assets) / "versions"
         assert not versions_dir.exists()
 
-        pm.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
+        pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
 
         assert not versions_dir.exists()
 
-    def test_invalid_new_name_rejected(self, pm: ProjectManager) -> None:
+    def test_invalid_new_name_rejected(self, pm_with_assets: ProjectManager) -> None:
         with pytest.raises(ValueError):
-            pm.rename_asset("demo", "characters", "角色A", "坏/名字")
+            pm_with_assets.rename_asset("demo", "characters", "角色A", "坏/名字")
         with pytest.raises(ValueError):
-            pm.rename_asset("demo", "unknown_table", "角色A", "新名")
+            pm_with_assets.rename_asset("demo", "unknown_table", "角色A", "新名")
 
 
 class TestRenameAgnosticErrors:
