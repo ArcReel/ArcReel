@@ -229,8 +229,7 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     assert blocked_item.problem.code == "generation_artifact_state_unavailable"
 
 
-async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext, monkeypatch) -> None:
-
+async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext) -> None:
     _use_fake_caps(fake_ctx)
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(tool_obj, {"resource_type": "storyboard", "edits": [{"id": "E1S01", "instruction": "去杂物"}]})
@@ -272,7 +271,7 @@ async def test_edit_images_rejects_unknown_resource_type(fake_ctx: ToolContext) 
     assert out.get("is_error") is True
 
 
-async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext) -> None:
     """资产没有可编辑的当前图（sheet 字段未设置）时跳过并告警，不入队。"""
 
     _use_fake_caps(fake_ctx)

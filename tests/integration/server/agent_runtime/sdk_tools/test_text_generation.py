@@ -311,8 +311,7 @@ async def test_fetch_video_caps_narrows_durations_by_constraints() -> None:
     assert durations == [8]
 
 
-async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
-
+async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext) -> None:
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
@@ -336,12 +335,10 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
 )
 async def test_step1_tools_reject_incompatible_project_axes_before_capability_lookup(
     fake_ctx: ToolContext,
-    monkeypatch,
     tool_factory,
     content_mode: str,
     generation_mode: str,
 ) -> None:
-
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
         content_mode=content_mode,
         generation_mode=generation_mode,
@@ -385,7 +382,7 @@ async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: Too
     assert calls == 1
 
 
-async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext) -> None:
     """normalize 把项目 source_language 透传为 build_normalize_prompt 的 target_language——
     非中文项目的 step1 输出语言据此切换，而非恒退默认中文。"""
 
@@ -432,7 +429,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     assert not (project_path / "drafts" / "episode_1" / "step1_normalized_script.json").exists()
 
 
-async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext) -> None:
     """工具必须把 episode 注入 build_normalize_prompt，避免 LLM 写错 E\\d+ 前缀。"""
 
     project_path = fake_ctx.project_path
@@ -450,7 +447,7 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     assert "E1S01" not in prompt_text
 
 
-async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolContext) -> None:
     """内容抽取前移后，分集大纲（故事节点 / 钩子）随 step1 注入 normalize prompt（见 ADR 0041）。"""
 
     project_path = fake_ctx.project_path
@@ -787,8 +784,7 @@ class TestBuildPrompt:
         assert out.endswith("画面避免：水印、多余文字、Logo。")
 
 
-async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
-
+async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext) -> None:
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)

@@ -979,7 +979,7 @@ class TestJsonValidationHook:
         # old_string not in file → hook skips → allowed
         assert result == {}
 
-    async def test_edit_curly_quotes_in_new_string_straight_old_denies(self, tmp_path, meta_store):
+    async def test_edit_curly_quotes_in_new_string_straight_old_denies(self, tmp_path):
         """Edit with straight-quote old_string that matches file but
         curly-quote new_string is denied via the early curly-quote check."""
         json_file = tmp_path / "ep.json"

@@ -29,8 +29,7 @@ pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_referenc
 # ---------------------------------------------------------------------------
 
 
-async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
-
+async def test_split_narration_segments_dry_run(fake_ctx: ToolContext) -> None:
     _nr_source(fake_ctx)
     _use_fake_caps(fake_ctx)
 
@@ -47,7 +46,7 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, monkeypat
     assert "# 用户意见" not in prompt_text
 
 
-async def test_split_narration_segments_injects_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_injects_instructions(fake_ctx: ToolContext) -> None:
     """instructions 原样进 prompt 末尾的中性「用户意见」分节，不附加强度措辞。"""
 
     _nr_source(fake_ctx)
@@ -62,7 +61,7 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolConte
     assert "必须全部落实" not in prompt_text
 
 
-async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolContext) -> None:
     """instructions 超长 / 非字符串按参数错误拒绝；空白 strip 后视同未传（校验为四个生成工具共享）。"""
 
     _nr_source(fake_ctx)

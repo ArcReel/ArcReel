@@ -29,10 +29,9 @@ class TestSessionManagerProjectScope:
     async def test_build_options_uses_project_directory_as_cwd(self, tmp_path, monkeypatch, meta_store):
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
-        store = meta_store
         manager = SessionManager(
             project_root=tmp_path,
-            meta_store=store,
+            meta_store=meta_store,
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
@@ -48,10 +47,9 @@ class TestSessionManagerProjectScope:
     @pytest.mark.asyncio
     async def test_build_options_raises_when_project_missing(self, tmp_path, monkeypatch, meta_store):
         (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
-        store = meta_store
         manager = SessionManager(
             project_root=tmp_path,
-            meta_store=store,
+            meta_store=meta_store,
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
@@ -68,10 +66,9 @@ class TestSessionManagerProjectScope:
         """File access hook is always registered, even without can_use_tool."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
-        store = meta_store
         manager = SessionManager(
             project_root=tmp_path,
-            meta_store=store,
+            meta_store=meta_store,
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
@@ -99,10 +96,9 @@ class TestSessionManagerProjectScope:
         """With can_use_tool: keep_stream_open + file_access hooks."""
         project_dir = tmp_path / "projects" / "demo"
         project_dir.mkdir(parents=True)
-        store = meta_store
         manager = SessionManager(
             project_root=tmp_path,
-            meta_store=store,
+            meta_store=meta_store,
         )
         monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
 
@@ -155,10 +151,9 @@ class TestSessionManagerProjectScope:
             encoding="utf-8",
         )
 
-        store = meta_store
         manager = SessionManager(
             project_root=tmp_path,
-            meta_store=store,
+            meta_store=meta_store,
         )
 
         prompt = manager._options_assembler._build_project_context("demo")
@@ -202,10 +197,9 @@ class TestSessionManagerProjectScope:
         project_dir.mkdir(parents=True)
         # No project.json created
 
-        store = meta_store
         manager = SessionManager(
             project_root=tmp_path,
-            meta_store=store,
+            meta_store=meta_store,
         )
 
         prompt = manager._options_assembler._build_project_context("empty")
@@ -219,10 +213,9 @@ class TestAllowedToolsAndConstants:
     @pytest.mark.asyncio
     async def test_default_allowed_tools_matches_sdk(self, tmp_path, meta_store):
         """Verify allowed tools align with SDK documentation."""
-        store = meta_store
         manager = SessionManager(
             project_root=tmp_path,
-            meta_store=store,
+            meta_store=meta_store,
         )
         tools = manager.DEFAULT_ALLOWED_TOOLS
         assert "Task" in tools
@@ -240,10 +233,9 @@ class TestAllowedToolsAndConstants:
     @pytest.mark.asyncio
     async def test_path_tools_no_ls(self, tmp_path, meta_store):
         """LS should not be in PATH_TOOLS."""
-        store = meta_store
         manager = SessionManager(
             project_root=tmp_path,
-            meta_store=store,
+            meta_store=meta_store,
         )
         assert "LS" not in manager.access_policy.PATH_TOOLS
         assert "MultiEdit" not in manager.access_policy.PATH_TOOLS
@@ -255,10 +247,9 @@ class TestSystemPromptProjectContext:
         """The only empty case left: no project directory at all (cwd cannot resolve)."""
         (tmp_path / "projects").mkdir(parents=True, exist_ok=True)
 
-        store = meta_store
         manager = SessionManager(
             project_root=tmp_path,
-            meta_store=store,
+            meta_store=meta_store,
         )
 
         prompt = manager._options_assembler._build_project_context("does-not-exist")

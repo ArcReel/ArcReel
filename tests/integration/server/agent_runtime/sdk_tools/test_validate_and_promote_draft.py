@@ -169,7 +169,7 @@ async def test_validate_and_promote_draft_reports_again_without_round_limit(fake
 # ---------------------------------------------------------------------------
 
 
-async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext) -> None:
     """「用户在内容确认界面编辑 + Agent 改草稿并晋升」的双端并发：取回后正式文件被另一写入方
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
     留在原地。按报告把 meta.base_fingerprint 更新为现值（显式确认已合并）后方可重新晋升。"""
@@ -202,9 +202,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(fake_ctx: ToolContext) -> None:
     """取回后正式文件被删除：现值指纹是 null，报告须按 JSON 字面量给出而非字符串 "None"。
     照报告把 meta.base_fingerprint 设为 null 后重晋升即放行——写成字符串则永远比对不上、冲突解不掉。"""
     _rv_source(fake_ctx)
@@ -227,7 +225,7 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx: ToolContext) -> None:
     """基线机制引入前产出的存量草稿缺 meta.base_fingerprint 键：按无基线晋升，不被新校验卡死。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
@@ -387,9 +385,7 @@ async def test_writing_reference_step1_clears_stale_step2_quarantine(fake_ctx: T
     assert not step2_path.exists()
 
 
-async def test_promote_reference_step1_preserves_step2_draft_when_content_unchanged(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_promote_reference_step1_preserves_step2_draft_when_content_unchanged(fake_ctx: ToolContext) -> None:
     """情况 B 中途放弃、原样晋升：取回草稿未改动即晋升，写回的 step1 与盘上原值逐字相同，
     此时不该清在场的 step2 草稿——它的保结构 diff 仍然对得上这份没变的基底，Agent
     放弃 step1 修改不该连带销毁一份仍然有效的 step2 修复草稿。"""
@@ -444,7 +440,7 @@ async def test_validate_and_promote_draft_step2_uses_async_factory(fake_ctx: Too
     assert "episode_1.json" in out["content"][0]["text"]
 
 
-async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext) -> None:
     """切走参考路径后不再晋升残留草稿：晋升会按参考路径的形状覆盖该集正式剧本。"""
     _rv_project(fake_ctx, generation_mode="storyboard")
     write_quarantine(
@@ -491,7 +487,7 @@ async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx:
     assert "尚未完成内容确认" in out["content"][0]["text"]
 
 
-async def test_validate_and_promote_draft_without_draft(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_validate_and_promote_draft_without_draft(fake_ctx: ToolContext) -> None:
     out = await _promote(fake_ctx)
     assert out.get("is_error") is True
     assert "没有待处置的草稿" in out["content"][0]["text"]
@@ -577,7 +573,7 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
 # ---------------------------------------------------------------------------
 
 
-async def test_promote_drama_step1_rederives_needs_replan(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_drama_step1_rederives_needs_replan(fake_ctx: ToolContext) -> None:
     """needs_replan 由晋升侧按台词准入重新派生，不取草稿里的值——它是机器判据，
     手写值一旦被采信，后续重规划会漏掉真正需要重排的场景。"""
     _drama_project(fake_ctx)
@@ -600,7 +596,7 @@ async def test_promote_drama_step1_rederives_needs_replan(fake_ctx: ToolContext,
     assert saved["scenes"][0]["needs_replan"] is True
 
 
-async def test_promote_drama_step1_reports_schema_breach_without_writing(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_drama_step1_reports_schema_breach_without_writing(fake_ctx: ToolContext) -> None:
     """草稿被改坏时正式文件不写：草稿留在场、按 violations 继续改再晋升，不丢内容也不污染正式文件。"""
     _drama_project(fake_ctx)
     _write_drama_step1(fake_ctx, [_drama_scene()])
@@ -619,7 +615,7 @@ async def test_promote_drama_step1_reports_schema_breach_without_writing(fake_ct
     assert "content.scenes[i]" in out["content"][0]["text"]
 
 
-async def test_promote_drama_step1_aborts_on_concurrent_write(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_drama_step1_aborts_on_concurrent_write(fake_ctx: ToolContext) -> None:
     """取回与晋升之间正式文件被别的写入方改过 → 中止并报冲突，不静默覆盖对方的保存。"""
     _drama_project(fake_ctx)
     _write_drama_step1(fake_ctx, [_drama_scene()])
@@ -742,9 +738,7 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
     assert json.loads(_nr_step1_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 4
 
 
-async def test_promote_narration_step1_reports_schema_breach_without_writing(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_promote_narration_step1_reports_schema_breach_without_writing(fake_ctx: ToolContext) -> None:
     """草稿被改到过不了产出时那份 schema：报告刷新、正式文件不写，草稿保留 Agent 手里那份原样内容。"""
     _nr_source(fake_ctx)
     _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -763,7 +757,7 @@ async def test_promote_narration_step1_reports_schema_breach_without_writing(
     assert "novel_text" not in _read_nr_quarantine(fake_ctx)["content"]["segments"][0]
 
 
-async def test_promote_narration_step1_aborts_on_concurrent_write(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_narration_step1_aborts_on_concurrent_write(fake_ctx: ToolContext) -> None:
     """取回后正式文件被别的写入方改过：晋升中止、报冲突让 Agent 合并，不静默覆盖。"""
     _nr_source(fake_ctx)
     _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -779,7 +773,7 @@ async def test_promote_narration_step1_aborts_on_concurrent_write(fake_ctx: Tool
     assert json.loads(_nr_step1_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 6
 
 
-async def test_promote_narration_step1_revalidates_against_current_source(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_narration_step1_revalidates_against_current_source(fake_ctx: ToolContext) -> None:
     """晋升按现值重判原文覆盖：草稿里改写过的正文即便结构合法也拒，正式文件不被污染。"""
     _nr_source(fake_ctx)
     _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -797,9 +791,7 @@ async def test_promote_narration_step1_revalidates_against_current_source(fake_c
     assert _nr_step1_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
-async def test_promote_narration_step1_names_source_scope_on_coverage_violation(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
+async def test_promote_narration_step1_names_source_scope_on_coverage_violation(fake_ctx: ToolContext) -> None:
     """取回时未指定 source、而 source/ 下不止一集：一字未改的草稿也判不过，报告须指名范围与出路。
 
     草稿在场时不能重新取回，改 meta.source 是 Agent 唯一的出路；报告只说「分镜正文须原样复制
