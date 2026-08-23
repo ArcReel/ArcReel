@@ -1848,7 +1848,23 @@ class TestLoadReferenceStep1:
 
     @staticmethod
     def _unit(unit_id: str, *, duration: int = 6) -> dict:
-        return {"unit_id": unit_id, "text": "甲走进屋子", "duration_seconds": duration}
+        return {
+            "unit_id": unit_id,
+            "text": "甲走进屋子",
+            "duration_seconds": duration,
+            "keyframe_plan": ["中景平视，甲走进屋子的核心场景静态首帧"],
+        }
+
+    @pytest.mark.unit
+    def test_missing_keyframe_plan_requires_resplit(self, tmp_path):
+        sg = self._generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {"units": [{"unit_id": "E1U01", "text": "甲走进屋子", "duration_seconds": 6}]},
+        )
+        with pytest.raises(ValueError, match="keyframe_plan"):
+            sg._load_reference_step1(1, [4, 6, 8])
 
     @pytest.mark.unit
     def test_loads_structured_units_verbatim(self, tmp_path):
@@ -1898,6 +1914,7 @@ class TestLoadReferenceStep1:
                         "text": "甲起身\n甲出门",
                         "duration_seconds": 4,
                         "duration_override": True,
+                        "keyframe_plan": ["中景平视，甲起身出门的核心场景静态首帧"],
                     }
                 ]
             },
@@ -1929,6 +1946,7 @@ class TestLoadReferenceStep1:
                         "text": "甲起身\n甲出门",
                         "duration_seconds": 7,
                         "duration_override": True,
+                        "keyframe_plan": ["中景平视，甲起身出门的核心场景静态首帧"],
                     }
                 ]
             },
@@ -1966,6 +1984,7 @@ class TestLoadReferenceStep1:
                         "text": "甲起身\n甲出门",
                         "duration_seconds": 7,
                         "duration_override": True,
+                        "keyframe_plan": ["中景平视，甲起身出门的核心场景静态首帧"],
                     }
                 ]
             },

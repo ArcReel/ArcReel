@@ -10,7 +10,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 |---|---|---|---|---|---|---|
 | `storyboard` | `narration` | `segments[]` | split-narration-segments | `step1_segments.json` | NarrationEpisodeScript | 每片段一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
 | `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `step1_normalized_script.json` | DramaNormalizedScript（step1）→ DramaVisualScript（step2）→ DramaEpisodeScript（合并） | 每场景一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
-| `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `step1_reference_units.json` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
+| `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `step1_reference_units.json`（每 unit 含 1–5 个 `keyframe_plan`） | ReferenceVideoScript | 不生成传统 Storyboard 图片；确认后生成关键场景 Keyframes，连同角色 / 场景 / 道具图作为 `reference_images` |
 
 > drama 走两段式（见 ADR 0041）：step1（normalize-drama-script）产出**结构化内容** `step1_normalized_script.json`（场景边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述）；step2（create-episode-script）LLM 只出视觉层 `DramaVisualScript`（scene_id + image_prompt + video_prompt），后端按 scene_id 合并回 step1 内容得 `DramaEpisodeScript`、透传非视觉字段。
 >
@@ -28,7 +28,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 
 几条不由计划表达、需要在这里说清的事实：
 
-- `reference_video` **只跳过分镜图**这一步。它不跳过 audio：旁白交付选择在两种生成模式下都要逐次做，
+- `reference_video` **只跳过传统 Storyboard 图片**这一步，不能跳过 Video Unit 拆分里的非空 `keyframe_plan`，也不能跳过确认后生成的正式 Keyframes。它不跳过 audio：旁白交付选择在两种生成模式下都要逐次做，
   只是参考生视频没有按段批量 TTS 的入口（无 `segments[]`）。
 - 视频入队按项目 `generation_mode` 定生成模式，剧本骨架只作校验；失配（如 storyboard 项目里残留
   `video_units[]` 旧剧本）直接拒绝入队，正解是按项目当前生成模式重跑预处理与剧本生成，而非指望旧剧本被执行。

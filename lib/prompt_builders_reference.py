@@ -85,8 +85,8 @@ def build_reference_units_split_prompt(
     """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 辅助源文映射 + 书写层正文）。
 
     由 ``split_reference_video_units`` MCP tool 消费。step1 定的是**结构与内容契约**——
-    unit 边界、时长（即计费单位）、台词落位、核心资产指认；视觉展开（景别 / 构图 / 运镜）
-    留给 step2。产出受 response_schema（``build_reference_units_step1_model``，unit 时长
+    unit 边界、时长（即计费单位）、台词落位、核心资产指认与关键场景首帧规划；完整视觉展开
+    （景别 / 构图 / 运镜）留给 step2。产出受 response_schema（``build_reference_units_step1_model``，unit 时长
     枚举硬约束）约束；unit_id / utterances 全部机器派生，不进 LLM 输出。
 
     Args:
@@ -174,7 +174,7 @@ def build_reference_units_split_prompt(
 
 你是一位参考生视频单元架构师，本任务是把源文拆分为适配多模态参考视频模型的 video_unit 表（step1 内容拆分）。
 每个 video_unit 对应**一次视频生成调用**，正文是一段连续的画面描述，一次生成完整覆盖它。
-本阶段定的是**结构与内容契约**：unit 边界、时长（时长即计费单位）、台词落位、核心资产指认——用户会逐 unit 审阅确认这份契约。
+本阶段定的是**结构与内容契约**：unit 边界、时长（时长即计费单位）、台词落位、核心资产指认与关键场景首帧规划——用户会逐 unit 审阅确认这份契约。
 视觉编排（景别 / 构图 / 运镜扩写）由后续 step2 以你的拆分为基底生成，本阶段不写。
 
 **输出语言**：所有字符串值必须使用 {target_language}；JSON 键名保持英文。
@@ -217,9 +217,11 @@ def build_reference_units_split_prompt(
   时间 / 空间 / 情节重大切换点开新 unit。
 - **source_text**：记录该 unit 所依据的源文内容，供人工审阅与追溯。可摘录、概括或整理表达，
   但须保留与本 unit 对应的关键情节；它不进入视频提示词，也不参与逐字机械校验。
-- **keyframe_plan**：列出这个 unit 内每次核心场景建立或明显场景切换所需的首帧规划，按出现顺序书写。
-  它不是固定数量，也不能照抄示例；应覆盖该 unit 实际发生的关键画面变化。一个 unit 最多 5 项，超过 5 项时必须
-  在对应的场景切换处继续拆成多个 unit，不能删掉关键画面来凑上限。
+- **keyframe_plan（不可为空）**：每个 unit 至少有一个场景，因此必须按出现顺序列出 1–5 个关键场景首帧规划。
+  第一项是 unit 开场核心场景的静态第一帧；后续项对应 unit 内明显的场景建立或场景切换。每项写清景别 / 角度、
+  构图、主体位置、环境与光线、切换发生时的静态姿态，不写运镜过程或连续动作。它不是传统 Storyboard 图片，
+  也不是等到视频生成时再截取的首帧，而是 Video Unit 拆分契约的一部分；用户确认拆分后，step2 会据此生成正式
+  Keyframes 并自动生成图片。若需要超过 5 项，必须在对应切换处继续拆成多个 unit，不能删掉关键画面来凑上限。
 - **时长决策序**（自上而下，高优先级是硬边界，低优先级在其内做优化）：
   1. 硬约束：`duration_seconds` 是 unit 时长（一次生成调用一个时长），必须取支持档位（{durations_str}）中的值。
      叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。{reference_rule}
@@ -261,7 +263,7 @@ def render_reference_units_for_step2(units: list[dict]) -> str:
         plan_lines = "\n".join(f"- {item}" for item in plan if isinstance(item, str) and item.strip())
         blocks.append(
             f"#### unit {index}（时长 {duration}s）\n"
-            f"关键首帧规划：\n{plan_lines or '- 按正文识别核心场景首帧'}\n"
+            f"关键首帧规划：\n{plan_lines or '- （缺失：返回 step1 重新拆分，不得在 step2 临时推断）'}\n"
             f"正文：\n{body}"
         )
     return "\n\n".join(blocks)
@@ -357,8 +359,9 @@ def build_reference_video_prompt(
 
 正文将直接驱动该 unit 的视频生成，按「景别 → 构图 → 运镜 → 画面内容」四要素依次组织，写足画面信息、宁详勿略：
 
-- 每个 unit 同时输出 `keyframes`：根据 step1 的关键首帧规划与最终视觉展开，为每次核心场景建立或明显场景切换
-  写一条**静态第一帧**描述。数量由实际内容决定，不能套用示例；最多 5 条。
+- 每个 unit 同时输出 `keyframes`：严格根据 step1 已确认的关键首帧规划与最终视觉展开，为每次核心场景建立或
+  明显场景切换写一条**静态第一帧**描述。不得在 step2 临时新增、删减或重新决定关键场景；数量须与规划一致，
+  且为 1–5 条。
 - 在正文中按同一顺序把 `[[关键分镜1]]`、`[[关键分镜2]]`……放到对应核心场景描述开始的位置。
   占位符与 `keyframes` 必须等量、连续、各出现一次；后端会把它们替换为稳定的 `@[关键分镜 ID]` 标签。
 - 关键帧描述只写单帧可见事实：景别、角度、构图、主体位置、环境、光线和当下姿态；不要写运镜过程或连续动作。

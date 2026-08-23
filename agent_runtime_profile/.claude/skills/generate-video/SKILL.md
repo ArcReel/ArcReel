@@ -92,7 +92,7 @@ MiniMax H3 优化前会读取项目唯一的 Unified Video Style；缺失时生�
 `tts_conflicts_with_active_narrated_video` 等待在跑的任务后重查（不要重复提交）、
 `tts_not_applicable` 改选后期配音、`tts_state_unavailable` 报为独立缺口而不是当作缺失去重生。
 
-`generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：旁白交付选择在两种生成模式下都要做。
+`generation_mode == "reference_video"` **只跳过传统 Storyboard 图片**，不跳过已在拆分与剧本阶段生成的 Keyframes，也不跳过 audio：旁白交付选择在两种生成模式下都要做。
 
 ### 批量准入与档位确认
 
