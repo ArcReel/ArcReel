@@ -339,6 +339,10 @@ MESSAGES = {
         "consistency does not apply; dialogue is used only as prompt context. Whether the rendered "
         "video actually has sound depends on the selected model"
     ),
+    "ref_warn_unit_changed_during_regenerate": (
+        "Video unit '{unit_id}' changed while generation was being prepared; this run still uses the content selected "
+        "when the task started"
+    ),
     # Episode meta
     "episode_not_found": "Episode {episode} not found or has no script file yet",
     "episode_title_empty": "Episode title cannot be empty",

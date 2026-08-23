@@ -289,6 +289,7 @@ MESSAGES = {
     "ref_warn_speaker_audio_needs_image": "角色「{name}」没有参考图（纯画外）：当前视频模型要求参考音频逐段挂在参考图上，该角色的台词声音将由模型自行决定",
     "ref_warn_silent_model": "当前视频模型「{model}」不生成音频，台词仅用于提示词参考",
     "ref_warn_silent_episode": "本集已关闭参考音频：不会上传参考音频，声音一致性不生效，台词仅用于提示词参考；成片是否有声音由所选模型决定",
+    "ref_warn_unit_changed_during_regenerate": "视频单元「{unit_id}」在生成准备期间已有修改；本次仍按任务开始时选中的内容继续生成",
     # Episode meta
     "episode_not_found": "第 {episode} 集不存在或尚无脚本文件",
     "episode_title_empty": "分集标题不能为空",

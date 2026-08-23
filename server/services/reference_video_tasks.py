@@ -12,7 +12,11 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.artifact_activation import assert_current_artifact_input_claims_usable, resolve_usable_episode_script_input
+from lib.artifact_activation import (
+    ArtifactInputClaim,
+    assert_current_artifact_input_claims_usable,
+    resolve_usable_episode_script_input,
+)
 from lib.artifact_manifest import compose_video_artifact_basis
 from lib.config.resolver import (
     ConfigResolver,
@@ -308,6 +312,18 @@ def _build_reference_audio_wiring(
     return [audio_paths[name] for name in rendered.audio_speakers], None
 
 
+def _unit_regeneration_input(unit: Mapping[str, Any]) -> tuple[object, object, object]:
+    """Freeze only the unit fields that determine one Regenerate request.
+
+    ``generated_assets`` is deliberately excluded: another unit finishing, or this unit's
+    previous artifact being restored, rewrites the shared episode script without changing
+    the prompt the user selected. Treating the whole JSON file as immutable made those
+    unrelated writes abort an explicit Regenerate task.
+    """
+
+    return unit.get("text"), unit.get("duration_seconds"), unit.get("needs_replan")
+
+
 async def execute_reference_video_task(
     project_name: str,
     resource_id: str,
@@ -351,6 +367,7 @@ async def execute_reference_video_task(
         return project, project_path, script, unit, script_input
 
     project, project_path, script, unit, script_input = await asyncio.to_thread(_load)
+    selected_unit_input = _unit_regeneration_input(unit)
 
     declared_references = unit_reference_declarations(project, unit)
     resolved_assets = resolve_reference_assets(project, project_path, unit)
@@ -464,12 +481,13 @@ async def execute_reference_video_task(
         raise ValueError("reference request projection has no duration tier")
 
     constrained_entries = list(projection.request_assets)
-    formal_input_claims = (script_input.claim,)
+    # The script claim is checked once while selecting ``unit`` above. From this point the
+    # explicit Regenerate task owns that selected unit snapshot: later writes to the shared
+    # episode JSON must not cancel it. Asset claims remain guarded because those bytes are
+    # still provider inputs and cannot be replaced underneath the request.
+    formal_input_claims: tuple[ArtifactInputClaim, ...] = ()
     if task_id is None:
-        formal_input_claims = (
-            script_input.claim,
-            *asset_availability.snapshot_selected_claims(constrained_entries),
-        )
+        formal_input_claims = asset_availability.snapshot_selected_claims(constrained_entries)
     constrained_refs = [entry.path for entry in constrained_entries]
     aspect_ratio = resolve_video_aspect_ratio(project)
     candidate = projection.provider_candidate
@@ -488,6 +506,36 @@ async def execute_reference_video_task(
     visual_basis_digest = await asyncio.to_thread(_current_visual_basis_digest)
     effective_duration = projection.request_duration.seconds
     warnings: list[dict[str, Any]] = []
+    unit_change_warning_emitted = False
+
+    async def _note_selected_unit_change() -> None:
+        """Report a later edit without turning it into a Regenerate failure."""
+
+        nonlocal unit_change_warning_emitted
+
+        def _read_current_input() -> tuple[object, object, object]:
+            current_script = get_project_manager().load_script(project_name, script_file)
+            current_units = current_script.get("video_units")
+            if not isinstance(current_units, list):
+                raise ScriptEditError("video_units 必须是 list", key="script_edit_unit_lists_invalid")
+            current_unit = next(
+                (
+                    candidate
+                    for candidate in current_units
+                    if isinstance(candidate, Mapping) and candidate.get("unit_id") == resource_id
+                ),
+                None,
+            )
+            if current_unit is None:
+                raise ValueError(f"unit not found: {resource_id}")
+            return _unit_regeneration_input(current_unit)
+
+        current_input = await asyncio.to_thread(_read_current_input)
+        if current_input == selected_unit_input or unit_change_warning_emitted:
+            return
+        warnings.append({"key": "ref_warn_unit_changed_during_regenerate", "params": {"unit_id": resource_id}})
+        unit_change_warning_emitted = True
+
     for problem in projection.problems:
         params = problem.parameters()
         if problem.code == "reference_images_clamped":
@@ -653,12 +701,9 @@ async def execute_reference_video_task(
             staged_reference_digests = {
                 media.source_locator: media.sha256 for media in staged_media if media.role == "reference_image"
             }
-            formal_input_claims = (
-                script_input.claim,
-                *asset_availability.snapshot_selected_claims(
-                    constrained_entries,
-                    staged_content_digests=staged_reference_digests,
-                ),
+            formal_input_claims = asset_availability.snapshot_selected_claims(
+                constrained_entries,
+                staged_content_digests=staged_reference_digests,
             )
             provider_refs = [
                 safe_join(project_path, media.staged_locator, require_file=True)
@@ -745,6 +790,7 @@ async def execute_reference_video_task(
                 )
 
             async def _checkpoint_before_submit(api_call_id: int) -> Mapping[str, object]:
+                await _note_selected_unit_change()
                 await asyncio.to_thread(
                     assert_current_artifact_input_claims_usable,
                     project_path,
@@ -781,6 +827,7 @@ async def execute_reference_video_task(
         else None
     )
     try:
+        await _note_selected_unit_change()
         await asyncio.to_thread(
             assert_current_artifact_input_claims_usable,
             project_path,

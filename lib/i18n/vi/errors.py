@@ -339,6 +339,10 @@ MESSAGES = {
         "không có hiệu lực, lời thoại chỉ dùng làm gợi ý cho prompt; video hoàn chỉnh có tiếng hay không "
         "tùy thuộc vào mô hình đã chọn"
     ),
+    "ref_warn_unit_changed_during_regenerate": (
+        "Đơn vị video '{unit_id}' đã thay đổi trong lúc chuẩn bị tạo; lần chạy này vẫn dùng nội dung đã được chọn khi "
+        "tác vụ bắt đầu"
+    ),
     # Episode meta
     "episode_not_found": "Không tìm thấy tập {episode} hoặc tập chưa có tệp kịch bản",
     "episode_title_empty": "Tiêu đề tập không được để trống",

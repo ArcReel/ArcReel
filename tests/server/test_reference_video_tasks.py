@@ -602,6 +602,76 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("change_unit_text", "expects_warning"), [(False, False), (True, True)])
+async def test_execute_reference_video_task_keeps_regenerate_after_shared_script_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change_unit_text: bool,
+    expects_warning: bool,
+):
+    """A Regenerate task owns its selected unit even if the shared episode JSON changes later.
+
+    Runtime asset bookkeeping is unrelated and stays silent. A later edit to this unit's actual
+    generation input is reported, but it still cannot cancel the paid request.
+    """
+
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**_kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
+
+    resolve_context = rvt.resolve_generation_context
+
+    async def _mutate_shared_script_after_selection(*args, **kwargs):
+        context = await resolve_context(*args, **kwargs)
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        unit = script["video_units"][0]
+        if change_unit_text:
+            unit["text"] = "@[张三] 已经推门进入 @[酒馆]"
+        else:
+            unit["generated_assets"]["status"] = "completed"
+        script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+        return context
+
+    monkeypatch.setattr(rvt, "resolve_generation_context", _mutate_shared_script_after_selection)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    result = await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    expected = {"key": "ref_warn_unit_changed_during_regenerate", "params": {"unit_id": "E1U1"}}
+    assert (expected in result["warnings"]) is expects_warning
+    fake_generator.generate_video_async.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_rejects_changed_claim_provider_before_submission(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -1507,6 +1577,62 @@ async def test_execute_reference_video_task_rejects_unclaimed_bound_script_befor
         )
 
     fake_generator.generate_video_async.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_does_not_reject_a_script_change_at_provider_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The queued Regenerate request proceeds after its selected episode JSON is edited."""
+
+    from server.services import reference_video_tasks as rvt
+
+    class _ProviderReached(RuntimeError):
+        pass
+
+    proj_dir = _write_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["video_units"][0]["text"] = "@[张三] 已经推门进入 @[酒馆]"
+        script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+        await kwargs["before_submit"](79)
+        raise _ProviderReached
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-2-0-260128",
+        supported_durations=(3,),
+    )
+    fake_queue = MagicMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+
+    with pytest.raises(_ProviderReached):
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+            task_id="task-reference-script-change",
+        )
+
+    fake_queue.persist_execution_checkpoint.assert_awaited_once()
 
 
 @pytest.mark.unit
