@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import type { Asset } from "@/types/asset";
 import {
-  ProjectAssetImageUsageSwitch,
   ProjectAssetLinkControl,
   ProjectAssetVoiceSourceSwitch,
 } from "./ProjectAssetLinkControl";
@@ -76,34 +75,6 @@ describe("ProjectAssetLinkControl", () => {
 
     const linkButton = screen.getByRole("button", { name: "链接全局资产" });
     expect(linkButton.querySelector(".lucide-link")).toBeInTheDocument();
-  });
-
-  it("moves a linked image from the main slot to the reference slot", async () => {
-    const configure = vi.spyOn(API, "configureProjectAssetLink").mockResolvedValue({
-      success: true,
-      project_asset: {},
-      asset,
-    });
-    const onReload = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <ProjectAssetImageUsageSwitch
-        projectName="demo"
-        resourceType="character"
-        resourceId="鳄鱼爸爸"
-        imageUsage="main"
-        onReload={onReload}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "切换参考图" }));
-    await waitFor(() => expect(configure).toHaveBeenCalledWith({
-      project_name: "demo",
-      resource_type: "character",
-      resource_id: "鳄鱼爸爸",
-      image_usage: "reference",
-    }));
-    expect(onReload).toHaveBeenCalled();
   });
 
   it("switches from reference audio to Voice ID", async () => {

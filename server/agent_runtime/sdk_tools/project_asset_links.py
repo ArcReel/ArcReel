@@ -20,7 +20,7 @@ from server.services.project_asset_links import (
 def manage_project_asset_link_tool(ctx: ToolContext):
     @tool(
         "manage_project_asset_link",
-        "链接、解除链接或配置项目角色/场景/道具与全局资产的关系；图片可作主图或生成参考图，角色可选择参考音频或 TTS Voice ID。",
+        "链接或解除项目角色/场景/道具与全局资产的关系；场景/道具可配置全局图片用途，角色可选择参考音频或 TTS Voice ID。角色主图转参考图请使用 move_character_main_to_reference。",
         {
             "type": "object",
             "properties": {
@@ -68,7 +68,12 @@ def manage_project_asset_link_tool(ctx: ToolContext):
             return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, sort_keys=True)}]}
         except (ProjectAssetLinkError, ProjectAssetLinkNotFound, FileNotFoundError, KeyError) as exc:
             return {
-                "content": [{"type": "text", "text": json.dumps({"error": "asset_link_failed", "detail": str(exc)}, ensure_ascii=False)}],
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps({"error": "asset_link_failed", "detail": str(exc)}, ensure_ascii=False),
+                    }
+                ],
                 "is_error": True,
             }
         except Exception as exc:  # noqa: BLE001

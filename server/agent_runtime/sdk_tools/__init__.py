@@ -60,6 +60,7 @@ from server.agent_runtime.sdk_tools.patch_script import (
     split_segment_tool,
 )
 from server.agent_runtime.sdk_tools.project_asset_links import manage_project_asset_link_tool
+from server.agent_runtime.sdk_tools.project_character_images import move_character_main_to_reference_tool
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
 from server.agent_runtime.sdk_tools.text_generation import (
@@ -129,6 +130,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "update_custom_style",
     "delete_project_asset",
     "manage_project_asset_link",
+    "move_character_main_to_reference",
     "retry_project_migration",
 )
 
@@ -141,6 +143,7 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "complete_asset_inventory",
         "complete_step1_rebuild",
         "manage_project_asset_link",
+        "move_character_main_to_reference",
         "generate_assets",
         "generate_character_voice_references",
         "confirm_character_voice_reference",
@@ -237,6 +240,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         update_custom_style_tool(ctx),
         delete_project_asset_tool(ctx),
         manage_project_asset_link_tool(ctx),
+        move_character_main_to_reference_tool(ctx),
         retry_project_migration_tool(ctx),
     ]
     return create_sdk_mcp_server(

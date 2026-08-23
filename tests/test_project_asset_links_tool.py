@@ -39,17 +39,14 @@ async def test_agent_can_link_configure_and_unlink_project_asset(
             "action": "configure",
             "resource_type": "character",
             "resource_id": "鳄鱼爸爸",
-            "image_usage": "reference",
             "voice_source": "voice_id",
         }
     )
     assert "is_error" not in configured
     entry = json.loads(configured["content"][0]["text"])["project_asset"]
-    assert entry["global_asset_image_usage"] == "reference"
+    assert entry["global_asset_image_usage"] == "main"
     assert entry["global_asset_voice_source"] == "voice_id"
 
-    unlinked = await tool.handler(
-        {"action": "unlink", "resource_type": "character", "resource_id": "鳄鱼爸爸"}
-    )
+    unlinked = await tool.handler({"action": "unlink", "resource_type": "character", "resource_id": "鳄鱼爸爸"})
     assert "is_error" not in unlinked
     assert "global_asset_id" not in pm.load_project("demo")["characters"]["鳄鱼爸爸"]

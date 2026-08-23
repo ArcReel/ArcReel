@@ -48,9 +48,7 @@ async def test_linked_global_image_is_generation_reference_only_in_reference_mod
     assert await generation_tasks._resolve_linked_global_image_reference("demo", "scene", "客厅") == image_path
 
 
-async def test_selected_global_reference_audio_enters_generation_inputs(
-    tmp_path: Path, db_factory
-) -> None:
+async def test_selected_global_reference_audio_enters_generation_inputs(tmp_path: Path, db_factory) -> None:
     projects_root = tmp_path / "projects"
     audio_path = projects_root / "_global_assets" / "character" / "dad.wav"
     audio_path.parent.mkdir(parents=True)
@@ -70,6 +68,44 @@ async def test_selected_global_reference_audio_enters_generation_inputs(
             }
         }
     }
-    assert await resolve_linked_global_reference_audio_paths(
-        project, projects_root, session_factory=db_factory
-    ) == {"鳄鱼爸爸": audio_path}
+    assert await resolve_linked_global_reference_audio_paths(project, projects_root, session_factory=db_factory) == {
+        "鳄鱼爸爸": audio_path
+    }
+
+
+async def test_project_reference_snapshot_wins_after_generated_main_moves_over_linked_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo")
+    pm.add_project_character("demo", "鳄鱼爸爸", "角色")
+    project_reference = pm.get_project_path("demo") / "characters" / "refs" / "鳄鱼爸爸.png"
+    project_reference.parent.mkdir(parents=True)
+    project_reference.write_bytes(b"project-reference-b")
+    pm.update_character_reference_image("demo", "鳄鱼爸爸", "characters/refs/鳄鱼爸爸.png")
+    global_reference = tmp_path / "global-a.png"
+    global_reference.write_bytes(b"global-reference-a")
+    captured: list[bytes] = []
+
+    async def _run(**kwargs):
+        frozen = kwargs["frozen_references"]
+        captured.extend(path.read_bytes() for path in frozen.reference_images or [])
+        frozen.cleanup()
+        return {"resource_type": "characters", "resource_id": "鳄鱼爸爸"}
+
+    async def _linked_reference(*_args, **_kwargs):
+        return global_reference
+
+    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(
+        generation_tasks,
+        "_resolve_linked_global_image_reference",
+        _linked_reference,
+    )
+    monkeypatch.setattr(generation_tasks, "_run_asset_sheet_image_task", _run)
+
+    await generation_tasks.execute_character_task("demo", "鳄鱼爸爸", {"prompt": "角色"})
+
+    assert captured == [b"project-reference-b"]

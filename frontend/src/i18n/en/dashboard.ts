@@ -1583,6 +1583,7 @@ export default {
   'tool_name_generate_character_voice_references': 'Generate character voice candidates',
   'tool_name_confirm_character_voice_reference': 'Confirm character reference audio',
   'tool_name_manage_project_asset_link': 'Manage global asset link',
+  'tool_name_move_character_main_to_reference': 'Move character main image to reference',
   'tool_name_generate_storyboards': 'Generate storyboards',
   'tool_name_edit_images': 'Edit images',
   'tool_name_generate_grid': 'Generate multi-grid storyboard',

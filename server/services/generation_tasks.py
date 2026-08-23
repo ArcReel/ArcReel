@@ -2903,12 +2903,12 @@ async def execute_character_task(
         _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc)
         _ref_images = None
         _ref_path = _char_data.get("reference_image")
-        if linked_reference is not None:
-            _ref_images = [linked_reference]
-        elif _ref_path:
+        if _ref_path:
             _full_ref = _project_path / _ref_path
             if _full_ref.exists():
                 _ref_images = [_full_ref]
+        if _ref_images is None and linked_reference is not None:
+            _ref_images = [linked_reference]
         _visual_references = tuple(
             VisualReference(
                 path=path,

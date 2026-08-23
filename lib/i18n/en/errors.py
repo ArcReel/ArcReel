@@ -119,6 +119,8 @@ MESSAGES = {
     "narration_speed_must_be_positive": "Narration speed must be a positive number",
     "speech_rate_out_of_range": "Spoken pace must be between {min} and {max} (characters or words per second)",
     "character_not_found": "Character '{name}' does not exist",
+    "character_main_image_missing": "Character '{name}' has no current main image to move into the reference slot",
+    "character_main_image_changed": "Character '{name}' changed its main image; refresh and try again",
     "character_task_submitted": "Character asset sheet generation task for '{name}' submitted",
     "voice_sample_voice_required": "Please select a voice first",
     "voice_sample_text_too_long": "Sample text cannot exceed {max_length} characters",

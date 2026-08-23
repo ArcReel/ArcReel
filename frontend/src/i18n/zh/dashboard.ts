@@ -1582,6 +1582,7 @@ export default {
   'tool_name_generate_character_voice_references': '生成角色声音候选',
   'tool_name_confirm_character_voice_reference': '确认角色参考音频',
   'tool_name_manage_project_asset_link': '管理全局资产链接',
+  'tool_name_move_character_main_to_reference': '将角色主图转为参考图',
   'tool_name_generate_storyboards': '生成分镜图',
   'tool_name_edit_images': '编辑图片',
   'tool_name_generate_grid': '生成多宫格分镜图',

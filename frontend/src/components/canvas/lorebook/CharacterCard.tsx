@@ -4,7 +4,6 @@ import { ImagePlus, Pause, Play, Upload, User, X } from "lucide-react";
 import { API } from "@/api";
 import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
 import {
-  ProjectAssetImageUsageSwitch,
   ProjectAssetLinkControl,
   ProjectAssetVoiceSourceSwitch,
 } from "@/components/assets/ProjectAssetLinkControl";
@@ -19,6 +18,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { CharacterMainToReferenceButton } from "./CharacterMainToReferenceButton";
 import { EditableAssetName } from "./EditableAssetName";
 import { ProjectAssetDeleteButton } from "./ProjectAssetDeleteButton";
 import { VoiceSampleButton } from "./VoiceSampleButton";
@@ -298,7 +298,7 @@ export function CharacterCard({
     : null;
 
   const linkedReferenceUrl = character.global_asset_image_usage === "reference" ? globalImageUrl : null;
-  const displayedReferenceUrl = referencePreview ?? linkedReferenceUrl ?? savedReferenceUrl;
+  const displayedReferenceUrl = referencePreview ?? savedReferenceUrl ?? linkedReferenceUrl;
   const hasSavedReference = Boolean(savedReferenceUrl) && !referencePreview;
 
   const savedAudioUrl = character.reference_audio
@@ -479,13 +479,11 @@ export function CharacterCard({
           </div>
         </div>
 
-        {!readOnly && hasGlobalLink && globalImageUrl ? (
+        {!readOnly && sheetUrl ? (
           <div className="-my-1 flex justify-center">
-            <ProjectAssetImageUsageSwitch
+            <CharacterMainToReferenceButton
               projectName={projectName}
-              resourceType="character"
-              resourceId={name}
-              imageUsage={character.global_asset_image_usage}
+              characterName={name}
               onReload={onReload}
               busy={generating || uploadingSheet || saving || deletingAudio}
             />

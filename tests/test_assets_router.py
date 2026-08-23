@@ -174,8 +174,8 @@ class TestAssetsCRUDAndProjectLinks:
                 "image_usage": "reference",
             },
         )
-        assert configured.status_code == 200, configured.text
-        assert pm.load_project("target")["characters"]["鳄鱼爸爸"]["global_asset_image_usage"] == "reference"
+        assert configured.status_code == 400, configured.text
+        assert pm.load_project("target")["characters"]["鳄鱼爸爸"]["global_asset_image_usage"] == "main"
 
         unlinked = client.delete("/api/v1/assets/project-links/target/character/%E9%B3%84%E9%B1%BC%E7%88%B8%E7%88%B8")
 

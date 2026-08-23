@@ -1706,6 +1706,7 @@ export default {
   'tool_name_generate_character_voice_references': 'Tạo ứng viên giọng nhân vật',
   'tool_name_confirm_character_voice_reference': 'Xác nhận âm thanh tham chiếu nhân vật',
   'tool_name_manage_project_asset_link': 'Quản lý liên kết tài sản toàn cục',
+  'tool_name_move_character_main_to_reference': 'Chuyển ảnh chính nhân vật sang ảnh tham chiếu',
   'tool_name_generate_storyboards': 'Tạo storyboard',
   'tool_name_edit_images': 'Chỉnh sửa ảnh',
   'tool_name_generate_grid': 'Tạo ảnh phân cảnh đa lưới',

@@ -16,7 +16,7 @@ from lib.asset_types import (
 )
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
-from lib.project_change_hints import project_change_source
+from lib.project_change_hints import ProjectChangeSource, project_change_source
 from lib.project_manager import ProjectManager, get_project_manager
 
 
@@ -41,7 +41,7 @@ async def link_project_asset(
     asset_id: str,
     *,
     manager: ProjectManager | None = None,
-    source: str = "webui",
+    source: ProjectChangeSource = "webui",
     session_factory=None,
 ) -> tuple[dict[str, Any], Any]:
     if resource_type not in GLOBAL_LIBRARY_ASSET_TYPES:
@@ -62,6 +62,7 @@ async def link_project_asset(
                 entry[GLOBAL_ASSET_VOICE_SOURCE_FIELD] = (
                     "reference_audio" if asset.audio_path else "voice_id" if asset.voice_id else "none"
                 )
+
         with project_change_source(source):
             return pm.update_asset_entry(resource_type, project_name, resource_id, _mutate)
 
@@ -74,7 +75,7 @@ async def unlink_project_asset(
     resource_id: str,
     *,
     manager: ProjectManager | None = None,
-    source: str = "webui",
+    source: ProjectChangeSource = "webui",
 ) -> dict[str, Any]:
     if resource_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise ProjectAssetLinkError("invalid asset type")
@@ -89,6 +90,7 @@ async def unlink_project_asset(
                 GLOBAL_ASSET_VOICE_SOURCE_FIELD,
             ):
                 entry.pop(field, None)
+
         with project_change_source(source):
             return pm.update_asset_entry(resource_type, project_name, resource_id, _mutate)
 
@@ -103,11 +105,13 @@ async def configure_project_asset_link(
     image_usage: str | None = None,
     voice_source: str | None = None,
     manager: ProjectManager | None = None,
-    source: str = "webui",
+    source: ProjectChangeSource = "webui",
     session_factory=None,
 ) -> tuple[dict[str, Any], Any]:
     if image_usage is not None and image_usage not in GLOBAL_ASSET_IMAGE_USAGES:
         raise ProjectAssetLinkError("image_usage must be main or reference")
+    if resource_type == "character" and image_usage is not None:
+        raise ProjectAssetLinkError("character image slots must use move_character_main_to_reference")
     if voice_source is not None and voice_source not in GLOBAL_ASSET_VOICE_SOURCES:
         raise ProjectAssetLinkError("voice_source must be reference_audio, voice_id, or none")
     pm = manager or get_project_manager()
@@ -140,6 +144,7 @@ async def configure_project_asset_link(
                 current[GLOBAL_ASSET_IMAGE_USAGE_FIELD] = image_usage
             if voice_source is not None:
                 current[GLOBAL_ASSET_VOICE_SOURCE_FIELD] = voice_source
+
         with project_change_source(source):
             return pm.update_asset_entry(resource_type, project_name, resource_id, _mutate)
 
