@@ -2,22 +2,6 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { AssetFormModal } from "./AssetFormModal";
 
-// Mock i18next to return keys as values
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) => {
-      if (opts) {
-        let result = key;
-        for (const [k, v] of Object.entries(opts)) {
-          result = result.replace(`{{${k}}}`, String(v));
-        }
-        return result;
-      }
-      return key;
-    },
-  }),
-}));
-
 describe("AssetFormModal", () => {
   it("create mode renders empty fields and calls onSubmit", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
@@ -25,8 +9,8 @@ describe("AssetFormModal", () => {
       <AssetFormModal type="character" mode="create"
         onClose={() => {}} onSubmit={onSubmit} />
     );
-    fireEvent.change(screen.getByLabelText(/field\.name/), { target: { value: "王小明" } });
-    fireEvent.click(screen.getByRole("button", { name: /create/ }));
+    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: "王小明" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: "王小明" })));
   });
 
@@ -51,8 +35,8 @@ describe("AssetFormModal", () => {
         onClose={() => {}} onSubmit={vi.fn()}
       />
     );
-    expect(screen.getByText(/conflict_warning/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /overwrite_existing/ })).toBeInTheDocument();
+    expect(screen.getByText(/已有同名资产/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "覆盖已有" })).toBeInTheDocument();
   });
 
   it("shows voice_style field only for character type", () => {
@@ -60,12 +44,12 @@ describe("AssetFormModal", () => {
       <AssetFormModal type="character" mode="create"
         onClose={() => {}} onSubmit={vi.fn()} />
     );
-    expect(screen.getByLabelText(/field\.voice_style/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/声音风格/)).toBeInTheDocument();
 
     rerender(
       <AssetFormModal type="scene" mode="create"
         onClose={() => {}} onSubmit={vi.fn()} />
     );
-    expect(screen.queryByLabelText(/field\.voice_style/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/声音风格/)).not.toBeInTheDocument();
   });
 });
