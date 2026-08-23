@@ -4,9 +4,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from server.agent_runtime import session_manager as sm_mod
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.message_utils import extract_plain_user_content
@@ -441,7 +439,7 @@ class TestSessionManagerMore:
         assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_read_within_project_root(self, tmp_path):
+    async def test_file_access_hook_allows_read_within_project_root(self, tmp_path, meta_store):
         """Hook allows Read within cwd and cwd-external (non-projects) paths;
         cross-project read is denied per new sandbox policy."""
         own_project = tmp_path / "projects" / "alpha"
@@ -450,12 +448,6 @@ class TestSessionManagerMore:
         other_project.mkdir(parents=True)
         docs_dir = tmp_path / "docs"
         docs_dir.mkdir(parents=True)
-
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
@@ -488,21 +480,13 @@ class TestSessionManagerMore:
         )
         assert result.get("continue_") is True
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_file_access_hook_blocks_write_to_readonly_dir(self, tmp_path):
+    async def test_file_access_hook_blocks_write_to_readonly_dir(self, tmp_path, meta_store):
         """Hook denies Write to lib/, allows own project."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
         lib_dir = tmp_path / "lib"
         lib_dir.mkdir(parents=True)
-
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
@@ -527,19 +511,11 @@ class TestSessionManagerMore:
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_bash_without_path_check(self, tmp_path):
+    async def test_file_access_hook_allows_bash_without_path_check(self, tmp_path, meta_store):
         """Hook skips Bash (not in PATH_TOOLS)."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
-
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
@@ -556,10 +532,8 @@ class TestSessionManagerMore:
         )
         assert result.get("continue_") is True
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_file_access_hook_blocks_write_non_whitelisted_ext(self, tmp_path):
+    async def test_file_access_hook_blocks_write_non_whitelisted_ext(self, tmp_path, meta_store):
         """Hook denies Write/Edit for forbidden code extensions in project dir.
 
         New policy: blacklist of code extensions (.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml)
@@ -567,12 +541,6 @@ class TestSessionManagerMore:
         """
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
-
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
@@ -646,10 +614,8 @@ class TestSessionManagerMore:
         )
         assert result.get("continue_") is True
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_read_agent_profile(self, tmp_path):
+    async def test_file_access_hook_allows_read_agent_profile(self, tmp_path, meta_store):
         """Hook allows Read for agent_runtime_profile/ files."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
@@ -658,12 +624,6 @@ class TestSessionManagerMore:
         # 这里用 exist_ok=True 容忍。CLAUDE.md 内容会被本测试覆写为有意义文本。
         profile_md.parent.mkdir(parents=True, exist_ok=True)
         profile_md.write_text("# Agent instructions")
-
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=tmp_path,
@@ -680,9 +640,7 @@ class TestSessionManagerMore:
         )
         assert result.get("continue_") is True
 
-        await engine.dispose()
-
-    async def _make_sdk_hook_env(self, tmp_path):
+    async def _make_sdk_hook_env(self, tmp_path, meta_store):
         """Create a SessionManager + hook with SDK dir outside project_root."""
         app_root = tmp_path / "app"
         own_project = app_root / "projects" / "alpha"
@@ -690,12 +648,6 @@ class TestSessionManagerMore:
 
         claude_home = tmp_path / "claude_home" / "projects"
         claude_home.mkdir(parents=True)
-
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        meta_store = SessionMetaStore(session_factory=factory)
 
         mgr = sm_mod.SessionManager(
             project_root=app_root,
@@ -705,16 +657,16 @@ class TestSessionManagerMore:
         mgr.access_policy = replace(mgr.access_policy, claude_projects_dir=claude_home)
 
         hook = mgr._options_assembler._build_file_access_hook(own_project)
-        return hook, own_project, claude_home, engine
+        return hook, own_project, claude_home
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_read_sdk_tool_results(self, tmp_path):
+    async def test_file_access_hook_allows_read_sdk_tool_results(self, tmp_path, meta_store):
         """Hook allows Read for SDK tool-results of the CURRENT project.
 
         New policy: cwd-external non-projects paths (含 SDK 目录) 默认放行；
         Write 仍受 cwd 内限制约束。
         """
-        hook, own_project, claude_home, engine = await self._make_sdk_hook_env(tmp_path)
+        hook, own_project, claude_home = await self._make_sdk_hook_env(tmp_path, meta_store)
 
         encoded = AgentAccessPolicy.encode_sdk_project_path(own_project)
         tool_results_dir = claude_home / encoded / "abc-session" / "tool-results"
@@ -738,16 +690,14 @@ class TestSessionManagerMore:
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_read_other_project_dir(self, tmp_path):
+    async def test_file_access_hook_denies_read_other_project_dir(self, tmp_path, meta_store):
         """Hook denies Read for ANOTHER project's directory under projects/.
 
         New policy: 跨项目隔离基于 project_root/projects/<other>/ 的物理位置，
         而非 SDK 编码路径。
         """
-        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path)
+        hook, _, _ = await self._make_sdk_hook_env(tmp_path, meta_store)
 
         other_project = tmp_path / "app" / "projects" / "beta"
         other_project.mkdir(parents=True)
@@ -762,15 +712,13 @@ class TestSessionManagerMore:
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_write_outside_cwd(self, tmp_path):
+    async def test_file_access_hook_denies_write_outside_cwd(self, tmp_path, meta_store):
         """Hook denies Write to any path outside project_cwd.
 
         New policy: 写工具一律拒绝 cwd 外路径；Read 已放宽至 cwd 外非 projects/ 路径。
         """
-        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path)
+        hook, _, _ = await self._make_sdk_hook_env(tmp_path, meta_store)
 
         # Write outside cwd — denied
         result = await hook(
@@ -780,16 +728,14 @@ class TestSessionManagerMore:
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_file_access_hook_allows_read_sdk_task_output(self, tmp_path):
+    async def test_file_access_hook_allows_read_sdk_task_output(self, tmp_path, meta_store):
         """Hook allows Read for SDK task output files under /tmp/claude-*.
 
         New policy: cwd-external non-projects 路径默认放行（含 SDK 后台任务输出），
         写工具仍受 cwd 内限制约束。
         """
-        hook, _, _, engine = await self._make_sdk_hook_env(tmp_path)
+        hook, _, _ = await self._make_sdk_hook_env(tmp_path, meta_store)
 
         # SDK task output path pattern: /tmp/claude-{N}/{encoded}/tasks/{id}.output
         task_output = "/tmp/claude-0/-app-projects-alpha-abc123/tasks/bdgaof0ba.output"
@@ -808,8 +754,6 @@ class TestSessionManagerMore:
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-        await engine.dispose()
-
 
 class TestJsonValidationHook:
     """Tests for the PreToolUse JSON validation hook."""
@@ -817,7 +761,6 @@ class TestJsonValidationHook:
     def _make_manager(self, tmp_path):
         """Build a SessionManager with minimal fakes (SDK not required)."""
         from server.agent_runtime.session_manager import SessionManager
-        from server.agent_runtime.session_store import SessionMetaStore
 
         return SessionManager(
             project_root=tmp_path,
@@ -1036,7 +979,7 @@ class TestJsonValidationHook:
         # old_string not in file → hook skips → allowed
         assert result == {}
 
-    async def test_edit_curly_quotes_in_new_string_straight_old_denies(self, tmp_path):
+    async def test_edit_curly_quotes_in_new_string_straight_old_denies(self, tmp_path, meta_store):
         """Edit with straight-quote old_string that matches file but
         curly-quote new_string is denied via the early curly-quote check."""
         json_file = tmp_path / "ep.json"
@@ -1060,7 +1003,6 @@ class TestJsonPostValidationHook:
 
     def _make_manager(self, tmp_path):
         from server.agent_runtime.session_manager import SessionManager
-        from server.agent_runtime.session_store import SessionMetaStore
 
         return SessionManager(
             project_root=tmp_path,

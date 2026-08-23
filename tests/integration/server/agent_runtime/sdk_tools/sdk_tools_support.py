@@ -470,13 +470,6 @@ async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
     return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
 
 
-def _nr_caps(default=4, durations=(4, 6, 8)):
-    async def fake_caps(_p, _episode=None):
-        return default, list(durations)
-
-    return fake_caps
-
-
 def _nr_project(fake_ctx: ToolContext) -> None:
     _rv_project(fake_ctx, generation_mode="storyboard")
 

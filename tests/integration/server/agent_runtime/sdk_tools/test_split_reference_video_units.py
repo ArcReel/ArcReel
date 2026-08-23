@@ -45,6 +45,7 @@ def _veo_720p(fake_ctx: ToolContext) -> None:
         "gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}
     }
 
+
 # ---------------------------------------------------------------------------
 # split_reference_video_units
 # ---------------------------------------------------------------------------
@@ -219,9 +220,7 @@ async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_fai
         error=ValueError("no provider configured"),
         requested_generate_audio=False,
     )
-    caps = await mod._fetch_reference_caps_with_fallback(
-        {"video_generate_audio": False}, 1, config_resolver=resolver
-    )
+    caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1, config_resolver=resolver)
     assert caps.voice.requested_generate_audio is False
 
 
@@ -237,9 +236,7 @@ async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_fail
         error=ValueError("no provider configured"),
         generate_audio_error=RuntimeError("db unavailable"),
     )
-    caps = await mod._fetch_reference_caps_with_fallback(
-        {"video_generate_audio": False}, 1, config_resolver=resolver
-    )
+    caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1, config_resolver=resolver)
     assert caps.voice.requested_generate_audio is False
 
 

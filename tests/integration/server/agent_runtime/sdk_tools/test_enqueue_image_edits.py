@@ -230,7 +230,6 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
 
 
 async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
     _use_fake_caps(fake_ctx)
     tool_obj = edit_images_tool(fake_ctx)
@@ -275,7 +274,6 @@ async def test_edit_images_rejects_unknown_resource_type(fake_ctx: ToolContext) 
 
 async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext, monkeypatch) -> None:
     """资产没有可编辑的当前图（sheet 字段未设置）时跳过并告警，不入队。"""
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
     _use_fake_caps(fake_ctx)
     tool_obj = edit_images_tool(fake_ctx)

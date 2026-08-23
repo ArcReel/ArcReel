@@ -13,10 +13,10 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
-from lib.db.base import Base
 from lib.generation_queue_client import TaskSpec
 from lib.generation_result import GenerationAction, GenerationSelectionMode
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -32,18 +32,13 @@ _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
 _CONTROLLABLE = "ark/doubao-seedance-2-0-260128"
 
 
-async def _make_factory(**settings: str):
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    if settings:
-        async with factory() as session:
-            svc = ConfigService(session)
-            for key, value in settings.items():
-                await svc.set_setting(key, value)
-            await session.commit()
-    return factory, engine
+async def _seed_settings(factory: async_sessionmaker[AsyncSession], **settings: str) -> None:
+    """把系统设置写进共享 DB fixture 的库里。"""
+    async with factory() as session:
+        svc = ConfigService(session)
+        for key, value in settings.items():
+            await svc.set_setting(key, value)
+        await session.commit()
 
 
 class _FakePM:
@@ -74,23 +69,23 @@ def _unit_spec(unit: dict[str, Any]) -> TaskSpec:
 
 
 class TestAssertAudioSwitchSupported:
-    async def test_always_audible_model_with_audio_off_names_provider_and_model(self, monkeypatch):
-        factory, engine = await _make_factory(default_video_backend=_ALWAYS_AUDIBLE, video_generate_audio="false")
-        try:
-            monkeypatch.setattr("lib.db.async_session_factory", factory)
-            with pytest.raises(ValueError) as exc_info:
-                await assert_audio_switch_supported({}, "i2v")
-        finally:
-            await engine.dispose()
+    async def test_always_audible_model_with_audio_off_names_provider_and_model(self, db_factory, monkeypatch):
+        await _seed_settings(db_factory, default_video_backend=_ALWAYS_AUDIBLE, video_generate_audio="false")
+        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+
+        with pytest.raises(ValueError) as exc_info:
+            await assert_audio_switch_supported({}, "i2v")
+
         assert "dashscope/wan2.7-i2v" in str(exc_info.value)
 
-    async def test_controllable_model_keeps_the_off_setting(self, monkeypatch):
-        factory, engine = await _make_factory(default_video_backend=_CONTROLLABLE, video_generate_audio="false")
-        try:
-            monkeypatch.setattr("lib.db.async_session_factory", factory)
-            await assert_audio_switch_supported({}, "i2v")
-        finally:
-            await engine.dispose()
+    async def test_controllable_model_keeps_the_off_setting(self, db_factory, monkeypatch):
+        await _seed_settings(db_factory, default_video_backend=_CONTROLLABLE, video_generate_audio="false")
+        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+
+        await assert_audio_switch_supported({}, "i2v")
+
+        # 闸门放行后关音设置原样生效，没有被改写成有声
+        assert await ConfigResolver(db_factory).video_generate_audio_for_project({}) is False
 
 
 class TestStoryboardRouteGate:

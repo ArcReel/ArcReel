@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -23,6 +24,17 @@ from server.agent_runtime.session_manager import (
     SessionManager,
 )
 from server.agent_runtime.session_store import SessionMetaStore
+
+
+class _RecordingClient:
+    """假 SDK 客户端：只记住这轮装配好的 options。
+
+    actor 收到的是闭包着 options 的 ``client_factory``，调用一次即可取出其中的
+    stderr 回调——被测的正是「装配器把回调挂进 options」这一步，不能替换掉它。
+    """
+
+    def __init__(self, options: Any) -> None:
+        self.options = options
 
 
 def test_agent_startup_error_str_includes_stderr() -> None:
@@ -100,8 +112,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
         def __init__(self, *_, on_message=None, client_factory=None):
             self.task = None
             self._on_message = on_message
-            # client_factory 是个 lambda，里面闭包了 options；从 client_factory
-            # 反推 options 比较麻烦，改由 monkeypatch 直接捕获 _build_options。
+            captured_stderr_cb.append(client_factory().options.stderr)
 
         async def start(self):
             # 模拟 SDK 在 connect 阶段先喷 stderr 再退出
@@ -114,19 +125,8 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
         def add_done_callback(self, _cb):
             pass
 
-    # 包装 _build_options，把 stderr 回调暴露给假 actor
-    real_build_options = SessionManager._build_options
-
-    async def wrapped_build_options(self, *args, **kwargs):
-        opts = await real_build_options(self, *args, **kwargs)
-        captured_stderr_cb.append(opts.stderr)
-        return opts
-
-    monkeypatch.setattr(SessionManager, "_build_options", wrapped_build_options)
+    monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", _RecordingClient)
     monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
-
-    # _ensure_capacity 内部访问 DB，跳过
-    monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
     caplog.set_level("ERROR", logger="server.agent_runtime.session_manager")
 
     with pytest.raises(AgentStartupError) as exc_info:
@@ -174,7 +174,6 @@ async def test_send_new_session_no_stderr_still_wraps(
             pass
 
     monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
-    monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
 
     with pytest.raises(AgentStartupError) as exc_info:
         await seeded_session_manager.send_new_session("demo", "你好")
@@ -189,8 +188,11 @@ async def test_send_new_session_no_stderr_still_wraps(
 async def test_send_new_session_wraps_option_assembly_failure(
     seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
-    monkeypatch.setattr(SessionManager, "_build_options", AsyncMock(side_effect=LookupError("credential missing")))
+    # 凭证注入失败是 options 装配失败的真实来源，异常须原样浮到 send_new_session
+    monkeypatch.setattr(
+        "server.agent_runtime.options_assembler.load_provider_env_overrides",
+        AsyncMock(side_effect=LookupError("credential missing")),
+    )
 
     with pytest.raises(AgentStartupError) as exc_info:
         await seeded_session_manager.send_new_session("demo", "你好")
@@ -224,6 +226,7 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
     class _FakeActor:
         def __init__(self, *_, on_message=None, client_factory=None):
             self.task = None
+            captured_stderr_cb.append(client_factory().options.stderr)
 
         async def start(self):
             cb = captured_stderr_cb[0]
@@ -233,16 +236,8 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
         def add_done_callback(self, _cb):
             pass
 
-    real_build_options = SessionManager._build_options
-
-    async def wrapped_build_options(self, *args, **kwargs):
-        opts = await real_build_options(self, *args, **kwargs)
-        captured_stderr_cb.append(opts.stderr)
-        return opts
-
-    monkeypatch.setattr(SessionManager, "_build_options", wrapped_build_options)
+    monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", _RecordingClient)
     monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
-    monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
 
     meta = make_session_meta(id="resumed-session", project_name="demo", status="idle")
 
@@ -273,6 +268,7 @@ async def test_startup_stderr_is_not_truncated(
     class _FakeActor:
         def __init__(self, *_, on_message=None, client_factory=None):
             self.task = None
+            captured_stderr_cb.append(client_factory().options.stderr)
 
         async def start(self):
             cb = captured_stderr_cb[0]
@@ -283,16 +279,8 @@ async def test_startup_stderr_is_not_truncated(
         def add_done_callback(self, _cb):
             pass
 
-    real_build_options = SessionManager._build_options
-
-    async def wrapped_build_options(self, *args, **kwargs):
-        opts = await real_build_options(self, *args, **kwargs)
-        captured_stderr_cb.append(opts.stderr)
-        return opts
-
-    monkeypatch.setattr(SessionManager, "_build_options", wrapped_build_options)
+    monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", _RecordingClient)
     monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
-    monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
 
     with pytest.raises(AgentStartupError) as exc_info:
         await seeded_session_manager.send_new_session("demo", "你好")
