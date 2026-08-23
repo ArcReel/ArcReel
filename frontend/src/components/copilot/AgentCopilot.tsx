@@ -176,12 +176,14 @@ export function AgentCopilot() {
 
   const { currentProjectName } = useProjectsStore();
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
+  const hyperframesAutoEditRequest = useAppStore((s) => s.hyperframesAutoEditRequest);
   const { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
     useAssistantSession(currentProjectName);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
+  const autoEditDispatchRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slashMenuRef = useRef<SlashCommandMenuHandle>(null);
   const [localInput, setLocalInput] = useState("");
@@ -213,6 +215,32 @@ export function AgentCopilot() {
     : isRunning
       ? t("generating_stop_hint")
       : t("input_placeholder");
+
+  useEffect(() => {
+    const request = hyperframesAutoEditRequest;
+    if (!request || !currentProjectName) return;
+    if (request.projectName !== currentProjectName) {
+      useAppStore.getState().clearHyperframesAutoEditRequest(request.requestId);
+      return;
+    }
+    if (sending || isRunning || pendingQuestion || autoEditDispatchRef.current === request.requestId) {
+      return;
+    }
+    autoEditDispatchRef.current = request.requestId;
+    void sendMessage(request.prompt).finally(() => {
+      useAppStore.getState().clearHyperframesAutoEditRequest(request.requestId);
+      if (autoEditDispatchRef.current === request.requestId) {
+        autoEditDispatchRef.current = null;
+      }
+    });
+  }, [
+    currentProjectName,
+    hyperframesAutoEditRequest,
+    isRunning,
+    pendingQuestion,
+    sendMessage,
+    sending,
+  ]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     if (attachDisabled) return;

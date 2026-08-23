@@ -10,3 +10,4 @@ export * from "./custom-provider";
 export * from "./cost";
 export * from "./reference-video";
 export * from "./workflow";
+export * from "./hyperframes";

@@ -42,6 +42,10 @@ from server.agent_runtime.sdk_tools.episode_planning import (
 )
 from server.agent_runtime.sdk_tools.global_assets import list_global_assets_tool
 from server.agent_runtime.sdk_tools.h3_prompt_optimization import optimize_h3_video_prompts_tool
+from server.agent_runtime.sdk_tools.hyperframes import (
+    generate_hyperframes_bgm_tool,
+    prepare_hyperframes_episode_tool,
+)
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
@@ -92,6 +96,8 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_video_selected",
     "generate_narration_audio",
     "optimize_h3_video_prompts",
+    "prepare_hyperframes_episode",
+    "generate_hyperframes_bgm",
     "generate_episode_script",
     "confirm_script_review",
     "normalize_drama_script",
@@ -134,6 +140,8 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "generate_video_selected",
         "generate_narration_audio",
         "optimize_h3_video_prompts",
+        "prepare_hyperframes_episode",
+        "generate_hyperframes_bgm",
         "generate_episode_script",
         "confirm_script_review",
         "normalize_drama_script",
@@ -187,6 +195,8 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         generate_video_selected_tool(ctx),
         generate_narration_audio_tool(ctx),
         optimize_h3_video_prompts_tool(ctx),
+        prepare_hyperframes_episode_tool(ctx),
+        generate_hyperframes_bgm_tool(ctx),
         generate_episode_script_tool(ctx),
         confirm_script_review_tool(ctx),
         normalize_drama_script_tool(ctx),

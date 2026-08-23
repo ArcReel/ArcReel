@@ -29,6 +29,7 @@ vi.mock("./ExportScopeDialog", () => ({
     open,
     onSelect,
     onJianyingExport,
+    onHyperframesEdit,
   }: {
     open: boolean;
     onClose: () => void;
@@ -42,6 +43,15 @@ vi.mock("./ExportScopeDialog", () => ({
       narrationDelivery: "post_production" | "use_tts",
     ) => void;
     jianyingExporting?: boolean;
+    onHyperframesEdit?: (
+      episode: number,
+      options: {
+        narrationDelivery: "post_production" | "use_tts";
+        instruction: string;
+        backgroundMusic: boolean;
+      },
+    ) => void;
+    hyperframesPreparing?: boolean;
   }) =>
     open ? (
       <div data-testid="export-scope-dialog">
@@ -57,6 +67,20 @@ vi.mock("./ExportScopeDialog", () => ({
             onClick={() => onJianyingExport(1, "/drafts", "6", "post_production")}
           >
             剪映草稿
+          </button>
+        )}
+        {onHyperframesEdit && (
+          <button
+            data-testid="scope-hyperframes"
+            onClick={() =>
+              onHyperframesEdit(1, {
+                narrationDelivery: "post_production",
+                instruction: "前三秒更有冲击力",
+                backgroundMusic: true,
+              })
+            }
+          >
+            自动剪辑
           </button>
         )}
       </div>
@@ -362,6 +386,61 @@ describe("GlobalHeader", () => {
       expect(anchorClick).toHaveBeenCalled();
     });
     expect(listUnits).not.toHaveBeenCalled();
+  });
+
+  it("参考视频项目可从导出入口准备工作区并打开 HyperFrames Studio", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+    const prepareWorkspace = vi.spyOn(API, "prepareHyperframesWorkspace").mockResolvedValue({
+      project_name: "ad-demo",
+      episode: 1,
+      exists: true,
+      workspace_path: "/projects/ad-demo/hyperframes/episode_01",
+      composition_path: "/projects/ad-demo/hyperframes/episode_01/index.html",
+      manifest_path: "/projects/ad-demo/hyperframes/episode_01/manifest.json",
+      studio_status: "ready",
+      studio_url: "http://localhost:12500",
+    });
+
+    useProjectsStore.setState({
+      currentProjectName: "ad-demo",
+      currentProjectData: {
+        title: "带货短片",
+        content_mode: "ad",
+        generation_mode: "reference_video",
+        style: "明亮写实",
+        episodes: [],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    (await screen.findByTestId("scope-hyperframes")).click();
+
+    await waitFor(() => {
+      expect(prepareWorkspace).toHaveBeenCalledWith("ad-demo", 1, {
+        narration_delivery: "post_production",
+      });
+      expect(useAppStore.getState().hyperframesOpenRequest).toMatchObject({
+        projectName: "ad-demo",
+        episode: 1,
+      });
+      expect(useAppStore.getState().hyperframesAutoEditRequest).toMatchObject({
+        projectName: "ad-demo",
+        prompt: expect.stringContaining("前三秒更有冲击力"),
+      });
+      expect(useAppStore.getState().hyperframesAutoEditRequest?.prompt).toContain("纯器乐 BGM");
+      expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+      expect(screen.queryByTestId("export-scope-dialog")).not.toBeInTheDocument();
+    });
   });
 
   it("closes an already-open export dialog when the workbench switches to the demo project", async () => {

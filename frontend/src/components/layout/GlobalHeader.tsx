@@ -22,7 +22,12 @@ import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnostics
 import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
 import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
-import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
+import type {
+  ExportDiagnostics,
+  HyperframesAutoEditOptions,
+  WorkspaceNotification,
+} from "@/types";
+import { useCurrentEpisode } from "@/hooks/useCurrentEpisode";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
 function triggerBrowserDownload(url: string) {
@@ -57,6 +62,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const [exportingProject, setExportingProject] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [jianyingExporting, setJianyingExporting] = useState(false);
+  const [hyperframesPreparing, setHyperframesPreparing] = useState(false);
   const [exportDiagnostics, setExportDiagnostics] = useState<ExportDiagnostics | null>(null);
   const usageAnchorRef = useRef<HTMLDivElement>(null);
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
@@ -65,6 +71,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
+  const currentEpisode = useCurrentEpisode();
 
   const currentPhase = currentProjectData?.status?.phase;
   const runningCount = stats.running + stats.queued;
@@ -191,6 +198,43 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         .pushNotification(t("dashboard:export_failed", { message: errMsg(err) }), "error");
     } finally {
       setExportingProject(false);
+    }
+  };
+
+  const handleHyperframesEdit = async (
+    episode: number,
+    options: HyperframesAutoEditOptions,
+  ) => {
+    if (!currentProjectName || hyperframesPreparing) return;
+    setHyperframesPreparing(true);
+    try {
+      await API.prepareHyperframesWorkspace(currentProjectName, episode, {
+        narration_delivery: options.narrationDelivery,
+      });
+      setExportDialogOpen(false);
+      useAppStore.getState().openHyperframesStudio(currentProjectName, episode);
+      const userInstruction = options.instruction || "无额外 Instruction；请根据正式剧本自动决定剪辑。";
+      const musicInstruction = options.backgroundMusic
+        ? "允许并自动判断背景音乐；需要时必须调用 ArcReel GPU 生成一条贯穿全片的纯器乐 BGM，音量固定为 15%。"
+        : "明确禁止生成或嵌入背景音乐。";
+      useAppStore.getState().requestHyperframesAutoEdit(
+        currentProjectName,
+        `请使用 hyperframes-auto-edit Skill 对第 ${episode} 集执行完整自动剪辑。\n` +
+          `声音版本：${options.narrationDelivery}\n` +
+          `背景音乐：${musicInstruction}\n` +
+          `<user_instruction>\n${userInstruction}\n</user_instruction>\n` +
+          "请读取正式剧本和工作区事实，先生成 EDITING_PLAN.md，再在同一轮完成 index.html 剪辑并校验。",
+      );
+      useAppStore.getState().setAssistantPanelOpen(true);
+      setLocation(`/episodes/${episode}`);
+      useAppStore.getState().pushToast(t("dashboard:hyperframes_auto_edit_started"), "success");
+    } catch (error) {
+      useAppStore.getState().pushNotification(
+        t("dashboard:hyperframes_prepare_failed", { message: errMsg(error) }),
+        "error",
+      );
+    } finally {
+      setHyperframesPreparing(false);
     }
   };
 
@@ -430,6 +474,13 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               episodes={currentProjectData?.episodes ?? []}
               onJianyingExport={voidPromise(handleJianyingExport)}
               jianyingExporting={jianyingExporting}
+              defaultEpisode={currentEpisode}
+              onHyperframesEdit={
+                currentProjectData?.generation_mode === "reference_video"
+                  ? voidPromise(handleHyperframesEdit)
+                  : undefined
+              }
+              hyperframesPreparing={hyperframesPreparing}
             />
           </div>
 

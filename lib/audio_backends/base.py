@@ -33,6 +33,14 @@ class AudioSynthesisRequest:
     # 语速预留：同步 qwen3-tts-flash 不支持（speech_rate 仅 realtime WebSocket 版可用），
     # 后端记 debug log 忽略。保留字段以便将来接入实时/可调速后端。
     speed: float | None = None
+    # 音乐生成专用扩展；普通 TTS 后端忽略。保持在同一请求信封中，让 Croco Music 3
+    # 继续复用既有 audio backend 装配、凭证与计费边界，而不是另建一套 GPU 客户端。
+    lyrics: str | None = None
+    max_duration: float | None = None
+    seed: int | None = None
+    tiled_decode: bool | None = None
+    output_format: str | None = None
+    client_job_id: str | None = None
 
 
 @dataclass

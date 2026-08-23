@@ -68,6 +68,8 @@ import type {
   NarrationStep1Draft,
   ReferenceStep1Draft,
   VideoCapabilities,
+  HyperframesWorkspaceStatus,
+  PrepareHyperframesWorkspaceRequest,
 } from "@/types";
 import type { GenerationRoute } from "@/utils/generation-mode";
 import type { GridCapability, GridGeneration } from "@/types/grid";
@@ -3236,6 +3238,38 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/h3-prompts/confirm`,
       { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  static async getHyperframesWorkspace(
+    projectName: string,
+    episode: number,
+    options?: { signal?: AbortSignal },
+  ): Promise<HyperframesWorkspaceStatus> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/hyperframes/episodes/${episode}`,
+      { signal: options?.signal },
+    );
+  }
+
+  static async prepareHyperframesWorkspace(
+    projectName: string,
+    episode: number,
+    payload: PrepareHyperframesWorkspaceRequest,
+  ): Promise<HyperframesWorkspaceStatus> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/hyperframes/episodes/${episode}`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  static async startHyperframesStudio(
+    projectName: string,
+    episode: number,
+  ): Promise<HyperframesWorkspaceStatus> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/hyperframes/episodes/${episode}/studio`,
+      { method: "POST" },
     );
   }
 

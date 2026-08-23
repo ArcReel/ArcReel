@@ -19,6 +19,7 @@ import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { H3PromptPanel } from "./H3PromptPanel";
+import { HyperframesStudioTab } from "./HyperframesStudioTab";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
@@ -827,7 +828,7 @@ export function ReferenceVideoCanvas({
   // Reset tab to units on project/episode change (render-time derived-state pattern).
   // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
   // units 面板无脚本可读、请求会 404，应先落到 preproc 审阅 gate。
-  const [tab, setTab] = useState<"units" | "preproc">(
+  const [tab, setTab] = useState<"units" | "preproc" | "hyperframes">(
     hasScript || !showPreprocess ? "units" : "preproc",
   );
   const [lastEpisode, setLastEpisode] = useState(episode);
@@ -843,6 +844,41 @@ export function ReferenceVideoCanvas({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 镜像 GridImageToVideoCanvas 同款效果
     if (hasScript || !showPreprocess) setTab("units");
   }, [hasScript, showPreprocess]);
+
+  const hyperframesRequest = useAppStore((state) => state.hyperframesOpenRequest);
+  const clearHyperframesRequest = useAppStore((state) => state.clearHyperframesOpenRequest);
+  const hyperframesKey = `${projectName}:${episode}`;
+  const [availableHyperframesKey, setAvailableHyperframesKey] = useState<string | null>(null);
+  const hyperframesAvailable = availableHyperframesKey === hyperframesKey;
+  const matchingHyperframesRequest =
+    hyperframesRequest?.projectName === projectName && hyperframesRequest.episode === episode
+      ? hyperframesRequest
+      : null;
+  const [appliedHyperframesRequestId, setAppliedHyperframesRequestId] = useState<string | null>(null);
+  if (
+    matchingHyperframesRequest &&
+    matchingHyperframesRequest.requestId !== appliedHyperframesRequestId
+  ) {
+    setAppliedHyperframesRequestId(matchingHyperframesRequest.requestId);
+    setAvailableHyperframesKey(hyperframesKey);
+    setTab("hyperframes");
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    API.getHyperframesWorkspace(projectName, episode, { signal: controller.signal })
+      .then((status) => {
+        if (status.exists) setAvailableHyperframesKey(`${projectName}:${episode}`);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [projectName, episode]);
+
+  useEffect(() => {
+    if (!matchingHyperframesRequest) return;
+    if (matchingHyperframesRequest.requestId !== appliedHyperframesRequestId) return;
+    clearHyperframesRequest(matchingHyperframesRequest.requestId);
+  }, [matchingHyperframesRequest, appliedHyperframesRequestId, clearHyperframesRequest]);
 
   // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
   // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
@@ -997,6 +1033,19 @@ export function ReferenceVideoCanvas({
               />
             )}
           </button>
+          {hyperframesAvailable && <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "hyperframes"}
+            onClick={() => setTab("hyperframes")}
+            className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
+              tab === "hyperframes" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+            }`}
+          >
+            <Scissors className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("reference_tab_hyperframes")}
+            {tab === "hyperframes" && <span aria-hidden="true" className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]" />}
+          </button>}
         </div>
         <span className="flex-1" />
         {tab === "units" && (
@@ -1038,7 +1087,11 @@ export function ReferenceVideoCanvas({
         </p>
       )}
 
-      {tab === "preproc" ? (
+      {tab === "hyperframes" ? (
+        <div className="min-h-0 flex-1">
+          <HyperframesStudioTab projectName={projectName} episode={episode} />
+        </div>
+      ) : tab === "preproc" ? (
         <div className="min-h-0 flex-1 overflow-auto bg-[oklch(0.18_0.011_250_/_0.25)]">
           <div className="mx-auto w-full max-w-3xl px-6 py-5">
             <ReferenceStep1PreviewPanel
