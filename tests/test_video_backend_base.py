@@ -32,6 +32,18 @@ from lib.video_backends.base import (
 pytestmark = pytest.mark.unit
 
 
+class _FakeClock:
+    def __init__(self, times: list[float]) -> None:
+        self._times = iter(times)
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return next(self._times)
+
+    async def sleep(self, delay: float) -> None:
+        self.sleeps.append(delay)
+
+
 def _http_status_error(status_code: int, *, text: str = "boom") -> httpx.HTTPStatusError:
     """构造真实 httpx.HTTPStatusError；URL 故意含 "503" 子串以验证不再走字符串误判。"""
     request = httpx.Request("GET", "https://relay.example/v2/video/generations?generation_id=task-503")
@@ -166,22 +178,36 @@ class TestPollWithRetry:
     async def test_timeout_raises(self):
         """超时抛出 TimeoutError。"""
         poll_fn = AsyncMock(return_value="pending")
+        clock = _FakeClock([0.0, 0.0, 100.0])
 
-        # 用 monotonic mock 模拟时间流逝
-        times = iter([0, 0, 100, 100])  # 第二轮超时
+        with pytest.raises(TimeoutError, match="超时"):
+            await poll_with_retry(
+                poll_fn=poll_fn,
+                is_done=lambda r: False,
+                is_failed=lambda r: None,
+                poll_interval=1,
+                max_wait=10,
+                clock=clock,
+            )
 
-        with (
-            patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
-            patch("lib.video_backends.base.time.monotonic", side_effect=times),
-        ):
-            with pytest.raises(TimeoutError, match="超时"):
-                await poll_with_retry(
-                    poll_fn=poll_fn,
-                    is_done=lambda r: False,
-                    is_failed=lambda r: None,
-                    poll_interval=1,
-                    max_wait=10,
-                )
+        assert clock.sleeps == [1]
+
+    async def test_sleeps_poll_interval_on_injected_clock_between_polls(self):
+        poll_fn = AsyncMock(side_effect=["pending", "done"])
+        clock = _FakeClock([0.0, 1.0, 2.0, 3.0])
+
+        result = await poll_with_retry(
+            poll_fn=poll_fn,
+            is_done=lambda r: r == "done",
+            is_failed=lambda r: None,
+            poll_interval=5,
+            max_wait=10,
+            on_progress=lambda _result, _elapsed: None,
+            clock=clock,
+        )
+
+        assert result == "done"
+        assert clock.sleeps == [5]
 
     async def test_failed_status_raises(self):
         """is_failed 返回错误信息时抛出 RuntimeError。"""

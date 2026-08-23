@@ -438,7 +438,7 @@ def bounded_poll_clock(step: float = 30.0):
     """
     clock = itertools.count(0.0, step)
     with (
-        patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
-        patch("lib.video_backends.base.time.monotonic", side_effect=lambda: next(clock)),
+        patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+        patch("lib.retry.time.monotonic", side_effect=lambda: next(clock)),
     ):
         yield

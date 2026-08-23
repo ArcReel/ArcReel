@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -15,7 +14,7 @@ import httpx
 from sqlalchemy.exc import InterfaceError, OperationalError
 
 from lib.data_uri import file_to_data_uri
-from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
+from lib.retry import BASE_RETRYABLE_ERRORS, AsyncClock, SystemClock, _should_retry, with_retry_async
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
 # 而 persist 重试要严格"DB 瞬态错误"语义——业务异常（如
@@ -23,6 +22,7 @@ from lib.retry import BASE_RETRYABLE_ERRORS, _should_retry, with_retry_async
 # 显式传 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 关掉兜底。
 
 logger = logging.getLogger(__name__)
+
 
 # DB 瞬态错误集合：sqlite "database is locked"、pg "could not connect" / 连接已关闭。
 # 故意不收 DBAPIError 父类——会兜住 IntegrityError/DataError/ProgrammingError 等非瞬态
@@ -463,6 +463,7 @@ async def poll_with_retry[T](
     retry_if: Callable[[Exception], bool] | None = None,
     label: str = "",
     on_progress: Callable[[T, float], None] | None = None,
+    clock: AsyncClock | None = None,
 ) -> T:
     """通用异步轮询辅助函数，带瞬态错误重试和超时控制。
 
@@ -477,8 +478,10 @@ async def poll_with_retry[T](
             哪些异常应当重试（如按 HTTP status_code 区分确定性 4xx 与瞬态 5xx）。
         label: 日志前缀（如 "Ark"、"Gemini"）。
         on_progress: 可选的进度回调，每次非终态轮询后调用。
+        clock: 单调计时与异步等待 seam；生产默认使用系统时钟。
     """
-    start = time.monotonic()
+    active_clock = clock if clock is not None else SystemClock()
+    start = active_clock.monotonic()
     prefix = f"{label} " if label else ""
     predicate = retry_if if retry_if is not None else (lambda e: _should_retry(e, retryable_errors))
 
@@ -497,11 +500,11 @@ async def poll_with_retry[T](
             if is_done(result):
                 return result
             if on_progress is not None:
-                on_progress(result, time.monotonic() - start)
+                on_progress(result, active_clock.monotonic() - start)
 
-        if time.monotonic() - start >= max_wait:
+        if active_clock.monotonic() - start >= max_wait:
             raise TimeoutError(f"{prefix}任务超时（{max_wait:.0f}秒）")
-        await asyncio.sleep(poll_interval)
+        await active_clock.sleep(poll_interval)
 
 
 @with_retry_async()

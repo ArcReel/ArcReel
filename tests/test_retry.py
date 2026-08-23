@@ -13,10 +13,22 @@ from lib.retry import (
     RETRYABLE_STATUS_PATTERNS,
     NonRetryableError,
     _should_retry,
+    retry_async,
     with_retry_async,
 )
 
 pytestmark = pytest.mark.unit
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return 0.0
+
+    async def sleep(self, delay: float) -> None:
+        self.sleeps.append(delay)
 
 
 class TestShouldRetry:
@@ -301,6 +313,39 @@ class TestWithRetryAsync:
         with pytest.raises(_Truncated):
             await fn()
         assert mock_fn.call_count == 1
+
+    async def test_waits_backoff_plus_injected_jitter_on_injected_clock(self):
+        mock_fn = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
+        clock = _FakeClock()
+
+        @with_retry_async(
+            max_attempts=3,
+            backoff_seconds=(5, 10),
+            clock=clock,
+            jitter=lambda _low, _high: 0.25,
+        )
+        async def fn():
+            return await mock_fn()
+
+        assert await fn() == "ok"
+        assert clock.sleeps == [5.25]
+
+
+class TestRetryAsync:
+    async def test_waits_backoff_plus_injected_jitter_on_injected_clock(self):
+        operation = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
+        clock = _FakeClock()
+
+        result = await retry_async(
+            operation,
+            max_attempts=3,
+            backoff_seconds=(5, 10),
+            clock=clock,
+            jitter=lambda _low, _high: 0.25,
+        )
+
+        assert result == "ok"
+        assert clock.sleeps == [5.25]
 
 
 class TestDownloadConstants:
