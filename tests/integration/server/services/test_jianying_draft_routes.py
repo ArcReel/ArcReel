@@ -71,10 +71,12 @@ def _client(monkeypatch, pm: ProjectManager, service: _DraftService | None = Non
     from server.routers import projects as proj_mod
 
     monkeypatch.setattr(proj_mod, "get_project_manager", lambda: pm)
-    if service is not None:
-        monkeypatch.setattr(proj_mod, "get_jianying_draft_service", lambda: service)
 
     from server.app import app
+
+    if service is not None:
+        # 复用进程级 app，覆盖用 setitem 挂上，用例结束由 monkeypatch 自动摘除。
+        monkeypatch.setitem(app.dependency_overrides, proj_mod.get_jianying_draft_service, lambda: service)
 
     return TestClient(app)
 

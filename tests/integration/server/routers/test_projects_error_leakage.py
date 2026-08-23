@@ -21,6 +21,22 @@ def _raise(sentinel):
     return _factory
 
 
+def _raising_service(sentinel):
+    """服务替身：任意方法一被调用即抛 RuntimeError(sentinel)。
+
+    经依赖覆盖注入，异常因而落在处理器体内，与被替换的内部函数同一位置。
+    """
+
+    class _Raising:
+        def __getattr__(self, _name):
+            def _call(*_a, **_k):
+                raise RuntimeError(sentinel)
+
+            return _call
+
+    return _Raising()
+
+
 class TestUnexpectedErrorsDoNotLeak:
     """未预期异常统一映射为通用 500，且响应体不得回显内部异常文本（不泄露）。
 
@@ -223,7 +239,9 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_create_export_token_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_export_token"
         client = _client(monkeypatch, _FakePM(tmp_path))
-        # scope 合法（默认 full）；_sync 里最早命中 get_project_manager()
+        # scope 合法（默认 full）；_sync 里最早命中 get_project_manager()。
+        # 归档服务改由依赖覆盖给出，免得同一个哨兵在依赖解析期就抛、绕过处理器兜底。
+        client.app.dependency_overrides[projects.get_archive_service] = lambda: _raising_service(sentinel)
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.post("/api/v1/projects/ready/export/token")
@@ -235,7 +253,7 @@ class TestUnexpectedErrorsDoNotLeak:
         client = _client(monkeypatch, _FakePM(tmp_path))
         # download_token 校验先放行，再让归档服务抛 RuntimeError 落到兜底
         monkeypatch.setattr(projects, "verify_download_token", lambda token, name: {"sub": "u"})
-        monkeypatch.setattr(projects, "get_archive_service", _raise(sentinel))
+        client.app.dependency_overrides[projects.get_archive_service] = lambda: _raising_service(sentinel)
         with client:
             resp = client.get("/api/v1/projects/ready/export?download_token=tok&scope=full")
             assert resp.status_code == 500
@@ -245,7 +263,7 @@ class TestUnexpectedErrorsDoNotLeak:
         sentinel = "LEAKED_SECRET_import_archive"
         client = _client(monkeypatch, _FakePM(tmp_path))
         # 上传副本写盘成功后，_sync 调归档服务抛 RuntimeError，落到 JSONResponse(500) 兜底
-        monkeypatch.setattr(projects, "get_archive_service", _raise(sentinel))
+        client.app.dependency_overrides[projects.get_archive_service] = lambda: _raising_service(sentinel)
         with client:
             resp = client.post(
                 "/api/v1/projects/import",

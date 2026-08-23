@@ -278,7 +278,9 @@ class TestProjectsRouter:
                 )
 
         client = _client(monkeypatch, fake_pm)
-        monkeypatch.setattr(projects, "get_script_batch_editor", lambda _manager=None: CapturingEditor())
+        client.app.dependency_overrides[projects.get_script_batch_editor_factory] = lambda: (
+            lambda _manager=None: CapturingEditor()
+        )
 
         with client:
             response = client.post(
