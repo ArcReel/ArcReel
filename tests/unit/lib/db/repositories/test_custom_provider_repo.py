@@ -151,9 +151,11 @@ class TestProviderCRUD:
         assert await repo.list_models(p.id) == []
 
     async def test_delete_provider_nonexistent(self, db_session: AsyncSession):
+        """删不存在的供应商是 no-op：不抛错，也不会凭空留下一行。"""
         repo = CustomProviderRepository(db_session)
-        # Should not raise
-        await repo.delete_provider(999)
+
+        assert await repo.delete_provider(999) is None
+        assert await repo.get_provider(999) is None
 
 
 class TestConcurrencyColumns:
@@ -312,9 +314,22 @@ class TestModelManagement:
         assert remaining[0].model_id == "m2"
 
     async def test_delete_model_nonexistent(self, db_session: AsyncSession):
+        """删不存在的型号同样是 no-op：既不抛错，也不波及在册型号。"""
         repo = CustomProviderRepository(db_session)
-        # Should not raise
-        await repo.delete_model(999)
+        p = await repo.create_provider(
+            display_name="TestProvider",
+            discovery_format="openai",
+            base_url="https://example.com",
+            api_key="key",
+            models=[{"model_id": "m1", "display_name": "M1", "endpoint": "openai-chat"}],
+        )
+        await db_session.flush()
+
+        assert await repo.delete_model(999) is None
+        await db_session.flush()
+
+        remaining = await repo.list_models(p.id)
+        assert [m.model_id for m in remaining] == ["m1"]
 
     async def test_list_enabled_models_by_media_type(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)

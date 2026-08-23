@@ -100,18 +100,25 @@ def test_migrate_idempotent(tmp_path: Path):
     assert data["schema_version"] == 1
 
 
-def test_migrate_order_files_before_schema_bump(tmp_path: Path, monkeypatch):
-    """若剧本迁移中途崩溃，schema_version 必须仍为 0（防止下次启动因幂等跳过 → 永久丢图）。"""
+def test_migrate_order_files_before_schema_bump(tmp_path: Path):
+    """若剧本迁移中途崩溃，schema_version 必须仍为 0（防止下次启动因幂等跳过 → 永久丢图）。
+
+    崩溃点由畸形剧本真实触发：手改坏的 v0 剧本里 ``scenes`` 存的是字符串而非对象，级联改写
+    走到 ``pop`` 就 AttributeError。文件搬迁排在剧本级联之前，正好卡出「图已搬、剧本没改完、
+    版本没升」这一态。
+    """
     p = _make_v0_project(tmp_path)
-    original = mod._migrate_scripts
+    (p / "scripts" / "ep1.json").write_text(
+        json.dumps({"content_mode": "drama", "scenes": ["clues"]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
-    def fail(*args, **kwargs):
-        original(*args, **kwargs)
-        raise RuntimeError("boom mid-migration")
-
-    monkeypatch.setattr(mod, "_migrate_scripts", fail)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(AttributeError):
         mod.migrate_v0_to_v1(p)
+
+    # 第一步（搬图）确实先跑完了，崩溃卡在第二步
+    assert (p / "props" / "玉佩.png").exists()
+    assert (p / "scenes" / "庙宇.png").exists()
 
     data = json.loads((p / "project.json").read_text(encoding="utf-8"))
     assert data.get("schema_version", 0) == 0

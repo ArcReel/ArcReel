@@ -4,9 +4,10 @@
 （成功 / 失败 / 取消 / 批量取消 / 级联失败）落库后是否把事件发上 batch 总线。
 """
 
+from contextlib import asynccontextmanager
+
 import pytest
 
-from lib.db.repositories.task_repo import TaskRepository
 from lib.generation_queue import GenerationQueue
 from lib.project_change_hints import register_project_change_batch_listener
 from lib.task_terminal_events import build_task_terminal_change
@@ -28,6 +29,30 @@ def captured_batches():
     unregister = register_project_change_batch_listener(listener)
     yield batches
     unregister()
+
+
+def _commit_failing_factory(factory):
+    """代理真实 session factory，只把 ``commit`` 换成抛错，其余读写照常落到真实库。
+
+    故障因此正好卡在「终态已收集、事务未提交」这一窗口；会话退出时真实事务照常回滚。
+    """
+
+    class _CommitFails:
+        def __init__(self, session):
+            self._session = session
+
+        def __getattr__(self, name):
+            return getattr(self._session, name)
+
+        async def commit(self):
+            raise RuntimeError("commit 炸了")
+
+    @asynccontextmanager
+    async def _open():
+        async with factory() as session:
+            yield _CommitFails(session)
+
+    return _open
 
 
 def _task_changes(batches):
@@ -156,28 +181,24 @@ class TestQueueEmitsTerminalEvents:
 
         assert _task_changes(captured_batches) == []
 
-    async def test_no_publish_when_body_raises_before_commit(self, queue, captured_batches, monkeypatch):
-        """终态已收集但会话未提交时不得发布——没有终态落库就没有终态可通告。
+    async def test_no_publish_when_commit_fails(self, queue, db_factory, captured_batches):
+        """终态已收集但会话提交失败时不得发布——没有终态落库就没有终态可通告。
 
         `_task_repo` 把发布放在 `async with` 之后正是为此；若发布挪进 repo 内部或提到
         提交之前，前端会收到一条对应状态并未落库的终态事件。
+
+        故障打在会话这个协作者的提交动作上，与生产上真实的提交失败同形：终态收集照常发生，
+        事务随即回滚，落库与通告因而必须一起没有。
         """
         task_id = await self._enqueue_running(queue)
         captured_batches.clear()
 
-        original_record = TaskRepository._record_terminal_event
-
-        def raise_after_collecting(self, **kwargs):
-            original_record(self, **kwargs)
-            assert self.terminal_events, "前置条件：终态已被 _record_terminal_event 收集"
-            raise RuntimeError("commit 前炸了")
-
-        monkeypatch.setattr(TaskRepository, "_record_terminal_event", raise_after_collecting)
-
-        with pytest.raises(RuntimeError, match="commit 前炸了"):
-            await queue.mark_task_succeeded(task_id, {"file_path": "videos/E1S01.mp4"})
+        failing_queue = GenerationQueue(session_factory=_commit_failing_factory(db_factory))
+        with pytest.raises(RuntimeError, match="commit 炸了"):
+            await failing_queue.mark_task_succeeded(task_id, {"file_path": "videos/E1S01.mp4"})
 
         assert _task_changes(captured_batches) == []
+        assert (await queue.get_task(task_id))["status"] == "running"
 
     async def test_cascade_failure_emits_event_for_dependent(self, queue, captured_batches):
         """级联失败的下游任务同样进事件——终态收口在 _record_terminal_event，一处覆盖全路径。"""

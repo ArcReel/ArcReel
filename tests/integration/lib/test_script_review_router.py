@@ -3,17 +3,51 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.config.resolver import ConfigResolver
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import script_review as router_mod
+from server.services.script_review import ScriptReviewService
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import fake_reference_caps_fetcher
+
+
+class _StubConfigResolver:
+    """能力解析替身：两条 caps 取值路径最终都只经 ``video_capabilities_for_project`` 这一个读点。
+
+    经生产已有的 ``config_resolver`` 注入位下去，``_fetch_caps_with_fallback`` 与
+    ``_fetch_reference_caps_with_fallback`` 本体照常执行——档位收窄、空集软回退、默认时长的
+    成员性判定都仍在覆盖内；整体替换取值器会把这三段一起绕过去。
+
+    本文件现有断言都落在与时长无关的违约码上，注入档位买的是确定性而非断言支撑：不注入时
+    解析会去连真实数据库，用例的档位取决于「跑测试的机器上恰好没有库」这一环境事实。
+    """
+
+    def __init__(self, caps: dict) -> None:
+        self._caps = caps
+
+    async def video_capabilities_for_project(self, project: dict, *, capability: object = None) -> dict:
+        return self._caps
+
+
+def _custom_provider_caps(*, durations: list[int], default_duration: int | None = 4, max_refs: int = 3) -> dict:
+    """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``，不声明任何时长联动约束。
+
+    caps 里的档位即最终生效档位，用例要什么档位就直接写什么，不必去挑一个恰好合适的真实型号。
+    """
+    return {
+        "provider_id": "custom-acme",
+        "model": "acme-video",
+        "supported_durations": list(durations),
+        "default_duration": default_duration,
+        "max_reference_images": max_refs,
+    }
 
 
 def _drama_step1() -> dict:
@@ -56,6 +90,7 @@ def _client(
     *,
     generation_mode: str | None = None,
     content_mode: str = "drama",
+    caps: dict | None = None,
 ) -> tuple[TestClient, ProjectManager]:
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
@@ -66,6 +101,13 @@ def _client(
         pm.update_project("demo", lambda p: p.__setitem__("generation_mode", generation_mode))
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: pm)
+    if caps is not None:
+        resolver = cast(ConfigResolver, _StubConfigResolver(caps))
+        monkeypatch.setattr(
+            router_mod,
+            "ScriptReviewService",
+            lambda project_manager: ScriptReviewService(project_manager, config_resolver=resolver),
+        )
 
     app = FastAPI()
     register_error_handlers(app)
@@ -224,15 +266,14 @@ class TestReferenceVideoRouter:
         不信任草稿里上一轮的快照（这里把快照消息故意写成 "stale" 来验证）。"""
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from lib.reference_video.draft_validation import DraftViolation
-        from server.agent_runtime.sdk_tools import text_generation as mod
 
-        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        client, pm = _client(
+            monkeypatch, tmp_path, generation_mode="reference_video", caps=_custom_provider_caps(durations=[4, 6, 8])
+        )
         project_path = pm.get_project_path("demo")
         novel = "阿离站在屋檐下。"
         (project_path / "source").mkdir(parents=True, exist_ok=True)
         (project_path / "source" / "episode_1.txt").write_text(novel, encoding="utf-8")
-
-        monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher(max_duration=8))
 
         flat_units = [{"duration_seconds": 4, "source_text": novel, "text": "镜头1：门开了\n@[阿离]：｛我来了。｝"}]
         write_quarantine(
@@ -264,14 +305,13 @@ class TestReferenceVideoRouter:
         呈现层据此退回原始文本视图而非当作 units 列表遍历。"""
         from lib.draft_quarantine import QUARANTINE_KIND_STEP1, write_quarantine
         from lib.reference_video.draft_validation import DraftViolation
-        from server.agent_runtime.sdk_tools import text_generation as mod
 
-        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        client, pm = _client(
+            monkeypatch, tmp_path, generation_mode="reference_video", caps=_custom_provider_caps(durations=[4, 6, 8])
+        )
         project_path = pm.get_project_path("demo")
         (project_path / "source").mkdir(parents=True, exist_ok=True)
         (project_path / "source" / "episode_1.txt").write_text("阿离站在屋檐下。", encoding="utf-8")
-
-        monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher(max_duration=8))
         write_quarantine(
             project_path,
             1,
@@ -319,18 +359,14 @@ class TestReferenceVideoRouter:
         """
         from lib.draft_quarantine import QUARANTINE_KIND_NARRATION_STEP1, write_quarantine
         from lib.draft_violation import DraftViolation
-        from server.agent_runtime.sdk_tools import text_generation as mod
 
-        client, pm = _client(monkeypatch, tmp_path, content_mode="narration")
+        client, pm = _client(
+            monkeypatch, tmp_path, content_mode="narration", caps=_custom_provider_caps(durations=[4, 6, 8])
+        )
         project_path = pm.get_project_path("demo")
         novel = "阿离站在屋檐下。"
         (project_path / "source").mkdir(parents=True, exist_ok=True)
         (project_path / "source" / "episode_1.txt").write_text(novel, encoding="utf-8")
-
-        async def fake_caps(_project, _episode=None):
-            return 4, [4, 6, 8]
-
-        monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
 
         segment = {
             "segment_id": "E1S01",
@@ -365,18 +401,12 @@ class TestReferenceVideoRouter:
         """drama 的待修复草稿（取回编辑工位）同样进 GET 响应：内容重判通过则违约为空、
         正文按现值收编回传，面板据此说明「等待晋升」而不是显示一片空白。"""
         from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_STEP1, write_quarantine
-        from server.agent_runtime.sdk_tools import text_generation as mod
 
-        client, pm = _client(monkeypatch, tmp_path)
+        client, pm = _client(monkeypatch, tmp_path, caps=_custom_provider_caps(durations=[4, 6, 8]))
         project_path = pm.get_project_path("demo")
         novel = "阿离站在屋檐下。"
         (project_path / "source").mkdir(parents=True, exist_ok=True)
         (project_path / "source" / "episode_1.txt").write_text(novel, encoding="utf-8")
-
-        async def fake_caps(_project, _episode=None):
-            return 4, [4, 6, 8]
-
-        monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
 
         scene = {
             "scene_id": "E1S01",
@@ -535,20 +565,12 @@ class TestReferenceVideoRouter:
         （收窄后的逐 unit 可选项）都要经 caps 解析出真实档位，否则这类项目的内容确认只能退回
         结构区间 clamp，读时迁移的收编对其整体失效。
         """
-        from server.agent_runtime.sdk_tools import _context
-        from server.services import script_review as mod
-
-        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
-
-        async def _fake_caps(_project, _episode=None):
-            return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
-
-        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
-
-        async def _no_i2v(_project, *, capability=None):
-            raise ValueError("i2v bucket unresolvable in this test")
-
-        monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+        client, pm = _client(
+            monkeypatch,
+            tmp_path,
+            generation_mode="reference_video",
+            caps=_custom_provider_caps(durations=[5, 10], default_duration=None),
+        )
 
         with client:
             _write_rv_step1(pm, _rv_step1())

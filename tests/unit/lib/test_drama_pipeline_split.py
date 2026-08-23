@@ -186,7 +186,9 @@ class TestMergeDramaVisualIntoScenes:
 
     def test_merge_passes_full_episode_validation(self):
         merged = merge_drama_visual_into_scenes([_content_scene("E1S01")], [_visual_scene("E1S01")])
-        DramaEpisodeScript.model_validate({"title": "第一集", "scenes": merged})
+
+        episode = DramaEpisodeScript.model_validate({"title": "第一集", "scenes": merged})
+        assert len(episode.scenes) == 1
 
     def test_merge_missing_visual_raises(self):
         with pytest.raises(DramaVisualMergeError):

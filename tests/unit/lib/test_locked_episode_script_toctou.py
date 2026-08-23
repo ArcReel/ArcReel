@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -81,11 +80,15 @@ def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Pat
     _seed(pm, name)
 
     inside = threading.Event()
+    attempting = threading.Event()
     other_done = threading.Event()
+    order: list[str] = []
 
     def _other() -> None:
         inside.wait(timeout=5)
+        attempting.set()  # 即将去抢项目锁
         pm.update_project(name, lambda p: p.setdefault("episodes", []))  # 需要 _project_lock
+        order.append("other")
         other_done.set()
 
     t = threading.Thread(target=_other)
@@ -93,11 +96,14 @@ def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Pat
     try:
         with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
             inside.set()  # 此刻已持脚本锁 + 项目锁
-            time.sleep(0.3)
+            # 等对方真的开始申请，而不是睡一段猜它到没到——到了仍未完成，才说明是被锁挡住的
+            assert attempting.wait(timeout=5), "另一线程应已开始申请项目锁"
             assert not other_done.is_set(), "持项目锁期间 update_project 不应完成"
+            order.append("critical-section")
             script["video_units"] = []
         t.join(timeout=5)
         assert other_done.is_set(), "退出临界区后 update_project 应能完成"
+        assert order == ["critical-section", "other"]
     finally:
         t.join(timeout=5)
 

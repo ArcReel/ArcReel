@@ -334,18 +334,17 @@ def test_project_adapter_replace_failure_preserves_manifest_and_cleans_temp_file
 @pytest.mark.parametrize("force_python_link_fallback", [False, True])
 def test_project_adapter_blocks_escape_and_symlink_artifact_paths(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     force_python_link_fallback: bool,
 ) -> None:
-    if force_python_link_fallback:
-        monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
     project = tmp_path / "project"
     project.mkdir()
     outside = tmp_path / "outside.json"
     outside.write_text('{"secret":true}', encoding="utf-8")
     (project / "linked-file.json").symlink_to(outside)
     (project / "linked-dir").symlink_to(tmp_path, target_is_directory=True)
-    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+    manifest = ArtifactManifest(
+        ProjectArtifactManifestAdapter(project, nofollow_supported=not force_python_link_fallback)
+    )
     key = ArtifactKey.episode_script(1)
     basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
 
@@ -425,7 +424,7 @@ def test_project_adapter_blocks_file_symlink_swap_without_no_follow(
     artifact.write_text("inside", encoding="utf-8")
     outside = tmp_path / "outside.json"
     outside.write_text("outside", encoding="utf-8")
-    adapter = ProjectArtifactManifestAdapter(project)
+    adapter = ProjectArtifactManifestAdapter(project, nofollow_supported=False)
     original_open = os.open
     swapped = False
 
@@ -443,7 +442,6 @@ def test_project_adapter_blocks_file_symlink_swap_without_no_follow(
             swapped = True
         return original_open(path, flags, mode, dir_fd=dir_fd)
 
-    monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
     monkeypatch.setattr("lib.artifact_manifest.os.open", swap_file_then_open)
 
     observation = adapter.inspect_artifact("episode.json")
@@ -462,7 +460,7 @@ def test_project_adapter_blocks_parent_vanishing_during_fallback_revalidation(
     scripts = project / "scripts"
     scripts.mkdir(parents=True)
     (scripts / "episode.json").write_text("inside", encoding="utf-8")
-    adapter = ProjectArtifactManifestAdapter(project)
+    adapter = ProjectArtifactManifestAdapter(project, nofollow_supported=False)
     original_open = os.open
     moved_scripts = project / "removed-scripts"
     moved = False
@@ -481,7 +479,6 @@ def test_project_adapter_blocks_parent_vanishing_during_fallback_revalidation(
             moved = True
         return fd
 
-    monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
     monkeypatch.setattr("lib.artifact_manifest.os.open", move_parent_after_open)
 
     observation = adapter.inspect_artifact("scripts/episode.json")
@@ -726,16 +723,14 @@ def test_project_adapter_reports_unavailable_opened_posix_root(tmp_path: Path) -
 @pytest.mark.skipif(os.name != "posix", reason="Python link checks backstop platforms without O_NOFOLLOW")
 def test_project_adapter_rejects_replaced_posix_project_root_symlink_without_no_follow(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
     (project / "episode.json").write_text("inside", encoding="utf-8")
-    adapter = ProjectArtifactManifestAdapter(project)
+    adapter = ProjectArtifactManifestAdapter(project, nofollow_supported=False)
     original_project = tmp_path / "original-project"
     project.rename(original_project)
     project.symlink_to(original_project, target_is_directory=True)
-    monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
 
     observation = adapter.inspect_artifact("episode.json")
 
@@ -839,12 +834,9 @@ def test_project_adapter_keeps_manifest_write_on_opened_root_during_swap(
 @pytest.mark.parametrize("force_python_link_fallback", [False, True])
 def test_project_adapter_refuses_runtime_file_symlinks(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     runtime_path: str,
     force_python_link_fallback: bool,
 ) -> None:
-    if force_python_link_fallback:
-        monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
     project = tmp_path / "project"
     project.mkdir()
     artifact = project / "episode.json"
@@ -852,7 +844,9 @@ def test_project_adapter_refuses_runtime_file_symlinks(
     outside = tmp_path / "outside.json"
     outside.write_text("do not touch", encoding="utf-8")
     (project / runtime_path).symlink_to(outside)
-    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+    manifest = ArtifactManifest(
+        ProjectArtifactManifestAdapter(project, nofollow_supported=not force_python_link_fallback)
+    )
     key = ArtifactKey.episode_script(1)
     basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"step1": "source"})
 
@@ -913,7 +907,7 @@ def test_project_adapter_rejects_manifest_symlink_swap_without_no_follow(
     project = tmp_path / "project"
     project.mkdir()
     (project / "episode.json").write_text("{}", encoding="utf-8")
-    adapter = ProjectArtifactManifestAdapter(project)
+    adapter = ProjectArtifactManifestAdapter(project, nofollow_supported=False)
     manifest = ArtifactManifest(adapter)
     key = ArtifactKey.episode_script(1)
     basis = ArtifactBasis.build("test/script", kind_version=1, inputs={})
@@ -938,7 +932,6 @@ def test_project_adapter_rejects_manifest_symlink_swap_without_no_follow(
             swapped = True
         return original_open(path, flags, mode, dir_fd=dir_fd)
 
-    monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
     monkeypatch.setattr("lib.artifact_manifest.os.open", swap_manifest_then_open)
 
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
@@ -956,7 +949,7 @@ def test_project_adapter_rejects_lock_symlink_swap_without_no_follow(
     project = tmp_path / "project"
     project.mkdir()
     (project / "episode.json").write_text("{}", encoding="utf-8")
-    adapter = ProjectArtifactManifestAdapter(project)
+    adapter = ProjectArtifactManifestAdapter(project, nofollow_supported=False)
     manifest = ArtifactManifest(adapter)
     key = ArtifactKey.episode_script(1)
     basis = ArtifactBasis.build("test/script", kind_version=1, inputs={})
@@ -981,7 +974,6 @@ def test_project_adapter_rejects_lock_symlink_swap_without_no_follow(
             swapped = True
         return original_open(path, flags, mode, dir_fd=dir_fd)
 
-    monkeypatch.setattr("lib.artifact_manifest._O_NOFOLLOW", 0)
     monkeypatch.setattr("lib.artifact_manifest.os.open", swap_lock_then_open)
 
     comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)

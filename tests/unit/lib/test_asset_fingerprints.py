@@ -1,6 +1,10 @@
-import time
+import os
 
 from lib.asset_fingerprints import compute_asset_fingerprints
+
+#: 指纹用例里写死的两个 mtime，只要求「不同」，取值本身无意义。
+_MTIME_BEFORE = 1_700_000_000
+_MTIME_AFTER = _MTIME_BEFORE + 60
 
 
 class TestComputeAssetFingerprints:
@@ -53,14 +57,21 @@ class TestComputeAssetFingerprints:
         assert result == {}
 
     def test_fingerprint_changes_when_file_modified(self, tmp_path):
+        """改过的文件必须换指纹。
+
+        两次的 mtime 用 ``os.utime`` 写死而不是靠 sleep 等时钟走动：文件系统的 mtime 粒度
+        依平台而异，等多久都是猜，写死才既确定又不占时间。
+        """
         (tmp_path / "storyboards").mkdir()
         f = tmp_path / "storyboards" / "scene_E1S01.png"
         f.write_bytes(b"v1")
+        os.utime(f, (_MTIME_BEFORE, _MTIME_BEFORE))
         fp1 = compute_asset_fingerprints(tmp_path)["storyboards/scene_E1S01.png"]
 
-        time.sleep(0.1)
         f.write_bytes(b"v2")
+        os.utime(f, (_MTIME_AFTER, _MTIME_AFTER))
         fp2 = compute_asset_fingerprints(tmp_path)["storyboards/scene_E1S01.png"]
+
         assert fp2 != fp1
 
     def test_scans_characters_refs_subdirectory(self, tmp_path):

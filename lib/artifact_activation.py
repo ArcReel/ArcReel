@@ -95,8 +95,12 @@ def activate_artifact_target_state(
     *,
     bump_schema: bool,
     backup_file: Callable[[Path, int], None] | None = None,
+    commit_schema: Callable[[Path, Mapping[str, Any]], None] | None = None,
 ) -> bool:
-    """Commit one complete target state, optionally advancing schema last."""
+    """Commit one complete target state, optionally advancing schema last.
+
+    ``backup_file`` 与 ``commit_schema`` 是临界区内两个落盘步骤的注入点，缺省即生产实现。
+    """
 
     plan = plan_artifact_target_state(project_dir)
     current_schema = plan.project.get("schema_version")
@@ -132,7 +136,7 @@ def activate_artifact_target_state(
                             "artifact activation dependency drifted and Manifest rollback was incomplete"
                         ) from rollback_error
                 raise
-            _commit_schema_version(project_dir, plan.project)
+            (commit_schema or _commit_schema_version)(project_dir, plan.project)
             return True
     changed = adapter.replace_entries_atomically(plan.entries)
     return changed

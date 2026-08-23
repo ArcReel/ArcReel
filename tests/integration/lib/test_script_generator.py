@@ -454,8 +454,12 @@ class TestScriptGenerator:
         )
 
         generator = ScriptGenerator(project_path)
-        await generator._assert_drama_step1_durations(
-            _drama_step1_content()["scenes"], episode=1, gen_mode="storyboard"
+
+        assert (
+            await generator._assert_drama_step1_durations(
+                _drama_step1_content()["scenes"], episode=1, gen_mode="storyboard"
+            )
+            is None
         )
 
     async def test_drama_step2_build_prompt_renders_step1_content(self, tmp_path):

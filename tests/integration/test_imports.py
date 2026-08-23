@@ -86,7 +86,8 @@ FIRST_IMPORT_MODULES = [
 
 @pytest.mark.parametrize("module_name", MODULES)
 def test_module_imports_cleanly(module_name: str) -> None:
-    importlib.import_module(module_name)
+    """冒烟：模块能按全名导入，import 期副作用（配置读取、循环 import）不抛错。"""
+    assert importlib.import_module(module_name).__name__ == module_name
 
 
 @pytest.mark.parametrize("module_name", FIRST_IMPORT_MODULES)

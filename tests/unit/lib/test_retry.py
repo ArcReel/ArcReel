@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -19,6 +19,8 @@ from lib.retry import (
 
 
 class _FakeClock:
+    """记录退避时长的时钟 seam 替身；sleep 不真等。"""
+
     def __init__(self) -> None:
         self.sleeps: list[float] = []
 
@@ -27,6 +29,10 @@ class _FakeClock:
 
     async def sleep(self, delay: float) -> None:
         self.sleeps.append(delay)
+
+
+def _no_jitter(_low: float, _high: float) -> float:
+    return 0.0
 
 
 class TestShouldRetry:
@@ -111,24 +117,26 @@ class TestWithRetryAsync:
 
     async def test_success_no_retry(self):
         mock_fn = AsyncMock(return_value="ok")
+        clock = _FakeClock()
 
-        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0))
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), clock=clock, jitter=_no_jitter)
         async def fn():
             return await mock_fn()
 
         result = await fn()
         assert result == "ok"
         assert mock_fn.call_count == 1
+        assert clock.sleeps == []
 
     async def test_retry_on_retryable_error(self):
         mock_fn = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
+        clock = _FakeClock()
 
-        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0))
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), clock=clock, jitter=_no_jitter)
         async def fn():
             return await mock_fn()
 
-        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
-            result = await fn()
+        result = await fn()
 
         assert result == "ok"
         assert mock_fn.call_count == 2
@@ -136,27 +144,29 @@ class TestWithRetryAsync:
     async def test_retry_on_string_pattern(self):
         """错误信息中包含 429 时应重试。"""
         mock_fn = AsyncMock(side_effect=[RuntimeError("Error code: 429"), "ok"])
+        clock = _FakeClock()
 
-        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0))
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), clock=clock, jitter=_no_jitter)
         async def fn():
             return await mock_fn()
 
-        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
-            result = await fn()
+        result = await fn()
 
         assert result == "ok"
         assert mock_fn.call_count == 2
 
     async def test_no_retry_on_non_retryable(self):
         mock_fn = AsyncMock(side_effect=ValueError("bad input"))
+        clock = _FakeClock()
 
-        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0))
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), clock=clock, jitter=_no_jitter)
         async def fn():
             return await mock_fn()
 
         with pytest.raises(ValueError, match="bad input"):
             await fn()
         assert mock_fn.call_count == 1
+        assert clock.sleeps == []
 
     async def test_no_retry_on_non_retryable_despite_colliding_pattern(self):
         """NonRetryableError 消息即使包含 "500" 子串也只调用一次，不重试。"""
@@ -165,26 +175,28 @@ class TestWithRetryAsync:
             pass
 
         mock_fn = AsyncMock(side_effect=_Truncated("output_tokens=8500 处被截断"))
+        clock = _FakeClock()
 
-        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0))
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), clock=clock, jitter=_no_jitter)
         async def fn():
             return await mock_fn()
 
         with pytest.raises(_Truncated):
             await fn()
         assert mock_fn.call_count == 1
+        assert clock.sleeps == []
 
     async def test_exhausted_retries_raises_last_error(self):
         errors = [ConnectionError(f"attempt {i}") for i in range(3)]
         mock_fn = AsyncMock(side_effect=errors)
+        clock = _FakeClock()
 
-        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0))
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), clock=clock, jitter=_no_jitter)
         async def fn():
             return await mock_fn()
 
-        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
-            with pytest.raises(ConnectionError, match="attempt 2"):
-                await fn()
+        with pytest.raises(ConnectionError, match="attempt 2"):
+            await fn()
         assert mock_fn.call_count == 3
 
     async def test_custom_retryable_errors(self):
@@ -192,67 +204,54 @@ class TestWithRetryAsync:
             pass
 
         mock_fn = AsyncMock(side_effect=[CustomError("temp"), "ok"])
+        clock = _FakeClock()
 
-        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), retryable_errors=(CustomError,))
+        @with_retry_async(
+            max_attempts=3,
+            backoff_seconds=(0, 0, 0),
+            retryable_errors=(CustomError,),
+            clock=clock,
+            jitter=_no_jitter,
+        )
         async def fn():
             return await mock_fn()
 
-        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
-            result = await fn()
+        result = await fn()
 
         assert result == "ok"
         assert mock_fn.call_count == 2
-
-    async def test_backoff_sleep_called(self):
-        mock_fn = AsyncMock(side_effect=[ConnectionError("err"), "ok"])
-
-        @with_retry_async(max_attempts=3, backoff_seconds=(5, 10, 20))
-        async def fn():
-            return await mock_fn()
-
-        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-            with patch("lib.retry.random.uniform", return_value=0.5):
-                await fn()
-
-        mock_sleep.assert_called_once()
-        # base_wait=5 + jitter=0.5 = 5.5
-        assert mock_sleep.call_args[0][0] == 5.5
 
     async def test_backoff_index_clamped(self):
         """backoff_seconds 长度不足时，使用最后一个值。"""
         errors = [ConnectionError(f"e{i}") for i in range(4)]
         mock_fn = AsyncMock(side_effect=[*errors, "ok"])
+        clock = _FakeClock()
 
-        @with_retry_async(max_attempts=5, backoff_seconds=(1, 2))
+        @with_retry_async(max_attempts=5, backoff_seconds=(1, 2), clock=clock, jitter=_no_jitter)
         async def fn():
             return await mock_fn()
 
-        sleep_values = []
-
-        async def capture_sleep(t):
-            sleep_values.append(t)
-
-        with patch("lib.retry.asyncio.sleep", side_effect=capture_sleep):
-            with patch("lib.retry.random.uniform", return_value=0):
-                await fn()
+        await fn()
 
         # attempt 0→backoff[0]=1, attempt 1→backoff[1]=2, attempt 2→backoff[1]=2 (clamped), attempt 3→backoff[1]=2
-        assert sleep_values == [1, 2, 2, 2]
+        assert clock.sleeps == [1, 2, 2, 2]
 
     async def test_retry_if_true_triggers_retry(self):
         """retry_if 返回 True 时应触发重试。"""
         mock_fn = AsyncMock(side_effect=[ValueError("transient"), "ok"])
+        clock = _FakeClock()
 
         @with_retry_async(
             max_attempts=3,
             backoff_seconds=(0, 0, 0),
             retry_if=lambda e: isinstance(e, ValueError),
+            clock=clock,
+            jitter=_no_jitter,
         )
         async def fn():
             return await mock_fn()
 
-        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
-            result = await fn()
+        result = await fn()
 
         assert result == "ok"
         assert mock_fn.call_count == 2
@@ -260,11 +259,14 @@ class TestWithRetryAsync:
     async def test_retry_if_false_raises_immediately(self):
         """retry_if 返回 False 时应立即抛出，即使 _should_retry 会返回 True。"""
         mock_fn = AsyncMock(side_effect=ConnectionError("reset"))
+        clock = _FakeClock()
 
         @with_retry_async(
             max_attempts=3,
             backoff_seconds=(0, 0, 0),
             retry_if=lambda e: False,  # 始终不重试
+            clock=clock,
+            jitter=_no_jitter,
         )
         async def fn():
             return await mock_fn()
@@ -272,17 +274,18 @@ class TestWithRetryAsync:
         with pytest.raises(ConnectionError, match="reset"):
             await fn()
         assert mock_fn.call_count == 1
+        assert clock.sleeps == []
 
     async def test_retry_if_none_uses_default_should_retry(self):
         """retry_if=None（默认）应保持原有 _should_retry 行为。"""
         mock_fn = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
+        clock = _FakeClock()
 
-        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), retry_if=None)
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0, 0), retry_if=None, clock=clock, jitter=_no_jitter)
         async def fn():
             return await mock_fn()
 
-        with patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
-            result = await fn()
+        result = await fn()
 
         assert result == "ok"
         assert mock_fn.call_count == 2
@@ -299,11 +302,14 @@ class TestWithRetryAsync:
             pass
 
         mock_fn = AsyncMock(side_effect=_Truncated("boom"))
+        clock = _FakeClock()
 
         @with_retry_async(
             max_attempts=3,
             backoff_seconds=(0, 0, 0),
             retry_if=lambda e: True,
+            clock=clock,
+            jitter=_no_jitter,
         )
         async def fn():
             return await mock_fn()
@@ -311,6 +317,7 @@ class TestWithRetryAsync:
         with pytest.raises(_Truncated):
             await fn()
         assert mock_fn.call_count == 1
+        assert clock.sleeps == []
 
     async def test_waits_backoff_plus_injected_jitter_on_injected_clock(self):
         mock_fn = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])

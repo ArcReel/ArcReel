@@ -3,9 +3,7 @@
 import asyncio
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from lib.db.repositories.task_repo import TaskRepository
 from lib.i18n import _ as translate_message
 from lib.task_failure import encode_failure, render_failure
@@ -338,13 +336,8 @@ class TestTaskRepository:
         await repo.release_lease(name="default", owner_id="a")
         assert not await repo.is_worker_online(name="default")
 
-    async def test_worker_lease_concurrent_first_acquire(self, tmp_path):
-        db_path = tmp_path / "lease-race.db"
-        db_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
-        async with db_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-        factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async def test_worker_lease_concurrent_first_acquire(self, file_db_factory):
+        factory = file_db_factory
         start = asyncio.Event()
 
         async def _attempt(owner_id: str) -> bool:
@@ -369,8 +362,6 @@ class TestTaskRepository:
             lease = await repo.get_worker_lease(name="default")
             assert lease is not None
             assert lease["owner_id"] in {"worker-a", "worker-b"}
-
-        await db_engine.dispose()
 
     async def test_list_tasks_with_filters(self, db_session):
         repo = TaskRepository(db_session)

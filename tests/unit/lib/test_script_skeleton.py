@@ -44,7 +44,8 @@ class TestRegistrySelfConsistency:
         assert SKELETONS["video_units"].chars_field is None
 
     def test_real_registry_passes_validation(self):
-        script_skeleton._validate_registry()  # 不抛即通过
+        """真实注册表自洽：校验器放行的契约就是「不抛且无返回」。"""
+        assert script_skeleton._validate_registry() is None
 
     def test_missing_kind_fails_fast(self, monkeypatch):
         broken = {k: v for k, v in SKELETONS.items() if k != "video_units"}

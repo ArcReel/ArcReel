@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from threading import Event, Thread
+from typing import Any
 
 import pytest
 
@@ -552,7 +554,7 @@ def test_formal_step1_registration_failure_restores_the_previous_file(tmp_path: 
     assert not formal_path.exists()
 
 
-def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Path, monkeypatch) -> None:
+def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Path) -> None:
     from lib import artifact_activation
     from lib.script_review import formal_step1_lock, write_formal_step1_locked
 
@@ -563,21 +565,20 @@ def test_formal_step1_write_serializes_with_schema_last_activation(tmp_path: Pat
     release_activation = Event()
     writer_done = Event()
     failures: list[BaseException] = []
-    original_commit_schema = artifact_activation._commit_schema_version
 
-    def _pause_before_schema(project_dir_arg, project):
+    def _pause_before_schema(project_dir_arg: Path, project: Mapping[str, Any]) -> None:
         activation_ready.set()
         assert release_activation.wait(timeout=5)
-        original_commit_schema(project_dir_arg, project)
+        artifact_activation._commit_schema_version(project_dir_arg, project)
         # 清单激活是迁移链的中间一步，它落的版本不是当前版本；后续步骤在同一个临界区内走完，
         # 等锁的写入方因此只会看到迁移前后两个完整状态，与启动扫描先迁完再对外服务同口径。
         migrate_v8_to_v9(project_dir_arg)
 
-    monkeypatch.setattr(artifact_activation, "_commit_schema_version", _pause_before_schema)
-
     def _activate() -> None:
         try:
-            artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True)
+            artifact_activation.activate_artifact_target_state(
+                project_dir, bump_schema=True, commit_schema=_pause_before_schema
+            )
         except Exception as exc:
             failures.append(exc)
 
@@ -666,7 +667,6 @@ def test_formal_step1_transaction_holds_the_project_lock_through_the_write(tmp_p
 
 def test_v7_activation_holds_the_project_lock_while_backing_up_its_frozen_inputs(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from lib import artifact_activation
     from lib.formal_write import project_metadata_lock
@@ -681,19 +681,18 @@ def test_v7_activation_holds_the_project_lock_while_backing_up_its_frozen_inputs
     writer_started = Event()
     writer_done = Event()
     failures: list[BaseException] = []
-    original_backup = artifact_activation._ensure_activation_backup
 
-    def _pause_after_project_backup(source: Path, *, stamp: int) -> None:
-        original_backup(source, stamp=stamp)
+    def _pause_after_project_backup(source: Path, stamp: int) -> None:
+        artifact_activation._ensure_activation_backup(source, stamp=stamp)
         if source == project_path:
             backup_started.set()
             assert release_backup.wait(timeout=5)
 
-    monkeypatch.setattr(artifact_activation, "_ensure_activation_backup", _pause_after_project_backup)
-
     def _activate() -> None:
         try:
-            artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True)
+            artifact_activation.activate_artifact_target_state(
+                project_dir, bump_schema=True, backup_file=_pause_after_project_backup
+            )
         except Exception as exc:
             failures.append(exc)
 
@@ -885,25 +884,20 @@ def test_v7_activation_rejects_symlinked_project_control_file_without_writes(tmp
     assert not list(project_dir.rglob("*.bak.v7-*"))
 
 
-def test_v7_schema_commit_failure_leaves_complete_manifest_retryable(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_v7_schema_commit_failure_leaves_complete_manifest_retryable(tmp_path: Path) -> None:
     project_dir, _project_data, _step1, _script = _project(tmp_path)
     from lib import artifact_activation
-
-    original = artifact_activation._commit_schema_version
 
     def fail_schema(*_args: object, **_kwargs: object) -> None:
         raise OSError("injected schema failure")
 
-    monkeypatch.setattr(artifact_activation, "_commit_schema_version", fail_schema)
+    # migrate_v7_to_v8 只是 activate_artifact_target_state 的一行委托（另有用例守这层委托），
+    # 失败注入直接对着被委托的入口下，不必为此给迁移函数加一层转发参数。
     with pytest.raises(OSError, match="injected schema failure"):
-        migrate_v7_to_v8(project_dir)
+        artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True, commit_schema=fail_schema)
 
     assert _read_json(project_dir / "project.json")["schema_version"] == 7
     manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
-    monkeypatch.setattr(artifact_activation, "_commit_schema_version", original)
 
     migrate_v7_to_v8(project_dir)
 
@@ -911,21 +905,24 @@ def test_v7_schema_commit_failure_leaves_complete_manifest_retryable(
     assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
 
 
-def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(tmp_path: Path) -> None:
+    """并发写入方在 activation 持锁期间发起 project.json 更新：schema 提升写的是持锁前算出的
+    计划快照，落盘时不能把写入方的改动连带覆盖掉。
+
+    写入方在临界区内被放行，因而必然排在 activation 的整个提交之后拿到锁——它读到的是已提升
+    到 v8 的 project.json，标题与版本号须同时存活。
+    """
     project_dir, _project_data, _step1, _script = _project(tmp_path)
     from lib import artifact_activation
 
-    original_assert = artifact_activation._assert_preflight_unchanged
-    final_check_reached = Event()
+    project_path = project_dir / "project.json"
+    writer_released = Event()
     writer_finished = Event()
     writer_errors: list[Exception] = []
-    check_count = 0
 
     def _update_project() -> None:
-        final_check_reached.wait()
+        # 带超时等待：放行信号没发出时线程须自行退出，否则非守护线程会把整个进程吊死。
+        assert writer_released.wait(timeout=5)
         try:
             ProjectManager(tmp_path).update_project(
                 "demo",
@@ -936,26 +933,59 @@ def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(
         finally:
             writer_finished.set()
 
-    def _assert_then_release_writer(project_path: Path, plan) -> None:
-        nonlocal check_count
-        original_assert(project_path, plan)
-        check_count += 1
-        if check_count == 3:
-            final_check_reached.set()
-            writer_finished.wait(timeout=0.2)
+    def _release_writer_inside_the_lock(source: Path, stamp: int) -> None:
+        artifact_activation._ensure_activation_backup(source, stamp=stamp)
+        if source == project_path:
+            writer_released.set()
+            # 写入方此刻必须还卡在项目锁上：拿得到锁就说明 activation 的临界区没罩住提升。
+            assert not writer_finished.wait(timeout=0.2)
 
     writer = Thread(target=_update_project)
     writer.start()
-    monkeypatch.setattr(artifact_activation, "_assert_preflight_unchanged", _assert_then_release_writer)
 
-    migrate_v7_to_v8(project_dir)
+    artifact_activation.activate_artifact_target_state(
+        project_dir, bump_schema=True, backup_file=_release_writer_inside_the_lock
+    )
 
     writer.join(timeout=2)
     assert not writer.is_alive()
     assert writer_errors == []
-    promoted = _read_json(project_dir / "project.json")
+    promoted = _read_json(project_path)
     assert promoted["schema_version"] == 8
     assert promoted["title"] == "Concurrent writer"
+
+
+def test_v7_activation_rolls_back_when_inputs_drift_inside_the_critical_section(tmp_path: Path) -> None:
+    """临界区内输入漂移：activation 须响亮失败，并把已经落下的清单回滚干净。
+
+    schema 提升写的是持锁前算出的计划快照，漂移后照提交就会把写入方的改动覆盖成快照里的旧值。
+    这一判在清单替换之后，回滚不彻底的话项目会停在「清单已是新态、schema 仍是 v7」的半提交
+    状态上，而下一次迁移会拿它当起点。
+    """
+    project_dir, _project_data, _step1, _script = _project(tmp_path)
+    from lib import artifact_activation
+
+    project_path = project_dir / "project.json"
+    manifest_path = project_dir / MANIFEST_FILENAME
+    assert not manifest_path.exists()
+
+    def _drift_project_after_backup(source: Path, stamp: int) -> None:
+        artifact_activation._ensure_activation_backup(source, stamp=stamp)
+        if source == project_path:
+            drifted = _read_json(project_path)
+            drifted["title"] = "Drifted inside the lock"
+            _write_json(project_path, drifted)
+
+    with pytest.raises(RuntimeError, match="project.json changed after artifact activation preflight"):
+        artifact_activation.activate_artifact_target_state(
+            project_dir, bump_schema=True, backup_file=_drift_project_after_backup
+        )
+
+    # 漂移写入原样留存，schema 未被快照里的旧值覆盖；清单回到激活前的「不存在」
+    landed = _read_json(project_path)
+    assert landed["title"] == "Drifted inside the lock"
+    assert landed["schema_version"] == 7
+    assert not manifest_path.exists()
 
 
 def test_script_save_rechecks_manifest_activation_inside_the_project_lock(
