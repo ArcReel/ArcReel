@@ -22,6 +22,7 @@ from lib.minimax_h3_prompt import (
     parse_h3_prompt,
     save_h3_prompt_artifact,
 )
+from lib.script_editor import split_segment
 from lib.text_backends.base import TextGenerationResult
 from server.services.h3_prompt_optimization import (
     H3PromptContext,
@@ -59,10 +60,15 @@ def _oversized_prompt() -> str:
     )
 
 
-def _context(tmp_path: Path, *, basis_digest: str = "basis-v1") -> H3PromptContext:
+def _context(
+    tmp_path: Path,
+    *,
+    basis_digest: str = "basis-v1",
+    unit_id: str = "E1U01",
+) -> H3PromptContext:
     return H3PromptContext(
         episode=1,
-        unit={"unit_id": "E1U01", "text": "runtime facts"},
+        unit={"unit_id": unit_id, "text": "runtime facts"},
         projection=SimpleNamespace(
             request_duration=SimpleNamespace(seconds=8),
             provider_candidate=SimpleNamespace(model_id="MiniMax-H3", resolution="720p"),
@@ -74,7 +80,7 @@ def _context(tmp_path: Path, *, basis_digest: str = "basis-v1") -> H3PromptConte
         audio_references=(H3PromptReference(label="Audio 1", kind="speaker", name="Dad"),),
         audio_paths=(tmp_path / "dad.mp3",),
         basis_digest=basis_digest,
-        user_prompt=_optimizer_user_prompt({"unit": {"unit_id": "E1U01", "text": "runtime facts"}}),
+        user_prompt=_optimizer_user_prompt({"unit": {"unit_id": unit_id, "text": "runtime facts"}}),
     )
 
 
@@ -142,6 +148,52 @@ def test_artifact_supports_zero_padded_unit_ids_and_confirmation_is_basis_guarde
     confirmed = confirm_h3_prompt_artifact(tmp_path, 1, "E1U01", expected_basis_digest="basis-v1")
     assert confirmed.status == "confirmed"
     assert confirmed.confirmed_at is not None
+
+
+@pytest.mark.parametrize(
+    "unit_id",
+    ("E0U1", "E1U0", "E1U01__1", "E1U01_1/../escape"),
+)
+def test_artifact_rejects_noncanonical_or_unsafe_unit_ids(tmp_path: Path, unit_id: str) -> None:
+    with pytest.raises(ValueError, match="invalid reference video unit id"):
+        h3_prompt_artifact_path(tmp_path, 1, unit_id)
+
+
+async def test_worker_prompt_step_accepts_the_stable_child_id_created_by_split(tmp_path: Path) -> None:
+    script = {
+        "video_units": [
+            {"unit_id": "E1U01", "generated_assets": {}},
+            {"unit_id": "E1U02", "generated_assets": {}},
+        ]
+    }
+    split_segment(
+        script,
+        "E1U01",
+        [
+            {"text": "first half", "duration_seconds": 8},
+            {"text": "second half", "duration_seconds": 8},
+        ],
+    )
+    split_unit_id = script["video_units"][1]["unit_id"]
+    assert [unit["unit_id"] for unit in script["video_units"]] == ["E1U01", "E1U01_1", "E1U02"]
+
+    class _Generator:
+        async def generate(self, request: Any, *, project_name: str) -> TextGenerationResult:
+            return TextGenerationResult(text=_prompt(), provider="test", model="optimizer")
+
+    async def _factory(_project_name: str) -> Any:
+        return _Generator()
+
+    service = H3PromptOptimizationService(generator_factory=_factory)
+    artifacts = await service._optimize_contexts(
+        "demo",
+        tmp_path,
+        [_context(tmp_path, unit_id=split_unit_id)],
+    )
+
+    assert artifacts[0].unit_id == "E1U01_1"
+    assert h3_prompt_artifact_path(tmp_path, 1, "E1U01_1").is_file()
+    assert load_h3_prompt_artifact(tmp_path, 1, "E1U01_1") == artifacts[0]
 
 
 async def test_optimizer_keeps_pinned_system_prompt_separate_and_saves_pending_review(

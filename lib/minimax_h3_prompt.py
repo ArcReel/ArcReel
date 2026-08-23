@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.json_io import atomic_write_json, load_json_or_none
+from lib.script_skeleton import REFERENCE_VIDEO_UNIT_ID_PATTERN
 
 H3_MODEL_TOKEN = "minimax-h3"
 H3_PROMPT_SCHEMA_VERSION = 1
@@ -27,7 +28,6 @@ H3_PROMPT_SECTIONS = (
 H3_SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "minimax_h3" / "ref-en.txt"
 H3_SYSTEM_PROMPT_SHA256 = "1e574f356716ad55612247ffb7bbccbcdb484ad96599d63c7dca1af186b1fab7"
 
-_UNIT_ID = re.compile(r"^E0*[1-9]\d*U0*[1-9]\d*$", re.IGNORECASE)
 _HEADER = re.compile(
     r"(?m)^(subject_definitions|summary|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music)\s*:\s*"
 )
@@ -169,7 +169,7 @@ def parse_h3_prompt(raw: str, *, duration_seconds: int, picture_count: int, audi
 
 
 def h3_prompt_artifact_path(project_path: Path, episode: int, unit_id: str) -> Path:
-    if not _UNIT_ID.fullmatch(unit_id):
+    if not REFERENCE_VIDEO_UNIT_ID_PATTERN.fullmatch(unit_id):
         raise ValueError(f"invalid reference video unit id: {unit_id!r}")
     return project_path / "drafts" / f"episode_{episode}" / "h3_prompts" / f"{unit_id}.json"
 

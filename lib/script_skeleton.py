@@ -29,6 +29,10 @@ from typing import Any
 from lib.validation_messages import MessageRef, ValidationMessage
 
 STORYBOARD_ITEM_ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
+REFERENCE_VIDEO_UNIT_ID_PATTERN = re.compile(
+    r"^E0*[1-9]\d*U0*[1-9]\d*(?:_\d+)?$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
