@@ -16,7 +16,7 @@ uv run ruff check . && uv run ruff format . && uv run basedpyright && uv run lin
 
 ## 通用规范
 
-- 面向用户的文本须同步添加全部已支持语言的翻译 key（语言清单以 `frontend/src/i18n/` 为准，由 `tests/test_i18n_consistency.py` 校验）。
+- 面向用户的文本须同步添加全部已支持语言的翻译 key（语言清单以 `frontend/src/i18n/` 为准，由 `tests/unit/lib/i18n/test_i18n_consistency.py` 校验）。
 - 代码与测试注释仅描述当前行为与约束；变更原因与议题编号写在 commit message / PR 描述中。
 
 ## 架构

@@ -40,7 +40,7 @@ _DURATION_CONSTRAINED_RESOLUTIONS = frozenset({"1080p", "4k"})
 
 # 请求里带得动音轨开关的 Veo 型号（即 Vertex 目录）：`_create_task` 只在 backend_type == "vertex"
 # 时下发 generate_audio，AI Studio 的请求没有这个字段。两家目录的 model 命名不重叠，一致性由
-# tests/test_video_backend_capabilities.py 的音轨立场守卫锁定（新增型号漏登记会在那里暴露）。
+# tests/unit/lib/video_backends/test_video_backend_capabilities.py 的音轨立场守卫锁定（新增型号漏登记会在那里暴露）。
 _AUDIO_SWITCH_MODELS: frozenset[str] = frozenset(
     {
         "veo-3.1-generate-001",

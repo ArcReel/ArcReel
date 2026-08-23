@@ -21,7 +21,7 @@ from typing import Any
 # Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
 # ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
 # so the mapping below is identity — no prefix indirection. Enumerated rather than
-# derived so an unregistered code fails fast; ``tests/test_task_failure_capability.py``
+# derived so an unregistered code fails fast; ``tests/integration/lib/test_task_failure_capability.py``
 # AST-scans the raise sites and fails CI when a new code is added without registering it.
 CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
     {

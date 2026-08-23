@@ -68,7 +68,7 @@ cd frontend && pnpm check
 
 pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
-> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（存量的目录与档位、前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、eslint 强制项的现行 CI/lint 配置、`testTimeout` 等 vitest 配置、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线；目录迁移与 marker 自动注入落地前，分类 marker 仍需手写（收集期强制恰好一个，语义见下文分层表）。整改完成后删除本段。
+> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、eslint 强制项的现行 CI/lint 配置、`testTimeout` 等 vitest 配置、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线。整改完成后删除本段。
 
 ### 分层与目录
 
@@ -119,7 +119,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 - 等待、重试、超时逻辑一律经时钟 seam 或事件握手驱动，不使用 `time.sleep` 之类的真实时间等待。
 - 偶发失败（flaky）视同普通缺陷：就地修复（时钟 seam / 事件握手），无法修复或不值得修复的按无意义测试判据删除。不引入自动重试（pytest-rerunfailures、CI job 级 retry）——自动重试会掩盖本应暴露的失败。
-- 概率性 stress 用例（真实并发 + 真实时间）须在本节显式登记。当前唯一登记的豁免：`tests/test_project_manager_concurrent_save.py` 的原子写压力用例（`integration` 档）。
+- 概率性 stress 用例（真实并发 + 真实时间）须在本节显式登记。当前唯一登记的豁免：`tests/integration/lib/test_project_manager_concurrent_save.py` 的原子写压力用例。
 
 ### 覆盖率
 

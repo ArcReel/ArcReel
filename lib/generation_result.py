@@ -130,7 +130,7 @@ class GenerationAction(StrEnum):
 # ``lib.task_failure.FAILURE_CODE_KEYS`` must appear here — an unregistered code
 # would silently degrade to ``RETRY``, which for a rejected request means paying
 # again for the same rejection. The coverage test in
-# ``tests/test_generation_result.py`` is the drift guard.
+# ``tests/unit/lib/test_generation_result.py`` is the drift guard.
 _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "needs_replan": GenerationAction.REPLAN_UNIT,
     "tts_missing": GenerationAction.GENERATE_TTS,

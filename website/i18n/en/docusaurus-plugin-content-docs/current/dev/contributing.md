@@ -71,7 +71,7 @@ cd frontend && pnpm check
 
 pytest runs with `asyncio_mode = "auto"`; async tests need no manual marking.
 
-> **Transition note**: this chapter describes the target state after remediation; the existing suite and the related engineering configuration are being aligned with it in batches under a remediation spec. Where a rule does not match the current tree (existing test directories and tiers, frontend calls that bypass the `API` class with direct `fetch`/`EventSource`, the current CI/lint configuration for coverage and the eslint-enforced rules, vitest settings such as `testTimeout`, the not-yet-created `src/test/` shared infrastructure), the chapter is the direction of travel. `scripts/audit_tests.py` and the CI `test-lint` step do not exist yet; they land with the first gate, and each gate ships in the same PR that clears its remaining violations. Until the directory migration and automatic marker injection land, classification markers are still written by hand (collection enforces exactly one; semantics per the table below). Delete this note once remediation completes.
+> **Transition note**: this chapter describes the target state after remediation; the existing suite and the related engineering configuration are being aligned with it in batches under a remediation spec. Where a rule does not match the current tree (frontend calls that bypass the `API` class with direct `fetch`/`EventSource`, the current CI/lint configuration for coverage and the eslint-enforced rules, vitest settings such as `testTimeout`, the not-yet-created `src/test/` shared infrastructure), the chapter is the direction of travel. `scripts/audit_tests.py` and the CI `test-lint` step do not exist yet; they land with the first gate, and each gate ships in the same PR that clears its remaining violations. Delete this note once remediation completes.
 
 ### Tiers and layout {#test-tiers}
 
@@ -122,7 +122,7 @@ Four audit criteria rely on review and dedicated audits, not gates: weakened dup
 
 - Waiting, retry, and timeout logic is always driven through a clock seam or event handshake—no real `time.sleep` wall-clock waits.
 - Flaky failures are ordinary defects: fix them in place (clock seam / event handshake), or delete them under the meaningless-test criteria if a fix is impractical or not worthwhile. No automatic retries (pytest-rerunfailures, CI job-level retry)—automatic retry hides failures that should stay visible.
-- Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/test_project_manager_concurrent_save.py` (`integration` tier).
+- Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/integration/lib/test_project_manager_concurrent_save.py`.
 
 ### Coverage {#coverage}
 

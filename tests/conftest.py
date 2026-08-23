@@ -20,12 +20,15 @@ import os
 import shutil
 import subprocess
 import tempfile
+import uuid as _uuid
 import wave
+from collections.abc import AsyncIterator
 from io import BytesIO
 from pathlib import Path
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import event, pool, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # `lib.db.engine` 的模块级 engine 在 import 期就按 `DATABASE_URL` 绑定，进程内不再重建，
 # 所以覆写必须发生在下方任何会传染到该模块的 import 之前。未显式指定时它落在仓库根的
@@ -165,7 +168,7 @@ def _stub_sandbox_check(monkeypatch, request):
     会让 ``server.app.check_sandbox_available`` 的 bwrap probe 启动失败，连带
     把任何走 FastAPI lifespan 的测试（TestClient / lifespan / startup hook 集成测试）
     全部拖崩。测试本不该依赖 host 能跑非特权 user namespace；该函数本身的契约
-    由 ``tests/server/test_startup_assertions.py`` 独立覆盖（用更精细的 subprocess.run
+    由 ``tests/unit/server/test_startup_assertions.py`` 独立覆盖（用更精细的 subprocess.run
     stub）— 那个文件需要走真实函数，故按文件名跳过此 autouse stub。
     """
     if request.path.name == "test_startup_assertions.py":
@@ -250,6 +253,115 @@ async def db_factory():
     await engine.dispose()
 
 
+def _pg_url_from_env() -> str | None:
+    """Return DATABASE_URL iff it's a PostgreSQL+asyncpg URL, else None."""
+    url = os.environ.get("DATABASE_URL")
+    if url and url.startswith("postgresql+asyncpg://"):
+        return url
+    return None
+
+
+# Test fixtures attribute writes to a small set of fixed user_ids; seed them
+# on PG so FK constraints (which SQLite tests bypass via PRAGMA foreign_keys=OFF)
+# don't reject inserts.
+_PG_TEST_USER_IDS = ("default", "u1", "conformance", "e2e", "crash-recover", "long-turn")
+
+
+async def _seed_pg_users(engine) -> None:
+    async with engine.begin() as conn:
+        for uid in _PG_TEST_USER_IDS:
+            await conn.execute(
+                text(
+                    "INSERT INTO users (id, username, role, is_active, created_at, updated_at) "
+                    "VALUES (:id, :username, 'user', true, NOW(), NOW()) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                {"id": uid, "username": uid},
+            )
+
+
+@pytest.fixture
+async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """Session factory with all tables created.
+
+    By default uses in-memory SQLite. When ``DATABASE_URL`` points at PG
+    (postgresql+asyncpg://...), uses a per-test isolated PG schema so
+    dialect-specific code paths (partial unique indexes + ON CONFLICT,
+    SELECT ... FOR UPDATE) are actually exercised.
+    """
+    pg_url = _pg_url_from_env()
+    if pg_url:
+        # Per-test schema for isolation; tables created against it via search_path.
+        schema = f"test_{_uuid.uuid4().hex[:12]}"
+        engine = create_async_engine(
+            pg_url,
+            connect_args={"server_settings": {"search_path": schema}},
+        )
+        async with engine.begin() as conn:
+            await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+        async with engine.begin() as conn:
+            import lib.agent_session_store.models  # noqa: F401
+            import lib.db.models  # noqa: F401
+
+            await conn.run_sync(Base.metadata.create_all)
+        # PG enforces FK constraints (SQLite tests run with PRAGMA foreign_keys=OFF).
+        # Seed the user rows that test cases attribute writes to so FK checks pass.
+        await _seed_pg_users(engine)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            yield factory
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+            await engine.dispose()
+        return
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        # Import model modules to register tables on Base.metadata.
+        import lib.agent_session_store.models  # noqa: F401
+        import lib.db.models  # noqa: F401  (users / agent_sessions / config etc.)
+
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    yield factory
+    await engine.dispose()
+
+
+@pytest.fixture
+async def file_session_factory(tmp_path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """File-backed SQLite with NullPool — each connection is independent.
+
+    Required for concurrency tests that must NOT serialize via StaticPool
+    (which is the default for ``sqlite+aiosqlite:///:memory:``).
+
+    Always SQLite regardless of ``DATABASE_URL`` — tests that depend on this
+    fixture are SQLite-specific edge cases marked ``@pytest.mark.sqlite_only``.
+    """
+    db_path = tmp_path / "concurrency.db"
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{db_path}",
+        poolclass=pool.NullPool,
+    )
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        cursor.close()
+
+    async with engine.begin() as conn:
+        import lib.agent_session_store.models  # noqa: F401
+        import lib.db.models  # noqa: F401
+
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    yield factory
+    await engine.dispose()
+
+
 # ---------------------------------------------------------------------------
 # SessionManager family (used by 3+ test files)
 # ---------------------------------------------------------------------------
@@ -278,24 +390,40 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
 
 
 # ---------------------------------------------------------------------------
-# GenerationQueue family (used by 2+ test files)
+# 收集期钩子：档位 marker 注入与边界校验
 # ---------------------------------------------------------------------------
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-mark dialect-sensitive tests with `uses_db`.
+TESTS_ROOT = Path(__file__).parent
+CLASSIFICATION_MARKS = ("unit", "integration", "e2e")
 
-    Mark a test only when it consumes a fixture defined in a canonical
-    dialect-sensitive conftest — the main `tests/conftest.py` (`async_session`,
-    reads DATABASE_URL) or `tests/agent_session_store/conftest.py`
-    (`session_factory` / `file_session_factory`, also reads DATABASE_URL).
-    Tests that locally override the same fixture name with a hard-coded
-    SQLite engine (e.g. `tests/test_custom_providers_api.py`) are excluded so
-    the postgres-compat job stays a true dialect signal rather than running
-    SQLite-only code under a `postgres` coverage flag.
+
+def _tier_from_path(item: pytest.Item) -> str | None:
+    """用例所在的档位目录名（`tests/unit|integration|e2e/…` 的第一段）。"""
+    try:
+        rel = Path(str(item.path)).relative_to(TESTS_ROOT)
+    except ValueError:
+        return None
+    head = rel.parts[0] if rel.parts else ""
+    return head if head in CLASSIFICATION_MARKS else None
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """按目录注入分类 marker，再按 fixture 来源注入 `uses_db`，最后跑收集期校验。
+
+    分类 marker 由用例所在的 `tests/unit|integration|e2e/` 段决定，不手写。
+    `uses_db` 只在用例消费本 conftest 的方言敏感 fixture（`async_session` /
+    `session_factory` / `file_session_factory`）时注入；用例在本地覆写同名 fixture
+    为硬编码 SQLite engine 时不注入，使 postgres-compat job 保持真实的方言信号，
+    而不是把只跑 SQLite 的代码算进 `postgres` 覆盖率标记。
     """
+    for item in items:
+        tier = _tier_from_path(item)
+        if tier is not None:
+            item.add_marker(getattr(pytest.mark, tier))
+
     target_fixtures = {"async_session", "session_factory", "file_session_factory"}
-    canonical_modules = {"tests.conftest", "tests.agent_session_store.conftest"}
+    canonical_modules = {"tests.conftest"}
     uses_db = pytest.mark.uses_db
     for item in items:
         info = getattr(item, "_fixtureinfo", None)
@@ -319,33 +447,42 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 def _enforce_classification_markers(items: list[pytest.Item]) -> None:
-    """收集期强制：每个用例恰好带一个 unit/integration/e2e 分类 marker。
+    """收集期强制：分类 marker 恰好一个且来自目录，`unit` 档不得触达真实数据库。
 
-    漏标不影响用例本身通过，只能靠人工 review 发现；这里把它变成收集期失败，
-    使其无法进入 CI。多标同样拦截——三类语义互斥，同时命中会让 `-m` 选集失去意义
-    （marker 可来自用例、类、模块三层，叠加时容易出现自相矛盾的组合）。
+    分类 marker 由目录注入，所以「缺失」等价于用例不在三个档位目录之下，「多标」
+    等价于文件里还留着与目录相冲突的手写 marker——两者都拦在收集期，不进 CI。
+    `uses_db` ∧ `unit` 是档位边界本身：unit 档禁真实 DB，命中说明用例放错了目录。
     """
-    classify_marks = {"unit", "integration", "e2e"}
     missing = []
     conflicting = []
+    db_in_unit = []
     for item in items:
-        marks = {m.name for m in item.iter_markers()} & classify_marks
-        if not marks:
+        marks = {m.name for m in item.iter_markers()}
+        classify = marks & set(CLASSIFICATION_MARKS)
+        if not classify:
             missing.append(item.nodeid)
-        elif len(marks) > 1:
-            conflicting.append(f"{item.nodeid}（{'/'.join(sorted(marks))}）")
+        elif len(classify) > 1:
+            conflicting.append(f"{item.nodeid}（{'/'.join(sorted(classify))}）")
+        if "uses_db" in marks and "unit" in classify:
+            db_in_unit.append(item.nodeid)
     problems = []
     if missing:
         listing = "\n".join(f"  - {nodeid}" for nodeid in missing)
         problems.append(
-            f"{len(missing)} 个测试用例缺少分类 marker（unit/integration/e2e 三选一）：\n{listing}\n"
-            "在用例或所在模块补 @pytest.mark.unit / integration / e2e。"
+            f"{len(missing)} 个测试用例不在档位目录下（分类 marker 由目录注入）：\n{listing}\n"
+            "把文件移到 tests/unit|integration|e2e/<源码目录镜像>/ 下。"
         )
     if conflicting:
         listing = "\n".join(f"  - {entry}" for entry in conflicting)
         problems.append(
             f"{len(conflicting)} 个测试用例带多个分类 marker（三者互斥）：\n{listing}\n"
-            "去掉用例/类/模块三层中多余的那个分类 marker。"
+            "删掉用例/类/模块三层中手写的分类 marker，档位只由目录决定。"
+        )
+    if db_in_unit:
+        listing = "\n".join(f"  - {nodeid}" for nodeid in db_in_unit)
+        problems.append(
+            f"{len(db_in_unit)} 个 unit 档用例触达真实数据库（`uses_db`）：\n{listing}\n"
+            "unit 档禁真实 DB，把文件移到 tests/integration/ 下的镜像位置。"
         )
     if problems:
         raise pytest.UsageError("\n".join(problems))
@@ -396,6 +533,11 @@ async def async_session():
     async with factory() as session:
         yield session
     await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# GenerationQueue family (used by 2+ test files)
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture()

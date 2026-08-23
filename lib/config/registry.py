@@ -44,7 +44,7 @@ class ModelInfo:
     # 此声明——它们的真相源是各 backend 的 VideoCapabilities 与请求期 gate，与请求构造同源，
     # 也只有那里表达得了「同一 model 内按执行子路径分叉」（可灵 v3-omni 走多图主体子路径时
     # 请求体没有音轨开关）。补一份视频能力位声明即引入第二份手写来源，由
-    # tests/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。
+    # tests/unit/lib/video_backends/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。
     capabilities: list[ModelCapability]
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)

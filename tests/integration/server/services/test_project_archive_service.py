@@ -1,0 +1,1967 @@
+import hashlib
+import json
+import re
+import shutil
+import stat
+import zipfile
+from pathlib import Path
+from threading import Event, Thread
+
+import pytest
+
+from lib import script_review
+from lib.artifact_activation import ArtifactCurrencyResolver
+from lib.artifact_manifest import (
+    MANIFEST_FILENAME,
+    ArtifactBasisDescriptor,
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ArtifactStatus,
+    ProjectArtifactManifestAdapter,
+)
+from lib.formal_write import project_metadata_lock
+from lib.grid.models import GridGeneration
+from lib.i18n import _
+from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
+from lib.project_manager import ProjectManager
+from lib.project_migrations.runner import migrate_project_dir
+from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.version_manager import VersionManager
+from server.services import project_archive as project_archive_module
+from server.services.project_archive import (
+    ARCHIVE_MANIFEST_NAME,
+    ProjectArchiveService,
+    ProjectArchiveValidationError,
+)
+
+
+def _activate_artifact_manifest(project_dir: Path) -> None:
+    """跑 Artifact Manifest 引入那一步的迁移，再把项目补到当前 schema。
+
+    manifest 由 v7→v8 生成，而按 manifest 判定产物新旧的入口要求项目已在当前 schema 上，
+    故两步必须成对——只跑前者会让项目停在中途版本、解析器直接拒绝服务。
+    """
+    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
+
+
+def _write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _build_episode_payload(*, video_uri: str | None = None) -> dict:
+    return {
+        "episode": 1,
+        "title": "第一集",
+        "content_mode": "narration",
+        "duration_seconds": 4,
+        "summary": "",
+        "novel": {
+            "title": "Demo",
+            "chapter": "第一章",
+        },
+        "segments": [
+            {
+                "segment_id": "E1S01",
+                "duration_seconds": 4,
+                "segment_break": False,
+                "novel_text": "原文",
+                "characters_in_segment": ["Hero"],
+                "scenes": [],
+                "props": ["Key"],
+                "image_prompt": "img",
+                "video_prompt": "vid",
+                "transition_to_next": "cut",
+                "generated_assets": {
+                    "storyboard_image": "storyboards/scene_E1S01.png",
+                    "video_clip": "videos/scene_E1S01.mp4",
+                    "video_uri": video_uri,
+                    "status": "completed",
+                },
+            }
+        ],
+    }
+
+
+def _create_project(
+    pm: ProjectManager,
+    *,
+    name: str = "demo",
+    title: str = "Demo",
+    style: str = "Anime",
+    video_uri: str | None = None,
+) -> Path:
+    pm.create_project(name)
+    pm.create_project_metadata(name, title, style, "narration")
+
+    project_dir = pm.get_project_path(name)
+    project = pm.load_project(name)
+    project["style_image"] = "style_reference.png"
+    project["characters"] = {
+        "Hero": {
+            "description": "Lead",
+            "character_sheet": "characters/Hero.png",
+            "reference_image": "characters/refs/Hero.png",
+        }
+    }
+    project["props"] = {
+        "Key": {
+            "description": "Important prop",
+            "prop_sheet": "props/Key.png",
+        }
+    }
+    project["episodes"] = [
+        {
+            "episode": 1,
+            "title": "第一集",
+            "script_file": "scripts/episode_1.json",
+        }
+    ]
+    pm.save_project(name, project)
+
+    _write_text(project_dir / "source" / "chapter.txt", "source")
+    _write_text(project_dir / "drafts" / "episode_1" / "step1_segments.md", "draft")
+    (project_dir / "drafts" / "episode_2").mkdir(parents=True, exist_ok=True)
+    _write_bytes(project_dir / "style_reference.png", b"png")
+    _write_bytes(project_dir / "characters" / "Hero.png", b"png")
+    _write_bytes(project_dir / "characters" / "refs" / "Hero.png", b"png")
+    _write_bytes(project_dir / "props" / "Key.png", b"png")
+    _write_bytes(project_dir / "storyboards" / "scene_E1S01.png", b"png")
+    _write_bytes(project_dir / "videos" / "scene_E1S01.mp4", b"mp4")
+    _write_bytes(project_dir / "output" / "final.mp4", b"mp4")
+    _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v1.png", b"png")
+    _write_json(
+        project_dir / "scripts" / "episode_1.json",
+        _build_episode_payload(video_uri=video_uri),
+    )
+
+    _write_text(project_dir / ".DS_Store", "hidden")
+    _write_text(project_dir / ".hidden" / "secret.txt", "hidden")
+    return project_dir
+
+
+def _add_agent_runtime_symlinks(project_dir: Path) -> None:
+    """Simulate legacy production layout: create agent_runtime_profile and symlinks.
+
+    ``create_project`` 会把 ``.claude`` / ``CLAUDE.md`` 物化为真目录/真文件 + 写
+    manifest，与本 helper 要测的"旧 symlink 部署遗留"场景冲突。这里先清理 dest 再
+    symlink 模拟老版本 docker volume 持久化下来的旧项目目录形态。
+    """
+    import shutil
+
+    project_root = project_dir.parent.parent
+    profile_claude = project_root / "agent_runtime_profile" / ".claude"
+    profile_claude.mkdir(parents=True, exist_ok=True)
+    (profile_claude / "settings.json").write_text("{}", encoding="utf-8")
+    profile_md = project_root / "agent_runtime_profile" / "CLAUDE.md"
+    profile_md.write_text("# Agent Runtime", encoding="utf-8")
+
+    # 清理新版 sync 物化的 .claude/CLAUDE.md/manifest，模拟老部署的 symlink 形态
+    if (project_dir / ".claude").exists() or (project_dir / ".claude").is_symlink():
+        if (project_dir / ".claude").is_symlink() or (project_dir / ".claude").is_file():
+            (project_dir / ".claude").unlink()
+        else:
+            shutil.rmtree(project_dir / ".claude")
+    if (project_dir / "CLAUDE.md").exists() or (project_dir / "CLAUDE.md").is_symlink():
+        (project_dir / "CLAUDE.md").unlink()
+    # legacy symlink 部署不会有 manifest，留着会让导入/导出逻辑读到 manifest 把
+    # "旧 symlink + 新 manifest" 当成正常态而非 legacy。
+    manifest_path = project_dir / ".arcreel_profile_manifest.json"
+    if manifest_path.exists() or manifest_path.is_symlink():
+        manifest_path.unlink()
+
+    (project_dir / ".claude").symlink_to(Path("../../agent_runtime_profile/.claude"))
+    (project_dir / "CLAUDE.md").symlink_to(Path("../../agent_runtime_profile/CLAUDE.md"))
+
+
+def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for item in sorted(project_dir.rglob("*")):
+            relative = item.relative_to(project_dir)
+            if item.is_dir():
+                info = zipfile.ZipInfo(relative.as_posix().rstrip("/") + "/")
+                archive.writestr(info, b"")
+            else:
+                archive.write(item, arcname=relative.as_posix())
+
+
+def _stage_legacy_narration_archive(pm: ProjectManager, project_dir: Path, archive_path: Path) -> None:
+    """把 demo 项目改写成需要自动修复的旧格式，并打包成归档（原目录随之移除）。"""
+
+    project = pm.load_project("demo")
+    project["characters"] = {}
+    pm.save_project("demo", project)
+
+    source_dir = project_dir / "source"
+    (source_dir / "chapter.txt").unlink()
+    _write_text(source_dir / "1-7-0227.txt", "source")
+
+    _write_json(
+        project_dir / "versions" / "versions.json",
+        {
+            "videos": {
+                "E1S01_1": {
+                    "current_version": 1,
+                    "versions": [
+                        {
+                            "version": 1,
+                            "file": "versions/videos/E1S01_1_v1.mp4",
+                            "prompt": "vp1",
+                            "created_at": "2024-01-01",
+                        }
+                    ],
+                }
+            }
+        },
+    )
+    _write_bytes(project_dir / "versions" / "videos" / "E1S01_1_v1.mp4", b"mp4-v1")
+
+    _write_json(
+        project_dir / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "novel": {
+                "title": "Demo",
+                "chapter": "第一章",
+                "source_file": "source/1-7-0227.txt",
+            },
+            "segments": [
+                {
+                    "segment_id": "E1S01_1",
+                    "duration_seconds": 4,
+                    "novel_text": "原文",
+                    "characters_in_segment": ["Ghost"],
+                    "image_prompt": "img",
+                    "video_prompt": "vid",
+                    "generated_assets": {
+                        "storyboard_image": "storyboards/scene_E1S01.png",
+                        "video_clip": "versions/videos/E1S01_1_v9.mp4",
+                        "video_uri": None,
+                        "status": "completed",
+                    },
+                }
+            ],
+        },
+    )
+
+    _make_manual_zip(project_dir, archive_path)
+    shutil.rmtree(project_dir)
+
+
+class TestProjectArchiveService:
+    def test_export_includes_full_snapshot_and_empty_dirs(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, download_name = service.export_project("demo")
+        assert download_name.startswith("demo-")
+        assert download_name.endswith(".zip")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            assert f"demo/{ARCHIVE_MANIFEST_NAME}" in names
+            assert "demo/project.json" in names
+            assert "demo/source/chapter.txt" in names
+            assert "demo/scripts/episode_1.json" in names
+            assert "demo/drafts/episode_1/step1_segments.md" in names
+            assert "demo/drafts/episode_2/" in names
+            assert "demo/characters/Hero.png" in names
+            assert "demo/characters/refs/Hero.png" in names
+            assert "demo/props/Key.png" in names
+            assert "demo/storyboards/scene_E1S01.png" in names
+            assert "demo/videos/scene_E1S01.mp4" in names
+            assert "demo/output/final.mp4" in names
+            assert "demo/versions/storyboards/E1S01_v1.png" in names
+            assert "demo/style_reference.png" in names
+            assert "demo/.DS_Store" not in names
+            assert "demo/.hidden/secret.txt" not in names
+
+    @pytest.mark.parametrize("scope", ["full", "current"])
+    def test_export_includes_end_frame_snapshots(self, tmp_path, scope):
+        """end_frames 登记为允许的根目录条目后，两种 scope 的导出都自动带上尾帧快照。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _write_bytes(project_dir / "end_frames" / "scene_E1S01.png", b"png")
+        payload = json.loads((project_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        payload["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+        _write_json(project_dir / "scripts" / "episode_1.json", payload)
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo", scope=scope)
+        with zipfile.ZipFile(archive_path) as archive:
+            assert "demo/end_frames/scene_E1S01.png" in set(archive.namelist())
+
+    def test_export_excludes_agent_runtime_symlinks(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _add_agent_runtime_symlinks(project_dir)
+
+        assert (project_dir / ".claude").is_symlink()
+        assert (project_dir / "CLAUDE.md").is_symlink()
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            assert not any(".claude" in n for n in names)
+            assert not any("CLAUDE.md" in n for n in names)
+            assert "demo/project.json" in names
+            assert "demo/source/chapter.txt" in names
+
+    def test_export_excludes_agent_runtime_real_files(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        (project_dir / "CLAUDE.md").write_text("# Agent", encoding="utf-8")
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            assert not any("CLAUDE.md" in n for n in names)
+            assert "demo/project.json" in names
+
+    def test_export_excludes_broken_agent_runtime_symlinks(self, tmp_path):
+        import shutil as _shutil
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        # 清理新版物化产物后创建 broken symlink（模拟老版部署遗留 + profile 目录已删的状态）
+        if (project_dir / ".claude").is_dir() and not (project_dir / ".claude").is_symlink():
+            _shutil.rmtree(project_dir / ".claude")
+        if (project_dir / "CLAUDE.md").exists():
+            (project_dir / "CLAUDE.md").unlink()
+        (project_dir / ".claude").symlink_to(Path("../../nonexistent_profile/.claude"))
+        (project_dir / "CLAUDE.md").symlink_to(Path("../../nonexistent_profile/CLAUDE.md"))
+
+        assert (project_dir / ".claude").is_symlink()
+        assert not (project_dir / ".claude").exists()
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            assert not any(".claude" in n for n in names)
+            assert not any("CLAUDE.md" in n for n in names)
+
+    def test_import_official_export_round_trip(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        (project_dir / MANIFEST_FILENAME).unlink(missing_ok=True)
+        _activate_artifact_manifest(project_dir)
+        startup_manifest = json.loads((project_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            assert not any(name.endswith(f"/{MANIFEST_FILENAME}") for name in archive.namelist())
+        shutil.rmtree(pm.get_project_path("demo"))
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+        )
+
+        assert result.project_name == "demo"
+        assert result.conflict_resolution == "none"
+        assert (pm.get_project_path("demo") / "videos" / "scene_E1S01.mp4").exists()
+        assert (pm.get_project_path("demo") / "drafts" / "episode_2").is_dir()
+        imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+        assert imported_manifest == startup_manifest
+
+    def test_import_rejects_official_manifest_claim_when_formal_bytes_were_replaced(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+        tampered_path = tmp_path / "tampered.zip"
+        with (
+            zipfile.ZipFile(archive_path) as source,
+            zipfile.ZipFile(
+                tampered_path,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as target,
+        ):
+            for member in source.infolist():
+                content = source.read(member)
+                if member.filename == "demo/characters/Hero.png":
+                    content = b"replaced-formal-bytes"
+                target.writestr(member, content)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(tampered_path, uploaded_filename="tampered.zip")
+
+        assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
+        assert not (pm.projects_root / "demo").exists()
+
+    def test_official_round_trip_preserves_a_stale_asset_claim(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before is not None
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["description"] = "Changed after generation"
+        _write_json(project_dir / "project.json", project)
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.STALE
+        )
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert archive_manifest["artifact_manifest"]["entries"][key.encode()]["basis_digest"] == before.basis_digest
+            assert not any(name.endswith(f"/{MANIFEST_FILENAME}") for name in archive.namelist())
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == before
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.STALE
+        )
+
+    def test_official_round_trip_preserves_a_stale_script_after_step1_is_deleted(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _write_text(project_dir / "source" / "episode_1.txt", "原文")
+        step1_path = project_dir / "drafts" / "episode_1" / "step1_segments.json"
+        _write_json(step1_path, {"segments": [{"segment_id": "E1S01", "text": "原文"}]})
+        _activate_artifact_manifest(project_dir)
+
+        key = ArtifactKey.episode_script(1)
+        before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before is not None
+        assert script_review.delete_step1_file(project_dir, 1, step1_path)
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_step1(1)) is None
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == before
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scripts/episode_1.json").status
+            is ArtifactStatus.STALE
+        )
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            entry = archive_manifest["artifact_manifest"]["entries"][key.encode()]
+            content_digest = hashlib.sha256(archive.read(f"demo/{before.artifact_path}")).hexdigest()
+            assert entry == {
+                "artifact_path": before.artifact_path,
+                "basis_digest": before.basis_digest,
+                "content_digest": content_digest,
+            }
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == before
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="scripts/episode_1.json").status
+            is ArtifactStatus.STALE
+        )
+
+    def test_official_export_preserves_a_grid_claim_after_failed_regeneration(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        project["grid_storyboard"] = True
+        _write_json(project_dir / "project.json", project)
+        grid = GridGeneration.create(
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["E1S01"],
+            rows=2,
+            cols=2,
+            grid_size="grid_4",
+            provider="provider",
+            model="model",
+            video_aspect_ratio="9:16",
+            prompt="grid",
+        )
+        grid.status = "completed"
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        _write_json(project_dir / "grids" / f"{grid.id}.json", grid.to_dict())
+        _write_bytes(project_dir / "grids" / f"{grid.id}.png", b"grid-image")
+        _activate_artifact_manifest(project_dir)
+        key = ArtifactKey.episode_grid(1, grid.id)
+        before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before is not None
+
+        grid.status = "failed"
+        grid.error_message = "provider failed during regeneration"
+        _write_json(project_dir / "grids" / f"{grid.id}.json", grid.to_dict())
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {
+            "artifact_path": before.artifact_path,
+            "basis_digest": before.basis_digest,
+            "content_digest": hashlib.sha256(b"grid-image").hexdigest(),
+        }
+
+    def test_export_retries_when_formal_bytes_and_manifest_change_during_snapshot(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        artifact_path = project_dir / "characters" / "Hero.png"
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        service = ProjectArchiveService(pm)
+        original_copy = service._copy_visible_tree
+        copy_count = 0
+
+        def _copy_then_commit(source_dir: Path, target_dir: Path) -> tuple[tuple[str, str], ...]:
+            nonlocal copy_count
+            copy_count += 1
+            copied = original_copy(source_dir, target_dir)
+            if copy_count == 1:
+                artifact_path.write_bytes(b"new-formal-bytes")
+                adapter.put_entry(
+                    key,
+                    ArtifactManifestEntry(
+                        artifact_path="characters/Hero.png",
+                        basis_digest=f"sha256-v1:{'f' * 64}",
+                    ),
+                )
+            return copied
+
+        monkeypatch.setattr(service, "_copy_visible_tree", _copy_then_commit)
+
+        archive_path, _ = service.export_project("demo")
+
+        assert copy_count == 2
+        with zipfile.ZipFile(archive_path) as archive:
+            assert archive.read("demo/characters/Hero.png") == b"new-formal-bytes"
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {
+            "artifact_path": "characters/Hero.png",
+            "basis_digest": f"sha256-v1:{'f' * 64}",
+            "content_digest": hashlib.sha256(b"new-formal-bytes").hexdigest(),
+        }
+
+    def test_export_waits_for_a_formal_commit_before_snapshotting(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        artifact_path = project_dir / "characters" / "Hero.png"
+        versions_path = project_dir / "versions" / "versions.json"
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        service = ProjectArchiveService(pm)
+        formal_midpoint = Event()
+        release_formal_commit = Event()
+        copied_while_formal_commit_was_open = Event()
+        failures: list[BaseException] = []
+        archive_result: list[Path] = []
+
+        original_copy = service._copy_visible_tree
+
+        def _observe_copy(source_dir: Path, target_dir: Path) -> tuple[tuple[str, str], ...]:
+            if formal_midpoint.is_set() and not release_formal_commit.is_set():
+                copied_while_formal_commit_was_open.set()
+            return original_copy(source_dir, target_dir)
+
+        def _formal_commit() -> None:
+            try:
+                with project_metadata_lock(project_dir):
+                    artifact_path.write_bytes(b"new-formal-bytes")
+                    _write_json(versions_path, {"characters": {"Hero": {"current_version": 2, "versions": []}}})
+                    formal_midpoint.set()
+                    if not release_formal_commit.wait(timeout=5):
+                        raise TimeoutError("archive did not finish observing the held formal commit")
+                    adapter.put_entry(
+                        key,
+                        ArtifactManifestEntry(
+                            artifact_path="characters/Hero.png",
+                            basis_digest=f"sha256-v1:{'f' * 64}",
+                        ),
+                    )
+            except BaseException as exc:  # pragma: no cover - asserted through the parent thread
+                failures.append(exc)
+
+        def _export() -> None:
+            try:
+                archive_result.append(service.export_project("demo")[0])
+            except BaseException as exc:  # pragma: no cover - asserted through the parent thread
+                failures.append(exc)
+
+        monkeypatch.setattr(service, "_copy_visible_tree", _observe_copy)
+        writer = Thread(target=_formal_commit)
+        exporter = Thread(target=_export)
+        writer.start()
+        assert formal_midpoint.wait(timeout=5)
+        exporter.start()
+        copied_early = copied_while_formal_commit_was_open.wait(timeout=0.5)
+        release_formal_commit.set()
+        writer.join(timeout=5)
+        exporter.join(timeout=5)
+
+        assert not writer.is_alive()
+        assert not exporter.is_alive()
+        assert failures == []
+        assert copied_early is False
+        with zipfile.ZipFile(archive_result[0]) as archive:
+            assert archive.read("demo/characters/Hero.png") == b"new-formal-bytes"
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        assert archive_manifest["artifact_manifest"]["entries"][key.encode()] == {
+            "artifact_path": "characters/Hero.png",
+            "basis_digest": f"sha256-v1:{'f' * 64}",
+            "content_digest": hashlib.sha256(b"new-formal-bytes").hexdigest(),
+        }
+
+    def test_export_retries_when_a_visible_file_disappears_during_copy(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        original_copy = service._copy_visible_tree
+        copy_count = 0
+
+        def _interrupt_first_copy(source_dir: Path, target_dir: Path) -> tuple[tuple[str, str], ...]:
+            nonlocal copy_count
+            copy_count += 1
+            if copy_count == 1:
+                target_dir.mkdir(parents=True)
+                (target_dir / "partial.txt").write_text("partial", encoding="utf-8")
+                raise FileNotFoundError("formal file changed during copy")
+            return original_copy(source_dir, target_dir)
+
+        monkeypatch.setattr(service, "_copy_visible_tree", _interrupt_first_copy)
+
+        archive_path, _ = service.export_project("demo")
+
+        assert copy_count == 2
+        with zipfile.ZipFile(archive_path) as archive:
+            assert "demo/partial.txt" not in archive.namelist()
+
+    def test_current_export_drops_non_typed_records_with_omitted_snapshots(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        canonical_files = {
+            "storyboards": ("E1S01", project_dir / "storyboards" / "scene_E1S01.png"),
+            "characters": ("Hero", project_dir / "characters" / "Hero.png"),
+            "scenes": ("Temple", project_dir / "scenes" / "Temple.png"),
+            "props": ("Key", project_dir / "props" / "Key.png"),
+        }
+        _write_bytes(canonical_files["scenes"][1], b"scene")
+        versions = VersionManager(project_dir)
+        selected_files: dict[str, str] = {}
+        for resource_type, (resource_id, current_file) in canonical_files.items():
+            selected_version = versions.add_version(resource_type, resource_id, "current", source_file=current_file)
+            selected_files[resource_type] = next(
+                record["file"]
+                for record in versions.get_versions(resource_type, resource_id)["versions"]
+                if record["version"] == selected_version
+            )
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo", scope="current")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            payload = json.loads(archive.read("demo/versions/versions.json"))
+        for resource_type, selected_file in selected_files.items():
+            assert resource_type not in payload
+            assert f"demo/{selected_file}" not in names
+
+        shutil.rmtree(project_dir)
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+        imported_versions = VersionManager(pm.get_project_path("demo"))
+        for resource_type, (resource_id, current_file) in canonical_files.items():
+            assert imported_versions.get_versions(resource_type, resource_id) == {
+                "current_version": 0,
+                "versions": [],
+            }
+            assert (pm.get_project_path("demo") / current_file.relative_to(project_dir)).is_file()
+
+    def test_official_round_trip_rekeys_claims_to_repaired_formal_paths(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        before = adapter.get_entry(key)
+        assert before is not None
+        _write_bytes(project_dir / "characters" / "legacy.png", b"legacy")
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["character_sheet"] = "characters/legacy.png"
+        project["characters"]["Hero"]["description"] = "Changed after generation"
+        _write_json(project_dir / "project.json", project)
+        adapter.put_entry(
+            key,
+            ArtifactManifestEntry(
+                artifact_path="characters/legacy.png",
+                basis_digest=before.basis_digest,
+            ),
+        )
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            archived_entry = archive_manifest["artifact_manifest"]["entries"][key.encode()]
+            content_digest = hashlib.sha256(archive.read("demo/characters/Hero.png")).hexdigest()
+            assert archived_entry == {
+                "artifact_path": "characters/Hero.png",
+                "basis_digest": before.basis_digest,
+                "content_digest": content_digest,
+            }
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == ArtifactManifestEntry(
+            artifact_path="characters/Hero.png",
+            basis_digest=before.basis_digest,
+        )
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.STALE
+        )
+
+    def test_deleted_asset_forgets_its_claim_before_an_official_round_trip(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["characters"][" Hero "] = project["characters"].pop("Hero")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is not None
+
+        pm.delete_asset("demo", "characters", " Hero ")
+
+        assert " Hero " not in pm.load_project("demo")["characters"]
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is None
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) is None
+
+    def test_asset_delete_manifest_failure_restores_exact_project_and_claim(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+        project_file = project_dir / "project.json"
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        before_project = project_file.read_bytes()
+        before_entry = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert before_entry is not None
+        original_delete = ProjectArtifactManifestAdapter.delete_entry
+
+        def _delete_then_fail(self, candidate):
+            changed = original_delete(self, candidate)
+            if candidate == key:
+                raise RuntimeError("manifest delete failed")
+            return changed
+
+        monkeypatch.setattr(ProjectArtifactManifestAdapter, "delete_entry", _delete_then_fail)
+
+        with pytest.raises(RuntimeError, match="manifest delete failed"):
+            pm.delete_asset("demo", "characters", "Hero")
+
+        assert project_file.read_bytes() == before_project
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == before_entry
+
+    def test_official_round_trip_preserves_an_empty_manifest_snapshot(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        for key in tuple(adapter.snapshot_entries()):
+            assert adapter.delete_entry(key)
+        assert not (project_dir / MANIFEST_FILENAME).exists()
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert archive_manifest["artifact_manifest"]["entries"] == {}
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        assert ProjectArtifactManifestAdapter(imported_dir).snapshot_entries() == {}
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.MISSING
+        )
+
+    def test_unmigrated_export_omits_the_envelope_so_import_backfills(self, tmp_path):
+        """未进入清单体系的项目导出成不带信封的归档，导入侧照常迁移并自证补录。
+
+        它的清单必然为空，而空信封在导入端与「这个项目一件产物都没有」不可区分：
+        照保真路径落一份空清单，全部已生成产物会一次判 missing。
+        """
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        (project_dir / MANIFEST_FILENAME).unlink(missing_ok=True)
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert "artifact_manifest" not in archive_manifest
+        shutil.rmtree(project_dir)
+
+        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        key = ArtifactKey.asset_sheet("character", "Hero")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) is not None
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            is ArtifactStatus.CURRENT
+        )
+
+    def test_current_export_keeps_selected_typed_snapshot_for_import_activation(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["segments"][0]["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        _write_json(script_path, script)
+
+        audio = project_dir / "audio" / "segment_E1S01.wav"
+        _write_bytes(audio, b"typed-audio")
+        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
+        descriptor = ArtifactBasisDescriptor.from_basis(
+            build_narration_audio_basis_from_canonical_text("原文", settings)
+        )
+        manager = VersionManager(project_dir)
+        selected_version = manager.add_version(
+            "audio",
+            "E1S01",
+            "原文",
+            source_file=audio,
+            artifact_episode=1,
+            artifact_audio_basis=descriptor.to_dict(),
+            execution_script_file="episode_1.json",
+            tts_actual_duration_seconds=4.0,
+            tts_provider_id=settings.provider_id,
+            tts_model_id=settings.model_id,
+            tts_voice=settings.voice,
+            tts_speed=settings.speed,
+            tts_basis_digest=descriptor.digest,
+        )
+        record = next(
+            item for item in manager.get_versions("audio", "E1S01")["versions"] if item["version"] == selected_version
+        )
+        selected_snapshot = record["file"]
+
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+        key = ArtifactKey.episode_audio(1, "E1S01").encode()
+        startup_manifest = json.loads((project_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+        assert key in startup_manifest["entries"]
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo", scope="current")
+        with zipfile.ZipFile(archive_path) as archive:
+            assert f"demo/{selected_snapshot}" in archive.namelist()
+
+        shutil.rmtree(project_dir)
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+        imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+        assert imported_manifest["entries"][key] == startup_manifest["entries"][key]
+
+    def test_official_round_trip_preserves_a_stale_typed_audio_claim(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["segments"][0]["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        _write_json(script_path, script)
+        audio = project_dir / "audio" / "segment_E1S01.wav"
+        _write_bytes(audio, b"typed-audio")
+        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
+        descriptor = ArtifactBasisDescriptor.from_basis(
+            build_narration_audio_basis_from_canonical_text("原文", settings)
+        )
+        VersionManager(project_dir).add_version(
+            "audio",
+            "E1S01",
+            "原文",
+            source_file=audio,
+            artifact_episode=1,
+            artifact_audio_basis=descriptor.to_dict(),
+            execution_script_file="episode_1.json",
+            tts_actual_duration_seconds=4.0,
+            tts_provider_id=settings.provider_id,
+            tts_model_id=settings.model_id,
+            tts_voice=settings.voice,
+            tts_speed=settings.speed,
+            tts_basis_digest=descriptor.digest,
+        )
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        _activate_artifact_manifest(project_dir)
+        key = ArtifactKey.episode_audio(1, "E1S01")
+        frozen = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
+        assert frozen is not None
+
+        script["segments"][0]["novel_text"] = "changed after synthesis"
+        _write_json(script_path, script)
+        assert (
+            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=frozen.artifact_path).status
+            is ArtifactStatus.STALE
+        )
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo", scope="current")
+        shutil.rmtree(project_dir)
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported_dir = pm.get_project_path("demo")
+        assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == frozen
+        assert (
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path=frozen.artifact_path).status
+            is ArtifactStatus.STALE
+        )
+
+    def test_import_reports_artifact_activation_failure_as_archive_validation(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        archive_path = tmp_path / "manual.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        monkeypatch.setattr(
+            project_archive_module,
+            "ensure_imported_artifact_target_state",
+            lambda _path, **_kwargs: (_ for _ in ()).throw(ValueError("injected activation failure")),
+        )
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="manual.zip")
+
+        assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
+
+    def test_import_reports_v7_migration_activation_failure_as_archive_validation(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 7
+        _write_json(project_dir / "project.json", project)
+        (project_dir / "scripts" / "episode_1.json").write_text("{", encoding="utf-8")
+        archive_path = tmp_path / "broken-v7.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="broken-v7.zip")
+
+        assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
+
+    def test_import_manual_zip_without_manifest(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path = tmp_path / "manual.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="manual.zip",
+        )
+
+        assert result.project["title"] == "Demo"
+        assert result.project_name != "demo"
+        assert (pm.get_project_path(result.project_name) / "project.json").exists()
+
+    def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
+        """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口走完整迁移链。"""
+        import json as _json
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        # 改回 v1 形态 + legacy image_backend，模拟旧版本导出的归档
+        pj = project_dir / "project.json"
+        data = _json.loads(pj.read_text(encoding="utf-8"))
+        data["schema_version"] = 1
+        data["image_backend"] = "vertex/imagen-3"
+        data.pop("image_provider_t2i", None)
+        data.pop("image_provider_i2i", None)
+        pj.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "legacy.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="legacy.zip")
+
+        from lib.project_migrations import CURRENT_SCHEMA_VERSION
+
+        installed = _json.loads((pm.get_project_path(result.project_name) / "project.json").read_text(encoding="utf-8"))
+        assert installed["schema_version"] == CURRENT_SCHEMA_VERSION
+        assert installed["image_provider_t2i"] == "gemini-vertex/imagen-3"
+        assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # image_backend 拆分到两槽
+        assert "image_backend" not in installed
+
+    def test_import_v5_archive_migrates_conflicting_asset_namespace(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        project_file = project_dir / "project.json"
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project["schema_version"] = 5
+        project["scenes"] = {"Hero": {"description": "same-named scene", "scene_sheet": "scenes/Hero.png"}}
+        project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        _write_bytes(project_dir / "scenes" / "Hero.png", b"scene")
+        script_file = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_file.read_text(encoding="utf-8"))
+        script["segments"][0]["scenes"] = ["Hero"]
+        script_file.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        archive_path = tmp_path / "v5-conflict.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="v5-conflict.zip")
+
+        installed_dir = pm.get_project_path(result.project_name)
+        installed = json.loads((installed_dir / "project.json").read_text(encoding="utf-8"))
+        migrated_script = json.loads((installed_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        assert installed["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+        assert list(installed["characters"]) == ["Hero"]
+        assert list(installed["scenes"]) == ["Hero_scene"]
+        assert migrated_script["segments"][0]["scenes"] == ["Hero_scene"]
+        assert (installed_dir / "scenes" / "Hero_scene.png").is_file()
+
+    def test_import_rejects_missing_project_json(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "missing-project-json.zip"
+
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("demo/source/chapter.txt", "source")
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="broken.zip")
+
+        assert exc_info.value.detail.render() == "导入包校验失败"
+        assert any("project.json" in error for error in exc_info.value.render_errors())
+
+    def test_import_rejects_missing_script_reference_for_malformed_entry(self, tmp_path):
+        """集号无法解析的畸形条目不是合法账本条目：剧本缺失仍阻断导入。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+        project = pm.load_project("demo")
+        del project["episodes"][0]["episode"]
+        pm.save_project("demo", project)
+        (project_dir / "scripts" / "episode_1.json").unlink()
+
+        archive_path = tmp_path / "missing-script.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="broken.zip")
+
+        assert any("episodes[0].script_file" in error for error in exc_info.value.render_errors())
+
+    def test_import_allows_missing_script_for_ledgered_entry(self, tmp_path):
+        """账本条目（带 ledger_status）的剧本可以尚未生成：导入放行并落 warning。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+        project = pm.load_project("demo")
+        project["episodes"][0]["ledger_status"] = "planned"
+        pm.save_project("demo", project)
+        (project_dir / "scripts" / "episode_1.json").unlink()
+
+        archive_path = tmp_path / "ledgered-missing-script.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="ledgered.zip")
+        assert any("episodes[0].script_file" in w for w in (m.render() for m in result.warnings))
+
+    def test_import_allows_missing_script_for_entry_without_ledger_status(self, tmp_path):
+        """v2→v3 迁移不再回填 ledger_status，老项目升级后的条目可能永远没有该字段：
+        形状合法（集号可解析）即视为正常账本条目，导入放行并落 warning。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+        (project_dir / "scripts" / "episode_1.json").unlink()
+
+        archive_path = tmp_path / "unledgered-missing-script.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="unledgered.zip")
+        assert any("episodes[0].script_file" in w for w in (m.render() for m in result.warnings))
+
+    def test_import_rejects_missing_script_reference_for_non_positive_episode_num(self, tmp_path):
+        """0/负数集号能被 parse_episode_num 解析，但不是合法集号：剧本缺失仍阻断导入。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+        project = pm.load_project("demo")
+        project["episodes"][0]["episode"] = 0
+        pm.save_project("demo", project)
+        (project_dir / "scripts" / "episode_1.json").unlink()
+
+        archive_path = tmp_path / "zero-episode-missing-script.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="broken.zip")
+
+        assert any("episodes[0].script_file" in error for error in exc_info.value.render_errors())
+
+    def test_migrated_project_archive_roundtrip_with_unscripted_episode(self, tmp_path):
+        """自愈登记的孤儿集条目（无位置记录、剧本未生成）不破坏导出→再导入往返。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project = pm.load_project("demo")
+        project["episodes"].append(
+            {
+                "episode": 2,
+                "title": "",
+                "script_file": "scripts/episode_2.json",
+                "ledger_status": "planned",
+            }
+        )
+        pm.save_project("demo", project)
+
+        archive_path, _ = service.export_project("demo")
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="rename",
+        )
+        imported = result.project
+        assert imported["episodes"][1]["ledger_status"] == "planned"
+        # 孤儿条目不写入位置记录：导出/导入往返不应凭空补出 source_range
+        assert "source_range" not in imported["episodes"][1]
+
+    def test_import_surfaces_unconvertible_source_encoding_as_warning(self, tmp_path, monkeypatch):
+        """源文件编码无法识别时导入不中止（局部损坏不阻断整体），failed 文件浮到导入 warnings。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+
+        archive_path = tmp_path / "bad-encoding.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        from lib.source_loader.migration import MigrationSummary
+
+        monkeypatch.setattr(
+            project_archive_module,
+            "migrate_project_source_encoding",
+            lambda _dir: MigrationSummary(failed=["novel.txt"]),
+        )
+
+        result = service.import_project_archive(archive_path, uploaded_filename="bad.zip")
+        assert any("novel.txt" in w and "编码" in w for w in (m.render() for m in result.warnings))
+
+    @pytest.mark.parametrize(
+        ("field_name", "target_path"),
+        [
+            ("characters[Hero].character_sheet", ("characters", "Hero.png")),
+            ("props[Key].prop_sheet", ("props", "Key.png")),
+            (
+                "segments[0].generated_assets.storyboard_image",
+                ("storyboards", "scene_E1S01.png"),
+            ),
+            (
+                "segments[0].generated_assets.video_clip",
+                ("videos", "scene_E1S01.mp4"),
+            ),
+        ],
+    )
+    def test_import_rejects_missing_asset_references(
+        self,
+        tmp_path,
+        field_name,
+        target_path,
+    ):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+        (project_dir.joinpath(*target_path)).unlink()
+        if field_name == "segments[0].generated_assets.storyboard_image":
+            (project_dir / "versions" / "storyboards" / "E1S01_v1.png").unlink()
+
+        archive_path = tmp_path / f"{field_name}.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="broken.zip")
+
+        assert any(field_name in error for error in exc_info.value.render_errors())
+
+    def test_import_allows_external_video_uri(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm, video_uri="gs://bucket/video-ref")
+        service = ProjectArchiveService(pm)
+
+        archive_path = tmp_path / "external-video-uri.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="external-video-uri.zip",
+        )
+
+        assert result.project["episodes"][0]["script_file"] == "scripts/episode_1.json"
+
+    @pytest.mark.parametrize(
+        "archive_builder",
+        ["absolute", "traversal", "symlink", "encrypted"],
+    )
+    def test_import_rejects_unsafe_zip_members(self, tmp_path, archive_builder):
+        pm = ProjectManager(tmp_path / "projects")
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / f"{archive_builder}.zip"
+
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("demo/project.json", json.dumps({"title": "Demo"}))
+            if archive_builder == "absolute":
+                archive.writestr("/demo/scripts/episode_1.json", "{}")
+            elif archive_builder == "traversal":
+                archive.writestr("../demo/scripts/episode_1.json", "{}")
+            elif archive_builder == "symlink":
+                info = zipfile.ZipInfo("demo/source/link.txt")
+                info.create_system = 3
+                info.external_attr = (stat.S_IFLNK | 0o777) << 16
+                archive.writestr(info, "target")
+            elif archive_builder == "encrypted":
+                info = zipfile.ZipInfo("demo/source/chapter.txt")
+                info.flag_bits |= 0x1
+                archive.writestr(info, "source")
+
+        with pytest.raises(ProjectArchiveValidationError):
+            service.import_project_archive(archive_path, uploaded_filename="unsafe.zip")
+
+    def test_import_rename_conflict_generates_new_project_id(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="rename",
+        )
+
+        assert result.project_name != "demo"
+        assert result.project_name.startswith("demo-")
+        assert result.conflict_resolution == "renamed"
+        assert pm.get_project_path("demo").exists()
+        assert pm.get_project_path(result.project_name).exists()
+
+    def test_import_prompt_conflict_requires_user_confirmation(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(
+                archive_path,
+                uploaded_filename="demo.zip",
+                conflict_policy="prompt",
+            )
+
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail.render() == "检测到项目编号冲突"
+        assert exc_info.value.extra["conflict_project_name"] == "demo"
+
+    def test_import_overwrite_replaces_existing_project(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        project = pm.load_project("demo")
+        project["style"] = "Stale"
+        pm.save_project("demo", project)
+        _write_text(pm.get_project_path("demo") / "source" / "chapter.txt", "stale")
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="overwrite",
+        )
+
+        assert result.project_name == "demo"
+        assert result.conflict_resolution == "overwritten"
+        assert pm.load_project("demo")["style"] == "Fresh"
+        assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
+
+    def test_import_materializes_claude_with_manifest(self, tmp_path, monkeypatch):
+        """导入项目应物化 .claude 为真目录 + 写 manifest（非 symlink）。
+
+        Profile 同步由 manifest 驱动且不使用 symlink；导入归档无 manifest 时走首次同步。
+        """
+        from lib.profile_manifest import MANIFEST_FILENAME
+
+        # 准备 profile：必须至少有一个可物化文件，否则 ProfileEmptyError
+        profile_dir = tmp_path / "agent_runtime_profile"
+        (profile_dir / ".claude" / "skills" / "demo").mkdir(parents=True)
+        (profile_dir / ".claude" / "skills" / "demo" / "SKILL.md").write_text("demo")
+        (profile_dir / "CLAUDE.md").write_text("prompt")
+        monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
+
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="demo.zip",
+            conflict_policy="rename",
+        )
+
+        imported_dir = pm.get_project_path(result.project_name)
+        claude_dir = imported_dir / ".claude"
+        assert claude_dir.is_dir()
+        assert not claude_dir.is_symlink()
+        # 导入触发 sync_agent_profile → 首次迁移分支 full reset → 写 manifest
+        assert (imported_dir / MANIFEST_FILENAME).is_file()
+        # profile 内容真实落盘
+        assert (claude_dir / "skills" / "demo" / "SKILL.md").read_text() == "demo"
+
+    def test_import_overwrite_rolls_back_on_install_failure(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        project = pm.load_project("demo")
+        project["style"] = "Stale"
+        pm.save_project("demo", project)
+
+        original_move = project_archive_module.shutil.move
+
+        def boom(src, dst):
+            raise RuntimeError("move failed")
+
+        monkeypatch.setattr(project_archive_module.shutil, "move", boom)
+
+        with pytest.raises(RuntimeError):
+            service.import_project_archive(
+                archive_path,
+                uploaded_filename="demo.zip",
+                conflict_policy="overwrite",
+            )
+
+        monkeypatch.setattr(project_archive_module.shutil, "move", original_move)
+        assert pm.load_project("demo")["style"] == "Stale"
+
+    def test_import_overwrite_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
+        """sync_agent_profile 失败时必须回滚（删 target_dir + 恢复 backup_dir）。
+        否则 overwrite 分支已删旧备份，用户会丢数据。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo")
+
+        project = pm.load_project("demo")
+        project["style"] = "Stale"
+        pm.save_project("demo", project)
+
+        # 让 sync_agent_profile 在 _install_project_dir 内（shutil.move 之后）抛错
+        def boom(self_pm, target_dir, **kwargs):
+            raise RuntimeError("profile sync failed")
+
+        monkeypatch.setattr(ProjectManager, "sync_agent_profile", boom)
+
+        with pytest.raises(RuntimeError, match="profile sync failed"):
+            service.import_project_archive(
+                archive_path,
+                uploaded_filename="demo.zip",
+                conflict_policy="overwrite",
+            )
+
+        # 旧项目恢复（backup 被 rename 回 target_dir）
+        monkeypatch.undo()
+        assert pm.load_project("demo")["style"] == "Stale"
+        assert not any(p.name.startswith(".import-backup-") for p in (tmp_path / "projects").iterdir())
+
+    def test_create_project_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
+        """create_project 内 sync_agent_profile 失败必须 rmtree 残缺 project_dir，
+        否则同名重试撞 FileExistsError。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+
+        def boom(self_pm, target_dir, **kwargs):
+            raise RuntimeError("profile sync failed")
+
+        monkeypatch.setattr(ProjectManager, "sync_agent_profile", boom)
+
+        with pytest.raises(RuntimeError, match="profile sync failed"):
+            pm.create_project("ghost")
+
+        # 残缺目录已清，同名 create 应该能成功（fixture 已 stub sync 抛错，所以先 undo）
+        monkeypatch.undo()
+        assert not (tmp_path / "projects" / "ghost").exists()
+        pm.create_project("ghost")  # 不撞 FileExistsError
+        assert (tmp_path / "projects" / "ghost").is_dir()
+
+    def test_import_repairs_legacy_narration_payload(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "legacy.zip"
+        _stage_legacy_narration_archive(pm, project_dir, archive_path)
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="legacy.zip",
+        )
+
+        imported_project = pm.load_project(result.project_name)
+        imported_script = json.loads(
+            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+        )
+
+        assert "Ghost" in imported_project["characters"]
+        assert "source_file" not in imported_script["novel"]
+        assert imported_script["segments"][0]["scenes"] == []
+        assert imported_script["segments"][0]["props"] == []
+        assert "clues_in_segment" not in imported_script["segments"][0]
+        assert imported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01_1.mp4"
+        assert result.diagnostics["auto_fixed"]
+
+    def test_export_repairs_narration_audio_from_version_history(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        _write_json(
+            project_dir / "versions" / "versions.json",
+            {
+                "audio": {
+                    "E1S01": {
+                        "current_version": 1,
+                        "versions": [
+                            {
+                                "version": 1,
+                                "file": "versions/audio/E1S01_v1.wav",
+                                "prompt": "旁白",
+                                "created_at": "2024-01-01",
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+        _write_bytes(project_dir / "versions" / "audio" / "E1S01_v1.wav", b"wav-v1")
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {"title": "Demo", "chapter": "第一章"},
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": ["Hero"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                        "generated_assets": {
+                            "storyboard_image": "storyboards/scene_E1S01.png",
+                            # 当前文件缺失但版本历史尚在 → 归档修复应从 versions/audio 回溯到 canonical
+                            "narration_audio": "versions/audio/E1S01_v9.wav",
+                            "status": "completed",
+                        },
+                    }
+                ],
+            },
+        )
+
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            exported_script = json.loads(archive.read("demo/scripts/episode_1.json"))
+            # 不仅改写 JSON 路径，还应把回溯出的当前文件物化进归档
+            assert "demo/audio/segment_E1S01.wav" in archive.namelist()
+
+        assert exported_script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
+
+    def test_import_blocks_missing_scene_definition(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {
+                    "title": "Demo",
+                    "chapter": "第一章",
+                },
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": ["Hero"],
+                        "scenes": ["Missing"],
+                        "props": [],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        archive_path = tmp_path / "missing-scene.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
+
+        assert any("不存在于 project.json 的场景" in error for error in exc_info.value.render_errors())
+        assert exc_info.value.diagnostics_payload()["blocking"]
+
+    def test_import_resolves_nfd_script_refs_against_nfc_registered_assets(self, tmp_path):
+        """剧本与 project.json 可以各自是 NFC/NFD：修复期的成员判定按坐标系解析，
+        否则已登记的角色会被补出一份重复占位定义（后写入胜出会盖掉真实元数据），
+        已登记的场景/道具会被误报 blocking 缺失。"""
+        import unicodedata
+
+        character_nfc = unicodedata.normalize("NFC", "Hiếu")
+        character_nfd = unicodedata.normalize("NFD", "Hiếu")
+        scene_nfc = unicodedata.normalize("NFC", "Quán")
+        scene_nfd = unicodedata.normalize("NFD", "Quán")
+        prop_nfc = unicodedata.normalize("NFC", "Kiếm")
+        prop_nfd = unicodedata.normalize("NFD", "Kiếm")
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        project = pm.load_project("demo")
+        project["characters"][character_nfc] = {"description": "已登记角色"}
+        project["scenes"] = {scene_nfc: {"description": "已登记场景"}}
+        project["props"][prop_nfc] = {"description": "已登记道具"}
+        pm.save_project("demo", project)
+
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {"title": "Demo", "chapter": "第一章"},
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": [character_nfd],
+                        "scenes": [scene_nfd],
+                        "props": [prop_nfd],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        archive_path = tmp_path / "nfc-nfd.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="nfc-nfd.zip")
+
+        imported = pm.load_project(result.project_name)
+        assert character_nfd not in imported["characters"]  # 不补重复占位角色
+        assert scene_nfd not in imported["scenes"]
+        assert prop_nfd not in imported["props"]
+        assert scene_nfc in imported["scenes"]
+        assert prop_nfc in imported["props"]
+        assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
+
+    def test_import_blocks_missing_prop_definition(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {
+                    "title": "Demo",
+                    "chapter": "第一章",
+                },
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": ["Hero"],
+                        "scenes": [],
+                        "props": ["Missing"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        archive_path = tmp_path / "missing-prop.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip")
+
+        assert any("不存在于 project.json 的道具" in error for error in exc_info.value.render_errors())
+        assert exc_info.value.diagnostics_payload()["blocking"]
+
+    def test_export_dirty_project_emits_diagnostics_and_repairs_snapshot(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        _write_text(project_dir / "run_video_gen.py", "print('helper')")
+        _write_json(
+            project_dir / "versions" / "versions.json",
+            {
+                "videos": {
+                    "E1S01": {
+                        "current_version": 1,
+                        "versions": [
+                            {
+                                "version": 1,
+                                "file": "versions/videos/E1S01_v1.mp4",
+                                "prompt": "vp1",
+                                "created_at": "2024-01-01",
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+        _write_bytes(project_dir / "versions" / "videos" / "E1S01_v1.mp4", b"mp4-v1")
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {
+                    "title": "Demo",
+                    "chapter": "第一章",
+                },
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": ["Hero"],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                        "generated_assets": {
+                            "storyboard_image": "storyboards/scene_E1S01.png",
+                            "video_clip": "versions/videos/E1S01_v9.mp4",
+                            "video_uri": None,
+                            "status": "completed",
+                        },
+                    }
+                ],
+            },
+        )
+
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            exported_script = json.loads(archive.read("demo/scripts/episode_1.json"))
+
+        assert manifest["format_version"] == 2
+        assert manifest["script_schema_version"] == 2
+        assert "run_video_gen.py" in manifest["pass_through_entries"]
+        assert manifest["export_diagnostics"]["auto_fixed"]
+        assert exported_script["segments"][0]["scenes"] == []
+        assert exported_script["segments"][0]["props"] == []
+        assert "clues_in_segment" not in exported_script["segments"][0]
+        assert exported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01.mp4"
+
+    def test_export_includes_reference_audio_file_both_scopes(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["reference_audio"] = "characters/refs_audio/Hero.wav"
+        pm.save_project("demo", project)
+        _write_bytes(project_dir / "characters" / "refs_audio" / "Hero.wav", b"wav-bytes")
+
+        service = ProjectArchiveService(pm)
+        for scope in ("full", "current"):
+            archive_path, _ = service.export_project("demo", scope=scope)
+            with zipfile.ZipFile(archive_path) as archive:
+                names = set(archive.namelist())
+            assert "demo/characters/refs_audio/Hero.wav" in names
+
+    def test_export_repairs_reference_audio_canonical_path(self, tmp_path):
+        """reference_audio 不像 reference_image 强制统一扩展名，规范化路径按字段自身的
+        扩展名推导——指针错位（如手工恢复留下的旧路径）但文件已在规范位置时应改写字段。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["reference_audio"] = "characters/stray/Hero_old.wav"
+        pm.save_project("demo", project)
+        _write_bytes(project_dir / "characters" / "refs_audio" / "Hero.wav", b"wav-bytes")
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            exported_project = json.loads(archive.read("demo/project.json"))
+
+        assert exported_project["characters"]["Hero"]["reference_audio"] == "characters/refs_audio/Hero.wav"
+        assert manifest["export_diagnostics"]["auto_fixed"]
+
+
+class TestExportScope:
+    def _create_project_with_versions(self, pm: ProjectManager) -> Path:
+        """创建带有 versions 历史的项目"""
+        project_dir = _create_project(pm)
+
+        # 添加版本历史文件
+        _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v1.png", b"png-v1")
+        _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v2.png", b"png-v2")
+        _write_bytes(project_dir / "versions" / "videos" / "E1S01_v1.mp4", b"mp4-v1")
+        _write_bytes(project_dir / "versions" / "characters" / "Hero_v1.png", b"char-v1")
+        _write_bytes(project_dir / "versions" / "scenes" / "Temple_v1.png", b"scene-v1")
+        _write_bytes(project_dir / "versions" / "props" / "Key_v1.png", b"prop-v1")
+
+        # 创建 versions/versions.json
+        versions_data = {
+            "storyboards": {
+                "E1S01": {
+                    "current_version": 3,
+                    "versions": [
+                        {"version": 1, "prompt": "p1", "created_at": "2024-01-01"},
+                        {"version": 2, "prompt": "p2", "created_at": "2024-01-02"},
+                        {"version": 3, "prompt": "p3", "created_at": "2024-01-03"},
+                    ],
+                }
+            },
+            "videos": {
+                "E1S01": {
+                    "current_version": 2,
+                    "versions": [
+                        {"version": 1, "prompt": "vp1", "created_at": "2024-01-01"},
+                        {"version": 2, "prompt": "vp2", "created_at": "2024-01-02"},
+                    ],
+                }
+            },
+        }
+        _write_json(project_dir / "versions" / "versions.json", versions_data)
+        return project_dir
+
+    def test_export_scope_full_includes_version_history(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            assert "demo/versions/storyboards/E1S01_v1.png" in names
+            assert "demo/versions/storyboards/E1S01_v2.png" in names
+            assert "demo/versions/videos/E1S01_v1.mp4" in names
+            assert "demo/versions/characters/Hero_v1.png" in names
+            assert "demo/versions/scenes/Temple_v1.png" in names
+            assert "demo/versions/props/Key_v1.png" in names
+
+    def test_export_scope_current_skips_version_history_files(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="current")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            # 历史版本文件不应包含
+            assert "demo/versions/storyboards/E1S01_v1.png" not in names
+            assert "demo/versions/storyboards/E1S01_v2.png" not in names
+            assert "demo/versions/videos/E1S01_v1.mp4" not in names
+            assert "demo/versions/characters/Hero_v1.png" not in names
+            assert "demo/versions/scenes/Temple_v1.png" not in names
+            assert "demo/versions/props/Key_v1.png" not in names
+            # 主资源应保留
+            assert "demo/storyboards/scene_E1S01.png" in names
+            assert "demo/videos/scene_E1S01.mp4" in names
+            # versions.json 应保留（裁剪后）
+            assert "demo/versions/versions.json" in names
+
+    def test_export_scope_current_trims_versions_json(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="current")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            versions_content = json.loads(archive.read("demo/versions/versions.json"))
+            # 非 typed 当前文件直接从 canonical 路径导出，其历史快照未入包，
+            # 对应版本记录也不能留下悬空引用。
+            assert "storyboards" not in versions_content
+            # videos.E1S01 应只保留 version 2
+            vid_versions = versions_content["videos"]["E1S01"]["versions"]
+            assert len(vid_versions) == 1
+            assert vid_versions[0]["version"] == 2
+
+    def test_export_scope_current_manifest_scope_field(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="current")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert manifest["scope"] == "current"
+
+    def test_export_scope_full_manifest_scope_field(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        self._create_project_with_versions(pm)
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            assert manifest["scope"] == "full"
+
+
+class TestArchiveDiagnosticsLocalization:
+    """结构化诊断在传入 translator 时按目标语言成文（成功导入路径含 auto_fixed 家族）。"""
+
+    @staticmethod
+    def _en(key: str, **kwargs: object) -> str:
+        return _(key, locale="en", **kwargs)
+
+    def test_import_success_diagnostics_render_in_target_language(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "legacy.zip"
+        _stage_legacy_narration_archive(pm, project_dir, archive_path)
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="legacy.zip",
+            translate=self._en,
+        )
+
+        assert result.diagnostics["auto_fixed"]
+        rendered = json.dumps(result.diagnostics, ensure_ascii=False) + json.dumps(
+            [warning.render(self._en) for warning in result.warnings], ensure_ascii=False
+        )
+        assert not re.search(r"[一-鿿]", rendered)
+
+    def test_export_diagnostics_snapshot_in_archive_stays_default_language(self, tmp_path):
+        """随包分发的诊断快照与导出方的请求语言无关——导入方语言未必相同。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _write_text(project_dir / "notes.txt", "scratch")
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        messages = [item["message"] for item in manifest["export_diagnostics"]["warnings"]]
+        assert any("notes.txt" in message and re.search(r"[一-鿿]", message) for message in messages)
