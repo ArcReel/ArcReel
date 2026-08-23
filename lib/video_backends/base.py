@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -15,7 +14,7 @@ import httpx
 from sqlalchemy.exc import InterfaceError, OperationalError
 
 from lib.data_uri import file_to_data_uri
-from lib.retry import BASE_RETRYABLE_ERRORS, AsyncClock, _should_retry, with_retry_async
+from lib.retry import BASE_RETRYABLE_ERRORS, AsyncClock, SystemClock, _should_retry, with_retry_async
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
 # 而 persist 重试要严格"DB 瞬态错误"语义——业务异常（如
@@ -23,16 +22,6 @@ from lib.retry import BASE_RETRYABLE_ERRORS, AsyncClock, _should_retry, with_ret
 # 显式传 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 关掉兜底。
 
 logger = logging.getLogger(__name__)
-
-
-class _SystemPollClock:
-    """轮询的生产默认时钟；保留既有默认调用路径的运行时查找语义。"""
-
-    def monotonic(self) -> float:
-        return time.monotonic()
-
-    async def sleep(self, delay: float) -> None:
-        await asyncio.sleep(delay)
 
 
 # DB 瞬态错误集合：sqlite "database is locked"、pg "could not connect" / 连接已关闭。
@@ -491,7 +480,7 @@ async def poll_with_retry[T](
         on_progress: 可选的进度回调，每次非终态轮询后调用。
         clock: 单调计时与异步等待 seam；生产默认使用系统时钟。
     """
-    active_clock = clock if clock is not None else _SystemPollClock()
+    active_clock = clock if clock is not None else SystemClock()
     start = active_clock.monotonic()
     prefix = f"{label} " if label else ""
     predicate = retry_if if retry_if is not None else (lambda e: _should_retry(e, retryable_errors))

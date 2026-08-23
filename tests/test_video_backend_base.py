@@ -192,7 +192,7 @@ class TestPollWithRetry:
 
         assert clock.sleeps == [1]
 
-    async def test_explicit_clock_drives_polling_without_patching_or_waiting(self):
+    async def test_sleeps_poll_interval_on_injected_clock_between_polls(self):
         poll_fn = AsyncMock(side_effect=["pending", "done"])
         clock = _FakeClock([0.0, 1.0, 2.0, 3.0])
 

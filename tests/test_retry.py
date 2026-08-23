@@ -314,7 +314,7 @@ class TestWithRetryAsync:
             await fn()
         assert mock_fn.call_count == 1
 
-    async def test_explicit_clock_and_jitter_avoid_patching_runtime_globals(self):
+    async def test_waits_backoff_plus_injected_jitter_on_injected_clock(self):
         mock_fn = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
         clock = _FakeClock()
 
@@ -332,7 +332,7 @@ class TestWithRetryAsync:
 
 
 class TestRetryAsync:
-    async def test_explicit_clock_and_jitter_avoid_patching_runtime_globals(self):
+    async def test_waits_backoff_plus_injected_jitter_on_injected_clock(self):
         operation = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
         clock = _FakeClock()
 
