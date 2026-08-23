@@ -565,20 +565,12 @@ class TestReferenceVideoRouter:
         （收窄后的逐 unit 可选项）都要经 caps 解析出真实档位，否则这类项目的内容确认只能退回
         结构区间 clamp，读时迁移的收编对其整体失效。
         """
-        from server.agent_runtime.sdk_tools import _context
-        from server.services import script_review as mod
-
-        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
-
-        async def _fake_caps(_project, _episode=None):
-            return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
-
-        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
-
-        async def _no_i2v(_project, *, capability=None):
-            raise ValueError("i2v bucket unresolvable in this test")
-
-        monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+        client, pm = _client(
+            monkeypatch,
+            tmp_path,
+            generation_mode="reference_video",
+            caps=_custom_provider_caps(durations=[5, 10], default_duration=None),
+        )
 
         with client:
             _write_rv_step1(pm, _rv_step1())
