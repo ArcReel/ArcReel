@@ -174,8 +174,8 @@ jobs:
 
       - name: Run dialect-sensitive tests against Postgres
         # 保持单进程：92 个用例约 2m44s，可省时间小于并行风险——其中
-        # tests/test_agent_credential_repo.py 的用例共用 alembic 建出的 public
-        # schema，两 worker 写同一主键会互相阻塞。
+        # tests/integration/lib/db/repositories/test_agent_credential_repo.py 的用例
+        # 共用 alembic 建出的 public schema，两 worker 写同一主键会互相阻塞。
         run: |
           uv run python -m pytest -v \
             -m "uses_db and not sqlite_only" \

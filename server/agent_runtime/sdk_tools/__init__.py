@@ -71,7 +71,7 @@ __all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
 # Each id is the **short tool name** (without the ``mcp__arcreel__`` prefix the
 # SDK adds at registration). Frontend display names live in
 # ``frontend/src/i18n/{zh,en,vi}/dashboard.ts`` under the ``tool_name_<id>``
-# keys; ``tests/test_frontend_mcp_tool_i18n.py`` cross-checks that every id
+# keys; ``tests/unit/test_frontend_mcp_tool_i18n.py`` cross-checks that every id
 # here has a translation in all locales, so adding a tool without wiring up
 # i18n fails CI.
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (

@@ -420,7 +420,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         """图片 → data URI；缺失或不可读返回 None，由调用方按所属槽位抛对应的 unreadable 码。
 
         错误码留在调用方而非集中到本函数：槽位与码一一对应，字面量码才能被
-        `tests/test_task_failure_capability.py` 的漂移守卫静态扫到。
+        `tests/integration/lib/test_task_failure_capability.py` 的漂移守卫静态扫到。
         """
         if not path.is_file():
             return None

@@ -601,7 +601,7 @@ class VideoAudioMode(StrEnum):
 #: 视频执行路径（任务类型桶）：``i2v`` 覆盖文生与图生首帧，``r2v`` 是参考生视频。
 #: 与 ``lib.config.resolver.VideoCapability`` 同一份词汇表，因分层契约（config 是最底层，
 #: backend 不得反向导入）而各层各声明一次，取值一致由
-#: ``tests/test_video_backend_capabilities.py`` 的守卫锁定。
+#: ``tests/unit/lib/video_backends/test_video_backend_capabilities.py`` 的守卫锁定。
 VideoRoute = Literal["i2v", "r2v"]
 
 

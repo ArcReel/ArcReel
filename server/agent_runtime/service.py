@@ -957,7 +957,7 @@ class AssistantService:
     # **not** stored here — the frontend resolves it from i18n
     # ``dashboard:skill_name_<id>`` (single source of truth for skill labels
     # lives in ``frontend/src/i18n/{zh,en,vi}/dashboard.ts``).
-    # ``tests/test_frontend_skill_i18n.py`` cross-checks SKILL.md against
+    # ``tests/unit/test_frontend_skill_i18n.py`` cross-checks SKILL.md against
     # those keys so adding a user-invocable skill without translations fails CI.
     _SKILL_ICONS: dict[str, str] = {
         "video-workflow": "clapperboard",
@@ -1030,7 +1030,7 @@ class AssistantService:
         # 进项目目录时才会被物化为 SKILL.md；列表接口直接扫 profile 时必须自己识别变体，
         # 否则 video-workflow 这类 variant-only skill 永远拿不到。
         #
-        # 查找契约与 tests/test_frontend_skill_i18n.py:_find_skill_md 保持一致：
+        # 查找契约与 tests/unit/test_frontend_skill_i18n.py:_find_skill_md 保持一致：
         # 用 is_file 严格筛文件、按 sorted(VALID_CONTENT_MODES) 显式枚举有效模式、
         # 校验 common/variant 互斥、变体完整，且所有变体的 name/user-invocable 一致。
         # 非法形态 warning 后返回 None，避免列表随机暴露某个 mode 的破损配置。

@@ -1,0 +1,2317 @@
+import json
+import logging
+from pathlib import Path
+
+import pytest
+
+import lib.script_review as script_review
+from lib.artifact_activation import activate_artifact_target_state
+from lib.config.resolver import ConfigResolver
+from lib.project_migrations import CURRENT_SCHEMA_VERSION
+from lib.script_generator import ScriptGenerator, _units_use_references
+from lib.script_structure_validator import ScriptStructureValidationError
+from lib.speech_composition import SpeechAdmissionError
+from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
+
+
+def _write(path: Path, text: str):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _write_json(path: Path, payload: dict):
+    _write(path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _write_project_json(project_path: Path, payload: dict) -> None:
+    """写一份生产形态的 project.json。
+
+    ProjectManager 建项目时恒写 schema_version 与 generation_mode，分集账本则在剧本落盘前
+    就已绑定；缺任一项的项目在生产里不存在，产物清单与类型化 basis 都会据此拒绝。
+    """
+    _write_json(
+        project_path / "project.json",
+        {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            **payload,
+        },
+    )
+
+
+def _activate_project_artifacts(project_path: Path, episode: int = 1) -> None:
+    """补齐该集的溯源输入后，对项目做一次全量产物激活。
+
+    产物清单是读取已生成产物的唯一口径：落盘本身不代表已登记，未登记的 step1 不能进入付费调用。
+    ``episode`` 只决定补写哪一集的 ``source/episode_{episode}.txt``；登记范围是整个项目。
+    """
+    source = project_path / "source" / f"episode_{episode}.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("原文", encoding="utf-8")
+    activate_artifact_target_state(project_path, bump_schema=False)
+
+
+def _valid_narration_response() -> dict:
+    return {
+        "episode": 1,
+        "title": "第一集",
+        "content_mode": "narration",
+        "duration_seconds": 4,
+        "summary": "摘要",
+        "novel": {"title": "小说", "chapter": "1"},
+        "segments": [
+            {
+                "segment_id": "E1S01",
+                "duration_seconds": 4,
+                "segment_break": False,
+                "novel_text": "原文",
+                "characters_in_segment": ["姜月茴"],
+                "image_prompt": {
+                    "scene": "场景",
+                    "composition": {
+                        "shot_type": "Medium Shot",
+                        "lighting": "暖光",
+                        "ambiance": "薄雾",
+                    },
+                },
+                "video_prompt": {
+                    "action": "转身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "dialogue": [],
+                },
+            }
+        ],
+    }
+
+
+def _write_drama_ledger_project(project_path: Path, episodes: list[dict], characters: dict | None = None) -> None:
+    """写一个带分集账本条目的最小 drama 项目 project.json。"""
+    _write_project_json(
+        project_path,
+        {
+            "title": "项目",
+            "content_mode": "drama",
+            "overview": {},
+            "characters": characters or {},
+            "style": "古风",
+            "style_description": "cinematic",
+            "episodes": episodes,
+        },
+    )
+
+
+def _drama_project_with_backend(
+    tmp_path,
+    *,
+    backend: str,
+    resolution: str,
+):
+    """造一个指定视频后端 + 分辨率的最小 drama 项目，返回项目路径。
+
+    四个 step2 时长校验用例只在这三项上不同，其余装配逐字相同。
+    """
+    project_path = tmp_path / "demo"
+    _write_drama_ledger_project(
+        project_path,
+        [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+    )
+    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+    project["video_backend"] = backend
+    project["model_settings"] = {backend: {"resolution": resolution}}
+    _write_json(project_path / "project.json", project)
+    return project_path
+
+
+def _drama_step1_content() -> dict:
+    """drama step1 结构化内容：含 utterances + source_text + scene_description（视觉改编）。"""
+    return {
+        "title": "第一集",
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "duration_seconds": 8,
+                "segment_break": False,
+                "characters_in_scene": ["姜月茴"],
+                "scenes": [],
+                "props": [],
+                "scene_description": "姜月茴立于庭院，目光沉静，晨光斜照。",
+                "utterances": [{"kind": "dialogue", "speaker": "姜月茴", "text": "你来了。"}],
+                "source_text": "姜月茴缓步走进庭院，抬眼望来。",
+            }
+        ],
+    }
+
+
+def _drama_visual_response() -> dict:
+    """drama step2 视觉层响应：仅 scene_id + image_prompt + video_prompt（无 dialogue）。"""
+    return {
+        "scenes": [
+            {
+                "scene_id": "E1S01",
+                "image_prompt": {
+                    "scene": "场景",
+                    "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+                },
+                "video_prompt": {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声"},
+            }
+        ],
+    }
+
+
+class _FakeTextBackend:
+    def __init__(self, response_text: str = "{}"):
+        self._response_text = response_text
+        self.last_request = None
+
+    @property
+    def name(self):
+        return "fake"
+
+    @property
+    def model(self):
+        return "fake-model"
+
+    @property
+    def capabilities(self):
+        return set()
+
+    async def generate(self, request):
+        self.last_request = request
+        from lib.text_backends.base import TextGenerationResult
+
+        return TextGenerationResult(text=self._response_text, provider="fake", model="fake-model")
+
+
+class _FakeTextGenerator:
+    """模拟 TextGenerator，包装 _FakeTextBackend。"""
+
+    def __init__(self, response_text: str = "{}"):
+        self.backend = _FakeTextBackend(response_text)
+        self.model = self.backend.model
+
+    async def generate(self, request, project_name=None):
+        return await self.backend.generate(request)
+
+
+class TestScriptGenerator:
+    async def test_build_prompt_uses_step1_content(self, tmp_path):
+        """build_prompt 无需 client 即可使用（dry-run 模式）：narration 渲染结构化 step1。"""
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {"synopsis": "概述"},
+                "characters": {"姜月茴": {}},
+                "clues": {"玉佩": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
+
+        generator = ScriptGenerator(project_path)  # 无 client
+        generator._fetch_video_capabilities = _fixed_caps_468
+        prompt = await generator.build_prompt(1)
+
+        assert "E1S01" in prompt
+        assert "第一段原文，逐字保留。" in prompt  # novel_text 作只读上下文渲染
+        assert "姜月茴" in prompt
+
+    async def test_build_prompt_appends_user_instructions(self, tmp_path):
+        """instructions 以中性「用户意见」分节追加到 prompt 末尾；未传时无该分节。"""
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {"synopsis": "概述"},
+                "characters": {"姜月茴": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
+
+        generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
+
+        plain = await generator.build_prompt(1)
+        assert "# 用户意见" not in plain
+
+        prompt = await generator.build_prompt(1, instructions="多给人物面部特写")
+        assert prompt.endswith("# 用户意见\n多给人物面部特写")
+
+    async def test_narration_step2_build_prompt_uses_project_source_language(self, tmp_path):
+        """narration step2（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {"synopsis": "概述"},
+                "characters": {"姜月茴": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+                "source_language": "English",
+            },
+        )
+        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "verbatim source line.", duration=4)])
+
+        generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        prompt = await generator.build_prompt(1)
+
+        # 输出语言锁定为项目 source_language，不回落默认中文
+        assert "所有字符串值必须使用 English" in prompt
+        assert "所有字符串值必须使用 中文" not in prompt
+
+    async def test_load_step1_drama_missing_raises_without_fallback(self, tmp_path):
+        """drama 集缺 step1_normalized_script.json 时显式报错；不得降级改读 narration 的拆分表。"""
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "drama",
+                "overview": {},
+                "characters": {},
+                "clues": {},
+            },
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "其他模式中间文件")
+
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(FileNotFoundError, match="step1_normalized_script.json"):
+            generator._load_step1(1)
+
+    async def test_load_drama_step1_content_rejects_non_dict_top_level(self, tmp_path):
+        """drama step1 顶层非对象（如 JSON 数组）→ ValueError，不静默当空剧本。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write(project_path / "drafts" / "episode_1" / "step1_normalized_script.json", "[]")
+        _activate_project_artifacts(project_path)
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="顶层应为对象"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_non_list_scenes(self, tmp_path):
+        """drama step1 scenes 非列表（如对象）→ ValueError fail-fast，不被当成空剧本继续。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write_drama_step1_json(
+            project_path,
+            1,
+            {"title": "第一集", "scenes": {}},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="scenes 必须是非空"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_empty_scenes(self, tmp_path):
+        """drama step1 scenes 为空列表 → ValueError fail-fast（空剧本不是合法 step1 产物，避免落盘 scenes=[]）。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write_drama_step1_json(
+            project_path,
+            1,
+            {"title": "第一集", "scenes": []},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="scenes 必须是非空"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_non_dict_scene_item(self, tmp_path):
+        """drama step1 scenes 列表含非对象项（数字 / 字符串）→ ValueError，不拖到 render/merge 阶段才炸。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write_drama_step1_json(
+            project_path,
+            1,
+            {"title": "第一集", "scenes": [{"scene_id": "E1S01"}, 42]},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="必须是分镜对象"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_empty_scene_id(self, tmp_path):
+        """drama step1 分镜的 scene_id 为空串 / 缺失 → ValueError fail-fast（拖到合并阶段才暴露）。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        _write_drama_step1_json(
+            project_path,
+            1,
+            {"title": "第一集", "scenes": [{"scene_id": ""}]},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="scene_id 必须是非空字符串"):
+            generator._load_drama_step1_content(1)
+
+    async def test_load_drama_step1_content_rejects_rewritten_scene_id_collision(self, tmp_path):
+        """原始 scene_id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud，
+        避免下游产物文件名 / 资产键撞车（与 _load_narration_step1 同口径）。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 2, "title": "第二集", "script_file": "scripts/episode_2.json"}],
+        )
+        _write_drama_step1_json(
+            project_path,
+            2,
+            {"title": "第二集", "scenes": [{"scene_id": "E1S02_1"}, {"scene_id": "E2S02_1"}]},
+        )
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="改写到 episode=2 后重复"):
+            generator._load_drama_step1_content(2)
+
+    async def test_drama_step2_rejects_step1_duration_out_of_constrained_set(self, tmp_path):
+        """step1 在宽松分辨率下拆好、项目改到 Veo 1080p 后再跑 step2 → 越界时长 fail-loud。
+
+        step2 原样透传 step1 时长，落盘前的静态校验只要求正整数；缺这道校验时越界值会一路存进
+        剧本，直到视频入队才被拒。与 narration / reference_video 的 step1 读回校验对称。
+        """
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
+        )
+
+        content = _drama_step1_content()
+        content["scenes"][0]["duration_seconds"] = 4
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["4", 4.0],
+        ids=["numeric-string", "integral-float"],
+    )
+    async def test_drama_step2_rejects_out_of_range_duration_in_coercible_form(self, tmp_path, raw):
+        """手编的 `"4"` / `4.0` 同样拦下：它们会被最终 schema 归一成 4 落盘，不能绕过校验。
+
+        校验若按 `isinstance(..., int)` 判定就会整个跳过这两种形态，等于给越界值开一条绕路。
+        """
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
+        )
+
+        content = _drama_step1_content()
+        content["scenes"][0]["duration_seconds"] = raw
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
+
+    async def test_drama_step2_checks_declared_default_when_duration_absent(self, tmp_path):
+        """缺 duration_seconds 键时按字段声明默认值校验——不填不代表不校验，落盘补的正是该默认值。
+
+        海螺 1080p 只接受 6 秒，而 DramaSceneContent 的默认是 8 秒，故该场景须被拦下。
+        """
+        project_path = _drama_project_with_backend(tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p")
+
+        content = _drama_step1_content()
+        del content["scenes"][0]["duration_seconds"]
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
+
+    async def test_drama_step2_checks_declared_default_when_duration_null(self, tmp_path):
+        """显式 null 与缺键同口径：都按声明默认值校验，不得绕过。
+
+        `dict.get` 的默认值只在缺键时生效，显式 null 会取到 None；不特判的话该场景跳过校验，
+        要等 step2 跑完、落盘时才被 Pydantic 拒，白耗一次完整的剧本生成调用。
+        """
+        project_path = _drama_project_with_backend(tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p")
+
+        content = _drama_step1_content()
+        content["scenes"][0]["duration_seconds"] = None
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定分镜时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
+
+    async def test_drama_step2_accepts_step1_duration_within_constrained_set(self, tmp_path):
+        """同一 1080p 项目下 8 秒仍合法——收窄后集合的成员不得被这道校验误拒。"""
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
+        )
+
+        generator = ScriptGenerator(project_path)
+        await generator._assert_drama_step1_durations(
+            _drama_step1_content()["scenes"], episode=1, gen_mode="storyboard"
+        )
+
+    async def test_drama_step2_build_prompt_renders_step1_content(self, tmp_path):
+        """drama step2（视觉层）build_prompt 须把 step1 已定稿内容渲染入 prompt，仅求视觉字段。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 已定稿内容透传进 prompt：scene_id + 视觉改编描述 + 口播（仅供理解）
+        assert "E1S01" in prompt
+        assert "姜月茴立于庭院" in prompt
+
+    async def test_drama_step2_build_prompt_omits_outline(self, tmp_path):
+        """分集大纲随内容抽取前移到 step1（normalize）；step2 视觉层 prompt 不再渲染大纲段。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [
+                {
+                    "episode": 1,
+                    "title": "初入江湖",
+                    "script_file": "scripts/episode_1.json",
+                    "hook": "少年坠崖生死未卜",
+                    "outline": {"story_beats": ["少年下山"], "next_episode_teaser": "崖底神秘人出手相救"},
+                    "ledger_status": "planned",
+                },
+            ],
+            characters={"姜月茴": {}},
+        )
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 大纲 / 钩子内容不在 step2 prompt（它们驱动 step1 内容生成，不影响 step2 视觉）
+        assert "少年坠崖生死未卜" not in prompt
+
+    async def test_drama_step2_build_prompt_uses_project_source_language(self, tmp_path):
+        """step2 视觉层 prompt 的输出语言须取项目 source_language（与 step1 同源），非中文项目不得回落中文。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        # 注入非中文 source_language（生成内容语言真相源）
+        project_json_path = project_path / "project.json"
+        payload = json.loads(project_json_path.read_text(encoding="utf-8"))
+        payload["source_language"] = "English"
+        _write_json(project_json_path, payload)
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 输出语言锁定为项目 source_language，不回落默认中文
+        assert "所有字符串值必须使用 English" in prompt
+        assert "所有字符串值必须使用 中文" not in prompt
+
+    async def test_parse_response_invalid_json_raises(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_json(project_path / "project.json", {"title": "项目"})
+
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError):
+            generator._parse_response("not-json", 1)
+
+    async def test_parse_response_validation_error_returns_raw_data(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_json(project_path / "project.json", {"title": "项目"})
+
+        generator = ScriptGenerator(project_path)
+        parsed = generator._parse_response('{"foo": "bar"}', 1)
+        # 校验失败降级返回原始数据；title 兜底在校验前注入，故降级结果也携带
+        assert parsed == {"foo": "bar", "title": "第1集"}
+
+    async def test_generate_writes_script_and_metadata(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {},
+                "characters": {"姜月茴": {}},
+                "clues": {"玉佩": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        _write_step1_json(
+            project_path,
+            1,
+            [{**_step1_seg("E1S01", "原样保留的小说原文。", duration=4), "characters_in_segment": ["姜月茴"]}],
+        )
+
+        fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        output = await generator.generate(1)
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert output == project_path / "scripts" / "episode_1.json"
+        assert payload["episode"] == 1
+        # 内容层（novel_text / 出场角色）由 step1 透传，视觉层由 step2 合并
+        seg = payload["segments"][0]
+        assert seg["novel_text"] == "原样保留的小说原文。"
+        assert seg["characters_in_segment"] == ["姜月茴"]
+        assert seg["image_prompt"]["scene"] == "画面"
+        assert payload["metadata"]["generator"] == "fake-model"
+        step1_path = project_path / "drafts" / "episode_1" / "step1_segments.json"
+        assert payload["metadata"][script_review.SCRIPT_STEP1_REVISION_FIELD] == script_review.content_fingerprint(
+            step1_path
+        )
+        assert "created_at" in payload["metadata"]
+
+    async def test_generate_registers_the_basis_frozen_before_the_provider_call(self, tmp_path):
+        from lib.artifact_activation import ArtifactCurrencyResolver
+        from lib.artifact_manifest import (
+            ArtifactBasis,
+            ArtifactKey,
+            ArtifactManifest,
+            ArtifactStatus,
+            ProjectArtifactManifestAdapter,
+        )
+        from lib.artifact_provenance import build_episode_script_basis
+
+        project_path = tmp_path / "demo"
+        project = {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "title": "项目",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "source_kind": "novel",
+            "source_language": "中文",
+            "overview": {},
+            "characters": {"姜月茴": {}},
+            "scenes": {},
+            "props": {},
+            "style": "古风",
+            "style_description": "cinematic",
+            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        }
+        _write_json(project_path / "project.json", project)
+        initial_segments = [_step1_seg("E1S01", "生成开始时的原文。", duration=4)]
+        _write_step1_json(project_path, 1, initial_segments)
+        initial_step1 = json.loads(
+            (project_path / "drafts" / "episode_1" / "step1_segments.json").read_text(encoding="utf-8")
+        )
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.episode_step1(1),
+            artifact_path="drafts/episode_1/step1_segments.json",
+            basis=ArtifactBasis.build("test/step1", kind_version=1, inputs={}),
+        )
+
+        class _MutatingTextGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                _write_step1_json(
+                    project_path, 1, [_step1_seg("E1S01", "等待供应商期间被改过。", duration=4)], register=False
+                )
+                return await super().generate(request, project_name)
+
+        fake = _MutatingTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+
+        await generator.generate(1)
+
+        key = ArtifactKey.episode_script(1)
+        entry = ProjectArtifactManifestAdapter(project_path).get_entry(key)
+        assert entry is not None
+        assert entry.basis_digest == build_episode_script_basis(initial_step1, project=project).digest
+        assert (
+            ArtifactCurrencyResolver(project_path).compare(key, artifact_path="scripts/episode_1.json").status
+            is ArtifactStatus.STALE
+        )
+
+    async def test_generate_rejects_an_unregistered_formal_step1_before_provider(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "schema_version": CURRENT_SCHEMA_VERSION,
+                "title": "项目",
+                "content_mode": "narration",
+                "generation_mode": "storyboard",
+                "source_kind": "novel",
+                "source_language": "中文",
+                "overview": {},
+                "characters": {},
+                "scenes": {},
+                "props": {},
+                "style": "古风",
+                "style_description": "cinematic",
+                "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            },
+        )
+        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "未登记的正式原文。", duration=4)], register=False)
+        fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+
+        with pytest.raises(ValueError, match="step1.*not registered|step1.*未登记|not registered.*step1"):
+            await generator.generate(1)
+
+        assert fake.backend.last_request is None
+
+    async def test_generate_rechecks_step1_registration_while_awaiting_capabilities(
+        self,
+        tmp_path,
+    ):
+        """选中 step1 与付费调用之间清单条目被撤销 → 调用前的复核 fail loud，不发出请求。"""
+        from lib.artifact_manifest import ArtifactKey, ArtifactManifest, ProjectArtifactManifestAdapter
+
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "drama",
+                "source_kind": "novel",
+                "source_language": "中文",
+                "overview": {},
+                "characters": {},
+                "scenes": {},
+                "props": {},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _forget_step1_claim():
+            ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).forget_entry_transactionally(
+                ArtifactKey.episode_step1(1)
+            )
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _forget_step1_claim
+
+        with pytest.raises(ValueError, match="formal artifact input.*no longer registered"):
+            await generator.generate(1)
+
+        assert fake.backend.last_request is None
+
+    async def test_generate_rechecks_step1_content_while_awaiting_capabilities(self, tmp_path):
+        """选中 step1 与付费调用之间正式文件被并发改写 → 调用前的复核 fail loud，不落盘也不登记。"""
+        from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "drama",
+                "source_kind": "novel",
+                "source_language": "中文",
+                "overview": {},
+                "characters": {},
+                "scenes": {},
+                "props": {},
+                "style": "古风",
+                "style_description": "cinematic",
+            },
+        )
+        step1_path = project_path / "drafts" / "episode_1" / "step1_normalized_script.json"
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _replace_formal_step1():
+            changed = _drama_step1_content()
+            changed["title"] = "并发保存的新版本"
+            _write_json(step1_path, changed)
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _replace_formal_step1
+
+        with pytest.raises(ValueError, match="formal artifact input changed since it was selected"):
+            await generator.generate(1)
+
+        assert fake.backend.last_request is None
+        assert not (project_path / "scripts" / "episode_1.json").exists()
+        assert ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_script(1)) is None
+
+    async def test_generate_injects_hook_and_teaser_from_ledger(self, tmp_path):
+        """剧本 JSON 的集级 hook / next_episode_teaser 元数据来自分集账本（经写盘严格校验）。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [
+                {
+                    "episode": 1,
+                    "title": "初入江湖",
+                    "script_file": "scripts/episode_1.json",
+                    "hook": "少年坠崖生死未卜",
+                    "outline": {
+                        "story_beats": ["少年下山"],
+                        "next_episode_teaser": "崖底神秘人出手相救",
+                    },
+                    "ledger_status": "planned",
+                },
+            ],
+            characters={"姜月茴": {}},
+        )
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
+
+        # drama 两段式：step2 LLM 只出视觉层，后端按 scene_id 合并回 step1 内容
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        output = await generator.generate(1)
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert payload["hook"] == "少年坠崖生死未卜"
+        assert payload["next_episode_teaser"] == "崖底神秘人出手相救"
+        # step1 的逐字内容（utterances / source_text）经合并透传到最终剧本
+        scene = payload["scenes"][0]
+        assert scene["source_text"] == "姜月茴缓步走进庭院，抬眼望来。"
+        assert scene["utterances"][0]["text"] == "你来了。"
+        assert scene["image_prompt"]["scene"] == "场景"
+
+    async def test_generate_without_ledger_hook_leaves_fields_null(self, tmp_path):
+        """旧式条目（账本无钩子/预告）：字段为 null，写盘校验仍通过。"""
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {},
+                "characters": {"姜月茴": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+                "episodes": [
+                    {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"},
+                ],
+            },
+        )
+        _write_step1_json(project_path, 1, [_step1_seg("E1S01", "原文", duration=4)])
+
+        fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"]), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        output = await generator.generate(1)
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert payload["hook"] is None
+        assert payload["next_episode_teaser"] is None
+
+    async def test_generate_narration_stamps_cli_episode_and_rewrites_prefix(self, tmp_path):
+        """narration 两段式：CLI 集号是唯一真相（视觉 schema 无 episode 字段），且 _add_metadata
+        兜底改写 segment_id 前缀——step1 误写 E1S01、生成第 10 集时应改为 E10S01。
+        """
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "overview": {},
+                "characters": {"姜月茴": {}},
+                "clues": {"玉佩": {}},
+                "style": "古风",
+                "style_description": "cinematic",
+                "episodes": [{"episode": 10, "title": "第十集", "script_file": "scripts/episode_10.json"}],
+            },
+        )
+        # step1 误写集号前缀 E1（应为 E10）
+        _write_step1_json(project_path, 10, [_step1_seg("E1S01", "原文", duration=4)])
+
+        fake = _FakeTextGenerator(json.dumps(_narration_visual_response(["E1S01"], title="第十集"), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+
+        output = await generator.generate(10)
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert output == project_path / "scripts" / "episode_10.json"
+        assert payload["episode"] == 10
+        assert payload["segments"][0]["segment_id"] == "E10S01"
+
+    async def test_generate_drama_step2_passes_visual_schema(self, tmp_path):
+        """drama step2 LLM 输出 schema 是 DramaVisualScript（仅 scene_id + 视觉字段，无非视觉字段）。"""
+        from lib.script_models import DramaVisualScript
+
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
+
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        await generator.generate(1)
+
+        schema = fake.backend.last_request.response_schema
+        assert schema is DramaVisualScript
+        props = DramaVisualScript.model_json_schema()["$defs"]["DramaSceneVisual"]["properties"]
+        # 非视觉字段不进 LLM 输出 schema（工程透传，杜绝漂移）
+        assert "utterances" not in props
+        assert "source_text" not in props
+        assert "duration_seconds" not in props
+
+    async def test_generate_drama_step2_appends_user_instructions(self, tmp_path):
+        """generate 路径的 instructions 同样以中性「用户意见」分节追加到发给模型的 prompt 末尾。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
+
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        await generator.generate(1, instructions="打斗场面多给全景")
+
+        assert fake.backend.last_request.prompt.endswith("# 用户意见\n打斗场面多给全景")
+
+    async def test_generate_drama_step2_rejects_marked_mixed_candidate_before_backend_call(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        content = _drama_step1_content()
+        content["scenes"][0]["utterances"].append({"kind": "voiceover", "speaker": None, "text": "庭院里只剩风声。"})
+        content["scenes"][0]["needs_replan"] = True
+        _write_drama_step1_json(project_path, 1, content)
+
+        fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        with pytest.raises(SpeechAdmissionError) as exc_info:
+            await generator.generate(1)
+
+        admission = exc_info.value.admission
+        assert admission.unit_id == "E1S01"
+        assert admission.problems[0].code == "needs_replan"
+        assert admission.problems[0].locations[0].path == ("needs_replan",)
+        assert fake.backend.last_request is None
+
+    async def test_generate_sets_script_max_output_tokens(self, tmp_path):
+        """drama step2 generate 应在 TextGenerationRequest 上设置共享输出上限（DEFAULT_MAX_OUTPUT_TOKENS）。"""
+        from lib.script_models import DramaVisualMergeError
+        from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS
+
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            characters={"姜月茴": {}},
+        )
+        _write_drama_step1_json(project_path, 1, _drama_step1_content())
+
+        # 空视觉响应 → 合并时 step1 场景缺视觉，fail-loud；但模型调用已发生，仍可断言请求参数
+        fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
+        generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        with pytest.raises(DramaVisualMergeError):
+            await generator.generate(1)
+
+        assert fake.backend.last_request.max_output_tokens == DEFAULT_MAX_OUTPUT_TOKENS
+        assert DEFAULT_MAX_OUTPUT_TOKENS >= 16000
+
+    async def test_generate_without_backend_raises(self, tmp_path):
+        """未注入 backend 时调用 generate() 应抛 RuntimeError。"""
+        project_path = tmp_path / "demo"
+        _write_json(project_path / "project.json", {"title": "项目"})
+        _write(project_path / "drafts" / "episode_1" / "step1_segments.md", "content")
+
+        generator = ScriptGenerator(project_path)  # 无 backend
+        with pytest.raises(RuntimeError, match="TextGenerator 未初始化"):
+            await generator.generate(1)
+
+    @pytest.mark.parametrize(
+        "bad_filename",
+        [
+            "subdir/episode_1.json",  # 子目录
+            "../etc/passwd",  # path traversal
+            "/tmp/abs.json",  # 绝对路径
+            "a\\b.json",  # Windows 分隔符
+            "",  # 空字符串:Path("").name == "" 会过前两条校验,带空 filename 到写盘才崩
+        ],
+    )
+    async def test_generate_rejects_non_basename_output_filename(self, tmp_path, bad_filename):
+        """generate(output_filename=...) 的公开契约「只决定文件名,不接受目录」必须在入口兑现:
+        save_script 咽喉的 _safe_subpath 能挡绝对路径与 path traversal,但子目录拼出的 realpath
+        仍在 scripts/ 内,不挡;故公开 API 这层必须显式拒,让 docstring 不骗人。
+        """
+        project_path = tmp_path / "demo"
+        _write_json(project_path / "project.json", {"title": "项目"})
+
+        fake = _FakeTextGenerator(json.dumps(_valid_narration_response(), ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+        with pytest.raises(ValueError, match="只接受纯文件名"):
+            await generator.generate(1, output_filename=bad_filename)
+
+
+class TestAddMetadataRewritesEpisodePrefix:
+    """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀。"""
+
+    @staticmethod
+    def _make_generator(
+        tmp_path: Path, content_mode: str = "narration", generation_mode: str = "storyboard"
+    ) -> ScriptGenerator:
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": content_mode,
+                "generation_mode": generation_mode,
+            },
+        )
+        return ScriptGenerator(project_path)
+
+    def test_drama_rewrites_scene_ids(self, tmp_path: Path) -> None:
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {
+            "scenes": [
+                {"scene_id": "E1S01", "other": "keep"},
+                {"scene_id": "E1S04_2"},
+            ],
+        }
+        out = sg._add_metadata(data, episode=2)
+        assert out["scenes"][0]["scene_id"] == "E2S01"
+        assert out["scenes"][1]["scene_id"] == "E2S04_2"
+        assert out["scenes"][0]["other"] == "keep"
+
+    def test_narration_rewrites_segment_ids(self, tmp_path: Path) -> None:
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        data = {
+            "segments": [
+                {"segment_id": "E1S01"},
+                {"segment_id": "E1S02_1"},
+            ],
+        }
+        out = sg._add_metadata(data, episode=3)
+        assert out["segments"][0]["segment_id"] == "E3S01"
+        assert out["segments"][1]["segment_id"] == "E3S02_1"
+
+    @pytest.mark.parametrize("case", SPEECH_CONTRACT_CASES, ids=lambda case: case.route_id)
+    def test_six_route_machine_candidates_preserve_mixed_speech_and_mark_replan(
+        self,
+        tmp_path: Path,
+        case: SpeechContractCase,
+    ) -> None:
+        sg = self._make_generator(tmp_path, content_mode=case.content_mode, generation_mode=case.generation_mode)
+        original = case.unit()
+        data = {case.kind: [case.unit()]}
+
+        out = sg._add_metadata(data, episode=1)
+
+        assert out[case.kind][0]["needs_replan"] is True
+        assert {key: value for key, value in out[case.kind][0].items() if key != "needs_replan"} == original
+
+    def test_reference_video_rewrites_unit_ids(self, tmp_path: Path) -> None:
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目",
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
+            },
+        )
+        sg = ScriptGenerator(project_path)
+        data = {
+            "video_units": [
+                {"unit_id": "E1U01"},
+                {"unit_id": "E1U02_1"},
+            ],
+        }
+        out = sg._add_metadata(data, episode=2)
+        assert out["video_units"][0]["unit_id"] == "E2U01"
+        assert out["video_units"][1]["unit_id"] == "E2U02_1"
+
+    def test_idempotent_when_prefix_already_correct(self, tmp_path: Path) -> None:
+        """ID 前缀已经匹配 episode 时，rewrite 不应改动（不破坏正确数据）。"""
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        data = {"segments": [{"segment_id": "E2S01"}, {"segment_id": "E2S02_3"}]}
+        out = sg._add_metadata(data, episode=2)
+        assert out["segments"][0]["segment_id"] == "E2S01"
+        assert out["segments"][1]["segment_id"] == "E2S02_3"
+
+    def test_unknown_id_format_unchanged(self, tmp_path: Path) -> None:
+        """ID 不带 `E\\d+[SU]` 前缀时不应被改写（避免误伤）。"""
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        data = {"segments": [{"segment_id": "G01"}, {"segment_id": "scene_1"}]}
+        out = sg._add_metadata(data, episode=2)
+        assert out["segments"][0]["segment_id"] == "G01"
+        assert out["segments"][1]["segment_id"] == "scene_1"
+
+
+class TestAddMetadataInjectsHiddenFields:
+    """LLM schema 隐藏 content_mode / novel 之后,_add_metadata 必须保证持久化 JSON 仍带这些字段。
+
+    下游消费方(项目摘要 / files router / jianying / compose-video)读 dict,不读 model,
+    所以兜底必须落在 dict 层。
+    """
+
+    @staticmethod
+    def _make_generator(tmp_path: Path, content_mode: str = "drama") -> ScriptGenerator:
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "项目标题",
+                "content_mode": content_mode,
+            },
+        )
+        return ScriptGenerator(project_path)
+
+    def test_drama_injects_content_mode_and_novel_when_llm_omits(self, tmp_path: Path) -> None:
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {"title": "第一集", "scenes": [{"scene_id": "E1S01"}]}
+        out = sg._add_metadata(data, episode=1)
+        assert out["content_mode"] == "drama"
+        assert out["novel"] == {"title": "项目标题", "chapter": "第1集"}
+
+    def test_narration_injects_content_mode_and_novel_when_llm_omits(self, tmp_path: Path) -> None:
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        data = {"title": "第一集", "segments": [{"segment_id": "E1S01"}]}
+        out = sg._add_metadata(data, episode=1)
+        assert out["content_mode"] == "narration"
+        assert out["novel"]["chapter"] == "第1集"
+
+    def test_strips_legacy_generation_mode_stamp(self, tmp_path: Path) -> None:
+        """生成模式的真相源是 project.json，剧本不留标记：存量剧本重生成、或校验失败降级保存的
+        原始后端 dict 里带的 generation_mode，必须在写盘前剥离。"""
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {"title": "第一集", "generation_mode": "reference_video", "scenes": [{"scene_id": "E1S01"}]}
+        out = sg._add_metadata(data, episode=1)
+        assert "generation_mode" not in out
+
+    def test_setdefault_does_not_overwrite_existing_values(self, tmp_path: Path) -> None:
+        """LLM 若主动填了 content_mode / novel(理论上不会,但兜底要稳),setdefault 不应覆盖。"""
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {
+            "title": "第一集",
+            "content_mode": "drama",
+            "novel": {"title": "用户的小说", "chapter": "卷一·风起"},
+            "scenes": [{"scene_id": "E1S01"}],
+        }
+        out = sg._add_metadata(data, episode=1)
+        assert out["content_mode"] == "drama"
+        assert out["novel"] == {"title": "用户的小说", "chapter": "卷一·风起"}
+
+    def test_drama_overrides_empty_novel_after_model_dump(self, tmp_path: Path) -> None:
+        """e2e: model_validate → model_dump 后 novel 永远存在但为空字典,_add_metadata
+        必须按"内容是否为空"判断而非"key 是否存在",否则 compose-video 输出文件名将退化为
+        '_final.mp4',save_script 退化为 '_script.json',多集互相覆盖。
+        """
+        from lib.script_models import DramaEpisodeScript
+
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        llm_response = {
+            "title": "第一集",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "characters_in_scene": ["A"],
+                    "image_prompt": {
+                        "scene": "s",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                    },
+                    "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                }
+            ],
+        }
+        # 完整模拟 _parse_response: model_validate → model_dump
+        dumped = DramaEpisodeScript.model_validate(llm_response).model_dump()
+        # 守卫前提:model_dump 已塞入空 NovelInfo
+        assert dumped["novel"] == {"title": "", "chapter": ""}
+
+        out = sg._add_metadata(dumped, episode=1)
+        assert out["novel"] == {"title": "项目标题", "chapter": "第1集"}
+
+    def test_narration_overrides_empty_novel_after_model_dump(self, tmp_path: Path) -> None:
+        from lib.script_models import NarrationEpisodeScript
+
+        sg = self._make_generator(tmp_path, content_mode="narration")
+        llm_response = {
+            "title": "第一集",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "x",
+                    "characters_in_segment": [],
+                    "image_prompt": {
+                        "scene": "s",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                    },
+                    "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                }
+            ],
+        }
+        dumped = NarrationEpisodeScript.model_validate(llm_response).model_dump()
+        assert dumped["novel"] == {"title": "", "chapter": ""}
+
+        out = sg._add_metadata(dumped, episode=2)
+        assert out["novel"] == {"title": "项目标题", "chapter": "第2集"}
+
+    def test_partial_novel_only_title_is_also_reinjected(self, tmp_path: Path) -> None:
+        """半填 novel(只有 title 或只有 chapter)也应触发重注入,避免 compose-video 文件名残缺。"""
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {
+            "title": "第一集",
+            "novel": {"title": "残缺标题", "chapter": ""},
+            "scenes": [{"scene_id": "E1S01"}],
+        }
+        out = sg._add_metadata(data, episode=1)
+        assert out["novel"]["chapter"] == "第1集"
+        assert out["novel"]["title"] == "项目标题"
+
+
+def test_resolve_supported_durations_raises_when_unset(tmp_path):
+    """caps、project.json、registry 三处都查不到时应抛 ValueError，不再 silent fallback。"""
+    project_dir = tmp_path / "p"
+    project_dir.mkdir()
+    (project_dir / "project.json").write_text(
+        '{"video_backend": "nonexistent-provider/nonexistent-model"}', encoding="utf-8"
+    )
+    sg = ScriptGenerator.__new__(ScriptGenerator)
+    sg.project_path = project_dir
+    sg.project_json = {"video_backend": "nonexistent-provider/nonexistent-model"}
+
+    with pytest.raises(ValueError, match="supported_durations"):
+        sg._resolve_supported_durations(None, gen_mode="storyboard")
+
+
+class TestFetchVideoCapabilitiesErrorHandling:
+    """任务类型桶解析闸的报错不被 fallback 吞掉——写剧本与执行读同一个模型的档位。"""
+
+    def _sg(self, tmp_path) -> ScriptGenerator:
+        sg = ScriptGenerator.__new__(ScriptGenerator)
+        sg.project_path = tmp_path
+        sg.project_json = {"video_backend": "kling/kling-v3", "generation_mode": "reference_video"}
+        return sg
+
+    async def test_bucket_capability_error_propagates(self, tmp_path, monkeypatch):
+        """桶模型缺能力 / 引用失效时上抛：退到 project.json 会拿项目默认模型的时长与参考图
+        上限写剧本，写出来的镜头执行期照样被同一道闸拒掉。"""
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        async def _raise(_self, _project, _episode=None):
+            raise VideoBucketCapabilityError(
+                code="video_capability_missing_r2v",
+                capability="r2v",
+                provider_id="kling",
+                model_id="kling-v3",
+                message="video model kling/kling-v3 lacks the capability required by the r2v bucket",
+            )
+
+        monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _raise)
+        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+            await self._sg(tmp_path)._fetch_video_capabilities()
+        assert excinfo.value.code == "video_capability_missing_r2v"
+
+    async def test_other_resolution_failures_still_fall_back(self, tmp_path, monkeypatch):
+        """DB 未 migration / 缺能力元数据等环境故障仍走 fallback，裸环境下 generate() 照常跑通。"""
+
+        async def _raise(_self, _project, _episode=None):
+            raise ValueError("no video provider configured")
+
+        monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _raise)
+        assert await self._sg(tmp_path)._fetch_video_capabilities() is None
+
+
+class TestDegradedResolutionKeepsBucket:
+    """caps 解析失败后的降级路径仍按 generation_mode 定桶读 project.json，只丢 DB 那一层。"""
+
+    _PROJECT = {
+        "video_backend": "kling/kling-v3",
+        "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+        "generation_mode": "reference_video",
+    }
+
+    def test_backend_ids_fall_back_to_bucket_key(self, tmp_path):
+        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
+        assert sg._resolve_backend_ids(None) == ("gemini-aistudio", "veo-3.1-generate-preview")
+
+    def test_max_refs_falls_back_to_bucket_model(self, tmp_path):
+        """参考生视频项目降级后仍按 r2v 桶模型报上限；取项目默认层会拿到不接受参考图的 kling-v3。"""
+        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
+        assert sg._resolve_max_refs(None) == 3
+
+    def test_supported_durations_fall_back_to_bucket_model(self, tmp_path):
+        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
+        assert sg._resolve_raw_supported_durations(None) == [4, 6, 8]
+
+
+def _sg_with_project(tmp_path, project: dict) -> ScriptGenerator:
+    """只为 _resolve_* 系列造一个不走 __init__ 的 ScriptGenerator（不需要 TextGenerator）。"""
+    project_dir = tmp_path / "p"
+    project_dir.mkdir(exist_ok=True)
+    sg = ScriptGenerator.__new__(ScriptGenerator)
+    sg.project_path = project_dir
+    sg.project_json = project
+    return sg
+
+
+_VEO_CAPS = {
+    "provider_id": "gemini-aistudio",
+    "model": "veo-3.1-generate-preview",
+    "supported_durations": [4, 6, 8],
+}
+
+
+def test_resolve_supported_durations_narrows_by_saved_resolution(tmp_path):
+    """项目保存了 1080p 时收窄到该档位声明的集合——Veo 1080p 只接受 8 秒。
+
+    这是验收标准第 1 条的正例：不收窄的话剧本产出 4/6 秒镜头，视频入队时才被 backend 拒。
+    """
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [8]
+    # 全集仍可单独取到，供「shot 是 clip 内编排」这类不面向供应商的维度使用
+    assert sg._resolve_raw_supported_durations(_VEO_CAPS) == [4, 6, 8]
+
+
+def test_resolve_supported_durations_unset_resolution_not_narrowed(tmp_path):
+    """项目未配分辨率时不收窄：普通视频路径此时省略 resolution 参数，Veo 按默认 720p 接受 4/6/8。
+
+    按 provider 兜底档位收窄会把未配置项目的剧本节奏凭空锁死 8 秒，而供应商本来就接受 4/6 秒。
+    """
+    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
+
+
+def test_resolve_supported_durations_respects_project_resolution(tmp_path):
+    """项目显式配置了无时长约束声明的分辨率时保留完整时长集合。"""
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
+
+
+def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
+    """参考生视频触发「参考图↔时长」约束，即便分辨率本身无声明。"""
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video") == [8]
+
+
+def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tmp_path):
+    """参考生视频但本集单元都不带引用时不施加参考图约束。
+
+    通用单元允许空 references，执行层与 backend 都只在实际带图时施加该约束；按模式一刀切
+    会错误收掉 720p 下无引用单元可申请的 4/6 秒。
+    """
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=False) == [
+        4,
+        6,
+        8,
+    ]
+    # 有引用的单元存在时照常收窄
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=True) == [8]
+
+
+def test_units_use_references_distinguishes_none_from_no_refs():
+    """None（非参考生视频路径）与「确定不带引用」区分开，前者交由下游按模式近似判定。"""
+    assert _units_use_references(None) is None
+    assert _units_use_references([{"unit_id": "E1U01", "text": "空镜：海面翻涌。"}]) is False
+    assert (
+        _units_use_references(
+            [{"unit_id": "E1U01", "text": "空镜：海面翻涌。"}, {"unit_id": "E1U02", "text": "@[甲] 推门而入。"}]
+        )
+        is True
+    )
+
+
+def test_resolve_supported_durations_unconstrained_model_unchanged(tmp_path):
+    """已登记但无联动约束声明的型号：收窄是恒等变换，两种 gen_mode 都与全集一致。"""
+    caps = {"provider_id": "ark", "model": "doubao-seedance-1-5-pro-251215", "supported_durations": [4, 5, 6]}
+    sg = _sg_with_project(tmp_path, {"video_backend": "ark/doubao-seedance-1-5-pro-251215"})
+    assert sg._resolve_supported_durations(caps, gen_mode="storyboard") == [4, 5, 6]
+    assert sg._resolve_supported_durations(caps, gen_mode="reference_video") == [4, 5, 6]
+
+
+def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
+    """max_duration 随收窄后的集合走：它在 rv 模式下是 unit 总时长上限，须与枚举同一集合。"""
+    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
+    caps = {**_VEO_CAPS, "max_duration": 8}
+    assert sg._resolve_max_duration(caps, gen_mode="storyboard") == 8
+
+    hailuo_caps = {
+        "provider_id": "minimax",
+        "model": "MiniMax-Hailuo-2.3",
+        "supported_durations": [6, 10],
+        "max_duration": 10,
+    }
+    hailuo = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "minimax/MiniMax-Hailuo-2.3",
+            "model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}},
+        },
+    )
+    # 1080p 下海螺只接受 6 秒：上限必须跟着降，否则 step1 会拆出 10 秒的 unit 而 step2 判非法
+    assert hailuo._resolve_max_duration(hailuo_caps, gen_mode="storyboard") == 6
+
+    # rv 模式是 max_duration 真正当 unit 总时长上限用的分支：上限一旦退回 caps["max_duration"]
+    # （Veo 全集 8、海螺全集 10），step1 会按全集上限拆 unit、step2 的枚举再判非法。
+    # 两侧都钉死具体值，同时锁定「上限 == max(枚举集合)」这条不变量。
+    for sg_case, caps_case, expected in ((sg, caps, 8), (hailuo, hailuo_caps, 6)):
+        durations = sg_case._resolve_supported_durations(caps_case, gen_mode="reference_video")
+        assert durations == [expected]
+        assert sg_case._resolve_max_duration(caps_case, gen_mode="reference_video") == expected == max(durations)
+
+
+def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
+    """构造跳过 backend 初始化的 narration ScriptGenerator（用于直接测内部方法）。
+
+    project.json 落到磁盘（不只是内存字段）：_load_reference_step1 的确认指纹搬移经
+    ProjectManager.update_project 无条件加锁读写该文件（不再靠内存快照短路），缺文件会
+    在那一步 FileNotFoundError。
+    """
+    project_dir = tmp_path / "demo"
+    project_dir.mkdir(exist_ok=True)
+    sg = ScriptGenerator.__new__(ScriptGenerator)
+    sg.generator = None
+    sg.project_path = project_dir
+    sg.project_json = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "episodes": [{"episode": n, "title": f"第{n}集", "script_file": f"scripts/episode_{n}.json"} for n in (1, 2)],
+        **(project_extra or {}),
+    }
+    sg.content_mode = sg.project_json.get("content_mode", "narration")
+    (project_dir / "project.json").write_text(json.dumps(sg.project_json, ensure_ascii=False), encoding="utf-8")
+    return sg
+
+
+# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
+_KIND_TO_MODES: dict[str, tuple[str, str | None]] = {
+    "segments": ("narration", None),
+    "scenes": ("drama", None),
+    "shots": ("ad", None),
+    "video_units": ("narration", "reference_video"),
+}
+
+
+class TestScriptGeneratorSkeletonExhaustiveness:
+    """穷尽性断言：script_generator 的骨架分派覆盖 SKELETONS 全部键。
+
+    第五种骨架加入 SKELETONS（+ 规范解析映射）时，未登记的本地映射与未处置的分派逐个报红。
+    """
+
+    def test_parse_schema_covers_every_skeleton_kind(self):
+        from lib.script_generator import _KIND_PARSE_SCHEMA
+        from lib.script_skeleton import SKELETONS
+
+        assert set(_KIND_PARSE_SCHEMA) == set(SKELETONS)
+
+    def test_item_fallback_duration_covers_every_skeleton_kind(self):
+        # 时长兜底表单点化到 script_models，四骨架全登记（含 shots/video_units→0）；
+        # 第五种骨架加入 SKELETONS 而未登记即在 item_duration 查表 KeyError 报红。
+        from lib.script_models import _ITEM_FALLBACK_DURATIONS
+        from lib.script_skeleton import SKELETONS
+
+        assert set(_ITEM_FALLBACK_DURATIONS) == set(SKELETONS)
+
+    @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
+    def test_add_metadata_handles_every_skeleton_kind(self, kind: str, tmp_path: Path):
+        from lib.script_skeleton import SKELETONS
+
+        # 参数化遍历 SKELETONS 全键：新增第五种骨架而 _KIND_TO_MODES 未登记即 KeyError 报红。
+        assert set(_KIND_TO_MODES) == set(SKELETONS)
+
+        content_mode, gen_mode = _KIND_TO_MODES[kind]
+        extra: dict = {"content_mode": content_mode}
+        if gen_mode:
+            extra["generation_mode"] = gen_mode
+        sg = _bare_generator(tmp_path, extra)
+
+        id_field = SKELETONS[kind].id_field
+        out = sg._add_metadata({kind: [{id_field: "E1S01"}]}, episode=2)
+
+        # 数组键 + id 字段经查表：前缀改写为当前集号
+        assert out[kind][0][id_field] == "E2S01"
+        # 条目数与总时长不落盘：派生值由项目摘要读时计算
+        assert "duration_seconds" not in out
+
+    def test_add_metadata_survives_dirty_degraded_items(self, tmp_path: Path):
+        # 校验失败降级保存的原始 dict 里 segments 可能含非 dict / duration_seconds 非数字的脏条目；
+        # 前缀改写不得崩溃，脏条目原样保留。
+        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+
+        out = sg._add_metadata(
+            {
+                "segments": [
+                    {"segment_id": "E1S01", "duration_seconds": 5},
+                    "junk_not_a_dict",
+                    {"segment_id": "E1S02"},
+                    {"segment_id": "E1S03", "duration_seconds": None},
+                    {"segment_id": "E1S04", "duration_seconds": -5},
+                ]
+            },
+            episode=2,
+        )
+
+        # dict 条目前缀改写；非 dict 条目原样保留、不参与改写
+        assert out["segments"][0]["segment_id"] == "E2S01"
+        assert out["segments"][1] == "junk_not_a_dict"
+        assert out["segments"][2]["segment_id"] == "E2S02"
+        assert out["segments"][4]["segment_id"] == "E2S04"
+
+    def test_add_metadata_survives_non_list_array(self, tmp_path: Path):
+        # 数组键为真值标量（LLM 误写）时 `... or []` 挡不住，isinstance 守卫避免迭代崩溃。
+        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+
+        out = sg._add_metadata({"segments": 123}, episode=1)
+
+        assert out["segments"] == 123
+        assert out["episode"] == 1
+
+    def test_quality_probe_survives_non_list_array(self, tmp_path: Path, caplog):
+        # 数组键为真值标量时,_quality_probe 应被 isinstance 守卫收敛为空;外层 try/except 虽会
+        # 吞异常,但不得走 “quality probe skipped” 兜底(那意味着守卫失效、整段探针被误跳过)。
+        sg = _bare_generator(tmp_path, {"content_mode": "narration"})
+
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe({"segments": 123}, episode=1)
+
+        assert not any("quality probe skipped" in r.message for r in caplog.records)
+
+
+def _step1_seg(
+    segment_id: str,
+    novel_text: str,
+    *,
+    duration: int = 4,
+    brk: bool = False,
+    characters: list[str] | None = None,
+    scenes: list[str] | None = None,
+    props: list[str] | None = None,
+) -> dict:
+    return {
+        "segment_id": segment_id,
+        "novel_text": novel_text,
+        "duration_seconds": duration,
+        "segment_break": brk,
+        "characters_in_segment": characters or [],
+        "scenes": scenes or [],
+        "props": props or [],
+    }
+
+
+def _visual_seg(segment_id: str, *, scene: str = "画面", action: str = "动作") -> dict:
+    return {
+        "segment_id": segment_id,
+        "image_prompt": {
+            "scene": scene,
+            "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+        },
+        "video_prompt": {"action": action, "camera_motion": "Static", "ambiance_audio": "风声", "dialogue": []},
+    }
+
+
+def _write_step1_json(project_path: Path, episode: int, segments: list[dict], *, register: bool = True) -> None:
+    """写 narration step1 结构化中间文件 step1_segments.json，并按生产口径登记进产物清单。"""
+    path = project_path / "drafts" / f"episode_{episode}" / "step1_segments.json"
+    _write(path, json.dumps({"episode": episode, "segments": segments}, ensure_ascii=False))
+    if register:
+        _activate_project_artifacts(project_path, episode)
+
+
+def _write_drama_step1_json(project_path: Path, episode: int, content: dict, *, register: bool = True) -> None:
+    """写 drama step1 结构化中间文件 step1_normalized_script.json，并登记进产物清单。"""
+    _write_json(project_path / "drafts" / f"episode_{episode}" / "step1_normalized_script.json", content)
+    if register:
+        _activate_project_artifacts(project_path, episode)
+
+
+def _narration_visual_response(segment_ids: list[str], *, title: str = "第一集") -> dict:
+    """step2 视觉层 LLM 响应（NarrationVisualEpisodeScript 形态）。"""
+    return {"title": title, "segments": [_visual_seg(sid) for sid in segment_ids]}
+
+
+async def _fixed_caps_468(_episode=None) -> dict:
+    return {"supported_durations": [4, 6, 8]}
+
+
+class TestMergeNarrationVisual:
+    """step2 视觉层按 segment_id 合并回 step1 结构：novel_text 逐字透传、不经 LLM 重出。"""
+
+    def test_novel_text_passthrough_verbatim(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        step1 = [_step1_seg("E1S01", "原文甲。", duration=6, brk=True), _step1_seg("E1S02", "原文乙！")]
+        visual = {"title": "第一集", "segments": [_visual_seg("E1S01"), _visual_seg("E1S02")]}
+
+        merged = sg._merge_narration_visual(step1, visual, episode=1)
+
+        assert merged["title"] == "第一集"
+        assert [s["segment_id"] for s in merged["segments"]] == ["E1S01", "E1S02"]
+        # novel_text / 时长 / break 逐字取自 step1（LLM 不再重出）
+        assert merged["segments"][0]["novel_text"] == "原文甲。"
+        assert merged["segments"][0]["duration_seconds"] == 6
+        assert merged["segments"][0]["segment_break"] is True
+        assert merged["segments"][1]["novel_text"] == "原文乙！"
+        # 视觉层取自 LLM
+        assert merged["segments"][0]["image_prompt"]["scene"] == "画面"
+        assert merged["segments"][0]["video_prompt"]["action"] == "动作"
+
+    def test_merge_aligns_by_id_not_order(self, tmp_path):
+        """LLM 视觉层乱序也按 segment_id 对齐，合并顺序随 step1。"""
+        sg = _bare_generator(tmp_path)
+        step1 = [_step1_seg("E1S01", "甲"), _step1_seg("E1S02", "乙")]
+        visual = {
+            "title": "t",
+            "segments": [_visual_seg("E1S02", scene="乙画面"), _visual_seg("E1S01", scene="甲画面")],
+        }
+
+        merged = sg._merge_narration_visual(step1, visual, episode=1)
+
+        assert [s["segment_id"] for s in merged["segments"]] == ["E1S01", "E1S02"]
+        assert merged["segments"][0]["image_prompt"]["scene"] == "甲画面"
+        assert merged["segments"][1]["image_prompt"]["scene"] == "乙画面"
+
+    def test_missing_visual_segment_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        step1 = [_step1_seg("E1S01", "甲"), _step1_seg("E1S02", "乙")]
+        visual = {"title": "t", "segments": [_visual_seg("E1S01")]}  # 缺 E1S02
+        with pytest.raises(ValueError, match="E1S02"):
+            sg._merge_narration_visual(step1, visual, episode=1)
+
+    def test_extra_visual_segment_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        step1 = [_step1_seg("E1S01", "甲")]
+        visual = {"title": "t", "segments": [_visual_seg("E1S01"), _visual_seg("E1S09")]}  # 多 E1S09
+        with pytest.raises(ValueError, match="E1S09"):
+            sg._merge_narration_visual(step1, visual, episode=1)
+
+    def test_duplicate_visual_segment_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        step1 = [_step1_seg("E1S01", "甲")]
+        visual = {"title": "t", "segments": [_visual_seg("E1S01"), _visual_seg("E1S01")]}  # 重复
+        with pytest.raises(ValueError, match="E1S01"):
+            sg._merge_narration_visual(step1, visual, episode=1)
+
+    def test_title_fallback_when_missing(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        step1 = [_step1_seg("E1S01", "甲")]
+        visual = {"segments": [_visual_seg("E1S01")]}  # 无 title
+        merged = sg._merge_narration_visual(step1, visual, episode=3)
+        assert merged["title"] == "第3集"
+
+
+class TestLoadNarrationStep1:
+    """step1 结构化中间文件 step1_segments.json 的读取与校验。"""
+
+    @staticmethod
+    def _step1_path(sg: ScriptGenerator, episode: int) -> Path:
+        return sg.project_path / "drafts" / f"episode_{episode}" / "step1_segments.json"
+
+    def _write(self, sg: ScriptGenerator, episode: int, payload: dict) -> None:
+        path = self._step1_path(sg, episode)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        _activate_project_artifacts(sg.project_path, episode)
+
+    def test_loads_structured_segments_verbatim(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {
+                "episode": 1,
+                "segments": [
+                    _step1_seg("E1S01", "第一段原文，逐字保留。", duration=6, brk=True),
+                    _step1_seg("E1S02", "第二段原文！"),
+                ],
+            },
+        )
+        segments = sg._load_narration_step1(1, [4, 6, 8])
+        assert [s["segment_id"] for s in segments] == ["E1S01", "E1S02"]
+        assert segments[0]["novel_text"] == "第一段原文，逐字保留。"
+        assert segments[0]["duration_seconds"] == 6
+        assert segments[0]["segment_break"] is True
+
+    def test_quarantined_step1_blocks_step2_even_with_a_valid_formal_file(self, tmp_path):
+        """草稿在场时直连调用也拒：正式文件此刻仍是上一版，拿它跑 step2 等于把一份待处置的
+        产出静默换成旧内容。工具入口已按同一判据阻塞，这里是脚本 / 测试等直连路径的兜底。"""
+        from lib.draft_quarantine import QUARANTINE_KIND_NARRATION_STEP1, write_quarantine
+
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"episode": 1, "segments": [_step1_seg("E1S01", "第一段原文。")]})
+        write_quarantine(
+            sg.project_path,
+            1,
+            QUARANTINE_KIND_NARRATION_STEP1,
+            content={"segments": [_step1_seg("E1S01", "改到一半的原文。")]},
+            violations=[],
+        )
+
+        with pytest.raises(ValueError, match="草稿待处置"):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_missing_json_without_legacy_md_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        with pytest.raises(FileNotFoundError, match="step1_segments.json"):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_legacy_md_only_raises_rerun_hint(self, tmp_path):
+        """仅有结构化前的旧 step1_segments.md：明确要求重跑拆分，不读旧 md。"""
+        sg = _bare_generator(tmp_path)
+        legacy = sg.project_path / "drafts" / "episode_1" / "step1_segments.md"
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text("| 片段 | 原文 |\n| G01 | 旧表 |", encoding="utf-8")
+        with pytest.raises(FileNotFoundError, match="split-narration-segments|重跑"):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_malformed_json_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        path = self._step1_path(sg, 1)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not json", encoding="utf-8")
+        with pytest.raises(ValueError):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_invalid_structure_missing_novel_text_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"segments": [{"segment_id": "E1S01", "duration_seconds": 4}]})
+        with pytest.raises(ValueError):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_duplicate_segment_id_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"segments": [_step1_seg("E1S01", "甲"), _step1_seg("E1S01", "乙")]})
+        with pytest.raises(ValueError, match="重复|E1S01"):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_post_rewrite_collision_raises(self, tmp_path):
+        """原始 id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud。"""
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 2, {"segments": [_step1_seg("E1S02_1", "甲"), _step1_seg("E2S02_1", "乙")]})
+        with pytest.raises(ValueError, match="改写|E2S02_1"):
+            sg._load_narration_step1(2, [4, 6, 8])
+
+    def test_duration_outside_supported_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"segments": [_step1_seg("E1S01", "甲", duration=5)]})  # 5 ∉ [4,6,8]
+        with pytest.raises(ValueError, match="duration"):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_empty_segments_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"segments": []})
+        with pytest.raises(ValueError):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_missing_asset_arrays_raises(self, tmp_path):
+        """step1 资产字段必填：漏写 characters_in_segment/scenes/props → fail-loud（不静默补 []）。"""
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"segments": [{"segment_id": "E1S01", "novel_text": "甲", "duration_seconds": 4}]})
+        with pytest.raises(ValueError):
+            sg._load_narration_step1(1, [4, 6, 8])
+
+    def test_explicit_empty_asset_arrays_pass(self, tmp_path):
+        """无资产时显式写 [] 合法，通过校验。"""
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"segments": [_step1_seg("E1S01", "甲", characters=[], scenes=[], props=[])]})
+        segments = sg._load_narration_step1(1, [4, 6, 8])
+        assert segments[0]["characters_in_segment"] == []
+
+
+class TestLoadReferenceStep1:
+    """step1 结构化中间文件 step1_reference_units.json 的读取与校验。"""
+
+    @staticmethod
+    def _step1_path(sg: ScriptGenerator, episode: int) -> Path:
+        return sg.project_path / "drafts" / f"episode_{episode}" / "step1_reference_units.json"
+
+    @staticmethod
+    def _generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
+        """参考生视频项目：step1 的规范位置随 generation_mode 变，登记也据此定位。"""
+        return _bare_generator(tmp_path, {"generation_mode": "reference_video", **(project_extra or {})})
+
+    def _write(self, sg: ScriptGenerator, episode: int, payload: dict) -> None:
+        path = self._step1_path(sg, episode)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        _activate_project_artifacts(sg.project_path, episode)
+
+    @staticmethod
+    def _unit(unit_id: str, *, duration: int = 6) -> dict:
+        return {"unit_id": unit_id, "text": "甲走进屋子", "duration_seconds": duration}
+
+    def test_loads_structured_units_verbatim(self, tmp_path):
+        sg = self._generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U02", duration=8)]})
+        units = sg._load_reference_step1(1, [4, 6, 8])
+        assert [u["unit_id"] for u in units] == ["E1U01", "E1U02"]
+
+    def test_duplicate_unit_id_raises(self, tmp_path):
+        sg = self._generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U01")]})
+        with pytest.raises(ValueError, match="重复|E1U01"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_post_rewrite_collision_raises(self, tmp_path):
+        """原始 unit_id 互异但改写 episode 前缀后相撞（E1U01 与 E2U01 在 ep2 都成 E2U01）→ fail-loud。
+
+        对应 lib/script_generator.py::_add_metadata 落盘前无条件改写 E\\d+ 前缀的既有行为：
+        LLM 若在 step1 混用集号前缀，需在 step1 读取侧提前拦截，不能拖到最终脚本静默落盘
+        （与 _load_narration_step1 / _load_drama_step1_content 同口径）。
+        """
+        sg = self._generator(tmp_path)
+        self._write(sg, 2, {"units": [self._unit("E1U01"), self._unit("E2U01")]})
+        with pytest.raises(ValueError, match="改写|E2U01"):
+            sg._load_reference_step1(2, [4, 6, 8])
+
+    def test_duration_outside_supported_raises(self, tmp_path):
+        sg = self._generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01", duration=5)]})  # 5 ∉ [4,6,8]
+        with pytest.raises(ValueError, match="时长非法"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_strips_retired_duration_override_marker_and_persists(self, tmp_path):
+        """存量草稿的退役 ``duration_override`` 标记被剥掉并就地回写；二次加载不再触发。"""
+        sg = self._generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "text": "甲起身\n甲出门",
+                        "duration_seconds": 4,
+                        "duration_override": True,
+                    }
+                ]
+            },
+        )
+        units = sg._load_reference_step1(1, [4, 6, 8])
+        assert units[0]["duration_seconds"] == 4
+        assert units[0]["text"] == "甲起身\n甲出门"
+
+        on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
+        assert on_disk["units"][0]["duration_seconds"] == 4
+        assert "duration_override" not in on_disk["units"][0]
+
+        # 幂等：二次加载不再改写落盘内容。
+        before_second_load = self._step1_path(sg, 1).read_bytes()
+        sg._load_reference_step1(1, [4, 6, 8])
+        assert self._step1_path(sg, 1).read_bytes() == before_second_load
+
+    def test_migration_clamps_sum_to_supported_slot(self, tmp_path, caplog):
+        """既有时长落在档位之外 → 按容量语义取档后落盘（此处 7 → 8），并落盘 + 记 warning。"""
+        sg = self._generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "text": "甲起身\n甲出门",
+                        "duration_seconds": 7,
+                        "duration_override": True,
+                    }
+                ]
+            },
+        )
+        with caplog.at_level(logging.WARNING):
+            units = sg._load_reference_step1(1, [4, 6, 8])
+        assert units[0]["duration_seconds"] == 8
+        assert any("时长收编迁移" in r.message for r in caplog.records)
+
+        on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
+        assert on_disk["units"][0]["duration_seconds"] == 8
+        assert "duration_override" not in on_disk["units"][0]
+
+    def test_clamping_migration_aborts_generation_that_gate_already_let_through(self, tmp_path):
+        """靠 grandfather 判据（step2 已存在、无确认指纹）放行的存量集：迁移 clamp 改写秒数
+        即令放行依据失效，生成须中止。内容确认判的是迁移前状态、改写发生在放行之后——不在此
+        拦下，付费的 step2 就会按用户从未过目的秒数生成；加载这份已落盘状态时才会被拦截。
+        """
+        sg = self._generator(
+            tmp_path,
+            {"episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}]},
+        )
+        (sg.project_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (sg.project_path / "scripts" / "episode_1.json").write_text(
+            json.dumps({"episode": 1, "video_units": []}, ensure_ascii=False), encoding="utf-8"
+        )
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "text": "甲起身\n甲出门",
+                        "duration_seconds": 7,
+                        "duration_override": True,
+                    }
+                ]
+            },
+        )
+        with pytest.raises(ValueError, match="尚未完成内容确认"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_empty_units_raises(self, tmp_path):
+        sg = self._generator(tmp_path)
+        self._write(sg, 1, {"units": []})
+        with pytest.raises(ValueError):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+
+def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard", products: dict | None = None):
+    payload = {
+        "title": "速干杯",
+        "content_mode": "ad",
+        "generation_mode": generation_mode,
+        "target_duration": 30,
+        "brief": "突出速干卖点",
+        "overview": {"synopsis": "带货短片"},
+        "characters": {"小美": {"description": "白领"}},
+        "scenes": {},
+        "props": {},
+        "products": products
+        if products is not None
+        else {"速干杯": {"description": "随行杯", "selling_points": ["30 秒速干"]}},
+        "style": "实拍",
+        "style_description": "真实质感",
+        "aspect_ratio": "9:16",
+        "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
+    }
+    _write_json(project_path / "project.json", payload)
+
+
+def _ad_shot(shot_id: str, *, duration: int = 4, section: str = "hook", voiceover: str = "口播") -> dict:
+    return {
+        "shot_id": shot_id,
+        "section": section,
+        "duration_seconds": duration,
+        "voiceover_text": voiceover,
+        "characters_in_shot": [],
+        "scenes": [],
+        "props": [],
+        "products_in_shot": ["速干杯"],
+        "image_prompt": {
+            "scene": "速干杯特写" * 10,
+            "composition": {"shot_type": "Close-up", "lighting": "柔和顶光", "ambiance": "清爽"},
+        },
+        "video_prompt": {
+            "action": "水珠从杯壁滑落，杯身迅速恢复干爽" * 2,
+            "camera_motion": "Static",
+            "ambiance_audio": "水声",
+            "dialogue": [],
+        },
+    }
+
+
+class TestAdScriptGeneration:
+    async def test_build_prompt_without_step1_uses_brief_and_products(self, tmp_path):
+        """ad 一键生成不走 step1 中间文件：prompt 直接来自 brief + 商品信息 + 配比表。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+
+        generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        prompt = await generator.build_prompt(1)
+
+        assert "突出速干卖点" in prompt
+        assert "速干杯" in prompt
+
+    async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path):
+        """ad + reference_video：直接输出统一引用语法 video_units，不持久化旧镜头字段。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path, generation_mode="reference_video")
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        assert "突出速干卖点" in prompt
+        assert "速干杯" in prompt
+        assert "video unit" in prompt
+        assert "不要输出 shots、section、shot_id" in prompt
+        assert "@[名称]" in prompt
+
+    async def test_build_prompt_uses_project_source_language(self, tmp_path):
+        """ad prompt 的口播语速折算与输出语言须取项目 source_language（与 drama/narration 同口径），非中文项目不得回落中文/zh 语速。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        project_json_path = project_path / "project.json"
+        payload = json.loads(project_json_path.read_text(encoding="utf-8"))
+        payload["source_language"] = "en"
+        _write_json(project_json_path, payload)
+
+        generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        prompt = await generator.build_prompt(1)
+
+        # 输出语言规则锁定为项目 source_language，不回落默认中文
+        assert "所有字符串值必须使用 en" in prompt
+        assert "所有字符串值必须使用 中文" not in prompt
+
+    async def test_build_prompt_uses_project_speech_rate_override(self, tmp_path):
+        """project.json 顶层 speech_rate_units_per_second 须经真相源顶掉语言默认，落到 ad prompt 的口播折算。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        project_json_path = project_path / "project.json"
+        payload = json.loads(project_json_path.read_text(encoding="utf-8"))
+        payload["speech_rate_units_per_second"] = 7.5
+        _write_json(project_json_path, payload)
+
+        generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        prompt = await generator.build_prompt(1)
+
+        assert "口播长度按约 7.5 字/秒折算" in prompt
+
+    async def test_build_prompt_tolerates_null_project_fields(self, tmp_path):
+        """project.json 手工编辑后字段显式为 null：prompt 构建按空值归一化，不抛 AttributeError。"""
+        project_path = tmp_path / "demo"
+        _write_project_json(
+            project_path,
+            {
+                "title": "速干杯",
+                "content_mode": "ad",
+                "generation_mode": "storyboard",
+                "target_duration": 30,
+                "brief": None,
+                "overview": None,
+                "characters": None,
+                "scenes": None,
+                "props": None,
+                "products": None,
+                "style": None,
+                "style_description": None,
+                "aspect_ratio": "9:16",
+                "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
+            },
+        )
+
+        generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
+        prompt = await generator.build_prompt(1)
+
+        assert isinstance(prompt, str) and prompt
+
+    async def test_generate_writes_ad_script_with_metadata(self, tmp_path):
+        """generate 写盘 ad 剧本：shots 骨架、content_mode=ad。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+
+        response = {
+            "title": "速干杯短片",
+            "shots": [
+                _ad_shot("E1S01", duration=4, section="hook", voiceover="还在等杯子干？"),
+                _ad_shot("E1S02", duration=6, section="demo", voiceover="30 秒，倒扣即干。"),
+            ],
+        }
+        fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _fixed_caps(_episode=None):
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+
+        output_path = await generator.generate(1)
+
+        saved = json.loads(output_path.read_text(encoding="utf-8"))
+        assert saved["content_mode"] == "ad"
+        assert saved["episode"] == 1
+        assert [s["shot_id"] for s in saved["shots"]] == ["E1S01", "E1S02"]
+        assert saved["shots"][0]["voiceover_text"] == "还在等杯子干？"
+
+    async def test_generate_ad_storyboard_passes_enum_schema(self, tmp_path):
+        """ad + storyboard：response_schema 是 AdEpisodeScript 的 duration 枚举子类。"""
+        from lib.script_models import AdEpisodeScript
+
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _fixed_caps(_episode=None):
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+
+        with pytest.raises(ScriptStructureValidationError):
+            await generator.generate(1)
+
+        schema = fake.backend.last_request.response_schema
+        assert isinstance(schema, type) and issubclass(schema, AdEpisodeScript)
+        duration_enums = [
+            props["duration_seconds"].get("enum")
+            for props in (d.get("properties", {}) for d in schema.model_json_schema().get("$defs", {}).values())
+            if "duration_seconds" in props
+        ]
+        assert [4, 6, 8] in duration_enums
+
+    async def test_generate_ad_reference_passes_free_range_schema(self, tmp_path):
+        """ad + reference_video：response_schema 只含 unit 时长与统一引用语法正文。"""
+        from lib.script_models import AdReferenceFlatScript
+
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path, generation_mode="reference_video")
+        fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        with pytest.raises(ValueError, match="广告参考剧本结构校验失败"):
+            await generator.generate(1)
+
+        schema = fake.backend.last_request.response_schema
+        assert schema is AdReferenceFlatScript
+        field_schemas = [
+            props["duration_seconds"]
+            for props in (d.get("properties", {}) for d in schema.model_json_schema().get("$defs", {}).values())
+            if "duration_seconds" in props
+        ]
+        assert any(fs.get("minimum") == 1 and fs.get("maximum") == 300 and "enum" not in fs for fs in field_schemas)
+
+    async def test_generate_rewrites_wrong_episode_prefix_on_shot_ids(self, tmp_path):
+        """LLM 写错集号前缀时兜底改写为 E1（ad 恒单集）。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        response = {
+            "title": "速干杯短片",
+            "shots": [_ad_shot("E3S01", duration=4)],
+        }
+        fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _fixed_caps(_episode=None):
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+
+        output_path = await generator.generate(1)
+        saved = json.loads(output_path.read_text(encoding="utf-8"))
+        assert saved["shots"][0]["shot_id"] == "E1S01"
+
+
+class TestAdParseResponseDriftRecovery:
+    """代理网关不执行约束解码时的输出容错：枚举风格漂移归一 + title 缺失兜底。
+
+    复刻 2026-07-13 诊断日志捕获的失败形态：gemini 代理网关输出大写/小写蛇形枚举
+    （MEDIUM_SHOT / dolly_in）、dialogue 为 null、顶层 title 缺失，三次生成全部
+    折在 save_script 结构校验上。_parse_response 须把这类可挽救漂移归一后放行。
+    """
+
+    @staticmethod
+    def _drifted_shot(shot_id: str, shot_type: str, camera_motion: str) -> dict:
+        return {
+            "shot_id": shot_id,
+            "section": "hook",
+            "duration_seconds": 3,
+            "voiceover_text": "开场口播",
+            "image_prompt": {
+                "scene": "老伴在广场中央起舞",
+                "composition": {"shot_type": shot_type, "lighting": "夕阳侧光", "ambiance": "人群环绕"},
+            },
+            "video_prompt": {
+                "action": "旋转舞动",
+                "camera_motion": camera_motion,
+                "ambiance_audio": "广场音乐",
+                "dialogue": None,
+            },
+        }
+
+    def test_parse_response_recovers_drifted_payload_without_title(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        generator = ScriptGenerator(project_path)
+
+        llm_response = json.dumps(
+            {
+                "shots": [
+                    self._drifted_shot("E1S01", "MEDIUM_SHOT", "ZOOM_OUT"),
+                    self._drifted_shot("E1S02", "wide_shot", "dolly_in"),
+                ]
+            },
+            ensure_ascii=False,
+        )
+        parsed = generator._parse_response(llm_response, 1)
+
+        assert parsed["title"] == "第1集"
+        first, second = parsed["shots"]
+        assert first["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
+        assert first["video_prompt"]["camera_motion"] == "Zoom Out"
+        assert first["video_prompt"]["dialogue"] == []
+        # 词表外值（wide_shot / dolly_in）不做语义映射，降级为中性默认值
+        assert second["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
+        assert second["video_prompt"]["camera_motion"] == "Static"
+
+    def test_parse_response_keeps_model_title_when_present(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        generator = ScriptGenerator(project_path)
+
+        llm_response = json.dumps(
+            {"title": "速干杯广场舞", "shots": [self._drifted_shot("E1S01", "Medium Shot", "Static")]},
+            ensure_ascii=False,
+        )
+        parsed = generator._parse_response(llm_response, 1)
+        assert parsed["title"] == "速干杯广场舞"
+
+
+class TestAdQualityProbe:
+    """ad 总时长偏差探针：仅日志 WARN，不阻断、不推前端。"""
+
+    def _sg(self, tmp_path, *, target_duration: int = 30) -> ScriptGenerator:
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        sg = ScriptGenerator.__new__(ScriptGenerator)
+        sg.generator = None
+        sg.project_path = project_path
+        sg.project_json = {
+            "content_mode": "ad",
+            "target_duration": target_duration,
+            "generation_mode": "storyboard",
+        }
+        sg.content_mode = "ad"
+        return sg
+
+    def _script(self, durations: list[int]) -> dict:
+        return {"shots": [_ad_shot(f"E1S{i:02d}", duration=d) for i, d in enumerate(durations, start=1)]}
+
+    def test_drift_above_threshold_warns(self, tmp_path, caplog):
+        sg = self._sg(tmp_path, target_duration=30)
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe(self._script([4, 4]), episode=1)  # 8 秒 vs 30 秒
+        assert any("target_duration drift" in r.message for r in caplog.records)
+
+    def test_drift_within_threshold_silent(self, tmp_path, caplog):
+        sg = self._sg(tmp_path, target_duration=30)
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe(self._script([4, 6, 6, 6, 4, 6]), episode=1)  # 32 秒 vs 30 秒
+        assert not any("target_duration drift" in r.message for r in caplog.records)
+
+    def test_short_prompt_probe_covers_shots(self, tmp_path, caplog):
+        sg = self._sg(tmp_path)
+        script = self._script([4])
+        script["shots"][0]["image_prompt"]["scene"] = "短"
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            sg._quality_probe(script, episode=1)
+        assert any("quality probe" in r.message and "E1S01" in r.message for r in caplog.records)
+
+    async def test_save_not_blocked_by_drift(self, tmp_path, caplog):
+        """偏差超阈值时保存照常成功（探针仅 WARN，不抛、不拒）。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        response = {"title": "短片", "shots": [_ad_shot("E1S01", duration=4)]}  # 4 秒 vs 30 秒
+        fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        async def _fixed_caps(_episode=None):
+            return {"supported_durations": [4, 6, 8]}
+
+        generator._fetch_video_capabilities = _fixed_caps
+
+        with caplog.at_level("WARNING", logger="lib.script_generator"):
+            output_path = await generator.generate(1)
+
+        assert output_path.exists()
+        assert any("target_duration drift" in r.message for r in caplog.records)
+
+
+class TestAdAspectRatioFallback:
+    def test_ad_without_aspect_ratio_falls_back_to_portrait(self, tmp_path):
+        """ad 项目缺 aspect_ratio 时回退 9:16 竖屏（与创建向导默认一致）。"""
+        sg = ScriptGenerator.__new__(ScriptGenerator)
+        sg.generator = None
+        sg.project_path = tmp_path
+        sg.project_json = {"content_mode": "ad"}
+        sg.content_mode = "ad"
+        assert sg._resolve_aspect_ratio() == "9:16"
+
+
+class TestAdReferenceSkeletonUnity:
+    """ad + reference_video 生成自包含 video_units 且不携带生成模式标记。"""
+
+    async def test_generate_ad_reference_script_carries_no_generation_mode(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path, generation_mode="reference_video")
+        response = {
+            "title": "速干杯短片",
+            "units": [
+                {"duration_seconds": 7, "text": "镜头1：@[速干杯] 表面的水珠迅速滑落"},
+                {"duration_seconds": 5, "text": "镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{现在就试试。}"},
+            ],
+        }
+        fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        output_path = await generator.generate(1)
+        saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        assert "generation_mode" not in saved
+        assert saved["content_mode"] == "ad"
+        assert "shots" not in saved
+        assert "reference_units" not in saved
+        assert [unit["unit_id"] for unit in saved["video_units"]] == ["E1U1", "E1U2"]
+        # 引用不落盘：正文是唯一真相，`@[名称]` 由读侧派生。
+        assert "references" not in saved["video_units"][0]
+        assert "@[速干杯]" in saved["video_units"][0]["text"]
+
+    async def test_generate_ad_reference_preserves_mixed_speech_and_marks_replan(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path, generation_mode="reference_video")
+        text = "镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{试试这一杯。}\n{旁白补充卖点。}"
+        fake = _FakeTextGenerator(
+            json.dumps({"title": "混合发声", "units": [{"duration_seconds": 8, "text": text}]}, ensure_ascii=False)
+        )
+        generator = ScriptGenerator(project_path, generator=fake)
+
+        output_path = await generator.generate(1)
+        unit = json.loads(output_path.read_text(encoding="utf-8"))["video_units"][0]
+
+        assert unit["needs_replan"] is True
+        assert "@[小美]：{试试这一杯。}" in unit["text"]
+        assert "{旁白补充卖点。}" in unit["text"]

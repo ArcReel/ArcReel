@@ -91,7 +91,7 @@ def safe_join(
     # dismiss（false positive，理由见对应 alert 的 dismiss comment，含 PR 链接）：
     # 越界校验逻辑与本仓库迁移前已被 CodeQL 判定安全的写法（server/app.py
     # spa_deep_link、jianying_draft_service.py 的 dest 校验）同构，防护强度未变，
-    # 且 tests/test_path_safety.py 有专门的路径穿越用例（含符号链接逃逸）锁定；
+    # 且 tests/unit/lib/test_path_safety.py 有专门的路径穿越用例（含符号链接逃逸）锁定；
     # 本函数自身作为该仓库唯一的越界校验实现，其内部操作的正是未净化的候选路径，
     # 判定为 CodeQL 对 sanitizer 自身跨分支合流后的 sink 归因存在识别缺口。
     if require_file and not os.path.isfile(candidate_real):
