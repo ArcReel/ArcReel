@@ -15,6 +15,7 @@ def make_translator(locale: str = "zh") -> Callable[..., str]:
     return translate
 
 
+import atexit
 import os
 import shutil
 import subprocess
@@ -42,6 +43,9 @@ if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MA
     _OWNED_TEST_DB_DIR = tempfile.mkdtemp(prefix="arcreel-test-db-")
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_OWNED_TEST_DB_DIR}/.arcreel.db"
     os.environ[_OWNED_DB_MARKER] = "1"
+    # 回收挂在 atexit 而非 fixture teardown 上：`--collect-only`（CI 的分类 marker 闸门）
+    # 与收集期中断都只 import conftest、不跑 fixture。
+    atexit.register(shutil.rmtree, _OWNED_TEST_DB_DIR, ignore_errors=True)
 
 import lib.generation_queue as generation_queue_module
 from lib.db.base import Base
@@ -224,7 +228,6 @@ def _shared_db_schema():
     预置的 create_all schema 会让它重复建表。
     """
     if _OWNED_TEST_DB_DIR is None:
-        yield
         return
 
     from alembic.config import Config
@@ -234,8 +237,6 @@ def _shared_db_schema():
     cfg = Config()
     cfg.set_main_option("script_location", str(Path(__file__).parent.parent / "alembic"))
     command.upgrade(cfg, "head")
-    yield
-    shutil.rmtree(_OWNED_TEST_DB_DIR, ignore_errors=True)
 
 
 @pytest.fixture()
