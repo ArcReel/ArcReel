@@ -1,6 +1,7 @@
 import asyncio
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -237,6 +238,69 @@ class _FakeQueue:
     async def mark_task_cancelled(self, task_id, *, cancelled_by="user"):
         self.cancelled.append((task_id, cancelled_by))
         return 1
+
+
+@pytest.fixture()
+async def worker_db(db_factory, monkeypatch):
+    """把 worker 直接触达的全局 session factory 换成内存库。
+
+    ``_requeue_single_task`` 与 ``CapacityTable.from_db`` 绕开注入的 queue 协作者、
+    直接经 ``lib.db.safe_session_factory`` 落库；绑到内存库后这两条路径真的执行，
+    断言因而能落在行状态上。
+    """
+    monkeypatch.setattr("lib.db.safe_session_factory", db_factory)
+    return db_factory
+
+
+async def _seed_running_task(factory, task_id: str, **overrides: Any) -> None:
+    """种一行 running 状态的 task，供回队路径的真实 guarded UPDATE 命中。"""
+    from lib.db.models.task import Task
+
+    now = datetime.now(UTC)
+    fields: dict[str, Any] = {
+        "project_name": "demo",
+        "task_type": "video",
+        "media_type": "video",
+        "resource_id": "E1S01",
+        "status": "running",
+        "queued_at": now,
+        "started_at": now,
+        "updated_at": now,
+    }
+    fields.update(overrides)
+    async with factory() as session:
+        session.add(Task(task_id=task_id, **fields))
+        await session.commit()
+
+
+async def _task_status(factory, task_id: str) -> str | None:
+    from lib.db.models.task import Task
+
+    async with factory() as session:
+        row = await session.get(Task, task_id)
+        return None if row is None else row.status
+
+
+@pytest.fixture()
+def staged_project(tmp_path, monkeypatch) -> Path:
+    """把 worker 的项目定位指向 tmp 项目，让 staging 清理落在真实文件系统上。"""
+    project_path = tmp_path / "demo"
+    project_path.mkdir()
+
+    class _PM:
+        def get_project_path(self, _name: str) -> Path:
+            return project_path
+
+    monkeypatch.setattr("lib.project_manager.get_project_manager", lambda: _PM())
+    return project_path
+
+
+def _stage_task_dir(project_path: Path, task_id: str) -> Path:
+    """建出一个任务的 provider media staging 目录，返回该任务的 staging 根。"""
+    staged = project_path / ".arcreel" / "tasks" / task_id / "provider_media"
+    staged.mkdir(parents=True)
+    (staged / "000-start_image.png").write_bytes(b"x")
+    return staged.parent
 
 
 class TestReadIntEnv:
@@ -907,7 +971,7 @@ class TestGenerationWorker:
         assert queue.failed == []
 
     @pytest.mark.asyncio
-    async def test_process_reference_task_requeues_when_execution_provider_changes(self, monkeypatch):
+    async def test_process_reference_task_requeues_when_execution_provider_changes(self, monkeypatch, worker_db):
         """执行入口解析到别的 provider 时不占旧槽提交，而是刷新投影并回队重认领。"""
 
         from lib.generation_queue import DispatchProviderChanged
@@ -920,13 +984,7 @@ class TestGenerationWorker:
             raise DispatchProviderChanged(claimed_provider_id="ark", actual_provider_id="minimax")
 
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _changed)
-        requeued: list[str] = []
-
-        async def _capture_requeue(self, task_id):
-            requeued.append(task_id)
-            return True
-
-        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
+        await _seed_running_task(worker_db, "ref-provider-changed", task_type="reference_video", resource_id="E1U1")
 
         await worker._process_task(
             {"task_id": "ref-provider-changed", "task_type": "reference_video"},
@@ -934,14 +992,14 @@ class TestGenerationWorker:
         )
 
         assert queue.persisted_providers == [("ref-provider-changed", "minimax")]
-        assert requeued == ["ref-provider-changed"]
+        assert await _task_status(worker_db, "ref-provider-changed") == "queued"
         assert queue.succeeded == []
         assert queue.failed == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("failed_rows", [1, 0])
     async def test_process_reference_task_closes_terminal_state_when_provider_requeue_fails(
-        self, monkeypatch, failed_rows: int
+        self, monkeypatch, worker_db, failed_rows: int
     ):
         from lib.generation_queue import DispatchProviderChanged
 
@@ -951,11 +1009,8 @@ class TestGenerationWorker:
         async def _changed(_task, *, claimed_provider_id):
             raise DispatchProviderChanged(claimed_provider_id=claimed_provider_id, actual_provider_id="minimax")
 
-        async def _cannot_requeue(_self, _task_id):
-            return False
-
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _changed)
-        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _cannot_requeue)
+        # 库里没有这行 running 记录，回队的 guarded UPDATE 命中 0 行——回队失败正是本用例的前提
 
         await worker._process_task(
             {"task_id": "ref-provider-changed", "task_type": "reference_video"},
@@ -1194,23 +1249,21 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_drain_marks_cancelled_when_cancel_hits_before_process_task_try(self, monkeypatch):
-        """取消落在 _process_task 进 try 之前（_extract_provider await）：drain 端兜底落终态。"""
+        """取消落在 _process_task 进 try 之前（provider 投影 await）：drain 端兜底落终态。"""
         queue = _FakeQueue()
-        worker = GenerationWorker(queue=queue)
-        worker.heartbeat_interval = 0.01
-        worker.poll_interval = 0.01
-
         in_extract = asyncio.Event()
 
-        async def _blocking_extract(_task):
+        async def _blocking_projection(_task):
             in_extract.set()
             await asyncio.sleep(10)  # 停在入口解析，模拟 cancel 落在 _process_task 的 try 之前
             return "test"
 
-        monkeypatch.setattr("lib.generation_worker._extract_provider", _blocking_extract)
+        worker = GenerationWorker(queue=queue, provider_projection=_blocking_projection)
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
 
         async def _execute(_task):
-            raise AssertionError("execute 不应被调用：cancel 在 _extract_provider 阶段就到")
+            raise AssertionError("execute 不应被调用：cancel 在 provider 投影阶段就到")
 
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _execute)
 
@@ -1221,7 +1274,7 @@ class TestGenerationWorker:
         worker._slots.register("test", "video", "tid", t)
 
         await worker.start()
-        await in_extract.wait()  # 确保停在 _extract_provider（try 之前）
+        await in_extract.wait()  # 确保停在 provider 投影（try 之前）
         assert worker.request_cancel("tid") is True
         await asyncio.sleep(0.1)
 
@@ -1443,7 +1496,7 @@ class TestGenerationWorker:
         assert "[restart_lost_no_job_id]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
-    async def test_reference_orphans_apply_strict_four_state_checkpoint_job_matrix(self, monkeypatch):
+    async def test_reference_orphans_apply_strict_four_state_checkpoint_job_matrix(self, staged_project):
         queue = _FakeQueue()
         queue._orphans = [
             {
@@ -1494,12 +1547,7 @@ class TestGenerationWorker:
             },
         ]
         worker = GenerationWorker(queue=queue)
-        cleaned: list[str] = []
-
-        async def _clean(_self, task):
-            cleaned.append(task["task_id"])
-
-        monkeypatch.setattr(GenerationWorker, "_cleanup_video_staging", _clean)
+        staged = {task["task_id"]: _stage_task_dir(staged_project, task["task_id"]) for task in queue._orphans}
 
         await worker._handle_orphan_tasks_on_start()
 
@@ -1508,11 +1556,11 @@ class TestGenerationWorker:
         assert "[restart_lost_checkpoint_no_job_id]" in failures["ref-checkpoint-only"]
         assert "[execution_identity_unrecoverable]" in failures["ref-job-only"]
         assert "[execution_identity_unrecoverable]" in failures["ref-bad-checkpoint"]
-        assert set(cleaned) == {task["task_id"] for task in queue._orphans}
+        assert [task_id for task_id, path in staged.items() if path.exists()] == []
         assert worker._orphan_dispatcher_task is None
 
     @pytest.mark.asyncio
-    async def test_storyboard_orphans_apply_strict_four_state_checkpoint_job_matrix(self, monkeypatch):
+    async def test_storyboard_orphans_apply_strict_four_state_checkpoint_job_matrix(self, staged_project):
         base = {
             "status": "running",
             "task_type": "video",
@@ -1540,12 +1588,7 @@ class TestGenerationWorker:
             },
         ]
         worker = GenerationWorker(queue=queue)
-        cleaned: list[str] = []
-
-        async def _clean(_self, task):
-            cleaned.append(task["task_id"])
-
-        monkeypatch.setattr(GenerationWorker, "_cleanup_video_staging", _clean)
+        staged = {task["task_id"]: _stage_task_dir(staged_project, task["task_id"]) for task in queue._orphans}
 
         await worker._handle_orphan_tasks_on_start()
 
@@ -1554,11 +1597,13 @@ class TestGenerationWorker:
         assert "[restart_lost_checkpoint_no_job_id]" in failures["story-checkpoint-only"]
         assert "[execution_identity_unrecoverable]" in failures["story-job-only"]
         assert "[execution_identity_unrecoverable]" in failures["story-bad-checkpoint"]
-        assert set(cleaned) == {task["task_id"] for task in queue._orphans}
+        assert [task_id for task_id, path in staged.items() if path.exists()] == []
         assert worker._orphan_dispatcher_task is None
 
     @pytest.mark.asyncio
-    async def test_reference_orphan_with_checkpoint_and_job_routes_by_checkpoint_provider(self, monkeypatch):
+    async def test_reference_orphan_with_checkpoint_and_job_routes_by_checkpoint_provider(
+        self, monkeypatch, staged_project
+    ):
         from lib.providers import PROVIDER_GROK
 
         queue = _FakeQueue()
@@ -1577,20 +1622,22 @@ class TestGenerationWorker:
         }
         queue._orphans = [task]
         worker = GenerationWorker(queue=queue)
-        captured: dict[str, list[dict[str, Any]]] = {}
+        resumed: list[dict[str, Any]] = []
 
-        async def _capture(_self, buckets):
-            captured.update(buckets)
+        async def _capture_resume(resume_task, *, job_id):
+            resumed.append(resume_task)
+            return {"job_id": job_id}
 
-        monkeypatch.setattr(GenerationWorker, "_dispatch_resume_orphans_background", _capture)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _capture_resume)
 
         await worker._handle_orphan_tasks_on_start()
         dispatcher_task = worker._orphan_dispatcher_task
         assert dispatcher_task is not None
         await asyncio.wait_for(dispatcher_task, timeout=5)
 
-        assert list(captured) == ["ark"]
-        assert captured["ark"][0]["provider_id"] == "ark"
+        # 派发身份取 checkpoint 的 ark，而不是 task 投影列的 Grok 或 payload 里的当前配置
+        assert [t["task_id"] for t in resumed] == ["ref-ready"]
+        assert resumed[0]["provider_id"] == "ark"
         assert queue.failed == []
 
     @pytest.mark.asyncio
@@ -1660,7 +1707,7 @@ class TestGenerationWorker:
         await asyncio.gather(*worker._slots.all_active_tasks(), return_exceptions=True)
 
     @pytest.mark.asyncio
-    async def test_claim_requeue_on_full_pool_refreshes_provider_projection(self, monkeypatch):
+    async def test_claim_requeue_on_full_pool_refreshes_provider_projection(self, monkeypatch, worker_db):
         """池满回队前把重派生的 provider 刷回投影列。
 
         走到二次校验池满这条路，说明存量投影与现值分裂（NULL 兜底，或入队后剧本参考集 /
@@ -1696,12 +1743,15 @@ class TestGenerationWorker:
                 return None
 
         queue = _StaleProjectionQueue()
-        worker = GenerationWorker(queue=queue, capacity=_cap({"minimax": {"video": 1}, "ark": {"video": 1}}))
 
         async def _current_provider(task):
             return "minimax" if task["task_id"] == "vid-stale" else "ark"
 
-        monkeypatch.setattr("lib.generation_worker._extract_provider", _current_provider)
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=_cap({"minimax": {"video": 1}, "ark": {"video": 1}}),
+            provider_projection=_current_provider,
+        )
 
         async def _execute(_task, *, claimed_provider_id):
             assert claimed_provider_id == "ark"
@@ -1709,21 +1759,17 @@ class TestGenerationWorker:
 
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _execute)
 
-        occupier = asyncio.create_task(asyncio.sleep(30))
+        # 永不完成的占位 future 把 minimax 的 video 槽占满；不用 sleep，避免真实时间等待
+        occupier = asyncio.get_running_loop().create_future()
         worker._slots.register("minimax", "video", "vid-running", occupier)
-        requeued: list[str] = []
-
-        async def _capture_requeue(self, task_id):
-            requeued.append(task_id)
-
-        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
+        await _seed_running_task(worker_db, "vid-stale", task_type="reference_video", resource_id="E1U1")
         try:
             await worker._claim_tasks()
-            await asyncio.gather(*worker._slots.all_active_tasks())
+            await asyncio.gather(*[t for t in worker._slots.all_active_tasks() if t is not occupier])
         finally:
             occupier.cancel()
 
-        assert requeued == ["vid-stale"]
+        assert await _task_status(worker_db, "vid-stale") == "queued"
         assert queue.persisted_providers == [("vid-stale", "minimax")]
         assert queue.succeeded == [("vid-ready", {"ok": True})]
         assert any(kwargs.get("exclude_task_ids") == frozenset({"vid-stale"}) for kwargs in queue.claim_kwargs)
@@ -1774,7 +1820,7 @@ class TestGenerationWorker:
     # _handle_orphan_tasks_on_start：分流补全
     # ------------------------------------------------------------------
     @pytest.mark.asyncio
-    async def test_handle_orphan_image_running_marks_restart_lost(self, monkeypatch):
+    async def test_handle_orphan_image_running_marks_restart_lost(self, worker_db):
         """image 孤儿无 resume 入口 → [restart_lost]，绝不主动 requeue（避免重复扣费）。"""
         queue = _FakeQueue()
         queue._orphans = [
@@ -1790,33 +1836,27 @@ class TestGenerationWorker:
             }
         ]
         worker = GenerationWorker(queue=queue)
-        requeued: list[str] = []
+        await _seed_running_task(worker_db, "img-orphan", task_type="storyboard", media_type="image")
 
-        async def _capture_requeue(self, task_id):
-            requeued.append(task_id)
-
-        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
         await worker._handle_orphan_tasks_on_start()
-        assert requeued == []
+
+        assert await _task_status(worker_db, "img-orphan") == "running", "image 孤儿绝不能被回队重跑"
         assert queue.failed and queue.failed[0][0] == "img-orphan"
         assert "[restart_lost_image]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
-    async def test_handle_orphan_non_resumable_video_marks_resume_unsupported(self, monkeypatch):
+    async def test_handle_orphan_non_resumable_video_marks_resume_unsupported(self, worker_db, staged_project):
         """Grok/Vidu video 孤儿 → [resume_unsupported]（backend 无 resume，绝不重跑）。"""
         from lib.providers import PROVIDER_GROK
 
         queue = _FakeQueue()
         queue._orphans = [_storyboard_orphan("grok-orphan", provider_id=PROVIDER_GROK, job_id="some-job")]
         worker = GenerationWorker(queue=queue)
-        requeued: list[str] = []
+        await _seed_running_task(worker_db, "grok-orphan")
 
-        async def _capture_requeue(self, task_id):
-            requeued.append(task_id)
-
-        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
         await worker._handle_orphan_tasks_on_start()
-        assert requeued == []
+
+        assert await _task_status(worker_db, "grok-orphan") == "running", "不可 resume 的视频孤儿绝不能被回队重跑"
         assert queue.failed and queue.failed[0][0] == "grok-orphan"
         assert "[resume_unsupported_provider]" in queue.failed[0][1]
         assert PROVIDER_GROK in queue.failed[0][1]
@@ -1850,7 +1890,7 @@ class TestGenerationWorker:
         assert cancelled_ids == {"img-raced", "grok-raced"}
 
     @pytest.mark.asyncio
-    async def test_handle_orphan_uses_checkpoint_provider_id(self, monkeypatch):
+    async def test_handle_orphan_uses_checkpoint_provider_id(self, monkeypatch, worker_db, staged_project):
         """checkpoint provider 优先于 task 投影列和当前项目解析。
 
         如果 checkpoint provider 是 Grok（不支持 resume），即便 task advisory 列和当前项目
@@ -1865,26 +1905,26 @@ class TestGenerationWorker:
         orphan["payload"] = {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"}
         queue._orphans = [orphan]
         worker = GenerationWorker(queue=queue)
-        requeued: list[str] = []
-        resume_dispatched: list[str] = []
+        await _seed_running_task(worker_db, "ghost-orphan")
+        resumed: list[str] = []
 
-        async def _capture_requeue(self, task_id):
-            requeued.append(task_id)
+        async def _capture_resume(resume_task, *, job_id):
+            resumed.append(resume_task["task_id"])
+            return {"job_id": job_id}
 
-        async def _capture_resume(self, task):
-            resume_dispatched.append(task["task_id"])
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _capture_resume)
 
-        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _capture_resume)
         await worker._handle_orphan_tasks_on_start()
+
         # 用 checkpoint 的 Grok → [resume_unsupported]；若误用 advisory/payload 的 ark → 会派发 resume
-        assert requeued == []
-        assert resume_dispatched == []
+        assert await _task_status(worker_db, "ghost-orphan") == "running"
+        assert resumed == []
+        assert worker._orphan_dispatcher_task is None
         assert queue.failed and queue.failed[0][0] == "ghost-orphan"
         assert "[resume_unsupported_provider]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
-    async def test_handle_orphan_resumable_dispatches_process_resume_task(self, monkeypatch):
+    async def test_handle_orphan_resumable_dispatches_process_resume_task(self, monkeypatch, staged_project):
         """video resumable provider + 有 job_id → 后台 dispatcher 派发 _process_resume_task。
 
         Semaphore-based dispatcher 在 sub-task 内填 inflight、finally pop；本测验证
@@ -1895,10 +1935,11 @@ class TestGenerationWorker:
         worker = GenerationWorker(queue=queue)
         dispatched: list[dict] = []
 
-        async def _capture_resume(self, task):
+        async def _capture_resume(task, *, job_id):
             dispatched.append(task)
+            return {"job_id": job_id}
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _capture_resume)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _capture_resume)
         await worker._handle_orphan_tasks_on_start()
         # 等后台 dispatcher（含 orphan-dispatcher + provider 桶 sub-task）完成
         for _ in range(50):
@@ -1921,7 +1962,7 @@ class TestGenerationWorker:
         assert dispatched[0]["task_id"] == "ark-orphan"
 
     @pytest.mark.asyncio
-    async def test_handle_orphan_fast_path_returns_immediately(self, monkeypatch):
+    async def test_handle_orphan_fast_path_returns_immediately(self, monkeypatch, staged_project):
         """fast path 不阻塞——5 个可 resume orphan + video_max=2，
         `_handle_orphan_tasks_on_start` 应几乎立刻返回（< 100ms），
         实际 dispatch 由后台 dispatcher 处理。"""
@@ -1931,11 +1972,11 @@ class TestGenerationWorker:
         queue._orphans = [_storyboard_orphan(f"orphan-{i}", job_id=f"job-{i}") for i in range(5)]
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 2}}))
 
-        # 让 _process_resume_task block 住——验证 fast path 不等它完成
-        async def _block_forever(self, task):
+        # 让 resume 执行入口 block 住——验证 fast path 不等它完成
+        async def _block_forever(_task, *, job_id):
             await asyncio.Event().wait()
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _block_forever)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _block_forever)
 
         start = time.monotonic()
         await worker._handle_orphan_tasks_on_start()
@@ -1951,7 +1992,7 @@ class TestGenerationWorker:
         await asyncio.sleep(0)
 
     @pytest.mark.asyncio
-    async def test_handle_orphan_dispatcher_respects_pool_capacity(self, monkeypatch):
+    async def test_handle_orphan_dispatcher_respects_pool_capacity(self, monkeypatch, staged_project):
         """后台 dispatcher 受 video 容量约束分批 promote 进 INFLIGHT，
         任一时刻 inflight 占用 ≤ cap（pending 不消耗 sem，不计入此上限）。"""
         queue = _FakeQueue()
@@ -1966,12 +2007,13 @@ class TestGenerationWorker:
         def _inflight() -> int:
             return len(_phase_ids(worker._slots, "ark", "video")[0])
 
-        async def _gated(self, task):
+        async def _gated(task, *, job_id):
             snapshots.append(_inflight())
             entered.append(task["task_id"])
             await gates[task["task_id"]].wait()
+            return {"job_id": job_id}
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _gated)
 
         await worker._handle_orphan_tasks_on_start()
         # 让 dispatcher 把前 2 个 promote 进 INFLIGHT（其余 2 个 PENDING 排队）
@@ -2010,7 +2052,7 @@ class TestGenerationWorker:
         await asyncio.sleep(0)
 
     @pytest.mark.asyncio
-    async def test_handle_orphan_dispatcher_exits_on_stop_event(self, monkeypatch):
+    async def test_handle_orphan_dispatcher_exits_on_stop_event(self, monkeypatch, staged_project):
         """`_stop_event` 触发时 dispatcher 干净退出，不再 dispatch 剩余 orphan。"""
         queue = _FakeQueue()
         queue._orphans = [_storyboard_orphan(f"orphan-{i}", job_id=f"job-{i}") for i in range(3)]
@@ -2020,13 +2062,14 @@ class TestGenerationWorker:
         first_dispatched = asyncio.Event()
         block_gate = asyncio.Event()
 
-        async def _maybe_block(self, task):
+        async def _maybe_block(_task, *, job_id):
             nonlocal dispatched_count
             dispatched_count += 1
             first_dispatched.set()
             await block_gate.wait()
+            return {"job_id": job_id}
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _maybe_block)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _maybe_block)
 
         await worker._handle_orphan_tasks_on_start()
         # 等第一个 orphan 进 inflight
@@ -2146,7 +2189,7 @@ class TestGenerationWorker:
         assert not queue.failed[0][1].startswith("[resume_")
 
     @pytest.mark.asyncio
-    async def test_process_resume_task_script_edit_error_encodes_key(self, monkeypatch):
+    async def test_process_resume_task_script_edit_error_encodes_key(self, monkeypatch, staged_project):
         """resume_executor 复用 _finalize_reference_video_unit 等 finalize helper，同样会抛
         ScriptEditError；resume 路径与常规 _process_task 走同一份 _encode_task_failure_message，
         不能因为是重启自愈这条独立调用链就退回 str(exc) 的固定中文。"""
@@ -2157,8 +2200,7 @@ class TestGenerationWorker:
             raise ScriptEditError("generated_assets 必须是 dict", key="script_edit_generated_assets_invalid")
 
         monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _raise_script_edit_error)
-        cleanup = AsyncMock()
-        monkeypatch.setattr(GenerationWorker, "_cleanup_video_staging", cleanup)
+        staged = _stage_task_dir(staged_project, "resume_script_edit")
         task = {
             "task_id": "resume_script_edit",
             "task_type": "reference_video",
@@ -2176,7 +2218,7 @@ class TestGenerationWorker:
             "resume_script_edit",
             "[script_edit_generated_assets_invalid]",
         )
-        cleanup.assert_awaited_once_with(task)
+        assert not staged.exists(), "终态落定后必须清掉该任务的 provider media staging"
 
     @pytest.mark.asyncio
     async def test_process_resume_task_cancelled_error(self, monkeypatch):
@@ -2215,36 +2257,48 @@ class TestDispatcherFailFastAndPendingTracking:
     """dispatcher fail-fast + pending/inflight 分集合精确容量与 cancel 跟踪。"""
 
     @pytest.mark.asyncio
-    async def test_dispatch_provider_bucket_fail_fast_when_video_max_zero(self, monkeypatch):
-        """video 容量=0 → 直接 mark_failed[resume_unsupported]，不进 Semaphore(0) 死锁。"""
+    async def test_dispatch_provider_bucket_fail_fast_when_video_max_zero(self, worker_db):
+        """video 容量=0 → 直接 mark_failed[resume_unsupported]，不进 Semaphore(0) 死锁。
+
+        容量 0 会先触发一次 reload 兜底：库里这个自定义供应商一个启用模型都没有，
+        video lane 因而被真实投影成 0，fail-fast 才落地。
+        """
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with worker_db() as session:
+            provider = await CustomProviderRepository(session).create_provider(
+                display_name="no-models",
+                discovery_format="openai",
+                base_url="https://example.invalid",
+                api_key="k",
+            )
+            await session.commit()
+        provider_key = f"custom-{provider.id}"
+
         queue = _FakeQueue()
-        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 0}}))
+        worker = GenerationWorker(queue=queue, capacity=_cap({provider_key: {"image": 0, "video": 0}}))
 
-        async def _no_reload(self):
-            return None
-
-        monkeypatch.setattr(GenerationWorker, "reload_limits", _no_reload)
-
-        tasks = [{"task_id": f"orphan-{i}", "provider_id": "ark"} for i in range(3)]
-        await worker._dispatch_provider_bucket("ark", tasks)
+        tasks = [{"task_id": f"orphan-{i}", "provider_id": provider_key} for i in range(3)]
+        await worker._dispatch_provider_bucket(provider_key, tasks)
 
         assert {tid for tid, _ in queue.failed} == {"orphan-0", "orphan-1", "orphan-2"}
         assert all("[resume_unsupported_capacity_zero]" in msg for _, msg in queue.failed)
 
     @pytest.mark.asyncio
-    async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch):
+    async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch, staged_project):
         """sem=1 + 2 task：第 2 个 sub-task sem 排队期间应以 PENDING 登记在台账。"""
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         gate = asyncio.Event()
 
-        async def _gated(self, task):
+        async def _gated(_task, *, job_id):
             await gate.wait()
+            return {"job_id": job_id}
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _gated)
 
-        tasks = [{"task_id": f"orphan-{i}", "provider_id": "ark"} for i in range(2)]
+        tasks = [_storyboard_resume_task(f"orphan-{i}", job_id=f"job-{i}") for i in range(2)]
         dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
 
         for _ in range(20):
@@ -2262,7 +2316,7 @@ class TestDispatcherFailFastAndPendingTracking:
         await dispatcher
 
     @pytest.mark.asyncio
-    async def test_request_cancel_finds_sem_queued_task_in_pending(self, monkeypatch):
+    async def test_request_cancel_finds_sem_queued_task_in_pending(self, monkeypatch, staged_project):
         """cancel sem 排队中的 task → request_cancel 命中并触发 cancel。"""
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
@@ -2270,13 +2324,14 @@ class TestDispatcherFailFastAndPendingTracking:
         gate = asyncio.Event()
         process_started: asyncio.Event = asyncio.Event()
 
-        async def _gated(self, task):
+        async def _gated(_task, *, job_id):
             process_started.set()
             await gate.wait()
+            return {"job_id": job_id}
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _gated)
 
-        tasks = [{"task_id": f"orphan-{i}", "provider_id": "ark"} for i in range(2)]
+        tasks = [_storyboard_resume_task(f"orphan-{i}", job_id=f"job-{i}") for i in range(2)]
         dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
 
         await asyncio.wait_for(process_started.wait(), timeout=1.0)
@@ -2290,7 +2345,7 @@ class TestDispatcherFailFastAndPendingTracking:
         await dispatcher
 
     @pytest.mark.asyncio
-    async def test_sem_queued_cancel_marks_task_cancelled(self, monkeypatch):
+    async def test_sem_queued_cancel_marks_task_cancelled(self, monkeypatch, staged_project):
         """sem 排队期被 cancel：_run_one 应显式 mark_task_cancelled，DB 不留 cancelling。"""
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
@@ -2298,13 +2353,14 @@ class TestDispatcherFailFastAndPendingTracking:
         gate = asyncio.Event()
         first_started = asyncio.Event()
 
-        async def _gated(self, task):
+        async def _gated(_task, *, job_id):
             first_started.set()
             await gate.wait()
+            return {"job_id": job_id}
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _gated)
 
-        tasks = [{"task_id": f"orphan-{i}", "provider_id": "ark"} for i in range(2)]
+        tasks = [_storyboard_resume_task(f"orphan-{i}", job_id=f"job-{i}") for i in range(2)]
         dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
 
         # 等第 1 个 task 进入 _process_resume_task（占住 sem），第 2 个还在 sem 排队
@@ -2326,27 +2382,37 @@ class TestDispatcherFailFastAndPendingTracking:
         assert "orphan-1" in cancelled_ids
 
     @pytest.mark.asyncio
-    async def test_acquired_pre_process_cancel_marks_task_cancelled(self, monkeypatch):
+    async def test_acquired_pre_process_cancel_marks_task_cancelled(self, staged_project):
         """acquire 后、_process_resume_task 入 try 之前 cancel：_run_one 应兜底 mark cancelled。
 
-        模拟场景：_process_resume_task 内部 try 块之前还有 await（如 _extract_provider），
-        cancel 在那段 await 抛 CancelledError，内部不会调 mark，必须由 _run_one 兜底。
+        漏窗就是 _process_resume_task 内 try 块之前那段 provider 投影 await：cancel 落在
+        那里时内部不会调 mark，必须由 _run_one 兜底。任务不带 checkpoint 才会走到投影。
         """
         queue = _FakeQueue()
-        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
         acquired_event = asyncio.Event()
         pre_try_gate = asyncio.Event()
 
-        async def _fake_resume_task(self, task):
-            # 模拟 acquired=True 后、try 块之前的 await（即漏窗）
+        async def _blocked_projection(_task):
             acquired_event.set()
             await pre_try_gate.wait()
-            # 一般不会走到这里——测试通过 cancel queued_task 中断
+            return "ark"
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _fake_resume_task)
+        worker = GenerationWorker(
+            queue=queue,
+            capacity=_cap({"ark": {"image": 0, "video": 1}}),
+            provider_projection=_blocked_projection,
+        )
 
-        tasks = [{"task_id": "orphan-pre-try", "provider_id": "ark"}]
+        tasks = [
+            {
+                "task_id": "orphan-pre-try",
+                "provider_id": "ark",
+                "media_type": "video",
+                "provider_job_id": "job-pre-try",
+                "project_name": "demo",
+            }
+        ]
         dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
 
         # 等 _process_resume_task 进入空窗（await pre_try_gate.wait() 期间）
@@ -2365,7 +2431,7 @@ class TestDispatcherFailFastAndPendingTracking:
         assert "orphan-pre-try" in {tid for tid, _ in queue.cancelled}
 
     @pytest.mark.asyncio
-    async def test_dispatcher_handle_set_after_handle_orphan(self, monkeypatch):
+    async def test_dispatcher_handle_set_after_handle_orphan(self, monkeypatch, staged_project):
         """_handle_orphan_tasks_on_start 后 self._orphan_dispatcher_task 应被设置。"""
         queue = _FakeQueue()
         queue._orphans = [_storyboard_orphan("orphan-x", job_id="job-x")]
@@ -2373,10 +2439,11 @@ class TestDispatcherFailFastAndPendingTracking:
 
         block = asyncio.Event()
 
-        async def _gated(self, task):
+        async def _gated(_task, *, job_id):
             await block.wait()
+            return {"job_id": job_id}
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _gated)
 
         await worker._handle_orphan_tasks_on_start()
         assert worker._orphan_dispatcher_task is not None
@@ -2418,7 +2485,7 @@ class TestOrphanScanSelfPreemption:
         fut.set_result(None)
 
     @pytest.mark.asyncio
-    async def test_video_inflight_not_dispatched_to_resume(self, monkeypatch):
+    async def test_video_inflight_not_dispatched_to_resume(self):
         """本进程 video_inflight 含 task → 孤儿扫描应跳过，不启动重复 resume 流。"""
         queue = _FakeQueue()
         queue._orphans = [
@@ -2438,19 +2505,10 @@ class TestOrphanScanSelfPreemption:
         fut = loop.create_future()
         worker._slots.register("ark", "video", "vid-active", fut)
 
-        captured: list[dict[str, Any]] = []
-
-        async def _spy_dispatch(self, mapping):
-            captured.append(dict(mapping))
-
-        monkeypatch.setattr(GenerationWorker, "_dispatch_resume_orphans_background", _spy_dispatch)
-
         await worker._handle_orphan_tasks_on_start()
 
-        # 主断言：dispatcher 句柄从未被创建（同步检查，不受 spy 调度时机影响）
+        # dispatcher 句柄从未被创建 → 本进程 inflight 的 task 没有被重复 dispatch
         assert worker._orphan_dispatcher_task is None
-        # 兜底：spy 也确认未被调用（dispatcher 即便创建也会因 mapping 为空跳过）
-        assert captured == [], f"本进程 inflight 的 task 不应被重复 dispatch: {captured}"
         assert "vid-active" not in {tid for tid, _ in queue.failed}
         fut.set_result(None)
 
@@ -2488,7 +2546,7 @@ class TestOrphanDispatcherNonBlockingOverride:
     （避免错误中断 in-flight resume）。"""
 
     @pytest.mark.asyncio
-    async def test_old_dispatcher_not_awaited_on_re_scan(self, monkeypatch):
+    async def test_old_dispatcher_not_awaited_on_re_scan(self, monkeypatch, staged_project):
         """旧 dispatcher 跑 5s 时，再次进 _handle_orphan_tasks_on_start 应秒级返回（不阻塞）。"""
         queue = _FakeQueue()
         queue._orphans = [_storyboard_orphan("orphan-x", job_id="job-x")]
@@ -2496,10 +2554,11 @@ class TestOrphanDispatcherNonBlockingOverride:
 
         block = asyncio.Event()
 
-        async def _gated(self, task):
+        async def _gated(_task, *, job_id):
             await block.wait()
+            return {"job_id": job_id}
 
-        monkeypatch.setattr(GenerationWorker, "_process_resume_task", _gated)
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _gated)
 
         # 第 1 次扫描：启动旧 dispatcher
         await worker._handle_orphan_tasks_on_start()
