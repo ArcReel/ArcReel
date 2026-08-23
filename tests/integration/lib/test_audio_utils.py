@@ -143,31 +143,31 @@ class TestProbeExistingVideoDuration:
 
     async def test_prefers_video_stream_duration_over_longer_container_tail(self, tmp_path):
         probe = AsyncMock(return_value=b'{"streams":[{"duration":"1.000000"}],"format":{"duration":"1.500000"}}')
-        with (
-            patch("lib.audio_utils._ffprobe_available", return_value=True),
-            patch("lib.audio_utils._run_ffprobe", probe),
-        ):
-            duration = await audio_utils_module.probe_existing_video_duration_seconds(tmp_path / "clip.mp4")
+        duration = await audio_utils_module.probe_existing_video_duration_seconds(
+            tmp_path / "clip.mp4",
+            ffprobe_available=lambda: True,
+            run_ffprobe=probe,
+        )
 
         assert duration == 1.0
 
     async def test_falls_back_to_container_duration_when_stream_duration_is_absent(self, tmp_path):
         probe = AsyncMock(return_value=b'{"streams":[{}],"format":{"duration":"1.500000"}}')
-        with (
-            patch("lib.audio_utils._ffprobe_available", return_value=True),
-            patch("lib.audio_utils._run_ffprobe", probe),
-        ):
-            duration = await audio_utils_module.probe_existing_video_duration_seconds(tmp_path / "clip.mp4")
+        duration = await audio_utils_module.probe_existing_video_duration_seconds(
+            tmp_path / "clip.mp4",
+            ffprobe_available=lambda: True,
+            run_ffprobe=probe,
+        )
 
         assert duration == 1.5
 
     async def test_rejects_container_without_a_video_stream(self, tmp_path):
         probe = AsyncMock(return_value=b'{"streams":[],"format":{"duration":"1.500000"}}')
-        with (
-            patch("lib.audio_utils._ffprobe_available", return_value=True),
-            patch("lib.audio_utils._run_ffprobe", probe),
-        ):
-            duration = await audio_utils_module.probe_existing_video_duration_seconds(tmp_path / "clip.mp4")
+        duration = await audio_utils_module.probe_existing_video_duration_seconds(
+            tmp_path / "clip.mp4",
+            ffprobe_available=lambda: True,
+            run_ffprobe=probe,
+        )
 
         assert duration is None
 
