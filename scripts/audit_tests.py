@@ -361,9 +361,28 @@ def is_collected_test_class(node: ast.ClassDef, unittest_cases: set[str]) -> boo
     自身完成；而 `Test*` 类带显式 `__init__` 时 pytest 拒绝收集。名字规则也不沿
     继承传递——`class Sub(TestHelpers)` 不因基类名叫 `Test*` 就被收集。
     """
+    if _opts_out_of_collection(node):
+        return False
     if node.name in unittest_cases:
         return True
     return fnmatch(node.name, COLLECTED_TEST_CLASS_GLOB) and not _has_explicit_init(node)
+
+
+def _opts_out_of_collection(node: ast.ClassDef) -> bool:
+    """`__test__ = False`：pytest 的显式退出收集标记，对两条分支一律生效。
+
+    这是支持类被闸门误伤时的标准逃生口，必须认——否则被误报的人无路可走。
+    """
+    for stmt in node.body:
+        targets = (
+            stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target] if isinstance(stmt, ast.AnnAssign) else []
+        )
+        if not any(isinstance(t, ast.Name) and t.id == "__test__" for t in targets):
+            continue
+        value = stmt.value
+        if isinstance(value, ast.Constant) and value.value is False:
+            return True
+    return False
 
 
 def _has_explicit_init(node: ast.ClassDef) -> bool:

@@ -89,6 +89,30 @@ def test_record_attribute_counts_as_double_only_when_its_owner_is_a_double(tmp_p
     assert "test_double_record" in violations[0].guidance
 
 
+def test_dunder_test_false_opts_a_class_out_of_the_scan(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_optout.py").write_text(
+        "import unittest\n"
+        "\n"
+        "\n"
+        "class TestSupport:\n"
+        "    __test__ = False\n"
+        "\n"
+        "    def test_helper(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class AbstractCase(unittest.TestCase):\n"
+        "    __test__ = False\n"
+        "\n"
+        "    def test_shared(self):\n"
+        "        value = 1\n",
+        encoding="utf-8",
+    )
+
+    assert gate_violations(_audit(tmp_path)) == []
+
+
 def test_functional_pytest_assertions_count_as_assertions(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
     (tests / "test_functional.py").write_text(
