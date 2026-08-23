@@ -7,7 +7,7 @@
  *
  * ```ts
  * vi.mock("@/components/canvas/timeline/VersionTimeMachine", async () => {
- *   const { versionTimeMachineMock } = await import("@/test/mocks/versionTimeMachine");
+ *   const { versionTimeMachineMock } = await import("@/__mocks__/VersionTimeMachine");
  *   return versionTimeMachineMock();
  * });
  * ```

@@ -10,12 +10,14 @@ import type {
 } from "@/types";
 import { GridImageToVideoCanvas } from "./GridImageToVideoCanvas";
 
-vi.mock("../timeline/ScriptReviewGate", () => ({
-  ScriptReviewGate: () => <div data-testid="script-review-gate" />,
-}));
-vi.mock("../timeline/EpisodeHeader", () => ({
-  EpisodeHeader: () => <div data-testid="episode-header" />,
-}));
+vi.mock("../timeline/ScriptReviewGate", async () => {
+  const { scriptReviewGateMock } = await import("@/__mocks__/ScriptReviewGate");
+  return scriptReviewGateMock();
+});
+vi.mock("../timeline/EpisodeHeader", async () => {
+  const { episodeHeaderMock } = await import("@/__mocks__/EpisodeHeader");
+  return episodeHeaderMock();
+});
 vi.mock("./GridPreviewView", () => ({
   GridPreviewView: () => <div data-testid="grid-preview-view" />,
 }));

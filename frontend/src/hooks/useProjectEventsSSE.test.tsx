@@ -9,7 +9,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { ProjectChange } from "@/types";
-import { deferred } from "@/test/deferred";
+import { createDeferred } from "@/test/deferred";
 import { mockProjectEventStream } from "@/test/mockProjectEventStream";
 
 function HookHarness({ projectName }: { projectName: string }) {
@@ -573,8 +573,8 @@ describe("useProjectEventsSSE", () => {
     // 导航，且清空 ref 后 onChanges 那一批之后不再触发导航。
     const stream = mockProjectEventStream();
 
-    const d1 = deferred<GetProjectResult>();
-    const d2 = deferred<GetProjectResult>();
+    const d1 = createDeferred<GetProjectResult>();
+    const d2 = createDeferred<GetProjectResult>();
     const getProjectSpy = vi
       .spyOn(API, "getProject")
       .mockReturnValueOnce(d1.promise)
@@ -652,8 +652,8 @@ describe("useProjectEventsSSE", () => {
     // ref 值提前导航;要等第二批自己那一轮落定才导航到第二批的目标。
     const stream = mockProjectEventStream();
 
-    const d1 = deferred<GetProjectResult>();
-    const d2 = deferred<GetProjectResult>();
+    const d1 = createDeferred<GetProjectResult>();
+    const d2 = createDeferred<GetProjectResult>();
     const getProjectSpy = vi
       .spyOn(API, "getProject")
       .mockReturnValueOnce(d1.promise)
@@ -1053,7 +1053,7 @@ describe("useProjectEventsSSE", () => {
       // 若让它走通用聚焦逻辑会把排队的目标改写成 null，用户丢失本该发生的自动导航。
       const stream = mockProjectEventStream();
       vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
-      const d1 = deferred<GetProjectResult>();
+      const d1 = createDeferred<GetProjectResult>();
       vi.spyOn(API, "getProject").mockReturnValue(d1.promise);
 
       renderHarness("/");

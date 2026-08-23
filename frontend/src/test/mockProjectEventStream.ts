@@ -1,24 +1,30 @@
 import { vi } from "vitest";
 import { API, type ProjectEventStreamOptions } from "@/api";
+import { FakeEventSource } from "./fakeEventSource";
 
 /**
- * Stubs `API.openProjectEventStream` so a test can drive the SSE callbacks
- * (onSnapshot/onChanges/onError/onProjectDeleted) directly, without a real
- * EventSource. `options` reflects whatever the hook under test most recently
- * registered.
+ * 把 `API.openProjectEventStream` 打桩为返回 {@link FakeEventSource} 实例的 spy：
+ * 测试直接驱动 `options` 上的回调（onSnapshot/onChanges/onError/onProjectDeleted），
+ * 不经真实 EventSource。`options` 反映被测 hook 最近一次注册的那组回调。
  */
 export function mockProjectEventStream() {
   let capturedOptions: ProjectEventStreamOptions | undefined;
-  const close = vi.fn();
+  FakeEventSource.reset();
   const openSpy = vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
     capturedOptions = options;
-    return { close } as unknown as EventSource;
+    return new FakeEventSource() as unknown as EventSource;
   });
   return {
     get options() {
       return capturedOptions;
     },
-    close,
+    /** 最近一次建立的连接；断言 close 次数时用它的 `close`。 */
+    get source() {
+      return FakeEventSource.instances[FakeEventSource.instances.length - 1];
+    },
+    get close() {
+      return this.source.close;
+    },
     openSpy,
   };
 }
