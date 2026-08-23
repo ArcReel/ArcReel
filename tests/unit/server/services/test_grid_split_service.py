@@ -272,15 +272,12 @@ class TestApplyGridSplit:
         }
         pm = ProjectManager(project_with_script.parent)
 
-        with (
-            patch("server.services.grid_split.get_project_manager", return_value=pm),
-            patch(
-                "server.services.grid_split._register_split_entries_atomically",
-                side_effect=RuntimeError("manifest commit failed"),
-            ),
-        ):
+        def _fail_register(*_args, **_kwargs):
+            raise RuntimeError("manifest commit failed")
+
+        with patch("server.services.grid_split.get_project_manager", return_value=pm):
             with pytest.raises(RuntimeError, match="manifest commit failed"):
-                await apply_grid_split("test-project", grid_with_image)
+                await apply_grid_split("test-project", grid_with_image, register_entries=_fail_register)
 
         assert project_file.read_bytes() == snapshots["project"]
         assert script_file.read_bytes() == snapshots["script"]
@@ -450,15 +447,13 @@ class TestApplyGridSplit:
             original_register(project_path, entries=entries, expected_entries=expected_entries)
 
         pm = ProjectManager(project_with_script.parent)
-        with (
-            patch("server.services.grid_split.get_project_manager", return_value=pm),
-            patch(
-                "server.services.grid_split._register_split_entries_atomically",
-                side_effect=_replace_source_then_register,
-            ),
-        ):
+        with patch("server.services.grid_split.get_project_manager", return_value=pm):
             with pytest.raises(ArtifactManifestError, match="changed during batch registration"):
-                await apply_grid_split("test-project", grid_with_image)
+                await apply_grid_split(
+                    "test-project",
+                    grid_with_image,
+                    register_entries=_replace_source_then_register,
+                )
 
         assert project_file.read_bytes() == before["project"]
         assert script_file.read_bytes() == before["script"]

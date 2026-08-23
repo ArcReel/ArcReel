@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -841,11 +841,31 @@ class TestMediaGenerator:
             actual_duration_seconds=6.2,
             problems=(),
         )
+
+        # 重载协程本体照跑，只把它的三个协作者换成替身；在途 TTS 判定仍走真实代码，
+        # 空闲由生成队列的空结果给出。
+        class _IdleQueue:
+            async def get_active_tasks_for_resources(self, **_kwargs) -> list[dict]:
+                return []
+
+        pm = MagicMock()
+        pm.load_project.return_value = {
+            "name": "demo",
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+        }
+        pm.get_project_path.return_value = gen.project_path
+        pm.load_script.return_value = {
+            "episode": 1,
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "narration": "旁白。", "duration_seconds": 8}],
+        }
+        monkeypatch.setattr(narration_delivery_tasks, "get_project_manager", lambda: pm)
         monkeypatch.setattr(
             narration_delivery_tasks,
-            "_prepare_current_task_narration_delivery",
+            "prepare_current_narration_delivery",
             AsyncMock(return_value=narration),
         )
+        monkeypatch.setattr(narration_delivery_tasks, "get_generation_queue", _IdleQueue)
 
         with pytest.raises(NarratedVideoDurationBlockedError):
             await narration_delivery_tasks.require_generated_video_covers_current_tts(

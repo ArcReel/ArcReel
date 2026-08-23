@@ -3,9 +3,11 @@
 import json
 import re
 import shutil
+from collections.abc import Callable
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -430,12 +432,19 @@ class _FakeSummaries:
 
 def _client(monkeypatch, fake_pm, fake_summaries=None):
     monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr(projects, "get_workflow_state_service", lambda: fake_summaries or _FakeSummaries())
-    monkeypatch.setattr(projects, "get_script_batch_editor", lambda manager=None: _FakeBatchEditor(manager or fake_pm))
 
     app = FastAPI()
+    app.dependency_overrides[projects.get_workflow_state_service] = lambda: fake_summaries or _FakeSummaries()
+    app.dependency_overrides[projects.get_script_batch_editor_factory] = lambda: (
+        lambda manager=None: _FakeBatchEditor(manager or fake_pm)
+    )
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(projects.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     app.include_router(projects.self_auth_router, prefix="/api/v1")
     register_error_handlers(app)
     return TestClient(app)
+
+
+def _override(client: TestClient, dependency: Callable[..., Any], provider: Callable[..., Any]) -> None:
+    """给 ``_client`` 建好的 app 补挂依赖覆盖（``TestClient.app`` 的静态类型只是裸 ASGI 可调用）。"""
+    cast(FastAPI, client.app).dependency_overrides[dependency] = provider

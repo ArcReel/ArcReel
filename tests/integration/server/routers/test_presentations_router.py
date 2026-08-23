@@ -52,9 +52,9 @@ def _client(monkeypatch, tmp_path: Path, *, reader=None, bundle=None) -> TestCli
     register_error_handlers(app)
     app.include_router(presentations.router, prefix="/api/v1")
     if reader is not None:
-        monkeypatch.setattr(presentations, "get_presentation_read_model", lambda: reader)
+        app.dependency_overrides[presentations.get_presentation_read_model] = lambda: reader
     if bundle is not None:
-        monkeypatch.setattr(presentations, "get_presentation_bundle_service", lambda: bundle)
+        app.dependency_overrides[presentations.get_presentation_bundle_service] = lambda: bundle
     return TestClient(app, raise_server_exceptions=False)
 
 

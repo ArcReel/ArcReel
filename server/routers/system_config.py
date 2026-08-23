@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
@@ -88,6 +89,11 @@ def _load_app_version(pyproject_path: Path) -> str:
 @lru_cache(maxsize=1)
 def _read_app_version() -> str:
     return _load_app_version(_PYPROJECT_PATH)
+
+
+def get_app_version_reader() -> Callable[[], str]:
+    """版本读取器的路由依赖；读失败的处置归路由，故注入可调用对象而非版本值。"""
+    return _read_app_version
 
 
 def _parse_version(raw: str) -> Version | None:
@@ -393,9 +399,10 @@ async def get_model_candidates(
 @router.get("/system/version")
 async def get_system_version(
     _t: Translator,
+    read_app_version: Annotated[Callable[[], str], Depends(get_app_version_reader)],
 ) -> dict[str, Any]:
     try:
-        current_version = _read_app_version()
+        current_version = read_app_version()
     except Exception as exc:
         logger.exception("Failed to read app version")
         raise HTTPException(status_code=500, detail=_t("about_version_read_failed")) from exc

@@ -62,7 +62,11 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
         )
         return {"ok": True}
 
-    monkeypatch.setattr(generation_tasks, "_execute_reference_video_task_proxy", _fake_reference_proxy)
+    # 替身落在惰性代理的下游协作者上，代理本身的参数透传照跑。
+    monkeypatch.setattr(
+        "server.services.reference_video_tasks.execute_reference_video_task",
+        _fake_reference_proxy,
+    )
 
     result = await generation_tasks.execute_generation_task(
         {

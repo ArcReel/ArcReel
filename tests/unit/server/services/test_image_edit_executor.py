@@ -923,38 +923,42 @@ class TestImageSizeResolutionEquivalence:
 class TestImageEditEventMapping:
     def test_emit_maps_image_edit_to_resource_events(self, tmp_path, monkeypatch):
         """编辑完成事件与同资源的生成完成事件同形状：按 payload.resource_type 派发。"""
+        from lib.project_change_hints import register_project_change_batch_listener
         from server.services import generation_tasks
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
 
-        captured = []
-        monkeypatch.setattr(
-            generation_tasks, "emit_project_change_batch", lambda name, changes: captured.extend(changes)
+        # 从公开订阅口接真实事件总线：断言落在订阅方（SSE 广播那一侧）实际收到的批次上。
+        delivered: list[dict] = []
+        unregister = register_project_change_batch_listener(
+            lambda _project_name, _source, changes: delivered.extend(changes)
         )
+        try:
+            generation_tasks.emit_generation_success_batch(
+                task_type="image_edit",
+                project_name="demo",
+                resource_id="Alice",
+                payload={"resource_type": "character", "prompt": "x"},
+            )
+            assert delivered[0]["entity_type"] == "character"
+            assert delivered[0]["action"] == "updated"
+            # 指纹按 character 任务口径计算（characters/Alice.png 存在于磁盘）
+            assert "characters/Alice.png" in delivered[0]["asset_fingerprints"]
 
-        generation_tasks.emit_generation_success_batch(
-            task_type="image_edit",
-            project_name="demo",
-            resource_id="Alice",
-            payload={"resource_type": "character", "prompt": "x"},
-        )
-        assert captured[0]["entity_type"] == "character"
-        assert captured[0]["action"] == "updated"
-        # 指纹按 character 任务口径计算（characters/Alice.png 存在于磁盘）
-        assert "characters/Alice.png" in captured[0]["asset_fingerprints"]
-
-        captured.clear()
-        generation_tasks.emit_generation_success_batch(
-            task_type="image_edit",
-            project_name="demo",
-            resource_id="E1S01",
-            payload={"resource_type": "storyboard", "prompt": "x", "script_file": "episode_1.json"},
-        )
-        assert captured[0]["entity_type"] == "segment"
-        assert captured[0]["action"] == "storyboard_ready"
-        assert captured[0]["script_file"] == "episode_1.json"
+            delivered.clear()
+            generation_tasks.emit_generation_success_batch(
+                task_type="image_edit",
+                project_name="demo",
+                resource_id="E1S01",
+                payload={"resource_type": "storyboard", "prompt": "x", "script_file": "episode_1.json"},
+            )
+            assert delivered[0]["entity_type"] == "segment"
+            assert delivered[0]["action"] == "storyboard_ready"
+            assert delivered[0]["script_file"] == "episode_1.json"
+        finally:
+            unregister()
 
 
 def test_image_edit_registered_in_task_executors():

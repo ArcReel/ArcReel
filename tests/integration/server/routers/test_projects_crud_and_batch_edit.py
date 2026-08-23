@@ -16,6 +16,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.integration.server.routers.projects_router_support import (
     _client,
     _FakePM,
+    _override,
 )
 
 
@@ -278,7 +279,7 @@ class TestProjectsRouter:
                 )
 
         client = _client(monkeypatch, fake_pm)
-        monkeypatch.setattr(projects, "get_script_batch_editor", lambda _manager=None: CapturingEditor())
+        _override(client, projects.get_script_batch_editor_factory, lambda: lambda _manager=None: CapturingEditor())
 
         with client:
             response = client.post(

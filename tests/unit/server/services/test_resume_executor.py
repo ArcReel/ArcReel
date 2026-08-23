@@ -650,7 +650,7 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
         AsyncMock(return_value=TtsSynthesisSettings("dashscope", "tts-model", "Cherry", None)),
     )
     finalize = AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"})
-    monkeypatch.setattr(resume_executor, "_finalize_reference_video_unit", finalize)
+    monkeypatch.setattr(resume_executor, "finalize_reference_video_unit", finalize)
     monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
     task = {
         "task_id": "T-ref",
@@ -732,14 +732,17 @@ async def test_reference_resume_post_production_does_not_reproject_tts(monkeypat
             )
         ),
     )
-    output_guard = AsyncMock()
+
+    async def _guard_must_not_run(**kwargs):
+        raise AssertionError(f"无 TTS 的续跑不得重投影旁白时长: {kwargs}")
+
     monkeypatch.setattr(
         "server.services.video_artifact_currency.validate_generated_video_covers_tts_duration",
-        output_guard,
+        _guard_must_not_run,
     )
     monkeypatch.setattr(
         resume_executor,
-        "_finalize_reference_video_unit",
+        "finalize_reference_video_unit",
         AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"}),
     )
     monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
@@ -753,9 +756,11 @@ async def test_reference_resume_post_production_does_not_reproject_tts(monkeypat
         "payload": {},
     }
 
-    await execute_resume_video_task(task, job_id="job-1")
+    # 时长守卫一旦被触碰用例即炸；判据本体落在续跑真正跑完、产出该单元这件事上。
+    result = await execute_resume_video_task(task, job_id="job-1")
 
-    output_guard.assert_not_awaited()
+    assert result["resource_type"] == "reference_videos"
+    assert result["resource_id"] == "E1U1"
 
 
 @pytest.mark.asyncio

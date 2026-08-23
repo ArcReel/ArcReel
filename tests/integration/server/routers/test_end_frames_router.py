@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import json
 import threading
 from collections.abc import Callable
 from io import BytesIO
@@ -19,6 +20,7 @@ from PIL import Image
 
 from lib.data_validator import DataValidator
 from lib.i18n import _ as i18n_message
+from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
@@ -32,6 +34,37 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 END_FRAME_REL = "end_frames/scene_E1S01.png"
 
 
+class _ScriptIOHooks:
+    """``ProjectManager`` 剧本读写 seam 的可变挂钩。
+
+    缺省透传真实读写；用例把 ``read`` / ``write`` 换成注入实现，即可在「临界区内读盘」与
+    「临界区内写盘」这两个精确位置制造失败与并发交错，无需替换管理器的内部方法。
+    """
+
+    def __init__(self) -> None:
+        self.read: Callable[[Path], dict] | None = None
+        self.write: Callable[[Path, dict], None] | None = None
+
+    @staticmethod
+    def real_read(path: Path) -> dict:
+        if not path.exists():
+            raise FileNotFoundError(f"剧本文件不存在: {path}")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def real_write(path: Path, script: dict) -> None:
+        atomic_write_json(path, script)
+
+    def reader(self, path: Path) -> dict:
+        return self.read(path) if self.read is not None else self.real_read(path)
+
+    def writer(self, path: Path, script: dict) -> None:
+        if self.write is not None:
+            self.write(path, script)
+        else:
+            self.real_write(path, script)
+
+
 def _img_bytes(fmt="JPEG", size=(8, 8), color=(255, 0, 0)):
     image = Image.new("RGB", size, color)
     buf = BytesIO()
@@ -39,8 +72,8 @@ def _img_bytes(fmt="JPEG", size=(8, 8), color=(255, 0, 0)):
     return buf.getvalue()
 
 
-def _seed_project(tmp_path) -> ProjectManager:
-    pm = ProjectManager(tmp_path / "projects")
+def _seed_project(tmp_path, hooks: _ScriptIOHooks) -> ProjectManager:
+    pm = ProjectManager(tmp_path / "projects", script_reader=hooks.reader, script_writer=hooks.writer)
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.save_script(
@@ -82,8 +115,13 @@ def _build_client(pm: ProjectManager, monkeypatch) -> TestClient:
 
 
 @pytest.fixture
-def end_frames_client(tmp_path, monkeypatch):
-    pm = _seed_project(tmp_path)
+def script_io(tmp_path) -> _ScriptIOHooks:
+    return _ScriptIOHooks()
+
+
+@pytest.fixture
+def end_frames_client(tmp_path, monkeypatch, script_io):
+    pm = _seed_project(tmp_path, script_io)
     return _build_client(pm, monkeypatch), pm
 
 
@@ -312,11 +350,11 @@ class _InterleavedResponses(NamedTuple):
 
 
 def _interleave_across_critical_section(
-    monkeypatch, first: Callable[[], httpx.Response], second: Callable[[], httpx.Response]
+    script_io: _ScriptIOHooks, first: Callable[[], httpx.Response], second: Callable[[], httpx.Response]
 ) -> _InterleavedResponses:
     """让 `first` 停在剧本锁临界区内，确认 `second` 被锁挡在外面后再放行，返回两者的响应。
 
-    交错点由钩子对齐而非靠线程调度碰运气：钩子挂在锁内的剧本持久化上（`locked_script`
+    交错点由钩子对齐而非靠线程调度碰运气：钩子挂在剧本写盘 seam 上（`locked_script`
     退出前的最后一步），此时先到的一方已经做完自己的文件副作用、字段写回尚未落盘——正是
     「一方写完文件、对方抢在字段写回前动手」这一悬空引用场景的临界点。后到的一方在此期间
     必须仍被剧本锁挡住：它若能完成，就说明两段操作没有真正互斥。
@@ -329,22 +367,21 @@ def _interleave_across_critical_section(
     的一方也可能因窗口内尚未跑完而漏报；但绝不会反过来把守规矩的实现判成失败，故不引入
     时序敏感性。不带锁的整条 set/clear 是毫秒级，窗口取值远宽于此。
     """
-    original = ProjectManager._write_script_unlocked
     entered_section = threading.Event()
     resume = threading.Event()
     gate_lock = threading.Lock()
     gate_open = True
 
-    def _gated_persist(self, *args, **kwargs):
+    def _gated_persist(path: Path, script: dict) -> None:
         nonlocal gate_open
         with gate_lock:
             take_gate, gate_open = gate_open, False
         if take_gate:
             entered_section.set()
             assert resume.wait(timeout=10), "主线程未放行临界区"
-        return original(self, *args, **kwargs)
+        script_io.real_write(path, script)
 
-    monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _gated_persist)
+    script_io.write = _gated_persist
 
     results: dict[str, httpx.Response] = {}
     errors: dict[str, BaseException] = {}
@@ -381,13 +418,13 @@ def _interleave_across_critical_section(
 class TestConcurrentSetClear:
     """设置与清除并发交错时，字段与快照文件必须同进同退，不留悬空引用。"""
 
-    def test_clear_blocked_until_set_leaves_critical_section(self, end_frames_client, monkeypatch):
+    def test_clear_blocked_until_set_leaves_critical_section(self, end_frames_client, script_io):
         """设置先进临界区：清除被挡到设置整段完成之后，最终状态是「清除赢」且无残留引用。"""
         c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
         results = _interleave_across_critical_section(
-            monkeypatch,
+            script_io,
             first=lambda: _upload(c, _img_bytes("PNG")),
             second=lambda: _delete(c),
         )
@@ -398,14 +435,14 @@ class TestConcurrentSetClear:
         assert _segment(pm).get("end_frame_image") is None
         assert not snapshot.exists()
 
-    def test_set_blocked_until_clear_leaves_critical_section(self, end_frames_client, monkeypatch):
+    def test_set_blocked_until_clear_leaves_critical_section(self, end_frames_client, script_io):
         """清除先进临界区：设置被挡到清除整段完成之后，最终字段非空且快照文件在位。"""
         c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         assert _upload(c, _img_bytes("PNG")).status_code == 200
 
         results = _interleave_across_critical_section(
-            monkeypatch,
+            script_io,
             first=lambda: _delete(c),
             second=lambda: _upload(c, _img_bytes("PNG")),
         )
@@ -417,25 +454,26 @@ class TestConcurrentSetClear:
         assert snapshot.exists()
 
 
-def _fail_first_persist(monkeypatch):
-    """让下一次剧本持久化失败一次，随后（补偿回滚重新过锁触发的第二次）恢复原实现。
+def _fail_first_persist(script_io: _ScriptIOHooks) -> None:
+    """让下一次剧本持久化失败一次，随后（补偿回滚重新过锁触发的第二次）恢复真实写盘。
 
     补偿回滚本身也要走一次 `locked_script`（读快照现状、必要时改写、重新持久化），若一律
     拦截会连回滚自身的持久化也打断，所以只失败第一次。
     """
-    original = ProjectManager._write_script_unlocked
     calls = {"n": 0}
 
-    def _boom(self, *args, **kwargs):
+    def _boom(path: Path, script: dict) -> None:
         calls["n"] += 1
         if calls["n"] == 1:
             raise ValueError("simulated persist failure")
-        return original(self, *args, **kwargs)
+        script_io.real_write(path, script)
 
-    monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _boom)
+    script_io.write = _boom
 
 
-def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, content: bytes | None, n: int):
+def _inject_concurrent_takeover_before_nth_load(
+    script_io: _ScriptIOHooks, key, target: Path, content: bytes | None, n: int
+) -> None:
     """模拟「回滚重新过锁前，另一个并发请求已抢先完整地执行完自己的一次操作」。
 
     回滚判定的是「操作代次」而非文件内容（见 end_frame.py 模块 docstring 的退化值说明），
@@ -443,14 +481,12 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
     `content=None` 表示并发的那一次是清除（文件被删）；否则表示并发的那一次是设置。
 
     补偿回滚会再发起一次 `locked_script`，其剧本读取即回滚临界区的起点——在其第 n 次被
-    调用时执行注入的「并发接管」，相当于恰好在回滚拿到锁之前完成。挂钩点取底层的
-    `_read_script_unlocked`：锁外的 `load_script` 与锁内的读-改-写都经它读盘，计数才覆盖
-    两类临界区起点。
+    调用时执行注入的「并发接管」，相当于恰好在回滚拿到锁之前完成。挂钩点取剧本读盘 seam：
+    锁外的 `load_script` 与锁内的读-改-写都经它读盘，计数才覆盖两类临界区起点。
     """
-    original = ProjectManager._read_script_unlocked
     calls = {"n": 0}
 
-    def _load_with_race(self, *args, **kwargs):
+    def _load_with_race(path: Path) -> dict:
         calls["n"] += 1
         if calls["n"] == n:
             end_frame_service._advance_shot_generation(key)
@@ -458,21 +494,21 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
                 target.unlink(missing_ok=True)
             else:
                 target.write_bytes(content)
-        return original(self, *args, **kwargs)
+        return script_io.real_read(path)
 
-    monkeypatch.setattr(ProjectManager, "_read_script_unlocked", _load_with_race)
+    script_io.read = _load_with_race
 
 
 class TestPersistFailureRestoresSnapshot:
     """剧本持久化在临界区内失败时，快照文件须回滚到操作前状态，不留悬空引用或静默丢失。"""
 
-    def test_set_failure_restores_previous_snapshot_bytes(self, end_frames_client, monkeypatch):
+    def test_set_failure_restores_previous_snapshot_bytes(self, end_frames_client, script_io):
         c, pm = end_frames_client
         _upload(c, _img_bytes("PNG", size=(8, 8)))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         before = snapshot.read_bytes()
 
-        _fail_first_persist(monkeypatch)
+        _fail_first_persist(script_io)
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
         assert resp.status_code == 500
 
@@ -480,25 +516,25 @@ class TestPersistFailureRestoresSnapshot:
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         assert snapshot.read_bytes() == before
 
-    def test_set_failure_on_first_write_removes_snapshot(self, end_frames_client, monkeypatch):
+    def test_set_failure_on_first_write_removes_snapshot(self, end_frames_client, script_io):
         """此前未设置过尾帧时失败：快照文件此前不存在，须整段撤回而非留下孤儿文件。"""
         c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
-        _fail_first_persist(monkeypatch)
+        _fail_first_persist(script_io)
         resp = _upload(c, _img_bytes("PNG"))
         assert resp.status_code == 500
 
         assert _segment(pm).get("end_frame_image") is None
         assert not snapshot.exists()
 
-    def test_clear_failure_restores_deleted_snapshot(self, end_frames_client, monkeypatch):
+    def test_clear_failure_restores_deleted_snapshot(self, end_frames_client, script_io):
         c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         before = snapshot.read_bytes()
 
-        _fail_first_persist(monkeypatch)
+        _fail_first_persist(script_io)
         resp = _delete(c)
         assert resp.status_code == 500
 
@@ -507,7 +543,7 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.exists()
         assert snapshot.read_bytes() == before
 
-    def test_set_failure_skips_restore_when_concurrent_write_supersedes(self, end_frames_client, monkeypatch):
+    def test_set_failure_skips_restore_when_concurrent_write_supersedes(self, end_frames_client, script_io):
         """回滚重新过锁时若该分镜的操作代次已前移，说明并发请求已经接管，
         必须跳过回滚——否则会用陈旧字节覆盖对方刚成功落盘的内容。"""
         c, pm = end_frames_client
@@ -515,24 +551,24 @@ class TestPersistFailureRestoresSnapshot:
         key = ("demo", "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(32, 32))
 
-        _fail_first_persist(monkeypatch)
+        _fail_first_persist(script_io)
         # load 序列：_locate_shot(1) → 本次失败的 locked_script(2) → 回滚的 locked_script(3)
-        _inject_concurrent_takeover_before_nth_load(monkeypatch, key, snapshot, concurrent_bytes, n=3)
+        _inject_concurrent_takeover_before_nth_load(script_io, key, snapshot, concurrent_bytes, n=3)
 
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
         assert resp.status_code == 500
 
         assert snapshot.read_bytes() == concurrent_bytes
 
-    def test_clear_failure_skips_restore_when_concurrent_write_recreates_snapshot(self, end_frames_client, monkeypatch):
+    def test_clear_failure_skips_restore_when_concurrent_write_recreates_snapshot(self, end_frames_client, script_io):
         c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         key = ("demo", "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(40, 40))
 
-        _fail_first_persist(monkeypatch)
-        _inject_concurrent_takeover_before_nth_load(monkeypatch, key, snapshot, concurrent_bytes, n=3)
+        _fail_first_persist(script_io)
+        _inject_concurrent_takeover_before_nth_load(script_io, key, snapshot, concurrent_bytes, n=3)
 
         resp = _delete(c)
         assert resp.status_code == 500
@@ -541,7 +577,7 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.exists()
         assert snapshot.read_bytes() == concurrent_bytes
 
-    def test_clear_failure_skips_restore_when_concurrent_clear_wins(self, end_frames_client, monkeypatch):
+    def test_clear_failure_skips_restore_when_concurrent_clear_wins(self, end_frames_client, script_io):
         """退化值场景：清除失败后文件已被删（期望内容与「无人接手」的期望值同为 None），
         并发的另一次清除随后也成功完成，结果同样是文件不存在——若
         仅比对文件内容将无法区分两者，误判为无人接手并把旧快照字节回滚出孤儿文件。
@@ -551,8 +587,8 @@ class TestPersistFailureRestoresSnapshot:
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         key = ("demo", "episode_1.json", "E1S01")
 
-        _fail_first_persist(monkeypatch)
-        _inject_concurrent_takeover_before_nth_load(monkeypatch, key, snapshot, None, n=3)
+        _fail_first_persist(script_io)
+        _inject_concurrent_takeover_before_nth_load(script_io, key, snapshot, None, n=3)
 
         resp = _delete(c)
         assert resp.status_code == 500
@@ -560,7 +596,7 @@ class TestPersistFailureRestoresSnapshot:
         # 回滚跳过：文件保持并发清除后的「已删除」结果，没有被旧字节重新写回制造孤儿文件
         assert not snapshot.exists()
 
-    def test_set_failure_skips_restore_when_concurrent_takeover_uses_other_alias(self, end_frames_client, monkeypatch):
+    def test_set_failure_skips_restore_when_concurrent_takeover_uses_other_alias(self, end_frames_client, script_io):
         """别名归一：失败的这次操作用 `scripts/episode_1.json` 这个别名，
         代次键若不归一化会与并发接管（用 `episode_1.json` 归一后的键）各自生成一把代次，
         互相看不见——回滚会误判「无人接手」，用旧字节覆盖对方已成功落盘的内容。"""
@@ -569,8 +605,8 @@ class TestPersistFailureRestoresSnapshot:
         normalized_key = ("demo", "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(48, 48))
 
-        _fail_first_persist(monkeypatch)
-        _inject_concurrent_takeover_before_nth_load(monkeypatch, normalized_key, snapshot, concurrent_bytes, n=3)
+        _fail_first_persist(script_io)
+        _inject_concurrent_takeover_before_nth_load(script_io, normalized_key, snapshot, concurrent_bytes, n=3)
 
         resp = c.post(
             "/api/v1/projects/demo/shots/E1S01/end-frame/upload?script_file=scripts/episode_1.json",
@@ -581,29 +617,28 @@ class TestPersistFailureRestoresSnapshot:
         # 未归一化则代次键不同，回滚会看不到接管、用旧字节覆盖并发写入的新内容
         assert snapshot.read_bytes() == concurrent_bytes
 
-    def test_set_failure_restore_uses_bytes_read_inside_critical_section(self, end_frames_client, monkeypatch):
+    def test_set_failure_restore_uses_bytes_read_inside_critical_section(self, end_frames_client, script_io):
         """陈旧基线问题：`old_bytes` 若在取得剧本锁之前预读，读到的是「进入临界区之前」
         而非「进入临界区那一刻」的文件内容。这里不推进代次，只在本次操作自己的
-        `_read_script_unlocked` 调用（进入临界区的时点）直接改写文件——代次检查不会拦截
+        剧本读盘（进入临界区的时点）直接改写文件——代次检查不会拦截
         （因为没有别的操作声称接管），能否回滚出这份改写后的内容，才真正区分基线是在
         锁内读还是锁外预读：锁外预读会读到改写前的旧内容，回滚会把改写后的内容覆盖掉。"""
         c, pm = end_frames_client
         _upload(c, _img_bytes("PNG", size=(8, 8)))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
-        original_read_script = ProjectManager._read_script_unlocked
         calls = {"n": 0}
         content_at_critical_section_entry = _img_bytes("PNG", size=(56, 56))
 
-        def _load_with_rewrite(self, *args, **kwargs):
+        def _load_with_rewrite(path: Path) -> dict:
             calls["n"] += 1
             # 读盘序列：_locate_shot(1) → 失败操作自身的 locked_script(2)
             if calls["n"] == 2:
                 snapshot.write_bytes(content_at_critical_section_entry)
-            return original_read_script(self, *args, **kwargs)
+            return script_io.real_read(path)
 
-        monkeypatch.setattr(ProjectManager, "_read_script_unlocked", _load_with_rewrite)
-        _fail_first_persist(monkeypatch)
+        script_io.read = _load_with_rewrite
+        _fail_first_persist(script_io)
 
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
         assert resp.status_code == 500

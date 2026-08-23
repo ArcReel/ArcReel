@@ -10,6 +10,7 @@ from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -22,6 +23,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.http_capture import capture_http, only_request
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -638,12 +640,20 @@ class TestDiscoverModelsByStoredProvider:
 # ---------------------------------------------------------------------------
 
 
+def _openai_models_page(count: int) -> dict[str, object]:
+    """OpenAI ``GET /models`` 的响应体形状。"""
+    return {"object": "list", "data": [{"id": f"m{i}", "object": "model"} for i in range(count)]}
+
+
+def _google_models_page(count: int) -> dict[str, object]:
+    """Google genai ``GET /v1beta/models`` 的响应体形状。"""
+    return {"models": [{"name": f"models/m{i}"} for i in range(count)]}
+
+
 class TestConnectionTest:
     def test_openai_success(self, custom_providers_client: TestClient):
-        with patch(
-            "server.routers.custom_providers._test_openai",
-            return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=5),
-        ):
+        with capture_http(assert_all_called=True) as http:
+            http.get("https://api.example.com/v1/models").respond(json=_openai_models_page(5))
             resp = custom_providers_client.post(
                 "/api/v1/custom-providers/test",
                 json={
@@ -658,10 +668,8 @@ class TestConnectionTest:
         assert body["model_count"] == 5
 
     def test_google_success(self, custom_providers_client: TestClient):
-        with patch(
-            "server.routers.custom_providers._test_google",
-            return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=10),
-        ):
+        with capture_http(assert_all_called=True) as http:
+            http.get("https://api.example.com/v1beta/models").respond(json=_google_models_page(10))
             resp = custom_providers_client.post(
                 "/api/v1/custom-providers/test",
                 json={
@@ -675,12 +683,10 @@ class TestConnectionTest:
         assert body["success"] is True
         assert body["model_count"] == 10
 
-    def test_openai_routes_to_test_openai(self, custom_providers_client: TestClient):
-        """discovery_format=openai 应路由到 _test_openai。"""
-        with patch(
-            "server.routers.custom_providers._test_openai",
-            return_value=custom_providers.ConnectionTestResponse(success=True, message="连接成功", model_count=42),
-        ) as mock_openai_test:
+    def test_openai_format_probes_openai_endpoint(self, custom_providers_client: TestClient):
+        """discovery_format=openai 走 OpenAI 探测：出站落在 /models 且带 Bearer 凭证。"""
+        with capture_http(assert_all_called=True) as http:
+            route = http.get("https://openai.example.com/v1/models").respond(json=_openai_models_page(42))
             resp = custom_providers_client.post(
                 "/api/v1/custom-providers/test",
                 json={
@@ -693,7 +699,7 @@ class TestConnectionTest:
         body = resp.json()
         assert body["success"] is True
         assert body["model_count"] == 42
-        mock_openai_test.assert_called_once()
+        assert only_request(route).headers["authorization"] == "Bearer sk-openai-conn"
 
     def test_unsupported_format_returns_false(self, custom_providers_client: TestClient):
         """不支持的 discovery_format 应返回 success=False。"""
@@ -710,10 +716,9 @@ class TestConnectionTest:
         assert body["success"] is False
 
     def test_connection_failure(self, custom_providers_client: TestClient):
-        with patch(
-            "server.routers.custom_providers._test_openai",
-            side_effect=RuntimeError("Connection refused"),
-        ):
+        """探测抛错时端点软失败：仍返回 200，success=False 且带上游错误摘要。"""
+        with capture_http(assert_all_called=True) as http:
+            http.get("https://api.example.com/v1/models").mock(side_effect=httpx.ConnectError("Connection refused"))
             resp = custom_providers_client.post(
                 "/api/v1/custom-providers/test",
                 json={
@@ -725,7 +730,7 @@ class TestConnectionTest:
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is False
-        assert "Connection refused" in body["message"]
+        assert "Connection error" in body["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -774,11 +779,10 @@ class TestDeleteProviderCleansGlobalSettings:
         await svc.set_setting("default_video_backend", "gemini-aistudio/veo-3")  # 不应被清理
         await db_session.commit()
 
-        # 删除供应商（mock 掉项目清理和缓存失效）
-        with (
-            patch("server.routers.custom_providers._cleanup_project_refs"),
-            patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock),
-        ):
+        # 项目级清理走真实实现，但项目列表为空 → 只剩全局设置的清理
+        empty_pm = MagicMock()
+        empty_pm.list_projects.return_value = []
+        with patch("lib.config.resolver.get_project_manager", return_value=empty_pm):
             del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert del_resp.status_code == 204
 
@@ -804,10 +808,7 @@ class TestDeleteProviderCleansProjectRefs:
         project_data = {"text_backend_complex": f"{prefix}gpt-4o", "title": "Test"}
         mock_pm.load_project.return_value = project_data
 
-        with (
-            patch("lib.config.resolver.get_project_manager", return_value=mock_pm),
-            patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock),
-        ):
+        with patch("lib.config.resolver.get_project_manager", return_value=mock_pm):
             del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert del_resp.status_code == 204
 
@@ -847,21 +848,20 @@ class TestReplaceModelsCleansStaleRefs:
         await db_session.commit()
 
         # 替换 models — 移除 gpt-4o，保留 dall-e-3
-        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            replace_resp = custom_providers_client.put(
-                f"/api/v1/custom-providers/{pid}/models",
-                json={
-                    "models": [
-                        {
-                            "model_id": "dall-e-3",
-                            "display_name": "DALL-E 3",
-                            "endpoint": "openai-images",
-                            "is_default": True,
-                            "is_enabled": True,
-                        },
-                    ]
-                },
-            )
+        replace_resp = custom_providers_client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={
+                "models": [
+                    {
+                        "model_id": "dall-e-3",
+                        "display_name": "DALL-E 3",
+                        "endpoint": "openai-images",
+                        "is_default": True,
+                        "is_enabled": True,
+                    },
+                ]
+            },
+        )
         assert replace_resp.status_code == 200
 
         # gpt-4o 被删除，引用它的全局配置应被清空
@@ -908,21 +908,20 @@ class TestGlobalBucketRefsHint:
         await svc.set_setting("default_video_backend_i2v", f"custom-{pid}/gpt-4o")
         await db_session.commit()
 
-        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            replace_resp = custom_providers_client.put(
-                f"/api/v1/custom-providers/{pid}/models",
-                json={
-                    "models": [
-                        {
-                            "model_id": "gpt-4o",
-                            "display_name": "GPT-4o",
-                            "endpoint": "openai-chat",
-                            "is_default": True,
-                            "is_enabled": True,
-                        },
-                    ]
-                },
-            )
+        replace_resp = custom_providers_client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={
+                "models": [
+                    {
+                        "model_id": "gpt-4o",
+                        "display_name": "GPT-4o",
+                        "endpoint": "openai-chat",
+                        "is_default": True,
+                        "is_enabled": True,
+                    },
+                ]
+            },
+        )
         assert replace_resp.status_code == 200
         assert replace_resp.json()[0]["global_bucket_refs"] == ["default_video_backend_i2v"]
 
@@ -957,15 +956,14 @@ class TestEmptyModelIdRejected:
     def test_replace_models_with_empty_model_id(self, custom_providers_client: TestClient):
         create_resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = create_resp.json()["id"]
-        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            resp = custom_providers_client.put(
-                f"/api/v1/custom-providers/{pid}/models",
-                json={
-                    "models": [
-                        {"model_id": "  ", "display_name": "Blank", "endpoint": "openai-chat", "is_enabled": True},
-                    ]
-                },
-            )
+        resp = custom_providers_client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={
+                "models": [
+                    {"model_id": "  ", "display_name": "Blank", "endpoint": "openai-chat", "is_enabled": True},
+                ]
+            },
+        )
         assert resp.status_code == 422
 
 
@@ -1021,23 +1019,22 @@ class TestFullUpdateProvider:
     def test_full_update(self, custom_providers_client: TestClient):
         create_resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = create_resp.json()["id"]
-        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            resp = custom_providers_client.put(
-                f"/api/v1/custom-providers/{pid}",
-                json={
-                    "display_name": "Updated Name",
-                    "base_url": "https://new-api.example.com/v1",
-                    "models": [
-                        {
-                            "model_id": "new-model",
-                            "display_name": "New",
-                            "endpoint": "openai-chat",
-                            "is_default": True,
-                            "is_enabled": True,
-                        },
-                    ],
-                },
-            )
+        resp = custom_providers_client.put(
+            f"/api/v1/custom-providers/{pid}",
+            json={
+                "display_name": "Updated Name",
+                "base_url": "https://new-api.example.com/v1",
+                "models": [
+                    {
+                        "model_id": "new-model",
+                        "display_name": "New",
+                        "endpoint": "openai-chat",
+                        "is_default": True,
+                        "is_enabled": True,
+                    },
+                ],
+            },
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["display_name"] == "Updated Name"
@@ -1076,20 +1073,19 @@ class TestConcurrencyFields:
     """image/video/audio_max_workers 经 POST / PUT 保存后回显，留空 → null，0/负值 → 422。"""
 
     def test_create_echoes_workers(self, custom_providers_client: TestClient):
-        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            resp = custom_providers_client.post(
-                "/api/v1/custom-providers",
-                json={
-                    "display_name": "P",
-                    "discovery_format": "openai",
-                    "base_url": "https://x.com",
-                    "api_key": "sk-test-key-12345678",
-                    "models": [],
-                    "image_max_workers": 2,
-                    "video_max_workers": 7,
-                    "audio_max_workers": 1,
-                },
-            )
+        resp = custom_providers_client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "P",
+                "discovery_format": "openai",
+                "base_url": "https://x.com",
+                "api_key": "sk-test-key-12345678",
+                "models": [],
+                "image_max_workers": 2,
+                "video_max_workers": 7,
+                "audio_max_workers": 1,
+            },
+        )
         assert resp.status_code == 201
         body = resp.json()
         assert body["image_max_workers"] == 2
@@ -1097,17 +1093,16 @@ class TestConcurrencyFields:
         assert body["audio_max_workers"] == 1
 
     def test_create_defaults_to_null_when_omitted(self, custom_providers_client: TestClient):
-        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            resp = custom_providers_client.post(
-                "/api/v1/custom-providers",
-                json={
-                    "display_name": "P",
-                    "discovery_format": "openai",
-                    "base_url": "https://x.com",
-                    "api_key": "sk-test-key-12345678",
-                    "models": [],
-                },
-            )
+        resp = custom_providers_client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "P",
+                "discovery_format": "openai",
+                "base_url": "https://x.com",
+                "api_key": "sk-test-key-12345678",
+                "models": [],
+            },
+        )
         assert resp.status_code == 201
         body = resp.json()
         assert body["image_max_workers"] is None
@@ -1130,30 +1125,29 @@ class TestConcurrencyFields:
         assert resp.status_code == 422
 
     def test_full_update_overwrites_and_clears(self, custom_providers_client: TestClient):
-        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
-            create_resp = custom_providers_client.post(
-                "/api/v1/custom-providers",
-                json={
-                    "display_name": "P",
-                    "discovery_format": "openai",
-                    "base_url": "https://x.com",
-                    "api_key": "sk-test-key-12345678",
-                    "models": [],
-                    "image_max_workers": 3,
-                    "video_max_workers": 4,
-                },
-            )
-            pid = create_resp.json()["id"]
-            # PUT 不带 image_max_workers → 视为 null（权威清除）；video 覆盖为 9
-            resp = custom_providers_client.put(
-                f"/api/v1/custom-providers/{pid}",
-                json={
-                    "display_name": "P",
-                    "base_url": "https://x.com",
-                    "models": [],
-                    "video_max_workers": 9,
-                },
-            )
+        create_resp = custom_providers_client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "P",
+                "discovery_format": "openai",
+                "base_url": "https://x.com",
+                "api_key": "sk-test-key-12345678",
+                "models": [],
+                "image_max_workers": 3,
+                "video_max_workers": 4,
+            },
+        )
+        pid = create_resp.json()["id"]
+        # PUT 不带 image_max_workers → 视为 null（权威清除）；video 覆盖为 9
+        resp = custom_providers_client.put(
+            f"/api/v1/custom-providers/{pid}",
+            json={
+                "display_name": "P",
+                "base_url": "https://x.com",
+                "models": [],
+                "video_max_workers": 9,
+            },
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["image_max_workers"] is None
@@ -1165,10 +1159,13 @@ class TestValidateBackendValueCustomPrefix:
     """回归: validate_backend_value 应接受 custom-* 前缀。"""
 
     def test_custom_prefix_accepted(self):
+        from lib.api_errors import BadRequestError
         from server.routers._validators import validate_backend_value
 
-        # 不应抛异常
-        validate_backend_value("custom-3/gpt-4o", "default_text_backend")
+        # custom- 前缀不在 PROVIDER_REGISTRY 中，仍须放行（逐模型能力由供应商 API 把关）
+        with pytest.raises(BadRequestError):
+            validate_backend_value("custom3/gpt-4o", "default_text_backend")
+        assert validate_backend_value("custom-3/gpt-4o", "default_text_backend") is None
 
     def test_unknown_provider_rejected(self):
         from lib.api_errors import BadRequestError
@@ -1495,20 +1492,35 @@ async def test_default_conflict_grouped_by_endpoint_media(custom_providers_clien
     assert resp.status_code == 422
 
 
-def test_check_unique_defaults_allows_split_image_endpoints():
+@pytest.mark.asyncio
+async def test_split_image_endpoints_may_both_be_default(custom_providers_client):
     """同 provider 内 -generations 与 -edits 两条都设默认 → 允许（capability 不交叠）。"""
-    from server.routers.custom_providers import ModelInput, _check_unique_defaults
-
-    models = [
-        ModelInput(model_id="m1", display_name="m1", endpoint="openai-images-generations", is_default=True),
-        ModelInput(model_id="m2", display_name="m2", endpoint="openai-images-edits", is_default=True),
-    ]
-
-    def t(key, **params):
-        return f"{key}:{params}"
-
-    # 不应抛
-    _check_unique_defaults(models, t)
+    payload = {
+        "display_name": "X",
+        "discovery_format": "openai",
+        "base_url": "https://x",
+        "api_key": "k",
+        "models": [
+            {
+                "model_id": "m1",
+                "display_name": "m1",
+                "endpoint": "openai-images-generations",
+                "is_default": True,
+                "is_enabled": True,
+            },
+            {
+                "model_id": "m2",
+                "display_name": "m2",
+                "endpoint": "openai-images-edits",
+                "is_default": True,
+                "is_enabled": True,
+            },
+        ],
+    }
+    resp = custom_providers_client.post("/api/v1/custom-providers", json=payload)
+    assert resp.status_code == 201, resp.text
+    defaults = {model["model_id"]: model["is_default"] for model in resp.json()["models"]}
+    assert defaults == {"m1": True, "m2": True}
 
 
 def test_check_unique_defaults_rejects_two_generations_defaults():
@@ -1580,11 +1592,11 @@ class TestDiscoverAnthropic:
         mock_models = [
             {"model_id": "claude-x", "display_name": "X", "endpoint": "", "is_default": False, "is_enabled": True}
         ]
-        with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
-            from server.routers.custom_providers import DiscoverResponse
-
-            mock_run.return_value = DiscoverResponse(models=mock_models)
-
+        with patch(
+            "lib.custom_provider.discovery.discover_models",
+            new_callable=AsyncMock,
+            return_value=mock_models,
+        ) as mock_discover:
             resp = custom_providers_client.post(
                 "/api/v1/custom-providers/discover-anthropic",
                 json={"base_url": "https://example.com", "api_key": "sk-ant"},
@@ -1592,11 +1604,11 @@ class TestDiscoverAnthropic:
 
         assert resp.status_code == 200
         assert [m["model_id"] for m in resp.json()["models"]] == ["claude-x"]
-        # 调用参数：discovery_format=anthropic，凭据透传
-        args = mock_run.call_args.args
-        assert args[0] == "anthropic"
-        assert args[1] == "https://example.com"
-        assert args[2] == "sk-ant"
+        # 发现格式固定为 anthropic，凭据透传
+        kwargs = mock_discover.call_args.kwargs
+        assert kwargs["discovery_format"] == "anthropic"
+        assert kwargs["base_url"] == "https://example.com"
+        assert kwargs["api_key"] == "sk-ant"
 
     async def test_falls_back_to_stored_api_key(self, custom_providers_client: TestClient, db_session: AsyncSession):
         """请求未带 api_key 时，从 active AgentAnthropicCredential fallback。"""
@@ -1612,17 +1624,17 @@ class TestDiscoverAnthropic:
         await repo.set_active(cred.id)
         await db_session.commit()
 
-        with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
-            from server.routers.custom_providers import DiscoverResponse
-
-            mock_run.return_value = DiscoverResponse(models=[])
-
+        with patch(
+            "lib.custom_provider.discovery.discover_models",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_discover:
             resp = custom_providers_client.post("/api/v1/custom-providers/discover-anthropic", json={})
 
         assert resp.status_code == 200
-        args = mock_run.call_args.args
-        assert args[1] == "https://stored.example"
-        assert args[2] == "sk-stored"
+        kwargs = mock_discover.call_args.kwargs
+        assert kwargs["base_url"] == "https://stored.example"
+        assert kwargs["api_key"] == "sk-stored"
 
     def test_returns_400_when_no_key_anywhere(self, custom_providers_client: TestClient):
         """请求未带 api_key 且 DB 也没有 → 400。"""
@@ -1647,20 +1659,19 @@ class TestDiscoverAnthropic:
         await repo.set_active(cred.id)
         await db_session.commit()
 
-        with patch("server.routers.custom_providers._run_discover", new=AsyncMock()) as mock_run:
-            from server.routers.custom_providers import DiscoverResponse
-
-            mock_run.return_value = DiscoverResponse(models=[])
-
+        with patch(
+            "lib.custom_provider.discovery.discover_models",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_discover:
             resp = custom_providers_client.post(
                 "/api/v1/custom-providers/discover-anthropic",
                 json={"api_key": "   "},
             )
 
         assert resp.status_code == 200
-        args = mock_run.call_args.args
         # 上游收到的是 stored key，不是请求里的空白字符
-        assert args[2] == "sk-stored"
+        assert mock_discover.call_args.kwargs["api_key"] == "sk-stored"
 
 
 class TestGetProviderCredentials:

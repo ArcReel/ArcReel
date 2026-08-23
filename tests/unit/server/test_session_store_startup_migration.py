@@ -8,7 +8,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_lifespan_invokes_session_store_migration():
+async def test_lifespan_invokes_session_store_migration(tmp_path):
     """The session-store migration must be called exactly once during startup."""
     # We don't want a real lifespan to fire all its long-running side effects
     # (worker starts, http client, project event service). Patch them all out
@@ -24,7 +24,8 @@ async def test_lifespan_invokes_session_store_migration():
             return_value=type("M", (), {"migrated": [], "failed": [], "skipped": []})(),
         ),
         patch("server.app.cleanup_stale_backups"),
-        patch("server.app._migrate_source_encoding_on_startup", new=AsyncMock(return_value={})),
+        # 数据目录指向空的 tmp 目录：源文编码迁移照跑，遍历不到项目即返回空汇总。
+        patch("server.app.app_data_dir", return_value=tmp_path),
         patch("server.app.startup_http_client", new=AsyncMock(return_value=None)),
         patch("server.app.shutdown_http_client", new=AsyncMock(return_value=None)),
         patch("server.app.create_generation_worker") as worker_factory,

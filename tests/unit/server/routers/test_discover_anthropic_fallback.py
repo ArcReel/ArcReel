@@ -42,12 +42,13 @@ async def discover_client(db_engine):
 async def test_discover_falls_back_to_active_credential(discover_client, monkeypatch) -> None:
     captured: dict = {}
 
-    async def fake_discover(discovery_format, base_url, api_key, _t):
+    async def fake_discover(*, discovery_format, base_url, api_key):
+        captured["discovery_format"] = discovery_format
         captured["base_url"] = base_url
         captured["api_key"] = api_key
-        return type("R", (), {"models": [], "errors": []})()
+        return []
 
-    monkeypatch.setattr("server.routers.custom_providers._run_discover", fake_discover)
+    monkeypatch.setattr("lib.custom_provider.discovery.discover_models", fake_discover)
 
     # Create an active credential first
     create_resp = await discover_client.post(
@@ -62,6 +63,7 @@ async def test_discover_falls_back_to_active_credential(discover_client, monkeyp
         json={},
     )
     assert resp.status_code == 200, resp.text
+    assert captured["discovery_format"] == "anthropic"
     assert captured["api_key"] == "stored-sk"
     assert captured["base_url"] == "https://api.deepseek.com/anthropic"
 

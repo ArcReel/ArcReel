@@ -23,7 +23,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from lib.config.registry import ProviderMeta
+
+    ProviderProjection = Callable[[dict[str, Any]], Awaitable[str]]
 
 logger = logging.getLogger(__name__)
 
@@ -456,8 +460,11 @@ class GenerationWorker:
         lease_name: str = "default",
         capacity: CapacityTable | None = None,
         slots: SlotTable | None = None,
+        provider_projection: ProviderProjection = _extract_provider,
     ):
         self.queue = queue or get_generation_queue()
+        # 认领期与执行期共用的 provider 投影：限流按它的结果路由到对应容量桶。
+        self._provider_projection = provider_projection
         self.lease_name = lease_name
         self.owner_id = f"worker-{uuid.uuid4().hex[:10]}"
 
@@ -625,7 +632,7 @@ class GenerationWorker:
                 if not task:
                     break
 
-                provider_id = await _extract_provider(task)
+                provider_id = await self._provider_projection(task)
                 cap = self._capacity.get(provider_id, media_type)
 
                 if cap <= 0:
@@ -784,7 +791,7 @@ class GenerationWorker:
         """
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
-        provider_id = claimed_provider_id or await _extract_provider(task)
+        provider_id = claimed_provider_id or await self._provider_projection(task)
         logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
         from server.services.generation_tasks import execute_generation_task
@@ -923,7 +930,7 @@ class GenerationWorker:
                 task["payload"] = payload
             payload["image_provider"] = persisted_provider_id
 
-        provider_id = checkpoint.provider_id if checkpoint is not None else await _extract_provider(task)
+        provider_id = checkpoint.provider_id if checkpoint is not None else await self._provider_projection(task)
         logger.info(
             "重启自愈处理任务 %s (type=%s, provider=%s, job=%s)",
             task_id,
@@ -1154,7 +1161,7 @@ class GenerationWorker:
             provider_id = (
                 checkpoint.provider_id
                 if checkpoint is not None
-                else task.get("provider_id") or await _extract_provider(task)
+                else task.get("provider_id") or await self._provider_projection(task)
             )
             if provider_id in NON_RESUMABLE_VIDEO_PROVIDERS:
                 # Grok/Vidu 当前不实现 resume_video——原 job 已发给供应商无接续手段，

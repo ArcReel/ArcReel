@@ -6,6 +6,7 @@ from functools import partial
 
 import pytest
 
+from lib.config.resolver import ConfigResolver
 from server.services.reference_video_tasks import (
     FALLBACK_UNIT_DURATION,
     ProjectDurationContext,
@@ -58,13 +59,14 @@ async def test_resolve_project_duration_context_resolves_caps_and_resolution_onc
         caps_calls += 1
         return {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview", "supported_durations": [4, 6, 8]}
 
-    async def fake_resolution(_project, _provider_id, _model_id):
+    async def fake_resolution(_self, _project, _provider_id, _model_id):
         nonlocal resolution_calls
         resolution_calls += 1
         return "720p"
 
     monkeypatch.setattr(rvt, "project_video_caps", fake_caps)
-    monkeypatch.setattr(rvt, "_project_video_resolution", fake_resolution)
+    # 分辨率解析的替身落在协作者 ConfigResolver 上，本模块的解析包装（含 fallback 兜底）照跑。
+    monkeypatch.setattr(ConfigResolver, "resolve_resolution", fake_resolution)
 
     ctx = await rvt.resolve_project_duration_context({})
 
@@ -93,7 +95,7 @@ async def test_resolve_project_duration_context_skips_resolution_when_no_duratio
         return "720p"
 
     monkeypatch.setattr(rvt, "project_video_caps", fake_caps)
-    monkeypatch.setattr(rvt, "_project_video_resolution", fake_resolution)
+    monkeypatch.setattr(ConfigResolver, "resolve_resolution", fake_resolution)
 
     ctx = await rvt.resolve_project_duration_context({})
 

@@ -10,6 +10,7 @@ import json
 import math
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
@@ -960,6 +961,13 @@ class TestExecuteTtsTask:
 class TestGetOrCreateAudioBackend:
     """audio backend 构造统一委托 assemble_backend；缓存留在调用方编排层。"""
 
+    @pytest.fixture(autouse=True)
+    def _clear_backend_cache(self):
+        """backend 缓存是模块级进程内状态，公开失效入口即用例间的隔离手段。"""
+        generation_context.invalidate_backend_cache()
+        yield
+        generation_context.invalidate_backend_cache()
+
     async def test_custom_provider_routes_through_assemble(self, monkeypatch):
         sentinel = object()
         calls = []
@@ -969,7 +977,6 @@ class TestGetOrCreateAudioBackend:
             return sentinel
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_context, "_backend_cache", generation_context._BackendCache())
 
         resolver = cast(ConfigResolver, None)
         b1 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
@@ -987,7 +994,6 @@ class TestGetOrCreateAudioBackend:
             return sentinel
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_context, "_backend_cache", generation_context._BackendCache())
 
         resolver = cast(ConfigResolver, None)
         b1 = await generation_context._get_or_create_audio_backend(
@@ -1000,22 +1006,18 @@ class TestGetOrCreateAudioBackend:
         assert created == [("dashscope", "audio", "qwen3-tts-flash")], "第二次调用须命中缓存，不再重建 backend"
 
     async def test_payload_model_overrides_default(self, monkeypatch):
-        calls = []
-
         async def _fake_assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
-            calls.append(model_id)
-            return object()
+            return SimpleNamespace(provider_id=provider_id, media_type=media_type, model_id=model_id)
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_context, "_backend_cache", generation_context._BackendCache())
 
-        await generation_context._get_or_create_audio_backend(
+        backend = await generation_context._get_or_create_audio_backend(
             "dashscope",
             {"model": "explicit-model"},
             cast(ConfigResolver, None),
             default_audio_model="fallback-model",
         )
-        assert calls == ["explicit-model"]
+        assert backend.model_id == "explicit-model"
 
 
 class TestComputeAffectedFingerprintsTts:

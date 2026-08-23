@@ -415,9 +415,7 @@ class TestWorkerAudioLane:
         w._slots.register("dashscope", "audio", "t", dummy)
         assert w._pool_full_providers("audio") == frozenset({"dashscope"})
 
-    async def test_claim_routes_audio_to_audio_lane(self, monkeypatch):
-        from lib import generation_worker as gw
-
+    async def test_claim_routes_audio_to_audio_lane(self):
         class _Q:
             def __init__(self):
                 self._given = False
@@ -434,18 +432,17 @@ class TestWorkerAudioLane:
                     }
                 return None
 
+        async def _fixed_projection(task):
+            return "dashscope"
+
         w = GenerationWorker(
             queue=_Q(),  # type: ignore[arg-type]
             capacity=CapacityTable(
                 _limits={"dashscope": {"image": 0, "video": 0, "audio": 2}},
                 _defaults={"image": 5, "video": 3, "audio": 10},
             ),
+            provider_projection=_fixed_projection,
         )
-
-        async def _fake_extract(task):
-            return "dashscope"
-
-        monkeypatch.setattr(gw, "_extract_provider", _fake_extract)
 
         async def _fake_process(task):
             await asyncio.sleep(0)

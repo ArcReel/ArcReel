@@ -146,9 +146,9 @@ class TestGenerationTasks:
 
         assert fake_generator.video_calls == []
 
-    def test_grid_completion_serializes_manifest_registration_with_schema_activation(self, tmp_path, monkeypatch):
-        from lib import artifact_activation
+    def test_grid_completion_serializes_manifest_registration_with_schema_activation(self, tmp_path):
         from lib.artifact_activation import activate_artifact_target_state
+        from lib.formal_write import project_metadata_lock
         from lib.grid.models import GridGeneration
         from lib.grid_manager import GridManager
         from lib.project_migrations.v8_to_v9_reference_unit_text import migrate_v8_to_v9
@@ -206,28 +206,20 @@ class TestGenerationTasks:
             outcome_box=outcomes,
         )
 
-        activation_ready = threading.Event()
-        release_activation = threading.Event()
+        activation_started = threading.Event()
+        activation_done = threading.Event()
         writer_started = threading.Event()
         writer_done = threading.Event()
         failures: list[BaseException] = []
-        original_commit_schema = artifact_activation._commit_schema_version
-
-        def _pause_before_schema(project_dir, project):
-            activation_ready.set()
-            assert release_activation.wait(timeout=5)
-            original_commit_schema(project_dir, project)
-            # 清单激活只把项目送到 v8；形式产物注册要求当前 schema，故在同一把项目元数据锁内
-            # 走完剩余迁移，模拟启动扫描一次跑完整条链。
-            migrate_v8_to_v9(project_dir)
-
-        monkeypatch.setattr(artifact_activation, "_commit_schema_version", _pause_before_schema)
 
         def _activate() -> None:
+            activation_started.set()
             try:
                 activate_artifact_target_state(project_path, bump_schema=True)
             except Exception as exc:
                 failures.append(exc)
+            finally:
+                activation_done.set()
 
         def _complete_grid() -> None:
             writer_started.set()
@@ -238,15 +230,24 @@ class TestGenerationTasks:
             finally:
                 writer_done.set()
 
+        # 互斥判据由「主线程持锁时对方进不来」双向给出：清单激活与形式产物提交各自在项目
+        # 元数据锁上排队，因而彼此也不可能交错。两段等待窗口都是单向否证——互斥若被破坏，
+        # 慢机上也可能因窗口内尚未跑完而漏报，但绝不会把守规矩的实现判成失败。
         activation_thread = threading.Thread(target=_activate)
-        writer_thread = threading.Thread(target=_complete_grid)
-        activation_thread.start()
-        assert activation_ready.wait(timeout=5)
-        writer_thread.start()
-        assert writer_started.wait(timeout=5)
-        assert not writer_done.wait(timeout=0.2)
-        release_activation.set()
+        with project_metadata_lock(project_path):
+            activation_thread.start()
+            assert activation_started.wait(timeout=5)
+            assert not activation_done.wait(timeout=0.2), "清单激活没有在项目元数据锁上排队"
         activation_thread.join(timeout=5)
+
+        # 清单激活只把项目送到 v8；形式产物注册要求当前 schema，剩余迁移由启动扫描跑完。
+        migrate_v8_to_v9(project_path)
+
+        writer_thread = threading.Thread(target=_complete_grid)
+        with project_metadata_lock(project_path):
+            writer_thread.start()
+            assert writer_started.wait(timeout=5)
+            assert not writer_done.wait(timeout=0.2), "形式产物提交没有在项目元数据锁上排队"
         writer_thread.join(timeout=5)
 
         assert not activation_thread.is_alive()

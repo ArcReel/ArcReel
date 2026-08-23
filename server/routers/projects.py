@@ -77,6 +77,9 @@ def get_workflow_state_service() -> WorkflowStateService:
     return WorkflowStateService(get_project_manager())
 
 
+WorkflowStateServiceDep = Annotated[WorkflowStateService, Depends(get_workflow_state_service)]
+
+
 def _project_status_payload(summary: ProjectSummary) -> dict[str, Any]:
     """项目级状态负载：项目摘要去掉每集明细。
 
@@ -115,8 +118,19 @@ def get_archive_service() -> ProjectArchiveService:
     return ProjectArchiveService(get_project_manager())
 
 
+ArchiveServiceDep = Annotated[ProjectArchiveService, Depends(get_archive_service)]
+
+
 def get_script_batch_editor(manager: Any | None = None) -> ScriptBatchEditor:
     return ScriptBatchEditor(manager or get_project_manager())
+
+
+def get_script_batch_editor_factory() -> Callable[[Any], ScriptBatchEditor]:
+    """批量编辑器的路由依赖；编辑器要绑处理器内解析出的 manager，故注入工厂而非实例。"""
+    return get_script_batch_editor
+
+
+ScriptBatchEditorFactoryDep = Annotated[Callable[[Any], ScriptBatchEditor], Depends(get_script_batch_editor_factory)]
 
 
 # 项目级模型字段：创建时逐一校验并写入 project.json，PATCH 时另加 audio_backend。
@@ -260,6 +274,7 @@ def _cleanup_temp_dir(dir_path: str) -> None:
 @router.post("/projects/import")
 async def import_project_archive(
     _t: Translator,
+    archive_service: ArchiveServiceDep,
     file: UploadFile = File(...),
     conflict_policy: str = Form("prompt"),
 ):
@@ -284,7 +299,7 @@ async def import_project_archive(
         await asyncio.to_thread(_write_upload)
 
         def _sync():
-            return get_archive_service().import_project_archive(
+            return archive_service.import_project_archive(
                 Path(upload_path),
                 uploaded_filename=file.filename,
                 conflict_policy=conflict_policy,
@@ -328,6 +343,7 @@ async def create_export_token(
     name: str,
     current_user: CurrentUser,
     _t: Translator,
+    archive_service: ArchiveServiceDep,
     scope: str = Query("full"),
 ):
     """签发短时效下载 token，用于浏览器原生下载认证。"""
@@ -338,7 +354,7 @@ async def create_export_token(
         def _sync():
             if not get_project_manager().project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
-            return get_archive_service().get_export_diagnostics(name, scope=scope, translate=_t)
+            return archive_service.get_export_diagnostics(name, scope=scope, translate=_t)
 
         diagnostics = await asyncio.to_thread(_sync)
         username = current_user.sub
@@ -359,6 +375,7 @@ async def create_export_token(
 async def export_project_archive(
     name: str,
     _t: Translator,
+    archive_service: ArchiveServiceDep,
     download_token: str = Query(...),
     scope: str = Query("full"),
 ):
@@ -379,9 +396,7 @@ async def export_project_archive(
         raise HTTPException(status_code=401, detail=_t("download_token_invalid"))
 
     try:
-        archive_path, download_name = await asyncio.to_thread(
-            lambda: get_archive_service().export_project(name, scope=scope)
-        )
+        archive_path, download_name = await asyncio.to_thread(lambda: archive_service.export_project(name, scope=scope))
         return FileResponse(
             archive_path,
             media_type="application/zip",
@@ -406,6 +421,10 @@ def get_jianying_draft_service() -> JianyingDraftService:
     return JianyingDraftService(get_project_manager())
 
 
+# 具体类型只在 TYPE_CHECKING 下可见：pyJianYingDraft 是重依赖，运行期仍按需惰性导入。
+JianyingDraftServiceDep = Annotated[Any, Depends(get_jianying_draft_service)]
+
+
 def _validate_draft_path(draft_path: str, _t: Callable[..., str]) -> str:
     """校验 draft_path 合法性"""
     if not draft_path or not draft_path.strip():
@@ -421,6 +440,7 @@ def _validate_draft_path(draft_path: str, _t: Callable[..., str]) -> str:
 async def export_jianying_draft(
     name: str,
     _t: Translator,
+    svc: JianyingDraftServiceDep,
     episode: int = Query(..., description="集数编号"),
     draft_path: str = Query(..., description="用户本地剪映草稿目录"),
     download_token: str = Query(..., description="下载 token"),
@@ -450,7 +470,6 @@ async def export_jianying_draft(
     from server.services.jianying_draft_service import NoCompletedSegmentsError
     from server.services.presentation_read_model import PresentationUnavailableError
 
-    svc = get_jianying_draft_service()
     try:
         zip_path = await svc.export_episode_draft(
             project_name=name,
@@ -486,12 +505,11 @@ async def export_jianying_draft(
 
 
 @router.get("/projects")
-async def list_projects():
+async def list_projects(summaries: WorkflowStateServiceDep):
     """列出所有项目"""
 
     def _sync():
         manager = get_project_manager()
-        summaries = get_workflow_state_service()
         projects = []
         for name in manager.list_projects():
             try:
@@ -735,6 +753,7 @@ async def get_workflow_plan(name: str, request: WorkflowPlanRequest):
 async def get_project(
     name: str,
     _t: Translator,
+    summaries: WorkflowStateServiceDep,
 ):
     """获取项目详情（含实时计算字段）"""
     try:
@@ -747,7 +766,7 @@ async def get_project(
             project = manager.load_project(name)
 
             # 阶段、产物计数与每集明细一律来自项目摘要投影（读时计算，不写入 JSON）
-            summary = get_workflow_state_service().get_project_summary(name)
+            summary = summaries.get_project_summary(name)
             project = _merge_episode_summaries(project, summary)
             project["status"] = _project_status_payload(summary)
 
@@ -1029,7 +1048,12 @@ async def get_script(name: str, script_file: str, _t: Translator):
     response_model=None,
     dependencies=[Depends(require_project_migration_ok)],
 )
-async def edit_script_batch(name: str, command: ScriptBatchEditCommand, _t: Translator) -> JSONResponse:
+async def edit_script_batch(
+    name: str,
+    command: ScriptBatchEditCommand,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+) -> JSONResponse:
     """Execute the same revisioned script-edit command exposed to the in-process Agent."""
 
     manager = None
@@ -1043,7 +1067,7 @@ async def edit_script_batch(name: str, command: ScriptBatchEditCommand, _t: Tran
             raise NotFoundError("project_not_found", name=name) from exc
 
         with project_change_source("webui"):
-            result = await asyncio.to_thread(get_script_batch_editor(manager).execute, name, command)
+            result = await asyncio.to_thread(make_script_batch_editor(manager).execute, name, command)
         return JSONResponse(status_code=script_batch_status(result), content=result.model_dump(mode="json"))
     except FileNotFoundError as exc:
         if manager is None or not manager.project_exists(name):
@@ -1063,7 +1087,13 @@ class UpdateSceneRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/script-scenes/{scene_id}", dependencies=[Depends(require_project_migration_ok)])
-async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Translator):
+async def update_scene(
+    name: str,
+    scene_id: str,
+    req: UpdateSceneRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
     """更新剧情演绎剧本中的单个分镜（按 scene_id 定位）。
 
     路径与项目场景资产 CRUD（``/projects/{name}/scenes/{entry_name}``）做明确区分，
@@ -1108,7 +1138,7 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Tr
                     name,
                     req.script_file,
                     [{"op": "update", "id": scene_id, "fields": fields}],
-                    editor=get_script_batch_editor(manager),
+                    editor=make_script_batch_editor(manager),
                 )
             require_script_edit_result(
                 result,
@@ -1180,7 +1210,13 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
 
 
 @router.patch("/projects/{name}/script-shots/{shot_id}", dependencies=[Depends(require_project_migration_ok)])
-async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Translator):
+async def update_shot(
+    name: str,
+    shot_id: str,
+    req: UpdateShotRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
     """更新广告/短片剧本中的单个分镜（按 shot_id 定位）。
 
     路径风格与 ``script-scenes`` 对齐；口播文案 / section / 时长 / 引用列表等
@@ -1208,7 +1244,7 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Trans
                     name,
                     req.script_file,
                     [{"op": "update", "id": shot_id, "fields": fields}],
-                    editor=get_script_batch_editor(manager),
+                    editor=make_script_batch_editor(manager),
                 )
             require_script_edit_result(
                 result,
@@ -1238,7 +1274,12 @@ class ReorderShotsRequest(BaseModel):
 
 
 @router.post("/projects/{name}/script-shots/reorder", dependencies=[Depends(require_project_migration_ok)])
-async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
+async def reorder_shots(
+    name: str,
+    req: ReorderShotsRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
     """按给定全排列重排 ad 剧本的 shots 顺序（与视频单元重排端点同语义）。"""
     try:
 
@@ -1267,7 +1308,7 @@ async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
                     name,
                     req.script_file,
                     operations,
-                    editor=get_script_batch_editor(manager),
+                    editor=make_script_batch_editor(manager),
                 )
             require_script_edit_result(result)
             reordered = manager.load_script(name, req.script_file)["shots"]
@@ -1310,7 +1351,13 @@ class UpdateEpisodeRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/segments/{segment_id}", dependencies=[Depends(require_project_migration_ok)])
-async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _t: Translator):
+async def update_segment(
+    name: str,
+    segment_id: str,
+    req: UpdateSegmentRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
     """更新旁白/解说分镜"""
     try:
 
@@ -1356,7 +1403,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
                     name,
                     req.script_file,
                     [{"op": "update", "id": segment_id, "fields": fields}],
-                    editor=get_script_batch_editor(manager),
+                    editor=make_script_batch_editor(manager),
                 )
             require_script_edit_result(
                 result,
