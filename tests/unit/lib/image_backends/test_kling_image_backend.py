@@ -1,4 +1,4 @@
-"""KlingImageBackend 单元测试（mock httpx，异步轮询，不打真实 HTTP）。
+"""KlingImageBackend 单元测试（respx 在 transport 层拦截，不打真实 HTTP）。
 
 覆盖：JWT / Bearer 双模式鉴权注入、请求体构建（文生图 / 图生图 image 数组）、参考图上限截断、
 缺失参考图 fail-loud、脱敏日志视图、submit→轮询→取 image_url→下载端到端、失败终态、多图取首张。
@@ -6,12 +6,16 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import NamedTuple
 
 import httpx
 import jwt
 import pytest
+import respx
 
 from lib.image_backends.base import (
     ImageCapability,
@@ -21,16 +25,33 @@ from lib.image_backends.base import (
 )
 from lib.image_backends.kling import KlingImageBackend
 from lib.providers import PROVIDER_KLING
+from tests.fakes import bounded_poll_clock
+from tests.http_capture import capture_http, only_request
 
 _SECRET = "s" * 40
+_GENERATIONS_URL = "https://api-beijing.klingai.com/v1/images/generations"
 
 
-def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = json_body
-    resp.raise_for_status = MagicMock()
-    return resp
+class _KlingImageRoutes(NamedTuple):
+    """Kling 图像的三条出站流量：建任务、任务轮询、成图下载。"""
+
+    submit: respx.Route
+    poll: respx.Route
+    download: respx.Route
+
+
+@contextmanager
+def _kling_image_api() -> Iterator[_KlingImageRoutes]:
+    with capture_http() as router:
+        yield _KlingImageRoutes(
+            submit=router.post(_GENERATIONS_URL),
+            poll=router.get(url__regex=rf"^{re.escape(_GENERATIONS_URL)}/[^/]+$"),
+            download=router.get(url__regex=r"^https://x/"),
+        )
+
+
+def _resp(json_body: dict, status_code: int = 200) -> httpx.Response:
+    return httpx.Response(status_code, json=json_body)
 
 
 def _submit(task_id: str = "t-1") -> dict:
@@ -42,17 +63,6 @@ def _query(status: str, urls: list[str] | None = None, status_msg: str = "") -> 
     if urls:
         data["task_result"] = {"images": [{"index": i, "url": u} for i, u in enumerate(urls)]}
     return {"code": 0, "message": "SUCCEED", "data": data}
-
-
-def _client(*, post=None, get=None) -> AsyncMock:
-    c = AsyncMock()
-    if post is not None:
-        c.post = post
-    if get is not None:
-        c.get = get
-    c.__aenter__ = AsyncMock(return_value=c)
-    c.__aexit__ = AsyncMock(return_value=None)
-    return c
 
 
 def _jwt_backend(model: str | None = None, api_model_name: str | None = None) -> KlingImageBackend:
@@ -192,104 +202,81 @@ class TestSafeLogView:
 
 class TestGenerateHappyPath:
     async def test_submit_poll_download(self, tmp_path):
-        post = AsyncMock(return_value=_resp(_submit("task-9")))
-        get = AsyncMock(
-            side_effect=[
-                _resp(_query("processing")),
-                _resp(_query("succeed", urls=["https://x/final.png"])),
-            ]
-        )
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.image_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.image_backends.kling._POLL_INTERVAL_SECONDS", 0),
-            patch("lib.image_backends.kling.download_image_to_path", new=AsyncMock()) as dl,
-        ):
+        with _kling_image_api() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_resp(_submit("task-9")))
+            routes.poll.mock(
+                side_effect=[
+                    _resp(_query("processing")),
+                    _resp(_query("succeed", urls=["https://x/final.png"])),
+                ]
+            )
+            routes.download.mock(return_value=httpx.Response(200, content=b"png-bytes"))
+
             result = await _jwt_backend().generate(_request(tmp_path))
+
+            # images/generations 提交端点
+            assert only_request(routes.submit).url.path == "/v1/images/generations"
+            assert routes.poll.calls.last.request.url.path == "/v1/images/generations/task-9"
 
         assert result.provider == PROVIDER_KLING
         assert result.image_uri == "https://x/final.png"
-        dl.assert_awaited_once()
-        # images/generations 提交端点
-        assert post.await_args.args[0].endswith("/images/generations")
+        assert result.image_path.read_bytes() == b"png-bytes"
 
     async def test_multiple_images_takes_first(self, tmp_path):
-        post = AsyncMock(return_value=_resp(_submit()))
-        get = AsyncMock(return_value=_resp(_query("succeed", urls=["https://x/1.png", "https://x/2.png"])))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.image_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.image_backends.kling._POLL_INTERVAL_SECONDS", 0),
-            patch("lib.image_backends.kling.download_image_to_path", new=AsyncMock()),
-        ):
+        with _kling_image_api() as routes:
+            routes.submit.mock(return_value=_resp(_submit()))
+            routes.poll.mock(return_value=_resp(_query("succeed", urls=["https://x/1.png", "https://x/2.png"])))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
+
             result = await _jwt_backend().generate(_request(tmp_path))
+
+            assert str(only_request(routes.download).url) == "https://x/1.png"
+
         assert result.image_uri == "https://x/1.png"
 
     async def test_jwt_injected_on_submit(self, tmp_path):
-        captured: dict = {}
+        with _kling_image_api() as routes:
+            routes.submit.mock(return_value=_resp(_submit()))
+            routes.poll.mock(return_value=_resp(_query("succeed", urls=["https://x/v.png"])))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
 
-        async def _post(url, json, headers):
-            captured["headers"] = headers
-            return _resp(_submit())
-
-        post = AsyncMock(side_effect=_post)
-        get = AsyncMock(return_value=_resp(_query("succeed", urls=["https://x/v.png"])))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.image_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.image_backends.kling._POLL_INTERVAL_SECONDS", 0),
-            patch("lib.image_backends.kling.download_image_to_path", new=AsyncMock()),
-        ):
             await _jwt_backend().generate(_request(tmp_path))
 
-        token = captured["headers"]["Authorization"].removeprefix("Bearer ")
+            token = only_request(routes.submit).headers["Authorization"].removeprefix("Bearer ")
+
         claims = jwt.decode(token, _SECRET, algorithms=["HS256"], options={"verify_exp": False})
         assert claims["iss"] == "ak-1"
 
     async def test_bearer_static_key_on_submit(self, tmp_path):
-        captured: dict = {}
+        with _kling_image_api() as routes:
+            routes.submit.mock(return_value=_resp(_submit()))
+            routes.poll.mock(return_value=_resp(_query("succeed", urls=["https://x/v.png"])))
+            routes.download.mock(return_value=httpx.Response(200, content=b""))
 
-        async def _post(url, json, headers):
-            captured["headers"] = headers
-            return _resp(_submit())
-
-        post = AsyncMock(side_effect=_post)
-        get = AsyncMock(return_value=_resp(_query("succeed", urls=["https://x/v.png"])))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.image_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.image_backends.kling._POLL_INTERVAL_SECONDS", 0),
-            patch("lib.image_backends.kling.download_image_to_path", new=AsyncMock()),
-        ):
             await _bearer_backend().generate(_request(tmp_path))
-        assert captured["headers"]["Authorization"] == "Bearer static-key"
+
+            assert only_request(routes.submit).headers["Authorization"] == "Bearer static-key"
 
     async def test_failed_status_raises(self, tmp_path):
-        post = AsyncMock(return_value=_resp(_submit()))
-        get = AsyncMock(return_value=_resp(_query("failed", status_msg="content rejected")))
-        client = _client(post=post, get=get)
-        with (
-            patch("lib.image_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.image_backends.kling._POLL_INTERVAL_SECONDS", 0),
-            patch("lib.image_backends.kling.download_image_to_path", new=AsyncMock()),
-        ):
+        with _kling_image_api() as routes:
+            routes.submit.mock(return_value=_resp(_submit()))
+            routes.poll.mock(return_value=_resp(_query("failed", status_msg="content rejected")))
+
             with pytest.raises(RuntimeError, match="content rejected"):
                 await _jwt_backend().generate(_request(tmp_path))
 
+            assert routes.download.call_count == 0
+
     async def test_http_error_raises_and_no_retry_on_4xx(self, tmp_path):
-        # 真实 httpx.Response：submit 阶段 4xx 经 raise_for_status 抛 HTTPStatusError；
-        # 确定性 4xx 不重试（非幂等建任务 POST），post 仅调用一次，不重复建任务 + 重复计费。
-        req = httpx.Request("POST", "https://api.klingai.com/v1/images/generations")
-        resp = httpx.Response(400, request=req, text="Bad Request")
-        post = AsyncMock(return_value=resp)
-        client = _client(post=post)
-        with (
-            patch("lib.image_backends.kling.httpx.AsyncClient", return_value=client),
-            patch("lib.image_backends.kling._POLL_INTERVAL_SECONDS", 0),
-        ):
+        # submit 阶段 4xx 经 raise_for_status 抛 HTTPStatusError；确定性 4xx 不重试
+        # （非幂等建任务 POST），提交仅发一次，不重复建任务 + 重复计费。
+        with _kling_image_api() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=httpx.Response(400, text="Bad Request"))
+
             with pytest.raises(httpx.HTTPStatusError):
                 await _jwt_backend().generate(_request(tmp_path))
-        assert post.call_count == 1
+
+            assert routes.submit.call_count == 1
 
 
 class TestRegistration:
