@@ -76,8 +76,10 @@ class TestViduConnectionTestUrl:
         assert captured["url"].endswith("/tasks/0/creations")
 
     def test_404_is_success(self, monkeypatch: pytest.MonkeyPatch):
+        """404 表示凭证能用、只是那条探测路径不存在——连通性判定按成功收（不抛且无返回）。"""
         self._patched_client(monkeypatch, status_code=404)
-        vidu_shared.test_vidu_connection({"api_key": "vda_test"})  # 不抛错即成功
+
+        assert vidu_shared.test_vidu_connection({"api_key": "vda_test"}) is None
 
     def test_401_is_invalid_credential(self, monkeypatch: pytest.MonkeyPatch):
         self._patched_client(monkeypatch, status_code=401)

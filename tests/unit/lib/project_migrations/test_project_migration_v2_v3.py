@@ -149,5 +149,9 @@ def test_remaining_file_preserved(tmp_path: Path):
 
 
 def test_missing_project_json_is_noop(tmp_path: Path):
-    (tmp_path / "empty").mkdir()
-    migrate_v2_to_v3(tmp_path / "empty")  # 不抛错
+    """没有 project.json 的目录：迁移既不抛错，也不得凭空造出任何文件。"""
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    assert migrate_v2_to_v3(empty) is None
+    assert list(empty.iterdir()) == []

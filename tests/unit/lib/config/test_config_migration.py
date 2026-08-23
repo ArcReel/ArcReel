@@ -87,8 +87,11 @@ async def test_migrate_aistudio_001_to_preview(db_session: AsyncSession, tmp_pat
 
 
 async def test_migrate_noop_if_no_file(db_session: AsyncSession, tmp_path: Path):
+    """源文件不存在：迁移直接返回，不抛错也不落任何配置行。"""
     nonexistent = tmp_path / ".system_config.json"
-    await migrate_json_to_db(db_session, nonexistent)  # should not raise
+
+    assert await migrate_json_to_db(db_session, nonexistent) is None
+    assert not nonexistent.exists()
 
 
 # ---------------------------------------------------------------------------

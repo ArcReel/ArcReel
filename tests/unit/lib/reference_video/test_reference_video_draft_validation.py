@@ -29,17 +29,22 @@ _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 class TestSourceTextAnchor:
     def test_verbatim_substring_accepted(self):
-        validate_source_text_anchor("unit E1U01", "李明推开酒馆的门", "夜色深沉。李明推开酒馆的门，环视四周。")
+        assert (
+            validate_source_text_anchor("unit E1U01", "李明推开酒馆的门", "夜色深沉。李明推开酒馆的门，环视四周。")
+            is None
+        )
 
     def test_whitespace_differences_tolerated(self):
         """空白折叠后比对：换行 / 缩进的还原不可靠，但删字改字必须被抓住。"""
-        validate_source_text_anchor("unit E1U01", "李明推开\n  酒馆的门", "李明推开 酒馆的门，环视四周。")
+        assert (
+            validate_source_text_anchor("unit E1U01", "李明推开\n  酒馆的门", "李明推开 酒馆的门，环视四周。") is None
+        )
 
     def test_unicode_form_differences_tolerated(self):
         """源文以 NFD 落盘、模型回写 NFC（组合附加符语种常见）不算改写：两侧先归一到 NFC。"""
         novel = unicodedata.normalize("NFD", "Anh ấy mở cửa quán rượu.")
         anchor = unicodedata.normalize("NFC", "Anh ấy mở cửa")
-        validate_source_text_anchor("unit E1U01", anchor, novel)
+        assert validate_source_text_anchor("unit E1U01", anchor, novel) is None
 
     def test_rewritten_text_rejected(self):
         with pytest.raises(DraftViolation, match="不是小说原文的逐字片段"):
@@ -205,7 +210,7 @@ class TestUnitText:
 
 class TestDialogueLoad:
     def test_within_budget_accepted(self):
-        validate_dialogue_load("unit E1U01", "镜头1：门开了\n@[李明]：{我来了。}", 4, "zh")
+        assert validate_dialogue_load("unit E1U01", "镜头1：门开了\n@[李明]：{我来了。}", 4, "zh") is None
 
     def test_overload_rejected(self):
         long_line = "这是一段非常长的台词" * 6  # 60 字 ÷ 5 字/秒 ≈ 12 秒
@@ -216,7 +221,7 @@ class TestDialogueLoad:
         """宽容系数内放行：语速是统计估算，「刚好写满」的正常产出不该被判违约。"""
         # 21 字 ÷ 5 字/秒 = 4.2 秒，落在 4 秒 × 1.2 = 4.8 秒的宽容上限内
         line = "一二三四五六七八九十一二三四五六七八九十。"
-        validate_dialogue_load("unit E1U01", f"@[李明]：{{{line}}}", 4, "zh")
+        assert validate_dialogue_load("unit E1U01", f"@[李明]：{{{line}}}", 4, "zh") is None
 
     def test_voiceover_counts_toward_budget(self):
         long_line = "画外音很长很长的一段" * 6
@@ -232,13 +237,13 @@ class TestDialogueLoad:
 
     def test_non_string_language_falls_back_to_default_rate(self):
         """project.json 的 source_language 可能是脏数据：估算按默认语速走，不抛 AttributeError。"""
-        validate_dialogue_load("unit E1U01", "@[李明]：{我来了。}", 4, 123)  # pyright: ignore[reportArgumentType]
+        assert validate_dialogue_load("unit E1U01", "@[李明]：{我来了。}", 4, 123) is None  # pyright: ignore[reportArgumentType]
 
     def test_normalizes_unicode_before_estimating(self):
         """NFD 台词先归一再估：组合附加符会被词计数拆成多个单位，不归一会把念得完的 unit 判超载。"""
         line = "Anh ấy mở cửa quán rượu ngay lập tức"
         text = f"镜头1：@[李明] 推门\n@[李明]：{{{unicodedata.normalize('NFD', line)}}}"
-        validate_dialogue_load("unit E1U01", text, 4, "vi")
+        assert validate_dialogue_load("unit E1U01", text, 4, "vi") is None
 
 
 class TestNormativeLines:

@@ -86,7 +86,8 @@ FIRST_IMPORT_MODULES = [
 
 @pytest.mark.parametrize("module_name", MODULES)
 def test_module_imports_cleanly(module_name: str) -> None:
-    importlib.import_module(module_name)
+    """冒烟：模块能导入，且导进来的确实是它自己（而非同名的部分初始化占位）。"""
+    assert importlib.import_module(module_name).__name__ == module_name
 
 
 @pytest.mark.parametrize("module_name", FIRST_IMPORT_MODULES)

@@ -33,7 +33,12 @@ CAPS_WITH_PROMPT_LIMIT = VideoCapabilities(first_frame=True, max_prompt_chars=10
 
 
 def _gate(caps: VideoCapabilities | None, **kwargs):
-    gate_video_request(caps=caps, provider="acme", model="acme-v1", **kwargs)
+    """跑一遍请求期校验并透出返回值。
+
+    校验器的放行契约就是「不抛且无返回」，放行用例据此断言 ``is None``——否则「通过」只能
+    靠「这个测试没炸」隐式表达，用例体一旦被清空也不会有人发现。
+    """
+    return gate_video_request(caps=caps, provider="acme", model="acme-v1", **kwargs)
 
 
 def _plan(caps: VideoCapabilities | None, **kwargs):
@@ -86,7 +91,7 @@ class TestLastFrameGating:
 
     def test_uncharted_caps_without_end_image_passes(self):
         """caps=None（调用方未查询能力）× 三条路径都不走：无需能力声明即可放行。"""
-        _gate(None)
+        assert _gate(None) is None
 
     def test_uncharted_caps_with_end_image_raises(self):
         """caps=None × 携带尾帧：未经能力核实的尾帧一律拒绝，不按"支持"放行。"""
@@ -173,7 +178,7 @@ class TestReferenceImageGating:
         assert exc.value.params == {"provider": "acme", "model": "acme-v1", "limit": 4, "count": 5}
 
     def test_reference_images_at_limit_pass(self):
-        _gate(CAPS_WITH_LAST_FRAME, reference_images=[Path(f"r{i}.png") for i in range(4)])
+        assert _gate(CAPS_WITH_LAST_FRAME, reference_images=[Path(f"r{i}.png") for i in range(4)]) is None
 
     def test_reference_images_on_zero_capacity_model_raise(self):
         with pytest.raises(VideoCapabilityError) as exc:
@@ -199,10 +204,10 @@ class TestReferenceAudioGating:
         assert exc.value.params == {"provider": "acme", "model": "acme-v1"}
 
     def test_audio_within_limit_passes(self):
-        _gate(CAPS_WITH_AUDIO, reference_audio_files=[Path("a.mp3"), Path("b.wav")])
+        assert _gate(CAPS_WITH_AUDIO, reference_audio_files=[Path("a.mp3"), Path("b.wav")]) is None
 
     def test_audio_at_limit_passes(self):
-        _gate(CAPS_WITH_AUDIO, reference_audio_files=[Path(f"a{i}.mp3") for i in range(3)])
+        assert _gate(CAPS_WITH_AUDIO, reference_audio_files=[Path(f"a{i}.mp3") for i in range(3)]) is None
 
     def test_audio_beyond_limit_raises(self):
         with pytest.raises(VideoCapabilityError) as exc:
@@ -219,22 +224,28 @@ class TestReferenceAudioGating:
 
     def test_empty_audio_list_passes_on_incapable_model(self):
         """空列表与 None 同义：没有音频诉求就不该被音频能力挡住。"""
-        _gate(CAPS_WITH_LAST_FRAME, reference_audio_files=[])
+        assert _gate(CAPS_WITH_LAST_FRAME, reference_audio_files=[]) is None
 
 
 class TestReferenceAudioDurationGating:
     def test_total_within_limit_passes(self):
-        _gate(
-            CAPS_WITH_AUDIO_DURATION_LIMIT,
-            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
-            reference_audio_total_seconds=14.9,
+        assert (
+            _gate(
+                CAPS_WITH_AUDIO_DURATION_LIMIT,
+                reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+                reference_audio_total_seconds=14.9,
+            )
+            is None
         )
 
     def test_total_at_limit_passes(self):
-        _gate(
-            CAPS_WITH_AUDIO_DURATION_LIMIT,
-            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
-            reference_audio_total_seconds=15.0,
+        assert (
+            _gate(
+                CAPS_WITH_AUDIO_DURATION_LIMIT,
+                reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+                reference_audio_total_seconds=15.0,
+            )
+            is None
         )
 
     def test_total_beyond_limit_raises(self):
@@ -250,27 +261,33 @@ class TestReferenceAudioDurationGating:
 
     def test_unknown_total_skips_check_even_when_limit_declared(self):
         """探测失败（total=None）按仓库既有降级口径跳过校验，不当作超限拒绝。"""
-        _gate(
-            CAPS_WITH_AUDIO_DURATION_LIMIT,
-            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
-            reference_audio_total_seconds=None,
+        assert (
+            _gate(
+                CAPS_WITH_AUDIO_DURATION_LIMIT,
+                reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+                reference_audio_total_seconds=None,
+            )
+            is None
         )
 
     def test_no_declared_limit_skips_check_regardless_of_total(self):
         """caps 未声明总时长约束（None）：即便传了很大的 total 也不拦——该维度对这个后端不适用。"""
-        _gate(
-            CAPS_WITH_AUDIO,
-            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
-            reference_audio_total_seconds=1000.0,
+        assert (
+            _gate(
+                CAPS_WITH_AUDIO,
+                reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+                reference_audio_total_seconds=1000.0,
+            )
+            is None
         )
 
 
 class TestPromptLengthGating:
     def test_prompt_within_limit_passes(self):
-        _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 99)
+        assert _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 99) is None
 
     def test_prompt_at_limit_passes(self):
-        _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 100)
+        assert _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 100) is None
 
     def test_prompt_beyond_limit_raises(self):
         with pytest.raises(VideoCapabilityError) as exc:
@@ -281,15 +298,15 @@ class TestPromptLengthGating:
 
     def test_limit_counts_characters_not_bytes(self):
         """计量口径是字符数，中英文同权——按字节算会把中文 prompt 误拒。"""
-        _gate(CAPS_WITH_PROMPT_LIMIT, prompt="中" * 100)
+        assert _gate(CAPS_WITH_PROMPT_LIMIT, prompt="中" * 100) is None
 
     def test_no_declared_limit_skips_check(self):
         """caps 未声明上限：任意长度都放行，未声明不等于上限为 0。"""
-        _gate(CAPS_WITH_LAST_FRAME, prompt="x" * 100_000)
+        assert _gate(CAPS_WITH_LAST_FRAME, prompt="x" * 100_000) is None
 
     def test_none_caps_skips_check(self):
         """能力未查询（caps=None）时不拦 prompt——无从得知上限，拒绝反成误伤。"""
-        _gate(None, prompt="x" * 100_000)
+        assert _gate(None, prompt="x" * 100_000) is None
 
     def test_prompt_checked_before_optional_paths(self):
         """prompt 违约先于尾帧等可选路径报出，用户一次只看到最先命中的那条。"""

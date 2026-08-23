@@ -794,15 +794,16 @@ class TestGeneratedAssetsTemplateContract:
         from lib.project_manager import ProjectManager
         from lib.script_models import GeneratedAssets
 
-        # 不抛即通过——template 任何 key 不在模型字段集时 extra="forbid" 会抛 ValidationError
-        GeneratedAssets.model_validate(ProjectManager.create_generated_assets())
-        GeneratedAssets.model_validate(ProjectManager.create_generated_assets("drama"))
+        # template 任何 key 不在模型字段集时 extra="forbid" 会抛；断验出来的对象带齐 template 的键
+        for template in (ProjectManager.create_generated_assets(), ProjectManager.create_generated_assets("drama")):
+            validated = GeneratedAssets.model_validate(template)
+            assert set(template) <= set(validated.model_dump())
 
     def test_video_thumbnail_runtime_write_passes_strict_validation(self):
         """reference_video_tasks 在视频生成后会写 ga['video_thumbnail'],模型必须接受。"""
         from lib.script_models import GeneratedAssets
 
-        GeneratedAssets.model_validate(
+        validated = GeneratedAssets.model_validate(
             {
                 "storyboard_image": "scenes/E1S01.png",
                 "video_clip": "videos/E1S01.mp4",
@@ -811,6 +812,8 @@ class TestGeneratedAssetsTemplateContract:
                 "status": "completed",
             }
         )
+
+        assert validated.video_thumbnail == "thumbnails/E1S01.jpg"
 
 
 class TestResolveContentMode:
