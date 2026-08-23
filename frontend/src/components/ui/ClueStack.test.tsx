@@ -24,7 +24,7 @@ describe("ClueStack (read-only)", () => {
         projectName="demo"
       />,
     );
-    expect(container.firstChild).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("renders chips for both scenes and props in order (scenes first)", () => {
@@ -65,6 +65,6 @@ describe("ClueStack (read-only)", () => {
         projectName="demo"
       />,
     );
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

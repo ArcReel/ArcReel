@@ -32,7 +32,7 @@ describe("ProgressBar", () => {
     const { getByRole } = render(<ProgressBar value={25} />);
     const bar = getByRole("progressbar");
     const fill = bar.firstElementChild as HTMLElement;
-    expect(fill.style.width).toBe("25%");
+    expect(fill).toHaveStyle({ width: "25%" });
   });
 
   it("applies aria-label when label prop provided", () => {
@@ -45,7 +45,7 @@ describe("ProgressBar", () => {
       <ProgressBar value={50} className="h-2" barClassName="bg-emerald-500" />,
     );
     const bar = getByRole("progressbar");
-    expect(bar.className).toContain("h-2");
-    expect((bar.firstElementChild as HTMLElement).className).toContain("bg-emerald-500");
+    expect(bar).toHaveClass("h-2");
+    expect(bar.firstElementChild as HTMLElement).toHaveClass("bg-emerald-500");
   });
 });

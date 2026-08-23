@@ -451,7 +451,7 @@ describe("VersionTimeMachine", () => {
     fireEvent.click(screen.getByRole("button", { name: "v1" }));
 
     const restoreButton = await screen.findByRole("button", { name: /切换到此版本/ });
-    expect(restoreButton).not.toBeDisabled();
+    expect(restoreButton).toBeEnabled();
 
     fireEvent.click(restoreButton);
 

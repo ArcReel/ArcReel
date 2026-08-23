@@ -75,6 +75,26 @@ jobs:
       - name: Agent Runtime Profile integrity
         run: uv run python scripts/lint_agent_runtime_profile.py
 
+  test-lint:
+    # 测试卫生闸门：scripts/audit_tests.py --check（零第三方依赖，纯 stdlib ast）。
+    # 独立于 backend-static：脚本同时扫后端 tests/ 与 frontend/src/**/*.test.*，
+    # 只挂 backend 域会让 frontend-only PR 绕过前端段。
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Test hygiene gate (audit_tests --check)
+        run: python scripts/audit_tests.py --check
+
   backend-tests:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
@@ -430,6 +450,7 @@ jobs:
       [
         changes,
         backend-static,
+        test-lint,
         backend-tests,
         postgres-compat,
         frontend-tests,

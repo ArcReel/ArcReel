@@ -41,7 +41,7 @@ describe("MigrationRepairBanner", () => {
   it("stays out of the way while the project is healthy", () => {
     setProjectStatus(HEALTHY);
     render(<MigrationRepairBanner />);
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows the raw failure reason when the project needs repair", () => {

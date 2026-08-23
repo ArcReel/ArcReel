@@ -68,8 +68,6 @@ cd frontend && pnpm check
 
 pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
-> **过渡期说明**：本章描述整改完成后的目标态，存量测试与相关工程配置正按整改 Spec 分批对齐；条目与现状不符时（前端绕过 `API` class 的直接 `fetch`/`EventSource` 调用、eslint 强制项的现行 CI/lint 配置、`testTimeout` 等 vitest 配置、尚未建立的 `src/test/` 共享设施），以本章为改造方向。`scripts/audit_tests.py` 的 `--check` 形态与 CI 的 `test-lint` 步骤当前尚不存在，随首道闸门落地，每道闸门与对应存量清零同一 PR 上线。整改完成后删除本段。
-
 ### 分层与目录
 
 后端每个用例恰好属于一个档位，CI 默认执行 `-m "not e2e"`：
@@ -127,13 +125,13 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 ### 闸门
 
-- 入口唯一：`uv run python scripts/audit_tests.py --check`，本地与 CI（独立 `test-lint` 步骤）同一条命令；输出 `规则号 file:line 修复指引`。
+- 入口唯一：本地 `uv run python scripts/audit_tests.py --check`，CI 的独立 `test-lint` 作业跑同一脚本、同一 `--check`（脚本零第三方依赖，该作业只装 Python 不装项目依赖）；输出 `规则号 file:line 修复指引`。
 - 零容忍：违规数恒为 0，无基线、无棘轮、无豁免标注；脚本误报通过修改脚本解决，不为用例添加豁免；新增规则与其存量清零同 PR 上线。
 - 分工：AST 脚本负责代码结构；pytest 收集期只做档位相关校验；运行期不新增检查。前端语义类规则归 eslint，结构类规则由同一脚本扫描 `frontend/src/**/*.test.*`。
 
 ### 前端测试（vitest）
 
-- **API 打桩**：`vi.spyOn(API, method)` 是标准打桩边界（`API` class 是前端唯一出站口）；`api.ts` 本体测试用手写 fetch/Response stub；不引入 msw。禁止整模块 `vi.mock("@/api")` 与 `vi.mock("react-i18next")`（eslint 强制；全局 setup 已加载真实中文 i18n，整体 mock 后无法发现翻译缺失）。
+- **API 打桩**：`vi.spyOn(API, method)` 是标准打桩边界（新增出站调用一律经 `API` class，少数历史直连 `fetch` / `EventSource` 尚未收编）；`api.ts` 本体测试用手写 fetch/Response stub；不引入 msw。禁止整模块 `vi.mock("@/api")` 与 `vi.mock("react-i18next")`（eslint 强制；全局 setup 已加载真实中文 i18n，整体 mock 后无法发现翻译缺失）。
 - **SSE 打桩**：统一使用 `src/test/` 的共享 `FakeEventSource`，由 `API.openProjectEventStream` 的 spy 返回其实例。
 - **mock 内部子组件**须属三类之一：重量级（虚拟化/动画/canvas）、有副作用（发起请求/启动定时器）、与本测试无关的纯展示；同一组件被 ≥3 个文件 mock 时上提 `src/__mocks__/`。
 - **共享设施**：与被测对象无关的横切工具（`createDeferred`、`FakeEventSource`、factories）重复出现在 ≥3 个文件时上提 `src/test/`；API spy 组合豁免收编（各文件 spy 的方法组合互不相同，没有可提取的公共形状）；本地 `renderXxx` 仅在同一形状重复出现于 ≥3 个文件时上提。

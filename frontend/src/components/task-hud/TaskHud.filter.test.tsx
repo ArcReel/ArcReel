@@ -121,7 +121,7 @@ describe("TaskHud status filter", () => {
     render(<HostedTaskHud />);
 
     for (const resourceId of ["RUNNING1", "QUEUED1", "FAILED1", "DONE1", "CANCELLED1"]) {
-      expect(await screen.findByText(resourceId)).toBeTruthy();
+      expect(await screen.findByText(resourceId)).toBeInTheDocument();
     }
   });
 
@@ -129,15 +129,15 @@ describe("TaskHud status filter", () => {
     vi.useFakeTimers();
     try {
       render(<HostedTaskHud />);
-      expect(screen.getByText("DONE1")).toBeTruthy();
+      expect(screen.getByText("DONE1")).toBeInTheDocument();
 
       // 旧实现在 3s 后淡出、3.4s 后移除终态任务。
       await act(async () => {
         vi.advanceTimersByTime(10_000);
       });
 
-      expect(screen.getByText("DONE1")).toBeTruthy();
-      expect(screen.getByText("CANCELLED1")).toBeTruthy();
+      expect(screen.getByText("DONE1")).toBeInTheDocument();
+      expect(screen.getByText("CANCELLED1")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -149,10 +149,10 @@ describe("TaskHud status filter", () => {
 
     await user.click(pill(/进行中/));
 
-    expect(screen.getByText("RUNNING1")).toBeTruthy();
-    expect(screen.getByText("QUEUED1")).toBeTruthy();
-    expect(screen.queryByText("FAILED1")).toBeNull();
-    expect(screen.queryByText("DONE1")).toBeNull();
+    expect(screen.getByText("RUNNING1")).toBeInTheDocument();
+    expect(screen.getByText("QUEUED1")).toBeInTheDocument();
+    expect(screen.queryByText("FAILED1")).not.toBeInTheDocument();
+    expect(screen.queryByText("DONE1")).not.toBeInTheDocument();
   });
 
   it("narrows the list to failed tasks under 'failed'", async () => {
@@ -161,9 +161,9 @@ describe("TaskHud status filter", () => {
 
     await user.click(pill(/失败/));
 
-    expect(screen.getByText("FAILED1")).toBeTruthy();
-    expect(screen.queryByText("RUNNING1")).toBeNull();
-    expect(screen.queryByText("DONE1")).toBeNull();
+    expect(screen.getByText("FAILED1")).toBeInTheDocument();
+    expect(screen.queryByText("RUNNING1")).not.toBeInTheDocument();
+    expect(screen.queryByText("DONE1")).not.toBeInTheDocument();
   });
 
   it("groups succeeded and cancelled under 'done'", async () => {
@@ -172,30 +172,30 @@ describe("TaskHud status filter", () => {
 
     await user.click(pill(/完成/));
 
-    expect(screen.getByText("DONE1")).toBeTruthy();
-    expect(screen.getByText("CANCELLED1")).toBeTruthy();
-    expect(screen.queryByText("FAILED1")).toBeNull();
+    expect(screen.getByText("DONE1")).toBeInTheDocument();
+    expect(screen.getByText("CANCELLED1")).toBeInTheDocument();
+    expect(screen.queryByText("FAILED1")).not.toBeInTheDocument();
   });
 
   it("marks the selected pill as pressed", async () => {
     const user = userEvent.setup();
     render(<HostedTaskHud />);
 
-    expect(pill(/全部/).getAttribute("aria-pressed")).toBe("true");
+    expect(pill(/全部/)).toHaveAttribute("aria-pressed", "true");
 
     await user.click(pill(/失败/));
 
-    expect(pill(/失败/).getAttribute("aria-pressed")).toBe("true");
-    expect(pill(/全部/).getAttribute("aria-pressed")).toBe("false");
+    expect(pill(/失败/)).toHaveAttribute("aria-pressed", "true");
+    expect(pill(/全部/)).toHaveAttribute("aria-pressed", "false");
   });
 
   it("counts the loaded tasks per bucket", async () => {
     render(<HostedTaskHud />);
 
-    expect(pill(/全部/).textContent).toContain("5");
-    expect(pill(/进行中/).textContent).toContain("2");
-    expect(pill(/失败/).textContent).toContain("1");
-    expect(pill(/完成/).textContent).toContain("2");
+    expect(pill(/全部/)).toHaveTextContent(/5/);
+    expect(pill(/进行中/)).toHaveTextContent(/2/);
+    expect(pill(/失败/)).toHaveTextContent(/1/);
+    expect(pill(/完成/)).toHaveTextContent(/2/);
   });
 
   it("keeps running tasks above queued and terminal ones", async () => {
@@ -244,7 +244,7 @@ describe("TaskHud status filter", () => {
     render(<HostedTaskHud />);
 
     for (let index = 0; index < 8; index += 1) {
-      expect(screen.getByText(`MANY${index}`)).toBeTruthy();
+      expect(screen.getByText(`MANY${index}`)).toBeInTheDocument();
     }
   });
 });

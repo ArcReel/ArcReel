@@ -247,7 +247,7 @@ describe("ModelConfigSection", () => {
         expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
       }
       // 界面文案不出现内部术语
-      expect(container.textContent).not.toMatch(/能力桶|任务类型桶|capability bucket/i);
+      expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
     });
 
     it("feeds each sub-field from its own filtered candidate list while the default layer stays unfiltered", async () => {
@@ -647,7 +647,7 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    expect(screen.getByRole("radio", { name: "auto" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "auto" })).toBeChecked();
   });
 
   it("marks the selected duration radio as checked", () => {
@@ -660,8 +660,8 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    expect(screen.getByRole("radio", { name: "6 秒" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: "4 秒" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("radio", { name: "6 秒" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "4 秒" })).not.toBeChecked();
   });
 
   it("calls onChange with updated defaultDuration when duration button clicked", async () => {
@@ -694,9 +694,9 @@ describe("ModelConfigSection", () => {
     expect(screen.getByText(/10/)).toBeInTheDocument();
     expect(screen.getByText(/不再受当前模型支持/)).toBeInTheDocument();
     // 无任何时长钮处于激活态：auto 与所有数字钮 aria-checked 均为 false
-    expect(screen.getByRole("radio", { name: "auto" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("radio", { name: "auto" })).not.toBeChecked();
     for (const sec of ["4 秒", "6 秒", "8 秒"]) {
-      expect(screen.getByRole("radio", { name: sec })).toHaveAttribute("aria-checked", "false");
+      expect(screen.getByRole("radio", { name: sec })).not.toBeChecked();
     }
     // 越界态下 auto 兜底为可聚焦入口，键盘仍能 Tab 进 radiogroup 重选（无元素 tabIndex=0 会成键盘陷阱）
     expect(screen.getByRole("radio", { name: "auto" })).toHaveAttribute("tabindex", "0");
@@ -776,7 +776,7 @@ describe("ModelConfigSection", () => {
     expect(screen.getByText(/不再受当前模型支持/)).toBeInTheDocument();
     // 越界值的读数/aria-valuetext 忠实显示原值，而非误报为 auto——与未激活的 auto 钮及
     // 点名秒数的越界提示一致
-    expect(slider.getAttribute("aria-valuetext")).toMatch(/20/);
+    expect(slider).toHaveAttribute("aria-valuetext", expect.stringMatching(/20/));
     expect(slider.getAttribute("aria-valuetext")).not.toBe("auto");
     await user.click(screen.getByRole("button", { name: "回退到 auto" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: null }));
@@ -873,13 +873,13 @@ describe("ModelConfigSection", () => {
     renderVeo({ ...overrides, defaultDuration: 4 });
     expect(screen.getByRole("alert")).toHaveTextContent(expected);
     expect(screen.getByRole("alert")).not.toHaveTextContent(/不再受当前模型支持/);
-    expect(screen.getByRole("radio", { name: "8 秒" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("radio", { name: "8 秒" })).not.toBeChecked();
   });
 
   it("keeps a saved 4s duration valid when neither constraint applies", () => {
     renderVeo({ videoResolution: "720p", defaultDuration: 4 });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "4 秒" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "4 秒" })).toBeChecked();
   });
 });
 

@@ -81,7 +81,7 @@ def _client(monkeypatch):
     return TestClient(app)
 
 
-class TestAssistantRouterFull:
+class TestAssistantRouter:
     def test_full_endpoints_and_errors(self, monkeypatch):
         with _client(monkeypatch) as client:
             # POST /sessions/send — new session (no session_id)

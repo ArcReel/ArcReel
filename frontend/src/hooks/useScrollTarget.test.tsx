@@ -59,13 +59,13 @@ describe("useScrollTarget", () => {
       });
     });
 
-    expect(el.classList.contains("workspace-focus-flash")).toBe(true);
+    expect(el).toHaveClass("workspace-focus-flash");
 
     act(() => {
       vi.advanceTimersByTime(2400);
     });
 
-    expect(el.classList.contains("workspace-focus-flash")).toBe(false);
+    expect(el).not.toHaveClass("workspace-focus-flash");
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
 

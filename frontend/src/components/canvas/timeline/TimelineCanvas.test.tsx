@@ -167,7 +167,7 @@ describe("TimelineCanvas", () => {
       expect(shotView).toHaveAttribute("data-can-update-prompt", "no");
       expect(shotView).toHaveAttribute("data-can-generate-narration", "no");
       expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "no");
-      expect(screen.queryByRole("button", { name: "生成全集旁白配音" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "生成全集旁白配音" })).not.toBeInTheDocument();
     });
 
     it("keeps the same write handlers outside the demo workbench", () => {

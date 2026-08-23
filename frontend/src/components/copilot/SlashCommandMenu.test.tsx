@@ -40,7 +40,7 @@ describe("SlashCommandMenu", () => {
 
   it("returns null when no skills match", () => {
     const { container } = render(<SlashCommandMenu filter="nonexistent" onSelect={onSelect} />);
-    expect(container.firstChild).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("calls onSelect with command on mousedown", () => {

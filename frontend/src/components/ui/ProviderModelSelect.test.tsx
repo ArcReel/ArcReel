@@ -112,7 +112,7 @@ describe("ProviderModelSelect – search", () => {
       />,
     );
     await user.click(screen.getByRole("combobox"));
-    expect(screen.queryByPlaceholderText(/搜索模型或供应商/)).toBeNull();
+    expect(screen.queryByPlaceholderText(/搜索模型或供应商/)).not.toBeInTheDocument();
   });
 
   it("renders search input when option count meets threshold", async () => {
@@ -212,7 +212,7 @@ describe("ProviderModelSelect – search", () => {
     await user.click(screen.getByRole("combobox"));
     expect(screen.getByText(/跟随全局默认/)).toBeInTheDocument();
     await user.type(screen.getByPlaceholderText(/搜索模型或供应商/), "veo");
-    expect(screen.queryByText(/跟随全局默认/)).toBeNull();
+    expect(screen.queryByText(/跟随全局默认/)).not.toBeInTheDocument();
   });
 
   it("does not render search input when searchable is false", async () => {
@@ -227,7 +227,7 @@ describe("ProviderModelSelect – search", () => {
       />,
     );
     await user.click(screen.getByRole("combobox"));
-    expect(screen.queryByPlaceholderText(/搜索模型或供应商/)).toBeNull();
+    expect(screen.queryByPlaceholderText(/搜索模型或供应商/)).not.toBeInTheDocument();
   });
 
   it("respects custom searchThreshold", async () => {
@@ -350,7 +350,7 @@ describe("ProviderModelSelect – search", () => {
         searchable={false}
       />,
     );
-    expect(screen.queryByPlaceholderText(/搜索模型或供应商/)).toBeNull();
+    expect(screen.queryByPlaceholderText(/搜索模型或供应商/)).not.toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(MANY_OPTIONS.length);
   });
 

@@ -108,7 +108,7 @@ describe("EndFrameRow 摘要", () => {
 
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     expect(getByRole("button", { name: "选择图片" })).toBeInTheDocument();
-    expect(queryByRole("button", { name: "清除" })).toBeNull();
+    expect(queryByRole("button", { name: "清除" })).not.toBeInTheDocument();
   });
 
   it("已设置尾帧时摘要为「已设置」，展开给「更换图片」与「清除」", async () => {
@@ -124,7 +124,7 @@ describe("EndFrameRow 摘要", () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
     const { findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     // 摘要只说尾帧设没设，能力维度交给警告条，否则「已设置」被盖掉、用户看不出有东西要清。
-    await findByText("已设置");
+    expect(await findByText("已设置")).toBeInTheDocument();
   });
 });
 
@@ -200,7 +200,7 @@ describe("EndFrameRow 能力警告", () => {
   it("模型支持尾帧时无警告", async () => {
     const { findByText, queryByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("已设置");
-    expect(queryByRole("alert")).toBeNull();
+    expect(queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("未设尾帧的分镜即使模型不支持也不出警告", async () => {
@@ -208,7 +208,7 @@ describe("EndFrameRow 能力警告", () => {
     const { findByText, queryByRole } = renderRow({ endFramePath: null });
     await findByText("未设置");
     // 没有会被拒绝的东西，不打扰。
-    expect(queryByRole("alert")).toBeNull();
+    expect(queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("换模型后警告随最新能力结果出现", async () => {
@@ -217,7 +217,7 @@ describe("EndFrameRow 能力警告", () => {
       endFramePath: "end_frames/scene_E1S01.png",
     });
     await findByText("已设置");
-    expect(queryByRole("alert")).toBeNull();
+    expect(queryByRole("alert")).not.toBeInTheDocument();
 
     spy.mockResolvedValue(caps(false));
     rerender(
@@ -240,7 +240,7 @@ describe("EndFrameRow 能力警告", () => {
       endFramePath: "end_frames/scene_E1S01.png",
     });
     await findByText("已设置");
-    expect(queryByRole("alert")).toBeNull();
+    expect(queryByRole("alert")).not.toBeInTheDocument();
 
     // 能力覆盖写在供应商配置上、不落任何项目字段：没有 props 会变，靠失效信号驱动重取。
     spy.mockResolvedValue(caps(false));
@@ -257,14 +257,14 @@ describe("EndFrameRow 能力警告", () => {
 
     spy.mockResolvedValue(caps(true));
     act(() => useCapabilitiesStore.getState().invalidate());
-    await waitFor(() => expect(queryByRole("alert")).toBeNull());
+    await waitFor(() => expect(queryByRole("alert")).not.toBeInTheDocument());
   });
 
   it("能力查询失败时不谎报不支持", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new Error("boom"));
     const { findByText, queryByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("已设置");
-    expect(queryByRole("alert")).toBeNull();
+    expect(queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("警告里的清除按占用态同步禁用", async () => {
@@ -283,7 +283,7 @@ describe("EndFrameRow 能力警告", () => {
     });
     const alert = await findByRole("alert");
     expect(alert).toHaveTextContent(/当前模型不支持尾帧/);
-    expect(within(alert).queryByRole("button")).toBeNull();
+    expect(within(alert).queryByRole("button")).not.toBeInTheDocument();
   });
 });
 
@@ -448,7 +448,7 @@ describe("EndFrameRow 占用态", () => {
     await findByText("已设置");
 
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
-    expect(queryByRole("button", { name: "更换图片" })).toBeNull();
-    expect(queryByRole("button", { name: "清除" })).toBeNull();
+    expect(queryByRole("button", { name: "更换图片" })).not.toBeInTheDocument();
+    expect(queryByRole("button", { name: "清除" })).not.toBeInTheDocument();
   });
 });

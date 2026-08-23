@@ -65,12 +65,12 @@ describe("TaskHud generation warnings", () => {
     const row = screen.getByText("WARNED1").closest('[role="button"]');
     expect(row).toBeTruthy();
     expect(row?.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText(WARNING_TEXT)).toBeNull();
+    expect(screen.queryByText(WARNING_TEXT)).not.toBeInTheDocument();
 
     await user.click(row as HTMLElement);
 
     expect(row?.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText(WARNING_TEXT)).toBeTruthy();
+    expect(screen.getByText(WARNING_TEXT)).toBeInTheDocument();
   });
 
   it("renders every warning as its own list item", async () => {
@@ -109,7 +109,7 @@ describe("TaskHud generation warnings", () => {
     render(<HostedTaskHud />);
 
     expect(screen.getByText("WARNED1").closest('[role="button"]')).toBeNull();
-    expect(screen.queryByText(/object Object/)).toBeNull();
+    expect(screen.queryByText(/object Object/)).not.toBeInTheDocument();
   });
 
   it("keeps the failure tint on a failed task that carries no error_message", () => {
@@ -151,7 +151,7 @@ describe("TaskHud generation warnings", () => {
 
     await user.click(screen.getByText("FAILEDWARN").closest('[role="button"]') as HTMLElement);
 
-    expect(screen.getByText("provider rejected the request")).toBeTruthy();
-    expect(screen.queryByText(WARNING_TEXT)).toBeNull();
+    expect(screen.getByText("provider rejected the request")).toBeInTheDocument();
+    expect(screen.queryByText(WARNING_TEXT)).not.toBeInTheDocument();
   });
 });

@@ -184,15 +184,12 @@ describe("API", () => {
         }),
       ));
 
-      try {
-        await API.sendAssistantMessage("demo", "hello");
-        expect.fail("request should fail");
-      } catch (error) {
-        expect(error).toBeInstanceOf(AgentFailureError);
-        expect((error as AgentFailureError).message).toBe("Agent 启动失败");
-        expect((error as AgentFailureError).code).toBe("agent_startup_failed");
-        expect((error as AgentFailureError).failure).toEqual(failure);
-      }
+      const error: AgentFailureError = await API.sendAssistantMessage("demo", "hello").catch((e) => e);
+
+      expect(error).toBeInstanceOf(AgentFailureError);
+      expect(error.message).toBe("Agent 启动失败");
+      expect(error.code).toBe("agent_startup_failed");
+      expect(error.failure).toEqual(failure);
     });
 
     it("preserves and presents a structured speech admission blocker", async () => {
@@ -221,15 +218,17 @@ describe("API", () => {
         mockResponse({ ok: false, status: 409, jsonData: { detail: admission } }),
       ));
 
-      try {
-        await API.generateVideo("demo", "E1S01", "vid", "episode_1.json");
-        expect.fail("request should fail");
-      } catch (error) {
-        expect(error).toBeInstanceOf(SpeechAdmissionError);
-        expect((error as SpeechAdmissionError).admission).toEqual(admission);
-        expect((error as Error).message).toContain("E1S01");
-        expect((error as Error).message).toContain("utterances.0.text");
-      }
+      const error: SpeechAdmissionError = await API.generateVideo(
+        "demo",
+        "E1S01",
+        "vid",
+        "episode_1.json",
+      ).catch((e) => e);
+
+      expect(error).toBeInstanceOf(SpeechAdmissionError);
+      expect(error.admission).toEqual(admission);
+      expect(error.message).toContain("E1S01");
+      expect(error.message).toContain("utterances.0.text");
     });
 
     it("preserves a narrated-video duration blocker for an exact-tier retry", async () => {
@@ -289,13 +288,12 @@ describe("API", () => {
         mockResponse({ ok: false, status: 409, jsonData: { detail: result } }),
       ));
 
-      try {
-        await API.updateScene("demo", "E1S01", "episode_1.json", { note: "keep" });
-        expect.fail("request should fail");
-      } catch (error) {
-        expect(error).toBeInstanceOf(ScriptEditCommandError);
-        expect((error as ScriptEditCommandError).result).toEqual(result);
-      }
+      const error: ScriptEditCommandError = await API.updateScene("demo", "E1S01", "episode_1.json", {
+        note: "keep",
+      }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ScriptEditCommandError);
+      expect(error.result).toEqual(result);
     });
 
     it("preserves a structured reference request projection blocker", async () => {
@@ -328,13 +326,9 @@ describe("API", () => {
         mockResponse({ ok: false, status: 400, jsonData: { detail: projection } }),
       ));
 
-      try {
-        await API.precheckReferenceVideoDuration("demo", 1, "E1U1");
-        expect.fail("request should fail");
-      } catch (error) {
-        expect(error).toBeInstanceOf(ReferenceProjectionError);
-        expect(error).toMatchObject({ message: "参考图缺失", projection });
-      }
+      const call = API.precheckReferenceVideoDuration("demo", 1, "E1U1");
+      await expect(call).rejects.toBeInstanceOf(ReferenceProjectionError);
+      await expect(call).rejects.toMatchObject({ message: "参考图缺失", projection });
     });
 
     it("clears auth and redirects on unauthorized responses", async () => {
@@ -1437,27 +1431,18 @@ describe("uploadFile (source) onConflict", () => {
         { status: 409 }
       )
     );
-    try {
-      await API.uploadFile("p", "source", new File(["x"], "a.txt"));
-      expect.unreachable();
-    } catch (err) {
-      expect(err).toBeInstanceOf(ConflictError);
-      expect((err as ConflictError).existing).toBe("a.txt");
-      expect((err as ConflictError).suggestedName).toBe("a_1");
-    }
+    const call = API.uploadFile("p", "source", new File(["x"], "a.txt"));
+    await expect(call).rejects.toBeInstanceOf(ConflictError);
+    await expect(call).rejects.toMatchObject({ existing: "a.txt", suggestedName: "a_1" });
   });
 
   it("throws generic Error (not ConflictError) on 409 with malformed detail", async () => {
     (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Response(JSON.stringify({ detail: {} }), { status: 409 }),
     );
-    try {
-      await API.uploadFile("p", "source", new File(["x"], "a.txt"));
-      expect.unreachable();
-    } catch (err) {
-      // 避免前端手搓 suggested_name 冒充后端语义：detail 不完整时应直接报协议异常
-      expect(err).not.toBeInstanceOf(ConflictError);
-      expect((err as Error).message).toContain("a.txt");
-    }
+    // 避免前端手搓 suggested_name 冒充后端语义：detail 不完整时应直接报协议异常
+    const call = API.uploadFile("p", "source", new File(["x"], "a.txt"));
+    await expect(call).rejects.not.toBeInstanceOf(ConflictError);
+    await expect(call).rejects.toThrow("a.txt");
   });
 });

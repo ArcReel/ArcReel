@@ -67,7 +67,7 @@ describe("MediaModelSection", () => {
     expect(sections).toHaveLength(3);
     expect(sections.every((d) => !d.open)).toBe(true);
     // 界面文案不出现内部术语
-    expect(container.textContent).not.toMatch(/能力桶|任务类型桶|capability bucket/i);
+    expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
   });
 
   it("keeps configured global sub-fields visible when the candidate fetch fails", async () => {

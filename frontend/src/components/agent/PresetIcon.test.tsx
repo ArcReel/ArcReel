@@ -14,7 +14,7 @@ describe("PresetIcon", () => {
     await waitFor(() =>
       expect(screen.getByTestId("preset-icon-monogram")).toBeInTheDocument(),
     );
-    expect(screen.getByTestId("preset-icon-monogram").textContent).toBe("N");
+    expect(screen.getByTestId("preset-icon-monogram")).toHaveTextContent(/^N$/);
   });
 
   it("falls back to monogram for null iconKey", async () => {
@@ -22,6 +22,6 @@ describe("PresetIcon", () => {
     await waitFor(() =>
       expect(screen.getByTestId("preset-icon-monogram")).toBeInTheDocument(),
     );
-    expect(screen.getByTestId("preset-icon-monogram").textContent).toBe("?");
+    expect(screen.getByTestId("preset-icon-monogram")).toHaveTextContent(/^\?$/);
   });
 });

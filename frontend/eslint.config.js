@@ -5,7 +5,12 @@ import tseslint from "typescript-eslint";
 import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import jsxA11y from "eslint-plugin-jsx-a11y";
+import vitest from "@vitest/eslint-plugin";
+import testingLibrary from "eslint-plugin-testing-library";
+import jestDom from "eslint-plugin-jest-dom";
 import globals from "globals";
+
+const TEST_FILES = ["src/**/*.test.{ts,tsx}"];
 
 // no-restricted-syntax 的各条约束定义在此处、由下方配置块组合。
 // flat config 对同一文件匹配到的同名规则是「后者整体替换前者的选项」而非合并：若拆成多个
@@ -22,6 +27,13 @@ const RESTRICT_CAPABILITIES = {
   selector:
     "CallExpression[callee.object.name='API'][callee.property.name='getVideoCapabilities']",
   message: "模型能力只能经 useModelCapabilities 消费（单一真相源 + 统一失效时机）。",
+};
+
+const RESTRICT_MODULE_MOCK = {
+  selector:
+    "CallExpression[callee.object.name='vi'][callee.property.name='mock'][arguments.0.value=/^(@\\/api|react-i18next)$/]",
+  message:
+    "禁止整模块 mock：API 打桩用 vi.spyOn(API, method)；i18n 用全局 setup 已加载的真实中文资源（整体 mock 后翻译缺失无法被发现）。",
 };
 
 export default tseslint.config(
@@ -121,25 +133,72 @@ export default tseslint.config(
   //   登记进 RESTRICT_ENQUEUE 的清单。
   // - 模型能力只能经 src/hooks/useModelCapabilities 消费——各能力维度的真相源、失效时机与
   //   「未知不谎报不支持」的降级规则都收在那里，组件直调会让目录侧与服务端侧重新分叉。
-  // src/api.test.ts 两条都豁免：它测试的是 API 层本体的端点路径与请求体。
+  // - 测试不得整模块 mock `@/api` 与 `react-i18next`，该条对全部文件生效、无豁免。
+  // src/api.test.ts 豁免前两条：它测试的是 API 层本体的端点路径与请求体。
   {
     files: ["src/**/*.{ts,tsx}"],
     ignores: ["src/api.test.ts"],
     rules: {
-      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_CAPABILITIES],
+      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK],
     },
   },
-  // 各自的实现方只豁免自己那条，另一条仍受约束（见文件头对 flat config 替换语义的说明）。
+  {
+    files: ["src/api.test.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", RESTRICT_MODULE_MOCK],
+    },
+  },
+  // 各自的实现方只豁免自己那条，另两条仍受约束（见文件头对 flat config 替换语义的说明）。
   {
     files: ["src/actions/**/*.{ts,tsx}"],
     rules: {
-      "no-restricted-syntax": ["error", RESTRICT_CAPABILITIES],
+      "no-restricted-syntax": ["error", RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK],
     },
   },
   {
     files: ["src/hooks/useModelCapabilities.ts"],
     rules: {
-      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE],
+      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_MODULE_MOCK],
+    },
+  },
+
+  // 测试三件套：vitest（`expect-expect` 管零断言）、testing-library、jest-dom。
+  {
+    files: TEST_FILES,
+    plugins: { vitest },
+    rules: {
+      ...vitest.configs.recommended.rules,
+      // `expectXxx(...)` 形态的本地断言辅助函数同样计作断言。
+      "vitest/expect-expect": ["error", { assertFunctionNames: ["expect", "expect*"] }],
+    },
+  },
+  {
+    files: TEST_FILES,
+    ...testingLibrary.configs["flat/react"],
+    rules: {
+      ...testingLibrary.configs["flat/react"].rules,
+      // 存量命中且无自动修的查询/容器风格规则；断言强度归 review，不设禁令。
+      "testing-library/no-node-access": "off",
+      "testing-library/prefer-screen-queries": "off",
+      "testing-library/no-container": "off",
+      "testing-library/render-result-naming-convention": "off",
+      "testing-library/no-unnecessary-act": "off",
+      "testing-library/no-manual-cleanup": "off",
+      // 以下三条的自动修在本仓产出语法错误或改写语义：prefer-find-by 改坏 waitFor 调用；
+      // prefer-presence-queries 把喂给 `.closest()` 的 getBy 换成可空的 queryBy；
+      // no-wait-for-multiple-assertions 把断言搬出 waitFor 回调时丢了作用域。
+      "testing-library/prefer-find-by": "off",
+      "testing-library/prefer-presence-queries": "off",
+      "testing-library/no-wait-for-multiple-assertions": "off",
+    },
+  },
+  {
+    files: TEST_FILES,
+    ...jestDom.configs["flat/recommended"],
+    rules: {
+      ...jestDom.configs["flat/recommended"].rules,
+      // `toHaveAttribute("aria-valuenow", …)` 被判为表单取值断言，自动修会改写语义。
+      "jest-dom/prefer-to-have-value": "off",
     },
   },
 );

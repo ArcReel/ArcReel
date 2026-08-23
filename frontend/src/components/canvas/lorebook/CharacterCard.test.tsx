@@ -78,7 +78,7 @@ describe("CharacterCard", () => {
     );
 
     const fileInput = screen.getByLabelText("上传角色参考图");
-    expect(fileInput).not.toBeNull();
+    expect(fileInput).toBeInTheDocument();
 
     const file = new File(["ref"], "hero.png", { type: "image/png" });
     fireEvent.change(fileInput as HTMLInputElement, { target: { files: [file] } });
@@ -326,8 +326,8 @@ describe("CharacterCard", () => {
     // 内容照旧展示，只是每一个写入口都不在了
     expect(screen.getByText("Hero")).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/角色描述/)).toHaveAttribute("readonly");
-    expect(screen.queryByTestId("version-time-machine")).toBeNull();
-    expect(screen.queryByRole("button", { name: /生成|上传|入库|保存/ })).toBeNull();
+    expect(screen.queryByTestId("version-time-machine")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /生成|上传|入库|保存/ })).not.toBeInTheDocument();
     for (const field of screen.getAllByRole("textbox")) {
       expect(field).toHaveAttribute("readonly");
     }

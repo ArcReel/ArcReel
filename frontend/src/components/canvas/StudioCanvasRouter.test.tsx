@@ -644,7 +644,9 @@ describe("StudioCanvasRouter", () => {
     renderAtProjectRoute("real-project", "/episodes/1");
     await waitFor(() => {
       // 精确比对而非包含：全集 "4,6,8" 也含子串 "8"
-      expect(screen.getByTestId("timeline-duration-options").textContent).toBe(expected);
+      expect(screen.getByTestId("timeline-duration-options")).toHaveTextContent(
+        new RegExp(`^${expected}$`),
+      );
     });
   });
 

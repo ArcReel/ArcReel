@@ -143,7 +143,7 @@ describe("OverviewCanvas", () => {
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
     // 退出编辑：表单消失，显示原 synopsis 文本
-    expect(screen.queryByLabelText("故事梗概")).toBeNull();
+    expect(screen.queryByLabelText("故事梗概")).not.toBeInTheDocument();
     expect(screen.getByText("summary")).toBeInTheDocument();
   });
 

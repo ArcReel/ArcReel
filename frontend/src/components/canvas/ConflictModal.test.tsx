@@ -19,7 +19,7 @@ describe('ConflictModal', () => {
       suggestedName: 'novel_1',
       onResolve: vi.fn(),
     });
-    expect(screen.getByText(/novel\.txt/)).toBeTruthy();
+    expect(screen.getByText(/novel\.txt/)).toBeInTheDocument();
   });
 
   it('calls onResolve("replace") when Replace clicked', () => {

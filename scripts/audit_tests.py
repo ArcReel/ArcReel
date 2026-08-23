@@ -13,6 +13,13 @@
 同名 fixture 在 ≥3 个测试文件重复定义；局部 conftest 与祖先 conftest 同名 fixture。
 只统计模块顶层 fixture——类内 fixture 的作用域限于该类，不构成跨文件的共享设施重复。
 
+类 4「文件形态」：`_more` / `_full` / `_coverage` / `_extra` / `_additional` 分裂后缀；
+单文件 3000 行熔断；前端测试文件位于 `__tests__/` 目录。后端 `tests/**/*.py` 与前端
+`frontend/src/**/*.test.*` 同受此类约束，前端语义类规则归 eslint、不在本脚本内。
+
+`--check` 是闸门形态：以 `规则号 file:line 修复指引` 列出上述全部命中，非零即退出码 1。
+零容忍，无基线、无豁免标注——误报通过修改本脚本解决。
+
 零第三方依赖，只用 `ast`。用法见 `--help`。
 """
 
@@ -28,6 +35,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from fnmatch import fnmatch
 from pathlib import Path
+from typing import NamedTuple
 
 # ---------------------------------------------------------------- 常量表
 
@@ -79,6 +87,46 @@ DOUBLE_ATTRS = {
 
 # 断言辅助函数：调用即视为实质断言（保守，倾向压低类 1 误报）
 ASSERT_HELPER_PREFIXES = ("assert", "_assert", "check_", "_check", "verify_", "_verify", "expect_")
+
+FAIL_ASSERT_CALLS = {"fail"}
+CALLABLE_ASSERT_CALLS = {"raises", "warns", "deprecated_call"}
+PYTEST_MODULE = "pytest"
+
+
+class PytestAssertNames(NamedTuple):
+    """本模块内 pytest 断言 API 的可见拼写：模块别名 + 直接导入名到规范名的映射。"""
+
+    module_aliases: set[str]
+    direct: dict[str, str]
+
+    def canonical(self, fname: str) -> str | None:
+        """把调用点的点路径还原为 pytest 断言的规范名，非 pytest 出身的返回 None。"""
+        if "." in fname:
+            root, last = fname.split(".", 1)[0], fname.split(".")[-1]
+            return last if root in self.module_aliases else None
+        return self.direct.get(fname)
+
+
+def resolve_pytest_asserts(tree: ast.Module) -> PytestAssertNames:
+    """解析 `import pytest [as pt]` 与 `from pytest import fail [as ...]`。
+
+    只按方法名末段判定会把任意对象的同名方法（`worker.fail("network")`）当成断言，
+    在必过闸门下等于给 NO-ASSERTION 开了一个按名字即可绕过的口子。
+    """
+    module_aliases: set[str] = set()
+    direct: dict[str, str] = {}
+    known = FAIL_ASSERT_CALLS | CALLABLE_ASSERT_CALLS
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == PYTEST_MODULE:
+                    module_aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == PYTEST_MODULE:
+            for alias in node.names:
+                if alias.name in known:
+                    direct[alias.asname or alias.name] = alias.name
+    return PytestAssertNames(module_aliases, direct)
+
 
 BUILTIN_NAMES = {
     "len",
@@ -204,6 +252,14 @@ class PatchSite:
 
 
 @dataclass
+class NoAssertionTest:
+    path: str
+    line: int
+    func: str
+    marks: list[str]
+
+
+@dataclass
 class FileStat:
     path: str
     test_funcs: int = 0
@@ -284,6 +340,93 @@ def is_collected_test_module(path: Path) -> bool:
     conftest 与支持模块里 `test` 开头的函数是工具函数，按名字当成用例会虚增类 1 计数。
     """
     return any(fnmatch(path.name, pattern) for pattern in COLLECTED_TEST_FILE_GLOBS)
+
+
+COLLECTED_TEST_CLASS_GLOB = "Test*"
+UNITTEST_BASES = ("TestCase", "IsolatedAsyncioTestCase")
+
+
+def resolve_unittest_cases(tree: ast.Module) -> set[str]:
+    """模块内可解析的 unittest 用例类名：import 别名 + 本模块内的继承闭包。
+
+    判定文法到此为止：只认本模块可见的证据。跨模块继承（基类在别的模块里继承
+    `TestCase`）无从解析，按不匹配处理——那是有意保留的假阴性残留，兜底是人工
+    review；相反方向（把同名的非 unittest 基类误判成用例类）会在必过闸门上卡红
+    合法代码，代价更高，所以宁可漏不可误。
+    """
+    direct: set[str] = set()
+    module_aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "unittest" or alias.name.startswith("unittest."):
+                    module_aliases.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "unittest":
+            for alias in node.names:
+                if alias.name in UNITTEST_BASES:
+                    direct.add(alias.asname or alias.name)
+
+    known = set(direct)
+    classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+    changed = True
+    while changed:
+        changed = False
+        for cls in classes:
+            if cls.name in known:
+                continue
+            if any(_is_unittest_base(base, known, module_aliases) for base in cls.bases):
+                known.add(cls.name)
+                changed = True
+    return known
+
+
+def _is_unittest_base(base: ast.expr, known: set[str], module_aliases: set[str]) -> bool:
+    if isinstance(base, ast.Name):
+        return base.id in known
+    if isinstance(base, ast.Attribute):
+        root = (dotted(base.value) or "").split(".")[0]
+        return base.attr in UNITTEST_BASES and root in module_aliases
+    return False
+
+
+def is_collected_test_class(node: ast.ClassDef, unittest_cases: set[str]) -> bool:
+    """pytest 从 `Test*` 类与 unittest 用例类的子类收集用例。
+
+    同 `is_collected_test_module` 的口径下沉一层：支持类（fake、client 包装）上
+    `test` 开头的方法是普通 API，按名字当成用例会虚增类 1 计数并误报闸门。
+
+    两条分支不可合并：unittest 用例类不受名字与 `__init__` 约束，收集由 unittest
+    自身完成；而 `Test*` 类带显式 `__init__` 时 pytest 拒绝收集。名字规则也不沿
+    继承传递——`class Sub(TestHelpers)` 不因基类名叫 `Test*` 就被收集。
+    """
+    if _opts_out_of_collection(node):
+        return False
+    if node.name in unittest_cases:
+        return True
+    return fnmatch(node.name, COLLECTED_TEST_CLASS_GLOB) and not _has_explicit_init(node)
+
+
+def _opts_out_of_collection(node: ast.ClassDef) -> bool:
+    """`__test__ = False`：pytest 的显式退出收集标记，对两条分支一律生效。
+
+    这是支持类被闸门误伤时的标准逃生口，必须认——否则被误报的人无路可走。
+    """
+    for stmt in node.body:
+        targets = (
+            stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target] if isinstance(stmt, ast.AnnAssign) else []
+        )
+        if not any(isinstance(t, ast.Name) and t.id == "__test__" for t in targets):
+            continue
+        value = stmt.value
+        if isinstance(value, ast.Constant) and value.value is False:
+            return True
+    return False
+
+
+def _has_explicit_init(node: ast.ClassDef) -> bool:
+    return any(
+        isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "__init__" for stmt in node.body
+    )
 
 
 TIER_MARKS = ("unit", "integration", "e2e")
@@ -395,8 +538,11 @@ class AliasIndex:
 class TestFunctionAnalyzer:
     """在单个 test 函数体内识别替身绑定并给断言分类。"""
 
-    def __init__(self, func: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+    def __init__(
+        self, func: ast.FunctionDef | ast.AsyncFunctionDef, pytest_asserts: PytestAssertNames | None = None
+    ) -> None:
         self.func = func
+        self.pytest_asserts = pytest_asserts or PytestAssertNames(set(), {})
         self.doubles: set[str] = set()
         self.recorders: set[str] = set()
         self._collect_doubles()
@@ -501,7 +647,7 @@ class TestFunctionAnalyzer:
                         if len(evidence) < 3:
                             evidence.append(f"L{node.lineno} {fname}(...)")
                         continue
-                    if last.startswith(ASSERT_HELPER_PREFIXES):
+                    if last.startswith(ASSERT_HELPER_PREFIXES) or self._is_functional_assert(fname, node.value):
                         real_hits += 1
                         continue
             elif isinstance(node, ast.Assert):
@@ -517,19 +663,15 @@ class TestFunctionAnalyzer:
                     ctx = item.context_expr
                     if isinstance(ctx, ast.Call):
                         cname = dotted(ctx.func) or ""
-                        if cname.endswith(("raises", "warns", "deprecated_call")):
+                        if self.pytest_asserts.canonical(cname) in CALLABLE_ASSERT_CALLS:
                             real_hits += 1
         return double_hits, real_hits, evidence, sorted(subjects)
 
     def _classify_assert(self, node: ast.Assert, double_names: set[str], subjects: set[str]) -> str:
-        attrs = {n.attr for n in ast.walk(node.test) if isinstance(n, ast.Attribute)}
+        owners = self._record_attr_owners(node.test, double_names)
         called = {(dotted(n.func) or "").split(".")[-1] for n in ast.walk(node.test) if isinstance(n, ast.Call)}
-        if attrs & DOUBLE_ATTRS or called & DOUBLE_ASSERT_METHODS:
-            for sub in ast.walk(node.test):
-                if isinstance(sub, ast.Attribute) and (sub.attr in DOUBLE_ATTRS or sub.attr in DOUBLE_ASSERT_METHODS):
-                    owner = dotted(sub.value)
-                    if owner:
-                        subjects.add(owner)
+        if owners or called & DOUBLE_ASSERT_METHODS:
+            subjects.update(owners)
             return "double"
         roots = {n.id for n in ast.walk(node.test) if isinstance(n, ast.Name)} - BUILTIN_NAMES
         if not roots:
@@ -538,6 +680,43 @@ class TestFunctionAnalyzer:
             subjects.update(roots)
             return "double"
         return "real"
+
+    def _is_functional_assert(self, fname: str, call: ast.Call) -> bool:
+        """pytest 的非 with 形式断言：`pytest.raises(Exc, fn, ...)` 与 `pytest.fail(...)`。
+
+        `raises` / `warns` 只按上下文管理器识别会漏掉函数式写法；`pytest.fail` 作为
+        哨兵（`except X: pytest.fail(...)`）常常是一条用例的唯一断言。闸门必过后，
+        这两种合法写法会被 NO-ASSERTION 卡红。
+
+        必须按接收者判定而非只看方法名末段：`worker.fail("network")` 不是断言，
+        只按名字认会给闸门开一个改个方法名就能绕过的口子。`raises` / `warns` 另外
+        要求带被调对象，单参数的裸调用是无效写法，不计入。
+        """
+        canonical = self.pytest_asserts.canonical(fname)
+        if canonical is None:
+            return False
+        if canonical in FAIL_ASSERT_CALLS:
+            return True
+        return canonical in CALLABLE_ASSERT_CALLS and len(call.args) >= 2
+
+    def _record_attr_owners(self, test: ast.expr, double_names: set[str]) -> set[str]:
+        """替身记录属性的属主，只取属主确为替身的那些。
+
+        `called` / `call_count` 同样是域对象的合法属性名，只按属性名分类会把
+        `assert result.called` 这类真实断言判成替身断言；`--check` 升格为必过闸门
+        后，这类误判会直接卡红合法用例。属主无法解析（如 `Foo(called=True).called`）
+        时按非替身处理，落回名字规则。
+        """
+        owners: set[str] = set()
+        for sub in ast.walk(test):
+            if not isinstance(sub, ast.Attribute):
+                continue
+            if sub.attr not in DOUBLE_ATTRS and sub.attr not in DOUBLE_ASSERT_METHODS:
+                continue
+            owner = dotted(sub.value)
+            if owner and owner.split(".")[0] in double_names:
+                owners.add(owner)
+        return owners
 
 
 # ---------------------------------------------------------------- 类 2 识别
@@ -679,11 +858,14 @@ class FileScanner:
         self.rel = str(path.relative_to(root))
         self.tree = ast.parse(path.read_text(encoding="utf-8"))
         self.aliases = AliasIndex(self.tree)
+        self.unittest_cases = resolve_unittest_cases(self.tree)
+        self.pytest_asserts = resolve_pytest_asserts(self.tree)
         self.mut = self.aliases.module_under_test(path, prod.is_module)
         tier = tier_from_path(path, tests_dir)
         self.module_marks = ([tier] if tier else []) + self._module_marks()
         self.stat = FileStat(path=self.rel)
         self.double_only: list[DoubleOnlyTest] = []
+        self.no_assertion: list[NoAssertionTest] = []
         self.patches: list[PatchSite] = []
 
     def _module_marks(self) -> list[str]:
@@ -713,7 +895,8 @@ class FileScanner:
     def _scan_scope(self, body: list[ast.stmt], class_marks: list[str], class_name: str | None) -> None:
         for node in body:
             if isinstance(node, ast.ClassDef):
-                self._scan_scope(node.body, class_marks + marks_of(node.decorator_list), node.name)
+                if is_collected_test_class(node, self.unittest_cases):
+                    self._scan_scope(node.body, class_marks + marks_of(node.decorator_list), node.name)
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
                 self._analyze_test(node, class_marks, class_name)
 
@@ -725,10 +908,11 @@ class FileScanner:
     ) -> None:
         self.stat.test_funcs += 1
         marks = sorted(set(self.module_marks + class_marks + marks_of(node.decorator_list)))
-        double_hits, real_hits, evidence, subjects = TestFunctionAnalyzer(node).classify()
+        double_hits, real_hits, evidence, subjects = TestFunctionAnalyzer(node, self.pytest_asserts).classify()
         qual = f"{class_name}::{node.name}" if class_name else node.name
         if double_hits == 0 and real_hits == 0:
             self.stat.no_assertion += 1
+            self.no_assertion.append(NoAssertionTest(path=self.rel, line=node.lineno, func=qual, marks=marks))
         elif real_hits == 0:
             self.stat.double_only += 1
             self.double_only.append(
@@ -988,26 +1172,109 @@ def scan_shared_facilities(root: Path, tests_dir: Path) -> list[StructureFinding
     return sorted(findings, key=lambda f: (f.rule, f.path, f.line))
 
 
+# ---------------------------------------------------------------- 类 4：文件形态
+
+SPLIT_SUFFIX_RE = re.compile(r"_(more|full|coverage|extra|additional)$")
+FILE_LINE_LIMIT = 3000
+FRONTEND_TESTS_DIR = "__tests__"
+FRONTEND_TEST_MARKER = "test"
+
+
+def file_stem(path: Path) -> str:
+    """去掉测试扩展名后的基名：`Foo.drama.test.tsx` → `Foo.drama`、`test_x_more.py` → `test_x_more`。
+
+    前端只剥 `.test.<ext>`：按点逐段剥会把 `ShotDetail.drama` 这类语义化主题后缀一并吃掉，
+    使 `ShotDetail.drama_more.test.tsx` 逃过分裂后缀禁令。
+    """
+    name = path.name
+    marker = f".{FRONTEND_TEST_MARKER}."
+    if marker in name:
+        return name.split(marker, 1)[0]
+    return Path(name).stem
+
+
+def scan_file_shape(root: Path, paths: list[Path]) -> list[StructureFinding]:
+    """分裂命名后缀禁令与单文件 3000 行熔断。后端与前端测试文件共用同一判定。
+
+    后缀锚定基名结尾，`test_usage_extraction.py` 这类含子串的文件名不命中。
+    """
+    findings: list[StructureFinding] = []
+    for path in sorted(paths):
+        rel = path.relative_to(root).as_posix()
+        stem = file_stem(path)
+        match = SPLIT_SUFFIX_RE.search(stem)
+        if match:
+            findings.append(
+                StructureFinding(
+                    "NAME-SPLIT",
+                    rel,
+                    1,
+                    f"文件名带分裂后缀 `_{match.group(1)}`",
+                    "按行为域取语义化主题后缀重命名，或并回主文件",
+                )
+            )
+        lines = len(path.read_text(encoding="utf-8").splitlines())
+        if lines > FILE_LINE_LIMIT:
+            findings.append(
+                StructureFinding(
+                    "SIZE-LIMIT",
+                    rel,
+                    lines,
+                    f"{lines} 行，超出单文件 {FILE_LINE_LIMIT} 行熔断",
+                    "按被测对象或行为域拆分为多个文件",
+                )
+            )
+    return findings
+
+
+def frontend_test_files(frontend_src: Path) -> list[Path]:
+    marker = f".{FRONTEND_TEST_MARKER}."
+    return sorted(p for p in frontend_src.rglob("*") if p.is_file() and marker in p.name)
+
+
+def scan_frontend_layout(root: Path, paths: list[Path]) -> list[StructureFinding]:
+    """前端测试文件与源文件同级并放，不使用 `__tests__/` 目录。"""
+    return [
+        StructureFinding(
+            "FE-TESTS-DIR",
+            path.relative_to(root).as_posix(),
+            1,
+            f"测试文件位于 `{FRONTEND_TESTS_DIR}/` 目录",
+            "迁出为与源文件同级并放",
+        )
+        for path in sorted(paths)
+        if FRONTEND_TESTS_DIR in path.parts
+    ]
+
+
 # ---------------------------------------------------------------- 汇总输出
 
 
-def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
+def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None) -> dict[str, object]:
     files = sorted(p for p in tests_dir.rglob("*.py") if p.name != "__init__.py")
     stats: list[FileStat] = []
     double_only: list[DoubleOnlyTest] = []
+    no_assertion_cases: list[NoAssertionTest] = []
     patches: list[PatchSite] = []
-    failures: list[str] = []
+    failures: list[dict[str, object]] = []
     prod = ProductionIndex(root)
 
     for path in files:
         try:
             scanner = FileScanner(path, root, tests_dir, prod)
             scanner.scan()
-        except SyntaxError as exc:  # pragma: no cover
-            failures.append(f"{path}: {exc}")
+        except SyntaxError as exc:
+            failures.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "line": exc.lineno or 0,
+                    "detail": exc.msg,
+                }
+            )
             continue
         stats.append(scanner.stat)
         double_only.extend(scanner.double_only)
+        no_assertion_cases.extend(scanner.no_assertion)
         patches.extend(scanner.patches)
 
     private = [p for p in patches if p.private]
@@ -1048,6 +1315,10 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
     structure = scan_shared_facilities(root, tests_dir)
     structure_counter = Counter(f.rule for f in structure)
 
+    frontend_files = frontend_test_files(frontend_src) if frontend_src and frontend_src.is_dir() else []
+    shape = scan_file_shape(root, files + frontend_files) + scan_frontend_layout(root, frontend_files)
+    shape_counter = Counter(f.rule for f in shape)
+
     return {
         "totals": {
             "test_files": len(stats),
@@ -1066,6 +1337,10 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
             "conftest_fixture_override_sites": structure_counter["FIXTURE-OVERRIDE"],
             "conftest_shadow_sites": structure_counter["CONFTEST-SHADOW"],
             "duplicate_fixture_sites": structure_counter["FIXTURE-DUP"],
+            "frontend_test_files": len(frontend_files),
+            "split_suffix_files": shape_counter["NAME-SPLIT"],
+            "oversized_files": shape_counter["SIZE-LIMIT"],
+            "frontend_tests_dir_files": shape_counter["FE-TESTS-DIR"],
         },
         "double_only_by_file": [
             {"path": s.path, "double_only": s.double_only, "test_funcs": s.test_funcs}
@@ -1073,6 +1348,7 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
             if s.double_only
         ][:top],
         "double_only_cases": [asdict(d) for d in double_only],
+        "no_assertion_cases": [asdict(c) for c in no_assertion_cases],
         "double_only_subjects_top": Counter(s for d in double_only for s in d.subjects).most_common(top),
         "private_targets_top": by_symbol.most_common(top),
         "integration_self_targets_top": by_symbol_integ.most_common(top),
@@ -1087,8 +1363,87 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
         "integration_self_patch_sites": [asdict(p) for p in integ_self],
         "integration_collaborator_patch_sites": [asdict(p) for p in integ_collaborator],
         "shared_facility_findings": [asdict(f) for f in structure],
+        "file_shape_findings": [asdict(f) for f in shape],
         "parse_failures": failures,
     }
+
+
+@dataclass
+class Violation:
+    rule: str
+    path: str
+    line: int
+    guidance: str
+
+
+def gate_violations(result: dict[str, object]) -> list[Violation]:
+    """把审计结果压平成闸门违规清单。零容忍：任一条命中即闸门红。"""
+    out: list[Violation] = []
+
+    def rows(key: str) -> list[dict[str, object]]:
+        value = result[key]
+        assert isinstance(value, list)
+        return value
+
+    for case in rows("double_only_cases"):
+        out.append(
+            Violation(
+                "DOUBLE-ONLY",
+                str(case["path"]),
+                int(str(case["line"])),
+                f"`{case['func']}` 的断言全部落在替身调用记录上，改断言真实产出或删除",
+            )
+        )
+    for case in rows("no_assertion_cases"):
+        out.append(
+            Violation(
+                "NO-ASSERTION",
+                str(case["path"]),
+                int(str(case["line"])),
+                f"`{case['func']}` 零断言，补上要保护的行为断言或删除",
+            )
+        )
+    for site in rows("private_patch_sites"):
+        out.append(
+            Violation(
+                "PRIVATE-PATCH",
+                str(site["path"]),
+                int(str(site["line"])),
+                f"patch 生产代码私有符号 `{site['target']}`，改走显式参数注入的 seam",
+            )
+        )
+    for site in rows("integration_self_patch_sites"):
+        out.append(
+            Violation(
+                "INTEG-SELF-PATCH",
+                str(site["path"]),
+                int(str(site["line"])),
+                f"integration 用例 patch 被测 module 的公共入口 `{site['target']}`，改走真实协作",
+            )
+        )
+    for finding in rows("shared_facility_findings") + rows("file_shape_findings"):
+        out.append(
+            Violation(
+                str(finding["rule"]),
+                str(finding["path"]),
+                int(str(finding["line"])),
+                f"{finding['detail']}；{finding['guidance']}",
+            )
+        )
+    failures = result["parse_failures"]
+    assert isinstance(failures, list)
+    for failure in failures:
+        assert isinstance(failure, dict)
+        out.append(
+            Violation(
+                "PARSE-FAIL",
+                str(failure["path"]),
+                int(str(failure["line"])),
+                f"{failure['detail']}；测试文件无法解析，审计无法覆盖，先修复语法",
+            )
+        )
+
+    return sorted(out, key=lambda v: (v.rule, v.path, v.line))
 
 
 def _print_ranking(title: str, rows: object) -> None:
@@ -1107,6 +1462,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tests", default="tests", help="测试目录，相对 root（默认 tests）")
     parser.add_argument("--top", type=int, default=30, help="Top N 榜单长度（默认 30）")
     parser.add_argument("--json", dest="json_out", help="把完整明细写入该 JSON 文件")
+    parser.add_argument(
+        "--frontend",
+        default="frontend/src",
+        help="前端源码目录，相对 root（默认 frontend/src）；目录不存在时跳过前端段",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="闸门模式：按 `规则号 file:line 修复指引` 列出全部违规，非零命中时退出码 1",
+    )
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve()
@@ -1115,9 +1480,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"测试目录不存在：{tests_dir}", file=sys.stderr)
         return 2
 
-    result = run(root, tests_dir, args.top)
+    result = run(root, tests_dir, args.top, root / args.frontend)
     totals = result["totals"]
     assert isinstance(totals, dict)
+
+    if args.check:
+        violations = gate_violations(result)
+        for v in violations:
+            print(f"{v.rule} {v.path}:{v.line} {v.guidance}")
+        if violations:
+            print(f"\n闸门未通过：{len(violations)} 处违规", file=sys.stderr)
+            return 1
+        print("闸门通过：0 处违规")
+        return 0
 
     print("== 总量 ==")
     for key, value in totals.items():
@@ -1149,6 +1524,14 @@ def main(argv: list[str] | None = None) -> int:
     for row in structure:
         print(f"{row['rule']:17s} {row['path']}:{row['line']}  {row['detail']}  → {row['guidance']}")
     if not structure:
+        print("无命中")
+
+    print("\n== 类 4：文件形态（后端 + 前端） ==")
+    shape = result["file_shape_findings"]
+    assert isinstance(shape, list)
+    for row in shape:
+        print(f"{row['rule']:13s} {row['path']}:{row['line']}  {row['detail']}  → {row['guidance']}")
+    if not shape:
         print("无命中")
 
     if args.json_out:

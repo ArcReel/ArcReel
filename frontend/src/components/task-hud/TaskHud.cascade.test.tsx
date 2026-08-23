@@ -74,7 +74,7 @@ describe("TaskHud cascade label", () => {
     });
 
     render(<HostedTaskHud />);
-    expect(screen.queryByText("级联")).toBeNull();
+    expect(screen.queryByText("级联")).not.toBeInTheDocument();
   });
 
   it("renders English cascade label after locale switch", async () => {

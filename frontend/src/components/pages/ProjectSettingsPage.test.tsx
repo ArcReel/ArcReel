@@ -224,7 +224,7 @@ describe("ProjectSettingsPage – style picker", () => {
 
     // 移除自定义图后 save 应可点：保存即清除后端残留 style_image / description
     const saveBtn = screen.getByRole("button", { name: /保存风格|Save style/ });
-    expect(saveBtn).not.toBeDisabled();
+    expect(saveBtn).toBeEnabled();
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -261,7 +261,7 @@ describe("ProjectSettingsPage – style picker", () => {
     fireEvent.click(clearBtn);
 
     const saveBtn = screen.getByRole("button", { name: /保存风格|Save style/ });
-    expect(saveBtn).not.toBeDisabled();
+    expect(saveBtn).toBeEnabled();
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -338,7 +338,7 @@ describe("ProjectSettingsPage – style picker", () => {
     fireEvent.click(card);
 
     const saveBtn = screen.getByRole("button", { name: /保存风格|Save style/ });
-    expect(saveBtn).not.toBeDisabled();
+    expect(saveBtn).toBeEnabled();
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
@@ -387,9 +387,9 @@ describe("ProjectSettingsPage – style picker", () => {
     renderAt("/app/projects/demo/settings");
 
     const toggle = await screen.findByRole("switch", { name: /多宫格分镜/ });
-    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(toggle).toBeChecked();
 
     fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
     await waitFor(() => {

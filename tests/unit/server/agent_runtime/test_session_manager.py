@@ -105,7 +105,7 @@ class _FakeDeny:
         self.interrupt = interrupt
 
 
-class TestSessionManagerMore:
+class TestSessionManager:
     def test_managed_session_broadcast_and_queue_overflow(self):
         managed = ManagedSession(session_id="s1", actor=None)
 
