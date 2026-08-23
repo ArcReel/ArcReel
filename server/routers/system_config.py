@@ -17,6 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
@@ -74,8 +75,8 @@ _MEDIA_TO_OPTION_LIST = {
 
 
 @lru_cache(maxsize=1)
-def _read_app_version() -> str:
-    with _PYPROJECT_PATH.open("rb") as f:
+def _read_app_version(pyproject_path: Path = _PYPROJECT_PATH) -> str:
+    with pyproject_path.open("rb") as f:
         data = tomllib.load(f)
 
     version = str(data["project"]["version"]).strip()
@@ -106,7 +107,11 @@ def _build_latest_release_payload(data: dict[str, Any]) -> dict[str, str]:
     }
 
 
-async def _get_latest_release() -> tuple[dict[str, str], datetime]:
+async def _get_latest_release(
+    *,
+    http_client: httpx.AsyncClient | None = None,
+    now: datetime | None = None,
+) -> tuple[dict[str, str], datetime]:
     """Fetch latest GitHub release with a 5-minute cache.
 
     Returns (payload, fetched_at) where fetched_at is the timestamp of the
@@ -114,7 +119,7 @@ async def _get_latest_release() -> tuple[dict[str, str], datetime]:
     the value safe to surface as `checked_at` to clients without misleading
     them about cache freshness.
     """
-    now = datetime.now(UTC)
+    now = now or datetime.now(UTC)
     expires_at = _latest_release_cache.get("expires_at")
     payload = _latest_release_cache.get("payload")
     fetched_at = _latest_release_cache.get("fetched_at")
@@ -126,7 +131,8 @@ async def _get_latest_release() -> tuple[dict[str, str], datetime]:
     ):
         return payload, fetched_at
 
-    response = await get_http_client().get(
+    client = http_client or get_http_client()
+    response = await client.get(
         _GITHUB_RELEASE_LATEST_URL,
         headers={"Accept": "application/vnd.github+json", "User-Agent": _GITHUB_USER_AGENT},
         timeout=5.0,

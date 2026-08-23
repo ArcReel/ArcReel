@@ -27,12 +27,20 @@ class ToolContext:
     to ``project_name`` via ``build_arcreel_mcp_server(project_name=...)``.
     """
 
-    def __init__(self, project_name: str, projects_root: Path, pm: ProjectManager | None = None):
+    def __init__(
+        self,
+        project_name: str,
+        projects_root: Path,
+        pm: ProjectManager | None = None,
+        *,
+        config_resolver: ConfigResolver | None = None,
+    ):
         self.project_name = project_name
         self.projects_root = projects_root
         # Avoid ``ProjectManager.from_cwd()`` — the server main process cwd is
         # the repo root, not ``projects/<name>/``. Tests may inject a fake pm.
         self.pm: ProjectManager = pm if pm is not None else ProjectManager(str(projects_root))
+        self.config_resolver = config_resolver
 
     @property
     def project_path(self) -> Path:
@@ -120,7 +128,12 @@ def read_instructions_arg(args: dict[str, Any]) -> tuple[str | None, dict[str, A
     return (text or None), None
 
 
-async def resolve_video_caps(project: dict[str, Any], *, capability: VideoCapability | None = None) -> dict[str, Any]:
+async def resolve_video_caps(
+    project: dict[str, Any],
+    *,
+    capability: VideoCapability | None = None,
+    config_resolver: ConfigResolver | None = None,
+) -> dict[str, Any]:
     """Resolve the full video capability dict for an MCP tool call.
 
     Single source of truth for video model capability lookup across SDK MCP
@@ -131,7 +144,7 @@ async def resolve_video_caps(project: dict[str, Any], *, capability: VideoCapabi
     能力按项目生成模式解析——生成模式创建即定、全项目同一条，Agent 拿到的与执行层同口径。
     ``capability`` 给定时按指定桶解析（参考生视频内无参考图视频单元的 i2v 读侧）。
     """
-    resolver = ConfigResolver(async_session_factory)
+    resolver = config_resolver or ConfigResolver(async_session_factory)
     return await resolver.video_capabilities_for_project(project, capability=capability)
 
 
@@ -165,6 +178,8 @@ async def reference_unit_duration_tiers(
     project: dict[str, Any],
     caps: dict[str, Any],
     durations: list[int],
+    *,
+    config_resolver: ConfigResolver | None = None,
 ) -> tuple[list[int], list[int]]:
     """参考生视频逐 unit 的两套生效档位：``(带参考图, 不带参考图)``。
 
@@ -188,7 +203,10 @@ async def reference_unit_duration_tiers(
     )
     i2v_caps, i2v_durations = caps, durations
     try:
-        resolved = await resolve_video_caps(project, capability="i2v")
+        if config_resolver is None:
+            resolved = await resolve_video_caps(project, capability="i2v")
+        else:
+            resolved = await resolve_video_caps(project, capability="i2v", config_resolver=config_resolver)
         resolved_durations = [int(d) for d in resolved.get("supported_durations") or []]
         if resolved_durations:
             i2v_caps, i2v_durations = resolved, resolved_durations
@@ -201,7 +219,10 @@ async def reference_unit_duration_tiers(
 
 
 async def fetch_video_caps(
-    project: dict[str, Any], *, generation_mode: str | None = None
+    project: dict[str, Any],
+    *,
+    generation_mode: str | None = None,
+    config_resolver: ConfigResolver | None = None,
 ) -> tuple[int | None, list[int]]:
     """Resolve ``(default_duration, supported_durations)`` for an MCP tool call.
 
@@ -211,7 +232,10 @@ async def fetch_video_caps(
     Callers decide whether an empty result is a hard error (video generation) or
     a soft fallback (script normalization).
     """
-    caps = await resolve_video_caps(project)
+    if config_resolver is None:
+        caps = await resolve_video_caps(project)
+    else:
+        caps = await resolve_video_caps(project, config_resolver=config_resolver)
     durations = [int(d) for d in caps.get("supported_durations") or []]
     durations = constrained_caps_durations(project, caps, durations, generation_mode=generation_mode)
     default = caps.get("default_duration")

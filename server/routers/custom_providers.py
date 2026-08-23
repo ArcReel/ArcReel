@@ -9,9 +9,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, field_validator
@@ -902,13 +902,19 @@ async def test_connection_by_id(provider_id: int, _t: Translator, session: Async
 
 
 async def _run_discover(
-    discovery_format: str, base_url: str | None, api_key: str, _t: Callable[..., str]
+    discovery_format: str,
+    base_url: str | None,
+    api_key: str,
+    _t: Callable[..., str],
+    *,
+    discover_models_fn: Callable[..., Awaitable[list[dict]]] | None = None,
 ) -> DiscoverResponse:
     """共用的模型发现逻辑（明文凭证 / 已存储凭证两条入口共用）。"""
     from lib.custom_provider.discovery import UnsupportedDiscoveryFormatError, discover_models
 
     try:
-        models = await discover_models(
+        discover = discover_models_fn or discover_models
+        models = await discover(
             discovery_format=discovery_format,
             base_url=base_url or None,
             api_key=api_key,
@@ -925,18 +931,24 @@ async def _run_discover(
 
 
 async def _run_connection_test(
-    discovery_format: str, base_url: str, api_key: str, _t: Callable[..., str]
+    discovery_format: str,
+    base_url: str,
+    api_key: str,
+    _t: Callable[..., str],
+    *,
+    openai_probe: Callable[[str, str, Callable[..., str]], ConnectionTestResponse] | None = None,
+    google_probe: Callable[[str, str, Callable[..., str]], ConnectionTestResponse] | None = None,
 ) -> ConnectionTestResponse:
     """共用的连接测试逻辑。"""
     try:
         if discovery_format == "openai":
             result = await asyncio.wait_for(
-                asyncio.to_thread(_test_openai, base_url, api_key, _t),
+                asyncio.to_thread(openai_probe or _test_openai, base_url, api_key, _t),
                 timeout=_CONNECTION_TEST_TIMEOUT,
             )
         elif discovery_format == "google":
             result = await asyncio.wait_for(
-                asyncio.to_thread(_test_google, base_url, api_key, _t),
+                asyncio.to_thread(google_probe or _test_google, base_url, api_key, _t),
                 timeout=_CONNECTION_TEST_TIMEOUT,
             )
         else:
@@ -961,13 +973,19 @@ async def _run_connection_test(
         )
 
 
-def _test_openai(base_url: str, api_key: str, _t: Callable[..., str]) -> ConnectionTestResponse:
+def _test_openai(
+    base_url: str,
+    api_key: str,
+    _t: Callable[..., str],
+    *,
+    client_factory: Callable[..., Any] | None = None,
+) -> ConnectionTestResponse:
     """通过 models.list() 验证 OpenAI 兼容 API。"""
     from openai import OpenAI
 
     from lib.config.url_utils import ensure_openai_base_url
 
-    client = OpenAI(api_key=api_key, base_url=ensure_openai_base_url(base_url))
+    client = (client_factory or OpenAI)(api_key=api_key, base_url=ensure_openai_base_url(base_url))
     models = client.models.list()
     count = sum(1 for _ in models)
     return ConnectionTestResponse(
@@ -977,7 +995,13 @@ def _test_openai(base_url: str, api_key: str, _t: Callable[..., str]) -> Connect
     )
 
 
-def _test_google(base_url: str, api_key: str, _t: Callable[..., str]) -> ConnectionTestResponse:
+def _test_google(
+    base_url: str,
+    api_key: str,
+    _t: Callable[..., str],
+    *,
+    client_factory: Callable[..., Any] | None = None,
+) -> ConnectionTestResponse:
     """通过 models.list() 验证 Google genai API。"""
     from google import genai
 
@@ -985,7 +1009,7 @@ def _test_google(base_url: str, api_key: str, _t: Callable[..., str]) -> Connect
 
     effective_url = ensure_google_base_url(base_url)
     http_options = {"base_url": effective_url} if effective_url else None
-    client = genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
+    client = (client_factory or genai.Client)(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
     pager = client.models.list()
     count = sum(1 for _ in pager)
     return ConnectionTestResponse(

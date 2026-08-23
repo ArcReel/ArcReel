@@ -198,12 +198,21 @@ def _load_step1_source_with_basis(
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_video_capabilities(project_name: str) -> dict[str, Any]:
-    resolver = ConfigResolver(async_session_factory)
+async def _resolve_video_capabilities(
+    project_name: str,
+    *,
+    config_resolver: ConfigResolver | None = None,
+) -> dict[str, Any]:
+    resolver = config_resolver or ConfigResolver(async_session_factory)
     return await resolver.video_capabilities(project_name)
 
 
-async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
+async def _annotate_reference_unit_tiers(
+    payload: dict[str, Any],
+    project: dict[str, Any],
+    *,
+    config_resolver: ConfigResolver | None = None,
+) -> None:
     """就地补上参考生视频路径逐 unit 的两套生效档位（非该路径的项目不补）。
 
     ``supported_durations`` 是型号声明的全集，不含「分辨率↔时长」「参考图↔时长」两条联动约束。
@@ -218,7 +227,12 @@ async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations:
         return
-    with_refs, without_refs = await reference_unit_duration_tiers(project, payload, durations)
+    with_refs, without_refs = await reference_unit_duration_tiers(
+        project,
+        payload,
+        durations,
+        config_resolver=config_resolver,
+    )
     payload["reference_unit_durations"] = {
         "with_references": with_refs,
         "without_references": without_refs,
@@ -235,8 +249,19 @@ def get_video_capabilities_tool(ctx: ToolContext):
     )
     async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
         try:
-            payload = await _resolve_video_capabilities(ctx.project_name)
-            await _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
+            if ctx.config_resolver is None:
+                payload = await _resolve_video_capabilities(ctx.project_name)
+                await _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
+            else:
+                payload = await _resolve_video_capabilities(
+                    ctx.project_name,
+                    config_resolver=ctx.config_resolver,
+                )
+                await _annotate_reference_unit_tiers(
+                    payload,
+                    ctx.pm.load_project(ctx.project_name),
+                    config_resolver=ctx.config_resolver,
+                )
             return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
         except FileNotFoundError as exc:
             return {
@@ -380,7 +405,10 @@ def generate_episode_script_tool(ctx: ToolContext):
                     }
 
             if dry_run:
-                generator = ScriptGenerator(project_path)
+                if ctx.config_resolver is None:
+                    generator = ScriptGenerator(project_path)
+                else:
+                    generator = ScriptGenerator(project_path, config_resolver=ctx.config_resolver)
                 prompt = await generator.build_prompt(episode, instructions=instructions)
                 return {
                     "content": [{"type": "text", "text": f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}"}]
@@ -403,7 +431,10 @@ def generate_episode_script_tool(ctx: ToolContext):
                     "is_error": True,
                 }
 
-            generator = await ScriptGenerator.create(project_path)
+            if ctx.config_resolver is None:
+                generator = await ScriptGenerator.create(project_path)
+            else:
+                generator = await ScriptGenerator.create(project_path, config_resolver=ctx.config_resolver)
             result_path = await generator.generate(episode=episode, instructions=instructions)
             return {"content": [{"type": "text", "text": f"✅ 剧本生成完成: {result_path}"}]}
         except FileNotFoundError as exc:
@@ -438,7 +469,7 @@ def confirm_script_review_tool(ctx: ToolContext):
             # 延迟导入避免 sdk_tools 在导入期耦合 server.services。
             from server.services.script_review import ScriptReviewError, ScriptReviewService
 
-            service = ScriptReviewService(ctx.pm)
+            service = ScriptReviewService(ctx.pm, config_resolver=ctx.config_resolver)
             try:
                 state = await service.confirm(ctx.project_name, episode)
             except ScriptReviewError as exc:
@@ -467,7 +498,12 @@ def confirm_script_review_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_caps_with_fallback(project: dict[str, Any], episode: int) -> tuple[int | None, list[int]]:
+async def _fetch_caps_with_fallback(
+    project: dict[str, Any],
+    episode: int,
+    *,
+    config_resolver: ConfigResolver | None = None,
+) -> tuple[int | None, list[int]]:
     """Script normalization is best-effort: prompt生成 不该被能力查询失败堵住。
 
     Soft-fallbacks to ``duration_presets.DEFAULT_FALLBACK`` so the LLM still
@@ -484,7 +520,14 @@ async def _fetch_caps_with_fallback(project: dict[str, Any], episode: int) -> tu
     越界默认时长」变成整个工具的硬失败。与 ``_fetch_reference_caps_with_fallback`` 同口径。
     """
     try:
-        default_int, durations = await fetch_video_caps(project, generation_mode=None)
+        if config_resolver is None:
+            default_int, durations = await fetch_video_caps(project, generation_mode=None)
+        else:
+            default_int, durations = await fetch_video_caps(
+                project,
+                generation_mode=None,
+                config_resolver=config_resolver,
+            )
     except (FileNotFoundError, ValueError) as exc:
         logger.info("video_capabilities 不可解析，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
@@ -542,7 +585,14 @@ def normalize_drama_script_tool(ctx: ToolContext):
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-            default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+            if ctx.config_resolver is None:
+                default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+            else:
+                default_duration, supported_durations = await _fetch_caps_with_fallback(
+                    project,
+                    episode,
+                    config_resolver=ctx.config_resolver,
+                )
             prompt = build_normalize_prompt(
                 novel_text=novel_text,
                 project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),
@@ -662,7 +712,12 @@ class ReferenceSplitCaps(NamedTuple):
         return self.reference_durations if has_references else self.text_durations
 
 
-async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: int) -> ReferenceSplitCaps:
+async def _fetch_reference_caps_with_fallback(
+    project: dict[str, Any],
+    episode: int,
+    *,
+    config_resolver: ConfigResolver | None = None,
+) -> ReferenceSplitCaps:
     """解析 rv 拆分所需的视频能力（见 ``ReferenceSplitCaps``）。
 
     与 ``_fetch_caps_with_fallback`` 同口径 best-effort：resolver 故障时回退
@@ -680,14 +735,17 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     ``default_duration`` 非并集成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
     """
     try:
-        caps = await resolve_video_caps(project)
+        if config_resolver is None:
+            caps = await resolve_video_caps(project)
+        else:
+            caps = await resolve_video_caps(project, config_resolver=config_resolver)
     except Exception as exc:  # noqa: BLE001
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
         # requested_generate_audio 不依赖能力接口（见 generation_context.py 同名字段注释），
         # 能力解析失败也不能连带丢失，否则本该报的 WARN_SILENT_EPISODE 会静默消失。
         try:
-            resolver = ConfigResolver(async_session_factory)
+            resolver = config_resolver or ConfigResolver(async_session_factory)
             caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
         except Exception as inner_exc:  # noqa: BLE001
             # 与其余能力字段的「不明时不额外收紧」相反：这里不明时收紧到 False——静默丢掉
@@ -697,7 +755,12 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)
-    with_refs, without_refs = await reference_unit_duration_tiers(project, caps, durations)
+    with_refs, without_refs = await reference_unit_duration_tiers(
+        project,
+        caps,
+        durations,
+        config_resolver=config_resolver,
+    )
     unit_durations = sorted(set(with_refs) | set(without_refs))
     max_duration = max(unit_durations)
     raw_refs = caps.get("max_reference_images")
@@ -899,7 +962,12 @@ class ReferenceDraftRevalidation(NamedTuple):
 
 
 async def revalidate_reference_step1_draft(
-    project_path: Path, project: dict[str, Any], episode: int, draft: QuarantinedDraft
+    project_path: Path,
+    project: dict[str, Any],
+    episode: int,
+    draft: QuarantinedDraft,
+    *,
+    config_resolver: ConfigResolver | None = None,
 ) -> ReferenceDraftRevalidation:
     """按产出时那套校验器全量重判 step1 草稿，只读、不写盘、不清草稿。
 
@@ -932,7 +1000,14 @@ async def revalidate_reference_step1_draft(
         episode,
         "reference_video",
     )
-    split_caps = await _fetch_reference_caps_with_fallback(project, episode)
+    if config_resolver is None:
+        split_caps = await _fetch_reference_caps_with_fallback(project, episode)
+    else:
+        split_caps = await _fetch_reference_caps_with_fallback(
+            project,
+            episode,
+            config_resolver=config_resolver,
+        )
 
     # 手改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住时长
     # 枚举与字段非空，晋升侧漏掉这一层的话，把 duration_seconds 改成非档位值、或整个删掉（收成
@@ -983,7 +1058,13 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
     """按产出时那套校验器全量重判 step1 草稿，通过则晋升为正式 step1 并清除草稿。"""
     project_path = ctx.project_path
     project = ctx.pm.load_project(ctx.project_name)
-    revalidation = await revalidate_reference_step1_draft(project_path, project, episode, draft)
+    revalidation = await revalidate_reference_step1_draft(
+        project_path,
+        project,
+        episode,
+        draft,
+        config_resolver=ctx.config_resolver,
+    )
     violations, flat_units, split_caps = revalidation.violations, revalidation.flat_units, revalidation.caps
     if revalidation.schema_failed:
         # schema 违约：写回 Agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿
@@ -1163,7 +1244,12 @@ class SingleStep1DraftRevalidation(NamedTuple):
 
 
 async def revalidate_drama_step1_draft(
-    project_path: Path, project: dict[str, Any], episode: int, draft: QuarantinedDraft
+    project_path: Path,
+    project: dict[str, Any],
+    episode: int,
+    draft: QuarantinedDraft,
+    *,
+    config_resolver: ConfigResolver | None = None,
 ) -> SingleStep1DraftRevalidation:
     """按产出时那套校验器全量重判 drama step1 草稿，只读、不写盘、不清草稿。
 
@@ -1186,7 +1272,14 @@ async def revalidate_drama_step1_draft(
         episode,
         "drama",
     )
-    _default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+    if config_resolver is None:
+        _default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+    else:
+        _default_duration, supported_durations = await _fetch_caps_with_fallback(
+            project,
+            episode,
+            config_resolver=config_resolver,
+        )
     schema = build_drama_normalized_script_model(supported_durations)
     try:
         content = schema.model_validate(draft.content).model_dump()
@@ -1216,7 +1309,13 @@ async def _promote_drama_step1(ctx: ToolContext, episode: int, draft: Quarantine
     project_path = ctx.project_path
     project = ctx.pm.load_project(ctx.project_name)
     try:
-        revalidation = await revalidate_drama_step1_draft(project_path, project, episode, draft)
+        revalidation = await revalidate_drama_step1_draft(
+            project_path,
+            project,
+            episode,
+            draft,
+            config_resolver=ctx.config_resolver,
+        )
     except ValueError as exc:
         return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
@@ -1544,7 +1643,12 @@ def _collect_narration_violations(
 
 
 async def revalidate_narration_step1_draft(
-    project_path: Path, project: dict[str, Any], episode: int, draft: QuarantinedDraft
+    project_path: Path,
+    project: dict[str, Any],
+    episode: int,
+    draft: QuarantinedDraft,
+    *,
+    config_resolver: ConfigResolver | None = None,
 ) -> SingleStep1DraftRevalidation:
     """按产出时那套校验器全量重判 narration step1 草稿，只读、不写盘、不清草稿。
 
@@ -1576,7 +1680,14 @@ async def revalidate_narration_step1_draft(
         episode,
         "narration",
     )
-    _default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+    if config_resolver is None:
+        _default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+    else:
+        _default_duration, supported_durations = await _fetch_caps_with_fallback(
+            project,
+            episode,
+            config_resolver=config_resolver,
+        )
 
     # 手改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住字段与
     # 类型，晋升侧漏掉这一层的话，把 duration_seconds 改成字符串、或整个删掉 novel_text 都能一路
@@ -1636,7 +1747,13 @@ async def _promote_narration_step1(ctx: ToolContext, episode: int, draft: Quaran
     project_path = ctx.project_path
     project = ctx.pm.load_project(ctx.project_name)
     try:
-        revalidation = await revalidate_narration_step1_draft(project_path, project, episode, draft)
+        revalidation = await revalidate_narration_step1_draft(
+            project_path,
+            project,
+            episode,
+            draft,
+            config_resolver=ctx.config_resolver,
+        )
     except ValueError as exc:
         return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
@@ -1791,7 +1908,12 @@ _SINGLE_STEP1_REVALIDATORS: dict[
 
 
 async def revalidate_step1_draft(
-    project_path: Path, project: dict[str, Any], episode: int, draft: QuarantinedDraft
+    project_path: Path,
+    project: dict[str, Any],
+    episode: int,
+    draft: QuarantinedDraft,
+    *,
+    config_resolver: ConfigResolver | None = None,
 ) -> Step1DraftRevalidation:
     """把一份 step1 草稿交给它那条路线的重判器，返回路线中立的重判结果。
 
@@ -1802,13 +1924,34 @@ async def revalidate_step1_draft(
     ``draft.kind`` 不是 step1 的三个来源之一（如误传 step2 草稿）时抛 ``ValueError``。
     """
     if draft.kind == QUARANTINE_KIND_STEP1:
-        reference = await revalidate_reference_step1_draft(project_path, project, episode, draft)
+        reference = await revalidate_reference_step1_draft(
+            project_path,
+            project,
+            episode,
+            draft,
+            config_resolver=config_resolver,
+        )
         content = None if reference.schema_failed else {"units": reference.flat_units}
         return Step1DraftRevalidation(reference.violations, content)
     revalidator = _SINGLE_STEP1_REVALIDATORS.get(draft.kind)
     if revalidator is None:
         raise ValueError(f"不是 step1 草稿来源，无法重判: {draft.kind}")
-    single = await revalidator(project_path, project, episode, draft)
+    if draft.kind == QUARANTINE_KIND_DRAMA_STEP1:
+        single = await revalidate_drama_step1_draft(
+            project_path,
+            project,
+            episode,
+            draft,
+            config_resolver=config_resolver,
+        )
+    else:
+        single = await revalidate_narration_step1_draft(
+            project_path,
+            project,
+            episode,
+            draft,
+            config_resolver=config_resolver,
+        )
     return Step1DraftRevalidation(single.violations, None if single.schema_failed else single.content)
 
 
@@ -2015,7 +2158,14 @@ def split_reference_video_units_tool(ctx: ToolContext):
             scenes = cast(dict[str, Any], prompt_inputs["scenes"])
             props = cast(dict[str, Any], prompt_inputs["props"])
 
-            split_caps = await _fetch_reference_caps_with_fallback(project, episode)
+            if ctx.config_resolver is None:
+                split_caps = await _fetch_reference_caps_with_fallback(project, episode)
+            else:
+                split_caps = await _fetch_reference_caps_with_fallback(
+                    project,
+                    episode,
+                    config_resolver=ctx.config_resolver,
+                )
             prompt = build_reference_units_split_prompt(
                 novel_text=novel_text,
                 project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),
@@ -2226,7 +2376,10 @@ def validate_and_promote_draft_tool(ctx: ToolContext):
                     }
                 # 用异步工厂而非裸构造：晋升同样经 _add_metadata 落盘，裸构造会把
                 # metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。
-                generator = await ScriptGenerator.create(project_path)
+                if ctx.config_resolver is None:
+                    generator = await ScriptGenerator.create(project_path)
+                else:
+                    generator = await ScriptGenerator.create(project_path, config_resolver=ctx.config_resolver)
                 result_path = await generator.promote_reference_step2_draft(episode)
                 return {"content": [{"type": "text", "text": f"✅ step2 视觉展开已校验通过并晋升: {result_path}"}]}
 
@@ -2297,7 +2450,14 @@ def split_narration_segments_tool(ctx: ToolContext):
 
             # narration 仅需 (default_duration, supported_durations)：无 unit 总时长 / 参考图概念，
             # 复用与 drama normalize 同口径的 best-effort 能力查询（resolver 故障软回退 [4,6,8]）。
-            default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+            if ctx.config_resolver is None:
+                default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
+            else:
+                default_duration, supported_durations = await _fetch_caps_with_fallback(
+                    project,
+                    episode,
+                    config_resolver=ctx.config_resolver,
+                )
             prompt = build_narration_split_prompt(
                 novel_text=novel_text,
                 project_overview=cast(dict[str, Any], prompt_inputs["project_overview"]),

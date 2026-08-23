@@ -326,12 +326,20 @@ class ProjectManager:
             raise FileNotFoundError(f"当前目录不是有效的项目目录: {cwd}")
         return pm, project_name
 
-    def __init__(self, projects_root: str | Path | None = None):
+    def __init__(
+        self,
+        projects_root: str | Path | None = None,
+        *,
+        script_reader: Callable[[Path], dict] | None = None,
+        script_writer: Callable[[Path, dict], None] | None = None,
+    ):
         """
         初始化项目管理器
 
         Args:
             projects_root: 项目根目录，默认为当前目录下的 projects/
+            script_reader: 剧本 JSON 读取 seam；缺省时从文件系统读取。
+            script_writer: 剧本 JSON 原子写入 seam；缺省时使用 atomic_write_json。
         """
         if projects_root is None:
             # 尝试从环境变量或默认路径获取
@@ -339,6 +347,8 @@ class ProjectManager:
 
         self.projects_root = Path(projects_root)
         self.projects_root.mkdir(parents=True, exist_ok=True)
+        self._script_reader = script_reader
+        self._script_writer = script_writer
 
     def list_projects(self) -> list[str]:
         """列出所有项目"""
@@ -877,7 +887,10 @@ class ProjectManager:
         metadata["updated_at"] = now
 
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
-        atomic_write_json(output_path, script)
+        if self._script_writer is None:
+            atomic_write_json(output_path, script)
+        else:
+            self._script_writer(output_path, script)
 
         # 同步到 project.json，保证 script 写入与元数据同步是单一事务
         # （sync 走的是 `_project_lock`，与外层 `_script_lock` 不同锁，不会冲突）。
@@ -1225,8 +1238,11 @@ class ProjectManager:
         if not real.exists():
             raise FileNotFoundError(f"剧本文件不存在: {real}")
 
-        with open(real, encoding="utf-8") as f:  # noqa: PTH123
-            script = json.load(f)
+        if self._script_reader is None:
+            with open(real, encoding="utf-8") as f:  # noqa: PTH123
+                script = json.load(f)
+        else:
+            script = self._script_reader(real)
 
         migrated, warnings = migrate_script_unit_durations(script)
         for message in warnings:

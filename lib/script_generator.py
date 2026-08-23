@@ -167,16 +167,24 @@ class ScriptGenerator:
     读取 Step 1/2 的 Markdown 中间文件，调用 TextBackend 生成最终 JSON 剧本
     """
 
-    def __init__(self, project_path: str | Path, generator: Optional["TextGenerator"] = None):
+    def __init__(
+        self,
+        project_path: str | Path,
+        generator: Optional["TextGenerator"] = None,
+        *,
+        config_resolver: ConfigResolver | None = None,
+    ):
         """
         初始化生成器
 
         Args:
             project_path: 项目目录路径，如 projects/test0205
             generator: TextGenerator 实例（可选）。若为 None 则仅支持 build_prompt() dry-run。
+            config_resolver: 能力解析器；缺省时使用连接生产数据库的 ConfigResolver。
         """
         self.project_path = Path(project_path)
         self.generator = generator
+        self.config_resolver = config_resolver or ConfigResolver(async_session_factory)
         self._step1_revision: str | None = None
         self._artifact_basis: ArtifactBasisDescriptor | None = None
         self._step1_input_claim: ArtifactInputClaim | None = None
@@ -208,11 +216,16 @@ class ScriptGenerator:
         return raw_outline if isinstance(raw_outline, dict) else {}
 
     @classmethod
-    async def create(cls, project_path: str | Path) -> "ScriptGenerator":
+    async def create(
+        cls,
+        project_path: str | Path,
+        *,
+        config_resolver: ConfigResolver | None = None,
+    ) -> "ScriptGenerator":
         """异步工厂方法，自动从 DB 加载供应商配置创建 TextGenerator。"""
         project_name = Path(project_path).name
         generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name)
-        return cls(project_path, generator)
+        return cls(project_path, generator, config_resolver=config_resolver)
 
     async def generate(
         self,
@@ -700,8 +713,8 @@ class ScriptGenerator:
         （``docs/adr/0054``），fallback 会拿项目默认模型的档位去写剧本，写出来的时长 / 参考图
         数量执行期照样被拒。报错带 code 与修复指引，比先写一份必败的剧本更省事。
         """
-        resolver = ConfigResolver(async_session_factory)
         try:
+            resolver = getattr(self, "config_resolver", None) or ConfigResolver(async_session_factory)
             return await resolver.video_capabilities_for_project(self.project_json)
         except VideoBucketCapabilityError:
             raise
