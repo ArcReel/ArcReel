@@ -10,10 +10,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.service import ConfigService, ProviderStatus
-from lib.db.base import Base
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.routers.system_config import _build_options
 
@@ -23,14 +22,9 @@ from server.routers.system_config import _build_options
 
 
 @pytest.fixture
-async def session_with_factory():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as s:
-        yield s, factory
-    await engine.dispose()
+async def session_with_factory(db_factory):
+    async with db_factory() as s:
+        yield s, db_factory
 
 
 def _make_mock_svc(ready_providers: list[str] | None = None) -> ConfigService:

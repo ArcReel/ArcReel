@@ -7,41 +7,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from server.agent_runtime.event_log import EventLogStore, build_user_entry
 from server.agent_runtime.session_manager import AgentStartupError, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import FakeSDKClient
 
 SDK_ID = "sdk-e2e-1"
-
-
-@pytest.fixture()
-async def file_db_factory(tmp_path):
-    """文件 SQLite + NullPool：本测试的写入（inbox 任务）与轮询读并发，
-    内存库 StaticPool 共享单连接会让事务交错互相破坏。"""
-    from sqlalchemy import event, pool
-
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'flow.db'}",
-        poolclass=pool.NullPool,
-    )
-
-    @event.listens_for(engine.sync_engine, "connect")
-    def _set_sqlite_pragma(dbapi_conn, _record):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA busy_timeout=30000")
-        cursor.execute("PRAGMA foreign_keys=OFF")
-        cursor.close()
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
 
 
 @pytest.fixture()

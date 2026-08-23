@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.capability_buckets import builtin_model_buckets, custom_model_buckets
 from lib.config.registry import PROVIDER_REGISTRY
@@ -73,9 +72,8 @@ def _make_mock_svc(ready_providers: list[str]) -> ConfigService:
 
 
 @pytest.fixture()
-def session_factory_and_engine():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    return async_sessionmaker(engine, expire_on_commit=False), engine
+def session_factory_and_engine(db_engine, db_factory):
+    return db_factory, db_engine
 
 
 def _make_app(mock_svc: ConfigService, engine, factory) -> FastAPI:

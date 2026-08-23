@@ -241,6 +241,17 @@ async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 
 
 @pytest.fixture()
+async def file_db_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """文件 SQLite + NullPool 的 factory —— 需要独立连接的并发用例用它。
+
+    与 ``file_session_factory`` 的差别只在不带 `uses_db`：unit 档的并发用例
+    不该被拉进 postgres-compat 选集。
+    """
+    async with test_engine(dialect_aware=False, file_path=tmp_path / "concurrency.db") as engine:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+
+
+@pytest.fixture()
 async def db_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """``db_engine`` 上的 session factory。"""
     return async_sessionmaker(db_engine, expire_on_commit=False)

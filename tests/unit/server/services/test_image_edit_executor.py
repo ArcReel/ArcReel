@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.artifact_activation import register_current_artifact_if_provable
 from lib.artifact_manifest import (
@@ -22,7 +21,6 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.config.resolver import ConfigResolver, ProviderModel
-from lib.db.base import Base
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import ProjectMigrationError
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -43,19 +41,14 @@ from server.services.image_edit_tasks import (
 
 
 @pytest.fixture
-async def patched_session_factory(monkeypatch):
+async def patched_session_factory(db_factory, monkeypatch):
     """真实内存 DB：建全部 ORM 表，把 lib.db.async_session_factory 指向它。
 
     供 image_size 解析等价用例的真实 ConfigResolver 使用（预置供应商无 DB 行，自定义供应商
     默认 resolution 才落 DB）。
     """
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr("lib.db.async_session_factory", factory)
-    yield factory
-    await engine.dispose()
+    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+    return db_factory
 
 
 class _FakeGenerator:

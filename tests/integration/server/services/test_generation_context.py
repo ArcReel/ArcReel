@@ -14,14 +14,12 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.audio_backends.base import VoiceOption
 from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, ProviderModel, VoiceConsistency, get_provider_fallback
 from lib.custom_provider import make_provider_id
-from lib.db.base import Base
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
@@ -64,15 +62,10 @@ class _FakeBackend:
 
 
 @pytest.fixture
-async def patched_session_factory(monkeypatch):
+async def patched_session_factory(db_factory, monkeypatch):
     """真实内存 DB：建全部 ORM 表，并把 lib.db.async_session_factory 指向它。"""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    monkeypatch.setattr("lib.db.async_session_factory", factory)
-    yield factory
-    await engine.dispose()
+    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+    return db_factory
 
 
 @pytest.fixture

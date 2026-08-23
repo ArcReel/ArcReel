@@ -5,9 +5,7 @@
 """
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from lib.db.repositories.task_repo import TaskRepository
 from lib.generation_queue import GenerationQueue
 from lib.project_change_hints import register_project_change_batch_listener
@@ -15,14 +13,8 @@ from lib.task_terminal_events import build_task_terminal_change
 
 
 @pytest.fixture
-async def queue():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield GenerationQueue(session_factory=factory)
-    await engine.dispose()
+async def queue(db_factory):
+    return GenerationQueue(session_factory=db_factory)
 
 
 @pytest.fixture
