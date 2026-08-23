@@ -89,6 +89,31 @@ def test_record_attribute_counts_as_double_only_when_its_owner_is_a_double(tmp_p
     assert "test_double_record" in violations[0].guidance
 
 
+def test_functional_pytest_assertions_count_as_assertions(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_functional.py").write_text(
+        "def test_functional_raises():\n"
+        "    pytest.raises(ValueError, int, 'bad')\n"
+        "\n"
+        "\n"
+        "def test_fail_sentinel():\n"
+        "    try:\n"
+        "        run()\n"
+        "    except RuntimeError:\n"
+        "        pytest.fail('should not raise')\n"
+        "\n"
+        "\n"
+        "def test_bare_raises_is_not_an_assertion():\n"
+        "    pytest.raises(ValueError)\n",
+        encoding="utf-8",
+    )
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.line) for v in violations] == [("NO-ASSERTION", 12)]
+    assert "test_bare_raises_is_not_an_assertion" in violations[0].guidance
+
+
 def test_class_scan_follows_pytest_collection_rules(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
     (tests / "test_client.py").write_text(

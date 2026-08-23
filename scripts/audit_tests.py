@@ -87,6 +87,9 @@ DOUBLE_ATTRS = {
 # 断言辅助函数：调用即视为实质断言（保守，倾向压低类 1 误报）
 ASSERT_HELPER_PREFIXES = ("assert", "_assert", "check_", "_check", "verify_", "_verify", "expect_")
 
+FAIL_ASSERT_CALLS = {"fail"}
+CALLABLE_ASSERT_CALLS = {"raises", "warns", "deprecated_call"}
+
 BUILTIN_NAMES = {
     "len",
     "any",
@@ -584,7 +587,7 @@ class TestFunctionAnalyzer:
                         if len(evidence) < 3:
                             evidence.append(f"L{node.lineno} {fname}(...)")
                         continue
-                    if last.startswith(ASSERT_HELPER_PREFIXES):
+                    if last.startswith(ASSERT_HELPER_PREFIXES) or self._is_functional_assert(last, node.value):
                         real_hits += 1
                         continue
             elif isinstance(node, ast.Assert):
@@ -617,6 +620,18 @@ class TestFunctionAnalyzer:
             subjects.update(roots)
             return "double"
         return "real"
+
+    def _is_functional_assert(self, last: str, call: ast.Call) -> bool:
+        """pytest 的非 with 形式断言：`pytest.raises(Exc, fn, ...)` 与 `pytest.fail(...)`。
+
+        `raises` / `warns` 只按上下文管理器识别会漏掉函数式写法；`pytest.fail` 作为
+        哨兵（`except X: pytest.fail(...)`）常常是一条用例的唯一断言。闸门必过后，
+        这两种合法写法会被 NO-ASSERTION 卡红。`raises` / `warns` 要求带被调对象，
+        单参数的裸调用是无效写法，不计入。
+        """
+        if last in FAIL_ASSERT_CALLS:
+            return True
+        return last in CALLABLE_ASSERT_CALLS and len(call.args) >= 2
 
     def _record_attr_owners(self, test: ast.expr, double_names: set[str]) -> set[str]:
         """替身记录属性的属主，只取属主确为替身的那些。
