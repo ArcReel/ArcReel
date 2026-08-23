@@ -99,8 +99,18 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Classification marker gate (collect-only)
+        # 必须在并行步骤之前、且不带 -n：xdist 的收集发生在各 worker 内，conftest
+        # 的 UsageError 会撞上 dsession 的断言退化成 INTERNALERROR，违规清单一个字
+        # 都不剩。--collect-only 由 controller 本地收集，清单完整、全量约 2s。
+        run: uv run python -m pytest --collect-only -q
+
       - name: Run tests with coverage
-        run: uv run python -m pytest -m "not e2e" --cov=lib --cov=server --cov-report=term-missing --cov-report=xml
+        # -n 固定 4 而非 auto：-n auto 优先取 psutil 的物理核数，一旦某传递依赖带进
+        # psutil，CI worker 数会静默减半。loadfile 而非默认 load：仓库根共享路径
+        # （PROJECT_ROOT 下 mkdir/rmdir、module 级 autouse fixture）要求同文件用例
+        # 留在同一 worker。
+        run: uv run python -m pytest -m "not e2e" -n 4 --dist loadfile --cov=lib --cov=server --cov-report=term-missing --cov-report=xml
 
       - name: Upload backend coverage
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -160,6 +170,9 @@ jobs:
           uv run alembic upgrade head           # 4. 再次正向，验证 downgrade 真清掉了
 
       - name: Run dialect-sensitive tests against Postgres
+        # 保持单进程：92 个用例约 2m44s，可省时间小于并行风险——其中
+        # tests/test_agent_credential_repo.py 的用例共用 alembic 建出的 public
+        # schema，两 worker 写同一主键会互相阻塞。
         run: |
           uv run python -m pytest -v \
             -m "uses_db and not sqlite_only" \
