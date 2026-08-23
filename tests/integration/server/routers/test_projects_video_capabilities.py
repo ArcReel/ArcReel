@@ -1,0 +1,179 @@
+"""projects 路由的 video-capabilities 查询。"""
+
+from lib.i18n.zh import errors as zh_errors
+from server.routers import projects
+from tests.integration.server.routers.projects_router_support import (
+    _client,
+    _FakePM,
+)
+
+
+class TestGetVideoCapabilities:
+    """GET /projects/{name}/video-capabilities"""
+
+    def _patch_resolver(self, monkeypatch, side_effect=None, return_value=None):
+        """用 MagicMock 替换 ConfigResolver 类，让其 instance.video_capabilities() 返回指定行为。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        resolver_instance = MagicMock()
+        if side_effect is not None:
+            resolver_instance.video_capabilities = AsyncMock(side_effect=side_effect)
+        else:
+            resolver_instance.video_capabilities = AsyncMock(return_value=return_value)
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+        return resolver_instance
+
+    def test_returns_capabilities_json(self, tmp_path, monkeypatch):
+        fake_caps = {
+            "provider_id": "grok",
+            "model": "grok-imagine-video",
+            "supported_durations": list(range(1, 16)),
+            "max_duration": 15,
+            "max_reference_images": 7,
+            "source": "registry",
+            "default_duration": None,
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+        }
+        self._patch_resolver(monkeypatch, return_value=fake_caps)
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities")
+            assert resp.status_code == 200
+            assert resp.json() == fake_caps
+
+    def test_video_backend_param_resolves_candidate_model(self, tmp_path, monkeypatch):
+        """带 video_backend 时按候选模型解析，而不是按已落盘配置。
+
+        设置表单里用户改了下拉但尚未保存，若仍按落盘配置解析，voice_consistency 等二维派生值
+        会停留在上一次保存的模型上，界面显示的档位与用户当前选择不符。
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        resolver_instance = MagicMock()
+        resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
+        resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"video_backend": "openai/sora-2"},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"model": "candidate"}
+        resolver_instance.video_capabilities.assert_not_awaited()
+        assert resolver_instance.video_capabilities_for_model.await_args.args[:2] == ("openai", "sora-2")
+
+    def test_capabilities_resolve_by_project_route_without_episode(self, tmp_path, monkeypatch):
+        """能力按项目生成模式定轴：端点不接受集号，解析只带项目（与候选模型）。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        resolver_instance = MagicMock()
+        resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
+        resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            assert client.get("/api/v1/projects/ready/video-capabilities").status_code == 200
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"video_backend": "openai/sora-2"},
+            )
+        assert resp.status_code == 200
+        assert resolver_instance.video_capabilities.await_args.args == ("ready",)
+        # 候选模型解析拿到的第三个入参必须是该项目的已加载数据（含项目生成模式），只断言参数个数的话
+        # 路由传 None 或传错项目都照样通过。
+        passed_project = resolver_instance.video_capabilities_for_model.await_args.args[2]
+        assert passed_project["title"] == "Ready"
+        assert passed_project["generation_mode"] == "storyboard"
+
+    def test_stale_episode_query_param_is_ignored(self, tmp_path, monkeypatch):
+        """端点不声明 ``episode`` 查询参数：带上也被忽略，不改变解析口径、不报错。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        resolver_instance = MagicMock()
+        resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities", params={"episode": 3})
+        assert resp.status_code == 200
+        assert resolver_instance.video_capabilities.await_args.args == ("ready",)
+
+    def test_malformed_video_backend_returns_400(self, tmp_path, monkeypatch):
+        self._patch_resolver(monkeypatch, return_value={})
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"video_backend": "no-slash"},
+            )
+        assert resp.status_code == 400
+
+    def test_bare_provider_video_backend_resolves_default_model(self, tmp_path, monkeypatch):
+        """裸 provider（无 "/"）按 registry 默认视频 model 补全，不再被判定为格式错误。
+
+        存量项目的 video_backend 可以是裸 provider 覆盖（见 `_parse_project_provider`），设置
+        表单未改选时原样带上，回归会让这类项目的能力查询恒 400。
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        resolver_instance = MagicMock()
+        resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"video_backend": "openai"},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"model": "candidate"}
+        provider_id, model_id = resolver_instance.video_capabilities_for_model.await_args.args[:2]
+        assert provider_id == "openai"
+        assert model_id
+
+    def test_unknown_project_returns_404(self, tmp_path, monkeypatch):
+        self._patch_resolver(monkeypatch, side_effect=FileNotFoundError("项目 'nonexistent' 不存在"))
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get("/api/v1/projects/nonexistent/video-capabilities")
+            assert resp.status_code == 404
+
+    def test_resolver_value_error_returns_422(self, tmp_path, monkeypatch):
+        self._patch_resolver(monkeypatch, side_effect=ValueError("model not found: grok/unknown"))
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities")
+            assert resp.status_code == 422
+            detail = resp.json()["detail"]
+            # 异常原文只进日志，不进用户可见响应（en/vi 界面不能混入未译英文原文）
+            assert "model not found" not in detail
+            assert detail == zh_errors.MESSAGES["video_capabilities_unresolved"].format(name="ready")
+
+    def test_capability_bucket_error_returns_localized_400(self, tmp_path, monkeypatch):
+        """任务类型桶解析闸的报错转成结构化 400，带上修复指引，不被通用 422 文案吞掉。"""
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        self._patch_resolver(
+            monkeypatch,
+            side_effect=VideoBucketCapabilityError(
+                code="video_capability_missing_r2v",
+                capability="r2v",
+                provider_id="kling",
+                model_id="kling-v3",
+                message="video model kling/kling-v3 lacks the capability required by the r2v bucket",
+            ),
+        )
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities")
+            assert resp.status_code == 400
+            assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_missing_r2v"].format(
+                provider="kling", model="kling-v3"
+            )
