@@ -1320,13 +1320,15 @@ class TestCostEstimationService:
             "reference_duration_confirmation_required"
         )
 
-        def _quote_unavailable(*_args, **_kwargs):
-            raise ValueError("price unavailable")
+        # 视频这一维算不出价（定价表无该模型条目）：报价与预估同源，两者一起落空。
+        real_calculate_cost = cost_calculator.calculate_cost
 
-        monkeypatch.setattr(
-            "server.services.cost_estimation.quote_video_request_from_price",
-            _quote_unavailable,
-        )
+        def _video_pricing_missing(provider, params, **kwargs):
+            if params.call_type == "video":
+                raise ValueError(f"no pricing entry for {provider}/{params.model}")
+            return real_calculate_cost(provider, params, **kwargs)
+
+        monkeypatch.setattr(cost_calculator, "calculate_cost", _video_pricing_missing)
         unavailable = await service.compute(
             project_data,
             scripts,
