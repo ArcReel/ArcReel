@@ -26,6 +26,7 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 
 # ---------------------------------------------------------------- 常量表
@@ -272,6 +273,17 @@ def marks_of(decorators: list[ast.expr]) -> list[str]:
             if idx + 1 < len(parts):
                 out.append(parts[idx + 1])
     return out
+
+
+COLLECTED_TEST_FILE_GLOBS = ("test_*.py", "*_test.py")
+
+
+def is_collected_test_module(path: Path) -> bool:
+    """pytest 只从 `test_*.py` / `*_test.py` 收集用例。
+
+    conftest 与支持模块里 `test` 开头的函数是工具函数，按名字当成用例会虚增类 1 计数。
+    """
+    return any(fnmatch(path.name, pattern) for pattern in COLLECTED_TEST_FILE_GLOBS)
 
 
 TIER_MARKS = ("unit", "integration", "e2e")
@@ -694,7 +706,8 @@ class FileScanner:
         return out
 
     def scan(self) -> None:
-        self._scan_scope(self.tree.body, [], None)
+        if is_collected_test_module(self.path):
+            self._scan_scope(self.tree.body, [], None)
         self._scan_patch_sites()
 
     def _scan_scope(self, body: list[ast.stmt], class_marks: list[str], class_name: str | None) -> None:
