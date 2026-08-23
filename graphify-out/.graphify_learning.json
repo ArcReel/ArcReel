@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-23T04:11:10.225614+00:00",
+  "generated_at": "2026-08-23T05:28:01.376977+00:00",
   "nodes": {
     "frontend_package": {
       "code_fingerprint": "84857268168a229f9928cd5f4602804aa3b857d5f517d3c6e94a2b6825ea20ad",
@@ -12,7 +12,7 @@
           "q": "可以帮我restart，rebuild and restart。"
         }
       ],
-      "score": 0.987750509,
+      "score": 0.98653326,
       "source_file": "frontend/package.json",
       "status": "tentative",
       "uses": 1
@@ -28,7 +28,7 @@
           "q": "如果我选择韩剧偶像 具体的完整的风格提示词是什么样的"
         }
       ],
-      "score": 0.954217323,
+      "score": 0.953041398,
       "source_file": "frontend/public/style-thumbnails/live_kdrama.png",
       "status": "tentative",
       "uses": 1
@@ -44,7 +44,7 @@
           "q": "当前在创建项目的时候，需要去选择一个风格的，它的对应的这个文档在哪呢？我想看一看，就是选择了，比如说具体的这个风格之后，它是怎么样去做后续的这个链路的一个嵌入的，这个风格是怎么嵌套进去的？那具体的风格文件在哪？"
         }
       ],
-      "score": 0.954069328,
+      "score": 0.952893586,
       "source_file": "frontend/src/api.ts",
       "status": "tentative",
       "uses": 1
@@ -65,7 +65,7 @@
           "q": "参考声音的Dropdown选择 也需要能够preview"
         }
       ],
-      "score": 1.916974003,
+      "score": 1.914611631,
       "source_file": "frontend/src/components/assets/AssetFormModal.tsx",
       "status": "preferred",
       "uses": 2
@@ -81,7 +81,7 @@
           "q": "然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。"
         }
       ],
-      "score": 0.961030079,
+      "score": 0.959845759,
       "source_file": "frontend/src/components/assets/CharacterCatalogSyncMonitor.test.tsx",
       "status": "tentative",
       "uses": 1
@@ -97,7 +97,7 @@
           "q": "优化分集完成后源文切片仍显示未找到的问题"
         }
       ],
-      "score": 0.988130061,
+      "score": 0.986912345,
       "source_file": "frontend/src/components/canvas/EpisodeSourceReview.tsx",
       "status": "tentative",
       "uses": 1
@@ -113,7 +113,7 @@
           "q": "优化分集完成后源文切片仍显示未找到的问题"
         }
       ],
-      "score": 0.988130061,
+      "score": 0.986912345,
       "source_file": "frontend/src/components/canvas/EpisodeSourceReview.test.tsx",
       "status": "tentative",
       "uses": 1
@@ -129,7 +129,7 @@
           "q": "分析失败: 服务器内部错误，请稍后重试。我创建项目上传剧本后点击开始分析，具体是什么问题？"
         }
       ],
-      "score": 0.978114559,
+      "score": 0.976909185,
       "source_file": "frontend/src/components/canvas/OverviewCanvas.tsx",
       "status": "tentative",
       "uses": 1
@@ -145,7 +145,7 @@
           "q": "优化分集完成后源文切片仍显示未找到的问题"
         }
       ],
-      "score": 0.988130061,
+      "score": 0.986912345,
       "source_file": "frontend/src/components/canvas/StudioCanvasRouter.tsx",
       "status": "tentative",
       "uses": 1
@@ -161,7 +161,7 @@
           "q": "然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。"
         }
       ],
-      "score": 0.961030079,
+      "score": 0.959845759,
       "source_file": "frontend/src/components/copilot/AgentCopilot.tsx",
       "status": "tentative",
       "uses": 1
@@ -182,7 +182,7 @@
           "q": "用户能否在项目创建后部分调整自定义风格？"
         }
       ],
-      "score": 1.90994911,
+      "score": 1.907595395,
       "source_file": "frontend/src/components/pages/ProjectSettingsPage.tsx",
       "status": "preferred",
       "uses": 2
@@ -198,7 +198,7 @@
           "q": "在项目设置中实现自定义风格图片或手填 Style Description，并由图片上的按钮按需解析回填文本框"
         }
       ],
-      "score": 0.955085239,
+      "score": 0.953908245,
       "source_file": "frontend/src/components/pages/ProjectsPage.tsx",
       "status": "tentative",
       "uses": 1
@@ -229,7 +229,7 @@
           "q": "新建项目上传自定义风格参考图后，解析格式、系统提示词和完整处理流程是什么？"
         }
       ],
-      "score": 3.819266294,
+      "score": 3.814559642,
       "source_file": "frontend/src/components/shared/StylePicker.tsx",
       "status": "preferred",
       "uses": 4
@@ -250,7 +250,7 @@
           "q": "当前在创建项目的时候，需要去选择一个风格的，它的对应的这个文档在哪呢？我想看一看，就是选择了，比如说具体的这个风格之后，它是怎么样去做后续的这个链路的一个嵌入的，这个风格是怎么嵌套进去的？那具体的风格文件在哪？"
         }
       ],
-      "score": 1.908286651,
+      "score": 1.905934984,
       "source_file": "frontend/src/data/style-templates.ts",
       "status": "preferred",
       "uses": 2
@@ -266,7 +266,7 @@
           "q": "然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。"
         }
       ],
-      "score": 0.961030079,
+      "score": 0.959845759,
       "source_file": "frontend/src/stores/character-catalog-sync-store.ts",
       "status": "tentative",
       "uses": 1
@@ -282,7 +282,7 @@
           "q": "优化分集完成后源文切片仍显示未找到的问题"
         }
       ],
-      "score": 0.988130061,
+      "score": 0.986912345,
       "source_file": "frontend/src/stores/projects-store.ts",
       "status": "tentative",
       "uses": 1
@@ -298,7 +298,7 @@
           "q": "然后右下角的这个提示的这么一个progress bar，它应该是有一个可以缩小的一个状态，不然它可能会挡到这个agents的一个输入的这个页面。"
         }
       ],
-      "score": 0.961030079,
+      "score": 0.959845759,
       "source_file": "frontend/src/utils/ui-layers.ts",
       "status": "tentative",
       "uses": 1
@@ -314,7 +314,7 @@
           "q": "为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？"
         }
       ],
-      "score": 0.961008134,
+      "score": 0.959823841,
       "source_file": "lib/background_job_worker.py",
       "status": "tentative",
       "uses": 1
@@ -330,7 +330,7 @@
           "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
         }
       ],
-      "score": 0.960842733,
+      "score": 0.959658643,
       "source_file": "lib/character_catalog.py",
       "status": "tentative",
       "uses": 1
@@ -351,7 +351,7 @@
           "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
         }
       ],
-      "score": 1.921850867,
+      "score": 1.919482485,
       "source_file": "lib/character_catalog.py",
       "status": "preferred",
       "uses": 2
@@ -367,7 +367,7 @@
           "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
         }
       ],
-      "score": 0.960842733,
+      "score": 0.959658643,
       "source_file": "lib/db/repositories/asset_resource_repo.py",
       "status": "tentative",
       "uses": 1
@@ -383,7 +383,7 @@
           "q": "为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？"
         }
       ],
-      "score": 0.961008134,
+      "score": 0.959823841,
       "source_file": "lib/db/repositories/background_job_repo.py",
       "status": "tentative",
       "uses": 1
@@ -399,7 +399,7 @@
           "q": "Drama plan draft是个什么tool？这个tool是给到Arc Agent的吗？就给到服务商那边的吗？还是说这个是我们自己的一些tool？然后Structured output是Capability吗？Capability它在整个的体系里面自带的什么？是Text generation、Image generation还是Video generation这种Capability吗？有这种相应的Capability的List吗？你是在单独去添加一些自定义的Capability吗？然后这个是问题是基于这个arc agent plan去产生的吗？还是说in general针对于这个火山方舟的都有这种问题。这个是渠道带来的问题？还是模型带来的问题？还是什，还是这个模式带来的问题？"
         }
       ],
-      "score": 0.98753315,
+      "score": 0.986316169,
       "source_file": "lib/episode_planner.py",
       "status": "tentative",
       "uses": 1
@@ -436,7 +436,7 @@
           "q": "火山没有返回具体参数名，所以无法断言究竟是 tools、强制 tool_choice，还是 DramaPlanDraft 的工具 schema 中某个细节；但已经可以确定，问题就在这一组 TOOLS 结构化调用参数，不是 Agent 的 {}。如果你无法断言具体是什么，那你需要通过测试来确定到底是哪里的问题啊。确定完问题之后，你再出解决方案。"
         }
       ],
-      "score": 4.93850451,
+      "score": 4.932418571,
       "source_file": "lib/episode_planner.py",
       "status": "contested",
       "uses": 6,
@@ -453,7 +453,7 @@
           "q": "分镜 image_prompt 中 scene、composition.shot_type、lighting、ambiance 在哪个阶段产生，style 如何嵌入？"
         }
       ],
-      "score": 0.954320314,
+      "score": 0.953144263,
       "source_file": "lib/script_models.py",
       "status": "tentative",
       "uses": 1
@@ -469,7 +469,7 @@
           "q": "分镜 image_prompt 中 scene、composition.shot_type、lighting、ambiance 在哪个阶段产生，style 如何嵌入？"
         }
       ],
-      "score": 0.954320314,
+      "score": 0.953144263,
       "source_file": "lib/script_models.py",
       "status": "tentative",
       "uses": 1
@@ -506,7 +506,7 @@
           "q": "鳄鱼爸爸的景泰蓝项目 plan_episodes 空参数调用为何持续返回 400 InvalidParameter，请结合 Request ID 021787410493856f209293b0689fc4da4ccbf3e82cce55dea0e03 定位后端"
         }
       ],
-      "score": 3.940809836,
+      "score": 3.935953401,
       "source_file": "lib/text_backends/ark.py",
       "status": "contested",
       "uses": 5,
@@ -523,7 +523,7 @@
           "q": "Drama plan draft是个什么tool？这个tool是给到Arc Agent的吗？就给到服务商那边的吗？还是说这个是我们自己的一些tool？然后Structured output是Capability吗？Capability它在整个的体系里面自带的什么？是Text generation、Image generation还是Video generation这种Capability吗？有这种相应的Capability的List吗？你是在单独去添加一些自定义的Capability吗？然后这个是问题是基于这个arc agent plan去产生的吗？还是说in general针对于这个火山方舟的都有这种问题。这个是渠道带来的问题？还是模型带来的问题？还是什，还是这个模式带来的问题？"
         }
       ],
-      "score": 0.98753315,
+      "score": 0.986316169,
       "source_file": "lib/text_backends/base.py",
       "status": "tentative",
       "uses": 1
@@ -539,7 +539,7 @@
           "q": "新建项目上传自定义风格参考图后，解析格式、系统提示词和完整处理流程是什么？"
         }
       ],
-      "score": 0.954484057,
+      "score": 0.953307803,
       "source_file": "lib/text_backends/base.py",
       "status": "tentative",
       "uses": 1
@@ -555,7 +555,7 @@
           "q": "分析失败: 服务器内部错误，请稍后重试。我创建项目上传剧本后点击开始分析，具体是什么问题？"
         }
       ],
-      "score": 0.978114559,
+      "score": 0.976909185,
       "source_file": "lib/text_backends/instructor_support.py",
       "status": "tentative",
       "uses": 1
@@ -571,7 +571,7 @@
           "q": "分集的部分，它会使用这个子Agent去做分集吗？"
         }
       ],
-      "score": 0.988030878,
+      "score": 0.986813283,
       "source_file": "lib/text_generator.py",
       "status": "tentative",
       "uses": 1
@@ -587,7 +587,7 @@
           "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
         }
       ],
-      "score": 0.960842733,
+      "score": 0.959658643,
       "source_file": "server/routers/assets.py",
       "status": "tentative",
       "uses": 1
@@ -603,7 +603,7 @@
           "q": "为什么我点击同步资产人物资产库的时候，它一直是在这个同步的这个进程当中呢？你看一下后端的这个进程是不是真实的还在进行当中，还是只是前端展示的问题？"
         }
       ],
-      "score": 0.961008134,
+      "score": 0.959823841,
       "source_file": "server/routers/character_catalog.py",
       "status": "tentative",
       "uses": 1
@@ -619,7 +619,7 @@
           "q": "分析失败: 服务器内部错误，请稍后重试。我创建项目上传剧本后点击开始分析，具体是什么问题？"
         }
       ],
-      "score": 0.978114559,
+      "score": 0.976909185,
       "source_file": "server/routers/projects.py",
       "status": "tentative",
       "uses": 1
@@ -635,7 +635,7 @@
           "q": "帮我查看一下现有的这个项目，鳄鱼爸爸的景泰蓝，下一步的话，如果Agent去执行的话，是做什么东西？"
         }
       ],
-      "score": 0.987229339,
+      "score": 0.986012733,
       "source_file": "server/services/workflow_planner.py",
       "status": "tentative",
       "uses": 1
@@ -651,7 +651,7 @@
           "q": "How do character catalog synchronization, global asset persistence, API serialization, and automatic character matching connect?"
         }
       ],
-      "score": 0.960842733,
+      "score": 0.959658643,
       "source_file": "tests/test_character_catalog.py",
       "status": "tentative",
       "uses": 1
@@ -667,7 +667,7 @@
           "q": "你看一下角色拉取的这一块，就是拉取到本地的这个角色，比如说布爸，他还有一些其他的这种数据吗？就比如说鳄鱼爸爸，是吧？他的一些这个形象的一些设定，这个是有的吗？如果有的话，我就需要补充一下这个到他的描述里面去，或者到他的一些这个他的一些meta data里面去。这样的话，后续去做这种角色匹配的时候，他能够匹配到鳄鱼爸爸上面去。你先查看一下具体拉取的数据。"
         }
       ],
-      "score": 0.960149456,
+      "score": 0.958966221,
       "source_file": "tests/test_character_catalog.py",
       "status": "tentative",
       "uses": 1
