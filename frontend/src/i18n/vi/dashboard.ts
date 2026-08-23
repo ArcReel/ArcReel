@@ -1672,6 +1672,7 @@ export default {
   'tool_name_split_segment': 'Tách phân cảnh',
   'tool_name_patch_project': 'Sửa tài sản dự án',
   'tool_name_rename_asset': 'Đổi tên tài sản',
+  'tool_name_update_custom_style': 'Chỉnh sửa phong cách tùy chỉnh',
   'tool_name_delete_project_asset': 'Xóa tài sản dự án',
   'tool_name_retry_project_migration': 'Thử lại nâng cấp dữ liệu',
 

@@ -1549,6 +1549,7 @@ export default {
   'tool_name_split_segment': 'Split shot',
   'tool_name_patch_project': 'Edit project assets',
   'tool_name_rename_asset': 'Rename asset',
+  'tool_name_update_custom_style': 'Edit custom style',
   'tool_name_delete_project_asset': 'Delete project asset',
   'tool_name_retry_project_migration': 'Retry data upgrade',
 

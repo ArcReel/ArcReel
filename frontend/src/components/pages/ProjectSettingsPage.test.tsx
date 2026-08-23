@@ -292,6 +292,50 @@ describe("ProjectSettingsPage – style picker", () => {
     expect(API.saveCustomStyleFromProject).not.toHaveBeenCalled();
   });
 
+  it("edits the linked library card without changing the project snapshot", async () => {
+    const savedStyle = {
+      id: "saved-style",
+      name: "韩剧柔光",
+      description: "library prompt",
+      image_path: null,
+      source_project: "old-project",
+      updated_at: null,
+    };
+    vi.mocked(API.listCustomStyles).mockResolvedValueOnce({ items: [savedStyle] });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        style_description: "project snapshot prompt",
+        style_preset_id: "saved-style",
+        episodes: [],
+        characters: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateStyleSpy = vi.spyOn(API, "updateCustomStyle").mockResolvedValue({
+      style: { ...savedStyle, name: "暖调纪实", description: "updated library prompt" },
+    });
+
+    renderAt("/app/projects/demo/settings");
+    fireEvent.click(await screen.findByRole("button", { name: /编辑韩剧柔光|Edit 韩剧柔光/i }));
+    fireEvent.change(screen.getByLabelText(/风格名称|Style name/i), {
+      target: { value: "暖调纪实" },
+    });
+    fireEvent.change(screen.getByLabelText(/风格提示词|Style prompt/i), {
+      target: { value: "updated library prompt" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /保存修改|Save changes/i }));
+
+    await waitFor(() => {
+      expect(updateStyleSpy).toHaveBeenCalledWith("saved-style", expect.objectContaining({
+        name: "暖调纪实",
+        description: "updated library prompt",
+      }));
+      expect(screen.getByRole("button", { name: "暖调纪实" })).toBeInTheDocument();
+    });
+    expect(API.applyCustomStyleToProject).not.toHaveBeenCalled();
+  });
+
   it("analyzes the saved custom image and fills the editable description", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {

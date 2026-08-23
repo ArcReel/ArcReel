@@ -19,6 +19,7 @@ export interface WizardStep3StyleProps {
   onAnalyze: () => void;
   customStyles: CustomStyle[];
   customStylesLoading: boolean;
+  onCustomStyleUpdated: (style: CustomStyle) => void;
 }
 
 export function WizardStep3Style({
@@ -32,6 +33,7 @@ export function WizardStep3Style({
   onAnalyze,
   customStyles,
   customStylesLoading,
+  onCustomStyleUpdated,
 }: WizardStep3StyleProps) {
   const { t } = useTranslation(["common", "dashboard", "templates"]);
 
@@ -46,6 +48,7 @@ export function WizardStep3Style({
         onChange={(next) => onChange({ ...next, styleDescription: value.styleDescription })}
         customStyles={customStyles}
         customStylesLoading={customStylesLoading}
+        onCustomStyleUpdated={onCustomStyleUpdated}
         onSelectCustomStyle={(style, next) => onChange({
           ...next,
           styleDescription: style.description,

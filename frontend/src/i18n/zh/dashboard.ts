@@ -1548,6 +1548,7 @@ export default {
   'tool_name_split_segment': '拆分分镜',
   'tool_name_patch_project': '编辑项目资产',
   'tool_name_rename_asset': '重命名资产',
+  'tool_name_update_custom_style': '编辑自定义风格',
   'tool_name_delete_project_asset': '删除项目资产',
   'tool_name_retry_project_migration': '重试数据升级',
 

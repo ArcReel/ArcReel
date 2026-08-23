@@ -1,6 +1,7 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import "@/i18n";
+import { API } from "@/api";
 import { WizardStep3Style } from "./WizardStep3Style";
 
 const baseValue = {
@@ -23,6 +24,7 @@ const commonProps = {
   analyzing: false,
   customStyles: [],
   customStylesLoading: false,
+  onCustomStyleUpdated: noop,
 };
 
 describe("WizardStep3Style", () => {
@@ -142,6 +144,51 @@ describe("WizardStep3Style", () => {
       customStyleId: "saved-style",
       styleDescription: "soft k-drama light",
     }));
+  });
+
+  it("edits a saved custom style without selecting the card", async () => {
+    const onChange = vi.fn();
+    const onCustomStyleUpdated = vi.fn();
+    const value = { ...baseValue, mode: "custom" as const, templateId: null };
+    const style = {
+      id: "saved-style",
+      name: "韩剧柔光",
+      description: "soft k-drama light",
+      image_path: null,
+      source_project: "demo",
+      updated_at: null,
+    };
+    const updated = { ...style, name: "暖调纪实", description: "warm documentary light" };
+    const updateSpy = vi.spyOn(API, "updateCustomStyle").mockResolvedValue({
+      style: updated,
+    });
+    render(
+      <WizardStep3Style
+        value={value}
+        onChange={onChange}
+        {...commonProps}
+        customStyles={[style]}
+        onCustomStyleUpdated={onCustomStyleUpdated}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /编辑韩剧柔光|Edit 韩剧柔光/i }));
+    fireEvent.change(screen.getByLabelText(/风格名称|Style name/i), {
+      target: { value: "暖调纪实" },
+    });
+    fireEvent.change(screen.getByLabelText(/风格提示词|Style prompt/i), {
+      target: { value: "warm documentary light" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /保存修改|Save changes/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith("saved-style", expect.objectContaining({
+        name: "暖调纪实",
+        description: "warm documentary light",
+      }));
+      expect(onCustomStyleUpdated).toHaveBeenCalledWith(updated);
+    });
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("shows Analyze on an uploaded preview and delegates explicit analysis", () => {

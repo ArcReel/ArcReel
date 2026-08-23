@@ -15,15 +15,25 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 def list_global_assets_tool(ctx: ToolContext):
     @tool(
         "list_global_assets",
-        "读取全局角色、场景和道具资产的精简上下文，供资产提取时复用已有名称。",
+        "读取全局角色、场景、道具和自定义风格的精简上下文，供资产提取或风格编辑时复用已有名称与 ID。",
         {"type": "object", "properties": {}},
     )
     async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
         try:
             async with async_session_factory() as session:
                 assets = await AssetRepository(session).list(type=None, q=None, limit=10_000, offset=0)
-            grouped: dict[str, list[dict[str, Any]]] = {"characters": [], "scenes": [], "props": []}
-            bucket_by_type = {"character": "characters", "scene": "scenes", "prop": "props"}
+            grouped: dict[str, list[dict[str, Any]]] = {
+                "characters": [],
+                "scenes": [],
+                "props": [],
+                "styles": [],
+            }
+            bucket_by_type = {
+                "character": "characters",
+                "scene": "scenes",
+                "prop": "props",
+                "style": "styles",
+            }
             for asset in assets:
                 bucket = bucket_by_type.get(asset.type)
                 if bucket is None:

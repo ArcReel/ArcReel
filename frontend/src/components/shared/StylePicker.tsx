@@ -1,7 +1,8 @@
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Plus, Upload, X } from "lucide-react";
+import { Check, Pencil, Plus, Upload, X } from "lucide-react";
 import { API, type CustomStyle } from "@/api";
+import { CustomStyleEditModal } from "@/components/shared/CustomStyleEditModal";
 import {
   DEFAULT_TEMPLATE_ID,
   getTemplatesByCategory,
@@ -28,6 +29,7 @@ export interface StylePickerProps {
   customStylesLoading?: boolean;
   onSelectCustomStyle?: (style: CustomStyle, next: StylePickerValue) => void;
   onCreateCustomStyle?: (next: StylePickerValue) => void;
+  onCustomStyleUpdated?: (style: CustomStyle) => void;
 }
 
 const SELECTED_RING_STYLE: CSSProperties = {
@@ -47,6 +49,8 @@ interface TemplateCardProps {
   isDefault: boolean;
   defaultLabel: string;
   onClick: () => void;
+  editLabel?: string;
+  onEdit?: () => void;
 }
 
 function TemplateCard({
@@ -57,87 +61,100 @@ function TemplateCard({
   isDefault,
   defaultLabel,
   onClick,
+  editLabel,
+  onEdit,
 }: TemplateCardProps) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={isSelected}
-      onClick={onClick}
-      className="group relative aspect-[3/4] overflow-hidden rounded-[8px] transition-transform duration-150 motion-safe:hover:-translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+    <div
+      className="group relative aspect-[3/4] overflow-hidden rounded-[8px] transition-transform duration-150 motion-safe:hover:-translate-y-px"
       style={isSelected ? SELECTED_RING_STYLE : HOVER_RING_STYLE}
     >
-      {thumbnail ? (
-        <img
-          src={thumbnail}
-          alt={label}
-          width={240}
-          height={320}
-          loading="lazy"
-          decoding="async"
-          className="h-full w-full object-cover"
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
-          }}
-        />
-      ) : null}
-      {/* Fallback gradient if image errors out */}
-      <div
-        aria-hidden
-        className="-z-10 absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(135deg, oklch(0.30 0.04 160), oklch(0.18 0.012 265))",
-        }}
-      />
-
-      {/* Bottom label gradient */}
-      <div
-        className="absolute inset-x-0 bottom-0 px-2 py-1.5"
-        style={{
-          background:
-            "linear-gradient(180deg, transparent 0%, oklch(0 0 0 / 0.8) 100%)",
-        }}
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={isSelected}
+        onClick={onClick}
+        className="absolute inset-0 overflow-hidden rounded-[8px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
       >
-        <p className="truncate text-[11px] leading-tight text-text">{label}</p>
-        {tagline && (
-          <p className="mt-0.5 truncate text-[9px] leading-tight text-text-3">
-            {tagline}
-          </p>
-        )}
-      </div>
-
-      {/* Selected check */}
-      {isSelected && (
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt={label}
+            width={240}
+            height={320}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
+        ) : null}
         <div
-          className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
+          aria-hidden
+          className="-z-10 absolute inset-0"
           style={{
             background:
-              "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-            color: "oklch(0.14 0 0)",
-            boxShadow: "0 0 14px -4px var(--color-accent-glow)",
+              "linear-gradient(135deg, oklch(0.30 0.04 160), oklch(0.18 0.012 265))",
           }}
-        >
-          <Check size={11} strokeWidth={3} aria-hidden />
-        </div>
-      )}
+        />
 
-      {/* Default tag */}
-      {isDefault && (
         <div
-          className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-[0.12em]"
+          className="absolute inset-x-0 bottom-0 px-2 py-1.5 text-left"
           style={{
-            background: "oklch(0 0 0 / 0.55)",
-            color: "var(--color-accent-2)",
-            border: "1px solid var(--color-accent-soft)",
-            backdropFilter: "blur(6px)",
-            WebkitBackdropFilter: "blur(6px)",
+            background:
+              "linear-gradient(180deg, transparent 0%, oklch(0 0 0 / 0.8) 100%)",
           }}
         >
-          {defaultLabel}
+          <p className="truncate text-[11px] leading-tight text-text">{label}</p>
+          {tagline && (
+            <p className="mt-0.5 truncate text-[9px] leading-tight text-text-3">
+              {tagline}
+            </p>
+          )}
         </div>
-      )}
-    </button>
+
+        {isSelected && (
+          <span
+            className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
+            style={{
+              background:
+                "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+              color: "oklch(0.14 0 0)",
+              boxShadow: "0 0 14px -4px var(--color-accent-glow)",
+            }}
+          >
+            <Check size={11} strokeWidth={3} aria-hidden />
+          </span>
+        )}
+
+        {isDefault && (
+          <span
+            className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-[0.12em]"
+            style={{
+              background: "oklch(0 0 0 / 0.55)",
+              color: "var(--color-accent-2)",
+              border: "1px solid var(--color-accent-soft)",
+              backdropFilter: "blur(6px)",
+              WebkitBackdropFilter: "blur(6px)",
+            }}
+          >
+            {defaultLabel}
+          </span>
+        )}
+      </button>
+      {onEdit && editLabel ? (
+        <button
+          type="button"
+          aria-label={editLabel}
+          title={editLabel}
+          onClick={onEdit}
+          className="absolute left-1.5 top-1.5 z-10 grid h-6 w-6 place-items-center rounded-full border border-white/15 bg-black/65 text-white opacity-80 shadow-lg backdrop-blur-md transition-all hover:bg-black/85 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Pencil className="h-3 w-3" aria-hidden />
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -153,10 +170,12 @@ export function StylePicker({
   customStylesLoading = false,
   onSelectCustomStyle,
   onCreateCustomStyle,
+  onCustomStyleUpdated,
 }: StylePickerProps) {
   const { t } = useTranslation(["common", "templates"]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ownedBlobUrlRef = useRef<string | null>(null);
+  const [editingStyle, setEditingStyle] = useState<CustomStyle | null>(null);
 
   useEffect(() => {
     return () => {
@@ -296,6 +315,8 @@ export function StylePicker({
                     isDefault={false}
                     defaultLabel=""
                     onClick={() => handleSelectSavedStyle(style)}
+                    editLabel={t("templates:custom_style_edit_action", { name: style.name })}
+                    onEdit={() => setEditingStyle(style)}
                   />
                 ))}
                 <button
@@ -386,6 +407,16 @@ export function StylePicker({
           ))}
         </div>
       )}
+      {editingStyle ? (
+        <CustomStyleEditModal
+          style={editingStyle}
+          onClose={() => setEditingStyle(null)}
+          onSaved={(updated) => {
+            onCustomStyleUpdated?.(updated);
+            setEditingStyle(updated);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

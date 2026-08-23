@@ -2331,6 +2331,35 @@ class API {
     return this.request("/styles");
   }
 
+  static async updateCustomStyle(
+    styleId: string,
+    payload: {
+      name: string;
+      description: string;
+      image?: File | null;
+      removeImage?: boolean;
+    },
+  ): Promise<{ style: CustomStyle }> {
+    const form = new FormData();
+    form.append("name", payload.name);
+    form.append("description", payload.description);
+    form.append("remove_image", String(payload.removeImage === true));
+    if (payload.image) form.append("image", payload.image);
+    const endpoint = `/styles/${encodeURIComponent(styleId)}`;
+    const response = await fetch(
+      `${API_BASE}${endpoint}`,
+      withAuth(endpoint, { method: "PATCH", body: form }),
+    );
+    if (!response.ok) {
+      handleUnauthorized(response);
+      const error = (await response.json().catch(() => ({ detail: response.statusText }))) as {
+        detail?: string;
+      };
+      throw new Error(typeof error.detail === "string" ? error.detail : "请求失败");
+    }
+    return response.json() as Promise<{ style: CustomStyle }>;
+  }
+
   static async saveCustomStyleFromProject(
     projectName: string,
   ): Promise<{ style: CustomStyle; project: ProjectData }> {

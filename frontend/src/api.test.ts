@@ -1039,6 +1039,38 @@ describe("API", () => {
       );
     });
 
+    it("updates a reusable custom style using multipart form data", async () => {
+      const style = {
+        id: "style-1",
+        name: "暖调纪实",
+        description: "warm documentary light",
+        image_path: "_global_assets/style/new.webp",
+        source_project: "demo",
+        updated_at: "2026-08-23T12:00:00Z",
+      };
+      const fetchMock = vi.fn().mockResolvedValue(mockResponse({ jsonData: { style } }));
+      vi.stubGlobal("fetch", fetchMock);
+      const image = new File(["image"], "reference.webp", { type: "image/webp" });
+
+      const result = await API.updateCustomStyle("style-1", {
+        name: style.name,
+        description: style.description,
+        image,
+        removeImage: false,
+      });
+
+      expect(result.style).toEqual(style);
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/styles/style-1");
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(init.method).toBe("PATCH");
+      expect(init.body).toBeInstanceOf(FormData);
+      const form = init.body as FormData;
+      expect(form.get("name")).toBe(style.name);
+      expect(form.get("description")).toBe(style.description);
+      expect(form.get("remove_image")).toBe("false");
+      expect(form.get("image")).toBe(image);
+    });
+
     it("imports project via multipart form and preserves structured errors", async () => {
       const fetchMock = vi
         .fn()

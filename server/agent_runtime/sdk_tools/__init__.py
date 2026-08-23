@@ -68,6 +68,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     split_reference_video_units_tool,
     validate_and_promote_draft_tool,
 )
+from server.agent_runtime.sdk_tools.update_custom_style import update_custom_style_tool
 from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
 from server.agent_runtime.sdk_tools.workflow_status import complete_step1_rebuild_tool
 
@@ -116,6 +117,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "split_segment",
     "patch_project",
     "rename_asset",
+    "update_custom_style",
     "delete_project_asset",
     "manage_project_asset_link",
     "retry_project_migration",
@@ -215,6 +217,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         split_segment_tool(ctx),
         patch_project_tool(ctx),
         rename_asset_tool(ctx),
+        update_custom_style_tool(ctx),
         delete_project_asset_tool(ctx),
         manage_project_asset_link_tool(ctx),
         retry_project_migration_tool(ctx),
