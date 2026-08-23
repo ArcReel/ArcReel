@@ -70,6 +70,7 @@ component_management:
       - type: project
         target: auto
         threshold: 1%
+        informational: true
   individual_components:
     - component_id: backend
       name: Backend
