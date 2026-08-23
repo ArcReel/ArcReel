@@ -412,15 +412,15 @@ class TestErrorResponse:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        # raise_for_status 透出保留状态码：4xx fail-fast，不再吞成无状态码的 RuntimeError
+        # raise_for_status 透出保留状态码：4xx fail-fast
         assert ei.value.response.status_code == 400
         assert route.call_count == 1
         download.assert_not_called()
 
     async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path):
-        # 4xx 但 raise_for_status 的消息带请求 URL、URL 恰好含 "503" 子串：旧字符串兜底会据此
-        # 误判重试到超时，新状态码谓词只读 response.status_code，按 400 fail-fast——计费的建图
-        # POST 只发一次、不连带下载。
+        # 4xx 但 raise_for_status 的消息带请求 URL、URL 恰好含 "503" 子串：瞬态判定只读
+        # response.status_code，不看异常字符串，按 400 fail-fast——计费的建图 POST 只发一次、
+        # 不连带下载。
         download = AsyncMock()
         host = "https://dashscope-503.example.com"
         with (
@@ -432,7 +432,7 @@ class TestErrorResponse:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0", base_url=host)
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        # 异常字符串确实带瞬态子串（旧兜底据此误判重试的前提）；新谓词按状态码单次 fail-fast
+        # 异常字符串确实带瞬态子串，而瞬态判定只认状态码，故仍单次 fail-fast
         assert "503" in str(ei.value)
         assert ei.value.response.status_code == 400
         assert route.call_count == 1

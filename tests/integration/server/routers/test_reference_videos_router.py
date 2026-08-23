@@ -1096,7 +1096,7 @@ def test_patch_unit_duration_override_without_header(reference_videos_client: Te
 def test_reorder_units_rejects_true_duplicate(reference_videos_client: TestClient):
     """长度匹配但含重复 ID → 命中 duplicate 校验分支。"""
     uid1 = _seed_unit(reference_videos_client)
-    _uid2 = _seed_unit(reference_videos_client)
+    _seed_unit(reference_videos_client)
     resp = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
         json={"unit_ids": [uid1, uid1]},
@@ -1108,7 +1108,7 @@ def test_reorder_units_rejects_true_duplicate(reference_videos_client: TestClien
 def test_reorder_units_rejects_unknown_id_set_mismatch(reference_videos_client: TestClient):
     """长度匹配、无重复，但 ID 集合与现有不一致 → set mismatch 分支。"""
     uid1 = _seed_unit(reference_videos_client)
-    _uid2 = _seed_unit(reference_videos_client)
+    _seed_unit(reference_videos_client)
     resp = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
         json={"unit_ids": [uid1, "E1U999"]},

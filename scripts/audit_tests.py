@@ -319,7 +319,7 @@ class AliasIndex:
                         self.import_counter[alias.name] += 1
             elif isinstance(node, ast.ImportFrom) and node.module:
                 self.imported_modules.add(node.module)
-                if node.module.startswith(("lib", "server")):
+                if node.module.split(".")[0] in ("lib", "server"):
                     for alias in node.names:
                         # `from lib.x import y`：y 可能是子模块也可能是符号，两种都登记
                         self.import_counter[f"{node.module}.{alias.name}"] += 1
@@ -728,7 +728,9 @@ class FileScanner:
                     qual = f"{class_name}::{node.name}" if class_name else node.name
                     local = alias_map_from(node)
                     end = node.end_lineno or node.lineno
-                    for line in range(node.lineno, end + 1):
+                    # 起点取装饰器行：`@patch(...)` 写在 def 上方，落在函数区间外会被归到 <module>
+                    start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                    for line in range(start, end + 1):
                         out.setdefault(line, (qual, marks, local))
                     walk(node.body, class_marks, class_name)
 
@@ -850,6 +852,11 @@ def conftest_import_lines(tree: ast.Module) -> list[tuple[int, str]]:
             module = node.module or ""
             if module.split(".")[-1] == "conftest":
                 out.append((node.lineno, module))
+                continue
+            # `from tests import conftest`：模块名在 names 里
+            for alias in node.names:
+                if alias.name == "conftest":
+                    out.append((node.lineno, f"{module}.conftest" if module else "conftest"))
     return out
 
 
