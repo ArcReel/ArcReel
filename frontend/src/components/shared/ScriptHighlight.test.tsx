@@ -40,7 +40,7 @@ describe("ScriptHighlight", () => {
     const container = renderScript("镜头1：中景。");
     const rows = [...container.querySelectorAll<HTMLElement>(":scope > div")];
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toHaveTextContent("镜头1：中景。");
+    expect(rows[0]).toHaveTextContent(/^镜头1：中景。$/);
     expect(rows[0].className).not.toContain("border-l-2");
   });
 

@@ -1089,15 +1089,21 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
     double_only: list[DoubleOnlyTest] = []
     no_assertion_cases: list[NoAssertionTest] = []
     patches: list[PatchSite] = []
-    failures: list[str] = []
+    failures: list[dict[str, object]] = []
     prod = ProductionIndex(root)
 
     for path in files:
         try:
             scanner = FileScanner(path, root, tests_dir, prod)
             scanner.scan()
-        except SyntaxError as exc:  # pragma: no cover
-            failures.append(f"{path}: {exc}")
+        except SyntaxError as exc:
+            failures.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "line": exc.lineno or 0,
+                    "detail": exc.msg,
+                }
+            )
             continue
         stats.append(scanner.stat)
         double_only.extend(scanner.double_only)
@@ -1260,7 +1266,15 @@ def gate_violations(result: dict[str, object]) -> list[Violation]:
     failures = result["parse_failures"]
     assert isinstance(failures, list)
     for failure in failures:
-        out.append(Violation("PARSE-FAIL", str(failure), 0, "测试文件无法解析，审计无法覆盖，先修复语法"))
+        assert isinstance(failure, dict)
+        out.append(
+            Violation(
+                "PARSE-FAIL",
+                str(failure["path"]),
+                int(str(failure["line"])),
+                f"{failure['detail']}；测试文件无法解析，审计无法覆盖，先修复语法",
+            )
+        )
 
     return sorted(out, key=lambda v: (v.rule, v.path, v.line))
 

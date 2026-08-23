@@ -67,6 +67,17 @@ def test_zero_assertion_case_is_reported_with_its_line(tmp_path: Path) -> None:
     assert "test_nothing" in violations[0].guidance
 
 
+def test_unparsable_file_is_reported_at_its_syntax_error_line(tmp_path: Path, capsys) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_broken.py").write_text("def test_a():\n    assert (1 ==\n", encoding="utf-8")
+
+    violations = gate_violations(_audit(tmp_path))
+
+    assert [(v.rule, v.path, v.line) for v in violations] == [("PARSE-FAIL", "tests/test_broken.py", 2)]
+    assert main(["--root", str(tmp_path), "--check"]) == 1
+    assert "PARSE-FAIL tests/test_broken.py:2" in capsys.readouterr().out
+
+
 def test_check_exits_nonzero_on_violation_and_zero_when_clean(tmp_path: Path, capsys) -> None:
     tests, _ = _repo(tmp_path)
     dirty = tests / "test_thing_more.py"
