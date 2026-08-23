@@ -313,6 +313,10 @@ async def execute_reference_video_task(
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
     claimed_provider_id: str | None = None,
+    stage_media_for_task: Callable[
+        [Path, str, tuple[ProviderMediaInput, ...]], Awaitable[tuple[StagedProviderMedia, ...]]
+    ]
+    | None = None,
 ) -> dict[str, Any]:
     """处理一个 reference_video unit 的生成。
 
@@ -611,7 +615,8 @@ async def execute_reference_video_task(
             ),
         )
         audio_targets_tuple = tuple(reference_audio_targets) if reference_audio_targets is not None else None
-        staged_media = await _stage_provider_media_for_task(project_path, task_id, image_inputs + audio_inputs)
+        stage = stage_media_for_task or _stage_provider_media_for_task
+        staged_media = await stage(project_path, task_id, image_inputs + audio_inputs)
         try:
             staged_reference_digests = {
                 media.source_locator: media.sha256 for media in staged_media if media.role == "reference_image"

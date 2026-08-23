@@ -72,6 +72,7 @@ async def apply_grid_split(
     grid: GridGeneration,
     *,
     only_scene_ids: frozenset[str] | None = None,
+    register_entries: Callable[..., None] | None = None,
 ) -> GridSplitResult:
     """按 ``grid`` 当前联合图切割并覆写各分镜格。
 
@@ -358,7 +359,8 @@ async def apply_grid_split(
                 expected_entries = (
                     {source_key: source_entry} if source_key is not None and source_entry is not None else {}
                 )
-                _register_split_entries_atomically(
+                register = register_entries or _register_split_entries_atomically
+                register(
                     project_path,
                     entries=manifest_entries,
                     expected_entries=expected_entries,

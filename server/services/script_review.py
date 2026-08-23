@@ -19,7 +19,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from lib import script_review
-from lib.config.resolver import resolve_raw_supported_durations
+from lib.config.resolver import ConfigResolver, resolve_raw_supported_durations
 from lib.draft_quarantine import read_quarantine, violation_entries
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.json_io import load_json_or_none
@@ -86,8 +86,9 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: obj
 class ScriptReviewService:
     """封装 step1→step2 内容确认的读写。router 与测试经此操作 gate，不直接碰文件 / project.json。"""
 
-    def __init__(self, pm: ProjectManager):
+    def __init__(self, pm: ProjectManager, *, config_resolver: ConfigResolver | None = None):
         self.pm = pm
+        self.config_resolver = config_resolver
 
     def _resolve_step1_model(self, project: dict[str, Any], episode: int) -> tuple[str, type[BaseModel]]:
         """该集 step1 变体 + 结构校验模型；不适用 gate（无结构化 step1）时抛 not_applicable。
@@ -148,7 +149,9 @@ class ScriptReviewService:
         连草稿都加载不了。档位表与档位收窄两条链共用本方法，降级语义因此不会在两处各自漂移。
         """
         try:
-            return await resolve_video_caps(project)
+            if self.config_resolver is None:
+                return await resolve_video_caps(project)
+            return await resolve_video_caps(project, config_resolver=self.config_resolver)
         except Exception as exc:  # noqa: BLE001 - best-effort：解析失败退回空 caps，不阻断 gate
             logger.warning(
                 "video_capabilities 解析异常，内容确认退回不带 caps 的解析 project=%s：%s", project_name, exc
@@ -323,7 +326,13 @@ class ScriptReviewService:
         from server.agent_runtime.sdk_tools.text_generation import revalidate_step1_draft
 
         try:
-            revalidation = await revalidate_step1_draft(project_path, project, episode, draft)
+            revalidation = await revalidate_step1_draft(
+                project_path,
+                project,
+                episode,
+                draft,
+                config_resolver=self.config_resolver,
+            )
         except ValueError as exc:
             # meta.source 缺失等草稿被改坏的情形：把重算失败本身报成一条无 unit 归属的违约，
             # 呈现层落聚合区。gate 不崩，用户也不会看到一份与现值脱钩的旧报告。异常文本含
@@ -374,7 +383,12 @@ class ScriptReviewService:
         raw = resolve_raw_supported_durations(project, caps)
         if raw is None:
             return None
-        with_refs, without_refs = await reference_unit_duration_tiers(project, caps, raw)
+        with_refs, without_refs = await reference_unit_duration_tiers(
+            project,
+            caps,
+            raw,
+            config_resolver=self.config_resolver,
+        )
         return {"with_references": sorted(set(with_refs)), "without_references": sorted(set(without_refs))}
 
     async def save_content(

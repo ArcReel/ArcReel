@@ -326,12 +326,20 @@ class ProjectManager:
             raise FileNotFoundError(f"当前目录不是有效的项目目录: {cwd}")
         return pm, project_name
 
-    def __init__(self, projects_root: str | Path | None = None):
+    def __init__(
+        self,
+        projects_root: str | Path | None = None,
+        *,
+        script_reader: Callable[[Path], dict] | None = None,
+        script_writer: Callable[[Path, dict], None] | None = None,
+    ):
         """
         初始化项目管理器
 
         Args:
             projects_root: 项目根目录，默认为当前目录下的 projects/
+            script_reader: 剧本 JSON 读取 seam；缺省时从文件系统读取。
+            script_writer: 剧本 JSON 原子写入 seam；缺省时使用 atomic_write_json。
         """
         if projects_root is None:
             # 尝试从环境变量或默认路径获取
@@ -339,6 +347,8 @@ class ProjectManager:
 
         self.projects_root = Path(projects_root)
         self.projects_root.mkdir(parents=True, exist_ok=True)
+        self._script_reader = script_reader
+        self._script_writer = script_writer
 
     def list_projects(self) -> list[str]:
         """列出所有项目"""
@@ -877,7 +887,7 @@ class ProjectManager:
         metadata["updated_at"] = now
 
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
-        atomic_write_json(output_path, script)
+        self._persist_script_json(output_path, script)
 
         # 同步到 project.json，保证 script 写入与元数据同步是单一事务
         # （sync 走的是 `_project_lock`，与外层 `_script_lock` 不同锁，不会冲突）。
@@ -1072,10 +1082,27 @@ class ProjectManager:
                 f"episode={filename_episode} 不一致，拒绝操作以避免污染 project.json"
             )
 
-    @staticmethod
-    def _load_script_or_none(path: Path) -> dict | None:
-        """裸读剧本 JSON 取「改前」快照；文件不存在或损坏时返回 None（→ 按严格校验处理）。"""
-        loaded = load_json_or_none(path)
+    def _persist_script_json(self, path: Path, script: dict) -> None:
+        """剧本 JSON 落盘的单一出口：缺省原子写，注入了 ``script_writer`` 时改走注入实现。"""
+        if self._script_writer is None:
+            atomic_write_json(path, script)
+        else:
+            self._script_writer(path, script)
+
+    def _load_script_or_none(self, path: Path) -> dict | None:
+        """裸读剧本 JSON 取「改前」快照；剧本不存在或损坏时返回 None（→ 按严格校验处理）。
+
+        与 ``_read_script_unlocked`` 共用 ``script_reader`` seam，改前快照与正式读取取自同一
+        来源。注入的 reader 以 ``OSError``（不存在或不可读）或 ``ValueError``（内容损坏）表达
+        取不到剧本，本函数据此归一为 None；其余异常照常上抛。
+        """
+        if self._script_reader is None:
+            loaded = load_json_or_none(path)
+        else:
+            try:
+                loaded = self._script_reader(path)
+            except (OSError, ValueError):
+                return None
         return loaded if isinstance(loaded, dict) else None
 
     @staticmethod
@@ -1200,7 +1227,7 @@ class ProjectManager:
             script, migrated = self._read_script_unlocked(project_name, norm)
             if migrated:
                 real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
-                atomic_write_json(real, script)
+                self._persist_script_json(real, script)
         return script
 
     def load_script_readonly(self, project_name: str, filename: str) -> dict:
@@ -1222,11 +1249,14 @@ class ProjectManager:
         filename = self.normalize_script_filename(filename)
         real = Path(self._safe_subpath(project_dir / "scripts", filename))
 
-        if not real.exists():
-            raise FileNotFoundError(f"剧本文件不存在: {real}")
-
-        with open(real, encoding="utf-8") as f:  # noqa: PTH123
-            script = json.load(f)
+        if self._script_reader is None:
+            # 存在性检查只对文件系统这条路径成立；剧本是否存在由实际读取方判定。
+            if not real.exists():
+                raise FileNotFoundError(f"剧本文件不存在: {real}")
+            with open(real, encoding="utf-8") as f:  # noqa: PTH123
+                script = json.load(f)
+        else:
+            script = self._script_reader(real)
 
         migrated, warnings = migrate_script_unit_durations(script)
         for message in warnings:
