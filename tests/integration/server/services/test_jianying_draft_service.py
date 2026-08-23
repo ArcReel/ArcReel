@@ -23,7 +23,7 @@ from lib.speech_presentation import (
 )
 from server.services.jianying_draft_service import JianyingDraftService, NoCompletedSegmentsError
 from server.services.presentation_read_model import MaterializedEpisode, MaterializedPresentation
-from tests.conftest import make_test_audio, make_test_video, make_test_video_with_audio_tail
+from tests.factories import make_test_audio, make_test_video, make_test_video_with_audio_tail
 
 
 def _basis(kind: str, identity: str) -> ArtifactBasisDescriptor:

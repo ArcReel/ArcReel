@@ -1379,7 +1379,7 @@ class TestReferenceCompressionSeam:
             pytest.skip("ffprobe not available")
 
         from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
-        from tests.conftest import _wav_bytes
+        from tests.factories import wav_bytes
 
         gen = _build_generator(tmp_path)
 
@@ -1406,8 +1406,8 @@ class TestReferenceCompressionSeam:
         ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
         first = tmp_path / "alice.wav"
         second = tmp_path / "bob.wav"
-        first.write_bytes(_wav_bytes(10))
-        second.write_bytes(_wav_bytes(10))
+        first.write_bytes(wav_bytes(10))
+        second.write_bytes(wav_bytes(10))
 
         with pytest.raises(VideoCapabilityError) as exc:
             await gen.generate_video_async(

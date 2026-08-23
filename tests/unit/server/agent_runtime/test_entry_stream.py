@@ -19,8 +19,7 @@ from server.agent_runtime.service import AssistantService
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.conftest import make_translator
-from tests.factories import make_session_meta
+from tests.factories import make_session_meta, make_translator
 
 SESSION_ID = "entry-stream-s1"
 

@@ -14,7 +14,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.conftest import make_translator
+from tests.factories import make_translator
 from tests.fakes import FakeProjectAssetMutationMixin
 
 # 兜底 500 的默认 locale 文案：测试未覆盖 get_translator，端点回落到 DEFAULT_LOCALE("zh")，

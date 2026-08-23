@@ -20,7 +20,7 @@ from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
-from tests.conftest import _wav_bytes
+from tests.factories import wav_bytes
 
 
 class _FakeTextBackend:
@@ -310,7 +310,7 @@ class TestFilesRouter:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("alice_voice.wav", _wav_bytes(3), "audio/wav")},
+                files={"file": ("alice_voice.wav", wav_bytes(3), "audio/wav")},
             )
             assert resp.status_code == 200
             assert resp.json()["path"] == "characters/refs_audio/Alice.wav"
@@ -322,7 +322,7 @@ class TestFilesRouter:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/upload/character_audio_ref",
-                files={"file": ("orphan.wav", _wav_bytes(3), "audio/wav")},
+                files={"file": ("orphan.wav", wav_bytes(3), "audio/wav")},
             )
 
             assert resp.status_code == 404
@@ -362,7 +362,7 @@ class TestFilesRouter:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("alice_voice.wav", _wav_bytes(1), "audio/wav")},
+                files={"file": ("alice_voice.wav", wav_bytes(1), "audio/wav")},
             )
             assert resp.status_code == 400
             assert resp.json()["detail"] == zh_errors.MESSAGES["audio_duration_out_of_range"].format(
@@ -446,7 +446,7 @@ class TestFilesRouter:
         with client:
             upload = client.post(
                 "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("alice_voice.wav", _wav_bytes(3), "audio/wav")},
+                files={"file": ("alice_voice.wav", wav_bytes(3), "audio/wav")},
             )
             assert upload.status_code == 200
             project_dir = pm.get_project_path("demo")
@@ -464,7 +464,7 @@ class TestFilesRouter:
         with client:
             upload = client.post(
                 "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("alice_voice.wav", _wav_bytes(3), "audio/wav")},
+                files={"file": ("alice_voice.wav", wav_bytes(3), "audio/wav")},
             )
             assert upload.status_code == 200
             project_dir = pm.get_project_path("demo")
@@ -490,7 +490,7 @@ class TestFilesRouter:
         with client:
             upload = client.post(
                 "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("alice_voice.wav", _wav_bytes(3), "audio/wav")},
+                files={"file": ("alice_voice.wav", wav_bytes(3), "audio/wav")},
             )
             assert upload.status_code == 200
             project_dir = pm.get_project_path("demo")
@@ -820,7 +820,7 @@ class TestFilesRouter:
             "ctrl\x01char",
         ]
         payloads = {
-            "character_audio_ref": ("v.wav", _wav_bytes(3), "audio/wav"),
+            "character_audio_ref": ("v.wav", wav_bytes(3), "audio/wav"),
             # source 不使用 name，但校验在其早返分支之前，同样应拒
             "source": ("novel.txt", b"chapter one", "text/plain"),
         }

@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from server.routers.providers import _test_openai
-from tests.conftest import make_translator
+from tests.factories import make_translator
 
 _t = make_translator()
 
