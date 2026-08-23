@@ -139,7 +139,7 @@ describe("GridPreviewPanel occupancy", () => {
     render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
 
     const regenBtn = await screen.findByText("重新生成");
-    expect(regenBtn).not.toBeDisabled();
+    expect(regenBtn).toBeEnabled();
 
     useTasksStore.setState({ tasks: [makeTask({ status: "running" })] });
 
@@ -178,7 +178,7 @@ describe("GridPreviewPanel split", () => {
       expect(useAppStore.getState().toast?.text).toContain("SCN-9");
     });
     // 切分完成后「未切分」提示消失
-    expect(screen.queryByText("未切分")).toBeNull();
+    expect(screen.queryByText("未切分")).not.toBeInTheDocument();
   });
 
   it("无跳过分镜时切分成功提示展示落格格数", async () => {
@@ -202,7 +202,7 @@ describe("GridPreviewPanel split", () => {
   it("联合图就绪但未落格时展示「未切分」提示", async () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ split_at: null }));
     render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
-    expect(await screen.findByText("未切分")).toBeTruthy();
+    expect(await screen.findByText("未切分")).toBeInTheDocument();
   });
 
   it("生成在途时切分按钮禁用", async () => {
@@ -276,11 +276,11 @@ describe("GridPreviewPanel 版本时光机跨宫格切换", () => {
     await waitFor(() => expect(API.getVersions).toHaveBeenCalledWith("demo", "grids", "grid-1"));
     fireEvent.click(screen.getByText("2"));
     fireEvent.click(await screen.findByLabelText("版本"));
-    await waitFor(() => expect(screen.getByText("v3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("v3")).toBeInTheDocument());
 
     resolveStale({ resource_type: "grids", resource_id: "grid-1", current_version: 7, versions: [version(7)] });
 
-    await waitFor(() => expect(screen.getByText("v3")).toBeTruthy());
-    expect(screen.queryByText("v7")).toBeNull();
+    await waitFor(() => expect(screen.getByText("v3")).toBeInTheDocument());
+    expect(screen.queryByText("v7")).not.toBeInTheDocument();
   });
 });

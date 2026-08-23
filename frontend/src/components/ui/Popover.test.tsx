@@ -101,7 +101,7 @@ describe("Popover", () => {
 
   it("renders nothing when open=false", () => {
     render(<ClosedHarness />);
-    expect(screen.queryByTestId("panel-content")).toBeNull();
+    expect(screen.queryByTestId("panel-content")).not.toBeInTheDocument();
   });
 
   it("portals the panel under document.body (not inside the render container)", () => {
@@ -152,10 +152,10 @@ describe("Popover", () => {
   it("applies floating-ui positioning styles to the panel root", () => {
     render(<RefHarness />);
     const panel = screen.getByTestId("panel-content").parentElement!;
-    expect(panel.style.position).toBe("fixed");
+    expect(panel).toHaveStyle({position:"fixed"});
     // floating-ui writes top/left to 0 and uses transform for position
-    expect(panel.style.top).toBe("0px");
-    expect(panel.style.left).toBe("0px");
+    expect(panel).toHaveStyle({top:"0px"});
+    expect(panel).toHaveStyle({left:"0px"});
   });
 
   it("binds reference when opening a Popover whose anchorRef is on a parent node (regression: left-top anchoring)", async () => {
@@ -186,8 +186,8 @@ describe("Popover", () => {
     await user.click(screen.getByText("open"));
     const panel = screen.getByTestId("panel-content").parentElement!;
     // 绑定成功时 floating-ui 至少会输出非零 translate。
-    expect(panel.style.transform).not.toBe("translate(0px, 0px)");
-    expect(panel.style.transform).not.toBe("");
+    expect(panel).not.toHaveStyle({transform:"translate(0px, 0px)"});
+    expect(panel).not.toHaveStyle({transform:""});
   });
 
   it("accepts maxHeight prop without throwing (size middleware opt-in)", () => {

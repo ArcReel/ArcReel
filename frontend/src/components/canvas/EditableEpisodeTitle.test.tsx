@@ -10,7 +10,7 @@ describe("EditableEpisodeTitle", () => {
   it("renders a plain heading without edit affordance when canEdit is false", () => {
     render(<EditableEpisodeTitle title="第一集" canEdit={false} onSave={vi.fn()} />);
     expect(screen.getByRole("heading", { name: "第一集" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "编辑分集标题" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "编辑分集标题" })).not.toBeInTheDocument();
   });
 
   it("enters edit mode and saves the trimmed value on Enter", async () => {

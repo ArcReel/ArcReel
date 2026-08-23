@@ -77,7 +77,7 @@ describe("WizardStep3Style", () => {
     const value = { ...baseValue, mode: "custom" as const, templateId: null };
     render(<WizardStep3Style value={value} onChange={noop} {...commonProps} />);
     const createBtn = screen.getByRole("button", { name: /创建项目|Create/i });
-    expect(createBtn).not.toBeDisabled();
+    expect(createBtn).toBeEnabled();
   });
 
   it("enables Create button when custom mode has uploaded file", () => {

@@ -58,7 +58,7 @@ describe("ShotDetail 剧情演绎", () => {
     expect(screen.getByDisplayValue("阿离")).toBeInTheDocument();
     expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument();
     // drama 不再渲染扁平对白编辑器的空态占位
-    expect(screen.queryByText("（暂无对话）")).toBeNull();
+    expect(screen.queryByText("（暂无对话）")).not.toBeInTheDocument();
   });
 
   it("编辑发声文本后保存，提交 { utterances } patch", () => {
@@ -103,7 +103,7 @@ describe("ShotDetail 剧情演绎", () => {
     });
     rerender(detailElement(updated));
     expect(screen.getByDisplayValue("上游改写后的台词。")).toBeInTheDocument();
-    expect(screen.queryByDisplayValue("你终于回来了。")).toBeNull();
+    expect(screen.queryByDisplayValue("你终于回来了。")).not.toBeInTheDocument();
   });
 
   it("上游画外音缺省 speaker 时：类型往返切换不产生虚假脏态（归一化签名）", () => {
@@ -111,15 +111,15 @@ describe("ShotDetail 剧情演绎", () => {
     const scene = makeScene({ utterances: [{ kind: "voiceover", text: "三年后。" }] });
     render(detailElement(scene, { onUpdatePrompt: vi.fn() }));
     // 初始干净：保存栏不渲染
-    expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
 
     const toggleTitle = "在台词与画外音间切换";
     // 切到台词：真实变更 → 变脏 → 保存栏出现
     fireEvent.click(screen.getByTitle(toggleTitle));
-    expect(screen.queryByRole("button", { name: "保存" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
     // 切回画外音（speaker 归 null，文本不变）：归一化后与上游等价 → 复归干净 → 保存栏消失
     fireEvent.click(screen.getByTitle(toggleTitle));
-    expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
   });
 
   it("只读模式（缺 onUpdatePrompt）：发声编辑器禁用，无法进入脏态", () => {

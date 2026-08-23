@@ -169,7 +169,7 @@ describe("ShotDetail 广告/短片", () => {
 
   it("未接生成回调（参考生视频路径）时不渲染尾帧设置行", () => {
     renderDetail();
-    expect(screen.queryByText("尾帧")).toBeNull();
+    expect(screen.queryByText("尾帧")).not.toBeInTheDocument();
   });
 
   it("接了 onGenerateVideo 时渲染尾帧设置行", () => {
@@ -345,6 +345,6 @@ describe("ShotDetail 广告/短片", () => {
         onMoveShot={vi.fn()}
       />,
     );
-    expect(screen.queryByRole("button", { name: "前移分镜" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "前移分镜" })).not.toBeInTheDocument();
   });
 });

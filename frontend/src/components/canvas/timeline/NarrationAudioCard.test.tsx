@@ -66,6 +66,6 @@ describe("NarrationAudioCard", () => {
 
   it("shows the estimated cost on the generate button", () => {
     renderCard({ onGenerate: vi.fn(), estimatedCost: { CNY: 0.008 } });
-    expect(screen.getByRole("button", { name: /生成旁白配音/ }).textContent).toContain("¥");
+    expect(screen.getByRole("button", { name: /生成旁白配音/ })).toHaveTextContent(/¥/);
   });
 });

@@ -88,13 +88,13 @@ describe("UtteranceListEditor", () => {
 
     const lastRow = screen.getByDisplayValue("末行画外音。") as HTMLTextAreaElement;
     lastRow.focus();
-    expect(document.activeElement).toBe(lastRow);
+    expect(lastRow).toHaveFocus();
 
     fireEvent.click(screen.getAllByLabelText("删除发声")[0]);
 
     // 末行条目仍在、内容不变，且焦点仍停在同一节点（未被前移的节点顶替）。
     const stillLast = screen.getByDisplayValue("末行画外音。");
-    expect(document.activeElement).toBe(stillLast);
+    expect(stillLast).toHaveFocus();
     expect(screen.queryByDisplayValue("首行画外音。")).not.toBeInTheDocument();
   });
 

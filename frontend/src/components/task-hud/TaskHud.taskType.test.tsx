@@ -50,7 +50,7 @@ describe("TaskHud task_type label", () => {
 
     render(<HostedTaskHud />);
     expect(await screen.findByText("图片编辑")).toBeInTheDocument();
-    expect(screen.queryByText("image_edit")).toBeNull();
+    expect(screen.queryByText("image_edit")).not.toBeInTheDocument();
   });
 
   it("renders localized label for a known task_type (en)", async () => {

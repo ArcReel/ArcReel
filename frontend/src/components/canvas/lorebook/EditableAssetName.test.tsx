@@ -32,7 +32,7 @@ describe("EditableAssetName", () => {
   it("renders a plain heading without rename affordance when readOnly", () => {
     render(<EditableAssetName projectName="demo" name="李白" assetType="character" readOnly />);
     expect(screen.getByRole("heading", { name: "李白" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "重命名" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "重命名" })).not.toBeInTheDocument();
   });
 
   it("previews the impact then executes rename on confirm", async () => {
@@ -159,7 +159,7 @@ describe("EditableAssetName", () => {
     await waitFor(() => expect(pencil).toBeDisabled());
 
     releaseRefresh("success");
-    await waitFor(() => expect(pencil).not.toBeDisabled());
+    await waitFor(() => expect(pencil).toBeEnabled());
   });
 
   it("toasts and stays editable when the preview request fails", async () => {

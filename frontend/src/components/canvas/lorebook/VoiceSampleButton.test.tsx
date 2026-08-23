@@ -222,7 +222,7 @@ describe("VoiceSampleButton", () => {
       ],
     });
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "取消" })).not.toBeDisabled();
+      expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
     });
   });
 
@@ -319,7 +319,7 @@ describe("VoiceSampleButton", () => {
       ],
     });
     await waitFor(() => {
-      expect(screen.getByLabelText("音色")).not.toBeDisabled();
+      expect(screen.getByLabelText("音色")).toBeEnabled();
     });
   });
 
@@ -419,6 +419,6 @@ describe("VoiceSampleButton", () => {
     useTasksStore.setState({ tasks: [] });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.getByRole("button", { name: "确认并保存" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "取消" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
   });
 });

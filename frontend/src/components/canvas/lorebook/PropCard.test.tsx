@@ -142,7 +142,7 @@ describe("PropCard", () => {
         onGenerate={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/major|minor|主要|次要|道具类型/i)).toBeNull();
+    expect(screen.queryByText(/major|minor|主要|次要|道具类型/i)).not.toBeInTheDocument();
   });
 
   it("always shows generate button (not gated on importance)", () => {
@@ -171,7 +171,7 @@ describe("PropCard", () => {
     );
 
     expect(screen.getByDisplayValue("古铜色钥匙")).toHaveAttribute("readonly");
-    expect(screen.queryByTestId("version-time-machine")).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByTestId("version-time-machine")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

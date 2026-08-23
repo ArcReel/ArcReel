@@ -33,7 +33,7 @@ describe("SegmentRefsEditModal", () => {
     const { container } = render(
       <SegmentRefsEditModal {...baseProps} open={false} />,
     );
-    expect(container.firstChild).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("renders dialog with three sections (character/scene/prop)", () => {
@@ -65,7 +65,7 @@ describe("SegmentRefsEditModal", () => {
     expect(saveBtn).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: /Villain/ }));
-    expect(saveBtn).not.toBeDisabled();
+    expect(saveBtn).toBeEnabled();
   });
 
   it("clicking save calls onSave with only changed fields", () => {
@@ -110,7 +110,7 @@ describe("SegmentRefsEditModal", () => {
     expect(ghostRow).toHaveAttribute("title", expect.stringContaining("失效"));
     // Removing the stale ref enables save
     fireEvent.click(ghostRow);
-    expect(screen.getByRole("button", { name: "保存" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
   });
 
   it("empty dictionary shows manage link button (kind passed to callback)", () => {
@@ -134,7 +134,7 @@ describe("SegmentRefsEditModal", () => {
     const search = screen.getByPlaceholderText("搜索…");
     fireEvent.change(search, { target: { value: "vil" } });
     expect(screen.getByRole("button", { name: /Villain/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Mentor/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Mentor/ })).not.toBeInTheDocument();
   });
 
   it("close (X) button invokes onClose", () => {

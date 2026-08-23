@@ -71,8 +71,8 @@ describe("startTour", () => {
 
     const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
 
-    expect(document.body.classList.contains("driver-simple")).toBe(true);
-    expect(document.body.classList.contains("driver-fade")).toBe(false);
+    expect(document.body).toHaveClass("driver-simple");
+    expect(document.body).not.toHaveClass("driver-fade");
 
     handle.dispose();
     vi.unstubAllGlobals();
@@ -81,7 +81,7 @@ describe("startTour", () => {
   it("keeps driver's transitions when reduced motion is not requested", () => {
     const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
 
-    expect(document.body.classList.contains("driver-fade")).toBe(true);
+    expect(document.body).toHaveClass("driver-fade");
 
     handle.dispose();
   });
@@ -97,7 +97,7 @@ describe("startTour", () => {
       { onExit: vi.fn() },
     );
 
-    expect(target.classList.contains("driver-active-element")).toBe(true);
+    expect(target).toHaveClass("driver-active-element");
 
     handle.dispose();
     target.remove();

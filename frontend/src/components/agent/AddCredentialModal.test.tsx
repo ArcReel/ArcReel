@@ -264,7 +264,7 @@ describe("AddCredentialModal", () => {
     const submitBtn = screen.getByRole("button", {
       name: /^save$|^保存$|^Lưu$/i,
     });
-    expect(submitBtn).not.toBeDisabled();
+    expect(submitBtn).toBeEnabled();
     fireEvent.click(submitBtn);
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalled();

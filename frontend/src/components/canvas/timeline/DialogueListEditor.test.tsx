@@ -94,9 +94,9 @@ describe("DialogueListEditor", () => {
     // rebound to the first row's data via reused index-based DOM.
     expect(screen.getByDisplayValue("第一行")).toBe(firstLineNode);
     expect(screen.getByDisplayValue("第三行")).toBe(thirdLineNode);
-    expect(screen.queryByDisplayValue("第二行")).toBeNull();
+    expect(screen.queryByDisplayValue("第二行")).not.toBeInTheDocument();
     expect(screen.getByDisplayValue("甲")).toBeInTheDocument();
     expect(screen.getByDisplayValue("丙")).toBeInTheDocument();
-    expect(screen.queryByDisplayValue("乙")).toBeNull();
+    expect(screen.queryByDisplayValue("乙")).not.toBeInTheDocument();
   });
 });

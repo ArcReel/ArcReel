@@ -164,7 +164,7 @@ describe("ReferenceVideoCanvas", () => {
     await screen.findByRole("combobox");
     fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
 
-    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     await waitFor(() => expect(previewSpy).toHaveBeenCalledWith("proj", 1, "中景。", expect.anything()));
     expect(await screen.findByText("@[王五] 未在角色/场景/道具中登记")).toBeInTheDocument();
 
@@ -193,12 +193,12 @@ describe("ReferenceVideoCanvas", () => {
     // 每个 tab 指向的面板，其 aria-labelledby 必须指回该 tab 自身
     const scriptPanel = screen.getByRole("tabpanel");
     expect(scriptPanel.id).toBe(scriptControls);
-    expect(scriptPanel.getAttribute("aria-labelledby")).toBe(scriptTab.id);
+    expect(scriptPanel).toHaveAttribute("aria-labelledby", scriptTab.id);
 
     fireEvent.click(parseTab);
     const parsePanel = await screen.findByRole("tabpanel");
     expect(parsePanel.id).toBe(parseControls);
-    expect(parsePanel.getAttribute("aria-labelledby")).toBe(parseTab.id);
+    expect(parsePanel).toHaveAttribute("aria-labelledby", parseTab.id);
     // 解析预览只读、无可聚焦后代：面板自身须能接焦点，否则键盘用户翻不到折线以下的内容
     expect(parsePanel).toHaveAttribute("tabindex", "0");
   });
@@ -300,9 +300,9 @@ describe("ReferenceVideoCanvas", () => {
     const ta = await screen.findByRole("combobox");
     fireEvent.change(ta, { target: { value: "@[查无此人] 推门而入。" } });
 
-    expect(await screen.findByRole("button", { name: /^(Save|保存)$/ })).not.toBeDisabled();
+    expect(await screen.findByRole("button", { name: /^(Save|保存)$/ })).toBeEnabled();
     for (const btn of screen.getAllByRole("button", { name: /Generate video|生成视频/ })) {
-      expect(btn).not.toBeDisabled();
+      expect(btn).toBeEnabled();
     }
   });
 
@@ -604,7 +604,7 @@ describe("ReferenceVideoCanvas", () => {
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const btn = await screen.findByRole("button", { name: UNIT_GENERATE_CTA });
     // 点击前 tasks store 为空，按钮启用
-    expect(btn).not.toBeDisabled();
+    expect(btn).toBeEnabled();
     fireEvent.click(btn);
     await waitFor(() => expect(genSpy).toHaveBeenCalled());
     // 入队成功（202 返回）后、任务轮询写回前：动作层打乐观标记，按钮立即
@@ -718,7 +718,7 @@ describe("ReferenceVideoCanvas", () => {
 
     // 锚定行首，避免匹配到批量入口「批量生成视频」——它是另一条提交路径（见下一个用例）
     const generate = await screen.findByRole("button", { name: UNIT_GENERATE_CTA });
-    expect(generate).not.toBeDisabled();
+    expect(generate).toBeEnabled();
 
     // 渲染之后、点击之前，另一入口（Agent 入队 / SSE 落库）已占用同一 unit
     act(() => {
@@ -744,7 +744,7 @@ describe("ReferenceVideoCanvas", () => {
 
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-    await waitFor(() => expect(batch).not.toBeDisabled());
+    await waitFor(() => expect(batch).toBeEnabled());
 
     // 渲染之后、点击之前，E1U1 已被别的入口占用
     act(() => {
@@ -773,7 +773,7 @@ describe("ReferenceVideoCanvas", () => {
 
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-    await waitFor(() => expect(batch).not.toBeDisabled());
+    await waitFor(() => expect(batch).toBeEnabled());
     fireEvent.click(batch);
 
     await waitFor(() =>
@@ -868,7 +868,7 @@ describe("ReferenceVideoCanvas", () => {
 
     const { container } = render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-    await waitFor(() => expect(batch).not.toBeDisabled());
+    await waitFor(() => expect(batch).toBeEnabled());
 
     // 选中项默认是 E1U1，其预览面板的上传入口即针对该 unit
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
@@ -894,7 +894,7 @@ describe("ReferenceVideoCanvas", () => {
 
     const { container } = render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-    await waitFor(() => expect(batch).not.toBeDisabled());
+    await waitFor(() => expect(batch).toBeEnabled());
 
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     fireEvent.change(input!, { target: { files: [new File(["x"], "clip.mp4", { type: "video/mp4" })] } });
@@ -1105,7 +1105,7 @@ describe("ReferenceVideoCanvas", () => {
 
     async function clickBatch() {
       const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
-      await waitFor(() => expect(batch).not.toBeDisabled());
+      await waitFor(() => expect(batch).toBeEnabled());
       fireEvent.click(batch);
       return batch;
     }

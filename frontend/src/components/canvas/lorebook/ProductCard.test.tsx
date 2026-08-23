@@ -82,7 +82,7 @@ describe("ProductCard", () => {
     );
 
     expect(screen.getByDisplayValue("限量款背包")).toHaveAttribute("readonly");
-    expect(screen.queryByTestId("version-time-machine")).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByTestId("version-time-machine")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

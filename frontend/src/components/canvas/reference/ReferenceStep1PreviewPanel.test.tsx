@@ -82,7 +82,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(screen.getByText("@[阿离]")).toBeInTheDocument();
     expect(screen.getByText("@[长街]")).toBeInTheDocument();
     expect(screen.queryByText("参考图")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
   });
 
   it("localizes structured speech violations with their unit and field locations", async () => {
@@ -323,7 +323,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(select).toBeDisabled();
 
     resolveSave(pendingState());
-    await waitFor(() => expect(textarea).not.toBeDisabled());
+    await waitFor(() => expect(textarea).toBeEnabled());
   });
 
   it("picks the with-references duration tier for a unit that carries references", async () => {
