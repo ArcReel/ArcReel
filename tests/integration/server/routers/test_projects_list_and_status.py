@@ -117,25 +117,17 @@ class TestProjectsRouter:
             assert ready["style_image"] == "style_reference.png"
             assert ready.get("style_template_id") is None
 
-    def test_update_project_clear_style_combined(self, tmp_path, monkeypatch):
-        """一次性清空所有风格：style_template_id=null + clear_style_image=true。"""
+    def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
+        """项目 API 应返回 asset_fingerprints 字段"""
         fake_pm = _FakePM(tmp_path)
-        fake_pm.project_data["ready"]["style_template_id"] = "live_premium_drama"
-        fake_pm.project_data["ready"]["style"] = "画风：..."
-        fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
-        fake_pm.project_data["ready"]["style_description"] = "some desc"
-
         client = _client(monkeypatch, fake_pm)
+
         with client:
-            resp = client.patch(
-                "/api/v1/projects/ready",
-                json={"style_template_id": None, "clear_style_image": True},
-            )
+            resp = client.get("/api/v1/projects/ready")
             assert resp.status_code == 200
-            data = fake_pm.project_data["ready"]
-            assert "style_template_id" not in data
-            assert data["style"] == ""
-            assert "style_image" not in data
-            assert "style_description" not in data
+            data = resp.json()
+            assert "asset_fingerprints" in data
+            assert "storyboards/scene_E1S01.png" in data["asset_fingerprints"]
+            assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
     # ---------------------------------------------------------------------------

@@ -85,69 +85,6 @@ class TestProjectsRouter:
             )
             assert narration_with_brief.status_code == 400
 
-    def test_create_requires_binary_generation_mode(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
-        with client:
-            # 缺失 generation_mode：必填无默认值，不被悄悄锁进某种生成模式
-            missing = client.post(
-                "/api/v1/projects",
-                json={"name": "no-mode", "title": "X", "content_mode": "narration"},
-            )
-            assert missing.status_code == 422
-
-            # 旧三值 grid 不再是合法创建值
-            legacy_grid = client.post(
-                "/api/v1/projects",
-                json={"name": "old-grid", "title": "X", "content_mode": "narration", "generation_mode": "grid"},
-            )
-            assert legacy_grid.status_code == 422
-
-            # 两种生成模式均可创建
-            for mode in ("storyboard", "reference_video"):
-                created = client.post(
-                    "/api/v1/projects",
-                    json={"name": f"m-{mode.replace('_', '-')}", "title": "X", "generation_mode": mode},
-                )
-                assert created.status_code == 200, created.text
-                assert created.json()["project"]["generation_mode"] == mode
-
-    def test_create_persists_grid_storyboard(self, tmp_path, monkeypatch):
-        client = _client(monkeypatch, _FakePM(tmp_path))
-        with client:
-            # 缺省 false 也落盘为显式值
-            default_off = client.post(
-                "/api/v1/projects",
-                json={"name": "grid-off", "title": "X", "generation_mode": "storyboard"},
-            )
-            assert default_off.status_code == 200
-            assert default_off.json()["project"]["grid_storyboard"] is False
-
-            enabled = client.post(
-                "/api/v1/projects",
-                json={"name": "grid-on", "title": "X", "generation_mode": "storyboard", "grid_storyboard": True},
-            )
-            assert enabled.status_code == 200
-            assert enabled.json()["project"]["grid_storyboard"] is True
-
-    def test_patch_toggles_grid_storyboard_but_not_route(self, tmp_path, monkeypatch):
-        fake_pm = _FakePM(tmp_path)
-        fake_pm.project_data["ready"]["generation_mode"] = "storyboard"
-        client = _client(monkeypatch, fake_pm)
-        with client:
-            # 宫格开关创建后可随时切换
-            on = client.patch("/api/v1/projects/ready", json={"grid_storyboard": True})
-            assert on.status_code == 200
-            assert fake_pm.project_data["ready"]["grid_storyboard"] is True
-
-            off = client.patch("/api/v1/projects/ready", json={"grid_storyboard": False})
-            assert off.status_code == 200
-            assert fake_pm.project_data["ready"]["grid_storyboard"] is False
-
-            # 生成模式创建即定：项目 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘
-            route = client.patch("/api/v1/projects/ready", json={"generation_mode": "reference_video"})
-            assert route.status_code == 200
-            assert fake_pm.project_data["ready"]["generation_mode"] == "storyboard"
-
     def test_patch_ad_project_fields(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         client = _client(monkeypatch, fake_pm)

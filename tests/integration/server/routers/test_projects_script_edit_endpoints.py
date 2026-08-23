@@ -679,3 +679,93 @@ class TestProjectsRouter:
         # 阻断必须发生在惰性迁移读写之前：project.json 与 scripts/*.json 都不能被动过
         assert fake_pm.project_data == before_project_data
         assert fake_pm.scripts == before_scripts
+
+    @pytest.mark.parametrize(
+        ("project_name", "script_file", "endpoint", "script", "request_body", "kind"),
+        [
+            (
+                "ready",
+                "narration.json",
+                "/api/v1/projects/ready/segments/E1S01",
+                {
+                    "content_mode": "narration",
+                    "segments": [
+                        {
+                            "segment_id": "E1S01",
+                            "duration_seconds": 4,
+                            "novel_text": "风吹过旷野。",
+                            "video_prompt": {},
+                        }
+                    ],
+                },
+                {"video_prompt": {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}},
+                "segments",
+            ),
+            (
+                "ready",
+                "episode_1.json",
+                "/api/v1/projects/ready/script-scenes/E1S01",
+                {
+                    "content_mode": "drama",
+                    "scenes": [{"scene_id": "E1S01", "duration_seconds": 4, "utterances": []}],
+                },
+                {
+                    "updates": {
+                        "utterances": [
+                            {"kind": "dialogue", "speaker": "Alice", "text": "快走。"},
+                            {"kind": "voiceover", "speaker": None, "text": "风吹过旷野。"},
+                        ]
+                    }
+                },
+                "scenes",
+            ),
+            (
+                "ad-ready",
+                "episode_1.json",
+                "/api/v1/projects/ad-ready/script-shots/E1S01",
+                {
+                    "content_mode": "ad",
+                    "shots": [
+                        {
+                            "shot_id": "E1S01",
+                            "duration_seconds": 4,
+                            "voiceover_text": "风吹过旷野。",
+                            "video_prompt": {},
+                        }
+                    ],
+                },
+                {"updates": {"video_prompt": {"dialogue": [{"speaker": "Alice", "line": "快走。"}]}}},
+                "shots",
+            ),
+        ],
+    )
+    def test_three_storyboard_web_manual_edits_atomically_reject_mixed_speech_on_save(
+        self,
+        tmp_path,
+        monkeypatch,
+        project_name: str,
+        script_file: str,
+        endpoint: str,
+        script: dict,
+        request_body: dict,
+        kind: str,
+    ):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[(project_name, script_file)] = script
+        before = deepcopy(script)
+        client = _client(monkeypatch, fake_pm)
+        body = {"script_file": script_file, **request_body}
+
+        with client:
+            response = client.patch(endpoint, json=body)
+
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["success"] is False
+        problem = detail["problems"][0]
+        assert problem["code"] == "mixed_speech"
+        assert problem["operation_index"] == 0
+        assert problem["reason"] == "character_and_narrator_mixed"
+        assert problem["next_action"] == "replan_unit"
+        assert kind in before
+        assert fake_pm.scripts[(project_name, script_file)] == before

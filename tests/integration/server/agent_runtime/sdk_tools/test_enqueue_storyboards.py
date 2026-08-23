@@ -230,3 +230,11 @@ async def test_generate_storyboards_reports_a_partial_batch_per_id(fake_ctx: Too
     assert failed_item.task_state.value == "failed"
     assert failed_item.provider_checkpoint is not None
     assert failed_item.provider_checkpoint.submitted is False
+
+
+async def test_generate_storyboards_rejects_path_in_script_arg(fake_ctx: ToolContext) -> None:
+    """Agent 传带路径分隔符的 script 名必须被 handler 拒绝（共享 validate_script_filename 防御）。"""
+    tool_obj = generate_storyboards_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "../etc/passwd"})
+    assert out.get("is_error") is True
+    assert "路径分隔符" in out["content"][0]["text"]

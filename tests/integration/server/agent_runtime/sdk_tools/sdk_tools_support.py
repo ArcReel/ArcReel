@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from lib.draft_quarantine import (
+    QUARANTINE_KIND_DRAMA_STEP1,
+    QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
     quarantine_path,
 )
@@ -501,3 +503,96 @@ def _nr_segment(segment_id="E1S01", duration=4, novel_text="张三走向村口�
     }
     seg.update(extra)
     return seg
+
+
+_DRAMA_NOVEL = "三年后，阿离回到山门。"
+
+
+def _drama_project(fake_ctx: ToolContext) -> None:
+    """把项目声明成 drama + 分镜图生视频，并铺好源文——正式 step1 的写禁与草稿通道以此为前提。"""
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps({"content_mode": "drama", "generation_mode": "storyboard"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    fake_ctx.pm.project_payload["content_mode"] = "drama"  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # pyright: ignore[reportAttributeAccessIssue]
+    src = fake_ctx.project_path / "source"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "episode_1.txt").write_text(_DRAMA_NOVEL, encoding="utf-8")
+
+
+def _drama_scene(**overrides) -> dict:
+    scene = {
+        "scene_id": "E1S01",
+        "duration_seconds": 4,
+        "segment_break": False,
+        "characters_in_scene": ["阿离"],
+        "scenes": [],
+        "props": [],
+        "scene_description": "阿离站在山门前。",
+        "utterances": [{"kind": "dialogue", "speaker": "阿离", "text": "我回来了。"}],
+        "source_text": _DRAMA_NOVEL,
+    }
+    scene.update(overrides)
+    return scene
+
+
+def _drama_step1_path(fake_ctx: ToolContext) -> Path:
+    return fake_ctx.project_path / "drafts" / "episode_1" / "step1_normalized_script.json"
+
+
+def _drama_quarantine_path(fake_ctx: ToolContext) -> Path:
+    return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_DRAMA_STEP1)
+
+
+def _write_drama_step1(fake_ctx: ToolContext, scenes: list[dict]) -> None:
+    path = _drama_step1_path(fake_ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"title": "第一集", "scenes": scenes}, ensure_ascii=False), encoding="utf-8")
+
+
+def _read_drama_quarantine(fake_ctx: ToolContext) -> dict:
+    return json.loads(_drama_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
+
+
+async def _open_drama_for_edit(fake_ctx: ToolContext, **args) -> dict:
+    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
+
+
+async def _promote_drama(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)) -> dict:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def fake_caps(_project, _episode=None):
+        return durations[0], list(durations)
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
+
+
+def _nr_step1_path(fake_ctx: ToolContext) -> Path:
+    return fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json"
+
+
+def _nr_quarantine_path(fake_ctx: ToolContext) -> Path:
+    return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_NARRATION_STEP1)
+
+
+def _read_nr_quarantine(fake_ctx: ToolContext) -> dict:
+    return json.loads(_nr_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
+
+
+def _write_nr_step1(fake_ctx: ToolContext, segments: list[dict]) -> None:
+    path = _nr_step1_path(fake_ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"segments": segments}, ensure_ascii=False), encoding="utf-8")
+
+
+async def _open_nr_for_edit(fake_ctx: ToolContext, **args) -> dict:
+    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
+
+
+async def _promote_nr(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)) -> dict:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps(durations[0], durations))
+    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})

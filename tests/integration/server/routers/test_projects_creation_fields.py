@@ -9,19 +9,6 @@ from tests.integration.server.routers.projects_router_support import (
 
 
 class TestProjectsRouter:
-    def test_get_project_includes_asset_fingerprints(self, tmp_path, monkeypatch):
-        """项目 API 应返回 asset_fingerprints 字段"""
-        fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
-
-        with client:
-            resp = client.get("/api/v1/projects/ready")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert "asset_fingerprints" in data
-            assert "storyboards/scene_E1S01.png" in data["asset_fingerprints"]
-            assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
-
     def test_create_project_with_style_template_id_expands_prompt(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         client = _client(monkeypatch, fake_pm)
@@ -108,69 +95,6 @@ class TestProjectsRouter:
             assert "image_provider_t2i" not in data
             assert "image_provider_i2i" not in data
 
-    def test_patch_image_default_layer_set_and_clear(self, tmp_path, monkeypatch):
-        """项目默认图片模型可设置 / 清除；格式非法与非图片模型均 400。"""
-        fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
-        with client:
-            updated = client.patch(
-                "/api/v1/projects/ready",
-                json={"default_image_backend": "gemini-aistudio/nano-banana"},
-            )
-            assert updated.status_code == 200
-            assert fake_pm.project_data["ready"]["default_image_backend"] == "gemini-aistudio/nano-banana"
-
-            cleared = client.patch("/api/v1/projects/ready", json={"default_image_backend": ""})
-            assert cleared.status_code == 200
-            assert "default_image_backend" not in fake_pm.project_data["ready"]
-
-            rejected = client.patch("/api/v1/projects/ready", json={"default_image_backend": "no-slash"})
-            assert rejected.status_code == 400
-            # 校验在写盘闭包内抛出，若 router 的兜底分支不透传领域异常会退化成 500
-            assert rejected.json()["diagnostic"] == "field: default_image_backend"
-
-            wrong_media = client.patch(
-                "/api/v1/projects/ready",
-                json={"default_image_backend": "gemini-aistudio/veo-3.1-generate-preview"},
-            )
-            assert wrong_media.status_code == 400
-
-    def test_patch_text_tier_fields_set_and_clear(self, tmp_path, monkeypatch):
-        """项目级档位 / 默认模型三字段可设置；空值 = 清除、继承全局。"""
-        fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
-        with client:
-            updated = client.patch(
-                "/api/v1/projects/ready",
-                json={
-                    "text_backend_simple": "gemini-aistudio/gemini-3-flash-preview",
-                    "text_backend_complex": "gemini-aistudio/gemini-3.1-pro-preview",
-                    "default_text_backend": "gemini-aistudio/gemini-3-flash-preview",
-                },
-            )
-            assert updated.status_code == 200
-            data = fake_pm.project_data["ready"]
-            assert data["text_backend_simple"] == "gemini-aistudio/gemini-3-flash-preview"
-            assert data["text_backend_complex"] == "gemini-aistudio/gemini-3.1-pro-preview"
-            assert data["default_text_backend"] == "gemini-aistudio/gemini-3-flash-preview"
-
-            cleared = client.patch(
-                "/api/v1/projects/ready",
-                json={"text_backend_simple": "", "text_backend_complex": "", "default_text_backend": ""},
-            )
-            assert cleared.status_code == 200
-            data = fake_pm.project_data["ready"]
-            assert "text_backend_simple" not in data
-            assert "text_backend_complex" not in data
-            assert "default_text_backend" not in data
-
-            # 非法 backend 值被 400 拒绝
-            rejected = client.patch(
-                "/api/v1/projects/ready",
-                json={"text_backend_complex": "no-slash"},
-            )
-            assert rejected.status_code == 400
-
     def test_video_bucket_fields_create_patch_and_clear(self, tmp_path, monkeypatch):
         """项目级视频桶键（video_provider_i2v/r2v）可创建时写入、PATCH 设置；空值 = 清除、回退默认层。"""
         fake_pm = _FakePM(tmp_path)
@@ -205,17 +129,6 @@ class TestProjectsRouter:
             )
             assert cleared.status_code == 200
             assert "video_provider_r2v" not in fake_pm.project_data["ready"]
-
-    def test_video_bucket_field_rejects_non_video_model(self, tmp_path, monkeypatch):
-        fake_pm = _FakePM(tmp_path)
-        client = _client(monkeypatch, fake_pm)
-
-        with client:
-            rejected = client.patch(
-                "/api/v1/projects/ready",
-                json={"video_provider_i2v": "gemini-aistudio/gemini-3.1-flash-image-preview"},
-            )
-            assert rejected.status_code == 400
 
     def test_create_project_ignores_legacy_image_backend(self, tmp_path, monkeypatch):
         """退役的 image_backend 字段已从写模型移除，传入时被静默忽略。"""
@@ -333,3 +246,47 @@ class TestProjectsRouter:
                 },
             )
             assert resp.status_code == 400
+
+    def test_create_requires_binary_generation_mode(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            # 缺失 generation_mode：必填无默认值，不被悄悄锁进某种生成模式
+            missing = client.post(
+                "/api/v1/projects",
+                json={"name": "no-mode", "title": "X", "content_mode": "narration"},
+            )
+            assert missing.status_code == 422
+
+            # 旧三值 grid 不再是合法创建值
+            legacy_grid = client.post(
+                "/api/v1/projects",
+                json={"name": "old-grid", "title": "X", "content_mode": "narration", "generation_mode": "grid"},
+            )
+            assert legacy_grid.status_code == 422
+
+            # 两种生成模式均可创建
+            for mode in ("storyboard", "reference_video"):
+                created = client.post(
+                    "/api/v1/projects",
+                    json={"name": f"m-{mode.replace('_', '-')}", "title": "X", "generation_mode": mode},
+                )
+                assert created.status_code == 200, created.text
+                assert created.json()["project"]["generation_mode"] == mode
+
+    def test_create_persists_grid_storyboard(self, tmp_path, monkeypatch):
+        client = _client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            # 缺省 false 也落盘为显式值
+            default_off = client.post(
+                "/api/v1/projects",
+                json={"name": "grid-off", "title": "X", "generation_mode": "storyboard"},
+            )
+            assert default_off.status_code == 200
+            assert default_off.json()["project"]["grid_storyboard"] is False
+
+            enabled = client.post(
+                "/api/v1/projects",
+                json={"name": "grid-on", "title": "X", "generation_mode": "storyboard", "grid_storyboard": True},
+            )
+            assert enabled.status_code == 200
+            assert enabled.json()["project"]["grid_storyboard"] is True

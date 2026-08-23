@@ -71,12 +71,3 @@ class TestGenerationTasks:
         result = generation_tasks._collect_product_reference_images(project, project_path, "保温杯")
 
         assert result == [project_path / "products" / "refs" / "保温杯_1.jpg"]
-
-    def test_product_fingerprints(self, monkeypatch, tmp_path):
-        project_path = _prepare_files(tmp_path)
-        (project_path / "products" / "保温杯.png").write_bytes(b"png")
-        fake_pm = _FakePM(project_path)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-
-        fps = generation_tasks.compute_affected_fingerprints("demo", "product", "保温杯")
-        assert "products/保温杯.png" in fps

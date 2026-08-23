@@ -11,6 +11,7 @@ from lib.storyboard_sequence import (
 )
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (
+    _async_return,
     _fake_resolve_ctx,
     _FakeGenerator,
     _FakePM,
@@ -224,3 +225,50 @@ class TestGenerationTasks:
 
         with pytest.raises(ValueError):
             await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": ""})
+
+    async def test_tasks_declare_only_needed_lanes(self, monkeypatch, tmp_path):
+        """任务只声明自己用到的 lane：图片类任务不声明 video/audio（只配置图片供应商的项目
+        不因视频供应商缺配置失败，未声明 lane 不解析见 tests/server/test_generation_context.py），
+        视频任务只声明 video；带参考图时 image lane 请求 i2i 能力。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        _register_asset_sheet_claims(fake_pm)
+        _seed_current_storyboard(fake_pm)
+        fake_generator = _FakeGenerator(project_path)
+        seen: list[dict] = []
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, seen_lane_requests=seen),
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        # E1S02 引用角色/场景/道具 sheet → 带参考图 → i2i；character 带 reference_image → i2i
+        await generation_tasks.execute_storyboard_task(
+            "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "画面"}
+        )
+        await generation_tasks.execute_character_task("demo", "Alice", {"prompt": "角色描述"})
+        await generation_tasks.execute_scene_task("demo", "祠堂", {"prompt": "场景描述"})
+        for req in seen:
+            assert req["image"] is not None
+            assert req["video"] is None
+            assert req["audio"] is None
+        assert seen[0]["image"].capability == "i2i"
+
+        seen.clear()
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "duration_seconds": 8,
+            },
+        )
+        assert len(seen) == 1
+        assert seen[0]["video"] is not None
+        assert seen[0]["image"] is None
+        assert seen[0]["audio"] is None

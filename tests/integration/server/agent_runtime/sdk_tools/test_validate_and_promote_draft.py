@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
 
 import pytest
 
 from lib import script_review
 from lib.draft_quarantine import (
-    QUARANTINE_KIND_DRAMA_STEP1,
     QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
@@ -18,24 +16,33 @@ from lib.draft_quarantine import (
     write_quarantine,
 )
 from lib.reference_video.draft_validation import DraftViolation
-from lib.reference_video.voice_settings import VoiceRenderSettings
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     normalize_drama_script_tool,
-    open_step1_for_edit_tool,
     split_narration_segments_tool,
-    validate_and_promote_draft_tool,
 )
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     _call,
+    _drama_project,
+    _drama_quarantine_path,
+    _drama_scene,
+    _drama_step1_path,
     _nr_caps,
     _nr_generator_returning,
+    _nr_quarantine_path,
     _nr_segment,
     _nr_source,
+    _nr_step1_path,
+    _open_drama_for_edit,
     _open_for_edit,
+    _open_nr_for_edit,
     _promote,
+    _promote_drama,
+    _promote_nr,
+    _read_drama_quarantine,
+    _read_nr_quarantine,
     _read_rv_quarantine,
     _run_rv_split,
     _rv_project,
@@ -44,6 +51,8 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _rv_source,
     _rv_step1_path,
     _rv_unit,
+    _write_drama_step1,
+    _write_nr_step1,
     _write_rv_step1,
 )
 
@@ -158,18 +167,6 @@ async def test_validate_and_promote_draft_reports_again_without_round_limit(fake
 # ---------------------------------------------------------------------------
 # step1 乐观并发控制（取回时记基线指纹，晋升前锁内比对）
 # ---------------------------------------------------------------------------
-
-
-async def test_open_step1_for_edit_records_base_fingerprint(fake_ctx: ToolContext) -> None:
-    """取回时把正式文件此刻的内容指纹记进 meta.base_fingerprint，供晋升前基线比对。"""
-    _rv_source(fake_ctx)
-    _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
-
-    out = await _open_for_edit(fake_ctx)
-
-    assert out.get("is_error") is not True, out
-    meta = _read_rv_quarantine(fake_ctx)["meta"]
-    assert meta["base_fingerprint"] == script_review.content_fingerprint(_rv_step1_path(fake_ctx))
 
 
 async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -513,51 +510,6 @@ async def test_split_reference_video_units_clears_stale_quarantine_on_success(
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
-    """三类声音降级 warning 不阻断落盘，但随产物呈现——否则直到生成后才听得出声音打了折。"""
-    _rv_source(fake_ctx)
-    out = await _run_rv_split(
-        fake_ctx,
-        monkeypatch,
-        [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}")],
-        voice=VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, model_id="m"),
-    )
-
-    assert out.get("is_error") is not True, out
-    assert _rv_step1_path(fake_ctx).exists()
-    text = out["content"][0]["text"]
-    assert "声音降级提示" in text
-    assert "未设置参考音频" in text
-
-
-async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
-    """逐图挂载型 backend 下 warning 照常呈现：拆分阶段还没有参考图，那一位不该参与判定。
-
-    开着 ``reference_audio_per_image`` 而不给参考图集合，会把每个说话人都判成「无画面可挂」，
-    那条 warning 不在容忍列表内会被丢弃——超出段数上限这类提示反而不见了。
-    """
-    _rv_source(fake_ctx)
-    fake_ctx.pm.project_payload["characters"] = {  # pyright: ignore[reportAttributeAccessIssue]
-        "张三": {"description": "主角", "reference_audio": "characters/refs_audio/张三.wav"},
-        "李四": {"description": "", "reference_audio": "characters/refs_audio/李四.wav"},
-    }
-    out = await _run_rv_split(
-        fake_ctx,
-        monkeypatch,
-        [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
-        voice=VoiceRenderSettings(
-            voice_consistency="native", max_reference_audio=1, model_id="m", requires_reference_image=True
-        ),
-    )
-
-    assert out.get("is_error") is not True, out
-    assert "参考音频最多 1 段" in out["content"][0]["text"]
-
-
 def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
     write_quarantine(
         fake_ctx.project_path,
@@ -625,110 +577,6 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
 # ---------------------------------------------------------------------------
 
 
-_DRAMA_NOVEL = "三年后，阿离回到山门。"
-
-
-def _drama_project(fake_ctx: ToolContext) -> None:
-    """把项目声明成 drama + 分镜图生视频，并铺好源文——正式 step1 的写禁与草稿通道以此为前提。"""
-    (fake_ctx.project_path / "project.json").write_text(
-        json.dumps({"content_mode": "drama", "generation_mode": "storyboard"}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    fake_ctx.pm.project_payload["content_mode"] = "drama"  # pyright: ignore[reportAttributeAccessIssue]
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # pyright: ignore[reportAttributeAccessIssue]
-    src = fake_ctx.project_path / "source"
-    src.mkdir(parents=True, exist_ok=True)
-    (src / "episode_1.txt").write_text(_DRAMA_NOVEL, encoding="utf-8")
-
-
-def _drama_scene(**overrides) -> dict:
-    scene = {
-        "scene_id": "E1S01",
-        "duration_seconds": 4,
-        "segment_break": False,
-        "characters_in_scene": ["阿离"],
-        "scenes": [],
-        "props": [],
-        "scene_description": "阿离站在山门前。",
-        "utterances": [{"kind": "dialogue", "speaker": "阿离", "text": "我回来了。"}],
-        "source_text": _DRAMA_NOVEL,
-    }
-    scene.update(overrides)
-    return scene
-
-
-def _drama_step1_path(fake_ctx: ToolContext) -> Path:
-    return fake_ctx.project_path / "drafts" / "episode_1" / "step1_normalized_script.json"
-
-
-def _drama_quarantine_path(fake_ctx: ToolContext) -> Path:
-    return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_DRAMA_STEP1)
-
-
-def _write_drama_step1(fake_ctx: ToolContext, scenes: list[dict]) -> None:
-    path = _drama_step1_path(fake_ctx)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"title": "第一集", "scenes": scenes}, ensure_ascii=False), encoding="utf-8")
-
-
-def _read_drama_quarantine(fake_ctx: ToolContext) -> dict:
-    return json.loads(_drama_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
-
-
-async def _open_drama_for_edit(fake_ctx: ToolContext, **args) -> dict:
-    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
-
-
-async def _promote_drama(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)) -> dict:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
-    async def fake_caps(_project, _episode=None):
-        return durations[0], list(durations)
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
-    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
-
-
-async def test_open_step1_for_edit_returns_drama_scenes(fake_ctx: ToolContext) -> None:
-    """drama 取回的草稿装分镜内容表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
-    _drama_project(fake_ctx)
-    _write_drama_step1(fake_ctx, [_drama_scene(needs_replan=True)])
-    before = _drama_step1_path(fake_ctx).read_text(encoding="utf-8")
-
-    out = await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
-
-    assert out.get("is_error") is not True, out
-    envelope = _read_drama_quarantine(fake_ctx)
-    assert envelope["kind"] == QUARANTINE_KIND_DRAMA_STEP1
-    assert envelope["violations"] == []
-    assert envelope["meta"]["source"] == "source/episode_1.txt"
-    assert envelope["meta"]["base_fingerprint"]
-    scene = envelope["content"]["scenes"][0]
-    # needs_replan 按台词准入派生，取回时剥掉：留在草稿里 Agent 会当成可手写字段去改，
-    # 而晋升侧无论如何都按现值重派生，两者不一致只会误导。
-    assert "needs_replan" not in scene
-    assert scene["scene_description"] == "阿离站在山门前。"
-    assert _drama_step1_path(fake_ctx).read_text(encoding="utf-8") == before
-
-
-async def test_open_step1_for_edit_drama_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
-    """完整闭环：取回 → 改草稿 → 晋升。改动经持锁写盘落回正式文件，派生字段按新内容重算。"""
-    _drama_project(fake_ctx)
-    _write_drama_step1(fake_ctx, [_drama_scene()])
-
-    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
-    envelope = _read_drama_quarantine(fake_ctx)
-    envelope["content"]["scenes"][0]["scene_description"] = "阿离推开山门。"
-    _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-
-    out = await _promote_drama(fake_ctx, monkeypatch)
-
-    assert out.get("is_error") is not True, out
-    assert not _drama_quarantine_path(fake_ctx).exists()
-    saved = json.loads(_drama_step1_path(fake_ctx).read_text(encoding="utf-8"))
-    assert saved["scenes"][0]["scene_description"] == "阿离推开山门。"
-
-
 async def test_promote_drama_step1_rederives_needs_replan(fake_ctx: ToolContext, monkeypatch) -> None:
     """needs_replan 由晋升侧按台词准入重新派生，不取草稿里的值——它是机器判据，
     手写值一旦被采信，后续重规划会漏掉真正需要重排的场景。"""
@@ -787,37 +635,6 @@ async def test_promote_drama_step1_aborts_on_concurrent_write(fake_ctx: ToolCont
     assert _drama_quarantine_path(fake_ctx).exists()
 
 
-async def test_open_step1_for_edit_refuses_to_clobber_existing_drama_draft(fake_ctx: ToolContext) -> None:
-    """已有草稿在场时不覆盖：那份草稿可能已含未晋升的修改，出路是继续改它再晋升。"""
-    _drama_project(fake_ctx)
-    _write_drama_step1(fake_ctx, [_drama_scene()])
-    await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
-    envelope = _read_drama_quarantine(fake_ctx)
-    envelope["content"]["scenes"][0]["scene_description"] = "未晋升的修改。"
-    _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-
-    out = await _open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
-
-    assert out.get("is_error") is True
-    assert "validate_and_promote_draft" in out["content"][0]["text"]
-    assert _read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "未晋升的修改。"
-
-
-async def test_open_step1_for_edit_rejects_variant_without_draft_channel(fake_ctx: ToolContext) -> None:
-    """ad 没有结构化 step1，也就没有草稿通道：报错要点名这一点，不能让 Agent 以为工具坏了反复重试。"""
-    (fake_ctx.project_path / "project.json").write_text(
-        json.dumps({"content_mode": "ad", "generation_mode": "storyboard"}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    fake_ctx.pm.project_payload["content_mode"] = "ad"  # pyright: ignore[reportAttributeAccessIssue]
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # pyright: ignore[reportAttributeAccessIssue]
-
-    out = await _open_for_edit(fake_ctx)
-
-    assert out.get("is_error") is True
-    assert "没有草稿编辑通道" in out["content"][0]["text"]
-
-
 async def test_generate_episode_script_blocked_by_drama_quarantine(fake_ctx: ToolContext) -> None:
     """drama 的 step2 与参考生视频同口径：草稿在场即拒绝生成，
     否则会拿正式文件那份上一版内容静默顶替待处置的正文。"""
@@ -871,35 +688,6 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
 # ---------------------------------------------------------------------------
 # narration step1 的取回编辑与晋升闭环
 # ---------------------------------------------------------------------------
-
-
-def _nr_step1_path(fake_ctx: ToolContext) -> Path:
-    return fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json"
-
-
-def _nr_quarantine_path(fake_ctx: ToolContext) -> Path:
-    return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_NARRATION_STEP1)
-
-
-def _read_nr_quarantine(fake_ctx: ToolContext) -> dict:
-    return json.loads(_nr_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
-
-
-def _write_nr_step1(fake_ctx: ToolContext, segments: list[dict]) -> None:
-    path = _nr_step1_path(fake_ctx)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"segments": segments}, ensure_ascii=False), encoding="utf-8")
-
-
-async def _open_nr_for_edit(fake_ctx: ToolContext, **args) -> dict:
-    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
-
-
-async def _promote_nr(fake_ctx: ToolContext, monkeypatch, durations=(4, 6, 8)) -> dict:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", _nr_caps(durations[0], durations))
-    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
 
 
 async def test_split_narration_segments_quarantines_violation_instead_of_discarding(
@@ -957,43 +745,6 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
     assert json.loads(_nr_step1_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 4
 
 
-async def test_open_step1_for_edit_returns_narration_segments(fake_ctx: ToolContext) -> None:
-    """narration 取回的草稿装分镜表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
-    _nr_source(fake_ctx)
-    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
-    before = _nr_step1_path(fake_ctx).read_text(encoding="utf-8")
-
-    out = await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
-
-    assert out.get("is_error") is not True, out
-    envelope = _read_nr_quarantine(fake_ctx)
-    assert envelope["kind"] == QUARANTINE_KIND_NARRATION_STEP1
-    assert envelope["content"]["segments"][0]["novel_text"] == _RV_NOVEL
-    assert envelope["violations"] == [], "取回是编辑工位，不是待修复草稿"
-    assert envelope["meta"]["source"] == "source/episode_1.txt"
-    assert envelope["meta"]["base_fingerprint"] is not None
-    assert _nr_step1_path(fake_ctx).read_text(encoding="utf-8") == before
-
-
-async def test_open_step1_for_edit_narration_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
-    """取回 → 改草稿 → 晋升写回正式文件、草稿清除：与 drama / 参考生视频同一条晋升通道。"""
-    _nr_source(fake_ctx)
-    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
-    await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
-
-    envelope = _read_nr_quarantine(fake_ctx)
-    envelope["content"]["segments"][0]["duration_seconds"] = 8
-    _nr_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-
-    out = await _promote_nr(fake_ctx, monkeypatch)
-
-    assert out.get("is_error") is not True, out
-    assert not _nr_quarantine_path(fake_ctx).exists()
-    saved = json.loads(_nr_step1_path(fake_ctx).read_text(encoding="utf-8"))
-    assert saved["segments"][0]["duration_seconds"] == 8
-    assert saved["segments"][0]["novel_text"] == _RV_NOVEL
-
-
 async def test_promote_narration_step1_reports_schema_breach_without_writing(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -1029,25 +780,6 @@ async def test_promote_narration_step1_aborts_on_concurrent_write(fake_ctx: Tool
     assert "content.segments" in out["content"][0]["text"]
     assert _nr_quarantine_path(fake_ctx).exists(), "冲突时草稿仍在场，合并后可重试"
     assert json.loads(_nr_step1_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 6
-
-
-async def test_open_step1_for_edit_refuses_to_clobber_existing_narration_draft(fake_ctx: ToolContext) -> None:
-    """已有草稿在场时不覆盖：那份草稿可能已含未晋升的修改，拿正式文件盖过去等于抹掉它的工作。"""
-    _nr_source(fake_ctx)
-    _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
-    write_quarantine(
-        fake_ctx.project_path,
-        1,
-        QUARANTINE_KIND_NARRATION_STEP1,
-        content={"segments": [_nr_segment("E1S01", 8, "改到一半的正文")]},
-        violations=[],
-    )
-
-    out = await _open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
-
-    assert out.get("is_error") is True
-    assert "已有 step1 草稿在场" in out["content"][0]["text"]
-    assert _read_nr_quarantine(fake_ctx)["content"]["segments"][0]["novel_text"] == "改到一半的正文"
 
 
 async def test_promote_narration_step1_revalidates_against_current_source(fake_ctx: ToolContext, monkeypatch) -> None:

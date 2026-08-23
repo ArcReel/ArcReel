@@ -168,3 +168,117 @@ class TestProjectsRouter:
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"audio_backend": "garbage"})
             assert resp.status_code == 400
+
+    def test_update_project_clear_style_combined(self, tmp_path, monkeypatch):
+        """一次性清空所有风格：style_template_id=null + clear_style_image=true。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["style_template_id"] = "live_premium_drama"
+        fake_pm.project_data["ready"]["style"] = "画风：..."
+        fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
+        fake_pm.project_data["ready"]["style_description"] = "some desc"
+
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/ready",
+                json={"style_template_id": None, "clear_style_image": True},
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert "style_template_id" not in data
+            assert data["style"] == ""
+            assert "style_image" not in data
+            assert "style_description" not in data
+
+    def test_patch_image_default_layer_set_and_clear(self, tmp_path, monkeypatch):
+        """项目默认图片模型可设置 / 清除；格式非法与非图片模型均 400。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            updated = client.patch(
+                "/api/v1/projects/ready",
+                json={"default_image_backend": "gemini-aistudio/nano-banana"},
+            )
+            assert updated.status_code == 200
+            assert fake_pm.project_data["ready"]["default_image_backend"] == "gemini-aistudio/nano-banana"
+
+            cleared = client.patch("/api/v1/projects/ready", json={"default_image_backend": ""})
+            assert cleared.status_code == 200
+            assert "default_image_backend" not in fake_pm.project_data["ready"]
+
+            rejected = client.patch("/api/v1/projects/ready", json={"default_image_backend": "no-slash"})
+            assert rejected.status_code == 400
+            # 校验在写盘闭包内抛出，若 router 的兜底分支不透传领域异常会退化成 500
+            assert rejected.json()["diagnostic"] == "field: default_image_backend"
+
+            wrong_media = client.patch(
+                "/api/v1/projects/ready",
+                json={"default_image_backend": "gemini-aistudio/veo-3.1-generate-preview"},
+            )
+            assert wrong_media.status_code == 400
+
+    def test_patch_text_tier_fields_set_and_clear(self, tmp_path, monkeypatch):
+        """项目级档位 / 默认模型三字段可设置；空值 = 清除、继承全局。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            updated = client.patch(
+                "/api/v1/projects/ready",
+                json={
+                    "text_backend_simple": "gemini-aistudio/gemini-3-flash-preview",
+                    "text_backend_complex": "gemini-aistudio/gemini-3.1-pro-preview",
+                    "default_text_backend": "gemini-aistudio/gemini-3-flash-preview",
+                },
+            )
+            assert updated.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert data["text_backend_simple"] == "gemini-aistudio/gemini-3-flash-preview"
+            assert data["text_backend_complex"] == "gemini-aistudio/gemini-3.1-pro-preview"
+            assert data["default_text_backend"] == "gemini-aistudio/gemini-3-flash-preview"
+
+            cleared = client.patch(
+                "/api/v1/projects/ready",
+                json={"text_backend_simple": "", "text_backend_complex": "", "default_text_backend": ""},
+            )
+            assert cleared.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert "text_backend_simple" not in data
+            assert "text_backend_complex" not in data
+            assert "default_text_backend" not in data
+
+            # 非法 backend 值被 400 拒绝
+            rejected = client.patch(
+                "/api/v1/projects/ready",
+                json={"text_backend_complex": "no-slash"},
+            )
+            assert rejected.status_code == 400
+
+    def test_video_bucket_field_rejects_non_video_model(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm)
+
+        with client:
+            rejected = client.patch(
+                "/api/v1/projects/ready",
+                json={"video_provider_i2v": "gemini-aistudio/gemini-3.1-flash-image-preview"},
+            )
+            assert rejected.status_code == 400
+
+    def test_patch_toggles_grid_storyboard_but_not_route(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"]["generation_mode"] = "storyboard"
+        client = _client(monkeypatch, fake_pm)
+        with client:
+            # 宫格开关创建后可随时切换
+            on = client.patch("/api/v1/projects/ready", json={"grid_storyboard": True})
+            assert on.status_code == 200
+            assert fake_pm.project_data["ready"]["grid_storyboard"] is True
+
+            off = client.patch("/api/v1/projects/ready", json={"grid_storyboard": False})
+            assert off.status_code == 200
+            assert fake_pm.project_data["ready"]["grid_storyboard"] is False
+
+            # 生成模式创建即定：项目 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘
+            route = client.patch("/api/v1/projects/ready", json={"generation_mode": "reference_video"})
+            assert route.status_code == 200
+            assert fake_pm.project_data["ready"]["generation_mode"] == "storyboard"

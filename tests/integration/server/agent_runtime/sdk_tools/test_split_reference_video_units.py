@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
     split_reference_video_units_tool,
@@ -472,3 +473,48 @@ async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolCo
     prompt_text = out["content"][0]["text"]
     assert "# 用户意见" in prompt_text
     assert "单 unit 出场人物尽量不超过两人" in prompt_text
+
+
+async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """三类声音降级 warning 不阻断落盘，但随产物呈现——否则直到生成后才听得出声音打了折。"""
+    _rv_source(fake_ctx)
+    out = await _run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}")],
+        voice=VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, model_id="m"),
+    )
+
+    assert out.get("is_error") is not True, out
+    assert _rv_step1_path(fake_ctx).exists()
+    text = out["content"][0]["text"]
+    assert "声音降级提示" in text
+    assert "未设置参考音频" in text
+
+
+async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """逐图挂载型 backend 下 warning 照常呈现：拆分阶段还没有参考图，那一位不该参与判定。
+
+    开着 ``reference_audio_per_image`` 而不给参考图集合，会把每个说话人都判成「无画面可挂」，
+    那条 warning 不在容忍列表内会被丢弃——超出段数上限这类提示反而不见了。
+    """
+    _rv_source(fake_ctx)
+    fake_ctx.pm.project_payload["characters"] = {  # pyright: ignore[reportAttributeAccessIssue]
+        "张三": {"description": "主角", "reference_audio": "characters/refs_audio/张三.wav"},
+        "李四": {"description": "", "reference_audio": "characters/refs_audio/李四.wav"},
+    }
+    out = await _run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [_rv_unit("@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
+        voice=VoiceRenderSettings(
+            voice_consistency="native", max_reference_audio=1, model_id="m", requires_reference_image=True
+        ),
+    )
+
+    assert out.get("is_error") is not True, out
+    assert "参考音频最多 1 段" in out["content"][0]["text"]
