@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { API } from "@/api";
+import { API, type ProjectEventStreamOptions } from "@/api";
 import { useProjectEventsSSE } from "./useProjectEventsSSE";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -10,7 +10,34 @@ import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { ProjectChange } from "@/types";
 import { createDeferred } from "@/test/deferred";
-import { mockProjectEventStream } from "@/test/mockProjectEventStream";
+import { FakeEventSource } from "@/test/fakeEventSource";
+
+/**
+ * 把 `API.openProjectEventStream` 打桩为返回 {@link FakeEventSource} 实例的 spy：
+ * 测试直接驱动 `options` 上的回调（onSnapshot/onChanges/onError/onProjectDeleted），
+ * 不经真实 EventSource。`options` 反映被测 hook 最近一次注册的那组回调。
+ */
+function mockProjectEventStream() {
+  let capturedOptions: ProjectEventStreamOptions | undefined;
+  FakeEventSource.reset();
+  const openSpy = vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+    capturedOptions = options;
+    return new FakeEventSource() as unknown as EventSource;
+  });
+  return {
+    get options() {
+      return capturedOptions;
+    },
+    /** 最近一次建立的连接；断言 close 次数时用它的 `close`。 */
+    get source() {
+      return FakeEventSource.instances[FakeEventSource.instances.length - 1];
+    },
+    get close() {
+      return this.source.close;
+    },
+    openSpy,
+  };
+}
 
 function HookHarness({ projectName }: { projectName: string }) {
   useProjectEventsSSE(projectName);
