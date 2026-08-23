@@ -2287,14 +2287,12 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
         return digest
 
     monkeypatch.setattr(rvt, "reference_video_visual_basis_digest", _capture_live_visual_basis)
-    real_stage = rvt._stage_provider_media_for_task
 
     async def _edit_source_before_staging(project_path, task_id, inputs):
+        """经 ``stage_media_for_task`` 注入：在现摘要与暂存之间改写源文件，其余照真实暂存跑。"""
         if inputs:
             inputs[0].path.write_bytes(b"edited-between-live-basis-and-staging")
-        return await real_stage(project_path, task_id, inputs)
-
-    monkeypatch.setattr(rvt, "_stage_provider_media_for_task", _edit_source_before_staging)
+        return await rvt.stage_provider_media_for_task(project_path, task_id, inputs, stage=rvt.stage_provider_media)
 
     async def _fake_generate_video_async(**kwargs):
         submitted.update(kwargs)
@@ -2345,6 +2343,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
         script_file="scripts/episode_1.json",
         user_id="u1",
         task_id="task-submit",
+        stage_media_for_task=_edit_source_before_staging,
     )
 
     assert events == ["checkpoint", "provider_submit"]
