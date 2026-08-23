@@ -88,8 +88,19 @@ class TestCloseSession:
         assert managed._process_task.done()
 
     async def test_close_noop_for_missing_session(self, tmp_path):
+        """关闭未登记的会话是空操作：不抛错，也不动别的会话。"""
         mgr = _make_manager(tmp_path)
-        await mgr.close_session("nonexistent")  # should not raise
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+
+        try:
+            await mgr.close_session("nonexistent")
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
 
 
 class TestConfigReading:
@@ -232,42 +243,50 @@ class TestEnsureCapacity:
     async def test_evicts_oldest_non_running(self, tmp_path):
         """超限时淘汰最久未活跃的非 running 会话。"""
         mgr = _make_manager(tmp_path)
-        old, _ = _make_managed("s_old", status="idle")
+        old, old_client = _make_managed("s_old", status="idle")
         await _start(old)
         old.last_activity = time.monotonic() - 100
-        new, _ = _make_managed("s_new", status="idle")
+        new, new_client = _make_managed("s_new", status="idle")
         await _start(new)
         new.last_activity = time.monotonic()
         mgr.sessions["s_old"] = old
         mgr.sessions["s_new"] = new
 
-        with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=2):
-            with patch.object(mgr, "_evict_one", new_callable=AsyncMock) as mock_evict:
+        try:
+            with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=2):
                 await mgr._ensure_capacity()
-                mock_evict.assert_called_once_with(old)
 
-        await mgr.close_session("s_old")
-        await mgr.close_session("s_new")
+            assert "s_old" not in mgr.sessions
+            assert old_client.disconnected is True
+            assert "s_new" in mgr.sessions
+            assert new_client.disconnected is False
+        finally:
+            await mgr.close_session("s_old")
+            await mgr.close_session("s_new")
 
     async def test_evicts_completed_session_when_no_idle(self, tmp_path):
         """无 idle 会话时，应淘汰 completed/error/interrupted 状态的会话。"""
         mgr = _make_manager(tmp_path)
-        completed, _ = _make_managed("s_completed", status="completed")
+        completed, completed_client = _make_managed("s_completed", status="completed")
         await _start(completed)
         completed.last_activity = time.monotonic() - 50
-        running, _ = _make_managed("s_running", status="running")
+        running, running_client = _make_managed("s_running", status="running")
         await _start(running)
         running.last_activity = time.monotonic()
         mgr.sessions["s_completed"] = completed
         mgr.sessions["s_running"] = running
 
-        with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=2):
-            with patch.object(mgr, "_evict_one", new_callable=AsyncMock) as mock_evict:
+        try:
+            with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=2):
                 await mgr._ensure_capacity()
-                mock_evict.assert_called_once_with(completed)
 
-        await mgr.close_session("s_completed")
-        await mgr.close_session("s_running")
+            assert "s_completed" not in mgr.sessions
+            assert completed_client.disconnected is True
+            assert "s_running" in mgr.sessions
+            assert running_client.disconnected is False
+        finally:
+            await mgr.close_session("s_completed")
+            await mgr.close_session("s_running")
 
     async def test_all_running_raises_capacity_error(self, tmp_path):
         """所有会话都在 running 时应抛出 SessionCapacityError。"""
@@ -308,45 +327,49 @@ class TestPatrolLoop:
     async def test_patrol_cleans_stale_session(self, tmp_path):
         """巡检应清理超时的非 running 会话。"""
         mgr = _make_manager(tmp_path)
-        managed, _ = _make_managed("s1", status="completed")
+        managed, client = _make_managed("s1", status="completed")
         await _start(managed)
         managed.last_activity = time.monotonic() - 1000
         mgr.sessions["s1"] = managed
 
-        with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60):
-            with patch.object(mgr, "_evict_one", new_callable=AsyncMock) as mock_evict:
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60):
                 await mgr._patrol_once()
-                mock_evict.assert_called_once_with(managed)
 
-        await mgr.close_session("s1")
+            assert "s1" not in mgr.sessions
+            assert client.disconnected is True
+        finally:
+            await mgr.close_session("s1")
 
     async def test_patrol_skips_running(self, tmp_path):
         """巡检不应清理 running 会话。"""
         mgr = _make_manager(tmp_path)
-        managed, _ = _make_managed("s1", status="running")
+        managed, client = _make_managed("s1", status="running")
         await _start(managed)
         mgr.sessions["s1"] = managed
 
         try:
             with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60):
-                with patch.object(mgr, "_evict_one", new_callable=AsyncMock) as mock_evict:
-                    await mgr._patrol_once()
-                    mock_evict.assert_not_called()
+                await mgr._patrol_once()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
         finally:
             await mgr.close_session("s1")
 
     async def test_patrol_skips_recent_session(self, tmp_path):
         """巡检不应清理近期活跃的会话。"""
         mgr = _make_manager(tmp_path)
-        managed, _ = _make_managed("s1", status="completed")
+        managed, client = _make_managed("s1", status="completed")
         await _start(managed)
         managed.last_activity = time.monotonic()  # 刚刚活跃
         mgr.sessions["s1"] = managed
 
         try:
             with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=600):
-                with patch.object(mgr, "_evict_one", new_callable=AsyncMock) as mock_evict:
-                    await mgr._patrol_once()
-                    mock_evict.assert_not_called()
+                await mgr._patrol_once()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
         finally:
             await mgr.close_session("s1")

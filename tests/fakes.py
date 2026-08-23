@@ -408,6 +408,119 @@ def fake_reference_caps_fetcher(
     return _fetch
 
 
+class FakeConfigResolver:
+    """能力解析器 seam 的手写替身：按桶回答视频能力，不触碰配置库。
+
+    生产侧凡接 ``config_resolver`` 关键字的入口（``ToolContext``、``resolve_video_caps`` /
+    ``fetch_video_caps`` 及 ``text_generation`` 的几个取值器）都可注入本类，替代对这些取值器
+    本身的整体替换——被替换掉的取值器里有软回退、联动约束收窄与声音档派生，那些才是用例要
+    保护的行为。
+
+    ``by_capability`` 给按桶分叉的路径用（参考生视频的无引用 unit 走 i2v 桶）：键是
+    ``VideoCapability`` 字面量，值是覆盖在基础能力上的字段。``error`` / ``generate_audio_error``
+    让软回退分支不必再 patch 就能触发。
+    """
+
+    def __init__(
+        self,
+        *,
+        supported_durations: tuple[int, ...] | list[int] = (4, 6, 8),
+        default_duration: int | None = 4,
+        provider_id: str = "fake",
+        model: str = "fake-video",
+        max_reference_images: int | None = 3,
+        max_reference_audio_count: int = 0,
+        reference_audio_per_image: bool = False,
+        generate_audio: bool = True,
+        requested_generate_audio: bool = True,
+        voice_consistency: str = "soft",
+        by_capability: Mapping[str, Mapping[str, Any]] | None = None,
+        capability_errors: Mapping[str, BaseException] | None = None,
+        error: BaseException | None = None,
+        generate_audio_error: BaseException | None = None,
+        image_backend: tuple[str, str] = ("fake", "fake-image"),
+        image_backend_error: BaseException | None = None,
+        **extra: Any,
+    ) -> None:
+        self._base: dict[str, Any] = {
+            "provider_id": provider_id,
+            "model": model,
+            "supported_durations": list(supported_durations),
+            "max_duration": max(supported_durations) if supported_durations else 0,
+            "max_reference_images": max_reference_images,
+            "max_reference_audio_count": max_reference_audio_count,
+            "reference_audio_per_image": reference_audio_per_image,
+            "generate_audio": generate_audio,
+            "requested_generate_audio": requested_generate_audio,
+            "voice_consistency": voice_consistency,
+            "source": "registry",
+            "default_duration": default_duration,
+            **extra,
+        }
+        self._by_capability = {key: dict(value) for key, value in (by_capability or {}).items()}
+        self._capability_errors = dict(capability_errors or {})
+        self._error = error
+        self._generate_audio_error = generate_audio_error
+        self._image_backend = image_backend
+        self._image_backend_error = image_backend_error
+        self.capability_calls: list[str | None] = []
+        self.project_names: list[str | None] = []
+        self.image_capability_calls: list[str | None] = []
+        self.generate_audio_calls: list[dict[str, Any] | None] = []
+
+    def caps_for(self, capability: str | None = None) -> dict[str, Any]:
+        """该桶的能力 dict（与生产返回同形），供用例直接对照期望。"""
+        caps = dict(self._base)
+        caps.update(self._by_capability.get(capability or "", {}))
+        durations = caps.get("supported_durations") or []
+        caps["max_duration"] = max(durations) if durations else 0
+        return caps
+
+    async def video_capabilities(self, project_name: str | None = None) -> dict[str, Any]:
+        self.project_names.append(project_name)
+        return self._resolve(None)
+
+    async def video_capabilities_for_project(
+        self,
+        project: dict[str, Any],
+        *,
+        capability: str | None = None,
+    ) -> dict[str, Any]:
+        del project
+        return self._resolve(capability)
+
+    async def resolve_image_backend(
+        self,
+        project: dict[str, Any] | None,
+        payload: dict[str, Any] | None = None,
+        *,
+        capability: str | None = None,
+    ) -> Any:
+        """解析图像供应商；``image_backend_error`` 给「项目槽位解析不出可用供应商」那条路径。"""
+        from lib.config.resolver import ProviderModel
+
+        del project, payload
+        self.image_capability_calls.append(capability)
+        if self._image_backend_error is not None:
+            raise self._image_backend_error
+        return ProviderModel(*self._image_backend)
+
+    async def video_generate_audio_for_project(self, project: dict[str, Any] | None) -> bool:
+        self.generate_audio_calls.append(project)
+        if self._generate_audio_error is not None:
+            raise self._generate_audio_error
+        return bool(self._base["requested_generate_audio"])
+
+    def _resolve(self, capability: str | None) -> dict[str, Any]:
+        self.capability_calls.append(capability)
+        if self._error is not None:
+            raise self._error
+        bucket_error = self._capability_errors.get(capability or "")
+        if bucket_error is not None:
+            raise bucket_error
+        return self.caps_for(capability)
+
+
 def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:
     """构造「API 调用失败」形态的 Instructor 异常，供结构化输出降级链的判据测试使用。
 

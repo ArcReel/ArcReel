@@ -84,7 +84,7 @@ async def test_open_step1_for_edit_leaves_official_file_untouched(fake_ctx: Tool
     assert _rv_step1_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
-async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolContext) -> None:
     """情况 B 的完整闭环：取回 → 改草稿 → 晋升。改动经晋升侧的持锁写盘落回正式文件。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
@@ -94,7 +94,7 @@ async def test_open_step1_for_edit_round_trips_through_promote(fake_ctx: ToolCon
     envelope["content"]["units"][0]["text"] = "@[张三] 在 @[村口] 出场"
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote(fake_ctx, monkeypatch)
+    out = await _promote(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
@@ -223,7 +223,7 @@ async def test_open_step1_for_edit_returns_drama_scenes(fake_ctx: ToolContext) -
     assert _drama_step1_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
-async def test_open_step1_for_edit_drama_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_open_step1_for_edit_drama_round_trips_through_promote(fake_ctx: ToolContext) -> None:
     """完整闭环：取回 → 改草稿 → 晋升。改动经持锁写盘落回正式文件，派生字段按新内容重算。"""
     _drama_project(fake_ctx)
     _write_drama_step1(fake_ctx, [_drama_scene()])
@@ -233,7 +233,7 @@ async def test_open_step1_for_edit_drama_round_trips_through_promote(fake_ctx: T
     envelope["content"]["scenes"][0]["scene_description"] = "阿离推开山门。"
     _drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote_drama(fake_ctx, monkeypatch)
+    out = await _promote_drama(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert not _drama_quarantine_path(fake_ctx).exists()
@@ -290,7 +290,7 @@ async def test_open_step1_for_edit_returns_narration_segments(fake_ctx: ToolCont
     assert _nr_step1_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
-async def test_open_step1_for_edit_narration_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_open_step1_for_edit_narration_round_trips_through_promote(fake_ctx: ToolContext) -> None:
     """取回 → 改草稿 → 晋升写回正式文件、草稿清除：与 drama / 参考生视频同一条晋升通道。"""
     _nr_source(fake_ctx)
     _write_nr_step1(fake_ctx, [_nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -300,7 +300,7 @@ async def test_open_step1_for_edit_narration_round_trips_through_promote(fake_ct
     envelope["content"]["segments"][0]["duration_seconds"] = 8
     _nr_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
-    out = await _promote_nr(fake_ctx, monkeypatch)
+    out = await _promote_nr(fake_ctx)
 
     assert out.get("is_error") is not True, out
     assert not _nr_quarantine_path(fake_ctx).exists()

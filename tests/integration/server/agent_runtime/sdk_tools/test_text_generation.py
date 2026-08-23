@@ -21,67 +21,50 @@ from server.agent_runtime.sdk_tools.text_generation import (
 )
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
+    _fake_caps_resolver,
+    _use_fake_caps,
 )
 
 pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
+
+# i2v 桶不可解析：不带图档位随之回退按 r2v 桶求值（``reference_unit_duration_tiers``）。
+_NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
 
 # ---------------------------------------------------------------------------
 # text_generation
 # ---------------------------------------------------------------------------
 
 
-async def test_get_video_capabilities_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
-    async def fake_resolve(_project, _episode=None):
-        return {"provider_id": "fake", "supported_durations": [4, 6, 8]}
-
-    monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
+async def test_get_video_capabilities_happy(fake_ctx: ToolContext) -> None:
+    _use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     tool_obj = get_video_capabilities_tool(fake_ctx)
     out = await _call(tool_obj, {})
     assert out.get("is_error") is not True
     assert json.loads(out["content"][0]["text"])["provider_id"] == "fake"
 
 
-async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext) -> None:
     """能力按项目生成模式解析：工具不收集号，多余的集号入参被忽略、不改变解析口径。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
-    seen: list[str] = []
-
-    async def fake_resolve(project_name):
-        seen.append(project_name)
-        return {"provider_id": "fake", "supported_durations": [4, 6, 8]}
-
-    monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
+    resolver = _use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     tool_obj = get_video_capabilities_tool(fake_ctx)
     assert (await _call(tool_obj, {})).get("is_error") is not True
     assert (await _call(tool_obj, {"episode": 3})).get("is_error") is not True
-    assert seen == [fake_ctx.project_name, fake_ctx.project_name]
+    assert resolver.project_names == [fake_ctx.project_name, fake_ctx.project_name]
 
 
-async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext) -> None:
     """参考路径项目另返回两套逐 unit 生效档位，供手工改 step1 时与生成侧对同一份数字。"""
-    from server.agent_runtime.sdk_tools import _context
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
-    async def fake_resolve(_project):
-        return {
-            "provider_id": "gemini-aistudio",
-            "model": "veo-3.1-generate-preview",
-            "supported_durations": [4, 6, 8],
-            "generation_mode": "reference_video",
-        }
-
     fake_ctx.pm.project_payload["model_settings"] = {  # type: ignore[attr-defined]
         "gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}
     }
-    monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
-
-    async def _no_i2v(_project, *, capability=None):
-        raise ValueError("i2v bucket unresolvable in this test")
-
-    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+    _use_fake_caps(
+        fake_ctx,
+        provider_id="gemini-aistudio",
+        model="veo-3.1-generate-preview",
+        supported_durations=[4, 6, 8],
+        generation_mode="reference_video",
+        capability_errors=_NO_I2V,
+    )
     out = await _call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
     payload = json.loads(out["content"][0]["text"])
@@ -95,21 +78,17 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
     [("storyboard", "drama"), ("reference_video", "ad")],
 )
 async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
-    fake_ctx: ToolContext, monkeypatch, generation_mode: str, content_mode: str
+    fake_ctx: ToolContext, generation_mode: str, content_mode: str
 ) -> None:
     """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 分镜时长也不受档位枚举管辖。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
-    async def fake_resolve(_project):
-        return {
-            "provider_id": "gemini-aistudio",
-            "model": "veo-3.1-generate-preview",
-            "supported_durations": [4, 6, 8],
-            "generation_mode": generation_mode,
-            "content_mode": content_mode,
-        }
-
-    monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
+    _use_fake_caps(
+        fake_ctx,
+        provider_id="gemini-aistudio",
+        model="veo-3.1-generate-preview",
+        supported_durations=[4, 6, 8],
+        generation_mode=generation_mode,
+        content_mode=content_mode,
+    )
     out = await _call(get_video_capabilities_tool(fake_ctx), {})
     assert "reference_unit_durations" not in json.loads(out["content"][0]["text"])
 
@@ -134,13 +113,8 @@ async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: Too
     assert seen == [fake_ctx.project_name]
 
 
-async def test_get_video_capabilities_error(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
-    async def fake_resolve(_project, _episode=None):
-        raise FileNotFoundError("missing project.json")
-
-    monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
+async def test_get_video_capabilities_error(fake_ctx: ToolContext) -> None:
+    _use_fake_caps(fake_ctx, error=FileNotFoundError("missing project.json"))
     tool_obj = get_video_capabilities_tool(fake_ctx)
     out = await _call(tool_obj, {})
     assert out.get("is_error") is True
@@ -265,22 +239,19 @@ def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
         _parse_normalized_content(json.dumps({"title": "t", "scenes": [bad]}), model)
 
 
-async def test_fetch_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
+async def test_fetch_caps_with_fallback_uses_write_layer_default() -> None:
     """resolver 失败时软回退须与自定义供应商写入层的保守默认（duration_presets.DEFAULT_FALLBACK）
     同一真相源——独立维护第二套回退集会让 LLM 拿到供应商未必支持的时长。"""
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def raising_caps(_p, *, episode=None, generation_mode=None):
-        raise ValueError("no provider configured")
-
-    monkeypatch.setattr(mod, "fetch_video_caps", raising_caps)
-    default, durations = await mod._fetch_caps_with_fallback({}, 1)
+    resolver = _fake_caps_resolver(error=ValueError("no provider configured"))
+    default, durations = await mod._fetch_caps_with_fallback({}, 1, config_resolver=resolver)
     assert default is None
     assert durations == DEFAULT_FALLBACK
 
 
-async def test_fetch_caps_with_fallback_drops_out_of_range_default(monkeypatch) -> None:
+async def test_fetch_caps_with_fallback_drops_out_of_range_default() -> None:
     """收窄后落在集合外的已保存 default_duration 归 None（回到 auto 档），不拖垮整个工具。
 
     ``build_normalize_prompt`` 对非成员 default 是 fail-loud 的：用户在 720p 下存过 4 秒、
@@ -288,24 +259,21 @@ async def test_fetch_caps_with_fallback_drops_out_of_range_default(monkeypatch) 
     """
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _narrowed_caps(_p, *, episode=None, generation_mode=None):
-        return 4, [8]
+    veo = {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview"}
+    project_1080p = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
 
-    monkeypatch.setattr(mod, "fetch_video_caps", _narrowed_caps)
-    default, durations = await mod._fetch_caps_with_fallback({}, 1)
+    narrowed = _fake_caps_resolver(supported_durations=[4, 6, 8], default_duration=4, **veo)
+    default, durations = await mod._fetch_caps_with_fallback(project_1080p, 1, config_resolver=narrowed)
     assert default is None
     assert durations == [8]
 
-    async def _in_range_caps(_p, *, episode=None, generation_mode=None):
-        return 8, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "fetch_video_caps", _in_range_caps)
-    default, durations = await mod._fetch_caps_with_fallback({}, 1)
+    in_range = _fake_caps_resolver(supported_durations=[4, 6, 8], default_duration=8, **veo)
+    default, durations = await mod._fetch_caps_with_fallback({}, 1, config_resolver=in_range)
     assert default == 8
     assert durations == [4, 6, 8]
 
 
-async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) -> None:
+async def test_fetch_video_caps_narrows_durations_by_constraints() -> None:
     """交给 LLM 的时长集合已按项目分辨率经联动约束收窄。
 
     Veo 项目保存 1080p 时只接受 8 秒；不收窄的话 drama / narration 拆分会产出 4/6 秒镜头，
@@ -313,49 +281,43 @@ async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) ->
     """
     from server.agent_runtime.sdk_tools import _context as ctx_mod
 
-    async def _fake_caps(_project, _episode=None):
-        return {
-            "provider_id": "gemini-aistudio",
-            "model": "veo-3.1-generate-preview",
-            "supported_durations": [4, 6, 8],
-            "default_duration": 4,
-        }
-
-    monkeypatch.setattr(ctx_mod, "resolve_video_caps", _fake_caps)
+    resolver = _fake_caps_resolver(
+        provider_id="gemini-aistudio",
+        model="veo-3.1-generate-preview",
+        supported_durations=[4, 6, 8],
+        default_duration=4,
+    )
 
     project_1080p = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
-    default, durations = await ctx_mod.fetch_video_caps(project_1080p)
+    default, durations = await ctx_mod.fetch_video_caps(project_1080p, config_resolver=resolver)
     assert durations == [8]
     # default_duration 原样返回（用户配置值），成员性由调用方按各自口径判定
     assert default == 4
 
     # 未配置分辨率：普通路径省略 resolution 参数，供应商按自己的默认档位（Veo 720p）接受 4/6/8，
     # 故不施加分辨率约束——按 provider 兜底档位收窄会凭空把剧本节奏锁死 8 秒。
-    _default, durations = await ctx_mod.fetch_video_caps({})
+    _default, durations = await ctx_mod.fetch_video_caps({}, config_resolver=resolver)
     assert durations == [4, 6, 8]
 
     # 项目显式选了无声明的分辨率时不收窄。
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
-    _default, durations = await ctx_mod.fetch_video_caps(project)
+    _default, durations = await ctx_mod.fetch_video_caps(project, config_resolver=resolver)
     assert durations == [4, 6, 8]
 
     # 参考图路径：即便分辨率无声明也收窄
-    _default, durations = await ctx_mod.fetch_video_caps(project, generation_mode="reference_video")
+    _default, durations = await ctx_mod.fetch_video_caps(
+        project, generation_mode="reference_video", config_resolver=resolver
+    )
     assert durations == [8]
 
 
-async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
+async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext) -> None:
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
-    async def fake_caps(_p, _episode=None):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     tool_obj = normalize_drama_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
@@ -373,13 +335,10 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
 )
 async def test_step1_tools_reject_incompatible_project_axes_before_capability_lookup(
     fake_ctx: ToolContext,
-    monkeypatch,
     tool_factory,
     content_mode: str,
     generation_mode: str,
 ) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
         content_mode=content_mode,
         generation_mode=generation_mode,
@@ -388,11 +347,7 @@ async def test_step1_tools_reject_incompatible_project_axes_before_capability_lo
     source_dir.mkdir(parents=True)
     (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
-    async def unexpected_caps(*_args, **_kwargs):
-        pytest.fail("incompatible step1 tool must reject before capability lookup")
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", unexpected_caps)
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", unexpected_caps)
+    resolver = _use_fake_caps(fake_ctx)
 
     result = await _call(tool_factory(fake_ctx), {"episode": 1, "dry_run": True})
 
@@ -400,11 +355,12 @@ async def test_step1_tools_reject_incompatible_project_axes_before_capability_lo
     message = result["content"][0]["text"]
     assert content_mode in message
     assert generation_mode in message
+    # 轴不兼容在能力查询之前就判定：解析器一次都没被问过
+    assert resolver.capability_calls == []
 
 
 async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib import artifact_provenance
-    from server.agent_runtime.sdk_tools import text_generation as mod
 
     source_dir = fake_ctx.project_path / "source"
     source_dir.mkdir(parents=True)
@@ -417,11 +373,8 @@ async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: Too
         calls += 1
         return original(*args, **kwargs)
 
-    async def fake_caps(_project, _episode=None):
-        return 4, [4, 6, 8]
-
     monkeypatch.setattr(artifact_provenance, "project_step1_prompt_inputs", counted_projection)
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
 
     result = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
 
@@ -429,10 +382,9 @@ async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: Too
     assert calls == 1
 
 
-async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext) -> None:
     """normalize 把项目 source_language 透传为 build_normalize_prompt 的 target_language——
     非中文项目的 step1 输出语言据此切换，而非恒退默认中文。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
 
     # 工具经 ctx.pm.load_project 取项目；source_language 是输出语言的唯一真相源
     fake_ctx.pm.project_payload["source_language"] = "English"  # type: ignore[attr-defined]
@@ -441,10 +393,7 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("once upon a time", encoding="utf-8")
 
-    async def fake_caps(_p, _episode=None):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     tool_obj = normalize_drama_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
@@ -460,9 +409,6 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
-    async def fake_caps(_p, _episode=None):
-        return 4, [4, 6, 8]
-
     class _EmptyGenerator:
         async def generate(self, _request, project_name=None):
             class _R:
@@ -473,7 +419,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     async def fake_create(task_type, project_name=None):
         return _EmptyGenerator()
 
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     tool_obj = normalize_drama_script_tool(fake_ctx)
@@ -483,19 +429,15 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     assert not (project_path / "drafts" / "episode_1" / "step1_normalized_script.json").exists()
 
 
-async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext) -> None:
     """工具必须把 episode 注入 build_normalize_prompt，避免 LLM 写错 E\\d+ 前缀。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
 
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
     (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
 
-    async def fake_caps(_p, _episode=None):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     tool_obj = normalize_drama_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 2, "dry_run": True, "source": "source/chapter2.txt"})
     assert out.get("is_error") is not True, out
@@ -505,9 +447,8 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     assert "E1S01" not in prompt_text
 
 
-async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolContext) -> None:
     """内容抽取前移后，分集大纲（故事节点 / 钩子）随 step1 注入 normalize prompt（见 ADR 0041）。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
 
     project_path = fake_ctx.project_path
     src = project_path / "source"
@@ -522,10 +463,7 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
         }
     ]
 
-    async def fake_caps(_p, _episode=None):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     tool_obj = normalize_drama_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True, out
@@ -543,9 +481,6 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
     src = project_path / "source"
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
-
-    async def fake_caps(_p, _episode=None):
-        return 4, [4, 6, 8]
 
     captured: dict[str, Any] = {}
 
@@ -582,7 +517,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
         captured["create_project_name"] = project_name
         return _FakeGenerator()
 
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     tool_obj = normalize_drama_script_tool(fake_ctx)
@@ -624,9 +559,6 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     source_path.write_text(frozen_source, encoding="utf-8")
     expected = build_step1_basis(frozen_source, episode=1, project=project)
 
-    async def fake_caps(_project, _episode=None):
-        return 4, [4, 6, 8]
-
     class _Generator:
         async def generate(self, _request, project_name=None):
             source_path.write_text("等待供应商期间改过的原文", encoding="utf-8")
@@ -662,7 +594,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     async def fake_create(_task_type, project_name=None):
         return _Generator()
 
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await _call(
@@ -704,9 +636,6 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
     (source_dir / "episode_1.txt").write_text("激活器可重建的另一份原文", encoding="utf-8")
     expected = build_step1_basis("实际发送给供应商的原文", episode=1, project=project)
 
-    async def fake_caps(_project, _episode=None):
-        return 4, [4, 6, 8]
-
     class _Generator:
         async def generate(self, _request, project_name=None):
             activated = {**project, "schema_version": 8}
@@ -741,7 +670,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
     async def fake_create(_task_type, project_name=None):
         return _Generator()
 
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await _call(
@@ -764,9 +693,6 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     source_dir = project_path / "source"
     source_dir.mkdir(parents=True)
     (source_dir / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
-
-    async def fake_caps(_project, _episode=None):
-        return 4, [4, 6, 8]
 
     class _FakeGenerator:
         async def generate(self, _request, project_name=None):
@@ -799,7 +725,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     async def fake_create(_task_type, project_name=None):
         return _FakeGenerator()
 
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await _call(normalize_drama_script_tool(fake_ctx), {"episode": 1})
@@ -858,18 +784,13 @@ class TestBuildPrompt:
         assert out.endswith("画面避免：水印、多余文字、Logo。")
 
 
-async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
+async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext) -> None:
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
-    async def fake_caps(_p, _episode=None):
-        return 4, [4, 6, 8]
-
-    monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
+    _use_fake_caps(fake_ctx)
     tool_obj = normalize_drama_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"})
     assert out.get("is_error") is not True, out

@@ -801,27 +801,24 @@ class TestEventLogStore:
     async def test_append_seq_race_retries_when_client_key_absent_despite_false_positive_violation_check(
         self, log_store: EventLogStore, monkeypatch
     ):
-        """本次调用未传 client_key 时，即便 ``_is_client_key_violation``
-        误判为 True（无论因何种原因），也应结构性排除 client_key 冲突分类
-        ——未传 client_key 的写入根本不可能撞上 client_key 唯一约束，不能
-        让误判把普通 seq 竞争的重试关掉。"""
+        """本次调用未传 client_key 时，即便冲突文案把 client_key 判成命中，
+        也应结构性排除 client_key 冲突分类——未传 client_key 的写入根本不可能
+        撞上 client_key 唯一约束，不能让误判把普通 seq 竞争的重试关掉。"""
         from sqlalchemy.exc import IntegrityError
-
-        from server.agent_runtime import event_log as event_log_module
-
-        monkeypatch.setattr(event_log_module, "_is_client_key_violation", lambda exc: True)
 
         calls = {"n": 0}
         original_append_once = log_store._append_once  # pyright: ignore[reportPrivateUsage]
+        # 驱动只给出含 client_key 字样的文案：真实分类器据此判为 True，正是要被
+        # 结构性排除的那种误判。
+        misleading = _FakeDriverError(
+            "UNIQUE constraint failed: agent_session_event_log.client_key",
+            sqlite_errorname="SQLITE_CONSTRAINT_PRIMARYKEY",
+        )
 
         async def _flaky_append_once(session_id, entries, client_key):
             calls["n"] += 1
             if calls["n"] == 1:
-                raise IntegrityError(
-                    "INSERT INTO agent_session_event_log ...",
-                    {},
-                    _FakeDriverError("constraint failed", sqlite_errorname="SQLITE_CONSTRAINT_PRIMARYKEY"),
-                )
+                raise IntegrityError("INSERT INTO agent_session_event_log ...", {}, misleading)
             return await original_append_once(session_id, entries, client_key)
 
         monkeypatch.setattr(log_store, "_append_once", _flaky_append_once)

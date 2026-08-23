@@ -4,9 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.db.base import Base
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.factories import make_session_meta
@@ -106,13 +104,9 @@ class _FakeSessionManager:
 
 class TestAssistantServiceMore:
     @pytest.mark.asyncio
-    async def test_service_init_interrupts_stale_running_sessions(self, tmp_path):
+    async def test_service_init_interrupts_stale_running_sessions(self, tmp_path, db_factory):
         # Create an in-memory async store and seed data
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        store = SessionMetaStore(session_factory=factory)
+        store = SessionMetaStore(session_factory=db_factory)
 
         running = await store.create("demo", "sdk-running-1")
         completed = await store.create("demo", "sdk-completed-1")
@@ -133,8 +127,6 @@ class TestAssistantServiceMore:
         assert refreshed_running.status == "interrupted"
         assert refreshed_completed is not None
         assert refreshed_completed.status == "completed"
-
-        await engine.dispose()
 
     @pytest.mark.asyncio
     async def test_startup_waits_cleanup_and_is_idempotent(self, tmp_path, monkeypatch):
@@ -296,16 +288,12 @@ class TestAssistantServiceMore:
         assert result1["session_id"] == result2["session_id"] == "sdk-new-id"
 
     @pytest.mark.asyncio
-    async def test_send_or_create_recovers_client_key_mapping_from_db_after_restart(self, tmp_path):
+    async def test_send_or_create_recovers_client_key_mapping_from_db_after_restart(self, tmp_path, db_factory):
         """进程内幂等映射重启丢失后，受理已落库（新会话首条条目 seq 0 携带
         client_key）的重试应经 DB 兜底命中既有会话，不再重复建会话。"""
         from server.agent_runtime.event_log import EventLogStore, build_user_entry
 
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        store = EventLogStore(session_factory=factory)
+        store = EventLogStore(session_factory=db_factory)
 
         # 首次受理（重启前）：新会话首条用户条目已随 client_key 落库
         accepted_entry = build_user_entry([{"type": "text", "text": "hello"}])
@@ -329,18 +317,12 @@ class TestAssistantServiceMore:
         # 命中后回填进程内映射，后续重试走快路径
         assert service._new_session_client_keys["ck-restart"] == "sdk-prev"
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_send_or_create_recovers_client_key_after_lru_eviction(self, tmp_path):
+    async def test_send_or_create_recovers_client_key_after_lru_eviction(self, tmp_path, db_factory):
         """进程内 LRU 淘汰旧键后，同键重试经 DB 兜底命中原会话。"""
         from server.agent_runtime.event_log import EventLogStore
 
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        store = EventLogStore(session_factory=factory)
+        store = EventLogStore(session_factory=db_factory)
 
         service = AssistantService(project_root=tmp_path)
         sm = _FakeSessionManager()
@@ -370,8 +352,6 @@ class TestAssistantServiceMore:
         assert len(sm.new_sessions) == 2  # 重试未新建第三个会话
         assert retry["session_id"] == first["session_id"] == "sdk-0"
 
-        await engine.dispose()
-
     @staticmethod
     def _make_project_scoped_service(tmp_path, store, sm, meta_store):
         """装配一个跨项目 send_new_session 会落地 meta + 事件日志的 service。"""
@@ -394,17 +374,13 @@ class TestAssistantServiceMore:
         return service
 
     @pytest.mark.asyncio
-    async def test_new_session_client_key_project_scoped_via_map_hit(self, tmp_path):
+    async def test_new_session_client_key_project_scoped_via_map_hit(self, tmp_path, db_factory):
         """项目 A 已受理的新会话 client_key，用相同 client_key 对项目 B 调
         send_or_create（无 session_id）→ 返回项目 B 下新建的会话，而非静默接回 A
         的会话。覆盖进程内映射命中的快路径。"""
         from server.agent_runtime.event_log import EventLogStore
 
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        store = EventLogStore(session_factory=factory)
+        store = EventLogStore(session_factory=db_factory)
 
         sm = _FakeSessionManager()
         meta_store = _FakeMetaStore([])
@@ -423,19 +399,13 @@ class TestAssistantServiceMore:
         # 映射被本项目会话覆盖，后续同项目重试命中 B
         assert service._new_session_client_keys["ck-shared"] == "sdk-1"
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_new_session_client_key_project_scoped_via_db_fallback(self, tmp_path):
+    async def test_new_session_client_key_project_scoped_via_db_fallback(self, tmp_path, db_factory):
         """清空进程内映射（模拟重启）后，DB 兜底恢复路径同样按项目隔离：
         项目 A 的 client_key 对项目 B 恢复时视为未命中，在 B 下新建会话。"""
         from server.agent_runtime.event_log import EventLogStore
 
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        store = EventLogStore(session_factory=factory)
+        store = EventLogStore(session_factory=db_factory)
 
         sm = _FakeSessionManager()
         meta_store = _FakeMetaStore([])
@@ -451,19 +421,13 @@ class TestAssistantServiceMore:
         assert meta_store.metas["sdk-1"].project_name == "proj_b"
         assert sm.new_sessions == [("proj_a", "hello"), ("proj_b", "hello")]
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_new_session_client_key_same_project_retry_still_idempotent(self, tmp_path):
+    async def test_new_session_client_key_same_project_retry_still_idempotent(self, tmp_path, db_factory):
         """同项目内幂等语义不回归：相同 client_key 在同一项目重发，仍命中原会话、
         不重复建会话（分别经映射快路径与 DB 兜底路径）。"""
         from server.agent_runtime.event_log import EventLogStore
 
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        store = EventLogStore(session_factory=factory)
+        store = EventLogStore(session_factory=db_factory)
 
         sm = _FakeSessionManager()
         meta_store = _FakeMetaStore([])
@@ -483,19 +447,13 @@ class TestAssistantServiceMore:
         assert recovered["session_id"] == "sdk-0"
         assert len(sm.new_sessions) == 1  # 全程未重复建会话
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_send_or_create_hit_refreshes_lru_position(self, tmp_path):
+    async def test_send_or_create_hit_refreshes_lru_position(self, tmp_path, db_factory):
         """命中进程内映射时刷新 LRU 位置：被频繁重试命中的 key 不因插入顺序
         在先，被之后新到达但只访问一次的 key 挤出缓存（退化为 FIFO）。"""
         from server.agent_runtime.event_log import EventLogStore
 
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        store = EventLogStore(session_factory=factory)
+        store = EventLogStore(session_factory=db_factory)
 
         service = AssistantService(project_root=tmp_path)
         sm = _FakeSessionManager()
@@ -531,20 +489,16 @@ class TestAssistantServiceMore:
         assert "ck-b" not in service._new_session_client_keys
         assert len(sm.new_sessions) == 3  # a/b/c 三次真正新建，命中未重复建会话
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_send_or_create_hit_survives_concurrent_eviction_during_db_lookup(self, tmp_path, monkeypatch):
+    async def test_send_or_create_hit_survives_concurrent_eviction_during_db_lookup(
+        self, tmp_path, monkeypatch, db_factory
+    ):
         """命中路径在 `await find_by_client_key(...)` 期间，该 key 被其他并发
         请求的淘汰逻辑移除：刷新 LRU 位置的收尾步骤须安全处理键已不存在的
         情形（不能直接 move_to_end 抛 KeyError 把幂等命中打成未处理异常）。"""
         from server.agent_runtime.event_log import EventLogStore
 
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        store = EventLogStore(session_factory=factory)
+        store = EventLogStore(session_factory=db_factory)
 
         service = AssistantService(project_root=tmp_path)
         sm = _FakeSessionManager()
@@ -581,20 +535,14 @@ class TestAssistantServiceMore:
         assert len(sm.new_sessions) == 1  # 未因异常或键缺失而重复建会话
         assert service._new_session_client_keys["ck-a"] == "sdk-0"  # 命中后已安全重新记入
 
-        await engine.dispose()
-
     @pytest.mark.asyncio
-    async def test_send_or_create_falls_back_when_cached_mapping_points_to_deleted_session(self, tmp_path):
+    async def test_send_or_create_falls_back_when_cached_mapping_points_to_deleted_session(self, tmp_path, db_factory):
         """进程内映射指向的会话条目已不存在（如会话被删除后映射未清）时，
         不应把幽灵 "accepted" 响应（entry=None）返回给调用方——应清掉失效
         映射并按正常路径新建会话，而不是让调用方连接一个不存在的会话。"""
         from server.agent_runtime.event_log import EventLogStore
 
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        store = EventLogStore(session_factory=factory)
+        store = EventLogStore(session_factory=db_factory)
 
         service = AssistantService(project_root=tmp_path)
         sm = _FakeSessionManager()
@@ -613,8 +561,6 @@ class TestAssistantServiceMore:
         assert result["session_id"] != "sdk-deleted"
         # 映射已刷新为新会话，不再指向已删除的会话
         assert service._new_session_client_keys["ck-stale"] == "sdk-new-id"
-
-        await engine.dispose()
 
     @pytest.mark.asyncio
     async def test_ghost_mapping_cleanup_does_not_clobber_concurrent_fresh_mapping(self, tmp_path):

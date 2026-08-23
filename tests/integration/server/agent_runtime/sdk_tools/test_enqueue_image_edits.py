@@ -13,7 +13,9 @@ from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
+    _fake_caps_resolver,
     _generation_result,
+    _use_fake_caps,
 )
 
 pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
@@ -38,9 +40,6 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
 
-    async def fake_i2i(_project):
-        return True
-
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -55,7 +54,7 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
         ]
         return succ, []
 
-    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(
@@ -77,9 +76,6 @@ async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx:
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
 
-    async def fake_i2i(_project):
-        return True
-
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -89,7 +85,7 @@ async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx:
         ]
         return [], fail
 
-    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(
@@ -103,14 +99,9 @@ async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx:
     assert item.artifact_path == "characters/zhangsan.png"
 
 
-async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext) -> None:
     """i2i 不可用时直接报错，不创建任何任务（复用服务端 fail-fast 判断点）。"""
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
-
-    async def fake_i2i(_project):
-        return False
-
-    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    _use_fake_caps(fake_ctx, image_backend_error=ValueError("未找到可用的 image 供应商"))
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(
         tool_obj,
@@ -151,12 +142,9 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
             self.compare(key, artifact_path=artifact_path)
             return None
 
-    async def fake_i2i(_project):
-        return True
-
     enqueue = AsyncMock(return_value=([], []))
     monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _Currency())
-    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
     out = await _call(
@@ -192,9 +180,6 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     fake_ctx.pm.project_payload["characters"]["李四"]["character_sheet"] = "characters/lisi.png"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"  # type: ignore[attr-defined]
 
-    async def fake_i2i(_project):
-        return True
-
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -214,7 +199,7 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
             raise ArtifactManifestError("manifest sidecar unreadable")
         return _ImageEditSource(resource_id=resource_id, artifact_path="characters/lisi.png", formal_claims=())
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_image_edits._i2i_provider_available", fake_i2i)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_image_edits.batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr(
         "server.agent_runtime.sdk_tools.enqueue_image_edits.active_artifact_currency_resolver",
@@ -244,13 +229,8 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     assert blocked_item.problem.code == "generation_artifact_state_unavailable"
 
 
-async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
-
-    async def fake_i2i(_project):
-        return True
-
-    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext) -> None:
+    _use_fake_caps(fake_ctx)
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(tool_obj, {"resource_type": "storyboard", "edits": [{"id": "E1S01", "instruction": "去杂物"}]})
     assert out.get("is_error") is True
@@ -265,9 +245,8 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
 
     fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["episodes"] = []  # type: ignore[attr-defined]
-    provider_gate = AsyncMock(return_value=True)
+    resolver = _use_fake_caps(fake_ctx)
     enqueue = AsyncMock(return_value=([], []))
-    monkeypatch.setattr(mod, "_i2i_provider_available", provider_gate)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
     out = await _call(
@@ -281,7 +260,8 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
 
     assert out.get("is_error") is True
     assert "not bound" in out["content"][0]["text"]
-    provider_gate.assert_not_awaited()
+    # 剧本未绑定在供应商判定之前就拒：解析器一次都没被问过
+    assert resolver.image_capability_calls == []
     enqueue.assert_not_awaited()
 
 
@@ -291,14 +271,10 @@ async def test_edit_images_rejects_unknown_resource_type(fake_ctx: ToolContext) 
     assert out.get("is_error") is True
 
 
-async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext) -> None:
     """资产没有可编辑的当前图（sheet 字段未设置）时跳过并告警，不入队。"""
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
-    async def fake_i2i(_project):
-        return True
-
-    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    _use_fake_caps(fake_ctx)
     tool_obj = edit_images_tool(fake_ctx)
     # 李四 没有 character_sheet
     out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "李四", "instruction": "换发色"}]})
@@ -324,9 +300,6 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypat
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
 
-    async def fake_i2i(_project):
-        return True
-
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -341,7 +314,7 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypat
         ]
         return succ, []
 
-    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(
@@ -378,9 +351,6 @@ async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) 
     """storyboard 分支带合法 script_file 时应正常解析剧本并入队（覆盖 validate_script_filename + load_script 调用）。"""
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
-    async def fake_i2i(_project):
-        return True
-
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -395,7 +365,7 @@ async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) 
         ]
         return succ, []
 
-    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(
@@ -419,9 +389,6 @@ async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) 
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
 
-    async def fake_i2i(_project):
-        return True
-
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
 
@@ -431,7 +398,7 @@ async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) 
         ]
         return [], fail
 
-    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    _use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "改发型"}]})
@@ -454,24 +421,17 @@ async def test_edit_images_unexpected_exception(fake_ctx: ToolContext) -> None:
     assert "edit_images 失败" in out["content"][0]["text"]
 
 
-async def test_i2i_provider_available_true(monkeypatch) -> None:
-    from lib.config.resolver import ConfigResolver
+async def test_i2i_provider_available_true() -> None:
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
-    async def fake_resolve(self, project, payload, *, capability):
-        assert capability == "i2i"
-        return object()
-
-    monkeypatch.setattr(ConfigResolver, "resolve_image_backend", fake_resolve)
-    assert await mod._i2i_provider_available({}) is True
+    resolver = _fake_caps_resolver()
+    assert await mod._i2i_provider_available({}, config_resolver=resolver) is True
+    # 判的是 i2i 槽位，不是项目默认图像槽
+    assert resolver.image_capability_calls == ["i2i"]
 
 
-async def test_i2i_provider_available_false_on_value_error(monkeypatch) -> None:
-    from lib.config.resolver import ConfigResolver
+async def test_i2i_provider_available_false_on_value_error() -> None:
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
-    async def fake_resolve(self, project, payload, *, capability):
-        raise ValueError("未找到可用的 image 供应商")
-
-    monkeypatch.setattr(ConfigResolver, "resolve_image_backend", fake_resolve)
-    assert await mod._i2i_provider_available({}) is False
+    resolver = _fake_caps_resolver(image_backend_error=ValueError("未找到可用的 image 供应商"))
+    assert await mod._i2i_provider_available({}, config_resolver=resolver) is False
