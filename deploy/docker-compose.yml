@@ -4,9 +4,14 @@ services:
     # build: ../  # 本地构建时取消注释，注释掉 image 行
     ports:
       - "1241:1241"
+      # 官方 Studio API 无自身鉴权，默认只允许宿主机本地浏览器访问。
+      # 远程部署请用带认证的 HTTPS 反代，并配置 ARCREEL_HYPERFRAMES_PUBLIC_URL_TEMPLATE。
+      - "127.0.0.1:12500-12549:12500-12549"
     env_file: .env
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      # 容器端需要监听容器网卡，宿主机侧仍由上面的 127.0.0.1 映射收口。
+      HYPERFRAMES_PREVIEW_HOST: 0.0.0.0
     # Agent Bash 沙箱 (bwrap) 需要：
     # 1) 非特权 user namespace → 放开 docker 默认 seccomp/apparmor profile
     # 2) bwrap 嵌套出的 net namespace 内配置 loopback → 容器需要 NET_ADMIN cap

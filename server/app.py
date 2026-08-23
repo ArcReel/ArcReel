@@ -58,6 +58,7 @@ from server.routers import (
     files,
     generate,
     grids,
+    hyperframes,
     onboarding,
     presentations,
     products,
@@ -452,6 +453,9 @@ async def lifespan(app: FastAPI):
         logger.info("正在停止 ProjectEventService...")
         await project_event_service.shutdown()
         logger.info("ProjectEventService 已停止")
+    from server.services.hyperframes_workspace import get_hyperframes_studio_manager
+
+    await get_hyperframes_studio_manager().shutdown()
     background_worker = getattr(app.state, "background_job_worker", None)
     if background_worker:
         logger.info("正在停止 BackgroundJobWorker...")
@@ -586,6 +590,12 @@ app.include_router(scenes.router, prefix="/api/v1", dependencies=[Depends(get_cu
 app.include_router(props.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["道具管理"])
 app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["商品管理"])
 app.include_router(presentations.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["成片演示"])
+app.include_router(
+    hyperframes.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["HyperFrames 剪辑"],
+)
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
 app.include_router(
     generate.router,

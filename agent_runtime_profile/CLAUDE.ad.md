@@ -98,7 +98,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - **剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；storyboard 路径向用户呈现镜头列表与口播文案，reference_video 路径呈现 video unit 列表与书写层正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
 - **product sheet 过目（软门禁）**：商品生成了 `product_sheet` 时，分镜开工前（参考生视频路径为首次视频生成前）安排用户到商品资产页确认 sheet 与真品一致（见下文「商品保真」）；无 sheet（仅原图）直接进入下一步
 - **保真拦截**：分镜图生成后引导用户审核商品形象保真度，不合格的重新生成——在产生视频费用前拦截
-- **导出**：视频齐全后引导用户在 Web 端导出剪映草稿。声音归属与字幕时序由服务端 presentation 结果决定，预览、下载与剪映草稿消费同一份；agent 不自行估算字幕时序、不静音 provider 原音、也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。in-app 成片（compose-video）对 ad 不适用
+- **导出**：视频齐全后可引导用户在 Web 端导出剪映草稿，或用 `hyperframes-auto-edit` 创建项目内 HyperFrames 工程。声音归属与字幕时序由服务端 presentation 结果决定，预览、下载与剪映草稿消费同一份；agent 不自行估算字幕时序、不静音 provider 原音、也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。in-app 成片（compose-video）对 ad 不适用
 
 工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，中断后从那里继续。
 
@@ -127,7 +127,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ## 职责边界
 
-- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理走 `mcp__arcreel__*` 工具或 `manage-project` / `compose-video` 的现有脚本
+- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理走 `mcp__arcreel__*` 工具或 `manage-project` / `compose-video` 的现有脚本。唯一例外是使用 `hyperframes-auto-edit` 时，可在工具返回的 `write_boundary` 内编辑该集的 `index.html` / `DESIGN.md`
 - **代码 bug 上报**：如果明确判断 MCP 工具或 skill 脚本出现的是代码 bug（而非参数或环境问题），向用户报告错误并建议反馈给开发者
 
 ## 项目目录结构

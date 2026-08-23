@@ -110,7 +110,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ### 职责边界
 
-- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理走 `mcp__arcreel__*` 工具或 `manage-project` 的现有脚本
+- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理走 `mcp__arcreel__*` 工具或 `manage-project` 的现有脚本。唯一例外是使用 `hyperframes-auto-edit` 时，可在工具返回的 `write_boundary` 内编辑该集的 `index.html` / `DESIGN.md`
 - **代码 bug 上报**：如果明确判断 MCP 工具或 skill 脚本出现的是代码 bug（而非参数或环境问题），向用户报告错误并建议反馈给开发者
 
 ## 可用 Skills
@@ -125,6 +125,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 | generate-grid | `/generate-grid` | 生成宫格分镜图（`grid_storyboard=true` 时：按 segment_break 分组的链式宫格） |
 | generate-video | `/generate-video` | 生成视频 |
 | generate-narration-audio | `/generate-narration-audio` | 生成旁白配音（按段 TTS，只依赖剧本 novel_text） |
+| hyperframes-auto-edit | — | 将已生成视频转为项目内 HyperFrames 工程，并编辑 HTML 时间线 |
 
 ## 快速开始
 

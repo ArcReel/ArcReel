@@ -18,6 +18,12 @@ interface FocusedContext {
   id: string;
 }
 
+export interface HyperframesOpenRequest {
+  requestId: string;
+  projectName: string;
+  episode: number;
+}
+
 const ALL_ENTITIES_REVISION_KEY = "__all__";
 
 export const ASSISTANT_PANEL_DEFAULT_WIDTH = 505;
@@ -55,6 +61,9 @@ interface AppState {
   scrollTarget: WorkspaceFocusTarget | null;
   triggerScrollTo: (target: WorkspaceFocusTargetInput) => void;
   clearScrollTarget: (requestId?: string) => void;
+  hyperframesOpenRequest: HyperframesOpenRequest | null;
+  openHyperframesStudio: (projectName: string, episode: number) => void;
+  clearHyperframesOpenRequest: (requestId?: string) => void;
   assistantToolActivitySuppressed: boolean;
   setAssistantToolActivitySuppressed: (suppressed: boolean) => void;
 
@@ -169,6 +178,22 @@ export const useAppStore = create<AppState>((set, get) => ({
         return { scrollTarget: null };
       }
       return s;
+    }),
+  hyperframesOpenRequest: null,
+  openHyperframesStudio: (projectName, episode) =>
+    set({
+      hyperframesOpenRequest: {
+        requestId: `${Date.now()}-${Math.random()}`,
+        projectName,
+        episode,
+      },
+    }),
+  clearHyperframesOpenRequest: (requestId) =>
+    set((state) => {
+      if (!requestId || state.hyperframesOpenRequest?.requestId === requestId) {
+        return { hyperframesOpenRequest: null };
+      }
+      return state;
     }),
   assistantToolActivitySuppressed: false,
   setAssistantToolActivitySuppressed: (suppressed) =>

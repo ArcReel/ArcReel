@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Loader2,
   PackageCheck,
+  WandSparkles,
 } from "lucide-react";
 import { GlassPopover } from "@/components/ui/GlassPopover";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
@@ -32,6 +33,9 @@ interface ExportScopeDialogProps {
     narrationDelivery: PresentationVariant,
   ) => void;
   jianyingExporting?: boolean;
+  defaultEpisode?: number;
+  onHyperframesEdit?: (episode: number, narrationDelivery: PresentationVariant) => void;
+  hyperframesPreparing?: boolean;
 }
 
 export function ExportScopeDialog({
@@ -42,11 +46,14 @@ export function ExportScopeDialog({
   episodes = [],
   onJianyingExport,
   jianyingExporting = false,
+  defaultEpisode,
+  onHyperframesEdit,
+  hyperframesPreparing = false,
 }: ExportScopeDialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [mode, setMode] = useState<"select" | "jianying-form">("select");
   const [selectedEpisode, setSelectedEpisode] = useState<number>(
-    episodes.length > 0 ? episodes[0].episode : 1,
+    defaultEpisode ?? (episodes.length > 0 ? episodes[0].episode : 1),
   );
   const isWindows =
     typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
@@ -67,11 +74,11 @@ export function ExportScopeDialog({
   }, [open]);
 
   useEffect(() => {
-    if (episodes.length > 0) {
+    if (defaultEpisode !== undefined || episodes.length > 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- episodes prop 变化时同步表单默认值，受控拷贝是有意设计
-      setSelectedEpisode(episodes[0].episode);
+      setSelectedEpisode(defaultEpisode ?? episodes[0].episode);
     }
-  }, [episodes]);
+  }, [episodes, defaultEpisode]);
 
   const handleJianyingSubmit = () => {
     if (!draftPath.trim() || !onJianyingExport) return;
@@ -159,6 +166,25 @@ export function ExportScopeDialog({
               tone="warm"
               onClick={() => setMode("jianying-form")}
             />
+            {onHyperframesEdit && (
+              <ScopeOption
+                icon={
+                  hyperframesPreparing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <WandSparkles className="h-4 w-4" />
+                  )
+                }
+                title={t("dashboard:auto_edit_hyperframes")}
+                hint={t("dashboard:auto_edit_hyperframes_hint")}
+                tone="accent"
+                onClick={() => {
+                  if (!hyperframesPreparing) {
+                    onHyperframesEdit(selectedEpisode, narrationDelivery);
+                  }
+                }}
+              />
+            )}
           </div>
         </div>
       ) : (

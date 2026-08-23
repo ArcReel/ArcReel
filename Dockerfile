@@ -19,10 +19,21 @@ RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm build
 
+# 官方 HyperFrames CLI/Studio 原样安装到 Node runtime；版本与后端工程 manifest 固定一致。
+RUN npm install --global hyperframes@0.8.10
+
 # ============================================================
 # Stage 2: 生产镜像
 # ============================================================
 FROM python:3.12-slim AS production
+
+# HyperFrames Studio 是官方 Node CLI。只复制 Node runtime、npm 与全局安装包，不 fork 框架。
+COPY --from=frontend-builder /usr/local/bin/node /usr/local/bin/node
+COPY --from=frontend-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && ln -s ../lib/node_modules/hyperframes/bin/hyperframes.mjs /usr/local/bin/hyperframes
+ENV ARCREEL_HYPERFRAMES_COMMAND=hyperframes
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \

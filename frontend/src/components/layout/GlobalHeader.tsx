@@ -23,6 +23,7 @@ import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPag
 import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
+import { useCurrentEpisode } from "@/hooks/useCurrentEpisode";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
 function triggerBrowserDownload(url: string) {
@@ -57,6 +58,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const [exportingProject, setExportingProject] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [jianyingExporting, setJianyingExporting] = useState(false);
+  const [hyperframesPreparing, setHyperframesPreparing] = useState(false);
   const [exportDiagnostics, setExportDiagnostics] = useState<ExportDiagnostics | null>(null);
   const usageAnchorRef = useRef<HTMLDivElement>(null);
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
@@ -65,6 +67,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
+  const currentEpisode = useCurrentEpisode();
 
   const currentPhase = currentProjectData?.status?.phase;
   const runningCount = stats.running + stats.queued;
@@ -191,6 +194,30 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
         .pushNotification(t("dashboard:export_failed", { message: errMsg(err) }), "error");
     } finally {
       setExportingProject(false);
+    }
+  };
+
+  const handleHyperframesEdit = async (
+    episode: number,
+    narrationDelivery: "post_production" | "use_tts",
+  ) => {
+    if (!currentProjectName || hyperframesPreparing) return;
+    setHyperframesPreparing(true);
+    try {
+      await API.prepareHyperframesWorkspace(currentProjectName, episode, {
+        narration_delivery: narrationDelivery,
+      });
+      setExportDialogOpen(false);
+      useAppStore.getState().openHyperframesStudio(currentProjectName, episode);
+      setLocation(`/episodes/${episode}`);
+      useAppStore.getState().pushToast(t("dashboard:hyperframes_workspace_ready"), "success");
+    } catch (error) {
+      useAppStore.getState().pushNotification(
+        t("dashboard:hyperframes_prepare_failed", { message: errMsg(error) }),
+        "error",
+      );
+    } finally {
+      setHyperframesPreparing(false);
     }
   };
 
@@ -430,6 +457,13 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               episodes={currentProjectData?.episodes ?? []}
               onJianyingExport={voidPromise(handleJianyingExport)}
               jianyingExporting={jianyingExporting}
+              defaultEpisode={currentEpisode}
+              onHyperframesEdit={
+                currentProjectData?.generation_mode === "reference_video"
+                  ? voidPromise(handleHyperframesEdit)
+                  : undefined
+              }
+              hyperframesPreparing={hyperframesPreparing}
             />
           </div>
 
