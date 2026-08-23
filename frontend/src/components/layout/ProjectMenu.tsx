@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { getProjectDisplayName } from "@/utils/project-display";
+import { projectSettingsNavigationTarget } from "@/app-routes";
 
 /**
  * 顶栏左上的项目切换菜单。
@@ -189,7 +190,7 @@ export function ProjectMenu() {
               setLocation(
                 demoMode
                   ? "~/app/settings"
-                  : `~/app/projects/${encodeURIComponent(currentProjectName)}/settings`,
+                  : projectSettingsNavigationTarget(currentProjectName),
               );
             }}
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors focus-ring disabled:opacity-50"

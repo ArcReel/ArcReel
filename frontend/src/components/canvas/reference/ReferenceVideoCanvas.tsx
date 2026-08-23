@@ -62,6 +62,7 @@ import type {
   ReferenceVideoUnit,
   UnitStatus,
 } from "@/types";
+import { projectSettingsNavigationTarget } from "@/app-routes";
 
 export interface ReferenceVideoCanvasProps {
   projectName: string;
@@ -1084,7 +1085,7 @@ export function ReferenceVideoCanvas({
             )}
             <button
               type="button"
-              onClick={() => navigate(`/app/projects/${encodeURIComponent(projectName)}/settings`)}
+              onClick={() => navigate(projectSettingsNavigationTarget(projectName))}
               title={videoStyleSummary}
               aria-label={t("reference_video_style_edit_aria")}
               className="focus-ring inline-flex max-w-[280px] items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text-2)]"

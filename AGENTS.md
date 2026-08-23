@@ -1,5 +1,9 @@
 # ArcReel
 
+## 开发任务启动闸门
+
+任何新的 feature、bug、重构或文档改动，在执行代码或文档检索、Graphify 查询、创建 worktree 或其他仓库操作前，必须先完整阅读 [`DEV.md`](DEV.md)。`DEV.md` 是需求确认、worktree、验证、commit、merge 与清理流程的唯一权威来源；本文件只保留项目架构和代码约束，不复制开发流程。
+
 AI 视频创作平台，将小说、剧本或创作构想转化为短视频。三层结构：`frontend/`（React SPA）→ `server/`（FastAPI，`agent_runtime/` 封装 Claude Agent SDK）→ `lib/`（核心库）。内嵌创作 Agent 的配置源在 `agent_runtime_profile/`，与开发态 `.claude/` 分离。
 
 ## 工具链与校验
@@ -37,7 +41,7 @@ uv run python -m pytest -m "not e2e"
 
 ## 开发与维护流程
 
-Feature、bug、重构和文档改动的 worktree、验证、commit、merge、清理以及 Graphify 更新流程统一见 [`DEV.md`](DEV.md)。开始具体开发前必须先阅读该文件；本文件负责项目架构和代码约束，不重复维护开发流程。
+Feature、bug、重构和文档改动的 worktree、验证、commit、merge、清理以及 Graphify 更新流程统一见启动闸门指定的 [`DEV.md`](DEV.md)。
 
 ### 最优开发 / 修复原则
 

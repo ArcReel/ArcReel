@@ -26,6 +26,16 @@ export const WORKSPACE_ROUTE_PROPS = "props";
 export const WORKSPACE_ROUTE_PRODUCTS = "products";
 export const WORKSPACE_ROUTE_EPISODES = "episodes";
 
+/**
+ * 从项目工作区的 nest 路由跳到全屏项目设置页。
+ *
+ * Wouter 会把普通目标拼到当前 nest base；`~` 明确表示顶层绝对导航，避免生成
+ * `/app/projects/:projectName/app/projects/:projectName/settings` 这类重复路径。
+ */
+export function projectSettingsNavigationTarget(projectName: string): `~${string}` {
+  return `~${ROUTE_APP_PROJECTS}/${encodeURIComponent(projectName)}/${WORKSPACE_ROUTE_SETTINGS}`;
+}
+
 /** 无子路径、直接匹配的工作区叶子路由段。`source` 除了列表页本身还接受 `/:filename`，
  *  在下面的正则里额外拼一条 `source/[^/]+` 分支覆盖后者。 */
 const WORKSPACE_STATIC_LEAF_ROUTES = [

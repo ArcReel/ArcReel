@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
 import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -136,6 +138,28 @@ describe("ReferenceVideoCanvas", () => {
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
+  });
+
+  it("opens project settings at the app root from the nested workspace", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    const location = memoryLocation({
+      path: "/app/projects/proj/episodes/1",
+      record: true,
+    });
+
+    render(
+      <Router hook={location.hook} base="/app/projects/proj">
+        <ReferenceVideoCanvas projectName="proj" episode={1} />
+      </Router>,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /View or edit the unified project video style|查看或编辑项目统一视频风格|Xem hoặc chỉnh sửa phong cách video thống nhất của dự án/,
+      }),
+    );
+
+    expect(location.history.at(-1)).toBe("/app/projects/proj/settings");
   });
 
   it("keeps request controls outside the tablist semantics", async () => {

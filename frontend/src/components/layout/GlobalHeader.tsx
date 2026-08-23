@@ -28,6 +28,7 @@ import type {
   WorkspaceNotification,
 } from "@/types";
 import { useCurrentEpisode } from "@/hooks/useCurrentEpisode";
+import { projectSettingsNavigationTarget } from "@/app-routes";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
 function triggerBrowserDownload(url: string) {
@@ -514,7 +515,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               setLocation(
                 // 演示项目没有项目级设置页可看，指向全局设置
                 currentProjectName && !demoMode
-                  ? `~/app/projects/${encodeURIComponent(currentProjectName)}/settings`
+                  ? projectSettingsNavigationTarget(currentProjectName)
                   : "~/app/settings",
               )
             }
