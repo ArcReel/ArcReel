@@ -298,7 +298,8 @@ def alias_map_from(node: ast.AST) -> dict[str, str]:
                     out[alias.asname] = alias.name
                 else:
                     out[alias.name.split(".")[0]] = alias.name.split(".")[0]
-        elif isinstance(sub, ast.ImportFrom) and sub.module:
+        elif isinstance(sub, ast.ImportFrom) and sub.module and sub.level == 0:
+            # 相对导入的 module 不是顶层点分路径，还原不出绝对模块名
             for alias in sub.names:
                 out[alias.asname or alias.name] = f"{sub.module}.{alias.name}"
     return out
@@ -317,7 +318,7 @@ class AliasIndex:
                     self.imported_modules.add(alias.name)
                     if alias.name.startswith(("lib.", "server.")):
                         self.import_counter[alias.name] += 1
-            elif isinstance(node, ast.ImportFrom) and node.module:
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
                 self.imported_modules.add(node.module)
                 if node.module.split(".")[0] in ("lib", "server"):
                     for alias in node.names:
