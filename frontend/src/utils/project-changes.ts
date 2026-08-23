@@ -96,6 +96,7 @@ function getChangeListLabel(change: ProjectChange, t: EventsT): string {
     change.entity_type === "character" ||
     change.entity_type === "scene" ||
     change.entity_type === "prop" ||
+    change.entity_type === "product" ||
     change.entity_type === "segment" ||
     change.entity_type === "drama_scene" ||
     change.entity_type === "shot" ||

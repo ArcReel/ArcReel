@@ -27,6 +27,7 @@ export default {
   "entity.character": "nhân vật",
   "entity.scene": "cảnh",
   "entity.prop": "đạo cụ",
+  "entity.product": "sản phẩm",
   "entity.segment": "phân cảnh",
   "entity.drama_scene": "cảnh",
   "entity.shot": "cú máy",

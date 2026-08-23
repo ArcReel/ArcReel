@@ -34,6 +34,8 @@ const CHANGE_PRIORITY: Record<string, number> = {
   "scene:updated": 3.5,
   "prop:created": 4,
   "prop:updated": 4.5,
+  "product:created": 4.6,
+  "product:updated": 4.7,
   "episode:created": 5,
   "episode:updated": 6,
   "draft:created": 6.5,
@@ -76,6 +78,8 @@ function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTa
     route = "/scenes";
   } else if (focus.pane === "props") {
     route = "/props";
+  } else if (focus.pane === "products") {
+    route = "/products";
   } else if (focus.pane === "episode" && typeof focus.episode === "number") {
     route = `/episodes/${focus.episode}`;
   }
@@ -86,6 +90,36 @@ function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTa
     type: focus.anchor_type,
     id: focus.anchor_id,
     route,
+    highlight_style: "flash",
+  };
+}
+
+const ASSET_SHEET_NOTIFICATION_ROUTES = {
+  character: "/characters",
+  scene: "/scenes",
+  prop: "/props",
+  product: "/products",
+} as const;
+
+/**
+ * 资产图生成完成事件是“可回看通知”，不是自动聚焦指令：生成服务会携带稳定的
+ * asset_image_* label_key，但不会设置 focus。前端据此为原通知补定位 target，点击后再跳转；
+ * 不把该 target 写进 queuedFocusRef，避免后台完成时打断用户当前操作。
+ */
+function buildAssetSheetNotificationTarget(
+  change: ProjectChange,
+): WorkspaceNotificationTarget | null {
+  if (change.action !== "updated") return null;
+
+  const entityType = change.entity_type;
+  if (!(entityType in ASSET_SHEET_NOTIFICATION_ROUTES)) return null;
+  if (change.label_key !== `asset_image_${entityType}`) return null;
+
+  const assetType = entityType as keyof typeof ASSET_SHEET_NOTIFICATION_ROUTES;
+  return {
+    type: assetType,
+    id: change.entity_id,
+    route: ASSET_SHEET_NOTIFICATION_ROUTES[assetType],
     highlight_style: "flash",
   };
 }
@@ -114,6 +148,16 @@ function getPrimaryGroupTarget(
   const primaryChange =
     group.changes.find((change) => isNavigableChange(change)) ?? null;
   return primaryChange ? buildNotificationTarget(primaryChange) : null;
+}
+
+function getPrimaryAssetSheetNotificationTarget(
+  group: GroupedProjectChange,
+): WorkspaceNotificationTarget | null {
+  for (const change of group.changes) {
+    const target = buildAssetSheetNotificationTarget(change);
+    if (target) return target;
+  }
+  return null;
 }
 
 function isWorkspaceEditing(): boolean {
@@ -290,6 +334,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
               pushNotification(
                 formatGroupedNotificationText(group, tEventsRef.current),
                 "success",
+                { target: getPrimaryAssetSheetNotificationTarget(group) },
               );
             }
           }

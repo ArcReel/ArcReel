@@ -29,6 +29,7 @@ export default {
   "entity.character": "characters",
   "entity.scene": "scenes",
   "entity.prop": "props",
+  "entity.product": "products",
   "entity.segment": "segments",
   "entity.drama_scene": "scenes",
   "entity.shot": "shots",

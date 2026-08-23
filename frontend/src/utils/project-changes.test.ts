@@ -182,6 +182,26 @@ describe("project-changes utils", () => {
     expect(formatGroupedNotificationText(group, t)).not.toContain("内容");
   });
 
+  it("labels grouped product asset updates with product names instead of the fallback noun", () => {
+    const [group] = groupChangesByType(
+      ["保温杯", "帆布袋"].map((id) =>
+        makeChange({
+          entity_type: "product",
+          action: "updated",
+          entity_id: id,
+          label: `商品「${id}」资产图`,
+          label_key: "asset_image_product",
+          label_params: { id },
+        }),
+      ),
+    );
+
+    expect(formatGroupedNotificationText(group, t)).toBe(
+      "更新了 2 个商品：保温杯、帆布袋",
+    );
+    expect(formatGroupedNotificationText(group, t)).not.toContain("内容");
+  });
+
   it("treats reference_video_ready/tts_ready as generation-completed, not the 更新了 fallback", () => {
     const [singleReferenceVideo] = groupChangesByType([
       makeChange({
