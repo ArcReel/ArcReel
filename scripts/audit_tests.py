@@ -306,14 +306,23 @@ UNITTEST_BASES = ("TestCase", "IsolatedAsyncioTestCase")
 
 
 def is_collected_test_class(node: ast.ClassDef) -> bool:
-    """pytest 从 `Test*` 类与 unittest 用例基类的子类收集用例，后者不受名字约束。
+    """pytest 从 `Test*` 类与 unittest 用例基类的子类收集用例。
 
     同 `is_collected_test_module` 的口径下沉一层：支持类（fake、client 包装）上
     `test` 开头的方法是普通 API，按名字当成用例会虚增类 1 计数并误报闸门。
+
+    两条分支不可合并：unittest 用例基类的子类不受名字与 `__init__` 约束，收集由
+    unittest 自身完成；而 `Test*` 类带显式 `__init__` 时 pytest 拒绝收集。
     """
-    if fnmatch(node.name, COLLECTED_TEST_CLASS_GLOB):
+    if any(_base_name(base) in UNITTEST_BASES for base in node.bases):
         return True
-    return any(_base_name(base) in UNITTEST_BASES for base in node.bases)
+    return fnmatch(node.name, COLLECTED_TEST_CLASS_GLOB) and not _has_explicit_init(node)
+
+
+def _has_explicit_init(node: ast.ClassDef) -> bool:
+    return any(
+        isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "__init__" for stmt in node.body
+    )
 
 
 def _base_name(base: ast.expr) -> str | None:

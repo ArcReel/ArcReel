@@ -90,6 +90,22 @@ def test_class_scan_follows_pytest_collection_rules(tmp_path: Path) -> None:
         "\n"
         "class CheckAsync(unittest.IsolatedAsyncioTestCase):\n"
         "    async def test_async_silent(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class TestWithInit:\n"
+        "    def __init__(self):\n"
+        "        self.value = 1\n"
+        "\n"
+        "    def test_not_collected(self):\n"
+        "        value = 1\n"
+        "\n"
+        "\n"
+        "class LegacyCase(unittest.TestCase):\n"
+        "    def __init__(self, method_name='runTest'):\n"
+        "        super().__init__(method_name)\n"
+        "\n"
+        "    def test_still_collected(self):\n"
         "        value = 1\n",
         encoding="utf-8",
     )
@@ -100,10 +116,12 @@ def test_class_scan_follows_pytest_collection_rules(tmp_path: Path) -> None:
         ("NO-ASSERTION", 10),
         ("NO-ASSERTION", 15),
         ("NO-ASSERTION", 20),
+        ("NO-ASSERTION", 36),
     ]
     assert "TestClient::test_silent" in violations[0].guidance
     assert "CheckBehavior::test_also_silent" in violations[1].guidance
     assert "CheckAsync::test_async_silent" in violations[2].guidance
+    assert "LegacyCase::test_still_collected" in violations[3].guidance
 
 
 def test_unparsable_file_is_reported_at_its_syntax_error_line(tmp_path: Path, capsys) -> None:
