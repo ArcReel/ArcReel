@@ -274,6 +274,23 @@ def marks_of(decorators: list[ast.expr]) -> list[str]:
     return out
 
 
+TIER_MARKS = ("unit", "integration", "e2e")
+
+
+def tier_from_path(path: Path, tests_dir: Path) -> str | None:
+    """档位 marker 取 `tests/unit|integration|e2e/` 的第一段目录名。
+
+    该 marker 由 `tests/conftest.py` 在收集期按路径注入、从不写成装饰器，因此只能
+    从路径还原，扫描装饰器永远拿不到。
+    """
+    try:
+        rel = path.relative_to(tests_dir)
+    except ValueError:
+        return None
+    head = rel.parts[0] if rel.parts else ""
+    return head if head in TIER_MARKS else None
+
+
 def _is_empty_container(node: ast.expr) -> bool:
     if isinstance(node, ast.List) and not node.elts:
         return True
@@ -644,14 +661,15 @@ class ProductionIndex:
 
 
 class FileScanner:
-    def __init__(self, path: Path, root: Path, prod: ProductionIndex) -> None:
+    def __init__(self, path: Path, root: Path, tests_dir: Path, prod: ProductionIndex) -> None:
         self.path = path
         self.prod = prod
         self.rel = str(path.relative_to(root))
         self.tree = ast.parse(path.read_text(encoding="utf-8"))
         self.aliases = AliasIndex(self.tree)
         self.mut = self.aliases.module_under_test(path, prod.is_module)
-        self.module_marks = self._module_marks()
+        tier = tier_from_path(path, tests_dir)
+        self.module_marks = ([tier] if tier else []) + self._module_marks()
         self.stat = FileStat(path=self.rel)
         self.double_only: list[DoubleOnlyTest] = []
         self.patches: list[PatchSite] = []
@@ -970,7 +988,7 @@ def run(root: Path, tests_dir: Path, top: int) -> dict[str, object]:
 
     for path in files:
         try:
-            scanner = FileScanner(path, root, prod)
+            scanner = FileScanner(path, root, tests_dir, prod)
             scanner.scan()
         except SyntaxError as exc:  # pragma: no cover
             failures.append(f"{path}: {exc}")
