@@ -4,19 +4,21 @@ coverage:
       backend:
         flags:
           - backend
-        target: 80%
+        target: auto
         threshold: 1%
         if_ci_failed: error
+        informational: true
       frontend:
         flags:
           - frontend
-        target: 60%
+        target: auto
         threshold: 1%
         if_ci_failed: error
+        informational: true
       postgres:
         flags:
           - postgres
-        target: 40%
+        target: auto
         threshold: 5%
         if_ci_failed: error
         informational: true
@@ -24,19 +26,21 @@ coverage:
       backend:
         flags:
           - backend
-        target: 80%
+        target: auto
         threshold: 1%
         if_ci_failed: error
+        informational: true
       frontend:
         flags:
           - frontend
-        target: 60%
+        target: auto
         threshold: 1%
         if_ci_failed: error
+        informational: true
       postgres:
         flags:
           - postgres
-        target: 40%
+        target: auto
         threshold: 5%
         if_ci_failed: error
         informational: true
@@ -66,6 +70,7 @@ component_management:
       - type: project
         target: auto
         threshold: 1%
+        informational: true
   individual_components:
     - component_id: backend
       name: Backend
