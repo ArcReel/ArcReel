@@ -15,7 +15,7 @@ class _FakeQueue:
         return self.task
 
 
-class TestTasksRouterMore:
+class TestTasksRouter:
     def test_get_task_not_found(self, monkeypatch):
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: _FakeQueue(task=None))
         app = FastAPI()

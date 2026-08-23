@@ -8,7 +8,7 @@ from lib.api_errors import BadRequestError, NotFoundError
 from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager, _get_versions_file_lock
 
 
-class TestVersionManagerMore:
+class TestVersionManager:
     def test_lock_is_reused_for_same_file(self, tmp_path):
         file_a = tmp_path / "a" / "versions.json"
         file_a.parent.mkdir(parents=True)

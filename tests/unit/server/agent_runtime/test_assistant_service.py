@@ -102,7 +102,7 @@ class _FakeSessionManager:
         return None
 
 
-class TestAssistantServiceMore:
+class TestAssistantService:
     @pytest.mark.asyncio
     async def test_service_init_interrupts_stale_running_sessions(self, tmp_path, db_factory):
         # Create an in-memory async store and seed data

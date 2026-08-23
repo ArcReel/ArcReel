@@ -8,9 +8,9 @@ status: accepted
 
 放行面按 router 对象切分而非按端点：同一个路由模块内可以定义第二个 router 对象承载不挂依赖的端点（`public_router` 承载匿名可达的登录入口与静态媒体，`self_auth_router` 承载自带认证端点），文件仍按领域组织。注册区块因此同时是认证要求的声明处和公开面的清单，读一屏即可回答"哪些 URL 不需要登录"。
 
-这一形态是 FastAPI 的惯用法，漏挂依赖仍会让整个 router 裸奔——即 fail-open。保证由 `tests/integration/server/test_auth_coverage.py` 提供：它从 `app.openapi()` 枚举全部 API 操作，对豁免清单之外的每一个发未认证请求并断言 401，新增 router 自动纳入，漏挂在 CI 暴露而非上线后成为漏洞。豁免清单里的端点跳过该遍历，因此每一条都另有正面断言证明其并非不设防：公开端点断言匿名可达，自带认证端点断言匿名请求仍被拒。
+这一形态是 FastAPI 的惯用法，漏挂依赖仍会让整个 router 裸奔——即 fail-open。保证由 `tests/integration/server/test_auth_enforcement.py` 提供：它从 `app.openapi()` 枚举全部 API 操作，对豁免清单之外的每一个发未认证请求并断言 401，新增 router 自动纳入，漏挂在 CI 暴露而非上线后成为漏洞。豁免清单里的端点跳过该遍历，因此每一条都另有正面断言证明其并非不设防：公开端点断言匿名可达，自带认证端点断言匿名请求仍被拒。
 
-认证不再随端点签名走，自行组装 `FastAPI()` 的路由测试因此要复刻注册处的挂法，否则测到的是一个无认证的应用：受保护 router 挂 `tests/auth_deps.AUTH_DEPENDENCIES`，需要放行的用例调同模块的 `override_auth`。这类测试多数用 `dependency_overrides` 绕过认证，少挂一层不会失败，只有专门断言 401 的用例会暴露；`test_auth_coverage.py` 只覆盖生产应用，这条路径无兜底。
+认证不再随端点签名走，自行组装 `FastAPI()` 的路由测试因此要复刻注册处的挂法，否则测到的是一个无认证的应用：受保护 router 挂 `tests/auth_deps.AUTH_DEPENDENCIES`，需要放行的用例调同模块的 `override_auth`。这类测试多数用 `dependency_overrides` 绕过认证，少挂一层不会失败，只有专门断言 401 的用例会暴露；`test_auth_enforcement.py` 只覆盖生产应用，这条路径无兜底。
 
 ## 明确不采用
 

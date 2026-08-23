@@ -106,7 +106,7 @@ class _FakeTextBackend:
         )
 
 
-class TestProjectManagerMore:
+class TestProjectManager:
     def test_filesystem_script_rebinding_forgets_unbound_resource_claims(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = pm.create_project("demo")
