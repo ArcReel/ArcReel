@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import type { RefObject, ReactNode } from "react";
 import type { EpisodeMeta } from "@/types/project";
 import type { PresentationVariant } from "@/types/presentation";
+import type { HyperframesAutoEditOptions } from "@/types/hyperframes";
 import { WARM_TONE } from "@/utils/severity-tone";
 
 export type ExportScope = "current" | "full" | "jianying-draft";
@@ -34,7 +35,7 @@ interface ExportScopeDialogProps {
   ) => void;
   jianyingExporting?: boolean;
   defaultEpisode?: number;
-  onHyperframesEdit?: (episode: number, narrationDelivery: PresentationVariant) => void;
+  onHyperframesEdit?: (episode: number, options: HyperframesAutoEditOptions) => void;
   hyperframesPreparing?: boolean;
 }
 
@@ -51,7 +52,9 @@ export function ExportScopeDialog({
   hyperframesPreparing = false,
 }: ExportScopeDialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
-  const [mode, setMode] = useState<"select" | "jianying-form">("select");
+  const [mode, setMode] = useState<"select" | "jianying-form" | "hyperframes-form">(
+    "select",
+  );
   const [selectedEpisode, setSelectedEpisode] = useState<number>(
     defaultEpisode ?? (episodes.length > 0 ? episodes[0].episode : 1),
   );
@@ -65,6 +68,8 @@ export function ExportScopeDialog({
   );
   const [jianyingVersion, setJianyingVersion] = useState("6");
   const [narrationDelivery, setNarrationDelivery] = useState<PresentationVariant>("post_production");
+  const [hyperframesInstruction, setHyperframesInstruction] = useState("");
+  const [hyperframesBackgroundMusic, setHyperframesBackgroundMusic] = useState(true);
 
   useEffect(() => {
     if (!open) {
@@ -84,6 +89,15 @@ export function ExportScopeDialog({
     if (!draftPath.trim() || !onJianyingExport) return;
     localStorage.setItem(DRAFT_PATH_STORAGE_KEY, draftPath.trim());
     onJianyingExport(selectedEpisode, draftPath.trim(), jianyingVersion, narrationDelivery);
+  };
+
+  const handleHyperframesSubmit = () => {
+    if (!onHyperframesEdit || hyperframesPreparing) return;
+    onHyperframesEdit(selectedEpisode, {
+      narrationDelivery,
+      instruction: hyperframesInstruction.trim(),
+      backgroundMusic: hyperframesBackgroundMusic,
+    });
   };
 
   return (
@@ -180,14 +194,14 @@ export function ExportScopeDialog({
                 tone="accent"
                 onClick={() => {
                   if (!hyperframesPreparing) {
-                    onHyperframesEdit(selectedEpisode, narrationDelivery);
+                    setMode("hyperframes-form");
                   }
                 }}
               />
             )}
           </div>
         </div>
-      ) : (
+      ) : mode === "jianying-form" ? (
         <div className="px-4 pb-4 pt-3.5">
           <div className="mb-3 flex items-center gap-2">
             <button
@@ -322,6 +336,154 @@ export function ExportScopeDialog({
               {jianyingExporting
                 ? t("dashboard:exporting")
                 : t("dashboard:export_draft")}
+            </PrimaryButton>
+          </div>
+        </div>
+      ) : (
+        <div className="px-4 pb-4 pt-3.5">
+          <div className="mb-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMode("select")}
+              className="arc-close-btn focus-ring grid h-6 w-6 place-items-center rounded-md"
+              aria-label={t("common:back")}
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+            </button>
+            <span
+              aria-hidden
+              className="grid h-7 w-7 place-items-center rounded-lg"
+              style={{
+                background:
+                  "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 160 / 0.05))",
+                border: "1px solid var(--color-accent-soft)",
+                color: "var(--color-accent-2)",
+              }}
+            >
+              <WandSparkles className="h-3.5 w-3.5" />
+            </span>
+            <div
+              className="display-serif text-[14px] font-semibold tracking-tight"
+              style={{ color: "var(--color-text)" }}
+            >
+              {t("dashboard:auto_edit_hyperframes")}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {episodes.length > 1 && (
+              <FormField
+                htmlFor="hyperframes-episode-select"
+                label={t("dashboard:select_episode")}
+              >
+                <select
+                  id="hyperframes-episode-select"
+                  value={selectedEpisode}
+                  onChange={(event) => setSelectedEpisode(Number(event.target.value))}
+                  className="focus-ring w-full rounded-md px-2.5 py-1.5 text-[13px] outline-none"
+                  style={{
+                    background: "oklch(0.16 0.010 265 / 0.6)",
+                    border: "1px solid var(--color-hairline)",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  {episodes.map((episode) => (
+                    <option key={episode.episode} value={episode.episode}>
+                      {t("dashboard:episode_with_title", {
+                        episode: episode.episode,
+                        title: episode.title,
+                      })}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+            )}
+
+            <FormField
+              htmlFor="hyperframes-presentation-variant"
+              label={t("dashboard:presentation_variant")}
+            >
+              <select
+                id="hyperframes-presentation-variant"
+                value={narrationDelivery}
+                onChange={(event) => setNarrationDelivery(event.target.value as PresentationVariant)}
+                className="focus-ring w-full rounded-md px-2.5 py-1.5 text-[13px] outline-none"
+                style={{
+                  background: "oklch(0.16 0.010 265 / 0.6)",
+                  border: "1px solid var(--color-hairline)",
+                  color: "var(--color-text)",
+                }}
+              >
+                <option value="post_production">{t("dashboard:presentation_post_production")}</option>
+                <option value="use_tts">{t("dashboard:presentation_use_tts")}</option>
+              </select>
+            </FormField>
+
+            <FormField
+              htmlFor="hyperframes-instruction"
+              label={t("dashboard:hyperframes_instruction")}
+              hint={t("dashboard:hyperframes_instruction_hint")}
+            >
+              <textarea
+                id="hyperframes-instruction"
+                value={hyperframesInstruction}
+                onChange={(event) => setHyperframesInstruction(event.target.value)}
+                maxLength={4000}
+                rows={4}
+                placeholder={t("dashboard:hyperframes_instruction_placeholder")}
+                className="focus-ring w-full resize-y rounded-md px-2.5 py-2 text-[13px] leading-relaxed outline-none"
+                style={{
+                  background: "oklch(0.16 0.010 265 / 0.6)",
+                  border: "1px solid var(--color-hairline)",
+                  color: "var(--color-text)",
+                }}
+              />
+            </FormField>
+
+            <div
+              className="flex items-start gap-2.5 rounded-md p-2.5"
+              style={{
+                background: "oklch(0.16 0.010 265 / 0.45)",
+                border: "1px solid var(--color-hairline)",
+              }}
+            >
+              <input
+                id="hyperframes-background-music"
+                type="checkbox"
+                checked={hyperframesBackgroundMusic}
+                onChange={(event) => setHyperframesBackgroundMusic(event.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="min-w-0">
+                <label
+                  htmlFor="hyperframes-background-music"
+                  className="block cursor-pointer text-[12.5px] font-medium"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {t("dashboard:hyperframes_background_music")}
+                </label>
+                <span className="mt-0.5 block text-[11px] leading-relaxed" style={{ color: "var(--color-text-4)" }}>
+                  {t("dashboard:hyperframes_background_music_hint")}
+                </span>
+              </span>
+            </div>
+
+            <PrimaryButton
+              tone="accent"
+              size="sm"
+              onClick={handleHyperframesSubmit}
+              disabled={hyperframesPreparing}
+              leadingIcon={
+                hyperframesPreparing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <WandSparkles className="h-3.5 w-3.5" />
+                )
+              }
+            >
+              {hyperframesPreparing
+                ? t("dashboard:hyperframes_preparing")
+                : t("dashboard:hyperframes_start_auto_edit")}
             </PrimaryButton>
           </div>
         </div>

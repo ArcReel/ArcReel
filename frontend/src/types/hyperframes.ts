@@ -16,3 +16,9 @@ export interface HyperframesWorkspaceStatus {
 export interface PrepareHyperframesWorkspaceRequest {
   narration_delivery: PresentationVariant;
 }
+
+export interface HyperframesAutoEditOptions {
+  narrationDelivery: PresentationVariant;
+  instruction: string;
+  backgroundMusic: boolean;
+}

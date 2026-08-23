@@ -45,7 +45,11 @@ vi.mock("./ExportScopeDialog", () => ({
     jianyingExporting?: boolean;
     onHyperframesEdit?: (
       episode: number,
-      narrationDelivery: "post_production" | "use_tts",
+      options: {
+        narrationDelivery: "post_production" | "use_tts";
+        instruction: string;
+        backgroundMusic: boolean;
+      },
     ) => void;
     hyperframesPreparing?: boolean;
   }) =>
@@ -68,7 +72,13 @@ vi.mock("./ExportScopeDialog", () => ({
         {onHyperframesEdit && (
           <button
             data-testid="scope-hyperframes"
-            onClick={() => onHyperframesEdit(1, "post_production")}
+            onClick={() =>
+              onHyperframesEdit(1, {
+                narrationDelivery: "post_production",
+                instruction: "前三秒更有冲击力",
+                backgroundMusic: true,
+              })
+            }
           >
             自动剪辑
           </button>
@@ -423,6 +433,12 @@ describe("GlobalHeader", () => {
         projectName: "ad-demo",
         episode: 1,
       });
+      expect(useAppStore.getState().hyperframesAutoEditRequest).toMatchObject({
+        projectName: "ad-demo",
+        prompt: expect.stringContaining("前三秒更有冲击力"),
+      });
+      expect(useAppStore.getState().hyperframesAutoEditRequest?.prompt).toContain("纯器乐 BGM");
+      expect(useAppStore.getState().assistantPanelOpen).toBe(true);
       expect(screen.queryByTestId("export-scope-dialog")).not.toBeInTheDocument();
     });
   });

@@ -24,6 +24,12 @@ export interface HyperframesOpenRequest {
   episode: number;
 }
 
+export interface HyperframesAutoEditRequest {
+  requestId: string;
+  projectName: string;
+  prompt: string;
+}
+
 const ALL_ENTITIES_REVISION_KEY = "__all__";
 
 export const ASSISTANT_PANEL_DEFAULT_WIDTH = 505;
@@ -64,6 +70,9 @@ interface AppState {
   hyperframesOpenRequest: HyperframesOpenRequest | null;
   openHyperframesStudio: (projectName: string, episode: number) => void;
   clearHyperframesOpenRequest: (requestId?: string) => void;
+  hyperframesAutoEditRequest: HyperframesAutoEditRequest | null;
+  requestHyperframesAutoEdit: (projectName: string, prompt: string) => void;
+  clearHyperframesAutoEditRequest: (requestId?: string) => void;
   assistantToolActivitySuppressed: boolean;
   setAssistantToolActivitySuppressed: (suppressed: boolean) => void;
 
@@ -192,6 +201,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       if (!requestId || state.hyperframesOpenRequest?.requestId === requestId) {
         return { hyperframesOpenRequest: null };
+      }
+      return state;
+    }),
+  hyperframesAutoEditRequest: null,
+  requestHyperframesAutoEdit: (projectName, prompt) =>
+    set({
+      hyperframesAutoEditRequest: {
+        requestId: `${Date.now()}-${Math.random()}`,
+        projectName,
+        prompt,
+      },
+    }),
+  clearHyperframesAutoEditRequest: (requestId) =>
+    set((state) => {
+      if (!requestId || state.hyperframesAutoEditRequest?.requestId === requestId) {
+        return { hyperframesAutoEditRequest: null };
       }
       return state;
     }),

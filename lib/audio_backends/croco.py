@@ -56,11 +56,22 @@ class CrocoAudioBackend:
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         parameters = {"caption": request.text}
+        if request.lyrics is not None:
+            parameters["lyrics"] = request.lyrics
+        if request.max_duration is not None:
+            parameters["max_duration"] = request.max_duration
+        if request.seed is not None:
+            parameters["seed"] = request.seed
+        if request.tiled_decode is not None:
+            parameters["tiled_decode"] = request.tiled_decode
+        if request.output_format is not None:
+            parameters["output_format"] = request.output_format
         job = await self._client.submit_job(
             model_id=self._model,
             operation=_OPERATION,
             contract_version=_CONTRACT_VERSION,
             parameters=parameters,
+            client_job_id=request.client_job_id,
         )
         job_id = job["job_id"]
 

@@ -122,6 +122,7 @@ async def test_prepare_writes_complete_studio_project_only_inside_arcreel_projec
     assert workspace.path.is_relative_to(project_path)
     assert sorted(path.relative_to(workspace.path).as_posix() for path in workspace.path.rglob("*")) == [
         "DESIGN.md",
+        "EDITING_PLAN.md",
         "index.html",
         "manifest.json",
         "media",
@@ -138,10 +139,14 @@ async def test_prepare_writes_complete_studio_project_only_inside_arcreel_projec
     assert "data-no-timeline" in composition
     assert "muted playsinline" in composition
     assert 'data-track-index="2"' in composition
+    assert 'data-audio-group="voiceover"' in composition
     assert "田园时光" in composition
     manifest = json.loads((workspace.path / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["units"][0]["unit_id"] == "../../must-not-be-a-path"
     assert manifest["units"][0]["video"]["staged"] == "media/000-video.mp4"
+    assert manifest["script_file"] == "scripts/episode_1.json"
+    assert manifest["editing_plan_file"] == "EDITING_PLAN.md"
+    assert manifest["total_duration_microseconds"] == 2_000_000
 
 
 async def test_prepare_preserves_an_existing_editable_workspace(tmp_path: Path) -> None:

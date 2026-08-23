@@ -139,7 +139,7 @@ def _composition_html(materialized: MaterializedEpisode, staged: list[dict[str, 
             narration = presentation.narration_audio
             narration_duration = narration.duration_microseconds / 1_000_000
             clips.append(
-                f'''    <audio id="narration-{index}" data-start="{cursor:.6f}" data-duration="{narration_duration:.6f}" data-track-index="2" data-volume="{narration.gain:.3f}" src="{_attr(media["narration_audio"])}"></audio>'''
+                f'''    <audio id="narration-{index}" data-audio-group="voiceover" data-start="{cursor:.6f}" data-duration="{narration_duration:.6f}" data-track-index="2" data-volume="{narration.gain:.3f}" src="{_attr(media["narration_audio"])}"></audio>'''
             )
         for cue_index, cue in enumerate(presentation.subtitles):
             cue_start = cursor + cue.start_microseconds / 1_000_000
@@ -314,6 +314,20 @@ class HyperframesWorkspaceService:
                     """# ArcReel Darkroom\n\n## Colors\n- Canvas: `#0B0F14`\n- Primary text: `#F4F7F8`\n- Accent: `#65E6B3`\n- Warm accent: `#E9B96E`\n\n## Typography\n- Cross-platform `sans-serif`; bundle a webfont before choosing a named family.\n\n## Motion\n- Preserve readable pacing and deterministic, seekable animation.\n\n## What NOT to Do\n- Do not use random or wall-clock animation.\n- Do not fetch project media from external URLs.\n- Do not write outside this episode workspace.\n""",
                     encoding="utf-8",
                 )
+                safe_join(staging, "EDITING_PLAN.md").write_text(
+                    "# HyperFrames Editing Plan\n\n"
+                    "This file is filled by the ArcReel HyperFrames auto-edit Agent before it changes the timeline.\n\n"
+                    "## Source Facts\n\n"
+                    "## User Overrides\n\n"
+                    "## Route and Spec\n\n"
+                    "## Rhythm and Beats\n\n"
+                    "## Copy\n\n"
+                    "## Technique\n\n"
+                    "## Background Music\n\n"
+                    "## Negative Constraints\n",
+                    encoding="utf-8",
+                )
+                script_file = materialized.presentations[0].script_file
                 atomic_write_json(
                     safe_join(staging, "manifest.json"),
                     {
@@ -323,6 +337,22 @@ class HyperframesWorkspaceService:
                         "episode": episode,
                         "variant": variant,
                         "entry_file": "index.html",
+                        "editing_plan_file": "EDITING_PLAN.md",
+                        "script_file": script_file,
+                        "total_duration_microseconds": sum(
+                            value.presentation.video.duration_microseconds for value in materialized.presentations
+                        ),
+                        "project_context": {
+                            key: materialized.project_snapshot.get(key)
+                            for key in (
+                                "title",
+                                "content_mode",
+                                "generation_mode",
+                                "style",
+                                "aspect_ratio",
+                            )
+                            if materialized.project_snapshot.get(key) is not None
+                        },
                         "units": manifest_units,
                     },
                 )

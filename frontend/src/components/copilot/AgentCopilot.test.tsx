@@ -168,6 +168,22 @@ describe("AgentCopilot", () => {
     });
   });
 
+  it("sends a queued HyperFrames auto-edit through the same Agent session path", async () => {
+    useAppStore.getState().requestHyperframesAutoEdit(
+      "demo",
+      "请使用 hyperframes-auto-edit Skill 对第 1 集执行完整自动剪辑。",
+    );
+
+    render(<AgentCopilot />);
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        "请使用 hyperframes-auto-edit Skill 对第 1 集执行完整自动剪辑。",
+      );
+      expect(useAppStore.getState().hyperframesAutoEditRequest).toBeNull();
+    });
+  });
+
   it("renders the project-scoped analysis handoff as an Agent message", () => {
     useAssistantStore.getState().showHandoffGuide("demo", 1);
 

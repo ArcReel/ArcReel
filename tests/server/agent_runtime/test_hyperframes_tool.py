@@ -8,7 +8,11 @@ import pytest
 
 from lib.project_manager import ProjectManager
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.hyperframes import prepare_hyperframes_episode_tool
+from server.agent_runtime.sdk_tools.hyperframes import (
+    generate_hyperframes_bgm_tool,
+    prepare_hyperframes_episode_tool,
+)
+from server.services.hyperframes_music import HyperframesBackgroundMusic
 from server.services.hyperframes_workspace import HyperframesWorkspace
 
 pytestmark = pytest.mark.unit
@@ -61,3 +65,45 @@ async def test_tool_rejects_invalid_episode_before_touching_workspace(tmp_path: 
 
     assert result["is_error"] is True
     assert "正整数" in result["content"][0]["text"]
+
+
+async def test_music_tool_returns_the_fixed_volume_project_local_snippet(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    music_path = tmp_path / "demo" / "hyperframes" / "episode_01" / "media" / "bgm.mp3"
+    music = HyperframesBackgroundMusic(
+        episode=1,
+        path=music_path,
+        relative_path="media/bgm.mp3",
+        metadata_path="background-music.json",
+        duration_seconds=12.0,
+        actual_duration_seconds=12.0,
+        volume=0.15,
+        seed=7,
+        html_snippet='<audio data-volume="0.150" src="media/bgm.mp3"></audio>',
+    )
+    calls = []
+
+    class _MusicService:
+        def __init__(self, _pm) -> None:
+            pass
+
+        async def generate(self, project_name, episode, *, direction, seed=None):
+            calls.append((project_name, episode, direction, seed))
+            return music
+
+    monkeypatch.setattr(
+        "server.agent_runtime.sdk_tools.hyperframes.HyperframesMusicService",
+        _MusicService,
+    )
+    ctx = ToolContext("demo", tmp_path, pm=ProjectManager(tmp_path))
+
+    result = await generate_hyperframes_bgm_tool(ctx).handler(
+        {"episode": 1, "direction": "calm instrumental", "seed": 7}
+    )
+
+    assert result.get("is_error") is not True
+    assert result["music"]["volume"] == 0.15
+    assert 'data-volume="0.150"' in result["music"]["html_snippet"]
+    assert calls == [("demo", 1, "calm instrumental", 7)]
