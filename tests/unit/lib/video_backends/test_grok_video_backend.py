@@ -9,6 +9,7 @@ import pytest
 
 from lib.providers import PROVIDER_GROK
 from lib.video_backends.base import VideoGenerationRequest
+from tests.fakes import bounded_poll_clock
 
 
 @pytest.fixture
@@ -107,7 +108,7 @@ class TestGrokVideoBackend:
 
         with (
             patch("lib.video_backends.grok.create_grok_client", return_value=mock_client),
-            patch("lib.retry.asyncio.sleep", new=AsyncMock()),
+            bounded_poll_clock(),
         ):
             backend = GrokVideoBackend(api_key="test-key")
             request = VideoGenerationRequest(

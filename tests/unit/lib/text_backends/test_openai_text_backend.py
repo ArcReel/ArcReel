@@ -17,7 +17,7 @@ from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
 )
-from tests.fakes import instructor_api_call_exhausted
+from tests.fakes import bounded_poll_clock, instructor_api_call_exhausted
 
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
@@ -541,7 +541,7 @@ class TestInstructorFallback:
                 "lib.text_backends.instructor_support.instructor_fallback_async",
                 new=AsyncMock(side_effect=ConnectionError("503 service unavailable")),
             ) as mock_instructor,
-            patch("lib.retry.asyncio.sleep", new=AsyncMock()),
+            bounded_poll_clock(),
         ):
             from lib.text_backends.openai import OpenAITextBackend
 

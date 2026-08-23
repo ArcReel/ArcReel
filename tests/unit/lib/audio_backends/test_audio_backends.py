@@ -169,10 +169,9 @@ class TestDashScopeAudioBackend:
         assert client.post.call_count == 1
         client.get.assert_not_called()
 
-    async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path, monkeypatch):
+    async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path, poll_clock):
         # 4xx 错误消息带 "503" 子串（请求 URL/task_id）：旧字符串兜底会据此误判重试到超时，
         # 新状态码谓词只读 response.status_code，按 400 fail-fast——计费的合成 POST 只发一次、不连带下载。
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
         err_resp = httpx.Response(
             400, text="bad request", request=httpx.Request("POST", "https://x/api/v1/tasks/job-503")
         )
@@ -189,9 +188,8 @@ class TestDashScopeAudioBackend:
         assert client.post.call_count == 1
         client.get.assert_not_called()
 
-    async def test_download_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
+    async def test_download_failure_does_not_rebill_synthesis(self, tmp_path: Path, poll_clock):
         # 下载瞬时失败只重试 GET，绝不回头重跑会再次计费的合成 POST。
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
         client = AsyncMock()
         client.post = AsyncMock(return_value=_synth_response())
         client.get = AsyncMock(side_effect=[httpx.ConnectError("transient"), _download_response(b"ok")])
@@ -209,11 +207,10 @@ class TestDashScopeAudioBackend:
         assert client.get.call_count == 2
         assert out.read_bytes() == b"ok"
 
-    async def test_empty_download_retried_then_rejected_no_file(self, tmp_path: Path, monkeypatch):
+    async def test_empty_download_retried_then_rejected_no_file(self, tmp_path: Path, poll_clock):
         # 200 但空体视为瞬态：重试到下载上限后失败，不写 0 字节 wav，合成 POST 不被重跑。
         from lib.retry import DOWNLOAD_MAX_ATTEMPTS
 
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
         client = AsyncMock()
         client.post = AsyncMock(return_value=_synth_response())
         client.get = AsyncMock(return_value=_download_response(b""))
@@ -231,9 +228,8 @@ class TestDashScopeAudioBackend:
         assert client.get.call_count == DOWNLOAD_MAX_ATTEMPTS
         assert not out.exists()
 
-    async def test_empty_download_transient_recovers(self, tmp_path: Path, monkeypatch):
+    async def test_empty_download_transient_recovers(self, tmp_path: Path, poll_clock):
         # 空体一次后恢复：重试拿到字节落盘，合成 POST 不被重跑
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
         client = AsyncMock()
         client.post = AsyncMock(return_value=_synth_response())
         client.get = AsyncMock(side_effect=[_download_response(b""), _download_response(b"ok")])
@@ -250,10 +246,9 @@ class TestDashScopeAudioBackend:
         assert client.get.call_count == 2
         assert out.read_bytes() == b"ok"
 
-    async def test_download_http_error_raises(self, tmp_path: Path, monkeypatch):
+    async def test_download_http_error_raises(self, tmp_path: Path, poll_clock):
         # 下载 4xx：透出 httpx.HTTPStatusError 且不写文件、不被误判可重试、合成 POST 不被重跑；
         # 异常文本不携带预签名 query（有效期内等同下载凭证）
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
         signed_url = "https://x/out.wav?Expires=1&Signature=topsecret"
         err_resp = httpx.Response(404, request=httpx.Request("GET", signed_url))
         client = _mock_client(_synth_response(signed_url), err_resp)
@@ -426,9 +421,8 @@ class TestOpenAIAudioBackend:
         assert len(mock_client.requests) == 1
         assert not out.exists()
 
-    async def test_write_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
+    async def test_write_failure_does_not_rebill_synthesis(self, tmp_path: Path, poll_clock):
         # 写盘瞬态失败（消息含可重试模式）不应回头重跑会再次计费的合成调用
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
         mock_client = _mock_speech_client()
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
             from lib.audio_backends.openai import OpenAIAudioBackend

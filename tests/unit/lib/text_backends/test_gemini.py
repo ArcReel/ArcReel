@@ -13,6 +13,7 @@ from lib.text_backends.base import (
     TextGenerationResult,
 )
 from lib.text_backends.gemini import GeminiTextBackend
+from tests.fakes import bounded_poll_clock
 
 
 @pytest.fixture
@@ -416,7 +417,7 @@ class TestStructuredFallback:
         gc = AsyncMock(side_effect=[_resp(_PROSE), transient, transient, transient])
         backend._test_client.aio.models.generate_content = gc
 
-        with patch("lib.retry.asyncio.sleep", new=AsyncMock()):
+        with bounded_poll_clock():
             with pytest.raises(ConnectionError):
                 await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
 

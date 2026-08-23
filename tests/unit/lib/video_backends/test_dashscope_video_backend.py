@@ -16,7 +16,7 @@ from lib.video_backends.base import (
     VideoCapabilityError,
     VideoGenerationRequest,
 )
-from tests.fakes import captured_provider_job_ids
+from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 
 
 def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
@@ -636,7 +636,7 @@ class TestRetryStatusGating:
         post = AsyncMock(return_value=bad)
         client = _client(post=post)
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+        with p1, p2, p3, bounded_poll_clock():
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
@@ -653,7 +653,7 @@ class TestRetryStatusGating:
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+        with p1, p2, p3, bounded_poll_clock():
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
@@ -669,7 +669,7 @@ class TestRetryStatusGating:
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.retry.asyncio.sleep", new_callable=AsyncMock):
+        with p1, p2, p3, bounded_poll_clock():
             from lib.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")

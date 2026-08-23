@@ -355,7 +355,7 @@ class TestResponseHandling:
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
         assert "1004" in str(ei.value)
         # 业务错误不重试、不下载
-        assert client.post.call_count == 1
+        assert len(client.posts) == 1
         download.assert_not_called()
 
     async def test_empty_data_raises_runtime(self, tmp_path: Path):
@@ -385,7 +385,7 @@ class TestHttpErrors:
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
         assert ei.value.response.status_code == 400
-        assert client.post.call_count == 1
+        assert len(client.posts) == 1
         download.assert_not_called()
 
     async def test_413_surfaces_httpstatuserror_no_retry(self, tmp_path: Path):
@@ -400,17 +400,16 @@ class TestHttpErrors:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
         # 保留 status_code 让咽喉层识别 413 走降档；单次 fail-fast
         assert ei.value.response.status_code == 413
-        assert client.post.call_count == 1
+        assert len(client.posts) == 1
         download.assert_not_called()
 
 
 class TestRetryScope:
-    async def test_download_failure_does_not_retrigger_generation(self, tmp_path: Path, monkeypatch):
+    async def test_download_failure_does_not_retrigger_generation(self, tmp_path: Path, poll_clock):
         # 下载阶段瞬态失败只在下载层重试，绝不回退到重跑非幂等的生成 POST（防重复建图 + 重复计费）。
         # 退避 sleep 打桩跳过，避免下载层重试真的等 DOWNLOAD_BACKOFF 秒级时间。
         from lib.retry import DOWNLOAD_MAX_ATTEMPTS
 
-        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
         client = _mock_client(_img_response())
         download = AsyncMock(side_effect=httpx.ConnectError("conn reset"))
         p1, p2 = _patches(client, download)
@@ -421,7 +420,7 @@ class TestRetryScope:
             with pytest.raises(httpx.ConnectError):
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
         # 生成 POST 恰好一次（计费一次）；重试全部发生在下载层
-        assert client.post.call_count == 1
+        assert len(client.posts) == 1
         assert download.call_count == DOWNLOAD_MAX_ATTEMPTS
 
 

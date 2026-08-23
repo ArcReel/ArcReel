@@ -10,6 +10,7 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
+from tests.fakes import bounded_poll_clock
 
 
 class _RecordingRateLimiter:
@@ -166,8 +167,7 @@ class TestGeminiVideoBackendGenerate:
             output_path=output,
         )
 
-        # patch asyncio.sleep 以避免实际等待
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+        with bounded_poll_clock():
             result = await gemini_backend.generate(request)
 
         assert result.provider == "gemini"
@@ -263,7 +263,7 @@ class TestGeminiRetryBehavior:
         )
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+        with bounded_poll_clock():
             result = await gemini_backend.generate(request)
 
         assert result.provider == "gemini"
@@ -284,8 +284,7 @@ class TestGeminiRetryBehavior:
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with (
-            patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
-            patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+            bounded_poll_clock(),
         ):
             result = await gemini_backend.generate(request)
 
@@ -305,7 +304,7 @@ class TestGeminiRetryBehavior:
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(ValueError, match="invalid response"):
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 await gemini_backend.generate(request)
 
         # 创建只调用一次
@@ -412,7 +411,7 @@ class TestGeminiResumeVideo:
         gemini_backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=pending_op)
 
         request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
-        with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+        with bounded_poll_clock():
             with pytest.raises(ResumeExpiredError) as ei:
                 await gemini_backend.resume_video("op-xyz", request)
         assert ei.value.job_id == "op-xyz"

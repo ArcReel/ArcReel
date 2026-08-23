@@ -14,7 +14,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
 )
 from lib.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
-from tests.fakes import captured_ark_clients
+from tests.fakes import bounded_poll_clock, captured_ark_clients
 
 
 @pytest.fixture
@@ -331,7 +331,7 @@ class TestArkRetryBehavior:
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 result = await ark_backend.generate(request)
         finally:
             patcher.stop()
@@ -365,8 +365,7 @@ class TestArkRetryBehavior:
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
             with (
-                patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock),
-                patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
+                bounded_poll_clock(),
             ):
                 result = await ark_backend.generate(request)
         finally:
@@ -388,7 +387,7 @@ class TestArkRetryBehavior:
 
         request = VideoGenerationRequest(prompt="test", output_path=output)
         with pytest.raises(ValueError, match="invalid response"):
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 await ark_backend.generate(request)
 
         # 创建只调用一次，轮询只尝试一次就抛出
@@ -621,7 +620,7 @@ class TestArkServiceTierParam:
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 await ark_backend.generate(request)
         finally:
             patcher.stop()
@@ -647,7 +646,7 @@ class TestArkServiceTierParam:
         patcher = _mock_httpx_stream()
         try:
             request = VideoGenerationRequest(prompt="test", output_path=output)
-            with patch("lib.video_backends.base.asyncio.sleep", new_callable=AsyncMock):
+            with bounded_poll_clock():
                 await ark_backend.generate(request)
         finally:
             patcher.stop()

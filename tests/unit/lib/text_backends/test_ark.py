@@ -10,7 +10,7 @@ import pytest
 
 from lib.text_backends.ark import ArkTextBackend
 from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
-from tests.fakes import captured_ark_clients
+from tests.fakes import bounded_poll_clock, captured_ark_clients
 
 
 @contextmanager
@@ -612,7 +612,7 @@ class TestSuccessPathReverify:
                 "lib.text_backends.instructor_support.instructor_fallback_sync",
                 side_effect=ConnectionError("503 service unavailable"),
             ) as mock_instructor,
-            patch("lib.retry.asyncio.sleep", new=AsyncMock()),
+            bounded_poll_clock(),
         ):
             with pytest.raises(ConnectionError):
                 await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
