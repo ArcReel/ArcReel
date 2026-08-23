@@ -466,6 +466,7 @@ class FakeConfigResolver:
         self.capability_calls: list[str | None] = []
         self.project_names: list[str | None] = []
         self.image_capability_calls: list[str | None] = []
+        self.generate_audio_calls: list[dict[str, Any] | None] = []
 
     def caps_for(self, capability: str | None = None) -> dict[str, Any]:
         """该桶的能力 dict（与生产返回同形），供用例直接对照期望。"""
@@ -505,7 +506,7 @@ class FakeConfigResolver:
         return ProviderModel(*self._image_backend)
 
     async def video_generate_audio_for_project(self, project: dict[str, Any] | None) -> bool:
-        del project
+        self.generate_audio_calls.append(project)
         if self._generate_audio_error is not None:
             raise self._generate_audio_error
         return bool(self._base["requested_generate_audio"])

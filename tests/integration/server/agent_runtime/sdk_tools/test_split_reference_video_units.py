@@ -222,6 +222,7 @@ async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_fai
     )
     caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1, config_resolver=resolver)
     assert caps.voice.requested_generate_audio is False
+    assert resolver.generate_audio_calls == [{"video_generate_audio": False}]
 
 
 async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_failure() -> None:
@@ -238,6 +239,7 @@ async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_fail
     )
     caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1, config_resolver=resolver)
     assert caps.voice.requested_generate_audio is False
+    assert resolver.generate_audio_calls == [{"video_generate_audio": False}]
 
 
 async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext) -> None:
