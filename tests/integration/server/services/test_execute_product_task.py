@@ -1,4 +1,4 @@
-"""Tests for execute_product_task (split from test_generation_tasks_service.py)."""
+"""Tests for execute_product_task."""
 
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (

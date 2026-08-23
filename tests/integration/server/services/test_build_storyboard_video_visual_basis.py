@@ -1,4 +1,4 @@
-"""Tests for build_storyboard_video_visual_basis (split from test_generation_tasks_service.py)."""
+"""Tests for build_storyboard_video_visual_basis."""
 
 from pathlib import Path
 

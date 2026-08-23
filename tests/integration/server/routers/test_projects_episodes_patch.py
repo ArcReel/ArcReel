@@ -1,4 +1,4 @@
-"""Tests for projects_episodes_patch (split from test_projects_router.py)."""
+"""Tests for projects_episodes_patch."""
 
 import json
 

@@ -1,4 +1,4 @@
-"""Tests for execute_video_task (split from test_generation_tasks_service.py)."""
+"""Tests for execute_video_task."""
 
 import copy
 import json

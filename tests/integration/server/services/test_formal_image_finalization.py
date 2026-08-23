@@ -1,4 +1,4 @@
-"""Tests for formal_image_finalization (split from test_generation_tasks_service.py)."""
+"""Tests for formal_image_finalization."""
 
 import asyncio
 import json

@@ -1,4 +1,4 @@
-"""Tests for get_aspect_ratio (split from test_generation_tasks_service.py)."""
+"""Tests for get_aspect_ratio."""
 
 from server.services import generation_tasks
 

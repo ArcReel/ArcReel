@@ -1,4 +1,4 @@
-"""Tests for text_generation (split from test_sdk_tools.py)."""
+"""Tests for text_generation."""
 
 from __future__ import annotations
 

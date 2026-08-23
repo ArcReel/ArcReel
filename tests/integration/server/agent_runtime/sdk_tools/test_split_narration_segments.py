@@ -1,4 +1,4 @@
-"""Tests for split_narration_segments (split from test_sdk_tools.py)."""
+"""Tests for split_narration_segments."""
 
 from __future__ import annotations
 

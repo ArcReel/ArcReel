@@ -1,4 +1,4 @@
-"""Tests for reference_visual_basis (split from test_reference_video_tasks.py)."""
+"""Tests for reference_visual_basis."""
 
 from __future__ import annotations
 

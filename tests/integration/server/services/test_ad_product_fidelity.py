@@ -1,4 +1,4 @@
-"""Tests for ad_product_fidelity (split from test_generation_tasks_service.py)."""
+"""Tests for ad_product_fidelity."""
 
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services import generation_tasks

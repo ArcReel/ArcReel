@@ -1,4 +1,4 @@
-"""Tests for collect_sheet_references (split from test_generation_tasks_service.py)."""
+"""Tests for collect_sheet_references."""
 
 from lib.artifact_manifest import (
     ArtifactKey,

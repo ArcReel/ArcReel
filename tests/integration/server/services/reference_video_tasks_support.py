@@ -1,4 +1,4 @@
-"""Shared fixtures and helpers for reference_video_tasks tests."""
+"""server.services.reference_video_tasks 测试共享的替身与 helper。"""
 
 from __future__ import annotations
 

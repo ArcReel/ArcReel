@@ -1,4 +1,4 @@
-"""Shared fixtures and helpers for server.routers.projects_router tests."""
+"""server.routers.projects 测试共享的替身与 helper。"""
 
 import json
 import re

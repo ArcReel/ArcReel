@@ -1,4 +1,4 @@
-"""Tests for projects_creation_fields (split from test_projects_router.py)."""
+"""Tests for projects_creation_fields."""
 
 import pytest
 

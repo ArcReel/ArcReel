@@ -1,4 +1,4 @@
-"""Tests for split_reference_video_units (split from test_sdk_tools.py)."""
+"""Tests for split_reference_video_units."""
 
 from __future__ import annotations
 

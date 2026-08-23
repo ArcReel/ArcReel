@@ -1,4 +1,4 @@
-"""Tests for validate_script_filename (split from test_sdk_tools.py)."""
+"""Tests for validate_script_filename."""
 
 from __future__ import annotations
 

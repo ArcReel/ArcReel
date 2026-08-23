@@ -1,4 +1,4 @@
-"""Tests for enqueue_assets (split from test_sdk_tools.py)."""
+"""Tests for enqueue_assets."""
 
 from __future__ import annotations
 

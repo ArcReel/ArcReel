@@ -1,4 +1,4 @@
-"""Tests for unexpected_errors_do_not_leak (split from test_projects_router.py)."""
+"""projects 路由的未预期异常不泄漏内部细节。"""
 
 from lib.i18n.zh import errors as zh_errors
 from server.routers import projects

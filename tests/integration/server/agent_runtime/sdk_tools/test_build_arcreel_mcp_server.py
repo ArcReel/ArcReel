@@ -1,4 +1,4 @@
-"""Tests for build_arcreel_mcp_server (split from test_sdk_tools.py)."""
+"""Tests for build_arcreel_mcp_server."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Tests for episode_planning (split from test_sdk_tools.py)."""
+"""Tests for episode_planning."""
 
 from __future__ import annotations
 

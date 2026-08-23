@@ -1,4 +1,4 @@
-"""Shared fixtures and helpers for server.agent_runtime.sdk_tools tests."""
+"""server.agent_runtime.sdk_tools 测试共享的替身与 helper；目录级 fixture 在 conftest.py。"""
 
 from __future__ import annotations
 

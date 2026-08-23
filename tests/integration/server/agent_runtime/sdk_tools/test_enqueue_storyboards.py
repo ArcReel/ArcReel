@@ -1,4 +1,4 @@
-"""Tests for enqueue_storyboards (split from test_sdk_tools.py)."""
+"""Tests for enqueue_storyboards."""
 
 from __future__ import annotations
 

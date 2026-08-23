@@ -1,4 +1,4 @@
-"""Tests for projects_list_and_status (split from test_projects_router.py)."""
+"""Tests for projects_list_and_status."""
 
 from tests.integration.server.routers.projects_router_support import (
     _client,

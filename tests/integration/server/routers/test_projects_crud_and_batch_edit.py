@@ -1,4 +1,4 @@
-"""Tests for projects_crud_and_batch_edit (split from test_projects_router.py)."""
+"""Tests for projects_crud_and_batch_edit."""
 
 from copy import deepcopy
 

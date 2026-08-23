@@ -1,4 +1,4 @@
-"""Tests for execute_generation_task (split from test_generation_tasks_service.py)."""
+"""Tests for execute_generation_task."""
 
 import threading
 

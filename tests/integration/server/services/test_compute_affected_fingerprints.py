@@ -1,4 +1,4 @@
-"""Tests for compute_affected_fingerprints (split from test_generation_tasks_service.py)."""
+"""Tests for compute_affected_fingerprints."""
 
 from server.services import generation_tasks
 from tests.integration.server.services.generation_tasks_support import (

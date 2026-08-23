@@ -1,4 +1,4 @@
-"""Tests for assert_duration_supported (split from test_generation_tasks_service.py)."""
+"""Tests for assert_duration_supported."""
 
 import pytest
 

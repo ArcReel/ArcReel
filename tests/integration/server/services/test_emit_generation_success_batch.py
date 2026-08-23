@@ -1,4 +1,4 @@
-"""Tests for emit_generation_success_batch (split from test_generation_tasks_service.py)."""
+"""Tests for emit_generation_success_batch."""
 
 import pytest
 

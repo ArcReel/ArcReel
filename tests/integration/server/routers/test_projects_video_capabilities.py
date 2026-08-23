@@ -1,4 +1,4 @@
-"""Tests for get_video_capabilities (split from test_projects_router.py)."""
+"""projects 路由的 video-capabilities 查询。"""
 
 from lib.i18n.zh import errors as zh_errors
 from server.routers import projects

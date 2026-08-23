@@ -1,4 +1,4 @@
-"""Tests for execute_reference_video_task (split from test_reference_video_tasks.py)."""
+"""Tests for execute_reference_video_task."""
 
 from __future__ import annotations
 

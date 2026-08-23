@@ -1,4 +1,4 @@
-"""Tests for generation_tasks_helpers (split from test_generation_tasks_service.py)."""
+"""Tests for generation_tasks_helpers."""
 
 import asyncio
 import threading

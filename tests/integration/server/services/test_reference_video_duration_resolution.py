@@ -1,4 +1,4 @@
-"""Tests for reference_video_duration_resolution (split from test_reference_video_tasks.py)."""
+"""Tests for reference_video_duration_resolution."""
 
 from __future__ import annotations
 

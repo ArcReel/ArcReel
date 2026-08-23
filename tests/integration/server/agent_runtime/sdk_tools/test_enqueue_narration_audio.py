@@ -1,4 +1,4 @@
-"""Tests for enqueue_narration_audio (split from test_sdk_tools.py)."""
+"""Tests for enqueue_narration_audio."""
 
 from __future__ import annotations
 

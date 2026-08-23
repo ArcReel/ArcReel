@@ -1,4 +1,4 @@
-"""Shared fixtures and helpers for server.services generation-task tests."""
+"""server.services.generation_tasks 测试共享的替身与 helper。"""
 
 import json
 from contextlib import contextmanager

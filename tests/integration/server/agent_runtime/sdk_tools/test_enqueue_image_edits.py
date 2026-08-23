@@ -1,4 +1,4 @@
-"""Tests for enqueue_image_edits (split from test_sdk_tools.py)."""
+"""Tests for enqueue_image_edits."""
 
 from __future__ import annotations
 

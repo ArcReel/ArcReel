@@ -1,4 +1,4 @@
-"""Tests for resolve_reference_assets (split from test_reference_video_tasks.py)."""
+"""Tests for resolve_reference_assets."""
 
 from __future__ import annotations
 

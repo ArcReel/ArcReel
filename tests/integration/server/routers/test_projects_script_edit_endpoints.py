@@ -1,4 +1,4 @@
-"""Tests for projects_script_edit_endpoints (split from test_projects_router.py)."""
+"""Tests for projects_script_edit_endpoints."""
 
 import unicodedata
 from contextlib import contextmanager

@@ -1,4 +1,4 @@
-"""Tests for open_step1_for_edit (split from test_sdk_tools.py)."""
+"""Tests for open_step1_for_edit."""
 
 from __future__ import annotations
 

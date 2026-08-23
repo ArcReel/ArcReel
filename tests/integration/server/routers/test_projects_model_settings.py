@@ -1,4 +1,4 @@
-"""Tests for model_settings_api (split from test_projects_router.py)."""
+"""projects 路由的 model_settings 读写。"""
 
 from tests.integration.server.routers.projects_router_support import (
     _client,

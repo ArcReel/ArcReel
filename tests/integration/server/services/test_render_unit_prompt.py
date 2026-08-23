@@ -1,4 +1,4 @@
-"""Tests for render_unit_prompt (split from test_reference_video_tasks.py)."""
+"""Tests for render_unit_prompt."""
 
 from __future__ import annotations
 

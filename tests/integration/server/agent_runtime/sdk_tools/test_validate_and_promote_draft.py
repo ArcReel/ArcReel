@@ -1,4 +1,4 @@
-"""Tests for validate_and_promote_draft (split from test_sdk_tools.py)."""
+"""Tests for validate_and_promote_draft."""
 
 from __future__ import annotations
 
