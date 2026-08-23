@@ -8,9 +8,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.audio_backends.base import AudioCapability, AudioSynthesisResult
 from lib.data_validator import DataValidator
+from lib.db.base import Base
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation_worker import CapacityTable, GenerationWorker, SlotTable
 from lib.media_generator import MediaGenerator
@@ -356,16 +358,24 @@ class TestGenerateAudioAsync:
 
 
 class TestUsageStatsAudioCount:
-    async def test_audio_count(self, db_session):
-        repo = UsageRepository(db_session)
-        call_id = await repo.start_call(
-            project_name="demo", call_type="audio", model="qwen3-tts-flash", provider="dashscope"
-        )
-        await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
-        stats = await repo.get_stats(project_name="demo")
-        assert stats["audio_count"] == 1
-        # audio 按字符冻结费用（非 0）
-        assert stats["cost_by_currency"].get("CNY", 0) > 0
+    async def test_audio_count(self):
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        try:
+            factory = async_sessionmaker(engine, expire_on_commit=False)
+            async with factory() as session:
+                repo = UsageRepository(session)
+                call_id = await repo.start_call(
+                    project_name="demo", call_type="audio", model="qwen3-tts-flash", provider="dashscope"
+                )
+                await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
+                stats = await repo.get_stats(project_name="demo")
+                assert stats["audio_count"] == 1
+                # audio 按字符冻结费用（非 0）
+                assert stats["cost_by_currency"].get("CNY", 0) > 0
+        finally:
+            await engine.dispose()
 
 
 # ── worker audio lane ───────────────────────────────────────────────────────────
@@ -405,7 +415,9 @@ class TestWorkerAudioLane:
         w._slots.register("dashscope", "audio", "t", dummy)
         assert w._pool_full_providers("audio") == frozenset({"dashscope"})
 
-    async def test_claim_routes_audio_to_audio_lane(self):
+    async def test_claim_routes_audio_to_audio_lane(self, monkeypatch):
+        from lib import generation_worker as gw
+
         class _Q:
             def __init__(self):
                 self._given = False
@@ -417,9 +429,8 @@ class TestWorkerAudioLane:
                         "task_id": "T1",
                         "task_type": "tts",
                         "media_type": "audio",
-                        # 不带 project_name：payload 自报的 audio_provider 即可让真实
-                        # _extract_provider 短路解析出 dashscope，无需项目与 DB 在场。
-                        "payload": {"audio_provider": "dashscope", "audio_model": "qwen3-tts-flash"},
+                        "project_name": "demo",
+                        "payload": {},
                     }
                 return None
 
@@ -430,6 +441,11 @@ class TestWorkerAudioLane:
                 _defaults={"image": 5, "video": 3, "audio": 10},
             ),
         )
+
+        async def _fake_extract(task):
+            return "dashscope"
+
+        monkeypatch.setattr(gw, "_extract_provider", _fake_extract)
 
         async def _fake_process(task):
             await asyncio.sleep(0)
