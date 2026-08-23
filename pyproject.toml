@@ -49,6 +49,8 @@ dev = [
     "python-docx>=1.2.0",
     "basedpyright>=1.39.4",
     "import-linter>=2.13",
+    "pytest-xdist>=3.8.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]
@@ -60,8 +62,16 @@ packages = ["lib", "server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers"
+addopts = "--strict-markers --durations=25"
 asyncio_mode = "auto"
+# 卡死保护，不是耗时预算：当前最慢用例 30s，留 4 倍余量。个别用例需要更大预算时用
+# `@pytest.mark.timeout(N)` 单独放宽，不抬全局值。
+timeout = 120
+# signal 法对 async 与 sync 用例均生效，超时表现为普通 failure（会话继续、teardown
+# 正常、可归因）；thread 法以 os._exit 硬杀进程，xdist 下等价于 worker crash。
+timeout_method = "signal"
+# 并行不写进 addopts，只在 CI 命令里显式开（-n 4 --dist loadfile）：小选集并行更慢，
+# 每 worker 重新 import server.app 的固定开销吃掉全部收益，而本地调试几乎都是小选集。
 markers = [
     "unit: 快速、隔离、不触达真实 I/O 或外部服务的测试",
     "integration: 跨模块真实协作测试；禁止 mock 被测 module 的公共入口（否则是在测 mock 本身）",

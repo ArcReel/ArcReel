@@ -15,14 +15,37 @@ def make_translator(locale: str = "zh") -> Callable[..., str]:
     return translate
 
 
+import atexit
 import os
+import shutil
 import subprocess
+import tempfile
 import wave
 from io import BytesIO
 from pathlib import Path
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+# `lib.db.engine` 的模块级 engine 在 import 期就按 `DATABASE_URL` 绑定，进程内不再重建，
+# 所以覆写必须发生在下方任何会传染到该模块的 import 之前。未显式指定时它落在仓库根的
+# `projects/.arcreel.db`：一份文件被 xdist 的多个 worker 共用，且 schema 只由某个先跑到
+# 的用例顺带建出——用例间因此存在隐式顺序依赖。钉到本进程独占的临时库上，schema 由
+# `_shared_db_schema` 显式建立。DATABASE_URL 已由外部给定（postgres-compat job、
+# 逐个用例 monkeypatch 的 alembic 用例）时不介入。
+#
+# xdist 的 worker 从 controller 继承 environ，会连这里写下的 URL 一起带过去；
+# `_OWNED_DB_MARKER` 让 worker 认出「这是测试自己铸的、不是外部给的」，各自另铸一份，
+# 从而每个进程都独占一个库。
+_OWNED_DB_MARKER = "ARCREEL_TEST_OWNED_DB"
+_OWNED_TEST_DB_DIR: str | None = None
+if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MARKER) == "1":
+    _OWNED_TEST_DB_DIR = tempfile.mkdtemp(prefix="arcreel-test-db-")
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_OWNED_TEST_DB_DIR}/.arcreel.db"
+    os.environ[_OWNED_DB_MARKER] = "1"
+    # 回收挂在 atexit 而非 fixture teardown 上：`--collect-only`（CI 的分类 marker 闸门）
+    # 与收集期中断都只 import conftest、不跑 fixture。
+    atexit.register(shutil.rmtree, _OWNED_TEST_DB_DIR, ignore_errors=True)
 
 import lib.generation_queue as generation_queue_module
 from lib.db.base import Base
@@ -193,6 +216,27 @@ def fd_count():
 # ---------------------------------------------------------------------------
 # Shared database fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _shared_db_schema():
+    """把模块级 engine 所指的库迁到 head，使任何用例都能直接用它。
+
+    只对本 conftest 自建的临时库执行：外部给定 DATABASE_URL 时（postgres-compat job）
+    schema 由该 job 的 alembic 步骤负责。走 alembic 而非 ``create_all``，因为
+    ``lib.db.init_db()`` 对「有表无 alembic_version」的库会先 stamp base 再 upgrade，
+    预置的 create_all schema 会让它重复建表。
+    """
+    if _OWNED_TEST_DB_DIR is None:
+        return
+
+    from alembic.config import Config
+
+    from alembic import command
+
+    cfg = Config()
+    cfg.set_main_option("script_location", str(Path(__file__).parent.parent / "alembic"))
+    command.upgrade(cfg, "head")
 
 
 @pytest.fixture()
