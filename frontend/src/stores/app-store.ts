@@ -24,6 +24,7 @@ export const ASSISTANT_PANEL_DEFAULT_WIDTH = 505;
 export const ASSISTANT_PANEL_MIN_WIDTH = 360;
 export const ASSISTANT_PANEL_MAX_WIDTH = 720;
 const ASSISTANT_PANEL_WIDTH_STORAGE_KEY = "arcreel_assistant_panel_width";
+const ASSISTANT_PANEL_OPEN_STORAGE_KEY = "arcreel_assistant_panel_open";
 
 export function clampAssistantPanelWidth(value: number): number {
   if (!Number.isFinite(value)) return ASSISTANT_PANEL_DEFAULT_WIDTH;
@@ -45,6 +46,27 @@ function readPersistedAssistantPanelWidth(): number {
     return ASSISTANT_PANEL_DEFAULT_WIDTH;
   }
 }
+
+function readPersistedAssistantPanelOpen(): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ASSISTANT_PANEL_OPEN_STORAGE_KEY);
+    return raw === "true" ? true : raw === "false" ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistAssistantPanelOpen(open: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ASSISTANT_PANEL_OPEN_STORAGE_KEY, String(open));
+  } catch {
+    // localStorage 不可用时保留本次会话内的选择
+  }
+}
+
+const initialAssistantPanelOpen = readPersistedAssistantPanelOpen();
 
 interface AppState {
   // Context focus (design doc "Context-Aware" feature)
@@ -76,6 +98,8 @@ interface AppState {
 
   // Panels
   assistantPanelOpen: boolean;
+  assistantPanelInitialized: boolean;
+  initializeAssistantPanel: (openByDefault: boolean) => void;
   toggleAssistantPanel: () => void;
   setAssistantPanelOpen: (open: boolean) => void;
   assistantPanelWidth: number;
@@ -214,10 +238,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   clearWorkspaceNotifications: () => set({ workspaceNotifications: [] }),
 
-  assistantPanelOpen: true,
+  assistantPanelOpen: initialAssistantPanelOpen ?? false,
+  assistantPanelInitialized: initialAssistantPanelOpen !== null,
+  initializeAssistantPanel: (openByDefault) =>
+    set((s) => {
+      if (s.assistantPanelInitialized) return s;
+      return {
+        assistantPanelOpen: readPersistedAssistantPanelOpen() ?? openByDefault,
+        assistantPanelInitialized: true,
+      };
+    }),
   toggleAssistantPanel: () =>
-    set((s) => ({ assistantPanelOpen: !s.assistantPanelOpen })),
-  setAssistantPanelOpen: (open) => set({ assistantPanelOpen: open }),
+    set((s) => {
+      const open = !s.assistantPanelOpen;
+      persistAssistantPanelOpen(open);
+      return { assistantPanelOpen: open, assistantPanelInitialized: true };
+    }),
+  setAssistantPanelOpen: (open) =>
+    set({ assistantPanelOpen: open, assistantPanelInitialized: true }),
   assistantPanelWidth: readPersistedAssistantPanelWidth(),
   setAssistantPanelWidth: (width) =>
     set({ assistantPanelWidth: clampAssistantPanelWidth(width) }),
