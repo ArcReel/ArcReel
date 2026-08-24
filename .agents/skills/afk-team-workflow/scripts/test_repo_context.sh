@@ -33,6 +33,21 @@ grep -q 'membership requires --issue N' "$TMP_ROOT/membership.err"
 )
 jq -e 'select(.kind == "membership") | .issue == 1777' "$LEDGER" >/dev/null
 
+if (
+  cd "$SCRIPT_DIR"
+  bash ledger.sh --repo-root "$TMP_ROOT" test-batch claim
+) >"$TMP_ROOT/claim.out" 2>"$TMP_ROOT/claim.err"; then
+  echo "FAIL: claim without an issue was accepted" >&2
+  exit 1
+fi
+grep -q 'claim requires --issue N' "$TMP_ROOT/claim.err"
+
+(
+  cd "$SCRIPT_DIR"
+  bash ledger.sh --repo-root "$TMP_ROOT" test-batch claim --issue 1778
+)
+jq -e 'select(.kind == "claim") | .issue == 1778' "$LEDGER" >/dev/null
+
 (
   cd "$SCRIPT_DIR"
   bash ledger.sh --repo-root "$TMP_ROOT" test-batch closed

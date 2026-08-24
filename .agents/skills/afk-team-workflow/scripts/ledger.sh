@@ -2,7 +2,7 @@
 # ledger.sh — append one line to a batch's thin ledger.
 #
 # The ledger records ONLY facts that gh/git cannot re-derive: team-lead decisions,
-# verbal authorization, absorbed faults, gaps, pauses, dynamic membership, and retrospectives.
+# verbal authorization, absorbed faults, gaps, pauses, claims, dynamic membership, and retrospectives.
 # Stage progress stays out: recovery reads completed issue commits from the remote
 # stage branch and restarts everything else.
 #
@@ -18,8 +18,8 @@
 #   <batch-id>  Unique to one execution: spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 hex>
 #               for a Spec, or an equivalent timestamped slug for explicit issues.
 #   <kind>      one of: decision | authorization | fault | gap | shelve |
-#               membership | retrospective | closed
-#               membership requires --issue N
+#               claim | membership | retrospective | closed
+#               claim and membership require --issue N
 #
 # LINE SCHEMA (one JSON object per line, appended to .afk/<batch-id>.jsonl)
 #   {
@@ -58,7 +58,7 @@ source "$SCRIPT_DIR/repo-context.sh"
 enter_repo_root "LEDGER_ERROR" "$@"
 shift "$REPO_CONTEXT_SHIFT"
 
-VALID_KINDS="decision authorization fault gap shelve membership retrospective closed"
+VALID_KINDS="decision authorization fault gap shelve claim membership retrospective closed"
 
 die() { echo "LEDGER_ERROR: $*" >&2; exit 1; }
 
@@ -96,8 +96,8 @@ done
 if [[ "$ISSUE" != "null" && ! "$ISSUE" =~ ^[0-9]+$ ]]; then
   die "--issue must be a number, got: $ISSUE"
 fi
-if [[ "$KIND" == "membership" && "$ISSUE" == "null" ]]; then
-  die "membership requires --issue N"
+if [[ "$KIND" == "claim" || "$KIND" == "membership" ]] && [[ "$ISSUE" == "null" ]]; then
+  die "${KIND} requires --issue N"
 fi
 if [[ "$PR" != "null" && ! "$PR" =~ ^[0-9]+$ ]]; then
   die "--pr must be a number, got: $PR"

@@ -87,8 +87,8 @@ else
   jq -s '.' "$TASK_TMP_DIR/issues.jsonl" >"$TASK_TMP_DIR/issues.json"
 fi
 
-# Project the canonical native graph. Body links are the repository fallback;
-# the historical section remains readable for existing issues.
+# Project the canonical native graph. The body fallback accepts the legacy-format
+# `## Blocked by` section when native dependencies are unavailable.
 : >"$TASK_TMP_DIR/native.jsonl"
 for issue in $(jq -r '.[].number' "$TASK_TMP_DIR/issues.json"); do
   if gh api "repos/${OWNER_REPO}/issues/${issue}/dependencies/blocked_by" --paginate --slurp \
