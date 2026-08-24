@@ -9,7 +9,7 @@ import pytest
 
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
-    split_reference_video_units_tool,
+    _generate_reference_step1_tool as split_reference_video_units_tool,
 )
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
@@ -53,7 +53,7 @@ def _veo_720p(fake_ctx: ToolContext) -> None:
 
 async def test_fetch_reference_caps_with_fallback_returns_declared_slots() -> None:
     """unit 时长就是发给供应商的那个值，档位原样取自模型声明（不与任何静态区间求交）。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     resolver = _fake_caps_resolver(
         supported_durations=[1, 8, 16, 18],
@@ -77,7 +77,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap() ->
 
     不收窄的话 step1 会按 10 秒拆出 unit，step2 的枚举 schema 再把它判非法。
     """
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     resolver = _fake_caps_resolver(
         provider_id="minimax",
@@ -95,7 +95,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap() ->
 
 async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution() -> None:
     """分辨率联动约束同样收窄 unit 档位：Veo 1080p 下只接受 8 秒。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     resolver = _fake_caps_resolver(
         provider_id="gemini-aistudio",
@@ -175,7 +175,7 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
 
     枚举与 prompt 候选取并集——一律按带图收窄会把无引用 unit 本可申请的短档也收掉。
     """
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     resolver = _fake_caps_resolver(
         provider_id="gemini-aistudio",
@@ -198,7 +198,7 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
 async def test_fetch_reference_caps_with_fallback_uses_write_layer_default() -> None:
     """rv 路径的软回退与 _fetch_caps_with_fallback 同口径，取 duration_presets.DEFAULT_FALLBACK。"""
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     resolver = _fake_caps_resolver(error=ValueError("no provider configured"))
     caps = await mod._fetch_reference_caps_with_fallback({}, 1, config_resolver=resolver)
@@ -214,7 +214,7 @@ async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_fai
     它不依赖能力接口独立解析（同 generation_context.py），否则声音提示层会漏发
     WARN_SILENT_EPISODE，误导用户以为本集仍会尝试组装参考音频。
     """
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     resolver = _fake_caps_resolver(
         error=ValueError("no provider configured"),
@@ -231,7 +231,7 @@ async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_fail
     与其余能力字段「不明时不额外收紧」相反：这里不明时假定无声，代价只是少发一条声音
     提示；假定有声则会让 `derive_voice_bindings` 在派生阶段继续算参考音频，误导排查方向。
     """
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     resolver = _fake_caps_resolver(
         error=ValueError("no provider configured"),
@@ -261,7 +261,7 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext) -> Non
 
 async def test_split_reference_video_units_happy_derives_structure(fake_ctx: ToolContext, monkeypatch) -> None:
     """happy path：LLM 只写扁平正文，正文逐字落盘，只有 unit_id 由工具机械派生。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _rv_source(fake_ctx)
     captured: dict[str, Any] = {}

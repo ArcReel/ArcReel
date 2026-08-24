@@ -20,8 +20,10 @@ from lib.generation_result import (
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
+    _generate_reference_step1_tool as split_reference_video_units_tool,
+)
+from server.agent_runtime.sdk_tools.text_generation import (
     open_step1_for_edit_tool,
-    split_reference_video_units_tool,
     validate_and_promote_draft_tool,
 )
 from tests.fakes import FakeConfigResolver
@@ -425,7 +427,7 @@ def _rv_step1_path(fake_ctx: ToolContext):
 
 
 async def _run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **caps_kwargs) -> dict:
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _use_fake_caps(fake_ctx, **caps_kwargs)
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))

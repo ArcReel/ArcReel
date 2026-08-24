@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lib import episode_paths, script_review
-from server.agent_runtime.sdk_tools import text_generation
+from server import text_generation
 from server.routers import files
 
 

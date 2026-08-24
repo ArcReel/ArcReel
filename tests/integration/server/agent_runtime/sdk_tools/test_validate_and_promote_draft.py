@@ -18,9 +18,13 @@ from lib.draft_quarantine import (
 from lib.reference_video.draft_validation import DraftViolation
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
+    _generate_drama_step1_tool as normalize_drama_script_tool,
+)
+from server.agent_runtime.sdk_tools.text_generation import (
+    _generate_narration_step1_tool as split_narration_segments_tool,
+)
+from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
-    normalize_drama_script_tool,
-    split_narration_segments_tool,
 )
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
@@ -467,7 +471,7 @@ async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx:
     草稿在场期间用户在 Web 端改过 step1 会让确认指纹失效，该集回到 pending_review——此时晋升等于
     拿一份用户没确认过的 step1 合成正式剧本。
     """
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _rv_project(fake_ctx)
     step1 = _rv_step1_path(fake_ctx)
@@ -648,7 +652,7 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     """重新规范化是刻意的整份重建，与参考生视频的重拆分同口径：正式文件换成新产物的同一临界区内
     清掉上一轮草稿。留着它会让内容确认与 step2 一直阻塞在一份已被取代的内容上，而草稿记下的基线
     指纹此刻也对不上，晋升只会反复报冲突——Agent 没有第二条出路。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _drama_project(fake_ctx)
     _write_drama_step1(fake_ctx, [_drama_scene()])
@@ -691,7 +695,7 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
     丢弃重抽既烧钱又不收敛（同一模型对同一份原文大概率再犯同一类错），本机制的全部要点就是
     让 Agent 就地改这份已付费的产出。
     """
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 5, _RV_NOVEL, characters_in_segment=["王五"])]
@@ -718,7 +722,7 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
 async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_ctx: ToolContext, monkeypatch) -> None:
     """重跑拆分成功后清掉上一轮的草稿：正式文件已是新产物，旧草稿留着只会让内容确认与 step2 继续
     阻塞在一份已被取代的内容上。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_source(fake_ctx)
     write_quarantine(

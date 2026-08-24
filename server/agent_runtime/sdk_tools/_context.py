@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -82,7 +83,12 @@ def tool_outcome_response(domain_key: str, outcome: ToolOutcome[Any]) -> dict[st
         )
         return {"content": [{"type": "text", "text": text}], "is_error": True}
     value = outcome.value
-    payload = value.model_dump(mode="json") if isinstance(value, BaseModel) else value
+    if isinstance(value, BaseModel):
+        payload = value.model_dump(mode="json")
+    elif is_dataclass(value) and not isinstance(value, type):
+        payload = asdict(value)
+    else:
+        payload = value
     return {"content": [{"type": "text", "text": json.dumps({domain_key: payload}, ensure_ascii=False)}]}
 
 

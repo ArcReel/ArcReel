@@ -10,11 +10,11 @@ import type { ContentBlock, Turn } from "@/types";
  * （过程性提示，无需持久回看），告知该步骤耗时较长。
  *
  * 工具名是 SDK 注册后的全限定名 mcp__arcreel__<id>，与 ToolCallWithResult 的解析口径
- * 一致。仅覆盖剧本/规范化两类文本生成工具；分镜/视频等长耗时工具已有任务队列 HUD。
+ * 一致。仅覆盖剧本/内容整理类文本生成工具；媒体生成等长耗时工具已有任务队列 HUD。
  */
 const SCRIPT_GENERATION_TOOL_NAMES = new Set([
   "mcp__arcreel__generate_episode_script",
-  "mcp__arcreel__normalize_drama_script",
+  "mcp__arcreel__generate_step1",
 ]);
 
 function collectBlocks(turns: Turn[], draftTurn: Turn | null): ContentBlock[] {
