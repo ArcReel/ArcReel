@@ -37,6 +37,7 @@ dependencies = [
     "portalocker>=2.10.1",
     "pdf-oxide>=0.3.46",
     "socksio>=1.0.0",
+    "mcp>=1.29.0,<2",
 ]
 
 [dependency-groups]
