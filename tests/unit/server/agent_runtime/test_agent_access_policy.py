@@ -152,8 +152,8 @@ def test_write_formal_step1_denied(policy: AgentAccessPolicy, tool: str, relativ
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
-    assert reason and "open_step1_for_edit" in reason
-    assert "validate_and_promote_draft" in reason
+    assert reason and "open_draft" in reason
+    assert "promote_draft" in reason
 
 
 def test_protected_step1_filenames_match_shared_constant() -> None:

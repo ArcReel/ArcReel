@@ -1,8 +1,9 @@
 """step1 / step2 产出的草稿：落盘信封、违约报告与晋升口径。
 
 生成一次要付费，产物违约时丢弃重抽既烧钱又不收敛（同一个模型对同一份原文大概率再犯同一
-类错）。正式文件保持不动；未满足约束的产物连同逐条违约报告落到同目录的草稿，Agent 用文件
-工具就地修 ``content``（或去补登记资产、改用登记名），再调晋升工具按**同一个校验器**全量重判
+类错）。正式文件保持不动；未满足约束的产物连同逐条违约报告落到同目录的草稿，Agent 用
+``open_draft`` 读取、``patch_draft`` 修 ``content``（或去补登记资产、改用登记名），再调晋升工具按
+**同一个校验器**全量重判
 ——过则晋升为正式文件、草稿随之清除，不过则报告刷新、继续改。无收敛轮次上限：每一轮都
 由 Agent 带着具体定位在改，不是重抽碰运气。
 
@@ -31,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.content_digest import prefixed_canonical_json_digest
 from lib.draft_violation import DraftViolation, render_violation_report
 from lib.episode_paths import (
     DRAMA_STEP1_QUARANTINE_FILENAME,
@@ -83,12 +85,26 @@ _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
 }
 
 #: 晋升工具名。报告里的处置指引要指名它，写死在这里而非各调用点各写一遍。
-PROMOTE_TOOL_NAME = "validate_and_promote_draft"
+PROMOTE_TOOL_NAME = "promote_draft"
 
 #: 取回正式 step1 供编辑的工具名。正式 step1 与 Web 端保存、迁移、重拆分共享一把 per-path 锁，
 #: Agent 的 Write/Edit 在沙箱内跑、取不到这把锁，故对它的修改一律改走「取回草稿 → 改 → 晋升」：
 #: 写盘只发生在晋升侧，与另三条路径同一把锁。写禁策略的拒绝消息也要指名它，故同样收在这里。
-STEP1_EDIT_TOOL_NAME = "open_step1_for_edit"
+OPEN_DRAFT_TOOL_NAME = "open_draft"
+
+DOC_TYPE_DRAMA_STEP1 = "drama_step1"
+DOC_TYPE_NARRATION_STEP1 = "narration_step1"
+DOC_TYPE_REFERENCE_STEP1 = "reference_step1"
+DOC_TYPE_REFERENCE_STEP2 = "reference_step2"
+
+DOC_TYPE_TO_QUARANTINE_KIND: dict[str, str] = {
+    DOC_TYPE_DRAMA_STEP1: QUARANTINE_KIND_DRAMA_STEP1,
+    DOC_TYPE_NARRATION_STEP1: QUARANTINE_KIND_NARRATION_STEP1,
+    DOC_TYPE_REFERENCE_STEP1: QUARANTINE_KIND_STEP1,
+    DOC_TYPE_REFERENCE_STEP2: QUARANTINE_KIND_STEP2,
+}
+
+QUARANTINE_KIND_TO_DOC_TYPE: dict[str, str] = {kind: doc_type for doc_type, kind in DOC_TYPE_TO_QUARANTINE_KIND.items()}
 
 
 @dataclass(frozen=True)
@@ -101,6 +117,22 @@ class QuarantinedDraft:
     violations: list[dict[str, Any]]
     meta: dict[str, Any]
     path: Path
+
+
+def draft_revision(content: object) -> str:
+    """Return the canonical optimistic-concurrency token for draft content."""
+    return prefixed_canonical_json_digest(content)
+
+
+def draft_payload(draft: QuarantinedDraft) -> dict[str, Any]:
+    """Return the host-independent draft document exposed by MCP adapters."""
+    return {
+        "episode": draft.episode,
+        "doc_type": QUARANTINE_KIND_TO_DOC_TYPE[draft.kind],
+        "content": draft.content,
+        "violations": draft.violations,
+        "revision": draft_revision(draft.content),
+    }
 
 
 def quarantine_path(project_path: Path, episode: int, kind: str) -> Path:
@@ -160,8 +192,8 @@ def write_quarantine(
 def read_quarantine(project_path: Path, episode: int, kind: str) -> QuarantinedDraft | None:
     """读回草稿；文件缺失 / 非法 JSON / 信封形状坏时返回 None。
 
-    形状坏按「无草稿」处理而非抛错：这份文件正是给 Agent 手改的，改坏 JSON 是可预期的
-    中间态。调用方据此给出「重新拆分」而非内部错误——但 ``exists`` 仍为真，gate 与生成侧照常
+    形状坏按「无草稿」处理而非抛错：存量文件或异常中断可能留下非法 JSON。
+    调用方据此给出「重新拆分」而非内部错误——但 ``exists`` 仍为真，gate 与生成侧照常
     阻塞，坏掉的草稿不会被当成「没有草稿」而放行。
 
     ``kind`` / ``episode`` 须与所请求的这份草稿一致，缺失或对不上同样按形状坏处理：不校验就
@@ -212,12 +244,15 @@ def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, e
     要点，Agent 若不知道产物还在盘上，就会退回重抽。
     """
     stage, field = _QUARANTINE_REPORT_HINTS[kind]
+    doc_type = QUARANTINE_KIND_TO_DOC_TYPE[kind]
     return (
         f"❌ {stage}产出有 {len(violations)} 处违约，已保存为待修复草稿（正式文件未被改动）：{draft}\n\n"
         f"{render_violation_report(violations)}\n\n"
-        f"处置：直接编辑该草稿的 {field} 修正违约；"
+        f'处置：调用 open_draft({{"episode": {episode}, "doc_type": "{doc_type}"}}) 读取正文与 revision；'
+        f"修正 {field} 后用 patch_draft 携带 base_revision 提交；"
         "若违约是「资产名未登记」，也可改为在 project.json 登记该资产、或改用已登记的名称。\n"
-        f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 重新全量校验并晋升为正式文件；'
+        f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}"}}) '
+        "重新全量校验并晋升为正式文件；"
         "仍有违约时会返回刷新后的报告，可继续修改再晋升，无轮次上限。"
     )
 
@@ -241,15 +276,22 @@ def quarantine_and_report(
 
 
 __all__ = [
+    "DOC_TYPE_DRAMA_STEP1",
+    "DOC_TYPE_NARRATION_STEP1",
+    "DOC_TYPE_REFERENCE_STEP1",
+    "DOC_TYPE_REFERENCE_STEP2",
+    "DOC_TYPE_TO_QUARANTINE_KIND",
+    "OPEN_DRAFT_TOOL_NAME",
     "PROMOTE_TOOL_NAME",
     "QUARANTINE_FILENAMES",
     "QUARANTINE_KIND_DRAMA_STEP1",
     "QUARANTINE_KIND_NARRATION_STEP1",
     "QUARANTINE_KIND_STEP1",
     "QUARANTINE_KIND_STEP2",
-    "STEP1_EDIT_TOOL_NAME",
     "QuarantinedDraft",
     "clear_quarantine",
+    "draft_payload",
+    "draft_revision",
     "quarantine_and_report",
     "quarantine_exists",
     "quarantine_path",

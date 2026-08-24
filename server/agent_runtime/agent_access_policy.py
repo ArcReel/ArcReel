@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from lib.draft_quarantine import PROMOTE_TOOL_NAME, STEP1_EDIT_TOOL_NAME
+from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 from lib.episode_paths import AGENT_PROTECTED_STEP1_FILENAMES
 
 logger = logging.getLogger(__name__)
@@ -689,7 +689,7 @@ class AgentAccessPolicy:
         （迁移读改写、Web 端保存、重生成 / 晋升写盘、Agent 修改），除 Agent 外都持
         ``ProjectManager.file_lock`` 的同一把 per-path 锁；Agent 的 Write/Edit 跑在沙箱里、
         取不到这把锁，直改与并发的 Web 端保存之间就是一个丢失更新窗口。改走
-        ``open_step1_for_edit`` → 改草稿 → 晋升，写盘只发生在持锁的晋升侧。
+        ``open_draft`` → ``patch_draft`` → 晋升，写盘只发生在持锁的晋升侧。
 
         按文件名匹配、不按项目变体解析：写禁在会话装配前就要成立，而项目的 content_mode /
         generation_mode 运行时可变。多认一两个本项目用不到的 step1 文件名无害——那些文件在
@@ -743,8 +743,9 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
             + "）不可用 Write/Edit 直改。"
             "这些文件与 Web 端保存、迁移读改写、重生成共享一把文件锁，而 Write/Edit 取不到这把锁，"
             "直改会与并发的保存互相丢失更新。"
-            f'请改用 MCP 工具——mcp__arcreel__{STEP1_EDIT_TOOL_NAME}({{"episode": N}}) 取回可编辑草稿，'
-            f"改草稿的 content，再用 mcp__arcreel__{PROMOTE_TOOL_NAME} 校验并晋升回正式文件。"
+            f'请改用 MCP 工具——mcp__arcreel__{OPEN_DRAFT_TOOL_NAME}({{"episode": N, "doc_type": "..."}}) '
+            "读取可编辑草稿，用 mcp__arcreel__patch_draft 提交修改，再用 "
+            f"mcp__arcreel__{PROMOTE_TOOL_NAME} 校验并晋升回正式文件。"
         ),
         sandbox_subpaths=("drafts",),
     ),

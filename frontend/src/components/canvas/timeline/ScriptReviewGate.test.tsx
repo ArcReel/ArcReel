@@ -176,7 +176,7 @@ describe("ScriptReviewGate", () => {
     // 已经没问题的东西。
     fireEvent.click(screen.getByText("让 Agent 修复"));
     const input = useAssistantStore.getState().input;
-    expect(input).toContain("validate_and_promote_draft");
+    expect(input).toContain("promote_draft");
     expect(input).not.toContain("违约待修复");
   });
 

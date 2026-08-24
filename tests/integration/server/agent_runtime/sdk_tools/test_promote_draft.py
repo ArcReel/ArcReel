@@ -1,4 +1,4 @@
-"""Tests for validate_and_promote_draft."""
+"""Tests for promote_draft."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import json
 
 import pytest
 
-from lib import script_review
 from lib.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
@@ -25,6 +24,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
 )
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
+    patch_draft_tool,
 )
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
@@ -107,7 +107,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert f"[{code}]" in report
     assert "unit E1U01" in report
     assert str(_rv_quarantine_path(fake_ctx)) in report
-    assert "validate_and_promote_draft" in report
+    assert "promote_draft" in report
 
 
 async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
@@ -130,7 +130,7 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     assert len(envelope["content"]["units"]) == 3
 
 
-async def test_validate_and_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
     """Agent 修好草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
@@ -148,7 +148,7 @@ async def test_validate_and_promote_draft_promotes_after_repair(fake_ctx: ToolCo
     assert saved["units"][0]["text"] == "@[张三] 在 @[村口] 出场"
 
 
-async def test_validate_and_promote_draft_reports_again_without_round_limit(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolContext, monkeypatch) -> None:
     """再违约则再返回刷新后的报告、草稿留在原地，可反复晋升——无收敛轮次上限。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
@@ -176,7 +176,7 @@ async def test_validate_and_promote_draft_reports_again_without_round_limit(fake
 async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext) -> None:
     """「用户在内容确认界面编辑 + Agent 改草稿并晋升」的双端并发：取回后正式文件被另一写入方
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
-    留在原地。按报告把 meta.base_fingerprint 更新为现值（显式确认已合并）后方可重新晋升。"""
+    留在原地。按报告经 open_draft / patch_draft 显式接受 formal_revision 后方可重新晋升。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     await _open_for_edit(fake_ctx, source="source/episode_1.txt")
@@ -190,17 +190,29 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     assert out.get("is_error") is True
     report = out["content"][0]["text"]
     assert "并发冲突" in report
-    assert "base_fingerprint" in report
+    assert "accept_formal_revision" in report
+    assert "patch_draft" in report
+    assert 'doc_type\\": \\"reference_step1' in report
     # 冲突报告附上盘上现值的扁平草稿单元，供 Agent 对照合并
     assert "在 @[村口] 等候" in report
     # 正式文件未被覆盖，草稿仍在场
     assert _rv_step1_path(fake_ctx).read_text(encoding="utf-8") == web_version
     assert _rv_quarantine_path(fake_ctx).exists()
 
-    # 按报告指引更新基线指纹（显式确认已合并对方修改）后重新晋升即放行
-    envelope = _read_rv_quarantine(fake_ctx)
-    envelope["meta"]["base_fingerprint"] = script_review.content_fingerprint(_rv_step1_path(fake_ctx))
-    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    # 按报告指引通过工具合并并显式接受正式版本后，重新晋升即放行。
+    refreshed = json.loads((await _open_for_edit(fake_ctx))["content"][0]["text"])["draft"]
+    refreshed["content"]["units"][0]["text"] = "@[张三] 在 @[村口] 等候"
+    patched = await _call(
+        patch_draft_tool(fake_ctx),
+        {
+            "episode": 1,
+            "doc_type": "reference_step1",
+            "content": refreshed["content"],
+            "base_revision": refreshed["revision"],
+            "accept_formal_revision": refreshed["formal_revision"],
+        },
+    )
+    assert patched.get("is_error") is not True, patched
     out = await _promote(fake_ctx)
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
@@ -208,7 +220,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
 
 async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(fake_ctx: ToolContext) -> None:
     """取回后正式文件被删除：现值指纹是 null，报告须按 JSON 字面量给出而非字符串 "None"。
-    照报告把 meta.base_fingerprint 设为 null 后重晋升即放行——写成字符串则永远比对不上、冲突解不掉。"""
+    照报告用 patch_draft 显式接受 null 后重晋升即放行——写成字符串则永远比对不上。"""
     _rv_source(fake_ctx)
     _write_rv_step1(fake_ctx, [_rv_saved_unit("@[张三] 起身")])
     await _open_for_edit(fake_ctx, source="source/episode_1.txt")
@@ -221,9 +233,19 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
     assert "null" in report
     assert "None" not in report
 
-    envelope = _read_rv_quarantine(fake_ctx)
-    envelope["meta"]["base_fingerprint"] = None
-    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    refreshed = json.loads((await _open_for_edit(fake_ctx))["content"][0]["text"])["draft"]
+    assert refreshed["formal_revision"] is None
+    patched = await _call(
+        patch_draft_tool(fake_ctx),
+        {
+            "episode": 1,
+            "doc_type": "reference_step1",
+            "content": refreshed["content"],
+            "base_revision": refreshed["revision"],
+            "accept_formal_revision": None,
+        },
+    )
+    assert patched.get("is_error") is not True, patched
     out = await _promote(fake_ctx)
     assert out.get("is_error") is not True, out
     assert not _rv_quarantine_path(fake_ctx).exists()
@@ -277,9 +299,7 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
     ],
     ids=["off_slot_duration", "duration_removed", "blank_source_text"],
 )
-async def test_validate_and_promote_draft_rejects_schema_breach(
-    fake_ctx: ToolContext, monkeypatch, mutate, hint: str
-) -> None:
+async def test_promote_draft_rejects_schema_breach(fake_ctx: ToolContext, monkeypatch, mutate, hint: str) -> None:
     """草稿改坏 schema 层字段同样只回报告：晋升与产出走同一份 schema，正式文件不被污染。
 
     时长枚举在产出侧由 response_schema 卡死；晋升侧若只判内容约束，Agent 把 duration_seconds
@@ -310,9 +330,7 @@ async def test_validate_and_promote_draft_rejects_schema_breach(
     ],
     ids=["units_removed", "units_not_a_list", "units_emptied"],
 )
-async def test_validate_and_promote_draft_reports_broken_outer_shape(
-    fake_ctx: ToolContext, monkeypatch, mutate_content
-) -> None:
+async def test_promote_draft_reports_broken_outer_shape(fake_ctx: ToolContext, monkeypatch, mutate_content) -> None:
     """外层形状被改坏同样刷新报告，而不是抛一句裸错误。
 
     units 整个删掉 / 改成非数组 / 清空都是 Agent 编辑草稿时会犯的错。只有逐 unit 的字段违约
@@ -339,7 +357,7 @@ async def test_validate_and_promote_draft_reports_broken_outer_shape(
     assert refreshed["content"] == edited_content
 
 
-async def test_validate_and_promote_draft_requires_source_provenance(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_requires_source_provenance(fake_ctx: ToolContext, monkeypatch) -> None:
     """meta.source 被改掉后不晋升：按整个 source/ 重解析比产出时更松，别集的原文锚会恰好命中。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
@@ -356,7 +374,7 @@ async def test_validate_and_promote_draft_requires_source_provenance(fake_ctx: T
     assert not _rv_step1_path(fake_ctx).exists()
 
 
-async def test_validate_and_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, monkeypatch) -> None:
     """晋升成功的摘要要说「晋升」：说成「拆分」会让 Agent 以为自己的修改被一次重抽覆盖了。"""
     _rv_source(fake_ctx)
     await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("@[不存在的人] 出场")])
@@ -412,10 +430,10 @@ async def test_promote_reference_step1_preserves_step2_draft_when_content_unchan
     assert step2_path.exists()
 
 
-async def test_validate_and_promote_draft_step2_uses_async_factory(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_step2_uses_async_factory(fake_ctx: ToolContext, monkeypatch) -> None:
     """step2 晋升走 ``ScriptGenerator.create``：晋升同样经 _add_metadata 落盘，裸构造会把
     metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import draft_workflow as mod
 
     write_quarantine(
         fake_ctx.project_path,
@@ -444,7 +462,7 @@ async def test_validate_and_promote_draft_step2_uses_async_factory(fake_ctx: Too
     assert "episode_1.json" in out["content"][0]["text"]
 
 
-async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext) -> None:
+async def test_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext) -> None:
     """切走参考路径后不再晋升残留草稿：晋升会按参考路径的形状覆盖该集正式剧本。"""
     _rv_project(fake_ctx, generation_mode="storyboard")
     write_quarantine(
@@ -457,15 +475,13 @@ async def test_validate_and_promote_draft_refuses_after_mode_switch(fake_ctx: To
 
     out = await _promote(fake_ctx)
     assert out.get("is_error") is True
-    # 项目已是 narration + storyboard，晋升按该变体的草稿位分派：残留的参考路径 step2 草稿不在
-    # 它的视野内，故报「本集没有待处置的草稿」而不是去晋升它。
-    assert "没有待处置的草稿" in out["content"][0]["text"]
+    assert "doc_type_not_applicable" in out["content"][0]["text"]
     assert quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2).exists(), (
         "残留草稿应原样留在盘上，不被这条路径消费"
     )
 
 
-async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_step2_blocked_by_review_gate(fake_ctx: ToolContext, monkeypatch) -> None:
     """step1 未经确认时 step2 草稿不晋升：常规生成路径在工具入口就被内容确认拦下，两条路不该分叉。
 
     草稿在场期间用户在 Web 端改过 step1 会让确认指纹失效，该集回到 pending_review——此时晋升等于
@@ -488,13 +504,13 @@ async def test_validate_and_promote_draft_step2_blocked_by_review_gate(fake_ctx:
 
     out = await _promote(fake_ctx)
     assert out.get("is_error") is True
-    assert "尚未完成内容确认" in out["content"][0]["text"]
+    assert "review_required" in out["content"][0]["text"]
 
 
-async def test_validate_and_promote_draft_without_draft(fake_ctx: ToolContext) -> None:
+async def test_promote_draft_without_draft(fake_ctx: ToolContext) -> None:
     out = await _promote(fake_ctx)
     assert out.get("is_error") is True
-    assert "没有待处置的草稿" in out["content"][0]["text"]
+    assert "draft_not_found" in out["content"][0]["text"]
 
 
 async def test_split_reference_video_units_clears_stale_quarantine_on_success(
@@ -531,7 +547,7 @@ async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolConte
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
     assert "草稿待处置" in out["content"][0]["text"]
-    assert "validate_and_promote_draft" in out["content"][0]["text"]
+    assert "promote_draft" in out["content"][0]["text"]
 
 
 async def test_generate_episode_script_preserves_editable_draft_without_violations(fake_ctx: ToolContext) -> None:
@@ -798,8 +814,7 @@ async def test_promote_narration_step1_revalidates_against_current_source(fake_c
 async def test_promote_narration_step1_names_source_scope_on_coverage_violation(fake_ctx: ToolContext) -> None:
     """取回时未指定 source、而 source/ 下不止一集：一字未改的草稿也判不过，报告须指名范围与出路。
 
-    草稿在场时不能重新取回，改 meta.source 是 Agent 唯一的出路；报告只说「分镜正文须原样复制
-    原文」的话，它只会去改一份本来就正确的分镜表。
+    草稿在场时不能重新取回，报告须指引 Agent 通过 patch_draft 更新源文范围。
     """
     _nr_source(fake_ctx)
     (fake_ctx.project_path / "source" / "episode_2.txt").write_text("李四走进院子", encoding="utf-8")
@@ -813,7 +828,22 @@ async def test_promote_narration_step1_names_source_scope_on_coverage_violation(
     assert out.get("is_error") is True
     assert "[novel_text_coverage]" in text
     assert "整个 source/ 目录" in text
-    assert "meta.source" in text
+    assert "patch_draft" in text
+
+    refreshed = json.loads((await _open_nr_for_edit(fake_ctx))["content"][0]["text"])["draft"]
+    patched = await _call(
+        patch_draft_tool(fake_ctx),
+        {
+            "episode": 1,
+            "doc_type": "narration_step1",
+            "content": refreshed["content"],
+            "base_revision": refreshed["revision"],
+            "source": "source/episode_1.txt",
+        },
+    )
+    assert patched.get("is_error") is not True, patched
+    promoted = await _promote_nr(fake_ctx)
+    assert promoted.get("is_error") is not True, promoted
 
 
 async def test_generate_episode_script_blocked_by_narration_quarantine(fake_ctx: ToolContext) -> None:

@@ -12,6 +12,7 @@ from lib.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_STEP1,
     QUARANTINE_KIND_NARRATION_STEP1,
     QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_STEP2,
     quarantine_path,
 )
 from lib.generation_result import (
@@ -23,8 +24,8 @@ from server.agent_runtime.sdk_tools.text_generation import (
     _generate_reference_step1_tool as split_reference_video_units_tool,
 )
 from server.agent_runtime.sdk_tools.text_generation import (
-    open_step1_for_edit_tool,
-    validate_and_promote_draft_tool,
+    open_draft_tool,
+    promote_draft_tool,
 )
 from tests.fakes import FakeConfigResolver
 
@@ -446,7 +447,13 @@ async def _promote(fake_ctx: ToolContext, **caps_kwargs) -> dict:
     if not (fake_ctx.project_path / "project.json").exists():
         _rv_project(fake_ctx)
     _use_fake_caps(fake_ctx, **caps_kwargs)
-    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
+    if _rv_quarantine_path(fake_ctx).exists():
+        doc_type = "reference_step1"
+    elif quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2).exists():
+        doc_type = "reference_step2"
+    else:
+        doc_type = "reference_step1"
+    return await _call(promote_draft_tool(fake_ctx), {"episode": 1, "doc_type": doc_type})
 
 
 def _write_rv_step1(fake_ctx: ToolContext, units: list[dict]) -> None:
@@ -469,7 +476,7 @@ def _rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> d
 async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
     if not (fake_ctx.project_path / "project.json").exists():
         _rv_project(fake_ctx)
-    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
+    return await _call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "reference_step1", **args})
 
 
 def _nr_project(fake_ctx: ToolContext) -> None:
@@ -570,12 +577,12 @@ def _read_drama_quarantine(fake_ctx: ToolContext) -> dict:
 
 
 async def _open_drama_for_edit(fake_ctx: ToolContext, **args) -> dict:
-    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
+    return await _call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "drama_step1", **args})
 
 
 async def _promote_drama(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
     _use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
-    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
+    return await _call(promote_draft_tool(fake_ctx), {"episode": 1, "doc_type": "drama_step1"})
 
 
 def _nr_step1_path(fake_ctx: ToolContext) -> Path:
@@ -597,9 +604,9 @@ def _write_nr_step1(fake_ctx: ToolContext, segments: list[dict]) -> None:
 
 
 async def _open_nr_for_edit(fake_ctx: ToolContext, **args) -> dict:
-    return await _call(open_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
+    return await _call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "narration_step1", **args})
 
 
 async def _promote_nr(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
     _use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
-    return await _call(validate_and_promote_draft_tool(fake_ctx), {"episode": 1})
+    return await _call(promote_draft_tool(fake_ctx), {"episode": 1, "doc_type": "narration_step1"})

@@ -844,7 +844,7 @@ async def test_step2_violation_quarantines_instead_of_discarding(reference_proje
 
     report = str(excinfo.value)
     assert "unregistered_asset" in report
-    assert "validate_and_promote_draft" in report
+    assert "promote_draft" in report
     assert not _script_path(reference_project).exists()
 
     envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
