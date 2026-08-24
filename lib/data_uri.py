@@ -17,16 +17,37 @@ from pathlib import Path
 _DEFAULT_IMAGE_MIME = "image/png"
 
 
+def _image_mime_from_bytes(content: bytes) -> str | None:
+    """从常见图片格式的文件头识别 MIME，无法识别时交由扩展名兼容回退。"""
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if content.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "image/webp"
+    if len(content) >= 12 and content[4:8] == b"ftyp":
+        brand = content[8:12]
+        if brand in {b"heic", b"heix", b"hevc", b"hevx"}:
+            return "image/heic"
+        if brand in {b"mif1", b"msf1"}:
+            return "image/heif"
+    return None
+
+
 def file_to_data_uri(path: Path, mime: str) -> str:
     """本地文件 → base64 data URI；读不到时 OSError 向上冒泡由调用方决定语义。"""
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
 
 
 def image_to_data_uri(image_path: Path, mime_types: Mapping[str, str]) -> str:
-    """本地图片 → base64 data URI，按 `mime_types` 查扩展名，未登记时回落 `image/png`。
+    """本地图片 → base64 data URI，优先按实际字节识别 MIME。
 
-    回落而非报错：图片扩展名的受理口径由上传侧把关，各家 `mime_types` 只列各自明确声明
-    过的格式，落表外的按 png 送出即可。
+    文件名可能在上传、生成或压缩过程中未随实际编码格式同步更新；若按扩展名声明 MIME，
+    供应商会将这种 Data URL 作为格式伪造而拒绝。无法从文件头识别时，保留按供应商
+    `mime_types` 查扩展名、未登记回落 PNG 的既有兼容行为。
     """
-    mime = mime_types.get(image_path.suffix.lower(), _DEFAULT_IMAGE_MIME)
-    return file_to_data_uri(image_path, mime)
+    content = image_path.read_bytes()
+    mime = _image_mime_from_bytes(content) or mime_types.get(image_path.suffix.lower(), _DEFAULT_IMAGE_MIME)
+    return f"data:{mime};base64,{base64.b64encode(content).decode('ascii')}"
