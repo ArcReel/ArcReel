@@ -5,7 +5,6 @@ import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
-import { BRAND } from "@/branding";
 import type { GetSystemConfigResponse, GetSystemVersionResponse, ProviderInfo } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -165,8 +164,7 @@ describe("SystemConfigPage", () => {
     });
   });
 
-  it("shows config warning banner when there are config issues", async () => {
-    // Simulate unconfigured anthropic key to trigger an issue
+  it("does not show warnings when only the embedded-agent credential is missing", async () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(
       makeConfigResponse({ anthropic_api_key: { is_set: false, masked: null } }),
     );
@@ -176,12 +174,10 @@ describe("SystemConfigPage", () => {
     // so land on agent to assert it.
     renderPage("/app/settings?section=agent");
 
-    await waitFor(() => {
-      expect(screen.getByText("当前配置存在以下问题，可能会影响部分功能：")).toBeInTheDocument();
-    });
-    expect(
-      screen.getByText(`${BRAND.name} Agent API Key`, { exact: false }),
-    ).toBeInTheDocument();
+    await screen.findByText("内嵌智能体");
+
+    expect(screen.queryByText("当前配置存在以下问题，可能会影响部分功能：")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("配置未完成")).not.toBeInTheDocument();
   });
 
   it("does not show warning banner when config is complete", async () => {

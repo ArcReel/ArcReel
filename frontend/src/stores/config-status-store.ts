@@ -25,18 +25,7 @@ async function getConfigStatus(): Promise<{
     API.getSystemConfig(),
   ]);
 
-  const settings = configRes.settings;
-
-  // 1. Check anthropic key
-  if (!settings.anthropic_api_key?.is_set) {
-    issues.push({
-      key: "anthropic",
-      tab: "agent",
-      label: "agent_api_key_not_configured",
-    });
-  }
-
-  // 2. Check any provider supports each media type
+  // Check any provider supports each required media type.
   const readyProviders = providers.filter((p) => p.status === "ready");
 
   // 自定义 provider 的 endpoint→mediaType 映射要从 catalog 派生：仅在有自定义 provider 时
@@ -86,7 +75,7 @@ async function getConfigStatus(): Promise<{
   return {
     issues,
     availableMediaTypes,
-    isEmbeddedAgentConfigured: settings.anthropic_api_key?.is_set ?? false,
+    isEmbeddedAgentConfigured: configRes.settings.anthropic_api_key?.is_set ?? false,
   };
 }
 

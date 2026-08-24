@@ -108,8 +108,14 @@ export default {
   'chat_role_assistant': 'Agent',
   'chat_role_system': 'System',
   'chat_role_message': 'Message',
-  'agent_sdk_desc': 'Powered by Claude Agent SDK, driving conversational AI agents and automated workflows',
-  'claude_code_compat_hint': 'Configuration is compatible with Claude Code environment variables and Coding Plan APIs.',
+  'agent_access_kicker': 'Agent Access',
+  'agent_access_title': 'Choose how to connect an agent',
+  'agent_access_desc': 'Use the embedded agent or connect your preferred external agent; either path is enough to start creating.',
+  'embedded_agent': 'Embedded agent',
+  'embedded_agent_desc': 'Chat and run production workflows in the Web UI. Configure an Anthropic-compatible credential below.',
+  'external_agent': 'External agent',
+  'external_agent_desc': 'Connect your preferred external agent directly to [[brand]] without configuring embedded-agent credentials.',
+  'external_agent_guide': 'Connect an external agent',
   'api_access': 'API Access',
   'anthropic_creds_desc': 'Set Anthropic API access credentials.',
   'anthropic_api_key': 'Anthropic API Key',
@@ -602,7 +608,7 @@ export default {
 
   // AgentConfigTab
   'api_credentials': 'API Credentials',
-  'anthropic_key_required_desc': 'Anthropic API Key is required for the agent to function',
+  'anthropic_key_required_desc': 'An Anthropic-compatible credential is required when using the embedded agent',
   'env_anthropic_api_key': 'Maps to environment variable ANTHROPIC_API_KEY',
   'clear_saved_anthropic_key': 'Clear saved Anthropic API Key',
   'clear_saved': 'Clear saved',
@@ -674,7 +680,6 @@ export default {
   'blocking_issues': 'Blocking Issues',
   'auto_fixed_issues': 'Auto-fixed Issues',
   // config-status-store
-  'agent_api_key_not_configured': '[[brand]] Agent API Key (Anthropic) not configured',
   'video_provider_not_configured': 'No provider configured for video generation',
   'image_provider_not_configured': 'No provider configured for image generation',
   'text_provider_not_configured': 'No provider configured for text generation',
