@@ -1012,6 +1012,7 @@ export default {
   'endpoint_openai_images_edits_display': 'OpenAI Images (I2I only)',
   'endpoint_gemini_image_display': 'Google Gemini Image',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
+  'endpoint_grok_sub2api_video_display': 'Grok Subscription Video (Sub2API)',
   'endpoint_newapi_video_display': 'NewAPI Unified Video',
   'endpoint_v2_video_generations_display': 'V2 Video Generations',
   'endpoint_ark_seedance_display': 'Volcengine Ark (Seedance)',

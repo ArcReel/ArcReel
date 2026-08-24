@@ -1011,6 +1011,7 @@ export default {
   'endpoint_openai_images_edits_display': 'OpenAI 图片（仅图生图）',
   'endpoint_gemini_image_display': 'Gemini 图片',
   'endpoint_openai_video_display': 'OpenAI 视频 (Sora)',
+  'endpoint_grok_sub2api_video_display': 'Grok 订阅视频（Sub2API）',
   'endpoint_newapi_video_display': 'NewAPI 视频',
   'endpoint_v2_video_generations_display': 'V2 统一视频',
   'endpoint_ark_seedance_display': '火山方舟 (Seedance)',

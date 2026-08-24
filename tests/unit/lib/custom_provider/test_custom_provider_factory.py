@@ -28,6 +28,7 @@ _ENDPOINT_BACKEND_CLASSES = (
     "DashScopeVideoBackend",
     "GeminiImageBackend",
     "GeminiTextBackend",
+    "GrokSub2APIVideoBackend",
     "KlingImageBackend",
     "KlingVideoBackend",
     "MiniMaxImageBackend",
@@ -77,6 +78,21 @@ def _built(provider: MagicMock, model_id: str, endpoint: str, **kwargs: Any) -> 
 
 
 class TestEndpointDispatch:
+    def test_grok_sub2api_video(self):
+        provider = _make_provider(base_url="https://sub2api.example", api_key="managed-client-key")
+        result, built = _built(provider, "grok-imagine-video-1.5", "grok-sub2api-video")
+        assert isinstance(result, CustomVideoBackend)
+        assert result.endpoint == "grok-sub2api-video"
+        assert result.model == "grok-imagine-video-1.5"
+        assert built == {
+            "backend": "GrokSub2APIVideoBackend",
+            "kwargs": {
+                "api_key": "managed-client-key",
+                "base_url": "https://sub2api.example",
+                "model": "grok-imagine-video-1.5",
+            },
+        }
+
     def test_openai_chat(self):
         # host-only base_url：openai 端点补 /v1 的接线在此覆盖
         provider = _make_provider(base_url="https://api.example.com")
