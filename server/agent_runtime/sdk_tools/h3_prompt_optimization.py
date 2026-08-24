@@ -29,6 +29,23 @@ _SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+_UPDATE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "episode": {"type": "integer", "minimum": 1},
+        "unit_id": {"type": "string", "minLength": 1},
+        "rendered_prompt": {"type": "string", "minLength": 1},
+        "narration_delivery": {
+            "type": "string",
+            "enum": ["post_production", "use_tts"],
+            "default": "post_production",
+        },
+        "confirmed_request_duration_seconds": {"type": "integer", "minimum": 1},
+    },
+    "required": ["episode", "unit_id", "rendered_prompt"],
+    "additionalProperties": False,
+}
+
 
 def _args(args: dict[str, Any]) -> dict[str, Any]:
     episode = args.get("episode")
@@ -72,4 +89,39 @@ def optimize_h3_video_prompts_tool(ctx: ToolContext):
     return _handler
 
 
-__all__ = ["optimize_h3_video_prompts_tool"]
+def update_h3_video_prompt_tool(ctx: ToolContext):
+    @tool(
+        "update_h3_video_prompt",
+        "按用户要求编辑一个已有且仍有效的 MiniMax H3 六段式视频提示词；保存前会按当前时长和参考素材重新校验。",
+        _UPDATE_SCHEMA,
+    )
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            episode = args.get("episode")
+            unit_id = args.get("unit_id")
+            rendered_prompt = args.get("rendered_prompt")
+            if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
+                raise ValueError("episode must be a positive integer")
+            if not isinstance(unit_id, str) or not unit_id.strip():
+                raise ValueError("unit_id must be a non-empty string")
+            if not isinstance(rendered_prompt, str) or not rendered_prompt.strip():
+                raise ValueError("rendered_prompt must be a non-empty string")
+            duration = args.get("confirmed_request_duration_seconds")
+            if duration is not None and (not isinstance(duration, int) or isinstance(duration, bool) or duration < 1):
+                raise ValueError("confirmed_request_duration_seconds must be a positive integer")
+            artifact = await H3PromptOptimizationService(ctx.pm).update_prompt(
+                ctx.project_name,
+                episode,
+                unit_id=unit_id,
+                rendered_prompt=rendered_prompt,
+                narration_delivery=args.get("narration_delivery") or "post_production",
+                confirmed_request_duration_seconds=duration,
+            )
+            return _response("artifacts", [artifact])
+        except Exception as exc:  # noqa: BLE001 - MCP adapters return a controlled error envelope
+            return tool_error("update_h3_video_prompt", exc)
+
+    return _handler
+
+
+__all__ = ["optimize_h3_video_prompts_tool", "update_h3_video_prompt_tool"]

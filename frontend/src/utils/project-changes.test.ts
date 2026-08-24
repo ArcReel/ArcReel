@@ -182,6 +182,26 @@ describe("project-changes utils", () => {
     expect(formatGroupedNotificationText(group, t)).not.toContain("内容");
   });
 
+  it("labels grouped reference keyframe updates with stable ids", () => {
+    const [group] = groupChangesByType(
+      ["E1U01K01", "E1U02K01"].map((id) =>
+        makeChange({
+          entity_type: "reference_keyframe",
+          action: "updated",
+          entity_id: id,
+          label: `关键分镜「${id}」`,
+          label_key: "reference_keyframe",
+          label_params: { id },
+        }),
+      ),
+    );
+
+    expect(formatGroupedNotificationText(group, t)).toBe(
+      "更新了 2 个关键分镜：E1U01K01、E1U02K01",
+    );
+    expect(formatGroupedNotificationText(group, t)).not.toContain("内容");
+  });
+
   it("labels grouped product asset updates with product names instead of the fallback noun", () => {
     const [group] = groupChangesByType(
       ["保温杯", "帆布袋"].map((id) =>

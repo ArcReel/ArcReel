@@ -411,6 +411,12 @@ def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> t
 
     result: list[ResolvedReferenceAsset] = []
     for reference in unit_reference_declarations(project, unit):
+        if reference.type == "storyboard_sheet":
+            sheet = unit.get("storyboard_sheet")
+            path = _candidate_path(project_path, sheet.get("image_path") if isinstance(sheet, dict) else None)
+            if path is not None:
+                result.append(ResolvedReferenceAsset(path=path, reference=reference, kind="storyboard_sheet"))
+            continue
         if reference.type == "keyframe":
             owned = next(
                 (
@@ -556,6 +562,13 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     "reference_asset_missing": ("repair_reference_assets", (("text",),)),
     "reference_capability_changed": ("repair_reference_assets", (("text",),)),
     "reference_images_clamped": ("review_reference_selection", (("text",),)),
+    "reference_storyboard_sheet_required": ("generate_reference_storyboard_sheets", (("storyboard_sheet",),)),
+    "reference_storyboard_sheet_confirmation_required": (
+        "confirm_reference_storyboard_sheet",
+        (("storyboard_sheet",),),
+    ),
+    "reference_keyframe_plan_required": ("repair_keyframe_plan", (("keyframes",),)),
+    "reference_keyframe_images_required": ("generate_reference_keyframes", (("keyframes",),)),
     "video_audio_switch_not_supported": (
         "enable_model_audio",
         (("generation_settings", "generate_audio"),),
@@ -619,6 +632,43 @@ class ReferenceUnitRequestProjector:
         available = hydration.available
 
         problems: list[ProjectionProblem] = []
+        # This projector is also used by isolated capability/cost tests with a
+        # deliberately route-less project dict.  The review gate belongs to the
+        # explicit reference_video product route, never to those generic facts.
+        if project.get("generation_mode") == "reference_video":
+            unit_id = str(unit.get("unit_id") or "")
+            if not any(
+                isinstance(item, dict)
+                and str(item.get("keyframe_id") or "").strip()
+                and str(item.get("description") or "").strip()
+                for item in unit.get("keyframes") or []
+            ):
+                problems.append(_problem("reference_keyframe_plan_required", blocking=True, unit_id=unit_id))
+            else:
+                missing_keyframe_ids = [
+                    str(item.get("keyframe_id") or "").strip()
+                    for item in unit.get("keyframes") or []
+                    if isinstance(item, dict)
+                    and str(item.get("keyframe_id") or "").strip()
+                    and str(item.get("description") or "").strip()
+                    and not str(item.get("image_path") or "").strip()
+                ]
+                if missing_keyframe_ids:
+                    problems.append(
+                        _problem(
+                            "reference_keyframe_images_required",
+                            blocking=True,
+                            unit_id=unit_id,
+                            keyframe_ids=", ".join(missing_keyframe_ids),
+                        )
+                    )
+            sheet = unit.get("storyboard_sheet")
+            if not isinstance(sheet, dict) or not str(sheet.get("image_path") or "").strip():
+                problems.append(_problem("reference_storyboard_sheet_required", blocking=True, unit_id=unit_id))
+            elif sheet.get("status") != "confirmed":
+                problems.append(
+                    _problem("reference_storyboard_sheet_confirmation_required", blocking=True, unit_id=unit_id)
+                )
         if options.narration_preparation is not None:
             for delivery_problem in options.narration_preparation.problems:
                 problems.append(
@@ -679,10 +729,12 @@ class ReferenceUnitRequestProjector:
         if candidate is not None:
             request_assets = clamp_reference_assets(available, candidate.max_reference_images)
             if len(request_assets) < len(available):
+                sheet = unit.get("storyboard_sheet")
+                confirmed_sheet = isinstance(sheet, dict) and sheet.get("status") == "confirmed"
                 problems.append(
                     _problem(
                         "reference_images_clamped",
-                        blocking=False,
+                        blocking=confirmed_sheet,
                         count=len(available),
                         max_count=candidate.max_reference_images,
                         provider=candidate.provider_id,

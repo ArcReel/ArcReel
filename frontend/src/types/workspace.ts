@@ -6,7 +6,14 @@ export interface ProjectChangeFocus {
   // segment/drama_scene/shot 三种骨架条目走时间线画布，锚点类型统一为 segment；video_units 走参考
   // 生视频画布，锚点类型为 reference_unit；四类项目资产使用各自类型（与
   // WorkspaceFocusTarget["type"] 及画布守卫对齐）。
-  anchor_type?: "character" | "scene" | "prop" | "product" | "segment" | "reference_unit";
+  anchor_type?:
+    | "character"
+    | "scene"
+    | "prop"
+    | "product"
+    | "segment"
+    | "reference_unit"
+    | "reference_keyframe";
   anchor_id?: string;
   tab?: string;
 }
@@ -24,6 +31,7 @@ export interface ProjectChange {
     | "drama_scene"
     | "shot"
     | "reference_unit"
+    | "reference_keyframe"
     | "episode"
     | "overview"
     | "draft"
@@ -83,7 +91,15 @@ export interface ProjectDeletedPayload {
 
 export interface WorkspaceFocusTarget {
   request_id: string;
-  type: "character" | "scene" | "prop" | "product" | "segment" | "grid" | "reference_unit";
+  type:
+    | "character"
+    | "scene"
+    | "prop"
+    | "product"
+    | "segment"
+    | "grid"
+    | "reference_unit"
+    | "reference_keyframe";
   id: string;
   route: string;
   highlight: true;

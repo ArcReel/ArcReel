@@ -55,6 +55,7 @@ from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_scene_tool,
     generate_video_selected_tool,
 )
+from server.agent_runtime.sdk_tools.h3_prompt_optimization import update_h3_video_prompt_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     _parse_normalized_content,
     generate_episode_script_tool,
@@ -337,6 +338,12 @@ def fake_ctx(tmp_path: Path) -> ToolContext:
     (project_dir / "audio").mkdir()
     (project_dir / "audio" / "segment_E1S01.wav").write_bytes(b"")
     (project_dir / "audio" / "segment_E1S02.wav").write_bytes(b"")
+    # Reference-video fixtures that exercise video admission start after the
+    # mandatory Video Unit Storyboard Sheet → keyframe gate.
+    (project_dir / "storyboard_sheets").mkdir()
+    (project_dir / "storyboard_sheets" / "E1U1.png").write_bytes(b"")
+    (project_dir / "keyframes").mkdir()
+    (project_dir / "keyframes" / "E1U1K01.png").write_bytes(b"")
 
     return ToolContext(
         project_name="demo",
@@ -525,6 +532,61 @@ def test_delete_project_asset_registered_as_controlled_editor() -> None:
 
     assert "delete_project_asset" in ARCREEL_MCP_TOOL_IDS
     assert "delete_project_asset" not in MIGRATION_BLOCKED_TOOL_IDS
+
+
+@pytest.mark.unit
+def test_update_h3_video_prompt_is_registered_and_migration_guarded() -> None:
+    from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
+
+    assert "update_h3_video_prompt" in ARCREEL_MCP_TOOL_IDS
+    assert "update_h3_video_prompt" in MIGRATION_BLOCKED_TOOL_IDS
+
+
+@pytest.mark.unit
+async def test_update_h3_video_prompt_uses_the_shared_operation(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from server.agent_runtime.sdk_tools import h3_prompt_optimization as mod
+
+    captured: dict[str, Any] = {}
+
+    class _Artifact:
+        def model_dump(self, *, mode: str) -> dict[str, Any]:
+            assert mode == "json"
+            return {"unit_id": "E1U01", "rendered_prompt": "edited"}
+
+    class _Service:
+        def __init__(self, pm: ProjectManager) -> None:
+            assert pm is fake_ctx.pm
+
+        async def update_prompt(self, project_name: str, episode: int, **kwargs: Any) -> _Artifact:
+            captured.update({"project_name": project_name, "episode": episode, **kwargs})
+            return _Artifact()
+
+    monkeypatch.setattr(mod, "H3PromptOptimizationService", _Service)
+    tool_obj = update_h3_video_prompt_tool(fake_ctx)
+
+    out = await _call(
+        tool_obj,
+        {
+            "episode": 1,
+            "unit_id": "E1U01",
+            "rendered_prompt": "edited",
+            "narration_delivery": "use_tts",
+        },
+    )
+
+    assert out.get("is_error") is not True
+    assert out["artifacts"] == [{"unit_id": "E1U01", "rendered_prompt": "edited"}]
+    assert captured == {
+        "project_name": fake_ctx.project_name,
+        "episode": 1,
+        "unit_id": "E1U01",
+        "rendered_prompt": "edited",
+        "narration_delivery": "use_tts",
+        "confirmed_request_duration_seconds": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -3202,17 +3264,37 @@ async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
     assert out.get("is_error") is True
 
 
+def _reference_video_unit(
+    unit_id: str = "E1U1",
+    *,
+    text: str = "@张三 推门",
+    duration_seconds: int = 5,
+) -> dict[str, Any]:
+    keyframe_id_value = f"{unit_id}K01"
+    return {
+        "unit_id": unit_id,
+        "text": f"@[关键分镜 {keyframe_id_value}] {text}",
+        "duration_seconds": duration_seconds,
+        "keyframes": [
+            {
+                "keyframe_id": keyframe_id_value,
+                "description": f"{unit_id} 开场场景的第一个稳定画面",
+                "image_path": f"keyframes/{keyframe_id_value}.png",
+            }
+        ],
+        "storyboard_sheet": {
+            "image_path": f"storyboard_sheets/{unit_id}.png",
+            "status": "confirmed",
+            "confirmed_at": "2026-08-24T00:00:00Z",
+        },
+    }
+
+
 def _reference_video_script(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "content_mode": "narration",
         "episode": 1,
-        "video_units": [
-            {
-                "unit_id": "E1U1",
-                "text": "@张三 推门",
-                "duration_seconds": 5,
-            }
-        ],
+        "video_units": [_reference_video_unit()],
     }
     payload.update(overrides)
     return payload
@@ -3533,16 +3615,8 @@ async def test_generate_video_episode_confirms_two_tiers_in_one_batch(fake_ctx: 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script(  # type: ignore[attr-defined]
         video_units=[
-            {
-                "unit_id": "E1U1",
-                "text": "@张三 推门",
-                "duration_seconds": 5,
-            },
-            {
-                "unit_id": "E1U2",
-                "text": "@张三 回头",
-                "duration_seconds": 6,
-            },
+            _reference_video_unit("E1U1", text="@张三 推门", duration_seconds=5),
+            _reference_video_unit("E1U2", text="@张三 回头", duration_seconds=6),
         ]
     )
     tiers = {"E1U1": 8, "E1U2": 12}
@@ -3940,20 +4014,8 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     script = _reference_video_script()
-    script["video_units"].append(
-        {
-            "unit_id": "E1U2",
-            "text": "@张三 转身",
-            "duration_seconds": 5,
-        }
-    )
-    script["video_units"].append(
-        {
-            "unit_id": "E1U3",
-            "text": "空镜转场",
-            "duration_seconds": 5,
-        }
-    )
+    script["video_units"].append(_reference_video_unit("E1U2", text="@张三 转身"))
+    script["video_units"].append(_reference_video_unit("E1U3", text="空镜转场"))
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
@@ -3979,7 +4041,7 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
 
     # 三个 unit 均 5 秒、申请 8 秒 → 都需确认，本批不入队；实际水合桶随每个结果可观察。
     assert out.get("is_error") is not True, out
-    assert context_calls == ["r2v", "r2v", "i2v"]
+    assert context_calls == ["r2v", "r2v", "r2v"]
     assert enqueued == []
 
 
@@ -6401,7 +6463,19 @@ def _ad_reference_unit(**overrides: Any) -> dict[str, Any]:
     unit: dict[str, Any] = {
         "unit_id": "E1U1",
         "duration_seconds": 5,
-        "text": "@[保温杯] 置于桌面",
+        "text": "@[关键分镜 E1U1K01] @[保温杯] 置于桌面",
+        "keyframes": [
+            {
+                "keyframe_id": "E1U1K01",
+                "description": "保温杯刚放上桌面的第一个稳定画面",
+                "image_path": "keyframes/E1U1K01.png",
+            }
+        ],
+        "storyboard_sheet": {
+            "image_path": "storyboard_sheets/E1U1.png",
+            "status": "confirmed",
+            "confirmed_at": "2026-08-24T00:00:00Z",
+        },
         "generated_assets": {},
     }
     unit.update(overrides)
@@ -7195,7 +7269,7 @@ async def test_split_reference_video_units_counts_keyframes_toward_reference_lim
     )
 
     assert out.get("is_error") is True
-    assert "普通资产引用（1）与关键分镜（2）合计超过" in out["content"][0]["text"]
+    assert "普通资产引用（1）、关键分镜（2）与 Video Unit Storyboard Sheet（1）合计超过" in out["content"][0]["text"]
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["reference_limit_with_keyframes"]
 
 

@@ -10,6 +10,7 @@ from lib.script_models import ReferenceResource
 
 MAX_KEYFRAMES_PER_UNIT = 5
 KEYFRAME_MENTION_PREFIX = "关键分镜 "
+DEFAULT_ENTRY_KEYFRAME_DESCRIPTION = "当前 Video Unit 开场场景的第一个稳定画面"
 _PLACEHOLDER_RE = re.compile(r"\[\[关键分镜([1-5])\]\]")
 
 
@@ -97,4 +98,3 @@ def keyframe_references_in_text(unit: dict[str, Any]) -> dict[str, ReferenceReso
         if isinstance(value, str) and value:
             result[f"{KEYFRAME_MENTION_PREFIX}{value}"] = ReferenceResource(type="keyframe", name=value)
     return result
-

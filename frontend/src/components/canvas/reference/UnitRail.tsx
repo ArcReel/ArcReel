@@ -7,6 +7,7 @@ export interface UnitRailProps {
   units: ReferenceVideoUnit[];
   selectedId: string | null;
   onSelect: (unitId: string) => void;
+  onNavigateView?: (direction: -1 | 1) => void;
   onExpand: () => void;
   dirtyMap?: Record<string, boolean>;
   statusMap?: Record<string, UnitStatus>;
@@ -17,7 +18,15 @@ export interface UnitRailProps {
  * threshold for the full UnitList. Top button expands the list into a flyout
  * drawer (parent state), each row shows the unit short id + status + dirty dot.
  */
-export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, statusMap }: UnitRailProps) {
+export function UnitRail({
+  units,
+  selectedId,
+  onSelect,
+  onNavigateView,
+  onExpand,
+  dirtyMap,
+  statusMap,
+}: UnitRailProps) {
   const { t } = useTranslation("dashboard");
 
   return (
@@ -44,6 +53,24 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
               key={u.unit_id}
               type="button"
               onClick={() => onSelect(u.unit_id)}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                  e.preventDefault();
+                  const next =
+                    e.key === "ArrowDown"
+                      ? e.currentTarget.nextElementSibling
+                      : e.currentTarget.previousElementSibling;
+                  if (next instanceof HTMLElement) {
+                    next.focus();
+                    next.click();
+                  }
+                  return;
+                }
+                if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                  e.preventDefault();
+                  onNavigateView?.(e.key === "ArrowRight" ? 1 : -1);
+                }
+              }}
               title={`${u.unit_id} · ${t(conf.i18nKey)}`}
               className={`focus-ring relative flex w-full flex-col items-center gap-1 rounded-md py-2 ${
                 sel

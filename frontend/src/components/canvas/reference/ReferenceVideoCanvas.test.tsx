@@ -9,7 +9,7 @@ import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
-import type { ReferenceDurationPrecheck, ReferenceVideoUnit } from "@/types";
+import type { H3PromptArtifact, ReferenceDurationPrecheck, ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
 
 // useActiveResourceIds / useLatestTasksByResource 默认包裹真实实现，仅在个别用例里
@@ -51,6 +51,26 @@ function mkUnit(id: string, text = "x"): ReferenceVideoUnit {
   };
 }
 
+function mkH3Artifact(renderedPrompt: string): H3PromptArtifact {
+  return {
+    unit_id: "E1U1",
+    status: "pending_review",
+    rendered_prompt: renderedPrompt,
+    basis_digest: "basis-v1",
+    model_id: "MiniMax-H3",
+    optimizer_provider: "test",
+    optimizer_model: "test-model",
+    request_duration_seconds: 8,
+    resolution: "768p",
+    aspect_ratio: "16:9",
+    narration_delivery: "post_production",
+    reference_images: [],
+    reference_audio: [],
+    optimized_at: "2026-08-24T00:00:00Z",
+    confirmed_at: null,
+  };
+}
+
 /** 批量端点的准入结论骨架；恒 200，decision 携带结局。 */
 function mkAdmission(patch: Record<string, unknown> = {}) {
   return {
@@ -72,6 +92,7 @@ function mkAdmission(patch: Record<string, unknown> = {}) {
 // 单元预览面板的生成 CTA。锚定行首把批量入口「批量生成视频」排除在外——两者都含
 // 「生成视频」，不锚定会按 DOM 顺序先匹配到批量按钮，测到的就不是这条提交路径。
 const UNIT_GENERATE_CTA = /^(Generate video|生成视频)/;
+const scrollIntoViewMock = vi.fn();
 
 function runningTask(unitId: string) {
   return {
@@ -96,6 +117,11 @@ const STUB_PROJECT: ProjectData = {
 
 describe("ReferenceVideoCanvas", () => {
   beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+    scrollIntoViewMock.mockReset();
     vi.mocked(useActiveResourceIds).mockImplementation(mockHolder.realActiveResourceIds);
     vi.mocked(useLatestTasksByResource).mockImplementation(mockHolder.realLatestTasksByResource);
     useReferenceVideoStore.setState({ unitsByEpisode: {}, selectedUnitId: null, loading: false, error: null });
@@ -130,6 +156,20 @@ describe("ReferenceVideoCanvas", () => {
         },
       ],
     }));
+  });
+
+  it("shows the distinct Video Unit Storyboard Sheet gate before keyframes", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const sheetTab = await screen.findByRole("tab", { name: "Video Unit Storyboard Sheet" });
+    const keyframeTab = screen.getByRole("tab", { name: /Keyframes|关键分镜/ });
+    expect(sheetTab.compareDocumentPosition(keyframeTab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(sheetTab);
+    expect(
+      await screen.findByText(/Video Unit Storyboard Sheet (has not been generated|尚未生成)/),
+    ).toBeInTheDocument();
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -231,20 +271,70 @@ describe("ReferenceVideoCanvas", () => {
     expect(await screen.findByRole("combobox")).toBeInTheDocument();
   });
 
-  it("shows a read-only H3 tab inside the selected video unit only when applicable", async () => {
+  it("switches editor views with horizontal arrows while a unit is focused", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "中景。")],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const unit = await screen.findByTestId("unit-row-E1U1");
+    unit.focus();
+    fireEvent.keyDown(unit, { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: /Storyboard Sheet|分镜表/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    fireEvent.keyDown(unit, { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: /Keyframes|关键分镜/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    fireEvent.keyDown(unit, { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: /Parse preview|解析预览/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("edits an existing H3 prompt from the pencil icon and saves below the textarea", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "中景。")] });
+    const original = "subject_definitions:\nOriginal";
+    const edited = "subject_definitions:\nEdited";
     vi.mocked(API.getH3PromptStates).mockResolvedValue({
-      states: [{ unit_id: "E1U1", state: "missing", artifact: null }],
+      states: [{ unit_id: "E1U1", state: "pending_review", artifact: mkH3Artifact(original) }],
+    });
+    const updateSpy = vi.spyOn(API, "updateH3Prompt").mockResolvedValue({
+      artifact: mkH3Artifact(edited),
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
 
     const h3Tab = await screen.findByRole("tab", { name: /H3/ });
     fireEvent.click(h3Tab);
 
-    expect(await screen.findByText(/生成视频时将自动优化|optimized automatically when video generation starts/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /优化提示词|Optimize prompt/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /确认并放行|Confirm and release/ })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveTextContent("subject_definitions: Original"));
+    expect(screen.queryByRole("button", { name: /^(Edit|编辑)$/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^(Save|保存)$/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^(Edit|编辑)$/ }));
+    const textarea = screen.getByRole("textbox", { name: /MiniMax H3/ });
+    expect(textarea).toHaveValue(original);
+    const saveButton = screen.getByRole("button", { name: /^(Save|保存)$/ });
+    expect(saveButton).toBeDisabled();
+
+    fireEvent.change(textarea, { target: { value: edited } });
+    expect(saveButton).not.toBeDisabled();
+    fireEvent.click(saveButton);
+
+    await waitFor(() =>
+      expect(updateSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
+        rendered_prompt: edited,
+        narration_delivery: "post_production",
+      }),
+    );
+    await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveTextContent("subject_definitions: Edited"));
+    expect(screen.queryByRole("textbox", { name: /MiniMax H3/ })).toBeNull();
   });
 
   // 两个 tabpanel 同时刻只挂载一个，共用静态 id 会让未选中 tab 的 aria-controls
@@ -1429,6 +1519,46 @@ describe("ReferenceVideoCanvas", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  it("opens the owning unit and locates a reference keyframe card", async () => {
+    const first = mkUnit("E1U1");
+    const second = mkUnit("E1U2");
+    second.storyboard_sheet = {
+      image_path: "storyboard_sheets/E1U2.png",
+      status: "confirmed",
+      confirmed_at: "2026-08-24T00:00:00Z",
+    };
+    second.keyframes = [
+      {
+        keyframe_id: "E1U2K01",
+        description: "雨夜车窗",
+        image_path: "keyframes/E1U2K01.png",
+      },
+    ];
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [first, second] });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U1"));
+
+    act(() => {
+      useAppStore.getState().triggerScrollTo({
+        type: "reference_keyframe",
+        id: "E1U2K01",
+        route: "/episodes/1",
+      });
+    });
+
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U2"));
+    expect(screen.getByRole("tab", { name: /Keyframes|关键分镜/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await waitFor(() => {
+      expect(document.getElementById("reference_keyframe-E1U2K01")).toBeInTheDocument();
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+      expect(useAppStore.getState().scrollTarget).toBeNull();
+    });
   });
 
   // 慢网/冷启动回归：units 仍在加载（loadUnits 未返回）时，即便 target 已过期也不该

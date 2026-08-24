@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from math import gcd
 from pathlib import Path
 from typing import Any
+
+from PIL import Image
 
 from lib.artifact_activation import (
     ArtifactCurrencyResolver,
@@ -55,7 +58,12 @@ from server.services.generation_tasks import (
 IMAGE_EDIT_VERSION_SOURCE = "image_edit"
 
 # 可编辑的资源类型白名单（API 契约用的单数形态；storyboard 之外与 ASSET_SPECS 同源）
-EDITABLE_RESOURCE_TYPES: tuple[str, ...] = (*ASSET_SPECS.keys(), "storyboard", "reference_keyframe")
+EDITABLE_RESOURCE_TYPES: tuple[str, ...] = (
+    *ASSET_SPECS.keys(),
+    "storyboard",
+    "reference_keyframe",
+    "reference_storyboard_sheet",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +112,8 @@ def edit_version_resource_type(resource_type: str) -> str:
         return "storyboards"
     if resource_type == "reference_keyframe":
         return "keyframes"
+    if resource_type == "reference_storyboard_sheet":
+        return "storyboard_sheets"
     return ASSET_SPECS[resource_type].bucket_key
 
 
@@ -137,6 +147,21 @@ def _resolve_current_image_pointer(
         if found is None:
             raise KeyError(f"reference keyframe not found: {resource_id}")
         pointer = found[1].get("image_path")
+        return resource_id, pointer if isinstance(pointer, str) and pointer else None
+
+    if resource_type == "reference_storyboard_sheet":
+        unit = next(
+            (
+                item
+                for item in (script or {}).get("video_units") or []
+                if isinstance(item, dict) and item.get("unit_id") == resource_id
+            ),
+            None,
+        )
+        if unit is None:
+            raise KeyError(f"reference video unit not found: {resource_id}")
+        sheet = unit.get("storyboard_sheet")
+        pointer = sheet.get("image_path") if isinstance(sheet, dict) else None
         return resource_id, pointer if isinstance(pointer, str) and pointer else None
 
     if resource_type == "storyboard":
@@ -184,7 +209,7 @@ def resolve_usable_image_edit_source(
     resolved_id, artifact_path = _resolve_current_image_pointer(project, resource_type, resource_id, script)
     if not artifact_path:
         return None
-    if resource_type == "reference_keyframe":
+    if resource_type in {"reference_keyframe", "reference_storyboard_sheet"}:
         current = project_path / artifact_path
         if not current.is_file():
             return None
@@ -244,7 +269,7 @@ def _assert_selected_image_edit_source_usable(
         )
 
     try:
-        if resource_type in {"storyboard", "reference_keyframe"}:
+        if resource_type in {"storyboard", "reference_keyframe", "reference_storyboard_sheet"}:
             if script_file is None:
                 raise ValueError("script_file is required for storyboard image edit admission")
             with pm.locked_project_script_snapshot(project_name, script_file) as (current_project, current_script):
@@ -361,6 +386,123 @@ async def _execute_reference_keyframe_edit(
     }
 
 
+async def _execute_reference_storyboard_sheet_edit(
+    *,
+    project_name: str,
+    resource_id: str,
+    instruction: str,
+    script_file: str,
+    payload: dict[str, Any],
+    user_id: str,
+) -> dict[str, Any]:
+    """Edit a unit-owned Storyboard Sheet and invalidate its prior confirmation."""
+
+    def _prepare():
+        pm = get_project_manager()
+        project = pm.load_project(project_name)
+        project_path = pm.get_project_path(project_name)
+        script = pm.load_script(project_name, script_file)
+        source = resolve_usable_image_edit_source(
+            project=project,
+            project_path=project_path,
+            resource_type="reference_storyboard_sheet",
+            resource_id=resource_id,
+            script=script,
+            artifact_episode=None,
+            resolver=active_artifact_currency_resolver(project_path, project),
+        )
+        if source is None:
+            raise ValueError(f"no current image to edit: reference_storyboard_sheet/{resource_id}")
+        current = project_path / source.artifact_path
+        with Image.open(current) as image:
+            width, height = image.size
+        divisor = gcd(width, height)
+        source_aspect_ratio = f"{width // divisor}:{height // divisor}"
+        frozen = freeze_image_references(
+            [current],
+            [
+                VisualReference(
+                    path=current,
+                    role="edit_source",
+                    logical_type="reference_storyboard_sheet",
+                    logical_id=resource_id,
+                    kind="current",
+                )
+            ],
+        )
+        return project, project_path, source, current, source_aspect_ratio, frozen
+
+    project, project_path, selected, current_image, source_aspect_ratio, frozen = await asyncio.to_thread(_prepare)
+    try:
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            image=ImageLaneRequest(capability="i2i"),
+        )
+        await asyncio.to_thread(
+            ctx.generator.versions.ensure_current_tracked,
+            "storyboard_sheets",
+            resource_id,
+            current_image,
+            "",
+        )
+
+        async def _before_submit() -> None:
+            await asyncio.to_thread(
+                _assert_selected_image_edit_source_usable,
+                project_name=project_name,
+                project_path=project_path,
+                resource_type="reference_storyboard_sheet",
+                requested_resource_id=resource_id,
+                script_file=script_file,
+                selected=selected,
+            )
+
+        _output, version = await ctx.generator.generate_image_async(
+            prompt=instruction,
+            resource_type="storyboard_sheets",
+            resource_id=resource_id,
+            reference_images=frozen.reference_images,
+            aspect_ratio=source_aspect_ratio,
+            image_size=None,
+            before_submit=_before_submit,
+            source=IMAGE_EDIT_VERSION_SOURCE,
+            script_file=script_file,
+        )
+    finally:
+        await run_noninterruptible_sync(frozen.cleanup)
+
+    def _invalidate_confirmation() -> None:
+        pm = get_project_manager()
+        with pm.locked_script(project_name, script_file, validate=False) as script:
+            unit = next(
+                (
+                    item
+                    for item in script.get("video_units") or []
+                    if isinstance(item, dict) and item.get("unit_id") == resource_id
+                ),
+                None,
+            )
+            if unit is None or not isinstance(unit.get("storyboard_sheet"), dict):
+                raise ValueError(f"reference storyboard sheet no longer exists: {resource_id}")
+            unit["storyboard_sheet"]["status"] = "pending_review"
+            unit["storyboard_sheet"]["confirmed_at"] = None
+
+    await asyncio.to_thread(_invalidate_confirmation)
+    versions = await asyncio.to_thread(ctx.generator.versions.get_versions, "storyboard_sheets", resource_id)
+    records = versions.get("versions") if isinstance(versions, dict) else None
+    created_at = records[-1].get("created_at") if isinstance(records, list) and records else None
+    return {
+        "version": version,
+        "file_path": resource_relative_path("storyboard_sheets", resource_id),
+        "created_at": created_at,
+        "resource_type": "storyboard_sheets",
+        "resource_id": resource_id,
+    }
+
+
 async def execute_image_edit_task(
     project_name: str,
     resource_id: str,
@@ -388,11 +530,20 @@ async def execute_image_edit_task(
     instruction = instruction.strip()
 
     script_file = payload.get("script_file")
-    if resource_type in {"storyboard", "reference_keyframe"} and not script_file:
+    if resource_type in {"storyboard", "reference_keyframe", "reference_storyboard_sheet"} and not script_file:
         raise ValueError("script_file is required for script-owned image_edit task")
 
     if resource_type == "reference_keyframe":
         return await _execute_reference_keyframe_edit(
+            project_name=project_name,
+            resource_id=resource_id,
+            instruction=instruction,
+            script_file=str(script_file),
+            payload=payload,
+            user_id=user_id,
+        )
+    if resource_type == "reference_storyboard_sheet":
+        return await _execute_reference_storyboard_sheet_edit(
             project_name=project_name,
             resource_id=resource_id,
             instruction=instruction,

@@ -92,7 +92,7 @@ from server.agent_runtime.sdk_tools._context import (
     resolve_video_caps,
     tool_error,
 )
-from server.services.reference_keyframe_tasks import reference_keyframe_task_specs
+from server.services.reference_storyboard_sheet_tasks import reference_storyboard_sheet_task_specs
 
 # 四个分集数据生成工具共用的 instructions 参数 schema：用户意见原样注入 prompt 末尾的
 # 「用户意见」分节，遵循强度由正文表达（需要强约束时在正文写明）。
@@ -107,16 +107,16 @@ _INSTRUCTIONS_SCHEMA: dict[str, Any] = {
 logger = logging.getLogger(__name__)
 
 
-async def _enqueue_auto_keyframes(ctx: ToolContext, result_path: Path) -> str:
-    """Queue every missing keyframe after a reference-video script is committed."""
+async def _enqueue_auto_storyboard_sheets(ctx: ToolContext, result_path: Path) -> str:
+    """Queue every missing mandatory Video Unit Storyboard Sheet after script commit."""
 
     script_file = result_path.name
     script = ctx.pm.load_script(ctx.project_name, script_file)
-    specs = reference_keyframe_task_specs(script, script_file, missing_only=True)
+    specs = reference_storyboard_sheet_task_specs(script, script_file, missing_only=True)
     if not specs:
         return ""
     enqueued, failures = await batch_enqueue_only(project_name=ctx.project_name, specs=specs)
-    message = f"；已自动提交 {len(enqueued)} 个关键分镜首帧任务（使用项目默认图片模型）"
+    message = f"；已自动提交 {len(enqueued)} 个 Video Unit Storyboard Sheet 任务（使用项目默认图片模型）"
     if failures:
         message += f"，另有 {len(failures)} 个任务未能入队"
     return message
@@ -418,7 +418,9 @@ def generate_episode_script_tool(ctx: ToolContext):
             generator = await ScriptGenerator.create(project_path)
             result_path = await generator.generate(episode=episode, instructions=instructions)
             auto_note = (
-                await _enqueue_auto_keyframes(ctx, result_path) if _uses_reference_video_units(project_data) else ""
+                await _enqueue_auto_storyboard_sheets(ctx, result_path)
+                if _uses_reference_video_units(project_data)
+                else ""
             )
             return {"content": [{"type": "text", "text": f"✅ 剧本生成完成: {result_path}{auto_note}"}]}
         except FileNotFoundError as exc:
@@ -802,10 +804,12 @@ def _collect_reference_flat_violations(
             )
         if caps.max_refs is not None:
             ordinary_refs = len(derive_references_from_text(text, project)[0])
-            if ordinary_refs + keyframe_count > caps.max_refs:
+            storyboard_sheet_count = 1
+            if ordinary_refs + keyframe_count + storyboard_sheet_count > caps.max_refs:
                 violations.append(
                     DraftViolation(
-                        f"{label} 的普通资产引用（{ordinary_refs}）与关键分镜（{keyframe_count}）合计超过"
+                        f"{label} 的普通资产引用（{ordinary_refs}）、关键分镜（{keyframe_count}）与 "
+                        "Video Unit Storyboard Sheet（1）合计超过"
                         f"视频模型 reference image 上限 {caps.max_refs}；请继续拆分 unit 或去掉次要资产引用",
                         code="reference_limit_with_keyframes",
                         label=label,
@@ -1759,7 +1763,7 @@ def validate_and_promote_draft_tool(ctx: ToolContext):
                 # metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。
                 generator = await ScriptGenerator.create(project_path)
                 result_path = await generator.promote_reference_step2_draft(episode)
-                auto_note = await _enqueue_auto_keyframes(ctx, result_path)
+                auto_note = await _enqueue_auto_storyboard_sheets(ctx, result_path)
                 return {
                     "content": [
                         {"type": "text", "text": f"✅ step2 视觉展开已校验通过并晋升: {result_path}{auto_note}"}

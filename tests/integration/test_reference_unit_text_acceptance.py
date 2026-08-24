@@ -75,6 +75,15 @@ class _Acceptance:
     def unit_on_disk(self, unit_id: str = _UNIT_ID) -> dict[str, Any]:
         return next(u for u in self.script_on_disk()["video_units"] if u["unit_id"] == unit_id)
 
+    def reconfirm_storyboard_sheet(self, unit_id: str = _UNIT_ID) -> None:
+        """Keep body-focused assertions past the intentional edit invalidation gate."""
+
+        script = self.script_on_disk()
+        unit = next(u for u in script["video_units"] if u["unit_id"] == unit_id)
+        unit["storyboard_sheet"]["status"] = "confirmed"
+        unit["storyboard_sheet"]["confirmed_at"] = "2026-08-24T00:00:00Z"
+        _write_json(self.project_dir / "scripts" / _SCRIPT_FILE, script)
+
     def rest_units(self) -> list[dict[str, Any]]:
         resp = self.client.get("/api/v1/projects/demo/reference-videos/episodes/1/units")
         assert resp.status_code == 200, resp.text
@@ -202,6 +211,25 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
 
     assert migrate_project_dir(project_dir) is True
 
+    # v11 migration creates a reviewable keyframe plan, but deliberately does not
+    # fabricate user confirmation.  This acceptance fixture is about the body →
+    # request projection seam, so seed the already-confirmed visual gate explicitly.
+    storyboard_path = project_dir / "storyboard_sheets" / f"{_UNIT_ID}.png"
+    keyframe_path = project_dir / "keyframes" / f"{_UNIT_ID}K01.png"
+    storyboard_path.parent.mkdir(parents=True, exist_ok=True)
+    keyframe_path.parent.mkdir(parents=True, exist_ok=True)
+    storyboard_path.write_bytes(_TINY_PNG)
+    keyframe_path.write_bytes(_TINY_PNG)
+    migrated_script = _read_json(project_dir / "scripts" / _SCRIPT_FILE)
+    migrated_unit = migrated_script["video_units"][0]
+    migrated_unit["storyboard_sheet"] = {
+        "image_path": f"storyboard_sheets/{_UNIT_ID}.png",
+        "status": "confirmed",
+        "confirmed_at": "2026-08-24T00:00:00Z",
+    }
+    migrated_unit["keyframes"][0]["image_path"] = f"keyframes/{_UNIT_ID}K01.png"
+    _write_json(project_dir / "scripts" / _SCRIPT_FILE, migrated_script)
+
     from server.routers import reference_videos as router_mod
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: pm)
@@ -234,7 +262,7 @@ def test_migrated_body_is_the_only_shape_rest_serves(acceptance: _Acceptance) ->
     assert project["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
 
     unit = acceptance.unit_on_disk()
-    assert unit["text"] == "镜头1：@[阿离] 推开门\n镜头2：雨落在石板上"
+    assert unit["text"] == "@[关键分镜 E1U1K01] 镜头1：@[阿离] 推开门\n镜头2：雨落在石板上"
     assert "shots" not in unit
     assert "references" not in unit
 
@@ -258,9 +286,11 @@ async def test_rest_and_agent_tool_write_the_same_body(acceptance: _Acceptance) 
     await acceptance.patch_body_over_agent_tool(agent_body)
     assert acceptance.unit_on_disk()["text"] == agent_body
     assert [u["text"] for u in acceptance.rest_units()] == [agent_body]
+    acceptance.reconfirm_storyboard_sheet()
 
     projection = await acceptance.project_request()
     assert [(ref.type, ref.name) for ref in projection.declared_references] == [
+        ("storyboard_sheet", _UNIT_ID),
         ("character", "阿离"),
         ("character", "陆沉"),
     ]
@@ -314,12 +344,16 @@ async def test_body_shape_drives_the_reference_images_of_the_real_request(
     expected_images: list[str],
 ) -> None:
     acceptance.patch_body_over_rest(body)
+    acceptance.reconfirm_storyboard_sheet()
 
     projection = await acceptance.project_request()
 
-    assert [(ref.type, ref.name) for ref in projection.declared_references] == expected_references
-    assert [asset.path.name for asset in projection.request_assets] == expected_images
-    assert projection.hydrated_capability == ("r2v" if expected_images else "i2v")
+    assert [(ref.type, ref.name) for ref in projection.declared_references] == [
+        ("storyboard_sheet", _UNIT_ID),
+        *expected_references,
+    ]
+    assert [asset.path.name for asset in projection.request_assets] == [f"{_UNIT_ID}.png", *expected_images]
+    assert projection.hydrated_capability == "r2v"
     assert [problem.code for problem in projection.problems if problem.blocking] == []
 
 
@@ -327,10 +361,11 @@ async def test_unresolved_mention_only_warns_and_still_generates(acceptance: _Ac
     """未登记的 ``@[名称]`` 不产生参考图、不阻断，其余提及照常解析。"""
     body = "@[无名氏] 从巷口走过，@[阿离] 回头"
     acceptance.patch_body_over_rest(body)
+    acceptance.reconfirm_storyboard_sheet()
 
     warnings = acceptance.preview_warnings(body)
     assert [w["key"] for w in warnings] == [WARN_UNREGISTERED_MENTION]
 
     projection = await acceptance.project_request()
     assert projection.problems == ()
-    assert [asset.path.name for asset in projection.request_assets] == ["阿离.png"]
+    assert [asset.path.name for asset in projection.request_assets] == [f"{_UNIT_ID}.png", "阿离.png"]

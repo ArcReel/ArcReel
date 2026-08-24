@@ -56,6 +56,8 @@ MiniMax H3 优化前会读取项目唯一的 Unified Video Style；缺失时生�
 产物缺失或依据已变时，使用同一次请求的 unit、旁白交付、确认时长、参考图、音频与模型事实自动优化并落盘；
 产物仍为 current 时直接复用。此步骤不设人工确认门禁，非 H3 模型不经过此步骤。用户只想预览或单独刷新
 提示词时，Agent 仍可调用 `mcp__arcreel__optimize_h3_video_prompts`，但正常视频生成无需预先手动调用。
+用户要求修改某个已生成且仍为 current 的 H3 提示词时，调用
+`mcp__arcreel__update_h3_video_prompt` 提交完整六段式正文；不要重新优化来覆盖用户的定向编辑。
 
 ### 点名重新生成 unit
 

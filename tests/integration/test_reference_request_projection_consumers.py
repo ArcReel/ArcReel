@@ -56,6 +56,18 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         "duration_seconds": 5,
         "transition_to_next": "cut",
         "generated_assets": {},
+        "keyframes": [
+            {
+                "keyframe_id": "E1U1K01",
+                "description": "三人开始看向彼此",
+                "image_path": "keyframes/E1U1K01.png",
+            }
+        ],
+        "storyboard_sheet": {
+            "image_path": "storyboard_sheets/E1U1.png",
+            "status": "confirmed",
+            "confirmed_at": "2026-08-24T00:00:00+00:00",
+        },
     }
     script: dict[str, Any] = {
         "episode": 1,
@@ -77,6 +89,10 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
     }
     (tmp_path / "characters").mkdir()
+    (tmp_path / "storyboard_sheets").mkdir()
+    (tmp_path / "storyboard_sheets/E1U1.png").write_bytes(b"sheet")
+    (tmp_path / "keyframes").mkdir()
+    (tmp_path / "keyframes/E1U1K01.png").write_bytes(b"keyframe")
     (tmp_path / "characters/a.png").write_bytes(b"a")
     (tmp_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     (tmp_path / "characters/b.png").write_bytes(b"b")

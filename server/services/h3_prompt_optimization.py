@@ -23,6 +23,7 @@ from lib.minimax_h3_prompt import (
     canonical_basis_digest,
     confirm_h3_prompt_artifact,
     file_sha256,
+    h3_prompt_artifact_path,
     is_minimax_h3_model,
     load_h3_prompt_artifact,
     load_h3_system_prompt,
@@ -305,7 +306,12 @@ class H3PromptOptimizationService:
 
         image_refs = tuple(
             H3PromptReference(
-                label=f"Picture {index}",
+                label=(
+                    f"Picture {index} — {entry.reference.name} 的 Video Unit Storyboard Sheet；"
+                    "表示整个 Video Unit 的镜头顺序与场景变化，不是单一目标帧"
+                    if entry.reference.type == "storyboard_sheet"
+                    else f"Picture {index}"
+                ),
                 kind=entry.reference.type,
                 name=entry.reference.name,
                 path=_relative_path(entry.path, project_path),
@@ -393,6 +399,19 @@ class H3PromptOptimizationService:
         narration_delivery: NarrationDelivery,
         confirmed_duration: int | None,
     ) -> H3PromptContext:
+        from server.services.reference_storyboard_sheet_tasks import (
+            StoryboardSheetGateError,
+            require_confirmed_storyboard_sheet,
+            require_generated_keyframes,
+            require_keyframe_plan,
+        )
+
+        try:
+            require_keyframe_plan(unit)
+            require_confirmed_storyboard_sheet(unit)
+            require_generated_keyframes(unit)
+        except StoryboardSheetGateError as exc:
+            raise H3PromptOptimizationError(exc.code) from exc
         options = ReferenceRequestOptions(
             narration_delivery=narration_delivery,
             confirmed_request_duration_seconds=confirmed_duration,
@@ -530,6 +549,60 @@ class H3PromptOptimizationService:
             ensure_video_style=True,
         )
         return await self._optimize_contexts(project_name, project_path, contexts)
+
+    async def update_prompt(
+        self,
+        project_name: str,
+        episode: int,
+        *,
+        unit_id: str,
+        rendered_prompt: str,
+        narration_delivery: NarrationDelivery = POST_PRODUCTION,
+        confirmed_request_duration_seconds: int | None = None,
+    ) -> H3PromptArtifact:
+        """Validate and persist one user-edited prompt against its current request facts."""
+
+        project_path, contexts = await self._contexts(
+            project_name,
+            episode,
+            unit_ids=[unit_id],
+            narration_delivery=narration_delivery,
+            confirmed_request_durations=(
+                {unit_id: confirmed_request_duration_seconds}
+                if confirmed_request_duration_seconds is not None
+                else None
+            ),
+        )
+        context = contexts[0]
+        duration = context.projection.request_duration
+        if duration is None:
+            raise H3PromptOptimizationError("h3_prompt_projection_incomplete", unit_id)
+        sections = parse_h3_prompt(
+            rendered_prompt,
+            duration_seconds=duration.seconds,
+            picture_count=len(context.image_paths),
+            audio_count=len(context.audio_paths),
+        )
+
+        path = h3_prompt_artifact_path(project_path, episode, unit_id)
+
+        def _save() -> H3PromptArtifact:
+            with self._pm.file_lock(path):
+                artifact = load_h3_prompt_artifact(project_path, episode, unit_id)
+                if artifact is None:
+                    raise H3PromptOptimizationError("h3_prompt_missing", unit_id)
+                if artifact.basis_digest != context.basis_digest:
+                    raise H3PromptOptimizationError("h3_prompt_stale", unit_id)
+                updated = artifact.model_copy(
+                    update={
+                        "sections": sections,
+                        "rendered_prompt": sections.render(),
+                    }
+                )
+                save_h3_prompt_artifact(project_path, updated)
+                return updated
+
+        return await asyncio.to_thread(_save)
 
     async def _optimize_contexts(
         self,

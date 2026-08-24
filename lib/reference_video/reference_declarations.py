@@ -14,10 +14,11 @@ from lib.script_models import ReferenceResource
 def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceResource, ...]:
     """Return a unit's registered logical image references in first-mention order.
 
-    Keyframe mentions are valid only when the referenced keyframe belongs to the
-    current unit. Other mentions resolve through the project's registered asset
-    buckets. Unknown names are intentionally omitted so callers can surface them
-    as non-blocking warnings.
+    A confirmed Video Unit Storyboard Sheet is always first. Keyframe mentions
+    are valid only when the referenced keyframe belongs to the current unit.
+    Other mentions resolve through the project's registered asset buckets.
+    Unknown names are intentionally omitted so callers can surface them as
+    non-blocking warnings.
     """
 
     raw_text = unit.get("text")
@@ -25,6 +26,12 @@ def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceRes
     owned_keyframes = keyframe_references_in_text(unit)
     references: list[ReferenceResource] = []
     seen: set[tuple[str, str]] = set()
+    sheet = unit.get("storyboard_sheet")
+    if isinstance(sheet, dict) and sheet.get("status") == "confirmed":
+        unit_id = str(unit.get("unit_id") or "").strip()
+        if unit_id:
+            references.append(ReferenceResource(type="storyboard_sheet", name=unit_id))
+            seen.add(("storyboard_sheet", asset_name_comparison_key(unit_id)))
     for name in extract_mentions(strip_speech_marks(text)):
         keyframe = owned_keyframes.get(name)
         if keyframe is not None:

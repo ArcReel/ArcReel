@@ -115,12 +115,29 @@ def test_request_options_payload_keeps_only_delivery_and_explicit_accepted_tier(
 
 
 @pytest.mark.asyncio
+async def test_reference_route_blocks_without_keyframe_plan_and_confirmed_sheet() -> None:
+    projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
+
+    result = await projector.project_current(
+        project={"generation_mode": "reference_video"},
+        script={"video_units": [unit]},
+        unit=unit,
+        resolved_assets=[],
+    )
+
+    assert [problem.code for problem in result.blocking_problems] == [
+        "reference_keyframe_plan_required",
+        "reference_storyboard_sheet_required",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit() -> None:
     capabilities = _FakeCapabilities()
     missing_scene = Path("/fake/scene.png")
     projector = ReferenceUnitRequestProjector(capabilities, _FakeAssets({missing_scene}))
     project = {
-        "generation_mode": "reference_video",
         "products": {"手袋": {}},
         "scenes": {"大厅": {}},
         "characters": {"阿离": {}},

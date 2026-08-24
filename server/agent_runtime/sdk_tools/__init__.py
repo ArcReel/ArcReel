@@ -34,7 +34,6 @@ from server.agent_runtime.sdk_tools.enqueue_assets import (
 from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
 from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
-from server.agent_runtime.sdk_tools.enqueue_reference_keyframes import generate_reference_keyframes_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_all_tool,
@@ -47,7 +46,10 @@ from server.agent_runtime.sdk_tools.episode_planning import (
     reset_episode_planning_tool,
 )
 from server.agent_runtime.sdk_tools.global_assets import list_global_assets_tool
-from server.agent_runtime.sdk_tools.h3_prompt_optimization import optimize_h3_video_prompts_tool
+from server.agent_runtime.sdk_tools.h3_prompt_optimization import (
+    optimize_h3_video_prompts_tool,
+    update_h3_video_prompt_tool,
+)
 from server.agent_runtime.sdk_tools.hyperframes import (
     generate_hyperframes_bgm_tool,
     prepare_hyperframes_episode_tool,
@@ -63,6 +65,11 @@ from server.agent_runtime.sdk_tools.patch_script import (
 )
 from server.agent_runtime.sdk_tools.project_asset_links import manage_project_asset_link_tool
 from server.agent_runtime.sdk_tools.project_character_images import move_character_main_to_reference_tool
+from server.agent_runtime.sdk_tools.reference_storyboard_sheets import (
+    confirm_reference_storyboard_sheet_tool,
+    generate_reference_keyframes_tool,
+    generate_reference_storyboard_sheets_tool,
+)
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
 from server.agent_runtime.sdk_tools.text_generation import (
@@ -100,6 +107,8 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "confirm_character_voice_reference",
     "confirm_asset_sheets",
     "generate_storyboards",
+    "generate_reference_storyboard_sheets",
+    "confirm_reference_storyboard_sheet",
     "generate_reference_keyframes",
     "edit_images",
     "generate_grid",
@@ -109,6 +118,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_video_selected",
     "generate_narration_audio",
     "optimize_h3_video_prompts",
+    "update_h3_video_prompt",
     "analyze_video_style",
     "update_video_style",
     "prepare_hyperframes_episode",
@@ -153,6 +163,8 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "confirm_character_voice_reference",
         "confirm_asset_sheets",
         "generate_storyboards",
+        "generate_reference_storyboard_sheets",
+        "confirm_reference_storyboard_sheet",
         "generate_reference_keyframes",
         "edit_images",
         "generate_grid",
@@ -162,6 +174,7 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "generate_video_selected",
         "generate_narration_audio",
         "optimize_h3_video_prompts",
+        "update_h3_video_prompt",
         "analyze_video_style",
         "update_video_style",
         "prepare_hyperframes_episode",
@@ -214,6 +227,8 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         confirm_character_voice_reference_tool(ctx),
         confirm_asset_sheets_tool(ctx),
         generate_storyboards_tool(ctx),
+        generate_reference_storyboard_sheets_tool(ctx),
+        confirm_reference_storyboard_sheet_tool(ctx),
         generate_reference_keyframes_tool(ctx),
         edit_images_tool(ctx),
         generate_grid_tool(ctx),
@@ -223,6 +238,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         generate_video_selected_tool(ctx),
         generate_narration_audio_tool(ctx),
         optimize_h3_video_prompts_tool(ctx),
+        update_h3_video_prompt_tool(ctx),
         analyze_video_style_tool(ctx),
         update_video_style_tool(ctx),
         prepare_hyperframes_episode_tool(ctx),

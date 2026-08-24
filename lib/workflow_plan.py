@@ -67,6 +67,26 @@ class WorkflowTaskObservation(BaseModel):
     problem: GenerationProblem | None = None
 
 
+class ReferenceVisualGateObservation(BaseModel):
+    """Current reference-video Sheet/keyframe gate, derived from the formal script."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    missing_sheet_unit_ids: list[str] = Field(default_factory=list)
+    pending_sheet_unit_ids: list[str] = Field(default_factory=list)
+    confirmed_sheet_unit_ids: list[str] = Field(default_factory=list)
+    missing_keyframe_ids: list[str] = Field(default_factory=list)
+    generated_keyframe_ids: list[str] = Field(default_factory=list)
+
+    @property
+    def sheets_complete(self) -> bool:
+        return not self.missing_sheet_unit_ids and not self.pending_sheet_unit_ids
+
+    @property
+    def keyframes_complete(self) -> bool:
+        return self.sheets_complete and not self.missing_keyframe_ids
+
+
 class WorkflowStepContracts(BaseModel):
     """Existing deep-module contracts an action must cross when it executes."""
 
@@ -121,6 +141,8 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
 _TASK_STEP: dict[str, str] = {
     "storyboard": "storyboard",
     "grid": "storyboard",
+    "reference_storyboard_sheet": "video_unit_storyboard_sheet",
+    "reference_keyframe": "reference_keyframes",
     "tts": "narration_delivery",
     "video": "video",
     "reference_video": "video",
@@ -220,6 +242,7 @@ def build_workflow_plan(
     structure_problems: list[GenerationProblem] | None = None,
     script_revision: str | None = None,
     task_observations: list[WorkflowTaskObservation] | None = None,
+    reference_visual_gate: ReferenceVisualGateObservation | None = None,
     admission: dict[str, Any] | None = None,
 ) -> WorkflowPlan:
     """Project one immutable status snapshot and transient request observations."""
@@ -262,10 +285,62 @@ def build_workflow_plan(
         structure_step.problems = structure_problems
         structure_step.requested_ids = _problem_unit_ids(structure_problems)
         structure_step.action = _structure_action(structure_problems, script_revision=script_revision)
-        for media_step in ("storyboard", "narration_delivery", "video_prompt_optimization", "video"):
+        for media_step in (
+            "storyboard",
+            "video_unit_storyboard_sheet",
+            "reference_keyframes",
+            "narration_delivery",
+            "video_prompt_optimization",
+            "video",
+        ):
             if by_id[media_step].state is not WorkflowStepState.SKIPPED:
                 by_id[media_step].state = WorkflowStepState.PENDING
                 by_id[media_step].action = None
+
+    sheet_step = by_id["video_unit_storyboard_sheet"]
+    keyframe_step = by_id["reference_keyframes"]
+    gate_action: WorkflowNextAction | None = None
+    if reference_visual_gate is not None and not structure_problems:
+        sheet_step.artifacts = {
+            "missing_ids": list(reference_visual_gate.missing_sheet_unit_ids),
+            "pending_review_ids": list(reference_visual_gate.pending_sheet_unit_ids),
+            "confirmed_ids": list(reference_visual_gate.confirmed_sheet_unit_ids),
+        }
+        keyframe_step.artifacts = {
+            "missing_ids": list(reference_visual_gate.missing_keyframe_ids),
+            "current_ids": list(reference_visual_gate.generated_keyframe_ids),
+        }
+        if reference_visual_gate.missing_sheet_unit_ids:
+            sheet_step.state = WorkflowStepState.READY
+            keyframe_step.state = WorkflowStepState.PENDING
+            gate_action = WorkflowNextAction(
+                type=WorkflowActionType.GENERATE_REFERENCE_STORYBOARD_SHEETS,
+                requested_ids=list(reference_visual_gate.missing_sheet_unit_ids),
+                reason="Video Unit Storyboard Sheets are missing",
+            )
+            sheet_step.action = gate_action
+        elif reference_visual_gate.pending_sheet_unit_ids:
+            sheet_step.state = WorkflowStepState.READY
+            keyframe_step.state = WorkflowStepState.PENDING
+            gate_action = WorkflowNextAction(
+                type=WorkflowActionType.CONFIRM_REFERENCE_STORYBOARD_SHEET,
+                requested_ids=list(reference_visual_gate.pending_sheet_unit_ids),
+                requires_confirmation=True,
+                reason="current Video Unit Storyboard Sheets require user confirmation",
+            )
+            sheet_step.action = gate_action
+        elif reference_visual_gate.missing_keyframe_ids:
+            sheet_step.state = WorkflowStepState.COMPLETED
+            keyframe_step.state = WorkflowStepState.READY
+            gate_action = WorkflowNextAction(
+                type=WorkflowActionType.GENERATE_REFERENCE_KEYFRAMES,
+                requested_ids=list(reference_visual_gate.missing_keyframe_ids),
+                reason="confirmed Video Unit Storyboard Sheets still have missing keyframe images",
+            )
+            keyframe_step.action = gate_action
+        else:
+            sheet_step.state = WorkflowStepState.COMPLETED
+            keyframe_step.state = WorkflowStepState.COMPLETED
 
     delivery_step = by_id["narration_delivery"]
     delivery_index = next(index for index, item in enumerate(rules) if item.id == "narration_delivery")
@@ -310,6 +385,14 @@ def build_workflow_plan(
                 step.action = next_action
         if video_step.state is not WorkflowStepState.ACTIVE:
             video_step.action = None
+    elif gate_action is not None:
+        next_action = gate_action
+        delivery_step.state = WorkflowStepState.PENDING
+        delivery_step.action = None
+        by_id["video_prompt_optimization"].state = WorkflowStepState.PENDING
+        by_id["video_prompt_optimization"].action = None
+        video_step.state = WorkflowStepState.PENDING
+        video_step.action = None
     elif (
         status.state == "VIDEO"
         and status.next_action.type is WorkflowActionType.GENERATE_VIDEOS
@@ -345,6 +428,7 @@ __all__ = [
     "WorkflowPlan",
     "WorkflowPlanRequest",
     "WorkflowPlanStep",
+    "ReferenceVisualGateObservation",
     "WorkflowStepContracts",
     "WorkflowStepState",
     "WorkflowTaskObservation",

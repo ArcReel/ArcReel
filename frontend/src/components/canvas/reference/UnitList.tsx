@@ -8,6 +8,7 @@ export interface UnitListProps {
   units: ReferenceVideoUnit[];
   selectedId: string | null;
   onSelect: (unitId: string) => void;
+  onNavigateView?: (direction: -1 | 1) => void;
   onAdd: () => void;
   /** Per-unit dirty flag. Renders an amber dot in the row header. */
   dirtyMap?: Record<string, boolean>;
@@ -16,7 +17,15 @@ export interface UnitListProps {
   statusMap?: Record<string, UnitStatus>;
 }
 
-export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusMap }: UnitListProps) {
+export function UnitList({
+  units,
+  selectedId,
+  onSelect,
+  onNavigateView,
+  onAdd,
+  dirtyMap,
+  statusMap,
+}: UnitListProps) {
   const { t } = useTranslation("dashboard");
   const [query, setQuery] = useState("");
 
@@ -90,6 +99,23 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
                 tabIndex={0}
                 onClick={() => onSelect(u.unit_id)}
                 onKeyDown={(e) => {
+                  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                    e.preventDefault();
+                    const next =
+                      e.key === "ArrowDown"
+                        ? e.currentTarget.nextElementSibling
+                        : e.currentTarget.previousElementSibling;
+                    if (next instanceof HTMLElement) {
+                      next.focus();
+                      next.click();
+                    }
+                    return;
+                  }
+                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                    e.preventDefault();
+                    onNavigateView?.(e.key === "ArrowRight" ? 1 : -1);
+                    return;
+                  }
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     onSelect(u.unit_id);

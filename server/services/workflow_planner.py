@@ -15,6 +15,7 @@ from lib.generation_result import (
     provider_checkpoint_from_task,
 )
 from lib.narration_delivery import USE_TTS
+from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, get_project_manager
 from lib.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -26,6 +27,7 @@ from lib.script_batch_edit import script_revision
 from lib.script_skeleton import ensure_route_skeleton, resolve_kind_items
 from lib.speech_composition import admit_script_unit
 from lib.workflow_plan import (
+    ReferenceVisualGateObservation,
     WorkflowPlan,
     WorkflowPlanRequest,
     WorkflowTaskObservation,
@@ -88,6 +90,7 @@ class WorkflowPlanner:
             )
         facts = await self._script_facts(project_name, status)
         structure_problems = self._structure_problems(facts)
+        reference_visual_gate = self._reference_visual_gate(status, facts)
         tasks = await self._active_tasks(project_name, status, facts, request)
         admission = None
         if (
@@ -96,6 +99,7 @@ class WorkflowPlanner:
             and request.narration_delivery is not None
             and status.state == "VIDEO"
             and status.next_action.type == "generate_videos"
+            and (reference_visual_gate is None or reference_visual_gate.keyframes_complete)
         ):
             admission = await self._video_admission(project_name, status, facts, request)
         return build_workflow_plan(
@@ -104,6 +108,7 @@ class WorkflowPlanner:
             structure_problems=structure_problems,
             script_revision=facts.revision if facts is not None else None,
             task_observations=tasks,
+            reference_visual_gate=reference_visual_gate,
             admission=admission,
         )
 
@@ -163,6 +168,59 @@ class WorkflowPlanner:
         return problems
 
     @staticmethod
+    def _reference_visual_gate(
+        status: WorkflowStatus,
+        facts: _ScriptFacts | None,
+    ) -> ReferenceVisualGateObservation | None:
+        if facts is None or status.project.generation_mode != "reference_video":
+            return None
+
+        missing_sheets: list[str] = []
+        pending_sheets: list[str] = []
+        confirmed_sheets: list[str] = []
+        missing_keyframes: list[str] = []
+        generated_keyframes: list[str] = []
+
+        def _existing_file(raw_path: object) -> bool:
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                return False
+            try:
+                return safe_join(facts.project_path, raw_path, require_file=True).is_file()
+            except (FileNotFoundError, PathTraversalError):
+                return False
+
+        for item in facts.items:
+            unit_id = str(item.get(facts.id_field) or "").strip()
+            if not unit_id:
+                continue
+            sheet = item.get("storyboard_sheet")
+            if not isinstance(sheet, dict) or not _existing_file(sheet.get("image_path")):
+                missing_sheets.append(unit_id)
+            elif sheet.get("status") != "confirmed":
+                pending_sheets.append(unit_id)
+            else:
+                confirmed_sheets.append(unit_id)
+
+            for keyframe in item.get("keyframes") or []:
+                if not isinstance(keyframe, dict):
+                    continue
+                keyframe_id = str(keyframe.get("keyframe_id") or "").strip()
+                if not keyframe_id:
+                    continue
+                if _existing_file(keyframe.get("image_path")):
+                    generated_keyframes.append(keyframe_id)
+                else:
+                    missing_keyframes.append(keyframe_id)
+
+        return ReferenceVisualGateObservation(
+            missing_sheet_unit_ids=missing_sheets,
+            pending_sheet_unit_ids=pending_sheets,
+            confirmed_sheet_unit_ids=confirmed_sheets,
+            missing_keyframe_ids=missing_keyframes,
+            generated_keyframe_ids=generated_keyframes,
+        )
+
+    @staticmethod
     async def _active_tasks(
         project_name: str,
         status: WorkflowStatus,
@@ -177,19 +235,33 @@ class WorkflowPlanner:
         ]
         if not unit_ids:
             return []
-        task_types = ["reference_video" if status.project.generation_mode == "reference_video" else "video"]
-        if status.project.generation_mode == "storyboard" and not status.project.grid_storyboard:
-            task_types.append("storyboard")
+        task_targets: list[tuple[str, list[str]]] = [
+            ("reference_video" if status.project.generation_mode == "reference_video" else "video", unit_ids)
+        ]
+        if status.project.generation_mode == "reference_video":
+            task_targets.append(("reference_storyboard_sheet", unit_ids))
+            keyframe_ids = [
+                str(keyframe.get("keyframe_id"))
+                for item in facts.items
+                for keyframe in item.get("keyframes") or []
+                if isinstance(keyframe, dict)
+                and isinstance(keyframe.get("keyframe_id"), str)
+                and str(keyframe.get("keyframe_id"))
+            ]
+            if keyframe_ids:
+                task_targets.append(("reference_keyframe", keyframe_ids))
+        elif not status.project.grid_storyboard:
+            task_targets.append(("storyboard", unit_ids))
         if request.narration_delivery == USE_TTS:
-            task_types.append("tts")
+            task_targets.append(("tts", unit_ids))
 
         rows: list[dict[str, Any]] = []
-        for task_type in task_types:
+        for task_type, resource_ids in task_targets:
             rows.extend(
                 await get_active_tasks_for_resources(
                     project_name=project_name,
                     task_type=task_type,
-                    resource_ids=unit_ids,
+                    resource_ids=resource_ids,
                     script_file=facts.script_file,
                 )
             )

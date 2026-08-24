@@ -587,7 +587,7 @@ describe("ProjectSettingsPage – style picker", () => {
 
     renderAt("/app/projects/demo/settings");
 
-    expect(await screen.findByText(/跳过分镜图，直接用角色、场景、道具图作为参考生成视频/)).toBeInTheDocument();
+      expect(await screen.findByText(/按 Video Unit 生成并确认 Video Unit Storyboard Sheet/)).toBeInTheDocument();
     expect(screen.getByText(/生成方式创建后不可更改/)).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: /参考生视频|分镜图生视频/ })).not.toBeInTheDocument();
     // 参考路线下不呈现宫格开关

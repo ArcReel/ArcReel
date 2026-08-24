@@ -12,6 +12,7 @@ import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
+import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
 import type { ReferenceKeyframe, ReferenceVideoUnit } from "@/types";
 
@@ -89,7 +90,10 @@ function KeyframeCard({
   };
 
   return (
-    <article className="rounded-xl border border-[var(--color-hairline-soft)] bg-[oklch(0.20_0.011_265_/_0.55)] p-4">
+    <article
+      id={`reference_keyframe-${keyframe.keyframe_id}`}
+      className="rounded-xl border border-[var(--color-hairline-soft)] bg-[oklch(0.20_0.011_265_/_0.55)] p-4"
+    >
       <header className="mb-3 flex items-center gap-2">
         <span className="grid h-7 w-7 place-items-center rounded-md border border-[var(--color-accent-soft)] bg-[var(--color-accent-dim)] text-[var(--color-accent-2)]">
           <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -199,10 +203,21 @@ export function KeyframePreviewPanel({
   onChanged,
 }: KeyframePreviewPanelProps) {
   const { t } = useTranslation("dashboard");
+  useScrollTarget("reference_keyframe");
   const [adding, setAdding] = useState(false);
   const [newDescription, setNewDescription] = useState("");
   const activeIds = useActiveResourceIds("reference_keyframe", projectName);
   const keyframes = unit.keyframes ?? [];
+
+  if (unit.storyboard_sheet?.status !== "confirmed") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <p className="rounded-lg border border-amber-400/25 bg-amber-400/5 px-4 py-8 text-center text-xs leading-6 text-amber-200">
+          {t("reference_keyframe_storyboard_gate")}
+        </p>
+      </div>
+    );
+  }
 
   const add = async () => {
     const description = newDescription.trim();

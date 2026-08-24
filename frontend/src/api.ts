@@ -53,6 +53,7 @@ import type {
   AnthropicDiscoverResponse,
   CostEstimateResponse,
   ReferenceVideoUnit,
+  ReferenceStoryboardSheet,
   TransitionType,
   AdShot,
   ReferenceDurationPrecheck,
@@ -65,6 +66,7 @@ import type {
   H3PromptArtifact,
   H3PromptOperationRequest,
   H3PromptState,
+  H3PromptUpdateRequest,
   ScriptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
@@ -2141,7 +2143,14 @@ class API {
   static async editImage(
     projectName: string,
     params: {
-      resourceType: "character" | "scene" | "prop" | "product" | "storyboard" | "reference_keyframe";
+      resourceType:
+        | "character"
+        | "scene"
+        | "prop"
+        | "product"
+        | "storyboard"
+        | "reference_keyframe"
+        | "reference_storyboard_sheet";
       resourceId: string;
       instruction: string;
       scriptFile?: string | null;
@@ -3340,6 +3349,37 @@ class API {
     );
   }
 
+  static async generateReferenceStoryboardSheet(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    selection: ImageModelSelection = {},
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/storyboard-sheet/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ image_provider: selection.imageProvider, image_model: selection.imageModel }),
+      },
+    );
+  }
+
+  static async confirmReferenceStoryboardSheet(
+    projectName: string,
+    episode: number,
+    unitId: string,
+  ): Promise<{
+    success: boolean;
+    storyboard_sheet: ReferenceStoryboardSheet;
+    task_ids: string[];
+    message: string;
+  }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/storyboard-sheet/confirm`,
+      { method: "POST" },
+    );
+  }
+
   /**
    * 入队前的时长取档预检：申请秒数与请求时长基准不一致时需先向用户确认。
    *
@@ -3440,6 +3480,18 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/h3-prompts/confirm`,
       { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  static async updateH3Prompt(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    payload: H3PromptUpdateRequest,
+  ): Promise<{ artifact: H3PromptArtifact }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/h3-prompts/${encodeURIComponent(unitId)}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
     );
   }
 

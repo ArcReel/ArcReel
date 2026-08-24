@@ -28,6 +28,7 @@ from lib.text_backends.base import TextGenerationResult
 from lib.video_style import UnifiedVideoStyle
 from server.services.h3_prompt_optimization import (
     H3PromptContext,
+    H3PromptOptimizationError,
     H3PromptOptimizationService,
     _optimizer_user_prompt,
 )
@@ -203,6 +204,77 @@ async def test_worker_prompt_step_accepts_the_stable_child_id_created_by_split(t
     assert artifacts[0].unit_id == "E1U01_1"
     assert h3_prompt_artifact_path(tmp_path, 1, "E1U01_1").is_file()
     assert load_h3_prompt_artifact(tmp_path, 1, "E1U01_1") == artifacts[0]
+
+
+async def test_update_prompt_validates_and_persists_the_same_current_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = _artifact()
+    save_h3_prompt_artifact(tmp_path, original)
+    context = _context(tmp_path)
+    service = H3PromptOptimizationService()
+
+    async def _contexts(*_args: Any, **_kwargs: Any) -> tuple[Path, list[H3PromptContext]]:
+        return tmp_path, [context]
+
+    monkeypatch.setattr(service, "_contexts", _contexts)
+    edited_prompt = _prompt().replace("The liquid settles", "The liquid spins")
+
+    updated = await service.update_prompt(
+        "demo",
+        1,
+        unit_id="E1U01",
+        rendered_prompt=edited_prompt,
+    )
+
+    assert (
+        updated.rendered_prompt
+        == parse_h3_prompt(
+            edited_prompt,
+            duration_seconds=8,
+            picture_count=1,
+            audio_count=1,
+        ).render()
+    )
+    assert updated.basis_digest == original.basis_digest
+    assert updated.optimizer_provider == original.optimizer_provider
+    assert load_h3_prompt_artifact(tmp_path, 1, "E1U01") == updated
+
+
+async def test_update_prompt_rejects_invalid_or_stale_edits_without_overwriting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = _artifact()
+    save_h3_prompt_artifact(tmp_path, original)
+    service = H3PromptOptimizationService()
+
+    async def _current_contexts(*_args: Any, **_kwargs: Any) -> tuple[Path, list[H3PromptContext]]:
+        return tmp_path, [_context(tmp_path)]
+
+    monkeypatch.setattr(service, "_contexts", _current_contexts)
+    with pytest.raises(ValueError, match="must appear exactly once"):
+        await service.update_prompt(
+            "demo",
+            1,
+            unit_id="E1U01",
+            rendered_prompt="not a six-section prompt",
+        )
+
+    async def _stale_contexts(*_args: Any, **_kwargs: Any) -> tuple[Path, list[H3PromptContext]]:
+        return tmp_path, [_context(tmp_path, basis_digest="basis-v2")]
+
+    monkeypatch.setattr(service, "_contexts", _stale_contexts)
+    with pytest.raises(H3PromptOptimizationError, match="E1U01") as exc_info:
+        await service.update_prompt(
+            "demo",
+            1,
+            unit_id="E1U01",
+            rendered_prompt=_prompt(),
+        )
+    assert exc_info.value.code == "h3_prompt_stale"
+    assert load_h3_prompt_artifact(tmp_path, 1, "E1U01") == original
 
 
 async def test_video_style_prompt_does_not_mechanically_rewrite_optimizer_sections(tmp_path: Path) -> None:

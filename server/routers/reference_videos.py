@@ -9,7 +9,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
@@ -45,7 +45,13 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager, is_reference_video_project
 from lib.reference_video import derive_references_from_text
-from lib.reference_video.keyframes import MAX_KEYFRAMES_PER_UNIT, find_keyframe, keyframe_id, keyframe_mention
+from lib.reference_video.keyframes import (
+    DEFAULT_ENTRY_KEYFRAME_DESCRIPTION,
+    MAX_KEYFRAMES_PER_UNIT,
+    find_keyframe,
+    keyframe_id,
+    keyframe_mention,
+)
 from lib.reference_video.request_projection import (
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
@@ -71,6 +77,11 @@ from server.services.narration_delivery_tasks import (
     tts_task_in_progress,
 )
 from server.services.reference_keyframe_tasks import reference_keyframe_task_specs
+from server.services.reference_storyboard_sheet_tasks import (
+    StoryboardSheetGateError,
+    confirm_storyboard_sheet_and_enqueue_keyframes,
+    reference_storyboard_sheet_task_specs,
+)
 from server.services.reference_video_tasks import (
     apply_unit_video_assets,
     default_unit_duration,
@@ -160,6 +171,16 @@ class H3PromptOperationRequest(BaseModel):
     confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
 
 
+class UpdateH3PromptRequest(BaseModel):
+    """One manually edited H3 prompt and the request facts needed to validate it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rendered_prompt: str = Field(min_length=1)
+    narration_delivery: NarrationDelivery = POST_PRODUCTION
+    confirmed_request_duration_seconds: PositiveInt | None = None
+
+
 class AddKeyframeRequest(BaseModel):
     unit_id: str
     description: str = Field(min_length=1)
@@ -171,6 +192,10 @@ class PatchKeyframeRequest(BaseModel):
 
 class GenerateKeyframesRequest(ImageModelSelection):
     keyframe_ids: list[str] | None = None
+
+
+def _raise_storyboard_gate(exc: StoryboardSheetGateError) -> NoReturn:
+    raise BadRequestError(exc.code, **exc.params) from exc
 
 
 # ============ 辅助 ============
@@ -284,12 +309,25 @@ def _build_unit_dict(
     transition: str,
     note: str | None,
 ) -> dict:
+    has_body = bool(prompt.strip())
+    first_keyframe_id = keyframe_id(unit_id, 1) if has_body else None
     unit = {
         "unit_id": unit_id,
-        "text": prompt,
+        "text": f"{keyframe_mention(first_keyframe_id)} {prompt}".strip() if first_keyframe_id else prompt,
         "duration_seconds": duration_seconds,
         "transition_to_next": transition,
         "note": note,
+        "keyframes": (
+            [
+                {
+                    "keyframe_id": first_keyframe_id,
+                    "description": DEFAULT_ENTRY_KEYFRAME_DESCRIPTION,
+                    "image_path": None,
+                }
+            ]
+            if first_keyframe_id
+            else []
+        ),
         "generated_assets": {
             "storyboard_image": None,
             "storyboard_last_image": None,
@@ -539,13 +577,16 @@ async def generate_keyframes_batch(
 ) -> dict[str, Any]:
     _project, script, script_file = _load_episode_script(project_name, episode, _t)
     requested = set(req.keyframe_ids) if req.keyframe_ids is not None else None
-    specs = reference_keyframe_task_specs(
-        script,
-        script_file,
-        keyframe_ids=requested,
-        missing_only=requested is None,
-        image_override=req.image_override_payload(),
-    )
+    try:
+        specs = reference_keyframe_task_specs(
+            script,
+            script_file,
+            keyframe_ids=requested,
+            missing_only=requested is None,
+            image_override=req.image_override_payload(),
+        )
+    except StoryboardSheetGateError as exc:
+        _raise_storyboard_gate(exc)
     if requested is not None:
         found = {spec.resource_id for spec in specs}
         missing = sorted(requested - found)
@@ -570,12 +611,15 @@ async def generate_keyframe(
     _t: Translator,
 ) -> dict[str, Any]:
     _project, script, script_file = _load_episode_script(project_name, episode, _t)
-    specs = reference_keyframe_task_specs(
-        script,
-        script_file,
-        keyframe_ids={keyframe_id_value},
-        image_override=req.image_override_payload(),
-    )
+    try:
+        specs = reference_keyframe_task_specs(
+            script,
+            script_file,
+            keyframe_ids={keyframe_id_value},
+            image_override=req.image_override_payload(),
+        )
+    except StoryboardSheetGateError as exc:
+        _raise_storyboard_gate(exc)
     if not specs:
         raise NotFoundError("reference_keyframe_not_found", id=keyframe_id_value)
     task_ids, deduped = await _enqueue_keyframe_specs(project_name=project_name, specs=specs, user_id=user.id)
@@ -584,6 +628,56 @@ async def generate_keyframe(
         "task_id": task_ids[0],
         "deduped": deduped,
         "message": _t("reference_keyframe_task_submitted", id=keyframe_id_value),
+    }
+
+
+@router.post("/episodes/{episode}/units/{unit_id}/storyboard-sheet/generate")
+async def generate_storyboard_sheet(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    req: ImageModelSelection,
+    user: CurrentUser,
+    _t: Translator,
+) -> dict[str, Any]:
+    _project, script, script_file = _load_episode_script(project_name, episode, _t)
+    specs = reference_storyboard_sheet_task_specs(
+        script,
+        script_file,
+        unit_ids={unit_id},
+        image_override=req.image_override_payload(),
+    )
+    if not specs:
+        raise NotFoundError("ref_unit_not_found", unit_id=unit_id)
+    task_ids, deduped = await _enqueue_keyframe_specs(project_name=project_name, specs=specs, user_id=user.id)
+    return {
+        "success": True,
+        "task_id": task_ids[0],
+        "deduped": deduped,
+        "message": _t("reference_storyboard_sheet_task_submitted", unit_id=unit_id),
+    }
+
+
+@router.post("/episodes/{episode}/units/{unit_id}/storyboard-sheet/confirm")
+async def confirm_storyboard_sheet(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    user: CurrentUser,
+    _t: Translator,
+) -> dict[str, Any]:
+    _project, _script, script_file = _load_episode_script(project_name, episode, _t)
+    try:
+        sheet, task_ids = await confirm_storyboard_sheet_and_enqueue_keyframes(
+            project_name, script_file, unit_id, user_id=user.id
+        )
+    except StoryboardSheetGateError as exc:
+        _raise_storyboard_gate(exc)
+    return {
+        "success": True,
+        "storyboard_sheet": sheet,
+        "task_ids": task_ids,
+        "message": _t("reference_storyboard_sheet_confirmed", unit_id=unit_id, count=len(task_ids)),
     }
 
 
@@ -840,6 +934,32 @@ async def confirm_h3_prompts(
     req: H3PromptOperationRequest,
 ) -> dict[str, Any]:
     return {"artifacts": await _run_h3_prompt_operation("confirm", project_name, episode, req)}
+
+
+@router.patch("/episodes/{episode}/h3-prompts/{unit_id}")
+async def update_h3_prompt(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    req: UpdateH3PromptRequest,
+) -> dict[str, Any]:
+    try:
+        artifact = await H3PromptOptimizationService().update_prompt(
+            project_name,
+            episode,
+            unit_id=unit_id,
+            rendered_prompt=req.rendered_prompt,
+            narration_delivery=req.narration_delivery,
+            confirmed_request_duration_seconds=req.confirmed_request_duration_seconds,
+        )
+    except H3PromptOptimizationError as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "h3_prompt_output_invalid", "message": str(exc)},
+        ) from exc
+    return {"artifact": artifact.model_dump(mode="json")}
 
 
 @router.post(
