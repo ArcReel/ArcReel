@@ -101,7 +101,7 @@
 
 ## 4. 用户触发式 skill
 
-**结论：可表达，但触发控制不在 agentskills.io 规范内、CLI 纯透传，语义由各客户端自行解释——Claude Code 与 Cursor 支持同名 frontmatter 字段 `disable-model-invocation: true`（仅 `/skill-name` 显式触发）；Codex 不认该字段，需在 skill 目录内附 `agents/openai.yaml` 设 `allow_implicit_invocation: false`；其余不识别的客户端忽略字段，skill 退化为模型自主触发。⚠️ 官方未对该字段做跨客户端承诺，description 措辞是必要兜底。**
+**结论：可表达，但触发控制不在 agentskills.io 规范内、CLI 纯透传，语义由各客户端自行解释——Claude Code 与 Cursor 支持同名 frontmatter 字段 `disable-model-invocation: true`（仅 `/skill-name` 显式触发）；Codex 不认该字段，需在 skill 目录内附 `agents/openai.yaml` 设 `allow_implicit_invocation: false`；其余不识别的客户端忽略字段，skill 退化为模型自主触发。⚠️ 官方未对该字段做跨客户端承诺。**
 
 - CLI 安装解析只识别 `name`、`description` 与 `metadata.internal`（`src/frontmatter.ts` 为极简 YAML-only 解析器；grep `disable-model-invocation`/`user-invocable` 在安装路径零命中），其余字段**原样透传**，无降级/转换逻辑
 - agentskills.io 规范 frontmatter 仅六字段（`name`、`description`、`license`、`compatibility`、`metadata`、`allowed-tools`），无触发控制字段；文件系统客户端对未知字段的实践为忽略（硬报错仅发生在 claude.ai 上传/Skills API 打包路径，与 skills.sh 分发无关）
@@ -148,14 +148,14 @@
 |---|---|---|
 | skills.sh 发两个 skill（同仓库） | **成立** | 多 skill 仓库原生支持；`npx skills add <repo>` 交互全选，或 `<repo>@<skill-name>` / `--skill` 直指单个（§1.1、§1.2）。skill 目录须放安装源仓库浅层（≤3 层深），`name` 与目录名一致 |
 | 工作流 skill 含 `references/*.md` 多文件 | **成立** | 整目录递归复制 + 规范定义的相对路径引用，三客户端均按需读取（§2、§3） |
-| `setup-arcreel-skills` 仅用户显式触发 | **成立，但需双载体 + 措辞兜底 ⚠️** | 触发控制非规范语义、CLI 纯透传：Claude Code/Cursor 认 frontmatter `disable-model-invocation: true`，Codex 需另附 `agents/openai.yaml`（`allow_implicit_invocation: false`），其余客户端退化为模型自主触发；description 须写成「仅在用户明确要求 setup 时使用」做兜底（§4） |
+| `setup-arcreel-skills` 仅用户显式触发 | **成立，但需双载体 ⚠️** | 触发控制非规范语义、CLI 纯透传：Claude Code/Cursor 认 frontmatter `disable-model-invocation: true`，Codex 需另附 `agents/openai.yaml`（`allow_implicit_invocation: false`），其余客户端退化为模型自主触发（§4） |
 | 用户 `npx skills update` 自行维护新鲜度 | **成立（无 semver）** | 内容哈希比对 + 覆盖重装（§5），与 #1709「不设版本握手、漂移由用户自管」吻合；skill 内容不要写死版本号承诺 |
 | `agent-installation-guide.md` 引导 `npx skills add` | **成立** | 私有仓库亦可装（用户须有该仓库 git 访问权，§1.3）。若要面向无仓库权限的外部用户分发：独立公开 skills 仓库（update 体验最好）、服务端直链归档（≤10 MiB）或自托管 `.well-known/skills/` 端点均为 CLI 原生通道（§1.1） |
 
 **派生到 Spec #1711 的两个约束**：
 
 1. skill 目录布局：浅层放置、`name` 与目录名一致（小写连字符）；正文只用规范六字段 + 触发控制扩展，不依赖 `context: fork`、Hooks 等 Claude Code 独有特性
-2. setup skill 同时携带 frontmatter 触发控制与 `agents/openai.yaml`，并在 description 里做语义兜底
+2. setup skill 同时携带 frontmatter 触发控制与 `agents/openai.yaml`
 
 ---
 
