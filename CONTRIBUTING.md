@@ -273,6 +273,8 @@ cd website && pnpm format         # prettier 写入
 
 `<type>/<slug>`，`type` 取 conventional commit 类型之一：
 
+AFK 团队流程的短期运行分支例外使用 `afk/<batch-id>/stage-<K>` 与 `issue/<N>`。
+
 - `feat/` — 新功能（如 `feat/reference-video-backend`）
 - `fix/` — Bug 修复（如 `fix/queue-lease-timeout`）
 - `refactor/` — 重构（如 `refactor/session-actor`）
@@ -290,6 +292,8 @@ cd website && pnpm format         # prettier 写入
 ### Squash merge
 
 每个 PR 压缩为 1 个 commit 合并回 `main`，commit message 遵循 conventional commits 规范（见下节）。GitHub 上选择 "Squash and merge"。
+
+`afk-team-workflow` 生成的 stage PR 是例外：它用 "Rebase and merge" 保留每个 issue 的 conventional commit，以及可追溯的清尾与 integration-fix commits。
 
 ## 提交规范
 
@@ -311,7 +315,7 @@ chore: 构建/工具变更
 
 ### 工作流程
 
-1. PR 按 conventional commits 规范 squash merge 到 `main`
+1. 普通 PR 按 conventional commits 规范 squash merge 到 `main`；`afk-team-workflow` stage PR 按上述例外 rebase merge
 2. release-please 扫描自上次 release 以来的 commit，自动创建或更新标题形如 `chore(main): release X.Y.Z` 的 Release PR，包含下一版本号与更新后的 `CHANGELOG.md`
 3. 合并该 Release PR 即自动创建 `vX.Y.Z` tag 并发布 GitHub Release
 
@@ -344,7 +348,7 @@ feat(grid): 支持 grid_12 布局
 将多宫格分镜系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成（OpenClaw 等）经 `/skill.md` 运行时拉取最新契约、不依赖版本号，删改 `public/skill.md.template` 引用的端点时同步更新该模板。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正方式：编辑该 PR 正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，release-please 按 override 重算 changelog 与版本号（需 squash 合并，本仓库满足）；workflow 仅在 main push 时运行，编辑后需等下一次 main push 或手动重新运行 release-please workflow 才生效。0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。
+**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成（OpenClaw 等）经 `/skill.md` 运行时拉取最新契约、不依赖版本号，删改 `public/skill.md.template` 引用的端点时同步更新该模板。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正按 merge 方式处理：普通 squash PR 编辑正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，等待下一次 main push 或手动重跑 workflow；AFK rebase stage 则在最后一次 main push 更新 Release PR 后，直接校正其版本与 changelog 产物并通过完整性校验，再合并 Release PR。0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。
 
 以下语法说明仅用于识别误标。**破坏性变更**有两种等价写法：
 
