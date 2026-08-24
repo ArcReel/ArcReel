@@ -23,16 +23,16 @@ disable-model-invocation: true
 严格串行执行各 stage：
 
 1. 从最新 `origin/main` 创建 `afk/<batch-id>/stage-<K>` 与专属 worktree，由 team-lead 独占并 push。
-2. 对依赖已满足且改动面可安全并发的 frontier，先以 `claim` 记账，再认领并委派。每个 issue 使用独立 worktree：implementer 按 [implementer.md](references/implementer.md) 交付后，由未参与实现的 local-reviewer 复用该 worktree，按 [local-reviewer.md](references/local-reviewer.md) 审查并交付一个 issue commit。不同 issue 的接力可自然重叠。
+2. 将依赖已满足且改动面可安全并发的 frontier 认领并委派。每个 issue 使用独立 worktree：implementer 按 [implementer.md](references/implementer.md) 交付后，由未参与实现的 local-reviewer 复用该 worktree，按 [local-reviewer.md](references/local-reviewer.md) 审查并交付一个 issue commit。不同 issue 的接力可自然重叠。
 3. team-lead 在 stage worktree 串行 cherry-pick 已审查的 issue commits 并 push。冲突时 abort，由原 local-reviewer 基于最新 stage branch 解决、验证并重新交付。带 `Refs #<N>` 的 commit 出现在远程 stage branch 后，该 issue 才算完成并可解锁新 frontier。
-4. 最后一个 stage 先聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且无需业务取舍的真缺陷；清尾 issue 带可搜索的 `batch-id` 标记创建，Spec 批次另按 [issue-tracker 约定](../../../docs/agents/issue-tracker.md) 挂接父 Spec，再以 `membership` 记账并沿用同一接力，其余转呈。全部 issues 集成后收敛 **green HEAD**：stage worktree 与 remote HEAD 一致、干净且累计质量门通过；质量门产生的改动提交为 integration-fix 并 push。持续、不可用或无法修复的质量门故障记为 `fault`，暂停并询问用户。达标后创建 ready PR，用 `Closes #<N>` 覆盖本 stage issues。Spec 批次另用 `Refs #<Spec>` 引用 Spec，不自动关闭它。将 stage worktree 与 branch 的独占写权交给新 agent，按 [review-looper.md](references/review-looper.md) 收敛整个 stage diff；交接期间 team-lead 不写该 worktree 或 branch。收回写权后核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，以该 `headRefOid` 为 expected-head 执行 rebase merge；不匹配则重入审查循环。下一 stage 从最新 `origin/main` 开始。
+4. 最后一个 stage 先聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且无需业务取舍的真缺陷；清尾 issue 创建后，Spec 批次按 [issue-tracker 约定](../../../docs/agents/issue-tracker.md) 挂接父 Spec，并沿用同一接力；其余转呈。全部 issues 集成后收敛 **green HEAD**：stage worktree 与 remote HEAD 一致、干净且累计质量门通过；质量门产生的改动提交为 integration-fix 并 push。持续、不可用或无法修复的质量门故障记为 `fault`，暂停并询问用户。达标后创建 ready PR，用 `Closes #<N>` 覆盖本 stage issues。Spec 批次另用 `Refs #<Spec>` 引用 Spec，不自动关闭它。将 stage worktree 与 branch 的独占写权交给新 agent，按 [review-looper.md](references/review-looper.md) 收敛整个 stage diff；交接期间 team-lead 不写该 worktree 或 branch。收回写权后核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，以该 `headRefOid` 为 expected-head 执行 rebase merge；不匹配则重入审查循环。下一 stage 从最新 `origin/main` 开始。
 
 ## 3. 暂停边界
 
-实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响事项及其下游并询问用户。**quiesce first**：停止受影响 agents 并废弃未集成 handoff；stage 写权已交出时，先停止 review-looper 写入并连同 worktree、branch、remote HEAD 与 handoff 收回。然后为已有 issue 移除 `ready-for-agent`、添加 `ready-for-human`，记录原因，并将暂停范围移出当前 stage。其余 frontier 继续执行。用户决定继续时：已有 issue 恢复标签；Spec gap 先创建并挂为 sub-issue、以 `membership` 纳入批次，再重新编排。决定保留暂停时，仅当相关 commit 已进入 stage branch 才重建 stage，排除该 issue 及其下游；已有 PR 同步更新 `Closes` 清单。重建后重新运行累计质量门与审查循环。
+实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响事项及其下游并询问用户。**quiesce first**：停止受影响 agents 并废弃未集成 handoff；stage 写权已交出时，先停止 review-looper 写入并连同 worktree、branch、remote HEAD 与 handoff 收回。然后为已有 issue 移除 `ready-for-agent`、添加 `ready-for-human`，记录原因，并将暂停范围移出当前 stage。其余 frontier 继续执行。用户决定继续时：已有 issue 恢复标签；Spec gap 先创建并挂为 sub-issue，再重新编排。决定保留暂停时，仅当相关 commit 已进入 stage branch 才重建 stage，排除该 issue 及其下游；已有 PR 同步更新 `Closes` 清单。重建后重新运行累计质量门与审查循环。
 
 可吸收的运行故障、reviewer 重复噪声与无需业务选择的技术裁决由 team-lead 处理并记账；阻断 **green HEAD** 且无法自行恢复的故障按上文暂停。
 
 ## 4. 收尾
 
-在 Spec issue 发布按已合并 stage 组织的人工 QA 清单，列出 PR、用户可感知的验收路径、暂停/跳过项与转呈事项；显式 issue 批次则并入收尾汇报。按 `claim` 移除 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
+在 Spec issue 发布按已合并 stage 组织的人工 QA 清单，列出 PR、用户可感知的验收路径、暂停/跳过项与转呈事项；显式 issue 批次则并入收尾汇报。移除已认领 issue 的 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
