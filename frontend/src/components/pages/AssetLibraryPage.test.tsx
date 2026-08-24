@@ -19,7 +19,7 @@ function renderPage(initialPath = "/app/assets") {
   };
 }
 
-describe("AssetLibraryPage tablist (issue #488)", () => {
+describe("AssetLibraryPage tablist", () => {
   beforeEach(() => {
     useAssetsStore.setState(useAssetsStore.getInitialState(), true);
     vi.spyOn(API, "listAssets").mockResolvedValue({ items: [] });
