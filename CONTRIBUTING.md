@@ -273,6 +273,8 @@ cd website && pnpm format         # prettier 写入
 
 `<type>/<slug>`，`type` 取 conventional commit 类型之一：
 
+AFK 团队流程的短期运行分支例外使用 `afk/<batch-id>/stage-<K>` 与 `issue/<N>`。
+
 - `feat/` — 新功能（如 `feat/reference-video-backend`）
 - `fix/` — Bug 修复（如 `fix/queue-lease-timeout`）
 - `refactor/` — 重构（如 `refactor/session-actor`）
@@ -290,6 +292,8 @@ cd website && pnpm format         # prettier 写入
 ### Squash merge
 
 每个 PR 压缩为 1 个 commit 合并回 `main`，commit message 遵循 conventional commits 规范（见下节）。GitHub 上选择 "Squash and merge"。
+
+`afk-team-workflow` 生成的 stage PR 是例外：它用 "Rebase and merge" 保留每个 issue 的 conventional commit，以及可追溯的清尾与 integration-fix commits。
 
 ## 提交规范
 
@@ -311,7 +315,7 @@ chore: 构建/工具变更
 
 ### 工作流程
 
-1. PR 按 conventional commits 规范 squash merge 到 `main`
+1. 普通 PR 按 conventional commits 规范 squash merge 到 `main`；`afk-team-workflow` stage PR 按上述例外 rebase merge
 2. release-please 扫描自上次 release 以来的 commit，自动创建或更新标题形如 `chore(main): release X.Y.Z` 的 Release PR，包含下一版本号与更新后的 `CHANGELOG.md`
 3. 合并该 Release PR 即自动创建 `vX.Y.Z` tag 并发布 GitHub Release
 

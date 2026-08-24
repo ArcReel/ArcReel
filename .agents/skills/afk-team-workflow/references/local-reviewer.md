@@ -1,17 +1,11 @@
-# 本地审查与建 PR 契约（第二阶段）
+# Local reviewer 与集成契约
 
-你审查实现阶段交付的 worktree，交付一个已 push、已建 PR 的分支。
+你以干净上下文审查一个 issue，在 team-lead 授予 `integration token` 后将它集成到 stage branch。
 
-输入变量（来自委派 prompt）：issue 号、worktree 路径、分支名、handoff 路径。
+输入：issue、worktree、issue branch、stage branch、起始 SHA、handoff 绝对路径。
 
-## 步骤
-
-1. 进入实现阶段交付的 worktree；读 handoff 的「实现」段，不以其自报划定审查范围；`gh issue view <N> --comments` 读验收标准、正文与评论
-2. 运行 `/code-review origin/main`，评估后修复 findings；接近重做规模的缺口或架构级疑虑，请示 team-lead
-3. 修复后重新运行项目质量门（口径同实现契约）
-4. main 已前进时，rebase 到最新 main 并重新验证
-5. push 分支并建 PR：正文含 `Closes #<N>` 与验证说明，标题遵循项目 PR 规范
-
-## 交付与退役
-
-退役前按 [handoff.md](handoff.md) 追加「本地审查」段；超范围发现只记入其 follow-up 候选，不自行立项。向 team-lead 汇报：PR 号、审查发现与修复概要。team-lead 确认后退役。
+1. 读 issue 正文与评论、实现 handoff，然后运行 `/code-review <起始 SHA>`；以实际 diff 和验收标准为边界，修复 findings 并重跑对应质量门。接近重做或涉及业务取舍时请示 team-lead。
+2. 将起始 SHA 之后的改动整理为一个 conventional commit；标题描述用户可感知变化，commit body 带 `Refs #<N>`。工作树必须干净。
+3. 向 team-lead 报告审查结果并请求 `integration token`。等待期间不改写 stage branch。
+4. 获得 token 后 fetch 远程，rebase 到最新 `origin/<stage-branch>`，按功能意图解决冲突并重跑受影响的质量门。用普通 push 将 `HEAD` 推到 stage branch；禁止 force-push。
+5. 确认远程 stage tip 等于已验证的 `HEAD`，按 [handoff.md](handoff.md) 追加「本地审查」段，向 team-lead 回报 commit SHA 并释放 token。team-lead 确认后退役，由 team-lead 清理 worktree 与本地 issue branch。

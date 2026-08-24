@@ -1,39 +1,28 @@
 # 委派 prompt 模板
 
-## 实现
+所有路径都传绝对路径。Herdr 委派另按 [herdr-teammate.md](herdr-teammate.md) 附加寻址上下文。
+
+## Implementer
 
 ```text
-你是 afk-team-workflow 批次中 issue #<N> 的实现者。先读 <skill 目录绝对路径>/references/implementer.md，按契约工作。
-变量：issue=#<N>；repo-root=<主仓库绝对路径>；分支=issue/<N>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
-所有路径按绝对路径字面解释。worktree 由你按契约创建；任务若要修改契约文件本身，也必须修改 worktree 内的副本，经分支与 PR 交付。
+你是 afk-team-workflow 批次中 issue #<N> 的 implementer。读 <skill>/references/implementer.md 并按契约工作。
+输入：repo-root=<path>；stage-branch=<branch>；issue-branch=issue/<N>；handoff=<repo-root>/.afk/<batch-id>/handoff-<N>.md。
 ```
 
-改动面大的 issue，附加：
+改动面大时可附加：`开工先委派独立探索 agent 勘察。`
+
+## Local reviewer
 
 ```text
-开工先委派独立探索 agent 勘察。
+你是 afk-team-workflow 批次中 issue #<N> 的 local-reviewer，未参与该 issue 实现。读 <skill>/references/local-reviewer.md 并按契约工作。
+输入：worktree=<path>；issue-branch=issue/<N>；stage-branch=<branch>；base=<SHA>；handoff=<repo-root>/.afk/<batch-id>/handoff-<N>.md。
 ```
 
-## 本地审查+建 PR
+## Review looper
 
 ```text
-你是 afk-team-workflow 批次中 issue #<N> 的本地审查者。先读 <skill 目录绝对路径>/references/local-reviewer.md，按契约工作。
-变量：issue=#<N>；worktree=<路径>；分支=issue/<N>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
-所有路径按绝对路径字面解释：除读取契约与追加 handoff 外，一切文件读写都限定在 worktree；任务若要修改契约文件本身，也必须修改 worktree 内的副本，经分支与 PR 交付。
+你负责 afk-team-workflow 批次 stage <K> 的 AI review loop。读 <skill>/references/review-looper.md 并按契约工作。
+输入：PR=#<M>；stage-branch=<branch>；worktree=<path>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md。
 ```
 
-## AI 审查循环
-
-```text
-你是 afk-team-workflow 批次中 issue #<N> 的审查循环负责人。先读 <skill 目录绝对路径>/references/review-looper.md，按契约工作。
-变量：issue=#<N>；PR=#<M>；worktree=<路径>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
-所有路径按绝对路径字面解释：除读取契约与追加 handoff 外，一切文件读写都限定在 worktree；任务若要修改契约文件本身，也必须修改 worktree 内的副本，经分支与 PR 交付。
-```
-
-## 替补接管附言
-
-负责 agent 失效需要替补时，沿用对应阶段的模板，并附加：
-
-```text
-前任 agent 已失效。接管前先核查现场：worktree 状态、PR 与分支状态、handoff 文件中已写的段、前任最后一次留痕的动作；不要假设前任完成了任何未留痕的步骤。
-```
+任一 issue 在远程 stage branch 留下 commit 前失效，即丢弃现场并从最新 stage tip 重新委派；不传递半成品接管 prompt。

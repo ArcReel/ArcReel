@@ -1,6 +1,6 @@
 interface:
-  display_name: "AFK Team Workflow"
-  short_description: "Run an issue batch to merged or shelved"
-  default_prompt: "Use $afk-team-workflow to run a Spec or issue batch unattended."
+  display_name: "AFK 团队流程"
+  short_description: "通过 staged PR 无人值守执行 issue 批次"
+  default_prompt: "使用 $afk-team-workflow 无人值守执行一个 Spec 或 issue 批次。"
 policy:
   allow_implicit_invocation: false

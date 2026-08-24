@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # ledger.sh — append one line to a batch's thin ledger.
 #
-# The ledger records ONLY facts that gh/git cannot re-derive: a decision the team-lead
-# made, an authorization the user gave verbally, a fault the team-lead absorbed, a gap it
-# spotted, why an issue was shelved, a merge it performed, a retrospective handed in.
-# Everything reconstructable from the remote (issue/PR/branch state, dependency graph)
-# stays out — batch-poll.sh recomputes that on demand. Recovery replays this file to
-# rebuild what crashed-and-lost context can't, then reconciles against a fresh poll.
+# The ledger records ONLY facts that gh/git cannot re-derive: team-lead decisions,
+# verbal authorization, absorbed faults, gaps, pauses, merges, and retrospectives.
+# Stage progress stays out: recovery reads completed issue commits from the remote
+# stage branch and restarts everything else.
 #
 # Why a script and not `echo '{...}' >> file`: a hand-built line breaks the moment a
 # detail string contains a quote or newline, and a malformed line breaks recovery's
