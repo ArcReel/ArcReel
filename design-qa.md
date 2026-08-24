@@ -1,48 +1,58 @@
-# Design QA — Asset card source controls
+# Asset Card Generation Controls — Design QA
 
-- Source visual truth: `/var/folders/kw/6zd2qrgs4c75yks_sh_qlb600000gn/T/codex-clipboard-01760bc1-feb1-4f63-93fc-113cf745fb27.png`
-- Implementation screenshot: `implementation-reference-audio-state.png`
-- Comparison image: `design-qa-comparison.png`
-- Browser viewport: 1276 × 718 CSS px; focused character-card capture used a 420 × 190 CSS px clip.
-- Pixel dimensions: source 668 × 408 px; implementation crop 420 × 190 px. The comparison scales the implementation crop to the source width while preserving aspect ratio.
-- State: dark theme, linked global character, global image in the main slot, reference audio active. The alternate Voice ID state was separately verified in `implementation-voice-id-state.png`.
+- Source visual truth: `/var/folders/kw/6zd2qrgs4c75yks_sh_qlb600000gn/T/codex-clipboard-a0309319-4ed8-4cef-95f1-a6b3b3be5019.png`
+- Implementation screenshot: `implementation-asset-card-final.jpg`
+- Viewport: `478 × 500` CSS px
+- Source dimensions: `956 × 578` px at 2× density, normalized to `478 × 289` CSS px for comparison
+- Implementation dimensions: `478 × 500` px at 1× density
+- State: dark theme, 320px asset card, project-default image model with an intentionally long provider/model label, idle regenerate action
 
 ## Full-view comparison evidence
 
-The character card was rendered with the production component and styles in the in-app browser. The source and focused implementation capture were combined in `design-qa-comparison.png`. The sound-field hierarchy, dark field treatment, audio player, status text, and primary generate action remain consistent with the source. The requested source-switch action is intentionally added to the sound heading.
+The source and browser-rendered implementation were opened together in one comparison input. The implementation preserves the existing card chrome, typography hierarchy, model-selector treatment, accent button, spacing, radii, colors, and copy. The requested difference is visible: the selector and regenerate button now remain within the card's padded content area.
 
-## Focused region evidence
+## Focused region comparison evidence
 
-- Image source switch is positioned between the main-image and reference-image regions.
-- Link/Unlink and image-switch controls measure 28 × 28 px with 14 × 14 px Lucide icons and share the existing toolbar color, radius, and hover treatment.
-- Reference-audio state shows the audio player and “切换 Voice ID”.
-- Voice-ID state replaces the player/upload area with the linked Voice ID and shows “切换参考音频”.
-- Native voice-source select is absent.
+The selector and regenerate action were inspected at card scale because this is the affected region. Browser geometry showed:
+
+- Card: 320px wide, content control region from x=41 to x=319.
+- Model selector: 278px wide, x=41 to x=319.
+- Regenerate button: 278px wide, x=41 to x=319.
+- Selector text truncates instead of increasing intrinsic width.
+- Document horizontal overflow: false.
+- Open dropdown: 278px wide and aligned to both selector edges.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing font family, weight, size, and line height are unchanged; the long label now truncates on one line.
+- Spacing and layout rhythm: both controls align to the same 278px content width and preserve the card's 20px padding.
+- Colors and visual tokens: existing dark-room and emerald accent tokens are unchanged.
+- Image quality and asset fidelity: no image assets were changed; the supplied screenshot remains the visual reference.
+- Copy and content: model fallback wording and “重新生成资产图” are unchanged.
 
 ## Findings
 
-No actionable P0/P1/P2 findings remain.
+- No actionable P0, P1, or P2 differences remain in the affected region.
 
-Required fidelity surfaces:
+## Interaction and runtime checks
 
-- Fonts and typography: existing product font stack, sizes, weights, and hierarchy are preserved.
-- Spacing and layout rhythm: the switch icon sits in the existing gap between image regions; sound controls remain aligned with the section heading and fields.
-- Colors and visual tokens: all controls reuse existing text, hairline, focus, and hover tokens.
-- Image quality and asset fidelity: no product image assets were replaced or synthesized; icons come from the existing Lucide dependency.
-- Copy and content: Chinese, English, and Vietnamese strings are present; Chinese action labels match the requested wording.
+- Opened and closed the model selector.
+- Confirmed the dropdown remains exactly as wide as its trigger.
+- Confirmed the regenerate button remains within the card content boundary.
+- Browser console errors: 0.
+- Browser console warnings: 0.
 
 ## Comparison history
 
-1. Initial pass found the image switch and unlink icon used a stronger green treatment than adjacent toolbar actions. Both were changed to the standard 28 px toolbar-button style with 14 px icons.
-2. The Voice ID pass found that the saved reference-audio player remained visible after switching sources. The source area now renders the linked Voice ID instead.
-3. Post-fix browser inspection found no console errors and confirmed all requested controls in the rendered DOM.
+1. Initial source evidence showed the long model label expanding the generation-controls region beyond the card padding; the full-width regenerate button followed the expanded width.
+2. Added a complete `min-width: 0` / `max-width: 100%` shrink chain to the shared selector, its trigger and label, and the four asset-card generation regions.
+3. Post-fix browser evidence shows selector and button widths equal to the card content width with no horizontal overflow; the dropdown also matches the trigger width.
 
-## Verification
+## Implementation checklist
 
-- Primary interactions: image source switch, reference-audio/Voice-ID switch, link/unlink affordances.
-- Automated component tests: 21 passed.
-- TypeScript typecheck: passed.
-- ESLint: passed for production files; the temporary QA entry was removed after capture.
-- Browser console errors: none.
+- [x] Constrain shared model selector width.
+- [x] Make the selected/fallback model label shrinkable and truncatable.
+- [x] Constrain character, scene, prop, and product generation controls.
+- [x] Verify long-label layout and dropdown interaction in the browser.
 
 final result: passed

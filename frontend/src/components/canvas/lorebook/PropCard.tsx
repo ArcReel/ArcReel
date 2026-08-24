@@ -307,7 +307,7 @@ export function PropCard({
       )}
 
       {readOnly ? null : (
-        <div className="grid gap-2">
+        <div className="grid min-w-0 max-w-full gap-2">
           <ImageModelSelect value={imageModel} onChange={setImageModel} capability="any" />
           <GenerateButton
             onClick={() => imageModel
@@ -316,7 +316,7 @@ export function PropCard({
             loading={generating}
             disabled={usingGlobalMain}
             label={prop.prop_sheet ? t("regenerate_design") : t("generate_design")}
-            className="w-full justify-center"
+            className="w-full min-w-0 max-w-full justify-center"
           />
         </div>
       )}

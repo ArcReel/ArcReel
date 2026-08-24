@@ -418,7 +418,7 @@ export function ProductCard({
       )}
 
       {readOnly ? null : (
-      <div className="grid gap-2">
+      <div className="grid min-w-0 max-w-full gap-2">
         <ImageModelSelect value={imageModel} onChange={setImageModel} capability="any" />
         <GenerateButton
           onClick={() => imageModel
@@ -426,7 +426,7 @@ export function ProductCard({
             : onGenerate(name)}
           loading={generating}
           label={product.product_sheet ? t("dashboard:regenerate_design") : t("dashboard:generate_design")}
-          className="w-full justify-center"
+          className="w-full min-w-0 max-w-full justify-center"
         />
       </div>
       )}

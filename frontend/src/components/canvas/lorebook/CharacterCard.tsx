@@ -802,7 +802,7 @@ export function CharacterCard({
       )}
 
       {readOnly ? null : (
-      <div className="mt-4">
+      <div className="mt-4 min-w-0 max-w-full">
         <ImageModelSelect value={imageModel} onChange={setImageModel} capability="any" />
         <GenerateButton
           onClick={() => imageModel
@@ -811,7 +811,7 @@ export function CharacterCard({
           loading={generating}
           disabled={usingGlobalMain}
           label={character.character_sheet ? t("regenerate_design") : t("generate_design")}
-          className="mt-2 w-full justify-center"
+          className="mt-2 w-full min-w-0 max-w-full justify-center"
         />
       </div>
       )}
