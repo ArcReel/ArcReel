@@ -25,11 +25,11 @@ disable-model-invocation: true
 1. 从最新 `origin/main` 创建 `afk/<batch-id>/stage-<K>` 与专属 worktree，由 team-lead 独占并 push。
 2. 将依赖已满足且改动面可安全并发的完整 frontier 立即认领并委派。每个 issue 使用独立 worktree：implementer 按 [implementer.md](references/implementer.md) 交付后，由未参与实现的 local-reviewer 复用该 worktree，按 [local-reviewer.md](references/local-reviewer.md) 审查并交付一个 issue commit。不同 issue 的接力可自然重叠。
 3. team-lead 在 stage worktree 串行 cherry-pick 已审查的 issue commits 并 push。冲突时 abort，由原 local-reviewer 基于最新 stage branch 解决、验证并重新交付。带 `Refs #<N>` 的 commit 出现在远程 stage branch 后，该 issue 才算完成并可解锁新 frontier。
-4. 全部 issues 集成后运行累计质量门。最后一个 stage 先聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且无需业务取舍的真缺陷，清尾 issue 沿用同一接力；其余转呈。完成后创建 ready PR，用 `Closes #<N>` 覆盖本 stage issues；Spec 批次另用 `Refs #<Spec>` 引用 Spec，不自动关闭它。委派新 agent 按 [review-looper.md](references/review-looper.md) 收敛整个 stage diff，合并前核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，然后 rebase merge。下一 stage 从最新 `origin/main` 开始。
+4. 全部 issues 集成后运行累计质量门。最后一个 stage 先聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且无需业务取舍的真缺陷，清尾 issue 沿用同一接力；其余转呈。完成后创建 ready PR，用 `Closes #<N>` 覆盖本 stage issues；Spec 批次另用 `Refs #<Spec>` 引用 Spec，不自动关闭它。将 stage worktree 与 branch 的独占写权交给新 agent，按 [review-looper.md](references/review-looper.md) 收敛整个 stage diff；交接期间 team-lead 不写该 worktree 或 branch。收回写权后核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，然后 rebase merge。下一 stage 从最新 `origin/main` 开始。
 
 ## 3. 暂停边界
 
-实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响的 issue 及其下游并询问用户；其余 frontier 继续执行。
+实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响事项及其下游并询问用户；已有 issue 移除 `ready-for-agent`、添加 `ready-for-human`，并记录原因。其余 frontier 继续执行。若相关 commit 已进入 stage branch，该 stage 不得合并：用户决定继续时移除 `ready-for-human`、恢复 `ready-for-agent` 并按裁决推进；决定保留暂停时由 team-lead 重建 stage，排除该 issue 及其下游后重新运行累计质量门与审查循环。
 
 运行故障、reviewer 重复噪声与无需业务选择的技术裁决由 team-lead 处理并记账，不中断批次。
 

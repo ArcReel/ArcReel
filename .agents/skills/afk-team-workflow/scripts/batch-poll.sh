@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Expand an AFK batch and project the issue dependency graph. This is a planning
 # snapshot only; stage progress lives in the remote stage branch and PR.
+# stdout: {generated_for, issues: [{number, title, state, state_reason, labels,
+# assignees, blocked_by, blockers_completed}], initial_frontier: [number]}.
+# initial_frontier is only the mechanical open/unassigned/blockers projection;
+# the team-lead applies triage labels and issue semantics.
 
 set -euo pipefail
 
