@@ -6,6 +6,8 @@ import shutil
 from pathlib import Path
 from typing import Literal
 
+from lib.path_safety import safe_join
+
 from .base import ExtractedText, NormalizeResult
 from .docx import DocxExtractor
 from .epub import EpubExtractor
@@ -44,8 +46,8 @@ class SourceLoader:
         suggested_stem 从 stem_1, stem_2, ... 递增到不冲突为止。
         """
         stem = Path(original_filename).stem
-        normalized = dst_dir / f"{stem}.txt"
-        raw = dst_dir / "raw" / original_filename
+        normalized = safe_join(dst_dir, f"{stem}.txt")
+        raw = safe_join(dst_dir, "raw", original_filename)
 
         if not normalized.exists() and not raw.exists():
             return False, stem
@@ -53,8 +55,8 @@ class SourceLoader:
         idx = 1
         while idx < _MAX_CONFLICT_ITER:
             candidate_stem = f"{stem}_{idx}"
-            candidate_norm = dst_dir / f"{candidate_stem}.txt"
-            candidate_raw = dst_dir / "raw" / f"{candidate_stem}{Path(original_filename).suffix}"
+            candidate_norm = safe_join(dst_dir, f"{candidate_stem}.txt")
+            candidate_raw = safe_join(dst_dir, "raw", f"{candidate_stem}{Path(original_filename).suffix}")
             if not candidate_norm.exists() and not candidate_raw.exists():
                 return True, candidate_stem
             idx += 1
@@ -74,7 +76,7 @@ class SourceLoader:
         on_conflict: OnConflict = "fail",
         max_bytes: int = DEFAULT_MAX_BYTES,
     ) -> NormalizeResult:
-        """规范化上传文件为 UTF-8 .txt 并按"决策 7"备份原始字节。
+        """规范化上传文件为 UTF-8 .txt，并在转换非字节等价时备份原始内容。
 
         Args:
             src: 临时文件路径（上传层已落盘）。
@@ -121,7 +123,7 @@ class SourceLoader:
             # on_conflict == "replace" → 沿用原 stem，覆盖
 
         extracted = _EXTRACTORS[ext]().extract(src)
-        normalized_path = dst_dir / f"{target_stem}.txt"
+        normalized_path = safe_join(dst_dir, f"{target_stem}.txt")
         normalized_path.parent.mkdir(parents=True, exist_ok=True)
 
         # replace 场景：提前清理同 stem 的历史 raw 备份，避免前端"下载原始格式"
@@ -161,14 +163,14 @@ class SourceLoader:
         dst_dir: Path,
         effective_filename: str,
     ) -> Path | None:
-        # 决策 7：仅当 normalized .txt 与原始字节等价时跳过备份（纯 UTF-8 无 BOM）。
+        # 仅当 normalized .txt 与原始字节等价时跳过备份（纯 UTF-8 无 BOM）。
         # 任何编码转换（BOM 剥离、GBK→UTF-8、docx/epub/pdf 解析）都视为 lossy，
         # 需保留 raw 以支持前端"下载原始格式"按钮与 QA 回放。
         if ext in {".txt", ".md"} and extracted.used_encoding == "utf-8":
             return None
-        raw_dir = dst_dir / "raw"
+        raw_dir = safe_join(dst_dir, "raw")
         raw_dir.mkdir(parents=True, exist_ok=True)
-        raw_path = raw_dir / effective_filename
+        raw_path = safe_join(raw_dir, effective_filename)
         shutil.copyfile(src, raw_path)
         return raw_path
 
@@ -180,7 +182,7 @@ class SourceLoader:
         raw/{stem}.docx 等备份时，list_project_files 仍会按 stem 暴露 raw_filename，
         前端的"下载原始格式"按钮会指向被覆盖前的陈旧内容。
         """
-        raw_dir = dst_dir / "raw"
+        raw_dir = safe_join(dst_dir, "raw")
         if not raw_dir.exists():
             return
         for stale in raw_dir.iterdir():

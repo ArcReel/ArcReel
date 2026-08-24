@@ -29,6 +29,7 @@ from server.tool_runtime import (
     CallerContext,
     CompleteAssetInventoryRequest,
     CompleteStep1RebuildRequest,
+    CreateProjectToolRequest,
     PatchEpisodeMetaRequest,
     PatchProjectRequest,
     PlanEpisodesRequest,
@@ -39,8 +40,10 @@ from server.tool_runtime import (
     ToolOutcome,
     ToolProblem,
     ToolRequest,
+    UploadSourceRequest,
     complete_asset_inventory,
     complete_step1_rebuild,
+    create_project,
     get_episode_script,
     get_project_content,
     get_source_text,
@@ -48,6 +51,7 @@ from server.tool_runtime import (
     get_video_capabilities,
     get_workflow_plan,
     list_project_files,
+    list_projects,
     list_source_files,
     patch_episode_meta,
     patch_project,
@@ -56,6 +60,7 @@ from server.tool_runtime import (
     rename_asset,
     reset_episode_planning,
     retry_project_migration,
+    upload_source,
 )
 
 _LOCAL_HOSTS = ["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*", "[::1]", "[::1]:*"]
@@ -129,8 +134,13 @@ def build_remote_mcp_server(
     token_verifier: TokenVerifier | None = None,
 ) -> FastMCP:
     """Build one restart-safe MCP server instance for the host lifespan."""
-    projects = projects or get_project_manager()
-    services = services or _default_services(projects)
+    if services is not None:
+        if projects is not None and projects.projects_root.resolve() != services.projects.projects_root.resolve():
+            raise ValueError("projects 与 services.projects 必须属于同一项目根")
+        projects = services.projects
+    else:
+        projects = projects or get_project_manager()
+        services = _default_services(projects)
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
     public_url = AnyHttpUrl(os.environ.get("MCP_PUBLIC_URL", "http://localhost:1241/mcp"))
     server = FastMCP(
@@ -150,6 +160,57 @@ def build_remote_mcp_server(
             allowed_origins=_csv_env("MCP_ALLOWED_ORIGINS", _LOCAL_ORIGINS),
         ),
     )
+
+    @server.tool(name="list_projects", structured_output=False)
+    async def remote_list_projects() -> CallToolResult:
+        """List ArcReel projects that can be addressed by subsequent tools."""
+        return _to_mcp_result("projects", await list_projects(ToolRequest(None), caller, services))
+
+    @server.tool(name="create_project", structured_output=False)
+    async def remote_create_project(
+        name: str,
+        title: str = "",
+        content_mode: Literal["narration", "drama", "ad"] = "narration",
+        source_kind: Literal["novel", "screenplay"] = "novel",
+        generation_mode: Literal["storyboard", "reference_video"] = "storyboard",
+        grid_storyboard: bool = False,
+        aspect_ratio: str = "9:16",
+        default_duration: int | None = None,
+        target_duration: int | None = None,
+        brief: str | None = None,
+    ) -> CallToolResult:
+        """Create a project with complete metadata for subsequent ArcReel tools."""
+        try:
+            request = CreateProjectToolRequest(
+                name=name,
+                title=title,
+                content_mode=content_mode,
+                source_kind=source_kind,
+                generation_mode=generation_mode,
+                grid_storyboard=grid_storyboard,
+                aspect_ratio=aspect_ratio,
+                default_duration=default_duration,
+                target_duration=target_duration,
+                brief=brief,
+            )
+        except ValueError as exc:
+            return _to_mcp_result("project", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result("project", await create_project(ToolRequest(request), caller, services))
+
+    @server.tool(name="upload_source", structured_output=False)
+    async def remote_upload_source(
+        project: str,
+        filename: str,
+        content: str,
+        on_conflict: Literal["fail", "replace", "rename"] = "fail",
+    ) -> CallToolResult:
+        """Normalize a text source file to UTF-8 and store it in one explicit project."""
+        try:
+            scope = _project_scope(project, projects)
+            request = UploadSourceRequest(filename=filename, content=content, on_conflict=on_conflict)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("source", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result("source", await upload_source(ToolRequest(request), scope, caller, services))
 
     @server.tool(name="get_workflow_plan", structured_output=False)
     async def remote_workflow_plan(

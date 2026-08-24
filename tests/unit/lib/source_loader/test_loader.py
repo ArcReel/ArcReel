@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.path_safety import PathTraversalError
 from lib.source_loader import SourceLoader
 from lib.source_loader.errors import (
     ConflictError,
@@ -119,6 +120,21 @@ def test_load_on_conflict_replace_overwrites(tmp_path: Path):
     assert result.normalized_path.read_text(encoding="utf-8") == "新内容"
 
 
+def test_load_on_conflict_replace_rejects_symlinked_target(tmp_path: Path):
+    project_source = tmp_path / "source"
+    project_source.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("不可改写", encoding="utf-8")
+    (project_source / "novel.txt").symlink_to(outside)
+    src = tmp_path / "novel.txt"
+    src.write_text("新内容", encoding="utf-8")
+
+    with pytest.raises(PathTraversalError):
+        SourceLoader.load(src, project_source, original_filename="novel.txt", on_conflict="replace")
+
+    assert outside.read_text(encoding="utf-8") == "不可改写"
+
+
 def test_load_on_conflict_rename_uses_suggested(tmp_path: Path):
     project_source = tmp_path / "source"
     project_source.mkdir()
@@ -140,7 +156,7 @@ def test_load_chapter_count_propagates_from_epub(tmp_path: Path, epub_factory):
 
 
 def test_detect_conflict_skips_occupied_indices(tmp_path: Path):
-    """stem_1 已占用时 suggested_stem 递增到 stem_2，锁 Task 11 预期的递增语义。"""
+    """stem_1 已占用时 suggested_stem 递增到 stem_2。"""
     src = tmp_path / "source"
     src.mkdir()
     (src / "novel.txt").write_text("", encoding="utf-8")

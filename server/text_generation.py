@@ -258,7 +258,7 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
             )
         return rv_json, "split-reference-video-units 子智能体 (Step 1)"
     if content_mode != "narration" and content_mode in STEP1_FILENAMES:
-        # drama 及未来其它走 drama 形状两段式的结构化模式：step1 是结构化 JSON（见 ADR 0041）。
+        # STEP1_FILENAMES 中除 narration 外的模式走两段式结构化 JSON（见 ADR 0041）。
         # narration 虽也在 STEP1_FILENAMES，但另有旧 .md 迁移提示分支，需先排除。
         return drafts_path / STEP1_FILENAMES[content_mode], "generate_step1 tool"
     # narration 生成需结构化 step1 JSON；仅存旧版 .md 时给出与
