@@ -45,6 +45,7 @@ from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password, get_current_user
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
+from server.remote_mcp import remote_mcp_host
 from server.routers import (
     agent_chat,
     agent_config,
@@ -455,7 +456,8 @@ async def lifespan(app: FastAPI):
     await project_event_service.start()
     logger.info("ProjectEventService 已启动")
 
-    yield
+    async with remote_mcp_host.run():
+        yield
 
     # Shutdown
     project_event_service = getattr(app.state, "project_event_service", None)
@@ -667,6 +669,7 @@ app.include_router(
 )
 app.include_router(project_events.self_auth_router, prefix="/api/v1", tags=["项目变更流"])
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
+app.mount("/mcp", remote_mcp_host)
 
 
 def create_generation_worker() -> GenerationWorker:

@@ -161,6 +161,9 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 | `TZ` | `Asia/Shanghai` | 可在 Compose 环境中覆盖 |
 | `DATABASE_URL` | SQLite 默认路径 | 生产 Compose 自动设置 PostgreSQL URL |
 | `ARCREEL_DATA_DIR` | `projects` | 需要自定义应用数据根目录时使用 |
+| `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | 外部接入时填写实际 HTTPS MCP 端点 |
+| `MCP_ALLOWED_HOSTS` | 仅 loopback host | 外部接入时填写逗号分隔的实际 Host 白名单 |
+| `MCP_ALLOWED_ORIGINS` | 仅 loopback origin | 浏览器型 MCP 客户端跨源访问时填写逗号分隔的 Origin 白名单 |
 
 注意：
 
@@ -168,6 +171,8 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 - `.env` 中可能包含密钥，不要提交到版本库。
 - Vertex 凭据文件应只授予运行 ArcReel 的用户读取权限。
 - 第三方模型 API Key 通常在 ArcReel 设置页中管理，不要写入公开文档。
+
+远程 MCP 端点为 `/mcp`，始终要求 `arc-` 前缀 API Key；即使 `AUTH_ENABLED=false` 也不会匿名放行。外部接入须同时配置上述三个 `MCP_*` 变量，并通过保留 SSE 长连接的 HTTPS 反向代理、VPN 或安全隧道访问。
 
 ArcReel 的沙箱要求父进程环境中不保留供应商密钥。以下凭据环境变量存在非空值时，服务会拒绝启动并提示迁移到 WebUI 设置页：
 
