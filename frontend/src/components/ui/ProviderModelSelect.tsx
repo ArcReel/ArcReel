@@ -331,7 +331,7 @@ export function ProviderModelSelect({
   let flatIdx = showDefault ? 1 : 0;
 
   return (
-    <div ref={containerRef} className={`relative ${className || ""}`}>
+    <div ref={containerRef} className={`relative w-full min-w-0 max-w-full ${className || ""}`}>
       {/* Trigger button */}
       <button
         ref={triggerRef}
@@ -349,9 +349,11 @@ export function ProviderModelSelect({
           setOpen(!open);
         }}
         onKeyDown={handleTriggerKeyDown}
-        className="flex w-full items-center justify-between gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text transition-colors hover:border-hairline-strong hover:bg-bg-grad-a/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text transition-colors hover:border-hairline-strong hover:bg-bg-grad-a/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        <span className={`truncate ${showFallback ? "text-text-3" : ""}`}>{displayText}</span>
+        <span className={`min-w-0 flex-1 truncate text-left ${showFallback ? "text-text-3" : ""}`}>
+          {displayText}
+        </span>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-text-4 transition-transform ${open ? "rotate-180" : ""}`}
         />

@@ -83,6 +83,26 @@ describe("ProviderModelSelect – trigger display", () => {
     expect(trigger).toHaveTextContent(/Ark/);
     expect(trigger).toHaveTextContent(/seedance/);
   });
+
+  it("keeps a long model label shrinkable inside its container", () => {
+    const longModel = `ark/${"very-long-model-name-".repeat(12)}`;
+    render(
+      <ProviderModelSelect
+        value={longModel}
+        options={[longModel]}
+        providerNames={PROVIDER_NAMES}
+        onChange={() => {}}
+      />,
+    );
+
+    const trigger = screen.getByRole("combobox");
+    expect(trigger.parentElement).toHaveClass("w-full", "min-w-0", "max-w-full");
+    expect(trigger).toHaveClass("w-full", "min-w-0", "max-w-full");
+
+    const label = trigger.querySelector("span");
+    expect(label).toHaveClass("min-w-0", "flex-1", "truncate");
+    expect(label).toHaveTextContent("very-long-model-name");
+  });
 });
 
 const MANY_OPTIONS = [
