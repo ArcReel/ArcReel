@@ -73,6 +73,13 @@ from lib.script_review import Step1RebuildCompletionError, complete_stale_step1_
 from lib.source_revision import SourceScope
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import WorkflowRequestError
+from server.draft_workflow import (
+    DraftContext,
+    DraftLocator,
+    DraftWorkflow,
+    DraftWorkflowError,
+    PatchDraftRequest,
+)
 from server.services.video_caps import annotate_reference_unit_tiers
 from server.services.workflow_planner import WorkflowPlanner
 from server.text_generation import (
@@ -594,6 +601,77 @@ async def read_project_file(
         return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=request.value, content=content))
     except Exception as exc:  # noqa: BLE001
         return ToolOutcome(problem=_file_problem("read_project_file", exc))
+
+
+def _draft_workflow(scope: ProjectScope, services: Services) -> DraftWorkflow:
+    return DraftWorkflow(
+        DraftContext(
+            project_name=scope.project_name,
+            projects_root=scope.projects_root,
+            pm=services.projects,
+            config_resolver=services.capabilities,
+        )
+    )
+
+
+async def _run_draft(call: Awaitable[dict[str, Any]]) -> ToolOutcome[dict[str, Any]]:
+    try:
+        return ToolOutcome(value=await call)
+    except DraftWorkflowError as exc:
+        return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", str(exc)))
+
+
+async def open_draft(
+    request: ToolRequest[DraftLocator],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[dict[str, Any]]:
+    locator = request.value
+    return await _run_draft(_draft_workflow(scope, services).open(locator.episode, locator.doc_type, locator.source))
+
+
+async def patch_draft(
+    request: ToolRequest[PatchDraftRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[dict[str, Any]]:
+    patch = request.value
+    return await _run_draft(
+        _draft_workflow(scope, services).patch(
+            patch.episode,
+            patch.doc_type,
+            patch.content,
+            patch.base_revision,
+            accept_formal_revision=patch.accept_formal_revision,
+            accepts_formal_revision=patch.accepts_formal_revision,
+            source=patch.source,
+            updates_source=patch.updates_source,
+        )
+    )
+
+
+async def promote_draft(
+    request: ToolRequest[DraftLocator],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[dict[str, Any]]:
+    locator = request.value
+    return await _run_draft(_draft_workflow(scope, services).promote(locator.episode, locator.doc_type))
+
+
+async def discard_draft(
+    request: ToolRequest[DraftLocator],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[dict[str, Any]]:
+    locator = request.value
+    return await _run_draft(_draft_workflow(scope, services).discard(locator.episode, locator.doc_type))
 
 
 async def get_workflow_plan(
@@ -1564,6 +1642,8 @@ __all__ = [
     "SourceFilesContent",
     "SourceTextContent",
     "Step1Content",
+    "DraftLocator",
+    "PatchDraftRequest",
     "ProjectScope",
     "RenameAssetRequest",
     "ResetEpisodePlanningRequest",
@@ -1580,6 +1660,7 @@ __all__ = [
     "get_project_content",
     "get_source_text",
     "get_step1_content",
+    "discard_draft",
     "get_video_capabilities",
     "get_workflow_plan",
     "confirm_script_review",
@@ -1595,4 +1676,7 @@ __all__ = [
     "reset_episode_planning",
     "read_project_file",
     "retry_project_migration",
+    "open_draft",
+    "patch_draft",
+    "promote_draft",
 ]

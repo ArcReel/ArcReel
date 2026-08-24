@@ -1322,9 +1322,9 @@ export default {
   'review_confirm_blocked_quarantined': 'A draft needs fixes — confirm once it is fixed and promoted',
   'review_request_fix': 'Ask the Agent to fix it',
   'review_fix_request_prefill_header':
-    'Episode {{episode}}’s content organization draft has {{count}} violation(s) to fix — please edit the draft needing fixes directly to correct them:',
+    'Episode {{episode}}’s content organization draft has {{count}} violation(s) to fix — call open_draft to read it, then correct it with patch_draft:',
   'review_fix_request_promote_prefill':
-    'Episode {{episode}}’s content organization draft now revalidates with no violations but has not been promoted yet — please call validate_and_promote_draft to promote it.',
+    'Episode {{episode}}’s content organization draft now revalidates with no violations but has not been promoted yet — call open_draft to read its doc_type, then call promote_draft with the same doc_type.',
 
   // ReferenceStep1PreviewPanel (reference_video variant step1 per-episode preview)
   'reference_step1_source_text_label': 'Source text',
@@ -1349,7 +1349,7 @@ export default {
   'reference_step1_duration_out_of_tier_hint': 'One or more video units have a duration outside the currently valid tiers — pick a new value before confirming',
   'reference_step1_confirm_continue_prefill': 'Episode {{episode}}’s split is confirmed — please continue generating the script and reference-to-video outputs.',
   'reference_step1_fix_request_prefill_header':
-    'Episode {{episode}}’s reference-to-video content organization draft has {{count}} violation(s) to fix — please edit the draft needing fixes directly to correct them:',
+    'Episode {{episode}}’s reference-to-video content organization draft has {{count}} violation(s) to fix — call open_draft to read it, then correct it with patch_draft:',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 
@@ -1487,8 +1487,10 @@ export default {
   'tool_name_generate_episode_script': 'Generate script',
   'tool_name_generate_step1': 'Generate content structure',
   'tool_name_confirm_script_review': 'Complete content confirmation',
-  'tool_name_open_step1_for_edit': 'Open formal step1 for editing',
-  'tool_name_validate_and_promote_draft': 'Finish processing draft',
+  'tool_name_open_draft': 'Open draft',
+  'tool_name_patch_draft': 'Edit draft',
+  'tool_name_promote_draft': 'Promote draft',
+  'tool_name_discard_draft': 'Discard draft',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
   'tool_name_plan_episodes': 'Plan episodes',
   'tool_name_reset_episode_planning': 'Reset episode planning',

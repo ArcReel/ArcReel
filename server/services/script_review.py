@@ -321,9 +321,8 @@ class ScriptReviewService:
                     }
                 ],
             }
-        # 延迟导入避免模块级循环依赖：text_generation.py 内部已对本模块做同样的函数级延迟导入
-        # （构造 ScriptReviewService 供 quarantine 相关工具复用），两处顶层互相导入会成环。
-        from server.agent_runtime.sdk_tools.text_generation import revalidate_step1_draft
+        # 延迟导入避免模块级循环依赖：draft_workflow 复用本服务的持锁写入能力。
+        from server.draft_workflow import revalidate_step1_draft
 
         try:
             revalidation = await revalidate_step1_draft(

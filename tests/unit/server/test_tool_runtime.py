@@ -10,10 +10,12 @@ from lib.project_manager import ProjectManager
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow_state import WorkflowStatus
+from server import draft_workflow, tool_runtime
 from server import text_generation as shared_text_generation
-from server import tool_runtime
+from server.agent_runtime.sdk_tools import text_generation as sdk_text_generation
 from server.tool_runtime import (
     CallerContext,
+    DraftLocator,
     PatchEpisodeMetaRequest,
     PatchEpisodeScriptRequest,
     ProjectScope,
@@ -32,6 +34,7 @@ from server.tool_runtime import (
     get_workflow_plan,
     list_project_files,
     list_source_files,
+    open_draft,
     patch_episode_meta,
     patch_episode_script,
     read_project_file,
@@ -365,3 +368,42 @@ async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path, 
     )
 
     assert outcome.problem is not None and outcome.problem.code == "file_too_large"
+
+
+async def test_draft_handlers_expose_one_host_independent_typed_seam() -> None:
+    scope = ProjectScope("demo", Path("/projects"))
+    caller = CallerContext(user_id="u1", source="mcp")
+    outcome = await open_draft(
+        ToolRequest(DraftLocator(1, "unsupported")),
+        scope,
+        caller,
+        Services(projects=_Projects({}), workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
+    )
+
+    assert outcome.problem is not None
+    assert outcome.problem.code == "invalid_request"
+
+
+def test_draft_dependency_points_from_sdk_adapter_to_shared_workflow() -> None:
+    def imports(module) -> set[str]:
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        return {
+            name
+            for node in ast.walk(tree)
+            for name in (
+                [node.module]
+                if isinstance(node, ast.ImportFrom) and node.module
+                else [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else []
+            )
+        }
+
+    shared_imports = imports(draft_workflow)
+    sdk_imports = imports(sdk_text_generation)
+    shared_source = Path(draft_workflow.__file__).read_text(encoding="utf-8")
+
+    assert "claude_agent_sdk" not in shared_imports
+    assert not any(name.startswith("server.agent_runtime.sdk_tools") for name in shared_imports)
+    assert "server.draft_workflow" in sdk_imports
+    assert '"is_error"' not in shared_source
