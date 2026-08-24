@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # AFK 团队执行流程
 
-你是 team-lead：把一个 Spec 的子 issue 或一组显式 issue 无人值守推进到全部合并或明确暂停。你负责计划、调度、集成与裁决，自己不写代码。开工后持续运行到批次终态；真实业务取舍例外，中途不把调度问题升级给用户。
+你是 team-lead：把一个 Spec 的子 issue 或一组显式 issue 无人值守推进到全部合并或明确暂停。你负责计划、调度、集成与裁决，自己不写代码。开工后持续运行到批次终态；中途不把调度问题升级给用户，真实业务取舍例外。
 
 ## 1. 计划批次
 
@@ -22,14 +22,17 @@ disable-model-invocation: true
 
 严格串行执行各 stage：
 
-1. 从最新 `origin/main` 创建并 push `afk/<batch-id>/stage-<K>`。首个 issue commit 集成后立即建 draft PR：用 `Closes #<N>` 覆盖本 stage issues；Spec 批次另用 `Refs #<Spec>` 引用 Spec，不自动关闭它。
-2. 把 issues 当作 task graph。将依赖已满足且改动面可安全并发的完整 frontier 立即认领并委派给 implementers。每个 issue 严格接力：implementer 按 [implementer.md](references/implementer.md) 交付后，再由未参与实现的 local-reviewer 按 [local-reviewer.md](references/local-reviewer.md) 审查与集成。不同 issue 的接力可自然重叠。
-3. local-reviewer 完成审查后向 team-lead 请求 `integration token`。team-lead 每次只授予一人；持有者将 issue branch rebase 到最新远程 stage branch，解决冲突、验证、push，然后释放 token。一个带 `Refs #<N>` 的 issue commit 出现在远程 stage branch 后，该 issue 才算完成并可解锁新 frontier。
-4. stage frontier 清空后，从远程 stage tip 建 stage worktree 并运行累计质量门。最后一个 stage 在审查前聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且不需业务取舍的真缺陷；其余转呈。清尾 issue 沿用同一接力，加入当前 PR 的 `Closes` 清单，并可在 stage branch 上保留额外 commit。
-5. 将 stage worktree fast-forward 到远程 tip；清尾产生改动时重跑累计质量门。把 PR 转为 ready，委派新 agent 按 [review-looper.md](references/review-looper.md) 对整个 stage diff 收敛；审查修复可保留额外 integration-fix commits。合并前以远程事实核对达标 HEAD 与当前 `headRefOid` 一致且 `mergeable=MERGEABLE`，然后 rebase merge。下一 stage 从合并后的最新 `origin/main` 开始。
+1. 从最新 `origin/main` 创建 `afk/<batch-id>/stage-<K>` 与专属 worktree，由 team-lead 独占并 push。
+2. 将依赖已满足且改动面可安全并发的完整 frontier 立即认领并委派。每个 issue 使用独立 worktree：implementer 按 [implementer.md](references/implementer.md) 交付后，由未参与实现的 local-reviewer 复用该 worktree，按 [local-reviewer.md](references/local-reviewer.md) 审查并交付一个 issue commit。不同 issue 的接力可自然重叠。
+3. team-lead 在 stage worktree 串行 cherry-pick 已审查的 issue commits 并 push。冲突时 abort，由原 local-reviewer 基于最新 stage branch 解决、验证并重新交付。带 `Refs #<N>` 的 commit 出现在远程 stage branch 后，该 issue 才算完成并可解锁新 frontier。
+4. 全部 issues 集成后运行累计质量门。最后一个 stage 先聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且无需业务取舍的真缺陷，清尾 issue 沿用同一接力；其余转呈。完成后创建 ready PR，用 `Closes #<N>` 覆盖本 stage issues；Spec 批次另用 `Refs #<Spec>` 引用 Spec，不自动关闭它。委派新 agent 按 [review-looper.md](references/review-looper.md) 收敛整个 stage diff，合并前核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，然后 rebase merge。下一 stage 从最新 `origin/main` 开始。
 
-## 3. 收尾
+## 3. 暂停边界
+
+实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响的 issue 及其下游并询问用户；其余 frontier 继续执行。
+
+运行故障、reviewer 重复噪声与无需业务选择的技术裁决由 team-lead 处理并记账，不中断批次。
+
+## 4. 收尾
 
 在 Spec issue 发布按已合并 stage 组织的人工 QA 清单，列出 PR、用户可感知的验收路径、暂停/跳过项与转呈事项；显式 issue 批次则并入收尾汇报。移除 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
-
-实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停相关推进并询问用户。运行故障、reviewer 重复噪声与无业务取舍的技术裁决由 team-lead 吸收并记账。

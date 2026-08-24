@@ -15,6 +15,6 @@ workspace 是拓扑与生命周期边界，不是消息权限边界。收尾时�
 teammate 只向 prompt 注入的 team-lead pane ID 发消息。消息写明 batch-id、issue / stage、自己的 agent name / pane ID、`handoff` 或 `request` 类型与一句摘要。
 
 - `handoff`：先写入 commit 或 handoff 等持久交付物，再通知路径或 SHA。
-- `request`：仅用于 integration token、真实业务取舍或故障裁决。
+- `request`：仅用于真实业务取舍或故障裁决。
 
 消息只做唤醒与定位；完整上下文留在 issue、commit 和 handoff。Herdr 拓扑 ID 不写入账本。

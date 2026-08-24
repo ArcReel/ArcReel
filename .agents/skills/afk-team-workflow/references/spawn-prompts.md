@@ -25,4 +25,4 @@
 输入：PR=#<M>；stage-branch=<branch>；worktree=<path>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md。
 ```
 
-任一 issue 在远程 stage branch 留下 commit 前失效，即丢弃现场并从最新 stage tip 重新委派；不传递半成品接管 prompt。
+任一 issue 在远程 stage branch 留下 commit 前失效，即丢弃现场并从 stage branch 最新提交重新委派；不传递半成品接管 prompt。
