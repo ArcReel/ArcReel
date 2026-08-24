@@ -3,13 +3,13 @@
 不依赖 ffmpeg / ffprobe，覆盖以下回归断言：
 
 - `_resolve_fps`：avg_frame_rate `"0/0"`/`"0"`/`""` 显式回退到 r_frame_rate，
-  而不是被 `or` 链当作真值通过（issue #562、#564 第 5 条）
+  而不是被 `or` 链当作真值通过
 - `_build_xfade_filter_complex`：
   - 全 cut → 返回 None（调用方 fallback 到 concatenate_final）
-  - 多片段 xfade chain + acrossfade chain 音画对齐（#564 第 3 条）
-  - cut+xfade 混用按 cut 分组、组内 offset 不跨 cut 累加（#564 评论补充）
+  - 多片段 xfade chain + acrossfade chain 音画对齐
+  - cut+xfade 混用按 cut 分组、组内 offset 不跨 cut 累加
   - 短片段边界自动降级为 cut（避免负 offset）
-  - audio 输入标签用空串连接而非 `;` 分隔（#564 第 1 条核心回归）
+  - audio 输入标签用空串连接而非 `;` 分隔
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ compose_video = _load_module()
 
 class TestResolveFps:
     def test_avg_0_over_0_falls_back_to_r(self) -> None:
-        """#562 核心场景：avg 为 '0/0' 时必须回退 r，不能直接被 `or` 当真值通过。"""
+        """avg 为 '0/0' 时必须回退 r，不能直接被 `or` 当真值通过。"""
         assert compose_video._resolve_fps("0/0", "24/1") == "24/1"
 
     def test_avg_0_falls_back_to_r(self) -> None:
@@ -183,7 +183,7 @@ class TestBuildXfadeFilterComplex:
         assert "[g0v1][2:v]xfade=transition=fade:duration=0.5:offset=9.000[g0v]" in result
 
     def test_no_semicolon_inside_audio_input_labels(self) -> None:
-        """#564 第 1 条核心回归：audio 输入标签之间不能出现 `;` 分隔。
+        """audio 输入标签之间不能出现 `;` 分隔。
 
         旧实现用 `";".join([f"[{i}:a]"...])` 拼接成 `[0:a];[1:a];[2:a]concat=...`，
         分号会被 ffmpeg 当作 filter chain 分隔符，导致 concat 输入参数不足报错。
@@ -196,7 +196,7 @@ class TestBuildXfadeFilterComplex:
         assert "[1:a];[2:a]" not in result
 
     def test_cut_xfade_mix_groups_by_cut(self) -> None:
-        """#564 评论补充：cut+xfade 混用按 cut 分组。
+        """cut+xfade 混用按 cut 分组。
 
         durations=[5,5,5,5], transitions=["fade","cut","fade"]
         → group A=[0,1], group B=[2,3]，组间 concat 串联
@@ -364,7 +364,7 @@ class TestConcatenateFinalSingleSegment:
     def test_single_clip_skips_concat_filter(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """单段输入应走 `-c copy + faststart` 直接 remux，不走 concat filter。
 
-        #564 第 2 条：concat=n=1 会让 ffmpeg 报参数错误。
+        concat=n=1 会让 ffmpeg 报参数错误。
         """
         captured: list[list[str]] = []
 

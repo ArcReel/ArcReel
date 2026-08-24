@@ -28,7 +28,7 @@ const STATS_RESPONSE: UsageStatsResponse = {
   period: { start: "2026-07-01", end: "2026-07-16" },
 };
 
-describe("UsageStatsSection provider filter dropdown (issue #1179)", () => {
+describe("UsageStatsSection provider filter dropdown", () => {
   it("renders provider options by display_name while keeping provider id as value", async () => {
     vi.spyOn(API, "getUsageStatsGrouped").mockResolvedValue(STATS_RESPONSE);
 

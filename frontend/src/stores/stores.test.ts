@@ -73,7 +73,7 @@ describe("stores", () => {
     app.setAssistantToolActivitySuppressed(true);
     expect(useAppStore.getState().assistantToolActivitySuppressed).toBe(true);
 
-    // pushToast 只写 toast，不再副作用写入 workspaceNotifications（issue #351 根因回归）
+    // pushToast 只写 toast，不副作用写入 workspaceNotifications
     app.pushToast("hello");
     expect(useAppStore.getState().toast?.text).toBe("hello");
     expect(useAppStore.getState().toast?.tone).toBe("info");

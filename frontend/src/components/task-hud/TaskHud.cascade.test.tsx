@@ -7,8 +7,8 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import i18n from "@/i18n";
 
-// 前端 finding #12 回归：cascade 取消的 task 在 HUD 渲染 cascade_label，
-// user 取消的不渲染。验证 SSE 携带的 cancelled_by 字段在前端被正确分流。
+// cascade 取消的 task 在 HUD 渲染 cascade_label，user 取消的不渲染。
+// 验证 SSE 携带的 cancelled_by 字段在前端被正确分流。
 
 function HostedTaskHud() {
   const anchorRef = useRef<HTMLDivElement>(null);

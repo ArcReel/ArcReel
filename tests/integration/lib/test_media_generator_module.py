@@ -14,7 +14,7 @@ from lib.media_generator import (
     task_video_staging_path,
 )
 from lib.version_manager import PaidVersionCommit
-from tests.fakes import select_formal_video
+from tests.fakes import FakeConfigResolver, select_formal_video
 
 
 class _FakeImageBackend:
@@ -131,25 +131,6 @@ class _FakeLedger:
             self.outcomes.append({"status": "success", "result": call.result})
 
 
-class _FakeConfigResolver:
-    """Fake ConfigResolver，返回可控的配置值。"""
-
-    def __init__(self, video_generate_audio: bool = False):
-        self._video_generate_audio = video_generate_audio
-
-    async def video_generate_audio(self, project_name=None):
-        return self._video_generate_audio
-
-    async def reference_payload_limits(self, provider_id=None):
-        # 与真实 resolver 同契约：provider_id 为 None 或未配置时返回 service 层保守默认。
-        from lib.config.service import (
-            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
-            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
-        )
-
-        return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
-
-
 def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen = object.__new__(MediaGenerator)
     gen.project_path = tmp_path / "projects" / "demo"
@@ -159,7 +140,7 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen._image_backend = _FakeImageBackend()
     gen._video_backend = _FakeVideoBackend()
     gen._user_id = "default"
-    gen._config = _FakeConfigResolver()
+    gen._config = FakeConfigResolver(requested_generate_audio=False)
     gen._image_provider_id = None
     gen._video_provider_id = None
     gen.versions = _FakeVersions()
@@ -968,7 +949,7 @@ class TestMediaGenerator:
     async def test_video_generate_audio_from_config_resolver(self, tmp_path):
         """验证 generate_video_async 通过 ConfigResolver 获取 audio 设置。"""
         gen = _build_generator(tmp_path)
-        gen._config = _FakeConfigResolver(video_generate_audio=False)
+        gen._config = FakeConfigResolver(requested_generate_audio=False)
 
         await gen.generate_video_async(
             prompt="p",
@@ -982,7 +963,7 @@ class TestMediaGenerator:
     async def test_video_generate_audio_respects_config_true(self, tmp_path):
         """验证 video_backend 尊重 ConfigResolver 返回的 True。"""
         gen = _build_generator(tmp_path)
-        gen._config = _FakeConfigResolver(video_generate_audio=True)
+        gen._config = FakeConfigResolver(requested_generate_audio=True)
 
         await gen.generate_video_async(
             prompt="p",

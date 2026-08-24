@@ -19,7 +19,7 @@ import pytest
 
 from lib.media_generator import MediaGenerator
 from lib.video_backends.base import ResumeExpiredError
-from tests.fakes import select_formal_video
+from tests.fakes import FakeConfigResolver, select_formal_video
 
 
 class _FakeVideoResult:
@@ -133,11 +133,6 @@ class _FakeLedger:
         return self._resume_affected
 
 
-class _FakeConfigResolver:
-    async def video_generate_audio(self, _project_name=None):
-        return True
-
-
 def _build_generator(tmp_path: Path, *, initial_version: int = 0) -> MediaGenerator:
     gen = object.__new__(MediaGenerator)
     gen.project_path = tmp_path / "projects" / "demo"
@@ -147,7 +142,7 @@ def _build_generator(tmp_path: Path, *, initial_version: int = 0) -> MediaGenera
     gen._image_backend = None
     gen._video_backend = _FakeVideoBackend()
     gen._user_id = "default"
-    gen._config = _FakeConfigResolver()
+    gen._config = FakeConfigResolver()
     gen.versions = _FakeVersions(initial_version=initial_version)
     gen.ledger = _FakeLedger()
     return gen

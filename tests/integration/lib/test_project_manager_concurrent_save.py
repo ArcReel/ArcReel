@@ -223,7 +223,7 @@ class TestSyncAfterConcurrentWrite:
 
 
 class TestConcurrentReadModifyWrite:
-    """并发 read-modify-write 不应丢更新（issue #334）。"""
+    """并发 read-modify-write 不应丢更新。"""
 
     def test_concurrent_update_scene_asset_preserves_all(self, tmp_path: Path) -> None:
         """并发对不同 segment 调用 update_scene_asset，所有写入都必须持久化。

@@ -371,10 +371,10 @@ class TestOpenAIVideoBackend:
         assert result.video_path == output_path
 
     async def test_first_retrieve_completed_skips_polling_sleep(self, tmp_path: Path):
-        """首次 retrieve 即返回 completed 时走 fast-path：只查一次就下载，不进 poll_with_retry。
+        """首次 retrieve 即返回 completed 时只查一次、不等 poll_interval 就下载。
 
-        poll_with_retry 是「先查再等」，落进轮询循环必然多出一次 retrieve，记录的查询次数
-        足以判定 fast-path 有没有生效。
+        _poll_until_complete 无条件走 poll_with_retry；其循环「先查再等」，首查即终态
+        时直接返回、不落入 sleep。记录的查询次数足以判定该次序成立。
         """
         retrieved: list[str] = []
 
@@ -402,12 +402,12 @@ class TestOpenAIVideoBackend:
             )
             await backend.generate(request)
 
-        # fast-path：只查一次，不进入 poll_with_retry
+        # 首查即 completed：poll_with_retry 一次 retrieve 即返回，不再多查
         assert retrieved == ["vid_123"]
         assert output_path.read_bytes() == b"v"
 
     async def test_first_retrieve_failed_skips_polling(self, tmp_path: Path):
-        """首次 retrieve 即返回 failed 时应 fast-path 直接抛错，不进入 poll_with_retry 的 sleep。"""
+        """首次 retrieve 即返回 failed 时直接抛错：poll_with_retry 首查经 is_failed 判定即抛，不落入 sleep。"""
         err = MagicMock()
         err.message = "moderation rejected"
         failed = _make_mock_video(status="failed")
@@ -501,8 +501,7 @@ class TestOpenAIVideoBackend:
         assert output_path.read_bytes() == video_data
 
     async def test_poll_recognizes_expired_status(self, tmp_path: Path):
-        """fix #647 #5：retrieve 返回 status='expired' → 抛 ResumeExpiredError，
-        而不是白等 max_wait。"""
+        """retrieve 返回 status='expired' → 抛 ResumeExpiredError，而不是白等 max_wait。"""
         from lib.video_backends.base import ResumeExpiredError
 
         mock_client = AsyncMock()
@@ -525,7 +524,7 @@ class TestOpenAIVideoBackend:
             assert ei.value.provider == PROVIDER_OPENAI
 
     async def test_is_openai_not_found_no_loose_string_match(self):
-        """fix #647 #6：移除 "not found" / "expired" 子串兜底，避免业务字符串误判。"""
+        """不做 "not found" / "expired" 子串兜底，避免业务字符串误判；只认结构化 404。"""
         from lib.video_backends.openai import _is_openai_not_found
 
         assert _is_openai_not_found(RuntimeError("file not found in storage")) is False

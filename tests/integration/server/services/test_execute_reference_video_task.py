@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from lib.reference_video.request_projection import resolve_reference_assets
+from tests.fakes import FakeConfigResolver
 from tests.integration.server.services.reference_video_tasks_support import (
     _TINY_PNG,
     _register_asset_sheet,
@@ -1355,18 +1356,6 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
             yield _Call()
 
-    class _FakeConfigResolver:
-        async def video_generate_audio(self, _project_name=None):
-            return False
-
-        async def reference_payload_limits(self, _provider_id=None):
-            from lib.config.service import (
-                _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
-                _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
-            )
-
-            return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
-
     # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 Ledger 对 DB 的初始化）
     real_gen = object.__new__(MediaGenerator)
     real_gen.project_path = proj_dir
@@ -1375,7 +1364,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     real_gen._image_backend = None
     real_gen._video_backend = _FakeVideoBackend()
     real_gen._user_id = "u1"
-    real_gen._config = _FakeConfigResolver()
+    real_gen._config = FakeConfigResolver(requested_generate_audio=False)
     real_gen._image_provider_id = None
     real_gen._video_provider_id = None
     real_gen.versions = VersionManager(proj_dir)
