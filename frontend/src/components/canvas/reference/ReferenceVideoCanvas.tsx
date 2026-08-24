@@ -978,22 +978,44 @@ export function ReferenceVideoCanvas({
     clearHyperframesRequest(matchingHyperframesRequest.requestId);
   }, [matchingHyperframesRequest, appliedHyperframesRequestId, clearHyperframesRequest]);
 
-  // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
-  // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
+  // 通知回跳：reference_unit 直接切到对应 unit；reference_keyframe 先找到所属 unit，
+  // 再切到关键分镜编辑视图，随后由 KeyframePreviewPanel 的 useScrollTarget 滚动并高亮具体卡片。
+  // units 异步加载，靠依赖变化重试到命中或过期。
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   useEffect(() => {
-    if (scrollTarget?.type !== "reference_unit") return;
+    if (
+      scrollTarget?.type !== "reference_unit" &&
+      scrollTarget?.type !== "reference_keyframe"
+    ) {
+      return;
+    }
     const requestId = scrollTarget.request_id;
-    if (units.some((u) => u.unit_id === scrollTarget.id)) {
+    if (
+      scrollTarget.type === "reference_unit" &&
+      units.some((u) => u.unit_id === scrollTarget.id)
+    ) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅通知 store，触发后切 tab + 选中
       setTab("units");
       select(scrollTarget.id);
       clearScrollTarget(requestId);
       return;
     }
+    if (scrollTarget.type === "reference_keyframe") {
+      const owner = units.find((unit) =>
+        unit.keyframes?.some((keyframe) => keyframe.keyframe_id === scrollTarget.id),
+      );
+      if (owner) {
+        setTab("units");
+        select(owner.unit_id);
+        setStackTab("editor");
+        setEditorView("keyframes");
+        // 不在这里清 target：KeyframePreviewPanel 挂载并完成滚动/高亮后统一消费。
+        return;
+      }
+    }
     // units 加载中：等待，不安排过期清理——否则慢网/冷启动下 loadUnits 尚未返回就
-    // 到期，target 会被提前清除，units 到达也无法再选中目标 unit。
+    // 到期，target 会被提前清除，units 到达也无法再选中目标 unit / keyframe。
     if (loading) return;
     // 加载完成仍未命中：挂一个到 expires_at 的一次性兜底清理，避免此后 units/loading
     // 都不再变化时 effect 不再重跑、过期 target 永久残留 store。units 若晚到会触发

@@ -100,7 +100,8 @@ function getChangeListLabel(change: ProjectChange, t: EventsT): string {
     change.entity_type === "segment" ||
     change.entity_type === "drama_scene" ||
     change.entity_type === "shot" ||
-    change.entity_type === "reference_unit"
+    change.entity_type === "reference_unit" ||
+    change.entity_type === "reference_keyframe"
   ) {
     return change.entity_id;
   }

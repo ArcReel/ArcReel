@@ -92,6 +92,7 @@ function mkAdmission(patch: Record<string, unknown> = {}) {
 // 单元预览面板的生成 CTA。锚定行首把批量入口「批量生成视频」排除在外——两者都含
 // 「生成视频」，不锚定会按 DOM 顺序先匹配到批量按钮，测到的就不是这条提交路径。
 const UNIT_GENERATE_CTA = /^(Generate video|生成视频)/;
+const scrollIntoViewMock = vi.fn();
 
 function runningTask(unitId: string) {
   return {
@@ -116,6 +117,11 @@ const STUB_PROJECT: ProjectData = {
 
 describe("ReferenceVideoCanvas", () => {
   beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+    scrollIntoViewMock.mockReset();
     vi.mocked(useActiveResourceIds).mockImplementation(mockHolder.realActiveResourceIds);
     vi.mocked(useLatestTasksByResource).mockImplementation(mockHolder.realLatestTasksByResource);
     useReferenceVideoStore.setState({ unitsByEpisode: {}, selectedUnitId: null, loading: false, error: null });
@@ -1465,6 +1471,41 @@ describe("ReferenceVideoCanvas", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  it("opens the owning unit and locates a reference keyframe card", async () => {
+    const first = mkUnit("E1U1");
+    const second = mkUnit("E1U2");
+    second.keyframes = [
+      {
+        keyframe_id: "E1U2K01",
+        description: "雨夜车窗",
+        image_path: "keyframes/E1U2K01.png",
+      },
+    ];
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [first, second] });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U1"));
+
+    act(() => {
+      useAppStore.getState().triggerScrollTo({
+        type: "reference_keyframe",
+        id: "E1U2K01",
+        route: "/episodes/1",
+      });
+    });
+
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U2"));
+    expect(screen.getByRole("tab", { name: /Keyframes|关键分镜/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await waitFor(() => {
+      expect(document.getElementById("reference_keyframe-E1U2K01")).toBeInTheDocument();
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+      expect(useAppStore.getState().scrollTarget).toBeNull();
+    });
   });
 
   // 慢网/冷启动回归：units 仍在加载（loadUnits 未返回）时，即便 target 已过期也不该

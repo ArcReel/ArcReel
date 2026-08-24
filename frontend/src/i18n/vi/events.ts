@@ -33,6 +33,7 @@ export default {
   "entity.drama_scene": "cảnh",
   "entity.shot": "cú máy",
   "entity.reference_unit": "đơn vị video",
+  "entity.reference_keyframe": "khung hình chính",
   "entity.episode": "tập",
   "entity.overview": "tổng quan dự án",
   "entity.draft": "kết quả tổ chức nội dung",

@@ -330,7 +330,63 @@ describe("useProjectEventsSSE", () => {
     },
   );
 
-  it("shows a toast without navigation for generation completion batches", async () => {
+  it("adds a click-only target to reference keyframe update notifications", async () => {
+    let capturedOptions: ProjectEventStreamOptions | undefined;
+    vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+      capturedOptions = options;
+      return { close: vi.fn() } as unknown as EventSource;
+    });
+
+    renderHarness("/episodes/1");
+
+    act(() => {
+      capturedOptions?.onChanges?.(
+        {
+          project_name: "demo",
+          batch_id: "batch-reference-keyframe",
+          fingerprint: "fp-reference-keyframe",
+          generated_at: "2026-03-01T00:00:00Z",
+          source: "worker",
+          changes: [
+            {
+              entity_type: "reference_keyframe",
+              action: "updated",
+              entity_id: "E1U16K01",
+              label: "关键分镜「E1U16K01」",
+              label_key: "reference_keyframe",
+              label_params: { id: "E1U16K01" },
+              script_file: "scripts/episode_1.json",
+              episode: 1,
+              focus: null,
+              important: true,
+            },
+          ],
+        },
+        new MessageEvent("changes"),
+      );
+    });
+
+    await waitFor(() => {
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
+      expect(useAppStore.getState().workspaceNotifications).toEqual([
+        expect.objectContaining({
+          text: "关键分镜「E1U16K01」已更新",
+          tone: "success",
+          target: {
+            type: "reference_keyframe",
+            id: "E1U16K01",
+            route: "/episodes/1",
+            highlight_style: "flash",
+          },
+        }),
+      ]);
+    });
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/episodes/1");
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+  });
+
+  it("adds a click-only target without auto-navigation for generation completion batches", async () => {
     let capturedOptions: ProjectEventStreamOptions | undefined;
     vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
       capturedOptions = options;
@@ -372,7 +428,12 @@ describe("useProjectEventsSSE", () => {
       expect.objectContaining({
         text: "分镜「E1S01」的分镜图已生成",
         tone: "success",
-        target: null,
+        target: {
+          type: "segment",
+          id: "E1S01",
+          route: "/episodes/1",
+          highlight_style: "flash",
+        },
       }),
     );
     expect(screen.getByTestId("location")).toHaveTextContent("/episodes/1");

@@ -124,6 +124,61 @@ function buildAssetSheetNotificationTarget(
   };
 }
 
+function changeEpisode(change: ProjectChange): number | null {
+  if (typeof change.episode === "number") return change.episode;
+  const match = /^E(\d+)(?:S|U)/i.exec(change.entity_id);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * 生成/编辑完成事件由任务层直接广播，focus 恒为 null，不能复用实体 diff 的自动聚焦目标。
+ * 这里只为已有稳定画布锚点的资源补“点击查看”目标；它只进入通知，不进入 queuedFocusRef，
+ * 因而后台完成不会打断用户当前操作。
+ */
+function buildGeneratedResourceNotificationTarget(
+  change: ProjectChange,
+): WorkspaceNotificationTarget | null {
+  if (change.entity_type === "reference_keyframe" && change.action === "updated") {
+    const episode = changeEpisode(change);
+    if (episode === null) return null;
+    return {
+      type: "reference_keyframe",
+      id: change.entity_id,
+      route: `/episodes/${episode}`,
+      highlight_style: "flash",
+    };
+  }
+
+  if (change.action === "voice_sample_ready" && change.entity_type === "character") {
+    return {
+      type: "character",
+      id: change.entity_id,
+      route: "/characters",
+      highlight_style: "flash",
+    };
+  }
+
+  if (!COMPLETION_ACTIONS.has(change.action)) return null;
+
+  const type =
+    change.entity_type === "reference_unit"
+      ? "reference_unit"
+      : change.entity_type === "segment" ||
+          change.entity_type === "drama_scene" ||
+          change.entity_type === "shot"
+        ? "segment"
+        : null;
+  const episode = changeEpisode(change);
+  if (!type || episode === null) return null;
+
+  return {
+    type,
+    id: change.entity_id,
+    route: `/episodes/${episode}`,
+    highlight_style: "flash",
+  };
+}
+
 function getGroupPriority(group: GroupedProjectChange): number {
   return Math.min(
     ...group.changes.map((change) => getChangePriority(change)),
@@ -150,11 +205,13 @@ function getPrimaryGroupTarget(
   return primaryChange ? buildNotificationTarget(primaryChange) : null;
 }
 
-function getPrimaryAssetSheetNotificationTarget(
+function getPrimaryCompletionNotificationTarget(
   group: GroupedProjectChange,
 ): WorkspaceNotificationTarget | null {
   for (const change of group.changes) {
-    const target = buildAssetSheetNotificationTarget(change);
+    const target =
+      buildAssetSheetNotificationTarget(change) ??
+      buildGeneratedResourceNotificationTarget(change);
     if (target) return target;
   }
   return null;
@@ -334,7 +391,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
               pushNotification(
                 formatGroupedNotificationText(group, tEventsRef.current),
                 "success",
-                { target: getPrimaryAssetSheetNotificationTarget(group) },
+                { target: getPrimaryCompletionNotificationTarget(group) },
               );
             }
           }

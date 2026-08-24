@@ -33,6 +33,7 @@ export default {
   "entity.drama_scene": "场景",
   "entity.shot": "镜头",
   "entity.reference_unit": "视频单元",
+  "entity.reference_keyframe": "关键分镜",
   "entity.episode": "集",
   "entity.overview": "项目概览",
   "entity.draft": "内容整理结果",

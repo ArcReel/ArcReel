@@ -35,6 +35,7 @@ export default {
   "entity.drama_scene": "scenes",
   "entity.shot": "shots",
   "entity.reference_unit": "video units",
+  "entity.reference_keyframe": "reference keyframes",
   "entity.episode": "episodes",
   "entity.overview": "project overviews",
   "entity.draft": "content organization results",
