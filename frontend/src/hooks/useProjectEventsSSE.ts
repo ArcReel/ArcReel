@@ -390,7 +390,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
               (c) =>
                 c.action === "task_succeeded" &&
                 (c.task_type === "reference_video" ||
-                  c.task_type === "reference_keyframe"),
+                  c.task_type === "reference_keyframe" ||
+                  c.task_type === "reference_storyboard_sheet"),
             )
           ) {
             useAppStore.getState().invalidateReferenceVideoUnits();

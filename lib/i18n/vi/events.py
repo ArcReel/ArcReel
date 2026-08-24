@@ -4,6 +4,7 @@ MESSAGES = {
     "event_label_grid": 'Phân cảnh đa lưới "{id}"',
     "event_label_grid_split": 'Tách phân cảnh đa lưới "{id}"',
     "event_label_reference_keyframe": 'Khung hình chính "{id}"',
+    "event_label_reference_storyboard_sheet": 'Video Unit Storyboard Sheet "{id}"',
     "event_label_voice_sample": 'Mẫu giọng thử của "{id}"',
     "event_label_asset_image_character": 'Ảnh tài sản của nhân vật "{id}"',
     "event_label_asset_image_scene": 'Ảnh tài sản của cảnh "{id}"',

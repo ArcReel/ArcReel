@@ -147,7 +147,14 @@ def test_add_unit_creates_minimal_entry(client: TestClient):
     payload = resp.json()
     assert payload["unit"]["unit_id"].startswith("E1U")
     assert payload["unit"]["duration_seconds"] == 3
-    assert payload["unit"]["text"] == "镜头1：@张三 推门"
+    assert payload["unit"]["text"] == "@[关键分镜 E1U1K01] 镜头1：@张三 推门"
+    assert payload["unit"]["keyframes"] == [
+        {
+            "keyframe_id": "E1U1K01",
+            "description": "当前 Video Unit 开场场景的第一个稳定画面",
+            "image_path": None,
+        }
+    ]
 
 
 @pytest.mark.integration
@@ -244,13 +251,45 @@ def test_add_unit_atomically_rejects_mixed_speech(client: TestClient):
     assert client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json() == {"units": []}
 
 
+def _confirm_sheet_for_test(unit_id: str) -> None:
+    # Most tests below exercise video admission rather than the mandatory
+    # Storyboard Sheet review itself. Seed the newly required confirmed input
+    # so those tests keep isolating their original admission fact.
+    from server.routers import reference_videos as router_mod
+
+    pm = router_mod.get_project_manager()
+    project_path = pm.get_project_path("demo")
+    relative_path = f"storyboard_sheets/{unit_id}.png"
+    keyframe_path = f"keyframes/{unit_id}K01.png"
+    (project_path / "storyboard_sheets").mkdir(exist_ok=True)
+    (project_path / relative_path).write_bytes(b"sheet")
+    (project_path / "keyframes").mkdir(exist_ok=True)
+    (project_path / keyframe_path).write_bytes(b"keyframe")
+    with pm.locked_script("demo", "scripts/episode_1.json", validate=False) as script:
+        unit = next(item for item in script["video_units"] if item["unit_id"] == unit_id)
+        unit["storyboard_sheet"] = {
+            "image_path": relative_path,
+            "status": "confirmed",
+            "confirmed_at": "2026-08-24T00:00:00+00:00",
+        }
+        unit["keyframes"] = [
+            {
+                "keyframe_id": f"{unit_id}K01",
+                "description": "动作开始的首个稳定画面",
+                "image_path": keyframe_path,
+            }
+        ]
+
+
 def _seed_unit(client: TestClient) -> str:
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={"prompt": "镜头1：@张三 推门", "duration_seconds": 3},
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["unit"]["unit_id"]
+    unit_id = resp.json()["unit"]["unit_id"]
+    _confirm_sheet_for_test(unit_id)
+    return unit_id
 
 
 def _derived_references(client: TestClient, unit: dict[str, Any]) -> list[tuple[str, str]]:
@@ -360,7 +399,7 @@ def test_patch_unit_duration_only(client: TestClient):
     assert resp.status_code == 200, resp.text
     unit = resp.json()["unit"]
     assert unit["duration_seconds"] == 9
-    assert unit["text"] == "镜头1：@张三 推门"
+    assert unit["text"] == "@[关键分镜 E1U1K01] 镜头1：@张三 推门"
 
 
 @pytest.mark.integration
@@ -383,7 +422,10 @@ def test_add_nonblank_unit_derives_registered_references_from_text(client: TestC
     )
 
     assert response.status_code == 201, response.text
-    assert _derived_references(client, response.json()["unit"]) == [("scene", "酒馆")]
+    assert _derived_references(client, response.json()["unit"]) == [
+        ("keyframe", "E1U1K01"),
+        ("scene", "酒馆"),
+    ]
 
 
 @pytest.mark.integration
@@ -702,14 +744,15 @@ def test_generate_unit_bucket_capability_error_returns_400(client: TestClient, m
 
 
 @pytest.mark.unit
-def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
+def test_generate_unit_with_confirmed_storyboard_sheet_uses_r2v_bucket(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """无参考图退化 unit 的入队预检按降级后的 i2v 桶过解析闸，与执行侧分流同口径。"""
+    """即使正文无 @ 资产，必需的 Storyboard Sheet 也让最终 H3 请求走 r2v。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["video_units"] = [{"unit_id": "E1U1", "text": "空镜头", "duration_seconds": 3}]
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    _confirm_sheet_for_test("E1U1")
 
     from server.routers import reference_videos as router_mod
 
@@ -731,7 +774,7 @@ def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
 
     resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
     assert resp.status_code == 202, resp.text
-    assert checked == ["i2v"]
+    assert checked == ["r2v"]
 
 
 @pytest.mark.unit
@@ -968,6 +1011,7 @@ def test_precheck_uses_actual_tts_duration_as_floor(client: TestClient, monkeypa
     )
     assert created.status_code == 201, created.text
     uid = created.json()["unit"]["unit_id"]  # 剧本 3s，实际旁白 9.5s
+    _confirm_sheet_for_test(uid)
     _patch_supported_durations(monkeypatch, [4, 8, 12])
 
     from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
@@ -1337,7 +1381,9 @@ def _seed_second_unit(client: TestClient) -> str:
         json={"prompt": "镜头1：@酒馆 全景", "duration_seconds": 3},
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["unit"]["unit_id"]
+    unit_id = resp.json()["unit"]["unit_id"]
+    _confirm_sheet_for_test(unit_id)
+    return unit_id
 
 
 def _patch_batch_admission(

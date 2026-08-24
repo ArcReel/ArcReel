@@ -84,6 +84,16 @@ class _ProjectManager:
         return self.project_path
 
 
+class _ReferenceProjectManager(_ProjectManager):
+    def load_project_readonly(self, project_name: str) -> dict[str, Any]:
+        assert project_name == "demo"
+        return {
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+        }
+
+
 def _project_dir(tmp_path: Path) -> Path:
     """真实的 v8 项目目录：计划按产物清单读取产物，纸面路径不成立。"""
     pm = ProjectManager(tmp_path / "projects")
@@ -114,6 +124,88 @@ def _script(*, mixed: bool = False) -> dict[str, Any]:
             }
         ],
     }
+
+
+def _reference_status() -> WorkflowStatus:
+    status = _status()
+    status.project = WorkflowProject(
+        content_mode="narration",
+        generation_mode="reference_video",
+        grid_storyboard=False,
+    )
+    status.next_action = WorkflowNextAction(
+        type=WorkflowActionType.GENERATE_VIDEOS,
+        requested_ids=["E1U01"],
+        reason="next",
+    )
+    return status
+
+
+def _reference_script() -> dict[str, Any]:
+    return {
+        "episode": 1,
+        "content_mode": "narration",
+        "video_units": [
+            {
+                "unit_id": "E1U01",
+                "text": "@[关键分镜 E1U01K01] @[庭院] 里人物开始抬手。",
+                "duration_seconds": 8,
+                "keyframes": [
+                    {
+                        "keyframe_id": "E1U01K01",
+                        "description": "庭院里人物刚开始抬手",
+                        "image_path": None,
+                    }
+                ],
+                "transition_to_next": "cut",
+                "note": None,
+                "generated_assets": {},
+            }
+        ],
+    }
+
+
+async def test_reference_visual_gate_routes_distinct_tools_from_current_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_path = _project_dir(tmp_path)
+    script = _reference_script()
+    pm = _ReferenceProjectManager(project_path, script)
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _reference_status())
+
+    async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+    monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
+    planner = workflow_planner.WorkflowPlanner(pm)  # type: ignore[arg-type]
+
+    missing_sheet = await planner.get_plan("demo", WorkflowPlanRequest())
+    assert missing_sheet.next_action.type == "generate_reference_storyboard_sheets"
+    assert missing_sheet.next_action.requested_ids == ["E1U01"]
+
+    (project_path / "storyboard_sheets").mkdir(exist_ok=True)
+    (project_path / "storyboard_sheets/E1U01.png").write_bytes(b"sheet")
+    script["video_units"][0]["storyboard_sheet"] = {
+        "image_path": "storyboard_sheets/E1U01.png",
+        "status": "pending_review",
+        "confirmed_at": None,
+    }
+    pending_sheet = await planner.get_plan("demo", WorkflowPlanRequest())
+    assert pending_sheet.next_action.type == "confirm_reference_storyboard_sheet"
+    assert pending_sheet.next_action.requires_confirmation is True
+
+    script["video_units"][0]["storyboard_sheet"]["status"] = "confirmed"
+    script["video_units"][0]["storyboard_sheet"]["confirmed_at"] = "2026-08-24T00:00:00+00:00"
+    missing_keyframe = await planner.get_plan("demo", WorkflowPlanRequest())
+    assert missing_keyframe.next_action.type == "generate_reference_keyframes"
+    assert missing_keyframe.next_action.requested_ids == ["E1U01K01"]
+
+    (project_path / "keyframes").mkdir(exist_ok=True)
+    (project_path / "keyframes/E1U01K01.png").write_bytes(b"keyframe")
+    script["video_units"][0]["keyframes"][0]["image_path"] = "keyframes/E1U01K01.png"
+    complete = await planner.get_plan("demo", WorkflowPlanRequest())
+    assert complete.next_action.type == "choose_narration_delivery"
 
 
 async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singleton(

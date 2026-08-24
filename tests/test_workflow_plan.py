@@ -11,6 +11,7 @@ from lib.generation_result import (
 )
 from lib.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationDelivery
 from lib.workflow_plan import (
+    ReferenceVisualGateObservation,
     WorkflowStepState,
     WorkflowTaskObservation,
     build_workflow_plan,
@@ -95,11 +96,17 @@ def test_rules_exhaust_the_six_content_and_generation_mode_combinations() -> Non
         rule = workflow_rule(content_mode, generation_mode)
         step_ids = [step.id for step in rule.steps]
         assert step_ids.index("script_structure") < step_ids.index("storyboard")
-        assert step_ids.index("storyboard") < step_ids.index("narration_delivery")
+        assert step_ids.index("storyboard") < step_ids.index("video_unit_storyboard_sheet")
+        assert step_ids.index("video_unit_storyboard_sheet") < step_ids.index("reference_keyframes")
+        assert step_ids.index("reference_keyframes") < step_ids.index("narration_delivery")
         assert step_ids.index("narration_delivery") < step_ids.index("video_prompt_optimization")
         assert step_ids.index("video_prompt_optimization") < step_ids.index("video")
         storyboard = next(step for step in rule.steps if step.id == "storyboard")
         assert storyboard.applicable is (generation_mode == "storyboard")
+        sheet = next(step for step in rule.steps if step.id == "video_unit_storyboard_sheet")
+        assert sheet.applicable is (generation_mode == "reference_video")
+        keyframes = next(step for step in rule.steps if step.id == "reference_keyframes")
+        assert keyframes.applicable is (generation_mode == "reference_video")
         assert next(step for step in rule.steps if step.id == "narration_delivery").applicable is True
         prompt_step = next(step for step in rule.steps if step.id == "video_prompt_optimization")
         assert prompt_step.applicable is (generation_mode == "reference_video")
@@ -133,11 +140,73 @@ def test_every_route_keeps_each_transient_narration_delivery_choice(
     assert _step(plan, "video").state is WorkflowStepState.READY
 
 
-def test_reference_route_skips_only_storyboard_media_not_delivery_choice() -> None:
+def test_reference_route_retains_its_delivery_choice() -> None:
     plan = build_workflow_plan(_status(generation_mode="reference_video"))
 
     assert _step(plan, "storyboard").state is WorkflowStepState.SKIPPED
     assert _step(plan, "narration_delivery").state is WorkflowStepState.READY
+    assert plan.next_action.type == "choose_narration_delivery"
+
+
+@pytest.mark.parametrize(
+    ("gate", "expected_action", "expected_ids"),
+    [
+        (
+            ReferenceVisualGateObservation(
+                missing_sheet_unit_ids=["E1U01"],
+                missing_keyframe_ids=["E1U01K01"],
+            ),
+            "generate_reference_storyboard_sheets",
+            ["E1U01"],
+        ),
+        (
+            ReferenceVisualGateObservation(
+                pending_sheet_unit_ids=["E1U01"],
+                missing_keyframe_ids=["E1U01K01"],
+            ),
+            "confirm_reference_storyboard_sheet",
+            ["E1U01"],
+        ),
+        (
+            ReferenceVisualGateObservation(
+                confirmed_sheet_unit_ids=["E1U01"],
+                missing_keyframe_ids=["E1U01K01"],
+            ),
+            "generate_reference_keyframes",
+            ["E1U01K01"],
+        ),
+    ],
+)
+def test_reference_visual_gate_uses_distinct_sheet_and_keyframe_actions(
+    gate: ReferenceVisualGateObservation,
+    expected_action: str,
+    expected_ids: list[str],
+) -> None:
+    plan = build_workflow_plan(
+        _status(generation_mode="reference_video", requested_ids=["E1U01"]),
+        reference_visual_gate=gate,
+    )
+
+    assert plan.next_action.type == expected_action
+    assert plan.next_action.requested_ids == expected_ids
+    assert _step(plan, "video").state is WorkflowStepState.PENDING
+    if expected_action == "confirm_reference_storyboard_sheet":
+        assert plan.next_action.requires_confirmation is True
+
+
+def test_completed_reference_visual_gate_continues_to_delivery_choice() -> None:
+    gate = ReferenceVisualGateObservation(
+        confirmed_sheet_unit_ids=["E1U01"],
+        generated_keyframe_ids=["E1U01K01"],
+    )
+
+    plan = build_workflow_plan(
+        _status(generation_mode="reference_video", requested_ids=["E1U01"]),
+        reference_visual_gate=gate,
+    )
+
+    assert _step(plan, "video_unit_storyboard_sheet").state is WorkflowStepState.COMPLETED
+    assert _step(plan, "reference_keyframes").state is WorkflowStepState.COMPLETED
     assert plan.next_action.type == "choose_narration_delivery"
 
 

@@ -204,6 +204,16 @@ export function KeyframePreviewPanel({
   const activeIds = useActiveResourceIds("reference_keyframe", projectName);
   const keyframes = unit.keyframes ?? [];
 
+  if (unit.storyboard_sheet?.status !== "confirmed") {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <p className="rounded-lg border border-amber-400/25 bg-amber-400/5 px-4 py-8 text-center text-xs leading-6 text-amber-200">
+          {t("reference_keyframe_storyboard_gate")}
+        </p>
+      </div>
+    );
+  }
+
   const add = async () => {
     const description = newDescription.trim();
     if (!description || adding || keyframes.length >= 5) return;

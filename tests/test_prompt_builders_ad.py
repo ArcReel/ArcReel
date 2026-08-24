@@ -139,6 +139,8 @@ class TestDurationConstraint:
 
         assert '"duration_seconds": 7' in prompt
         assert "取 7-91 的整数" in prompt
+        assert '"keyframes"' in prompt
+        assert "[[关键分镜1]]" in prompt
 
 
 class TestEpisodeConstraint:

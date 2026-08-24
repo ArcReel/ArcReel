@@ -1451,6 +1451,8 @@ class ScriptGenerator:
         for ordinal, source in enumerate(flat.units, start=1):
             unit_id = f"E{episode}U{ordinal}"
             try:
+                descriptions = [keyframe.description for keyframe in source.keyframes]
+                rendered_text, keyframes = materialize_keyframes(unit_id, source.text, descriptions)
                 validate_unit_text(
                     f"unit {unit_id}",
                     source.text,
@@ -1464,8 +1466,9 @@ class ScriptGenerator:
                     raise
             unit: dict = {
                 "unit_id": unit_id,
-                "text": source.text,
+                "text": rendered_text,
                 "duration_seconds": source.duration_seconds,
+                "keyframes": keyframes,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {},

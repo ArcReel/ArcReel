@@ -497,7 +497,7 @@ class CostEstimationService:
                 proj_est[cost_type] = _merge_breakdowns(proj_est.get(cost_type, {}), ep_est.get(cost_type, {}))
                 proj_act[cost_type] = _merge_breakdowns(proj_act.get(cost_type, {}), ep_act.get(cost_type, {}))
 
-        # 参考生视频路径跳过分镜步骤，所有内容模式都按自包含 reference_unit 计费与展示。
+        # 参考生视频路径按自包含 reference_unit 计费与展示。
         #
         # 生成路径以项目路线为唯一真相源，整个项目同一条路线、逐集不变（剧本不携带路线信息）；
         # 参考路线内的定桶再由 request projection 按当前资产逐 unit 分流。
@@ -762,7 +762,7 @@ class CostEstimationService:
         请求时长基准通常是 ``unit.duration_seconds``；选择 ``use_tts`` 时还会纳入上游提供的
         实际旁白时长下限。按该基准取档后用同桶模型计费，与执行请求的秒数对齐。
 
-        无图片/音频估值维度：该模式跳过分镜步骤（无分镜图），unit 正文是一整段、没有可供
+        无图片/音频估值维度：该模式的计费单元是整段 unit 正文，没有可供
         独立音频计价的旁白/口播文案字段。实付按 ``actual_by_segment[unit_id]`` 三个维度原样透传——``lib/media_generator.py``
         对 ``resource_type == "reference_videos"`` 的记账以 unit_id 写入 usage 的 segment_id，
         与本函数的输出 identity 一致。切换模式前按分镜 ID（``E1S1`` 等）记的历史支出不在此

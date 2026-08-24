@@ -331,6 +331,28 @@ export async function enqueueReferenceKeyframe(
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 
+export async function enqueueReferenceStoryboardSheet(
+  projectName: string,
+  episode: number,
+  unitId: string,
+  selection: ImageModelSelection = {},
+): Promise<EnqueueResult> {
+  const res = await submit(
+    [
+      markResource(
+        projectName,
+        "reference_storyboard_sheet",
+        unitId,
+        "reference_storyboard_sheet",
+      ),
+    ],
+    () => API.generateReferenceStoryboardSheet(projectName, episode, unitId, selection),
+    oneTaskId,
+  );
+  notifyEnqueued(res.deduped, res.message);
+  return { taskIds: [res.task_id], deduped: res.deduped };
+}
+
 export async function enqueueReferenceVideoUnit(
   projectName: string,
   episode: number,

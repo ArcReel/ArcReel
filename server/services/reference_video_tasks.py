@@ -367,6 +367,15 @@ async def execute_reference_video_task(
         return project, project_path, script, unit, script_input
 
     project, project_path, script, unit, script_input = await asyncio.to_thread(_load)
+    from server.services.reference_storyboard_sheet_tasks import (
+        require_confirmed_storyboard_sheet,
+        require_generated_keyframes,
+        require_keyframe_plan,
+    )
+
+    require_keyframe_plan(unit)
+    require_confirmed_storyboard_sheet(unit)
+    require_generated_keyframes(unit)
     selected_unit_input = _unit_regeneration_input(unit)
 
     declared_references = unit_reference_declarations(project, unit)

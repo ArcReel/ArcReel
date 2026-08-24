@@ -4,6 +4,7 @@ export default {
   "label.grid": "多宫格分镜「{{id}}」",
   "label.grid_split": "多宫格分镜「{{id}}」切分",
   "label.reference_keyframe": "关键分镜「{{id}}」",
+  "label.reference_storyboard_sheet": "Video Unit Storyboard Sheet「{{id}}」",
   "label.voice_sample": "「{{id}}」试听样本",
   "label.asset_image_character": "角色「{{id}}」资产图",
   "label.asset_image_scene": "场景「{{id}}」资产图",

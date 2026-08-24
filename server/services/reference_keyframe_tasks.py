@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 from lib.db.base import DEFAULT_USER_ID
-from lib.image_reference_snapshot import freeze_image_references
 from lib.generation_queue_client import TaskSpec
+from lib.image_reference_snapshot import freeze_image_references
+from lib.path_safety import safe_join
 from lib.reference_video.keyframes import find_keyframe
 from lib.reference_video.request_projection import resolve_reference_assets
 from lib.resource_paths import resource_relative_path
-from lib.visual_artifact_provenance import VisualReference
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import get_aspect_ratio, get_project_manager
+from server.services.reference_image_binding import (
+    prepend_storyboard_sheet,
+    prompt_roster,
+    provider_inputs,
+    visual_references,
+)
 
 
 def reference_keyframe_task_specs(
@@ -42,6 +47,9 @@ def reference_keyframe_task_specs(
                 continue
             if missing_only and keyframe.get("image_path"):
                 continue
+            from server.services.reference_storyboard_sheet_tasks import require_confirmed_storyboard_sheet
+
+            require_confirmed_storyboard_sheet(unit)
             specs.append(
                 TaskSpec.from_request(
                     task_type="reference_keyframe",
@@ -58,13 +66,17 @@ def reference_keyframe_task_specs(
     return specs
 
 
-def build_keyframe_prompt(project: dict[str, Any], description: str) -> str:
+def build_keyframe_prompt(project: dict[str, Any], description: str, reference_roster: str) -> str:
     style = str(project.get("style") or "").strip()
     style_description = str(project.get("style_description") or "").strip()
     return (
-        "生成视频关键分镜的第一帧静态画面。只呈现一个瞬间，不描写运镜过程，不生成文字、水印或拼图。\n"
+        "生成视频关键分镜的第一帧静态画面。输出单张画面，不生成 Storyboard、文字、水印或拼图。\n"
+        "这张图必须是当前核心动作或场景 beat 的入口状态：呈现动作刚开始、意图和方向已经可见的第一个稳定瞬间；"
+        "不得选择同一 beat 的完成结果、撞击后、摔倒后或事后状态。只有结果本身开启新的 beat 时，才可作为下一关键帧。\n"
         f"项目风格：{style}\n"
         f"风格定义：{style_description}\n"
+        "真实参考图绑定（必须按 Picture 编号使用；@ 名称不是画面文字）：\n"
+        f"{reference_roster}\n"
         f"首帧描述：{description.strip()}"
     )
 
@@ -122,9 +134,7 @@ async def execute_reference_keyframe_task(
     if not script_file:
         raise ValueError("script_file is required for reference_keyframe task")
 
-    project, _script, _unit, keyframe = await asyncio.to_thread(
-        _load_keyframe, project_name, script_file, resource_id
-    )
+    project, _script, _unit, keyframe = await asyncio.to_thread(_load_keyframe, project_name, script_file, resource_id)
     description = str(keyframe.get("description") or "").strip()
     if not description:
         raise ValueError("reference keyframe description is required")
@@ -136,18 +146,15 @@ async def execute_reference_keyframe_task(
         project_path,
         {"text": description, "keyframes": []},
     )
-    reference_paths = [asset.path for asset in reference_assets]
-    visual_references = tuple(
-        VisualReference(
-            path=asset.path,
-            role="keyframe_subject",
-            logical_type=asset.reference.type,
-            logical_id=asset.reference.name,
-            kind=asset.kind,
-        )
-        for asset in reference_assets
+    from server.services.reference_storyboard_sheet_tasks import require_confirmed_storyboard_sheet
+
+    sheet = require_confirmed_storyboard_sheet(_unit)
+    sheet_path = safe_join(project_path, str(sheet["image_path"]))
+    bindings = prepend_storyboard_sheet(str(_unit.get("unit_id") or ""), sheet_path, reference_assets)
+    frozen = freeze_image_references(
+        provider_inputs(bindings),
+        visual_references(bindings, role="keyframe_subject"),
     )
-    frozen = freeze_image_references(reference_paths, visual_references)
     try:
         ctx = await resolve_generation_context(
             project_name,
@@ -168,7 +175,7 @@ async def execute_reference_keyframe_task(
 
         image_path = resource_relative_path("keyframes", resource_id)
         _output, version = await ctx.generator.generate_image_async(
-            prompt=build_keyframe_prompt(project, description),
+            prompt=build_keyframe_prompt(project, description, prompt_roster(bindings)),
             resource_type="keyframes",
             resource_id=resource_id,
             reference_images=frozen.reference_images,

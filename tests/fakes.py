@@ -382,7 +382,7 @@ def fake_reference_caps_fetcher(
     reference_durations: tuple[int, ...] | None = None,
     text_durations: tuple[int, ...] | None = None,
     max_duration: int = 12,
-    max_refs: int | None = 3,
+    max_refs: int | None = 5,
     voice: VoiceRenderSettings | None = None,
 ):
     """假 ``_fetch_reference_caps_with_fallback``：返回一份 ``ReferenceSplitCaps`` 的 async 取值器。

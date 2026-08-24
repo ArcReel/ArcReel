@@ -120,6 +120,27 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return TestClient(app), proj_dir, monkeypatch
 
 
+def _confirm_visual_gate(proj_dir: Path, unit_id: str) -> None:
+    """Seed the mandatory Sheet → keyframe gate for executor-focused cases."""
+
+    storyboard = proj_dir / "storyboard_sheets" / f"{unit_id}.png"
+    keyframe = proj_dir / "keyframes" / f"{unit_id}K01.png"
+    storyboard.parent.mkdir(parents=True, exist_ok=True)
+    keyframe.parent.mkdir(parents=True, exist_ok=True)
+    storyboard.write_bytes(_TINY_PNG)
+    keyframe.write_bytes(_TINY_PNG)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    unit = next(item for item in script["video_units"] if item["unit_id"] == unit_id)
+    unit["storyboard_sheet"] = {
+        "image_path": f"storyboard_sheets/{unit_id}.png",
+        "status": "confirmed",
+        "confirmed_at": "2026-08-24T00:00:00Z",
+    }
+    unit["keyframes"][0]["image_path"] = f"keyframes/{unit_id}K01.png"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+
 @pytest.mark.asyncio
 async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_client):
     client, proj_dir, monkeypatch = three_bucket_client
@@ -134,9 +155,10 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     unit = resp.json()["unit"]
     uid = unit["unit_id"]
 
-    # 正文原样落盘，参考图按正文读时派生
-    assert unit["text"] == prompt
+    # 手工新建 unit 也自动获得至少一个可审阅的关键帧计划与正文 tag。
+    assert unit["text"] == f"@[关键分镜 {uid}K01] {prompt}".strip()
     assert unit["duration_seconds"] == 7
+    _confirm_visual_gate(proj_dir, uid)
 
     # 2) generate 入队（mock queue）
     captured: dict = {}
@@ -214,16 +236,19 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
 
     # 5) 断言三段论渲染：第一段按正文提及顺序绑定，正文 @mention 全部替成 <X>
     rendered = captured_backend_kwargs["prompt"]
-    assert rendered.startswith("<张三>@图片1、<酒馆>@图片2、<长剑>@图片3。")
+    assert rendered.startswith(
+        f"<{uid} 的 Video Unit Storyboard Sheet（整段 Video Unit 的镜头顺序与场景变化参考，不是单一目标帧）>"
+        f"@图片1、<关键分镜 {uid}K01>@图片2、<张三>@图片3、<酒馆>@图片4、<长剑>@图片5。"
+    )
     assert "@张三" not in rendered  # 所有 @ 已替换
     assert "@酒馆" not in rendered
     assert "@长剑" not in rendered
     assert "[图" not in rendered  # 对照表编号已废除
     assert "保持无字幕" in rendered  # 第三段约束包
 
-    # 6) 断言 reference_images 传了 3 个临时文件
+    # 6) Sheet 是 Picture 1，关键帧和三个正文资产依次跟随。
     ref_images = captured_backend_kwargs["reference_images"]
-    assert len(ref_images) == 3
+    assert len(ref_images) == 5
 
     # 7) 断言 mp4 + thumbnail 落盘 + generated_assets 写回
     assert result["file_path"].endswith(f"{uid}.mp4")
@@ -248,6 +273,7 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
         json={"prompt": "@张三 进 @酒馆", "duration_seconds": 3},
     )
     uid = resp.json()["unit"]["unit_id"]
+    _confirm_visual_gate(proj_dir, uid)
 
     from lib.config.resolver import ProviderModel
     from lib.reference_video.request_projection import ReferenceProjectionBlockedError

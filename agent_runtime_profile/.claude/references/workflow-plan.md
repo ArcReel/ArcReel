@@ -84,6 +84,9 @@ mcp__arcreel__get_workflow_plan({
 | `generate_asset_sheets` | `mcp__arcreel__generate_assets`，逐类型传 `names` |
 | `generate_storyboards` | `mcp__arcreel__generate_storyboards`，传 `segment_ids` |
 | `generate_grid` | `mcp__arcreel__generate_grid`，传 `scene_ids` |
+| `generate_reference_storyboard_sheets` | `mcp__arcreel__generate_reference_storyboard_sheets`，传 `unit_ids`；只生成每个 Video Unit 的多格叙事 Sheet，不得改调 `generate_storyboards` |
+| `confirm_reference_storyboard_sheet` | 用户明确确认当前 **Video Unit Storyboard Sheet** 后，逐 unit 调 `mcp__arcreel__confirm_reference_storyboard_sheet`；成功会自动入队该 unit 全部关键帧 |
+| `generate_reference_keyframes` | `mcp__arcreel__generate_reference_keyframes`，传 `keyframe_ids`；仅用于已确认 Sheet 后补齐或重试关键帧 |
 | `repair_video_units` | `mcp__arcreel__get_episode_script_revision` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
 | `patch_episode_script` | 计划注入：`next_action.args` 已给 `expected_revision` 与逐条 `problems`，一次批量改完 |
 | `choose_narration_delivery` | 计划注入：见「旁白交付」 |
@@ -126,8 +129,7 @@ mcp__arcreel__get_workflow_plan({
 | `post_production` | 后期配音：视频照常生成，旁白留到剪映等后期工具里补 |
 | `use_tts` | 使用当前 TTS：把已生成的旁白音频作为本次请求的依据 |
 
-参考生视频同样要做交付选择：两种生成模式跳过哪些步骤见
-[generation-modes.md](generation-modes.md)。
+参考生视频同样要做交付选择；它的 Video Unit Storyboard Sheet 与关键帧卡点由计划在此之前明确给出。
 
 计划给出 `next_action.type == "choose_narration_delivery"` 时：
 
