@@ -537,7 +537,7 @@ def bounded_poll_clock(step: float = 30.0):
     ``SystemClock`` 落到这两个符号上，压缩等待无需触碰 ``_compute_wait`` 等私有符号。
 
     终态判定失灵时（把已就绪的任务当成"仍在跑"），真实时钟下 sleep 被 mock 掉的轮询会以近乎
-    为零的真实耗时空转到天荒地老——测试表现为挂起而不是失败。假表让这类回归在几十次轮询内
+    为零的真实耗时空转到天荒地老——测试表现为挂起而不是失败。假表让这类缺陷在几十次轮询内
     撞上 ``max_wait`` 抛 ``TimeoutError``，红得快且可读。
     """
     clock = itertools.count(0.0, step)

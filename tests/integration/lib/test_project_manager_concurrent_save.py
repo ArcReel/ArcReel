@@ -228,8 +228,8 @@ class TestConcurrentReadModifyWrite:
     def test_concurrent_update_scene_asset_preserves_all(self, tmp_path: Path) -> None:
         """并发对不同 segment 调用 update_scene_asset，所有写入都必须持久化。
 
-        修复前 load_script 在锁外、save_script 仅锁住写入，多个线程读到同一份快照后
-        互相覆盖，只有最后一个写者的更新存活。locked_script 把整段 RMW 收进单锁后应全部保留。
+        整段 read-modify-write 必须收进 locked_script 的单锁内：读在锁外时多个线程会拿到
+        同一份快照并互相覆盖，只有最后一个写者的更新存活。
         """
         pm = ProjectManager(tmp_path)
         name = "proj-rmw"
@@ -286,7 +286,7 @@ class TestConcurrentReadModifyWrite:
 
 
 def test_loaded_json_not_extra_data_after_save_script(tmp_path: Path) -> None:
-    """回归：save_script 后磁盘内容必须是单个 JSON 对象，不能有 Extra data。"""
+    """save_script 后磁盘内容必须是单个 JSON 对象，不能有 Extra data。"""
     pm = ProjectManager(tmp_path)
     name = "proj-regress"
     _seed_project(pm, name)

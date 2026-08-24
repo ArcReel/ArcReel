@@ -1443,7 +1443,7 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
         {"script_file": "scripts/episode_1.json"},
         user_id="u1",
     )
-    # 单次调用：R2V 层不再做二次压缩重试
+    # 单次调用：R2V 层不做二次压缩重试
     assert call_count["n"] == 1
     assert result["resource_id"] == "E1U1"
     # 传给咽喉层的恰是源 sheet 路径（项目目录内真实文件），而非临时压缩副本——

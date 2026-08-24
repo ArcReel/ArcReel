@@ -222,7 +222,7 @@ async def test_resume_expired_flips_pending_to_failed(tmp_path):
     call = gen.ledger.resumed[0]
     assert call["call_id"] == 42
     assert call["status"] == "failed"
-    # 零费用不重扣的语义已收进 ledger.resume_failed 内部（cost_amount=0.0），补账入参不再显式承载
+    # 零费用不重扣的语义收在 ledger.resume_failed 内部（cost_amount=0.0），补账入参不显式承载
 
 
 @pytest.mark.asyncio
@@ -262,7 +262,7 @@ async def test_resume_calls_add_version_after_download(tmp_path):
     # add_version 必须发生在下载之后：进入 resume_video 时 add_calls 还是 0
     assert probe.add_calls_at_resume == 0
     assert len(gen.versions.add_calls) == 1
-    # 不再在开头/末尾调 ensure_current_tracked（避免错位登记残留文件）
+    # 开头/末尾不调 ensure_current_tracked（避免错位登记残留文件）
     assert gen.versions.ensure_calls == []
 
 

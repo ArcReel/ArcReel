@@ -161,7 +161,7 @@ class TestOpenAIVideoBackend:
         mock_client.videos.download_content.assert_not_called()
 
     async def test_duration_passthrough(self, tmp_path: Path):
-        """所有 duration 值应原值透传到 SDK，不再被 _map_duration 篡改。"""
+        """所有 duration 值应原值透传到 SDK，不被 _map_duration 改写。"""
         mock_client = AsyncMock()
         _stub_client_completed(mock_client, seconds="6")
 
@@ -402,7 +402,7 @@ class TestOpenAIVideoBackend:
             )
             await backend.generate(request)
 
-        # 首查即 completed：poll_with_retry 一次 retrieve 即返回，不再多查
+        # 首查即 completed：poll_with_retry 一次 retrieve 即返回，不多查
         assert retrieved == ["vid_123"]
         assert output_path.read_bytes() == b"v"
 

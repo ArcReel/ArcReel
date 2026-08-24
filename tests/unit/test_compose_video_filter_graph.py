@@ -1,6 +1,6 @@
 """compose_video.py 滤镜图构造与 fps 解析的纯函数单测。
 
-不依赖 ffmpeg / ffprobe，覆盖以下回归断言：
+不依赖 ffmpeg / ffprobe，覆盖以下断言：
 
 - `_resolve_fps`：avg_frame_rate `"0/0"`/`"0"`/`""` 显式回退到 r_frame_rate，
   而不是被 `or` 链当作真值通过
@@ -92,9 +92,8 @@ class TestResolveFps:
 class TestCoerceNumericDuration:
     """ffprobe duration 字段的容错解析。
 
-    ffprobe 对部分 webm / 流式封装会返回 `stream.duration="N/A"`，
-    这是真值字符串但不是数值；旧实现 `stream.duration or format.duration` 会
-    选中 "N/A" 然后 float() 抛错，导致正常视频被拒。这里覆盖该回归。
+    ffprobe 对部分 webm / 流式封装会返回 `stream.duration="N/A"`：这是真值字符串但不是
+    数值，`or` 链会选中它并让 float() 抛错。非数值真值必须在转换前被拒并回退到下一个来源。
     """
 
     def test_numeric_string_parses(self) -> None:

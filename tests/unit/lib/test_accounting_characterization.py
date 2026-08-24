@@ -14,7 +14,7 @@ CostCalculator → 定价策略）的落库行为逐字段锁定：链路内部�
 started_at / finished_at 可精确断言。SQLite 回读 DateTime(timezone=True) 为 naive
 datetime，跨 session 的 finish/finalize 中相减前按 UTC 补齐 naive 一侧 tzinfo 再与
 aware(finished_at) 相减，duration_ms 按真实步进（单次 start→finish 为 5000ms）回写
-（PostgreSQL 下同样为真实时长，不再分岔）。created_at / updated_at 由 ORM 列默认绑定
+（PostgreSQL 下同样为真实时长，不分岔）。created_at / updated_at 由 ORM 列默认绑定
 真实时钟、非记账语义字段，仅断言为 datetime。
 """
 
