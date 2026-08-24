@@ -238,6 +238,8 @@ Published pages also declare their documentation-refresh coverage tier via the `
 
 Use `<type>/<slug>`, where `type` is one of the conventional commit types:
 
+Short-lived AFK workflow branches are the exception: use `afk/<batch-id>/stage-<K>` and `issue/<N>`.
+
 - `feat/` — New feature (for example, `feat/reference-video-backend`)
 - `fix/` — Bug fix (for example, `fix/queue-lease-timeout`)
 - `refactor/` — Refactoring (for example, `refactor/session-actor`)
@@ -255,6 +257,8 @@ The time from creation to merge must be ≤3 days. If it runs longer, split it o
 ### Squash merge {#squash-merge}
 
 Squash each PR into one commit when merging into `main`, with a conventional commit message (see the next section). Choose "Squash and merge" from the GitHub merge button.
+
+Stage PRs created by `afk-team-workflow` are the exception: rebase-merge them to preserve each issue's conventional commit plus cleanup and integration-fix commits.
 
 ## Commit Conventions {#commit-convention}
 
@@ -274,7 +278,7 @@ Version numbers and the changelog are maintained automatically by [release-pleas
 
 ### Workflow {#release-workflow}
 
-1. Squash-merge the PR into `main` according to the conventional commits specification
+1. Squash-merge ordinary PRs into `main` according to the conventional commits specification; rebase-merge `afk-team-workflow` stage PRs as described above
 2. release-please scans commits since the previous release and automatically opens or updates a Release PR titled like `chore(main): release X.Y.Z`, containing the next version bump and an updated `CHANGELOG.md`
 3. Merging that Release PR automatically creates a `vX.Y.Z` tag and publishes a GitHub Release
 
@@ -307,7 +311,7 @@ feat(grid): 支持 grid_12 布局
 将多宫格分镜系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**This repository does not use breaking-change markers.** The frontend and backend are released together, and the backend API does not make versioned compatibility guarantees—the bundled frontend evolves with each version, while external integrations (OpenClaw and others) fetch the latest contract at runtime through `/skill.md` rather than depending on a version number. When deleting or changing endpoints referenced by `public/skill.md.template`, update that template at the same time. Classify API changes normally as `fix`/`refactor`; do not add a `!` suffix or a `BREAKING CHANGE:` footer. To correct an incorrectly marked commit after it has been merged, edit that PR's description and append a `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` block. release-please then recalculates the changelog and version number according to the override (this requires squash merging, which this repository uses). The workflow runs only on pushes to main; after editing, wait for the next push to main or rerun the release-please workflow manually. During the 0.x stage, `bump-minor-pre-major` limits the version jump caused by an incorrect marker to minor, but does not correct the changelog.
+**This repository does not use breaking-change markers.** The frontend and backend are released together, and the backend API does not make versioned compatibility guarantees—the bundled frontend evolves with each version, while external integrations (OpenClaw and others) fetch the latest contract at runtime through `/skill.md` rather than depending on a version number. When deleting or changing endpoints referenced by `public/skill.md.template`, update that template at the same time. Classify API changes normally as `fix`/`refactor`; do not add a `!` suffix or a `BREAKING CHANGE:` footer. Correct an incorrectly marked merge according to its merge method: for an ordinary squash PR, append a `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` block to the PR description and wait for the next main push or rerun the workflow; for an AFK rebase stage, wait for the final main push to update the Release PR, correct its generated version and changelog artifacts, pass its integrity checks, and then merge it. During the 0.x stage, `bump-minor-pre-major` limits the version jump caused by an incorrect marker to minor, but does not correct the changelog.
 
 The following syntax is documented only to help identify incorrect markers. There are two equivalent ways to mark a **breaking change**:
 
