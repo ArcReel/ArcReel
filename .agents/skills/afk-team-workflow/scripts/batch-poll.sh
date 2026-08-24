@@ -114,9 +114,9 @@ jq --slurpfile native "$TASK_TMP_DIR/native.json" '
     [scan("#([0-9]+)") | .[0] | tonumber] | unique;
   def top_blocked_by:
     (. // "") | split("\n") | map(select(test("\\S"))) | (.[0] // "")
-    | if test("^\\s*Blocked by\\s*:\\s*none\\b"; "i") then []
-      elif test("^\\s*Blocked by\\s*:"; "i") then refs
-      else []
+    | if test("^\\s*Blocked by\\s*:\\s*none\\b"; "i") then {present: true, blocked_by: []}
+      elif test("^\\s*Blocked by\\s*:"; "i") then {present: true, blocked_by: refs}
+      else {present: false, blocked_by: []}
       end;
   def section_lines($name):
     (. // "") | split("\n")
@@ -133,7 +133,7 @@ jq --slurpfile native "$TASK_TMP_DIR/native.json" '
       end;
   def body_blocked_by:
     . as $body | ($body | top_blocked_by) as $top
-    | if ($top | length) > 0 then $top else ($body | legacy_blocked_by) end;
+    | if $top.present then $top.blocked_by else ($body | legacy_blocked_by) end;
   ($native[0] | INDEX(.number | tostring)) as $native_by_issue
   | [.[]
      | . as $issue
