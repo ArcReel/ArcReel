@@ -1,5 +1,129 @@
 # Changelog
 
+## [0.27.0](https://github.com/ArcReel/ArcReel/compare/v0.26.0...v0.27.0) (2026-08-24)
+
+
+### ✨ 新功能
+
+* **agent:** 智能体修改已定稿的分集内容改走草稿晋升，不再与网页端保存互相覆盖 ([#1924](https://github.com/ArcReel/ArcReel/issues/1924)) ([83769a6](https://github.com/ArcReel/ArcReel/commit/83769a65d49cbaa050e24cb3bbc9c6a7d912d1cf))
+* **agent:** 智能体改用与界面一致的正式叫法，生成摘要不再露出工具名与状态枚举 ([#1959](https://github.com/ArcReel/ArcReel/issues/1959)) ([270aba6](https://github.com/ArcReel/ArcReel/commit/270aba6d94d04ea2bd3fc874ec8b7b004a3725bf))
+* **agent:** 生成结果逐项返回成功/失败/受阻，失效产物不再重复付费重生 ([#1890](https://github.com/ArcReel/ArcReel/issues/1890)) ([6adc823](https://github.com/ArcReel/ArcReel/commit/6adc823af6af4ccf4f5216f99a336f3d6497a7a3))
+* **assets:** prevent duplicate names across project assets ([#1784](https://github.com/ArcReel/ArcReel/issues/1784)) ([9e43a96](https://github.com/ArcReel/ArcReel/commit/9e43a965b2538ecdd809bad7275e1b595ae4520f))
+* **docs:** 搭建官方文档站骨架 ([#1855](https://github.com/ArcReel/ArcReel/issues/1855)) ([90cd531](https://github.com/ArcReel/ArcReel/commit/90cd531a5f328f3e66460b240021d42535d602de))
+* **i18n:** 创作者界面与用户可见文案统一产品语言 ([#1955](https://github.com/ArcReel/ArcReel/issues/1955)) ([e505735](https://github.com/ArcReel/ArcReel/commit/e505735c6b9e984acef9a6fbf43ff59f34f760c2))
+* **i18n:** 项目变更通知跟随界面语言，英文/越南文下不再出现中文 ([#1971](https://github.com/ArcReel/ArcReel/issues/1971)) ([feafcb4](https://github.com/ArcReel/ArcReel/commit/feafcb4158d36aa711840ee402322fdf33ae8fbe))
+* **media:** 统一追踪发声媒体来源与付费历史 ([#1859](https://github.com/ArcReel/ArcReel/issues/1859)) ([0d4dbc1](https://github.com/ArcReel/ArcReel/commit/0d4dbc1a1f03e2fbc086024a147144c0f05f5efd))
+* **projects:** 启用可验证的产物状态追踪 ([#1866](https://github.com/ArcReel/ArcReel/issues/1866)) ([e61feae](https://github.com/ArcReel/ArcReel/commit/e61feae4d49c0372165c0684c459600e310dd4a5))
+* **projects:** 项目列表与卡片改按制作状态显示阶段与可用产物 ([#1933](https://github.com/ArcReel/ArcReel/issues/1933)) ([e347f2b](https://github.com/ArcReel/ArcReel/commit/e347f2b51054162abaa971979118ff9910cb593b))
+* **project:** 数据升级失败的项目标为「需要修复」，可在对话中修复后重试 ([#1923](https://github.com/ArcReel/ArcReel/issues/1923)) ([4ae96b2](https://github.com/ArcReel/ArcReel/commit/4ae96b22c20c5d89a963b39f1d339f4ecab1651c))
+* **reference-video:** 台词与画外音可写在画面描述同一行，不再要求独占一行 ([#1952](https://github.com/ArcReel/ArcReel/issues/1952)) ([eb5ff24](https://github.com/ArcReel/ArcReel/commit/eb5ff24ce5cc4de97fc8e01f4ee8f246d1196fe7))
+* **reference-video:** 统一生成请求预检与报价 ([#1824](https://github.com/ArcReel/ArcReel/issues/1824)) ([6252c64](https://github.com/ArcReel/ArcReel/commit/6252c64a01c838ba27f4cafa2dc2fe3a475fdc7c))
+* **step1:** narration 补齐隔离草稿通道，三条路线写边界一致 ([#2019](https://github.com/ArcReel/ArcReel/issues/2019)) ([6d8174a](https://github.com/ArcReel/ArcReel/commit/6d8174ae17f76967419ffe4c869bd389fc24d6cb))
+* **studio:** 剧集卡与画布改按产物清单显示可用视频数与「比当前内容旧」件数 ([#1934](https://github.com/ArcReel/ArcReel/issues/1934)) ([8c3f4a0](https://github.com/ArcReel/ArcReel/commit/8c3f4a04d6850594af507f50fc7023d1212cd840))
+* **test-gate:** audit_tests --check 挂 CI，eslint 三件套与命名/熔断禁令启用 ([2892f0f](https://github.com/ArcReel/ArcReel/commit/2892f0f15dcd10fb2ab1489c5c40aac2ab9d3e74))
+* **video:** 批量生成先整批准入，任一单元有问题就零任务入队 ([#1891](https://github.com/ArcReel/ArcReel/issues/1891)) ([d76443e](https://github.com/ArcReel/ArcReel/commit/d76443e2816f89c3111bff10ce53b021ab9b9d71))
+* **video:** 支持使用当前旁白生成单个视频 ([#1828](https://github.com/ArcReel/ArcReel/issues/1828)) ([ed71819](https://github.com/ArcReel/ArcReel/commit/ed71819aadf81015c0af4b3f5db0815607e04fae))
+* **video:** 统一成片预览、下载与剪映导出 ([#1865](https://github.com/ArcReel/ArcReel/issues/1865)) ([46e77e0](https://github.com/ArcReel/ArcReel/commit/46e77e052f86b806a40d951e1a7ba73546be4b06))
+* **video:** 让视频生成任务在重启后安全接续 ([643d996](https://github.com/ArcReel/ArcReel/commit/643d996707846f454189f593b48af344438f88c6))
+* **workflow:** 准确识别视觉产物的内容变化 ([2f01717](https://github.com/ArcReel/ArcReel/commit/2f01717d8083ff1e20eabe0343a2edfba239ddd2))
+* **workflow:** 工作台展示服务端权威的制作状态与受控修复入口 ([#1893](https://github.com/ArcReel/ArcReel/issues/1893)) ([830e95c](https://github.com/ArcReel/ArcReel/commit/830e95cd7384c6eca08f77ee66ad4a7a52ecdbd5))
+* **workflow:** 建立产物清单与内容来源依据 ([aa4a99c](https://github.com/ArcReel/ArcReel/commit/aa4a99c24767abc4765a64b644bfa69d13e85583))
+* **workflow:** 提供完整可执行的制作计划 ([#1892](https://github.com/ArcReel/ArcReel/issues/1892)) ([7b1f7cb](https://github.com/ArcReel/ArcReel/commit/7b1f7cbae311558a85879feffa1e08f923c9f060))
+* **workflow:** 智能体按服务端制作计划推进并如实分轴报告产物状态 ([#1894](https://github.com/ArcReel/ArcReel/issues/1894)) ([5bbc8c5](https://github.com/ArcReel/ArcReel/commit/5bbc8c5022ac37a820e59bd8730497dce1c14eaa))
+* **剧本:** 支持并发安全的原子批量编辑 ([a280775](https://github.com/ArcReel/ArcReel/commit/a280775462e90cd6fcf0cbfd2a93baafd7c2bec9))
+* **助手:** 改写消息时可预览并移除图片 ([a2d3499](https://github.com/ArcReel/ArcReel/commit/a2d34990eb0d8906b35028ca26711e2b8b615ffa))
+* **助手:** 改写消息时支持新增图片 ([322a75b](https://github.com/ArcReel/ArcReel/commit/322a75b48842a4743904f14d3822878fb74e4a59))
+* 收敛四类资产图提示词版式 ([#2063](https://github.com/ArcReel/ArcReel/issues/2063)) ([a1b972e](https://github.com/ArcReel/ArcReel/commit/a1b972e18bafb75b77ee0a6cc3e82b129b749b13))
+* **智能体:** 完善配置完整性与恢复体验 ([99ef4a8](https://github.com/ArcReel/ArcReel/commit/99ef4a88e23221a1df9aed68787df5916336505a))
+* **智能体:** 让项目续作状态跨会话保持一致 ([c8c01aa](https://github.com/ArcReel/ArcReel/commit/c8c01aa03e19970161d35d70dc025f15407859c1))
+* **视频:** 广告参考路线直出统一视频单元 ([#1786](https://github.com/ArcReel/ArcReel/issues/1786)) ([ed17daa](https://github.com/ArcReel/ArcReel/commit/ed17daaa6900f7158b884624160fa2eca1095d9a))
+* **视频:** 统一拦截单元混合发声 ([a456bca](https://github.com/ArcReel/ArcReel/commit/a456bcad5eaff91e5e41f9bb09425af152993292))
+* **视频:** 统一视频单元发声归属 ([#1777](https://github.com/ArcReel/ArcReel/issues/1777)) ([6504d18](https://github.com/ArcReel/ArcReel/commit/6504d18ec34a7cbeef6ceb243bcee13cb257d889))
+
+
+### 🐛 Bug 修复
+
+* **agent:** 会话启动失败时的清理不再被断开挂起卡住 ([#1794](https://github.com/ArcReel/ArcReel/issues/1794)) ([93014b3](https://github.com/ArcReel/ArcReel/commit/93014b38f62d61141cafcc708339df31aaa44a22))
+* **agent:** 迁移阻断期文案不再点名已被阻断的写入工具 ([#2026](https://github.com/ArcReel/ArcReel/issues/2026)) ([d6bec65](https://github.com/ArcReel/ArcReel/commit/d6bec658e378f57d0987ada1244dd25af6d2e759))
+* **docs:** 文档站锚点检查覆盖各语言译文 ([#1881](https://github.com/ArcReel/ArcReel/issues/1881)) ([4a05d1f](https://github.com/ArcReel/ArcReel/commit/4a05d1ff3185d7c27ae2228f3de114720a403706))
+* **docs:** 检出未登记的文档译文 ([#1879](https://github.com/ArcReel/ArcReel/issues/1879)) ([1c8a0d6](https://github.com/ArcReel/ArcReel/commit/1c8a0d62210f41c3bbeab455bce30379d77897fa))
+* **frontend:** 视频候选下拉的音轨能力线按各下拉自身的路径取值 ([#2027](https://github.com/ArcReel/ArcReel/issues/2027)) ([243dda5](https://github.com/ArcReel/ArcReel/commit/243dda5c2ae4a5796471896e1904b09adb6062ea))
+* **generation:** 批量入队中断不再撤销已创建的视频任务，未入队的目标逐条报告 ([#1922](https://github.com/ArcReel/ArcReel/issues/1922)) ([f37000d](https://github.com/ArcReel/ArcReel/commit/f37000db03a4b9b4afb7ef00bf2a2df14ac626ea))
+* **generation:** 旧项目补齐缺失时核实产物文件仍在磁盘，删掉的分镜/视频/旁白能重新生成 ([#1900](https://github.com/ArcReel/ArcReel/issues/1900)) ([8f8936a](https://github.com/ArcReel/ArcReel/commit/8f8936aa2ce6891cae804646989ca08b2a604ad2))
+* **grid:** clean up superseded grid generations in SDK enqueue path ([#1785](https://github.com/ArcReel/ArcReel/issues/1785)) ([5743764](https://github.com/ArcReel/ArcReel/commit/5743764ce67087591945e74dea754766126056db))
+* **i18n:** 界面与文档统一把角色/场景/道具的标准图叫「资产图」，带货主体叫「商品」 ([#1972](https://github.com/ArcReel/ArcReel/issues/1972)) ([a7ad48f](https://github.com/ArcReel/ArcReel/commit/a7ad48fde52aa54191717024561d740d5f8d99a6))
+* **i18n:** 统一 onboarding 文案中剪映英文名的拼写为 Jianying ([#1887](https://github.com/ArcReel/ArcReel/issues/1887)) ([25b911b](https://github.com/ArcReel/ArcReel/commit/25b911ba326de76b3776b2921ae85ade4ec5ccc2))
+* **i18n:** 越南文源文件类型描述补齐 gốc，与「剧本 = 用户上传成品」译法对齐 ([#2006](https://github.com/ArcReel/ArcReel/issues/2006)) ([42f7f3d](https://github.com/ArcReel/ArcReel/commit/42f7f3d652b046b444adeb2c44472f3cf8c838b4))
+* **lint:** 档案检查不再把「旧格式已废弃」的说明句判为违规 ([#1898](https://github.com/ArcReel/ArcReel/issues/1898)) ([45bbb41](https://github.com/ArcReel/ArcReel/commit/45bbb413a4b33b346c318e7427d40023b3b0ddf9))
+* **migration:** 迁移中途被强制关闭的项目不再从项目列表消失 ([#1926](https://github.com/ArcReel/ArcReel/issues/1926)) ([a5d953c](https://github.com/ArcReel/ArcReel/commit/a5d953cdaed586703d175b89beded6345946187f))
+* **project-migration:** update_episode 路由补挂迁移守卫 ([#2025](https://github.com/ArcReel/ArcReel/issues/2025)) ([c46b07c](https://github.com/ArcReel/ArcReel/commit/c46b07c160ed7d3d172c2b3b2146a222765a40d5))
+* **project-migration:** 升级失败的项目在剧本编辑入口就被拒并说明原因 ([#2017](https://github.com/ArcReel/ArcReel/issues/2017)) ([253b8b7](https://github.com/ArcReel/ArcReel/commit/253b8b75c60dc1d792b23b9a66fb8ebc64089f26))
+* **project:** 未升级到当前数据版本的项目一律阻断，产物读取只认产物清单 ([#1932](https://github.com/ArcReel/ArcReel/issues/1932)) ([a25f2ad](https://github.com/ArcReel/ArcReel/commit/a25f2ad323863d351b32f1dc8c779aa125460abd))
+* **reference-video:** 批量生成部分入队失败时列出未排上队列的单元与原因 ([#2016](https://github.com/ArcReel/ArcReel/issues/2016)) ([a522d49](https://github.com/ArcReel/ArcReel/commit/a522d493771f9fbb23d7b9b0fe7f785115589da5))
+* **sdk-tools:** 只读诊断工具在数据升级未完成的项目上给出可执行的拒绝回执 ([#2020](https://github.com/ArcReel/ArcReel/issues/2020)) ([9721dd7](https://github.com/ArcReel/ArcReel/commit/9721dd76ffabbb267bca8c7fe9e9bdd704f5dadf))
+* **video:** detect image MIME from bytes ([#2046](https://github.com/ArcReel/ArcReel/issues/2046)) ([012128b](https://github.com/ArcReel/ArcReel/commit/012128b1c0a07b7fff769b57682b57de49047ed0))
+* **video:** 可灵参考路线多图镜头不再静默丢弃音频开关配置 ([#2018](https://github.com/ArcReel/ArcReel/issues/2018)) ([b40eab1](https://github.com/ArcReel/ArcReel/commit/b40eab13fb3b045e320f0f34ddedfd6e76ef534f))
+* **video:** 智能体生成视频前必须先和用户确认旁白交付方式 ([#1899](https://github.com/ArcReel/ArcReel/issues/1899)) ([7ab47f4](https://github.com/ArcReel/ArcReel/commit/7ab47f42ca52fdaa3cc9fd2678b31223a24dc56b))
+* **video:** 视频已生成成功却被判为超时失败 ([#1889](https://github.com/ArcReel/ArcReel/issues/1889)) ([8f9cd89](https://github.com/ArcReel/ArcReel/commit/8f9cd890e6b04eb1fdacd9c0a8ed563cea7e6ff6)), closes [#1888](https://github.com/ArcReel/ArcReel/issues/1888)
+* **任务队列:** 回滚数据库版本不再丢失任务去重索引 ([#1810](https://github.com/ArcReel/ArcReel/issues/1810)) ([e1c6fd9](https://github.com/ArcReel/ArcReel/commit/e1c6fd97ed891d4b1d16933859fffe6d4c3c39db))
+* **供应商:** 火山方舟 base_url 支持带尾斜杠或多余空白的输入 ([#1795](https://github.com/ArcReel/ArcReel/issues/1795)) ([e19d2a6](https://github.com/ArcReel/ArcReel/commit/e19d2a606c3e6816aae8d9b37fc5a1476163b0e9))
+* **助手:** 改写带图消息不再丢失图片 ([#1798](https://github.com/ArcReel/ArcReel/issues/1798)) ([dafb9d7](https://github.com/ArcReel/ArcReel/commit/dafb9d7517937f628bb834494c849e1c71ce1297))
+* **助手:** 改写消息可粘贴图片 ([#1821](https://github.com/ArcReel/ArcReel/issues/1821)) ([620f37e](https://github.com/ArcReel/ArcReel/commit/620f37ef22e6f36142531920bbfad01b9e37d263))
+* **助手:** 限制图片附件请求体积 ([f62c36c](https://github.com/ArcReel/ArcReel/commit/f62c36ca98be4af8426dc1ced0e60f4781eeb2ef))
+* **视频:** 自定义供应商在途改接口地址后视频任务仍能续跑 ([#1805](https://github.com/ArcReel/ArcReel/issues/1805)) ([24bac37](https://github.com/ArcReel/ArcReel/commit/24bac372780a96bdf3b6acee9b1fe5dd4f5aa56d))
+* **自定义供应商:** 万相 2.x 模型的连字符/下划线命名不再被误判为视频 ([#1809](https://github.com/ArcReel/ArcReel/issues/1809)) ([beb1ef6](https://github.com/ArcReel/ArcReel/commit/beb1ef6655e1b27ecc4003b4a79b0433781ca3ca))
+* **自定义供应商:** 统一 wan3 连字符形态的时长档位与端点路由识别 ([#1796](https://github.com/ArcReel/ArcReel/issues/1796)) ([0f0321f](https://github.com/ArcReel/ArcReel/commit/0f0321f00fbc9b8891089f72ea24a000cf6ef2da))
+
+
+### ⚡ 性能优化
+
+* **workflow:** 制作状态查询不再重复读源文，工作台面板不被别的项目刷屏 ([#1927](https://github.com/ArcReel/ArcReel/issues/1927)) ([e8c7347](https://github.com/ArcReel/ArcReel/commit/e8c734738f06e74f9f1b418c0dc62a785c94d653))
+
+
+### ♻️ 重构
+
+* **agent:** 档案守卫只校验能对照代码的结构，说书档案清掉不适用的成片合成入口 ([#1928](https://github.com/ArcReel/ArcReel/issues/1928)) ([30d981e](https://github.com/ArcReel/ArcReel/commit/30d981ed28976058546429a398c82252472eeb24))
+* **cleanup:** 工作台移除恒为空的「上一次执行结果」区块，并清除一批已被替代的旧实现 ([#1935](https://github.com/ArcReel/ArcReel/issues/1935)) ([6669fa6](https://github.com/ArcReel/ArcReel/commit/6669fa6ecf986dc7c078b61552473d0706d3855a))
+* **docs-scripts:** 三份 markdown 目录遍历收编进 markdown-scan ([#2012](https://github.com/ArcReel/ArcReel/issues/2012)) ([4894b3f](https://github.com/ArcReel/ArcReel/commit/4894b3fdea95835d1585d7ee94074fbf3cff2861))
+* **frontend:** 清理无引用的桶文件、re-export 与失效提示文案 ([#1939](https://github.com/ArcReel/ArcReel/issues/1939)) ([14349d4](https://github.com/ArcReel/ArcReel/commit/14349d46e8435c5bf5f69e7a361db5896cbcd088))
+* **i18n:** 界面统一把系统生成的正式产物叫「脚本」，上传的成品仍叫「剧本」 ([#1936](https://github.com/ArcReel/ArcReel/issues/1936)) ([df0d2ba](https://github.com/ArcReel/ArcReel/commit/df0d2ba0946ab64868cb3e5701924cd2a66c2ce4))
+* **lib:** 产物激活与内容摘要按职责收敛，消除视频入队与生成任务的重复实现 ([#1937](https://github.com/ArcReel/ArcReel/issues/1937)) ([4d8e86d](https://github.com/ArcReel/ArcReel/commit/4d8e86d6bedf17f7d2799bf15703fb4f33709aab))
+* **lib:** 脚本条目访问收口为骨架模块唯一入口 ([#1950](https://github.com/ArcReel/ArcReel/issues/1950)) ([50485cc](https://github.com/ArcReel/ArcReel/commit/50485cca9ef13a492de15745f257a9246e4a8afa))
+* **reference-video:** 视频单元只留正文与时长，参考图按正文提及顺序在生成时解析 ([#1956](https://github.com/ArcReel/ArcReel/issues/1956)) ([cfe3117](https://github.com/ArcReel/ArcReel/commit/cfe3117a94aa19870dc118d6cbc3e288c2ad4f0a))
+* **studio:** 每集内容规模按生成路线显示分镜数或视频单元数 ([#1954](https://github.com/ArcReel/ArcReel/issues/1954)) ([93908b5](https://github.com/ArcReel/ArcReel/commit/93908b53270beb7fb872302b7b1d2c46a4368d7a))
+* **tasks:** 任务记录的供应商协议标识与请求域名分列存放 ([#1951](https://github.com/ArcReel/ArcReel/issues/1951)) ([e760918](https://github.com/ArcReel/ArcReel/commit/e76091873a2871e122aae153535f58775807af38))
+* **test:** 重试与轮询时钟改显式注入 seam，with_retry_async 留兼容壳（[#1994](https://github.com/ArcReel/ArcReel/issues/1994)） ([d81d9f3](https://github.com/ArcReel/ArcReel/commit/d81d9f3ae5ac08e34de7fd57e4cfa6fce9d97a60))
+* **视频:** 收编各供应商素材 data URI 编码为共享实现 ([#1799](https://github.com/ArcReel/ArcReel/issues/1799)) ([de1129b](https://github.com/ArcReel/ArcReel/commit/de1129bbba82dae587a815d740cbe42e53d14c8e))
+* 能力解析器 / HTTP 探测客户端 / 文件系统与子进程注入改形（[#1995](https://github.com/ArcReel/ArcReel/issues/1995)） ([8b85541](https://github.com/ArcReel/ArcReel/commit/8b85541165a1e6a54cf9a754519d59099a50969a))
+
+
+### 📚 文档
+
+* **adr:** ADR 0034 压缩策略从「实现时评估」改记已决——商品原图保留原件字节 ([#2011](https://github.com/ArcReel/ArcReel/issues/2011)) ([56eec0c](https://github.com/ArcReel/ArcReel/commit/56eec0c4f9b1510318332cf90c95047cc25b7ed5))
+* **adr:** ADR 0062 补记归档兼容分支、阻断入口声明、激活语义、锁策略与门面契约 ([#2007](https://github.com/ArcReel/ArcReel/issues/2007)) ([e62fee5](https://github.com/ArcReel/ArcReel/commit/e62fee5ad3e84d15618059002487ac10a669bbee))
+* **adr:** 认证 ADR 改号 0059，解除 0053 编号重复 ([8924d88](https://github.com/ArcReel/ArcReel/commit/8924d88b49685435d4cd53950843e2fd06fc6283))
+* **agents:** AGENTS.md 按渐进披露精简，遗留工作流文档随之清理 ([#1957](https://github.com/ArcReel/ArcReel/issues/1957)) ([971fcc9](https://github.com/ArcReel/ArcReel/commit/971fcc9f1ed49bb244e802f80aa1f42546777069))
+* **api:** 文档站、/skill.md 与 OpenAPI 公开契约统一产品语言 ([#1958](https://github.com/ArcReel/ArcReel/issues/1958)) ([8006659](https://github.com/ArcReel/ArcReel/commit/800665931e27d4839a712f93e142b138270add64))
+* **context:** 执行身份词条补齐 endpoint 持久化的两类供应商分支 ([#1789](https://github.com/ArcReel/ArcReel/issues/1789)) ([a622a49](https://github.com/ArcReel/ArcReel/commit/a622a4932cb5301789bda292ace71b089041f4be))
+* **context:** 统一领域术语与 Agent / 子智能体命名 ([#1978](https://github.com/ArcReel/ArcReel/issues/1978)) ([a8c09c9](https://github.com/ArcReel/ArcReel/commit/a8c09c902ac2d6c0584ffa16d1016cb5083ec251))
+* **contributing:** defer 立项改经复盘确认，不再作为合并前置 ([b732dce](https://github.com/ArcReel/ArcReel/commit/b732dced15afa15cb27822bde1627e95a0ebdc01))
+* **contributing:** 测试规范一次成文——分层目录、替身边界、无意义判据、覆盖率与前端规则 ([#1986](https://github.com/ArcReel/ArcReel/issues/1986)) ([9773533](https://github.com/ArcReel/ArcReel/commit/9773533a4f7d0fefa0c2836acafae53b09281387))
+* **db:** MySQL 8 兼容性支持调研与基础框架 ([#1984](https://github.com/ArcReel/ArcReel/issues/1984)) ([2dc20e9](https://github.com/ArcReel/ArcReel/commit/2dc20e943461f2d03d5a7892526b52d435b19f39))
+* **domain:** 领域术语表回归只定义概念的短词条格式，并记录一次性迁移决策 ([#1949](https://github.com/ArcReel/ArcReel/issues/1949)) ([7db3a0b](https://github.com/ArcReel/ArcReel/commit/7db3a0b9fc6b732806d2c90a88c1076b40b66d41))
+* **integrations:** 用官方链接索引替代易漂移的 API 文档镜像 ([#1825](https://github.com/ArcReel/ArcReel/issues/1825)) ([bdfe3db](https://github.com/ArcReel/ArcReel/commit/bdfe3db4364b0720f83bfafcef6d4e150a22bf48))
+* **ops:** 补全数据库迁移与备份指引 ([#1872](https://github.com/ArcReel/ArcReel/issues/1872)) ([561a979](https://github.com/ArcReel/ArcReel/commit/561a9797572cf622a6c7ba5cfeaa5c7ba0cfe8bc))
+* **readme:** 精简项目首页并集中引导文档站 ([#1873](https://github.com/ArcReel/ArcReel/issues/1873)) ([ec0461f](https://github.com/ArcReel/ArcReel/commit/ec0461feb76ce908b1d28bee933548b9e438b832))
+* **site:** 优化中英文站点文案与本地化标题 ([#1870](https://github.com/ArcReel/ArcReel/issues/1870)) ([ae74f47](https://github.com/ArcReel/ArcReel/commit/ae74f473b576a6b89c9c0707b69a5fd06f930740))
+* **website:** 渲染文档站的流程图与架构图 ([#1871](https://github.com/ArcReel/ArcReel/issues/1871)) ([1c29195](https://github.com/ArcReel/ArcReel/commit/1c2919553683e45372689df63967da3895fca0c3))
+* workflows 纳入全量组，update_docs 档位改名 full/fact-check 并沉淀判据 ([#1987](https://github.com/ArcReel/ArcReel/issues/1987)) ([b114c10](https://github.com/ArcReel/ArcReel/commit/b114c101ccd959437e1cb01ef21c7c3ce371beca))
+* 删除失效的已知问题清单 ([4df7957](https://github.com/ArcReel/ArcReel/commit/4df7957a54d287ceb7ca6b0db5a161fcddd18fb8))
+* 提供完整英文文档与本地翻译工作流 ([#1861](https://github.com/ArcReel/ArcReel/issues/1861)) ([c82dd05](https://github.com/ArcReel/ArcReel/commit/c82dd053eb421af34ed09458aa92333911bc67ac))
+* 收编 [#2016](https://github.com/ArcReel/ArcReel/issues/2016)/[#2017](https://github.com/ArcReel/ArcReel/issues/2017)/[#2018](https://github.com/ArcReel/ArcReel/issues/2018)/[#2020](https://github.com/ArcReel/ArcReel/issues/2020) 遗漏的旧术语（[#2024](https://github.com/ArcReel/ArcReel/issues/2024)） ([#2028](https://github.com/ArcReel/ArcReel/issues/2028)) ([f8c1ffd](https://github.com/ArcReel/ArcReel/commit/f8c1ffd9c4db40ad8dd0121a851e52c12c86e413))
+* 明确剪映与 CapCut 是不同产品并把术语决策锚进翻译链路 ([#1885](https://github.com/ArcReel/ArcReel/issues/1885)) ([f2e3d13](https://github.com/ArcReel/ArcReel/commit/f2e3d13c610ae415a845710d959aef0229adbe2d))
+* 用户文档迁入官方文档站 ([#1860](https://github.com/ArcReel/ArcReel/issues/1860)) ([5d72109](https://github.com/ArcReel/ArcReel/commit/5d72109d9537c08a2dede813d575f091597b71a6))
+* 补齐 CONTRIBUTING 写作约定与文档站命令清单缺口 ([#1864](https://github.com/ArcReel/ArcReel/issues/1864)) ([f61e954](https://github.com/ArcReel/ArcReel/commit/f61e954ab1f10f8f046027474ad6d876c2743126))
+* 记录产物生命周期与现势判定决策，编排规格改以服务端计划为准 ([#1925](https://github.com/ArcReel/ArcReel/issues/1925)) ([9a5b3b6](https://github.com/ArcReel/ArcReel/commit/9a5b3b6064b112d607269eeb20d3562c37ca3094))
+
 ## [0.26.0](https://github.com/ArcReel/ArcReel/compare/v0.25.0...v0.26.0) (2026-08-11)
 
 
