@@ -34,6 +34,9 @@ class TestScenePromptAndPropPrompt:
         assert "祠堂" in prompt
         assert "昏暗古朴" in prompt
 
+    def test_empty_prop_guard_does_not_add_a_blank_paragraph(self):
+        assert "\n\n\n" not in build_prop_prompt("玉佩", "古朴温润")
+
 
 class TestFigureExclusion:
     """展示环境或物件的图种排除人物；画面主体本身是人物的图种不排除。"""
