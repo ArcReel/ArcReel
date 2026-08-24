@@ -11,7 +11,7 @@ import pytest
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
-    split_narration_segments_tool,
+    _generate_narration_step1_tool as split_narration_segments_tool,
 )
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
@@ -82,7 +82,7 @@ async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolC
 
 async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     """happy path：结构化分镜 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_project(fake_ctx)
     src = fake_ctx.project_path / "source"
@@ -116,7 +116,7 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
 ) -> None:
     from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.artifact_provenance import build_step1_basis
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project = {
         **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
@@ -170,7 +170,7 @@ async def test_split_narration_segments_registers_the_frozen_combined_source_bas
 
 async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
     """静态分镜 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 5)]
@@ -185,7 +185,7 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: T
 
 
 async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4), _nr_segment("E1S01", 6)]
@@ -201,7 +201,7 @@ async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: 
 
 async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
     """novel_text 为纯空白（如单个空格）满足 schema min_length=1 却无实际旁白内容，须被后校验拦截，不落盘。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4, "张三在村口等人"), _nr_segment("E1S02", 4, novel_text=" ")]
@@ -217,7 +217,7 @@ async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolC
 
 
 async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_source(fake_ctx)
     _use_fake_caps(fake_ctx)
@@ -231,7 +231,7 @@ async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolCon
 
 async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolContext, monkeypatch) -> None:
     """缺资产字段（characters_in_segment 等）由既有分镜 schema（NarrationStep1Segment strict）拦截。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_source(fake_ctx)
     bad = {"segment_id": "E1S01", "novel_text": "缺字段", "duration_seconds": 4, "segment_break": False}
@@ -249,7 +249,7 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """characters_in_segment / scenes / props 引用了 project.json 未登记的名称须被拦截，不落盘。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_source(fake_ctx)
     segments = [_nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["王五"])]
@@ -272,7 +272,7 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
     与 rv 侧 ``validate_unit_text`` 同一比对坐标系：两侧都归一到 ``asset_name_comparison_key``
     再判等，否则一个登记过的越南语角色名会被拦在拆分之外，且 Agent 从报告上看不出差别在哪。
     """
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_source(fake_ctx)
     nfc_name = unicodedata.normalize("NFC", "Hiếu")
@@ -290,7 +290,7 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
 
 
 async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: str, segments: list[dict]):
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     _nr_project(fake_ctx)
     src = fake_ctx.project_path / "source"

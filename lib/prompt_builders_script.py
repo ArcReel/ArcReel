@@ -537,7 +537,7 @@ def build_normalize_prompt(
 ) -> str:
     """Step-1 规范化 prompt：源文 → 结构化分镜内容（utterances + source_text + 视觉改编描述）。
 
-    由 ``normalize_drama_script`` MCP tool 消费。内容抽取前移（见 ADR 0041）：step1 一次定稿场景
+    由 ``generate_step1`` 的剧情变体消费。内容抽取前移（见 ADR 0041）：step1 一次定稿场景
     边界、出场资产、逐字口播、原文锚与视觉改编描述，step2 仅透传 + 补视觉。输出受 response_schema
     （``DramaNormalizedScript``）约束为结构化 JSON。
 
@@ -699,7 +699,7 @@ def build_narration_split_prompt(
 ) -> str:
     """Step-1 旁白/解说分镜拆分 prompt：源文 → 结构化分镜表（逐字 novel_text + 时长 + 资产登记）。
 
-    由 ``split_narration_segments`` MCP tool 消费。输出受 response_schema（``NarrationStep1Draft``）
+    由 ``generate_step1`` 的旁白变体消费。输出受 response_schema（``NarrationStep1Draft``）
     约束为结构化 JSON——``novel_text`` 逐字保留原文（配音与透传真相源），视觉层由后续 step2 按
     ``segment_id`` 对齐补齐。分镜时长的成员校验（∈ ``supported_durations``）由工具后校验兜底，因静态
     ``NarrationStep1Segment.duration_seconds`` 是 ``ge=1, le=60`` 开区间、不在 schema 层枚举硬约束

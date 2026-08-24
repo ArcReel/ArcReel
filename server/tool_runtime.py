@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -11,7 +11,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.config.resolver import ConfigResolver
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, is_reference_video_project
 from lib.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditLocation,
@@ -32,6 +32,20 @@ from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import WorkflowRequestError
 from server.services.video_caps import annotate_reference_unit_tiers
 from server.services.workflow_planner import WorkflowPlanner
+from server.text_generation import (
+    TextGenerationError,
+    TextGenerationRequest,
+    TextGenerationResult,
+    generate_drama_step1,
+    generate_narration_step1,
+    generate_reference_step1,
+)
+from server.text_generation import (
+    confirm_script_review as confirm_script_review_handler,
+)
+from server.text_generation import (
+    generate_episode_script as generate_episode_script_handler,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +127,86 @@ class PatchEpisodeScriptRequest(BaseModel):
     script: str = Field(min_length=1)
     base_revision: str = Field(pattern=r"^sha256-v1:[0-9a-f]{64}$")
     operations: list[PatchEpisodeScriptOperation] = Field(min_length=1)
+
+
+async def _run_text_generation(
+    operation: str,
+    call: Awaitable[TextGenerationResult],
+) -> ToolOutcome[TextGenerationResult]:
+    try:
+        return ToolOutcome(value=await call)
+    except TextGenerationError as exc:
+        return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"{operation} 失败: {exc}"))
+
+
+async def generate_episode_script(
+    request: ToolRequest[TextGenerationRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[TextGenerationResult]:
+    return await _run_text_generation(
+        "generate_episode_script",
+        generate_episode_script_handler(
+            request.value,
+            project_name=scope.project_name,
+            projects=services.projects,
+            config_resolver=services.capabilities,
+        ),
+    )
+
+
+async def generate_step1(
+    request: ToolRequest[TextGenerationRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[TextGenerationResult]:
+    try:
+        project = services.projects.load_project(scope.project_name)
+        content_mode = project.get("content_mode", "narration")
+        if content_mode == "ad":
+            raise TextGenerationError("广告/短片项目无 step1，请直接调用 generate_episode_script")
+        if is_reference_video_project(project):
+            handler = generate_reference_step1
+        elif content_mode == "narration":
+            handler = generate_narration_step1
+        elif content_mode == "drama":
+            handler = generate_drama_step1
+        else:
+            raise TextGenerationError(f"不支持的创作类型: {content_mode}")
+    except TextGenerationError as exc:
+        return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"generate_step1 失败: {exc}"))
+    return await _run_text_generation(
+        "generate_step1",
+        handler(
+            request.value,
+            project_name=scope.project_name,
+            projects=services.projects,
+            config_resolver=services.capabilities,
+        ),
+    )
+
+
+async def confirm_script_review(
+    request: ToolRequest[int],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[TextGenerationResult]:
+    return await _run_text_generation(
+        "confirm_script_review",
+        confirm_script_review_handler(
+            request.value,
+            project_name=scope.project_name,
+            projects=services.projects,
+            config_resolver=services.capabilities,
+        ),
+    )
 
 
 async def get_workflow_plan(
@@ -379,10 +473,16 @@ __all__ = [
     "PatchEpisodeScriptRequest",
     "ProjectScope",
     "Services",
+    "TextGenerationError",
+    "TextGenerationRequest",
+    "TextGenerationResult",
     "ToolOutcome",
     "ToolProblem",
     "ToolRequest",
     "get_video_capabilities",
     "get_workflow_plan",
     "patch_episode_script",
+    "confirm_script_review",
+    "generate_episode_script",
+    "generate_step1",
 ]

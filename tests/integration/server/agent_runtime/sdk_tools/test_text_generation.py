@@ -10,15 +10,17 @@ import pytest
 
 from lib import script_review
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from server import tool_runtime
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
-    _parse_normalized_content,
-    generate_episode_script_tool,
-    get_video_capabilities_tool,
-    normalize_drama_script_tool,
-    split_narration_segments_tool,
-    split_reference_video_units_tool,
+    _generate_drama_step1_tool as normalize_drama_script_tool,
 )
+from server.agent_runtime.sdk_tools.text_generation import (
+    generate_episode_script_tool,
+    generate_step1_tool,
+    get_video_capabilities_tool,
+)
+from server.text_generation import TextGenerationResult, _parse_normalized_content
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
     _fake_caps_resolver,
@@ -33,6 +35,47 @@ _NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
 # ---------------------------------------------------------------------------
 # text_generation
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("content_mode", "generation_mode", "expected"),
+    [
+        ("drama", "storyboard", "drama"),
+        ("narration", "storyboard", "narration"),
+        ("drama", "reference_video", "reference"),
+    ],
+)
+async def test_generate_step1_dispatches_by_project_axes(
+    fake_ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+    content_mode: str,
+    generation_mode: str,
+    expected: str,
+) -> None:
+    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
+        content_mode=content_mode,
+        generation_mode=generation_mode,
+    )
+
+    async def handler(*_args, **_kwargs):
+        return TextGenerationResult(expected)
+
+    monkeypatch.setattr(
+        tool_runtime,
+        {
+            "drama": "generate_drama_step1",
+            "narration": "generate_narration_step1",
+            "reference": "generate_reference_step1",
+        }[expected],
+        handler,
+    )
+
+    result = await _call(
+        generate_step1_tool(fake_ctx),
+        {"episode": 1},
+    )
+
+    assert json.loads(result["content"][0]["text"])["text_generation"]["message"] == expected
 
 
 async def test_get_video_capabilities_happy(fake_ctx: ToolContext) -> None:
@@ -117,7 +160,7 @@ async def test_get_video_capabilities_error(fake_ctx: ToolContext) -> None:
 
 
 async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project_path = fake_ctx.project_path
     drafts = project_path / "drafts" / "episode_1"
@@ -126,7 +169,7 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
     (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
 
     class _FakeGenerator:
-        def __init__(self, _path):
+        def __init__(self, _path, **_kwargs):
             pass
 
         async def build_prompt(self, _episode, *, instructions=None):
@@ -147,7 +190,7 @@ async def test_generate_episode_script_missing_step1(fake_ctx: ToolContext) -> N
 
 async def test_generate_episode_script_writes_to_default_project_scripts(fake_ctx: ToolContext, monkeypatch) -> None:
     """output 参数已下线；写出路径必须由 ScriptGenerator 内部决定，handler 不应让 Agent 控制。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project_path = fake_ctx.project_path
     drafts = project_path / "drafts" / "episode_1"
@@ -171,7 +214,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
 
     class _FakeGenerator:
         @classmethod
-        async def create(cls, _path):
+        async def create(cls, _path, **_kwargs):
             return cls()
 
         async def generate(self, **kwargs) -> Path:
@@ -189,7 +232,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
 
 async def test_generate_episode_script_ad_skips_step1(fake_ctx: ToolContext, monkeypatch) -> None:
     """ad 一键生成不依赖 step1 中间文件：缺 drafts/ 也不报 step1 错误。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project_path = fake_ctx.project_path
     (project_path / "project.json").write_text(
@@ -198,7 +241,7 @@ async def test_generate_episode_script_ad_skips_step1(fake_ctx: ToolContext, mon
 
     class _FakeGenerator:
         @classmethod
-        async def create(cls, _path):
+        async def create(cls, _path, **_kwargs):
             return cls()
 
         async def generate(self, **_kwargs) -> Path:
@@ -239,7 +282,7 @@ async def test_fetch_caps_with_fallback_uses_write_layer_default() -> None:
     """resolver 失败时软回退须与自定义供应商写入层的保守默认（duration_presets.DEFAULT_FALLBACK）
     同一真相源——独立维护第二套回退集会让 LLM 拿到供应商未必支持的时长。"""
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     resolver = _fake_caps_resolver(error=ValueError("no provider configured"))
     default, durations = await mod._fetch_caps_with_fallback({}, 1, config_resolver=resolver)
@@ -253,7 +296,7 @@ async def test_fetch_caps_with_fallback_drops_out_of_range_default() -> None:
     ``build_normalize_prompt`` 对非成员 default 是 fail-loud 的：用户在 720p 下存过 4 秒、
     改到 1080p 后 Veo 收窄为 [8]，不归 None 会让 normalize_drama_script 直接抛 ValueError。
     """
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     veo = {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview"}
     project_1080p = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
@@ -320,41 +363,6 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext) -> None:
     assert "DRY RUN" in out["content"][0]["text"]
 
 
-@pytest.mark.parametrize(
-    ("tool_factory", "content_mode", "generation_mode"),
-    [
-        (normalize_drama_script_tool, "narration", "storyboard"),
-        (split_narration_segments_tool, "drama", "storyboard"),
-        (split_reference_video_units_tool, "drama", "storyboard"),
-    ],
-    ids=("normalize", "narration-split", "reference-split"),
-)
-async def test_step1_tools_reject_incompatible_project_axes_before_capability_lookup(
-    fake_ctx: ToolContext,
-    tool_factory,
-    content_mode: str,
-    generation_mode: str,
-) -> None:
-    fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
-        content_mode=content_mode,
-        generation_mode=generation_mode,
-    )
-    source_dir = fake_ctx.project_path / "source"
-    source_dir.mkdir(parents=True)
-    (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
-
-    resolver = _use_fake_caps(fake_ctx)
-
-    result = await _call(tool_factory(fake_ctx), {"episode": 1, "dry_run": True})
-
-    assert result.get("is_error") is True
-    message = result["content"][0]["text"]
-    assert content_mode in message
-    assert generation_mode in message
-    # 轴不兼容在能力查询之前就判定：解析器一次都没被问过
-    assert resolver.capability_calls == []
-
-
 async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib import artifact_provenance
 
@@ -398,7 +406,7 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
 
 async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext, monkeypatch) -> None:
     """normalize 产出空 scenes → 工具报错，不把空 step1 当成功产物写盘（与 _load_drama_step1_content 同口径）。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project_path = fake_ctx.project_path
     src = project_path / "source"
@@ -471,7 +479,7 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
 async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: ToolContext, monkeypatch) -> None:
     """工具必须把 ctx.project_name 传给 TextGenerator.create/generate，
     否则项目级文本档位覆盖被跳过，且 usage tracking 会丢 project_name。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project_path = fake_ctx.project_path
     src = project_path / "source"
@@ -536,7 +544,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
 ) -> None:
     from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.artifact_provenance import build_step1_basis
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project = {
         **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
@@ -609,7 +617,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
 ) -> None:
     from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.artifact_provenance import build_step1_basis
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project = {
         **fake_ctx.pm.project_payload,  # type: ignore[attr-defined]
@@ -683,7 +691,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
 async def test_normalize_drama_script_marks_mixed_machine_candidate_before_review(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project_path = fake_ctx.project_path
     source_dir = project_path / "source"
@@ -797,7 +805,7 @@ async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext
 
 async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
     """handler 把 instructions 原样转交 ScriptGenerator（dry_run 与生成路径同口径）。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
+    from server import text_generation as mod
 
     project_path = fake_ctx.project_path
     drafts = project_path / "drafts" / "episode_1"
@@ -818,11 +826,11 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
     captured: dict[str, Any] = {}
 
     class _FakeGenerator:
-        def __init__(self, _path):
+        def __init__(self, _path, **_kwargs):
             pass
 
         @classmethod
-        async def create(cls, _path):
+        async def create(cls, _path, **_kwargs):
             return cls(_path)
 
         async def build_prompt(self, _episode, *, instructions=None):

@@ -125,7 +125,7 @@ async def test_open_step1_for_edit_without_official_file(fake_ctx: ToolContext) 
     out = await _open_for_edit(fake_ctx)
 
     assert out.get("is_error") is True
-    assert "split_reference_video_units" in out["content"][0]["text"]
+    assert "generate_step1" in out["content"][0]["text"]
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 

@@ -734,7 +734,7 @@ def _get_step_files(content_mode: str, generation_mode: str | None = None) -> di
     ad 不走结构化 step1（与 _resolve_step1_path / script_review.step1_path 同口径显式
     排除），即便带 reference_video generation_mode 也无 step1，故先于 generation_mode 判断返回空
     映射，调用方据此给出「无此步骤」而非误落 drama / reference 文件名。reference_video 走
-    split_reference_video_units 工具 → step1_reference_units.json；其他模式回落到 content_mode
+    generate_step1 工具 → step1_reference_units.json；其他模式回落到 content_mode
     的结构化 step1 文件名（未知 content_mode 兜底 drama）。结构化文件名取自单一真相源
     STEP1_FILENAMES，新增 content_mode 自动覆盖。
     """

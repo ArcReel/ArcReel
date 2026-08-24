@@ -84,7 +84,7 @@ def build_reference_units_split_prompt(
 ) -> str:
     """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 原文锚 + 引用语法正文）。
 
-    由 ``split_reference_video_units`` MCP tool 消费。step1 定的是**结构与内容契约**——
+    由 ``generate_step1`` 的参考生视频变体消费。step1 定的是**结构与内容契约**——
     unit 边界、时长（即计费单位）、台词落位、核心资产指认；视觉展开（景别 / 构图 / 运镜）
     留给 step2。产出受 response_schema（``build_reference_units_step1_model``，unit 时长
     枚举硬约束）约束；unit_id / utterances 全部机器派生，不进 LLM 输出。

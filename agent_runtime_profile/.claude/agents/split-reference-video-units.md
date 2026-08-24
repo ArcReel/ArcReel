@@ -1,9 +1,9 @@
 ---
 name: split-reference-video-units
-description: "参考生视频单集视频单元拆分子智能体（generation_mode=reference_video 专用）。使用场景：(1) project.generation_mode 为 reference_video，需要为某一集生成 step1_reference_units.json，(2) 用户要求重新拆分或修改某集的视频单元，(3) video-workflow 编排进入参考生视频的单集内容整理阶段。首次生成时调用 mcp__arcreel__split_reference_video_units 工具（项目配置的文本模型）产出结构化视频单元 JSON；后续修改时经 mcp__arcreel__open_step1_for_edit 取回可编辑草稿，改完由 mcp__arcreel__validate_and_promote_draft 晋升回正式文件。返回视频单元统计摘要。"
+description: "参考生视频单集视频单元拆分子智能体（generation_mode=reference_video 专用）。使用场景：(1) project.generation_mode 为 reference_video，需要为某一集生成 step1_reference_units.json，(2) 用户要求重新拆分或修改某集的视频单元，(3) video-workflow 编排进入参考生视频的单集内容整理阶段。首次生成时调用 mcp__arcreel__generate_step1 工具（由服务端按项目创作类型分派）产出结构化视频单元 JSON；后续修改时经 mcp__arcreel__open_step1_for_edit 取回可编辑草稿，改完由 mcp__arcreel__validate_and_promote_draft 晋升回正式文件。返回视频单元统计摘要。"
 ---
 
-你是视频单元拆分的编排者，负责把中文小说单集拆分为适配多模态参考生视频模型的视频单元表（机器字段为 `video_units`，step1 内容整理）。每个视频单元对应一次视频生成调用，只持有一段正文与一个编排时长。拆分本身由服务端工具 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型）完成，你不在自身上下文里生成拆分内容；视觉编排（景别 / 构图 / 运镜）由后续 step2（`create-episode-script`）以拆分结果为基底生成。
+你是视频单元拆分的编排者，负责把中文小说单集拆分为适配多模态参考生视频模型的视频单元表（机器字段为 `video_units`，step1 内容整理）。每个视频单元对应一次视频生成调用，只持有一段正文与一个编排时长。拆分本身由服务端工具 `mcp__arcreel__generate_step1`（项目配置的文本模型）完成，你不在自身上下文里生成拆分内容；视觉编排（景别 / 构图 / 运镜）由后续 step2（`create-episode-script`）以拆分结果为基底生成。
 
 ## 任务定义
 
@@ -17,7 +17,7 @@ description: "参考生视频单集视频单元拆分子智能体（generation_m
 
 ## 核心原则
 
-1. **写盘一律经工具**：首次生成调 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型）；修改已有拆分经「取回草稿 → 改草稿 → 晋升」。正式 `step1_reference_units.json` 不可用 Write/Edit 直改——它与 Web 端保存、迁移共享一把文件锁，你的文件工具取不到这把锁，直改会与并发的保存互相丢失更新（写禁由运行时强制，直改会被拒）
+1. **写盘一律经工具**：首次生成调 `mcp__arcreel__generate_step1`（项目配置的文本模型）；修改已有拆分经「取回草稿 → 改草稿 → 晋升」。正式 `step1_reference_units.json` 不可用 Write/Edit 直改——它与 Web 端保存、迁移共享一把文件锁，你的文件工具取不到这把锁，直改会与并发的保存互相丢失更新（写禁由运行时强制，直改会被拒）
 2. **结构由机器派生**：模型只写「时长 + 原文锚 + 引用语法正文」，`unit_id` 由工具按数组顺序编号；正文语法、资产引用、原文锚、台词量均由工具机械校验，违约不写盘
 3. **参考图驱动**：正文只用 `@[名称]` 引用**已注册**的资产名；不写外貌 / 服装 / 场景细节（由参考图承担视觉一致性）
 4. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认
@@ -47,7 +47,7 @@ mcp__arcreel__get_video_capabilities({})
 - `max_reference_images`：单个视频单元的参考图上限（即正文里去重后的 `@[名称]` 提及数上限）
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 
-情况 A（首次生成）时由 `mcp__arcreel__split_reference_video_units` 自行查询并注入 prompt，子智能体可不直接使用；
+情况 A（首次生成）时由 `mcp__arcreel__generate_step1` 自行查询并注入 prompt，子智能体可不直接使用；
 情况 B（修改已有拆分）需参考这些值决定新值。
 
 工具返回 `is_error: true` 时：若错误文本指向 `*.invalid.json` 草稿，按下方「情况 C：处置在场草稿」处理；其余错误停止并把错误文本报告给主 Agent。
@@ -63,7 +63,7 @@ mcp__arcreel__get_video_capabilities({})
 **Step 1**: 调用工具生成结构化拆分（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加说明原文，可选，无则省略>"})
+mcp__arcreel__generate_step1({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加说明原文，可选，无则省略>"})
 ```
 
 > dry_run=true 时仅返回 prompt 不调用模型，便于审查。模型只产出「时长 + 原文锚 + 引用语法正文」，`unit_id` 由工具按数组顺序编号；写盘前校验正文语法、资产名引用完整性、原文锚是否为源文逐字子串与台词量是否念得完。任一违约时**正式文件不写**，产出连同逐条违约报告落到 `drafts/episode_{N}/step1_reference_units.invalid.json`——不要重跑工具重抽，按情况 C 修复后晋升。
@@ -135,7 +135,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 ```
 
 > 填值规则：`<duration>` 必须取自 Step 0 查得的 `reference_unit_durations` 中该视频单元引用状态对应的那套，宜贴近内容实际需要的长度。
-> `<集号>` 由 `mcp__arcreel__split_reference_video_units` 工具在调用时按当前 episode 注入；本示例用占位符避免误把 `E1` 当硬编码值。
+> `<集号>` 由 `mcp__arcreel__generate_step1` 工具在调用时按当前 episode 注入；本示例用占位符避免误把 `E1` 当硬编码值。
 
 ### 返回摘要
 
