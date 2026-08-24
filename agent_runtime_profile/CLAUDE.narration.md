@@ -15,7 +15,7 @@
   - 两者的真值均由子任务运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 step1 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
-- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个片段/场景独立生成、以 Storyboard 图片作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；reference_video 模式按 video_unit 直出，不生成传统 Storyboard 图片，但拆分时每个 unit 必须定义 1–5 个 `keyframe_plan`，确认后生成正式 Keyframes 与首图并作为 `reference_images`
+- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个片段/场景独立生成、以 Storyboard 图片作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；reference_video 模式按 video_unit 直出，但每个 unit 必须定义 1–5 个 `keyframe_plan`，先自动生成 **Video Unit Storyboard Sheet**，用户确认当前 Sheet 后才生成正式 Keyframes；该 Sheet 与 Keyframes 都作为 `reference_images`
 
 > **关于 extend 功能**：Veo 3.1 extend 功能仅用于延长单个片段/场景，
 > 每次固定 +7 秒，不适合用于串联不同镜头。不同片段/场景之间使用 ffmpeg 拼接。
@@ -69,7 +69,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
 | `storyboard` | 分镜图生视频 / 多宫格分镜生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧；`grid_storyboard=true` 时改用宫格图切块 |
-| `reference_video` | 参考生视频 | `video_units[]` | 角色/场景/道具 sheet 图作为参考 |
+| `reference_video` | 参考生视频 | `video_units[]` | 用户确认的 Video Unit Storyboard Sheet + 关键场景 Keyframes + 角色/场景/道具 sheet 图作为参考 |
 
 宫格不是独立生成模式：`grid_storyboard` 是仅在 `generation_mode="storyboard"` 下生效的独立布尔开关，切换宫格 UI 在设置页操作，agent 无法经工具绕过。
 
@@ -150,7 +150,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 分集规划的常驻偏好（如按章节对齐切分）不持久化，须经 `plan_episodes` 的 `instructions` 在**每一批
   调用上重复带上**；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
 - 预处理中间文件被修改 / 重拆后必须重新生成剧本 JSON，剧本不会自动跟随中间文件更新
-- `reference_video` **只跳过传统 Storyboard 图片**，不跳过 Video Unit 的 `keyframe_plan`、正式 Keyframes 或 audio：拆分时每个 unit 至少规划一个关键场景首帧，确认后自动生成 Keyframe 图片；旁白交付选择在两种生成模式下都要逐次做
+- `reference_video` 的固定视觉流程是：拆分时每个 unit 至少规划一个关键场景首帧，剧本落盘后自动生成 Video Unit Storyboard Sheet；只有用户确认当前 Sheet，系统才自动生成 Keyframe 图片。重生、编辑或恢复该 Sheet 后必须重新确认；旁白交付选择在两种生成模式下都要逐次做
 - 批量旁白配音由用户显式要求触发，不由 `next_action` 驱动
 
 工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，支持中断后恢复。
@@ -160,7 +160,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ## 关键原则
 
-- **角色一致性**：storyboard 模式每个片段都使用分镜图作为起始帧；reference_video 模式改由 unit 引用的角色 sheet 图承担同一职责，两者都确保角色形象一致
+- **角色一致性**：storyboard 模式每个片段都使用分镜图作为起始帧；reference_video 模式由已确认的 Video Unit Storyboard Sheet、关键帧和 unit 引用的角色 sheet 图共同约束，两者都确保角色形象一致
 - **场景/道具一致性**：标志性环境和关键道具通过 `scenes` / `props` 机制固化，确保跨场景视觉一致
 - **分镜连贯性**：使用 segment_break 标记场景切换点，后期可添加转场效果
 - **质量控制**：每个场景生成后检查质量，可单独重新生成不满意的场景

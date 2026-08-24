@@ -1,8 +1,8 @@
 """RunwareImageBackend — Runware 聚合推理平台图像生成后端（imageInference 原生协议）。
 
 走 Runware 的单一端点 `POST https://api.runware.ai/v1`，请求体为 JSON 数组（每元素一个
-task）。T2I 直接 model + positivePrompt + width/height；I2I 先把参考图 mediaStorage 上传
-得 mediaUUID，再以 seedImage + strength 下发。同步返回 data[].imageURL，无需轮询。
+task）。T2I 直接 model + positivePrompt + width/height；I2I 先把全部参考图上传到 mediaStorage，
+再按原顺序放入 inputs.referenceImages。同步返回 data[].imageURL，无需轮询。
 """
 
 from __future__ import annotations
@@ -57,11 +57,8 @@ _GPT_IMAGE_ROUND_TO = 16
 _GPT_IMAGE_MAX_TOTAL_PIXELS = 8294400
 _DEFAULT_SHORT = 1440
 
-# I2I 转换强度（官方示例 0.9 = 强转换，保留基本构图）。
-_I2I_STRENGTH = 0.9
-
 # 仅允许进日志的标量字段白名单；prompt 仅记长度。
-_SAFE_LOG_KEYS = ("model", "width", "height", "numberResults", "strength")
+_SAFE_LOG_KEYS = ("model", "width", "height", "numberResults")
 
 
 def _extract_first_image_url(payload: dict) -> str | None:
@@ -129,11 +126,15 @@ class RunwareImageBackend:
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         width, height = self._resolve_dimensions(request)
 
-        seed_image_uuid: str | None = None
+        reference_image_uuids: list[str] = []
         if request.reference_images:
-            seed_image_uuid = await self._upload_reference_image(request.reference_images[0])
+            reference_image_uuids = list(
+                await asyncio.gather(
+                    *(self._upload_reference_image(reference) for reference in request.reference_images)
+                )
+            )
 
-        data = await self._submit(request.prompt, width, height, seed_image_uuid, request.seed)
+        data = await self._submit(request.prompt, width, height, reference_image_uuids, request.seed)
         image_uri = await self._persist_image(data, request.output_path)
         logger.info("Runware 图片生成完成: %s", request.output_path)
 
@@ -151,7 +152,7 @@ class RunwareImageBackend:
         prompt: str,
         width: int,
         height: int,
-        seed_image_uuid: str | None,
+        reference_image_uuids: list[str],
         seed: int | None,
     ) -> dict:
         """imageInference POST（非幂等「建图 + 计费」），返回解析后的响应体。
@@ -168,9 +169,8 @@ class RunwareImageBackend:
             "height": height,
             "numberResults": 1,
         }
-        if seed_image_uuid:
-            task["seedImage"] = seed_image_uuid
-            task["strength"] = _I2I_STRENGTH
+        if reference_image_uuids:
+            task["inputs"] = {"referenceImages": reference_image_uuids}
         if seed is not None:
             task["seed"] = seed
 
@@ -189,7 +189,7 @@ class RunwareImageBackend:
             return resp.json()
 
     async def _upload_reference_image(self, ref) -> str:
-        """把本地参考图 mediaStorage 上传，返回 mediaUUID（I2I 的 seedImage 输入）。"""
+        """把本地参考图 mediaStorage 上传，返回 ``inputs.referenceImages`` 的 mediaUUID。"""
         path = Path(ref.path) if getattr(ref, "path", None) else None
         if path is None or not path.is_file():
             raise ImageCapabilityError(

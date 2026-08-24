@@ -46,6 +46,7 @@ def _rv_step1() -> dict:
                 "unit_id": "E1U01",
                 "text": "@[阿离] 立于屋檐下。",
                 "duration_seconds": 4,
+                "keyframe_plan": ["全景平视，阿离立于屋檐下的场景建立帧"],
             }
         ],
     }
@@ -238,7 +239,14 @@ class TestReferenceVideoRouter:
 
         monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher(max_duration=8))
 
-        flat_units = [{"duration_seconds": 4, "source_text": novel, "text": "镜头1：门开了\n@[阿离]：｛我来了。｝"}]
+        flat_units = [
+            {
+                "duration_seconds": 4,
+                "source_text": novel,
+                "text": "镜头1：门开了\n@[阿离]：｛我来了。｝",
+                "keyframe_plan": ["门刚开始打开的稳定画面"],
+            }
+        ]
         write_quarantine(
             project_path,
             1,
@@ -305,7 +313,16 @@ class TestReferenceVideoRouter:
             pm.get_project_path("demo"),
             1,
             QUARANTINE_KIND_STEP1,
-            content={"units": [{"duration_seconds": 4, "source_text": "原文", "text": "镜头1：门开了"}]},
+            content={
+                "units": [
+                    {
+                        "duration_seconds": 4,
+                        "source_text": "原文",
+                        "text": "镜头1：门开了",
+                        "keyframe_plan": ["门刚开始打开的稳定画面"],
+                    }
+                ]
+            },
             violations=[DraftViolation("stale", code="fullwidth_braces", label="unit E1U01", line=1)],
             meta={},
         )
@@ -381,7 +398,16 @@ class TestReferenceVideoRouter:
             project_path,
             1,
             QUARANTINE_KIND_STEP1,
-            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            content={
+                "units": [
+                    {
+                        "duration_seconds": 4,
+                        "source_text": "x",
+                        "text": "镜头1：门开了",
+                        "keyframe_plan": ["门刚开始打开的稳定画面"],
+                    }
+                ]
+            },
             violations=[],
         )
 
@@ -485,7 +511,16 @@ class TestReferenceVideoRouter:
             project_path,
             1,
             QUARANTINE_KIND_STEP1,
-            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            content={
+                "units": [
+                    {
+                        "duration_seconds": 4,
+                        "source_text": "x",
+                        "text": "镜头1：门开了",
+                        "keyframe_plan": ["门刚开始打开的稳定画面"],
+                    }
+                ]
+            },
             violations=[],
             meta={"source": 12345},
         )
@@ -510,7 +545,16 @@ class TestReferenceVideoRouter:
             project_path,
             1,
             QUARANTINE_KIND_STEP1,
-            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            content={
+                "units": [
+                    {
+                        "duration_seconds": 4,
+                        "source_text": "x",
+                        "text": "镜头1：门开了",
+                        "keyframe_plan": ["门刚开始打开的稳定画面"],
+                    }
+                ]
+            },
             violations=[],
             meta={"source": "source"},
         )
@@ -538,7 +582,16 @@ class TestReferenceVideoRouter:
             project_path,
             1,
             QUARANTINE_KIND_STEP1,
-            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了，音量 {}"}]},
+            content={
+                "units": [
+                    {
+                        "duration_seconds": 4,
+                        "source_text": "x",
+                        "text": "镜头1：门开了，音量 {}",
+                        "keyframe_plan": ["门刚开始打开的稳定画面"],
+                    }
+                ]
+            },
             violations=[DraftViolation("坏", code="braces_in_description", label="unit E1U01")],
             meta={"source": "source/episode_1.txt"},
         )

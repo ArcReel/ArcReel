@@ -53,6 +53,7 @@ import type {
   AnthropicDiscoverResponse,
   CostEstimateResponse,
   ReferenceVideoUnit,
+  ReferenceStoryboardSheet,
   TransitionType,
   AdShot,
   ReferenceDurationPrecheck,
@@ -2114,7 +2115,14 @@ class API {
   static async editImage(
     projectName: string,
     params: {
-      resourceType: "character" | "scene" | "prop" | "product" | "storyboard" | "reference_keyframe";
+      resourceType:
+        | "character"
+        | "scene"
+        | "prop"
+        | "product"
+        | "storyboard"
+        | "reference_keyframe"
+        | "reference_storyboard_sheet";
       resourceId: string;
       instruction: string;
       scriptFile?: string | null;
@@ -3310,6 +3318,37 @@ class API {
           image_model: selection.imageModel,
         }),
       },
+    );
+  }
+
+  static async generateReferenceStoryboardSheet(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    selection: ImageModelSelection = {},
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/storyboard-sheet/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ image_provider: selection.imageProvider, image_model: selection.imageModel }),
+      },
+    );
+  }
+
+  static async confirmReferenceStoryboardSheet(
+    projectName: string,
+    episode: number,
+    unitId: string,
+  ): Promise<{
+    success: boolean;
+    storyboard_sheet: ReferenceStoryboardSheet;
+    task_ids: string[];
+    message: string;
+  }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/storyboard-sheet/confirm`,
+      { method: "POST" },
     );
   }
 

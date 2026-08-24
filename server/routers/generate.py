@@ -848,7 +848,10 @@ async def edit_image(
     if not instruction:
         raise BadRequestError("image_edit_instruction_required")
     is_storyboard = req.resource_type == "storyboard"
-    is_script_owned = is_storyboard or req.resource_type == "reference_keyframe"
+    is_script_owned = is_storyboard or req.resource_type in {
+        "reference_keyframe",
+        "reference_storyboard_sheet",
+    }
     script_file = req.script_file.strip() if req.script_file else None
     if is_script_owned and not script_file:
         raise BadRequestError("image_edit_script_file_required")
@@ -876,6 +879,8 @@ async def edit_image(
                 raise NotFoundError("segment_not_found", id=req.resource_id)
             if req.resource_type == "reference_keyframe":
                 raise NotFoundError("reference_keyframe_not_found", id=req.resource_id)
+            if req.resource_type == "reference_storyboard_sheet":
+                raise NotFoundError("ref_unit_not_found", unit_id=req.resource_id)
             raise NotFoundError(_ASSET_GENERATE_I18N[req.resource_type]["not_found"], name=req.resource_id)
         if source is None:
             raise BadRequestError("image_edit_no_current_image", id=req.resource_id)

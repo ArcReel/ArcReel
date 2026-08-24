@@ -803,7 +803,9 @@ class ReferenceResource(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    type: Literal["product", "character", "scene", "prop", "keyframe"] = Field(description="引用的资源类型")
+    type: Literal["product", "character", "scene", "prop", "keyframe", "storyboard_sheet"] = Field(
+        description="引用的资源类型"
+    )
     name: str = Field(description="产品/角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
 
 
@@ -817,12 +819,25 @@ class ReferenceKeyframe(BaseModel):
     image_path: SkipJsonSchema[str | None] = Field(default=None, description="当前首帧图片的项目内相对路径")
 
 
+class ReferenceStoryboardSheet(BaseModel):
+    """一个 video unit 的 Video Unit Storyboard Sheet 及人工确认状态。"""
+
+    model_config = _STRICT_CONFIG
+
+    image_path: str = Field(min_length=1, description="Storyboard Sheet 的项目内相对路径")
+    status: Literal["pending_review", "confirmed"] = Field(
+        default="pending_review", description="当前版本是否已经用户确认"
+    )
+    confirmed_at: SkipJsonSchema[str | None] = Field(default=None, description="用户确认时间（ISO8601 UTC）")
+
+
 class ReferenceVideoUnit(BaseModel):
     """参考视频单元——一个视频文件的最小生成粒度。
 
-    ``text`` 是这个单元的唯一持久化内容真相：一段自由书写的正文，参考图与发声归属都从它
-    读时或执行期派生，不另存结构（见 ADR 0064）。unit 是一次生成调用的单元，一个 unit 一个
-    编排时长：``duration_seconds`` 是剧本时长的唯一真相，执行前预检再把它投影到供应商申请档位。
+    ``text`` 是这个单元普通资产引用与发声归属的唯一持久化内容真相；已确认的
+    ``storyboard_sheet`` 是关键帧与 H3 的强制整体视觉参考，不属于正文里的普通资产引用。
+    unit 是一次生成调用的单元，一个 unit 一个编排时长：``duration_seconds`` 是剧本时长的唯一
+    真相，执行前预检再把它投影到供应商申请档位。
     """
 
     model_config = _STRICT_CONFIG
@@ -841,6 +856,10 @@ class ReferenceVideoUnit(BaseModel):
         default_factory=list,
         max_length=5,
         description="该 unit 的关键分镜首帧；正文中的 @[关键分镜 ID] 是其位置引用",
+    )
+    storyboard_sheet: SkipJsonSchema[ReferenceStoryboardSheet | None] = Field(
+        default=None,
+        description="关键分镜生成前必须生成并确认的整段 Storyboard Sheet",
     )
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
@@ -1019,6 +1038,11 @@ class AdReferenceFlatUnit(BaseModel):
         description="该单元的编排时长（秒），不按供应商档位量化",
     )
     text: str = Field(min_length=1, description="书写层正文：画面描述 + 行内的台词 / 画外音记号")
+    keyframes: list[ReferenceStep2Keyframe] = Field(
+        min_length=1,
+        max_length=5,
+        description="与正文 [[关键分镜N]] 标记一一对应、按场景发生顺序排列的关键首帧",
+    )
 
 
 class AdReferenceFlatScript(BaseModel):

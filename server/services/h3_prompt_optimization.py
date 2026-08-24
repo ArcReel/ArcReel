@@ -306,7 +306,12 @@ class H3PromptOptimizationService:
 
         image_refs = tuple(
             H3PromptReference(
-                label=f"Picture {index}",
+                label=(
+                    f"Picture {index} — {entry.reference.name} 的 Video Unit Storyboard Sheet；"
+                    "表示整个 Video Unit 的镜头顺序与场景变化，不是单一目标帧"
+                    if entry.reference.type == "storyboard_sheet"
+                    else f"Picture {index}"
+                ),
                 kind=entry.reference.type,
                 name=entry.reference.name,
                 path=_relative_path(entry.path, project_path),
@@ -394,6 +399,19 @@ class H3PromptOptimizationService:
         narration_delivery: NarrationDelivery,
         confirmed_duration: int | None,
     ) -> H3PromptContext:
+        from server.services.reference_storyboard_sheet_tasks import (
+            StoryboardSheetGateError,
+            require_confirmed_storyboard_sheet,
+            require_generated_keyframes,
+            require_keyframe_plan,
+        )
+
+        try:
+            require_keyframe_plan(unit)
+            require_confirmed_storyboard_sheet(unit)
+            require_generated_keyframes(unit)
+        except StoryboardSheetGateError as exc:
+            raise H3PromptOptimizationError(exc.code) from exc
         options = ReferenceRequestOptions(
             narration_delivery=narration_delivery,
             confirmed_request_duration_seconds=confirmed_duration,

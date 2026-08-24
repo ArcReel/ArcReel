@@ -22,6 +22,7 @@ import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { H3PromptPanel } from "./H3PromptPanel";
 import { KeyframePreviewPanel } from "./KeyframePreviewPanel";
+import { StoryboardSheetPanel } from "./StoryboardSheetPanel";
 import { HyperframesStudioTab } from "./HyperframesStudioTab";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
@@ -758,7 +759,9 @@ export function ReferenceVideoCanvas({
   const isDirty = !!(selected && dirtyMap[selected.unit_id]);
 
   // 编辑器列内的内容视图：H3 提示词与当前 unit 绑定，不再占用工作台主 tab。
-  const [editorView, setEditorView] = useState<"script" | "keyframes" | "parse" | "h3">("script");
+  const [editorView, setEditorView] = useState<
+    "script" | "storyboard" | "keyframes" | "parse" | "h3"
+  >("script");
   const [h3PromptState, setH3PromptState] = useState<H3PromptState | null>(null);
   const [h3PromptLoading, setH3PromptLoading] = useState(false);
   const [h3PromptError, setH3PromptError] = useState<string | null>(null);
@@ -872,8 +875,13 @@ export function ReferenceVideoCanvas({
   ]);
   const h3Applicable =
     currentH3PromptState !== null && currentH3PromptState.state !== "not_applicable";
-  const editorViews = useMemo<readonly ("script" | "keyframes" | "parse" | "h3")[]>(
-    () => (h3Applicable ? ["script", "keyframes", "parse", "h3"] : ["script", "keyframes", "parse"]),
+  const editorViews = useMemo<
+    readonly ("script" | "storyboard" | "keyframes" | "parse" | "h3")[]
+  >(
+    () =>
+      h3Applicable
+        ? ["script", "storyboard", "keyframes", "parse", "h3"]
+        : ["script", "storyboard", "keyframes", "parse"],
     [h3Applicable],
   );
   const activeEditorView = editorViews.includes(editorView) ? editorView : "script";
@@ -1464,6 +1472,8 @@ export function ReferenceVideoCanvas({
                             >
                               {view === "script"
                                 ? t("reference_editor_view_script")
+                                : view === "storyboard"
+                                  ? t("reference_editor_view_storyboard")
                                 : view === "keyframes"
                                   ? t("reference_editor_view_keyframes")
                                 : view === "parse"
@@ -1486,6 +1496,21 @@ export function ReferenceVideoCanvas({
                               episode={episode}
                               value={currentText}
                               onChange={handlePromptChange}
+                            />
+                          </div>
+                        ) : activeEditorView === "storyboard" ? (
+                          <div
+                            id="reference-editor-view-panel-storyboard"
+                            role="tabpanel"
+                            aria-labelledby="reference-editor-view-tab-storyboard"
+                            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                          >
+                            <StoryboardSheetPanel
+                              projectName={projectName}
+                              episode={episode}
+                              unit={selected}
+                              scriptFile={scriptFile}
+                              onChanged={() => loadUnits(projectName, episode)}
                             />
                           </div>
                         ) : activeEditorView === "keyframes" ? (
@@ -1546,7 +1571,7 @@ export function ReferenceVideoCanvas({
                           </div>
                         )}
                         {/* Editor bottom bar */}
-                        {activeEditorView !== "h3" && activeEditorView !== "keyframes" && <div className="flex flex-shrink-0 items-center gap-2 border-t border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] px-3.5 py-2">
+                        {activeEditorView !== "h3" && activeEditorView !== "keyframes" && activeEditorView !== "storyboard" && <div className="flex flex-shrink-0 items-center gap-2 border-t border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] px-3.5 py-2">
                           <span
                             className={`inline-flex items-center gap-1.5 text-[11px] ${
                               isDirty ? "text-amber-300" : "text-[var(--color-text-4)]"

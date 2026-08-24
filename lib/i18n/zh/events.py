@@ -8,6 +8,7 @@ MESSAGES = {
     "event_label_grid": "多宫格分镜「{id}」",
     "event_label_grid_split": "多宫格分镜「{id}」切分",
     "event_label_reference_keyframe": "关键分镜「{id}」",
+    "event_label_reference_storyboard_sheet": "Video Unit Storyboard Sheet「{id}」",
     "event_label_voice_sample": "「{id}」试听样本",
     "event_label_asset_image_character": "角色「{id}」资产图",
     "event_label_asset_image_scene": "场景「{id}」资产图",

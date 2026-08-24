@@ -404,9 +404,9 @@ def _candidate_path(project_path: Path, value: object) -> Path | None:
 def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceResource, ...]:
     """视频单元正文 → 本次生成的逻辑参考图引用，按首次提及顺序。
 
-    正文是唯一真相：引用不落盘，读侧一律经本函数派生，商品与其它资产走同一条规则、
-    没有类型优先级（见 ADR 0064）。未登记的名字不产生引用——它只在渲染与预览侧发一条
-    非阻断 warning，不挡住这次生成。
+    已确认的 Video Unit Storyboard Sheet 是强制的 Picture 1；其余引用仍以正文为唯一真相，
+    读侧一律经本函数派生，商品与其它资产走同一条规则、没有类型优先级（见 ADR 0064）。
+    未登记的名字不产生引用——它只在渲染与预览侧发一条非阻断 warning，不挡住这次生成。
     """
 
     raw_text = unit.get("text")
@@ -414,6 +414,12 @@ def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceRes
     owned_keyframes = keyframe_references_in_text(unit)
     references: list[ReferenceResource] = []
     seen: set[tuple[str, str]] = set()
+    sheet = unit.get("storyboard_sheet")
+    if isinstance(sheet, dict) and sheet.get("status") == "confirmed":
+        unit_id = str(unit.get("unit_id") or "").strip()
+        if unit_id:
+            references.append(ReferenceResource(type="storyboard_sheet", name=unit_id))
+            seen.add(("storyboard_sheet", asset_name_comparison_key(unit_id)))
     for name in extract_mentions(strip_speech_marks(text)):
         keyframe = owned_keyframes.get(name)
         if keyframe is not None:
@@ -445,6 +451,12 @@ def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> t
 
     result: list[ResolvedReferenceAsset] = []
     for reference in unit_reference_declarations(project, unit):
+        if reference.type == "storyboard_sheet":
+            sheet = unit.get("storyboard_sheet")
+            path = _candidate_path(project_path, sheet.get("image_path") if isinstance(sheet, dict) else None)
+            if path is not None:
+                result.append(ResolvedReferenceAsset(path=path, reference=reference, kind="storyboard_sheet"))
+            continue
         if reference.type == "keyframe":
             owned = next(
                 (
@@ -590,6 +602,13 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     "reference_asset_missing": ("repair_reference_assets", (("text",),)),
     "reference_capability_changed": ("repair_reference_assets", (("text",),)),
     "reference_images_clamped": ("review_reference_selection", (("text",),)),
+    "reference_storyboard_sheet_required": ("generate_reference_storyboard_sheets", (("storyboard_sheet",),)),
+    "reference_storyboard_sheet_confirmation_required": (
+        "confirm_reference_storyboard_sheet",
+        (("storyboard_sheet",),),
+    ),
+    "reference_keyframe_plan_required": ("repair_keyframe_plan", (("keyframes",),)),
+    "reference_keyframe_images_required": ("generate_reference_keyframes", (("keyframes",),)),
     "video_audio_switch_not_supported": (
         "enable_model_audio",
         (("generation_settings", "generate_audio"),),
@@ -653,6 +672,43 @@ class ReferenceUnitRequestProjector:
         available = hydration.available
 
         problems: list[ProjectionProblem] = []
+        # This projector is also used by isolated capability/cost tests with a
+        # deliberately route-less project dict.  The review gate belongs to the
+        # explicit reference_video product route, never to those generic facts.
+        if project.get("generation_mode") == "reference_video":
+            unit_id = str(unit.get("unit_id") or "")
+            if not any(
+                isinstance(item, dict)
+                and str(item.get("keyframe_id") or "").strip()
+                and str(item.get("description") or "").strip()
+                for item in unit.get("keyframes") or []
+            ):
+                problems.append(_problem("reference_keyframe_plan_required", blocking=True, unit_id=unit_id))
+            else:
+                missing_keyframe_ids = [
+                    str(item.get("keyframe_id") or "").strip()
+                    for item in unit.get("keyframes") or []
+                    if isinstance(item, dict)
+                    and str(item.get("keyframe_id") or "").strip()
+                    and str(item.get("description") or "").strip()
+                    and not str(item.get("image_path") or "").strip()
+                ]
+                if missing_keyframe_ids:
+                    problems.append(
+                        _problem(
+                            "reference_keyframe_images_required",
+                            blocking=True,
+                            unit_id=unit_id,
+                            keyframe_ids=", ".join(missing_keyframe_ids),
+                        )
+                    )
+            sheet = unit.get("storyboard_sheet")
+            if not isinstance(sheet, dict) or not str(sheet.get("image_path") or "").strip():
+                problems.append(_problem("reference_storyboard_sheet_required", blocking=True, unit_id=unit_id))
+            elif sheet.get("status") != "confirmed":
+                problems.append(
+                    _problem("reference_storyboard_sheet_confirmation_required", blocking=True, unit_id=unit_id)
+                )
         if options.narration_preparation is not None:
             for delivery_problem in options.narration_preparation.problems:
                 problems.append(
@@ -713,10 +769,12 @@ class ReferenceUnitRequestProjector:
         if candidate is not None:
             request_assets = clamp_reference_assets(available, candidate.max_reference_images)
             if len(request_assets) < len(available):
+                sheet = unit.get("storyboard_sheet")
+                confirmed_sheet = isinstance(sheet, dict) and sheet.get("status") == "confirmed"
                 problems.append(
                     _problem(
                         "reference_images_clamped",
-                        blocking=False,
+                        blocking=confirmed_sheet,
                         count=len(available),
                         max_count=candidate.max_reference_images,
                         provider=candidate.provider_id,

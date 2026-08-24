@@ -66,6 +66,12 @@ export interface ReferenceKeyframe {
   image_path: string | null;
 }
 
+export interface ReferenceStoryboardSheet {
+  image_path: string;
+  status: "pending_review" | "confirmed";
+  confirmed_at: string | null;
+}
+
 export interface ReferenceVideoUnit {
   /** Format: "E{episode}U{index}" */
   unit_id: string;
@@ -78,6 +84,8 @@ export interface ReferenceVideoUnit {
   generated_assets: UnitGeneratedAssets;
   /** Core-scene first frames, in manuscript order. Maximum five per unit. */
   keyframes?: ReferenceKeyframe[];
+  /** Mandatory full-unit storyboard review gate before keyframe generation. */
+  storyboard_sheet?: ReferenceStoryboardSheet | null;
   /** Problem shell or mixed-speech marker; generation is blocked until repaired. */
   needs_replan?: boolean;
 }

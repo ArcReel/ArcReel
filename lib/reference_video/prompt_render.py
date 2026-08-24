@@ -151,9 +151,19 @@ def render_unit_prompt(
 
     audio_no, audio_speaker_reference_index = _number_audio_speakers(bindings.audio_speakers, character_image_no)
 
+    reference_labels = [
+        (
+            f"{ref.name} 的 Video Unit Storyboard Sheet（整段 Video Unit 的镜头顺序与场景变化参考，不是单一目标帧）"
+            if ref.type == "storyboard_sheet"
+            else f"{KEYFRAME_MENTION_PREFIX}{ref.name}"
+            if ref.type == "keyframe"
+            else ref.name
+        )
+        for ref in references
+    ]
     segments = [
         _render_segment_one(
-            [f"{KEYFRAME_MENTION_PREFIX}{ref.name}" if ref.type == "keyframe" else ref.name for ref in references],
+            reference_labels,
             bindings.speakers,
             audio_no,
             characters,

@@ -157,6 +157,20 @@ describe("ReferenceVideoCanvas", () => {
       ],
     }));
   });
+
+  it("shows the distinct Video Unit Storyboard Sheet gate before keyframes", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const sheetTab = await screen.findByRole("tab", { name: "Video Unit Storyboard Sheet" });
+    const keyframeTab = screen.getByRole("tab", { name: /Keyframes|关键分镜/ });
+    expect(sheetTab.compareDocumentPosition(keyframeTab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(sheetTab);
+    expect(
+      await screen.findByText(/Video Unit Storyboard Sheet (has not been generated|尚未生成)/),
+    ).toBeInTheDocument();
+  });
   afterEach(() => vi.restoreAllMocks());
 
   it("loads units on mount and renders the list", async () => {

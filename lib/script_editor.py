@@ -105,6 +105,8 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         # 尾帧字段的值是本服务写出的快照相对路径，只由尾帧设置/清除端点写入。放行 patch
         # 会让原样写入的任意字符串绕过快照复制，重新引入悬空引用与越界路径。
         raise ScriptEditError("patch_episode_script 不可改 end_frame_image；尾帧的设置/清除是独立的显式动作")
+    if parts[0] == "storyboard_sheet":
+        raise ScriptEditError("patch_episode_script 不可改 Storyboard Sheet；生成与确认是独立的显式动作")
     if parts[0] in {"segment_id", "scene_id", "unit_id", "shot_id"}:
         # patch 不可改分镜 id：id 由 insert/split 从锚点派生，结构校验不查 id 唯一性，
         # agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
@@ -132,11 +134,20 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
     cur[parts[-1]] = value
 
 
+def _invalidate_storyboard_sheet_confirmation(item: dict[str, Any]) -> None:
+    sheet = item.get("storyboard_sheet")
+    if isinstance(sheet, dict):
+        sheet["status"] = "pending_review"
+        sheet["confirmed_at"] = None
+
+
 def patch_field(script: dict[str, Any], item_id: str, field_path: str, value: Any) -> dict[str, Any]:
     """按 id 定位一个分镜，设置其（可嵌套的）字段。纯 setter，不触碰 generated_assets。"""
-    items, id_field, _ = resolve_items(script)
+    items, id_field, kind = resolve_items(script)
     idx = _find_index(items, id_field, item_id)
     _set_nested(items[idx], field_path, value)
+    if kind == "video_units" and field_path.split(".", 1)[0] in {"text", "duration_seconds", "keyframes"}:
+        _invalidate_storyboard_sheet_confirmation(items[idx])
     return script
 
 
@@ -153,6 +164,7 @@ def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, An
     item = deepcopy(new_item)
     item[id_field] = _next_suffixed_id(str(after_id), _existing_ids(items, id_field))
     item["generated_assets"] = {}
+    item.pop("storyboard_sheet", None)
     # 尾帧快照按镜头 id 命名，新 id 名下还没有快照；agent 自带的值只会指向别人的快照或空路径。
     item.pop("end_frame_image", None)
     items.insert(idx + 1, item)
@@ -193,6 +205,7 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
     new_parts: list[dict[str, Any]] = []
     for offset, raw in enumerate(parts):
         part = deepcopy(raw)
+        part.pop("storyboard_sheet", None)
         if offset == 0:
             part[id_field] = str(item_id)
             # 锚点延续:保留原分镜的 generated_assets(若 agent 在 parts[0] 自带了

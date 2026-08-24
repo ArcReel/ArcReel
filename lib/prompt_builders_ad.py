@@ -369,7 +369,7 @@ def build_ad_reference_prompt(
 你是一位资深短视频编导。根据 brief 与资产候选，直接创作可供参考生视频的一组自包含 video unit。
 
 **输出语言**：所有正文使用 {target_language}；JSON 键名保持英文。
-**输出形状**：只输出 `{{"title": "...", "units": [{{"duration_seconds": {min_unit_duration}, "text": "..."}}]}}`。
+**输出形状**：只输出 `{{"title": "...", "units": [{{"duration_seconds": {min_unit_duration}, "text": "... [[关键分镜1]] ...", "keyframes": [{{"description": "..."}}]}}]}}`。
 unit_id、references、generated_assets、needs_replan 均由系统派生，不得输出。不要输出 shots、section、shot_id、逐镜头时长、voiceover_text 或 speech_mode。
 
 <overview>
@@ -406,6 +406,8 @@ unit_id、references、generated_assets、needs_replan 均由系统派生，不�
 {planning}
 
 本片恒为第 {episode} 集。每个 unit 内只能有一种发声归属：角色台词、无归属画外音或无发声三选一；需要切换归属时拆成相邻 unit，不要在同一 unit 混写。
+
+每个 unit 必须规划 1–5 个关键首帧，`keyframes[].description` 只描述核心场景或动作 beat 刚开始的第一个稳定画面，不能把摔倒后、碰撞后或动作完成后的结果当入口帧。正文在对应发生位置依次插入 `[[关键分镜1]]`、`[[关键分镜2]]`……；标记与 keyframes 必须等量、连续且各出现一次。超过 5 个核心切换时继续拆分 unit。
 
 # 统一书写层
 

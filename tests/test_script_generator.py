@@ -2217,6 +2217,27 @@ class TestAdScriptGeneration:
         assert any(fs.get("minimum") == 1 and fs.get("maximum") == 300 and "enum" not in fs for fs in field_schemas)
 
     @pytest.mark.unit
+    def test_ad_reference_materializes_a_nonempty_keyframe_plan(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path, generation_mode="reference_video")
+        generator = ScriptGenerator(project_path, generator=_FakeTextGenerator(""))
+        response = {
+            "title": "短片",
+            "units": [
+                {
+                    "duration_seconds": 8,
+                    "text": "[[关键分镜1]] 晨光中的工坊刚刚开门。",
+                    "keyframes": [{"description": "晨光中的工坊门刚打开"}],
+                }
+            ],
+        }
+
+        parsed = generator._parse_ad_reference_response(json.dumps(response, ensure_ascii=False), 1)
+
+        assert parsed["video_units"][0]["keyframes"][0]["keyframe_id"] == "E1U1K01"
+        assert "@[关键分镜 E1U1K01]" in parsed["video_units"][0]["text"]
+
+    @pytest.mark.unit
     async def test_generate_rewrites_wrong_episode_prefix_on_shot_ids(self, tmp_path):
         """LLM 写错集号前缀时兜底改写为 E1（ad 恒单集）。"""
         project_path = tmp_path / "demo"
@@ -2391,8 +2412,16 @@ class TestAdReferenceSkeletonUnity:
         response = {
             "title": "速干杯短片",
             "units": [
-                {"duration_seconds": 7, "text": "镜头1：@[速干杯] 表面的水珠迅速滑落"},
-                {"duration_seconds": 5, "text": "镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{现在就试试。}"},
+                {
+                    "duration_seconds": 7,
+                    "text": "[[关键分镜1]] 镜头1：@[速干杯] 表面的水珠迅速滑落",
+                    "keyframes": [{"description": "水珠开始从杯身滑落"}],
+                },
+                {
+                    "duration_seconds": 5,
+                    "text": "[[关键分镜1]] 镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{现在就试试。}",
+                    "keyframes": [{"description": "小美开始举起速干杯"}],
+                },
             ],
         }
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
@@ -2414,9 +2443,21 @@ class TestAdReferenceSkeletonUnity:
     async def test_generate_ad_reference_preserves_mixed_speech_and_marks_replan(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
-        text = "镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{试试这一杯。}\n{旁白补充卖点。}"
+        text = "[[关键分镜1]] 镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{试试这一杯。}\n{旁白补充卖点。}"
         fake = _FakeTextGenerator(
-            json.dumps({"title": "混合发声", "units": [{"duration_seconds": 8, "text": text}]}, ensure_ascii=False)
+            json.dumps(
+                {
+                    "title": "混合发声",
+                    "units": [
+                        {
+                            "duration_seconds": 8,
+                            "text": text,
+                            "keyframes": [{"description": "小美开始举起速干杯"}],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
         )
         generator = ScriptGenerator(project_path, generator=fake)
 

@@ -372,6 +372,26 @@ async def restore_version(
                 thumbnail_key = f"reference_videos/thumbnails/{resource_id}.jpg"
                 thumbnail_path.unlink(missing_ok=True)
                 asset_fingerprints[thumbnail_key] = 0
+            elif resource_type == "storyboard_sheets":
+                project = get_project_manager().load_project(project_name)
+                for episode in project.get("episodes") or []:
+                    script_file = episode.get("script_file") if isinstance(episode, dict) else None
+                    if not isinstance(script_file, str) or not script_file:
+                        continue
+                    with get_project_manager().locked_script(project_name, script_file, validate=False) as script:
+                        unit = next(
+                            (
+                                item
+                                for item in script.get("video_units") or []
+                                if isinstance(item, dict) and item.get("unit_id") == resource_id
+                            ),
+                            None,
+                        )
+                        if unit is None or not isinstance(unit.get("storyboard_sheet"), dict):
+                            continue
+                        unit["storyboard_sheet"]["status"] = "pending_review"
+                        unit["storyboard_sheet"]["confirmed_at"] = None
+                        break
 
             return {
                 "success": True,

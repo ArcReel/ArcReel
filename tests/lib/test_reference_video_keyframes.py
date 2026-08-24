@@ -31,8 +31,7 @@ def test_reference_video_unit_rejects_more_than_five_keyframes() -> None:
                 "text": "正文",
                 "duration_seconds": 5,
                 "keyframes": [
-                    {"keyframe_id": f"E1U01K{index:02d}", "description": str(index)}
-                    for index in range(1, 7)
+                    {"keyframe_id": f"E1U01K{index:02d}", "description": str(index)} for index in range(1, 7)
                 ],
             }
         )
@@ -68,6 +67,11 @@ def test_reference_keyframe_specs_keep_request_scoped_model_override() -> None:
         "video_units": [
             {
                 "unit_id": "E1U01",
+                "storyboard_sheet": {
+                    "image_path": "storyboard_sheets/E1U01.png",
+                    "status": "confirmed",
+                    "confirmed_at": "2026-08-24T00:00:00+00:00",
+                },
                 "keyframes": [
                     {
                         "keyframe_id": "E1U01K01",
@@ -93,11 +97,52 @@ def test_reference_keyframe_specs_keep_request_scoped_model_override() -> None:
 
 def test_image_model_selection_requires_provider_and_model_as_a_pair() -> None:
     assert ImageModelSelection().image_override_payload() == {}
-    assert ImageModelSelection(
-        image_provider="openai", image_model="gpt-image-1"
-    ).image_override_payload() == {
+    assert ImageModelSelection(image_provider="openai", image_model="gpt-image-1").image_override_payload() == {
         "image_provider": "openai",
         "image_model": "gpt-image-1",
     }
     with pytest.raises(ValidationError):
         ImageModelSelection(image_provider="openai")
+
+
+def test_keyframe_specs_require_a_confirmed_storyboard_sheet() -> None:
+    from server.services.reference_storyboard_sheet_tasks import StoryboardSheetGateError
+
+    script = {
+        "video_units": [
+            {
+                "unit_id": "E1U01",
+                "storyboard_sheet": {
+                    "image_path": "storyboard_sheets/E1U01.png",
+                    "status": "pending_review",
+                    "confirmed_at": None,
+                },
+                "keyframes": [
+                    {
+                        "keyframe_id": "E1U01K01",
+                        "description": "妹妹开始追弟弟的入口帧",
+                        "image_path": None,
+                    }
+                ],
+            }
+        ]
+    }
+
+    with pytest.raises(StoryboardSheetGateError) as exc_info:
+        reference_keyframe_task_specs(script, "episode_1.json")
+
+    assert exc_info.value.code == "reference_storyboard_sheet_confirmation_required"
+
+
+def test_keyframe_prompt_requires_action_beat_entry_state() -> None:
+    from server.services.reference_keyframe_tasks import build_keyframe_prompt
+
+    prompt = build_keyframe_prompt(
+        {"style": "田园动画", "style_description": "暖色自然光"},
+        "鳄鱼妹妹追鳄鱼弟弟，弟弟摔进桂花堆",
+        "- Picture 1 = E1U01 整体 Storyboard Sheet",
+    )
+
+    assert "动作刚开始" in prompt
+    assert "不得选择同一 beat 的完成结果" in prompt
+    assert "Picture 1 = E1U01 整体 Storyboard Sheet" in prompt

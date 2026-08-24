@@ -14,7 +14,7 @@
   - reference_video 模式：每个 video unit 持有符合剧本模型结构约束的正整数编排时长，unit 内镜头不单列时长；生成预检会把编排时长投影到供应商申请档位
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
-- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个镜头独立生成、以分镜图作起始帧；reference_video 模式按自包含 video unit 直出、跳过分镜（见下文「生成模式」）
+- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个镜头独立生成、以分镜图作起始帧；reference_video 模式按自包含 video unit 直出，但必须先生成并由用户确认 Video Unit Storyboard Sheet，再生成关键场景 Keyframes（见下文「生成模式」）
 
 > **关于 extend 功能**：Veo 3.1 extend 功能仅用于延长单个镜头，
 > 每次固定 +7 秒，不适合用于串联不同镜头。不同镜头之间使用 ffmpeg 拼接。
@@ -70,7 +70,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
 | `storyboard` | 分镜图生视频 | `shots[]` + 分镜图 | 每镜头一张分镜图作起始帧 |
-| `reference_video` | 参考生视频 | 自包含 `video_units[]` | 正文 `@[名称]` 提及派生的资产图（无 sheet 时退到原图） |
+| `reference_video` | 参考生视频 | 自包含 `video_units[]` | 用户确认的 Video Unit Storyboard Sheet + Keyframes + 正文 `@[名称]` 提及派生的资产图 |
 
 宫格装配（`grid_storyboard`）对广告/短片项目**不开放**：宫格单格分辨率与商品高保真目标冲突。
 
@@ -81,6 +81,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 一个 unit 只能承载人物发声、无归属旁白或无人声中的一种；需要切换发声归属时在规划阶段拆成相邻 unit。标记 `needs_replan` 的存量问题单元须先重新规划，生成入口会拒绝入队
 - 参考集按正文首次 mention 顺序排列，商品与角色/场景/道具同规则：每件资产有 sheet 用 sheet，没有才退到它的全部原图；不按类型排序，也不在有 sheet 时额外注入原图
 - **时长约束**：每个 unit 的 `duration_seconds` 是符合剧本模型结构约束的正整数编排时长，所有 unit 之和应贴近 `target_duration`；供应商档位由生成预检处理，不在剧本规划时量化
+- **Video Unit Storyboard Sheet 强制卡点**：每个 unit 至少有一个关键首帧规划；剧本落盘后先生成整段 Video Unit 的多格 Sheet。用户确认当前版本后系统才生成 Keyframes；重生、编辑或恢复该 Sheet 都会使确认失效。该 Sheet 与 Keyframes 均计入视频模型参考图上限
 
 ---
 
@@ -109,7 +110,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 ### 商品保真（软门禁）
 
 - **分镜开工前安排用户过目 product sheet**：商品生成了标准参考图（`product_sheet`）时，开始分镜前（参考生视频路径为首次视频生成前——该路径 sheet 直接进视频参考集，更要在产生视频费用前确认）先请用户到商品资产页确认 sheet 与真品一致（不一致就重新生成）；确认后才继续。这是工作流约定，不是系统状态机——无 sheet（仅原图）时直接开工即可
-- 商品镜头（剧本 `products_in_shot` 非空）在 storyboard 路径的**分镜生成**会**自动注入商品参考**（有 sheet 时 sheet + 原图，无 sheet 时原图直注）并附高保真还原指令，无需在 image_prompt 里复述商品外观细节；该路径的**视频生成**不再叠加商品参考图，商品一致性由分镜图承载。reference_video 路径跳过分镜，参考图按正文提及顺序在执行期派生、商品不排最前（见上文「参考生视频（reference_video）的自包含单元」）。氛围镜头零商品图，画风由项目级 style 承载
+- 商品镜头（剧本 `products_in_shot` 非空）在 storyboard 路径的**分镜生成**会**自动注入商品参考**（有 sheet 时 sheet + 原图，无 sheet 时原图直注）并附高保真还原指令，无需在 image_prompt 里复述商品外观细节；该路径的**视频生成**不再叠加商品参考图，商品一致性由分镜图承载。reference_video 路径先走强制 Video Unit Storyboard Sheet 确认与 Keyframes，再把它们和正文派生资产一起作为参考图；商品不排在该 Sheet 之前（见上文「参考生视频（reference_video）的自包含单元」）。氛围镜头零商品资产图，画风由项目级 style 承载
 - 分镜生成后引导用户审核商品形象保真度，不合格的镜头重新生成分镜——在产生视频费用前拦截错误的商品形象
 
 ### 通用短片（无商品）

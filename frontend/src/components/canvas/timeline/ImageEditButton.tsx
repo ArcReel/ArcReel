@@ -86,7 +86,9 @@ export function ImageEditButton({
     // 的这一维度，见 selectHasActiveTaskForScriptFile 与 GridImageToVideoCanvas 的
     // gridActiveForEpisode。
     if (
-      (resourceType === "storyboard" || resourceType === "reference_keyframe") &&
+      (resourceType === "storyboard" ||
+        resourceType === "reference_keyframe" ||
+        resourceType === "reference_storyboard_sheet") &&
       scriptFile &&
       selectHasActiveTaskForScriptFile(tasks, "grid", scriptFile, projectName, optimisticActiveScriptFile)
     ) {
@@ -101,7 +103,9 @@ export function ImageEditButton({
         resourceId,
         instruction: trimmed,
         scriptFile:
-          resourceType === "storyboard" || resourceType === "reference_keyframe"
+          resourceType === "storyboard" ||
+          resourceType === "reference_keyframe" ||
+          resourceType === "reference_storyboard_sheet"
             ? scriptFile ?? null
             : null,
         ...selection,

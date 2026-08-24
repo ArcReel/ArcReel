@@ -10,7 +10,7 @@ import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 
 interface VersionTimeMachineProps {
   projectName: string;
-  resourceType: "storyboards" | "videos" | "audio" | "characters" | "scenes" | "props" | "products" | "reference_videos" | "grids" | "keyframes";
+  resourceType: "storyboards" | "storyboard_sheets" | "videos" | "audio" | "characters" | "scenes" | "props" | "products" | "reference_videos" | "grids" | "keyframes";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<void>;
   /** Icon-only trigger button: hides label and chevron for narrow card headers. */
@@ -78,6 +78,7 @@ export function VersionTimeMachine({
     resourceType === "scenes" ? `scenes/${resourceId}.png` :
     resourceType === "grids" ? `grids/${resourceId}.png` :
     resourceType === "keyframes" ? `keyframes/${resourceId}.png` :
+    resourceType === "storyboard_sheets" ? `storyboard_sheets/${resourceId}.png` :
     `props/${resourceId}.png`;
   const resourceFp = useProjectsStore((s) => s.getAssetFingerprint(resourcePath));
   const triggerRef = useRef<HTMLButtonElement>(null);

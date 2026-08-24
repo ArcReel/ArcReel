@@ -64,6 +64,11 @@ from server.agent_runtime.sdk_tools.patch_script import (
 )
 from server.agent_runtime.sdk_tools.project_asset_links import manage_project_asset_link_tool
 from server.agent_runtime.sdk_tools.project_character_images import move_character_main_to_reference_tool
+from server.agent_runtime.sdk_tools.reference_storyboard_sheets import (
+    confirm_reference_storyboard_sheet_tool,
+    generate_reference_keyframes_tool,
+    generate_reference_storyboard_sheets_tool,
+)
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
 from server.agent_runtime.sdk_tools.text_generation import (
@@ -100,6 +105,9 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_character_voice_references",
     "confirm_character_voice_reference",
     "generate_storyboards",
+    "generate_reference_storyboard_sheets",
+    "confirm_reference_storyboard_sheet",
+    "generate_reference_keyframes",
     "edit_images",
     "generate_grid",
     "generate_video_episode",
@@ -152,6 +160,9 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "generate_character_voice_references",
         "confirm_character_voice_reference",
         "generate_storyboards",
+        "generate_reference_storyboard_sheets",
+        "confirm_reference_storyboard_sheet",
+        "generate_reference_keyframes",
         "edit_images",
         "generate_grid",
         "generate_video_episode",
@@ -212,6 +223,9 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         generate_character_voice_references_tool(ctx),
         confirm_character_voice_reference_tool(ctx),
         generate_storyboards_tool(ctx),
+        generate_reference_storyboard_sheets_tool(ctx),
+        confirm_reference_storyboard_sheet_tool(ctx),
+        generate_reference_keyframes_tool(ctx),
         edit_images_tool(ctx),
         generate_grid_tool(ctx),
         generate_video_episode_tool(ctx),
