@@ -24,6 +24,15 @@ from server.agent_runtime.sdk_tools._context import (
     migration_refusal_response,
 )
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
+from server.agent_runtime.sdk_tools.content_read import (
+    get_episode_script_tool,
+    get_project_content_tool,
+    get_source_text_tool,
+    get_step1_content_tool,
+    list_project_files_tool,
+    list_source_files_tool,
+    read_project_file_tool,
+)
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
     list_pending_assets_tool,
@@ -45,7 +54,6 @@ from server.agent_runtime.sdk_tools.episode_planning import (
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
-    get_episode_script_revision_tool,
     patch_episode_script_tool,
 )
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
@@ -75,6 +83,13 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "complete_asset_inventory",
     "complete_step1_rebuild",
     "get_workflow_plan",
+    "get_project_content",
+    "list_source_files",
+    "get_source_text",
+    "get_episode_script",
+    "get_step1_content",
+    "list_project_files",
+    "read_project_file",
     "list_pending_assets",
     "generate_assets",
     "generate_storyboards",
@@ -93,7 +108,6 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "get_video_capabilities",
     "plan_episodes",
     "reset_episode_planning",
-    "get_episode_script_revision",
     "patch_episode_script",
     "patch_episode_meta",
     "patch_project",
@@ -115,7 +129,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
 #
 # The read-only tools are outside this set on purpose — they answer the verdict inside
 # their own handlers, so this frozenset stays exactly the registration-time blocks.
-# ``list_pending_assets`` and ``get_episode_script_revision`` read it via
+# ``list_pending_assets`` reads it via
 # ``migration_failure_for`` and return the same ``migration_refusal_response`` envelope
 # the wrapper does; ``get_workflow_plan`` carries it as the plan's single problem rather
 # than refusing; ``get_video_capabilities`` reads model capability only, never the
@@ -177,6 +191,13 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         complete_asset_inventory_tool(ctx),
         complete_step1_rebuild_tool(ctx),
         get_workflow_plan_tool(ctx),
+        get_project_content_tool(ctx),
+        list_source_files_tool(ctx),
+        get_source_text_tool(ctx),
+        get_episode_script_tool(ctx),
+        get_step1_content_tool(ctx),
+        list_project_files_tool(ctx),
+        read_project_file_tool(ctx),
         list_pending_assets_tool(ctx),
         generate_assets_tool(ctx),
         generate_storyboards_tool(ctx),
@@ -195,7 +216,6 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         get_video_capabilities_tool(ctx),
         plan_episodes_tool(ctx),
         reset_episode_planning_tool(ctx),
-        get_episode_script_revision_tool(ctx),
         patch_episode_script_tool(ctx),
         patch_episode_meta_tool(ctx),
         patch_project_tool(ctx),

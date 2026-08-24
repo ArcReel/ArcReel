@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import ast
+import os
 from pathlib import Path
 
 import pytest
 
+from lib.project_manager import ProjectManager
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow_state import WorkflowStatus
 from server import text_generation as shared_text_generation
@@ -21,10 +24,17 @@ from server.tool_runtime import (
     confirm_script_review,
     generate_episode_script,
     generate_step1,
+    get_episode_script,
+    get_project_content,
+    get_source_text,
+    get_step1_content,
     get_video_capabilities,
     get_workflow_plan,
+    list_project_files,
+    list_source_files,
     patch_episode_meta,
     patch_episode_script,
+    read_project_file,
 )
 
 
@@ -223,3 +233,135 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path) -
         "value": "新标题",
     }
     assert projects.load_script("demo", "episode_1.json")["title"] == "新标题"
+
+
+async def test_content_readers_return_body_and_revision_from_the_same_snapshot(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    (project_dir / "scripts").mkdir(parents=True)
+    (project_dir / "project.json").write_text(
+        f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
+    )
+    (project_dir / "scripts" / "episode_1.json").write_text(
+        '{"episode":1,"title":"第一集","scenes":[]}', encoding="utf-8"
+    )
+    projects = ProjectManager(tmp_path)
+    services = Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities())
+    scope = ProjectScope("demo", tmp_path)
+    caller = CallerContext(user_id="u1", source="mcp")
+
+    project = await get_project_content(ToolRequest(None), scope, caller, services)
+    script = await get_episode_script(ToolRequest("episode_1.json"), scope, caller, services)
+
+    assert project.problem is None
+    assert project.value is not None
+    assert project.value.project == {"content_mode": "drama", "schema_version": CURRENT_PROJECT_SCHEMA_VERSION}
+    assert project.value.revision.startswith("sha256-v1:")
+    assert script.problem is None
+    assert script.value is not None
+    assert script.value.script["title"] == "第一集"
+    assert script.value.revision.startswith("sha256-v1:")
+
+
+async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    (project_dir / "source").mkdir(parents=True)
+    (project_dir / "scripts").mkdir()
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    (project_dir / "project.json").write_text('{"content_mode":"drama"}', encoding="utf-8")
+    (project_dir / "source" / "novel.txt").write_text("原文", encoding="utf-8")
+    (project_dir / "source" / "episode_1.txt").write_text("第一集原文", encoding="utf-8")
+    (project_dir / "source" / "directory.txt").mkdir()
+    (project_dir / "scripts" / "episode_1.json").write_text('{"episode":1,"scenes":[]}', encoding="utf-8")
+    (drafts / "step1_normalized_script.json").write_text('{"title":"第一集","scenes":[]}', encoding="utf-8")
+    (project_dir / ".env").write_text("SECRET=value", encoding="utf-8")
+    (project_dir / "source" / "linked.txt").symlink_to(project_dir / ".env")
+    projects = ProjectManager(tmp_path)
+    services = Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities())
+    scope = ProjectScope("demo", tmp_path)
+    caller = CallerContext(user_id="u1", source="mcp")
+
+    sources = await list_source_files(ToolRequest(None), scope, caller, services)
+    source = await get_source_text(ToolRequest("source/episode_1.txt"), scope, caller, services)
+    step1 = await get_step1_content(ToolRequest(1), scope, caller, services)
+    files = await list_project_files(ToolRequest(None), scope, caller, services)
+    script = await read_project_file(ToolRequest("scripts/episode_1.json"), scope, caller, services)
+    sensitive = await read_project_file(ToolRequest(".env"), scope, caller, services)
+    linked = await read_project_file(ToolRequest("source/linked.txt"), scope, caller, services)
+    nonregular = await read_project_file(ToolRequest("source/directory.txt"), scope, caller, services)
+    traversal = await read_project_file(ToolRequest("../demo/project.json"), scope, caller, services)
+
+    assert sources.problem is None
+    assert sources.value is not None
+    assert [entry.path for entry in sources.value.files] == ["source/episode_1.txt", "source/novel.txt"]
+    assert source.value is not None and source.value.text == "第一集原文"
+    assert step1.value is not None and step1.value.content["title"] == "第一集"
+    assert files.value is not None
+    assert {entry.path for entry in files.value.files} == {
+        "project.json",
+        "source/episode_1.txt",
+        "source/novel.txt",
+        "scripts/episode_1.json",
+        "drafts/episode_1/step1_normalized_script.json",
+    }
+    assert script.value is not None and script.value.content["episode"] == 1
+    assert script.value.etag.startswith("sha256-v1:")
+    assert sensitive.problem is not None and sensitive.problem.code == "unsafe_path"
+    assert linked.problem is not None and linked.problem.code == "unsafe_path"
+    assert nonregular.problem is not None and nonregular.problem.code == "unsafe_path"
+    assert traversal.problem is not None and traversal.problem.code == "unsafe_path"
+
+
+async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path, monkeypatch) -> None:
+    if os.open not in os.supports_dir_fd:
+        pytest.skip("requires openat-style directory descriptors")
+    project_dir = tmp_path / "demo"
+    source_dir = project_dir / "source"
+    source_dir.mkdir(parents=True)
+    (project_dir / "project.json").write_text("{}", encoding="utf-8")
+    source = source_dir / "novel.txt"
+    source.write_text("safe", encoding="utf-8")
+    outside = tmp_path / "secret.txt"
+    outside.write_text("secret", encoding="utf-8")
+    original_fdopen = os.fdopen
+
+    def _swap_after_open(fd, *args, **kwargs):
+        source.unlink()
+        source.symlink_to(outside)
+        return original_fdopen(fd, *args, **kwargs)
+
+    monkeypatch.setattr(tool_runtime.os, "fdopen", _swap_after_open)
+    services = Services(
+        projects=ProjectManager(tmp_path), workflow_planner=_Planner(_status()), capabilities=_Capabilities()
+    )
+
+    outcome = await read_project_file(
+        ToolRequest("source/novel.txt"),
+        ProjectScope("demo", tmp_path),
+        CallerContext(user_id="u1", source="mcp"),
+        services,
+    )
+
+    assert outcome.problem is None
+    assert outcome.value is not None and outcome.value.content == "safe"
+
+
+async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "demo"
+    source_dir = project_dir / "source"
+    source_dir.mkdir(parents=True)
+    (project_dir / "project.json").write_text("{}", encoding="utf-8")
+    (source_dir / "novel.txt").write_bytes(b"12345")
+    monkeypatch.setattr(tool_runtime, "BUSINESS_FILE_MAX_BYTES", 4)
+    services = Services(
+        projects=ProjectManager(tmp_path), workflow_planner=_Planner(_status()), capabilities=_Capabilities()
+    )
+
+    outcome = await read_project_file(
+        ToolRequest("source/novel.txt"),
+        ProjectScope("demo", tmp_path),
+        CallerContext(user_id="u1", source="mcp"),
+        services,
+    )
+
+    assert outcome.problem is not None and outcome.problem.code == "file_too_large"

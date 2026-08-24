@@ -181,7 +181,7 @@ def test_episodic_variants_name_the_registered_recovery_tools(filename: str) -> 
         "generate_video_episode",
         "reset_episode_planning",
         "complete_step1_rebuild",
-        "get_episode_script_revision",
+        "get_episode_script",
         "patch_episode_script",
     ):
         assert tool_id in ARCREEL_MCP_TOOL_IDS

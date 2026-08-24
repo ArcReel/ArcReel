@@ -17,12 +17,10 @@ from lib.project_manager import ProjectManager
 from lib.reference_video.request_projection import unit_reference_declarations
 from lib.script_batch_edit import script_revision
 from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
-from server.agent_runtime.sdk_tools.patch_script import (
-    get_episode_script_revision_tool,
-    patch_episode_script_tool,
-)
+from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 
 
@@ -199,15 +197,16 @@ def _text(out: dict[str, Any]) -> str:
 class TestPatchEpisodeScript:
     async def test_four_operation_union_commits_as_one_batch(self, ctx: ToolContext) -> None:
         revision_output = await _call(
-            get_episode_script_revision_tool(ctx),
+            get_episode_script_tool(ctx),
             {"script": "episode_1.json"},
         )
+        revision = json.loads(revision_output["content"][0]["text"])["episode_script"]["revision"]
 
         output = await _call(
             patch_episode_script_tool(ctx),
             {
                 "script": "episode_1.json",
-                "base_revision": revision_output["revision"],
+                "base_revision": revision,
                 "operations": [
                     {"op": "update", "id": "E1S01", "fields": {"note": "first"}},
                     {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")},
@@ -219,8 +218,8 @@ class TestPatchEpisodeScript:
 
         assert output.get("is_error") is not True
         assert json.loads(output["content"][1]["text"])["script_edit"] == output["script_edit"]
-        assert output["script_edit"]["before_revision"] == revision_output["revision"]
-        assert output["script_edit"]["revision"] != revision_output["revision"]
+        assert output["script_edit"]["before_revision"] == revision
+        assert output["script_edit"]["revision"] != revision
         saved = _load(ctx)["segments"]
         assert [segment["segment_id"] for segment in saved] == ["E1S01", "E1S02", "E1S02_1"]
         assert saved[0]["note"] == "first"

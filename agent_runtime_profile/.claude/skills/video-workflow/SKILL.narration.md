@@ -335,7 +335,7 @@ dispatch `generate-assets` 子智能体：
 Read `target.script`，**只处理 `requested_ids` 对应的条目**。revision 按动作取：
 `patch_episode_script` 的 `next_action.args` 已直接给出 `base_revision` 与逐条 `problems`，
 直接用，不必再查；`repair_video_units` 的 args 里没有，先调
-`mcp__arcreel__get_episode_script_revision({"script": target.script_filename})` 取。
+`mcp__arcreel__get_episode_script({"script": target.script_filename})` 读取正文并取 revision。
 再用**一次** `mcp__arcreel__patch_episode_script({"script": target.script_filename,
 "base_revision": <上面取到的 revision>, "operations": [...]})` 把全部条目改完——每条一个有序 `update`。
 `needs_replan` 之类的标记由工具重算，不要手写。工具报 revision 冲突时刷新计划重来，不得用旧
