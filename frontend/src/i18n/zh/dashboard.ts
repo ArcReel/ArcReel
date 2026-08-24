@@ -1590,7 +1590,7 @@ export default {
   'ad_init_brief_label': '创作 Brief',
   'ad_init_brief_placeholder': '描述你想要的视频：目标人群、风格调性、重点卖点、行动号召……',
   'ad_init_generate_sheet_label': '生成商品资产图',
-  'ad_init_generate_sheet_hint': '把随手拍整理成标准多角度资产图，生成后可在商品页审核与重新生成',
+  'ad_init_generate_sheet_hint': '把随手拍整理成单张标准商品资产图，生成后可在商品页审核与重新生成',
   'ad_init_product_incomplete_hint': '商品信息不完整：请同时填写商品名称与商品描述；如不需要商品，请清空商品区后仅提交创作 Brief',
   'ad_init_images_selected': '已选 {{count}} 张',
   'ad_init_submit': '开始创作',

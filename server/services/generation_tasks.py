@@ -236,11 +236,8 @@ def compensable_formal_task_result(
 
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
-    if resource_type == "characters":
-        # 角色采用四视图横版
-        return "16:9"
-    if resource_type in ("scenes", "props", "products"):
-        # 多视图横排版式（product sheet 同为多角度横版）
+    if resource_type in ("characters", "scenes", "props", "products"):
+        # 资产图生成必须显式指定宽高比；四类当前均固定为 16:9。
         return "16:9"
     return resolve_video_aspect_ratio(project, resource_type)
 
