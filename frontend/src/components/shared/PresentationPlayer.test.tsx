@@ -360,28 +360,36 @@ describe("PresentationPlayer", () => {
       length: { configurable: true, value: 1 },
       0: { configurable: true, value: nativeTrack },
     });
-    const priorDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "textTracks");
-    Object.defineProperty(HTMLMediaElement.prototype, "textTracks", {
-      configurable: true,
-      get: () => textTracks,
-    });
+    let changeSubscriptions = 0;
+    const addEventListener = textTracks.addEventListener.bind(textTracks);
+    textTracks.addEventListener = (type, listener, options) => {
+      if (type === "change") changeSubscriptions += 1;
+      addEventListener(type, listener, options);
+    };
+    const createElement = document.createElement.bind(document);
+    const createElementSpy = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tagName: string, options?: ElementCreationOptions) => {
+        const element = createElement(tagName, options);
+        if (element instanceof HTMLVideoElement) {
+          Object.defineProperty(element, "textTracks", { configurable: true, get: () => textTracks });
+        }
+        return element;
+      });
     try {
       render(
         <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
       );
       await screen.findByLabelText("E1S01 成片预览");
       expect(screen.getByText("机械字幕")).toBeInTheDocument();
+      await waitFor(() => expect(changeSubscriptions).toBeGreaterThan(0));
 
       nativeTrack.mode = "showing";
       act(() => textTracks.dispatchEvent(new Event("change")));
 
-      expect(screen.queryByText("机械字幕")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText("机械字幕")).not.toBeInTheDocument());
     } finally {
-      if (priorDescriptor) {
-        Object.defineProperty(HTMLMediaElement.prototype, "textTracks", priorDescriptor);
-      } else {
-        Reflect.deleteProperty(HTMLMediaElement.prototype, "textTracks");
-      }
+      createElementSpy.mockRestore();
     }
   });
 });
