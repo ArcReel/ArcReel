@@ -55,8 +55,7 @@ mcp__arcreel__get_workflow_plan({
 
 1. 把 `details[]` 逐条讲给用户：哪一集的哪个文件、违了什么约，不要压成一句「升级失败」。
 2. 阻断期仍可用的写入工具只有 `mcp__arcreel__patch_project`、`mcp__arcreel__patch_episode_meta`、
-   `mcp__arcreel__rename_asset`；`mcp__arcreel__patch_episode_script`、`mcp__arcreel__insert_segment`、
-   `mcp__arcreel__remove_segment`、`mcp__arcreel__split_segment` 与所有生成工具一律被拒。按明细用
+   `mcp__arcreel__rename_asset`；`mcp__arcreel__patch_episode_script` 与所有生成工具一律被拒。按明细用
    前三个能修的先修，够不着的（如剧本正文类违约）按第 4 步如实告知用户。
    **没有裸文件写入这条路**，也不要用 `Edit` 直接改正式脚本。
 3. 调用 `mcp__arcreel__retry_project_migration` 重跑升级链。它幂等，重复调用不会造成损失。
@@ -89,7 +88,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
 | `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |
 | `repair_video_units` | `mcp__arcreel__get_episode_script_revision` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
-| `patch_episode_script` | 计划注入：`next_action.args` 已给 `expected_revision` 与逐条 `problems`，一次批量改完 |
+| `patch_episode_script` | 计划注入：`next_action.args` 已给 `base_revision` 与逐条 `problems`，一次批量改完 |
 | `choose_narration_delivery` | 计划注入：见「旁白交付」 |
 | `confirm_request_duration` | 计划注入：见「整批准入判定」 |
 | `generate_videos` | 视频生成工具（见 `generate-video` skill） |

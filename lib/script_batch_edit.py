@@ -192,7 +192,15 @@ class ScriptBatchEditor:
         self._pm = project_manager
         self._manifest_adapter_factory = manifest_adapter_factory
 
-    def execute(self, project_name: str, command: ScriptBatchEditCommand) -> ScriptBatchEditResult:
+    def execute(
+        self,
+        project_name: str,
+        command: ScriptBatchEditCommand,
+        *,
+        fresh_insert_indexes: frozenset[int] = frozenset(),
+    ) -> ScriptBatchEditResult:
+        """Commit a command; marked inserts create fresh identities even when an ID is reused."""
+
         # 迁移裁决先于任何解析与写入：清单是读取已生成产物的唯一口径，未升级的项目没有
         # 清单可写。放在入口而不是提交处，是因为提交前有几条早退（如剧本集号不成立就
         # 不预备清单提交），逐条补闸会漏，入口一道闸对所有路径同时成立。
@@ -219,6 +227,7 @@ class ScriptBatchEditor:
         episode_number: int | None = command.episode
         before_revision = command.expected_revision
         affected_ids: list[str] = []
+        fresh_insert_ids: set[str] = set()
         commit_manifest: Callable[[], None] | None = None
         resolved_project: dict[str, Any] = {}
 
@@ -313,6 +322,7 @@ class ScriptBatchEditor:
                             candidate,
                             operation,
                             removed_items,
+                            preserve_removed_assets=index not in fresh_insert_indexes,
                         )
                     except ScriptEditError as exc:
                         raise _AbortEdit(
@@ -329,6 +339,8 @@ class ScriptBatchEditor:
                             )
                         ) from exc
                     if item_id is not None:
+                        if index in fresh_insert_indexes and isinstance(operation, InsertAfterOperation):
+                            fresh_insert_ids.add(item_id)
                         last_touch[item_id] = index
                         if item_id not in affected_ids:
                             affected_ids.append(item_id)
@@ -422,6 +434,7 @@ class ScriptBatchEditor:
                         script_file=resolved_script,
                         resource_ids=frozenset(final_ids),
                         removed_resource_ids=frozenset(affected_ids) - final_ids,
+                        replaced_resource_ids=frozenset(fresh_insert_ids),
                     )
                 except ProjectMigrationError:
                     # 项目未升级到当前数据版本，交给外层按迁移口径回执；它同时是
@@ -493,6 +506,7 @@ class ScriptBatchEditor:
         script_file: str,
         resource_ids: frozenset[str],
         removed_resource_ids: frozenset[str],
+        replaced_resource_ids: frozenset[str],
     ) -> Callable[[], None] | None:
         episode = script.get("episode")
         if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
@@ -504,6 +518,7 @@ class ScriptBatchEditor:
             artifact_path=artifact_path,
             resource_ids=tuple(sorted(resource_ids)),
             removed_resource_ids=tuple(sorted(removed_resource_ids)),
+            replaced_resource_ids=tuple(sorted(replaced_resource_ids)),
             adapter=self._manifest_adapter_factory(project_dir),
         )
 
@@ -575,6 +590,8 @@ def _apply_operation(
     script: dict[str, Any],
     operation: ScriptBatchOperation,
     removed_items: dict[str, dict[str, Any]],
+    *,
+    preserve_removed_assets: bool,
 ) -> tuple[str | None, SpeechAdmission | None, SpeechAdmission | None]:
     if isinstance(operation, UpdateOperation):
         item_id = operation.id
@@ -626,6 +643,8 @@ def _apply_operation(
             except ScriptEditError as exc:
                 raise _OperationApplyError(str(exc), location=("after_id",)) from exc
         removed = removed_items.pop(item_id, None)
+        if not preserve_removed_assets:
+            removed = None
         if removed is None:
             item["generated_assets"] = {}
             item.pop("end_frame_image", None)

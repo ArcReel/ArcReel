@@ -255,7 +255,7 @@ def test_structure_problems_block_before_every_media_step_and_point_to_atomic_ed
     assert _step(plan, "storyboard").state is WorkflowStepState.PENDING
     assert _step(plan, "video").state is WorkflowStepState.PENDING
     assert plan.next_action.type == "patch_episode_script"
-    assert plan.next_action.args["expected_revision"] == "sha256-v1:script"
+    assert plan.next_action.args["base_revision"] == "sha256-v1:script"
     assert plan.next_action.requested_ids == ["E1S01"]
 
 

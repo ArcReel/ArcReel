@@ -189,7 +189,7 @@ def _structure_action(
     return WorkflowNextAction(
         type=WorkflowActionType.PATCH_EPISODE_SCRIPT,
         args={
-            "expected_revision": script_revision,
+            "base_revision": script_revision,
             "problems": [problem.model_dump(mode="json") for problem in problems],
         },
         requested_ids=_problem_unit_ids(problems),

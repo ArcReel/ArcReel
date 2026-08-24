@@ -27,3 +27,10 @@ def test_generate_narration_audio_registered() -> None:
     from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 
     assert "generate_narration_audio" in ARCREEL_MCP_TOOL_IDS
+
+
+def test_segment_edit_tools_are_absorbed_by_patch_episode_script() -> None:
+    from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
+
+    assert "patch_episode_script" in ARCREEL_MCP_TOOL_IDS
+    assert {"insert_segment", "remove_segment", "split_segment"}.isdisjoint(ARCREEL_MCP_TOOL_IDS)
