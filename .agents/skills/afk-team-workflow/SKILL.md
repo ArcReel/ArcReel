@@ -23,7 +23,7 @@ disable-model-invocation: true
 严格串行执行各 stage：
 
 1. 从最新 `origin/main` 创建 `afk/<batch-id>/stage-<K>` 与专属 worktree，由 team-lead 独占并 push。
-2. **slot-aware dispatch**：从依赖已满足且改动面可安全并发的 frontier 按当前可用 agent slots 认领并委派，slot 释放后继续。每个 issue 使用独立 worktree：implementer 按 [implementer.md](references/implementer.md) 交付后，由未参与实现的 local-reviewer 复用该 worktree，按 [local-reviewer.md](references/local-reviewer.md) 审查并交付一个 issue commit。不同 issue 的接力可自然重叠。
+2. **slot-aware dispatch**：从依赖已满足且改动面可安全并发的 frontier 按当前可用 agent slots 认领并委派，slot 释放后继续。每个 issue 使用独立 worktree：implementer 按 [implementer.md](references/implementer.md) 交付后，由未参与实现的 local-reviewer 复用该 worktree，按 [local-reviewer.md](references/local-reviewer.md) 审查并交付一个 issue commit。不同 issue 的接力可自然重叠。**watchdog**：回收无进展 agent；确认停止后收回其写权与 slot，废弃未集成 handoff，从 remote truth 重新委派。
 3. team-lead 在 stage worktree 串行 cherry-pick 已审查的 issue commits 并 push。冲突时 abort，由原 local-reviewer 基于最新 stage branch 解决、验证并重新交付。带 `Refs #<N>` 的 commit 出现在远程 stage branch 后，该 issue 才算完成并可解锁新 frontier。
 4. 最后一个 stage 先聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且无需业务取舍的真缺陷；清尾 issue 创建后立即以 `membership` 记账并沿用同一接力，其余转呈。全部 issues 集成后收敛 **green HEAD**：stage worktree 与 remote HEAD 一致、干净且累计质量门通过；质量门产生的改动提交为 integration-fix 并 push。持续、不可用或无法修复的质量门故障记为 `fault`，暂停并询问用户。达标后创建 ready PR，用 `Closes #<N>` 覆盖本 stage issues。Spec 批次另用 `Refs #<Spec>` 引用 Spec，不自动关闭它。将 stage worktree 与 branch 的独占写权交给新 agent，按 [review-looper.md](references/review-looper.md) 收敛整个 stage diff；交接期间 team-lead 不写该 worktree 或 branch。收回写权后核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，以该 `headRefOid` 为 expected-head 执行 rebase merge；不匹配则重入审查循环。下一 stage 从最新 `origin/main` 开始。
 
@@ -35,4 +35,4 @@ disable-model-invocation: true
 
 ## 4. 收尾
 
-在 Spec issue 发布按已合并 stage 组织的人工 QA 清单，列出 PR、用户可感知的验收路径、暂停/跳过项与转呈事项；显式 issue 批次则并入收尾汇报。移除 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
+在 Spec issue 发布按已合并 stage 组织的人工 QA 清单，列出 PR、用户可感知的验收路径、暂停/跳过项与转呈事项；显式 issue 批次则并入收尾汇报。移除本批添加的 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
