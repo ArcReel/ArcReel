@@ -352,7 +352,7 @@ describe("stores", () => {
     // store 层的 projectorSource 自愈检查若拿"即将写入的新数组"和"上一次
     // 记录值"比对，二者引用恒不相等（每次 append 都会重新构造数组），会
     // 导致每次追加都重建 projector、对全部历史条目重新深拷贝——退化为
-    // O(n²) 全量重放，正是本 PR 要消除的问题。
+    // O(n²) 全量重放。
     const assistant = useAssistantStore.getState();
     assistant.resetTimeline();
     const original = globalThis.structuredClone;

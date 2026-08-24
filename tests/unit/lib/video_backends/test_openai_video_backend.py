@@ -333,8 +333,8 @@ class TestOpenAIVideoBackend:
     async def test_polls_until_completed_for_nonstandard_status(self, tmp_path: Path):
         """OpenAI 兼容网关返回非标 status（如 NOT_START / running）时，必须继续轮询直到 completed。
 
-        回归 issue：grok-imagine 走自定义供应商时，retrieve 返回 NOT_START，但 SDK 内置 poll
-        仅识别 4 种标准状态，会提前退出导致下载未就绪任务（400 Task is not completed yet）。
+        SDK 内置 poll 只识别 4 种标准状态，遇到非标状态会提前退出并下载未就绪任务
+        （400 Task is not completed yet），因此后端不得依赖它。
         """
         mock_client = AsyncMock()
         mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))

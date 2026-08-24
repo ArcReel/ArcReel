@@ -975,7 +975,7 @@ class TestMediaGenerator:
     @pytest.mark.asyncio
     async def test_video_generate_audio_defaults_true_when_config_none(self, tmp_path):
         """当 self._config is None 时，fallback 默认 True，
-        与 ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO 对齐（PR7 §11）。"""
+        与 ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO 对齐。"""
         gen = _build_generator(tmp_path)
         gen._config = None
 

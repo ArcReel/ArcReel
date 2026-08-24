@@ -185,9 +185,8 @@ class TestBuildXfadeFilterComplex:
     def test_no_semicolon_inside_audio_input_labels(self) -> None:
         """audio 输入标签之间不能出现 `;` 分隔。
 
-        旧实现用 `";".join([f"[{i}:a]"...])` 拼接成 `[0:a];[1:a];[2:a]concat=...`，
-        分号会被 ffmpeg 当作 filter chain 分隔符，导致 concat 输入参数不足报错。
-        新实现走 acrossfade 链，自然不会出现 `[N:a];[M:a]` 这种相邻片段。
+        `;` 是 ffmpeg 的 filter chain 分隔符，相邻 audio 输入标签之间出现它会切断
+        滤镜链、使下游输入参数不足而报错；音频走 acrossfade 链逐段串联即可避免。
         """
         result = compose_video._build_xfade_filter_complex([5.0, 5.0, 5.0], ["fade", "fade"], 0.5)
         assert result is not None
