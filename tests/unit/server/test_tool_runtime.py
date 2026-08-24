@@ -11,6 +11,7 @@ from server import text_generation as shared_text_generation
 from server import tool_runtime
 from server.tool_runtime import (
     CallerContext,
+    PatchEpisodeMetaRequest,
     PatchEpisodeScriptRequest,
     ProjectScope,
     Services,
@@ -22,6 +23,7 @@ from server.tool_runtime import (
     generate_step1,
     get_video_capabilities,
     get_workflow_plan,
+    patch_episode_meta,
     patch_episode_script,
 )
 
@@ -194,3 +196,30 @@ def test_text_generation_dependency_points_from_host_adapters_to_shared_handler(
     assert "server.tool_runtime" in sdk_imports
     assert "server.text_generation" in sdk_imports
     assert '"is_error"' not in shared_path.read_text(encoding="utf-8")
+
+
+async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path) -> None:
+    from lib.project_manager import ProjectManager
+
+    projects = ProjectManager(tmp_path / "projects")
+    projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "", "narration")
+    projects.save_script("demo", {"title": "旧标题", "segments": []}, "episode_1.json", validate=False)
+    services = Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities())
+
+    outcome = await patch_episode_meta(
+        ToolRequest(PatchEpisodeMetaRequest(script="episode_1.json", field="title", value=" 新标题 ")),
+        ProjectScope("demo", projects.projects_root),
+        CallerContext(user_id="u1", source="mcp"),
+        services,
+    )
+
+    assert outcome.problem is None
+    assert outcome.value is not None
+    assert outcome.value.model_dump(mode="json") == {
+        "message": "✅ 已更新分集title为「新标题」",
+        "script": "episode_1.json",
+        "field": "title",
+        "value": "新标题",
+    }
+    assert projects.load_script("demo", "episode_1.json")["title"] == "新标题"

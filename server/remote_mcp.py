@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
@@ -21,18 +21,34 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.project_manager import ProjectManager, get_project_manager
+from lib.source_revision import SourceScope
 from lib.workflow_plan import NarrationDelivery, WorkflowPlanRequest
 from server.auth import API_KEY_PREFIX, _verify_api_key
 from server.services import workflow_planner
 from server.tool_runtime import (
     CallerContext,
+    CompleteAssetInventoryRequest,
+    CompleteStep1RebuildRequest,
+    PatchEpisodeMetaRequest,
+    PatchProjectRequest,
+    PlanEpisodesRequest,
     ProjectScope,
+    RenameAssetRequest,
+    ResetEpisodePlanningRequest,
     Services,
     ToolOutcome,
     ToolProblem,
     ToolRequest,
+    complete_asset_inventory,
+    complete_step1_rebuild,
     get_video_capabilities,
     get_workflow_plan,
+    patch_episode_meta,
+    patch_project,
+    plan_episodes,
+    rename_asset,
+    reset_episode_planning,
+    retry_project_migration,
 )
 
 _LOCAL_HOSTS = ["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*", "[::1]", "[::1]:*"]
@@ -68,7 +84,7 @@ def _csv_env(name: str, default: list[str]) -> list[str]:
 
 def _to_mcp_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallToolResult:
     if outcome.problem is not None:
-        structured = {"problem": {"code": outcome.problem.code, "detail": outcome.problem.detail}}
+        structured = {"problem": outcome.problem.model_dump(mode="json")}
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(structured, ensure_ascii=False))],
             structuredContent=structured,
@@ -159,6 +175,119 @@ def build_remote_mcp_server(
             return _to_mcp_result("video_capabilities", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         return _to_mcp_result(
             "video_capabilities", await get_video_capabilities(ToolRequest(None), scope, caller, services)
+        )
+
+    @server.tool(name="plan_episodes", structured_output=False)
+    async def remote_plan_episodes(project: str, instructions: str | None = None) -> CallToolResult:
+        """Plan the next source window for one explicit project."""
+        try:
+            scope = _project_scope(project, projects)
+            request = PlanEpisodesRequest(instructions=instructions)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("episode_plan", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result("episode_plan", await plan_episodes(ToolRequest(request), scope, caller, services))
+
+    @server.tool(name="reset_episode_planning", structured_output=False)
+    async def remote_reset_episode_planning(
+        project: str, from_episode: int, confirm_consumed: bool = False
+    ) -> CallToolResult:
+        """Reset episode planning from one episode while preserving transactional safeguards."""
+        try:
+            scope = _project_scope(project, projects)
+            request = ResetEpisodePlanningRequest(from_episode=from_episode, confirm_consumed=confirm_consumed)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("episode_reset", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result(
+            "episode_reset", await reset_episode_planning(ToolRequest(request), scope, caller, services)
+        )
+
+    @server.tool(name="patch_project", structured_output=False)
+    async def remote_patch_project(
+        project: str,
+        table: str | None = None,
+        entries: dict[str, Any] | None = None,
+        settings: dict[str, Any] | None = None,
+        overview: dict[str, Any] | None = None,
+    ) -> CallToolResult:
+        """Atomically patch project assets, settings, or overview for one explicit project."""
+        try:
+            scope = _project_scope(project, projects)
+            request = PatchProjectRequest(table=table, entries=entries, settings=settings, overview=overview)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("project_patch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result("project_patch", await patch_project(ToolRequest(request), scope, caller, services))
+
+    @server.tool(name="patch_episode_meta", structured_output=False)
+    async def remote_patch_episode_meta(
+        project: str, script: str, field: Literal["title"], value: str
+    ) -> CallToolResult:
+        """Atomically patch episode-level metadata for one explicit project."""
+        try:
+            scope = _project_scope(project, projects)
+            request = PatchEpisodeMetaRequest(script=script, field=field, value=value)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("episode_meta_patch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result(
+            "episode_meta_patch", await patch_episode_meta(ToolRequest(request), scope, caller, services)
+        )
+
+    @server.tool(name="rename_asset", structured_output=False)
+    async def remote_rename_asset(project: str, table: str, old_name: str, new_name: str) -> CallToolResult:
+        """Transactionally rename an asset and all project-local references."""
+        try:
+            scope = _project_scope(project, projects)
+            request = RenameAssetRequest(table=table, old_name=old_name, new_name=new_name)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("asset_rename", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result("asset_rename", await rename_asset(ToolRequest(request), scope, caller, services))
+
+    @server.tool(name="retry_project_migration", structured_output=False)
+    async def remote_retry_project_migration(project: str) -> CallToolResult:
+        """Retry the project migration chain and return the current workflow plan."""
+        try:
+            scope = _project_scope(project, projects)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("migration_retry", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
+        return _to_mcp_result(
+            "migration_retry", await retry_project_migration(ToolRequest(None), scope, caller, services)
+        )
+
+    @server.tool(name="complete_asset_inventory", structured_output=False)
+    async def remote_complete_asset_inventory(
+        project: str,
+        scope: SourceScope,
+        expected_source_revision: str,
+        entries: dict[str, Any] | None = None,
+    ) -> CallToolResult:
+        """Atomically commit an asset inventory against a source revision."""
+        try:
+            project_scope = _project_scope(project, projects)
+            request = CompleteAssetInventoryRequest(
+                scope=scope,
+                expected_source_revision=expected_source_revision,
+                entries=entries,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("asset_inventory", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result(
+            "asset_inventory",
+            await complete_asset_inventory(ToolRequest(request), project_scope, caller, services),
+        )
+
+    @server.tool(name="complete_step1_rebuild", structured_output=False)
+    async def remote_complete_step1_rebuild(
+        project: str, episode: int, expected_stale_step1_revision: str | None
+    ) -> CallToolResult:
+        """Record completion of a stale step1 rebuild using its expected revision."""
+        try:
+            scope = _project_scope(project, projects)
+            request = CompleteStep1RebuildRequest(
+                episode=episode, expected_stale_step1_revision=expected_stale_step1_revision
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("step1_rebuild", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result(
+            "step1_rebuild", await complete_step1_rebuild(ToolRequest(request), scope, caller, services)
         )
 
     return server

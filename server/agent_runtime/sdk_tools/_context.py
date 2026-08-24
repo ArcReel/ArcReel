@@ -75,13 +75,12 @@ def tool_services(ctx: ToolContext) -> Services:
 def tool_outcome_response(domain_key: str, outcome: ToolOutcome[Any]) -> dict[str, Any]:
     """Encode a host-independent outcome into the subset the Claude SDK preserves."""
     if outcome.problem is not None:
-        problem = outcome.problem
-        text = (
-            json.dumps({"error": problem.code, "detail": problem.detail}, ensure_ascii=False)
-            if problem.code == "invalid_request"
-            else problem.detail
-        )
-        return {"content": [{"type": "text", "text": text}], "is_error": True}
+        payload = outcome.problem.model_dump(mode="json")
+        return {
+            "content": [{"type": "text", "text": json.dumps({"problem": payload}, ensure_ascii=False)}],
+            "is_error": True,
+            "problem": payload,
+        }
     value = outcome.value
     if isinstance(value, BaseModel):
         payload = value.model_dump(mode="json")

@@ -178,14 +178,14 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     assert blocked["problem"]["code"] == MIGRATION_FAILURE_CODE
     assert blocked["problem"]["params"]["details"][0]["episode"] == 1
     assert blocked["problem"]["params"]["details"][0]["file"] == "scripts/episode_1.json"
-    assert json.loads(blocked["content"][0]["text"].split("\n", 1)[1]) == blocked["problem"]
+    assert json.loads(blocked["content"][0]["text"])["problem"] == blocked["problem"]
 
     _repair_episode_script(project_dir)
     unblocked = await handler({})
 
     assert unblocked.get("is_error") is not True
     assert load_migration_failure(project_dir) is None
-    assert unblocked["workflow_plan"]["status"]["blockers"] == []
+    assert json.loads(unblocked["content"][0]["text"])["migration_retry"]["workflow_plan"]["status"]["blockers"] == []
 
 
 def _assert_list_pending_assets_unblocked(unblocked: dict, ctx: ToolContext) -> None:
