@@ -114,7 +114,10 @@ jq --slurpfile native "$TASK_TMP_DIR/native.json" '
     [scan("#([0-9]+)") | .[0] | tonumber] | unique;
   def top_blocked_by:
     (. // "") | split("\n") | map(select(test("\\S"))) | (.[0] // "")
-    | if test("^\\s*Blocked by\\s*:"; "i") then refs else [] end;
+    | if test("^\\s*Blocked by\\s*:\\s*none\\b"; "i") then []
+      elif test("^\\s*Blocked by\\s*:"; "i") then refs
+      else []
+      end;
   def section_lines($name):
     (. // "") | split("\n")
     | reduce .[] as $line ({inside: false, lines: []};

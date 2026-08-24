@@ -7,4 +7,4 @@
 3. 以 remote truth 续接：merged stage 进入下一 stage；open PR 从其远程 HEAD 重建 stage worktree并续接 review loop；其余从远程 stage branch 的 `Refs #<N>` commits 得到已完成 issues，远程没有的改动均视为未完成。
 4. 前任 transcript 中的合并授权不可继承；新 team-lead 在首次合并前重新请求未完成 stage 的授权。
 
-用户选择重开时，关闭在途 stage PR，停止本批 agents，清理本批 workspace / worktrees / branches，append `closed`，然后使用新 `batch-id`。
+用户选择重开时，关闭在途 stage PR，停止本批 agents，释放本批添加的 issue assignees，清理本批 workspace / worktrees / branches，append `closed`，然后使用新 `batch-id`。

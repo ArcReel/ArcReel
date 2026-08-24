@@ -23,7 +23,8 @@ gh() {
       ],
       [
         {number: 3, title: "fallback", state: "open", state_reason: null, labels: [], assignees: [], body: "Blocked by: #9"},
-        {number: 4, title: "legacy", state: "open", state_reason: null, labels: [], assignees: [], body: "## Blocked by\n#1"}
+        {number: 4, title: "legacy", state: "open", state_reason: null, labels: [], assignees: [], body: "## Blocked by\n#1"},
+        {number: 5, title: "none", state: "open", state_reason: null, labels: [], assignees: [], body: "Blocked by: None — related context #41"}
       ]
     ]'
     return
@@ -34,7 +35,7 @@ gh() {
     [[ " $* " == *" --slurp "* ]]
     case "$2" in
       */issues/2/*) jq -nc '[[{number: 1}], [{number: 9}]]' ;;
-      */issues/3/*|*/issues/4/*)
+      */issues/3/*|*/issues/4/*|*/issues/5/*)
         echo 'gh: Not Found (HTTP 404)' >&2
         return 1
         ;;
@@ -65,9 +66,10 @@ jq -e '
     {number: 1, blocked_by: [], blockers_completed: true},
     {number: 2, blocked_by: [1, 9], blockers_completed: false},
     {number: 3, blocked_by: [9], blockers_completed: true},
-    {number: 4, blocked_by: [1], blockers_completed: false}
+    {number: 4, blocked_by: [1], blockers_completed: false},
+    {number: 5, blocked_by: [], blockers_completed: true}
   ]
-  and .initial_frontier == [1, 3]
+  and .initial_frontier == [1, 3, 5]
 ' <<<"$OUTPUT" >/dev/null
 
 if NATIVE_ERROR=1 bash "$SCRIPT_DIR/batch-poll.sh" --repo-root "$TMP_ROOT" --spec 99 \
