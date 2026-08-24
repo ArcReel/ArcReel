@@ -1,6 +1,6 @@
 # Local reviewer 契约
 
-你以干净上下文复用 implementer 的 worktree 审查一个 issue，向 team-lead 交付一个可集成的 commit。
+你复用 implementer 的 worktree 审查一个 issue，向 team-lead 交付一个可集成的 commit。
 
 输入：issue、worktree、issue branch、stage branch、起始 SHA、handoff 绝对路径。
 
