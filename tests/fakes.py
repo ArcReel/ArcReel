@@ -429,7 +429,8 @@ class FakeConfigResolver:
         self.capability_calls: list[str | None] = []
         self.project_names: list[str | None] = []
         self.image_capability_calls: list[str | None] = []
-        self.generate_audio_calls: list[dict[str, Any] | str | None] = []
+        self.generate_audio_calls: list[dict[str, Any] | None] = []
+        self.generate_audio_project_names: list[str | None] = []
         self.reference_limits_calls: list[str | None] = []
 
     def caps_for(self, capability: str | None = None) -> dict[str, Any]:
@@ -476,8 +477,12 @@ class FakeConfigResolver:
         return bool(self._base["requested_generate_audio"])
 
     async def video_generate_audio(self, project_name: str | None = None) -> bool:
-        """生产同名读点（按项目名）：与 ``video_generate_audio_for_project`` 共享同一份配置值。"""
-        self.generate_audio_calls.append(project_name)
+        """生产同名读点（按项目名）：与 ``video_generate_audio_for_project`` 共享同一份配置值。
+
+        两个读点各记各的入参（本读点收项目名、按 project 的那个收 project dict），
+        record 列表不合并，免得用例的等值断言被另一条路径的调用串味。
+        """
+        self.generate_audio_project_names.append(project_name)
         if self._generate_audio_error is not None:
             raise self._generate_audio_error
         return bool(self._base["requested_generate_audio"])

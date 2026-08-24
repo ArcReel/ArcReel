@@ -406,7 +406,7 @@ class TestOpenAIVideoBackend:
         assert retrieved == ["vid_123"]
         assert output_path.read_bytes() == b"v"
 
-    async def test_first_retrieve_failed_skips_polling(self, tmp_path: Path):
+    async def test_first_retrieve_failed_raises_before_sleep(self, tmp_path: Path):
         """首次 retrieve 即返回 failed 时直接抛错：poll_with_retry 首查经 is_failed 判定即抛，不落入 sleep。"""
         err = MagicMock()
         err.message = "moderation rejected"
