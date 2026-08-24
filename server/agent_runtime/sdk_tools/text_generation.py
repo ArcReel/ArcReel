@@ -1,9 +1,4 @@
-"""SDK MCP tools for text generation (script + normalization) and capability queries.
-
-`get_video_capabilities` ships in this module because it shares the same
-`ConfigResolver.video_capabilities` plumbing as ``normalize_drama_script``;
-keeping them together avoids a one-tool stub file.
-"""
+"""SDK MCP adapters for text generation and video capability queries."""
 
 from __future__ import annotations
 
@@ -91,7 +86,10 @@ from server.agent_runtime.sdk_tools._context import (
     reference_unit_duration_tiers,
     resolve_video_caps,
     tool_error,
+    tool_outcome_response,
+    tool_services,
 )
+from server.tool_runtime import ToolRequest, get_video_capabilities
 
 # 四个分集数据生成工具共用的 instructions 参数 schema：用户意见原样注入 prompt 末尾的
 # 「用户意见」分节，遵循强度由正文表达（需要强约束时在正文写明）。
@@ -197,51 +195,10 @@ def _load_step1_source_with_basis(
 # get_video_capabilities
 # ---------------------------------------------------------------------------
 
-# 本模块的能力查询函数（``_resolve_video_capabilities`` / ``_fetch_caps_with_fallback`` /
-# ``_fetch_reference_caps_with_fallback`` 及 ``_context`` 的 ``resolve_video_caps`` /
+# 本模块的能力查询函数（``_fetch_caps_with_fallback`` / ``_fetch_reference_caps_with_fallback``
+# 及 ``_context`` 的 ``resolve_video_caps`` /
 # ``fetch_video_caps``）未注入解析器时一律省略 ``config_resolver`` 关键字，不传 ``None``：
 # 这些符号会被整体替换为不接受该关键字的替身，调用形状须与不带该关键字的签名兼容。
-
-
-async def _resolve_video_capabilities(
-    project_name: str,
-    *,
-    config_resolver: ConfigResolver | None = None,
-) -> dict[str, Any]:
-    resolver = config_resolver or ConfigResolver(async_session_factory)
-    return await resolver.video_capabilities(project_name)
-
-
-async def _annotate_reference_unit_tiers(
-    payload: dict[str, Any],
-    project: dict[str, Any],
-    *,
-    config_resolver: ConfigResolver | None = None,
-) -> None:
-    """就地补上参考生视频路径逐 unit 的两套生效档位（非该路径的项目不补）。
-
-    ``supported_durations`` 是型号声明的全集，不含「分辨率↔时长」「参考图↔时长」两条联动约束。
-    参考路径的 unit 时长就是发给供应商的那个值，手工改 step1 时照全集取值会写出执行期申请不到
-    的秒数——故把服务端拆分工具用的同两套档位一并返回，让改写方与生成方对同一份数字。
-
-    ad 例外：该路径的 unit 是从广告分镜派生的轻量索引、时长不受档位枚举管辖，返回这
-    两套档位只会诱导按剧集路径的口径去改 ad 分镜。
-    """
-    if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
-        return
-    durations = [int(d) for d in payload.get("supported_durations") or []]
-    if not durations:
-        return
-    with_refs, without_refs = await reference_unit_duration_tiers(
-        project,
-        payload,
-        durations,
-        config_resolver=config_resolver,
-    )
-    payload["reference_unit_durations"] = {
-        "with_references": with_refs,
-        "without_references": without_refs,
-    }
 
 
 def get_video_capabilities_tool(ctx: ToolContext):
@@ -253,33 +210,8 @@ def get_video_capabilities_tool(ctx: ToolContext):
         {"type": "object", "properties": {}},
     )
     async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
-        try:
-            if ctx.config_resolver is None:
-                payload = await _resolve_video_capabilities(ctx.project_name)
-                await _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
-            else:
-                payload = await _resolve_video_capabilities(
-                    ctx.project_name,
-                    config_resolver=ctx.config_resolver,
-                )
-                await _annotate_reference_unit_tiers(
-                    payload,
-                    ctx.pm.load_project(ctx.project_name),
-                    config_resolver=ctx.config_resolver,
-                )
-            return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
-        except FileNotFoundError as exc:
-            return {
-                "content": [{"type": "text", "text": f"项目未找到或缺 project.json: {exc}"}],
-                "is_error": True,
-            }
-        except ValueError as exc:
-            return {
-                "content": [{"type": "text", "text": f"无法解析视频模型能力: {exc}"}],
-                "is_error": True,
-            }
-        except Exception as exc:  # noqa: BLE001
-            return tool_error("get_video_capabilities", exc)
+        outcome = await get_video_capabilities(ToolRequest(None), ctx.scope, ctx.caller, tool_services(ctx))
+        return tool_outcome_response("video_capabilities", outcome)
 
     return _handler
 

@@ -17,12 +17,105 @@ from lib.config.resolver import (
     VideoBucketCapabilityError,
     VideoCapability,
     builtin_video_audio_track,
+    constrain_durations_for_project,
 )
 from lib.db import async_session_factory
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.video_backends.base import VideoAudioMode
 
 logger = logging.getLogger(__name__)
+
+
+async def resolve_video_caps(
+    project: dict,
+    *,
+    capability: VideoCapability | None = None,
+    config_resolver: ConfigResolver | None = None,
+) -> dict:
+    """Resolve full model capabilities from an already loaded project."""
+    resolver = config_resolver or ConfigResolver(async_session_factory)
+    return await resolver.video_capabilities_for_project(project, capability=capability)
+
+
+def constrained_caps_durations(
+    project: dict,
+    caps: dict,
+    durations: list[int],
+    *,
+    generation_mode: str | None,
+    uses_reference_images: bool | None = None,
+) -> list[int]:
+    """Apply model duration linkage constraints to a caller-selected duration set."""
+    return constrain_durations_for_project(
+        project,
+        durations,
+        provider_id=caps.get("provider_id"),
+        model_id=caps.get("model"),
+        generation_mode=generation_mode,
+        uses_reference_images=uses_reference_images,
+    )
+
+
+async def reference_unit_duration_tiers(
+    project: dict,
+    caps: dict,
+    durations: list[int],
+    *,
+    config_resolver: ConfigResolver | None = None,
+) -> tuple[list[int], list[int]]:
+    """Return effective duration tiers for units with and without reference images.
+
+    Reference-video units without references execute through the i2v capability
+    bucket. If that bucket cannot be resolved, the main r2v bucket remains the
+    soft fallback so capability annotations never block the creative flow.
+    """
+    with_references = constrained_caps_durations(
+        project, caps, durations, generation_mode="reference_video", uses_reference_images=True
+    )
+    i2v_caps, i2v_durations = caps, durations
+    try:
+        if config_resolver is None:
+            resolved = await resolve_video_caps(project, capability="i2v")
+        else:
+            resolved = await resolve_video_caps(project, capability="i2v", config_resolver=config_resolver)
+        resolved_durations = [int(d) for d in resolved.get("supported_durations") or []]
+        if resolved_durations:
+            i2v_caps, i2v_durations = resolved, resolved_durations
+    except (ValueError, SQLAlchemyError) as exc:
+        logger.info("i2v 桶能力不可解析，不带图档位回退按 r2v 桶求值：%s", exc)
+    without_references = constrained_caps_durations(
+        project, i2v_caps, i2v_durations, generation_mode="reference_video", uses_reference_images=False
+    )
+    return with_references, without_references
+
+
+async def annotate_reference_unit_tiers(
+    payload: dict,
+    project: dict,
+    *,
+    config_resolver: ConfigResolver | None = None,
+) -> None:
+    """Add effective duration tiers only for episode reference-video units.
+
+    ``supported_durations`` remains the model-declared full set. The annotation
+    gives script authors the narrower execution tiers for units with and without
+    references; ad projects do not use this duration enumeration.
+    """
+    if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
+        return
+    durations = [int(d) for d in payload.get("supported_durations") or []]
+    if not durations:
+        return
+    with_refs, without_refs = await reference_unit_duration_tiers(
+        project,
+        payload,
+        durations,
+        config_resolver=config_resolver,
+    )
+    payload["reference_unit_durations"] = {
+        "with_references": with_refs,
+        "without_references": without_refs,
+    }
 
 
 async def project_video_caps(

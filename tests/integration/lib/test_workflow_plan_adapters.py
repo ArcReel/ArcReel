@@ -87,7 +87,11 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
     }
 
     ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
-    mcp_result = await get_workflow_plan_tool(ctx).handler(payload)
+    sdk_tool = get_workflow_plan_tool(ctx)
+    assert sdk_tool.name == "get_workflow_plan"
+    assert isinstance(sdk_tool.input_schema, dict)
+    assert "project" not in sdk_tool.input_schema["properties"]
+    mcp_result = await sdk_tool.handler(payload)
     mcp_body = json.loads(mcp_result["content"][0]["text"])
 
     app = FastAPI()
@@ -97,7 +101,7 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
         response = client.post("/api/v1/projects/demo/workflow-plan", json=payload)
 
     assert response.status_code == 200
-    assert response.json() == mcp_body
+    assert mcp_body == {"workflow_plan": response.json()}
     assert planner.calls == [
         ("demo", WorkflowPlanRequest.model_validate(payload)),
         ("demo", WorkflowPlanRequest.model_validate(payload)),

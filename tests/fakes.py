@@ -428,6 +428,7 @@ class FakeConfigResolver:
         self._reference_payload_limits = reference_payload_limits
         self.capability_calls: list[str | None] = []
         self.project_names: list[str | None] = []
+        self.project_payloads: list[dict[str, Any]] = []
         self.image_capability_calls: list[str | None] = []
         self.generate_audio_calls: list[dict[str, Any] | None] = []
         self.generate_audio_project_names: list[str | None] = []
@@ -451,7 +452,7 @@ class FakeConfigResolver:
         *,
         capability: str | None = None,
     ) -> dict[str, Any]:
-        del project
+        self.project_payloads.append(project)
         return self._resolve(capability)
 
     async def resolve_image_backend(
