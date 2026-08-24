@@ -11,7 +11,7 @@ disable-model-invocation: true
 ## 1. 计划批次
 
 1. 生成唯一 `batch-id`：Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 位随机十六进制>`，显式 issue 批次用同格式的简短 slug。若 `.afk/` 已有同一范围且未 `closed` 的账本，暂停并让用户选择接管或重开；两者均先读 [recovery.md](references/recovery.md)。
-2. 运行 `scripts/batch-poll.sh`，然后逐个通读 issue 正文与评论，得到真实的验收边界、依赖图、triage 与认领状态。只有 `OPEN` issue 可进入 stage 与 PR `Closes` 清单；其中 `ready-for-agent`、无他人认领且 blockers 已完成的 issue 进入 frontier，无标签时按语义裁决。`ready-for-human` 及其被阻塞下游不进入 frontier。
+2. 按批次运行 `scripts/batch-poll.sh --repo-root <repo-root> --spec <N>` 或 `--issues <N,...>`，然后逐个通读 issue 正文与评论，得到真实的验收边界、依赖图、triage 与认领状态。只有 `OPEN` issue 可进入 stage 与 PR `Closes` 清单；其中 `ready-for-agent`、无他人认领且 blockers 已完成的 issue 进入 frontier，无标签时按语义裁决。`ready-for-human` 及其被阻塞下游不进入 frontier。
 3. 将依赖图划成**最少的、可独立审查和合入的交付 stage**；小批次保持单 stage。按 [model-selection.md](references/model-selection.md) 为各角色选模型。
 4. 向用户展示 stage、依赖、模型理由、跳过项及下游影响，并一次性请求：全部 stage PR 的 rebase merge 授权；最终清尾轮中对符合范围的真缺陷自行立 issue 的授权。未授权的清尾候选只转呈。
 5. 用 `scripts/ledger.sh` 创建薄账本，记录 scope、计划裁决与授权；账本只记 Git / GitHub 无法重推的事实。
