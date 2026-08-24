@@ -38,9 +38,12 @@ _NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
 async def test_get_video_capabilities_happy(fake_ctx: ToolContext) -> None:
     _use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     tool_obj = get_video_capabilities_tool(fake_ctx)
+    assert tool_obj.name == "get_video_capabilities"
+    assert isinstance(tool_obj.input_schema, dict)
+    assert "project" not in tool_obj.input_schema["properties"]
     out = await _call(tool_obj, {})
     assert out.get("is_error") is not True
-    assert json.loads(out["content"][0]["text"])["provider_id"] == "fake"
+    assert json.loads(out["content"][0]["text"])["video_capabilities"]["provider_id"] == "fake"
 
 
 async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext) -> None:
@@ -49,7 +52,7 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext)
     tool_obj = get_video_capabilities_tool(fake_ctx)
     assert (await _call(tool_obj, {})).get("is_error") is not True
     assert (await _call(tool_obj, {"episode": 3})).get("is_error") is not True
-    assert resolver.project_names == [fake_ctx.project_name, fake_ctx.project_name]
+    assert resolver.capability_calls == [None, None]
 
 
 async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext) -> None:
@@ -67,7 +70,7 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
     )
     out = await _call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
-    payload = json.loads(out["content"][0]["text"])
+    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
     assert payload["reference_unit_durations"] == {"with_references": [8], "without_references": [4, 6, 8]}
     # 全集原样保留：它是型号声明，不是生效档位
     assert payload["supported_durations"] == [4, 6, 8]
@@ -90,27 +93,20 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
         content_mode=content_mode,
     )
     out = await _call(get_video_capabilities_tool(fake_ctx), {})
-    assert "reference_unit_durations" not in json.loads(out["content"][0]["text"])
+    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
+    assert "reference_unit_durations" not in payload
 
 
-async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: ToolContext, monkeypatch) -> None:
-    """Agent 工具与 REST 能力查询走同一个解析入口 ``ConfigResolver.video_capabilities``。
+async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: ToolContext) -> None:
+    """Agent 工具把闭包项目交给 ``ConfigResolver.video_capabilities_for_project``。
 
-    两侧各自解析会让 Agent 写剧本时看到的时长 / 参考图上限与界面显示的不是同一个模型。
+    解析器不按项目名回到全局项目目录，非默认 projects_root 的会话也读取闭包里的项目。
     """
-    from lib.config.resolver import ConfigResolver
-
-    seen: list[str] = []
-
-    async def fake_video_capabilities(_self, project_name=None, episode=None):
-        seen.append(project_name)
-        return {"provider_id": "kling", "model": "kling-v3-omni", "supported_durations": [5]}
-
-    monkeypatch.setattr(ConfigResolver, "video_capabilities", fake_video_capabilities)
+    resolver = _use_fake_caps(fake_ctx, provider_id="kling", model="kling-v3-omni", supported_durations=[5])
     out = await _call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
-    assert json.loads(out["content"][0]["text"])["model"] == "kling-v3-omni"
-    assert seen == [fake_ctx.project_name]
+    assert json.loads(out["content"][0]["text"])["video_capabilities"]["model"] == "kling-v3-omni"
+    assert resolver.project_payloads == [fake_ctx.pm.project_payload]  # type: ignore[attr-defined]
 
 
 async def test_get_video_capabilities_error(fake_ctx: ToolContext) -> None:
