@@ -21,10 +21,8 @@ from lib.project_migrations.runner import migrate_project_dir
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.script_preview import WARN_UNREGISTERED_MENTION
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.patch_script import (
-    get_episode_script_revision_tool,
-    patch_episode_script_tool,
-)
+from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
+from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import fake_reference_request_projector
@@ -87,11 +85,12 @@ class _Acceptance:
         return resp.json()["unit"]
 
     async def patch_body_over_agent_tool(self, text: str, unit_id: str = _UNIT_ID) -> dict[str, Any]:
-        revision = await get_episode_script_revision_tool(self.tool_ctx).handler({"script": _SCRIPT_FILE})
+        read = await get_episode_script_tool(self.tool_ctx).handler({"script": _SCRIPT_FILE})
+        revision = json.loads(read["content"][0]["text"])["episode_script"]["revision"]
         output = await patch_episode_script_tool(self.tool_ctx).handler(
             {
                 "script": _SCRIPT_FILE,
-                "base_revision": revision["revision"],
+                "base_revision": revision,
                 "operations": [{"op": "update", "id": unit_id, "fields": {"text": text}}],
             }
         )

@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
+import json
 import math
+import os
+import re
+import stat
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -23,6 +28,17 @@ from lib.asset_inventory import (
 )
 from lib.asset_types import ASSET_SPECS
 from lib.config.resolver import ConfigResolver
+from lib.content_digest import prefixed, prefixed_canonical_json_digest
+from lib.episode_paths import (
+    DRAMA_STEP1_QUARANTINE_FILENAME,
+    NARRATION_STEP1_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_STEP1_FILENAME,
+    REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
+    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+    REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+    STEP1_FILENAMES,
+    STEP1_LEGACY_FILENAMES,
+)
 from lib.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
 from lib.episode_reset import (
     EpisodeResetError,
@@ -32,8 +48,9 @@ from lib.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
 from lib.generation_result import migration_problem
+from lib.path_safety import safe_join
 from lib.project_manager import ProjectManager, is_reference_video_project
-from lib.project_migration_failure import MigrationFailureRecord, load_migration_failure
+from lib.project_migration_failure import MIGRATION_FAILURE_CODE, MigrationFailureRecord, load_migration_failure
 from lib.project_migration_guard import project_migration_failure
 from lib.project_migrations import migrate_project_with_verdict
 from lib.script_batch_edit import (
@@ -52,7 +69,7 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
-from lib.script_review import Step1RebuildCompletionError, complete_stale_step1_rebuild
+from lib.script_review import Step1RebuildCompletionError, complete_stale_step1_rebuild, step1_kind
 from lib.source_revision import SourceScope
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import WorkflowRequestError
@@ -244,6 +261,339 @@ async def confirm_script_review(
             config_resolver=services.capabilities,
         ),
     )
+
+
+class ProjectContent(BaseModel):
+    revision: str
+    project: dict[str, Any]
+
+
+class EpisodeScriptContent(BaseModel):
+    revision: str
+    script_filename: str
+    script: dict[str, Any]
+
+
+class ProjectFileEntry(BaseModel):
+    path: str
+    size: int
+    etag: str
+
+
+class SourceFilesContent(BaseModel):
+    revision: str
+    files: list[ProjectFileEntry]
+
+
+class SourceTextContent(BaseModel):
+    revision: str
+    etag: str
+    path: str
+    text: str
+
+
+class Step1Content(BaseModel):
+    revision: str
+    etag: str
+    episode: int
+    path: str
+    content: Any
+
+
+class ProjectFilesContent(BaseModel):
+    revision: str
+    files: list[ProjectFileEntry]
+
+
+class ProjectFileContent(BaseModel):
+    revision: str
+    etag: str
+    path: str
+    content: Any
+
+
+_EPISODE_DIR_RE = re.compile(r"episode_[1-9][0-9]*\Z")
+BUSINESS_FILE_MAX_BYTES = 50 * 1024 * 1024
+_STEP1_BUSINESS_FILENAMES = frozenset(
+    {
+        *STEP1_FILENAMES.values(),
+        *(name for names in STEP1_LEGACY_FILENAMES.values() for name in names),
+        REFERENCE_VIDEO_STEP1_FILENAME,
+        REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
+        DRAMA_STEP1_QUARANTINE_FILENAME,
+        NARRATION_STEP1_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
+        REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME,
+    }
+)
+
+
+def _business_path_parts(value: str) -> tuple[str, ...]:
+    if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
+        raise ValueError("path 必须是项目内业务文件的 POSIX 相对路径")
+    pure = PurePosixPath(value)
+    parts = pure.parts
+    if pure.is_absolute() or ".." in parts or any(part.startswith(".") for part in parts):
+        raise ValueError("path 不在业务文件白名单内")
+    allowed = (
+        parts == ("project.json",)
+        or (len(parts) == 2 and parts[0] == "source" and pure.suffix.lower() in {".txt", ".md"})
+        or (len(parts) == 2 and parts[0] == "scripts" and pure.suffix.lower() == ".json")
+        or (
+            len(parts) == 3
+            and parts[0] == "drafts"
+            and _EPISODE_DIR_RE.fullmatch(parts[1]) is not None
+            and parts[2] in _STEP1_BUSINESS_FILENAMES
+        )
+    )
+    if not allowed:
+        raise ValueError("path 不在业务文件白名单内")
+    return parts
+
+
+def _resolve_business_file(project_dir: Path, relative: str) -> Path:
+    parts = _business_path_parts(relative)
+    lexical = project_dir
+    for part in parts:
+        lexical /= part
+        if lexical.is_symlink():
+            raise ValueError("symbolic links are not allowed")
+    return safe_join(project_dir, *parts, require_file=True)
+
+
+class _BusinessFileTooLargeError(ValueError):
+    pass
+
+
+def _read_business_file(project_dir: Path, relative: str) -> tuple[bytes, Path]:
+    parts = _business_path_parts(relative)
+    path = project_dir.joinpath(*parts)
+    if os.open not in os.supports_dir_fd:
+        resolved = _resolve_business_file(project_dir, relative)
+        with resolved.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            current = os.lstat(resolved)
+            if not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(current.st_mode):
+                raise ValueError("path 必须指向普通文件")
+            if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+                raise ValueError("path 在安全校验后发生变化")
+            raw = handle.read(BUSINESS_FILE_MAX_BYTES + 1)
+    else:
+        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        directory_fd = os.open(project_dir, directory_flags)
+        try:
+            for part in parts[:-1]:
+                child_fd = os.open(part, directory_flags, dir_fd=directory_fd)
+                os.close(directory_fd)
+                directory_fd = child_fd
+            file_fd = os.open(parts[-1], os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory_fd)
+            try:
+                if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                    raise ValueError("path 必须指向普通文件")
+                with os.fdopen(file_fd, "rb", closefd=False) as handle:
+                    raw = handle.read(BUSINESS_FILE_MAX_BYTES + 1)
+            finally:
+                os.close(file_fd)
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise ValueError("path 必须指向无 symlink 的普通文件") from exc
+        finally:
+            os.close(directory_fd)
+    if len(raw) > BUSINESS_FILE_MAX_BYTES:
+        raise _BusinessFileTooLargeError(f"文件超过 {BUSINESS_FILE_MAX_BYTES} 字节读取上限")
+    return raw, path
+
+
+def _decode_business_file(project_dir: Path, relative: str) -> tuple[Any, str, str, int]:
+    raw, path = _read_business_file(project_dir, relative)
+    etag = prefixed(hashlib.sha256(raw).hexdigest())
+    text = raw.decode("utf-8")
+    if path.suffix.lower() == ".json":
+        content = json.loads(text)
+        revision = prefixed_canonical_json_digest(content)
+    else:
+        content = text
+        revision = etag
+    return content, revision, etag, len(raw)
+
+
+def _business_file_entries(project_dir: Path) -> list[ProjectFileEntry]:
+    candidates = [project_dir / "project.json"]
+    for dirname in ("source", "scripts"):
+        directory = project_dir / dirname
+        if directory.is_dir() and not directory.is_symlink():
+            candidates.extend(directory.iterdir())
+    drafts = project_dir / "drafts"
+    if drafts.is_dir() and not drafts.is_symlink():
+        for episode_dir in drafts.iterdir():
+            if episode_dir.is_dir() and not episode_dir.is_symlink() and _EPISODE_DIR_RE.fullmatch(episode_dir.name):
+                candidates.extend(episode_dir.iterdir())
+
+    entries: list[ProjectFileEntry] = []
+    for candidate in candidates:
+        try:
+            relative = candidate.relative_to(project_dir).as_posix()
+            raw, _path = _read_business_file(project_dir, relative)
+            etag = prefixed(hashlib.sha256(raw).hexdigest())
+            size = len(raw)
+        except (FileNotFoundError, OSError, TypeError, ValueError):
+            continue
+        entries.append(ProjectFileEntry(path=relative, size=size, etag=etag))
+    return sorted(entries, key=lambda entry: entry.path)
+
+
+def _file_problem(name: str, exc: BaseException) -> ToolProblem:
+    if isinstance(exc, FileNotFoundError):
+        return ToolProblem("file_not_found", f"{name} 文件不存在")
+    if isinstance(exc, (json.JSONDecodeError, UnicodeError)):
+        return ToolProblem("invalid_content", f"{name} 文件不是有效的 UTF-8 JSON/文本")
+    if isinstance(exc, _BusinessFileTooLargeError):
+        return ToolProblem("file_too_large", str(exc))
+    if isinstance(exc, (TypeError, ValueError)):
+        return ToolProblem("unsafe_path", str(exc))
+    return ToolProblem("internal_error", f"{name} 失败: {exc}")
+
+
+async def get_project_content(
+    _request: ToolRequest[None],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[ProjectContent]:
+    try:
+        project = services.projects.load_project_readonly(scope.project_name)
+    except FileNotFoundError as exc:
+        return ToolOutcome(problem=ToolProblem("project_not_found", f"项目未找到或缺 project.json: {exc}"))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"get_project_content 失败: {exc}"))
+    return ToolOutcome(value=ProjectContent(revision=prefixed_canonical_json_digest(project), project=project))
+
+
+async def get_episode_script(
+    request: ToolRequest[str],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[EpisodeScriptContent]:
+    filename = request.value
+    if not isinstance(filename, str) or not filename or "/" in filename or "\\" in filename or filename in {".", ".."}:
+        return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
+    try:
+        failure = project_migration_failure(scope.project_name, services.projects)
+        if failure is not None:
+            return ToolOutcome(problem=ToolProblem(MIGRATION_FAILURE_CODE, failure.reason))
+        script = services.projects.load_script_readonly(scope.project_name, filename)
+    except FileNotFoundError as exc:
+        return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
+    except (TypeError, ValueError) as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"get_episode_script 失败: {exc}"))
+    return ToolOutcome(
+        value=EpisodeScriptContent(revision=script_revision(script), script_filename=filename, script=script)
+    )
+
+
+async def list_source_files(
+    _request: ToolRequest[None],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[SourceFilesContent]:
+    try:
+        project_dir = services.projects.get_project_path(scope.project_name)
+        files = [entry for entry in _business_file_entries(project_dir) if entry.path.startswith("source/")]
+        revision = prefixed_canonical_json_digest([entry.model_dump() for entry in files])
+        return ToolOutcome(value=SourceFilesContent(revision=revision, files=files))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_file_problem("list_source_files", exc))
+
+
+async def get_source_text(
+    request: ToolRequest[str],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[SourceTextContent]:
+    try:
+        project_dir = services.projects.get_project_path(scope.project_name)
+        if not request.value.startswith("source/"):
+            raise ValueError("path 必须指向 source/ 下的文本文件")
+        content, revision, etag, _size = _decode_business_file(project_dir, request.value)
+        if not isinstance(content, str):
+            raise ValueError("source 文件必须是文本")
+        return ToolOutcome(value=SourceTextContent(revision=revision, etag=etag, path=request.value, text=content))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_file_problem("get_source_text", exc))
+
+
+async def get_step1_content(
+    request: ToolRequest[int],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[Step1Content]:
+    episode = request.value
+    if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
+        return ToolOutcome(problem=ToolProblem("invalid_request", "episode 必须是正整数"))
+    try:
+        project = services.projects.load_project_readonly(scope.project_name)
+        kind = step1_kind(project)
+        if kind is None:
+            return ToolOutcome(problem=ToolProblem("step1_not_applicable", "当前项目没有 step1 中间态"))
+        names = (
+            (REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_LEGACY_FILENAME)
+            if kind == "reference_video"
+            else (STEP1_FILENAMES[kind], *STEP1_LEGACY_FILENAMES.get(kind, ()))
+        )
+        project_dir = services.projects.get_project_path(scope.project_name)
+        for name in names:
+            relative = f"drafts/episode_{episode}/{name}"
+            try:
+                content, revision, etag, _size = _decode_business_file(project_dir, relative)
+            except FileNotFoundError:
+                continue
+            return ToolOutcome(
+                value=Step1Content(
+                    revision=revision,
+                    etag=etag,
+                    episode=episode,
+                    path=relative,
+                    content=content,
+                )
+            )
+        raise FileNotFoundError
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_file_problem("get_step1_content", exc))
+
+
+async def list_project_files(
+    _request: ToolRequest[None],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[ProjectFilesContent]:
+    try:
+        files = _business_file_entries(services.projects.get_project_path(scope.project_name))
+        revision = prefixed_canonical_json_digest([entry.model_dump() for entry in files])
+        return ToolOutcome(value=ProjectFilesContent(revision=revision, files=files))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_file_problem("list_project_files", exc))
+
+
+async def read_project_file(
+    request: ToolRequest[str],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[ProjectFileContent]:
+    try:
+        project_dir = services.projects.get_project_path(scope.project_name)
+        content, revision, etag, _size = _decode_business_file(project_dir, request.value)
+        return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=request.value, content=content))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_file_problem("read_project_file", exc))
 
 
 async def get_workflow_plan(
@@ -1198,6 +1548,7 @@ __all__ = [
     "CallerContext",
     "CompleteAssetInventoryRequest",
     "CompleteStep1RebuildRequest",
+    "EpisodeScriptContent",
     "EPISODE_META_FIELDS",
     "MAX_INSTRUCTIONS_LEN",
     "PROJECT_OVERVIEW_FIELDS",
@@ -1206,6 +1557,13 @@ __all__ = [
     "PatchEpisodeScriptRequest",
     "PatchProjectRequest",
     "PlanEpisodesRequest",
+    "ProjectFileContent",
+    "ProjectFileEntry",
+    "ProjectFilesContent",
+    "ProjectContent",
+    "SourceFilesContent",
+    "SourceTextContent",
+    "Step1Content",
     "ProjectScope",
     "RenameAssetRequest",
     "ResetEpisodePlanningRequest",
@@ -1218,16 +1576,23 @@ __all__ = [
     "ToolRequest",
     "complete_asset_inventory",
     "complete_step1_rebuild",
+    "get_episode_script",
+    "get_project_content",
+    "get_source_text",
+    "get_step1_content",
     "get_video_capabilities",
     "get_workflow_plan",
     "confirm_script_review",
     "generate_episode_script",
     "generate_step1",
+    "list_project_files",
+    "list_source_files",
     "patch_episode_meta",
     "patch_episode_script",
     "patch_project",
     "plan_episodes",
     "rename_asset",
     "reset_episode_planning",
+    "read_project_file",
     "retry_project_migration",
 ]

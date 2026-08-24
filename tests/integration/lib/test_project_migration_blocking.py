@@ -30,11 +30,9 @@ from lib.script_batch_edit import script_revision
 from lib.workflow_plan import WorkflowPlanRequest
 from lib.workflow_state import WorkflowStateService
 from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import list_pending_assets_tool
-from server.agent_runtime.sdk_tools.patch_script import (
-    get_episode_script_revision_tool,
-    patch_episode_script_tool,
-)
+from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.services.workflow_planner import WorkflowPlanner
@@ -194,9 +192,10 @@ def _assert_list_pending_assets_unblocked(unblocked: dict, ctx: ToolContext) -> 
     assert "✅" in text
 
 
-def _assert_get_episode_script_revision_unblocked(unblocked: dict, ctx: ToolContext) -> None:
-    assert unblocked["script"] == "episode_1.json"
-    assert unblocked["revision"] == script_revision(ctx.pm.load_script_readonly(ctx.project_name, "episode_1.json"))
+def _assert_get_episode_script_unblocked(unblocked: dict, ctx: ToolContext) -> None:
+    payload = json.loads(unblocked["content"][0]["text"])["episode_script"]
+    assert payload["script_filename"] == "episode_1.json"
+    assert payload["revision"] == script_revision(ctx.pm.load_script_readonly(ctx.project_name, "episode_1.json"))
 
 
 @pytest.mark.parametrize(
@@ -204,10 +203,10 @@ def _assert_get_episode_script_revision_unblocked(unblocked: dict, ctx: ToolCont
     [
         (list_pending_assets_tool, {}, (), _assert_list_pending_assets_unblocked),
         (
-            get_episode_script_revision_tool,
+            get_episode_script_tool,
             {"script": "episode_1.json"},
-            ("script", "revision"),
-            _assert_get_episode_script_revision_unblocked,
+            (),
+            _assert_get_episode_script_unblocked,
         ),
     ],
 )

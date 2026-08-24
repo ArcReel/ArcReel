@@ -57,8 +57,16 @@ class _Capabilities:
 def remote_server(tmp_path: Path):
     projects_root = tmp_path / "projects"
     manager = ProjectManager(projects_root)
-    manager.create_project("demo", content_mode="ad")
-    manager.create_project_metadata("demo", "Demo", "", "ad", target_duration=30)
+    manager.create_project("demo", content_mode="drama")
+    manager.create_project_metadata("demo", "Demo", "", "drama")
+    project_dir = projects_root / "demo"
+    (project_dir / "source").mkdir(exist_ok=True)
+    (project_dir / "source" / "episode_1.txt").write_text("第一集原文", encoding="utf-8")
+    (project_dir / "scripts").mkdir(exist_ok=True)
+    (project_dir / "scripts" / "episode_1.json").write_text('{"episode":1,"scenes":[]}', encoding="utf-8")
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    (drafts / "step1_normalized_script.json").write_text('{"title":"第一集","scenes":[]}', encoding="utf-8")
     (projects_root / "empty").mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -139,6 +147,19 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
                     patched = await session.call_tool(
                         "patch_project", {"project": "demo", "overview": {"synopsis": "远程更新"}}
                     )
+                    project_content = await session.call_tool("get_project_content", {"project": "demo"})
+                    source_files = await session.call_tool("list_source_files", {"project": "demo"})
+                    source_text = await session.call_tool(
+                        "get_source_text", {"project": "demo", "path": "source/episode_1.txt"}
+                    )
+                    script = await session.call_tool(
+                        "get_episode_script", {"project": "demo", "script": "episode_1.json"}
+                    )
+                    step1 = await session.call_tool("get_step1_content", {"project": "demo", "episode": 1})
+                    project_files = await session.call_tool("list_project_files", {"project": "demo"})
+                    project_file = await session.call_tool(
+                        "read_project_file", {"project": "demo", "path": "project.json"}
+                    )
                     missing = await session.call_tool("get_workflow_plan", {"episode": 1})
                     traversal = await session.call_tool("get_workflow_plan", {"project": "../demo", "episode": 1})
                     nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode": 1})
@@ -156,9 +177,18 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
         "complete_asset_inventory",
         "complete_step1_rebuild",
     }
+    readers = {
+        "get_project_content",
+        "list_source_files",
+        "get_source_text",
+        "get_episode_script",
+        "get_step1_content",
+        "list_project_files",
+        "read_project_file",
+    }
     listed = {tool.name: tool for tool in tools.tools}
-    assert migrated <= listed.keys()
-    assert all("project" in listed[name].inputSchema["required"] for name in migrated)
+    assert migrated | readers <= listed.keys()
+    assert all("project" in listed[name].inputSchema["required"] for name in migrated | readers)
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
@@ -166,6 +196,18 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
     }
     assert patched.structuredContent is not None
     assert patched.structuredContent["project_patch"]["operation"] == "overview"
+    for content_result in (
+        project_content,
+        source_files,
+        source_text,
+        script,
+        step1,
+        project_files,
+        project_file,
+    ):
+        assert not content_result.isError
+        assert content_result.structuredContent is not None
+        assert next(iter(content_result.structuredContent.values()))["revision"].startswith("sha256-v1:")
     assert missing.isError
     assert traversal.isError
     assert nonexistent.isError

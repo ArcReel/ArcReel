@@ -8,7 +8,7 @@ Agent 今天能用裸 `Write`/`Edit`（甚至 Bash 的 `echo>`/`sed`/`python -c`
 
 工具集（均为 in-process MCP `arcreel`，跑在 server 进程、不在 agent sandbox 内）：
 
-- `get_episode_script_revision` + `patch_episode_script` — 先读取 canonical JSON `sha256-v1` revision，再提交 `{script, base_revision, operations[]}`。operations 是有序的 `update` / `insert` / `remove` / `split` 判别联合，按 `segment_id` / `scene_id` / `unit_id` / `shot_id` 定位，各内容/生成模式通用。服务在项目锁内复核 revision，对内存 candidate 顺序应用全批，再统一预检结构、项目引用、适用的 Artifact Manifest basis 与 SpeechComposition；任一失败返回稳定 `code`、`operation_index`、unit/field location、`next_action`，整批零写入。
+- `get_episode_script` + `patch_episode_script` — 先读取正文与 canonical JSON `sha256-v1` revision，再提交 `{script, base_revision, operations[]}`。operations 是有序的 `update` / `insert` / `remove` / `split` 判别联合，按 `segment_id` / `scene_id` / `unit_id` / `shot_id` 定位，各内容/生成模式通用。服务在项目锁内复核 revision，对内存 candidate 顺序应用全批，再统一预检结构、项目引用、适用的 Artifact Manifest basis 与 SpeechComposition；任一失败返回稳定 `code`、`operation_index`、unit/field location、`next_action`，整批零写入。
 - `insert` / `split` 由 `patch_episode_script` 在同一批事务内完成结构投影。**id 稳定不重排**，插入/拆分按模式发新 id 并加 `_{子序号}` 后缀：narration/drama 的 segments/scenes 用 `E{集}S{序号}`、reference 的 units 用 `E{集}U{序号}`。split 首份保留原 id 及 `generated_assets` / `end_frame_image`，其余新身份清空资产。
 - `patch_project` — `project.json` 加+改（按 table+name），**取代** `add_assets.py`（删除该脚本，`analyze-assets` subagent 改调本工具，顺带消灭其脆弱的单行 CLI-JSON 调用）。
 - `generate_episode_script` — 整集生成，改为**经 `_write_script_unlocked` 写盘**（替代 `ScriptGenerator` 原先的裸 `json.dump`）。

@@ -41,11 +41,18 @@ from server.tool_runtime import (
     ToolRequest,
     complete_asset_inventory,
     complete_step1_rebuild,
+    get_episode_script,
+    get_project_content,
+    get_source_text,
+    get_step1_content,
     get_video_capabilities,
     get_workflow_plan,
+    list_project_files,
+    list_source_files,
     patch_episode_meta,
     patch_project,
     plan_episodes,
+    read_project_file,
     rename_asset,
     reset_episode_planning,
     retry_project_migration,
@@ -289,6 +296,69 @@ def build_remote_mcp_server(
         return _to_mcp_result(
             "step1_rebuild", await complete_step1_rebuild(ToolRequest(request), scope, caller, services)
         )
+
+    @server.tool(name="get_project_content", structured_output=False)
+    async def remote_project_content(project: str) -> CallToolResult:
+        """Return project creative content and its canonical revision."""
+        try:
+            scope = _project_scope(project, projects)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("project_content", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
+        return _to_mcp_result("project_content", await get_project_content(ToolRequest(None), scope, caller, services))
+
+    @server.tool(name="list_source_files", structured_output=False)
+    async def remote_source_files(project: str) -> CallToolResult:
+        """List source text files with revision and etags."""
+        try:
+            scope = _project_scope(project, projects)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("source_files", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
+        return _to_mcp_result("source_files", await list_source_files(ToolRequest(None), scope, caller, services))
+
+    @server.tool(name="get_source_text", structured_output=False)
+    async def remote_source_text(project: str, path: str) -> CallToolResult:
+        """Read one UTF-8 source text file and its revision."""
+        try:
+            scope = _project_scope(project, projects)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("source_text", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
+        return _to_mcp_result("source_text", await get_source_text(ToolRequest(path), scope, caller, services))
+
+    @server.tool(name="get_episode_script", structured_output=False)
+    async def remote_episode_script(project: str, script: str) -> CallToolResult:
+        """Read an episode script body and the canonical revision used for patching."""
+        try:
+            scope = _project_scope(project, projects)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("episode_script", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
+        return _to_mcp_result("episode_script", await get_episode_script(ToolRequest(script), scope, caller, services))
+
+    @server.tool(name="get_step1_content", structured_output=False)
+    async def remote_step1_content(project: str, episode: int) -> CallToolResult:
+        """Read the current formal step1 body and its canonical revision."""
+        try:
+            scope = _project_scope(project, projects)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("step1_content", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
+        return _to_mcp_result("step1_content", await get_step1_content(ToolRequest(episode), scope, caller, services))
+
+    @server.tool(name="list_project_files", structured_output=False)
+    async def remote_project_files(project: str) -> CallToolResult:
+        """List the allowlisted project business files available for diagnostics."""
+        try:
+            scope = _project_scope(project, projects)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("project_files", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
+        return _to_mcp_result("project_files", await list_project_files(ToolRequest(None), scope, caller, services))
+
+    @server.tool(name="read_project_file", structured_output=False)
+    async def remote_project_file(project: str, path: str) -> CallToolResult:
+        """Read one allowlisted project business file and its revision/etag."""
+        try:
+            scope = _project_scope(project, projects)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("project_file", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
+        return _to_mcp_result("project_file", await read_project_file(ToolRequest(path), scope, caller, services))
 
     return server
 
