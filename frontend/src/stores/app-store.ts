@@ -62,7 +62,7 @@ function persistAssistantPanelOpen(open: boolean): void {
   try {
     window.localStorage.setItem(ASSISTANT_PANEL_OPEN_STORAGE_KEY, String(open));
   } catch {
-    // localStorage 不可用时保留本次会话内的选择
+    // localStorage 不可用时仅保留内存值
   }
 }
 
