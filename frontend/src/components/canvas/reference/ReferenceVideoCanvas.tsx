@@ -1411,6 +1411,7 @@ export function ReferenceVideoCanvas({
                               key={selected.unit_id}
                               projectName={projectName}
                               episode={episode}
+                              unitId={selected.unit_id}
                               text={currentText}
                               lookup={selectedMentionLookup}
                             />

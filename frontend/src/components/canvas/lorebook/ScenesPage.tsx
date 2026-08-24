@@ -11,6 +11,7 @@ import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
 import type { ImageModelSelection, Scene } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
+import { ConfirmAssetSheetsButton } from "./ConfirmAssetSheetsButton";
 
 interface Props {
   projectName: string;
@@ -57,6 +58,7 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
         count={entries.length}
         onAdd={readOnly ? undefined : () => setAdding(true)}
         onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
+        extraActions={readOnly ? undefined : <ConfirmAssetSheetsButton projectName={projectName} onReload={onRefreshProject} />}
       />
       <div className="px-5 py-5">
         {entries.length === 0 ? (

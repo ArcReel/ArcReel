@@ -38,8 +38,7 @@ from lib.narration_delivery import (
 )
 from lib.path_safety import PathTraversalError, safe_join
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
-from lib.reference_video.keyframes import keyframe_id_from_mention_name, keyframe_references_in_text
-from lib.reference_video.text_parser import extract_mentions, resolve_references, strip_speech_marks
+from lib.reference_video.reference_declarations import unit_reference_declarations
 from lib.script_models import ReferenceResource
 from lib.speech_composition import admit_script_unit
 
@@ -399,39 +398,6 @@ def _candidate_path(project_path: Path, value: object) -> Path | None:
         return safe_join(project_path, value)
     except (OSError, PathTraversalError, TypeError):
         return None
-
-
-def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceResource, ...]:
-    """视频单元正文 → 本次生成的逻辑参考图引用，按首次提及顺序。
-
-    正文是唯一真相：引用不落盘，读侧一律经本函数派生，商品与其它资产走同一条规则、
-    没有类型优先级（见 ADR 0064）。未登记的名字不产生引用——它只在渲染与预览侧发一条
-    非阻断 warning，不挡住这次生成。
-    """
-
-    raw_text = unit.get("text")
-    text = raw_text if isinstance(raw_text, str) else ""
-    owned_keyframes = keyframe_references_in_text(unit)
-    references: list[ReferenceResource] = []
-    seen: set[tuple[str, str]] = set()
-    for name in extract_mentions(strip_speech_marks(text)):
-        keyframe = owned_keyframes.get(name)
-        if keyframe is not None:
-            candidate = keyframe
-        elif keyframe_id_from_mention_name(name) is not None:
-            # A keyframe tag may only address a keyframe owned by this unit.
-            continue
-        else:
-            resolved, _missing = resolve_references([name], project)
-            if not resolved:
-                continue
-            candidate = resolved[0]
-        identity = (candidate.type, asset_name_comparison_key(candidate.name))
-        if identity in seen:
-            continue
-        seen.add(identity)
-        references.append(candidate)
-    return tuple(references)
 
 
 def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> tuple[ResolvedReferenceAsset, ...]:

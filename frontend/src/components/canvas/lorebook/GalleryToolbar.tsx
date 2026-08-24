@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Package } from "lucide-react";
 
@@ -8,12 +9,14 @@ interface Props {
   onAdd?: () => void;
   /** 未提供时隐藏「从资产库选择」入口（如不入全局库的资产类型）。 */
   onPickFromLibrary?: () => void;
+  /** 资产页共享的附加操作（例如把已审核素材登记为当前版本）。 */
+  extraActions?: ReactNode;
 }
 
 /**
  * GalleryToolbar — v3 视觉：玻璃栏 + display-serif 标题 + accent CTA。
  */
-export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary }: Props) {
+export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary, extraActions }: Props) {
   const { t } = useTranslation(["dashboard", "assets"]);
   return (
     <div
@@ -54,6 +57,7 @@ export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary }: Props
         {String(count).padStart(2, "0")}
       </span>
       <div className="flex-1" />
+      {extraActions}
       {onPickFromLibrary && (
       <button
         type="button"

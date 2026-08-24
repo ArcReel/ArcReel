@@ -12,6 +12,7 @@ import { errMsg } from "@/utils/async";
 import type { Character, ImageModelSelection } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { ConfirmAssetSheetsButton } from "./ConfirmAssetSheetsButton";
 
 interface Props {
   projectName: string;
@@ -58,6 +59,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
         count={entries.length}
         onAdd={readOnly ? undefined : () => setAdding(true)}
         onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
+        extraActions={readOnly ? undefined : <ConfirmAssetSheetsButton projectName={projectName} onReload={onRefreshProject} />}
       />
       <div className="px-5 py-5" data-onboarding={ONBOARDING_ANCHORS.workbenchLorebook}>
         {entries.length === 0 ? (

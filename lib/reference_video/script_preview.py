@@ -21,8 +21,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
+from lib.reference_video.keyframes import KEYFRAME_MENTION_PREFIX
+from lib.reference_video.reference_declarations import unit_reference_declarations
 from lib.reference_video.text_parser import (
     derive_references_from_text,
+    extract_mentions,
     speech_line_description,
     split_speech_line,
 )
@@ -203,6 +206,7 @@ def build_script_preview(
     settings: VoiceRenderSettings,
     *,
     max_reference_images: int | None = None,
+    unit: dict[str, Any] | None = None,
 ) -> ScriptPreview:
     """把视频单元正文派生成 utterances + 降级可见性 warning。
 
@@ -219,9 +223,30 @@ def build_script_preview(
     显示音频已绑定，执行时才补发 warning。``None`` 表示不裁（能力不可解析时的降级口径，与请求
     投影在能力不可解析时不裁参考图的口径一致）。
 
+    ``unit`` 存在时，预览会按执行层同一套 unit-owned keyframe 规则解析
+    ``@[关键分镜 ID]``。编辑器传入的 ``text`` 仍覆盖 unit 中已保存的正文，让未保存草稿也能
+    正确绑定该 unit 已登记的关键分镜；不属于当前 unit 的关键分镜标签继续按未登记引用提示。
+
     未登记的 ``@[名称]`` 只发 warning、不阻断：正文是作者写的，预览没有可保护的机器契约。
     """
-    references, missing = derive_references_from_text(text, project)
+    if unit is None:
+        references, missing = derive_references_from_text(text, project)
+    else:
+        draft_unit = {**unit, "text": text}
+        references = list(unit_reference_declarations(project, draft_unit))
+        resolved_mentions = {
+            asset_name_comparison_key(
+                f"{KEYFRAME_MENTION_PREFIX}{reference.name}"
+                if reference.type == "keyframe"
+                else reference.name
+            )
+            for reference in references
+        }
+        missing = [
+            name
+            for name in extract_mentions(text)
+            if asset_name_comparison_key(name) not in resolved_mentions
+        ]
 
     warnings = [_warning(WARN_UNREGISTERED_MENTION, name=name) for name in missing]
     utterances, syntax_warnings = derive_utterances(text)

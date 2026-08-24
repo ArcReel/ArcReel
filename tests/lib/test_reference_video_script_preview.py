@@ -203,6 +203,42 @@ def test_warn_unregistered_mention():
     assert preview.warnings[0]["params"] == {"name": "王五"}
 
 
+def test_unit_owned_keyframe_mention_is_not_reported_as_unregistered():
+    unit = {
+        "unit_id": "E1U01",
+        "text": "旧正文",
+        "keyframes": [
+            {
+                "keyframe_id": "E1U01K01",
+                "description": "首帧",
+                "image_path": "keyframes/E1U01K01.png",
+            }
+        ],
+    }
+
+    preview = build_script_preview(
+        "@[关键分镜 E1U01K01] 开场，@[酒馆] 在远处。",
+        PROJECT,
+        _SOFT,
+        unit=unit,
+    )
+
+    assert keys(preview) == []
+
+
+def test_foreign_keyframe_mention_still_warns_in_unit_preview():
+    unit = {
+        "unit_id": "E1U01",
+        "text": "旧正文",
+        "keyframes": [{"keyframe_id": "E1U01K01", "description": "首帧", "image_path": None}],
+    }
+
+    preview = build_script_preview("@[关键分镜 E1U02K01] 开场。", PROJECT, _SOFT, unit=unit)
+
+    assert keys(preview) == [WARN_UNREGISTERED_MENTION]
+    assert preview.warnings[0]["params"] == {"name": "关键分镜 E1U02K01"}
+
+
 def test_warn_unclosed_brace():
     preview = build_script_preview("他说 {我来了。", PROJECT, _SOFT)
     assert keys(preview) == [WARN_UNCLOSED_BRACE]

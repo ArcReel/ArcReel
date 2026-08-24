@@ -100,6 +100,12 @@ import i18n from "./i18n";
 /** 项目内四类资产（与后端 ASSET_SPECS 的 asset_type 对齐）。 */
 export type ProjectAssetType = "character" | "scene" | "prop" | "product";
 
+export interface ConfirmedAssetSheet {
+  asset_type: ProjectAssetType;
+  name: string;
+  sheet_path: string;
+}
+
 /** asset_type → REST 路径段（与后端 spec.subdir 对齐）。 */
 const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
   character: "characters",
@@ -1298,6 +1304,28 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/${ASSET_TYPE_PATH[assetType]}/${encodeURIComponent(name)}`,
       { method: "DELETE" }
+    );
+  }
+
+  /**
+   * 将用户已审核通过的现有素材图登记为匹配当前素材定义。省略 assets 时批量确认项目内
+   * 全部现有素材图；该操作不生成或改写图片，也不改变版本历史。
+   */
+  static async confirmCurrentAssetSheets(
+    projectName: string,
+    assets?: Array<{ asset_type: ProjectAssetType; name: string }>,
+  ): Promise<{
+    success: boolean;
+    changed: boolean;
+    confirmed_count: number;
+    confirmed: ConfirmedAssetSheet[];
+  }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/asset-sheets/confirm-current`,
+      {
+        method: "POST",
+        body: JSON.stringify(assets ? { assets } : {}),
+      },
     );
   }
 
@@ -3340,11 +3368,15 @@ class API {
     projectName: string,
     episode: number,
     prompt: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; unitId?: string },
   ): Promise<ScriptPreview> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/script-preview`,
-      { method: "POST", body: JSON.stringify({ prompt }), signal: options?.signal },
+      {
+        method: "POST",
+        body: JSON.stringify({ prompt, unit_id: options?.unitId }),
+        signal: options?.signal,
+      },
     );
   }
 

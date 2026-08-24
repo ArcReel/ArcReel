@@ -87,6 +87,14 @@ def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
         assert element in prompt
 
 
+def test_reference_prompts_anchor_keyframes_to_action_start_not_outcome():
+    """step1/step2 都必须把关键帧锁在 00:00 起始状态，不能把整段动作结果当首帧。"""
+    for prompt in (_split_prompt(), _step2_prompt()):
+        assert "00:00.000" in prompt
+        assert "摔进桂花堆" in prompt
+        assert "不能画弟弟摔倒" in prompt or "错误首帧" in prompt
+
+
 def test_build_reference_video_prompt_states_structure_preserving_contract():
     """step2 的职责是视觉展开：unit 数与台词两项保结构要求必须写进 prompt。"""
     prompt = _step2_prompt()

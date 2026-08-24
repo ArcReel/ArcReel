@@ -14,6 +14,8 @@ const DEBOUNCE_MS = 400;
 export interface ScriptPreviewPanelProps {
   projectName: string;
   episode: number;
+  /** 当前视频单元；用于把 ``@[关键分镜 ID]`` 解析为该单元自有的关键帧参考图。 */
+  unitId?: string;
   /** 当前单元正文（草稿优先），与编辑器同一个值。 */
   text: string;
   /** 资产名 → 类型，供 mention 着色；调用侧须 memo 化。 */
@@ -34,7 +36,7 @@ export interface ScriptPreviewPanelProps {
  * tabpanel 自身取 `tabindex="0"`）。换处复用时父容器须带 `overflow-y-auto` +
  * `tabIndex={0}`，否则长文稿溢出且键盘够不到折线以下。
  */
-export function ScriptPreviewPanel({ projectName, episode, text, lookup }: ScriptPreviewPanelProps) {
+export function ScriptPreviewPanel({ projectName, episode, unitId, text, lookup }: ScriptPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const [preview, setPreview] = useState<ScriptPreview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -45,6 +47,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
   const [appliedFor, setAppliedFor] = useState<{
     projectName: string;
     episode: number;
+    unitId?: string;
     text: string;
     lookup: MentionLookup;
   } | null>(null);
@@ -55,12 +58,12 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
       const controller = new AbortController();
       controllerRef.current = controller;
       setLoading(true);
-      API.previewReferenceScript(projectName, episode, text, { signal: controller.signal })
+      API.previewReferenceScript(projectName, episode, text, { signal: controller.signal, unitId })
         .then((result) => {
           if (controller.signal.aborted) return;
           setPreview(result);
           setError(null);
-          setAppliedFor({ projectName, episode, text, lookup });
+          setAppliedFor({ projectName, episode, unitId, text, lookup });
         })
         .catch((e: unknown) => {
           if (controller.signal.aborted) return;
@@ -81,7 +84,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
       clearTimeout(timer);
       controllerRef.current?.abort();
     };
-  }, [projectName, episode, text, lookup]);
+  }, [projectName, episode, unitId, text, lookup]);
 
   const utterances = useMemo(() => preview?.utterances ?? [], [preview]);
   const counts = useMemo(
@@ -97,6 +100,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
     appliedFor !== null &&
     (appliedFor.projectName !== projectName ||
       appliedFor.episode !== episode ||
+      appliedFor.unitId !== unitId ||
       appliedFor.text !== text ||
       appliedFor.lookup !== lookup);
 

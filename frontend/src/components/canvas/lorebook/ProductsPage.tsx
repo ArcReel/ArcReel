@@ -10,6 +10,7 @@ import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import type { ImageModelSelection, Product } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
+import { ConfirmAssetSheetsButton } from "./ConfirmAssetSheetsButton";
 
 interface Props {
   projectName: string;
@@ -52,6 +53,7 @@ export function ProductsPage({
         title={t("dashboard:products")}
         count={entries.length}
         onAdd={readOnly ? undefined : () => setAdding(true)}
+        extraActions={readOnly ? undefined : <ConfirmAssetSheetsButton projectName={projectName} onReload={onRefreshProject} />}
       />
       <div className="px-5 py-5">
         {entries.length === 0 ? (

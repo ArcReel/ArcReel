@@ -921,7 +921,10 @@ class ReferenceStep1Unit(BaseModel):
     keyframe_plan: list[ReferenceKeyframePlanItem] = Field(
         min_length=1,
         max_length=5,
-        description="按场景顺序排列的核心场景首帧规划；每个 unit 至少 1 个，step2 据此生成正式关键分镜",
+        description=(
+            "按场景顺序排列的视频 00:00.000 核心场景首帧规划；只写动作尚未推进的切入状态，"
+            "不得写连续动作、动作结果或后续反应；每个 unit 至少 1 个，step2 据此生成正式关键分镜"
+        ),
     )
 
 
@@ -971,7 +974,13 @@ class ReferenceStep2Keyframe(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    description: str = Field(min_length=1, description="只描述该核心场景第一帧的静态构图、主体、环境与光线")
+    description: str = Field(
+        min_length=1,
+        description=(
+            "只描述该核心场景视频 00:00.000 时动作尚未推进的静态切入画面：构图、主体、环境、光线与起始姿态；"
+            "不得概括整段动作、提前呈现动作结果或后续反应"
+        ),
+    )
 
 
 class ReferenceStep1FlatDraft(BaseModel):

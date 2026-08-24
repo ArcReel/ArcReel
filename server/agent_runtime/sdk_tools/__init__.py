@@ -25,6 +25,7 @@ from server.agent_runtime.sdk_tools.character_voice_references import (
     confirm_character_voice_reference_tool,
     generate_character_voice_references_tool,
 )
+from server.agent_runtime.sdk_tools.confirm_asset_sheets import confirm_asset_sheets_tool
 from server.agent_runtime.sdk_tools.delete_project_asset import delete_project_asset_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
@@ -33,6 +34,7 @@ from server.agent_runtime.sdk_tools.enqueue_assets import (
 from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
 from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
+from server.agent_runtime.sdk_tools.enqueue_reference_keyframes import generate_reference_keyframes_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_all_tool,
@@ -96,7 +98,9 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_assets",
     "generate_character_voice_references",
     "confirm_character_voice_reference",
+    "confirm_asset_sheets",
     "generate_storyboards",
+    "generate_reference_keyframes",
     "edit_images",
     "generate_grid",
     "generate_video_episode",
@@ -147,7 +151,9 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "generate_assets",
         "generate_character_voice_references",
         "confirm_character_voice_reference",
+        "confirm_asset_sheets",
         "generate_storyboards",
+        "generate_reference_keyframes",
         "edit_images",
         "generate_grid",
         "generate_video_episode",
@@ -206,7 +212,9 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
         generate_assets_tool(ctx),
         generate_character_voice_references_tool(ctx),
         confirm_character_voice_reference_tool(ctx),
+        confirm_asset_sheets_tool(ctx),
         generate_storyboards_tool(ctx),
+        generate_reference_keyframes_tool(ctx),
         edit_images_tool(ctx),
         generate_grid_tool(ctx),
         generate_video_episode_tool(ctx),

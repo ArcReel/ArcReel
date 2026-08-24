@@ -217,7 +217,14 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
 
     expect(screen.queryByRole("combobox")).toBeNull();
-    await waitFor(() => expect(previewSpy).toHaveBeenCalledWith("proj", 1, "中景。", expect.anything()));
+    await waitFor(() =>
+      expect(previewSpy).toHaveBeenCalledWith(
+        "proj",
+        1,
+        "中景。",
+        expect.objectContaining({ unitId: "E1U1" }),
+      ),
+    );
     expect(await screen.findByText("@[王五] 未在角色/场景/道具中登记")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: /^(Script|文稿)$/ }));

@@ -104,6 +104,7 @@ router = APIRouter(
 
 class ScriptPreviewRequest(BaseModel):
     prompt: str = ""
+    unit_id: str | None = None
 
 
 class AddUnitRequest(BaseModel):
@@ -769,13 +770,15 @@ async def preview_script(
     warning 依赖该集视频后端的能力（``voice_consistency`` 与参考音频段数上限）与本集的无声
     开关，与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
     """
-    project, _script, _sf = _load_episode_script(project_name, episode, _t)
+    project, script, _sf = _load_episode_script(project_name, episode, _t)
     caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示")
+    unit = _find_unit(script, req.unit_id, _t) if req.unit_id else None
     preview = build_script_preview(
         req.prompt,
         project,
         VoiceRenderSettings.from_caps(caps),
         max_reference_images=caps.get("max_reference_images"),
+        unit=unit,
     )
     return {
         "utterances": [
