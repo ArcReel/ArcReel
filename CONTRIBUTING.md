@@ -293,7 +293,7 @@ AFK 团队流程的短期运行分支例外使用 `afk/<batch-id>/stage-<K>` 与
 
 每个 PR 压缩为 1 个 commit 合并回 `main`，commit message 遵循 conventional commits 规范（见下节）。GitHub 上选择 "Squash and merge"。
 
-`afk-team-workflow` 生成的 stage PR 是例外：它用 "Rebase and merge" 保留每个 issue 的 conventional commit，以及可追溯的清尾与 integration-fix commits。
+`afk-team-workflow` 生成的 stage PR 是例外：它用 "Rebase and merge" 保留每个 issue 的 conventional commit；清尾与 review loop 产生的非 issue commits 在合并前压成一个 conventional integration-fix commit。
 
 ## 提交规范
 

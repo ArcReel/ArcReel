@@ -258,7 +258,7 @@ The time from creation to merge must be ≤3 days. If it runs longer, split it o
 
 Squash each PR into one commit when merging into `main`, with a conventional commit message (see the next section). Choose "Squash and merge" from the GitHub merge button.
 
-Stage PRs created by `afk-team-workflow` are the exception: rebase-merge them to preserve each issue's conventional commit plus cleanup and integration-fix commits.
+Stage PRs created by `afk-team-workflow` are the exception: rebase-merge them to preserve each issue's conventional commit; squash non-issue cleanup and review-loop commits into one conventional integration-fix commit before merging.
 
 ## Commit Conventions {#commit-convention}
 
