@@ -1851,6 +1851,8 @@ class ProjectManager:
         project_path = self.get_project_path(project_name)
         with self._project_lock(project_name):
             source_dir = project_path / "source"
+            if source_dir.is_symlink() or source_dir.is_junction():
+                raise ValueError("source 目录不得是符号链接或 junction")
             source_dir.mkdir(parents=True, exist_ok=True)
             yield source_dir
 

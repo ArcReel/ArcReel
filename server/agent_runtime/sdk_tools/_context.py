@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 class ToolContext:
     """Bind a tool handler to one agent session's project + projects_root.
 
-    The agent never names the project explicitly — every tool is closure-bound
-    to ``project_name`` via ``build_arcreel_mcp_server(project_name=...)``.
+    Project-scoped tools are closure-bound to ``project_name``. Project entry
+    tools may address another project, but only through this ``projects_root``.
     """
 
     def __init__(

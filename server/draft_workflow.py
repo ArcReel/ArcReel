@@ -247,7 +247,7 @@ async def _promote_reference_step1(ctx: DraftContext, episode: int, draft: Quara
     # 写盘经单一出口（lib.script_review.write_step1_locked）：锁、基线比对、step2 草稿清理
     # 只存在那一处。基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint——正式文件在草稿
     # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 Agent 合并，
-    # 不静默覆盖对方的修改。引入基线前产出的存量草稿缺该键，按无基线晋升。
+    # 不静默覆盖对方的修改。缺少 base_fingerprint 的草稿按无基线晋升。
     expected = (
         draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
     )
@@ -694,7 +694,7 @@ async def _promote_narration_step1(ctx: DraftContext, episode: int, draft: Quara
 
     # 基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint：正式文件在草稿产出后被其他写入方
     # （Web 端保存、重跑拆分）改过时晋升中止、返回冲突报告让 Agent 合并，不静默覆盖对方的修改。
-    # 引入基线前产出的存量草稿缺该键，按无基线晋升。
+    # 缺少 base_fingerprint 的草稿按无基线晋升。
     expected = (
         draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
     )

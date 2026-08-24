@@ -10,6 +10,7 @@ import math
 import os
 import re
 import stat
+import tempfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -49,7 +50,8 @@ from lib.episode_reset import (
 )
 from lib.generation_result import migration_problem
 from lib.path_safety import safe_join
-from lib.project_manager import ProjectManager, is_reference_video_project
+from lib.profile_manifest import ContentMode
+from lib.project_manager import ProjectManager, SourceKind, is_reference_video_project
 from lib.project_migration_failure import MIGRATION_FAILURE_CODE, MigrationFailureRecord, load_migration_failure
 from lib.project_migration_guard import project_migration_failure
 from lib.project_migrations import migrate_project_with_verdict
@@ -70,6 +72,15 @@ from lib.script_editor import (
     split_segment,
 )
 from lib.script_review import Step1RebuildCompletionError, complete_stale_step1_rebuild, step1_kind
+from lib.source_loader import (
+    ConflictError,
+    CorruptFileError,
+    FileSizeExceededError,
+    OnConflict,
+    SourceDecodeError,
+    SourceLoader,
+    UnsupportedFormatError,
+)
 from lib.source_revision import SourceScope
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import WorkflowRequestError
@@ -672,6 +683,155 @@ async def discard_draft(
 ) -> ToolOutcome[dict[str, Any]]:
     locator = request.value
     return await _run_draft(_draft_workflow(scope, services).discard(locator.episode, locator.doc_type))
+
+
+class CreateProjectToolRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    title: str = ""
+    content_mode: ContentMode = "narration"
+    source_kind: SourceKind = "novel"
+    generation_mode: Literal["storyboard", "reference_video"] = "storyboard"
+    grid_storyboard: bool = False
+    aspect_ratio: str = "9:16"
+    default_duration: int | None = Field(default=None, gt=0)
+    target_duration: int | None = Field(default=None, gt=0)
+    brief: str | None = None
+
+    @model_validator(mode="after")
+    def validate_mode_fields(self) -> CreateProjectToolRequest:
+        if self.content_mode == "ad":
+            if self.default_duration is not None:
+                raise ValueError("广告/短片项目不持有 default_duration")
+            if self.grid_storyboard:
+                raise ValueError("广告/短片项目不支持宫格分镜")
+        elif self.target_duration is not None or self.brief is not None:
+            raise ValueError("target_duration 与 brief 仅广告/短片项目可用")
+        return self
+
+
+class UploadSourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str
+    content: str
+    on_conflict: OnConflict = "fail"
+
+
+async def list_projects(
+    _request: ToolRequest[None],
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[list[dict[str, Any]]]:
+    def _list() -> list[dict[str, Any]]:
+        result = []
+        for name in sorted(services.projects.list_projects()):
+            try:
+                project = services.projects.load_project(name)
+            except (FileNotFoundError, ValueError):
+                continue
+            result.append(
+                {
+                    "name": name,
+                    "title": project.get("title", ""),
+                    "content_mode": project.get("content_mode"),
+                    "generation_mode": project.get("generation_mode"),
+                }
+            )
+        return result
+
+    try:
+        return ToolOutcome(value=await asyncio.to_thread(_list))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"list_projects 失败: {exc}"))
+
+
+async def create_project(
+    request: ToolRequest[CreateProjectToolRequest],
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[dict[str, Any]]:
+    def _create() -> dict[str, Any]:
+        value = request.value
+        name = services.projects.normalize_project_name(value.name)
+        services.projects.create_project(name, content_mode=value.content_mode)
+        project = services.projects.create_project_metadata(
+            name,
+            value.title,
+            content_mode=value.content_mode,
+            aspect_ratio=value.aspect_ratio,
+            default_duration=value.default_duration,
+            extras={
+                "generation_mode": value.generation_mode,
+                "grid_storyboard": value.grid_storyboard,
+            },
+            target_duration=value.target_duration,
+            brief=value.brief,
+            source_kind=value.source_kind,
+        )
+        return {"name": name, "project": project}
+
+    try:
+        return ToolOutcome(value=await asyncio.to_thread(_create))
+    except FileExistsError as exc:
+        return ToolOutcome(problem=ToolProblem("project_exists", str(exc)))
+    except ValueError as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"create_project 失败: {exc}"))
+
+
+async def upload_source(
+    request: ToolRequest[UploadSourceRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[dict[str, Any]]:
+    def _upload() -> dict[str, Any]:
+        value = request.value
+        if Path(value.filename).name != value.filename or "\\" in value.filename or value.filename.startswith("."):
+            raise ValueError("filename 必须是不含路径的非隐藏文件名")
+        suffix = Path(value.filename).suffix.lower()
+        if suffix not in {".txt", ".md"}:
+            raise UnsupportedFormatError(ext=suffix)
+        if not services.projects.project_exists(scope.project_name):
+            raise FileNotFoundError(f"项目 '{scope.project_name}' 缺少 project.json")
+        with tempfile.NamedTemporaryFile(suffix=Path(value.filename).suffix) as source:
+            source.write(value.content.encode("utf-8"))
+            source.flush()
+            with services.projects.locked_source_mutation(scope.project_name) as source_dir:
+                result = SourceLoader.load(
+                    Path(source.name),
+                    source_dir,
+                    original_filename=value.filename,
+                    on_conflict=value.on_conflict,
+                )
+        return {
+            "filename": result.normalized_path.name,
+            "path": f"source/{result.normalized_path.name}",
+            "original_filename": result.original_filename,
+            "original_kept": result.raw_path is not None,
+            "used_encoding": result.used_encoding,
+            "chapter_count": result.chapter_count,
+        }
+
+    try:
+        return ToolOutcome(value=await asyncio.to_thread(_upload))
+    except FileNotFoundError as exc:
+        return ToolOutcome(problem=ToolProblem("project_not_found", str(exc)))
+    except ValueError as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+    except UnsupportedFormatError as exc:
+        return ToolOutcome(problem=ToolProblem("unsupported_format", str(exc)))
+    except FileSizeExceededError as exc:
+        return ToolOutcome(problem=ToolProblem("source_too_large", str(exc)))
+    except (SourceDecodeError, CorruptFileError) as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_source", str(exc)))
+    except ConflictError as exc:
+        return ToolOutcome(problem=ToolProblem("source_conflict", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"upload_source 失败: {exc}"))
 
 
 async def get_workflow_plan(
@@ -1626,6 +1786,7 @@ __all__ = [
     "CallerContext",
     "CompleteAssetInventoryRequest",
     "CompleteStep1RebuildRequest",
+    "CreateProjectToolRequest",
     "EpisodeScriptContent",
     "EPISODE_META_FIELDS",
     "MAX_INSTRUCTIONS_LEN",
@@ -1654,15 +1815,18 @@ __all__ = [
     "ToolOutcome",
     "ToolProblem",
     "ToolRequest",
+    "UploadSourceRequest",
     "complete_asset_inventory",
     "complete_step1_rebuild",
+    "create_project",
+    "discard_draft",
     "get_episode_script",
     "get_project_content",
     "get_source_text",
     "get_step1_content",
-    "discard_draft",
     "get_video_capabilities",
     "get_workflow_plan",
+    "list_projects",
     "confirm_script_review",
     "generate_episode_script",
     "generate_step1",
@@ -1679,4 +1843,5 @@ __all__ = [
     "open_draft",
     "patch_draft",
     "promote_draft",
+    "upload_source",
 ]

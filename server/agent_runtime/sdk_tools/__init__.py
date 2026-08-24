@@ -4,9 +4,9 @@ Tools registered here run **in the server main process** (not inside the
 agent sandbox), so they can read ``projects/.arcreel.db`` and call provider
 HTTP without poking holes in ``filesystem.denyRead`` / network allowlist.
 
-Each session gets its own MCP server built via :func:`build_arcreel_mcp_server`
-— ``project_name`` is closure-bound, so the agent cannot redirect tools to a
-different project via prompt injection.
+Each session gets its own MCP server built via :func:`build_arcreel_mcp_server`.
+Project-scoped tools are closure-bound to ``project_name``; project entry tools
+may list, create, or upload within the same ``projects_root``.
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ from server.agent_runtime.sdk_tools.enqueue_videos import (
     generate_video_scene_tool,
     generate_video_selected_tool,
 )
+from server.agent_runtime.sdk_tools.entry import create_project_tool, list_projects_tool, upload_source_tool
 from server.agent_runtime.sdk_tools.episode_planning import (
     plan_episodes_tool,
     reset_episode_planning_tool,
@@ -82,6 +83,9 @@ __all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
 # here has a translation in all locales, so adding a tool without wiring up
 # i18n fails CI.
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
+    "list_projects",
+    "create_project",
+    "upload_source",
     "complete_asset_inventory",
     "complete_step1_rebuild",
     "get_workflow_plan",
@@ -194,6 +198,9 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         caller=CallerContext(user_id=user_id, source="embedded"),
     )
     tools = [
+        list_projects_tool(ctx),
+        create_project_tool(ctx),
+        upload_source_tool(ctx),
         complete_asset_inventory_tool(ctx),
         complete_step1_rebuild_tool(ctx),
         get_workflow_plan_tool(ctx),

@@ -1465,6 +1465,9 @@ export default {
   // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
   // enforces all locales stay in sync — adding a backend tool without wiring zh/en/vi fails CI)
   'tool_name_list_pending_assets': 'List pending assets',
+  'tool_name_list_projects': 'List projects',
+  'tool_name_create_project': 'Create project',
+  'tool_name_upload_source': 'Upload source',
   'tool_name_complete_asset_inventory': 'Complete asset inventory',
   'tool_name_complete_step1_rebuild': 'Complete step 1 rebuild',
   'tool_name_get_workflow_plan': 'Get complete workflow plan',

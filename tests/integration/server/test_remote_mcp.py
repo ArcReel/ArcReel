@@ -88,6 +88,18 @@ def _mounted(server) -> FastAPI:
     return app
 
 
+def test_remote_mcp_rejects_mismatched_projects_roots(tmp_path: Path) -> None:
+    projects = ProjectManager(tmp_path / "scope-projects")
+    services = Services(
+        projects=ProjectManager(tmp_path / "service-projects"),
+        workflow_planner=_Planner(),
+        capabilities=_Capabilities(),
+    )
+
+    with pytest.raises(ValueError, match="同一项目根"):
+        build_remote_mcp_server(projects=projects, services=services)
+
+
 async def _post_initialize(app: FastAPI, token: str | None = None) -> httpx.Response:
     headers = {"Accept": "application/json, text/event-stream"}
     if token is not None:
@@ -213,6 +225,41 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
     assert nonexistent.isError
     assert empty.isError
     assert escape.isError
+
+
+async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> None:
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    created = await session.call_tool(
+                        "create_project",
+                        {
+                            "name": "new-project",
+                            "title": "New Project",
+                            "content_mode": "narration",
+                            "generation_mode": "storyboard",
+                        },
+                    )
+                    projects = await session.call_tool("list_projects", {})
+                    uploaded = await session.call_tool(
+                        "upload_source",
+                        {"project": "new-project", "filename": "novel.txt", "content": "hello"},
+                    )
+
+    assert created.structuredContent is not None
+    assert created.structuredContent["project"]["name"] == "new-project"
+    assert projects.structuredContent is not None
+    assert {project["name"] for project in projects.structuredContent["projects"]} == {"demo", "new-project"}
+    assert uploaded.structuredContent is not None
+    assert uploaded.structuredContent["source"]["path"] == "source/novel.txt"
 
 
 async def test_remote_mcp_host_initializes_first_request_and_can_restart() -> None:
