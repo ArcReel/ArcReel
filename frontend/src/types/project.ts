@@ -43,7 +43,7 @@ export interface Prop {
 
 export interface Product {
   description: string;
-  /** 标准多角度商品资产图（可选，生成/上传后回写）。 */
+  /** 标准商品资产图（可选，生成/上传后回写）。 */
   product_sheet?: string;
   /** 品牌要素自由文本。 */
   brand?: string;

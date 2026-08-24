@@ -1642,7 +1642,7 @@ export default {
   'ad_init_brief_label': 'Brief sáng tạo',
   'ad_init_brief_placeholder': 'Mô tả video bạn muốn: đối tượng, phong cách, điểm bán hàng chính, lời kêu gọi hành động...',
   'ad_init_generate_sheet_label': 'Tạo hình tài sản hàng hóa',
-  'ad_init_generate_sheet_hint': 'Chuyển ảnh chụp thường thành hình tài sản đa góc chuẩn; xem xét và tạo lại trên trang hàng hóa',
+  'ad_init_generate_sheet_hint': 'Chuyển ảnh chụp thường thành một hình tài sản hàng hóa chuẩn; xem xét và tạo lại trên trang hàng hóa',
   'ad_init_product_incomplete_hint': 'Thông tin hàng hóa chưa đầy đủ: hãy điền cả tên và mô tả hàng hóa, hoặc xóa trống khu vực hàng hóa để chỉ gửi Brief sáng tạo',
   'ad_init_images_selected': 'Đã chọn {{count}} ảnh',
   'ad_init_submit': 'Bắt đầu sáng tạo',
