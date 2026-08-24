@@ -1,12 +1,12 @@
 ---
 name: generate-assets
 description: >-
-  统一资产生成 skill：接受 `--type=character|scene|prop`，或不传自动扫所有 pending（缺 sheet）资源并按类型分发。当用户说“生成角色图”/“生成场景图”/“生成道具图”、想为新资产创建参考图、或有资产缺少 *_sheet 时使用。
+  统一资产生成 skill：接受 `--type=character|scene|prop|product`，或不传自动扫所有 pending（缺 sheet）资源并按类型分发。当用户说“生成角色图”/“生成场景图”/“生成道具图”/“生成商品图”、想为新资产创建参考图、或有资产缺少 *_sheet 时使用。
 ---
 
 # 生成资产图
 
-为项目的角色、场景、道具创建资产图，保证整个视频中视觉元素的一致性。
+为项目的角色、场景、道具、商品创建资产图，保证整个视频中视觉元素的一致性。
 图像供应商由项目设置选择（不锁定具体 backend）。
 
 > Prompt 编写原则详见 `.claude/references/generation-modes.md` 的"Prompt 语言"章节。
@@ -52,7 +52,7 @@ description: >-
 
 ### 输出布局
 
-单张环境全景建立镜头。
+横版 16:9 单张环境全景建立镜头。
 
 ---
 
@@ -68,7 +68,19 @@ description: >-
 
 ### 输出布局
 
-单张道具资产图，纯净浅灰背景。
+横版 16:9 单张道具资产图，纯净浅灰背景。
+
+---
+
+## 商品（product）
+
+### description 编写指南
+
+用连贯段落描述商品外观、品牌文字、配色、材质、比例与结构。
+
+### 输出布局
+
+横版 16:9 单张商品资产图，纯净浅灰背景、均匀棚拍布光。
 
 ---
 
@@ -79,10 +91,11 @@ description: >-
 | 操作 | 工具 |
 |------|------|
 | 列出所有/某类 pending | `mcp__arcreel__list_pending_assets({"type": "character"})`（type 可省略） |
-| 生成所有 pending（三类各一轮） | `mcp__arcreel__generate_assets({})` |
+| 生成所有 pending（四类各一轮） | `mcp__arcreel__generate_assets({})` |
 | 生成某类全部 pending | `mcp__arcreel__generate_assets({"type": "character"})` |
 | 生成指定多个 | `mcp__arcreel__generate_assets({"type": "prop", "names": ["玉佩", "密信"]})` |
 | 生成单个 | `mcp__arcreel__generate_assets({"type": "scene", "names": ["村口老槐树"]})` |
+| 生成单个商品 | `mcp__arcreel__generate_assets({"type": "product", "names": ["保温杯"]})` |
 
 结果按 `requested / succeeded / failed / blocked / skipped` 逐 ID 返回，ID 形如 `character/张三`；
 已失效但可复用的旧图进入 `skipped`，不会自动重生；
@@ -94,7 +107,7 @@ description: >-
 1. **加载项目元数据** — 从 Artifact Manifest 找出资产图状态为 `missing` 的资产
 2. **入队生成任务** — description 直接作为 prompt 提交；server 端 `lib.prompt_builders` 注入布局 / 防崩 / 反向
 3. **审核检查点** — 展示每张资产图，用户可批准、要求重新生成，或要求编辑
-4. **更新 project.json** — 更新 `character_sheet` / `scene_sheet` / `prop_sheet` 路径
+4. **更新 project.json** — 更新 `character_sheet` / `scene_sheet` / `prop_sheet` / `product_sheet` 路径
 
 ## 审核检查点：编辑 vs 重新生成
 
@@ -113,3 +126,4 @@ description: >-
 - **角色**：三个面板（正面 / 正侧 / 背面）的面部、发型、服装、配饰完全一致
 - **场景**：整体构图和标志性特征突出、光线氛围合适
 - **道具**：主体清晰、细节符合描述、特殊纹理清晰可见
+- **商品**：参考图中的品牌、文字、配色、材质、比例与结构保持一致，不保留手部、模特及其他出镜人物
