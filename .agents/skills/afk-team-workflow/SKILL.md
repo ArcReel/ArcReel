@@ -29,7 +29,7 @@ disable-model-invocation: true
 
 ## 3. 暂停边界
 
-实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响事项及其下游并询问用户。**quiesce first**：停止受影响 agents 并废弃未集成 handoff；stage 写权已交出时，先停止 review-looper 写入并连同 worktree、branch、remote HEAD 与 handoff 收回。然后为已有 issue 移除 `ready-for-agent`、添加 `ready-for-human`，记录原因，并将暂停范围移出当前 stage。其余 frontier 继续执行。用户决定继续时恢复标签并重新编排；决定保留暂停时，仅当相关 commit 已进入 stage branch 才重建 stage，排除该 issue 及其下游；已有 PR 同步更新 `Closes` 清单。重建后重新运行累计质量门与审查循环。
+实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响事项及其下游并询问用户。**quiesce first**：停止受影响 agents 并废弃未集成 handoff；stage 写权已交出时，先停止 review-looper 写入并连同 worktree、branch、remote HEAD 与 handoff 收回。然后为已有 issue 移除 `ready-for-agent`、添加 `ready-for-human`，记录原因，并将暂停范围移出当前 stage。其余 frontier 继续执行。用户决定继续时：已有 issue 恢复标签；Spec gap 先创建并挂为 sub-issue、以 `membership` 纳入批次，再重新编排。决定保留暂停时，仅当相关 commit 已进入 stage branch 才重建 stage，排除该 issue 及其下游；已有 PR 同步更新 `Closes` 清单。重建后重新运行累计质量门与审查循环。
 
 可吸收的运行故障、reviewer 重复噪声与无需业务选择的技术裁决由 team-lead 处理并记账；阻断 **green HEAD** 且无法自行恢复的故障按上文暂停。
 
