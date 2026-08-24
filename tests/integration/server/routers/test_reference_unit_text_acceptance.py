@@ -91,7 +91,7 @@ class _Acceptance:
         output = await patch_episode_script_tool(self.tool_ctx).handler(
             {
                 "script": _SCRIPT_FILE,
-                "expected_revision": revision["revision"],
+                "base_revision": revision["revision"],
                 "operations": [{"op": "update", "id": unit_id, "fields": {"text": text}}],
             }
         )

@@ -108,7 +108,7 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
     if parts[0] in {"segment_id", "scene_id", "unit_id", "shot_id"}:
         # patch 不可改分镜 id：id 由 insert/split 从锚点派生，结构校验不查 id 唯一性，
         # Agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
-        # 或产生重复 id 歧义。增减分镜走 insert_segment / split_segment / remove_segment 工具。
+        # 或产生重复 id 歧义。增减分镜走 patch_episode_script 的 insert / split / remove operation。
         raise ScriptEditError(
             f"patch_episode_script 不可改分镜 id 字段 ({parts[0]})；id 由 insert/split 派生，不允许直接修改"
         )

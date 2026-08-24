@@ -6,11 +6,13 @@ from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow_state import WorkflowStatus
 from server.tool_runtime import (
     CallerContext,
+    PatchEpisodeScriptRequest,
     ProjectScope,
     Services,
     ToolRequest,
     get_video_capabilities,
     get_workflow_plan,
+    patch_episode_script,
 )
 
 
@@ -21,6 +23,11 @@ class _Projects:
     def load_project(self, name: str) -> dict:
         assert name == "demo"
         return self.project
+
+    def load_script(self, name: str, script: str) -> dict:
+        assert name == "demo"
+        assert script == "episode_1.json"
+        return {"episode": 1, "segments": []}
 
 
 class _Planner:
@@ -94,3 +101,25 @@ async def test_video_capabilities_returns_typed_domain_outcome() -> None:
 
     assert outcome.problem is None
     assert outcome.value == {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
+
+
+async def test_patch_episode_script_returns_typed_revision_conflict() -> None:
+    project = {"generation_mode": "storyboard"}
+    outcome = await patch_episode_script(
+        ToolRequest(
+            PatchEpisodeScriptRequest.model_validate(
+                {
+                    "script": "episode_1.json",
+                    "base_revision": "sha256-v1:" + "0" * 64,
+                    "operations": [{"op": "remove", "id": "E1S01"}],
+                }
+            )
+        ),
+        ProjectScope("demo", Path("/projects")),
+        CallerContext(user_id="u1", source="embedded"),
+        Services(projects=_Projects(project), workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
+    )
+
+    assert outcome.problem is None
+    assert outcome.value is not None
+    assert outcome.value.problems[0].code == "revision_conflict"

@@ -33,10 +33,7 @@ from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_assets import list_pending_assets_tool
 from server.agent_runtime.sdk_tools.patch_script import (
     get_episode_script_revision_tool,
-    insert_segment_tool,
     patch_episode_script_tool,
-    remove_segment_tool,
-    split_segment_tool,
 )
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
@@ -290,17 +287,12 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
 
 @pytest.mark.parametrize(
     "tool_factory",
-    [
-        patch_episode_script_tool,
-        insert_segment_tool,
-        remove_segment_tool,
-        split_segment_tool,
-    ],
+    [patch_episode_script_tool],
 )
 async def test_script_edit_mcp_tools_refuse_at_registration_on_a_migration_blocked_project(
     tmp_path: Path, monkeypatch, tool_factory
 ) -> None:
-    """四个受控剧本编辑工具登记在 MIGRATION_BLOCKED_TOOL_IDS 里，注册期包上守卫后直接拒。
+    """受控剧本编辑工具登记在 MIGRATION_BLOCKED_TOOL_IDS 里，注册期包上守卫后直接拒。
 
     断言两件事：工具 id 在阻断集内（``build_arcreel_mcp_server`` 就按这个集合决定包不包守卫），
     以及包上后的回执是 problem 形状。不落到 ScriptBatchEditor.execute 的内层裁决——那条仍在，

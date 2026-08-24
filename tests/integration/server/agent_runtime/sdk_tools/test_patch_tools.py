@@ -1,5 +1,4 @@
-"""端到端测试：剧本/项目 JSON 编辑 MCP 工具（patch_episode_script / insert_segment /
-remove_segment / split_segment / patch_project）。
+"""端到端测试：剧本/项目 JSON 编辑 MCP 工具（patch_episode_script / patch_project）。
 
 用真实 ProjectManager 跑工具 handler → 编辑核心 → 写盘统一入口的完整路径，断言落盘结果与
 错误信封（结构「不更坏」校验、upsert 校验真实生效），不 mock 私有方法。
@@ -7,22 +6,22 @@ remove_segment / split_segment / patch_project）。
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.project_manager import ProjectManager
 from lib.reference_video.request_projection import unit_reference_declarations
+from lib.script_batch_edit import script_revision
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
     get_episode_script_revision_tool,
-    insert_segment_tool,
     patch_episode_script_tool,
-    remove_segment_tool,
-    split_segment_tool,
 )
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 
@@ -176,6 +175,17 @@ async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
     return await tool_obj.handler(args)
 
 
+async def _patch(ctx: ToolContext, operations: list[dict[str, Any]]) -> dict[str, Any]:
+    return await _call(
+        patch_episode_script_tool(ctx),
+        {
+            "script": "episode_1.json",
+            "base_revision": script_revision(_load(ctx)),
+            "operations": operations,
+        },
+    )
+
+
 def _load(ctx: ToolContext) -> dict[str, Any]:
     return ctx.pm.load_script("demo", "episode_1.json")
 
@@ -187,7 +197,7 @@ def _text(out: dict[str, Any]) -> str:
 
 
 class TestPatchEpisodeScript:
-    async def test_revision_tool_feeds_ordered_multi_operation_command(self, ctx: ToolContext) -> None:
+    async def test_four_operation_union_commits_as_one_batch(self, ctx: ToolContext) -> None:
         revision_output = await _call(
             get_episode_script_revision_tool(ctx),
             {"script": "episode_1.json"},
@@ -197,20 +207,23 @@ class TestPatchEpisodeScript:
             patch_episode_script_tool(ctx),
             {
                 "script": "episode_1.json",
-                "expected_revision": revision_output["revision"],
+                "base_revision": revision_output["revision"],
                 "operations": [
                     {"op": "update", "id": "E1S01", "fields": {"note": "first"}},
-                    {"op": "move_after", "id": "E1S02", "after_id": None},
+                    {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")},
+                    {"op": "split", "id": "E1S02", "parts": [_segment("a"), _segment("b")]},
+                    {"op": "remove", "id": "E1S01_1"},
                 ],
             },
         )
 
         assert output.get("is_error") is not True
+        assert json.loads(output["content"][1]["text"])["script_edit"] == output["script_edit"]
         assert output["script_edit"]["before_revision"] == revision_output["revision"]
         assert output["script_edit"]["revision"] != revision_output["revision"]
         saved = _load(ctx)["segments"]
-        assert [segment["segment_id"] for segment in saved] == ["E1S02", "E1S01"]
-        assert saved[1]["note"] == "first"
+        assert [segment["segment_id"] for segment in saved] == ["E1S01", "E1S02", "E1S02_1"]
+        assert saved[0]["note"] == "first"
 
     async def test_formal_command_rejects_stale_revision(self, ctx: ToolContext) -> None:
         before = _load(ctx)
@@ -219,7 +232,7 @@ class TestPatchEpisodeScript:
             patch_episode_script_tool(ctx),
             {
                 "script": "episode_1.json",
-                "expected_revision": "sha256-v1:" + "0" * 64,
+                "base_revision": "sha256-v1:" + "0" * 64,
                 "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}],
             },
         )
@@ -227,6 +240,21 @@ class TestPatchEpisodeScript:
         assert output.get("is_error") is True
         assert output["script_edit"]["problems"][0]["code"] == "revision_conflict"
         assert output["script_edit"]["problems"][0]["operation_index"] is None
+        assert _load(ctx) == before
+
+    async def test_invalid_later_operation_rejects_the_whole_batch(self, ctx: ToolContext) -> None:
+        before = _load(ctx)
+
+        output = await _patch(
+            ctx,
+            [
+                {"op": "update", "id": "E1S01", "fields": {"note": "must roll back"}},
+                {"op": "insert", "after_id": "missing", "item": _segment("ignored")},
+            ],
+        )
+
+        assert output.get("is_error") is True
+        assert output["script_edit"]["problems"][0]["operation_index"] == 1
         assert _load(ctx) == before
 
     @pytest.mark.parametrize(
@@ -645,12 +673,9 @@ class TestPatchEpisodeScript:
         assert _load(ad_ctx)["shots"][1]["voiceover_text"] == "新口播"
 
 
-class TestInsertRemoveSplit:
+class TestPatchEpisodeScriptStructuralOperations:
     async def test_insert_adds_at_position(self, ctx: ToolContext) -> None:
-        out = await _call(
-            insert_segment_tool(ctx),
-            {"script": "episode_1.json", "after_id": "E1S01", "item": _segment("IGN")},
-        )
+        out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN")}])
         assert out.get("is_error") is not True
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
@@ -660,9 +685,9 @@ class TestInsertRemoveSplit:
         ctx: ToolContext,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from server.agent_runtime.sdk_tools import patch_script
+        from server import tool_runtime
 
-        original_insert = patch_script.insert_segment
+        original_insert = tool_runtime.insert_segment
 
         def _insert_then_concurrently_edit(script, after_id, item):
             result = original_insert(script, after_id, item)
@@ -670,12 +695,9 @@ class TestInsertRemoveSplit:
                 current["segments"][0]["note"] = "concurrent"
             return result
 
-        monkeypatch.setattr(patch_script, "insert_segment", _insert_then_concurrently_edit)
+        monkeypatch.setattr(tool_runtime, "insert_segment", _insert_then_concurrently_edit)
 
-        out = await _call(
-            insert_segment_tool(ctx),
-            {"script": "episode_1.json", "after_id": "E1S01", "item": _segment("IGN")},
-        )
+        out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN")}])
 
         assert out.get("is_error") is True
         assert out["script_edit"]["problems"][0]["code"] == "revision_conflict"
@@ -688,10 +710,7 @@ class TestInsertRemoveSplit:
         mixed = _segment("IGN")
         mixed["video_prompt"]["dialogue"] = [{"speaker": "角色A", "line": "快走。"}]
 
-        out = await _call(
-            insert_segment_tool(ctx),
-            {"script": "episode_1.json", "after_id": "E1S01", "item": mixed},
-        )
+        out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": mixed}])
 
         assert out.get("is_error") is True
         assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
@@ -704,27 +723,51 @@ class TestInsertRemoveSplit:
         inserted = _unit("ignored")
         inserted["text"] = "@[酒馆]：木门被风吹开"
 
-        out = await _call(
-            insert_segment_tool(ref_ctx),
-            {"script": "episode_1.json", "after_id": "E1U1", "item": inserted},
-        )
+        out = await _patch(ref_ctx, [{"op": "insert", "after_id": "E1U1", "item": inserted}])
 
         assert out.get("is_error") is not True, out
         assert _derived_references(ref_ctx, 1) == [("scene", "酒馆")]
 
     async def test_remove_by_id(self, ctx: ToolContext) -> None:
-        out = await _call(remove_segment_tool(ctx), {"script": "episode_1.json", "id": "E1S01"})
+        out = await _patch(ctx, [{"op": "remove", "id": "E1S01"}])
         assert out.get("is_error") is not True
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S02"]
+
+    @pytest.mark.parametrize("replacement", ["insert", "split"])
+    async def test_new_identity_does_not_inherit_removed_id_assets(
+        self,
+        ctx: ToolContext,
+        replacement: str,
+    ) -> None:
+        script = _script()
+        removed = _segment("E1S01_1")
+        removed["generated_assets"] = {"video_clip": "old-paid.mp4", "status": "completed"}
+        script["segments"].insert(1, removed)
+        ctx.pm.save_script("demo", script, "episode_1.json")
+        adapter = ProjectArtifactManifestAdapter(ctx.project_path)
+        old_video = ArtifactKey.episode_video(1, "E1S01_1")
+        adapter.put_entry(
+            old_video,
+            ArtifactManifestEntry(artifact_path="videos/old-paid.mp4", basis_digest=f"sha256-v1:{'a' * 64}"),
+        )
+        structural = (
+            {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")}
+            if replacement == "insert"
+            else {"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}
+        )
+
+        out = await _patch(ctx, [{"op": "remove", "id": "E1S01_1"}, structural])
+
+        assert out.get("is_error") is not True
+        recycled = next(segment for segment in _load(ctx)["segments"] if segment["segment_id"] == "E1S01_1")
+        assert recycled["generated_assets"] == {}
+        assert adapter.get_entry(old_video) is None
 
     async def test_split_keeps_first_id_and_clears_new_identity_assets(self, ctx: ToolContext) -> None:
         # parts 自带的资产不可信：同 id 锚点以原资产为准，新身份一律清空。
         part_a = _segment("a")
         part_a["generated_assets"] = {"storyboard_image": "stale.png", "status": "completed"}
-        out = await _call(
-            split_segment_tool(ctx),
-            {"script": "episode_1.json", "id": "E1S01", "parts": [part_a, _segment("b")]},
-        )
+        out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": [part_a, _segment("b")]}])
         assert out.get("is_error") is not True
         saved = _load(ctx)["segments"]
         ids = [s["segment_id"] for s in saved]
@@ -743,10 +786,7 @@ class TestInsertRemoveSplit:
         mixed = _segment("b")
         mixed["video_prompt"]["dialogue"] = [{"speaker": "角色A", "line": "快走。"}]
 
-        out = await _call(
-            split_segment_tool(ctx),
-            {"script": "episode_1.json", "id": "E1S01", "parts": [_segment("a"), mixed]},
-        )
+        out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": [_segment("a"), mixed]}])
 
         assert out.get("is_error") is True
         assert out["speech_admission"]["problems"][0]["code"] == "mixed_speech"
@@ -762,9 +802,9 @@ class TestInsertRemoveSplit:
         mixed = _unit("ignored")
         mixed["text"] = "@[角色A]：{快走。}\n{风吹过旷野。}"
 
-        out = await _call(
-            split_segment_tool(ref_ctx),
-            {"script": "episode_1.json", "id": "E1U1", "parts": [_unit("ignored"), mixed]},
+        out = await _patch(
+            ref_ctx,
+            [{"op": "split", "id": "E1U1", "parts": [_unit("ignored"), mixed]}],
         )
 
         assert out.get("is_error") is True
@@ -780,10 +820,7 @@ class TestInsertRemoveSplit:
         for part in parts:
             part["text"] = "@[酒馆]：木门被风吹开"
 
-        out = await _call(
-            split_segment_tool(ref_ctx),
-            {"script": "episode_1.json", "id": "E1U1", "parts": parts},
-        )
+        out = await _patch(ref_ctx, [{"op": "split", "id": "E1U1", "parts": parts}])
 
         assert out.get("is_error") is not True, out
         assert [_derived_references(ref_ctx, index) for index in (0, 1)] == [
@@ -792,10 +829,7 @@ class TestInsertRemoveSplit:
         ]
 
     async def test_split_too_few_parts_errors(self, ctx: ToolContext) -> None:
-        out = await _call(
-            split_segment_tool(ctx),
-            {"script": "episode_1.json", "id": "E1S01", "parts": [_segment("a")]},
-        )
+        out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": [_segment("a")]}])
         assert out.get("is_error") is True
 
 

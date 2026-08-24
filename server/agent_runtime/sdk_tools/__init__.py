@@ -46,10 +46,7 @@ from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
     get_episode_script_revision_tool,
-    insert_segment_tool,
     patch_episode_script_tool,
-    remove_segment_tool,
-    split_segment_tool,
 )
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
@@ -103,9 +100,6 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "get_episode_script_revision",
     "patch_episode_script",
     "patch_episode_meta",
-    "insert_segment",
-    "remove_segment",
-    "split_segment",
     "patch_project",
     "rename_asset",
     "retry_project_migration",
@@ -153,9 +147,6 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "plan_episodes",
         "reset_episode_planning",
         "patch_episode_script",
-        "insert_segment",
-        "remove_segment",
-        "split_segment",
     }
 )
 
@@ -215,9 +206,6 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         get_episode_script_revision_tool(ctx),
         patch_episode_script_tool(ctx),
         patch_episode_meta_tool(ctx),
-        insert_segment_tool(ctx),
-        remove_segment_tool(ctx),
-        split_segment_tool(ctx),
         patch_project_tool(ctx),
         rename_asset_tool(ctx),
         retry_project_migration_tool(ctx),

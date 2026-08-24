@@ -264,7 +264,7 @@ async def test_mixed_speech_blocks_before_storyboard_and_uses_atomic_script_edit
     assert structure.contracts.script_edit == "script_batch_edit/v1"
     assert storyboard.state is WorkflowStepState.PENDING
     assert plan.next_action.type == "patch_episode_script"
-    assert plan.next_action.args["expected_revision"].startswith("sha256-v1:")
+    assert plan.next_action.args["base_revision"].startswith("sha256-v1:")
 
 
 async def test_status_read_is_idempotent_and_does_not_touch_project_files(
