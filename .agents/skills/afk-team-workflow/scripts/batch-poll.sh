@@ -87,9 +87,34 @@ else
   jq -s '.' "$TASK_TMP_DIR/issues.jsonl" >"$TASK_TMP_DIR/issues.json"
 fi
 
-# Parse the repository's conventional "## Blocked by" section mechanically.
-# The team-lead still reads every issue and corrects unconventional prose.
-jq '
+# Project the canonical native graph. Body links are the repository fallback;
+# the historical section remains readable for existing issues.
+: >"$TASK_TMP_DIR/native.jsonl"
+for issue in $(jq -r '.[].number' "$TASK_TMP_DIR/issues.json"); do
+  if gh api "repos/${OWNER_REPO}/issues/${issue}/dependencies/blocked_by" --paginate --slurp \
+    >"$TASK_TMP_DIR/native-${issue}.json" 2>"$TASK_TMP_DIR/native-${issue}.err"; then
+    jq -c --argjson number "$issue" \
+      '{number: $number, available: true, blocked_by: [.[][] | .number] | unique}' \
+      "$TASK_TMP_DIR/native-${issue}.json" >>"$TASK_TMP_DIR/native.jsonl"
+  elif grep -q 'HTTP 404' "$TASK_TMP_DIR/native-${issue}.err"; then
+    echo "BATCH_POLL_WARN: native dependencies unavailable for #${issue}; using body fallback" >&2
+    jq -nc --argjson number "$issue" \
+      '{number: $number, available: false, blocked_by: []}' \
+      >>"$TASK_TMP_DIR/native.jsonl"
+  else
+    echo "BATCH_POLL_ERROR: native dependencies fetch failed for #${issue}" >&2
+    cat "$TASK_TMP_DIR/native-${issue}.err" >&2
+    exit 5
+  fi
+done
+jq -s '.' "$TASK_TMP_DIR/native.jsonl" >"$TASK_TMP_DIR/native.json"
+
+jq --slurpfile native "$TASK_TMP_DIR/native.json" '
+  def refs:
+    [scan("#([0-9]+)") | .[0] | tonumber] | unique;
+  def top_blocked_by:
+    (. // "") | split("\n") | map(select(test("\\S"))) | (.[0] // "")
+    | if test("^\\s*Blocked by\\s*:"; "i") then refs else [] end;
   def section_lines($name):
     (. // "") | split("\n")
     | reduce .[] as $line ({inside: false, lines: []};
@@ -98,12 +123,25 @@ jq '
         elif .inside then .lines += [$line]
         else . end)
     | .lines;
-  def blocked_by:
+  def legacy_blocked_by:
     section_lines("Blocked by") | map(select(test("\\S")))
     | if length == 0 or (.[0] | gsub("^\\s+"; "") | test("^none"; "i")) then []
-      else [.[] | scan("#([0-9]+)") | .[0] | tonumber] | unique
+      else join("\n") | refs
       end;
-  [.[] | {number, blocked_by: (.body | blocked_by)}]
+  def body_blocked_by:
+    . as $body | ($body | top_blocked_by) as $top
+    | if ($top | length) > 0 then $top else ($body | legacy_blocked_by) end;
+  ($native[0] | INDEX(.number | tostring)) as $native_by_issue
+  | [.[]
+     | . as $issue
+     | ($native_by_issue[.number | tostring]) as $native_issue
+     | {
+         number,
+         blocked_by: (if $native_issue.available
+           then $native_issue.blocked_by
+           else ($issue.body | body_blocked_by)
+           end)
+       }]
 ' "$TASK_TMP_DIR/issues.json" >"$TASK_TMP_DIR/dependencies.json"
 
 BATCH_NUMBERS=" $(jq -r '[.[].number] | join(" ")' "$TASK_TMP_DIR/issues.json") "

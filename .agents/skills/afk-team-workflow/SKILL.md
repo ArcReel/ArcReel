@@ -11,7 +11,7 @@ disable-model-invocation: true
 ## 1. 计划批次
 
 1. 生成唯一 `batch-id`：Spec 批次用 `spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 位随机十六进制>`，显式 issue 批次用同格式的简短 slug。若 `.afk/` 已有同一范围且未 `closed` 的账本，暂停并让用户选择接管或重开；两者均先读 [recovery.md](references/recovery.md)。
-2. 按批次运行 `scripts/batch-poll.sh --repo-root <repo-root> --spec <N>` 或 `--issues <N,...>`，然后逐个通读 issue 正文与评论，得到真实的验收边界、依赖图、triage 与认领状态。只有 `OPEN` issue 可进入 stage 与 PR `Closes` 清单；其中 `ready-for-agent`、无他人认领且 blockers 已完成的 issue 进入 frontier，无标签时按语义裁决。`ready-for-human` 及其被阻塞下游不进入 frontier。
+2. 按批次运行 `scripts/batch-poll.sh --repo-root <repo-root> --spec <N>` 或 `--issues <N,...>`，然后逐个通读 issue 正文与评论，得到真实的验收边界、canonical dependency graph、triage 与认领状态。只有 `OPEN` issue 可进入 stage 与 PR `Closes` 清单；其中 `ready-for-agent`、无他人认领且 blockers 已完成的 issue 进入 frontier，无标签时按语义裁决。`ready-for-human` 及其被阻塞下游不进入 frontier。
 3. 将依赖图划成**最少的、可独立审查和合入的交付 stage**；小批次保持单 stage。按 [model-selection.md](references/model-selection.md) 为各角色选模型。
 4. 向用户展示 stage、依赖、模型理由、跳过项及下游影响，并一次性请求：全部 stage PR 的 rebase merge 授权；最终清尾轮中对符合范围的真缺陷自行立 issue 的授权。未授权的清尾候选只转呈。
 5. 用 `scripts/ledger.sh` 创建薄账本，记录 scope、计划裁决与授权；账本只记 Git / GitHub 无法重推的事实。
@@ -25,7 +25,7 @@ disable-model-invocation: true
 1. 从最新 `origin/main` 创建 `afk/<batch-id>/stage-<K>` 与专属 worktree，由 team-lead 独占并 push。
 2. 将依赖已满足且改动面可安全并发的完整 frontier 立即认领并委派。每个 issue 使用独立 worktree：implementer 按 [implementer.md](references/implementer.md) 交付后，由未参与实现的 local-reviewer 复用该 worktree，按 [local-reviewer.md](references/local-reviewer.md) 审查并交付一个 issue commit。不同 issue 的接力可自然重叠。
 3. team-lead 在 stage worktree 串行 cherry-pick 已审查的 issue commits 并 push。冲突时 abort，由原 local-reviewer 基于最新 stage branch 解决、验证并重新交付。带 `Refs #<N>` 的 commit 出现在远程 stage branch 后，该 issue 才算完成并可解锁新 frontier。
-4. 全部 issues 集成后运行累计质量门。最后一个 stage 先聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且无需业务取舍的真缺陷，清尾 issue 沿用同一接力；其余转呈。完成后创建 ready PR，用 `Closes #<N>` 覆盖本 stage issues；Spec 批次另用 `Refs #<Spec>` 引用 Spec，不自动关闭它。将 stage worktree 与 branch 的独占写权交给新 agent，按 [review-looper.md](references/review-looper.md) 收敛整个 stage diff；交接期间 team-lead 不写该 worktree 或 branch。收回写权后核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，然后 rebase merge。下一 stage 从最新 `origin/main` 开始。
+4. 最后一个 stage 先聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且无需业务取舍的真缺陷；清尾 issue 创建后立即以 `membership` 记账并沿用同一接力，其余转呈。全部 issues 集成后收敛 **green HEAD**：stage worktree 与 remote HEAD 一致、干净且累计质量门通过；质量门产生的改动提交为 integration-fix 并 push，直到达标。再创建 ready PR，用 `Closes #<N>` 覆盖本 stage issues。Spec 批次另用 `Refs #<Spec>` 引用 Spec，不自动关闭它。将 stage worktree 与 branch 的独占写权交给新 agent，按 [review-looper.md](references/review-looper.md) 收敛整个 stage diff；交接期间 team-lead 不写该 worktree 或 branch。收回写权后核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，然后 rebase merge。下一 stage 从最新 `origin/main` 开始。
 
 ## 3. 暂停边界
 
