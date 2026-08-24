@@ -2,16 +2,40 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from lib.asset_inventory import (
+    AssetInventoryError,
+    AssetInventoryInvalidRequest,
+    AssetInventoryRevisionConflict,
+    AssetInventorySourceBlocked,
+)
+from lib.asset_inventory import (
+    complete_asset_inventory as complete_asset_inventory_service,
+)
+from lib.asset_types import ASSET_SPECS
 from lib.config.resolver import ConfigResolver
+from lib.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
+from lib.episode_reset import (
+    EpisodeResetError,
+    ResetConfirmationRequired,
+)
+from lib.episode_reset import (
+    reset_episode_planning as reset_episode_planning_service,
+)
+from lib.generation_result import migration_problem
 from lib.project_manager import ProjectManager, is_reference_video_project
+from lib.project_migration_failure import MigrationFailureRecord, load_migration_failure
+from lib.project_migration_guard import project_migration_failure
+from lib.project_migrations import migrate_project_with_verdict
 from lib.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditLocation,
@@ -28,6 +52,8 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
+from lib.script_review import Step1RebuildCompletionError, complete_stale_step1_rebuild
+from lib.source_revision import SourceScope
 from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow_state import WorkflowRequestError
 from server.services.video_caps import annotate_reference_unit_tiers
@@ -76,6 +102,17 @@ class Services:
 class ToolProblem:
     code: str
     detail: str
+    action: str | None = None
+    params: dict[str, Any] | None = None
+
+    def model_dump(self, *, mode: str = "python") -> dict[str, Any]:
+        del mode
+        payload: dict[str, Any] = {"code": self.code, "detail": self.detail}
+        if self.action is not None:
+            payload["action"] = self.action
+        if self.params is not None:
+            payload["params"] = self.params
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,10 +505,710 @@ async def patch_episode_script(
     return ToolOutcome(value=_remap_operation_indexes(result, source_indexes))
 
 
+MAX_INSTRUCTIONS_LEN = 4000
+ASSET_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
+PROJECT_SETTINGS = (
+    "episode_target_units",
+    "source_language",
+    "brief",
+    "planning_window_chars",
+    "planning_max_episodes",
+    "narration_voice",
+    "narration_speed",
+)
+PROJECT_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
+EPISODE_META_FIELDS = ("title",)
+
+_SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
+_POSITIVE_INT_SETTINGS = ("episode_target_units", "planning_window_chars", "planning_max_episodes")
+
+
+class ToolMessage(BaseModel):
+    message: str
+
+
+class PlanEpisodesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    instructions: str | None = None
+
+    @field_validator("instructions")
+    @classmethod
+    def _validate_instructions(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if len(value) > MAX_INSTRUCTIONS_LEN:
+            raise ValueError(f"instructions 过长（{len(value)} 字符，上限 {MAX_INSTRUCTIONS_LEN}），请精简后重试")
+        return value.strip() or None
+
+
+class PlanEpisodesResult(ToolMessage):
+    episodes: list[dict[str, Any]]
+    cursor: dict[str, Any] | None
+    source_exhausted: bool
+    total_planned: int
+    ledger_stats: dict[str, Any] | None
+
+
+class ResetEpisodePlanningRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    from_episode: int = Field(strict=True, ge=1)
+    confirm_consumed: bool = Field(default=False, strict=True)
+
+
+class ResetEpisodePlanningResult(ToolMessage):
+    confirmation_required: bool
+    removed_episodes: list[int] = Field(default_factory=list)
+    deleted_files: list[str] = Field(default_factory=list)
+    archived_files: list[str] | list[tuple[str, str]] = Field(default_factory=list)
+    consumed_episodes: list[int] = Field(default_factory=list)
+
+
+class PatchProjectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    table: str | None = None
+    entries: dict[str, Any] | None = None
+    settings: dict[str, Any] | None = None
+    overview: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> PatchProjectRequest:
+        has_upsert = self.table is not None or self.entries is not None
+        branches = (has_upsert, self.settings is not None, self.overview is not None)
+        if sum(branches) > 1:
+            raise ValueError("table/entries、settings、overview 三选一,不能同时给出多个")
+        if not any(branches):
+            raise ValueError("必须提供 table+entries(资产 upsert)、settings(顶层字段)或 overview(项目概述)之一")
+        if has_upsert:
+            if self.table is None or self.entries is None:
+                raise ValueError("资产 upsert 分支必须同时提供 table 和 entries")
+            if self.table not in ASSET_TABLES:
+                raise ValueError(f"table 必须是 {list(ASSET_TABLES)} 之一")
+            if not self.entries:
+                raise ValueError("entries 必须是非空 { 名称: 字段对象 } 映射")
+        if self.settings is not None and not self.settings:
+            raise ValueError("settings 必须是非空 { 字段名: 值 } 映射")
+        if self.overview is not None and not self.overview:
+            raise ValueError("overview 必须是非空 { 字段名: 值 } 映射")
+        return self
+
+
+class PatchProjectResult(ToolMessage):
+    operation: Literal["assets", "settings", "overview"]
+    changes: dict[str, Any]
+
+
+class PatchEpisodeMetaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    script: str
+    field: Literal["title"]
+    value: str
+
+    @field_validator("script")
+    @classmethod
+    def _validate_script(cls, value: str) -> str:
+        if not value or "/" in value or "\\" in value or value in (".", ".."):
+            raise ValueError(f"script 必须是纯文件名，禁止路径分隔符: {value!r}")
+        return value
+
+    @field_validator("value")
+    @classmethod
+    def _validate_value(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("title 必须是非空字符串")
+        return value.strip()
+
+
+class PatchEpisodeMetaResult(ToolMessage):
+    script: str
+    field: str
+    value: str
+
+
+class RenameAssetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    table: str
+    old_name: str
+    new_name: str
+
+    @field_validator("table")
+    @classmethod
+    def _validate_table(cls, value: str) -> str:
+        if value not in ASSET_TABLES:
+            raise ValueError(f"table 必须是 {list(ASSET_TABLES)} 之一")
+        return value
+
+
+class RenameAssetResult(ToolMessage):
+    table: str
+    old_name: str
+    new_name: str
+    episodes: int
+    references: int
+    files: int
+
+
+class RetryProjectMigrationResult(ToolMessage):
+    workflow_plan: WorkflowPlan
+
+
+class CompleteAssetInventoryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: SourceScope
+    expected_source_revision: str
+    entries: dict[str, Any] | None = None
+
+
+class CompleteAssetInventoryResult(BaseModel):
+    scope: SourceScope
+    source_revision: str
+    counts: dict[str, int]
+
+
+class CompleteStep1RebuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    episode: int = Field(strict=True, ge=1)
+    expected_stale_step1_revision: str | None
+
+
+class CompleteStep1RebuildResult(BaseModel):
+    episode: int
+    step1_revision: str
+
+
+def _unexpected(name: str, exc: BaseException) -> ToolProblem:
+    return ToolProblem("internal_error", f"{name} 失败: {exc}")
+
+
+def _migration_tool_problem(failure: MigrationFailureRecord) -> ToolProblem:
+    payload = migration_problem(failure).model_dump(mode="json")
+    return ToolProblem(
+        code=str(payload["code"]),
+        detail=str(payload["detail"]),
+        action=str(payload["action"]),
+        params=payload.get("params"),
+    )
+
+
+async def _migration_gate(scope: ProjectScope, services: Services) -> ToolProblem | None:
+    failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
+    return _migration_tool_problem(failure) if failure is not None else None
+
+
+def _ledger_stats_payload(stats: LedgerStats | None) -> dict[str, Any] | None:
+    if stats is None:
+        return None
+    return {
+        "total_episodes": stats.total_episodes,
+        "smallest": stats.smallest,
+        "median_units": stats.median_units,
+        "target_units": stats.target_units,
+    }
+
+
+def _render_ledger_stats(stats: LedgerStats) -> list[str]:
+    lines = [f"累计总集数：{stats.total_episodes}"]
+    if stats.smallest:
+        smallest = "、".join(f"第 {num} 集（约 {units}）" for num, units in stats.smallest)
+        lines.append(f"体量最小的几集：{smallest}")
+    if stats.median_units is not None:
+        lines.append(f"全账本体量中位数：约 {stats.median_units}")
+    if stats.target_units is not None:
+        lines.append(f"每集目标体量设置：约 {stats.target_units}")
+    lines.append("若用户给过总集数、按章节对齐等结构性偏好，请对照以上分布核实，有偏差须向用户明确说明。")
+    return lines
+
+
+def _format_plan(result: PlanResult) -> str:
+    if not result.episodes and result.source_exhausted:
+        lines = ["源文已全部规划完毕，没有可规划的新内容。"]
+        if result.ledger_stats is not None:
+            lines += _render_ledger_stats(result.ledger_stats)
+        return "\n".join(lines)
+    lines = [f"✅ 已规划 {len(result.episodes)} 集："]
+    for episode in result.episodes:
+        status_note = "（stale，需重做下游产物）" if episode.ledger_status == "stale" else ""
+        lines.append(
+            f"- 第 {episode.episode} 集《{episode.title}》{status_note}｜体量约 {episode.reading_units}｜钩子：{episode.hook}"
+        )
+    if result.source_exhausted:
+        lines.append("源文已全部规划完毕。")
+    elif result.cursor:
+        lines.append(f"下一批规划起点：{result.cursor.get('source_file')} 偏移 {result.cursor.get('offset')}")
+    if result.ledger_stats is not None:
+        lines += _render_ledger_stats(result.ledger_stats)
+    else:
+        lines.append(f"累计已规划 {result.total_planned} 集。")
+    lines.append(
+        "请把以上摘要展示给用户做批级审阅；需要调整时先调用 reset_episode_planning 退回到"
+        "最早受影响的集，再带 instructions 重新调用本工具。"
+    )
+    return "\n".join(lines)
+
+
+async def plan_episodes(
+    request: ToolRequest[PlanEpisodesRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+    *,
+    planner_cls: type[EpisodePlanner] = EpisodePlanner,
+) -> ToolOutcome[PlanEpisodesResult]:
+    if problem := await _migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    try:
+        planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
+        result = await planner.plan(instructions=request.value.instructions)
+    except (EpisodePlanningError, FileNotFoundError) as exc:
+        return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 分集规划失败：{exc}"))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_unexpected("plan_episodes", exc))
+    return ToolOutcome(
+        value=PlanEpisodesResult(
+            message=_format_plan(result),
+            episodes=[
+                {
+                    "episode": episode.episode,
+                    "title": episode.title,
+                    "hook": episode.hook,
+                    "reading_units": episode.reading_units,
+                    "ledger_status": episode.ledger_status,
+                }
+                for episode in result.episodes
+            ],
+            cursor=result.cursor,
+            source_exhausted=result.source_exhausted,
+            total_planned=result.total_planned,
+            ledger_stats=_ledger_stats_payload(result.ledger_stats),
+        )
+    )
+
+
+async def reset_episode_planning(
+    request: ToolRequest[ResetEpisodePlanningRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+    *,
+    resetter: Callable[..., Any] = reset_episode_planning_service,
+) -> ToolOutcome[ResetEpisodePlanningResult]:
+    if problem := await _migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    value = request.value
+    try:
+        result = resetter(
+            services.projects.get_project_path(scope.project_name),
+            from_episode=value.from_episode,
+            confirm_consumed=value.confirm_consumed,
+        )
+    except (EpisodeResetError, FileNotFoundError) as exc:
+        return ToolOutcome(problem=ToolProblem("episode_reset_failed", f"❌ 分集规划重置失败：{exc}"))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_unexpected("reset_episode_planning", exc))
+
+    if isinstance(result, ResetConfirmationRequired):
+        episodes = "、".join(str(num) for num in result.consumed_episodes)
+        aftermath = (
+            "账本清空后这些集需要重新规划"
+            if value.from_episode == 1
+            else f"这些集的账本条目被清除后需要重新规划，第 1..{value.from_episode - 1} 集保留不动"
+        )
+        lines = [
+            f"⚠️ 本次重置会波及已消费集（已有 step1/剧本/媒体产物）：第 {episodes} 集。尚未执行任何改动。",
+            "请把影响范围告知用户；用户确认后带 confirm_consumed=true 重新调用"
+            f"（剧本与媒体产物不会被删除，但{aftermath}）。",
+        ]
+        if result.archived_files:
+            lines.append(f"其中无原文范围记录的集文件会改名留底：{'、'.join(result.archived_files)}")
+        return ToolOutcome(
+            value=ResetEpisodePlanningResult(
+                message="\n".join(lines),
+                confirmation_required=True,
+                archived_files=result.archived_files,
+                consumed_episodes=result.consumed_episodes,
+            )
+        )
+
+    if value.from_episode == 1:
+        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 集，planning_cursor 已置空。"]
+    else:
+        lines = [
+            f"✅ 已部分重置分集规划：清空第 {value.from_episode} 集起共 {len(result.removed_episodes)} 集，"
+            f"planning_cursor 已退到第 {value.from_episode - 1} 集原文范围末尾。"
+        ]
+    if result.deleted_files:
+        lines.append(f"已删除可重造的派生集文件 {len(result.deleted_files)} 个。")
+    if result.archived_files:
+        archived = "、".join(f"{src} → {dst}" for src, dst in result.archived_files)
+        lines.append(f"无原文范围记录的集文件已改名留底（内容保留）：{archived}")
+    if result.consumed_episodes:
+        consumed = "、".join(str(num) for num in result.consumed_episodes)
+        lines.append(f"第 {consumed} 集的剧本 / 媒体产物仍在磁盘，未删除。")
+    lines.append(
+        "账本已空，请调用 plan_episodes 从头重新规划（集号从第 1 集起）。"
+        if value.from_episode == 1
+        else f"请调用 plan_episodes 继续规划（新集号从第 {value.from_episode} 集起）。"
+    )
+    return ToolOutcome(
+        value=ResetEpisodePlanningResult(
+            message="\n".join(lines),
+            confirmation_required=False,
+            removed_episodes=result.removed_episodes,
+            deleted_files=result.deleted_files,
+            archived_files=result.archived_files,
+            consumed_episodes=result.consumed_episodes,
+        )
+    )
+
+
+def _coerce_numeric_string(value: str, parser: Callable[[str], int | float], message: str) -> int | float:
+    try:
+        return parser(value.strip())
+    except ValueError:
+        raise ValueError(message) from None
+
+
+def _coerce_setting_value(key: str, value: Any) -> Any:
+    if key in _POSITIVE_INT_SETTINGS:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = _coerce_numeric_string(value, int, f"{key} 必须是正整数或 null,收到 {value!r}")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"{key} 必须是正整数或 null,收到 {value!r}")
+        return value
+    if key == "source_language":
+        if value is not None and (not isinstance(value, str) or value not in _SOURCE_LANGUAGE_VALUES):
+            raise ValueError(f"source_language 必须是 {list(_SOURCE_LANGUAGE_VALUES)} 之一或 null,收到 {value!r}")
+        return value
+    if key == "brief":
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"brief 必须是字符串或 null,收到 {value!r}")
+        return value
+    if key == "narration_voice":
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(f"narration_voice 必须是非空字符串或 null,收到 {value!r}")
+        return value
+    if key == "narration_speed":
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = _coerce_numeric_string(value, float, f"narration_speed 必须是正的有限数值或 null,收到 {value!r}")
+        is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
+        try:
+            is_valid = is_number and math.isfinite(value) and value > 0
+        except OverflowError:
+            is_valid = False
+        if not is_valid:
+            raise ValueError(f"narration_speed 必须是正的有限数值或 null,收到 {value!r}")
+        return value
+    raise ValueError(f"settings 字段 {key!r} 缺类型校验")
+
+
+def _format_settings(changes: dict[str, tuple[str, Any]]) -> str:
+    set_items = [(key, value) for key, (operation, value) in changes.items() if operation == "set"]
+    cleared = [key for key, (operation, _) in changes.items() if operation == "clear"]
+    unchanged = [key for key, (operation, _) in changes.items() if operation == "noop"]
+    parts = []
+    if set_items:
+        parts.append("已更新 " + ", ".join(f"{key}={value}" for key, value in set_items))
+    if cleared:
+        parts.append("已清除 " + ", ".join(cleared))
+    if unchanged:
+        parts.append("无变更 " + ", ".join(unchanged))
+    icon = "ℹ️" if not set_items and not cleared else "✅"
+    return f"{icon} settings: {'; '.join(parts) if parts else '无变更'}"
+
+
+def _format_overview(changes: dict[str, str]) -> str:
+    updated = [key for key, operation in changes.items() if operation == "set"]
+    unchanged = [key for key, operation in changes.items() if operation == "noop"]
+    parts = []
+    if updated:
+        parts.append("已更新 " + ", ".join(updated))
+    if unchanged:
+        parts.append("无变更 " + ", ".join(unchanged))
+    return f"{'ℹ️' if not updated else '✅'} overview: {'; '.join(parts) if parts else '无变更'}"
+
+
+def _format_upsert(table: str, result: dict[str, Any]) -> str:
+    added = sorted(result.get("added") or [])
+    merged = sorted(result.get("merged") or [])
+    noop = sorted(result.get("noop") or [])
+    dropped_fields = result.get("dropped_fields") or {}
+    dropped_legacy = result.get("dropped_legacy") or {}
+    parts = []
+    if added:
+        parts.append(f"新增 {len(added)} 个: {', '.join(added)}")
+    if merged:
+        parts.append(f"合并改字段 {len(merged)} 个: {', '.join(merged)}")
+    if noop:
+        parts.append(f"无可写字段已跳过 {len(noop)} 个: {', '.join(noop)}")
+    lines = [
+        f"{'ℹ️' if not added and not merged else '✅'} {table}: {'; '.join(parts) if parts else '无变更（所有条目均无可写字段）'}"
+    ]
+    if dropped_fields:
+        detail = "; ".join(f"{name}: {', '.join(fields)}" for name, fields in sorted(dropped_fields.items()))
+        lines += [
+            f"⚠️  以下字段不在 Agent 可编辑范围,已忽略 → {detail}",
+            "   说明: reference_image 由用户上传/系统管理;",
+            "   character_sheet / scene_sheet / prop_sheet 由资产生成流水线回写,不可手动设置。",
+        ]
+    if dropped_legacy:
+        detail = "; ".join(f"{name}: {', '.join(fields)}" for name, fields in sorted(dropped_legacy.items()))
+        lines.append(f"ℹ️  以下历史字段已废弃,本次未持久化 → {detail}")
+    return "\n".join(lines)
+
+
+async def patch_project(
+    request: ToolRequest[PatchProjectRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[PatchProjectResult]:
+    value = request.value
+    try:
+        if value.overview is not None:
+            overview_patch = value.overview
+            for key, field_value in overview_patch.items():
+                if key not in PROJECT_OVERVIEW_FIELDS:
+                    raise ValueError(f"overview 字段 {key!r} 不在白名单 {list(PROJECT_OVERVIEW_FIELDS)} 内")
+                if not isinstance(field_value, str):
+                    raise ValueError(f"overview 字段 {key!r} 的值必须是字符串,收到 {field_value!r}")
+            changes: dict[str, str] = {}
+
+            def mutate_overview(project_data: dict[str, Any]) -> None:
+                overview = project_data.get("overview")
+                if not isinstance(overview, dict):
+                    overview = {}
+                    project_data["overview"] = overview
+                for key, field_value in overview_patch.items():
+                    changes[key] = "noop" if overview.get(key) == field_value else "set"
+                    overview[key] = field_value
+
+            services.projects.update_project(scope.project_name, mutate_overview)
+            return ToolOutcome(
+                value=PatchProjectResult(message=_format_overview(changes), operation="overview", changes=changes)
+            )
+        if value.settings is not None:
+            coerced = {}
+            for key, field_value in value.settings.items():
+                if key not in PROJECT_SETTINGS:
+                    raise ValueError(f"settings 字段 {key!r} 不在白名单 {list(PROJECT_SETTINGS)} 内")
+                coerced[key] = _coerce_setting_value(key, field_value)
+            diagnostics: dict[str, tuple[str, Any]] = {}
+
+            def mutate_settings(project_data: dict[str, Any]) -> None:
+                if "brief" in coerced and project_data.get("content_mode") != "ad":
+                    raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
+                for key, field_value in coerced.items():
+                    current = project_data.get(key)
+                    if field_value is None:
+                        diagnostics[key] = ("clear", None) if key in project_data else ("noop", None)
+                        project_data.pop(key, None)
+                    elif current == field_value:
+                        diagnostics[key] = ("noop", current)
+                    else:
+                        diagnostics[key] = ("set", field_value)
+                        project_data[key] = field_value
+
+            services.projects.update_project(scope.project_name, mutate_settings)
+            return ToolOutcome(
+                value=PatchProjectResult(
+                    message=_format_settings(diagnostics), operation="settings", changes=diagnostics
+                )
+            )
+        assert value.table is not None and value.entries is not None
+        changes = services.projects.upsert_assets(scope.project_name, value.table, value.entries)
+        return ToolOutcome(
+            value=PatchProjectResult(message=_format_upsert(value.table, changes), operation="assets", changes=changes)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_unexpected("patch_project", exc))
+
+
+async def patch_episode_meta(
+    request: ToolRequest[PatchEpisodeMetaRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[PatchEpisodeMetaResult]:
+    value = request.value
+    try:
+        with services.projects.locked_script(scope.project_name, value.script) as script:
+            script[value.field] = value.value
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_unexpected("patch_episode_meta", exc))
+    return ToolOutcome(
+        value=PatchEpisodeMetaResult(
+            message=f"✅ 已更新分集{value.field}为「{value.value}」",
+            script=value.script,
+            field=value.field,
+            value=value.value,
+        )
+    )
+
+
+async def rename_asset(
+    request: ToolRequest[RenameAssetRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[RenameAssetResult]:
+    value = request.value
+    try:
+        report = services.projects.rename_asset(scope.project_name, value.table, value.old_name, value.new_name)
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_unexpected("rename_asset", exc))
+    message = (
+        f"已把 {value.table} 资产 {report.old_name!r} 重命名为 {report.new_name!r}:"
+        f"更新 {report.episodes} 集共 {report.references} 处引用,迁移 {report.files} 个关联文件。"
+    )
+    return ToolOutcome(
+        value=RenameAssetResult(
+            message=message,
+            table=value.table,
+            old_name=report.old_name,
+            new_name=report.new_name,
+            episodes=report.episodes,
+            references=report.references,
+            files=report.files,
+        )
+    )
+
+
+async def retry_project_migration(
+    _request: ToolRequest[None],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[RetryProjectMigrationResult]:
+    project_dir = services.projects.get_project_path(scope.project_name)
+    try:
+        failure = await asyncio.to_thread(migrate_project_with_verdict, project_dir)
+        if failure is not None:
+            return ToolOutcome(problem=_migration_tool_problem(failure))
+        plan = await services.workflow_planner.get_plan(scope.project_name, WorkflowPlanRequest())
+    except Exception as exc:  # noqa: BLE001
+        try:
+            residual = load_migration_failure(project_dir)
+        except (FileNotFoundError, ValueError, OSError):
+            residual = None
+        return ToolOutcome(
+            problem=_migration_tool_problem(residual) if residual else _unexpected("retry_project_migration", exc)
+        )
+    return ToolOutcome(
+        value=RetryProjectMigrationResult(
+            message="✅ 数据升级已完成，项目解除阻断。当前制作计划：\n" + plan.model_dump_json(),
+            workflow_plan=plan,
+        )
+    )
+
+
+async def complete_asset_inventory(
+    request: ToolRequest[CompleteAssetInventoryRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+    *,
+    run_sync: Callable[..., Awaitable[Any]] = asyncio.to_thread,
+    complete: Callable[..., Any] = complete_asset_inventory_service,
+) -> ToolOutcome[CompleteAssetInventoryResult]:
+    if problem := await _migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    value = request.value
+    try:
+        completed = await run_sync(
+            complete,
+            services.projects,
+            scope.project_name,
+            value.scope,
+            value.expected_source_revision,
+            value.entries,
+        )
+    except AssetInventoryRevisionConflict as exc:
+        return ToolOutcome(
+            problem=ToolProblem(
+                "source_revision_conflict",
+                str(exc),
+                params={
+                    "expected_source_revision": exc.expected_revision,
+                    "actual_source_revision": exc.actual_revision,
+                },
+            )
+        )
+    except AssetInventorySourceBlocked as exc:
+        return ToolOutcome(
+            problem=ToolProblem(
+                "source_blocked",
+                str(exc),
+                params={"blockers": [blocker.model_dump(mode="json") for blocker in exc.blockers]},
+            )
+        )
+    except AssetInventoryInvalidRequest as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+    except AssetInventoryError as exc:
+        return ToolOutcome(problem=ToolProblem("inventory_unavailable", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_unexpected("complete_asset_inventory", exc))
+    return ToolOutcome(
+        value=CompleteAssetInventoryResult(
+            scope=completed.scope,
+            source_revision=completed.source_revision,
+            counts=completed.counts,
+        )
+    )
+
+
+async def complete_step1_rebuild(
+    request: ToolRequest[CompleteStep1RebuildRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+    *,
+    run_sync: Callable[..., Awaitable[Any]] = asyncio.to_thread,
+    complete: Callable[..., Any] = complete_stale_step1_rebuild,
+) -> ToolOutcome[CompleteStep1RebuildResult]:
+    if problem := await _migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    value = request.value
+    try:
+        revision = await run_sync(
+            complete,
+            services.projects,
+            scope.project_name,
+            value.episode,
+            value.expected_stale_step1_revision,
+        )
+    except Step1RebuildCompletionError as exc:
+        return ToolOutcome(problem=ToolProblem(exc.code, str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=_unexpected("complete_step1_rebuild", exc))
+    return ToolOutcome(value=CompleteStep1RebuildResult(episode=value.episode, step1_revision=revision))
+
+
 __all__ = [
+    "ASSET_TABLES",
     "CallerContext",
+    "CompleteAssetInventoryRequest",
+    "CompleteStep1RebuildRequest",
+    "EPISODE_META_FIELDS",
+    "MAX_INSTRUCTIONS_LEN",
+    "PROJECT_OVERVIEW_FIELDS",
+    "PROJECT_SETTINGS",
+    "PatchEpisodeMetaRequest",
     "PatchEpisodeScriptRequest",
+    "PatchProjectRequest",
+    "PlanEpisodesRequest",
     "ProjectScope",
+    "RenameAssetRequest",
+    "ResetEpisodePlanningRequest",
     "Services",
     "TextGenerationError",
     "TextGenerationRequest",
@@ -479,10 +1216,18 @@ __all__ = [
     "ToolOutcome",
     "ToolProblem",
     "ToolRequest",
+    "complete_asset_inventory",
+    "complete_step1_rebuild",
     "get_video_capabilities",
     "get_workflow_plan",
-    "patch_episode_script",
     "confirm_script_review",
     "generate_episode_script",
     "generate_step1",
+    "patch_episode_meta",
+    "patch_episode_script",
+    "patch_project",
+    "plan_episodes",
+    "rename_asset",
+    "reset_episode_planning",
+    "retry_project_migration",
 ]

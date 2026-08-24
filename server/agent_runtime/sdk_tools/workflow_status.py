@@ -3,25 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.script_review import Step1RebuildCompletionError, complete_stale_step1_rebuild
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
-
-
-def _error(code: str, detail: str) -> dict[str, Any]:
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": json.dumps({"error": code, "detail": detail}, ensure_ascii=False, sort_keys=True),
-            }
-        ],
-        "is_error": True,
-    }
+from lib.script_review import complete_stale_step1_rebuild
+from server.agent_runtime.sdk_tools._context import ToolContext, tool_outcome_response, tool_services
+from server.tool_runtime import (
+    CompleteStep1RebuildRequest,
+    ToolOutcome,
+    ToolProblem,
+    ToolRequest,
+    complete_step1_rebuild,
+)
 
 
 def complete_step1_rebuild_tool(ctx: ToolContext):
@@ -38,36 +32,20 @@ def complete_step1_rebuild_tool(ctx: ToolContext):
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        episode = args.get("episode")
-        if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
-            return _error("invalid_episode", "episode must be a positive integer")
-        if "expected_stale_step1_revision" not in args:
-            return _error("invalid_request", "expected_stale_step1_revision is required")
-        expected = args.get("expected_stale_step1_revision")
-        if expected is not None and not isinstance(expected, str):
-            return _error("invalid_request", "expected_stale_step1_revision must be a string or null")
         try:
-            revision = await asyncio.to_thread(
-                complete_stale_step1_rebuild,
-                ctx.pm,
-                ctx.project_name,
-                episode,
-                expected,
+            request = CompleteStep1RebuildRequest.model_validate(args)
+        except ValueError as exc:
+            outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+        else:
+            outcome = await complete_step1_rebuild(
+                ToolRequest(request),
+                ctx.scope,
+                ctx.caller,
+                tool_services(ctx),
+                run_sync=asyncio.to_thread,
+                complete=complete_stale_step1_rebuild,
             )
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": json.dumps(
-                            {"episode": episode, "step1_revision": revision}, ensure_ascii=False, sort_keys=True
-                        ),
-                    }
-                ]
-            }
-        except Step1RebuildCompletionError as exc:
-            return _error(exc.code, str(exc))
-        except Exception as exc:  # noqa: BLE001
-            return tool_error("complete_step1_rebuild", exc)
+        return tool_outcome_response("step1_rebuild", outcome)
 
     return _handler
 

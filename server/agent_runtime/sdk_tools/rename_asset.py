@@ -13,10 +13,17 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.asset_types import ASSET_SPECS
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
-
-_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
+from server.agent_runtime.sdk_tools._context import ToolContext, tool_outcome_response, tool_services
+from server.tool_runtime import (
+    ASSET_TABLES as _TABLES,
+)
+from server.tool_runtime import (
+    RenameAssetRequest,
+    ToolOutcome,
+    ToolProblem,
+    ToolRequest,
+    rename_asset,
+)
 
 
 def rename_asset_tool(ctx: ToolContext):
@@ -42,17 +49,12 @@ def rename_asset_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            table = str(args["table"])
-            old_name = str(args["old_name"])
-            new_name = str(args["new_name"])
-            report = ctx.pm.rename_asset(ctx.project_name, table, old_name, new_name)
-            text = (
-                f"已把 {table} 资产 {report.old_name!r} 重命名为 {report.new_name!r}:"
-                f"更新 {report.episodes} 集共 {report.references} 处引用,迁移 {report.files} 个关联文件。"
-            )
-            return {"content": [{"type": "text", "text": text}]}
-        except Exception as exc:  # noqa: BLE001
-            return tool_error("rename_asset", exc)
+            request = RenameAssetRequest.model_validate(args)
+        except ValueError as exc:
+            outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+        else:
+            outcome = await rename_asset(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
+        return tool_outcome_response("asset_rename", outcome)
 
     return _handler
 

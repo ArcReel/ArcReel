@@ -13,78 +13,25 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.episode_planner import (
-    EpisodePlanner,
-    EpisodePlanningError,
-    LedgerStats,
-    PlanResult,
-)
-from lib.episode_reset import (
-    EpisodeResetError,
-    ResetConfirmationRequired,
-    reset_episode_planning,
-)
+from lib.episode_planner import EpisodePlanner
+from lib.episode_reset import reset_episode_planning
 from server.agent_runtime.sdk_tools._context import (
-    MAX_INSTRUCTIONS_LEN,
     ToolContext,
-    read_instructions_arg,
-    tool_error,
+    tool_outcome_response,
+    tool_services,
 )
-
-
-def _require_positive_int(args: dict[str, Any], key: str) -> int:
-    """取必填正整数入参。``bool`` 是 ``int`` 子类，须单独排除以免 ``true`` 被当成 1。"""
-    value = args[key]
-    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise ValueError(f"{key} 必须是正整数，收到 {value!r}")
-    return value
-
-
-def _optional_bool(args: dict[str, Any], key: str) -> bool:
-    """取可选布尔入参，缺省为 False。确认类开关不做真值化，非布尔一律拒绝。"""
-    value = args.get(key, False)
-    if not isinstance(value, bool):
-        raise ValueError(f"{key} 必须是布尔值（JSON true/false），收到 {value!r}")
-    return value
-
-
-def _render_ledger_stats(stats: LedgerStats) -> list[str]:
-    """全局核对材料：累计集数、最小体量集、中位数、目标体量，附一句面向主 agent 的核对指令。"""
-    lines = [f"累计总集数：{stats.total_episodes}"]
-    if stats.smallest:
-        smallest = "、".join(f"第 {num} 集（约 {units}）" for num, units in stats.smallest)
-        lines.append(f"体量最小的几集：{smallest}")
-    if stats.median_units is not None:
-        lines.append(f"全账本体量中位数：约 {stats.median_units}")
-    if stats.target_units is not None:
-        lines.append(f"每集目标体量设置：约 {stats.target_units}")
-    lines.append("若用户给过总集数、按章节对齐等结构性偏好，请对照以上分布核实，有偏差须向用户明确说明。")
-    return lines
-
-
-def _format_summary(result: PlanResult, *, header: str) -> str:
-    """账本摘要：每集标题 + 钩子 + 体量（阅读单位）。
-
-    常规批次只加「累计已规划 N 集」一行；末批/耗尽时 ``result.ledger_stats`` 非
-    None，改附全局核对材料（累计集数已含在其中，不重复加那一行）。
-    """
-    lines = [header]
-    for ep in result.episodes:
-        status_note = "（stale，需重做下游产物）" if ep.ledger_status == "stale" else ""
-        lines.append(f"- 第 {ep.episode} 集《{ep.title}》{status_note}｜体量约 {ep.reading_units}｜钩子：{ep.hook}")
-    if result.source_exhausted:
-        lines.append("源文已全部规划完毕。")
-    elif result.cursor:
-        lines.append(f"下一批规划起点：{result.cursor.get('source_file')} 偏移 {result.cursor.get('offset')}")
-    if result.ledger_stats is not None:
-        lines += _render_ledger_stats(result.ledger_stats)
-    else:
-        lines.append(f"累计已规划 {result.total_planned} 集。")
-    lines.append(
-        "请把以上摘要展示给用户做批级审阅；需要调整时先调用 reset_episode_planning 退回到"
-        "最早受影响的集，再带 instructions 重新调用本工具。"
-    )
-    return "\n".join(lines)
+from server.tool_runtime import (
+    MAX_INSTRUCTIONS_LEN,
+    PlanEpisodesRequest,
+    ResetEpisodePlanningRequest,
+    ToolOutcome,
+    ToolProblem,
+    ToolRequest,
+    plan_episodes,
+)
+from server.tool_runtime import (
+    reset_episode_planning as reset_episode_planning_handler,
+)
 
 
 def plan_episodes_tool(ctx: ToolContext):
@@ -119,26 +66,15 @@ def plan_episodes_tool(ctx: ToolContext):
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        instructions, param_err = read_instructions_arg(args)
-        if param_err is not None:
-            return param_err
         try:
-            planner = await EpisodePlanner.create(ctx.project_path)
-            result = await planner.plan(instructions=instructions)
-            if not result.episodes and result.source_exhausted:
-                lines = ["源文已全部规划完毕，没有可规划的新内容。"]
-                if result.ledger_stats is not None:
-                    lines += _render_ledger_stats(result.ledger_stats)
-                return {"content": [{"type": "text", "text": "\n".join(lines)}]}
-            return {
-                "content": [
-                    {"type": "text", "text": _format_summary(result, header=f"✅ 已规划 {len(result.episodes)} 集：")}
-                ]
-            }
-        except (EpisodePlanningError, FileNotFoundError) as exc:
-            return {"content": [{"type": "text", "text": f"❌ 分集规划失败：{exc}"}], "is_error": True}
-        except Exception as exc:  # noqa: BLE001
-            return tool_error("plan_episodes", exc)
+            request = PlanEpisodesRequest.model_validate(args)
+        except ValueError as exc:
+            outcome = ToolOutcome(problem=ToolProblem("invalid_request", f"❌ 参数错误：{exc}"))
+        else:
+            outcome = await plan_episodes(
+                ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx), planner_cls=EpisodePlanner
+            )
+        return tool_outcome_response("episode_plan", outcome)
 
     return _handler
 
@@ -175,57 +111,18 @@ def reset_episode_planning_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            from_episode = _require_positive_int(args, "from_episode")
-            confirm_consumed = _optional_bool(args, "confirm_consumed")
-        except (KeyError, ValueError) as exc:
-            return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
-
-        try:
-            result = reset_episode_planning(
-                ctx.project_path,
-                from_episode=from_episode,
-                confirm_consumed=confirm_consumed,
+            request = ResetEpisodePlanningRequest.model_validate(args)
+        except ValueError as exc:
+            outcome = ToolOutcome(problem=ToolProblem("invalid_request", f"❌ 参数错误：{exc}"))
+        else:
+            outcome = await reset_episode_planning_handler(
+                ToolRequest(request),
+                ctx.scope,
+                ctx.caller,
+                tool_services(ctx),
+                resetter=reset_episode_planning,
             )
-        except (EpisodeResetError, FileNotFoundError) as exc:
-            return {"content": [{"type": "text", "text": f"❌ 分集规划重置失败：{exc}"}], "is_error": True}
-        except Exception as exc:  # noqa: BLE001
-            return tool_error("reset_episode_planning", exc)
-
-        if isinstance(result, ResetConfirmationRequired):
-            episodes = "、".join(str(num) for num in result.consumed_episodes)
-            if from_episode == 1:
-                aftermath = "账本清空后这些集需要重新规划"
-            else:
-                aftermath = f"这些集的账本条目被清除后需要重新规划，第 1..{from_episode - 1} 集保留不动"
-            lines = [
-                f"⚠️ 本次重置会波及已消费集（已有 step1/剧本/媒体产物）：第 {episodes} 集。尚未执行任何改动。",
-                "请把影响范围告知用户；用户确认后带 confirm_consumed=true 重新调用"
-                f"（剧本与媒体产物不会被删除，但{aftermath}）。",
-            ]
-            if result.archived_files:
-                lines.append(f"其中无原文范围记录的集文件会改名留底：{'、'.join(result.archived_files)}")
-            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
-
-        if from_episode == 1:
-            lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 集，planning_cursor 已置空。"]
-        else:
-            lines = [
-                f"✅ 已部分重置分集规划：清空第 {from_episode} 集起共 {len(result.removed_episodes)} 集，"
-                f"planning_cursor 已退到第 {from_episode - 1} 集原文范围末尾。"
-            ]
-        if result.deleted_files:
-            lines.append(f"已删除可重造的派生集文件 {len(result.deleted_files)} 个。")
-        if result.archived_files:
-            archived = "、".join(f"{src} → {dst}" for src, dst in result.archived_files)
-            lines.append(f"无原文范围记录的集文件已改名留底（内容保留）：{archived}")
-        if result.consumed_episodes:
-            consumed = "、".join(str(num) for num in result.consumed_episodes)
-            lines.append(f"第 {consumed} 集的剧本 / 媒体产物仍在磁盘，未删除。")
-        if from_episode == 1:
-            lines.append("账本已空，请调用 plan_episodes 从头重新规划（集号从第 1 集起）。")
-        else:
-            lines.append(f"请调用 plan_episodes 继续规划（新集号从第 {from_episode} 集起）。")
-        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+        return tool_outcome_response("episode_reset", outcome)
 
     return _handler
 

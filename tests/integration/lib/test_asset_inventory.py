@@ -171,7 +171,7 @@ async def test_complete_inventory_mcp_returns_machine_readable_result_and_confli
     assert expected is not None
 
     success = await tool.handler({"scope": {"kind": "all", "files": []}, "expected_source_revision": expected})
-    body = json.loads(success["content"][0]["text"])
+    body = json.loads(success["content"][0]["text"])["asset_inventory"]
     assert body == {
         "counts": {"characters": 0, "props": 0, "scenes": 0},
         "scope": {"files": [], "kind": "all"},
@@ -180,12 +180,12 @@ async def test_complete_inventory_mcp_returns_machine_readable_result_and_confli
 
     (project_path / "source" / "novel.txt").write_text("又一次变化", encoding="utf-8")
     conflict = await tool.handler({"scope": {"kind": "all", "files": []}, "expected_source_revision": expected})
-    conflict_body = json.loads(conflict["content"][0]["text"])
+    conflict_body = json.loads(conflict["content"][0]["text"])["problem"]
     assert conflict["is_error"] is True
-    assert conflict_body["error"] == "source_revision_conflict"
-    assert conflict_body["expected_source_revision"] == expected
-    assert conflict_body["actual_source_revision"] != expected
-    assert len(offloads) == 2
+    assert conflict_body["code"] == "source_revision_conflict"
+    assert conflict_body["params"]["expected_source_revision"] == expected
+    assert conflict_body["params"]["actual_source_revision"] != expected
+    assert sum(fn is complete_asset_inventory for fn, _ in offloads) == 2
 
 
 async def test_complete_inventory_mcp_distinguishes_invalid_request_from_broken_workflow(tmp_path: Path) -> None:
@@ -194,7 +194,7 @@ async def test_complete_inventory_mcp_distinguishes_invalid_request_from_broken_
     tool = complete_asset_inventory_tool(ctx)
 
     invalid = await tool.handler({"scope": {"kind": "all", "files": []}, "expected_source_revision": "not-a-revision"})
-    assert json.loads(invalid["content"][0]["text"])["error"] == "invalid_request"
+    assert json.loads(invalid["content"][0]["text"])["problem"]["code"] == "invalid_request"
 
     expected = compute_source_revision(
         project_path,
@@ -205,4 +205,4 @@ async def test_complete_inventory_mcp_distinguishes_invalid_request_from_broken_
     pm.update_project("demo", lambda project: project.update(workflow="broken"))
 
     unavailable = await tool.handler({"scope": {"kind": "all", "files": []}, "expected_source_revision": expected})
-    assert json.loads(unavailable["content"][0]["text"])["error"] == "inventory_unavailable"
+    assert json.loads(unavailable["content"][0]["text"])["problem"]["code"] == "inventory_unavailable"

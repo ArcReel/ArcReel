@@ -123,7 +123,7 @@ async def test_workflow_plan_mcp_rejects_invalid_transient_choice_before_service
     result = await get_workflow_plan_tool(ctx).handler({"narration_delivery": "persist_this_choice"})
 
     assert result["is_error"] is True
-    assert json.loads(result["content"][0]["text"])["error"] == "invalid_request"
+    assert json.loads(result["content"][0]["text"])["problem"]["code"] == "invalid_request"
     assert calls == []
 
 
@@ -155,7 +155,7 @@ async def test_workflow_plan_adapters_blame_the_request_only_for_request_errors(
     mcp_result = await get_workflow_plan_tool(ctx).handler({"episode": 2})
 
     assert mcp_result["is_error"] is True
-    assert json.loads(mcp_result["content"][0]["text"])["error"] == "invalid_request"
+    assert json.loads(mcp_result["content"][0]["text"])["problem"]["code"] == "invalid_request"
 
     with TestClient(_adapter_app(pm, monkeypatch), raise_server_exceptions=False) as client:
         response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode": 2})
@@ -174,7 +174,10 @@ async def test_workflow_plan_adapters_report_corrupt_script_as_server_failure(
     mcp_result = await get_workflow_plan_tool(ctx).handler({"episode": 1})
 
     assert mcp_result["is_error"] is True
-    assert mcp_result["content"][0]["text"].startswith("get_workflow_plan 失败:")
+    assert json.loads(mcp_result["content"][0]["text"])["problem"] == {
+        "code": "internal_error",
+        "detail": "get_workflow_plan 失败: segments must be an array of objects",
+    }
 
     with TestClient(_adapter_app(pm, monkeypatch), raise_server_exceptions=False) as client:
         response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode": 1})

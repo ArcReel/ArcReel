@@ -17,10 +17,17 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
-
-# 可经本工具编辑的剧本顶层字段白名单。新增字段时 append,并在 _handler 补对应值校验。
-_META_WHITELIST = ("title",)
+from server.agent_runtime.sdk_tools._context import ToolContext, tool_outcome_response, tool_services
+from server.tool_runtime import (
+    EPISODE_META_FIELDS as _META_WHITELIST,
+)
+from server.tool_runtime import (
+    PatchEpisodeMetaRequest,
+    ToolOutcome,
+    ToolProblem,
+    ToolRequest,
+    patch_episode_meta,
+)
 
 
 def patch_episode_meta_tool(ctx: ToolContext):
@@ -46,19 +53,12 @@ def patch_episode_meta_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            script_filename = validate_script_filename(args["script"])
-            field = str(args["field"])
-            if field not in _META_WHITELIST:
-                raise ValueError(f"field {field!r} 不在白名单 {list(_META_WHITELIST)} 内")
-            value = args["value"]
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"{field} 必须是非空字符串")
-            new_value = value.strip()
-            with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
-                script[field] = new_value
-            return {"content": [{"type": "text", "text": f"✅ 已更新分集{field}为「{new_value}」"}]}
-        except Exception as exc:  # noqa: BLE001
-            return tool_error("patch_episode_meta", exc)
+            request = PatchEpisodeMetaRequest.model_validate(args)
+        except ValueError as exc:
+            outcome = ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+        else:
+            outcome = await patch_episode_meta(ToolRequest(request), ctx.scope, ctx.caller, tool_services(ctx))
+        return tool_outcome_response("episode_meta_patch", outcome)
 
     return _handler
 

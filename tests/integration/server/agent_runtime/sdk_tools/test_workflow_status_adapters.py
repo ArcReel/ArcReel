@@ -56,7 +56,7 @@ async def test_complete_step1_rebuild_mcp_forwards_explicit_baseline(
     result = await complete_step1_rebuild_tool(ctx).handler({"episode": 2, "expected_stale_step1_revision": "baseline"})
 
     assert result.get("is_error") is not True
-    assert json.loads(result["content"][0]["text"]) == {
+    assert json.loads(result["content"][0]["text"])["step1_rebuild"] == {
         "episode": 2,
         "step1_revision": "rebuilt-revision",
     }
@@ -70,7 +70,7 @@ async def test_complete_step1_rebuild_mcp_requires_explicit_baseline(tmp_path: P
     result = await complete_step1_rebuild_tool(ctx).handler({"episode": 1})
 
     assert result["is_error"] is True
-    assert json.loads(result["content"][0]["text"])["error"] == "invalid_request"
+    assert json.loads(result["content"][0]["text"])["problem"]["code"] == "invalid_request"
 
 
 async def test_workflow_status_rest_treats_corrupt_project_as_server_failure(

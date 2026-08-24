@@ -56,17 +56,14 @@ class _Capabilities:
 @pytest.fixture
 def remote_server(tmp_path: Path):
     projects_root = tmp_path / "projects"
-    project_dir = projects_root / "demo"
-    project_dir.mkdir(parents=True)
-    (project_dir / "project.json").write_text(
-        '{"content_mode":"ad","generation_mode":"storyboard","grid_storyboard":false}', encoding="utf-8"
-    )
+    manager = ProjectManager(projects_root)
+    manager.create_project("demo", content_mode="ad")
+    manager.create_project_metadata("demo", "Demo", "", "ad", target_duration=30)
     (projects_root / "empty").mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "project.json").write_text("{}", encoding="utf-8")
     (projects_root / "escape").symlink_to(outside, target_is_directory=True)
-    manager = ProjectManager(projects_root)
 
     async def verify_api_key(token: str):
         return {"sub": "apikey:test", "via": "apikey"} if token == "arc-valid" else None
@@ -136,8 +133,12 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
             async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
+                    tools = await session.list_tools()
                     result = await session.call_tool("get_workflow_plan", {"project": " demo ", "episode": 1})
                     capabilities = await session.call_tool("get_video_capabilities", {"project": "demo"})
+                    patched = await session.call_tool(
+                        "patch_project", {"project": "demo", "overview": {"synopsis": "远程更新"}}
+                    )
                     missing = await session.call_tool("get_workflow_plan", {"episode": 1})
                     traversal = await session.call_tool("get_workflow_plan", {"project": "../demo", "episode": 1})
                     nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode": 1})
@@ -145,11 +146,26 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
                     escape = await session.call_tool("get_workflow_plan", {"project": "escape", "episode": 1})
 
     assert not result.isError
+    migrated = {
+        "plan_episodes",
+        "reset_episode_planning",
+        "patch_project",
+        "patch_episode_meta",
+        "rename_asset",
+        "retry_project_migration",
+        "complete_asset_inventory",
+        "complete_step1_rebuild",
+    }
+    listed = {tool.name: tool for tool in tools.tools}
+    assert migrated <= listed.keys()
+    assert all("project" in listed[name].inputSchema["required"] for name in migrated)
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
         "video_capabilities": {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
     }
+    assert patched.structuredContent is not None
+    assert patched.structuredContent["project_patch"]["operation"] == "overview"
     assert missing.isError
     assert traversal.isError
     assert nonexistent.isError
