@@ -29,7 +29,7 @@ disable-model-invocation: true
 
 ## 3. 暂停边界
 
-实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响事项及其下游并询问用户；已有 issue 移除 `ready-for-agent`、添加 `ready-for-human`，并记录原因。其余 frontier 继续执行。若相关 commit 已进入 stage branch，该 stage 不得合并：用户决定继续时移除 `ready-for-human`、恢复 `ready-for-agent` 并按裁决推进；决定保留暂停时由 team-lead 重建 stage，排除该 issue 及其下游后重新运行累计质量门与审查循环。
+实现或审查暴露真实业务取舍，或发现 Spec 要求没有 issue 覆盖时，暂停受影响事项及其下游并询问用户；已有 issue 移除 `ready-for-agent`、添加 `ready-for-human`，并记录原因。其余 frontier 继续执行。若相关 commit 已进入 stage branch，该 stage 不得合并：用户决定继续时移除 `ready-for-human`、恢复 `ready-for-agent` 并按裁决推进；决定保留暂停时由 team-lead 重建 stage，排除该 issue 及其下游，按保留的 issue 集合更新 PR `Closes` 清单，再重新运行累计质量门与审查循环。
 
 运行故障、reviewer 重复噪声与无需业务选择的技术裁决由 team-lead 处理并记账，不中断批次。
 

@@ -15,7 +15,7 @@
 
 ```text
 你是 afk-team-workflow 批次中 issue #<N> 的 local-reviewer，未参与该 issue 实现。读 <skill 目录绝对路径>/references/local-reviewer.md 并按契约工作。
-输入：worktree=<path>；issue-branch=issue/<N>；stage-branch=<branch>；base=<SHA>；handoff=<repo-root>/.afk/<batch-id>/handoff-<N>.md。
+输入：worktree=<path>；issue-branch=issue/<N>；stage-branch=<branch>；start-sha=<implementer handoff 中的起始 SHA>；handoff=<repo-root>/.afk/<batch-id>/handoff-<N>.md。
 ```
 
 ## Review looper
