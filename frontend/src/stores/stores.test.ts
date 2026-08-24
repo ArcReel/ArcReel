@@ -116,11 +116,11 @@ describe("stores", () => {
       useAppStore.getState().workspaceNotifications.some((item) => item.id === notification.id)
     ).toBe(false);
 
-    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
-    app.toggleAssistantPanel();
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
-    app.setAssistantPanelOpen(true);
+    app.toggleAssistantPanel();
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+    app.setAssistantPanelOpen(false);
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
 
     app.setTaskHudOpen(true);
     expect(useAppStore.getState().taskHudOpen).toBe(true);

@@ -66,8 +66,9 @@ describe("config-status-store", () => {
 
     await useConfigStatusStore.getState().fetch();
 
-    const { issues, initialized } = useConfigStatusStore.getState();
+    const { issues, initialized, isEmbeddedAgentConfigured } = useConfigStatusStore.getState();
     expect(initialized).toBe(true);
+    expect(isEmbeddedAgentConfigured).toBe(false);
     // anthropic issue + no ready provider for each media type
     expect(issues.find((i) => i.key === "anthropic")).toBeTruthy();
     expect(issues.find((i) => i.key === "no-video-provider")).toBeTruthy();
@@ -87,9 +88,10 @@ describe("config-status-store", () => {
 
     await useConfigStatusStore.getState().fetch();
 
-    const { issues, isComplete } = useConfigStatusStore.getState();
+    const { issues, isComplete, isEmbeddedAgentConfigured } = useConfigStatusStore.getState();
     expect(issues).toHaveLength(0);
     expect(isComplete).toBe(true);
+    expect(isEmbeddedAgentConfigured).toBe(true);
   });
 
   it("allows fetch to retry after a transient error", async () => {
