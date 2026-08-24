@@ -250,6 +250,27 @@ describe("ReferenceVideoCanvas", () => {
     expect(await screen.findByRole("combobox")).toBeInTheDocument();
   });
 
+  it("switches editor views with horizontal arrows while a unit is focused", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "中景。")],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const unit = await screen.findByTestId("unit-row-E1U1");
+    unit.focus();
+    fireEvent.keyDown(unit, { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: /Keyframes|关键分镜/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    fireEvent.keyDown(unit, { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: /Parse preview|解析预览/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
   it("edits an existing H3 prompt from the pencil icon and saves below the textarea", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "中景。")] });
     const original = "subject_definitions:\nOriginal";

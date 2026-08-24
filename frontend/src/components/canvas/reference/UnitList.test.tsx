@@ -68,6 +68,35 @@ describe("UnitList", () => {
     expect(onSelect).toHaveBeenCalledWith("E1U1");
   });
 
+  it("uses arrow keys to select adjacent units and navigate editor views", () => {
+    const onSelect = vi.fn();
+    const onNavigateView = vi.fn();
+    render(
+      <UnitList
+        units={[mkUnit("E1U1"), mkUnit("E1U2")]}
+        selectedId="E1U1"
+        onSelect={onSelect}
+        onNavigateView={onNavigateView}
+        onAdd={vi.fn()}
+      />,
+    );
+
+    const first = screen.getByTestId("unit-row-E1U1");
+    const second = screen.getByTestId("unit-row-E1U2");
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenLastCalledWith("E1U2");
+    expect(second).toHaveFocus();
+
+    fireEvent.keyDown(second, { key: "ArrowUp" });
+    expect(onSelect).toHaveBeenLastCalledWith("E1U1");
+    expect(first).toHaveFocus();
+
+    fireEvent.keyDown(first, { key: "ArrowLeft" });
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+    expect(onNavigateView.mock.calls).toEqual([[-1], [1]]);
+  });
+
   it("calls onAdd when the 'new unit' button is clicked", () => {
     const onAdd = vi.fn();
     render(<UnitList units={[]} selectedId={null} onSelect={vi.fn()} onAdd={onAdd} />);

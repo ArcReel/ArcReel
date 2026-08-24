@@ -877,6 +877,13 @@ export function ReferenceVideoCanvas({
     [h3Applicable],
   );
   const activeEditorView = editorViews.includes(editorView) ? editorView : "script";
+  const navigateEditorView = useCallback(
+    (direction: -1 | 1) => {
+      const index = editorViews.indexOf(activeEditorView);
+      setEditorView(editorViews[(index + direction + editorViews.length) % editorViews.length]);
+    },
+    [activeEditorView, editorViews],
+  );
 
   const hasAnyDurationDraft = units.some((unit) => {
     const raw = durationDrafts[draftKey(projectName, episode, unit.unit_id)];
@@ -1244,6 +1251,7 @@ export function ReferenceVideoCanvas({
                 units={units}
                 selectedId={selectedUnitId}
                 onSelect={select}
+                onNavigateView={navigateEditorView}
                 onAdd={onAdd}
                 dirtyMap={dirtyMap}
                 statusMap={statusMap}
@@ -1253,6 +1261,7 @@ export function ReferenceVideoCanvas({
                 units={units}
                 selectedId={selectedUnitId}
                 onSelect={select}
+                onNavigateView={navigateEditorView}
                 onExpand={() => setListFlyoutOpen(true)}
                 dirtyMap={dirtyMap}
                 statusMap={statusMap}
@@ -1669,6 +1678,7 @@ export function ReferenceVideoCanvas({
                     select(id);
                     setListFlyoutOpen(false);
                   }}
+                  onNavigateView={navigateEditorView}
                   onAdd={onAdd}
                   dirtyMap={dirtyMap}
                   statusMap={statusMap}
