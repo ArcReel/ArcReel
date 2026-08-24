@@ -109,8 +109,14 @@ export default {
   'chat_role_assistant': 'Agent',
   'chat_role_system': '系统',
   'chat_role_message': '消息',
-  'agent_sdk_desc': '基于 Claude Agent SDK，驱动对话式 Agent（智能体）与自动化工作流',
-  'claude_code_compat_hint': '配置项兼容 Claude Code 环境变量命名，可使用兼容 Claude Code 的 Coding Plan API。',
+  'agent_access_kicker': '智能体接入',
+  'agent_access_title': '选择智能体接入方式',
+  'agent_access_desc': '使用内嵌智能体，或接入你常用的外部 agent；任选其一即可开始创作。',
+  'embedded_agent': '内嵌智能体',
+  'embedded_agent_desc': '在 WebUI 中对话并执行创作流程。需要在下方配置 Anthropic 兼容凭证。',
+  'external_agent': '外部 agent',
+  'external_agent_desc': '让你常用的外部智能体直接连接 [[brand]]，无需配置内嵌智能体凭证。',
+  'external_agent_guide': '外部智能体接入',
   'api_access': 'API 访问',
   'anthropic_creds_desc': '设置 Anthropic API 访问凭据。',
   'anthropic_api_key': 'Anthropic API 密钥',
@@ -601,7 +607,7 @@ export default {
 
   // AgentConfigTab
   'api_credentials': 'API 凭证',
-  'anthropic_key_required_desc': 'Anthropic API 密钥是 Agent 运行的必要条件',
+  'anthropic_key_required_desc': '使用内嵌智能体时，需要配置 Anthropic 兼容凭证',
   'env_anthropic_api_key': '对应环境变量 ANTHROPIC_API_KEY',
   'clear_saved_anthropic_key': '清除已保存的 Anthropic API Key',
   'clear_saved': '清除已保存',
@@ -673,7 +679,6 @@ export default {
   'blocking_issues': '阻塞性问题',
   'auto_fixed_issues': '已自动修复的问题',
   // config-status-store
-  'agent_api_key_not_configured': '[[brand]] Agent API Key（Anthropic）未配置',
   'video_provider_not_configured': '未配置支持视频生成的供应商',
   'image_provider_not_configured': '未配置支持图片生成的供应商',
   'text_provider_not_configured': '未配置支持文本生成的供应商',

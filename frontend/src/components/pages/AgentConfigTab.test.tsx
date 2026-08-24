@@ -120,6 +120,18 @@ describe("AgentConfigTab — credentials directory", () => {
     expect(btn).toBeInTheDocument();
   });
 
+  it("offers embedded and external agent paths from the page intro", async () => {
+    setupBaseMocks();
+    render(<AgentConfigTab visible />);
+
+    expect(await screen.findByText("内嵌智能体")).toBeInTheDocument();
+    expect(screen.getByText("外部 agent")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "外部智能体接入" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
   it("renders existing credentials in the list", async () => {
     setupBaseMocks({ credentials: [makeCredential()] });
     render(<AgentConfigTab visible />);
@@ -151,4 +163,3 @@ describe("AgentConfigTab — credentials directory", () => {
     ).toBeInTheDocument();
   });
 });
-
