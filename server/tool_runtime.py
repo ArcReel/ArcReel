@@ -18,7 +18,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from lib.artifact_activation import active_artifact_currency_resolver
+from lib.api_errors import ConflictError as ApiConflictError
+from lib.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.asset_inventory import (
     AssetInventoryError,
     AssetInventoryInvalidRequest,
@@ -59,6 +60,7 @@ from lib.generation_batch import (
 )
 from lib.generation_queue import (
     ActiveTaskRequestConflict,
+    CompensableGenerationResult,
     GenerationBatchNotFound,
     GenerationQueue,
     get_generation_queue,
@@ -66,6 +68,8 @@ from lib.generation_queue import (
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
+    WorkerOfflineError,
+    enqueue_task_only,
     submit_generation_batch,
     wait_for_task,
 )
@@ -76,13 +80,19 @@ from lib.generation_result import (
     GenerationSelectionMode,
     GenerationTargetState,
     encode_generation_problem,
+    enqueue_problem,
     migration_problem,
     problem_from_task_failure,
 )
 from lib.path_safety import safe_join
 from lib.profile_manifest import ContentMode
 from lib.project_manager import ProjectManager, SourceKind, is_reference_video_project
-from lib.project_migration_failure import MIGRATION_FAILURE_CODE, MigrationFailureRecord, load_migration_failure
+from lib.project_migration_failure import (
+    MIGRATION_FAILURE_CODE,
+    MigrationFailureRecord,
+    ProjectMigrationError,
+    load_migration_failure,
+)
 from lib.project_migration_guard import project_migration_failure
 from lib.project_migrations import migrate_project_with_verdict
 from lib.script_batch_edit import (
@@ -126,6 +136,7 @@ from server.draft_workflow import (
 from server.services.video_caps import annotate_reference_unit_tiers
 from server.services.workflow_planner import WorkflowPlanner
 from server.text_generation import (
+    CompensableTextGenerationResult,
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
@@ -269,11 +280,15 @@ async def get_generation_batch(
     services: Services,
 ) -> ToolOutcome[Any]:
     try:
-        project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
-        resolver = active_artifact_currency_resolver(
-            services.projects.get_project_path(scope.project_name),
-            project,
-        )
+        resolver: ArtifactCurrencyResolver | None = None
+        try:
+            project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
+            resolver = active_artifact_currency_resolver(
+                services.projects.get_project_path(scope.project_name),
+                project,
+            )
+        except ProjectMigrationError:
+            pass
         result = await services.queue.get_generation_batch(
             project_name=scope.project_name,
             batch_id=request.value.batch_id,
@@ -424,7 +439,7 @@ async def _submit_text_task(
         user_id=caller.user_id,
     )
     try:
-        enqueue = await services.queue.enqueue_task(
+        enqueue = await enqueue_task_only(
             project_name=scope.project_name,
             task_type=task_type,
             media_type="text",
@@ -434,8 +449,28 @@ async def _submit_text_task(
             user_id=caller.user_id,
             batch_id=batch_id,
             batch_unit_id=unit_id,
+            queue=services.queue,
         )
+    except WorkerOfflineError as exc:
+        await services.queue.delete_generation_batch(
+            project_name=scope.project_name,
+            batch_id=batch_id,
+            user_id=caller.user_id,
+        )
+        return ToolOutcome(problem=ToolProblem(**enqueue_problem(str(exc)).model_dump(mode="json")))
+    except ApiConflictError:
+        await services.queue.delete_generation_batch(
+            project_name=scope.project_name,
+            batch_id=batch_id,
+            user_id=caller.user_id,
+        )
+        raise
     except ActiveTaskRequestConflict as exc:
+        await services.queue.delete_generation_batch(
+            project_name=scope.project_name,
+            batch_id=batch_id,
+            user_id=caller.user_id,
+        )
         return ToolOutcome(
             problem=ToolProblem(
                 "generation_active_task_conflict",
@@ -444,18 +479,19 @@ async def _submit_text_task(
                 params={"task_id": exc.existing_task_id},
             )
         )
-    if caller.source == "embedded" and not enqueue.get("deduped"):
+    registered_services = caller.source == "embedded" and not enqueue.get("deduped")
+    if registered_services:
         _TEXT_TASK_SERVICES[enqueue["task_id"]] = services
-    batch = await services.queue.get_generation_batch(
-        project_name=scope.project_name, batch_id=batch_id, user_id=caller.user_id
-    )
-    if caller.source == "mcp":
-        return ToolOutcome(value=batch)
-
     try:
+        batch = await services.queue.get_generation_batch(
+            project_name=scope.project_name, batch_id=batch_id, user_id=caller.user_id
+        )
+        if caller.source == "mcp":
+            return ToolOutcome(value=batch)
         task = await wait_for_task(enqueue["task_id"], queue=services.queue)
     finally:
-        _TEXT_TASK_SERVICES.pop(enqueue["task_id"], None)
+        if registered_services:
+            _TEXT_TASK_SERVICES.pop(enqueue["task_id"], None)
     if task["status"] == "cancelled":
         problem = problem_from_task_failure(task.get("error_message"), cancelled=True)
         return ToolOutcome(problem=ToolProblem(**problem.model_dump(mode="json")))
@@ -1783,6 +1819,11 @@ async def execute_queued_text_task(
     if outcome.problem is not None:
         raise RuntimeError(encode_generation_problem(_queued_generation_problem(outcome.problem)))
     value = outcome.value
+    if isinstance(value, CompensableTextGenerationResult):
+        return CompensableGenerationResult(
+            {"message": value.message},
+            cancel_compensation=value.compensate_cancelled,
+        )
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json")
     if is_dataclass(value) and not isinstance(value, type):
