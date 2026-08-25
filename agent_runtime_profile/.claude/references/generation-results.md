@@ -7,12 +7,12 @@
 
 | 传法 | 语义 |
 |---|---|
-| 传 ID 列表（`segment_ids` / `scene_ids` / `names` / `edits[].id`） | 点名即强制：这些 ID 一律重做，哪怕产物是最新的 |
+| 传 ID 列表（`target.ids` / `segment_ids` / `scene_ids` / `names` / `edits[].id`） | 显式选择；视频须另传 `force: true` 才强制重做，其余工具点名即强制 |
 | 不传 ID | 只补缺（missing-only）：只做产物缺失的单元 |
 | 传空数组 `[]` | 非法：不等于「全部」，请求会被拒绝；想补缺就别传这个参数 |
 
-`generate_video_episode` 是整集补缺入口（含 `resume`），它从不强制重做已有片段；
-要重做点名的镜头用 `generate_video_scene` / `generate_video_selected`。
+`generate_videos(target.scope="episode")` 是整集补缺入口，它从不强制重做已有片段；
+要重做点名镜头，使用 `scene` / `selected` scope 并显式传 ID 与 `force: true`。
 
 **已失效但仍可用的旧产物（stale）会被复用，不会自动重生**——它照样能看、能导出。
 用户要求更新时才用显式 ID 点名重做。产物状态读不出来（blocked）的单元报为独立缺口，

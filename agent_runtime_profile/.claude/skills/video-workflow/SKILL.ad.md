@@ -41,7 +41,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 6. **sheet 过目（软门禁）**：商品有 `product_sheet` 时，请用户在首次分镜或参考生视频生成前确认它与真品一致；只有原图时直接继续。
 7. **编排与生成**：
 
-   - `repair_video_units`：调用 `mcp__arcreel__get_episode_script({"script": target.script_filename})` 读取正文与 revision，只处理 `requested_ids` 对应的视频单元；再用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "base_revision": revision, "operations": [{"op": "update", "id": unit_id, "fields": {"text": "...", "duration_seconds": ...}}]})` 写回全部视频单元的完整规划（每个视频单元一条有序 update）；由工具重算 `needs_replan`，不要直接编辑标记。每个视频单元保持单一发声归属，商品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_video_selected` 点名重做这些视频单元，再刷新状态。
+   - `repair_video_units`：调用 `mcp__arcreel__get_episode_script({"script": target.script_filename})` 读取正文与 revision，只处理 `requested_ids` 对应的视频单元；再用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "base_revision": revision, "operations": [{"op": "update", "id": unit_id, "fields": {"text": "...", "duration_seconds": ...}}]})` 写回全部视频单元的完整规划（每个视频单元一条有序 update）；由工具重算 `needs_replan`，不要直接编辑标记。每个视频单元保持单一发声归属，商品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_videos` 的 `selected` scope 与 `force: true` 点名重做这些视频单元，再刷新状态。
    - `next_action.type == "generate_storyboards"` → 调
      `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
    - `next_action.type == "generate_grid"` → 调
@@ -58,8 +58,8 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
      `problems[].code`、原因与 `problems[].action`（被 `blocked_unit_ids` 连累的视频单元带
      `generation_batch_admission_withheld`，如实说明不是它自身有问题）；修掉被拒视频单元后整批重来，
      不拆批先跑通过的那一半。入队时若 `requested_ids` 非空则调
-     `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "selected", "ids": requested_ids}, "narration_delivery": chosen_narration_delivery})`；
-     `requested_ids` 为空时才调 `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode"}, "narration_delivery": chosen_narration_delivery})`。
+     `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "selected", "ids": requested_ids}, "force": true, "narration_delivery": chosen_narration_delivery})`；
+     `requested_ids` 为空时才调 `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode": target.episode}, "narration_delivery": chosen_narration_delivery})`。
      `narration_delivery` 必填，填本次已向用户确认的那个值：省略或写错值一律返回工具错误、不入队
      任何任务，也不退回后期配音；没和用户确认过就先走 `choose_narration_delivery`，不要自己填。
      返回后按逐 ID 分账陈述结果（`succeeded` / `failed` / `blocked` / `skipped`），并把 workflow 步骤

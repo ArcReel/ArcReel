@@ -55,6 +55,32 @@ def _generation_result(out: dict[str, Any]) -> GenerationBatchResult:
     return GenerationBatchResult.model_validate(out["generation_result"])
 
 
+def _videos_tool_for_scope(ctx: ToolContext, scope: str):
+    """Exercise one unified video scope while keeping legacy-behavior test setup compact."""
+
+    from server.media_tools.videos import generate_videos_tool
+
+    definition = generate_videos_tool(ctx)
+
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        forwarded = dict(args)
+        script = str(forwarded["script"])
+        target: dict[str, Any] = {"scope": scope}
+        if scope == "episode":
+            match = re.fullmatch(r"episode_(\d+)\.json", Path(script).name)
+            target["episode"] = int(match.group(1)) if match else 1
+        elif scope == "scene":
+            target["ids"] = [forwarded.pop("scene_id")]
+            forwarded.setdefault("force", True)
+        elif scope == "selected":
+            target["ids"] = forwarded.pop("scene_ids")
+            forwarded.setdefault("force", True)
+        forwarded["target"] = target
+        return await definition.handler(forwarded)
+
+    return replace(definition, handler=_handler)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

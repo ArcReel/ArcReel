@@ -257,7 +257,7 @@ class WorkflowPlanner:
             item for item in facts.items if isinstance(item.get(id_field), str) and str(item[id_field]) in requested
         ]
         voice_characters = await resolve_voice_context(facts.project, status.project.content_mode)
-        specs, _order_map, refused = await asyncio.to_thread(
+        specs, refused = await asyncio.to_thread(
             build_storyboard_video_specs,
             items=items,
             id_field=id_field,

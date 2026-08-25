@@ -574,7 +574,7 @@ def test_the_rendered_text_is_only_a_projection_of_the_payload() -> None:
 
 def test_rendered_summary_uses_product_language_not_raw_enums() -> None:
     """默认摘要不含原始枚举值或 Python 类名/函数名——机器标识只在结构化层。"""
-    builder = GenerationResultBuilder("generate_video_selected", GenerationSelectionMode.MISSING_ONLY)
+    builder = GenerationResultBuilder("generate_videos", GenerationSelectionMode.MISSING_ONLY)
     builder.fail(
         "E1S01",
         problem=GenerationProblem(
@@ -606,7 +606,7 @@ def test_rendered_summary_uses_product_language_not_raw_enums() -> None:
     assert "需修正输入" in text
     assert "等待进行中任务完成" in text
     assert "比当前内容旧" in text
-    assert "点名视频生成" in text
+    assert "视频生成" in text
 
 
 def test_every_machine_identifier_has_a_product_language_label() -> None:
@@ -632,10 +632,7 @@ def test_every_generation_entry_point_has_a_product_language_label() -> None:
         image_edits._OPERATION,
         narration_audio._OPERATION,
         storyboards._OPERATION,
-        videos._EPISODE_OPERATION,
-        videos._SCENE_OPERATION,
-        videos._ALL_OPERATION,
-        videos._SELECTED_OPERATION,
+        videos._OPERATION,
     }
     for operation in operations:
         label = _OPERATION_LABELS.get(operation, "")
@@ -651,9 +648,9 @@ def test_every_generation_entry_point_has_a_product_language_label() -> None:
 
 def test_the_summary_header_names_the_operation_in_product_language() -> None:
     """抬头用生成入口的产品语言名，不直出工具名。"""
-    builder = GenerationResultBuilder("generate_video_episode", GenerationSelectionMode.MISSING_ONLY)
+    builder = GenerationResultBuilder("generate_videos", GenerationSelectionMode.MISSING_ONLY)
     builder.succeed("E1S01", task_id="t1", artifact_path="videos/E1S01.mp4")
     text = render_generation_result(builder.build())
 
-    assert "generate_video_episode" not in text
-    assert text.startswith("整集视频生成：")
+    assert "generate_videos" not in text
+    assert text.startswith("视频生成：")

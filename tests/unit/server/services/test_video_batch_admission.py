@@ -79,7 +79,7 @@ async def test_storyboard_post_production_admits_without_consulting_tts(monkeypa
         script_file="episode_1.json",
         items=[("E1S01", {"duration_seconds": 4}, "一个镜头"), ("E1S02", {}, "另一个镜头")],
         request_options=ReferenceRequestOptions(narration_delivery=POST_PRODUCTION),
-        operation="generate_video_episode",
+        operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
     )
 
@@ -115,7 +115,7 @@ async def test_storyboard_use_tts_reports_each_units_delivery_problem(monkeypatc
         script_file="episode_1.json",
         items=[("E1S01", {"duration_seconds": 4}, "一个镜头")],
         request_options=ReferenceRequestOptions(narration_delivery=USE_TTS),
-        operation="generate_video_episode",
+        operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
     )
 
@@ -149,7 +149,7 @@ async def test_an_active_task_conflicts_before_anything_is_projected(monkeypatch
         script_file="episode_1.json",
         units=[{"unit_id": "E1U1", "text": "镜头"}],
         request_options=ReferenceRequestOptions(),
-        operation="generate_video_episode",
+        operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
     )
 
@@ -180,7 +180,7 @@ async def test_a_unit_that_cannot_be_enqueued_is_refused_with_its_own_code(monke
         script_file="episode_1.json",
         units=[{"unit_id": "E1U1"}],
         request_options=ReferenceRequestOptions(),
-        operation="generate_video_episode",
+        operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
         spec_check=_reject,
     )
@@ -224,7 +224,7 @@ async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
         script_file="episode_1.json",
         units=[{"unit_id": "E1U1", "text": "镜头"}],
         request_options=ReferenceRequestOptions(),
-        operation="generate_video_episode",
+        operation="generate_videos",
         selection=GenerationSelectionMode.EXPLICIT,
         extra_tickets=[
             refused_ticket(

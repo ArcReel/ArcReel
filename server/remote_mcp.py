@@ -8,14 +8,14 @@ import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict, is_dataclass
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, ContentBlock, TextContent
-from pydantic import AnyHttpUrl, BaseModel
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 from starlette.responses import PlainTextResponse
 from starlette.types import Receive, Scope, Send
 
@@ -109,6 +109,35 @@ _LOCAL_ORIGINS = [
 ]
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
+
+
+class _VideoTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class _EpisodeVideoTarget(_VideoTarget):
+    scope: Literal["episode"]
+    episode: PositiveEpisode
+
+
+class _AllVideoTarget(_VideoTarget):
+    scope: Literal["all"]
+
+
+class _SceneVideoTarget(_VideoTarget):
+    scope: Literal["scene"]
+    ids: list[str] = Field(min_length=1, max_length=1)
+
+
+class _SelectedVideoTarget(_VideoTarget):
+    scope: Literal["selected"]
+    ids: list[str] = Field(min_length=1)
+
+
+VideoTarget = Annotated[
+    _EpisodeVideoTarget | _AllVideoTarget | _SceneVideoTarget | _SelectedVideoTarget,
+    Field(discriminator="scope"),
+]
 
 
 class ArcApiKeyVerifier(TokenVerifier):
@@ -776,12 +805,11 @@ def build_remote_mcp_server(
     async def remote_generate_videos(
         project: str,
         script: str,
-        target: dict[str, Any],
+        target: VideoTarget,
         narration_delivery: NarrationDelivery,
         force: bool = False,
-        narration_voice: str | None = None,
-        narration_speed: float | None = None,
-        narration_volume: float | None = None,
+        confirmed_request_duration_seconds: int | None = None,
+        confirmed_request_durations: dict[str, int] | None = None,
     ) -> CallToolResult:
         """Submit video generation with episode, scene, all, or selected scope."""
         return await invoke_media(
@@ -789,12 +817,11 @@ def build_remote_mcp_server(
             generate_videos_tool,
             {
                 "script": script,
-                "target": target,
+                "target": target.model_dump(mode="json"),
                 "narration_delivery": narration_delivery,
                 "force": force,
-                "narration_voice": narration_voice,
-                "narration_speed": narration_speed,
-                "narration_volume": narration_volume,
+                "confirmed_request_duration_seconds": confirmed_request_duration_seconds,
+                "confirmed_request_durations": confirmed_request_durations,
             },
         )
 

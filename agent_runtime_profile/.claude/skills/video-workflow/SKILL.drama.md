@@ -266,9 +266,9 @@ dispatch `generate-assets` 子智能体：
   工具调用（两个工具的 narration_delivery 均为必填，填本次已向用户确认的那个值）：
     requested_ids 非空 →
       mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "selected", "ids": requested_ids},
-                                             "narration_delivery": chosen_narration_delivery})
+                                             "force": true, "narration_delivery": chosen_narration_delivery})
     requested_ids == []（计划未点名；工具调用不传 scene_ids）→
-      mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode"},
+      mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode": target.episode},
                                             "narration_delivery": chosen_narration_delivery})
   验证方式：重新读取 target.script，检查各分镜的 video_clip 字段
 ```

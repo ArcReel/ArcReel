@@ -845,7 +845,7 @@ def build_storyboard_video_specs(
     episode: int = 1,
     resolver: ArtifactCurrencyResolver | None = None,
     voice_characters: dict[str, Any] | None = None,
-) -> tuple[list[TaskSpec], dict[str, int], list[UnitAdmissionTicket]]:
+) -> tuple[list[TaskSpec], list[UnitAdmissionTicket]]:
     """Build the Storyboard-mode specs, refusing each unit that cannot be requested.
 
     A unit whose speech, inputs or prompt are unusable is refused with its own code
@@ -866,12 +866,11 @@ def build_storyboard_video_specs(
     skip_set = set(skip_ids or [])
 
     specs: list[TaskSpec] = []
-    order_map: dict[str, int] = {}
     refused: list[UnitAdmissionTicket] = []
     project = project or {}
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_dir, project)
-    for idx, item in enumerate(items):
+    for item in items:
         item_id = str(storyboard_item_id(item, id_field))
         if item_id in skip_set:
             continue
@@ -950,8 +949,7 @@ def build_storyboard_video_specs(
             )
             continue
         specs.append(spec)
-        order_map[item_id] = idx
-    return specs, order_map, refused
+    return specs, refused
 
 
 async def admit_storyboard_video_request(

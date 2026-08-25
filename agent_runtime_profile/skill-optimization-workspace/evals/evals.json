@@ -68,12 +68,12 @@
     {
       "id": 4,
       "prompt": "这集视频生成到一半断了，帮我接着来",
-      "expected_output": "应使用 generate-video 的 --resume 参数断点续传，不重新生成已完成的场景",
+      "expected_output": "应查询 durable batch，只用 selected scope 和 force=false 重发未完成 ID",
       "target_skills": ["generate-video"],
       "assertions": [
         {
-          "name": "uses_resume_flag",
-          "text": "使用 --resume 参数断点续传",
+          "name": "resends_remaining_ids",
+          "text": "查询批次后只重发未完成 ID",
           "type": "behavior"
         },
         {
