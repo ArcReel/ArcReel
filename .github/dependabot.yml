@@ -49,6 +49,7 @@ updates:
       ai-sdks:
         patterns:
           - "claude-agent-sdk"
+          - "mcp"
           - "google-genai"
           - "openai"
           - "volcengine-python-sdk*"

@@ -189,7 +189,7 @@ class TestRouteSkeletonGate:
             ensure_route_skeleton(script, "narration", "reference_video")
         assert exc.value.expected == "video_units"
         assert exc.value.actual == "segments"
-        assert "split-reference-video-units" in str(exc.value)
+        assert "generate_step1" in str(exc.value)
 
     def test_storyboard_route_rejects_script_without_any_skeleton_array(self):
         # 三个分镜键全缺：resolve_script_kind 会按 content_mode 合成 segments，若据此放行，

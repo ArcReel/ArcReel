@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -21,9 +22,7 @@ from lib.generation_result import (
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import (
-    _generate_reference_step1_tool as split_reference_video_units_tool,
-)
-from server.agent_runtime.sdk_tools.text_generation import (
+    generate_step1_tool,
     open_draft_tool,
     promote_draft_tool,
 )
@@ -83,6 +82,7 @@ class _FakePM:
             "style": "anime",
             "style_description": "soft pastel",
         }
+        self.readonly_load_threads: list[int] = []
         self.script_payload: dict[str, Any] = {
             "content_mode": "narration",
             "episode": 1,
@@ -208,8 +208,15 @@ class _FakePM:
         self._mirror()
         return self.project_payload
 
+    def load_project_readonly(self, _name: str) -> dict[str, Any]:
+        self.readonly_load_threads.append(threading.get_ident())
+        return self.project_payload
+
     def load_script(self, _name: str, filename: str) -> dict[str, Any]:
         self._mirror(filename)
+        return self.script_payload
+
+    def load_script_readonly(self, _name: str, _filename: str) -> dict[str, Any]:
         return self.script_payload
 
     def project_exists(self, _name: str) -> bool:
@@ -394,12 +401,12 @@ def _rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video")
 
     盘上的 project.json 与 pm 的内存视图同步：生成入口从盘上读，晋升工具经 ``pm.load_project`` 读。
     """
-    (fake_ctx.project_path / "project.json").write_text(
-        json.dumps({"content_mode": "narration", "generation_mode": generation_mode}, ensure_ascii=False),
-        encoding="utf-8",
-    )
     fake_ctx.pm.project_payload["content_mode"] = "narration"  # pyright: ignore[reportAttributeAccessIssue]
     fake_ctx.pm.project_payload["generation_mode"] = generation_mode  # pyright: ignore[reportAttributeAccessIssue]
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),  # pyright: ignore[reportAttributeAccessIssue]
+        encoding="utf-8",
+    )
 
 
 def _rv_source(fake_ctx: ToolContext) -> None:
@@ -432,7 +439,7 @@ async def _run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], *
 
     _use_fake_caps(fake_ctx, **caps_kwargs)
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
-    return await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1})
+    return await _call(generate_step1_tool(fake_ctx), {"episode": 1})
 
 
 def _rv_quarantine_path(fake_ctx: ToolContext):
@@ -453,7 +460,11 @@ async def _promote(fake_ctx: ToolContext, **caps_kwargs) -> dict:
         doc_type = "reference_step2"
     else:
         doc_type = "reference_step1"
-    return await _call(promote_draft_tool(fake_ctx), {"episode": 1, "doc_type": doc_type})
+    args = {"episode": 1, "doc_type": doc_type}
+    opened = await _call(open_draft_tool(fake_ctx), args)
+    payload = json.loads(opened["content"][0]["text"])
+    revision = payload.get("draft", {}).get("revision", "")
+    return await _call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
 
 
 def _write_rv_step1(fake_ctx: ToolContext, units: list[dict]) -> None:
@@ -582,7 +593,10 @@ async def _open_drama_for_edit(fake_ctx: ToolContext, **args) -> dict:
 
 async def _promote_drama(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
     _use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
-    return await _call(promote_draft_tool(fake_ctx), {"episode": 1, "doc_type": "drama_step1"})
+    args = {"episode": 1, "doc_type": "drama_step1"}
+    opened = await _call(open_draft_tool(fake_ctx), args)
+    revision = json.loads(opened["content"][0]["text"])["draft"]["revision"]
+    return await _call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
 
 
 def _nr_step1_path(fake_ctx: ToolContext) -> Path:
@@ -609,4 +623,7 @@ async def _open_nr_for_edit(fake_ctx: ToolContext, **args) -> dict:
 
 async def _promote_nr(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
     _use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
-    return await _call(promote_draft_tool(fake_ctx), {"episode": 1, "doc_type": "narration_step1"})
+    args = {"episode": 1, "doc_type": "narration_step1"}
+    opened = await _call(open_draft_tool(fake_ctx), args)
+    revision = json.loads(opened["content"][0]["text"])["draft"]["revision"]
+    return await _call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})

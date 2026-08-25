@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import os
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
+from lib.async_thread import run_sync_transaction
 from lib.project_manager import ProjectManager
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
@@ -20,12 +24,7 @@ from server.tool_runtime import (
     PatchEpisodeScriptRequest,
     ProjectScope,
     Services,
-    TextGenerationRequest,
-    TextGenerationResult,
     ToolRequest,
-    confirm_script_review,
-    generate_episode_script,
-    generate_step1,
     get_episode_script,
     get_project_content,
     get_source_text,
@@ -34,7 +33,6 @@ from server.tool_runtime import (
     get_workflow_plan,
     list_project_files,
     list_source_files,
-    open_draft,
     patch_episode_meta,
     patch_episode_script,
     read_project_file,
@@ -44,14 +42,22 @@ from server.tool_runtime import (
 class _Projects:
     def __init__(self, project: dict):
         self.project = project
+        self.load_script_threads: list[int] = []
+        self.readonly_loads = 0
 
     def load_project(self, name: str) -> dict:
         assert name == "demo"
         return self.project
 
+    def load_project_readonly(self, name: str) -> dict:
+        assert name == "demo"
+        self.readonly_loads += 1
+        return self.project
+
     def load_script(self, name: str, script: str) -> dict:
         assert name == "demo"
         assert script == "episode_1.json"
+        self.load_script_threads.append(threading.get_ident())
         return {"episode": 1, "segments": []}
 
 
@@ -132,19 +138,23 @@ async def test_workflow_plan_returns_typed_domain_outcome() -> None:
 
 async def test_video_capabilities_returns_typed_domain_outcome() -> None:
     project = {"generation_mode": "storyboard", "content_mode": "drama"}
+    projects = _Projects(project)
     outcome = await get_video_capabilities(
         ToolRequest(None),
         ProjectScope("demo", Path("/projects")),
         CallerContext(user_id="u1", source="embedded"),
-        Services(projects=_Projects(project), workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
+        Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
     )
 
     assert outcome.problem is None
     assert outcome.value == {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
+    assert projects.readonly_loads == 1
 
 
 async def test_patch_episode_script_returns_typed_revision_conflict() -> None:
     project = {"generation_mode": "storyboard"}
+    projects = _Projects(project)
+    caller_thread = threading.get_ident()
     outcome = await patch_episode_script(
         ToolRequest(
             PatchEpisodeScriptRequest.model_validate(
@@ -157,45 +167,41 @@ async def test_patch_episode_script_returns_typed_revision_conflict() -> None:
         ),
         ProjectScope("demo", Path("/projects")),
         CallerContext(user_id="u1", source="embedded"),
-        Services(projects=_Projects(project), workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
+        Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
     )
 
     assert outcome.problem is None
     assert outcome.value is not None
     assert outcome.value.problems[0].code == "revision_conflict"
+    assert projects.load_script_threads
+    assert all(thread != caller_thread for thread in projects.load_script_threads)
 
 
-async def test_text_generation_tools_return_typed_domain_outcomes(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def script_handler(request: TextGenerationRequest, **_kwargs) -> TextGenerationResult:
-        return TextGenerationResult(f"script:{request.episode}")
+async def test_sync_transaction_finishes_worker_before_propagating_cancellation() -> None:
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
 
-    async def step1_handler(request: TextGenerationRequest, **_kwargs) -> TextGenerationResult:
-        return TextGenerationResult(f"step1:{request.episode}")
+    def transaction() -> None:
+        started.set()
+        release.wait()
+        finished.set()
 
-    async def confirm_handler(episode: int, **_kwargs) -> TextGenerationResult:
-        return TextGenerationResult(f"confirmed:{episode}")
+    task = asyncio.create_task(run_sync_transaction(transaction))
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+        task_results = await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout=1)
 
-    monkeypatch.setattr(tool_runtime, "generate_episode_script_handler", script_handler)
-    monkeypatch.setattr(tool_runtime, "generate_narration_step1", step1_handler)
-    monkeypatch.setattr(tool_runtime, "confirm_script_review_handler", confirm_handler)
-
-    project = {"generation_mode": "storyboard"}
-    scope = ProjectScope("demo", Path("/projects"))
-    caller = CallerContext(user_id="u1", source="embedded")
-    services = Services(
-        projects=_Projects(project),
-        workflow_planner=_Planner(_status()),
-        capabilities=_Capabilities(),
-    )
-    request = ToolRequest(TextGenerationRequest(episode=2))
-
-    script = await generate_episode_script(request, scope, caller, services)
-    step1 = await generate_step1(request, scope, caller, services)
-    confirmed = await confirm_script_review(ToolRequest(2), scope, caller, services)
-
-    assert script.value == TextGenerationResult("script:2")
-    assert step1.value == TextGenerationResult("step1:2")
-    assert confirmed.value == TextGenerationResult("confirmed:2")
+    assert isinstance(task_results[0], asyncio.CancelledError)
+    assert finished.is_set()
 
 
 def test_text_generation_dependency_points_from_host_adapters_to_shared_handler() -> None:
@@ -211,7 +217,7 @@ def test_text_generation_dependency_points_from_host_adapters_to_shared_handler(
     assert '"is_error"' not in shared_path.read_text(encoding="utf-8")
 
 
-async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path) -> None:
+async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, monkeypatch) -> None:
     from lib.project_manager import ProjectManager
 
     projects = ProjectManager(tmp_path / "projects")
@@ -219,6 +225,17 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path) -
     projects.create_project_metadata("demo", "Demo", "", "narration")
     projects.save_script("demo", {"title": "旧标题", "segments": []}, "episode_1.json", validate=False)
     services = Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities())
+    caller_thread = threading.get_ident()
+    mutation_threads: list[int] = []
+    original_locked_script = projects.locked_script
+
+    @contextmanager
+    def tracked_locked_script(project_name: str, filename: str):
+        mutation_threads.append(threading.get_ident())
+        with original_locked_script(project_name, filename) as script:
+            yield script
+
+    monkeypatch.setattr(projects, "locked_script", tracked_locked_script)
 
     outcome = await patch_episode_meta(
         ToolRequest(PatchEpisodeMetaRequest(script="episode_1.json", field="title", value=" 新标题 ")),
@@ -236,24 +253,45 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path) -
         "value": "新标题",
     }
     assert projects.load_script("demo", "episode_1.json")["title"] == "新标题"
+    assert mutation_threads
+    assert all(thread != caller_thread for thread in mutation_threads)
 
 
-async def test_content_readers_return_body_and_revision_from_the_same_snapshot(tmp_path: Path) -> None:
+async def test_content_readers_return_body_and_revision_from_the_same_snapshot(tmp_path: Path, monkeypatch) -> None:
     project_dir = tmp_path / "demo"
     (project_dir / "scripts").mkdir(parents=True)
+    step1_dir = project_dir / "drafts" / "episode_1"
+    step1_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text(
         f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
     )
     (project_dir / "scripts" / "episode_1.json").write_text(
         '{"episode":1,"title":"第一集","scenes":[]}', encoding="utf-8"
     )
+    (step1_dir / "step1_normalized_script.json").write_text('{"title":"第一集","scenes":[]}', encoding="utf-8")
     projects = ProjectManager(tmp_path)
     services = Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities())
     scope = ProjectScope("demo", tmp_path)
     caller = CallerContext(user_id="u1", source="mcp")
+    caller_thread = threading.get_ident()
+    reader_threads: list[int] = []
+    original_load_project_readonly = projects.load_project_readonly
+    original_load_script_readonly = projects.load_script_readonly
+
+    def tracked_load_project_readonly(project_name: str) -> dict:
+        reader_threads.append(threading.get_ident())
+        return original_load_project_readonly(project_name)
+
+    def tracked_load_script_readonly(project_name: str, filename: str) -> dict:
+        reader_threads.append(threading.get_ident())
+        return original_load_script_readonly(project_name, filename)
+
+    monkeypatch.setattr(projects, "load_project_readonly", tracked_load_project_readonly)
+    monkeypatch.setattr(projects, "load_script_readonly", tracked_load_script_readonly)
 
     project = await get_project_content(ToolRequest(None), scope, caller, services)
     script = await get_episode_script(ToolRequest("episode_1.json"), scope, caller, services)
+    step1 = await get_step1_content(ToolRequest(1), scope, caller, services)
 
     assert project.problem is None
     assert project.value is not None
@@ -263,6 +301,11 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
     assert script.value is not None
     assert script.value.script["title"] == "第一集"
     assert script.value.revision.startswith("sha256-v1:")
+    assert step1.problem is None
+    assert step1.value is not None
+    assert step1.value.content["title"] == "第一集"
+    assert len(reader_threads) == 3
+    assert all(thread != caller_thread for thread in reader_threads)
 
 
 async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(tmp_path: Path) -> None:
@@ -283,7 +326,6 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
     services = Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities())
     scope = ProjectScope("demo", tmp_path)
     caller = CallerContext(user_id="u1", source="mcp")
-
     sources = await list_source_files(ToolRequest(None), scope, caller, services)
     source = await get_source_text(ToolRequest("source/episode_1.txt"), scope, caller, services)
     step1 = await get_step1_content(ToolRequest(1), scope, caller, services)
@@ -349,13 +391,14 @@ async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path,
     assert outcome.value is not None and outcome.value.content == "safe"
 
 
-async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path, monkeypatch) -> None:
+async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) -> None:
     project_dir = tmp_path / "demo"
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text("{}", encoding="utf-8")
-    (source_dir / "novel.txt").write_bytes(b"12345")
-    monkeypatch.setattr(tool_runtime, "BUSINESS_FILE_MAX_BYTES", 4)
+    with (source_dir / "novel.txt").open("wb") as handle:
+        handle.seek(tool_runtime.BUSINESS_FILE_MAX_BYTES)
+        handle.write(b"x")
     services = Services(
         projects=ProjectManager(tmp_path), workflow_planner=_Planner(_status()), capabilities=_Capabilities()
     )
@@ -370,18 +413,15 @@ async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path, 
     assert outcome.problem is not None and outcome.problem.code == "file_too_large"
 
 
-async def test_draft_handlers_expose_one_host_independent_typed_seam() -> None:
-    scope = ProjectScope("demo", Path("/projects"))
-    caller = CallerContext(user_id="u1", source="mcp")
-    outcome = await open_draft(
-        ToolRequest(DraftLocator(1, "unsupported")),
-        scope,
-        caller,
-        Services(projects=_Projects({}), workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
-    )
+@pytest.mark.parametrize("episode", [0, -1, True, 1.5, "1"])
+def test_draft_locator_requires_a_strict_positive_episode(episode: object) -> None:
+    with pytest.raises(ValueError):
+        DraftLocator(episode=episode, doc_type="reference_step1")  # type: ignore[arg-type]
 
-    assert outcome.problem is not None
-    assert outcome.problem.code == "invalid_request"
+
+def test_draft_locator_rejects_unknown_document_types() -> None:
+    with pytest.raises(ValueError):
+        DraftLocator(episode=1, doc_type="unsupported")  # type: ignore[arg-type]
 
 
 def test_draft_dependency_points_from_sdk_adapter_to_shared_workflow() -> None:

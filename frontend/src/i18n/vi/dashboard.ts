@@ -1296,9 +1296,9 @@ export default {
   'review_confirm_blocked_quarantined': 'Còn bản nháp cần sửa — chỉ xác nhận được sau khi sửa và thăng cấp',
   'review_request_fix': 'Nhờ Agent sửa',
   'review_fix_request_prefill_header':
-    'Bản nháp tổ chức nội dung của tập {{episode}} có {{count}} vi phạm cần sửa; hãy gọi open_draft để đọc, sau đó sửa bằng patch_draft:',
+    'Bản nháp tổ chức nội dung của tập {{episode}} có {{count}} vi phạm cần sửa; hãy gọi open_draft với doc_type={{docType}} để đọc, sau đó sửa bằng patch_draft với cùng doc_type và truyền revision trả về làm base_revision:',
   'review_fix_request_promote_prefill':
-    'Bản nháp tổ chức nội dung của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn chưa được thăng cấp — hãy gọi open_draft để đọc doc_type, rồi gọi promote_draft với cùng doc_type.',
+    'Bản nháp tổ chức nội dung của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn chưa được thăng cấp — hãy gọi open_draft với doc_type={{docType}}, sau đó gọi promote_draft với cùng doc_type và truyền revision trả về làm base_revision.',
 
   // ReferenceStep1PreviewPanel (xem trước theo tập, biến thể step1 của reference_video)
   'reference_step1_source_text_label': 'Văn bản gốc',
@@ -1323,7 +1323,7 @@ export default {
   'reference_step1_duration_out_of_tier_hint': 'Có đơn vị video có thời lượng nằm ngoài các mức hiện hợp lệ — hãy chọn lại trước khi xác nhận',
   'reference_step1_confirm_continue_prefill': 'Đã xác nhận việc chia tập {{episode}}, hãy tiếp tục tạo kịch bản và video từ ảnh tham chiếu.',
   'reference_step1_fix_request_prefill_header':
-    'Bản nháp tổ chức nội dung video từ ảnh tham chiếu của tập {{episode}} có {{count}} vi phạm cần sửa; hãy gọi open_draft để đọc, sau đó sửa bằng patch_draft:',
+    'Bản nháp tổ chức nội dung video từ ảnh tham chiếu của tập {{episode}} có {{count}} vi phạm cần sửa; hãy gọi open_draft với doc_type=reference_step1 để đọc, sau đó sửa bằng patch_draft với cùng doc_type và truyền revision trả về làm base_revision:',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

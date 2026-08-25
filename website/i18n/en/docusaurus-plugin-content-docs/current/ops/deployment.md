@@ -160,6 +160,7 @@ The default deployment examples currently include these core variables:
 | `TZ` | `Asia/Shanghai` | Can be overridden in the Compose environment |
 | `DATABASE_URL` | Default SQLite path | Production Compose sets the PostgreSQL URL automatically |
 | `ARCREEL_DATA_DIR` | `projects` | Use this to customize the application's root data directory |
+| `CORS_ORIGINS` | Common local frontend origins | Cross-origin browser MCP clients must also add their Origin here |
 | `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | Set this to the actual HTTPS MCP endpoint for remote access |
 | `MCP_ALLOWED_HOSTS` | Loopback hosts only | For remote access, set a comma-separated allowlist of actual Host values |
 | `MCP_ALLOWED_ORIGINS` | Loopback origins only | For cross-origin browser MCP clients, set a comma-separated Origin allowlist |
@@ -171,7 +172,7 @@ Notes:
 - Vertex credential files should be readable only by the user who runs ArcReel.
 - Third-party model API keys are normally managed on the ArcReel Settings page. Do not include them in public documentation.
 
-The remote MCP endpoint is `/mcp` and always requires an API Key with an `arc-` prefix; it never permits anonymous access, even when `AUTH_ENABLED=false`. For remote access, configure all three `MCP_*` variables above and connect through an HTTPS reverse proxy, VPN, or secure tunnel that preserves long-lived SSE connections.
+The remote MCP endpoint is `/mcp` and always requires an API Key with an `arc-` prefix; it never permits anonymous access, even when `AUTH_ENABLED=false`. For remote access, configure all three `MCP_*` variables above and connect through an HTTPS reverse proxy, VPN, or secure tunnel that preserves long-lived SSE connections. For browser MCP clients, add the client Origin to both `MCP_ALLOWED_ORIGINS` and the application-level `CORS_ORIGINS`; otherwise the application CORS middleware rejects the preflight first.
 
 ArcReel's sandbox requires provider secrets to be absent from the parent process environment. If any of the following credential environment variables has a non-empty value, the service refuses to start and prompts you to move the credential to the Web UI Settings page:
 

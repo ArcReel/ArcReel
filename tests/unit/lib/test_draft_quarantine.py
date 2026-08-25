@@ -143,7 +143,7 @@ class TestReport:
         assert str(path) in text
         assert "按报告字段路径修复" in text
         assert "content.units[i]" in text
-        assert 'promote_draft({"episode": 2, "doc_type": "reference_step1"})' in text
+        assert 'promote_draft({"episode": 2, "doc_type": "reference_step1", "base_revision":' in text
         assert "无轮次上限" in text
 
     def test_report_numbers_each_violation_with_its_class(self):
@@ -160,7 +160,7 @@ class TestReport:
         assert path.name == "step1_normalized_script.invalid.json"
         assert "content.scenes[i]" in text
         assert "units[i]" not in text
-        assert 'promote_draft({"episode": 3, "doc_type": "drama_step1"})' in text
+        assert 'promote_draft({"episode": 3, "doc_type": "drama_step1", "base_revision":' in text
 
     def test_narration_step1_report_points_at_segment_fields(self, tmp_path: Path):
         """narration 草稿改的是分镜表：指引里的字段路径写错，Agent 会照着改一个不存在的字段
@@ -172,7 +172,7 @@ class TestReport:
         assert "content.segments[i]" in text
         assert "units[i]" not in text
         assert "scenes[i]" not in text
-        assert 'promote_draft({"episode": 4, "doc_type": "narration_step1"})' in text
+        assert 'promote_draft({"episode": 4, "doc_type": "narration_step1", "base_revision":' in text
 
     def test_each_step1_variant_has_its_own_draft_file(self, tmp_path: Path):
         """三条路线的 step1 草稿同目录并存而不互相覆盖：共用一个文件名会让换过路线的项目上

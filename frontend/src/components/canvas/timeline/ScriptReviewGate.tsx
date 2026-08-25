@@ -270,18 +270,19 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   // 把逐条违约预填进对话输入框，用户一句话就能把上下文完整交给它，不必自己转述。
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
+    const docType = contentMode === "drama" ? "drama_step1" : "narration_step1";
     // 重算已无违约、但待修复草稿仍在场（Agent 已改对内容、尚未调晋升工具）：不能报「0 处违约
     // 待修复」再让用户去改一份已经没问题的东西，正确的下一步是请 Agent 直接晋升。
     const report =
       violations.length === 0
-        ? t("dashboard:review_fix_request_promote_prefill", { episode })
+        ? t("dashboard:review_fix_request_promote_prefill", { episode, docType })
         : [
-            t("dashboard:review_fix_request_prefill_header", { episode, count: violations.length }),
+            t("dashboard:review_fix_request_prefill_header", { episode, count: violations.length, docType }),
             ...violations.map((v, i) => String(i + 1) + ". " + v.message),
           ].join("\n");
     useAssistantStore.getState().setInput(report);
     useAppStore.getState().setAssistantPanelOpen(true);
-  }, [state, episode, t]);
+  }, [state, episode, contentMode, t]);
 
   if (loading) {
     return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_preprocessing")}</div>;

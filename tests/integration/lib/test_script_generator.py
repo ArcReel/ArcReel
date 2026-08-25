@@ -1709,7 +1709,7 @@ class TestLoadNarrationStep1:
         legacy = sg.project_path / "drafts" / "episode_1" / "step1_segments.md"
         legacy.parent.mkdir(parents=True, exist_ok=True)
         legacy.write_text("| 片段 | 原文 |\n| G01 | 旧表 |", encoding="utf-8")
-        with pytest.raises(FileNotFoundError, match="split-narration-segments|重跑"):
+        with pytest.raises(FileNotFoundError, match="generate_step1"):
             sg._load_narration_step1(1, [4, 6, 8])
 
     def test_malformed_json_raises(self, tmp_path):

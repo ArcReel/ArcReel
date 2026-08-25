@@ -121,13 +121,13 @@ MESSAGES = {
     "val_skeleton_mismatch_reference_known": (
         "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản hiện dùng {actual} ({actual_noun}). "
-        "Hãy chạy lại split-reference-video-units để tách lại tập này rồi sinh lại kịch bản. "
+        "Hãy gọi generate_step1 để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
     ),
     "val_skeleton_mismatch_reference_none": (
         "Khung xương kịch bản không khớp chế độ tạo video của dự án: chế độ là {route}, yêu cầu khung "
         "{expected} ({expected_noun}), nhưng kịch bản không có mảng khung xương nào. "
-        "Hãy chạy lại split-reference-video-units để tách lại tập này rồi sinh lại kịch bản. "
+        "Hãy gọi generate_step1 để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
     ),
     "val_skeleton_mismatch_storyboard_known": (

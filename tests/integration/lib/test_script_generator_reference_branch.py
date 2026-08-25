@@ -1,6 +1,8 @@
 """ScriptGenerator reference_video 分支测试。"""
 
+import asyncio
 import json as _json
+import threading
 from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
@@ -8,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.exc import OperationalError
 
+from lib import project_manager as project_manager_module
 from lib import script_review
 from lib.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
@@ -17,6 +20,7 @@ from lib.draft_quarantine import (
     quarantine_path,
     write_quarantine,
 )
+from lib.project_manager import ProjectManager, ScriptWriteConflict
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.draft_validation import DraftViolation
 from lib.reference_video.text_parser import extract_mentions
@@ -592,7 +596,7 @@ async def test_reference_step1_legacy_md_prompts_resplit(reference_project: Path
     (drafts / "step1_reference_units.md").write_text("| E1U1 | Shot1(4s) |", encoding="utf-8")
 
     gen = ScriptGenerator(reference_project)
-    with pytest.raises(FileNotFoundError, match="split-reference-video-units"):
+    with pytest.raises(FileNotFoundError, match="generate_step1"):
         await gen.build_prompt(episode=1)
 
 
@@ -656,6 +660,65 @@ def test_reference_step1_migration_carries_confirmation_forward(reference_projec
     after = script_review.content_fingerprint(step1_path)
     assert review["fingerprint"] == after
     assert review["fingerprint"] != before
+
+
+@pytest.mark.asyncio
+async def test_reference_step1_migration_waits_for_step2_draft_lock(reference_project: Path, monkeypatch) -> None:
+    step1_path = reference_project / "drafts" / "episode_1" / "step1_reference_units.json"
+    step1_path.write_text(
+        _json.dumps(
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "text": "@[主角] 转身",
+                        "duration_seconds": 4,
+                        "duration_override": True,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    step2_path = quarantine_path(reference_project, 1, QUARANTINE_KIND_STEP2)
+    pm = ProjectManager(reference_project.parent)
+    held = threading.Event()
+    release = threading.Event()
+
+    def hold_step2_lock() -> None:
+        with pm.file_lock(step2_path):
+            held.set()
+            _ = release.wait()
+
+    holder = asyncio.create_task(asyncio.to_thread(hold_step2_lock))
+    try:
+        assert await asyncio.to_thread(held.wait, 1)
+        attempted = threading.Event()
+        target_lock = step2_path.parent / f".{step2_path.name}.lock"
+        original_acquire = project_manager_module.portalocker.Lock.acquire
+
+        def tracked_acquire(lock, *args, **kwargs):
+            if Path(lock.filename) == target_lock:
+                attempted.set()
+            return original_acquire(lock, *args, **kwargs)
+
+        monkeypatch.setattr(project_manager_module.portalocker.Lock, "acquire", tracked_acquire)
+        prompt = asyncio.create_task(ScriptGenerator(reference_project).build_prompt(episode=1))
+        attempted_before_release = await asyncio.to_thread(attempted.wait, 1)
+        if attempted_before_release:
+            assert not prompt.done()
+            assert "duration_override" in step1_path.read_text(encoding="utf-8")
+            ticked = asyncio.Event()
+            asyncio.get_running_loop().call_soon(ticked.set)
+            await asyncio.wait_for(ticked.wait(), timeout=1)
+    finally:
+        release.set()
+        await asyncio.wait_for(holder, timeout=1)
+
+    await asyncio.wait_for(prompt, timeout=1)
+    assert attempted_before_release
+    assert "duration_override" not in step1_path.read_text(encoding="utf-8")
 
 
 def test_reference_step1_migration_carries_confirmation_confirmed_after_construction(reference_project: Path):
@@ -849,13 +912,183 @@ async def test_step2_violation_quarantines_instead_of_discarding(reference_proje
 
     envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
     assert envelope["kind"] == QUARANTINE_KIND_STEP2
+    assert envelope["meta"]["base_fingerprint"] is None
     assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset"]
     # 草稿装的是扁平草稿结构（Agent 要改的是其中的正文 / 原文锚 / 时长）
     assert envelope["content"]["units"][0]["text"] == BAD_STEP2_UNIT_TEXT
 
 
 @pytest.mark.asyncio
-async def test_promote_step2_draft_after_repair(reference_project: Path):
+async def test_cancelled_step2_quarantine_finishes_without_blocking_event_loop(reference_project: Path):
+    generator = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
+    started = threading.Event()
+    release = threading.Event()
+    caller_thread = threading.get_ident()
+    worker_threads: list[int] = []
+
+    def before_quarantine_commit() -> None:
+        worker_threads.append(threading.get_ident())
+        started.set()
+        release.wait()
+
+    generation = asyncio.create_task(generator.generate(episode=1, before_quarantine_commit=before_quarantine_commit))
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        ticked = asyncio.Event()
+        asyncio.get_running_loop().call_soon(ticked.set)
+        await asyncio.wait_for(ticked.wait(), timeout=1)
+        generation.cancel()
+        await asyncio.sleep(0)
+        assert not generation.done()
+    finally:
+        release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(generation, timeout=1)
+    assert _step2_quarantine(reference_project).exists()
+    assert worker_threads and all(thread != caller_thread for thread in worker_threads)
+
+
+@pytest.mark.asyncio
+async def test_step2_generation_preserves_draft_edited_during_model_call(reference_project: Path):
+    started = asyncio.Event()
+    release = asyncio.Event()
+    generator = MagicMock()
+    generator.model = "mock"
+
+    async def generate(_request, **_kwargs):
+        started.set()
+        await release.wait()
+        return MagicMock(text=_step2_response(BAD_STEP2_UNIT_TEXT))
+
+    generator.generate = AsyncMock(side_effect=generate)
+    generation = asyncio.create_task(ScriptGenerator(reference_project, generator=generator).generate(episode=1))
+    await started.wait()
+    write_quarantine(
+        reference_project,
+        1,
+        QUARANTINE_KIND_STEP2,
+        content={"title": "并发草稿", "units": [{"text": "并发编辑内容"}]},
+        violations=[],
+    )
+    release.set()
+
+    with pytest.raises(DraftViolation) as excinfo:
+        await asyncio.wait_for(generation, timeout=1)
+    assert excinfo.value.code == "draft_revision_conflict"
+    envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
+    assert envelope["content"]["title"] == "并发草稿"
+    assert envelope["content"]["units"][0]["text"] == "并发编辑内容"
+
+
+@pytest.mark.asyncio
+async def test_successful_step2_generation_rejects_draft_created_during_model_call(reference_project: Path):
+    started = asyncio.Event()
+    release = asyncio.Event()
+    generator = MagicMock()
+    generator.model = "mock"
+
+    async def generate(_request, **_kwargs):
+        started.set()
+        await release.wait()
+        return MagicMock(text=_step2_response(STEP2_UNIT_TEXT))
+
+    generator.generate = AsyncMock(side_effect=generate)
+    generation = asyncio.create_task(ScriptGenerator(reference_project, generator=generator).generate(episode=1))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    write_quarantine(
+        reference_project,
+        1,
+        QUARANTINE_KIND_STEP2,
+        content={"title": "并发草稿", "units": [{"text": "并发编辑内容"}]},
+        violations=[],
+        meta={"base_fingerprint": None},
+    )
+    release.set()
+
+    with pytest.raises(DraftViolation) as excinfo:
+        await asyncio.wait_for(generation, timeout=1)
+    assert excinfo.value.code == "draft_revision_conflict"
+    assert not _script_path(reference_project).exists()
+    envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
+    assert envelope["content"]["title"] == "并发草稿"
+
+
+@pytest.mark.asyncio
+async def test_step2_generation_rejects_existing_draft_before_model_call(reference_project: Path):
+    write_quarantine(
+        reference_project,
+        1,
+        QUARANTINE_KIND_STEP2,
+        content={"title": "现有草稿", "units": [{"text": STEP2_UNIT_TEXT}]},
+        violations=[],
+        meta={"base_fingerprint": None},
+    )
+    generator = _fake_step2_generator(STEP2_UNIT_TEXT)
+
+    with pytest.raises(DraftViolation) as excinfo:
+        await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
+
+    assert excinfo.value.code == "draft_revision_conflict"
+    generator.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_step2_preserves_output_when_formal_script_changes_during_generation(reference_project: Path):
+    formal = await ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT)).generate(
+        episode=1
+    )
+    concurrent = _json.loads(formal.read_text(encoding="utf-8"))
+    concurrent["title"] = "并发正式标题"
+    generator = MagicMock()
+    generator.model = "mock"
+
+    async def generate(_request, **_kwargs):
+        formal.write_text(_json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
+        return MagicMock(text=_step2_response(STEP2_UNIT_TEXT, title="本次生成标题"))
+
+    generator.generate = AsyncMock(side_effect=generate)
+
+    with pytest.raises(DraftViolation) as excinfo:
+        await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
+
+    assert "formal_revision_conflict" in str(excinfo.value)
+    assert _json.loads(formal.read_text(encoding="utf-8"))["title"] == "并发正式标题"
+    envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
+    assert envelope["content"]["title"] == "本次生成标题"
+    assert envelope["meta"]["base_fingerprint"] is not None
+
+
+@pytest.mark.asyncio
+async def test_step2_violation_keeps_generation_start_formal_baseline(reference_project: Path):
+    formal = await ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT)).generate(
+        episode=1
+    )
+    baseline = script_review.content_fingerprint(formal)
+    assert baseline is not None
+    concurrent = _json.loads(formal.read_text(encoding="utf-8"))
+    concurrent["title"] = "并发正式标题"
+    generator = MagicMock()
+    generator.model = "mock"
+
+    async def generate(_request, **_kwargs):
+        formal.write_text(_json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
+        return MagicMock(text=_step2_response(BAD_STEP2_UNIT_TEXT, title="本次违约输出"))
+
+    generator.generate = AsyncMock(side_effect=generate)
+
+    with pytest.raises(DraftViolation):
+        await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
+
+    assert _json.loads(formal.read_text(encoding="utf-8"))["title"] == "并发正式标题"
+    envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
+    assert envelope["content"]["title"] == "本次违约输出"
+    assert envelope["meta"]["base_fingerprint"] == baseline
+    assert envelope["meta"]["base_fingerprint"] != script_review.content_fingerprint(formal)
+
+
+@pytest.mark.asyncio
+async def test_promote_step2_draft_after_repair(reference_project: Path, monkeypatch):
     """修好待修复草稿后晋升：正式剧本落盘、草稿清除，结构仍由 step1 + 正文机械合成。"""
     gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
     with pytest.raises(DraftViolation):
@@ -865,16 +1098,75 @@ async def test_promote_step2_draft_after_repair(reference_project: Path):
     envelope = _json.loads(path.read_text(encoding="utf-8"))
     envelope["content"]["units"][0]["text"] = STEP2_UNIT_TEXT
     path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    caller_thread = threading.get_ident()
+    worker_threads: list[int] = []
+    original_save = ProjectManager.save_script
+
+    def tracked_save(self, *args, **kwargs):
+        worker_threads.append(threading.get_ident())
+        return original_save(self, *args, **kwargs)
+
+    monkeypatch.setattr(ProjectManager, "save_script", tracked_save)
 
     out = await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
 
     assert out.exists()
+    assert worker_threads and all(thread != caller_thread for thread in worker_threads)
     assert not path.exists()
     data = _json.loads(out.read_text(encoding="utf-8"))
     unit = data["video_units"][0]
     assert unit["unit_id"] == "E1U01"
     assert unit["duration_seconds"] == 4
     assert extract_mentions(unit["text"]) == ["主角", "酒馆"]
+
+
+@pytest.mark.asyncio
+async def test_promote_step2_draft_rejects_stale_formal_baseline(reference_project: Path):
+    formal = await ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT)).generate(
+        episode=1
+    )
+    baseline = script_review.content_fingerprint(formal)
+    assert baseline is not None
+    write_quarantine(
+        reference_project,
+        1,
+        QUARANTINE_KIND_STEP2,
+        content={"title": "修复稿", "units": [{"text": STEP2_UNIT_TEXT}]},
+        violations=[],
+        meta={"base_fingerprint": baseline},
+    )
+
+    pm = ProjectManager(str(reference_project.parent))
+    concurrent = pm.load_script(reference_project.name, formal.name)
+    concurrent["title"] = "并发修改"
+    pm.save_script(reference_project.name, concurrent, formal.name)
+
+    with pytest.raises(ScriptWriteConflict):
+        await ScriptGenerator(reference_project).promote_reference_step2_draft(
+            episode=1,
+            expected_fingerprint=baseline,
+        )
+
+    assert pm.load_script(reference_project.name, formal.name)["title"] == "并发修改"
+    assert _step2_quarantine(reference_project).exists()
+
+
+@pytest.mark.asyncio
+async def test_promote_step2_draft_requires_formal_baseline(reference_project: Path):
+    write_quarantine(
+        reference_project,
+        1,
+        QUARANTINE_KIND_STEP2,
+        content={"title": "修复稿", "units": [{"text": STEP2_UNIT_TEXT}]},
+        violations=[],
+    )
+
+    with pytest.raises(DraftViolation) as excinfo:
+        await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
+
+    assert excinfo.value.code == "formal_revision_missing"
+    assert _step2_quarantine(reference_project).exists()
+    assert not _script_path(reference_project).exists()
 
 
 @pytest.mark.asyncio

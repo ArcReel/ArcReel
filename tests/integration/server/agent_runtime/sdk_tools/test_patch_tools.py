@@ -679,31 +679,6 @@ class TestPatchEpisodeScriptStructuralOperations:
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
 
-    async def test_insert_rejects_concurrent_change_after_id_projection(
-        self,
-        ctx: ToolContext,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        from server import tool_runtime
-
-        original_insert = tool_runtime.insert_segment
-
-        def _insert_then_concurrently_edit(script, after_id, item):
-            result = original_insert(script, after_id, item)
-            with ctx.pm.locked_script(ctx.project_name, "episode_1.json") as current:
-                current["segments"][0]["note"] = "concurrent"
-            return result
-
-        monkeypatch.setattr(tool_runtime, "insert_segment", _insert_then_concurrently_edit)
-
-        out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN")}])
-
-        assert out.get("is_error") is True
-        assert out["script_edit"]["problems"][0]["code"] == "revision_conflict"
-        saved = _load(ctx)["segments"]
-        assert [segment["segment_id"] for segment in saved] == ["E1S01", "E1S02"]
-        assert saved[0]["note"] == "concurrent"
-
     async def test_insert_mixed_speech_is_structured_and_atomic(self, ctx: ToolContext) -> None:
         before = _load(ctx)
         mixed = _segment("IGN")

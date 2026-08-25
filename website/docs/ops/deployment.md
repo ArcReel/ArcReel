@@ -161,6 +161,7 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 | `TZ` | `Asia/Shanghai` | 可在 Compose 环境中覆盖 |
 | `DATABASE_URL` | SQLite 默认路径 | 生产 Compose 自动设置 PostgreSQL URL |
 | `ARCREEL_DATA_DIR` | `projects` | 需要自定义应用数据根目录时使用 |
+| `CORS_ORIGINS` | 常用本地前端 Origin | 浏览器型 MCP 客户端跨源访问时也须加入其 Origin |
 | `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | 外部接入时填写实际 HTTPS MCP 端点 |
 | `MCP_ALLOWED_HOSTS` | 仅 loopback host | 外部接入时填写逗号分隔的实际 Host 白名单 |
 | `MCP_ALLOWED_ORIGINS` | 仅 loopback origin | 浏览器型 MCP 客户端跨源访问时填写逗号分隔的 Origin 白名单 |
@@ -172,9 +173,7 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 - Vertex 凭据文件应只授予运行 ArcReel 的用户读取权限。
 - 第三方模型 API Key 通常在 ArcReel 设置页中管理，不要写入公开文档。
 
-远程 MCP 端点为 `/mcp`，始终要求 `arc-` 前缀 API Key；即使 `AUTH_ENABLED=false` 也不会匿名放行。外部接入须同时配置上述三个 `MCP_*` 变量，并通过保留 SSE 长连接的 HTTPS 反向代理、VPN 或安全隧道访问。
-
-远程 MCP 提供 `get_project_content`、`list_source_files`、`get_source_text`、`get_episode_script`、`get_step1_content`、`list_project_files` 和 `read_project_file` 七个内容读取工具；成功结果同时携带正文与 revision，供后续带版本的修改使用。通用项目文件读取只开放项目业务文件白名单，拒绝隐藏路径、symlink、越界、非普通文件和超过 50 MiB 的文件；常规工作流应优先使用对应的专用读取工具。
+远程 MCP 端点为 `/mcp`，始终要求 `arc-` 前缀 API Key；即使 `AUTH_ENABLED=false` 也不会匿名放行。外部接入须同时配置上述三个 `MCP_*` 变量，并通过保留 SSE 长连接的 HTTPS 反向代理、VPN 或安全隧道访问。浏览器型 MCP 客户端的 Origin 必须同时出现在 `MCP_ALLOWED_ORIGINS` 和应用级 `CORS_ORIGINS` 中，否则预检会先被应用的 CORS 中间件拒绝。
 
 ArcReel 的沙箱要求父进程环境中不保留供应商密钥。以下凭据环境变量存在非空值时，服务会拒绝启动并提示迁移到 WebUI 设置页：
 

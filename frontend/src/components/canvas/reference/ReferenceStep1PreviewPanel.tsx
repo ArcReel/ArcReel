@@ -379,10 +379,13 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
-    const report = [
-      t("reference_step1_fix_request_prefill_header", { episode, count: violations.length }),
-      ...violations.map((v, i) => `${i + 1}. ${v.message}`),
-    ].join("\n");
+    const report =
+      violations.length === 0
+        ? t("dashboard:review_fix_request_promote_prefill", { episode, docType: "reference_step1" })
+        : [
+            t("reference_step1_fix_request_prefill_header", { episode, count: violations.length }),
+            ...violations.map((v, i) => `${i + 1}. ${v.message}`),
+          ].join("\n");
     useAssistantStore.getState().setInput(report);
     useAppStore.getState().setAssistantPanelOpen(true);
   }, [state, episode, t]);
@@ -513,7 +516,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {quarantined && hasDraftViolations && (
+          {quarantined && (
             <button type="button" onClick={handleRequestFix} className={GHOST_BTN_CLS}>
               {t("reference_step1_request_fix")}
             </button>

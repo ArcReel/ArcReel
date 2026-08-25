@@ -4,8 +4,10 @@
 管理视频项目的目录结构、分镜剧本读写、状态追踪。
 """
 
+import asyncio
 import copy
 import errno
+import hashlib
 import json
 import logging
 import os
@@ -15,8 +17,8 @@ import secrets
 import shutil
 import time
 import unicodedata
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import ExitStack, contextmanager
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -49,6 +51,7 @@ from lib.asset_types import (
     validate_asset_name,
 )
 from lib.audio_utils import discard_stale_reference_audio, resolve_audio_ref_path, resolve_stale_reference_audio
+from lib.content_digest import canonical_json_digest
 from lib.draft_quarantine import QUARANTINE_FILENAMES
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import (
@@ -103,6 +106,28 @@ class _Unset:
 
 
 _UNSET = _Unset()
+
+
+class ScriptWriteConflict(Exception):
+    """A formal script changed after an optimistic-concurrency baseline was captured."""
+
+    def __init__(self, *, expected: str | None, actual: str | None, current_content: dict[str, Any] | None):
+        super().__init__(f"script changed: expected {expected}, actual {actual}")
+        self.expected = expected
+        self.actual = actual
+        self.current_content = current_content
+
+
+def _file_content_fingerprint(path: Path) -> tuple[str | None, dict[str, Any] | None]:
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None, None
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return hashlib.sha256(raw).hexdigest(), None
+    return canonical_json_digest(parsed), parsed if isinstance(parsed, dict) else None
 
 
 def grid_storyboard_enabled(project: dict[str, Any]) -> bool:
@@ -362,13 +387,20 @@ class ProjectManager:
             (root / sub).mkdir(exist_ok=True)
         return root
 
-    def create_project(self, name: str, content_mode: ContentMode = "narration") -> Path:
+    def create_project(
+        self,
+        name: str,
+        content_mode: ContentMode = "narration",
+        *,
+        publish: bool = True,
+    ) -> Path:
         """
         创建新项目
 
         Args:
             name: 项目标识（全局唯一，用于 URL 和文件系统）
             content_mode: 创作类型（narration / drama），影响 profile 物化时选哪份变体
+            publish: 是否立即写入最小 project.json；组合创建流程应在完整元数据就绪后再发布
 
         Returns:
             项目目录路径
@@ -376,17 +408,17 @@ class ProjectManager:
         name = self.normalize_project_name(name)
         project_dir = self.projects_root / name
 
-        if project_dir.exists():
-            raise FileExistsError(f"项目 '{name}' 已存在")
-
-        # 创建所有子目录
-        for subdir in self.SUBDIRS:
-            (project_dir / subdir).mkdir(parents=True, exist_ok=True)
-
-        # 持久化 content_mode 到 project.json，让后续 sync_all_agent_profiles 启动遍历能恢复模式。
-        # server 路径随后会调 create_project_metadata 覆盖为完整版（也含 content_mode）。
         try:
-            atomic_write_json(project_dir / self.PROJECT_FILE, {"content_mode": content_mode})
+            project_dir.mkdir()
+        except FileExistsError as exc:
+            raise FileExistsError(f"项目 '{name}' 已存在") from exc
+
+        # 单步调用默认持久化 content_mode；组合创建流程可延迟到完整 metadata 一次发布。
+        try:
+            for subdir in self.SUBDIRS:
+                (project_dir / subdir).mkdir(exist_ok=True)
+            if publish:
+                atomic_write_json(project_dir / self.PROJECT_FILE, {"content_mode": content_mode})
             self.sync_agent_profile(project_dir, content_mode=content_mode)
         except Exception:
             # sync 失败时回滚 project_dir，避免残缺目录阻塞重试（同名 create 撞 FileExistsError）
@@ -675,6 +707,7 @@ class ProjectManager:
         *,
         validate: bool = True,
         artifact_basis: ArtifactBasisDescriptor | None = None,
+        expected_fingerprint: str | None | _Unset = _UNSET,
     ) -> Path:
         """
         保存分镜剧本
@@ -686,6 +719,7 @@ class ProjectManager:
             validate: 是否做「不更坏」结构校验（默认 True，fail-safe）。直连保存不持有
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
             artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
+            expected_fingerprint: 可选的正式剧本内容基线；在剧本锁内不匹配时拒绝写入。
 
         Returns:
             保存的文件路径
@@ -700,6 +734,15 @@ class ProjectManager:
         episode = script.get("episode")
 
         with self._script_lock(project_name, filename):
+            if not isinstance(expected_fingerprint, _Unset):
+                script_path = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", filename))
+                actual_fingerprint, current_content = _file_content_fingerprint(script_path)
+                if actual_fingerprint != expected_fingerprint:
+                    raise ScriptWriteConflict(
+                        expected=expected_fingerprint,
+                        actual=actual_fingerprint,
+                        current_content=current_content,
+                    )
             prepare_on_commit: Callable[[], Callable[[Path], None] | None] | None = None
             before_script: dict | None | _Unset = _UNSET
             if type(episode) is int and episode > 0 and self.project_exists(project_name):
@@ -1855,6 +1898,31 @@ class ProjectManager:
                 raise ValueError("source 目录不得是符号链接或 junction")
             source_dir.mkdir(parents=True, exist_ok=True)
             yield source_dir
+
+    @asynccontextmanager
+    async def async_file_lock(
+        self,
+        path: Path,
+    ) -> AsyncIterator[None]:
+        """Cancellation-safe async counterpart of :meth:`file_lock`."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = path.parent / f".{path.name}.lock"
+        handle = lock_path.open("a+b")
+        acquired = False
+        try:
+            while not acquired:
+                try:
+                    portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
+                    acquired = True
+                except portalocker.AlreadyLocked:
+                    await asyncio.sleep(0.05)
+            yield
+        finally:
+            try:
+                if acquired:
+                    portalocker.unlock(handle)
+            finally:
+                handle.close()
 
     @contextmanager
     def file_lock(self, path: Path):

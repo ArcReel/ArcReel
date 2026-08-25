@@ -67,4 +67,22 @@ async def run_noninterruptible_sync[**P, T](
     return await run_noninterruptible_async(asyncio.to_thread(func, *args, **kwargs))
 
 
-__all__ = ["EventLoopBridge", "run_noninterruptible_async", "run_noninterruptible_sync"]
+async def run_sync_transaction[**P, T](
+    func: Callable[P, T],
+    /,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> T:
+    """Settle a started sync transaction before propagating caller cancellation."""
+    worker = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        try:
+            await run_noninterruptible_async(worker)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+
+
+__all__ = ["EventLoopBridge", "run_noninterruptible_async", "run_noninterruptible_sync", "run_sync_transaction"]

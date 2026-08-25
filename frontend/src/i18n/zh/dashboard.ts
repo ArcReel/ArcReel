@@ -1321,9 +1321,9 @@ export default {
   'review_confirm_blocked_quarantined': '有待修复草稿，修复晋升后才能确认',
   'review_request_fix': '让 Agent 修复',
   'review_fix_request_prefill_header':
-    '第 {{episode}} 集的内容整理草稿有 {{count}} 处违约待修复，请调用 open_draft 读取草稿，再用 patch_draft 修正：',
+    '第 {{episode}} 集的内容整理草稿有 {{count}} 处违约待修复，请用 doc_type={{docType}} 调用 open_draft 读取草稿，再用同一 doc_type 调用 patch_draft 修正，并把 open_draft 返回的 revision 作为 base_revision 传入：',
   'review_fix_request_promote_prefill':
-    '第 {{episode}} 集的内容整理草稿重新校验已无违约，但尚未晋升为正式内容，请先调用 open_draft 读取 doc_type，再用同一 doc_type 调用 promote_draft 晋升。',
+    '第 {{episode}} 集的内容整理草稿重新校验已无违约，但尚未晋升为正式内容，请先用 doc_type={{docType}} 调用 open_draft，再用同一 doc_type 调用 promote_draft，并把返回的 revision 作为 base_revision 传入。',
 
   // ReferenceStep1PreviewPanel（reference_video 变体 step1 按集预览）
   'reference_step1_source_text_label': '原文',
@@ -1348,7 +1348,7 @@ export default {
   'reference_step1_duration_out_of_tier_hint': '有视频单元的时长已不在当前生效档位内，请重新选择后再确认',
   'reference_step1_confirm_continue_prefill': '第 {{episode}} 集的拆分已确认，请继续生成脚本与参考生视频。',
   'reference_step1_fix_request_prefill_header':
-    '第 {{episode}} 集参考生视频的内容整理草稿有 {{count}} 处违约待修复，请调用 open_draft 读取草稿，再用 patch_draft 修正：',
+    '第 {{episode}} 集参考生视频的内容整理草稿有 {{count}} 处违约待修复，请用 doc_type=reference_step1 调用 open_draft 读取草稿，再用同一 doc_type 调用 patch_draft 修正，并把 open_draft 返回的 revision 作为 base_revision 传入：',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

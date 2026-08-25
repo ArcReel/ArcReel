@@ -190,6 +190,8 @@ describe("ReferenceStep1PreviewPanel", () => {
 
     const input = useAssistantStore.getState().input;
     expect(input).toContain("第 1 集");
+    expect(input).toContain("doc_type=reference_step1");
+    expect(input).toContain("open_draft 返回的 revision 作为 base_revision");
     expect(input).toContain("1. unit E1U01 使用了全角花括号");
     expect(input).toContain("2. unit E1U01 的台词念不完");
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
@@ -398,7 +400,7 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect([...select.options].map((o) => o.value)).toEqual(["8"]);
   });
 
-  it("shows a non-interactive processing state when the draft has no violations", async () => {
+  it("offers promotion when the draft has no violations", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       ...quarantinedState(),
       quarantine: { content: quarantinedState().quarantine!.content, violations: [] },
@@ -408,8 +410,14 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(await screen.findByText("草稿由 Agent 处理")).toBeInTheDocument();
     expect(screen.queryByText("待修复草稿 — 拆分未通过校验")).not.toBeInTheDocument();
     expect(screen.getByText("Agent 会在本集任务中继续处理草稿，完成后此处会自动更新")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Agent/ })).not.toBeInTheDocument();
-    expect(useAssistantStore.getState().input).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "让 Agent 修复" }));
+    const input = useAssistantStore.getState().input;
+    expect(input).toContain("open_draft");
+    expect(input).toContain("promote_draft");
+    expect(input).toContain("doc_type=reference_step1");
+    expect(input).toContain("revision");
+    expect(input).toContain("base_revision");
+    expect(input).not.toContain("违约待修复");
     // 禁用判据是待处置草稿文件是否在场，不是重算后的违约数量——违约为空但草稿仍在场时确认依旧禁用。
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });

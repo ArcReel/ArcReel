@@ -8,7 +8,10 @@ from fastapi import FastAPI
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_STEP1, read_quarantine
 from lib.project_manager import ProjectManager
+from lib.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
+from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow_state import WorkflowStatus
 from server.auth import create_download_token, create_token
@@ -54,7 +57,7 @@ class _Capabilities:
 
 
 @pytest.fixture
-def remote_server(tmp_path: Path):
+def remote_projects(tmp_path: Path) -> ProjectManager:
     projects_root = tmp_path / "projects"
     manager = ProjectManager(projects_root)
     manager.create_project("demo", content_mode="drama")
@@ -66,19 +69,30 @@ def remote_server(tmp_path: Path):
     (project_dir / "scripts" / "episode_1.json").write_text('{"episode":1,"scenes":[]}', encoding="utf-8")
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
-    (drafts / "step1_normalized_script.json").write_text('{"title":"第一集","scenes":[]}', encoding="utf-8")
+    (drafts / "step1_normalized_script.json").write_text(
+        '{"title":"第一集","scenes":[{"scene_id":"E1S01","duration_seconds":4,'
+        '"segment_break":false,"characters_in_scene":[],"scenes":[],"props":[],'
+        '"scene_description":"山门前。","utterances":[],"source_text":"第一集原文"}]}',
+        encoding="utf-8",
+    )
     (projects_root / "empty").mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "project.json").write_text("{}", encoding="utf-8")
     (projects_root / "escape").symlink_to(outside, target_is_directory=True)
 
+    return manager
+
+
+@pytest.fixture
+def remote_server(remote_projects: ProjectManager):
+
     async def verify_api_key(token: str):
         return {"sub": "apikey:test", "via": "apikey"} if token == "arc-valid" else None
 
-    services = Services(projects=manager, workflow_planner=_Planner(), capabilities=_Capabilities())
+    services = Services(projects=remote_projects, workflow_planner=_Planner(), capabilities=_Capabilities())
     return build_remote_mcp_server(
-        projects=manager, services=services, token_verifier=ArcApiKeyVerifier(verify_api_key)
+        projects=remote_projects, services=services, token_verifier=ArcApiKeyVerifier(verify_api_key)
     )
 
 
@@ -86,6 +100,10 @@ def _mounted(server) -> FastAPI:
     app = FastAPI()
     app.mount("/mcp", server.streamable_http_app())
     return app
+
+
+def test_remote_mcp_accepts_source_upload_sized_requests(remote_server) -> None:
+    assert remote_server.settings.max_request_body_size > 300 * 1024 * 1024
 
 
 def test_remote_mcp_rejects_mismatched_projects_roots(tmp_path: Path) -> None:
@@ -198,9 +216,32 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
         "list_project_files",
         "read_project_file",
     }
+    drafts = {"open_draft", "patch_draft", "promote_draft", "discard_draft"}
+    text_and_script = {
+        "generate_episode_script",
+        "generate_step1",
+        "confirm_script_review",
+        "patch_episode_script",
+    }
+    retired = {
+        "normalize_drama_script",
+        "split_narration_segments",
+        "split_reference_video_units",
+        "insert_segment",
+        "remove_segment",
+        "split_segment",
+        "open_step1_for_edit",
+        "validate_and_promote_draft",
+        "get_episode_script_revision",
+    }
     listed = {tool.name: tool for tool in tools.tools}
-    assert migrated | readers <= listed.keys()
-    assert all("project" in listed[name].inputSchema["required"] for name in migrated | readers)
+    assert migrated | readers | drafts | text_and_script <= listed.keys()
+    assert retired.isdisjoint(listed)
+    assert all(
+        "project" in listed[name].inputSchema["required"] for name in migrated | readers | drafts | text_and_script
+    )
+    assert all(listed[name].inputSchema["properties"]["episode"]["minimum"] == 1 for name in drafts)
+    assert "base_revision" in listed["discard_draft"].inputSchema["required"]
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
@@ -260,6 +301,214 @@ async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> 
     assert {project["name"] for project in projects.structuredContent["projects"]} == {"demo", "new-project"}
     assert uploaded.structuredContent is not None
     assert uploaded.structuredContent["source"]["path"] == "source/novel.txt"
+
+
+async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_server) -> None:
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    args = {"project": "demo", "episode": 1, "doc_type": "drama_step1"}
+                    opened = await session.call_tool("open_draft", args)
+                    first_content = opened.structuredContent["draft"]["content"]
+                    first_content["title"] = "第一次修改"
+                    first = await session.call_tool(
+                        "patch_draft",
+                        {
+                            **args,
+                            "content": first_content,
+                            "base_revision": opened.structuredContent["draft"]["revision"],
+                        },
+                    )
+                    second_content = first.structuredContent["draft"]["content"]
+                    second_content["title"] = "第二次修改"
+                    second = await session.call_tool(
+                        "patch_draft",
+                        {
+                            **args,
+                            "content": second_content,
+                            "base_revision": first.structuredContent["draft"]["revision"],
+                        },
+                    )
+                    discarded = await session.call_tool(
+                        "discard_draft", {**args, "base_revision": second.structuredContent["draft"]["revision"]}
+                    )
+                    reopened = await session.call_tool("open_draft", args)
+                    promoted = await session.call_tool(
+                        "promote_draft",
+                        {**args, "base_revision": reopened.structuredContent["draft"]["revision"]},
+                    )
+
+    assert not opened.isError
+    assert not first.isError
+    assert not second.isError
+    assert second.structuredContent["draft"]["content"]["title"] == "第二次修改"
+    assert discarded.structuredContent["draft"]["discarded"] is True
+    assert not reopened.isError
+    assert not promoted.isError
+    assert promoted.structuredContent["draft"]["promoted"] is True
+
+
+async def test_remote_mcp_text_generation_and_script_patch_return_structured_content(
+    remote_server, remote_projects: ProjectManager
+) -> None:
+    remote_projects.create_project("ad-demo", content_mode="ad")
+    remote_projects.create_project_metadata(
+        "ad-demo",
+        "Ad Demo",
+        "",
+        "ad",
+        target_duration=30,
+        brief="展示产品卖点",
+    )
+    progress_messages: list[str | None] = []
+
+    async def record_progress(_progress: float, _total: float | None, message: str | None) -> None:
+        progress_messages.append(message)
+
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    step1 = await session.call_tool(
+                        "generate_step1",
+                        {
+                            "project": "demo",
+                            "episode": 1,
+                            "source": "source/episode_1.txt",
+                            "dry_run": True,
+                        },
+                        progress_callback=record_progress,
+                    )
+                    confirmed = await session.call_tool("confirm_script_review", {"project": "demo", "episode": 1})
+                    script = await session.call_tool(
+                        "generate_episode_script",
+                        {"project": "ad-demo", "episode": 1, "dry_run": True},
+                        progress_callback=record_progress,
+                    )
+                    patched = await session.call_tool(
+                        "patch_episode_script",
+                        {
+                            "project": "demo",
+                            "script": "episode_1.json",
+                            "base_revision": "sha256-v1:" + "0" * 64,
+                            "operations": [{"op": "remove", "id": "E1S01"}],
+                        },
+                    )
+
+    assert not step1.isError
+    assert step1.structuredContent["text_generation"]["message"]
+    assert not confirmed.isError
+    assert confirmed.structuredContent["text_generation"]["message"]
+    assert not script.isError
+    assert "DRY RUN" in script.structuredContent["text_generation"]["message"]
+    assert progress_messages == ["Generating step1", "Generating episode script"]
+    assert patched.isError
+    assert patched.structuredContent["script_patch"]["problems"][0]["code"] == "revision_conflict"
+
+
+@pytest.mark.parametrize("tool", ["generate_step1", "generate_episode_script"])
+async def test_remote_mcp_generation_rejects_non_positive_episode(remote_server, tool: str) -> None:
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    result = await session.call_tool(tool, {"project": "demo", "episode": 0, "dry_run": True})
+
+    assert result.isError
+
+
+async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    args = {
+                        "project": "demo",
+                        "episode": 1,
+                        "doc_type": "drama_step1",
+                        "source": "source/episode_1.txt",
+                    }
+                    opened = await session.call_tool("open_draft", args)
+                    (
+                        remote_projects.get_project_path("demo") / "drafts/episode_1/step1_normalized_script.json"
+                    ).unlink()
+                    patched = await session.call_tool(
+                        "patch_draft",
+                        {
+                            **args,
+                            "content": opened.structuredContent["draft"]["content"],
+                            "base_revision": opened.structuredContent["draft"]["revision"],
+                            "accept_formal_revision": None,
+                            "accepts_formal_revision": True,
+                            "source": None,
+                            "updates_source": True,
+                        },
+                    )
+
+    draft = read_quarantine(remote_projects.get_project_path("demo"), 1, QUARANTINE_KIND_DRAMA_STEP1)
+    assert not patched.isError
+    assert draft is not None
+    assert draft.meta["base_fingerprint"] is None
+    assert draft.meta["source"] is None
+
+
+async def test_remote_mcp_draft_respects_migration_failure_gate(remote_server, remote_projects) -> None:
+    record_migration_failure(
+        remote_projects.get_project_path("demo"),
+        RuntimeError("blocked"),
+        schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
+    )
+    app = _mounted(remote_server)
+    async with remote_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "discard_draft",
+                        {
+                            "project": "demo",
+                            "episode": 1,
+                            "doc_type": "drama_step1",
+                            "base_revision": "sha256-v1:" + "0" * 64,
+                        },
+                    )
+
+    assert result.isError
+    assert result.structuredContent["problem"]["code"] == MIGRATION_FAILURE_CODE
 
 
 async def test_remote_mcp_host_initializes_first_request_and_can_restart() -> None:
