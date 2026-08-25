@@ -44,6 +44,12 @@ _NARRATION_REQUEST_KEY_BY_TASK_TYPE = {
 }
 
 
+def _text_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not task_type.startswith("text_"):
+        return None
+    return {key: value for key, value in (payload or {}).items() if key != "projects_root"}
+
+
 class ActiveTaskRequestConflict(RuntimeError):
     """An active video task owns the resource with different request facts."""
 
@@ -237,6 +243,7 @@ async def _derive_execution_model_for_enqueue(
     但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
     """
+    is_text = media_type == "text"
     is_video = media_type == "video" or task_type in ("video", "reference_video")
     is_audio = media_type == "audio" or task_type == "tts"
     video_capability: VideoCapability | None = None
@@ -251,7 +258,11 @@ async def _derive_execution_model_for_enqueue(
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
 
         resolver = ConfigResolver(async_session_factory)
-        if is_video:
+        if is_text:
+            from lib.config.resolver import ProviderModel
+
+            resolved = ProviderModel("text", "")
+        elif is_video:
             resolved, video_capability = await resolve_video_execution_for_queued_task(
                 resolver=resolver,
                 project=project,
@@ -385,9 +396,15 @@ class GenerationQueue:
                 # current request and persists its pre-submit checkpoint. Enqueue payload never freezes identity.
 
         requested_facts = _narration_request_facts(task_type, payload)
+        text_request_facts = _text_request_facts(task_type, payload)
 
         def _guard_deduped(existing_payload: dict[str, Any], existing_task_id: str) -> None:
             if requested_facts is not None and _narration_request_facts(task_type, existing_payload) != requested_facts:
+                raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
+            if (
+                text_request_facts is not None
+                and _text_request_facts(task_type, existing_payload) != text_request_facts
+            ):
                 raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
 
         async def _enqueue() -> dict[str, Any]:
@@ -457,9 +474,11 @@ class GenerationQueue:
             )
         return batch_id
 
-    async def get_generation_batch(self, *, project_name: str, batch_id: str) -> GenerationBatchReadModel:
+    async def get_generation_batch(
+        self, *, project_name: str, batch_id: str, user_id: str = DEFAULT_USER_ID
+    ) -> GenerationBatchReadModel:
         async with self._task_repo() as repo:
-            batch = await repo.get_batch(project_name=project_name, batch_id=batch_id)
+            batch = await repo.get_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
         if batch is None:
             raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
         return build_generation_batch_read_model(batch, batch["memberships"], batch["queue_depth"])
@@ -469,9 +488,10 @@ class GenerationQueue:
         *,
         project_name: str,
         batch_id: str,
+        user_id: str = DEFAULT_USER_ID,
     ) -> GenerationBatchCancelResult:
         async with self._task_repo() as repo:
-            batch = await repo.get_batch(project_name=project_name, batch_id=batch_id)
+            batch = await repo.get_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
         if batch is None:
             raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
 
@@ -481,7 +501,7 @@ class GenerationQueue:
                 await self.cancel_task(task_id)
 
         async with self._task_repo() as repo:
-            updated = await repo.get_batch(project_name=project_name, batch_id=batch_id)
+            updated = await repo.get_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
         assert updated is not None
         current = {item["task_id"]: item["status"] for item in updated["memberships"]}
         cancelled: list[str] = []
@@ -511,6 +531,7 @@ class GenerationQueue:
         resource_ids: list[str],
         script_file: str | None = None,
         resource_type: str | None = None,
+        user_id: str = DEFAULT_USER_ID,
     ) -> list[dict[str, Any]]:
         async with self._task_repo() as repo:
             return await repo.get_active_tasks_for_resources(
@@ -519,6 +540,7 @@ class GenerationQueue:
                 resource_ids=resource_ids,
                 script_file=script_file,
                 resource_type=resource_type,
+                user_id=user_id,
             )
 
     async def claim_next_task(

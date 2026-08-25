@@ -57,6 +57,7 @@ class Task(UserOwnedMixin, Base):
         Index(
             "idx_tasks_dedupe_active",
             "project_name",
+            "user_id",
             "task_type",
             "resource_id",
             text("COALESCE(script_file, '')"),

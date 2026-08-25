@@ -22,6 +22,7 @@ from starlette.types import Receive, Scope, Send
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation_batch import GenerationBatchReadModel
 from lib.project_manager import ProjectManager, get_project_manager
 from lib.script_batch_edit import ScriptBatchEditResult
 from lib.source_loader import SourceLoader
@@ -142,6 +143,12 @@ def _to_mcp_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallToolResult
         content=[TextContent(type="text", text=json.dumps(structured, ensure_ascii=False))],
         structuredContent=structured,
         isError=isinstance(value, ScriptBatchEditResult) and not value.success,
+    )
+
+
+def _to_long_task_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallToolResult:
+    return _to_mcp_result(
+        "generation_batch" if isinstance(outcome.value, GenerationBatchReadModel) else domain_key, outcome
     )
 
 
@@ -360,7 +367,7 @@ def build_remote_mcp_server(
             return _to_mcp_result("text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         if problem := await migration_gate(scope, services):
             return _to_mcp_result("text_generation", ToolOutcome(problem=problem))
-        return _to_mcp_result(
+        return _to_long_task_result(
             "text_generation",
             await _with_progress(
                 generate_episode_script(ToolRequest(request), scope, caller, services),
@@ -391,7 +398,7 @@ def build_remote_mcp_server(
             return _to_mcp_result("text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         if problem := await migration_gate(scope, services):
             return _to_mcp_result("text_generation", ToolOutcome(problem=problem))
-        return _to_mcp_result(
+        return _to_long_task_result(
             "text_generation",
             await _with_progress(
                 generate_step1(ToolRequest(request), scope, caller, services),
@@ -502,7 +509,7 @@ def build_remote_mcp_server(
             request = PlanEpisodesRequest(instructions=instructions)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("episode_plan", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        return _to_mcp_result("episode_plan", await plan_episodes(ToolRequest(request), scope, caller, services))
+        return _to_long_task_result("episode_plan", await plan_episodes(ToolRequest(request), scope, caller, services))
 
     @server.tool(name="reset_episode_planning", structured_output=False)
     async def remote_reset_episode_planning(

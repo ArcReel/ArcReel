@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import pytest
 
+from lib.db.models.user import User
 from lib.generation_batch import (
     GenerationBatchBlockedItem,
     GenerationBatchRequestedItem,
     GenerationBatchRequestSnapshot,
 )
-from lib.generation_queue import GenerationBatchNotFound, GenerationQueue
+from lib.generation_queue import ActiveTaskRequestConflict, GenerationBatchNotFound, GenerationQueue
 from lib.generation_result import (
     GenerationAction,
     GenerationItemResult,
@@ -126,6 +127,82 @@ async def test_batch_membership_rejects_another_project_or_unrequested_unit(
             )
 
     assert (await batch_queue.list_tasks(project_name="other"))["items"] == []
+
+
+async def test_batches_and_active_dedup_are_user_scoped(batch_queue: GenerationQueue, db_factory) -> None:
+    async with db_factory() as session:
+        session.add(User(id="other-user", username="other-user"))
+        await session.commit()
+
+    first_batch = await batch_queue.create_generation_batch(
+        project_name="demo",
+        operation="generate_episode_script",
+        requested=_snapshot("episode-1"),
+        blocked=[],
+        source="embedded",
+    )
+    first = await batch_queue.enqueue_task(
+        project_name="demo",
+        task_type="text_episode_script",
+        media_type="text",
+        resource_id="episode-1",
+        payload={"episode": 1, "instructions": None},
+        batch_id=first_batch,
+        batch_unit_id="episode-1",
+    )
+    other_batch = await batch_queue.create_generation_batch(
+        project_name="demo",
+        operation="generate_episode_script",
+        requested=_snapshot("episode-1"),
+        blocked=[],
+        source="embedded",
+        user_id="other-user",
+    )
+    other = await batch_queue.enqueue_task(
+        project_name="demo",
+        task_type="text_episode_script",
+        media_type="text",
+        resource_id="episode-1",
+        payload={"episode": 1, "instructions": None},
+        batch_id=other_batch,
+        batch_unit_id="episode-1",
+        user_id="other-user",
+    )
+
+    assert other["task_id"] != first["task_id"]
+    assert await batch_queue.get_generation_batch(project_name="demo", batch_id=other_batch, user_id="other-user")
+    with pytest.raises(GenerationBatchNotFound):
+        await batch_queue.get_generation_batch(project_name="demo", batch_id=first_batch, user_id="other-user")
+    with pytest.raises(GenerationBatchNotFound):
+        await batch_queue.cancel_generation_batch(project_name="demo", batch_id=other_batch)
+
+
+async def test_text_dedup_rejects_different_request_facts(batch_queue: GenerationQueue) -> None:
+    first = await batch_queue.enqueue_task(
+        project_name="demo",
+        task_type="text_episode_script",
+        media_type="text",
+        resource_id="episode-1",
+        payload={"episode": 1, "instructions": "first"},
+    )
+    repeated = await batch_queue.enqueue_task(
+        project_name="demo",
+        task_type="text_episode_script",
+        media_type="text",
+        resource_id="episode-1",
+        payload={"episode": 1, "instructions": "first", "projects_root": "/same-projects"},
+    )
+    assert repeated["task_id"] == first["task_id"]
+    assert repeated["deduped"] is True
+
+    with pytest.raises(ActiveTaskRequestConflict):
+        await batch_queue.enqueue_task(
+            project_name="demo",
+            task_type="text_episode_script",
+            media_type="text",
+            resource_id="episode-1",
+            payload={"episode": 1, "instructions": "different"},
+        )
 
 
 async def test_unassociated_requested_member_is_a_durable_enqueue_failure(
