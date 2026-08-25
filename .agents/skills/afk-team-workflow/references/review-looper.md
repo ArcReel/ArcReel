@@ -1,18 +1,12 @@
-# AI 审查循环契约（第三阶段）
+# Stage AI 审查循环契约
 
-你负责把 PR 推进到全部 AI reviewer 通过的可合并状态。
+你负责把一个 stage PR 推进到 **green HEAD**、全部 AI reviewers 通过且可合并。
 
-输入变量（来自委派 prompt）：PR 号、issue 号、worktree 路径、handoff 路径。
+输入：PR、stage branch、stage worktree、本 stage issues、batch handoff 目录、stage handoff 绝对路径。
 
-## 执行
-
-进入交付的 worktree——修复要在此工作树 push；`gh issue view <N> --comments` 读验收标准，它是本轮循环中所有修复的范围边界，三家 reviewer 只看 diff、读不到这份标准；读 handoff 的「实现」段（环境备案）与「本地审查」段（跳过项及理由，作为 pushback 依据）；若为替补接管，另读已追加的「审查循环」段以继承前任的 pushback 与故障记录，避免重复处理已驳回意见。随后按下列纪律驱动循环：
-
-1. 运行 `/pr-ai-review-loop`，按其全部纪律执行，包括每轮决策后的主动等待；不得结束回合被动等待探活
-2. **请示重定向**：其中"暂停询问用户"的场景一律改为请示 team-lead，按裁决继续；等待裁决期间保持唤醒监控 PR 动态
-3. **范围边界**：修复以验收标准为界。reviewer 的改进建议超出标准时，回复评论说明范围，并按 follow-up 候选记入 handoff，不修改代码
-4. **rebase**：只在三种时机做——随下次修复 push 顺带完成（push 后各家 reviewer 按 reviewers.md 的触发规则重审，合并也不要求分支 up-to-date，不为 main 前进单独 rebase）；每轮 poll 自检发现 CONFLICTING 时立即解冲突：rebase 到最新 main，按功能意图保留本 PR 的全部改动；CI 红且修复已合入 main 时，rebase 后 push 以获取修复（见 /pr-ai-review-loop 的「CI 红」行）
-
-## 交付与退役
-
-目标状态终核通过后，先按 [handoff.md](handoff.md) 追加「审查循环」段；超范围发现只记入其 follow-up 候选，不自行立项。随后向 team-lead 汇报达标结论、达标 HEAD（commit SHA）与轮数概要。等待 team-lead 执行合并，确认合并完成后退役。
+1. 确认 stage worktree、branch 与远程最新提交一致，读 stage 内所有 issue 及其 handoff，以合并后的验收边界审查整个 stage diff。
+2. 运行累计质量门，修复并以 conventional integration-fix commit push；持续失败时记为 `fault` 并上报 team-lead。达到 **green HEAD** 后将 PR 转为 ready。
+3. 运行 `/pr-ai-review-loop`，采用其评论、CI、pushback、等待与终核纪律；以目标状态全部达成为终点。普通修复以额外 integration-fix commits push。软收敛出口与故障询问均先上报 team-lead。
+4. 收到 rebase 指令时，rebase 到最新 `origin/main`，解决冲突、重跑累计质量门，以 `--force-with-lease` push，并按 [handoff.md](handoff.md) 记录新旧 HEAD。保留每个 issue 的单个 conventional commit 与 `Refs #<N>`。
+5. reviewer 意见超出批次范围时回复说明边界，并记为 follow-up。意见涉及真实业务取舍时请示 team-lead；team-lead 按主流程的暂停边界持久化 issue 状态并阻断当前 stage 合并，直到用户裁决并完成对应恢复或重建。
+6. 终核通过后，将本 stage 的所有非 issue commits 压成一个 conventional integration-fix commit。确认压缩前后 tree 一致后，以 `--force-with-lease` push；新 HEAD 的 required checks 通过后，按 [handoff.md](handoff.md) 追加「审查循环」段，回报达标 HEAD 与轮数并停止。

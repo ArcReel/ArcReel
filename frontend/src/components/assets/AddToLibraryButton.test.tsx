@@ -14,7 +14,7 @@ describe("AddToLibraryButton", () => {
     vi.restoreAllMocks();
   });
 
-  it("rejects submit if the resource becomes busy while the import modal is open (issue #1159 round-11 Codex finding)", async () => {
+  it("rejects submit if the resource becomes busy while the import modal is open", async () => {
     const addSpy = vi.spyOn(API, "addAssetFromProject").mockResolvedValue({} as never);
 
     const { rerender } = render(

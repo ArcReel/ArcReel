@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # ledger.sh — append one line to a batch's thin ledger.
 #
-# The ledger records ONLY facts that gh/git cannot re-derive: a decision the team-lead
-# made, an authorization the user gave verbally, a fault the team-lead absorbed, a gap it
-# spotted, why an issue was shelved, a merge it performed, a retrospective handed in.
-# Everything reconstructable from the remote (issue/PR/branch state, dependency graph)
-# stays out — batch-poll.sh recomputes that on demand. Recovery replays this file to
-# rebuild what crashed-and-lost context can't, then reconciles against a fresh poll.
+# The ledger records ONLY facts that gh/git cannot re-derive: team-lead decisions,
+# verbal authorization, absorbed faults, gaps, pauses, and retrospectives.
+# Stage progress stays out: recovery reads completed issue commits from the remote
+# stage branch and restarts everything else.
 #
 # Why a script and not `echo '{...}' >> file`: a hand-built line breaks the moment a
 # detail string contains a quote or newline, and a malformed line breaks recovery's
@@ -19,7 +17,7 @@
 #
 #   <batch-id>  Unique to one execution: spec-<N>-<UTC YYYYMMDD-HHMMSS>-<6 hex>
 #               for a Spec, or an equivalent timestamped slug for explicit issues.
-#   <kind>      one of: decision | authorization | fault | gap | shelve | merge |
+#   <kind>      one of: decision | authorization | fault | gap | shelve |
 #               retrospective | closed
 #
 # LINE SCHEMA (one JSON object per line, appended to .afk/<batch-id>.jsonl)
@@ -29,11 +27,11 @@
 #     "issue":  <int> | null,      # the issue this event concerns, when applicable
 #     "pr":     <int> | null,      # the PR this event concerns, when applicable
 #     "scope":  {"spec": <int>} | {"issues": [<int>,...]} | null,
-#                                  # the batch's membership in machine-readable form, so recovery
+#                                  # the batch's initial scope in machine-readable form, so recovery
 #                                  # rebuilds the batch-poll input deterministically instead of parsing
 #                                  # free text. Set it on the first line (the plan decision/authorization):
 #                                  # --scope-spec <N> for a Spec batch, --scope-issues <csv> for a slug batch
-#                                  # (where batch-id alone cannot recover the member set). null otherwise.
+#                                  # (where batch-id alone cannot recover the issue set). null otherwise.
 #     "detail": "<str>"            # human-readable specifics (the argument/decision/cause)
 #   }
 #
@@ -58,7 +56,7 @@ source "$SCRIPT_DIR/repo-context.sh"
 enter_repo_root "LEDGER_ERROR" "$@"
 shift "$REPO_CONTEXT_SHIFT"
 
-VALID_KINDS="decision authorization fault gap shelve merge retrospective closed"
+VALID_KINDS="decision authorization fault gap shelve retrospective closed"
 
 die() { echo "LEDGER_ERROR: $*" >&2; exit 1; }
 

@@ -276,8 +276,8 @@ class TestResponseHandling:
         b64 = base64.b64encode(raw).decode("ascii")
         download = AsyncMock()
         out = tmp_path / "o.png"
-        # 不接管 download：base64 路径独立落盘
-        with _generation_route(_b64_response(b64)):
+        # download 接入路由，使末尾的 assert_not_called 真能证明 base64 路径独立落盘、不触下载
+        with _generation_route(_b64_response(b64), download):
             from lib.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")

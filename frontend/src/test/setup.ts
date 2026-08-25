@@ -3,7 +3,7 @@ import { afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 import i18n, { i18nReady } from "@/i18n";
 
-// i18n 改为 lazy backend (issue #489) 后，测试运行前必须 await 资源加载完，
+// i18n 走 lazy backend，测试运行前必须 await 资源加载完，
 // 否则首次 t() 返回 key 字符串而不是中文，断言会失败。
 await i18nReady;
 await i18n.changeLanguage("zh");

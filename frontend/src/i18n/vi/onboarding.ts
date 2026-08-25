@@ -11,7 +11,7 @@ export default {
   'settings_providers_title': 'Cấu hình nhà cung cấp',
   'settings_providers_body': 'Hình ảnh và video do các nhà cung cấp cấu hình tại đây tạo ra. Cấu hình ít nhất một nhà cung cấp: nhập API Key và xác nhận khả dụng bằng "Kiểm tra kết nối".',
   'settings_agent_title': 'Cấu hình Agent',
-  'settings_agent_body': 'Agent phụ trách phân tích nguyên tác, viết kịch bản và thực hiện sản xuất; cấu hình dịch vụ mô hình mà nó sử dụng tại đây.',
+  'settings_agent_body': 'Agent phụ trách phân tích nguyên tác, viết kịch bản và thực hiện sản xuất. Hãy cấu hình dịch vụ mô hình cho Agent tích hợp tại đây, hoặc kết nối một Agent bên ngoài.',
   'lobby_demo_title': 'Dự án minh hoạ',
   'lobby_demo_body': 'Nhấp vào thẻ để mở bàn làm việc minh hoạ và xem giao diện sản xuất của dự án.',
   'workbench_overview_title': 'Tổng quan dự án',

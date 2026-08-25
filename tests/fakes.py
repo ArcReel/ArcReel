@@ -19,7 +19,6 @@ from instructor.core import InstructorRetryException
 
 if TYPE_CHECKING:
     from lib.media_generator import MediaGenerator
-    from lib.reference_video.voice_settings import VoiceRenderSettings
     from lib.version_manager import PaidVersionCommit
 
 
@@ -370,49 +369,11 @@ def fake_reference_request_projector(
     return _project
 
 
-def fake_reference_caps_fetcher(
-    *,
-    default_duration: int | None = 4,
-    durations: tuple[int, ...] = (4, 6, 8),
-    reference_durations: tuple[int, ...] | None = None,
-    text_durations: tuple[int, ...] | None = None,
-    max_duration: int = 12,
-    max_refs: int | None = 3,
-    voice: VoiceRenderSettings | None = None,
-):
-    """假 ``_fetch_reference_caps_with_fallback``：返回一份 ``ReferenceSplitCaps`` 的 async 取值器。
-
-    ``reference_durations`` / ``text_durations`` 留 None 即与 ``durations`` 同集（该型号未声明
-    生效的「参考图↔时长」联动约束）；``voice`` 留 None 取 ``VoiceRenderSettings`` 的字段默认
-    （``soft`` 有声、无参考音频）。
-
-    被 monkeypatch 的目标签名带 episode 位，故取值器收两参——多数用例只关心返回值。
-    运行期用到的两个类型在函数体内导入：它们出自 lib / server 侧的业务模块，本模块的其余替身不
-    依赖这两个包，不为一个替身把依赖提到导入期（签名上的标注由 ``from __future__`` 延迟求值，
-    经 ``TYPE_CHECKING`` 供类型检查器读取）。
-    """
-    from lib.reference_video.voice_settings import VoiceRenderSettings
-    from server.agent_runtime.sdk_tools.text_generation import ReferenceSplitCaps
-
-    async def _fetch(_project, _episode=None) -> ReferenceSplitCaps:
-        return ReferenceSplitCaps(
-            default_duration=default_duration,
-            durations=list(durations),
-            reference_durations=list(durations if reference_durations is None else reference_durations),
-            text_durations=list(durations if text_durations is None else text_durations),
-            max_duration=max_duration,
-            max_refs=max_refs,
-            voice=VoiceRenderSettings() if voice is None else voice,
-        )
-
-    return _fetch
-
-
 class FakeConfigResolver:
     """能力解析器 seam 的手写替身：按桶回答视频能力，不触碰配置库。
 
-    生产侧凡接 ``config_resolver`` 关键字的入口（``ToolContext``、``resolve_video_caps`` /
-    ``fetch_video_caps`` 及 ``text_generation`` 的几个取值器）都可注入本类，替代对这些取值器
+    生产侧凡接 ``config_resolver`` 关键字的入口（``ToolContext``、``MediaGenerator``、
+    ``resolve_video_caps`` / ``fetch_video_caps`` 及 ``text_generation`` 的几个取值器）都可注入本类，替代对这些取值器
     本身的整体替换——被替换掉的取值器里有软回退、联动约束收窄与声音档派生，那些才是用例要
     保护的行为。
 
@@ -440,6 +401,7 @@ class FakeConfigResolver:
         generate_audio_error: BaseException | None = None,
         image_backend: tuple[str, str] = ("fake", "fake-image"),
         image_backend_error: BaseException | None = None,
+        reference_payload_limits: tuple[int, int] | None = None,
         **extra: Any,
     ) -> None:
         self._base: dict[str, Any] = {
@@ -463,10 +425,14 @@ class FakeConfigResolver:
         self._generate_audio_error = generate_audio_error
         self._image_backend = image_backend
         self._image_backend_error = image_backend_error
+        self._reference_payload_limits = reference_payload_limits
         self.capability_calls: list[str | None] = []
         self.project_names: list[str | None] = []
+        self.project_payloads: list[dict[str, Any]] = []
         self.image_capability_calls: list[str | None] = []
         self.generate_audio_calls: list[dict[str, Any] | None] = []
+        self.generate_audio_project_names: list[str | None] = []
+        self.reference_limits_calls: list[str | None] = []
 
     def caps_for(self, capability: str | None = None) -> dict[str, Any]:
         """该桶的能力 dict（与生产返回同形），供用例直接对照期望。"""
@@ -486,7 +452,7 @@ class FakeConfigResolver:
         *,
         capability: str | None = None,
     ) -> dict[str, Any]:
-        del project
+        self.project_payloads.append(project)
         return self._resolve(capability)
 
     async def resolve_image_backend(
@@ -510,6 +476,29 @@ class FakeConfigResolver:
         if self._generate_audio_error is not None:
             raise self._generate_audio_error
         return bool(self._base["requested_generate_audio"])
+
+    async def video_generate_audio(self, project_name: str | None = None) -> bool:
+        """生产同名读点（按项目名）：与 ``video_generate_audio_for_project`` 共享同一份配置值。
+
+        两个读点各记各的入参（本读点收项目名、按 project 的那个收 project dict），
+        record 列表不合并，免得用例的等值断言被另一条路径的调用串味。
+        """
+        self.generate_audio_project_names.append(project_name)
+        if self._generate_audio_error is not None:
+            raise self._generate_audio_error
+        return bool(self._base["requested_generate_audio"])
+
+    async def reference_payload_limits(self, provider_id: str | None = None) -> tuple[int, int]:
+        """参考图载荷限额（总量, 单张）；未显式配置时与生产同取 service 层保守默认。"""
+        self.reference_limits_calls.append(provider_id)
+        if self._reference_payload_limits is not None:
+            return self._reference_payload_limits
+        from lib.config.service import (
+            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+        )
+
+        return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
     def _resolve(self, capability: str | None) -> dict[str, Any]:
         self.capability_calls.append(capability)
@@ -549,7 +538,7 @@ def bounded_poll_clock(step: float = 30.0):
     ``SystemClock`` 落到这两个符号上，压缩等待无需触碰 ``_compute_wait`` 等私有符号。
 
     终态判定失灵时（把已就绪的任务当成"仍在跑"），真实时钟下 sleep 被 mock 掉的轮询会以近乎
-    为零的真实耗时空转到天荒地老——测试表现为挂起而不是失败。假表让这类回归在几十次轮询内
+    为零的真实耗时空转到天荒地老——测试表现为挂起而不是失败。假表让这类缺陷在几十次轮询内
     撞上 ``max_wait`` 抛 ``TimeoutError``，红得快且可读。
     """
     clock = itertools.count(0.0, step)

@@ -401,6 +401,14 @@ class TestH3V2Payload:
         expected_audios = [f"data:audio/wav;base64,{base64.b64encode(p.read_bytes()).decode()}" for p in audios]
         assert [item["audio_url"]["url"] for item in items[4:]] == expected_audios
 
+    def test_r2v_detects_mime_from_reference_image_bytes(self, tmp_path):
+        reference = tmp_path / "reference.jpg"
+        reference.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        payload = _h3()._build_payload(_request(tmp_path, reference_images=[reference]))
+
+        assert payload["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+
     def test_frames_and_references_are_mutually_exclusive(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:
             _h3()._build_payload(
