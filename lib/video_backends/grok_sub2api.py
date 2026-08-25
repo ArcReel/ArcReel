@@ -14,17 +14,25 @@ import httpx
 from lib.config.url_utils import ensure_openai_base_url
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.providers import PROVIDER_GROK
-from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.retry import (
+    DEFAULT_BACKOFF_SECONDS,
+    DEFAULT_MAX_ATTEMPTS,
+    DOWNLOAD_BACKOFF_SECONDS,
+    DOWNLOAD_MAX_ATTEMPTS,
+    with_retry_async,
+)
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
     poll_with_retry,
     should_retry_download,
     should_retry_poll,
+    should_retry_submit,
     submit_post,
 )
 
@@ -56,6 +64,8 @@ def normalize_api_root(base_url: str | None) -> str:
 def build_request_body(model: str, request: VideoGenerationRequest) -> dict[str, object]:
     if not request.prompt.strip():
         raise ValueError("prompt 不能为空")
+    if not 1 <= request.duration_seconds <= 15:
+        raise ValueError("duration_seconds 必须在 1 到 15 秒之间")
     for field in ("end_image", "reference_images", "reference_audio_files"):
         if getattr(request, field):
             raise ValueError(f"Grok Sub2API video 不支持 {field}")
@@ -144,7 +154,7 @@ class GrokSub2APIVideoBackend(ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        return VideoCapabilities(first_frame=True)
+        return VideoCapabilities(first_frame=True, audio_track=VideoAudioMode.ALWAYS_ON)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
@@ -160,18 +170,7 @@ class GrokSub2APIVideoBackend(ProviderJobIdPersistenceMixin):
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         payload = build_request_body(self._model, request)
         async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
-            response = await submit_post(
-                lambda: client.post(
-                    f"{self._api_root}/videos/generations",
-                    headers=self._headers,
-                    json=payload,
-                ),
-                provider=PROVIDER_GROK,
-            )
-            response_payload = response.json()
-            if not isinstance(response_payload, dict):
-                raise ValueError("Sub2API 创建响应必须是 JSON 对象")
-            request_id = _request_id(response_payload)
+            request_id = await self._create_task(client, payload)
             await self._persist_provider_job_id(
                 request,
                 request_id,
@@ -179,6 +178,25 @@ class GrokSub2APIVideoBackend(ProviderJobIdPersistenceMixin):
                 endpoint=self._api_root,
             )
             return await self._poll_and_download(client, request_id, request)
+
+    @with_retry_async(
+        max_attempts=DEFAULT_MAX_ATTEMPTS,
+        backoff_seconds=DEFAULT_BACKOFF_SECONDS,
+        retry_if=should_retry_submit,
+    )
+    async def _create_task(self, client: httpx.AsyncClient, payload: dict[str, object]) -> str:
+        response = await submit_post(
+            lambda: client.post(
+                f"{self._api_root}/videos/generations",
+                headers=self._headers,
+                json=payload,
+            ),
+            provider=PROVIDER_GROK,
+        )
+        response_payload = response.json()
+        if not isinstance(response_payload, dict):
+            raise ValueError("Sub2API 创建响应必须是 JSON 对象")
+        return _request_id(response_payload)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
@@ -193,7 +211,10 @@ class GrokSub2APIVideoBackend(ProviderJobIdPersistenceMixin):
         resumed: bool = False,
     ) -> VideoGenerationResult:
         encoded_id = quote(request_id, safe="")
-        status_url = f"{self._api_root}/videos/generations/{encoded_id}"
+        api_root = (
+            normalize_api_root(request.submitted_base_url) if resumed and request.submitted_base_url else self._api_root
+        )
+        status_url = f"{api_root}/videos/generations/{encoded_id}"
 
         async def _poll() -> dict[str, Any]:
             response = await client.get(status_url, headers=self._headers)
@@ -210,6 +231,8 @@ class GrokSub2APIVideoBackend(ProviderJobIdPersistenceMixin):
             status = raw_status.strip().lower() if isinstance(raw_status, str) else ""
             if status not in _KNOWN_STATUSES:
                 raise ValueError(f"Sub2API 返回未知视频状态: {raw_status!r}")
+            if resumed and status == "expired":
+                raise ResumeExpiredError(job_id=request_id, provider=PROVIDER_GROK)
             payload["status"] = status
             return payload
 

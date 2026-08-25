@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from lib.video_backends.base import VideoGenerationRequest
+from lib.video_backends.base import VideoAudioMode, VideoGenerationRequest
 
 pytestmark = pytest.mark.unit
 
@@ -63,6 +63,20 @@ def test_build_request_body_rejects_empty_prompt_before_submit(tmp_path: Path) -
         build_request_body("grok-imagine-video", request)
 
 
+@pytest.mark.parametrize("duration_seconds", [0, 16])
+def test_build_request_body_rejects_duration_outside_provider_range(tmp_path: Path, duration_seconds: int) -> None:
+    from lib.video_backends.grok_sub2api import build_request_body
+
+    request = VideoGenerationRequest(
+        prompt="animate",
+        output_path=tmp_path / "out.mp4",
+        duration_seconds=duration_seconds,
+    )
+
+    with pytest.raises(ValueError, match="1.*15"):
+        build_request_body("grok-imagine-video-1.5", request)
+
+
 @pytest.mark.parametrize(
     "field",
     ["end_image", "reference_images", "reference_audio_files"],
@@ -93,6 +107,14 @@ def test_normalize_api_root_targets_sub2api_v1(base_url: str, expected: str) -> 
     from lib.video_backends.grok_sub2api import normalize_api_root
 
     assert normalize_api_root(base_url) == expected
+
+
+def test_video_capabilities_declare_native_audio_always_on() -> None:
+    from lib.video_backends.grok_sub2api import GrokSub2APIVideoBackend
+
+    capabilities = GrokSub2APIVideoBackend.video_capabilities_for_model("grok-imagine-video-1.5")
+
+    assert capabilities.audio_track is VideoAudioMode.ALWAYS_ON
 
 
 def _response(status_code: int, *, json: dict | None = None, content: bytes = b"") -> httpx.Response:
@@ -209,6 +231,38 @@ async def test_generate_never_retries_an_ambiguous_create(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_generate_retries_only_safe_connect_failure(tmp_path: Path) -> None:
+    from lib.video_backends.grok_sub2api import GrokSub2APIVideoBackend
+
+    submit_request = httpx.Request("POST", "https://sub2api.example/v1/videos/generations")
+    client = _client(
+        post=[
+            httpx.ConnectError("connection not established", request=submit_request),
+            _response(200, json={"request_id": "video-retried"}),
+        ],
+        get=[
+            _response(200, json={"status": "done", "duration": 5}),
+            _response(200, content=b"retried"),
+        ],
+    )
+
+    with (
+        patch("lib.video_backends.grok_sub2api.httpx.AsyncClient", return_value=client),
+        patch("lib.retry.asyncio.sleep", AsyncMock()),
+    ):
+        backend = GrokSub2APIVideoBackend(
+            api_key="sub2api-test-key",
+            base_url="https://sub2api.example",
+            poll_interval_seconds=0.0,
+        )
+        result = await backend.generate(VideoGenerationRequest(prompt="animate", output_path=tmp_path / "out.mp4"))
+
+    assert client.post.await_count == 2
+    assert result.task_id == "video-retried"
+    assert result.video_path.read_bytes() == b"retried"
+
+
+@pytest.mark.asyncio
 async def test_resume_only_reads_exact_status_and_content_urls(tmp_path: Path) -> None:
     from lib.video_backends.grok_sub2api import GrokSub2APIVideoBackend
 
@@ -238,6 +292,39 @@ async def test_resume_only_reads_exact_status_and_content_urls(tmp_path: Path) -
     assert result.task_id == "video/id"
     assert result.duration_seconds == 6
     assert result.video_path.read_bytes() == b"resumed"
+
+
+@pytest.mark.asyncio
+async def test_resume_uses_submitted_base_url_after_provider_config_change(tmp_path: Path) -> None:
+    from lib.video_backends.grok_sub2api import GrokSub2APIVideoBackend
+
+    client = _client(
+        post=_response(200, json={}),
+        get=[
+            _response(200, json={"status": "done", "duration": 5}),
+            _response(200, content=b"original-host"),
+        ],
+    )
+    with patch("lib.video_backends.grok_sub2api.httpx.AsyncClient", return_value=client):
+        backend = GrokSub2APIVideoBackend(
+            api_key="sub2api-test-key",
+            base_url="https://current.example",
+            poll_interval_seconds=0.0,
+        )
+        result = await backend.resume_video(
+            "video-123",
+            VideoGenerationRequest(
+                prompt="ignored",
+                output_path=tmp_path / "resumed.mp4",
+                submitted_base_url="https://submitted.example/v1",
+            ),
+        )
+
+    assert [call.args[0] for call in client.get.await_args_list] == [
+        "https://submitted.example/v1/videos/generations/video-123",
+        "https://submitted.example/v1/videos/generations/video-123/content",
+    ]
+    assert result.video_path.read_bytes() == b"original-host"
 
 
 @pytest.mark.parametrize(
@@ -274,6 +361,28 @@ async def test_resume_maps_not_found_to_expired_without_retry(tmp_path: Path) ->
             )
 
     assert exc_info.value.job_id == "missing-task"
+    assert client.get.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_resume_maps_expired_status_to_resume_expired(tmp_path: Path) -> None:
+    from lib.video_backends.base import ResumeExpiredError
+    from lib.video_backends.grok_sub2api import GrokSub2APIVideoBackend
+
+    client = _client(post=_response(200, json={}), get=_response(200, json={"status": "expired"}))
+    with patch("lib.video_backends.grok_sub2api.httpx.AsyncClient", return_value=client):
+        backend = GrokSub2APIVideoBackend(
+            api_key="sub2api-test-key",
+            base_url="https://sub2api.example",
+            poll_interval_seconds=0.0,
+        )
+        with pytest.raises(ResumeExpiredError) as exc_info:
+            await backend.resume_video(
+                "expired-task",
+                VideoGenerationRequest(prompt="ignored", output_path=tmp_path / "out.mp4"),
+            )
+
+    assert exc_info.value.job_id == "expired-task"
     assert client.get.await_count == 1
 
 
