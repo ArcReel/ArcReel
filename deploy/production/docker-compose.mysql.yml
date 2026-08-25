@@ -20,9 +20,6 @@ services:
       - ./mysqldata:/var/lib/mysql
     restart: unless-stopped
     healthcheck:
-      # 不用 -p$MYSQL_PASSWORD，避免密码出现在 `ps` 进程列表；先检查
-      # /var/run/mysqld/mysqld.sock 是否就绪（本地 socket auth），再探测
-      # 3306 端口监听；两者任一通过即视为 healthy。
       test: ["CMD-SHELL", "if mysqladmin ping --silent --socket=/var/run/mysqld/mysqld.sock 2>/dev/null; then exit 0; fi; if [ -e /var/run/mysqld/mysqld.sock ]; then timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/3306 && exec 3>&- && exec 3<&-'; [ $? -eq 0 ] && exit 0; fi; exit 1"]
       interval: 10s
       timeout: 5s
@@ -30,19 +27,19 @@ services:
       start_period: 30s
 
   arcreel:
-    image: ghcr.io/arcreel/arcreel:latest
+    image: ghcr.io/arcreel/arcreel:v0.26.0
     ports:
       - "1241:1241"
     env_file: .env
     environment:
-      # DATABASE_URL 显式声明（含已 URL 编码的密码），不在此拼接原始密码，
-      # 避免密码含 @ : / ? # % 时 URL 被错误解析。示例见 .env.example。
-      DATABASE_URL: ${ARCREEL_DATABASE_URL:?请在 .env 中设置 ARCREEL_DATABASE_URL（密码需 URL 编码）}
+      # DATABASE_URL 从环境变量读取，避免密码硬编码在 compose 文件中
+      DATABASE_URL: mysql+aiomysql://arcreel:${MYSQL_PASSWORD}@mysql:3306/arcreel?charset=utf8mb4
       TZ: ${TZ:-Asia/Shanghai}
-    # Agent Bash 沙箱 (bwrap) 需要：
-    # 1) 非特权 user namespace → 放开 docker 默认 seccomp/apparmor profile
-    # 2) bwrap 嵌套出的 net namespace 内配置 loopback → 容器需要 NET_ADMIN cap
-    #    （否则报 "loopback: Failed RTM_NEWADDR: Operation not permitted"）
+    # Agent Bash 沙箱 (bwrap) 需要非特权 user namespace 支持。
+    # 生产环境建议：
+    # 1) 禁用 Docker 默认的 seccomp/apparmor profile，允许 bwrap 使用 --unshare-* 标志
+    # 2) 保留 NET_ADMIN cap，使 bwrap 能在嵌套 netns 内配置 loopback
+    # 注意：seccomp:unconfined 会禁用所有系统调用过滤，仅在可信环境中使用
     security_opt:
       - seccomp:unconfined
       - apparmor:unconfined
