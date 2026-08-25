@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation_queue import GenerationQueue, get_generation_queue
 from lib.generation_result import GenerationBatchResult, migration_problem, render_generation_result
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import MigrationFailureRecord
@@ -46,6 +47,7 @@ class ToolContext:
         *,
         config_resolver: ConfigResolver | None = None,
         caller: CallerContext | None = None,
+        queue: GenerationQueue | None = None,
     ):
         self.project_name = project_name
         self.projects_root = projects_root
@@ -54,6 +56,7 @@ class ToolContext:
         self.pm: ProjectManager = pm if pm is not None else ProjectManager(str(projects_root))
         self.config_resolver = config_resolver
         self.caller = caller or CallerContext(user_id=DEFAULT_USER_ID, source="embedded")
+        self.queue = queue or get_generation_queue()
 
     @property
     def project_path(self) -> Path:
@@ -69,6 +72,7 @@ def tool_services(ctx: ToolContext) -> Services:
         projects=ctx.pm,
         workflow_planner=workflow_planner.get_workflow_planner(ctx.pm),
         capabilities=ctx.config_resolver or ConfigResolver(async_session_factory),
+        queue=ctx.queue,
     )
 
 
