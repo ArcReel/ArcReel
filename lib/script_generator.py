@@ -25,7 +25,7 @@ from lib.artifact_activation import (
     assert_current_artifact_input_claims_usable,
     resolve_usable_artifact_input_claim,
 )
-from lib.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey
+from lib.artifact_manifest import ArtifactBasisDescriptor, ArtifactEntryRekeyReceipt, ArtifactKey
 from lib.artifact_provenance import (
     build_ad_episode_script_basis,
     build_episode_script_basis,
@@ -63,6 +63,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_filename,
 )
+from lib.formal_write import FormalWriteReceipt
 from lib.project_manager import ProjectManager, ScriptWriteConflict
 from lib.prompt_builders_ad import build_ad_prompt, build_ad_reference_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
@@ -254,6 +255,8 @@ class ScriptGenerator:
         *,
         instructions: str | None = None,
         before_quarantine_commit: Callable[[], None] | None = None,
+        cancellation_file_receipts: list[FormalWriteReceipt] | None = None,
+        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
     ) -> Path:
         """
         异步生成剧集剧本
@@ -293,7 +296,14 @@ class ScriptGenerator:
             prompt, schema = await self._compose_ad(episode, gen_mode)
             prompt = append_user_instructions(prompt, instructions)
             self._freeze_ad_artifact_basis(episode)
-            return await self._generate_and_save(prompt, schema, episode, output_filename)
+            return await self._generate_and_save(
+                prompt,
+                schema,
+                episode,
+                output_filename,
+                cancellation_file_receipts=cancellation_file_receipts,
+                cancellation_manifest_receipts=cancellation_manifest_receipts,
+            )
 
         # 剧情演绎的分镜图生视频（含宫格装配）走两段式（见 ADR 0041）：step1 内容已是结构化 JSON，
         # step2 仅出视觉层（image_prompt / video_prompt），后端按 scene_id 合并回 step1 内容、
@@ -301,7 +311,12 @@ class ScriptGenerator:
         # content_mode 非 narration（drama 或脏值）走 step2 drama 形状。
         if gen_mode != "reference_video" and self.content_mode != "narration":
             return await self._generate_drama_step2(
-                episode, output_filename, gen_mode=gen_mode, instructions=instructions
+                episode,
+                output_filename,
+                gen_mode=gen_mode,
+                instructions=instructions,
+                cancellation_file_receipts=cancellation_file_receipts,
+                cancellation_manifest_receipts=cancellation_manifest_receipts,
             )
 
         caps = await self._fetch_video_capabilities()
@@ -398,6 +413,8 @@ class ScriptGenerator:
             reference_unit_durations=reference_unit_durations,
             caps=caps if step1_units is not None else None,
             before_quarantine_commit=before_quarantine_commit,
+            cancellation_file_receipts=cancellation_file_receipts,
+            cancellation_manifest_receipts=cancellation_manifest_receipts,
         )
 
     async def _generate_drama_step2(
@@ -407,6 +424,8 @@ class ScriptGenerator:
         *,
         gen_mode: str | None,
         instructions: str | None = None,
+        cancellation_file_receipts: list[FormalWriteReceipt] | None = None,
+        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
     ) -> Path:
         """drama 两段式 step2：读 step1 结构化内容 → LLM 仅出视觉层 → 按 scene_id 合并 → 落盘。
 
@@ -447,6 +466,8 @@ class ScriptGenerator:
             validate=True,
             artifact_basis=self._artifact_basis,
             expected_fingerprint=formal_baseline,
+            cancellation_file_receipts=cancellation_file_receipts,
+            cancellation_manifest_receipts=cancellation_manifest_receipts,
         )
 
         self._quality_probe(script_data, episode)
@@ -538,6 +559,8 @@ class ScriptGenerator:
         reference_unit_durations: dict[str, int] | None = None,
         caps: dict | None = None,
         before_quarantine_commit: Callable[[], None] | None = None,
+        cancellation_file_receipts: list[FormalWriteReceipt] | None = None,
+        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
     ) -> Path:
         """调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存（各创作类型共用尾段）。
 
@@ -635,6 +658,8 @@ class ScriptGenerator:
                     script_data,
                     filename,
                     formal_baseline,
+                    cancellation_file_receipts,
+                    cancellation_manifest_receipts,
                 )
             else:
                 output_path = await run_sync_transaction(
@@ -645,6 +670,8 @@ class ScriptGenerator:
                     validate=True,
                     artifact_basis=self._artifact_basis,
                     expected_fingerprint=formal_baseline,
+                    cancellation_file_receipts=cancellation_file_receipts,
+                    cancellation_manifest_receipts=cancellation_manifest_receipts,
                 )
         except ScriptWriteConflict as exc:
             if reference_step1 is None:
@@ -1455,6 +1482,8 @@ class ScriptGenerator:
         script_data: dict[str, Any],
         filename: str,
         formal_baseline: str | None,
+        cancellation_file_receipts: list[FormalWriteReceipt] | None,
+        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None,
     ) -> Path:
         draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)
         pm = ProjectManager(str(self.project_path.parent))
@@ -1473,6 +1502,8 @@ class ScriptGenerator:
                 validate=True,
                 artifact_basis=self._artifact_basis,
                 expected_fingerprint=formal_baseline,
+                cancellation_file_receipts=cancellation_file_receipts,
+                cancellation_manifest_receipts=cancellation_manifest_receipts,
             )
 
     def _promote_reference_step2_draft_sync(

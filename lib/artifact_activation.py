@@ -44,6 +44,7 @@ from lib.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasis,
     ArtifactBasisDescriptor,
+    ArtifactEntryRekeyReceipt,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifestAdapter,
@@ -331,6 +332,7 @@ def prepare_episode_script_manifest_commit(
     replaced_resource_ids: Sequence[str] = (),
     basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
     adapter: ArtifactManifestAdapter | None = None,
+    cancellation_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
 ) -> Callable[[], None] | None:
     """Preflight one script replacement and return its atomic claim commit.
 
@@ -398,6 +400,7 @@ def prepare_episode_script_manifest_commit(
             replacements,
             expected_entries=expected,
             adapter=storage,
+            cancellation_receipts=cancellation_receipts,
         )
 
     return commit
