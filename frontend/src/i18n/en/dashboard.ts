@@ -1011,6 +1011,7 @@ export default {
   'endpoint_agnes_chat_display': 'Agnes Chat',
   'endpoint_agnes_image_display': 'Agnes Images',
   'endpoint_agnes_video_display': 'Agnes Video',
+  'endpoint_agnes_video_2_5_flash_display': 'Agnes Video 2.5 Flash',
   'endpoint_v2_video_generations_display': 'V2 Video Generations',
   'endpoint_ark_seedance_display': 'Volcengine Ark (Seedance)',
   'endpoint_vidu_video_display': 'Vidu Video',

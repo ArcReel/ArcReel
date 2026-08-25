@@ -1010,6 +1010,7 @@ export default {
   'endpoint_agnes_chat_display': 'Agnes 文本',
   'endpoint_agnes_image_display': 'Agnes 图片',
   'endpoint_agnes_video_display': 'Agnes 视频',
+  'endpoint_agnes_video_2_5_flash_display': 'Agnes 视频 2.5 Flash',
   'endpoint_v2_video_generations_display': 'V2 统一视频',
   'endpoint_ark_seedance_display': '火山方舟 (Seedance)',
   'endpoint_vidu_video_display': 'Vidu 视频',

@@ -42,7 +42,7 @@ from lib.video_backends.vidu import ViduVideoBackend
 
 from lib.image_backends.agnes import AgnesImageBackend
 from lib.text_backends.agnes import AgnesTextBackend
-from lib.video_backends.agnes import AgnesVideoBackend
+from lib.video_backends.agnes import AgnesVideoBackend, AgnesVideo_2_5_Flash_Backend
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -109,6 +109,14 @@ def _build_agnes_video(provider, model_id: str) -> CustomVideoBackend:
     if not base_url:
         raise ValueError("Agnes 视频后端需要 base_url")
     delegate = AgnesVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_agnes_video_2_5_flash(provider, model_id: str) -> CustomVideoBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    if not base_url:
+        raise ValueError("Agnes 视频2.5flash后端需要 base_url")
+    delegate = AgnesVideo_2_5_Flash_Backend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -290,7 +298,17 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/videos",
         build_backend=_build_agnes_video,
-        video_caps_for_model=AgnesVideoBackend.video_capabilities_for_model,
+        video_max_reference_images=20,
+    ),
+    "agnes-video-2_5_flash": EndpointSpec(
+        key="agnes-video-2_5_flash",
+        media_type="video",
+        family="agnes",
+        display_name_key="endpoint_agnes_video_2_5_flash_display",
+        request_method="POST",
+        request_path_template="/videos",
+        build_backend=_build_agnes_video_2_5_flash,
+        video_max_reference_images=5,
     ),
     "openai-chat": EndpointSpec(
         key="openai-chat",
