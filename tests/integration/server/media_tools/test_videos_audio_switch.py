@@ -22,8 +22,8 @@ from lib.generation_result import GenerationAction, GenerationSelectionMode
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.request_projection import ReferenceRequestOptions
 from lib.reference_video.text_parser import extract_mentions
-from server.agent_runtime.sdk_tools import enqueue_videos as mod
 from server.agent_runtime.sdk_tools._context import ToolContext
+from server.media_tools import videos as mod
 from server.services import video_batch_admission as admission_mod
 from server.services.video_batch_admission import admit_reference_video_batch
 from server.services.video_caps import assert_audio_switch_supported

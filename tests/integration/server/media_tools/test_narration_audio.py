@@ -60,7 +60,7 @@ async def test_generate_narration_audio_missing_only_reuses_a_stale_recording(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """missing-only 只补 missing：已失效但可用的旧配音被复用，不重新付费生成。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     script = _narration_audio_script()
     script["segments"][0]["generated_assets"] = {"narration_audio": "audio/segment_E1S01.wav"}
@@ -85,7 +85,7 @@ async def test_generate_narration_audio_explicit_ids_regenerate_a_stale_recordin
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """点名即强制：同一个 stale 单元在显式选择下照常重新生成。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     script = _narration_audio_script()
     script["segments"][0]["generated_assets"] = {"narration_audio": "audio/segment_E1S01.wav"}
@@ -115,7 +115,7 @@ async def test_generate_narration_audio_explicit_ids_regenerate_a_stale_recordin
 
 async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: ToolContext, monkeypatch) -> None:
     """不传 segment_ids → 只为缺 narration_audio 的段入队 tts 任务，prompt 为该段 novel_text。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
     captured: list[Any] = []
@@ -153,7 +153,7 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
 
 async def test_generate_narration_audio_covers_reference_video_units(fake_ctx: ToolContext, monkeypatch) -> None:
     """参考生视频的 video_units 同样可点名配音——入口按当前骨架取单元，不限生成模式。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script(  # type: ignore[attr-defined]
@@ -188,7 +188,7 @@ async def test_generate_narration_audio_rejects_unbound_active_script_before_enq
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     _activate_unbound_project(fake_ctx)
     fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
@@ -212,7 +212,7 @@ async def test_generate_narration_audio_uses_canonical_filename_when_episode_fie
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     script = _narration_audio_script()
     script.pop("episode")
@@ -254,7 +254,7 @@ async def test_generate_narration_audio_selects_item_with_corrupt_generated_asse
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     script = _narration_audio_script()
     script["segments"][0]["generated_assets"] = "corrupt"
@@ -286,7 +286,7 @@ async def test_generate_narration_audio_selects_item_with_corrupt_generated_asse
 
 async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolContext, monkeypatch) -> None:
     """传 segment_ids → 即使该段已有 narration_audio 也重新入队（批量范围/单段重生语义）。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
     captured: list[Any] = []
@@ -309,7 +309,7 @@ async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolCo
 
 async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolContext, monkeypatch) -> None:
     """novel_text 空白的段不能静默丢弃：不入队、在输出中可见，显式点名时按错误上报。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     script = _narration_audio_script()
     script["segments"].append({"segment_id": "E1S03", "novel_text": "   ", "video_prompt": {}, "generated_assets": {}})
@@ -351,7 +351,7 @@ async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolContex
 
 async def test_generate_narration_audio_partial_unmatched_reported(fake_ctx: ToolContext, monkeypatch) -> None:
     """部分 id 不命中不能静默丢弃：命中的照常入队，未命中的按 blocked 逐 ID 上报。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
     captured: list[Any] = []
@@ -383,7 +383,7 @@ async def test_generate_narration_audio_accepts_drama_narrator_scene(
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
@@ -416,7 +416,7 @@ async def test_generate_narration_audio_uses_project_mode_for_drama_without_cont
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
@@ -447,7 +447,7 @@ async def test_generate_narration_audio_accepts_reference_narrator_unit(
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
@@ -478,7 +478,7 @@ async def test_generate_narration_audio_accepts_reference_narrator_unit(
 
 async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: ToolContext) -> None:
     """分镜图生视频项目下的 video_units 骨架剧本：结构报错 + 重拆指引，不静默换路径。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "narration",
@@ -494,7 +494,7 @@ async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: Tool
 
 async def test_generate_narration_audio_rejects_string_segment_ids(fake_ctx: ToolContext) -> None:
     """segment_ids 传裸字符串会被逐字符迭代成 {'E','1','S'...}，必须显式拒绝。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
@@ -505,7 +505,7 @@ async def test_generate_narration_audio_rejects_string_segment_ids(fake_ctx: Too
 
 async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolContext, monkeypatch) -> None:
     """缺 segment_id 的分镜不能让整批中断：无 ID 可寻址故不进契约，其余分镜照常入队。"""
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     script = _narration_audio_script()
     # 两个分镜都缺配音：本用例的主题是无 ID 分镜的可寻址性，不掺入已有配音的复用判定。
@@ -532,7 +532,7 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
 
 
 async def test_generate_narration_audio_no_match_error(fake_ctx: ToolContext) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
@@ -544,7 +544,7 @@ async def test_generate_narration_audio_no_match_error(fake_ctx: ToolContext) ->
 
 
 async def test_generate_narration_audio_all_done(fake_ctx: ToolContext) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     script = _narration_audio_script()
     script["segments"][0]["generated_assets"] = {"narration_audio": "audio/segment_E1S01.wav"}
@@ -559,7 +559,7 @@ async def test_generate_narration_audio_all_done(fake_ctx: ToolContext) -> None:
 
 
 async def test_generate_narration_audio_task_failures_surface(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     fake_ctx.pm.script_payload = _narration_audio_script()  # type: ignore[attr-defined]
 
@@ -582,7 +582,7 @@ async def test_generate_narration_audio_task_failures_surface(fake_ctx: ToolCont
 
 
 async def test_generate_narration_audio_rejects_path_in_script_arg(fake_ctx: ToolContext) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+    from server.media_tools import narration_audio as mod
 
     tool_obj = mod.generate_narration_audio_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "../etc/passwd"})

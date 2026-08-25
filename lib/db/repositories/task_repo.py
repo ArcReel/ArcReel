@@ -151,6 +151,32 @@ class TaskRepository(BaseRepository):
                 }
             )
 
+    async def _require_batch_unit(
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+        unit_id: str,
+        user_id: str,
+    ) -> None:
+        result = await self.session.execute(
+            select(GenerationBatch).where(
+                GenerationBatch.batch_id == batch_id,
+                GenerationBatch.project_name == project_name,
+                GenerationBatch.user_id == user_id,
+            )
+        )
+        batch = result.scalar_one_or_none()
+        requested = _json_loads(batch.requested_json, {}) if batch is not None else {}
+        requested_ids = {item.get("unit_id") for item in requested.get("requested", []) if isinstance(item, dict)}
+        blocked_ids = {
+            item["item"].get("unit_id")
+            for item in (_json_loads(batch.blocked_json, []) if batch is not None else [])
+            if isinstance(item, dict) and isinstance(item.get("item"), dict)
+        }
+        if batch is None or unit_id not in requested_ids or unit_id in blocked_ids:
+            raise ValueError(f"batch '{batch_id}' does not own unit '{unit_id}' in project '{project_name}'")
+
     async def enqueue(
         self,
         *,
@@ -174,24 +200,12 @@ class TaskRepository(BaseRepository):
         if (batch_id is None) != (batch_unit_id is None):
             raise ValueError("batch_id and batch_unit_id must be provided together")
         if batch_id is not None and batch_unit_id is not None:
-            batch_result = await self.session.execute(
-                select(GenerationBatch).where(
-                    GenerationBatch.batch_id == batch_id,
-                    GenerationBatch.project_name == project_name,
-                    GenerationBatch.user_id == user_id,
-                )
+            await self._require_batch_unit(
+                project_name=project_name,
+                batch_id=batch_id,
+                unit_id=batch_unit_id,
+                user_id=user_id,
             )
-            batch = batch_result.scalar_one_or_none()
-            requested = _json_loads(batch.requested_json, {}) if batch is not None else {}
-            requested_ids = {item.get("unit_id") for item in requested.get("requested", []) if isinstance(item, dict)}
-            blocked = _json_loads(batch.blocked_json, []) if batch is not None else []
-            blocked_ids = {
-                item["item"].get("unit_id")
-                for item in blocked
-                if isinstance(item, dict) and isinstance(item.get("item"), dict)
-            }
-            if batch is None or batch_unit_id not in requested_ids or batch_unit_id in blocked_ids:
-                raise ValueError(f"batch '{batch_id}' does not own unit '{batch_unit_id}' in project '{project_name}'")
         now = utc_now()
 
         task_id = uuid.uuid4().hex
@@ -293,6 +307,35 @@ class TaskRepository(BaseRepository):
         )
         await self.session.commit()
 
+    async def attach_batch_task(
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+        task_id: str,
+        unit_id: str,
+        deduped: bool,
+        user_id: str,
+    ) -> None:
+        await self._require_batch_unit(
+            project_name=project_name,
+            batch_id=batch_id,
+            unit_id=unit_id,
+            user_id=user_id,
+        )
+        task_result = await self.session.execute(
+            select(Task).where(
+                Task.task_id == task_id,
+                Task.project_name == project_name,
+                Task.user_id == user_id,
+            )
+        )
+        task = task_result.scalar_one_or_none()
+        if task is None:
+            raise ValueError(f"batch '{batch_id}' does not own unit '{unit_id}' in project '{project_name}'")
+        self.session.add(BatchTask(batch_id=batch_id, task_id=task_id, unit_id=unit_id, deduped=deduped))
+        await self.session.commit()
+
     async def get_batch(
         self, *, project_name: str, batch_id: str, user_id: str = DEFAULT_USER_ID
     ) -> dict[str, Any] | None:
@@ -327,7 +370,12 @@ class TaskRepository(BaseRepository):
         if task_types:
             depth_rows = await self.session.execute(
                 select(Task.task_type, func.count())
-                .where(Task.task_type.in_(task_types), Task.status == "queued")
+                .where(
+                    Task.project_name == batch.project_name,
+                    Task.user_id == batch.user_id,
+                    Task.task_type.in_(task_types),
+                    Task.status == "queued",
+                )
                 .group_by(Task.task_type)
             )
             depth = {str(task_type): int(count) for task_type, count in depth_rows.all()}

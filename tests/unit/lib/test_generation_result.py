@@ -617,25 +617,25 @@ def test_every_machine_identifier_has_a_product_language_label() -> None:
 
 def test_every_generation_entry_point_has_a_product_language_label() -> None:
     """每个生成入口都登记了产品语言名，摘要抬头才不会回落到中性措辞。"""
-    from server.agent_runtime.sdk_tools import (
-        enqueue_assets,
-        enqueue_grid,
-        enqueue_image_edits,
-        enqueue_narration_audio,
-        enqueue_storyboards,
-        enqueue_videos,
+    from server.media_tools import (
+        assets,
+        grid,
+        image_edits,
+        narration_audio,
+        storyboards,
+        videos,
     )
 
     operations = {
-        enqueue_assets._OPERATION,
-        enqueue_grid._OPERATION,
-        enqueue_image_edits._OPERATION,
-        enqueue_narration_audio._OPERATION,
-        enqueue_storyboards._OPERATION,
-        enqueue_videos._EPISODE_OPERATION,
-        enqueue_videos._SCENE_OPERATION,
-        enqueue_videos._ALL_OPERATION,
-        enqueue_videos._SELECTED_OPERATION,
+        assets._OPERATION,
+        grid._OPERATION,
+        image_edits._OPERATION,
+        narration_audio._OPERATION,
+        storyboards._OPERATION,
+        videos._EPISODE_OPERATION,
+        videos._SCENE_OPERATION,
+        videos._ALL_OPERATION,
+        videos._SELECTED_OPERATION,
     }
     for operation in operations:
         label = _OPERATION_LABELS.get(operation, "")

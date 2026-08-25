@@ -10,7 +10,7 @@ import pytest
 from lib.artifact_manifest import ArtifactStatus
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
+from server.media_tools.image_edits import edit_images_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
     _fake_caps_resolver,
@@ -33,7 +33,7 @@ def test_edit_images_registered() -> None:
 
 
 async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+    from server.media_tools import image_edits as mod
 
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
@@ -69,7 +69,7 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
 
 async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx: ToolContext, monkeypatch) -> None:
     """编辑任务失败时，源图未被覆盖——结果应带回编辑前的路径而不是 None。"""
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+    from server.media_tools import image_edits as mod
 
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
@@ -124,7 +124,7 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from lib.artifact_manifest import ArtifactComparison, ArtifactKey
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+    from server.media_tools import image_edits as mod
 
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
@@ -200,13 +200,13 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
         return _ImageEditSource(resource_id=resource_id, artifact_path="characters/lisi.png", formal_claims=())
 
     _use_fake_caps(fake_ctx)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_image_edits.batch_enqueue_and_wait", fake_batch)
+    monkeypatch.setattr("server.media_tools.image_edits.batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr(
-        "server.agent_runtime.sdk_tools.enqueue_image_edits.active_artifact_currency_resolver",
+        "server.media_tools.image_edits.active_artifact_currency_resolver",
         lambda *_args: object(),
     )
     monkeypatch.setattr(
-        "server.agent_runtime.sdk_tools.enqueue_image_edits.resolve_usable_image_edit_source",
+        "server.media_tools.image_edits.resolve_usable_image_edit_source",
         fake_resolve_source,
     )
 
@@ -241,7 +241,7 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+    from server.media_tools import image_edits as mod
 
     fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["episodes"] = []  # type: ignore[attr-defined]
@@ -293,7 +293,7 @@ async def test_edit_images_rejects_empty_edits(fake_ctx: ToolContext) -> None:
 
 async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypatch) -> None:
     """畸形条目分两路：有 ID 的进逐 ID blocked，无 ID 可寻址的留在 warnings；合法条目仍正常入队。"""
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+    from server.media_tools import image_edits as mod
 
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
@@ -349,7 +349,7 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypat
 
 async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     """storyboard 分支带合法 script_file 时应正常解析剧本并入队（覆盖 validate_script_filename + load_script 调用）。"""
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+    from server.media_tools import image_edits as mod
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -382,7 +382,7 @@ async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) 
 
 async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) -> None:
     """批量入队返回失败项时，摘要与明细都要带上失败原因。"""
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+    from server.media_tools import image_edits as mod
 
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
@@ -422,7 +422,7 @@ async def test_edit_images_unexpected_exception(fake_ctx: ToolContext) -> None:
 
 
 async def test_i2i_provider_available_true() -> None:
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+    from server.media_tools import image_edits as mod
 
     resolver = _fake_caps_resolver()
     assert await mod._i2i_provider_available({}, config_resolver=resolver) is True
@@ -431,7 +431,7 @@ async def test_i2i_provider_available_true() -> None:
 
 
 async def test_i2i_provider_available_false_on_value_error() -> None:
-    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+    from server.media_tools import image_edits as mod
 
     resolver = _fake_caps_resolver(image_backend_error=ValueError("未找到可用的 image 供应商"))
     assert await mod._i2i_provider_available({}, config_resolver=resolver) is False

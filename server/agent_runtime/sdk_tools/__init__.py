@@ -41,12 +41,7 @@ from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
 from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
-from server.agent_runtime.sdk_tools.enqueue_videos import (
-    generate_video_all_tool,
-    generate_video_episode_tool,
-    generate_video_scene_tool,
-    generate_video_selected_tool,
-)
+from server.agent_runtime.sdk_tools.enqueue_videos import generate_videos_tool
 from server.agent_runtime.sdk_tools.entry import create_project_tool, list_projects_tool, upload_source_tool
 from server.agent_runtime.sdk_tools.episode_planning import (
     plan_episodes_tool,
@@ -104,10 +99,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_storyboards",
     "edit_images",
     "generate_grid",
-    "generate_video_episode",
-    "generate_video_scene",
-    "generate_video_all",
-    "generate_video_selected",
+    "generate_videos",
     "generate_narration_audio",
     "generate_episode_script",
     "generate_step1",
@@ -153,10 +145,7 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "generate_storyboards",
         "edit_images",
         "generate_grid",
-        "generate_video_episode",
-        "generate_video_scene",
-        "generate_video_all",
-        "generate_video_selected",
+        "generate_videos",
         "generate_narration_audio",
         "generate_episode_script",
         "generate_step1",
@@ -221,10 +210,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         generate_storyboards_tool(ctx),
         edit_images_tool(ctx),
         generate_grid_tool(ctx),
-        generate_video_episode_tool(ctx),
-        generate_video_scene_tool(ctx),
-        generate_video_all_tool(ctx),
-        generate_video_selected_tool(ctx),
+        generate_videos_tool(ctx),
         generate_narration_audio_tool(ctx),
         generate_episode_script_tool(ctx),
         generate_step1_tool(ctx),

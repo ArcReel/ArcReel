@@ -9,7 +9,7 @@ import pytest
 
 from lib.artifact_manifest import ArtifactStatus
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.enqueue_videos import (
+from server.media_tools.videos import (
     generate_video_all_tool,
     generate_video_episode_tool,
 )
@@ -28,7 +28,7 @@ async def test_generate_video_episode_reports_an_interrupted_batch_enqueue_per_i
 ) -> None:
     """入队中断逐 ID 报告：建成的算 succeeded，没轮到的带「入队中断」问题码且未计费。"""
     from lib.generation_queue_client import BatchTaskResult
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
         {"segment_id": "E1S01", "novel_text": "第一段旁白。", "video_prompt": "第一镜"},
@@ -81,7 +81,7 @@ async def test_generate_video_episode_batch_is_all_or_nothing_when_a_unit_is_occ
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """在途任务冲突拦下整批：一个都不入队，其余 unit 报告自己是被谁扣下的。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
         {"segment_id": "E1S01", "novel_text": "第一段旁白。", "video_prompt": "第一镜"},
@@ -126,7 +126,7 @@ async def test_generate_video_all_creates_zero_tasks_when_one_artifact_state_is_
 
     from lib.artifact_manifest import ArtifactBlocker
     from lib.generation_result import GenerationCandidate, GenerationTargetState
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.script_payload["segments"].append(  # type: ignore[attr-defined]
         {
@@ -176,7 +176,7 @@ async def test_generate_video_all_admits_legacy_narration_stored_under_scenes(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """narration 数据落在 scenes 键的历史剧本按实际骨架做发声准入，不被整批判成解析失败。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "narration",
@@ -228,7 +228,7 @@ async def test_generate_video_all_reports_an_all_unreadable_selection_as_blocked
 
     from lib.artifact_manifest import ArtifactBlocker
     from lib.generation_result import GenerationCandidate, GenerationTargetState
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     select_targets = mod.select_generation_targets
 
@@ -260,7 +260,7 @@ async def test_generate_reference_episode_refuses_a_non_scalar_unit_id(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """整集参考生成遇到非标量 unit_id：它按位置记名拒收，健康的兄弟条目不会独自入队计费。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     script = _reference_video_script()
@@ -284,7 +284,7 @@ async def test_generate_reference_units_refuses_a_duplicated_named_unit(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """点名的 unit 在剧本里有两份：无从判定要做哪一条，整批停在建任务之前。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     script = _reference_video_script()

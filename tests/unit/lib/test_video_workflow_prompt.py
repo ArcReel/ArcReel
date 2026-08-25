@@ -177,8 +177,7 @@ def test_episodic_variants_name_the_registered_recovery_tools(filename: str) -> 
     content = _skill(filename)
 
     for tool_id in (
-        "generate_video_selected",
-        "generate_video_episode",
+        "generate_videos",
         "reset_episode_planning",
         "complete_step1_rebuild",
         "get_episode_script",
@@ -191,7 +190,7 @@ def test_episodic_variants_name_the_registered_recovery_tools(filename: str) -> 
 def test_ad_variant_names_the_registered_video_tools() -> None:
     content = _skill("SKILL.ad.md")
 
-    for tool_id in ("generate_video_selected", "generate_video_episode"):
+    for tool_id in ("generate_videos",):
         assert tool_id in ARCREEL_MCP_TOOL_IDS
         assert f"mcp__arcreel__{tool_id}" in content
 

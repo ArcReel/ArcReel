@@ -12,9 +12,9 @@ from lib.config.resolver import ConfigResolver
 from lib.generation_queue import reference_projection_for_queued_task
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
-from server.agent_runtime.sdk_tools import enqueue_videos
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.auth import CurrentUserInfo
+from server.media_tools import videos
 from server.routers import reference_videos
 from server.services.cost_estimation import CostEstimationService, VideoRequestQuote
 from tests.fakes import FakeReferenceCapabilityProjection, fake_reference_request_projector
@@ -176,7 +176,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 ),
             )
 
-        agent_response = await enqueue_videos.generate_video_scene_tool(
+        agent_response = await videos.generate_video_scene_tool(
             ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)  # type: ignore[arg-type]
         ).handler(
             {

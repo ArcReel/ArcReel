@@ -483,6 +483,26 @@ class GenerationQueue:
             raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
         return build_generation_batch_read_model(batch, batch["memberships"], batch["queue_depth"])
 
+    async def attach_task_to_generation_batch(
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+        task_id: str,
+        unit_id: str,
+        deduped: bool,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> None:
+        async with self._task_repo() as repo:
+            await repo.attach_batch_task(
+                project_name=project_name,
+                batch_id=batch_id,
+                task_id=task_id,
+                unit_id=unit_id,
+                deduped=deduped,
+                user_id=user_id,
+            )
+
     async def cancel_generation_batch(
         self,
         *,

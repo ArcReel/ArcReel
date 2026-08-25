@@ -8,15 +8,58 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.artifact_manifest import ArtifactStatus
+from lib.generation_queue_client import BatchTaskResult, is_interrupted_wait_error
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
+from server.media_tools.grid import generate_grid_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _call,
     _generation_result,
 )
 
 pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_reference_request_projection")
+
+
+def _fake_grid_waiter(enqueue, wait=None):
+    async def _waiter(*, project_name, specs, **_kwargs):
+        successes: list[BatchTaskResult] = []
+        failures: list[BatchTaskResult] = []
+        for spec in specs:
+            queued = None
+            try:
+                queued = await enqueue(
+                    project_name=project_name,
+                    task_type=spec.task_type,
+                    media_type=spec.media_type,
+                    resource_id=spec.resource_id,
+                    payload=spec.payload,
+                    script_file=spec.script_file,
+                    source=spec.source,
+                )
+                task = await wait(queued["task_id"])
+            except Exception as exc:  # noqa: BLE001
+                failures.append(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id=queued["task_id"] if queued is not None else "",
+                        status="interrupted" if is_interrupted_wait_error(exc) else "failed",
+                        error=str(exc),
+                    )
+                )
+                continue
+            result = BatchTaskResult(
+                resource_id=spec.resource_id,
+                task_id=queued["task_id"],
+                status=str(task.get("status")),
+                result=task.get("result") or {},
+                error=task.get("error_message"),
+                task=task,
+            )
+            (successes if result.status == "succeeded" else failures).append(result)
+        return successes, failures
+
+    return _waiter
+
 
 # ---------------------------------------------------------------------------
 # enqueue_grid
@@ -57,7 +100,7 @@ async def test_generate_grid_list_only_respects_4k_gate(
     async def _gate(_project: dict) -> bool:
         return allow_large_grid
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     tool_obj = generate_grid_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is not True
@@ -79,7 +122,7 @@ async def test_generate_grid_list_only_shows_split_for_oversized_group(
     async def _gate(_project: dict) -> bool:
         return False
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     tool_obj = generate_grid_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is not True
@@ -106,11 +149,13 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
 
     payloads: list[dict[str, Any]] = []
 
-    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         payloads.append(payload)
         return {"task_id": "t1"}
 
-    async def fake_wait(_task_id: str) -> dict[str, Any]:
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded"}
 
     async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
@@ -118,12 +163,11 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
 
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", fake_split)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
-    tool_obj = generate_grid_tool(fake_ctx)
+    tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
 
@@ -144,21 +188,22 @@ async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id
     async def _gate(_project: dict) -> bool:
         return False
 
-    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         return {"task_id": "t1"}
 
-    async def fake_wait(_task_id: str) -> dict[str, Any]:
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded", "provider_id": "openai", "provider_job_id": "job-1"}
 
     async def failing_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
         raise RuntimeError("cannot write the split cells")
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", failing_split)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", failing_split)
 
-    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
     assert out.get("is_error") is True
     result = _generation_result(out)
@@ -200,13 +245,17 @@ async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(
     async def _gate(_project: dict) -> bool:
         return False
 
-    async def failing_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def failing_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         raise RuntimeError("queue is down")
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", failing_enqueue)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+    batch_waiter = _fake_grid_waiter(failing_enqueue)
 
-    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "scene_ids": ["E1S01"]})
+    out = await _call(
+        generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json", "scene_ids": ["E1S01"]}
+    )
 
     assert out.get("is_error") is True
     result = _generation_result(out)
@@ -218,7 +267,7 @@ async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(
 async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """宫格工具直连 wait_for_task（不经 batch_enqueue_and_wait），同样不能把等待被
+    """宫格工具经共享 batch waiter 等待时，同样不能把等待被
     打断（任务可能仍在跑）报成终态失败——那会诱导调用方重试、造成重复付费提交。"""
     from lib.generation_queue_client import TaskWaitTimeoutError
 
@@ -231,17 +280,18 @@ async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(
     async def _gate(_project: dict) -> bool:
         return False
 
-    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         return {"task_id": "t1"}
 
-    async def fake_wait(_task_id: str) -> dict[str, Any]:
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         raise TaskWaitTimeoutError("wait timed out before a terminal state")
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
 
-    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
     result = _generation_result(out)
     assert result.succeeded == []
@@ -266,10 +316,12 @@ async def test_generate_grid_reports_each_scene_of_a_shared_grid(
     async def _gate(_project: dict) -> bool:
         return False
 
-    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         return {"task_id": "t1"}
 
-    async def fake_wait(_task_id: str) -> dict[str, Any]:
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded", "provider_id": "openai", "provider_job_id": "job-1"}
 
     async def partial_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
@@ -282,12 +334,11 @@ async def test_generate_grid_reports_each_scene_of_a_shared_grid(
             asset_fingerprints={},
         )
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", partial_split)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", partial_split)
 
-    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
     result = _generation_result(out)
     assert result.succeeded == ["E1S01", "E1S02", "E1S03"]
@@ -342,18 +393,20 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         enqueued.append(resource_id)
         return {"task_id": "t1"}
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     monkeypatch.setattr(
-        "server.agent_runtime.sdk_tools.enqueue_grid.active_artifact_currency_resolver",
+        "server.media_tools.grid.active_artifact_currency_resolver",
         lambda *_args: _Resolver(),
     )
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
+    batch_waiter = _fake_grid_waiter(fake_enqueue)
 
-    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
     result = _generation_result(out)
     assert enqueued == []
@@ -407,18 +460,20 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         enqueued.append(resource_id)
         return {"task_id": "t1"}
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     monkeypatch.setattr(
-        "server.agent_runtime.sdk_tools.enqueue_grid.active_artifact_currency_resolver",
+        "server.media_tools.grid.active_artifact_currency_resolver",
         lambda *_args: _Resolver(),
     )
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
+    batch_waiter = _fake_grid_waiter(fake_enqueue)
 
-    out = await _call(generate_grid_tool(fake_ctx), {"script": "episode_1.json"})
+    out = await _call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
 
     result = _generation_result(out)
     assert enqueued == []
@@ -457,10 +512,12 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
     async def _gate(_project: dict) -> bool:
         return False
 
-    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         return {"task_id": f"t{resource_id}"}
 
-    async def fake_wait(_task_id: str) -> dict[str, Any]:
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded"}
 
     async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
@@ -468,10 +525,9 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
 
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", fake_split)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
     # 预置两代旧记录：一代属于本组（应被清理），一代属于其它组（不得误删）
     gm = GridManager(fake_ctx.project_path)
@@ -502,7 +558,7 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
     other_group.status = "completed"
     gm.save(other_group)
 
-    tool_obj = generate_grid_tool(fake_ctx)
+    tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
 
@@ -547,10 +603,12 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
     async def _gate(_project: dict) -> bool:
         return False
 
-    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         return {"task_id": f"t{resource_id}"}
 
-    async def fake_wait(_task_id: str) -> dict[str, Any]:
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded"}
 
     async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
@@ -558,10 +616,9 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
 
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", fake_split)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
     gm = GridManager(fake_ctx.project_path)
     fully_reusable_chunk = GridGeneration.create(
@@ -578,7 +635,7 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
     fully_reusable_chunk.status = "completed"
     gm.save(fully_reusable_chunk)
 
-    tool_obj = generate_grid_tool(fake_ctx)
+    tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
 
@@ -600,7 +657,7 @@ async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(
     async def _gate(_project: dict) -> bool:
         return False
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     tool_obj = generate_grid_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is not True
@@ -625,11 +682,13 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
 
     payloads: list[dict[str, Any]] = []
 
-    async def fake_enqueue(*, project_name, task_type, media_type, resource_id, payload, script_file, source):
+    async def fake_enqueue(
+        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
+    ):
         payloads.append(payload)
         return {"task_id": f"t{len(payloads)}"}
 
-    async def fake_wait(_task_id: str) -> dict[str, Any]:
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded"}
 
     # 生成成功后工具会对每张宫格显式调用切分；此处替换为假实现，单独锁定入队分块行为
@@ -641,12 +700,11 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
         split_calls.append(grid.id)
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
 
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.resolve_large_grid_allowed", _gate)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.enqueue_task_only", fake_enqueue)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.wait_for_task", fake_wait)
-    monkeypatch.setattr("server.agent_runtime.sdk_tools.enqueue_grid.apply_grid_split", fake_split)
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
+    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
-    tool_obj = generate_grid_tool(fake_ctx)
+    tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
     # 每张生成成功的宫格都被显式切分
@@ -685,7 +743,7 @@ async def test_generate_grid_legacy_unresolvable_episode_fails_before_enqueue(
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_grid as mod
+    from server.media_tools import grid as mod
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
@@ -694,9 +752,9 @@ async def test_generate_grid_legacy_unresolvable_episode_fails_before_enqueue(
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
     enqueue = AsyncMock(side_effect=AssertionError("must not enqueue"))
-    monkeypatch.setattr(mod, "enqueue_task_only", enqueue)
+    batch_waiter = enqueue
 
-    out = await _call(mod.generate_grid_tool(fake_ctx), {"script": "draft.json"})
+    out = await _call(mod.generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "draft.json"})
 
     assert out.get("is_error") is True
     assert "无法确定集号" in out["content"][0]["text"]

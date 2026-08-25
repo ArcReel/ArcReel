@@ -14,7 +14,7 @@ from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import CallToolResult, TextContent
+from mcp.types import CallToolResult, ContentBlock, TextContent
 from pydantic import AnyHttpUrl, BaseModel
 from starlette.responses import PlainTextResponse
 from starlette.types import Receive, Scope, Send
@@ -37,6 +37,14 @@ from server.draft_workflow import (
     PositiveEpisode,
     PromoteDraftRequest,
 )
+from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
+from server.media_tools.context import ToolContext
+from server.media_tools.definition import ToolDefinition
+from server.media_tools.grid import generate_grid_tool
+from server.media_tools.image_edits import edit_images_tool
+from server.media_tools.narration_audio import generate_narration_audio_tool
+from server.media_tools.storyboards import generate_storyboards_tool
+from server.media_tools.videos import generate_videos_tool
 from server.services import workflow_planner
 from server.text_generation import TextGenerationRequest
 from server.tool_runtime import (
@@ -158,6 +166,17 @@ def _project_scope(project: str, projects: ProjectManager) -> ProjectScope:
     if not projects.project_exists(project_name):
         raise FileNotFoundError(f"项目 '{project_name}' 缺少 project.json")
     return ProjectScope(project_name=project_name, projects_root=projects.projects_root)
+
+
+def _media_response_to_mcp(response) -> CallToolResult:
+    content: list[ContentBlock] = [
+        TextContent(type="text", text=str(item.get("text", ""))) for item in response.content
+    ]
+    return CallToolResult(
+        content=content,
+        structuredContent=response.structured or None,
+        isError=response.is_error,
+    )
 
 
 async def _with_progress[T](awaitable: Awaitable[T], context: Context, message: str) -> T:
@@ -676,6 +695,119 @@ def build_remote_mcp_server(
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("project_file", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         return _to_mcp_result("project_file", await read_project_file(ToolRequest(path), scope, caller, services))
+
+    def media_context(project: str) -> ToolContext:
+        scope = _project_scope(project, projects)
+        return ToolContext(
+            project_name=scope.project_name,
+            projects_root=scope.projects_root,
+            pm=projects,
+            config_resolver=services.capabilities,
+            caller=caller,
+            queue=services.queue,
+        )
+
+    async def invoke_media(
+        project: str,
+        definition_factory: Callable[[ToolContext], ToolDefinition],
+        args: dict[str, Any],
+    ) -> CallToolResult:
+        try:
+            ctx = media_context(project)
+            if definition_factory is not list_pending_assets_tool and (
+                problem := await migration_gate(ctx.scope, services)
+            ):
+                return _to_mcp_result("generation_batch", ToolOutcome(problem=problem))
+            outcome = await definition_factory(ctx).invoke(args)
+            assert outcome.value is not None
+            return _media_response_to_mcp(outcome.value)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("generation_batch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+
+    @server.tool(name="list_pending_assets", structured_output=False)
+    async def remote_list_pending_assets(project: str, type: str | None = None) -> CallToolResult:
+        """List assets that do not yet have a reusable generated image."""
+        return await invoke_media(project, list_pending_assets_tool, {"type": type})
+
+    @server.tool(name="generate_assets", structured_output=False)
+    async def remote_generate_assets(
+        project: str,
+        type: str | None = None,
+        names: list[str] | None = None,
+        all: bool = False,
+    ) -> CallToolResult:
+        """Submit missing or explicitly selected asset images as one durable batch."""
+        return await invoke_media(project, generate_assets_tool, {"type": type, "names": names, "all": all})
+
+    @server.tool(name="generate_storyboards", structured_output=False)
+    async def remote_generate_storyboards(
+        project: str, script: str, segment_ids: list[str] | None = None
+    ) -> CallToolResult:
+        """Submit storyboard image generation and return its durable batch handle."""
+        return await invoke_media(project, generate_storyboards_tool, {"script": script, "segment_ids": segment_ids})
+
+    @server.tool(name="edit_images", structured_output=False)
+    async def remote_edit_images(
+        project: str,
+        resource_type: str,
+        edits: list[dict[str, str]],
+        script_file: str | None = None,
+    ) -> CallToolResult:
+        """Submit instruction-based image edits as one durable batch."""
+        return await invoke_media(
+            project,
+            edit_images_tool,
+            {"resource_type": resource_type, "edits": edits, "script_file": script_file},
+        )
+
+    @server.tool(name="generate_grid", structured_output=False)
+    async def remote_generate_grid(
+        project: str,
+        script: str,
+        scene_ids: list[str] | None = None,
+        list_only: bool = False,
+    ) -> CallToolResult:
+        """Submit grid-storyboard generation or list its planned groups."""
+        return await invoke_media(
+            project, generate_grid_tool, {"script": script, "scene_ids": scene_ids, "list_only": list_only}
+        )
+
+    @server.tool(name="generate_videos", structured_output=False)
+    async def remote_generate_videos(
+        project: str,
+        script: str,
+        target: dict[str, Any],
+        narration_delivery: NarrationDelivery,
+        force: bool = False,
+        narration_voice: str | None = None,
+        narration_speed: float | None = None,
+        narration_volume: float | None = None,
+    ) -> CallToolResult:
+        """Submit video generation with episode, scene, all, or selected scope."""
+        return await invoke_media(
+            project,
+            generate_videos_tool,
+            {
+                "script": script,
+                "target": target,
+                "narration_delivery": narration_delivery,
+                "force": force,
+                "narration_voice": narration_voice,
+                "narration_speed": narration_speed,
+                "narration_volume": narration_volume,
+            },
+        )
+
+    @server.tool(name="generate_narration_audio", structured_output=False)
+    async def remote_generate_narration_audio(
+        project: str, script: str, segment_ids: list[str] | None = None
+    ) -> CallToolResult:
+        """Submit narration audio generation and return its durable batch handle."""
+        return await invoke_media(
+            project,
+            generate_narration_audio_tool,
+            {"script": script, "segment_ids": segment_ids},
+        )
 
     return server
 

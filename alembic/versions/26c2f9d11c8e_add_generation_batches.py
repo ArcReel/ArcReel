@@ -49,7 +49,7 @@ def upgrade() -> None:
         sa.Column("deduped", sa.Boolean(), nullable=False),
         sa.ForeignKeyConstraint(["batch_id"], ["batches.batch_id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["task_id"], ["tasks.task_id"]),
-        sa.PrimaryKeyConstraint("batch_id", "task_id"),
+        sa.PrimaryKeyConstraint("batch_id", "task_id", "unit_id"),
         sa.UniqueConstraint("batch_id", "unit_id", name="uq_batch_tasks_batch_unit"),
     )
 

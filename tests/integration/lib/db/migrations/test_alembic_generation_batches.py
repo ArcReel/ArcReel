@@ -45,6 +45,11 @@ def test_upgrade_adds_batches_without_changing_existing_tasks(alembic_cfg) -> No
         assert batch_task_fks == {"batches", "tasks"}
         indexes = {index["name"] for index in sa.inspect(conn).get_indexes("tasks")}
         assert "ix_tasks_batch_id" in indexes
+        assert set(sa.inspect(conn).get_pk_constraint("batch_tasks")["constrained_columns"]) == {
+            "batch_id",
+            "task_id",
+            "unit_id",
+        }
         raw_indexes = {row[1] for row in conn.execute(sa.text("PRAGMA index_list('tasks')")).fetchall()}
         assert "idx_tasks_dedupe_active" in raw_indexes
     engine.dispose()

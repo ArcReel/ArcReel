@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -15,6 +16,7 @@ from lib.generation_result import (
     GenerationProblem,
     GenerationSelectionMode,
     GenerationSkippedItem,
+    GenerationTargetState,
     GenerationTaskState,
     enqueue_problem,
     problem_from_task_failure,
@@ -55,7 +57,7 @@ class GenerationBatchRequestSnapshot(BaseModel):
 
     schema_version: Literal[1] = 1
     selection: GenerationSelectionMode
-    requested: list[GenerationBatchRequestedItem] = Field(min_length=1)
+    requested: list[GenerationBatchRequestedItem] = Field(default_factory=list)
     skipped: list[GenerationSkippedItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -104,6 +106,7 @@ class GenerationBatchReadModel(BaseModel):
     operation: str
     created_at: str
     members: list[GenerationBatchMember]
+    skipped: list[GenerationSkippedItem] = Field(default_factory=list)
     counts: GenerationBatchCounts
     done: bool
     poll_after_seconds: int | None = None
@@ -126,6 +129,50 @@ def validate_blocked_items(
     blocked_ids = [entry.item.unit_id for entry in blocked]
     if len(set(blocked_ids)) != len(blocked_ids) or not set(blocked_ids) <= requested:
         raise ValueError("blocked snapshot must uniquely identify requested units")
+
+
+def build_generation_batch_admission(
+    *,
+    preflight: GenerationBatchResult,
+    pending_ids: Sequence[str],
+    states: Mapping[str, GenerationTargetState] | None = None,
+    admission: Mapping[str, dict[str, Any]] | None = None,
+) -> tuple[GenerationBatchRequestSnapshot, list[GenerationBatchBlockedItem]]:
+    """Project a tool's completed selection/preflight into the durable batch snapshot."""
+
+    if preflight.succeeded or preflight.failed:
+        raise ValueError("generation batch admission cannot contain executed outcomes")
+    state_by_id = states or {}
+    admission_by_id = admission or {}
+    blocked_by_id = {item.unit_id: item for item in preflight.items}
+    requested_ids = list(dict.fromkeys([*pending_ids, *preflight.blocked]))
+    requested = []
+    for unit_id in requested_ids:
+        state = state_by_id.get(unit_id)
+        item = blocked_by_id.get(unit_id)
+        requested.append(
+            GenerationBatchRequestedItem(
+                unit_id=unit_id,
+                artifact_key=(
+                    state.artifact_key.encode() if state and state.artifact_key else item.artifact_key if item else None
+                ),
+                artifact_path=state.artifact_path if state else item.artifact_path if item else None,
+                artifact_status=state.status if state else item.artifact_status if item else None,
+                admission=admission_by_id.get(unit_id, {}),
+            )
+        )
+    blocked = [
+        GenerationBatchBlockedItem(item=blocked_by_id[unit_id], admission=admission_by_id.get(unit_id, {}))
+        for unit_id in preflight.blocked
+    ]
+    return (
+        GenerationBatchRequestSnapshot(
+            selection=preflight.selection,
+            requested=requested,
+            skipped=preflight.skipped,
+        ),
+        blocked,
+    )
 
 
 def _terminal_result(
@@ -155,15 +202,17 @@ def _terminal_result(
             )
             continue
         status = task["status"]
+        task_result = task.get("result") or {}
+        unit_result = (task_result.get("unit_results") or {}).get(unit_id) or {}
         common = {
             "unit_id": unit_id,
             "artifact_key": requested.artifact_key,
-            "artifact_path": (task.get("result") or {}).get("file_path") or requested.artifact_path,
+            "artifact_path": unit_result.get("file_path") or task_result.get("file_path") or requested.artifact_path,
             "task_id": task["task_id"],
             "artifact_status": requested.artifact_status,
             "provider_checkpoint": provider_checkpoint_from_task(task),
         }
-        if status == "succeeded":
+        if status == "succeeded" and not unit_result.get("problem"):
             items.append(
                 GenerationItemResult(
                     **common,
@@ -176,8 +225,18 @@ def _terminal_result(
                 GenerationItemResult(
                     **common,
                     state=GenerationItemState.FAILED,
-                    task_state=(GenerationTaskState.CANCELLED if status == "cancelled" else GenerationTaskState.FAILED),
-                    problem=problem_from_task_failure(task.get("error_message"), cancelled=status == "cancelled"),
+                    task_state=(
+                        GenerationTaskState.SUCCEEDED
+                        if status == "succeeded"
+                        else GenerationTaskState.CANCELLED
+                        if status == "cancelled"
+                        else GenerationTaskState.FAILED
+                    ),
+                    problem=(
+                        GenerationProblem.model_validate(unit_result["problem"])
+                        if unit_result.get("problem")
+                        else problem_from_task_failure(task.get("error_message"), cancelled=status == "cancelled")
+                    ),
                 )
             )
     succeeded = [item.unit_id for item in items if item.state is GenerationItemState.SUCCEEDED]
@@ -264,6 +323,7 @@ def build_generation_batch_read_model(
         operation=batch["operation"],
         created_at=batch["created_at"],
         members=members,
+        skipped=snapshot.skipped,
         counts=counts,
         done=done,
         poll_after_seconds=None if done else _poll_after_seconds(memberships, queue_depth),
@@ -278,5 +338,6 @@ __all__ = [
     "GenerationBatchRequestSnapshot",
     "GenerationBatchRequestedItem",
     "build_generation_batch_read_model",
+    "build_generation_batch_admission",
     "validate_blocked_items",
 ]

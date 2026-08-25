@@ -13,18 +13,20 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.artifact_manifest import ArtifactStatus
+from lib.generation_queue import GenerationQueue
 from lib.generation_result import GenerationBatchResult
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.resource_paths import resource_relative_path
 from lib.script_skeleton import SkeletonRouteMismatchError
 from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
-from server.agent_runtime.sdk_tools import enqueue_videos as enqueue_videos_mod
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.enqueue_videos import (
+from server.media_tools import videos as enqueue_videos_mod
+from server.media_tools.videos import (
     generate_video_all_tool,
     generate_video_episode_tool,
     generate_video_scene_tool,
     generate_video_selected_tool,
+    generate_videos_tool,
 )
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _CLAIMED_BASIS_DIGEST,
@@ -123,7 +125,7 @@ def _refused_problems(refused: list[Any]) -> dict[str, tuple[str, str]]:
 
 
 async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -162,7 +164,7 @@ async def test_storyboard_resume_requires_usable_manifest_video_claim(
         ArtifactManifestError,
     )
     from lib.generation_queue_client import BatchTaskResult
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
     project.update(
@@ -260,7 +262,7 @@ async def test_generate_video_episode_declares_the_missing_only_selection_it_per
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """整集生成从不强制重生：已有可用片段一律复用，所以选择模式如实报 missing-only。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {  # type: ignore[attr-defined]
         "storyboard_image": "storyboards/scene_E1S01.png"
@@ -278,7 +280,7 @@ async def test_generate_video_episode_declares_the_missing_only_selection_it_per
 async def test_generate_video_episode_skips_current_clip_without_resume(fake_ctx: ToolContext, monkeypatch) -> None:
     """非 resume 的整集调用也要复用仍是 current 的旧片段，不能因 checkpoint 是空表就整集重生。"""
     from lib.artifact_manifest import ArtifactComparison
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
     project.update(
@@ -333,7 +335,7 @@ async def test_generate_video_episode_blocks_a_clip_whose_manifest_state_is_unre
     """整集调用里某片段的 Manifest 比对抛错（BLOCKED）时必须报 blocked，不能落入
     「既不可复用也不算 blocked」的空档而被当作缺失去付费重生——不可读不等于没有。"""
     from lib.artifact_manifest import ArtifactComparison
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     project = fake_ctx.pm.project_payload  # type: ignore[attr-defined]
     project.update(
@@ -390,7 +392,7 @@ async def test_generate_video_episode_rejects_unbound_active_script_before_enque
     monkeypatch,
 ) -> None:
     from lib.generation_queue_client import TaskSpec
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _activate_unbound_project(fake_ctx)
     spec = TaskSpec.from_request(
@@ -424,7 +426,7 @@ async def test_generate_video_episode_resolves_episode_from_canonical_filename(
     身份解析按规范文件名兜底，这一批确实是按第 2 集构造的；而产物清单只认自带 episode
     字段、与账本绑定一致的剧本，该集分镜图的状态因此不可读，整批停在建任务之前。
     """
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
     from server.services import video_batch_admission as admission_mod
 
     fake_ctx.pm.script_payload.pop("episode")  # type: ignore[attr-defined]
@@ -474,7 +476,7 @@ async def test_generate_video_episode_non_dict_generated_assets_does_not_abort_b
     """整集入队先按 generated_assets.video_clip 过滤已完成条目。容器被外部编辑损坏为非 dict
     时该过滤须按「未生成」处理，而不是在 pending 过滤阶段就抛未处理 AttributeError；随后该条目
     以自己的问题码拦住整批，本次不创建任何任务。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     project_dir = fake_ctx.pm.get_project_path("demo")
     (project_dir / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
@@ -523,7 +525,7 @@ async def test_generate_reference_video_rejects_unbound_active_script_before_gen
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _activate_unbound_project(fake_ctx, generation_mode="reference_video")
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
@@ -541,7 +543,7 @@ async def test_generate_reference_video_legacy_unresolvable_episode_fails_before
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
@@ -559,7 +561,7 @@ async def test_generate_reference_video_legacy_unresolvable_episode_fails_before
 async def test_generate_video_episode_reference_rejects_malformed_unit_container(fake_ctx: ToolContext) -> None:
     """``video_units`` 非数组：生成模式闸门只问键在不在，容器校验落在入队侧，
     须报出可定位的结构错误而不是下传到 unit 迭代抛 TypeError。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import generate_video_episode_tool
+    from server.media_tools.videos import generate_video_episode_tool
 
     _use_reference_route(fake_ctx)
     for malformed in (
@@ -582,7 +584,7 @@ async def test_generate_video_episode_reference_rejects_malformed_unit_container
 async def test_generate_video_episode_reference_duration_needs_confirmation(fake_ctx: ToolContext, monkeypatch) -> None:
     """申请秒数与剧本总时长不一致时，首次调用不入队，返回内容含总时长/申请秒数/差异说明。"""
     from lib.reference_video.duration_slots import UP, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
@@ -672,7 +674,7 @@ async def test_generate_video_episode_reference_returns_structured_projection_bl
 ) -> None:
     """Agent 失败信封保留公共投影的稳定 problem 字段，不只返回人读文本。"""
     from lib.reference_video.request_projection import ProjectionProblem
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
@@ -763,7 +765,7 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
     """带精确申请档位的再次调用按取档结果入队并生成成功。"""
     from lib.generation_queue_client import BatchTaskResult
     from lib.reference_video.duration_slots import UP, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
@@ -806,11 +808,38 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
     assert [s.resource_id for s in enqueued] == ["E1U1"]
 
 
+async def test_generate_videos_reference_force_false_reuses_existing_video(fake_ctx: ToolContext, db_factory) -> None:
+    _use_reference_route(fake_ctx)
+    video_path = _select_manual_video(
+        fake_ctx.project_path,
+        resource_type="reference_videos",
+        resource_id="E1U1",
+        content=b"existing-video",
+    )
+    script = _reference_video_script()
+    script["video_units"][0]["generated_assets"] = {"video_clip": video_path}
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    fake_ctx.queue = GenerationQueue(session_factory=db_factory)
+
+    out = await _call(
+        generate_videos_tool(fake_ctx),
+        {
+            "script": "episode_1.json",
+            "target": {"scope": "selected", "ids": ["E1U1"]},
+            "narration_delivery": "use_tts",
+        },
+    )
+
+    assert out.get("is_error") is not True, out
+    assert (await fake_ctx.queue.list_tasks(project_name="demo"))["items"] == []
+    assert [item["unit_id"] for item in out["generation_result"]["skipped"]] == ["E1U1"]
+
+
 async def test_generate_video_episode_confirms_two_tiers_in_one_batch(fake_ctx: ToolContext, monkeypatch) -> None:
     """一批里档位不止一个时按 unit 确认，原目标集合仍作为一批重发，不必拆成几次调用。"""
     from lib.generation_queue_client import BatchTaskResult
     from lib.reference_video.duration_slots import UP, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script(  # type: ignore[attr-defined]
@@ -888,14 +917,14 @@ async def test_generate_video_episode_confirms_two_tiers_in_one_batch(fake_ctx: 
 )
 def test_confirmed_request_durations_rejects_non_positive_int(invalid: object) -> None:
     """按 unit 记的档位与标量档位同一口径：非正整数在入口就拒绝。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _confirmed_request_durations
+    from server.media_tools.videos import _confirmed_request_durations
 
     with pytest.raises(ValueError, match="必须是大于 0 的整数秒档位"):
         _confirmed_request_durations({"confirmed_request_durations": {"E1U1": invalid}})
 
 
 def test_confirmed_request_durations_rejects_non_mapping() -> None:
-    from server.agent_runtime.sdk_tools.enqueue_videos import _confirmed_request_durations
+    from server.media_tools.videos import _confirmed_request_durations
 
     with pytest.raises(ValueError, match="必须是 unit_id 到秒数档位的对象"):
         _confirmed_request_durations({"confirmed_request_durations": [8]})
@@ -916,7 +945,7 @@ def test_every_video_agent_tool_exposes_per_unit_confirmations(fake_ctx: ToolCon
 
 @pytest.mark.parametrize("delivery", ["post_production", "use_tts"])
 def test_a_declared_narration_delivery_reaches_the_request_projection(delivery: str) -> None:
-    from server.agent_runtime.sdk_tools.enqueue_videos import _reference_request_options
+    from server.media_tools.videos import _reference_request_options
 
     assert _reference_request_options({"narration_delivery": delivery}).narration_delivery == delivery
 
@@ -934,7 +963,7 @@ def test_a_declared_narration_delivery_reaches_the_request_projection(delivery: 
 def test_an_undeclared_or_unknown_narration_delivery_is_refused(args: dict[str, Any]) -> None:
     """缺省与拼错都不再折成后期配音——那会让整批按调用方没选过的交付方式准入并计费。"""
 
-    from server.agent_runtime.sdk_tools.enqueue_videos import _reference_request_options
+    from server.media_tools.videos import _reference_request_options
 
     with pytest.raises(ValueError, match="narration_delivery 必填"):
         _reference_request_options(args)
@@ -956,7 +985,7 @@ async def test_no_video_tool_enqueues_without_a_declared_narration_delivery(
     monkeypatch,
     delivery_args: dict[str, Any],
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     async def _never_enqueue(*_args, **_kwargs):
         raise AssertionError("交付方式未声明时不得入队")
@@ -982,7 +1011,7 @@ async def test_generate_video_episode_reference_honors_requested_narration_deliv
     monkeypatch,
 ) -> None:
     from lib.generation_queue_client import BatchTaskResult
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
@@ -1042,7 +1071,7 @@ async def test_generate_video_episode_reference_honors_requested_narration_deliv
     ids=["zero", "negative", "fraction", "boolean", "string"],
 )
 def test_reference_request_options_rejects_invalid_confirmed_duration(invalid_confirmation: object) -> None:
-    from server.agent_runtime.sdk_tools.enqueue_videos import _reference_request_options
+    from server.media_tools.videos import _reference_request_options
 
     with pytest.raises(ValueError, match="confirmed_request_duration_seconds 必须是大于 0 的整数秒档位"):
         _reference_request_options(
@@ -1058,7 +1087,7 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
 ) -> None:
     """不带确认参数的重复调用仍不入队。"""
     from lib.reference_video.duration_slots import UP, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
@@ -1094,7 +1123,7 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
 ) -> None:
     """总时长为档位成员时单次调用直接入队，行为与现状一致。"""
     from lib.reference_video.duration_slots import EXACT, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
@@ -1147,7 +1176,7 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
     不存在的请求。
     """
     from lib.reference_video.duration_slots import EXACT, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     script = _reference_video_script()
     script["video_units"].append({"unit_id": "E1U2", "duration_seconds": 5})
@@ -1206,7 +1235,7 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
 ) -> None:
     """批量预检让每个可入队 unit 都经过公共 request projection。"""
     from lib.reference_video.duration_slots import UP, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     script = _reference_video_script()
     script["video_units"].append(
@@ -1257,7 +1286,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_noth
 ) -> None:
     """整批都没有可预检的 unit 时不解析项目能力——解析推迟到第一个真正要取档的 unit，
     重构不能让「全部已完成/全部被跳过」的批次凭空多付一轮 DB 往返。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     script = _reference_video_script()
     for unit in script["video_units"]:
@@ -1287,7 +1316,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
 ) -> None:
     """正文全空白时 build_specs 会拒绝该 unit——预检须复用同一份结构校验提前判定，
     不能先触发项目能力解析再让 build_specs 事后跳过。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     script = _reference_video_script()
     for unit in script["video_units"]:
@@ -1318,7 +1347,7 @@ async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
 ) -> None:
     """广告/短片的参考生视频走同一条视频单元时长确认闸门。"""
     from lib.reference_video.duration_slots import UP, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     seen_units: list[dict[str, Any]] = []
 
@@ -1364,7 +1393,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     """reference 路径的整集与点名入口共用确认闸门：未确认不入队、确认后入队。"""
     from lib.generation_queue_client import BatchTaskResult
     from lib.reference_video.duration_slots import UP, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
@@ -1425,7 +1454,7 @@ async def test_generate_video_scene_reference_use_tts_exposes_the_shared_cross_t
 ) -> None:
     from lib.generation_queue_client import BatchTaskResult
     from lib.reference_video.duration_slots import EXACT, DurationSlot
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
     from server.services.cost_estimation import VideoRequestQuote
 
     _use_reference_route(fake_ctx)
@@ -1512,7 +1541,7 @@ async def test_generate_video_scene_reference_use_tts_exposes_the_shared_cross_t
 
 
 async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _fake_scene_batch)
     tool_obj = generate_video_scene_tool(fake_ctx)
@@ -1530,7 +1559,7 @@ async def test_generate_video_scene_use_tts_returns_structured_blocker_without_e
         NarrationTtsStatus,
         prepare_narrated_video_duration,
     )
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     async def fake_prepare(**kwargs):
         narration = NarrationDeliveryPreparation(
@@ -1587,7 +1616,7 @@ async def test_generate_video_scene_use_tts_requires_exact_tier_and_queues_only_
         VideoRequestCostFacts,
         prepare_narrated_video_duration,
     )
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
     from server.services.cost_estimation import VideoRequestQuote
 
     async def fake_prepare(**kwargs):
@@ -1674,7 +1703,7 @@ async def test_generate_video_scene_use_tts_blocks_when_exact_cost_is_unavailabl
         VideoRequestCostFacts,
         prepare_narrated_video_duration,
     )
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     async def fake_prepare(**kwargs):
         narration = NarrationDeliveryPreparation(
@@ -1723,7 +1752,7 @@ async def test_generate_video_scene_use_tts_blocks_when_exact_cost_is_unavailabl
 
 
 async def test_generate_video_scene_accepts_legacy_drama_dialogue(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
@@ -1751,7 +1780,7 @@ async def test_generate_video_scene_accepts_legacy_drama_dialogue(fake_ctx: Tool
 
 
 async def test_generate_video_scene_accepts_speech_free_legacy_drama(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
@@ -1777,7 +1806,7 @@ async def test_generate_video_scene_accepts_speech_free_legacy_drama(fake_ctx: T
 
 
 async def test_generate_video_scene_accepts_legacy_narration_string_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
@@ -1803,7 +1832,7 @@ async def test_generate_video_episode_storyboard_batch_blocks_on_mixed_speech(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """分镜图生视频的整批入口同样过发声准入：一个混合发声条目扣下整批，零任务入队。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     project_dir = fake_ctx.pm.get_project_path("demo")
     for segment_id in ("E1S01", "E1S02"):
@@ -1851,7 +1880,7 @@ async def test_six_route_agent_single_video_generation_returns_structured_admiss
     monkeypatch,
     case: SpeechContractCase,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
         {"content_mode": case.content_mode, "generation_mode": case.generation_mode}
@@ -1903,7 +1932,7 @@ async def test_generate_video_scene_rejects_invalid_storyboard_image(
 
 
 async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -1927,7 +1956,7 @@ async def test_generate_video_all_preserves_the_selected_manual_upload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from lib.generation_queue_client import TaskSpec
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     project_path = fake_ctx.project_path
     fake_ctx.pm.project_payload.update(  # type: ignore[attr-defined]
@@ -1977,7 +2006,7 @@ async def test_generate_video_all_error(fake_ctx: ToolContext) -> None:
 
 
 async def test_generate_video_selected_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -2010,7 +2039,7 @@ def test_asset_description_gate_rejects_invalid_description() -> None:
     """空白 / 非字符串描述都拿不到可用 description，由调用方按逐 ID blocked 报告，
     不应抛错（.strip()）或漏到 from_request 而中断整批。"""
     from lib.asset_types import ASSET_SPECS
-    from server.agent_runtime.sdk_tools.enqueue_assets import _description_of, asset_unit_id
+    from server.media_tools.assets import _description_of, asset_unit_id
 
     bucket = ASSET_SPECS["character"].bucket_key
     project = {
@@ -2030,7 +2059,7 @@ def test_asset_requested_ids_resolve_nfd_registered_key() -> None:
     """Agent 给的名字与桶 key 形态可以不同：按坐标系解析后落到真实落盘 key 的 unit ID。"""
 
     from lib.asset_types import ASSET_SPECS
-    from server.agent_runtime.sdk_tools.enqueue_assets import _requested_unit_ids, asset_unit_id
+    from server.media_tools.assets import _requested_unit_ids, asset_unit_id
 
     name_nfc = unicodedata.normalize("NFC", "Hiếu")
     name_nfd = unicodedata.normalize("NFD", "Hiếu")
@@ -2308,7 +2337,7 @@ async def test_resolve_voice_context_drama_reads_project_characters_and_gate(
 
 def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     """参考生视频 prompt 只用于统一结构守卫，不冻结进任务 payload。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+    from server.media_tools.videos import _build_reference_specs
 
     units = [
         {
@@ -2326,7 +2355,7 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
 
 def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
     """正文全空白的 unit 被跳过并告警，不漏到执行层（结构校验上移到守卫点）。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+    from server.media_tools.videos import _build_reference_specs
 
     units = [
         {"unit_id": "E1U1", "text": "   \n"},
@@ -2338,7 +2367,7 @@ def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
 
 
 def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_path) -> None:
-    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+    from server.media_tools.videos import _build_reference_specs
 
     units = [
         {
@@ -2362,7 +2391,7 @@ def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_pat
 
 def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
     """unit_id 为空或键缺失（Agent 裸写 JSON 可致）在筛查处按位置记名拒收，健康的 unit 照常构造。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+    from server.media_tools.videos import _build_reference_specs
     from server.services.video_batch_admission import screen_script_entries
 
     entries = [
@@ -2380,7 +2409,7 @@ def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
 
 def test_build_reference_specs_handles_a_non_string_text(tmp_path) -> None:
     """text 为显式 null 的畸形 unit 不应崩溃整批，且不得把 'None' 注入 prompt。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
+    from server.media_tools.videos import _build_reference_specs
 
     units = [
         # text 显式 null → 被守卫点按「text 必须是字符串」拒收（不注入 'None'）。
@@ -2469,7 +2498,7 @@ async def test_generate_video_episode_reference_skips_malformed_unit_entries(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """脏 unit 元素交给逐条校验拒绝，不在完成扫描、音频闸门或时长预检抛未处理异常。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     valid = ad_reference_ctx.pm.script_payload["video_units"][0]  # type: ignore[attr-defined]
     ad_reference_ctx.pm.script_payload["video_units"] = ["bad", {}, valid]  # type: ignore[attr-defined]
@@ -2493,7 +2522,7 @@ async def test_generate_video_episode_ad_reference_enqueues_existing_video_units
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """广告/短片的参考生视频直接消费自包含 video_units，不派生或写入 reference_units。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     enqueued: list[Any] = []
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
@@ -2514,7 +2543,7 @@ async def test_generate_video_episode_ad_reference_does_not_claim_orphan_file(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """同名文件没有 generated_assets 归属时仍须入队，不能把孤儿文件报告为成功。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     orphan = ad_reference_ctx.project_path / "reference_videos/E1U1.mp4"
     orphan.parent.mkdir(parents=True, exist_ok=True)
@@ -2535,7 +2564,7 @@ async def test_generate_video_episode_ad_reference_preserves_the_selected_manual
     ad_reference_ctx: ToolContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     project_path = ad_reference_ctx.project_path
     ad_reference_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
@@ -2571,7 +2600,7 @@ async def test_generate_video_episode_reference_blocks_a_clip_whose_manifest_sta
     与 storyboard 整集路线的同一场判定必须同步处理（同一个不可读产物、两条路线）。
     """
     from lib.artifact_manifest import ArtifactBlocker, ArtifactComparison
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     project_path = ad_reference_ctx.project_path
     ad_reference_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION  # type: ignore[attr-defined]
@@ -2623,7 +2652,7 @@ async def test_generate_video_episode_ad_reference_replan_shell_cannot_enqueue(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """迁移保留的 needs_replan 空壳可被读取，但不能提交生成任务。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     ad_reference_ctx.pm.script_payload["video_units"] = [  # type: ignore[attr-defined]
         _ad_reference_unit(
@@ -2661,7 +2690,7 @@ async def test_generate_video_episode_ad_reference_replan_unit_cannot_reuse_owne
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """迁移保留的已归属视频不能绕过 needs_replan 生成闸门。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     ad_reference_ctx.pm.script_payload["video_units"] = [  # type: ignore[attr-defined]
         _ad_reference_unit(
@@ -2696,7 +2725,7 @@ async def test_generate_video_selected_ad_reference_regenerates_named_unit(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """广告点名重做沿用统一 video_unit 路径。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     enqueued: list[Any] = []
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", _successful_reference_batch(ad_reference_ctx, enqueued))
@@ -2802,7 +2831,7 @@ def test_video_generation_refuses_a_script_from_the_other_generation_mode(
 
 async def test_post_production_video_never_asks_for_the_missing_tts(fake_ctx: ToolContext, monkeypatch) -> None:
     """后期配音的视频请求既不自动补 TTS，也不把缺 TTS 报成一条待办。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.project_payload["content_mode"] = "narration"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {  # type: ignore[attr-defined]
@@ -2837,7 +2866,7 @@ async def test_generate_video_rejects_mismatched_unit_script_on_storyboard_route
 
     静默降档与悄悄换路径都不可构造——存量混排集的唯一出路是重拆重生成。
     """
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "narration",
@@ -2856,7 +2885,7 @@ async def test_generate_video_episode_rejects_mismatched_storyboard_script_on_re
     fake_ctx: ToolContext,
 ) -> None:
     """反向：参考生视频项目下的分镜骨架剧本同样被拒，指引重跑 unit 拆分。"""
-    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.media_tools import videos as mod
 
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
     tool_obj = mod.generate_video_episode_tool(fake_ctx)

@@ -3155,10 +3155,7 @@ async def execute_grid_task(
     resource_id is the grid_id. Steps:
     1. Load GridGeneration, set status to generating
     2. Generate the joint image via MediaGenerator (versioned as resource_type "grids")
-    3. Mark completed
-
-    只产出联合图，不触碰任何分镜格；落格由独立的切分操作
-    （server.services.grid_split.apply_grid_split）显式执行。
+    3. Mark completed and split the requested cells before the task settles
     """
     from lib.grid.layout import GRID_FALLBACK_RESOLUTION, grid_aspect_ratio_for
     from lib.grid.prompt_builder import build_grid_prompt
@@ -3406,6 +3403,41 @@ async def execute_grid_task(
             await run_noninterruptible_sync(frozen_references.cleanup)
 
     created_at = grid.created_at
+    unit_results: dict[str, dict[str, Any]] = {}
+    report_scene_ids = payload.get("report_scene_ids")
+    if isinstance(report_scene_ids, list) and report_scene_ids:
+        from server.services.grid_split import apply_grid_split
+
+        try:
+            with project_change_source("worker"):
+                split = await apply_grid_split(
+                    project_name,
+                    grid,
+                    only_scene_ids=frozenset(str(scene_id) for scene_id in report_scene_ids),
+                )
+            cut = set(split.updated_scene_ids)
+            for scene_id in report_scene_ids:
+                if scene_id in cut:
+                    unit_results[scene_id] = {"file_path": resource_relative_path("storyboards", scene_id)}
+                else:
+                    unit_results[scene_id] = {
+                        "problem": {
+                            "code": "generation_post_processing_failed",
+                            "detail": f"联合图已生成，但分镜 {scene_id} 未落格（已不在剧本中）",
+                            "action": "fix_input",
+                            "params": {"grid_id": grid.id},
+                        }
+                    }
+        except Exception as exc:  # noqa: BLE001
+            for scene_id in report_scene_ids:
+                unit_results[scene_id] = {
+                    "problem": {
+                        "code": "generation_post_processing_failed",
+                        "detail": f"联合图已生成，但切分落格失败（不要重新生成）: {exc}",
+                        "action": "none",
+                        "params": {"grid_id": grid.id},
+                    }
+                }
 
     return compensable_formal_task_result(
         {
@@ -3414,6 +3446,7 @@ async def execute_grid_task(
             "created_at": created_at,
             "resource_type": "grids",
             "resource_id": resource_id,
+            "unit_results": unit_results,
         },
         receipt,
     )

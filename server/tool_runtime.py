@@ -51,8 +51,10 @@ from lib.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
 from lib.generation_batch import (
+    GenerationBatchReadModel,
     GenerationBatchRequestedItem,
     GenerationBatchRequestSnapshot,
+    build_generation_batch_admission,
 )
 from lib.generation_queue import (
     ActiveTaskRequestConflict,
@@ -60,11 +62,18 @@ from lib.generation_queue import (
     GenerationQueue,
     get_generation_queue,
 )
-from lib.generation_queue_client import wait_for_task
+from lib.generation_queue_client import (
+    BatchTaskResult,
+    TaskSpec,
+    submit_generation_batch,
+    wait_for_task,
+)
 from lib.generation_result import (
     GenerationAction,
+    GenerationBatchResult,
     GenerationProblem,
     GenerationSelectionMode,
+    GenerationTargetState,
     encode_generation_problem,
     migration_problem,
     problem_from_task_failure,
@@ -184,6 +193,72 @@ class GenerationBatchToolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     batch_id: str = Field(min_length=1)
+
+
+@dataclass(frozen=True, slots=True)
+class MediaGenerationSubmission:
+    batch: GenerationBatchReadModel
+    successes: list[BatchTaskResult] | None = None
+    failures: list[BatchTaskResult] | None = None
+
+
+async def submit_media_generation(
+    *,
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+    operation: str,
+    preflight: GenerationBatchResult,
+    pending_ids: list[str],
+    specs: list[TaskSpec],
+    states: dict[str, GenerationTargetState] | None = None,
+    admission: dict[str, dict[str, Any]] | None = None,
+    embedded_waiter: Callable[..., Awaitable[tuple[list[BatchTaskResult], list[BatchTaskResult]]]] | None = None,
+) -> MediaGenerationSubmission:
+    requested, blocked = build_generation_batch_admission(
+        preflight=preflight,
+        pending_ids=pending_ids,
+        states=states,
+        admission=admission,
+    )
+    if caller.source == "mcp":
+        batch, _enqueued, _enqueue_failures = await submit_generation_batch(
+            project_name=scope.project_name,
+            operation=operation,
+            requested=requested,
+            blocked=blocked,
+            specs=specs,
+            source=caller.source,
+            user_id=caller.user_id,
+            queue=services.queue,
+        )
+        return MediaGenerationSubmission(batch=batch)
+    batch_id = await services.queue.create_generation_batch(
+        project_name=scope.project_name,
+        operation=operation,
+        requested=requested,
+        blocked=blocked,
+        source=caller.source,
+        user_id=caller.user_id,
+    )
+    if embedded_waiter is None:
+        raise ValueError("embedded media generation requires a batch waiter")
+    if specs:
+        successes, failures = await embedded_waiter(
+            project_name=scope.project_name,
+            specs=specs,
+            batch_id=batch_id,
+            queue=services.queue,
+            user_id=caller.user_id,
+        )
+    else:
+        successes, failures = [], []
+    settled = await services.queue.get_generation_batch(
+        project_name=scope.project_name,
+        batch_id=batch_id,
+        user_id=caller.user_id,
+    )
+    return MediaGenerationSubmission(batch=settled, successes=successes, failures=failures)
 
 
 async def get_generation_batch(
