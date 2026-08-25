@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from lib.async_thread import run_noninterruptible_async
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskRepository
@@ -66,6 +67,28 @@ class ActiveTaskRequestConflict(RuntimeError):
 
 class GenerationBatchNotFound(ValueError):
     pass
+
+
+async def cleanup_fresh_generation_batch(
+    queue: GenerationQueue,
+    *,
+    project_name: str,
+    batch_id: str,
+    user_id: str,
+    failure: BaseException,
+) -> None:
+    """Settle best-effort cleanup without replacing the submission failure."""
+
+    try:
+        await run_noninterruptible_async(
+            queue.delete_fresh_generation_batch(
+                project_name=project_name,
+                batch_id=batch_id,
+                user_id=user_id,
+            )
+        )
+    except BaseException as cleanup_failure:
+        failure.add_note(f"fresh batch cleanup also failed: {cleanup_failure}")
 
 
 def _narration_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, object] | None:
@@ -373,6 +396,7 @@ class GenerationQueue:
         provider_id: str | None = None,
         batch_id: str | None = None,
         batch_unit_id: str | None = None,
+        batch_unit_ids: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         # Every Web, Agent and batch generation entry reaches the queue through this
         # method, so a project whose migration failed is refused here once instead of
@@ -429,6 +453,7 @@ class GenerationQueue:
                     provider_id=provider_id,
                     batch_id=batch_id,
                     batch_unit_id=batch_unit_id,
+                    batch_unit_ids=batch_unit_ids,
                     dedupe_guard=_guard_deduped,
                 )
 
@@ -466,16 +491,26 @@ class GenerationQueue:
     ) -> str:
         validate_blocked_items(requested, blocked)
         batch_id = uuid.uuid4().hex
-        async with self._task_repo() as repo:
-            await repo.create_batch(
-                batch_id=batch_id,
+        try:
+            async with self._task_repo() as repo:
+                await repo.create_batch(
+                    batch_id=batch_id,
+                    project_name=project_name,
+                    operation=operation,
+                    requested=requested.model_dump(mode="json"),
+                    blocked=[item.model_dump(mode="json") for item in blocked],
+                    source=source,
+                    user_id=user_id,
+                )
+        except BaseException as failure:
+            await cleanup_fresh_generation_batch(
+                self,
                 project_name=project_name,
-                operation=operation,
-                requested=requested.model_dump(mode="json"),
-                blocked=[item.model_dump(mode="json") for item in blocked],
-                source=source,
+                batch_id=batch_id,
                 user_id=user_id,
+                failure=failure,
             )
+            raise
         return batch_id
 
     async def get_generation_batch(
@@ -491,6 +526,16 @@ class GenerationQueue:
         if batch is None:
             raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
         return build_generation_batch_read_model(batch, batch["memberships"], batch["queue_depth"], resolver)
+
+    async def delete_fresh_generation_batch(
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> int:
+        async with self._task_repo() as repo:
+            return await repo.delete_fresh_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
 
     async def attach_task_to_generation_batch(
         self,

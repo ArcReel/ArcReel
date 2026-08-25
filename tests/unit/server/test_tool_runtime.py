@@ -10,7 +10,9 @@ from pathlib import Path
 import pytest
 
 from lib.async_thread import run_sync_transaction
+from lib.generation_queue import ActiveTaskRequestConflict
 from lib.project_manager import ProjectManager
+from lib.project_migration_failure import ProjectMigrationError
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow_state import WorkflowStatus
@@ -20,12 +22,14 @@ from server.agent_runtime.sdk_tools import text_generation as sdk_text_generatio
 from server.tool_runtime import (
     CallerContext,
     DraftLocator,
+    GenerationBatchToolRequest,
     PatchEpisodeMetaRequest,
     PatchEpisodeScriptRequest,
     ProjectScope,
     Services,
     ToolRequest,
     get_episode_script,
+    get_generation_batch,
     get_project_content,
     get_source_text,
     get_step1_content,
@@ -158,6 +162,174 @@ async def test_video_capabilities_returns_typed_domain_outcome() -> None:
     assert outcome.problem is None
     assert outcome.value == {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
     assert projects.readonly_loads == 1
+
+
+async def test_generation_batch_remains_readable_when_project_migration_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _MigrationBlockedProjects(_Projects):
+        def get_project_path(self, name: str) -> Path:
+            assert name == "demo"
+            return Path("/projects/demo")
+
+    class _Queue:
+        calls: list[dict] = []
+
+        async def get_generation_batch(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"batch_id": "batch-1", "done": False}
+
+    def _blocked_resolver(*_args):
+        raise ProjectMigrationError("project schema is outdated")
+
+    monkeypatch.setattr(tool_runtime, "active_artifact_currency_resolver", _blocked_resolver)
+    queue = _Queue()
+    outcome = await get_generation_batch(
+        ToolRequest(GenerationBatchToolRequest(batch_id="batch-1")),
+        ProjectScope("demo", Path("/projects")),
+        CallerContext(user_id="u1", source="mcp"),
+        Services(
+            projects=_MigrationBlockedProjects({}),
+            workflow_planner=_Planner(_status()),
+            capabilities=_Capabilities(),
+            queue=queue,  # type: ignore[arg-type]
+        ),
+    )
+
+    assert outcome.value == {"batch_id": "batch-1", "done": False}
+    assert queue.calls == [
+        {
+            "project_name": "demo",
+            "batch_id": "batch-1",
+            "user_id": "u1",
+            "resolver": None,
+        }
+    ]
+
+
+async def test_text_task_service_registration_is_cleaned_when_batch_read_fails() -> None:
+    class _Queue:
+        async def get_active_tasks_for_resources(self, **_kwargs):
+            return []
+
+        async def create_generation_batch(self, **_kwargs):
+            return "batch-1"
+
+        async def is_worker_online(self, **_kwargs):
+            return True
+
+        async def enqueue_task(self, **_kwargs):
+            return {"task_id": "task-1", "deduped": False}
+
+        async def get_generation_batch(self, **_kwargs):
+            raise RuntimeError("database unavailable")
+
+        async def delete_fresh_generation_batch(self, **_kwargs):
+            raise OSError("cleanup database unavailable")
+
+    services = Services(
+        projects=_Projects({}),
+        workflow_planner=_Planner(_status()),
+        capabilities=_Capabilities(),
+        queue=_Queue(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RuntimeError, match="database unavailable") as exc_info:
+        await tool_runtime._submit_text_task(
+            task_type="text_episode_script",
+            operation="generate_episode_script",
+            unit_id="episode-1",
+            payload={},
+            scope=ProjectScope("demo", Path("/projects")),
+            caller=CallerContext(user_id="u1", source="embedded"),
+            services=services,
+        )
+
+    assert "task-1" not in tool_runtime._TEXT_TASK_SERVICES
+    assert exc_info.value.__notes__ == ["fresh batch cleanup also failed: cleanup database unavailable"]
+
+
+async def test_mcp_dedupe_does_not_remove_embedded_text_task_registration() -> None:
+    class _Queue:
+        async def get_active_tasks_for_resources(self, **_kwargs):
+            return []
+
+        async def create_generation_batch(self, **_kwargs):
+            return "batch-2"
+
+        async def is_worker_online(self, **_kwargs):
+            return True
+
+        async def enqueue_task(self, **_kwargs):
+            return {"task_id": "task-shared", "deduped": True}
+
+        async def get_generation_batch(self, **_kwargs):
+            return {"batch_id": "batch-2", "done": False}
+
+    owner = Services(projects=_Projects({}), workflow_planner=_Planner(_status()), capabilities=_Capabilities())
+    services = Services(
+        projects=_Projects({}),
+        workflow_planner=_Planner(_status()),
+        capabilities=_Capabilities(),
+        queue=_Queue(),  # type: ignore[arg-type]
+    )
+    tool_runtime._TEXT_TASK_SERVICES["task-shared"] = owner
+    try:
+        outcome = await tool_runtime._submit_text_task(
+            task_type="text_episode_script",
+            operation="generate_episode_script",
+            unit_id="episode-1",
+            payload={},
+            scope=ProjectScope("demo", Path("/projects")),
+            caller=CallerContext(user_id="u1", source="mcp"),
+            services=services,
+        )
+
+        assert outcome.value == {"batch_id": "batch-2", "done": False}
+        assert tool_runtime._TEXT_TASK_SERVICES["task-shared"] is owner
+    finally:
+        tool_runtime._TEXT_TASK_SERVICES.pop("task-shared", None)
+
+
+async def test_text_task_conflict_deletes_the_unassociated_batch() -> None:
+    class _Queue:
+        deleted: list[tuple[str, str, str]] = []
+
+        async def get_active_tasks_for_resources(self, **_kwargs):
+            return []
+
+        async def create_generation_batch(self, **_kwargs):
+            return "orphan-batch"
+
+        async def is_worker_online(self, **_kwargs):
+            return True
+
+        async def enqueue_task(self, **_kwargs):
+            raise ActiveTaskRequestConflict(resource_id="episode-1", existing_task_id="task-existing")
+
+        async def delete_fresh_generation_batch(self, *, project_name, batch_id, user_id):
+            self.deleted.append((project_name, batch_id, user_id))
+            return 1
+
+    queue = _Queue()
+    outcome = await tool_runtime._submit_text_task(
+        task_type="text_episode_script",
+        operation="generate_episode_script",
+        unit_id="episode-1",
+        payload={},
+        scope=ProjectScope("demo", Path("/projects")),
+        caller=CallerContext(user_id="u1", source="mcp"),
+        services=Services(
+            projects=_Projects({}),
+            workflow_planner=_Planner(_status()),
+            capabilities=_Capabilities(),
+            queue=queue,  # type: ignore[arg-type]
+        ),
+    )
+
+    assert outcome.problem is not None
+    assert outcome.problem.code == "generation_active_task_conflict"
+    assert queue.deleted == [("demo", "orphan-batch", "u1")]
 
 
 async def test_patch_episode_script_returns_typed_revision_conflict() -> None:

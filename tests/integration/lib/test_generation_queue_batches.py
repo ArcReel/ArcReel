@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
+from sqlalchemy import event, func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
+from lib.db.models.task import BatchTask, GenerationBatch
 from lib.db.models.user import User
 from lib.generation_batch import (
     GenerationBatchBlockedItem,
@@ -103,6 +108,93 @@ async def test_deduped_task_keeps_original_owner_and_belongs_to_both_batches(
     assert terminal.generation_result.requested == ["E1S01", "E1S02"]
     assert terminal.generation_result.succeeded == ["E1S01"]
     assert terminal.generation_result.blocked == ["E1S02"]
+
+
+async def test_fresh_batch_cleanup_waits_for_a_committing_membership(concurrent_session_factory) -> None:
+    queue = GenerationQueue(session_factory=concurrent_session_factory)
+    historical_batch = await queue.create_generation_batch(
+        project_name="demo",
+        operation="historical",
+        requested=_snapshot("E1S01"),
+        blocked=[],
+        source="mcp",
+    )
+    historical_task = await _enqueue(queue, historical_batch, "E1S01")
+    fresh_batch = await queue.create_generation_batch(
+        project_name="demo",
+        operation="generate_storyboards",
+        requested=_snapshot("E1S01"),
+        blocked=[],
+        source="mcp",
+    )
+    engine = concurrent_session_factory.kw["bind"]
+    cleanup_started = asyncio.Event()
+
+    def observe_cleanup_query(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
+        normalized = statement.lstrip().upper()
+        if "FROM BATCHES" in normalized and (normalized.startswith("DELETE") or "FOR UPDATE" in normalized):
+            cleanup_started.set()
+
+    async with concurrent_session_factory() as membership_session:
+        membership_session.add(
+            BatchTask(
+                batch_id=fresh_batch,
+                task_id=historical_task["task_id"],
+                unit_id="E1S01",
+                deduped=True,
+            )
+        )
+        await membership_session.flush()
+        event.listen(engine.sync_engine, "before_cursor_execute", observe_cleanup_query)
+        cleanup = asyncio.create_task(queue.delete_fresh_generation_batch(project_name="demo", batch_id=fresh_batch))
+        try:
+            async with asyncio.timeout(5):
+                await cleanup_started.wait()
+            await membership_session.commit()
+            assert await cleanup == 0
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", observe_cleanup_query)
+            if not cleanup.done():
+                cleanup.cancel()
+
+    submitted = await queue.get_generation_batch(project_name="demo", batch_id=fresh_batch)
+    assert [(member.task_id, member.deduped) for member in submitted.members] == [(historical_task["task_id"], True)]
+
+
+async def test_cancelled_batch_create_cleans_a_commit_before_return(concurrent_session_factory) -> None:
+    batch_committed = asyncio.Event()
+
+    class CancelAfterBatchCommitSession(AsyncSession):
+        async def commit(self) -> None:
+            pauses_after_commit = any(isinstance(row, GenerationBatch) for row in self.new)
+            await super().commit()
+            if pauses_after_commit:
+                batch_committed.set()
+                await asyncio.Event().wait()
+
+    queue = GenerationQueue(
+        session_factory=async_sessionmaker(
+            concurrent_session_factory.kw["bind"],
+            class_=CancelAfterBatchCommitSession,
+            expire_on_commit=False,
+        )
+    )
+    creating = asyncio.create_task(
+        queue.create_generation_batch(
+            project_name="demo",
+            operation="generate_storyboards",
+            requested=_snapshot("E1S01"),
+            blocked=[],
+            source="mcp",
+        )
+    )
+    await batch_committed.wait()
+    creating.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await creating
+    async with concurrent_session_factory() as session:
+        assert await session.scalar(select(func.count()).select_from(GenerationBatch)) == 0
 
 
 async def test_one_paid_task_can_project_to_every_requested_unit(
@@ -253,6 +345,32 @@ async def test_batches_and_active_dedup_are_user_scoped(batch_queue: GenerationQ
     async with session_factory() as session:
         session.add(User(id="other-user", username="other-user"))
         await session.commit()
+
+    scoped_fresh_batch = await batch_queue.create_generation_batch(
+        project_name="demo",
+        operation="generate_storyboards",
+        requested=_snapshot("fresh"),
+        blocked=[],
+        source="embedded",
+        user_id="other-user",
+    )
+    assert (
+        await batch_queue.delete_fresh_generation_batch(
+            project_name="other",
+            batch_id=scoped_fresh_batch,
+            user_id="other-user",
+        )
+        == 0
+    )
+    assert await batch_queue.delete_fresh_generation_batch(project_name="demo", batch_id=scoped_fresh_batch) == 0
+    assert (
+        await batch_queue.delete_fresh_generation_batch(
+            project_name="demo",
+            batch_id=scoped_fresh_batch,
+            user_id="other-user",
+        )
+        == 1
+    )
 
     first_batch = await batch_queue.create_generation_batch(
         project_name="demo",

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Literal
 
 import pytest
+from sqlalchemy import select
 
+from lib.db.models.task import GenerationBatch
 from lib.db.models.user import User
+from lib.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
 from lib.generation_queue import GenerationBatchNotFound, GenerationQueue
 from lib.generation_queue_client import TaskSpec, batch_enqueue_only
 from lib.generation_result import GenerationResultBuilder, GenerationSelectionMode
@@ -133,3 +137,99 @@ async def test_embedded_submission_keeps_non_default_user_on_batch_and_task(sess
     assert task is not None and task["user_id"] == "embedded-user"
     with pytest.raises(GenerationBatchNotFound):
         await queue.get_generation_batch(project_name="demo", batch_id=submission.batch.batch_id)
+
+
+@pytest.mark.parametrize("source", ["mcp", "embedded"])
+@pytest.mark.parametrize("cancel_state", ["fresh", "task", "membership"])
+async def test_media_submission_cancellation_only_cleans_a_fresh_batch(
+    session_factory,
+    tmp_path: Path,
+    source: Literal["mcp", "embedded"],
+    cancel_state: str,
+) -> None:
+    reached_cancel_seam = asyncio.Event()
+
+    class CancellationQueue(GenerationQueue):
+        async def enqueue_task(self, **kwargs):
+            if cancel_state == "fresh":
+                reached_cancel_seam.set()
+                await asyncio.Event().wait()
+            return await super().enqueue_task(**kwargs)
+
+        async def get_generation_batch(self, **kwargs):
+            if cancel_state != "fresh" and not reached_cancel_seam.is_set():
+                reached_cancel_seam.set()
+                await asyncio.Event().wait()
+            return await super().get_generation_batch(**kwargs)
+
+    queue = CancellationQueue(session_factory=session_factory)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+    historical_batch_id = await queue.create_generation_batch(
+        project_name="demo",
+        operation="historical",
+        requested=GenerationBatchRequestSnapshot(
+            selection=GenerationSelectionMode.EXPLICIT,
+            requested=[GenerationBatchRequestedItem(unit_id="E1S01" if cancel_state == "membership" else "old")],
+        ),
+        blocked=[],
+        source=source,
+    )
+    historical_task = await GenerationQueue.enqueue_task(
+        queue,
+        project_name="demo",
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01" if cancel_state == "membership" else "old",
+        script_file="episode_01.json",
+        batch_id=historical_batch_id,
+        batch_unit_id="E1S01" if cancel_state == "membership" else "old",
+    )
+    services = Services(
+        projects=ProjectManager(tmp_path), workflow_planner=_Planner(), capabilities=_Capabilities(), queue=queue
+    )
+    spec = TaskSpec(
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01",
+        script_file="episode_01.json",
+        source="mcp",
+        unit_id="E1S01",
+    )
+
+    submission = asyncio.create_task(
+        submit_media_generation(
+            scope=ProjectScope(project_name="demo", projects_root=tmp_path),
+            caller=CallerContext(user_id="default", source=source),
+            services=services,
+            operation="generate_storyboards",
+            preflight=GenerationResultBuilder("generate_storyboards", GenerationSelectionMode.EXPLICIT).build(),
+            pending_ids=["E1S01"],
+            specs=[spec],
+            embedded_waiter=_enqueue_without_wait if source == "embedded" else None,
+        )
+    )
+    await reached_cancel_seam.wait()
+    submission.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await submission
+
+    async with session_factory() as session:
+        batch_ids = set((await session.scalars(select(GenerationBatch.batch_id))).all())
+    if cancel_state != "fresh":
+        submitted_batch_id = (batch_ids - {historical_batch_id}).pop()
+        submitted = await GenerationQueue.get_generation_batch(queue, project_name="demo", batch_id=submitted_batch_id)
+        assert [member.unit_id for member in submitted.members] == ["E1S01"]
+        assert submitted.members[0].deduped is (cancel_state == "membership")
+        if cancel_state == "membership":
+            assert submitted.members[0].task_id == historical_task["task_id"]
+        else:
+            submitted_task_id = submitted.members[0].task_id
+            assert submitted_task_id is not None
+            submitted_task = await queue.get_task(submitted_task_id)
+            assert submitted_task is not None and submitted_task["batch_id"] == submitted_batch_id
+    else:
+        assert batch_ids == {historical_batch_id}
+    historical = await GenerationQueue.get_generation_batch(queue, project_name="demo", batch_id=historical_batch_id)
+    assert [(member.unit_id, member.task_id) for member in historical.members] == [
+        ("E1S01" if cancel_state == "membership" else "old", historical_task["task_id"])
+    ]
