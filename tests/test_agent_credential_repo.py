@@ -108,3 +108,26 @@ async def test_update_partial(async_session) -> None:
 async def test_get_active_when_none(async_session) -> None:
     repo = AgentCredentialRepository(async_session)
     assert await repo.get_active() is None
+
+
+@pytest.mark.asyncio
+async def test_account_scoped_operations_cannot_access_another_users_credential(async_session) -> None:
+    repo = AgentCredentialRepository(async_session)
+    credential = await repo.create(
+        preset_id="deepseek",
+        display_name="User A",
+        base_url="https://api.deepseek.com/anthropic",
+        api_key="secret-a",
+        user_id="user-a",
+    )
+    await async_session.flush()
+
+    assert await repo.get(credential.id, "user-b") is None
+    assert await repo.update(credential.id, user_id="user-b", display_name="stolen") is None
+    assert await repo.delete(credential.id, "user-b") is False
+    with pytest.raises(ValueError, match="not found"):
+        await repo.set_active(credential.id, "user-b")
+
+    unchanged = await repo.get(credential.id, "user-a")
+    assert unchanged is not None
+    assert unchanged.display_name == "User A"

@@ -654,6 +654,8 @@ export default {
   'character_catalog_kicker': '人物资产渠道',
   'character_catalog_supabase_title': 'Supabase',
   'character_catalog_supabase_desc': '配置 Croco 发布角色目录。保存配置不会自动同步；请到人物资产库手动点击“同步资产库”。',
+  'character_catalog_centrally_managed': '人物资产渠道由数据中台全局管理，本地仅可查看。',
+  'centrally_managed': '中台分配',
   'character_catalog_api_url_label': 'CROCO_CHARACTERS_API_URL',
   'character_catalog_api_token_label': 'CROCO_CHARACTERS_API_TOKEN',
   'character_catalog_api_token_placeholder': '输入新令牌（留空则保留已配置令牌）',

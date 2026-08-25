@@ -29,6 +29,20 @@ const PROVIDERS = [
   provider("doubao", "火山 TTS", true),
 ];
 
+const AGENT_PROVIDERS = [
+  agentProvider("anthropic-official", "Anthropic Official", "https://api.anthropic.com", ""),
+  agentProvider("arcreel", "ArcReel API", "https://api.arc-reel.com", "gpt-5.5"),
+  agentProvider("deepseek", "DeepSeek", "https://api.deepseek.com/anthropic", "deepseek-v4-pro"),
+  agentProvider("kimi", "Kimi For Coding", "https://api.kimi.com/coding", ""),
+  agentProvider("xiaomi-mimo", "Xiaomi MiMo", "https://api.xiaomimimo.com/anthropic", "mimo-v2.5-pro"),
+  agentProvider("glm-cn", "Zhipu GLM (中国)", "https://open.bigmodel.cn/api/anthropic", "glm-5.1"),
+  agentProvider("glm-intl", "Zhipu GLM (Global)", "https://api.z.ai/api/anthropic", "glm-5.1"),
+  agentProvider("minimax-cn", "MiniMax (中国)", "https://api.minimaxi.com/anthropic", "MiniMax-M3"),
+  agentProvider("minimax-intl", "MiniMax (Global)", "https://api.minimax.io/anthropic", "MiniMax-M3"),
+  agentProvider("ark-coding-plan", "Volcengine Ark Coding Plan", "https://ark.cn-beijing.volces.com/api/coding", ""),
+  agentProvider("ark-agent-plan", "Volcengine Ark Agent Plan", "https://ark.cn-beijing.volces.com/api/plan", ""),
+];
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -41,7 +55,14 @@ Deno.serve(async (req) => {
         system_id: "arcreel",
         roles: [{ id: "admin", name: "管理员" }, { id: "user", name: "普通用户" }],
         providers: PROVIDERS,
+        agent_providers: AGENT_PROVIDERS,
+        global_configs: [{ id: "character_catalog", name: "人物资产渠道", scope: "global" }],
       });
+    }
+    if (path[0] === "global-configs" && path[1] === "character-catalog") {
+      if (req.method === "GET") return await getCharacterCatalog();
+      if (req.method === "PUT") return await putCharacterCatalog(req);
+      if (req.method === "DELETE") return await deleteCharacterCatalog();
     }
     if (path[0] !== "accounts") return notFound();
     if (req.method === "GET" && path.length === 1) return await listAccounts(req);
@@ -50,6 +71,11 @@ Deno.serve(async (req) => {
     if (!accountId) return notFound();
     if (req.method === "PATCH" && path.length === 2) return await updateAccount(req, accountId);
     if (req.method === "POST" && path[2] === "reset-password") return await resetPassword(req, accountId);
+    if (path[2] === "agent-credential") {
+      if (req.method === "GET") return await getAgentCredential(accountId);
+      if (req.method === "PUT") return await putAgentCredential(req, accountId);
+      if (req.method === "DELETE") return await deleteAgentCredential(accountId);
+    }
     if (path[2] === "credentials") {
       if (req.method === "GET" && path.length === 3) return await listCredentials(accountId);
       const providerId = path[3];
@@ -196,6 +222,90 @@ async function deleteCredential(accountId: string, providerId: string) {
   return new Response(null, { status: 204, headers: cors });
 }
 
+async function getAgentCredential(accountId: string) {
+  await requireAccount(accountId);
+  const { data, error } = await admin().from("arcreel_agent_credentials")
+    .select("masked_hint,revision,updated_at").eq("user_id", accountId).maybeSingle();
+  if (error) throw error;
+  return json({ account_id: accountId, configured: Boolean(data), credential: data ?? null });
+}
+
+async function putAgentCredential(req: Request, accountId: string) {
+  await requireAccount(accountId);
+  const body = await readJson(req);
+  const presetId = String(body.preset_id ?? "").trim();
+  const preset = AGENT_PROVIDERS.find((item) => item.id === presetId);
+  if (!preset) throw new HttpError(400, "AGENT_PROVIDER_INVALID", "请选择有效的 Agent 供应商");
+  const apiKey = String(body.api_key ?? "").trim();
+  if (!apiKey) throw new HttpError(400, "AGENT_API_KEY_REQUIRED", "请输入 Agent API Key");
+  const baseUrl = validateHttpUrl(String(body.base_url ?? preset.base_url).trim(), "Agent 服务地址无效");
+  const payload: Record<string, string> = {
+    preset_id: presetId,
+    display_name: optional(body.display_name) || preset.name,
+    base_url: baseUrl,
+    api_key: apiKey,
+  };
+  for (const key of ["model", "haiku_model", "sonnet_model", "opus_model", "subagent_model"]) {
+    const value = optional(body[key]);
+    if (value) payload[key] = value;
+  }
+  if (!payload.model && preset.default_model) payload.model = preset.default_model;
+  const client = admin();
+  const { data: existing } = await client.from("arcreel_agent_credentials")
+    .select("revision").eq("user_id", accountId).maybeSingle();
+  const revision = Number(existing?.revision || 0) + 1;
+  const { data, error } = await client.from("arcreel_agent_credentials").upsert({
+    user_id: accountId,
+    encrypted_payload: await encryptPayload(payload),
+    masked_hint: { preset_id: presetId, display_name: payload.display_name, base_url: baseUrl, api_key: mask(apiKey) },
+    revision,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id" }).select("masked_hint,revision,updated_at").single();
+  if (error) throw error;
+  return json({ account_id: accountId, configured: true, credential: data });
+}
+
+async function deleteAgentCredential(accountId: string) {
+  await requireAccount(accountId);
+  const { error } = await admin().from("arcreel_agent_credentials").delete().eq("user_id", accountId);
+  if (error) throw error;
+  return new Response(null, { status: 204, headers: cors });
+}
+
+async function getCharacterCatalog() {
+  const { data, error } = await admin().from("arcreel_global_configs")
+    .select("masked_hint,revision,updated_at").eq("config_key", "character_catalog").maybeSingle();
+  if (error) throw error;
+  return json({ config_key: "character_catalog", scope: "global", configured: Boolean(data), config: data ?? null });
+}
+
+async function putCharacterCatalog(req: Request) {
+  const body = await readJson(req);
+  const apiUrl = validateHttpUrl(String(body.api_url ?? "").trim(), "人物资产渠道地址无效");
+  const apiToken = String(body.api_token ?? "").trim();
+  if (!apiToken) throw new HttpError(400, "CHARACTER_CATALOG_TOKEN_REQUIRED", "请输入人物资产渠道 Token");
+  const payload = { api_url: apiUrl, api_token: apiToken };
+  const client = admin();
+  const { data: existing } = await client.from("arcreel_global_configs")
+    .select("revision").eq("config_key", "character_catalog").maybeSingle();
+  const revision = Number(existing?.revision || 0) + 1;
+  const { data, error } = await client.from("arcreel_global_configs").upsert({
+    config_key: "character_catalog",
+    encrypted_payload: await encryptPayload(payload),
+    masked_hint: { api_url: apiUrl, api_token: mask(apiToken) },
+    revision,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "config_key" }).select("masked_hint,revision,updated_at").single();
+  if (error) throw error;
+  return json({ config_key: "character_catalog", scope: "global", configured: true, config: data });
+}
+
+async function deleteCharacterCatalog() {
+  const { error } = await admin().from("arcreel_global_configs").delete().eq("config_key", "character_catalog");
+  if (error) throw error;
+  return new Response(null, { status: 204, headers: cors });
+}
+
 async function requireAccount(accountId: string) {
   const { data } = await admin().from("arcreel_profiles").select("id").eq("id", accountId).maybeSingle();
   if (!data) throw new HttpError(404, "ACCOUNT_NOT_FOUND", "账号不存在");
@@ -261,4 +371,18 @@ function provider(id: string, name: string, supportsBaseUrl: boolean) {
     secret_field_groups: [["api_key"]],
     supports_base_url: supportsBaseUrl,
   };
+}
+
+function agentProvider(id: string, name: string, baseUrl: string, defaultModel: string) {
+  return { id, name, base_url: baseUrl, default_model: defaultModel };
+}
+
+function validateHttpUrl(value: string, message: string) {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("protocol");
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    throw new HttpError(400, "URL_INVALID", message);
+  }
 }

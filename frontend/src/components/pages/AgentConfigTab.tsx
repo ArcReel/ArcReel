@@ -100,6 +100,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   // 渲染期读取 savedRef.current 仅用于浅比较 isDirty，不写入 ref。
   // eslint-disable-next-line react-hooks/refs
   const isDirty = !deepEqual(draft, savedRef.current);
+  const catalogCentrallyManaged =
+    remoteData?.settings.croco_characters_management_source === "arcreel_cloud";
   useWarnUnsaved(isDirty);
 
   const updateDraft = useCallback(
@@ -186,7 +188,9 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         >
           <div className="space-y-4">
             <p className="text-[11.5px] leading-[1.6] text-text-4">
-              {t("character_catalog_supabase_desc")}
+              {catalogCentrallyManaged
+                ? t("character_catalog_centrally_managed")
+                : t("character_catalog_supabase_desc")}
             </p>
             <div>
               <FieldLabel htmlFor="croco-characters-api-url">
@@ -200,7 +204,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 placeholder="https://…/functions/v1/character-catalog-export"
                 autoComplete="url"
                 className={`${INPUT_CLS} mt-1.5 w-full`}
-                disabled={saving}
+                disabled={saving || catalogCentrallyManaged}
               />
             </div>
             <div>
@@ -222,7 +226,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 placeholder={t("character_catalog_api_token_placeholder")}
                 autoComplete="new-password"
                 className={`${INPUT_CLS} mt-1.5 w-full`}
-                disabled={saving}
+                disabled={saving || catalogCentrallyManaged}
               />
             </div>
           </div>

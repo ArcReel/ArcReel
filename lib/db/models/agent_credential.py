@@ -18,6 +18,12 @@ class AgentAnthropicCredential(TimestampMixin, Base):
     __tablename__ = "agent_anthropic_credentials"
     __table_args__ = (
         Index("ix_agent_credential_user", "user_id"),
+        Index(
+            "uq_agent_credential_user_management_source",
+            "user_id",
+            "management_source",
+            unique=True,
+        ),
         # 每个 user 至多一条 is_active=True
         Index(
             "uq_agent_credential_one_active_per_user",
@@ -40,3 +46,5 @@ class AgentAnthropicCredential(TimestampMixin, Base):
     opus_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     subagent_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    management_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    management_revision: Mapped[int | None] = mapped_column(nullable=True)

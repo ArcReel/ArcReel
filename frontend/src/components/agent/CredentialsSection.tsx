@@ -53,6 +53,9 @@ export function CredentialsSection() {
   }, [loadCreds]);
 
   const credentialsRef = useRef<AgentCredential[]>([]);
+  const centrallyManaged = credentials.some(
+    (credential) => credential.management_source === "arcreel_cloud",
+  );
   useEffect(() => {
     credentialsRef.current = credentials;
   }, [credentials]);
@@ -163,7 +166,7 @@ export function CredentialsSection() {
         kicker="Credentials"
         title={t("agent_credentials")}
         description={t("anthropic_key_required_desc")}
-        trailing={
+        trailing={!centrallyManaged ? (
           <button
             type="button"
             onClick={() => setAddModalOpen(true)}
@@ -171,7 +174,7 @@ export function CredentialsSection() {
           >
             + {t("add_credential")}
           </button>
-        }
+        ) : undefined}
       >
         <CredentialList
           credentials={credentials}

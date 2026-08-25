@@ -203,6 +203,8 @@ async def _apply_snapshot(
     raw_credentials: list[object],
     *,
     management_source: str = "account_center",
+    agent_credential: object = None,
+    global_configs: object = None,
 ) -> None:
     repo = CredentialRepository(session, user_id)
     configured: set[str] = set()
@@ -259,6 +261,114 @@ async def _apply_snapshot(
     for credential in managed.scalars():
         if credential.provider not in configured:
             await repo.delete(credential.id)
+
+    if management_source == "arcreel_cloud":
+        await _apply_agent_credential(session, user_id, revision, agent_credential)
+        await _apply_character_catalog(session, revision, global_configs)
+
+
+async def _apply_agent_credential(
+    session: AsyncSession,
+    user_id: str,
+    revision: int,
+    raw_credential: object,
+) -> None:
+    from lib.agent_provider_catalog import get_preset
+    from lib.db.models.agent_credential import AgentAnthropicCredential
+    from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+
+    result = await session.execute(
+        select(AgentAnthropicCredential).where(
+            AgentAnthropicCredential.user_id == user_id,
+            AgentAnthropicCredential.management_source == "arcreel_cloud",
+        )
+    )
+    managed = result.scalar_one_or_none()
+    repo = AgentCredentialRepository(session)
+    if raw_credential is None:
+        if managed is not None:
+            was_active = managed.is_active
+            managed.is_active = False
+            await session.flush()
+            await session.delete(managed)
+            await session.flush()
+            if was_active:
+                remaining = await repo.list_for_user(user_id)
+                if remaining:
+                    await repo.set_active(remaining[0].id, user_id)
+        return
+    if not isinstance(raw_credential, dict):
+        raise ValueError("Agent 供应商配置格式无效")
+    preset_id = str(raw_credential.get("preset_id") or "").strip()
+    preset = get_preset(preset_id)
+    if preset is None:
+        raise ValueError(f"不支持的 Agent 供应商：{preset_id}")
+    api_key = _optional_secret(raw_credential.get("api_key"))
+    base_url = _optional_secret(raw_credential.get("base_url")) or preset.messages_url
+    if not api_key:
+        raise ValueError("Agent 供应商 API Key 不能为空")
+    values = {
+        "preset_id": preset_id,
+        "display_name": str(raw_credential.get("display_name") or preset.display_name)[:128],
+        "base_url": base_url,
+        "api_key": api_key,
+        "model": _optional_secret(raw_credential.get("model")) or preset.default_model or None,
+        "haiku_model": _optional_secret(raw_credential.get("haiku_model")),
+        "sonnet_model": _optional_secret(raw_credential.get("sonnet_model")),
+        "opus_model": _optional_secret(raw_credential.get("opus_model")),
+        "subagent_model": _optional_secret(raw_credential.get("subagent_model")),
+        "management_revision": revision,
+    }
+    if managed is None:
+        managed = await repo.create(
+            user_id=user_id,
+            management_source="arcreel_cloud",
+            **values,
+        )
+    else:
+        managed = await repo.update(managed.id, user_id=user_id, **values)
+    if managed is None:
+        raise ValueError("Agent 供应商配置保存失败")
+    managed.management_source = "arcreel_cloud"
+    await repo.set_active(managed.id, user_id)
+
+
+async def _apply_character_catalog(
+    session: AsyncSession,
+    revision: int,
+    raw_global_configs: object,
+) -> None:
+    from lib.character_catalog import validate_character_catalog_url
+    from lib.config.repository import SystemSettingRepository
+
+    repo = SystemSettingRepository(session)
+    source_key = "croco_characters_management_source"
+    revision_key = "croco_characters_management_revision"
+    character_catalog = (
+        raw_global_configs.get("character_catalog")
+        if isinstance(raw_global_configs, dict)
+        else None
+    )
+    if character_catalog is None:
+        if await repo.get(source_key) == "arcreel_cloud":
+            for key in (
+                "croco_characters_api_url",
+                "croco_characters_api_token",
+                source_key,
+                revision_key,
+            ):
+                await repo.delete(key)
+        return
+    if not isinstance(character_catalog, dict):
+        raise ValueError("人物资产渠道配置格式无效")
+    api_url = validate_character_catalog_url(str(character_catalog.get("api_url") or "").strip())
+    api_token = str(character_catalog.get("api_token") or "").strip()
+    if not api_token:
+        raise ValueError("人物资产渠道 Token 不能为空")
+    await repo.set("croco_characters_api_url", api_url)
+    await repo.set("croco_characters_api_token", api_token)
+    await repo.set(source_key, "arcreel_cloud")
+    await repo.set(revision_key, str(revision))
 
 
 async def _mark_failed(session: AsyncSession, user_id: str, message: str) -> None:

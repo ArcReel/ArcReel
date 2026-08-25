@@ -65,19 +65,43 @@ async function me(req: Request) {
 
 async function config(req: Request) {
   const profile = await authenticatedProfile(req);
-  const { data, error } = await adminClient()
-    .from("arcreel_provider_credentials")
-    .select("provider_id,encrypted_payload,revision,updated_at")
-    .eq("user_id", profile.id)
-    .order("provider_id");
-  if (error) throw error;
+  const client = adminClient();
+  const [providerResult, agentResult, globalResult] = await Promise.all([
+    client.from("arcreel_provider_credentials")
+      .select("provider_id,encrypted_payload,revision,updated_at")
+      .eq("user_id", profile.id).order("provider_id"),
+    client.from("arcreel_agent_credentials")
+      .select("encrypted_payload,revision,updated_at").eq("user_id", profile.id).maybeSingle(),
+    client.from("arcreel_global_configs")
+      .select("encrypted_payload,revision,updated_at").eq("config_key", "character_catalog").maybeSingle(),
+  ]);
+  if (providerResult.error) throw providerResult.error;
+  if (agentResult.error) throw agentResult.error;
+  if (globalResult.error) throw globalResult.error;
   const credentials: Record<string, string>[] = [];
   let revision = 0;
-  for (const row of data ?? []) {
+  for (const row of providerResult.data ?? []) {
     credentials.push({ provider_id: row.provider_id, ...await decryptPayload(String(row.encrypted_payload)) });
     revision = Math.max(revision, Number(row.revision) || 0);
   }
-  return json({ user: publicProfile(profile), revision, credentials });
+  const agentCredential = agentResult.data
+    ? await decryptPayload(String(agentResult.data.encrypted_payload))
+    : null;
+  const characterCatalog = globalResult.data
+    ? await decryptPayload(String(globalResult.data.encrypted_payload))
+    : null;
+  revision = Math.max(
+    revision,
+    Number(agentResult.data?.revision) || 0,
+    Number(globalResult.data?.revision) || 0,
+  );
+  return json({
+    user: publicProfile(profile),
+    revision,
+    credentials,
+    agent_credential: agentCredential,
+    global_configs: { character_catalog: characterCatalog },
+  });
 }
 
 async function authenticatedProfile(req: Request): Promise<Profile> {

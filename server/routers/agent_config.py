@@ -22,6 +22,7 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 from lib.i18n import Translator
+from server.auth import current_request_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class CredentialResponse(BaseModel):
     opus_model: str | None
     subagent_model: str | None
     is_active: bool
+    management_source: str | None
     created_at: str | None
 
 
@@ -140,6 +142,7 @@ def _cred_to_response(cred) -> CredentialResponse:
         opus_model=cred.opus_model,
         subagent_model=cred.subagent_model,
         is_active=cred.is_active,
+        management_source=cred.management_source,
         created_at=dt_to_iso(cred.created_at),
     )
 
@@ -153,7 +156,7 @@ async def list_credentials(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialListResponse:
     repo = AgentCredentialRepository(session)
-    creds = await repo.list_for_user()
+    creds = await repo.list_for_user(current_request_user_id())
     return CredentialListResponse(credentials=[_cred_to_response(c) for c in creds])
 
 
@@ -178,6 +181,7 @@ async def create_credential(
         model = body.model
 
     repo = AgentCredentialRepository(session)
+    user_id = current_request_user_id()
     cred = await repo.create(
         preset_id=body.preset_id,
         display_name=display_name,
@@ -188,15 +192,22 @@ async def create_credential(
         sonnet_model=body.sonnet_model,
         opus_model=body.opus_model,
         subagent_model=body.subagent_model,
+        user_id=user_id,
     )
     # 自动 active 策略：activate=True，或 (activate=None 且当前无 active)
     should_activate = body.activate is True
     if body.activate is None:
-        existing_active = await repo.get_active()
+        existing_active = await repo.get_active(user_id)
         if existing_active is None:
             should_activate = True
+    central = next(
+        (item for item in await repo.list_for_user(user_id) if item.management_source == "arcreel_cloud"),
+        None,
+    )
+    if central is not None:
+        should_activate = False
     if should_activate:
-        await repo.set_active(cred.id)
+        await repo.set_active(cred.id, user_id)
     await session.commit()
     await session.refresh(cred)
     return _cred_to_response(cred)
@@ -210,6 +221,7 @@ async def update_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     repo = AgentCredentialRepository(session)
+    user_id = current_request_user_id()
     # exclude_unset 保留客户端显式传入的 None（用于清空 model/haiku_model 等可选覆盖项）
     # 必需字段 (display_name/base_url/api_key) 仍过滤 None：传 null 给它们没有意义
     fields = body.model_dump(exclude_unset=True)
@@ -218,7 +230,10 @@ async def update_credential(
             fields.pop(required, None)
     if not fields:
         raise HTTPException(status_code=400, detail=_t("agent_no_fields_to_update"))
-    cred = await repo.update(cred_id, **fields)
+    existing = await repo.get(cred_id, user_id)
+    if existing is not None and existing.management_source == "arcreel_cloud":
+        raise HTTPException(status_code=409, detail=_t("agent_credential_centrally_managed"))
+    cred = await repo.update(cred_id, user_id=user_id, **fields)
     if cred is None:
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
     await session.commit()
@@ -232,8 +247,12 @@ async def delete_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
     repo = AgentCredentialRepository(session)
+    user_id = current_request_user_id()
+    existing = await repo.get(cred_id, user_id)
+    if existing is not None and existing.management_source == "arcreel_cloud":
+        raise HTTPException(status_code=409, detail=_t("agent_credential_centrally_managed"))
     try:
-        deleted = await repo.delete(cred_id)
+        deleted = await repo.delete(cred_id, user_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=_t("agent_cannot_delete_active")) from exc
     if not deleted:
@@ -255,8 +274,15 @@ async def activate_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> ActivateResponse:
     repo = AgentCredentialRepository(session)
+    user_id = current_request_user_id()
+    central = next(
+        (item for item in await repo.list_for_user(user_id) if item.management_source == "arcreel_cloud"),
+        None,
+    )
+    if central is not None and central.id != cred_id:
+        raise HTTPException(status_code=409, detail=_t("agent_credential_centrally_managed"))
     try:
-        await repo.set_active(cred_id)
+        await repo.set_active(cred_id, user_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found")) from exc
     await session.commit()
@@ -351,7 +377,7 @@ async def test_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> TestConnectionResponseModel:
     repo = AgentCredentialRepository(session)
-    cred = await repo.get(cred_id)
+    cred = await repo.get(cred_id, current_request_user_id())
     if cred is None:
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
     return await _run_and_serialize(

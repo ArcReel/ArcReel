@@ -167,6 +167,7 @@ class TestGetSystemConfig:
             "narration_speed",
             "croco_characters_api_url",
             "croco_characters_api_token",
+            "croco_characters_management_source",
             "model_settings",
         }
         assert set(settings.keys()) == expected_keys

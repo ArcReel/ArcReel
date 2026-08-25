@@ -104,6 +104,8 @@ async def login_with_cloud(session: AsyncSession, username: str, password: str) 
         revision,
         credentials,
         management_source="arcreel_cloud",
+        agent_credential=config_payload.get("agent_credential"),
+        global_configs=config_payload.get("global_configs"),
     )
     cloud_session = await session.get(ArcReelCloudSession, user.id)
     if cloud_session is None:
@@ -159,6 +161,8 @@ async def sync_cloud_user(user_id: str) -> bool:
                 revision,
                 credentials,
                 management_source="arcreel_cloud",
+                agent_credential=config_payload.get("agent_credential"),
+                global_configs=config_payload.get("global_configs"),
             )
             user = await session.get(User, user_id)
             if user is not None:

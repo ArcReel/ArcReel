@@ -414,6 +414,8 @@ MESSAGES = {
     "agent_no_fields_to_update": "Không có trường nào để cập nhật",
     "agent_credential_not_found": "Không tìm thấy xác thực",
     "agent_cannot_delete_active": "Không thể xóa xác thực đang hoạt động; hãy kích hoạt xác thực khác trước",
+    "agent_credential_centrally_managed": "Nhà cung cấp Agent này do trung tâm dữ liệu quản lý. Hãy thay đổi tại trung tâm dữ liệu.",
+    "character_catalog_centrally_managed": "Kênh tài sản nhân vật được trung tâm dữ liệu quản lý toàn cục.",
     "agent_test_validation_error": "Kiểm tra kết nối thất bại; vui lòng kiểm tra cấu hình và thử lại",
     "invalid_project_name": "Tên dự án '{name}' không hợp lệ",
     "invalid_script_file": "Tên tệp kịch bản '{name}' không hợp lệ",

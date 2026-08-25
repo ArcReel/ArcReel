@@ -655,6 +655,8 @@ export default {
   'character_catalog_kicker': 'Character Asset Channel',
   'character_catalog_supabase_title': 'Supabase',
   'character_catalog_supabase_desc': 'Configure the published Croco character catalog. Saving does not sync automatically; use Sync Library in the character asset library.',
+  'character_catalog_centrally_managed': 'The character asset channel is globally managed by the data center and is read-only here.',
+  'centrally_managed': 'Centrally managed',
   'character_catalog_api_url_label': 'CROCO_CHARACTERS_API_URL',
   'character_catalog_api_token_label': 'CROCO_CHARACTERS_API_TOKEN',
   'character_catalog_api_token_placeholder': 'Enter a new token (leave blank to keep the configured token)',

@@ -4,6 +4,8 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from lib.config.repository import SystemSettingRepository
+from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.models.credential import ProviderCredential
 from lib.db.models.user import ArcReelCloudSession, User
 from server.services import arcreel_cloud
@@ -78,6 +80,19 @@ async def test_cloud_login_creates_stable_shadow_user_and_applies_scoped_credent
                         "base_url": "https://api.example.com/v1",
                     }
                 ],
+                "agent_credential": {
+                    "preset_id": "deepseek",
+                    "display_name": "Alice Agent",
+                    "base_url": "https://api.deepseek.com/anthropic",
+                    "api_key": "agent-alice-secret",
+                    "model": "deepseek-v4-pro",
+                },
+                "global_configs": {
+                    "character_catalog": {
+                        "api_url": "https://catalog.example/functions/v1/export",
+                        "api_token": "global-catalog-secret",
+                    }
+                },
             },
         )
 
@@ -105,6 +120,18 @@ async def test_cloud_login_creates_stable_shadow_user_and_applies_scoped_credent
         assert credentials[0].provider == "openai"
         assert credentials[0].api_key == "sk-alice"
         assert credentials[0].management_source == "arcreel_cloud"
+
+        agent_credentials = list((await session.execute(select(AgentAnthropicCredential))).scalars())
+        assert len(agent_credentials) == 1
+        assert agent_credentials[0].user_id == first_id
+        assert agent_credentials[0].api_key == "agent-alice-secret"
+        assert agent_credentials[0].management_source == "arcreel_cloud"
+        assert agent_credentials[0].is_active is True
+
+        settings = await SystemSettingRepository(session).get_all()
+        assert settings["croco_characters_api_url"] == "https://catalog.example/functions/v1/export"
+        assert settings["croco_characters_api_token"] == "global-catalog-secret"
+        assert settings["croco_characters_management_source"] == "arcreel_cloud"
 
 
 async def test_cloud_login_reuses_unbound_same_name_user(db_factory, monkeypatch):

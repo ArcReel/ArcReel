@@ -48,6 +48,7 @@ export function CredentialList({
     <ul className="grid gap-2.5">
       {credentials.map((c) => {
         const showResult = testedId === c.id && testResult;
+        const isCentrallyManaged = c.management_source === "arcreel_cloud";
         return (
           <li key={c.id}>
             <div
@@ -68,6 +69,11 @@ export function CredentialList({
                     <span className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-accent">
                       <CheckCircle className="h-2.5 w-2.5" aria-hidden />
                       {t("is_active")}
+                    </span>
+                  )}
+                  {isCentrallyManaged && (
+                    <span className="rounded-full border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[9px] text-accent">
+                      {t("centrally_managed")}
                     </span>
                   )}
                 </div>
@@ -92,7 +98,7 @@ export function CredentialList({
                   )}
                   {busyId === c.id ? t("cred_testing") : t("cred_test_label")}
                 </button>
-                {!c.is_active && (
+                {!c.is_active && !isCentrallyManaged && (
                   <button
                     type="button"
                     onClick={() => onActivate(c.id)}
@@ -102,24 +108,28 @@ export function CredentialList({
                     {t("cred_activate_label")}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => onEdit(c)}
-                  className={ICON_BTN_CLS}
-                  aria-label={t("cred_edit_label")}
-                >
-                  <Edit2 className="h-3.5 w-3.5" aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(c.id)}
-                  disabled={c.is_active || busyId === c.id}
-                  className={ICON_BTN_CLS}
-                  aria-label={t("cred_delete_label")}
-                  title={c.is_active ? t("cred_delete_active_blocked") : undefined}
-                >
-                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                </button>
+                {!isCentrallyManaged && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onEdit(c)}
+                      className={ICON_BTN_CLS}
+                      aria-label={t("cred_edit_label")}
+                    >
+                      <Edit2 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(c.id)}
+                      disabled={c.is_active || busyId === c.id}
+                      className={ICON_BTN_CLS}
+                      aria-label={t("cred_delete_label")}
+                      title={c.is_active ? t("cred_delete_active_blocked") : undefined}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             {showResult && (

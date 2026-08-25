@@ -37,6 +37,7 @@ export interface AgentCredential {
   opus_model: string | null;
   subagent_model: string | null;
   is_active: boolean;
+  management_source?: string | null;
   created_at: string | null;
 }
 

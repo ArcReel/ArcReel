@@ -361,6 +361,8 @@ MESSAGES = {
     "agent_no_fields_to_update": "没有需要更新的字段",
     "agent_credential_not_found": "凭证不存在",
     "agent_cannot_delete_active": "无法删除当前活跃凭证，请先切换到其他凭证",
+    "agent_credential_centrally_managed": "该 Agent 供应商由数据中台统一管理，请在数据中台修改",
+    "character_catalog_centrally_managed": "人物资产渠道由数据中台全局管理，请在数据中台修改",
     "agent_test_validation_error": "测试连接失败，请检查配置后重试",
     "invalid_project_name": "项目名称 '{name}' 非法",
     "invalid_script_file": "脚本文件名 '{name}' 非法",

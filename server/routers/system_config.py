@@ -36,6 +36,7 @@ from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.httpx_shared import get_http_client
 from lib.i18n import Translator
+from server.auth import current_request_user_id
 from server.dependencies import get_config_service
 from server.routers._validators import validate_backend_value
 
@@ -318,7 +319,7 @@ async def get_system_config(
     if not anthropic_key:
         from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
-        active_cred = await AgentCredentialRepository(session).get_active()
+        active_cred = await AgentCredentialRepository(session).get_active(current_request_user_id())
         if active_cred is not None:
             anthropic_key = active_cred.api_key
 
@@ -356,6 +357,7 @@ async def get_system_config(
                 mask_secret(all_s["croco_characters_api_token"]) if all_s.get("croco_characters_api_token") else None
             ),
         },
+        "croco_characters_management_source": all_s.get("croco_characters_management_source") or None,
         "text_backend_simple": all_s.get("text_backend_simple") or "",
         "text_backend_complex": all_s.get("text_backend_complex") or "",
         "model_settings": parse_model_settings(all_s.get("model_settings")),
@@ -441,6 +443,12 @@ async def patch_system_config(
     patch: dict[str, Any] = {}
     for field_name in req.model_fields_set:
         patch[field_name] = getattr(req, field_name)
+
+    if (
+        {"croco_characters_api_url", "croco_characters_api_token"} & patch.keys()
+        and await svc.get_setting("croco_characters_management_source") == "arcreel_cloud"
+    ):
+        raise HTTPException(status_code=409, detail=_t("character_catalog_centrally_managed"))
 
     # Validate backend references (empty string = auto-resolve)
     for backend_key in (

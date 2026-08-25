@@ -414,6 +414,8 @@ MESSAGES = {
     "agent_no_fields_to_update": "No fields to update",
     "agent_credential_not_found": "Credential not found",
     "agent_cannot_delete_active": "Cannot delete the active credential; activate another first",
+    "agent_credential_centrally_managed": "This Agent provider is centrally managed. Change it in the data center.",
+    "character_catalog_centrally_managed": "The character asset channel is globally managed by the data center.",
     "agent_test_validation_error": "Test connection failed; please check the configuration and retry",
     "invalid_project_name": "Invalid project name '{name}'",
     "invalid_script_file": "Invalid script file '{name}'",

@@ -28,6 +28,8 @@ class AgentCredentialRepository(BaseRepository):
         opus_model: str | None = None,
         subagent_model: str | None = None,
         user_id: str = DEFAULT_USER_ID,
+        management_source: str | None = None,
+        management_revision: int | None = None,
     ) -> AgentAnthropicCredential:
         cred = AgentAnthropicCredential(
             user_id=user_id,
@@ -41,13 +43,20 @@ class AgentCredentialRepository(BaseRepository):
             opus_model=opus_model,
             subagent_model=subagent_model,
             is_active=False,
+            management_source=management_source,
+            management_revision=management_revision,
         )
         self.session.add(cred)
         await self.session.flush()
         return cred
 
-    async def get(self, cred_id: int) -> AgentAnthropicCredential | None:
-        stmt = select(AgentAnthropicCredential).where(AgentAnthropicCredential.id == cred_id)
+    async def get(
+        self, cred_id: int, user_id: str = DEFAULT_USER_ID
+    ) -> AgentAnthropicCredential | None:
+        stmt = select(AgentAnthropicCredential).where(
+            AgentAnthropicCredential.id == cred_id,
+            AgentAnthropicCredential.user_id == user_id,
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -68,8 +77,10 @@ class AgentCredentialRepository(BaseRepository):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def update(self, cred_id: int, **kwargs) -> AgentAnthropicCredential | None:
-        cred = await self.get(cred_id)
+    async def update(
+        self, cred_id: int, *, user_id: str = DEFAULT_USER_ID, **kwargs
+    ) -> AgentAnthropicCredential | None:
+        cred = await self.get(cred_id, user_id)
         if cred is None:
             return None
         for k, v in kwargs.items():
@@ -83,7 +94,7 @@ class AgentCredentialRepository(BaseRepository):
         Raises:
             ValueError: cred_id 不存在或不属于该 user
         """
-        cred = await self.get(cred_id)
+        cred = await self.get(cred_id, user_id)
         if cred is None or cred.user_id != user_id:
             raise ValueError(f"credential id={cred_id} not found")
         # SQLite 的 partial unique index 在同事务内中间态可能违反，所以先全清再设
@@ -99,7 +110,7 @@ class AgentCredentialRepository(BaseRepository):
         cred.is_active = True
         await self.session.flush()
 
-    async def delete(self, cred_id: int) -> bool:
+    async def delete(self, cred_id: int, user_id: str = DEFAULT_USER_ID) -> bool:
         """删除非 active 凭证。
 
         Returns:
@@ -108,11 +119,16 @@ class AgentCredentialRepository(BaseRepository):
         Raises:
             ValueError: 试图删除当前 active 凭证。
         """
-        cred = await self.get(cred_id)
+        cred = await self.get(cred_id, user_id)
         if cred is None:
             return False
         if cred.is_active:
             raise ValueError("cannot delete active credential; activate another first")
-        await self.session.execute(delete(AgentAnthropicCredential).where(AgentAnthropicCredential.id == cred_id))
+        await self.session.execute(
+            delete(AgentAnthropicCredential).where(
+                AgentAnthropicCredential.id == cred_id,
+                AgentAnthropicCredential.user_id == user_id,
+            )
+        )
         await self.session.flush()
         return True

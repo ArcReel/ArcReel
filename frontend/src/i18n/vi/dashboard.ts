@@ -648,6 +648,8 @@ export default {
   'character_catalog_kicker': 'Kênh tài sản nhân vật',
   'character_catalog_supabase_title': 'Supabase',
   'character_catalog_supabase_desc': 'Cấu hình danh mục nhân vật Croco đã xuất bản. Việc lưu không tự đồng đồng bộ; hãy dùng Đồng bộ thư viện trong thư viện tài sản nhân vật.',
+  'character_catalog_centrally_managed': 'Kênh tài sản nhân vật được trung tâm dữ liệu quản lý toàn cục và chỉ đọc tại đây.',
+  'centrally_managed': 'Quản lý tập trung',
   'character_catalog_api_url_label': 'CROCO_CHARACTERS_API_URL',
   'character_catalog_api_token_label': 'CROCO_CHARACTERS_API_TOKEN',
   'character_catalog_api_token_placeholder': 'Nhập token mới (để trống để giữ token đã cấu hình)',
