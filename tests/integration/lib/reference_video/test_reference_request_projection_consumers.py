@@ -176,12 +176,13 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 ),
             )
 
-        agent_response = await videos.generate_video_scene_tool(
+        agent_response = await videos.generate_videos_tool(
             ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)  # type: ignore[arg-type]
         ).handler(
             {
                 "script": "ep1.json",
-                "scene_id": "E1U1",
+                "target": {"scope": "scene", "ids": ["E1U1"]},
+                "force": True,
                 "narration_delivery": USE_TTS,
             }
         )

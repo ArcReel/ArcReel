@@ -195,6 +195,30 @@ def test_ad_variant_names_the_registered_video_tools() -> None:
         assert f"mcp__arcreel__{tool_id}" in content
 
 
+@pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
+def test_workflow_variants_force_explicit_video_targets(filename: str) -> None:
+    content = _skill(filename)
+    selected = content.index('"scope": "selected", "ids": requested_ids')
+
+    assert '"force": true' in content[selected : selected + 180]
+
+
+def test_profile_has_no_retired_video_tools_or_batch_resume_guidance() -> None:
+    content = "\n".join(
+        path.read_text(encoding="utf-8") for path in PROFILE.rglob("*") if path.suffix in {".json", ".md", ".py"}
+    )
+
+    for retired in (
+        "generate_video_episode",
+        "generate_video_scene",
+        "generate_video_all",
+        "generate_video_selected",
+    ):
+        assert retired not in content
+    assert "--resume" not in content
+    assert ".checkpoint_" not in content
+
+
 def test_asset_analysis_subagent_names_its_registered_tool() -> None:
     content = (PROFILE / ".claude" / "agents" / "analyze-assets.md").read_text(encoding="utf-8")
 

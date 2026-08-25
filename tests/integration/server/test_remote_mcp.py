@@ -263,6 +263,10 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
         "open_step1_for_edit",
         "validate_and_promote_draft",
         "get_episode_script_revision",
+        "generate_video_episode",
+        "generate_video_scene",
+        "generate_video_all",
+        "generate_video_selected",
     }
     listed = {tool.name: tool for tool in tools.tools}
     assert set(listed) == set(ARCREEL_MCP_TOOL_IDS)
@@ -273,6 +277,23 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
         for name in migrated | readers | drafts | text_and_script | batches
     )
     assert all(listed[name].inputSchema["properties"]["episode"]["minimum"] == 1 for name in drafts)
+    video_properties = listed["generate_videos"].inputSchema["properties"]
+    assert "resume" not in video_properties
+    assert "confirmed_request_duration_seconds" in video_properties
+    assert "confirmed_request_durations" in video_properties
+    assert {"narration_voice", "narration_speed", "narration_volume"}.isdisjoint(video_properties)
+    video_schema = listed["generate_videos"].inputSchema
+    target_schema = video_properties["target"]
+    mapping = target_schema["discriminator"]["mapping"]
+    assert set(mapping) == {"episode", "scene", "all", "selected"}
+    target_defs = {scope: video_schema["$defs"][reference.rsplit("/", 1)[-1]] for scope, reference in mapping.items()}
+    assert target_defs["episode"]["required"] == ["scope", "episode"]
+    assert target_defs["scene"]["required"] == ["scope", "ids"]
+    assert target_defs["scene"]["properties"]["ids"]["maxItems"] == 1
+    assert target_defs["selected"]["required"] == ["scope", "ids"]
+    assert target_defs["selected"]["properties"]["ids"]["minItems"] == 1
+    assert target_defs["all"]["required"] == ["scope"]
+    assert all(definition["additionalProperties"] is False for definition in target_defs.values())
     assert "base_revision" in listed["discard_draft"].inputSchema["required"]
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1

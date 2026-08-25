@@ -933,10 +933,7 @@ _OPERATION_LABELS: dict[str, str] = {
     "generate_grid": "多宫格分镜生成",
     "generate_narration_audio": "旁白配音生成",
     "edit_images": "图片编辑",
-    "generate_video_episode": "整集视频生成",
-    "generate_video_scene": "单条视频生成",
-    "generate_video_all": "待生成视频批量生成",
-    "generate_video_selected": "点名视频生成",
+    "generate_videos": "视频生成",
 }
 _FALLBACK_OPERATION_LABEL = "生成"
 

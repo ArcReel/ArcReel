@@ -348,7 +348,7 @@ async def test_planner_hands_the_submitted_visual_prompt_to_the_admission(
     )
 
     def _specs(**_kwargs: Any):
-        return [spec], {"E1S01": 0}, []
+        return [spec], []
 
     captured: dict[str, Any] = {}
 
@@ -395,7 +395,7 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
     )
 
     def _specs(**_kwargs: Any):
-        return [spec], {"E1S01": 0}, []
+        return [spec], []
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
     monkeypatch.setattr(workflow_planner, "build_storyboard_video_specs", _specs)
