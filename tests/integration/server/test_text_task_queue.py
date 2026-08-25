@@ -38,7 +38,6 @@ from server.tool_runtime import (
 async def test_all_text_long_calls_submit_single_member_batches(
     tmp_path: Path,
     file_db_factory,
-    monkeypatch,
     project_name: str,
     content_mode: str,
     generation_mode: str,
@@ -49,7 +48,7 @@ async def test_all_text_long_calls_submit_single_member_batches(
     projects.create_project(project_name, content_mode=content_mode)
     projects.create_project_metadata(project_name, project_name, "", content_mode)
     projects.update_project(project_name, lambda project: project.update(generation_mode=generation_mode))
-    queue = GenerationQueue(session_factory=file_db_factory)
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
     services = Services(
         projects=projects,
         workflow_planner=object(),  # type: ignore[arg-type]
@@ -58,8 +57,6 @@ async def test_all_text_long_calls_submit_single_member_batches(
     )
     scope = ProjectScope(project_name=project_name, projects_root=projects.projects_root)
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
-    monkeypatch.setattr("lib.generation_queue.assert_project_migration_ok", lambda _project: None)
-
     if handler == "script":
         outcome = await generate_episode_script(ToolRequest(TextGenerationRequest(episode=1)), scope, caller, services)
     elif handler == "step1":

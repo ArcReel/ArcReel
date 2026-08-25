@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from lib.db.base import DEFAULT_USER_ID
 from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_STEP1, read_quarantine
 from lib.generation_queue import GenerationQueue
 from lib.generation_worker import CapacityTable, GenerationWorker
@@ -22,13 +23,14 @@ from server.agent_runtime.sdk_tools.text_generation import generate_episode_scri
 from server.auth import create_download_token, create_token
 from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
+from server.media_tools.definition import media_outcome_payload
 from server.media_tools.grid import generate_grid_tool
 from server.media_tools.image_edits import edit_images_tool
 from server.media_tools.narration_audio import generate_narration_audio_tool
 from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
-from server.tool_runtime import Services
+from server.tool_runtime import CallerContext, Services
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import _call
 
 
@@ -67,6 +69,10 @@ class _Planner:
 class _Capabilities:
     async def video_capabilities_for_project(self, project: dict, *, capability=None) -> dict:
         return {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
+
+    async def resolve_image_backend(self, _project: dict, _payload: object, *, capability: str) -> None:
+        assert capability == "i2i"
+        raise ValueError("image capability unavailable")
 
 
 @pytest.fixture
@@ -376,8 +382,25 @@ async def test_media_errors_are_typed_in_embedded_and_remote_hosts(
     assert remote.structuredContent == {"problem": embedded.problem.model_dump(mode="json")}
 
 
-async def test_remote_media_runtime_validates_and_forwards_with_the_shared_schema(remote_server) -> None:
+async def test_remote_media_runtime_validates_and_forwards_with_the_shared_schema(
+    remote_server, remote_projects: ProjectManager
+) -> None:
     """共享 schema 允许的扩展字段须到达 handler，不能被手写 FastMCP 参数模型拒绝。"""
+    args = {
+        "resource_type": "character",
+        "edits": [{"id": "张三", "instruction": "改成红发", "meta": 5}],
+    }
+    definition = edit_images_tool(
+        ToolContext(
+            "demo",
+            remote_projects.projects_root,
+            pm=remote_projects,
+            config_resolver=_Capabilities(),  # type: ignore[arg-type]
+            caller=CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
+        )
+    )
+    shared = await definition.invoke(args)
+    expected, _, _ = media_outcome_payload(definition, shared)
     app = _mounted(remote_server)
     async with remote_server.session_manager.run():
         async with httpx.AsyncClient(
@@ -391,19 +414,20 @@ async def test_remote_media_runtime_validates_and_forwards_with_the_shared_schem
                     await session.initialize()
                     result = await session.call_tool(
                         "edit_images",
-                        {
-                            "project": "demo",
-                            "resource_type": "character",
-                            "edits": [{"id": "张三", "instruction": "改成红发", "meta": 5}],
-                        },
+                        {"project": "demo", **args},
                     )
                     invalid = await session.call_tool(
                         "generate_assets",
                         {"project": "demo", "type": "not-an-asset-type"},
                     )
 
+    assert shared.problem is None
+    assert expected["generation_batch"]["generation_result"]["requested"] == ["张三"]
+    assert expected["generation_batch"]["generation_result"]["blocked"] == ["张三"]
+    assert not result.isError
     assert result.structuredContent is not None
-    assert "problem" in result.structuredContent
+    remote_outcome = result.structuredContent["generation_batch"]["generation_result"]
+    assert remote_outcome == expected["generation_batch"]["generation_result"]
 
     assert invalid.isError
     assert invalid.structuredContent is not None
@@ -621,11 +645,11 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
 
 
 async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_best_effort(
-    tmp_path: Path, file_db_factory, monkeypatch
+    tmp_path: Path, file_db_factory
 ) -> None:
     class RecordingQueue(GenerationQueue):
-        def __init__(self) -> None:
-            super().__init__(session_factory=file_db_factory)
+        def __init__(self, projects: ProjectManager) -> None:
+            super().__init__(session_factory=file_db_factory, project_manager=projects)
             self.batch_ids: list[str] = []
             self.deduped = asyncio.Event()
 
@@ -643,7 +667,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("demo", content_mode="ad")
     projects.create_project_metadata("demo", "Demo", "", "ad", target_duration=30, brief="卖点")
-    queue = RecordingQueue()
+    queue = RecordingQueue(projects)
     services = Services(projects=projects, workflow_planner=_Planner(), capabilities=_Capabilities(), queue=queue)
 
     async def verify_api_key(token: str):
@@ -658,7 +682,8 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
     cancelled = asyncio.Event()
     release = asyncio.Event()
 
-    async def noninterruptible_text(_task):
+    async def noninterruptible_text(_task, *, claimed_provider_id=None):
+        del claimed_provider_id
         started.set()
         try:
             await release.wait()
@@ -670,12 +695,11 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
     async def text_provider(_task):
         return "text"
 
-    monkeypatch.setattr("server.tool_runtime.execute_queued_text_task", noninterruptible_text)
-    monkeypatch.setattr("lib.generation_queue.assert_project_migration_ok", lambda _project: None)
     worker = GenerationWorker(
         queue=queue,
         capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
         provider_projection=text_provider,
+        executor=noninterruptible_text,
         lanes=("text",),
     )
     worker.poll_interval = 0.01
