@@ -86,7 +86,7 @@ class BatchTask(Base):
 
     batch_id: Mapped[str] = mapped_column(ForeignKey("batches.batch_id", ondelete="CASCADE"), primary_key=True)
     task_id: Mapped[str] = mapped_column(ForeignKey("tasks.task_id"), primary_key=True)
-    unit_id: Mapped[str] = mapped_column(String, nullable=False)
+    unit_id: Mapped[str] = mapped_column(String, primary_key=True)
     deduped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (UniqueConstraint("batch_id", "unit_id", name="uq_batch_tasks_batch_unit"),)

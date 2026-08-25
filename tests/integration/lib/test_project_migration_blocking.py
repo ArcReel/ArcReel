@@ -31,10 +31,10 @@ from lib.workflow_plan import WorkflowPlanRequest
 from lib.workflow_state import WorkflowStateService
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
-from server.agent_runtime.sdk_tools.enqueue_assets import list_pending_assets_tool
 from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
+from server.media_tools.assets import list_pending_assets_tool
 from server.services.workflow_planner import WorkflowPlanner
 from tests.integration.lib.project_migrations.test_project_migration_v7_v8 import _project
 

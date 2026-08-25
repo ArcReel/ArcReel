@@ -36,12 +36,10 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 | 操作 | 工具 |
 |------|------|
-| 整集生成（默认操作） | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery})` |
-| 断点续传 | `mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery, "resume": true})` |
-| 单分镜 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1S01", "narration_delivery": chosen_narration_delivery})` |
-| 批量自选 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1S01", "E1S05", "E1S10"], "narration_delivery": chosen_narration_delivery})` |
-| 自选 + 续传 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": [...], "narration_delivery": chosen_narration_delivery, "resume": true})` |
-| 全部待处理（独立模式） | `mcp__arcreel__generate_video_all({"script": "episode_1.json", "narration_delivery": chosen_narration_delivery})` |
+| 整集生成（默认操作） | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode"}, "narration_delivery": chosen_narration_delivery})` |
+| 单分镜 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1S01"]}, "narration_delivery": chosen_narration_delivery})` |
+| 批量自选 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1S01", "E1S05", "E1S10"]}, "narration_delivery": chosen_narration_delivery})` |
+| 全部待处理 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "all"}, "narration_delivery": chosen_narration_delivery})` |
 
 每次调用都必须带 `narration_delivery`（见「旁白交付」）：省略或写错值一律返回工具错误、不入队任何任务。
 上表的 `chosen_narration_delivery` 是占位符，调用前换成本次已向用户确认的那个值，不要照抄一个具体值。
@@ -54,8 +52,8 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 | 操作 | 工具 |
 |------|------|
-| 重新生成单个视频单元 | `mcp__arcreel__generate_video_scene({"script": "episode_1.json", "scene_id": "E1U2", "narration_delivery": chosen_narration_delivery})` |
-| 重新生成多个视频单元 | `mcp__arcreel__generate_video_selected({"script": "episode_1.json", "scene_ids": ["E1U2", "E1U3"], "narration_delivery": chosen_narration_delivery})` |
+| 重新生成单个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1U2"]}, "force": true, "narration_delivery": chosen_narration_delivery})` |
+| 重新生成多个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1U2", "E1U3"]}, "force": true, "narration_delivery": chosen_narration_delivery})` |
 
 一次调用完成入队、等待与结果回报：
 
@@ -97,8 +95,8 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 不会退回后期配音把用户选的「使用当前 TTS」悄悄换掉：
 
 ```text
-mcp__arcreel__generate_video_episode({"script": "episode_1.json", "narration_delivery": "use_tts",
-                                      "confirmed_request_durations": {"E1U1": 8}})
+mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode"},
+                               "narration_delivery": "use_tts", "confirmed_request_durations": {"E1U1": 8}})
 ```
 
 被拒时逐视频单元报告 `unit_id`、`problem.code`、原因与 `problem.action`；通过的视频单元带

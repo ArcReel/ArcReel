@@ -8,7 +8,7 @@ import pytest
 
 from lib.project_manager import ProjectManager
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.enqueue_assets import (
+from server.media_tools.assets import (
     generate_assets_tool,
     list_pending_assets_tool,
 )
@@ -35,7 +35,7 @@ async def test_list_pending_assets_happy(fake_ctx: ToolContext) -> None:
 
 
 async def test_pending_asset_tools_include_an_unclaimed_schema8_sheet(tmp_path: Path, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_assets as mod
+    from server.media_tools import assets as mod
 
     projects_root = tmp_path / "projects"
     pm = ProjectManager(projects_root)
@@ -74,7 +74,7 @@ async def test_list_pending_assets_error(fake_ctx: ToolContext, monkeypatch) -> 
 
 
 async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_assets as mod
+    from server.media_tools import assets as mod
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
         from lib.generation_queue_client import BatchTaskResult
@@ -105,7 +105,7 @@ async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None
 async def test_generate_assets_legacy_project_reverifies_sheet_file_on_disk(fake_ctx: ToolContext, monkeypatch) -> None:
     """预激活 Manifest 的旧项目：metadata 记了 sheet 路径但文件已被删/挪走时，
     missing-only 不能只信 metadata 就把它当复用，否则永远生不出真正缺失的资产图。"""
-    from server.agent_runtime.sdk_tools import enqueue_assets as mod
+    from server.media_tools import assets as mod
 
     # 未设置当前 schema：resolver 走 legacy 分支（没有 active Manifest）。
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
@@ -147,7 +147,7 @@ async def test_generate_assets_legacy_project_reverifies_sheet_file_on_disk(fake
 
 async def test_generate_assets_rejects_an_explicitly_empty_name_list(fake_ctx: ToolContext, monkeypatch) -> None:
     """``names: []`` 是调用方错误，绝不能被当成「全部缺图资产」去扫全库付费。"""
-    from server.agent_runtime.sdk_tools import enqueue_assets as mod
+    from server.media_tools import assets as mod
 
     async def fail_batch(**_kwargs):
         raise AssertionError("空选择不该入队任何任务")

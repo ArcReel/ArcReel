@@ -1,4 +1,4 @@
-"""Shared media fixtures retained for SDK adapter integration tests."""
+"""Fixtures for host-neutral media tool tests."""
 
 from tests.integration.server.media_tools.fixtures import (
     _stub_audio_switch_guard,

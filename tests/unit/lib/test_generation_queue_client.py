@@ -379,7 +379,7 @@ class TestBatchEnqueueAndWaitSync:
         ]
 
         specs = [
-            TaskSpec(task_type="character", media_type="image", resource_id="张三"),
+            TaskSpec(task_type="character", media_type="image", resource_id="张三", unit_id="character/张三"),
             TaskSpec(task_type="character", media_type="image", resource_id="李四"),
         ]
         successes, failures = batch_enqueue_and_wait_sync(
@@ -388,8 +388,9 @@ class TestBatchEnqueueAndWaitSync:
         )
 
         assert len(successes) == 2
+        assert successes[0].resource_id == "character/张三"
         assert len(failures) == 0
-        assert {s.resource_id for s in successes} == {"张三", "李四"}
+        assert {s.resource_id for s in successes} == {"character/张三", "李四"}
         assert mock_enqueue.call_count == 2
         assert mock_wait.call_count == 2
 

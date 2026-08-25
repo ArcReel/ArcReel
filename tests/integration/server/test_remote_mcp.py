@@ -17,6 +17,7 @@ from lib.project_migration_failure import MIGRATION_FAILURE_CODE, record_migrati
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow_state import WorkflowStatus
+from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
 from server.auth import create_download_token, create_token
@@ -99,6 +100,28 @@ def remote_server(remote_projects: ProjectManager):
     services = Services(projects=remote_projects, workflow_planner=_Planner(), capabilities=_Capabilities())
     return build_remote_mcp_server(
         projects=remote_projects, services=services, token_verifier=ArcApiKeyVerifier(verify_api_key)
+    )
+
+
+@pytest.fixture
+def remote_batch_server(remote_projects: ProjectManager, db_factory):
+    async def verify_api_key(token: str):
+        return {"sub": "apikey:test", "via": "apikey"} if token == "arc-valid" else None
+
+    queue = GenerationQueue(session_factory=db_factory)
+    services = Services(
+        projects=remote_projects,
+        workflow_planner=_Planner(),
+        capabilities=_Capabilities(),
+        queue=queue,
+    )
+    return (
+        build_remote_mcp_server(
+            projects=remote_projects,
+            services=services,
+            token_verifier=ArcApiKeyVerifier(verify_api_key),
+        ),
+        queue,
     )
 
 
@@ -242,6 +265,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
         "get_episode_script_revision",
     }
     listed = {tool.name: tool for tool in tools.tools}
+    assert set(listed) == set(ARCREEL_MCP_TOOL_IDS)
     assert migrated | readers | drafts | text_and_script | batches <= listed.keys()
     assert retired.isdisjoint(listed)
     assert all(
@@ -274,6 +298,63 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
     assert nonexistent.isError
     assert empty.isError
     assert escape.isError
+
+
+async def test_remote_media_submission_returns_complete_durable_batch_and_dedupes(
+    remote_batch_server,
+    remote_projects: ProjectManager,
+) -> None:
+    remote_batch_server, queue = remote_batch_server
+    project = remote_projects.load_project("demo")
+    project["characters"] = {
+        "张三": {"description": "黑衣剑客"},
+        "李四": {"description": ""},
+    }
+    remote_projects.save_project("demo", project)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+
+    app = _mounted(remote_batch_server)
+    async with remote_batch_server.session_manager.run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client:
+            async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    first = await session.call_tool(
+                        "generate_assets",
+                        {"project": "demo", "type": "character", "names": ["张三", "李四"]},
+                    )
+                    second = await session.call_tool(
+                        "generate_assets",
+                        {"project": "demo", "type": "character", "names": ["张三", "李四"]},
+                    )
+                    first_batch = first.structuredContent["generation_batch"]
+                    second_batch = second.structuredContent["generation_batch"]
+                    cancelled = await session.call_tool(
+                        "cancel_generation_batch",
+                        {"project": "demo", "batch_id": second_batch["batch_id"]},
+                    )
+                    reread = await session.call_tool(
+                        "get_generation_batch",
+                        {"project": "demo", "batch_id": first_batch["batch_id"]},
+                    )
+
+    assert not first.isError and not second.isError
+    assert first_batch["batch_id"] != second_batch["batch_id"]
+    assert first_batch["poll_after_seconds"] > 0
+    assert [(member["unit_id"], member["status"]) for member in first_batch["members"]] == [
+        ("character/张三", "queued"),
+        ("character/李四", "blocked"),
+    ]
+    assert first_batch["members"][0]["task_id"] == second_batch["members"][0]["task_id"]
+    assert second_batch["members"][0]["deduped"] is True
+    assert len((await queue.list_tasks(project_name="demo"))["items"]) == 1
+    assert not cancelled.isError and not reread.isError
+    assert reread.structuredContent["generation_batch"]["members"][0]["status"] == "cancelled"
 
 
 async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> None:

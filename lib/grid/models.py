@@ -267,6 +267,7 @@ def build_grid_task_payload(
     cols: int,
     grid_aspect_ratio: str,
     video_aspect_ratio: str,
+    report_scene_ids: list[str] | None = None,
 ) -> dict:
     """宫格生成任务入队 payload 的唯一构造点，HTTP 路由与 SDK 工具共用。
 
@@ -285,4 +286,5 @@ def build_grid_task_payload(
         "cols": cols,
         "grid_aspect_ratio": grid_aspect_ratio,
         "video_aspect_ratio": video_aspect_ratio,
+        "report_scene_ids": report_scene_ids,
     }

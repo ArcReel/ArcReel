@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from server.agent_runtime.sdk_tools._context import ToolContext
-from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
+from server.media_tools.storyboards import generate_storyboards_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _activate_unbound_project,
     _call,
@@ -21,8 +21,39 @@ pytestmark = pytest.mark.usefixtures("_stub_audio_switch_guard", "_stub_referenc
 # ---------------------------------------------------------------------------
 
 
+class TestBuildPrompt:
+    def test_structured_no_duplicate_style(self) -> None:
+        from server.media_tools.storyboards import _build_prompt
+
+        segment = {
+            "segment_id": "E1S01",
+            "image_prompt": {
+                "scene": "村口黄昏",
+                "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
+            },
+        }
+        out = _build_prompt(segment, "画风：真人电视剧风格", "Soft light", "segment_id")
+
+        assert out.count("Style:") == 1
+        assert "画风：" not in out
+        assert "Style: 真人电视剧风格" in out
+        assert out.startswith("Visual style: Soft light")
+
+    def test_unstructured_keeps_style_prefix_normalized(self) -> None:
+        from server.media_tools.storyboards import _build_prompt
+
+        segment = {"segment_id": "E1S02", "image_prompt": "村口黄昏的长镜头"}
+        out = _build_prompt(segment, "画风：真人电视剧风格", "", "segment_id")
+
+        assert out.count("Style:") == 1
+        assert "画风：" not in out
+        assert out.startswith("Style: 真人电视剧风格")
+        assert "\n\n村口黄昏的长镜头\n\n" in out
+        assert out.endswith("画面避免：水印、多余文字、Logo。")
+
+
 async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+    from server.media_tools import storyboards as mod
 
     captured: list[Any] = []
 
@@ -60,7 +91,7 @@ async def test_generate_storyboards_legacy_project_reverifies_image_file_on_disk
 ) -> None:
     """预激活 Manifest 的旧项目：剧本登记了分镜图路径但文件不在磁盘上时判为缺口重生；
     文件真在时照旧复用，不重复付费。"""
-    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+    from server.media_tools import storyboards as mod
 
     # E1S01 的分镜图由 fixture 落在磁盘上；E1S02 只在剧本里登记路径，文件并不存在。
     fake_ctx.pm.script_payload["segments"].append(  # type: ignore[attr-defined]
@@ -104,7 +135,7 @@ async def test_generate_storyboards_rejects_unbound_active_script_before_enqueue
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+    from server.media_tools import storyboards as mod
 
     _activate_unbound_project(fake_ctx)
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}  # type: ignore[attr-defined]
@@ -128,7 +159,7 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
-    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+    from server.media_tools import storyboards as mod
 
     captured: list[Any] = []
 
@@ -182,7 +213,7 @@ async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) ->
 
 async def test_generate_storyboards_reports_a_partial_batch_per_id(fake_ctx: ToolContext, monkeypatch) -> None:
     """一批里有成有败时逐 ID 分账，失败项带稳定 code，不需要读文本判断重试。"""
-    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+    from server.media_tools import storyboards as mod
 
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
         {"segment_id": "E1S01", "image_prompt": "村口黄昏", "generated_assets": {}},

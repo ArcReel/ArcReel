@@ -15,8 +15,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation_batch import (
+    GenerationBatchBlockedItem,
+    GenerationBatchReadModel,
+    GenerationBatchRequestSnapshot,
+)
 from lib.generation_queue import (
     TASK_WORKER_LEASE_TTL_SEC,
+    GenerationQueue,
     get_generation_queue,
     read_queue_poll_interval,
 )
@@ -80,10 +86,10 @@ async def wait_for_task(
     task_id: str,
     poll_interval: float | None = None,
     *,
-    queue=None,
     timeout_seconds: float | None = None,
     lease_name: str = "default",
     worker_offline_grace_seconds: float | None = None,
+    queue: GenerationQueue | None = None,
 ) -> dict[str, Any]:
     queue = queue or get_generation_queue()
     interval = poll_interval if poll_interval is not None else read_queue_poll_interval()
@@ -193,8 +199,9 @@ async def enqueue_task_only(
     user_id: str = DEFAULT_USER_ID,
     batch_id: str | None = None,
     batch_unit_id: str | None = None,
+    queue: GenerationQueue | None = None,
 ) -> dict[str, Any]:
-    queue = get_generation_queue()
+    queue = queue or get_generation_queue()
 
     if not await queue.is_worker_online(name=lease_name):
         raise WorkerOfflineError("queue worker is offline")
@@ -392,6 +399,7 @@ class TaskSpec:
     dependency_group: str | None = None
     dependency_index: int | None = None
     unit_id: str | None = None
+    batch_unit_ids: tuple[str, ...] = ()
 
     @classmethod
     def from_request(
@@ -408,6 +416,7 @@ class TaskSpec:
         dependency_group: str | None = None,
         dependency_index: int | None = None,
         unit_id: str | None = None,
+        batch_unit_ids: tuple[str, ...] = (),
     ) -> TaskSpec:
         """Validate a request structurally and build a :class:`TaskSpec`.
 
@@ -455,6 +464,7 @@ class TaskSpec:
             dependency_group=dependency_group,
             dependency_index=dependency_index,
             unit_id=unit_id,
+            batch_unit_ids=batch_unit_ids,
         )
 
 
@@ -524,6 +534,7 @@ async def _enqueue_sequentially(
     stop_on_failure: bool,
     user_id: str = DEFAULT_USER_ID,
     batch_id: str | None = None,
+    queue: GenerationQueue | None = None,
 ) -> tuple[list[EnqueuedTask], list[BatchTaskResult]]:
     """Queue *specs* in order, resolving each dependency against its predecessor.
 
@@ -548,7 +559,7 @@ async def _enqueue_sequentially(
         if spec.dependency_resource_id and spec.dependency_resource_id in failed_resource_ids:
             failures.append(
                 BatchTaskResult(
-                    resource_id=spec.resource_id,
+                    resource_id=spec.unit_id or spec.resource_id,
                     task_id="",
                     status="failed",
                     error=f"dependency {spec.dependency_resource_id} failed to enqueue",
@@ -575,11 +586,24 @@ async def _enqueue_sequentially(
                 user_id=user_id,
                 batch_id=batch_id,
                 batch_unit_id=(spec.unit_id or spec.resource_id) if batch_id is not None else None,
+                queue=queue,
             )
+            if batch_id is not None:
+                primary_unit_id = spec.unit_id or spec.resource_id
+                for unit_id in spec.batch_unit_ids:
+                    if unit_id != primary_unit_id:
+                        await (queue or get_generation_queue()).attach_task_to_generation_batch(
+                            project_name=project_name,
+                            batch_id=batch_id,
+                            task_id=enqueue_result["task_id"],
+                            unit_id=unit_id,
+                            user_id=user_id,
+                            deduped=bool(enqueue_result.get("deduped")),
+                        )
         except Exception as exc:  # noqa: BLE001
             failures.append(
                 BatchTaskResult(
-                    resource_id=spec.resource_id,
+                    resource_id=spec.unit_id or spec.resource_id,
                     task_id="",
                     status="failed",
                     error=str(exc),
@@ -590,7 +614,7 @@ async def _enqueue_sequentially(
             if stop_on_failure:
                 failures.extend(
                     BatchTaskResult(
-                        resource_id=pending.resource_id,
+                        resource_id=pending.unit_id or pending.resource_id,
                         task_id="",
                         status="failed",
                         # detail 与 ``enqueue_problem`` 的两个默认值同为英文：它是契约字段，
@@ -604,7 +628,13 @@ async def _enqueue_sequentially(
             continue
         deduped = bool(enqueue_result.get("deduped"))
         task_ids[spec.resource_id] = enqueue_result["task_id"]
-        enqueued.append(EnqueuedTask(resource_id=spec.resource_id, task_id=enqueue_result["task_id"], deduped=deduped))
+        enqueued.append(
+            EnqueuedTask(
+                resource_id=spec.resource_id,
+                task_id=enqueue_result["task_id"],
+                deduped=deduped,
+            )
+        )
     return enqueued, failures
 
 
@@ -614,6 +644,7 @@ async def batch_enqueue_only(
     specs: list[TaskSpec],
     user_id: str = DEFAULT_USER_ID,
     batch_id: str | None = None,
+    queue: GenerationQueue | None = None,
 ) -> tuple[list[EnqueuedTask], list[BatchTaskResult]]:
     """Create the batch's tasks without waiting for their results.
 
@@ -629,6 +660,43 @@ async def batch_enqueue_only(
         stop_on_failure=True,
         user_id=user_id,
         batch_id=batch_id,
+        queue=queue,
+    )
+
+
+async def submit_generation_batch(
+    *,
+    project_name: str,
+    operation: str,
+    requested: GenerationBatchRequestSnapshot,
+    blocked: list[GenerationBatchBlockedItem],
+    specs: list[TaskSpec],
+    source: str,
+    user_id: str = DEFAULT_USER_ID,
+    queue: GenerationQueue | None = None,
+) -> tuple[GenerationBatchReadModel, list[EnqueuedTask], list[BatchTaskResult]]:
+    """Persist one admission result, enqueue its members, and return the durable read model."""
+
+    queue = queue or get_generation_queue()
+    batch_id = await queue.create_generation_batch(
+        project_name=project_name,
+        operation=operation,
+        requested=requested,
+        blocked=blocked,
+        source=source,
+        user_id=user_id,
+    )
+    enqueued, failures = await batch_enqueue_only(
+        project_name=project_name,
+        specs=specs,
+        user_id=user_id,
+        batch_id=batch_id,
+        queue=queue,
+    )
+    return (
+        await queue.get_generation_batch(project_name=project_name, batch_id=batch_id, user_id=user_id),
+        enqueued,
+        failures,
     )
 
 
@@ -640,6 +708,8 @@ async def batch_enqueue_and_wait(
     on_failure: Callable[[BatchTaskResult], None] | None = None,
     stop_on_failure: bool = False,
     batch_id: str | None = None,
+    queue: GenerationQueue | None = None,
+    user_id: str = DEFAULT_USER_ID,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Async: enqueue sequentially, then gather-wait all tasks.
 
@@ -659,7 +729,9 @@ async def batch_enqueue_and_wait(
         project_name=project_name,
         specs=specs,
         stop_on_failure=stop_on_failure,
+        user_id=user_id,
         batch_id=batch_id,
+        queue=queue,
     )
     task_ids = {item.resource_id: item.task_id for item in enqueued}
 
@@ -669,23 +741,24 @@ async def batch_enqueue_and_wait(
 
     async def _wait_one(spec: TaskSpec) -> BatchTaskResult:
         tid = task_ids[spec.resource_id]
+        unit_id = spec.unit_id or spec.resource_id
         try:
-            task = await wait_for_task(tid)
-            return _task_result_from_finished(task, spec.resource_id, tid)
+            task = await wait_for_task(tid, queue=queue)
+            return _task_result_from_finished(task, unit_id, tid)
         except (TaskWaitTimeoutError, WorkerOfflineError) as exc:
             # wait_for_task 抛出前刚确认过 task 仍非终态（未 succeeded/failed/cancelled）——
             # 这是等待被打断，不是 provider 判定的失败，用独立 status 区分，让
             # record_batch_outcomes 能报告 INTERRUPTED 而不是 FAILED，避免下游对一个
             # 仍可能正常落地的任务盲目 retry 造成重复付费提交。
             return BatchTaskResult(
-                resource_id=spec.resource_id,
+                resource_id=unit_id,
                 task_id=tid,
                 status="interrupted",
                 error=str(exc),
             )
         except Exception as exc:
             return BatchTaskResult(
-                resource_id=spec.resource_id,
+                resource_id=unit_id,
                 task_id=tid,
                 status="failed",
                 error=str(exc),

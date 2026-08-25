@@ -17,6 +17,7 @@ from lib.generation_result import (
     GenerationItemState,
     GenerationProblem,
     GenerationSelectionMode,
+    GenerationSkippedItem,
 )
 
 
@@ -101,6 +102,80 @@ async def test_deduped_task_keeps_original_owner_and_belongs_to_both_batches(
     assert terminal.generation_result.requested == ["E1S01", "E1S02"]
     assert terminal.generation_result.succeeded == ["E1S01"]
     assert terminal.generation_result.blocked == ["E1S02"]
+
+
+async def test_one_paid_task_can_project_to_every_requested_unit(
+    batch_queue: GenerationQueue,
+) -> None:
+    batch_id = await batch_queue.create_generation_batch(
+        project_name="demo",
+        operation="generate_grid",
+        requested=_snapshot("E1S01", "E1S02"),
+        blocked=[],
+        source="mcp",
+    )
+    task = await _enqueue(batch_queue, batch_id, "E1S01")
+    await batch_queue.attach_task_to_generation_batch(
+        project_name="demo",
+        batch_id=batch_id,
+        task_id=task["task_id"],
+        unit_id="E1S02",
+        deduped=False,
+    )
+
+    submitted = await batch_queue.get_generation_batch(project_name="demo", batch_id=batch_id)
+
+    assert [(member.unit_id, member.task_id) for member in submitted.members] == [
+        ("E1S01", task["task_id"]),
+        ("E1S02", task["task_id"]),
+    ]
+
+    claimed = await batch_queue.claim_next_task("image")
+    assert claimed is not None
+    await batch_queue.mark_task_succeeded(
+        task["task_id"],
+        {
+            "unit_results": {
+                "E1S01": {"file_path": "storyboards/E1S01.png"},
+                "E1S02": {
+                    "problem": {
+                        "code": "generation_post_processing_failed",
+                        "detail": "cell was not written",
+                        "action": "fix_input",
+                        "params": {},
+                    }
+                },
+            }
+        },
+    )
+    terminal = await batch_queue.get_generation_batch(project_name="demo", batch_id=batch_id)
+    assert terminal.generation_result is not None
+    assert terminal.generation_result.succeeded == ["E1S01"]
+    assert terminal.generation_result.failed == ["E1S02"]
+    assert terminal.generation_result.items[1].task_state.value == "succeeded"
+
+
+async def test_all_reusable_submission_still_creates_a_terminal_batch(
+    batch_queue: GenerationQueue,
+) -> None:
+    batch_id = await batch_queue.create_generation_batch(
+        project_name="demo",
+        operation="generate_storyboards",
+        requested=GenerationBatchRequestSnapshot(
+            selection=GenerationSelectionMode.MISSING_ONLY,
+            requested=[],
+            skipped=[GenerationSkippedItem(unit_id="E1S01")],
+        ),
+        blocked=[],
+        source="mcp",
+    )
+
+    submitted = await batch_queue.get_generation_batch(project_name="demo", batch_id=batch_id)
+
+    assert submitted.done is True
+    assert [item.unit_id for item in submitted.skipped] == ["E1S01"]
+    assert submitted.generation_result is not None
+    assert [item.unit_id for item in submitted.generation_result.skipped] == ["E1S01"]
 
 
 async def test_batch_membership_rejects_another_project_or_unrequested_unit(

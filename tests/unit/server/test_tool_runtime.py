@@ -6,10 +6,15 @@ import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
 from lib.async_thread import run_sync_transaction
+from lib.db.models.user import User
+from lib.generation_queue import GenerationBatchNotFound, GenerationQueue
+from lib.generation_queue_client import TaskSpec, batch_enqueue_only
+from lib.generation_result import GenerationResultBuilder, GenerationSelectionMode
 from lib.project_manager import ProjectManager
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
@@ -36,6 +41,7 @@ from server.tool_runtime import (
     patch_episode_meta,
     patch_episode_script,
     read_project_file,
+    submit_media_generation,
 )
 
 
@@ -447,3 +453,93 @@ def test_draft_dependency_points_from_sdk_adapter_to_shared_workflow() -> None:
     assert not any(name.startswith("server.agent_runtime.sdk_tools") for name in shared_imports)
     assert "server.draft_workflow" in sdk_imports
     assert '"is_error"' not in shared_source
+
+
+@pytest.mark.parametrize("source", ["mcp", "embedded"])
+async def test_repeated_host_submission_reuses_the_paid_task(
+    db_factory,
+    tmp_path: Path,
+    source: Literal["mcp", "embedded"],
+) -> None:
+    queue = GenerationQueue(session_factory=db_factory)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+
+    async def enqueue_without_wait(**kwargs):
+        _enqueued, failures = await batch_enqueue_only(**kwargs)
+        return [], failures
+
+    services = Services(
+        projects=ProjectManager(tmp_path),
+        workflow_planner=_Planner(_status()),
+        capabilities=_Capabilities(),
+        queue=queue,
+    )
+    spec = TaskSpec(
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01",
+        script_file="episode_01.json",
+        source=source,
+        unit_id="E1S01",
+    )
+    kwargs = {
+        "scope": ProjectScope(project_name="demo", projects_root=tmp_path),
+        "caller": CallerContext(user_id="default", source=source),
+        "services": services,
+        "operation": "generate_storyboards",
+        "preflight": GenerationResultBuilder("generate_storyboards", GenerationSelectionMode.EXPLICIT).build(),
+        "pending_ids": ["E1S01"],
+        "specs": [spec],
+        "embedded_waiter": enqueue_without_wait,
+    }
+
+    first = await submit_media_generation(**kwargs)
+    second = await submit_media_generation(**kwargs)
+
+    assert len((await queue.list_tasks(project_name="demo"))["items"]) == 1
+    assert first.batch.batch_id != second.batch.batch_id
+    assert first.batch.members[0].task_id == second.batch.members[0].task_id
+    assert second.batch.members[0].deduped is True
+
+
+async def test_embedded_submission_keeps_non_default_user_on_batch_and_task(db_factory, tmp_path: Path) -> None:
+    async with db_factory() as session:
+        session.add(User(id="embedded-user", username="embedded-user"))
+        await session.commit()
+    queue = GenerationQueue(session_factory=db_factory)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+    services = Services(
+        projects=ProjectManager(tmp_path),
+        workflow_planner=_Planner(_status()),
+        capabilities=_Capabilities(),
+        queue=queue,
+    )
+    spec = TaskSpec(
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01",
+        script_file="episode_01.json",
+        source="embedded",
+        unit_id="E1S01",
+    )
+
+    async def enqueue_without_wait(**kwargs):
+        _enqueued, failures = await batch_enqueue_only(**kwargs)
+        return [], failures
+
+    submission = await submit_media_generation(
+        scope=ProjectScope(project_name="demo", projects_root=tmp_path),
+        caller=CallerContext(user_id="embedded-user", source="embedded"),
+        services=services,
+        operation="generate_storyboards",
+        preflight=GenerationResultBuilder("generate_storyboards", GenerationSelectionMode.EXPLICIT).build(),
+        pending_ids=["E1S01"],
+        specs=[spec],
+        embedded_waiter=enqueue_without_wait,
+    )
+
+    assert submission.batch.members[0].task_id
+    task = await queue.get_task(submission.batch.members[0].task_id)
+    assert task is not None and task["user_id"] == "embedded-user"
+    with pytest.raises(GenerationBatchNotFound):
+        await queue.get_generation_batch(project_name="demo", batch_id=submission.batch.batch_id)

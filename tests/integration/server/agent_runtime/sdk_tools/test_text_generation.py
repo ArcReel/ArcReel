@@ -730,46 +730,6 @@ async def test_normalize_drama_script_no_source(fake_ctx: ToolContext) -> None:
     assert out.get("is_error") is True
 
 
-# ---------------------------------------------------------------------------
-# _build_prompt：Style 去重 + 「画风：」前缀清理
-# ---------------------------------------------------------------------------
-
-
-class TestBuildPrompt:
-    def test_structured_no_duplicate_style(self) -> None:
-        from server.agent_runtime.sdk_tools.enqueue_storyboards import _build_prompt
-
-        segment = {
-            "segment_id": "E1S01",
-            "image_prompt": {
-                "scene": "村口黄昏",
-                "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},
-            },
-        }
-        out = _build_prompt(segment, "画风：真人电视剧风格", "Soft light", "segment_id")
-
-        # Style 只出现一次（YAML 内），不再有前缀 "Style: ..." 行重复注入
-        assert out.count("Style:") == 1
-        # 「画风：」前缀被清理，不会渲染成 "Style: 画风：..."
-        assert "画风：" not in out
-        assert "Style: 真人电视剧风格" in out
-        # style_description 仍以 Visual style 前缀注入
-        assert out.startswith("Visual style: Soft light")
-
-    def test_unstructured_keeps_style_prefix_normalized(self) -> None:
-        from server.agent_runtime.sdk_tools.enqueue_storyboards import _build_prompt
-
-        segment = {"segment_id": "E1S02", "image_prompt": "村口黄昏的长镜头"}
-        out = _build_prompt(segment, "画风：真人电视剧风格", "", "segment_id")
-
-        # 非结构化纯字符串 prompt 不含 Style，前缀补上且去掉「画风：」
-        assert out.count("Style:") == 1
-        assert "画风：" not in out
-        assert out.startswith("Style: 真人电视剧风格")
-        assert "\n\n村口黄昏的长镜头\n\n" in out
-        assert out.endswith("画面避免：水印、多余文字、Logo。")
-
-
 async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext) -> None:
     project_path = fake_ctx.project_path
     src = project_path / "source"
