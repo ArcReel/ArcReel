@@ -422,7 +422,7 @@ class ScriptGenerator:
             require_script_unit_admitted("scenes", scene)
         await self._assert_drama_step1_durations(content_scenes, episode=episode, gen_mode=gen_mode)
         filename = output_filename or episode_script_filename(episode)
-        formal_baseline = content_fingerprint(self.project_path / "scripts" / filename)
+        formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
 
         logger.info("正在生成第 %d 集剧本（drama step2 视觉层）...", episode)
         result = await self._generate_text(
@@ -551,7 +551,7 @@ class ScriptGenerator:
         """
         assert self.generator is not None  # generate() 入口已检查
         filename = output_filename or episode_script_filename(episode)
-        formal_baseline = content_fingerprint(self.project_path / "scripts" / filename)
+        formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
         step2_draft_baseline = (
             await asyncio.to_thread(self._reference_step2_draft_revision, episode)
             if reference_step1 is not None
