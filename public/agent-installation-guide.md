@@ -12,17 +12,18 @@
 {{BASE_URL}}/mcp
 ```
 
-## 2. 安装 setup skill
+## 2. 安装两个 skills
 
 在外部 Agent 的工作目录运行：
 
 ```bash
 npx skills add ArcReel/ArcReel@setup-arcreel-skills
+npx skills add ArcReel/ArcReel@video-workflow
 ```
 
 ## 3. 显式触发接线
 
-安装后，显式调用 `$setup-arcreel-skills`，并按提示提供 MCP 端点和 API Key。这个 setup skill 不会自行触发。
+安装后，显式调用 `$setup-arcreel-skills`，并按提示提供 MCP 端点和 API Key。这个 setup skill 不会自行触发；`video-workflow` 独立安装并在创作请求中按需触发。
 
 如果使用 Codex，请把 ArcReel MCP server 的 `tool_timeout_sec` 调大；Codex 默认的 60 秒不适合视频生成等长任务。
 

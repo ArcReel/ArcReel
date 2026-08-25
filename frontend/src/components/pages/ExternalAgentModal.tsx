@@ -19,7 +19,10 @@ interface ExternalAgentModalProps {
 }
 
 const MCP_ENDPOINT = `${window.location.origin}/mcp`;
-const INSTALL_COMMAND = "npx skills add ArcReel/ArcReel@setup-arcreel-skills";
+const INSTALL_COMMANDS = [
+  "npx skills add ArcReel/ArcReel@setup-arcreel-skills",
+  "npx skills add ArcReel/ArcReel@video-workflow",
+].join("\n");
 const INSTALL_GUIDE_URL = `${window.location.origin}/agent-installation-guide.md`;
 
 type CopyTarget = "endpoint" | "command";
@@ -156,12 +159,15 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
             {t("dashboard:external_agent_install_command_desc")}
           </p>
           <div className="mt-3 flex items-center gap-2 rounded-lg border border-hairline bg-bg p-2.5">
-            <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-accent-2">
-              {INSTALL_COMMAND}
+            <code
+              translate="no"
+              className="min-w-0 flex-1 whitespace-pre-wrap break-all text-[11.5px] text-accent-2"
+            >
+              {INSTALL_COMMANDS}
             </code>
             <button
               type="button"
-              onClick={() => handleCopy("command", INSTALL_COMMAND)}
+              onClick={() => handleCopy("command", INSTALL_COMMANDS)}
               className={GHOST_BTN_CLS}
               aria-label={t("dashboard:external_agent_copy_install_command")}
             >
