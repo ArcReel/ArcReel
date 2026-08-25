@@ -23,6 +23,7 @@ from lib.generation_batch import (
 from lib.generation_queue import (
     TASK_WORKER_LEASE_TTL_SEC,
     GenerationQueue,
+    cleanup_fresh_generation_batch,
     get_generation_queue,
     read_queue_poll_interval,
 )
@@ -689,18 +690,28 @@ async def submit_generation_batch(
         source=source,
         user_id=user_id,
     )
-    enqueued, failures = await batch_enqueue_only(
-        project_name=project_name,
-        specs=specs,
-        user_id=user_id,
-        batch_id=batch_id,
-        queue=queue,
-    )
-    return (
-        await queue.get_generation_batch(project_name=project_name, batch_id=batch_id, user_id=user_id),
-        enqueued,
-        failures,
-    )
+    try:
+        enqueued, failures = await batch_enqueue_only(
+            project_name=project_name,
+            specs=specs,
+            user_id=user_id,
+            batch_id=batch_id,
+            queue=queue,
+        )
+        return (
+            await queue.get_generation_batch(project_name=project_name, batch_id=batch_id, user_id=user_id),
+            enqueued,
+            failures,
+        )
+    except BaseException as failure:
+        await cleanup_fresh_generation_batch(
+            queue,
+            project_name=project_name,
+            batch_id=batch_id,
+            user_id=user_id,
+            failure=failure,
+        )
+        raise
 
 
 async def batch_enqueue_and_wait(

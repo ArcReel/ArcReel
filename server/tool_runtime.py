@@ -18,7 +18,6 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from lib.api_errors import ConflictError as ApiConflictError
 from lib.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.asset_inventory import (
     AssetInventoryError,
@@ -63,6 +62,7 @@ from lib.generation_queue import (
     CompensableGenerationResult,
     GenerationBatchNotFound,
     GenerationQueue,
+    cleanup_fresh_generation_batch,
     get_generation_queue,
 )
 from lib.generation_queue_client import (
@@ -253,24 +253,34 @@ async def submit_media_generation(
         source=caller.source,
         user_id=caller.user_id,
     )
-    if embedded_waiter is None:
-        raise ValueError("embedded media generation requires a batch waiter")
-    if specs:
-        successes, failures = await embedded_waiter(
+    try:
+        if embedded_waiter is None:
+            raise ValueError("embedded media generation requires a batch waiter")
+        if specs:
+            successes, failures = await embedded_waiter(
+                project_name=scope.project_name,
+                specs=specs,
+                batch_id=batch_id,
+                queue=services.queue,
+                user_id=caller.user_id,
+            )
+        else:
+            successes, failures = [], []
+        settled = await services.queue.get_generation_batch(
             project_name=scope.project_name,
-            specs=specs,
             batch_id=batch_id,
-            queue=services.queue,
             user_id=caller.user_id,
         )
-    else:
-        successes, failures = [], []
-    settled = await services.queue.get_generation_batch(
-        project_name=scope.project_name,
-        batch_id=batch_id,
-        user_id=caller.user_id,
-    )
-    return MediaGenerationSubmission(batch=settled, successes=successes, failures=failures)
+        return MediaGenerationSubmission(batch=settled, successes=successes, failures=failures)
+    except BaseException as failure:
+        await cleanup_fresh_generation_batch(
+            services.queue,
+            project_name=scope.project_name,
+            batch_id=batch_id,
+            user_id=caller.user_id,
+            failure=failure,
+        )
+        raise
 
 
 async def get_generation_batch(
@@ -451,57 +461,49 @@ async def _submit_text_task(
             batch_unit_id=unit_id,
             queue=services.queue,
         )
-    except WorkerOfflineError as exc:
-        await services.queue.delete_generation_batch(
-            project_name=scope.project_name,
-            batch_id=batch_id,
-            user_id=caller.user_id,
-        )
-        return ToolOutcome(problem=ToolProblem(**enqueue_problem(str(exc)).model_dump(mode="json")))
-    except ApiConflictError:
-        await services.queue.delete_generation_batch(
-            project_name=scope.project_name,
-            batch_id=batch_id,
-            user_id=caller.user_id,
-        )
-        raise
-    except ActiveTaskRequestConflict as exc:
-        await services.queue.delete_generation_batch(
-            project_name=scope.project_name,
-            batch_id=batch_id,
-            user_id=caller.user_id,
-        )
-        return ToolOutcome(
-            problem=ToolProblem(
-                "generation_active_task_conflict",
-                "generation_active_task_conflict",
-                action=GenerationAction.WAIT_FOR_TASK,
-                params={"task_id": exc.existing_task_id},
-            )
-        )
-    registered_services = caller.source == "embedded" and not enqueue.get("deduped")
-    if registered_services:
-        _TEXT_TASK_SERVICES[enqueue["task_id"]] = services
-    try:
-        batch = await services.queue.get_generation_batch(
-            project_name=scope.project_name, batch_id=batch_id, user_id=caller.user_id
-        )
-        if caller.source == "mcp":
-            return ToolOutcome(value=batch)
-        task = await wait_for_task(enqueue["task_id"], queue=services.queue)
-    finally:
+        registered_services = caller.source == "embedded" and not enqueue.get("deduped")
         if registered_services:
-            _TEXT_TASK_SERVICES.pop(enqueue["task_id"], None)
-    if task["status"] == "cancelled":
-        problem = problem_from_task_failure(task.get("error_message"), cancelled=True)
-        return ToolOutcome(problem=ToolProblem(**problem.model_dump(mode="json")))
-    if task["status"] == "failed":
-        problem = problem_from_task_failure(task.get("error_message"))
-        return ToolOutcome(problem=ToolProblem(**problem.model_dump(mode="json")))
-    result = task.get("result") or {}
-    if task_type == _TEXT_EPISODE_PLAN:
-        return ToolOutcome(value=PlanEpisodesResult.model_validate(result))
-    return ToolOutcome(value=TextGenerationResult(**result))
+            _TEXT_TASK_SERVICES[enqueue["task_id"]] = services
+        try:
+            batch = await services.queue.get_generation_batch(
+                project_name=scope.project_name, batch_id=batch_id, user_id=caller.user_id
+            )
+            if caller.source == "mcp":
+                return ToolOutcome(value=batch)
+            task = await wait_for_task(enqueue["task_id"], queue=services.queue)
+        finally:
+            if registered_services:
+                _TEXT_TASK_SERVICES.pop(enqueue["task_id"], None)
+        if task["status"] == "cancelled":
+            problem = problem_from_task_failure(task.get("error_message"), cancelled=True)
+            return ToolOutcome(problem=ToolProblem(**problem.model_dump(mode="json")))
+        if task["status"] == "failed":
+            problem = problem_from_task_failure(task.get("error_message"))
+            return ToolOutcome(problem=ToolProblem(**problem.model_dump(mode="json")))
+        result = task.get("result") or {}
+        if task_type == _TEXT_EPISODE_PLAN:
+            return ToolOutcome(value=PlanEpisodesResult.model_validate(result))
+        return ToolOutcome(value=TextGenerationResult(**result))
+    except BaseException as exc:
+        await cleanup_fresh_generation_batch(
+            services.queue,
+            project_name=scope.project_name,
+            batch_id=batch_id,
+            user_id=caller.user_id,
+            failure=exc,
+        )
+        if isinstance(exc, WorkerOfflineError):
+            return ToolOutcome(problem=ToolProblem(**enqueue_problem(str(exc)).model_dump(mode="json")))
+        if isinstance(exc, ActiveTaskRequestConflict):
+            return ToolOutcome(
+                problem=ToolProblem(
+                    "generation_active_task_conflict",
+                    "generation_active_task_conflict",
+                    action=GenerationAction.WAIT_FOR_TASK,
+                    params={"task_id": exc.existing_task_id},
+                )
+            )
+        raise
 
 
 async def _execute_text_handler(

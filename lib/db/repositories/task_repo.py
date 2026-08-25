@@ -151,12 +151,12 @@ class TaskRepository(BaseRepository):
                 }
             )
 
-    async def _require_batch_unit(
+    async def _require_batch_units(
         self,
         *,
         project_name: str,
         batch_id: str,
-        unit_id: str,
+        unit_ids: tuple[str, ...],
         user_id: str,
     ) -> None:
         result = await self.session.execute(
@@ -174,7 +174,11 @@ class TaskRepository(BaseRepository):
             for item in (_json_loads(batch.blocked_json, []) if batch is not None else [])
             if isinstance(item, dict) and isinstance(item.get("item"), dict)
         }
-        if batch is None or unit_id not in requested_ids or unit_id in blocked_ids:
+        invalid = next(
+            (unit_id for unit_id in unit_ids if unit_id not in requested_ids or unit_id in blocked_ids), None
+        )
+        if batch is None or invalid is not None:
+            unit_id = invalid or unit_ids[0]
             raise ValueError(f"batch '{batch_id}' does not own unit '{unit_id}' in project '{project_name}'")
 
     async def enqueue(
@@ -195,15 +199,19 @@ class TaskRepository(BaseRepository):
         provider_id: str | None = None,
         batch_id: str | None = None,
         batch_unit_id: str | None = None,
+        batch_unit_ids: tuple[str, ...] = (),
         dedupe_guard: Callable[[dict[str, Any], str], None] | None = None,
     ) -> dict[str, Any]:
-        if (batch_id is None) != (batch_unit_id is None):
-            raise ValueError("batch_id and batch_unit_id must be provided together")
-        if batch_id is not None and batch_unit_id is not None:
-            await self._require_batch_unit(
+        unit_ids = tuple(dict.fromkeys((*(batch_unit_ids or ()), *((batch_unit_id,) if batch_unit_id else ()))))
+        if unit_ids and batch_id is None:
+            raise ValueError("batch_id and at least one batch unit id must be provided together")
+        if batch_id is not None:
+            if not unit_ids:
+                raise ValueError("batch_id and at least one batch unit id must be provided together")
+            await self._require_batch_units(
                 project_name=project_name,
                 batch_id=batch_id,
-                unit_id=batch_unit_id,
+                unit_ids=unit_ids,
                 user_id=user_id,
             )
         now = utc_now()
@@ -268,8 +276,10 @@ class TaskRepository(BaseRepository):
         else:
             status = "queued"
 
-        if batch_id is not None and batch_unit_id is not None:
-            self.session.add(BatchTask(batch_id=batch_id, task_id=task_id, unit_id=batch_unit_id, deduped=deduped))
+        if batch_id is not None:
+            self.session.add_all(
+                BatchTask(batch_id=batch_id, task_id=task_id, unit_id=unit_id, deduped=deduped) for unit_id in unit_ids
+            )
             await self.session.flush()
 
         await self.session.commit()
@@ -317,10 +327,10 @@ class TaskRepository(BaseRepository):
         deduped: bool,
         user_id: str,
     ) -> None:
-        await self._require_batch_unit(
+        await self._require_batch_units(
             project_name=project_name,
             batch_id=batch_id,
-            unit_id=unit_id,
+            unit_ids=(unit_id,),
             user_id=user_id,
         )
         task_result = await self.session.execute(
@@ -391,6 +401,25 @@ class TaskRepository(BaseRepository):
             "memberships": memberships,
             "queue_depth": depth,
         }
+
+    async def delete_fresh_batch(self, *, project_name: str, batch_id: str, user_id: str) -> int:
+        scope = (
+            GenerationBatch.batch_id == batch_id,
+            GenerationBatch.project_name == project_name,
+            GenerationBatch.user_id == user_id,
+        )
+        if self.session.get_bind().dialect.name == "postgresql":
+            # Serialize with membership FK checks before the fresh-snapshot delete.
+            await self.session.execute(select(GenerationBatch.batch_id).where(*scope).with_for_update())
+        result = await self.session.execute(
+            sa_delete(GenerationBatch).where(
+                *scope,
+                ~select(Task.task_id).where(Task.batch_id == GenerationBatch.batch_id).exists(),
+                ~select(BatchTask.task_id).where(BatchTask.batch_id == GenerationBatch.batch_id).exists(),
+            )
+        )
+        await self.session.commit()
+        return rowcount(result)
 
     async def get_active_tasks_for_resources(
         self,

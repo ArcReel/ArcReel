@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from sqlalchemy import func, select
@@ -11,8 +13,9 @@ from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.task import GenerationBatch
 from lib.episode_planner import EpisodePlanningError, EpisodePlanSummary, PlanResult
+from lib.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
 from lib.generation_queue import CompensableGenerationResult, GenerationQueue
-from lib.generation_result import GenerationAction, problem_from_task_failure
+from lib.generation_result import GenerationAction, GenerationSelectionMode, problem_from_task_failure
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import ProjectMigrationError, record_migration_failure
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -148,6 +151,102 @@ async def test_text_mcp_migration_rejection_cleans_only_the_fresh_batch(
     async with file_db_factory() as session:
         batch_count = await session.scalar(select(func.count()).select_from(GenerationBatch))
     assert batch_count == 1
+
+
+@pytest.mark.parametrize("source", ["mcp", "embedded"])
+@pytest.mark.parametrize("cancel_state", ["fresh", "task", "membership"])
+async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
+    tmp_path: Path,
+    concurrent_session_factory,
+    source: Literal["mcp", "embedded"],
+    cancel_state: str,
+) -> None:
+    reached_cancel_seam = asyncio.Event()
+
+    class CancellationQueue(GenerationQueue):
+        async def enqueue_task(self, **kwargs):
+            if cancel_state == "fresh":
+                reached_cancel_seam.set()
+                await asyncio.Event().wait()
+            return await super().enqueue_task(**kwargs)
+
+        async def get_generation_batch(self, **kwargs):
+            if cancel_state != "fresh" and not reached_cancel_seam.is_set():
+                reached_cancel_seam.set()
+                await asyncio.Event().wait()
+            return await super().get_generation_batch(**kwargs)
+
+    projects = ProjectManager(tmp_path / "projects")
+    projects.create_project("drama", content_mode="drama")
+    projects.create_project_metadata("drama", "Drama", "", "drama")
+    queue = CancellationQueue(session_factory=concurrent_session_factory, project_manager=projects)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+    historical_batch_id = await queue.create_generation_batch(
+        project_name="drama",
+        operation="historical",
+        requested=GenerationBatchRequestSnapshot(
+            selection=GenerationSelectionMode.EXPLICIT,
+            requested=[GenerationBatchRequestedItem(unit_id="episode-1" if cancel_state == "membership" else "old")],
+        ),
+        blocked=[],
+        source="mcp",
+    )
+    historical_task = await GenerationQueue.enqueue_task(
+        queue,
+        project_name="drama",
+        task_type="text_drama_step1",
+        media_type="text",
+        resource_id="episode-1" if cancel_state == "membership" else "old",
+        payload={
+            "episode": 1,
+            "source": None,
+            "instructions": None,
+            "dry_run": False,
+            "projects_root": str(projects.projects_root),
+        },
+        batch_id=historical_batch_id,
+        batch_unit_id="episode-1" if cancel_state == "membership" else "old",
+    )
+    services = Services(
+        projects=projects,
+        workflow_planner=object(),  # type: ignore[arg-type]
+        capabilities=ConfigResolver(async_session_factory),
+        queue=queue,
+    )
+
+    submission = asyncio.create_task(
+        generate_step1(
+            ToolRequest(TextGenerationRequest(episode=1)),
+            ProjectScope(project_name="drama", projects_root=projects.projects_root),
+            CallerContext(user_id=DEFAULT_USER_ID, source=source),
+            services,
+        )
+    )
+    await reached_cancel_seam.wait()
+    submission.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await submission
+
+    async with concurrent_session_factory() as session:
+        batch_ids = set((await session.scalars(select(GenerationBatch.batch_id))).all())
+    if cancel_state != "fresh":
+        submitted_batch_id = (batch_ids - {historical_batch_id}).pop()
+        submitted = await GenerationQueue.get_generation_batch(queue, project_name="drama", batch_id=submitted_batch_id)
+        assert [member.unit_id for member in submitted.members] == ["episode-1"]
+        assert submitted.members[0].deduped is (cancel_state == "membership")
+        if cancel_state == "membership":
+            assert submitted.members[0].task_id == historical_task["task_id"]
+        else:
+            submitted_task_id = submitted.members[0].task_id
+            assert submitted_task_id is not None
+            submitted_task = await queue.get_task(submitted_task_id)
+            assert submitted_task is not None and submitted_task["batch_id"] == submitted_batch_id
+    else:
+        assert batch_ids == {historical_batch_id}
+    historical = await GenerationQueue.get_generation_batch(queue, project_name="drama", batch_id=historical_batch_id)
+    assert [(member.unit_id, member.task_id) for member in historical.members] == [
+        ("episode-1" if cancel_state == "membership" else "old", historical_task["task_id"])
+    ]
 
 
 async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(tmp_path: Path) -> None:
