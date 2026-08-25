@@ -50,10 +50,10 @@
 
 <table>
   <tr>
-    <td width="200" align="center">
+    <td width="200" align="center" valign="top">
       <a href="https://metaso.cn/minimax-h3/?s=arc"><img src="docs/assets/sponsors/metaso.png" alt="秘塔科技" width="180"></a>
     </td>
-    <td>
+    <td valign="top">
       <strong>MiniMax H3 视频生成 API｜秘塔科技</strong><br>
       秘塔科技提供高性价比的 MiniMax H3 视频生成服务：<strong>768P 仅 0.09 元/秒，2K 仅 0.15 元/秒</strong>。支持原生 2K、音画同步，API 兼容 <strong>OpenAI 协议</strong>，同时支持 <strong>ComfyUI</strong>，无需自行部署 GPU。<br>
       🎁 通过 <a href="https://metaso.cn/minimax-h3/?s=arc">ArcReel 专属链接注册</a>，即可领取赠送额度及专属优惠。

@@ -50,10 +50,10 @@
 
 <table>
   <tr>
-    <td width="200" align="center">
+    <td width="200" align="center" valign="top">
       <a href="https://metaso.cn/minimax-h3/?s=arc"><img src="docs/assets/sponsors/metaso.png" alt="Metaso" width="180"></a>
     </td>
-    <td>
+    <td valign="top">
       <strong>MiniMax H3 Video Generation API | Metaso</strong><br>
       Metaso offers cost-effective MiniMax H3 video generation: <strong>CNY 0.09/sec at 768P, CNY 0.15/sec at 2K</strong>. Native 2K, synchronized audio and video, an API compatible with the <strong>OpenAI protocol</strong>, and <strong>ComfyUI</strong> support — no GPU deployment required.<br>
       🎁 <a href="https://metaso.cn/minimax-h3/?s=arc">Sign up via ArcReel's exclusive link</a> to claim bonus credits and an exclusive discount.
