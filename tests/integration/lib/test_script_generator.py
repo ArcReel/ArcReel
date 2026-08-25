@@ -1,6 +1,9 @@
+import asyncio
 import json
 import logging
+import threading
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -11,6 +14,7 @@ from lib.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
 from lib.speech_composition import SpeechAdmissionError
+from tests.fakes import FakeConfigResolver
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -582,6 +586,84 @@ class TestScriptGenerator:
             step1_path
         )
         assert "created_at" in payload["metadata"]
+
+    @pytest.mark.parametrize("content_mode", ["narration", "drama"])
+    async def test_generate_reads_formal_baseline_without_blocking_event_loop(
+        self, tmp_path, monkeypatch, content_mode
+    ):
+        project_path = tmp_path / "demo"
+        if content_mode == "narration":
+            _write_project_json(
+                project_path,
+                {
+                    "title": "项目",
+                    "content_mode": "narration",
+                    "overview": {},
+                    "characters": {},
+                    "style": "古风",
+                    "style_description": "cinematic",
+                },
+            )
+            _write_step1_json(project_path, 1, [_step1_seg("E1S01", "原文", duration=4)])
+            response = _narration_visual_response(["E1S01"])
+        else:
+            _write_drama_ledger_project(
+                project_path,
+                [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+            )
+            _write_drama_step1_json(project_path, 1, _drama_step1_content())
+            response = _drama_visual_response()
+
+        loop_tick = threading.Event()
+        provider_saw_tick: list[bool] = []
+
+        class _OrderedTextGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                provider_saw_tick.append(loop_tick.is_set())
+                return await super().generate(request, project_name)
+
+        generator = ScriptGenerator(
+            project_path,
+            generator=_OrderedTextGenerator(json.dumps(response, ensure_ascii=False)),
+            config_resolver=cast(ConfigResolver, FakeConfigResolver()),
+        )
+
+        formal_path = project_path / "scripts" / "episode_1.json"
+        baseline_started = threading.Event()
+        release_baseline = threading.Event()
+        loop_thread = threading.get_ident()
+        baseline_thread: list[int] = []
+        original_read_bytes = Path.read_bytes
+
+        def blocking_read_bytes(path: Path) -> bytes:
+            if path == formal_path and not baseline_started.is_set():
+                baseline_thread.append(threading.get_ident())
+                baseline_started.set()
+                release_baseline.wait()
+            return original_read_bytes(path)
+
+        monkeypatch.setattr(Path, "read_bytes", blocking_read_bytes)
+        loop = asyncio.get_running_loop()
+
+        def coordinate() -> None:
+            baseline_started.wait()
+            if baseline_thread == [loop_thread]:
+                release_baseline.set()
+                return
+
+            def tick_and_release() -> None:
+                loop_tick.set()
+                release_baseline.set()
+
+            loop.call_soon_threadsafe(tick_and_release)
+
+        coordinator = threading.Thread(target=coordinate)
+        coordinator.start()
+        await generator.generate(1)
+        coordinator.join()
+
+        assert baseline_thread and baseline_thread != [loop_thread]
+        assert provider_saw_tick == [True]
 
     async def test_generate_registers_the_basis_frozen_before_the_provider_call(self, tmp_path):
         from lib.artifact_activation import ArtifactCurrencyResolver
