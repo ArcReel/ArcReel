@@ -5,6 +5,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILLS_ROOT = REPO_ROOT / "skills"
+PUBLIC_SKILL_SELECTORS = ("setup-arcreel-skills", "video-workflow")
 
 
 def _frontmatter(skill_file: Path) -> dict[str, object]:
@@ -19,6 +20,13 @@ def test_distributed_skills_have_flat_matching_names() -> None:
     for skill_file in skill_files:
         assert skill_file.relative_to(REPO_ROOT).parts == ("skills", skill_file.parent.name, "SKILL.md")
         assert _frontmatter(skill_file)["name"] == skill_file.parent.name
+
+
+def test_public_skill_selectors_are_independently_installable() -> None:
+    for selector in PUBLIC_SKILL_SELECTORS:
+        skill_file = SKILLS_ROOT / selector / "SKILL.md"
+        assert skill_file.is_file()
+        assert _frontmatter(skill_file)["name"] == selector
 
 
 def test_setup_skill_is_explicit_only_for_claude_and_codex() -> None:
@@ -38,3 +46,10 @@ def test_video_workflow_skill_has_portable_relative_references() -> None:
     assert all((skill_dir / reference).is_file() for reference in references)
     package = "\n".join(path.read_text(encoding="utf-8") for path in skill_dir.rglob("*.md"))
     assert all(term not in package for term in ("cwd", ".claude", "Claude Code", "AskUserQuestion"))
+
+
+def test_video_workflow_hands_final_export_to_an_arcreel_host() -> None:
+    skill = (SKILLS_ROOT / "video-workflow" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "remote MCP does not compose or export the final video" in skill
+    assert "WebUI or embedded host" in skill

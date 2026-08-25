@@ -16,13 +16,14 @@ describe("ExternalAgentModal", () => {
     vi.mocked(copyText).mockResolvedValue(undefined);
   });
 
-  it("shows and copies the MCP endpoint and skill installation command", async () => {
+  it("shows and copies the MCP endpoint and both skill installation commands", async () => {
     const user = userEvent.setup();
     render(<ExternalAgentModal onClose={vi.fn()} />);
 
     expect(screen.getByRole("dialog", { name: "外部智能体接入" })).toBeInTheDocument();
     expect(screen.getByText(`${window.location.origin}/mcp`)).toBeInTheDocument();
-    expect(screen.getByText("npx skills add ArcReel/ArcReel@setup-arcreel-skills")).toBeInTheDocument();
+    expect(screen.getByText(/ArcReel\/ArcReel@setup-arcreel-skills/)).toBeInTheDocument();
+    expect(screen.getByText(/ArcReel\/ArcReel@video-workflow/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看完整安装指引" })).toHaveAttribute(
       "href",
       `${window.location.origin}/agent-installation-guide.md`,
@@ -32,9 +33,11 @@ describe("ExternalAgentModal", () => {
     expect(copyText).toHaveBeenLastCalledWith(`${window.location.origin}/mcp`);
     expect(screen.getByRole("status")).toHaveTextContent("MCP 端点已复制");
 
-    await user.click(screen.getByRole("button", { name: "复制安装命令" }));
-    expect(copyText).toHaveBeenLastCalledWith("npx skills add ArcReel/ArcReel@setup-arcreel-skills");
-    expect(screen.getByRole("status")).toHaveTextContent("安装命令已复制");
+    await user.click(screen.getByRole("button", { name: "复制两条安装命令" }));
+    expect(copyText).toHaveBeenLastCalledWith(
+      "npx skills add ArcReel/ArcReel@setup-arcreel-skills\nnpx skills add ArcReel/ArcReel@video-workflow",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("两条安装命令已复制");
   });
 
   it("reports clipboard failures with a recovery action", async () => {
