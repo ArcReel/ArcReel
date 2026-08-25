@@ -117,6 +117,7 @@ def _client(*, post: object, get: object) -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_generate_persists_request_id_before_status_and_content_fetch(tmp_path: Path) -> None:
+    from lib.custom_provider.backends import CustomVideoBackend
     from lib.video_backends.grok_sub2api import GrokSub2APIVideoBackend
 
     events: list[str] = []
@@ -134,6 +135,7 @@ async def test_generate_persists_request_id_before_status_and_content_fetch(tmp_
     async def _persist(*args, **kwargs) -> None:
         events.append("persist")
 
+    persist = AsyncMock(side_effect=_persist)
     original_get = client.get
 
     async def _get(url: str, *args, **kwargs):
@@ -144,13 +146,18 @@ async def test_generate_persists_request_id_before_status_and_content_fetch(tmp_
 
     with (
         patch("lib.video_backends.grok_sub2api.httpx.AsyncClient", return_value=client),
-        patch("lib.video_backends.base.persist_provider_job_id", AsyncMock(side_effect=_persist)),
+        patch("lib.video_backends.base.persist_provider_job_id", persist),
     ):
-        backend = GrokSub2APIVideoBackend(
-            api_key="sub2api-test-key",
-            base_url="https://sub2api.example",
+        backend = CustomVideoBackend(
+            provider_id="custom-42",
             model="grok-imagine-video-1.5",
-            poll_interval_seconds=0.0,
+            endpoint="grok-sub2api-video",
+            delegate=GrokSub2APIVideoBackend(
+                api_key="sub2api-test-key",
+                base_url="https://sub2api.example",
+                model="grok-imagine-video-1.5",
+                poll_interval_seconds=0.0,
+            ),
         )
         image = tmp_path / "still.png"
         image.write_bytes(b"\x89PNG\r\n\x1a\nsource")
@@ -167,6 +174,13 @@ async def test_generate_persists_request_id_before_status_and_content_fetch(tmp_
     assert events == ["post", "persist", "status", "content"]
     assert result.task_id == "video-123"
     assert result.video_path.read_bytes() == b"mp4"
+    persist.assert_awaited_once_with(
+        "task-1",
+        "video-123",
+        provider="grok",
+        endpoint="grok-sub2api-video",
+        base_url="https://sub2api.example/v1",
+    )
     post_call = client.post.await_args
     assert post_call is not None
     assert post_call.args[0] == "https://sub2api.example/v1/videos/generations"
