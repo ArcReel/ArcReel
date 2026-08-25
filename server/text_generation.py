@@ -9,6 +9,7 @@ import re
 import unicodedata
 from collections import Counter
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, NamedTuple, cast
@@ -16,10 +17,16 @@ from typing import Any, NamedTuple, cast
 from pydantic import BaseModel, ValidationError
 
 from lib import script_review
-from lib.artifact_manifest import ArtifactBasis
+from lib.artifact_manifest import (
+    ArtifactBasis,
+    ArtifactEntryRekeyReceipt,
+    ArtifactKey,
+    ProjectArtifactManifestAdapter,
+)
 from lib.artifact_provenance import Step1PromptVariant, build_step1_request
+from lib.artifact_registration import ArtifactRegistrationReceipt
 from lib.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
-from lib.async_thread import run_sync_transaction
+from lib.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.config.resolver import ConfigResolver
 from lib.content_digest import prefixed_sha256_file
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
@@ -44,6 +51,7 @@ from lib.episode_paths import (
     STEP1_LEGACY_FILENAMES,
     episode_drafts_dir,
 )
+from lib.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
 from lib.i18n import _ as translate
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, is_reference_video_project
@@ -104,6 +112,91 @@ class TextGenerationResult:
     message: str
 
 
+class CompensableTextGenerationResult(TextGenerationResult):
+    """Text result carrying runtime-only cancellation compensation."""
+
+    __slots__ = ("_cancel_compensation", "payload")
+
+    def __init__(
+        self,
+        message: str,
+        cancel_compensation: Callable[[], None],
+        *,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        object.__setattr__(self, "_cancel_compensation", cancel_compensation)
+        object.__setattr__(self, "payload", payload)
+
+    def compensate_cancelled(self) -> None:
+        self._cancel_compensation()
+
+
+@dataclass(frozen=True, slots=True)
+class _Step1CancellationReceipt:
+    project_path: Path
+    lock_paths: tuple[Path, ...]
+    files: FormalWriteReceipt
+    manifest: ArtifactRegistrationReceipt
+
+    def compensate_cancelled(self) -> None:
+        self._compensate(self.lock_paths)
+
+    def compensate_cancelled_while_draft_locked(self) -> None:
+        self._compensate(self.lock_paths[1:])
+
+    def _compensate(self, lock_paths: tuple[Path, ...]) -> None:
+        pm = ProjectManager(str(self.project_path.parent))
+        with ExitStack() as locks:
+            for path in lock_paths:
+                locks.enter_context(pm.file_lock(path))
+            with project_metadata_lock(self.project_path):
+                adapter = self.manifest.adapter
+                key = self.manifest.key
+                if adapter is None or key is None:
+                    raise RuntimeError("step1 cancellation receipt has no Manifest target")
+                if self.manifest.changed and adapter.get_entry(key) != self.manifest.registered:
+                    return
+                if not self.files.compensate_cancelled():
+                    return
+                self.manifest.compensate_cancelled()
+
+
+@dataclass(frozen=True, slots=True)
+class _EpisodeScriptCancellationReceipt:
+    project_path: Path
+    episode: int
+    files: FormalWriteReceipt
+    manifest: ArtifactEntryRekeyReceipt
+
+    def compensate_cancelled(self) -> None:
+        script_path = self.project_path / "scripts" / f"episode_{self.episode}.json"
+        pm = ProjectManager(str(self.project_path.parent))
+        with pm.file_lock(script_path), project_metadata_lock(self.project_path):
+            if not self.manifest.matches_current() or not self.files.matches_current():
+                return
+            if not self.files.compensate_cancelled():
+                return
+            self.manifest.compensate()
+
+
+async def _run_compensable_step1_commit(
+    commit: Callable[..., None],
+    /,
+    *args: Any,
+) -> _Step1CancellationReceipt:
+    receipts: list[_Step1CancellationReceipt] = []
+    try:
+        await run_sync_transaction(commit, *args, receipts)
+    except asyncio.CancelledError:
+        if receipts:
+            await run_noninterruptible_sync(receipts[0].compensate_cancelled_while_draft_locked)
+        raise
+    if len(receipts) != 1:
+        raise RuntimeError("step1 commit did not return cancellation state")
+    return receipts[0]
+
+
 class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
 
@@ -162,17 +255,50 @@ def _commit_generated_reference_step1(
     expected_fingerprint: str | None,
     basis: ArtifactBasis,
     before_commit: Callable[[], None] | None = None,
+    cancellation_receipts: list[_Step1CancellationReceipt] | None = None,
 ) -> None:
     if before_commit is not None:
         before_commit()
-    script_review.write_step1(
-        project_path,
-        episode,
-        content,
-        expected_fingerprint=expected_fingerprint,
-        basis=basis,
+    draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP1)
+    step2_path = quarantine_path(project_path, episode, QUARANTINE_KIND_STEP2)
+    formal_path = script_review.official_reference_step1_path(project_path, episode)
+    adapter = ProjectArtifactManifestAdapter(project_path)
+    key = ArtifactKey.episode_step1(episode)
+    pm = ProjectManager(str(project_path.parent))
+    file_receipts: list[FormalWriteReceipt] = []
+    with pm.file_lock(step2_path), script_review.step1_write_lock(project_path, episode):
+        previous = adapter.get_entry(key)
+        with formal_write_transaction(
+            formal_path,
+            step2_path,
+            draft_path,
+            cancellation_receipts=file_receipts,
+        ):
+            script_review.write_step1_locked(
+                project_path,
+                episode,
+                content,
+                expected_fingerprint=expected_fingerprint,
+                basis=basis,
+            )
+            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+        registered = adapter.get_entry(key)
+    if cancellation_receipts is None:
+        return
+    cancellation_receipts.append(
+        _Step1CancellationReceipt(
+            project_path=project_path,
+            lock_paths=(draft_path, step2_path, formal_path),
+            files=file_receipts[0],
+            manifest=ArtifactRegistrationReceipt(
+                adapter=adapter,
+                key=key,
+                registered=registered,
+                previous=previous,
+                changed=registered != previous,
+            ),
+        )
     )
-    clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
 
 
 def _commit_single_step1(
@@ -183,17 +309,45 @@ def _commit_single_step1(
     content: dict[str, Any],
     expected_fingerprint: Any,
     basis: ArtifactBasis | None,
+    cancellation_receipts: list[_Step1CancellationReceipt] | None = None,
 ) -> None:
+    draft_path = quarantine_path(project_path, episode, kind)
+    adapter = ProjectArtifactManifestAdapter(project_path)
+    key = ArtifactKey.episode_step1(episode)
+    file_receipts: list[FormalWriteReceipt] = []
     with script_review.formal_step1_lock(project_path, episode, step1_path):
-        script_review.write_formal_step1_locked(
-            project_path,
-            episode,
+        previous = adapter.get_entry(key)
+        with formal_write_transaction(
             step1_path,
-            content,
-            expected_fingerprint=expected_fingerprint,
-            basis=basis,
+            draft_path,
+            cancellation_receipts=file_receipts,
+        ):
+            script_review.write_formal_step1_locked(
+                project_path,
+                episode,
+                step1_path,
+                content,
+                expected_fingerprint=expected_fingerprint,
+                basis=basis,
+            )
+            clear_quarantine(project_path, episode, kind)
+        registered = adapter.get_entry(key)
+    if cancellation_receipts is None:
+        return
+    cancellation_receipts.append(
+        _Step1CancellationReceipt(
+            project_path=project_path,
+            lock_paths=(draft_path, step1_path),
+            files=file_receipts[0],
+            manifest=ArtifactRegistrationReceipt(
+                adapter=adapter,
+                key=key,
+                registered=registered,
+                previous=previous,
+                changed=registered != previous,
+            ),
         )
-        clear_quarantine(project_path, episode, kind)
+    )
 
 
 def _quarantine_invalid_step1_generation(
@@ -448,10 +602,36 @@ async def generate_episode_script(
             project_path,
             config_resolver=config_resolver,
         )
-        result_path = await generator.generate(episode=episode, instructions=instructions)
+        file_receipts: list[FormalWriteReceipt] = []
+        manifest_receipts: list[ArtifactEntryRekeyReceipt] = []
+        try:
+            result_path = await generator.generate(
+                episode=episode,
+                instructions=instructions,
+                cancellation_file_receipts=file_receipts,
+                cancellation_manifest_receipts=manifest_receipts,
+            )
+        except asyncio.CancelledError:
+            if len(file_receipts) == len(manifest_receipts) == 1:
+                receipt = _EpisodeScriptCancellationReceipt(
+                    project_path,
+                    episode,
+                    file_receipts[0],
+                    manifest_receipts[0],
+                )
+                await run_noninterruptible_sync(receipt.compensate_cancelled)
+            raise
     except FileNotFoundError as exc:
         raise TextGenerationError(f"❌ 文件错误: {exc}") from exc
-    return TextGenerationResult(f"✅ 剧本生成完成: {result_path}")
+    if not file_receipts and not manifest_receipts:
+        return TextGenerationResult(f"✅ 剧本生成完成: {result_path}")
+    if len(file_receipts) != 1 or len(manifest_receipts) != 1:
+        raise RuntimeError("episode script commit did not return cancellation state")
+    receipt = _EpisodeScriptCancellationReceipt(project_path, episode, file_receipts[0], manifest_receipts[0])
+    return CompensableTextGenerationResult(
+        f"✅ 剧本生成完成: {result_path}",
+        receipt.compensate_cancelled,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +788,7 @@ async def generate_drama_step1(
         async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
             try:
-                await run_sync_transaction(
+                cancellation_receipt = await _run_compensable_step1_commit(
                     _commit_single_step1,
                     project_path,
                     episode,
@@ -631,8 +811,9 @@ async def generate_drama_step1(
                     )
                 ) from exc
 
-        return TextGenerationResult(
-            f"✅ 规范化剧本（结构化内容）已保存: {step1_path}\n📊 生成统计: {len(raw_scenes)} 个分镜"
+        return CompensableTextGenerationResult(
+            f"✅ 规范化剧本（结构化内容）已保存: {step1_path}\n📊 生成统计: {len(raw_scenes)} 个分镜",
+            cancellation_receipt.compensate_cancelled,
         )
     except TextGenerationError:
         raise
@@ -1200,7 +1381,7 @@ async def generate_reference_step1(
         async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
             try:
-                await run_sync_transaction(
+                cancellation_receipt = await _run_compensable_step1_commit(
                     _commit_generated_reference_step1,
                     project_path,
                     episode,
@@ -1226,13 +1407,14 @@ async def generate_reference_step1(
             project,
             split_caps.voice,
         )
-        return TextGenerationResult(
+        return CompensableTextGenerationResult(
             _reference_result_text(
                 script_review.official_reference_step1_path(project_path, episode),
                 raw_units,
                 warning_lines,
                 action="拆分",
-            )
+            ),
+            cancellation_receipt.compensate_cancelled,
         )
     except TextGenerationError:
         raise
@@ -1346,7 +1528,7 @@ async def generate_narration_step1(
         async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
             try:
-                await run_sync_transaction(
+                cancellation_receipt = await _run_compensable_step1_commit(
                     _commit_single_step1,
                     project_path,
                     episode,
@@ -1372,10 +1554,11 @@ async def generate_narration_step1(
         total_chars = sum(len(str(segment.get("novel_text") or "")) for segment in raw_segments)
         total_seconds = sum(int(segment.get("duration_seconds") or 0) for segment in raw_segments)
         break_count = sum(1 for segment in raw_segments if segment.get("segment_break"))
-        return TextGenerationResult(
+        return CompensableTextGenerationResult(
             f"✅ 旁白/解说分镜拆分（结构化 step1）已保存: {step1_path}\n"
             f"📊 生成统计: {len(raw_segments)} 个分镜 / {total_chars} 字，"
-            f"预计总时长 {total_seconds} 秒；segment_break 标记 {break_count} 个"
+            f"预计总时长 {total_seconds} 秒；segment_break 标记 {break_count} 个",
+            cancellation_receipt.compensate_cancelled,
         )
     except TextGenerationError:
         raise

@@ -16,6 +16,7 @@ plan() 从 planning_cursor 起取一个源文窗口，由文本模型一次规�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import statistics
@@ -27,6 +28,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lib import script_review
+from lib.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -41,6 +43,7 @@ from lib.episode_ledger import (
     register_orphan_episode_entries,
 )
 from lib.episode_paths import episode_script_relpath
+from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, resolve_source_kind
 from lib.prompt_builders_script import USER_INSTRUCTIONS_HEADER
@@ -411,7 +414,12 @@ class EpisodePlanner:
 
     # ---------------------------------------------------------------- plan
 
-    async def plan(self, instructions: str | None = None) -> PlanResult:
+    async def plan(
+        self,
+        instructions: str | None = None,
+        *,
+        cancellation_receipts: list[FormalWriteReceipt] | None = None,
+    ) -> PlanResult:
         """规划下一批集：从 planning_cursor 起的窗口产出剧情弧完整的集并提交账本。
 
         当前源文件已无剩余有效内容时按文件名序自动推进到下一个源文件；
@@ -457,7 +465,11 @@ class EpisodePlanner:
         while not text[start:].strip():
             next_rel = self._next_source_rel(source_rel)
             if next_rel is None:
-                project = self._backfill_source_fingerprints_if_missing(project, used_fingerprints=used_fingerprints)
+                project = await self._backfill_source_fingerprints_if_missing(
+                    project,
+                    used_fingerprints=used_fingerprints,
+                    cancellation_receipts=cancellation_receipts,
+                )
                 return PlanResult(
                     episodes=[],
                     cursor=project.get("planning_cursor"),
@@ -586,7 +598,24 @@ class EpisodePlanner:
                 window_is_final and not text[start + ends[-1] :].strip() and self._next_source_rel(source_rel) is None
             )
 
-        final_project = self.pm.update_project(self.project_name, _commit)
+        existing_derived = set(discover_episode_files(self.project_path).values())
+        ledger_nums = {
+            parse_episode_num(entry.get("episode"))
+            for entry in project.get("episodes") or []
+            if isinstance(entry, Mapping)
+        }
+        ledger_nums = {num for num in ledger_nums if num is not None and num > 0}
+        next_num = max(ledger_nums, default=0) + 1
+        formal_paths = existing_derived | {
+            self.project_path / "source" / f"episode_{num}.txt"
+            for num in (*sorted(ledger_nums), *range(next_num, next_num + len(drafts)))
+        }
+        formal_paths.add(self.project_path / "source" / "_remaining.txt")
+        final_project = await self._update_project_compensably(
+            _commit,
+            formal_paths=tuple(sorted(formal_paths)),
+            cancellation_receipts=cancellation_receipts,
+        )
         exhausted = bool(committed["exhausted"])
         return PlanResult(
             episodes=summaries,
@@ -784,8 +813,12 @@ class EpisodePlanner:
         if missing:
             raise _missing_source_range_error(missing)
 
-    def _backfill_source_fingerprints_if_missing(
-        self, project: Mapping[str, Any], *, used_fingerprints: dict[str, str]
+    async def _backfill_source_fingerprints_if_missing(
+        self,
+        project: Mapping[str, Any],
+        *,
+        used_fingerprints: dict[str, str],
+        cancellation_receipts: list[FormalWriteReceipt] | None = None,
     ) -> dict:
         """存量项目在 ``source_exhausted`` 早退路径上补记指纹：该路径不经过 ``plan()`` 的
         提交闭包，若跳过会让「首次 plan 补记指纹」对已耗尽游标的存量项目失效——后续等长
@@ -808,7 +841,37 @@ class EpisodePlanner:
                 raise _source_changed_error(changed)
             p[SOURCE_FINGERPRINTS_KEY] = current_fingerprints
 
-        return self.pm.update_project(self.project_name, _commit)
+        return await self._update_project_compensably(
+            _commit,
+            cancellation_receipts=cancellation_receipts,
+        )
+
+    async def _update_project_compensably(
+        self,
+        mutate: Callable[[dict], None],
+        *,
+        formal_paths: tuple[Path, ...] = (),
+        cancellation_receipts: list[FormalWriteReceipt] | None = None,
+    ) -> dict:
+        receipts = cancellation_receipts if cancellation_receipts is not None else []
+        try:
+            return await run_sync_transaction(
+                self.pm.update_project,
+                self.project_name,
+                mutate,
+                formal_paths=formal_paths,
+                cancellation_receipts=receipts,
+            )
+        except asyncio.CancelledError:
+            if receipts:
+                receipt = receipts[0]
+
+                def _compensate_cancelled() -> None:
+                    with project_metadata_lock(self.project_path):
+                        receipt.compensate_cancelled()
+
+                await run_noninterruptible_sync(_compensate_cancelled)
+            raise
 
     @staticmethod
     def _setting_int(project: Mapping[str, Any], key: str, default: int) -> int:

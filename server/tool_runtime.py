@@ -51,6 +51,7 @@ from lib.episode_reset import (
 from lib.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
+from lib.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.generation_batch import (
     GenerationBatchReadModel,
     GenerationBatchRequestedItem,
@@ -1724,33 +1725,58 @@ async def _execute_plan_episodes(
     services: Services,
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
-) -> ToolOutcome[PlanEpisodesResult]:
+    cancellation_receipts: list[FormalWriteReceipt] | None = None,
+) -> ToolOutcome[Any]:
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     try:
         planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
-        result = await planner.plan(instructions=request.value.instructions)
+        if cancellation_receipts is None:
+            result = await planner.plan(instructions=request.value.instructions)
+        else:
+            result = await planner.plan(
+                instructions=request.value.instructions,
+                cancellation_receipts=cancellation_receipts,
+            )
     except (EpisodePlanningError, FileNotFoundError) as exc:
         return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 分集规划失败：{exc}"))
     except Exception as exc:  # noqa: BLE001
         return ToolOutcome(problem=_unexpected("plan_episodes", exc))
+    value = PlanEpisodesResult(
+        message=_format_plan(result),
+        episodes=[
+            {
+                "episode": episode.episode,
+                "title": episode.title,
+                "hook": episode.hook,
+                "reading_units": episode.reading_units,
+                "ledger_status": episode.ledger_status,
+            }
+            for episode in result.episodes
+        ],
+        cursor=result.cursor,
+        source_exhausted=result.source_exhausted,
+        total_planned=result.total_planned,
+        ledger_stats=_ledger_stats_payload(result.ledger_stats),
+    )
+    if cancellation_receipts is None:
+        return ToolOutcome(value=value)
+    if not cancellation_receipts:
+        return ToolOutcome(value=value)
+    if len(cancellation_receipts) != 1:
+        raise RuntimeError("episode planning commit did not return cancellation state")
+    receipt = cancellation_receipts[0]
+    project_path = services.projects.get_project_path(scope.project_name)
+
+    def _compensate_cancelled() -> None:
+        with project_metadata_lock(project_path):
+            receipt.compensate_cancelled()
+
     return ToolOutcome(
-        value=PlanEpisodesResult(
-            message=_format_plan(result),
-            episodes=[
-                {
-                    "episode": episode.episode,
-                    "title": episode.title,
-                    "hook": episode.hook,
-                    "reading_units": episode.reading_units,
-                    "ledger_status": episode.ledger_status,
-                }
-                for episode in result.episodes
-            ],
-            cursor=result.cursor,
-            source_exhausted=result.source_exhausted,
-            total_planned=result.total_planned,
-            ledger_stats=_ledger_stats_payload(result.ledger_stats),
+        value=CompensableTextGenerationResult(
+            value.message,
+            _compensate_cancelled,
+            payload=value.model_dump(mode="json"),
         )
     )
 
@@ -1794,11 +1820,13 @@ async def execute_queued_text_task(
         )
     task_type = task["task_type"]
     if task_type == _TEXT_EPISODE_PLAN:
+        cancellation_receipts: list[FormalWriteReceipt] = []
         outcome = await _execute_plan_episodes(
             ToolRequest(PlanEpisodesRequest(instructions=payload.get("instructions"))),
             scope,
             services,
             planner_cls=planner_cls,
+            cancellation_receipts=cancellation_receipts if planner_cls is EpisodePlanner else None,
         )
     else:
         request = TextGenerationRequest(
@@ -1823,7 +1851,7 @@ async def execute_queued_text_task(
     value = outcome.value
     if isinstance(value, CompensableTextGenerationResult):
         return CompensableGenerationResult(
-            {"message": value.message},
+            value.payload or {"message": value.message},
             cancel_compensation=value.compensate_cancelled,
         )
     if isinstance(value, BaseModel):

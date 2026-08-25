@@ -777,7 +777,7 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
             captured["build_prompt"] = instructions
             return "fake prompt"
 
-        async def generate(self, *, episode, instructions=None):
+        async def generate(self, *, episode, instructions=None, **_kwargs):
             captured["generate"] = instructions
             return project_path / "scripts" / "episode_1.json"
 

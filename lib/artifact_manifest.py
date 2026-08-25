@@ -178,6 +178,9 @@ class ArtifactEntryRekeyReceipt:
     after: Mapping[ArtifactKey, ArtifactManifestEntry | None]
     changed: bool
 
+    def matches_current(self) -> bool:
+        return _entries_match(self.adapter, self.after)
+
     def compensate(self) -> bool:
         if not self.changed:
             return False
