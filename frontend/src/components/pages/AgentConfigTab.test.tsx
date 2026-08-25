@@ -129,7 +129,7 @@ describe("AgentConfigTab — credentials directory", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "外部智能体接入" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "外部智能体接入" })).toBeInTheDocument();
   });
 
   it("renders existing credentials in the list", async () => {

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -49,6 +50,16 @@ describe("ProjectsPage", () => {
 
     // 0 项目时仅渲染 NewProjectTile 占位卡（lobby_new_project_title）
     expect(await screen.findByText("新建项目")).toBeInTheDocument();
+  });
+
+  it("opens external agent access from the lobby top bar", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+    renderPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "外部智能体接入" }));
+
+    expect(screen.getByRole("dialog", { name: "外部智能体接入" })).toBeInTheDocument();
   });
 
   it("does not mark settings incomplete when only the embedded-agent credential is missing", async () => {

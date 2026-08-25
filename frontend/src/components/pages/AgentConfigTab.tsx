@@ -15,7 +15,7 @@ import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 
 import { TabSaveFooter } from "./TabSaveFooter";
-import { OpenClawModal } from "./OpenClawModal";
+import { ExternalAgentModal } from "./ExternalAgentModal";
 
 interface AgentDraft {
   cleanupDelaySeconds: string;
@@ -219,7 +219,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         onReset={handleReset}
       />
       {showExternalGuide && (
-        <OpenClawModal onClose={() => setShowExternalGuide(false)} />
+        <ExternalAgentModal onClose={() => setShowExternalGuide(false)} />
       )}
     </div>
   );

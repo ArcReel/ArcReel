@@ -10,7 +10,7 @@ import {
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
 import { formatDate } from "@/utils/date-format";
 import { Link, useLocation } from "wouter";
-import { AlertTriangle, Library, Loader2, Plus, Search, Settings, Upload } from "lucide-react";
+import { AlertTriangle, Cable, Library, Loader2, Plus, Search, Settings, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { API } from "@/api";
@@ -26,7 +26,7 @@ import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { WARM_TONE } from "@/utils/severity-tone";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { CreateProjectModal } from "./CreateProjectModal";
-import { OpenClawModal } from "./OpenClawModal";
+import { ExternalAgentModal } from "./ExternalAgentModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
 import { ICON_BTN_FILLED_CLS } from "@/components/ui/darkroom-tokens";
 import {
@@ -382,7 +382,7 @@ interface TopBarProps {
   onCreate: () => void;
   onSettings: () => void;
   onAssets: () => void;
-  onOpenClaw: () => void;
+  onOpenExternalAgent: () => void;
   importing: boolean;
   configIncomplete: boolean;
   searchInputRef: React.RefObject<HTMLInputElement | null>;
@@ -395,7 +395,7 @@ function TopBar({
   onCreate,
   onSettings,
   onAssets,
-  onOpenClaw,
+  onOpenExternalAgent,
   importing,
   configIncomplete,
   searchInputRef,
@@ -491,12 +491,12 @@ function TopBar({
           <span aria-hidden className="mx-1 h-5 w-px bg-hairline-soft" />
           <button
             type="button"
-            onClick={onOpenClaw}
+            onClick={onOpenExternalAgent}
             className="rounded-md px-2 py-1.5 text-sm text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            title={t("dashboard:openclaw")}
-            aria-label={t("dashboard:openclaw")}
+            title={t("dashboard:external_agent_guide")}
+            aria-label={t("dashboard:external_agent_guide")}
           >
-            <span aria-hidden>🦞</span>
+            <Cable className="h-4 w-4" aria-hidden />
           </button>
           <button
             type="button"
@@ -762,7 +762,7 @@ export function ProjectsPage() {
     | { source: "failure"; diagnostics: ImportFailureDiagnostics };
   const [importDiagnostics, setImportDiagnostics] =
     useState<ImportDiagnosticsState | null>(null);
-  const [showOpenClaw, setShowOpenClaw] = useState(false);
+  const [showExternalAgent, setShowExternalAgent] = useState(false);
   const [deletingProject, setDeletingProject] = useState<ProjectSummary | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>("all");
@@ -998,7 +998,7 @@ export function ProjectsPage() {
           rememberAssetLibraryReturnTo(window.location.pathname);
           navigate("/app/assets");
         }}
-        onOpenClaw={() => setShowOpenClaw(true)}
+        onOpenExternalAgent={() => setShowExternalAgent(true)}
         importing={importingProject}
         configIncomplete={!isConfigComplete}
         searchInputRef={searchInputRef}
@@ -1156,7 +1156,9 @@ export function ProjectsPage() {
         />
       )}
 
-      {showOpenClaw && <OpenClawModal onClose={() => setShowOpenClaw(false)} />}
+      {showExternalAgent && (
+        <ExternalAgentModal onClose={() => setShowExternalAgent(false)} />
+      )}
       {showCreateModal && <CreateProjectModal />}
 
       <ConfirmDialog
