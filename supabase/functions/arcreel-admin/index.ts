@@ -1,5 +1,6 @@
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "@supabase/supabase-js";
+import CONFIG_SCHEMA_JSON from "../_shared/arcreel-config-schema.json" with { type: "json" };
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -7,41 +8,35 @@ const cors = {
   "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
 };
 
-const PROVIDERS = [
-  provider("gemini-aistudio", "Google AI Studio", true),
-  provider("ark", "火山方舟", true),
-  provider("ark-agent-plan", "火山方舟 Agent Plan", false),
-  provider("grok", "xAI Grok", false),
-  provider("openai", "OpenAI", true),
-  provider("vidu", "Vidu", true),
-  provider("dashscope", "阿里云百炼", true),
-  provider("minimax", "MiniMax", true),
-  {
-    id: "kling",
-    name: "可灵 Kling",
-    secret_fields: [{ key: "api_key", label: "API Key" }, { key: "access_key", label: "Access Key" }, { key: "secret_key", label: "Secret Key" }],
-    secret_field_groups: [["api_key"], ["access_key", "secret_key"]],
-    supports_base_url: true,
-  },
-  provider("agnes", "Agnes", true),
-  provider("runware", "Runware", true),
-  provider("croco", "Croco GPU", true),
-  provider("doubao", "火山 TTS", true),
-];
+type ProviderField = { key: string; label: string; type: "text" | "url" | "number"; required: boolean };
+type ProviderDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  secret_fields: { key: string; label: string }[];
+  secret_field_groups: string[][];
+  supports_base_url: boolean;
+  fields: ProviderField[];
+  credential_file?: { key: string; label: string; accept: string; max_bytes: number };
+};
+type AgentProviderDefinition = {
+  id: string;
+  name: string;
+  base_url: string;
+  default_model: string;
+  api_key_pattern?: string | null;
+};
 
-const AGENT_PROVIDERS = [
-  agentProvider("anthropic-official", "Anthropic Official", "https://api.anthropic.com", ""),
-  agentProvider("arcreel", "ArcReel API", "https://api.arc-reel.com", "gpt-5.5"),
-  agentProvider("deepseek", "DeepSeek", "https://api.deepseek.com/anthropic", "deepseek-v4-pro"),
-  agentProvider("kimi", "Kimi For Coding", "https://api.kimi.com/coding", ""),
-  agentProvider("xiaomi-mimo", "Xiaomi MiMo", "https://api.xiaomimimo.com/anthropic", "mimo-v2.5-pro"),
-  agentProvider("glm-cn", "Zhipu GLM (中国)", "https://open.bigmodel.cn/api/anthropic", "glm-5.1"),
-  agentProvider("glm-intl", "Zhipu GLM (Global)", "https://api.z.ai/api/anthropic", "glm-5.1"),
-  agentProvider("minimax-cn", "MiniMax (中国)", "https://api.minimaxi.com/anthropic", "MiniMax-M3"),
-  agentProvider("minimax-intl", "MiniMax (Global)", "https://api.minimax.io/anthropic", "MiniMax-M3"),
-  agentProvider("ark-coding-plan", "Volcengine Ark Coding Plan", "https://ark.cn-beijing.volces.com/api/coding", ""),
-  agentProvider("ark-agent-plan", "Volcengine Ark Agent Plan", "https://ark.cn-beijing.volces.com/api/plan", ""),
-];
+const CONFIG_SCHEMA = CONFIG_SCHEMA_JSON as unknown as {
+  system_id: string;
+  roles: { id: string; name: string }[];
+  providers: ProviderDefinition[];
+  agent_providers: AgentProviderDefinition[];
+  agent_fields: unknown[];
+  global_configs: unknown[];
+};
+const PROVIDERS = CONFIG_SCHEMA.providers;
+const AGENT_PROVIDERS = CONFIG_SCHEMA.agent_providers;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -51,13 +46,7 @@ Deno.serve(async (req) => {
     const root = parts.indexOf("arcreel-admin");
     const path = root >= 0 ? parts.slice(root + 1) : parts;
     if (req.method === "GET" && path[0] === "schema") {
-      return json({
-        system_id: "arcreel",
-        roles: [{ id: "admin", name: "管理员" }, { id: "user", name: "普通用户" }],
-        providers: PROVIDERS,
-        agent_providers: AGENT_PROVIDERS,
-        global_configs: [{ id: "character_catalog", name: "人物资产渠道", scope: "global" }],
-      });
+      return json(CONFIG_SCHEMA);
     }
     if (path[0] === "global-configs" && path[1] === "character-catalog") {
       if (req.method === "GET") return await getCharacterCatalog();
@@ -185,24 +174,61 @@ async function putCredential(req: Request, accountId: string, providerId: string
   const provider = PROVIDERS.find((item) => item.id === providerId);
   if (!provider) throw new HttpError(400, "PROVIDER_INVALID", "ArcReel 不支持该供应商");
   const body = await readJson(req);
-  const payload: Record<string, string> = { name: optional(body.name) || "数据中台分配" };
+  const client = admin();
+  const { data: existing, error: existingError } = await client.from("arcreel_provider_credentials")
+    .select("encrypted_payload,revision").eq("user_id", accountId).eq("provider_id", providerId).maybeSingle();
+  if (existingError) throw existingError;
+  const payload: Record<string, string> = existing
+    ? await decryptPayload(String(existing.encrypted_payload))
+    : { name: "数据中台分配" };
+  if (optional(body.name)) payload.name = optional(body.name)!;
+  const touchedGroups = provider.secret_field_groups.filter((group) => group.some((key) => optional(body[key])));
+  if (touchedGroups.length > 1) {
+    throw new HttpError(400, "CREDENTIAL_GROUP_AMBIGUOUS", "一次只能填写一种密钥组合");
+  }
   for (const field of provider.secret_fields) {
     const value = optional(body[field.key]);
     if (value) payload[field.key] = value;
   }
-  if (!provider.secret_field_groups.some((group) => group.every((key) => payload[key]))) {
+  if (provider.credential_file) {
+    const contents = optional(body[provider.credential_file.key]);
+    if (contents) {
+      if (new TextEncoder().encode(contents).length > provider.credential_file.max_bytes) {
+        throw new HttpError(413, "CREDENTIAL_FILE_TOO_LARGE", "Vertex 服务账号 JSON 不能超过 1 MiB");
+      }
+      try {
+        const parsed = JSON.parse(contents);
+        if (!parsed || typeof parsed !== "object" || !parsed.project_id) throw new Error("project_id");
+      } catch {
+        throw new HttpError(400, "VERTEX_CREDENTIAL_INVALID", "Vertex 服务账号 JSON 格式无效或缺少 project_id");
+      }
+      payload[provider.credential_file.key] = contents;
+    }
+    if (!payload[provider.credential_file.key]) {
+      throw new HttpError(400, "CREDENTIAL_INCOMPLETE", "请上传 Vertex 服务账号 JSON");
+    }
+  } else if (!provider.secret_field_groups.some((group) => group.every((key) => payload[key]))) {
     throw new HttpError(400, "CREDENTIAL_INCOMPLETE", "请完整填写一种可用的密钥组合");
   }
-  const baseUrl = optional(body.base_url);
-  if (baseUrl) payload.base_url = baseUrl;
+  if (touchedGroups.length === 1 && touchedGroups[0].every((key) => payload[key])) {
+    const selected = new Set(touchedGroups[0]);
+    for (const group of provider.secret_field_groups) {
+      for (const key of group) if (!selected.has(key)) delete payload[key];
+    }
+  }
+  applyOptionalField(payload, body, "base_url", "url");
+  for (const field of provider.fields) {
+    applyOptionalField(payload, body, field.key, field.type);
+    if (field.required && !payload[field.key]) {
+      throw new HttpError(400, "PROVIDER_FIELD_REQUIRED", `${field.label} 不能为空`);
+    }
+  }
   const encryptedPayload = await encryptPayload(payload);
-  const maskedHint = Object.fromEntries(
-    Object.entries(payload).filter(([key]) => key !== "name" && key !== "base_url")
-      .map(([key, value]) => [key, mask(value)]),
-  );
-  const client = admin();
-  const { data: existing } = await client.from("arcreel_provider_credentials").select("revision")
-    .eq("user_id", accountId).eq("provider_id", providerId).maybeSingle();
+  const secretKeys = new Set(provider.secret_fields.map((item) => item.key));
+  if (provider.credential_file) secretKeys.add(provider.credential_file.key);
+  const maskedHint = Object.fromEntries(Object.entries(payload)
+    .filter(([key]) => key !== "name")
+    .map(([key, value]) => [key, secretKeys.has(key) ? (key === "credentials_json" ? "已上传 JSON" : mask(value)) : value]));
   const revision = Number(existing?.revision || 0) + 1;
   const { data, error } = await client.from("arcreel_provider_credentials").upsert({
     user_id: accountId,
@@ -236,28 +262,49 @@ async function putAgentCredential(req: Request, accountId: string) {
   const presetId = String(body.preset_id ?? "").trim();
   const preset = AGENT_PROVIDERS.find((item) => item.id === presetId);
   if (!preset) throw new HttpError(400, "AGENT_PROVIDER_INVALID", "请选择有效的 Agent 供应商");
-  const apiKey = String(body.api_key ?? "").trim();
+  const client = admin();
+  const { data: existing, error: existingError } = await client.from("arcreel_agent_credentials")
+    .select("encrypted_payload,revision").eq("user_id", accountId).maybeSingle();
+  if (existingError) throw existingError;
+  const payload: Record<string, string> = existing ? await decryptPayload(String(existing.encrypted_payload)) : {};
+  const submittedApiKey = optional(body.api_key);
+  if (payload.preset_id && payload.preset_id !== presetId && !submittedApiKey) {
+    throw new HttpError(400, "AGENT_API_KEY_REQUIRED", "切换 Agent 供应商时必须填写新的 API Key");
+  }
+  const apiKey = submittedApiKey || payload.api_key;
   if (!apiKey) throw new HttpError(400, "AGENT_API_KEY_REQUIRED", "请输入 Agent API Key");
-  const baseUrl = validateHttpUrl(String(body.base_url ?? preset.base_url).trim(), "Agent 服务地址无效");
-  const payload: Record<string, string> = {
-    preset_id: presetId,
-    display_name: optional(body.display_name) || preset.name,
-    base_url: baseUrl,
-    api_key: apiKey,
-  };
+  if (preset.api_key_pattern && !new RegExp(preset.api_key_pattern).test(apiKey)) {
+    throw new HttpError(400, "AGENT_API_KEY_INVALID", "API Key 格式与所选 Agent 供应商不匹配");
+  }
+  const fallbackBaseUrl = presetId === "__custom__" ? "" : preset.base_url;
+  const baseUrl = validateHttpUrl(String(optional(body.base_url) || payload.base_url || fallbackBaseUrl), "Agent 服务地址无效");
+  payload.preset_id = presetId;
+  payload.display_name = optional(body.display_name) || payload.display_name || preset.name;
+  payload.base_url = baseUrl;
+  payload.api_key = apiKey;
   for (const key of ["model", "haiku_model", "sonnet_model", "opus_model", "subagent_model"]) {
-    const value = optional(body[key]);
-    if (value) payload[key] = value;
+    if (key in body) {
+      const value = optional(body[key]);
+      if (value) payload[key] = value;
+      else delete payload[key];
+    }
   }
   if (!payload.model && preset.default_model) payload.model = preset.default_model;
-  const client = admin();
-  const { data: existing } = await client.from("arcreel_agent_credentials")
-    .select("revision").eq("user_id", accountId).maybeSingle();
   const revision = Number(existing?.revision || 0) + 1;
   const { data, error } = await client.from("arcreel_agent_credentials").upsert({
     user_id: accountId,
     encrypted_payload: await encryptPayload(payload),
-    masked_hint: { preset_id: presetId, display_name: payload.display_name, base_url: baseUrl, api_key: mask(apiKey) },
+    masked_hint: {
+      preset_id: presetId,
+      display_name: payload.display_name,
+      base_url: baseUrl,
+      api_key: mask(apiKey),
+      model: payload.model || "",
+      haiku_model: payload.haiku_model || "",
+      sonnet_model: payload.sonnet_model || "",
+      opus_model: payload.opus_model || "",
+      subagent_model: payload.subagent_model || "",
+    },
     revision,
     updated_at: new Date().toISOString(),
   }, { onConflict: "user_id" }).select("masked_hint,revision,updated_at").single();
@@ -333,8 +380,44 @@ async function encryptPayload(payload: Record<string, string>): Promise<string> 
   return `${toBase64(iv)}.${toBase64(new Uint8Array(encrypted))}`;
 }
 
+async function decryptPayload(encoded: string): Promise<Record<string, string>> {
+  const parts = encoded.split(".");
+  if (parts.length !== 2) throw new Error("invalid encrypted payload");
+  const keyBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(required("ARCREEL_CREDENTIAL_ENCRYPTION_KEY")));
+  const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(parts[0]) }, key, fromBase64(parts[1]));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
 function toBase64(value: Uint8Array) {
   return btoa(String.fromCharCode(...value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64(value: string) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+}
+
+function applyOptionalField(
+  payload: Record<string, string>, body: Record<string, unknown>, key: string, type: string,
+) {
+  if (!(key in body)) return;
+  const value = optional(body[key]);
+  if (!value) {
+    delete payload[key];
+    return;
+  }
+  if (type === "url") validateHttpUrl(value, `${key} 地址无效`);
+  if (type === "number") {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0 || (key.endsWith("_max_workers") && !Number.isInteger(number || 0))) {
+      throw new HttpError(400, "PROVIDER_NUMBER_INVALID", `${key} 数值无效`);
+    }
+    if (key.endsWith("_max_workers") && number < 1) {
+      throw new HttpError(400, "PROVIDER_NUMBER_INVALID", `${key} 必须是正整数`);
+    }
+  }
+  payload[key] = value;
 }
 
 function mask(value: string) { return value.length <= 6 ? "******" : `${value.slice(0, 3)}***${value.slice(-3)}`; }
@@ -361,20 +444,6 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
   });
-}
-
-function provider(id: string, name: string, supportsBaseUrl: boolean) {
-  return {
-    id,
-    name,
-    secret_fields: [{ key: "api_key", label: "API Key" }],
-    secret_field_groups: [["api_key"]],
-    supports_base_url: supportsBaseUrl,
-  };
-}
-
-function agentProvider(id: string, name: string, baseUrl: string, defaultModel: string) {
-  return { id, name, base_url: baseUrl, default_model: defaultModel };
 }
 
 function validateHttpUrl(value: string, message: string) {

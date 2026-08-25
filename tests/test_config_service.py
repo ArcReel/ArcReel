@@ -1,8 +1,10 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from lib.config.repository import ManagedProviderConfigRepository
 from lib.config.service import ConfigService
 from lib.db.base import Base
+from lib.db.models.user import User
 from lib.db.repositories.credential_repository import CredentialRepository
 
 pytestmark = pytest.mark.unit
@@ -61,6 +63,22 @@ async def test_get_provider_config(config_service: ConfigService):
     await config_service.set_provider_config("grok", "api_key", "xai-test")
     config = await config_service.get_provider_config("grok")
     assert config == {"api_key": "xai-test"}
+
+
+async def test_managed_provider_config_overrides_global_per_account(session: AsyncSession):
+    session.add_all([User(id="alice", username="alice"), User(id="bob", username="bob")])
+    await session.flush()
+    global_service = ConfigService(session)
+    await global_service.set_provider_config("openai", "image_max_workers", "2")
+    await ManagedProviderConfigRepository(session, "alice").replace_provider(
+        "openai", {"image_max_workers": "7", "video_max_workers": "3"}, secret_keys=set(), revision=4
+    )
+
+    assert await ConfigService(session, user_id="alice").get_provider_config("openai") == {
+        "image_max_workers": "7",
+        "video_max_workers": "3",
+    }
+    assert await ConfigService(session, user_id="bob").get_provider_config("openai") == {"image_max_workers": "2"}
 
 
 async def test_delete_provider_config(config_service: ConfigService):

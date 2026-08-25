@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import httpx
 import pytest
 from sqlalchemy import select
 
-from lib.config.repository import SystemSettingRepository
+from lib.config.repository import ManagedProviderConfigRepository, SystemSettingRepository
 from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.models.credential import ProviderCredential
 from lib.db.models.user import ArcReelCloudSession, User
+from lib.db.repositories.credential_repository import CredentialRepository
 from server.services import arcreel_cloud
+from server.services.account_center_sync import _apply_snapshot
 
 pytestmark = pytest.mark.integration
 
@@ -78,6 +83,8 @@ async def test_cloud_login_creates_stable_shadow_user_and_applies_scoped_credent
                         "name": "中台分配",
                         "api_key": "sk-alice",
                         "base_url": "https://api.example.com/v1",
+                        "image_max_workers": "7",
+                        "video_max_workers": "3",
                     }
                 ],
                 "agent_credential": {
@@ -86,6 +93,10 @@ async def test_cloud_login_creates_stable_shadow_user_and_applies_scoped_credent
                     "base_url": "https://api.deepseek.com/anthropic",
                     "api_key": "agent-alice-secret",
                     "model": "deepseek-v4-pro",
+                    "haiku_model": "deepseek-chat-fast",
+                    "sonnet_model": "deepseek-chat",
+                    "opus_model": "deepseek-reasoner",
+                    "subagent_model": "deepseek-chat-subagent",
                 },
                 "global_configs": {
                     "character_catalog": {
@@ -121,12 +132,19 @@ async def test_cloud_login_creates_stable_shadow_user_and_applies_scoped_credent
         assert credentials[0].api_key == "sk-alice"
         assert credentials[0].management_source == "arcreel_cloud"
 
+        managed_config = await ManagedProviderConfigRepository(session, first_id).get_all("openai")
+        assert managed_config == {"image_max_workers": "7", "video_max_workers": "3"}
+
         agent_credentials = list((await session.execute(select(AgentAnthropicCredential))).scalars())
         assert len(agent_credentials) == 1
         assert agent_credentials[0].user_id == first_id
         assert agent_credentials[0].api_key == "agent-alice-secret"
         assert agent_credentials[0].management_source == "arcreel_cloud"
         assert agent_credentials[0].is_active is True
+        assert agent_credentials[0].haiku_model == "deepseek-chat-fast"
+        assert agent_credentials[0].sonnet_model == "deepseek-chat"
+        assert agent_credentials[0].opus_model == "deepseek-reasoner"
+        assert agent_credentials[0].subagent_model == "deepseek-chat-subagent"
 
         settings = await SystemSettingRepository(session).get_all()
         assert settings["croco_characters_api_url"] == "https://catalog.example/functions/v1/export"
@@ -160,3 +178,41 @@ async def test_cloud_login_reuses_unbound_same_name_user(db_factory, monkeypatch
         assert user.id == "legacy-id"
         assert user.arcreel_cloud_sub == "cloud-alice"
         assert user.role == "admin"
+
+
+async def test_vertex_file_and_advanced_settings_are_account_scoped_and_removed(db_factory):
+    async with db_factory() as session:
+        user = User(id="vertex-user", username="vertex-user", role="user", is_active=True)
+        session.add(user)
+        await session.flush()
+        await _apply_snapshot(
+            session,
+            user.id,
+            8,
+            [
+                {
+                    "provider_id": "gemini-vertex",
+                    "name": "中台 Vertex",
+                    "credentials_json": '{"type":"service_account","project_id":"managed-project"}',
+                    "gcs_bucket": "managed-bucket",
+                    "image_rpm": "12.5",
+                    "video_max_workers": "4",
+                }
+            ],
+            management_source="arcreel_cloud",
+        )
+        credential = await CredentialRepository(session, user.id).get_active("gemini-vertex")
+        assert credential is not None and credential.credentials_path
+        credential_path = Path(credential.credentials_path)
+        assert credential_path.is_file()
+        assert json.loads(credential_path.read_text(encoding="utf-8"))["project_id"] == "managed-project"
+        assert await ManagedProviderConfigRepository(session, user.id).get_all("gemini-vertex") == {
+            "gcs_bucket": "managed-bucket",
+            "image_rpm": "12.5",
+            "video_max_workers": "4",
+        }
+
+        await _apply_snapshot(session, user.id, 9, [], management_source="arcreel_cloud")
+        assert await CredentialRepository(session, user.id).get_active("gemini-vertex") is None
+        assert not credential_path.exists()
+        assert await ManagedProviderConfigRepository(session, user.id).get_all("gemini-vertex") == {}

@@ -1,0 +1,67 @@
+{
+  "system_id": "arcreel",
+  "roles": [{ "id": "admin", "name": "管理员" }, { "id": "user", "name": "普通用户" }],
+  "providers": [
+    {
+      "id": "gemini-aistudio", "name": "Google AI Studio", "description": "Gemini 图片、视频与文本服务",
+      "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true,
+      "fields": [
+        { "key": "image_rpm", "label": "Image RPM", "type": "number", "required": false },
+        { "key": "video_rpm", "label": "Video RPM", "type": "number", "required": false },
+        { "key": "request_gap", "label": "Request Gap (sec)", "type": "number", "required": false },
+        { "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false },
+        { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }
+      ]
+    },
+    {
+      "id": "gemini-vertex", "name": "Google Vertex AI", "description": "Google Cloud Vertex AI 服务账号模式",
+      "secret_fields": [], "secret_field_groups": [], "supports_base_url": false,
+      "credential_file": { "key": "credentials_json", "label": "Vertex 服务账号 JSON", "accept": ".json", "max_bytes": 1048576 },
+      "fields": [
+        { "key": "gcs_bucket", "label": "GCS Bucket", "type": "text", "required": false },
+        { "key": "image_rpm", "label": "Image RPM", "type": "number", "required": false },
+        { "key": "video_rpm", "label": "Video RPM", "type": "number", "required": false },
+        { "key": "request_gap", "label": "Request Gap (sec)", "type": "number", "required": false },
+        { "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false },
+        { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }
+      ]
+    },
+    { "id": "ark", "name": "火山方舟", "description": "火山引擎方舟模型服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true, "fields": [{ "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }, { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }] },
+    { "id": "ark-agent-plan", "name": "火山方舟 Agent Plan", "description": "火山引擎 Agent Plan 媒体模型", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": false, "fields": [{ "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }, { "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }] },
+    { "id": "grok", "name": "xAI Grok", "description": "xAI 文本、图片与视频服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": false, "fields": [{ "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }, { "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }] },
+    { "id": "openai", "name": "OpenAI", "description": "OpenAI 文本、图片与视频服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true, "fields": [{ "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }, { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }] },
+    { "id": "vidu", "name": "Vidu", "description": "Vidu 视频生成服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true, "fields": [{ "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }, { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }] },
+    { "id": "dashscope", "name": "阿里云百炼", "description": "DashScope 图片、视频、文本与语音服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true, "fields": [{ "key": "wan3_base_url", "label": "Wan 3.0 Base URL", "type": "url", "required": false }, { "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }, { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }, { "key": "audio_max_workers", "label": "Audio Max Workers", "type": "number", "required": false }] },
+    { "id": "minimax", "name": "MiniMax", "description": "MiniMax 文本、图片与视频服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true, "fields": [{ "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }, { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }] },
+    { "id": "kling", "name": "可灵 Kling", "description": "可灵图片与视频服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }, { "key": "access_key", "label": "Access Key" }, { "key": "secret_key", "label": "Secret Key" }], "secret_field_groups": [["api_key"], ["access_key", "secret_key"]], "supports_base_url": true, "fields": [{ "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }, { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }] },
+    { "id": "agnes", "name": "Agnes", "description": "Agnes 图片、视频与文本服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true, "fields": [{ "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }, { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }] },
+    { "id": "runware", "name": "Runware", "description": "Runware 图片生成服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true, "fields": [{ "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }] },
+    { "id": "croco", "name": "Croco GPU", "description": "Croco GPU 图片、视频与语音服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true, "fields": [{ "key": "image_max_workers", "label": "Image Max Workers", "type": "number", "required": false }, { "key": "video_max_workers", "label": "Video Max Workers", "type": "number", "required": false }, { "key": "audio_max_workers", "label": "Audio Max Workers", "type": "number", "required": false }] },
+    { "id": "doubao", "name": "火山 TTS", "description": "火山引擎豆包语音合成服务", "secret_fields": [{ "key": "api_key", "label": "API Key" }], "secret_field_groups": [["api_key"]], "supports_base_url": true, "fields": [{ "key": "resource_id", "label": "Resource ID", "type": "text", "required": true }, { "key": "audio_max_workers", "label": "Audio Max Workers", "type": "number", "required": false }] }
+  ],
+  "agent_providers": [
+    { "id": "anthropic-official", "name": "Anthropic Official", "icon_key": "Anthropic", "base_url": "https://api.anthropic.com", "discovery_url": "https://api.anthropic.com", "default_model": "", "suggested_models": [], "docs_url": null, "api_key_url": "https://platform.claude.com/", "notes_i18n_key": null, "api_key_pattern": "^sk-ant-[A-Za-z0-9_-]+$", "recommended": false },
+    { "id": "arcreel", "name": "ArcReel API", "icon_key": "ArcReel", "base_url": "https://api.arc-reel.com", "discovery_url": "https://api.arc-reel.com", "default_model": "gpt-5.5", "suggested_models": [], "docs_url": null, "api_key_url": "https://api.arc-reel.com/", "notes_i18n_key": null, "api_key_pattern": null, "recommended": true },
+    { "id": "deepseek", "name": "DeepSeek", "icon_key": "DeepSeek", "base_url": "https://api.deepseek.com/anthropic", "discovery_url": "https://api.deepseek.com", "default_model": "deepseek-v4-pro", "suggested_models": [], "docs_url": null, "api_key_url": "https://platform.deepseek.com/", "notes_i18n_key": "preset_notes_deepseek", "api_key_pattern": "^sk-[A-Za-z0-9]+$", "recommended": false },
+    { "id": "kimi", "name": "Kimi For Coding", "icon_key": "Kimi", "base_url": "https://api.kimi.com/coding", "discovery_url": "https://api.kimi.com/coding", "default_model": "", "suggested_models": [], "docs_url": null, "api_key_url": "https://www.kimi.com/coding/docs/", "notes_i18n_key": null, "api_key_pattern": "^sk-[A-Za-z0-9]+$", "recommended": false },
+    { "id": "xiaomi-mimo", "name": "Xiaomi MiMo", "icon_key": "XiaomiMiMo", "base_url": "https://api.xiaomimimo.com/anthropic", "discovery_url": null, "default_model": "mimo-v2.5-pro", "suggested_models": [], "docs_url": null, "api_key_url": "https://platform.xiaomimimo.com?ref=9JF5V2", "notes_i18n_key": "preset_notes_xiaomi_mimo", "api_key_pattern": null, "recommended": false },
+    { "id": "glm-cn", "name": "Zhipu GLM (中国)", "icon_key": "Zhipu", "base_url": "https://open.bigmodel.cn/api/anthropic", "discovery_url": "https://open.bigmodel.cn/api/anthropic", "default_model": "glm-5.1", "suggested_models": [], "docs_url": null, "api_key_url": "https://www.bigmodel.cn/glm-coding?ic=92O3DUV7NS", "notes_i18n_key": null, "api_key_pattern": null, "recommended": false },
+    { "id": "glm-intl", "name": "Zhipu GLM (Global)", "icon_key": "Zhipu", "base_url": "https://api.z.ai/api/anthropic", "discovery_url": "https://api.z.ai/api/anthropic", "default_model": "glm-5.1", "suggested_models": [], "docs_url": null, "api_key_url": "https://z.ai/subscribe?ic=3TIZJG5I0I", "notes_i18n_key": null, "api_key_pattern": null, "recommended": false },
+    { "id": "minimax-cn", "name": "MiniMax (中国)", "icon_key": "Minimax", "base_url": "https://api.minimaxi.com/anthropic", "discovery_url": "https://api.minimaxi.com/anthropic", "default_model": "MiniMax-M3", "suggested_models": [], "docs_url": null, "api_key_url": "https://platform.minimaxi.com/subscribe/coding-plan", "notes_i18n_key": null, "api_key_pattern": null, "recommended": false },
+    { "id": "minimax-intl", "name": "MiniMax (Global)", "icon_key": "Minimax", "base_url": "https://api.minimax.io/anthropic", "discovery_url": "https://api.minimax.io/anthropic", "default_model": "MiniMax-M3", "suggested_models": [], "docs_url": null, "api_key_url": "https://platform.minimax.io/subscribe/coding-plan", "notes_i18n_key": null, "api_key_pattern": null, "recommended": false },
+    { "id": "ark-coding-plan", "name": "Volcengine Ark Coding Plan", "icon_key": "Volcengine", "base_url": "https://ark.cn-beijing.volces.com/api/coding", "discovery_url": "https://ark.cn-beijing.volces.com", "default_model": "", "suggested_models": [], "docs_url": "https://www.volcengine.com/docs/82379/1928262", "api_key_url": "https://console.volcengine.com/ark", "notes_i18n_key": "preset_notes_ark_coding_plan", "api_key_pattern": null, "recommended": false },
+    { "id": "ark-agent-plan", "name": "Volcengine Ark Agent Plan", "icon_key": "Volcengine", "base_url": "https://ark.cn-beijing.volces.com/api/plan", "discovery_url": "https://ark.cn-beijing.volces.com", "default_model": "doubao-seed-2.0-lite", "suggested_models": ["doubao-seed-2.0-mini", "doubao-seed-2.0-lite", "deepseek-v4-flash", "doubao-seed-2.1-turbo", "doubao-seed-evolving", "minimax-m3", "glm-5.3", "kimi-k2.7-code", "deepseek-v4-pro", "kimi-k3"], "docs_url": "https://www.volcengine.com/docs/82379/2375486", "api_key_url": "https://console.volcengine.com/ark", "notes_i18n_key": "preset_notes_ark_agent_plan", "api_key_pattern": null, "recommended": false },
+    { "id": "__custom__", "name": "自定义供应商", "icon_key": "Custom", "base_url": "", "discovery_url": null, "default_model": "", "suggested_models": [], "docs_url": null, "api_key_url": null, "notes_i18n_key": null, "api_key_pattern": null, "recommended": false }
+  ],
+  "agent_fields": [
+    { "key": "display_name", "label": "显示名称", "type": "text", "required": true, "group": "basic" },
+    { "key": "base_url", "label": "服务地址", "type": "url", "required": true, "group": "basic" },
+    { "key": "api_key", "label": "API Key", "type": "secret", "required": true, "group": "basic" },
+    { "key": "model", "label": "默认模型", "type": "text", "required": false, "group": "basic" },
+    { "key": "haiku_model", "label": "Haiku 模型", "type": "text", "required": false, "group": "advanced" },
+    { "key": "sonnet_model", "label": "Sonnet 模型", "type": "text", "required": false, "group": "advanced" },
+    { "key": "opus_model", "label": "Opus 模型", "type": "text", "required": false, "group": "advanced" },
+    { "key": "subagent_model", "label": "SubAgent 模型", "type": "text", "required": false, "group": "advanced" }
+  ],
+  "global_configs": [{ "id": "character_catalog", "name": "人物资产渠道", "scope": "global" }]
+}

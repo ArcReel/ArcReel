@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
+from lib.config.repository import ManagedProviderConfigRepository, ProviderConfigRepository, SystemSettingRepository
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.credential_repository import CredentialRepository
 
@@ -119,12 +119,17 @@ class ProviderStatus:
 class ConfigService:
     def __init__(self, session: AsyncSession, *, user_id: str = DEFAULT_USER_ID) -> None:
         self._provider_repo = ProviderConfigRepository(session)
+        self._account_center_provider_repo = ManagedProviderConfigRepository(session, user_id, "account_center")
+        self._managed_provider_repo = ManagedProviderConfigRepository(session, user_id, "arcreel_cloud")
         self._setting_repo = SystemSettingRepository(session)
         self._user_id = user_id
 
     async def get_provider_config(self, provider: str) -> dict[str, str]:
         self._validate_provider(provider)
-        return await self._provider_repo.get_all(provider)
+        values = await self._provider_repo.get_all(provider)
+        values.update(await self._account_center_provider_repo.get_all(provider))
+        values.update(await self._managed_provider_repo.get_all(provider))
+        return values
 
     async def set_provider_config(
         self,
@@ -156,6 +161,10 @@ class ConfigService:
 
     async def get_all_providers_status(self) -> list[ProviderStatus]:
         all_configured = await self._provider_repo.get_all_configured_keys_bulk()
+        for provider, keys in (await self._account_center_provider_repo.configured_keys_bulk()).items():
+            all_configured[provider] = sorted(set(all_configured.get(provider, [])) | set(keys))
+        for provider, keys in (await self._managed_provider_repo.configured_keys_bulk()).items():
+            all_configured[provider] = sorted(set(all_configured.get(provider, [])) | set(keys))
         cred_repo = CredentialRepository(self._provider_repo.session, self._user_id)
         active_creds = await cred_repo.get_active_credentials_bulk()
         statuses = []
@@ -193,11 +202,19 @@ class ConfigService:
 
     async def get_all_provider_configs(self) -> dict[str, dict[str, str]]:
         """Get raw config for ALL providers in a single query."""
-        return await self._provider_repo.get_all_configs_bulk()
+        values = await self._provider_repo.get_all_configs_bulk()
+        for provider, managed in (await self._account_center_provider_repo.get_all_configs_bulk()).items():
+            values.setdefault(provider, {}).update(managed)
+        for provider, managed in (await self._managed_provider_repo.get_all_configs_bulk()).items():
+            values.setdefault(provider, {}).update(managed)
+        return values
 
     async def get_provider_config_masked(self, provider: str) -> dict[str, dict]:
         self._validate_provider(provider)
-        return await self._provider_repo.get_all_masked(provider)
+        values = await self._provider_repo.get_all_masked(provider)
+        values.update(await self._account_center_provider_repo.get_all_masked(provider))
+        values.update(await self._managed_provider_repo.get_all_masked(provider))
+        return values
 
     async def get_setting(self, key: str, default: str = "") -> str:
         return await self._setting_repo.get(key, default)

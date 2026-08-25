@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import logging
 import os
 import platform
 import uuid
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -19,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.app_data_dir import app_data_dir
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.repository import ManagedProviderConfigRepository
 from lib.config.url_utils import normalize_base_url
 from lib.db import async_session_factory
 from lib.db.base import utc_now
@@ -29,6 +32,9 @@ from lib.db.repositories.credential_repository import CredentialRepository
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_SECRET_FIELDS = ("api_key", "access_key", "secret_key")
+_CREDENTIAL_FIELDS = frozenset({"api_key", "access_key", "secret_key", "credentials_path", "base_url"})
+_VERTEX_CREDENTIALS_FIELD = "credentials_json"
+_MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024
 _DEVICE_ID_FILE = ".account_center_device_id"
 _DEVICE_KEY_FILE = ".account_center_device_key"
 
@@ -60,6 +66,20 @@ def build_config_schema(system_id: str) -> dict[str, object]:
                 ],
                 "secret_field_groups": groups,
                 "supports_base_url": "base_url" in meta.optional_keys,
+                "fields": [
+                    {
+                        "key": key,
+                        "required": key in meta.required_keys,
+                        "type": _provider_field_type(key),
+                    }
+                    for key in (*meta.required_keys, *meta.optional_keys)
+                    if key not in _CREDENTIAL_FIELDS
+                ],
+                "credential_file": (
+                    {"key": _VERTEX_CREDENTIALS_FIELD, "label": "Vertex 服务账号 JSON", "accept": ".json"}
+                    if "credentials_path" in meta.required_keys
+                    else None
+                ),
             }
         )
     return {"system_id": system_id, "providers": providers}
@@ -207,6 +227,7 @@ async def _apply_snapshot(
     global_configs: object = None,
 ) -> None:
     repo = CredentialRepository(session, user_id)
+    managed_config_repo = ManagedProviderConfigRepository(session, user_id, management_source)
     configured: set[str] = set()
     for item in raw_credentials:
         if not isinstance(item, dict):
@@ -219,8 +240,17 @@ async def _apply_snapshot(
         allowed = [key for key in meta.secret_keys if key in _SUPPORTED_SECRET_FIELDS]
         values = {key: _optional_secret(item.get(key)) for key in allowed}
         groups = meta.credential_groups or ([allowed] if allowed else [])
-        if not groups or not any(all(values.get(key) for key in group) for group in groups):
+        vertex_json = _optional_secret(item.get(_VERTEX_CREDENTIALS_FIELD))
+        if "credentials_path" in meta.required_keys:
+            if not vertex_json:
+                raise ValueError(f"供应商 {provider_id} 缺少 Vertex 服务账号 JSON")
+        elif not groups or not any(all(values.get(key) for key in group) for group in groups):
             raise ValueError(f"供应商 {provider_id} 的凭据字段不完整")
+        config_values = _provider_config_values(meta.required_keys, meta.optional_keys, item)
+        for required_key in meta.required_keys:
+            if required_key not in _CREDENTIAL_FIELDS and not config_values.get(required_key):
+                raise ValueError(f"供应商 {provider_id} 缺少必填配置 {required_key}")
+        _validate_managed_provider_config(provider_id, config_values)
         configured.add(provider_id)
         managed_result = await session.execute(
             select(ProviderCredential).where(
@@ -230,6 +260,11 @@ async def _apply_snapshot(
             )
         )
         credential = managed_result.scalar_one_or_none()
+        credentials_path = (
+            _materialize_vertex_credentials(user_id, management_source, vertex_json)
+            if vertex_json is not None
+            else None
+        )
         if credential is None:
             credential = await repo.create(
                 provider=provider_id,
@@ -239,18 +274,28 @@ async def _apply_snapshot(
                 secret_key=values.get("secret_key"),
                 base_url=normalize_base_url(_optional_secret(item.get("base_url"))),
             )
+            if credentials_path:
+                await repo.update(credential.id, credentials_path=credentials_path)
         else:
             updates: dict[str, str | None] = {
                 "name": str(item.get("name") or "数据中台分配")[:128],
                 "base_url": normalize_base_url(_optional_secret(item.get("base_url"))),
             }
             updates.update(values)
+            if credentials_path:
+                updates["credentials_path"] = credentials_path
             await repo.update(credential.id, **updates)
         credential.management_source = management_source
         credential.management_revision = revision
         if not credential.is_active:
             await repo.activate(credential.id, provider_id)
             credential.is_active = True
+        await managed_config_repo.replace_provider(
+            provider_id,
+            config_values,
+            secret_keys=set(meta.secret_keys),
+            revision=revision,
+        )
 
     managed = await session.execute(
         select(ProviderCredential).where(
@@ -260,7 +305,10 @@ async def _apply_snapshot(
     )
     for credential in managed.scalars():
         if credential.provider not in configured:
+            if credential.credentials_path:
+                _remove_managed_vertex_credentials(credential.credentials_path, user_id, management_source)
             await repo.delete(credential.id)
+            await managed_config_repo.delete_provider(credential.provider)
 
     if management_source == "arcreel_cloud":
         await _apply_agent_credential(session, user_id, revision, agent_credential)
@@ -301,18 +349,23 @@ async def _apply_agent_credential(
         raise ValueError("Agent 供应商配置格式无效")
     preset_id = str(raw_credential.get("preset_id") or "").strip()
     preset = get_preset(preset_id)
-    if preset is None:
+    is_custom = preset_id == "__custom__"
+    if preset is None and not is_custom:
         raise ValueError(f"不支持的 Agent 供应商：{preset_id}")
     api_key = _optional_secret(raw_credential.get("api_key"))
-    base_url = _optional_secret(raw_credential.get("base_url")) or preset.messages_url
+    base_url = _optional_secret(raw_credential.get("base_url")) or (preset.messages_url if preset else None)
     if not api_key:
         raise ValueError("Agent 供应商 API Key 不能为空")
+    if not base_url:
+        raise ValueError("自定义 Agent 供应商服务地址不能为空")
     values = {
         "preset_id": preset_id,
-        "display_name": str(raw_credential.get("display_name") or preset.display_name)[:128],
+        "display_name": str(raw_credential.get("display_name") or (preset.display_name if preset else "自定义供应商"))[
+            :128
+        ],
         "base_url": base_url,
         "api_key": api_key,
-        "model": _optional_secret(raw_credential.get("model")) or preset.default_model or None,
+        "model": _optional_secret(raw_credential.get("model")) or (preset.default_model if preset else None) or None,
         "haiku_model": _optional_secret(raw_credential.get("haiku_model")),
         "sonnet_model": _optional_secret(raw_credential.get("sonnet_model")),
         "opus_model": _optional_secret(raw_credential.get("opus_model")),
@@ -344,11 +397,7 @@ async def _apply_character_catalog(
     repo = SystemSettingRepository(session)
     source_key = "croco_characters_management_source"
     revision_key = "croco_characters_management_revision"
-    character_catalog = (
-        raw_global_configs.get("character_catalog")
-        if isinstance(raw_global_configs, dict)
-        else None
-    )
+    character_catalog = raw_global_configs.get("character_catalog") if isinstance(raw_global_configs, dict) else None
     if character_catalog is None:
         if await repo.get(source_key) == "arcreel_cloud":
             for key in (
@@ -505,6 +554,90 @@ def _decrypt_token(value: str) -> str:
 def _optional_secret(value: object) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _provider_config_values(
+    required_keys: list[str], optional_keys: list[str], item: dict[object, object]
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for key in (*required_keys, *optional_keys):
+        if key in _CREDENTIAL_FIELDS:
+            continue
+        value = _optional_secret(item.get(key))
+        if value is not None:
+            values[key] = value
+    return values
+
+
+def _provider_field_type(key: str) -> str:
+    if key.endswith("_url"):
+        return "url"
+    if key.endswith("_rpm") or key.endswith("_max_workers") or key == "request_gap":
+        return "number"
+    return "text"
+
+
+def _validate_managed_provider_config(provider_id: str, values: dict[str, str]) -> None:
+    for key in ("image_max_workers", "video_max_workers", "audio_max_workers"):
+        if key in values:
+            try:
+                parsed = int(values[key])
+            except ValueError as exc:
+                raise ValueError(f"供应商 {provider_id} 的 {key} 必须是正整数") from exc
+            if parsed < 1:
+                raise ValueError(f"供应商 {provider_id} 的 {key} 必须是正整数")
+            values[key] = str(parsed)
+    for key in ("image_rpm", "video_rpm", "request_gap"):
+        if key in values:
+            try:
+                parsed = float(values[key])
+            except ValueError as exc:
+                raise ValueError(f"供应商 {provider_id} 的 {key} 必须是非负数") from exc
+            if parsed < 0:
+                raise ValueError(f"供应商 {provider_id} 的 {key} 必须是非负数")
+
+
+def _managed_vertex_directory(user_id: str, management_source: str):
+    identity = hashlib.sha256(f"{management_source}:{user_id}".encode()).hexdigest()
+    return app_data_dir().parent / "vertex_keys" / "managed" / identity
+
+
+def _materialize_vertex_credentials(user_id: str, management_source: str, raw_json: str) -> str:
+    encoded = raw_json.encode("utf-8")
+    if len(encoded) > _MAX_VERTEX_CREDENTIALS_BYTES:
+        raise ValueError("Vertex 服务账号 JSON 不能超过 1 MiB")
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Vertex 服务账号 JSON 格式无效") from exc
+    if not isinstance(payload, dict) or not payload.get("project_id"):
+        raise ValueError("Vertex 服务账号 JSON 缺少 project_id")
+    directory = _managed_vertex_directory(user_id, management_source)
+    directory.mkdir(parents=True, exist_ok=True)
+    destination = directory / "service-account.json"
+    temporary = directory / f"service-account.{uuid.uuid4().hex}.tmp"
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    if os.name == "posix":
+        os.chmod(temporary, 0o600)
+    os.replace(temporary, destination)
+    if os.name == "posix":
+        os.chmod(destination, 0o600)
+    return str(destination)
+
+
+def _remove_managed_vertex_credentials(raw_path: str, user_id: str, management_source: str) -> None:
+    expected_directory = _managed_vertex_directory(user_id, management_source).resolve()
+    path = os.path.abspath(raw_path)
+    try:
+        resolved = Path(path).resolve()
+        resolved.relative_to(expected_directory)
+    except (OSError, ValueError):
+        logger.warning("拒绝删除托管目录之外的 Vertex 凭据文件：%s", raw_path)
+        return
+    try:
+        resolved.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("无法删除已失效的托管 Vertex 凭据文件：%s", raw_path, exc_info=True)
 
 
 def _center_error(response: httpx.Response, fallback: str, fallback_code: str) -> tuple[str, str]:
