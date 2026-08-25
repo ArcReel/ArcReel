@@ -44,6 +44,7 @@ MESSAGES = {
     "task_fail_dispatch_provider_requeue_failed": "任务供应商从 {claimed_provider_id} 变为 {actual_provider_id}，但无法回队重新认领，请重试",
     "task_fail_restart_lost_image": "图片任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
     "task_fail_restart_lost_audio": "配音任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
+    "task_fail_restart_lost_text": "文本任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
     "task_fail_restart_lost_no_job_id": "视频任务在服务重启时未保存接续凭据，无法自动恢复，请手动重试",
     "task_fail_restart_lost_resume_no_job_id": "任务缺少接续凭据，无法恢复，请手动重试",
     "task_fail_restart_lost_checkpoint_no_job_id": "任务已越过提交边界但未保存供应商任务编号，不能自动重试以免重复计费",

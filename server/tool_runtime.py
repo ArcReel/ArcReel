@@ -12,7 +12,7 @@ import re
 import stat
 import tempfile
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
@@ -31,6 +31,7 @@ from lib.asset_types import ASSET_SPECS
 from lib.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.config.resolver import ConfigResolver
 from lib.content_digest import prefixed, prefixed_canonical_json_digest
+from lib.db import async_session_factory
 from lib.episode_paths import (
     DRAMA_STEP1_QUARANTINE_FILENAME,
     NARRATION_STEP1_QUARANTINE_FILENAME,
@@ -49,8 +50,25 @@ from lib.episode_reset import (
 from lib.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
-from lib.generation_queue import GenerationBatchNotFound, GenerationQueue, get_generation_queue
-from lib.generation_result import migration_problem
+from lib.generation_batch import (
+    GenerationBatchRequestedItem,
+    GenerationBatchRequestSnapshot,
+)
+from lib.generation_queue import (
+    ActiveTaskRequestConflict,
+    GenerationBatchNotFound,
+    GenerationQueue,
+    get_generation_queue,
+)
+from lib.generation_queue_client import wait_for_task
+from lib.generation_result import (
+    GenerationAction,
+    GenerationProblem,
+    GenerationSelectionMode,
+    encode_generation_problem,
+    migration_problem,
+    problem_from_task_failure,
+)
 from lib.path_safety import safe_join
 from lib.profile_manifest import ContentMode
 from lib.project_manager import ProjectManager, SourceKind, is_reference_video_project
@@ -101,6 +119,7 @@ from server.text_generation import (
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
+    _episode_generation_preflight,
     generate_drama_step1,
     generate_narration_step1,
     generate_reference_step1,
@@ -177,6 +196,7 @@ async def get_generation_batch(
         result = await services.queue.get_generation_batch(
             project_name=scope.project_name,
             batch_id=request.value.batch_id,
+            user_id=_caller.user_id,
         )
     except GenerationBatchNotFound as exc:
         return ToolOutcome(problem=ToolProblem("generation_batch_not_found", str(exc)))
@@ -195,6 +215,7 @@ async def cancel_generation_batch(
         result = await services.queue.cancel_generation_batch(
             project_name=scope.project_name,
             batch_id=request.value.batch_id,
+            user_id=_caller.user_id,
         )
     except GenerationBatchNotFound as exc:
         return ToolOutcome(problem=ToolProblem("generation_batch_not_found", str(exc)))
@@ -260,20 +281,158 @@ async def _run_text_generation(
         return ToolOutcome(problem=ToolProblem("internal_error", f"{operation} 失败: {exc}"))
 
 
+_TEXT_EPISODE_SCRIPT = "text_episode_script"
+_TEXT_DRAMA_STEP1 = "text_drama_step1"
+_TEXT_NARRATION_STEP1 = "text_narration_step1"
+_TEXT_REFERENCE_STEP1 = "text_reference_step1"
+_TEXT_EPISODE_PLAN = "text_episode_plan"
+_TEXT_TASK_SERVICES: dict[str, Services] = {}
+
+
+def _queued_generation_problem(problem: ToolProblem) -> GenerationProblem:
+    try:
+        action = GenerationAction(problem.action) if problem.action is not None else GenerationAction.RETRY
+    except ValueError:
+        action = GenerationAction.RETRY
+    if problem.code == "generation_refused" and problem.action is None:
+        action = GenerationAction.FIX_INPUT
+    return GenerationProblem(code=problem.code, detail=problem.detail, action=action, params=problem.params or {})
+
+
+async def _submit_text_task(
+    *,
+    task_type: str,
+    operation: str,
+    unit_id: str,
+    payload: dict[str, Any],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[Any]:
+    active = await services.queue.get_active_tasks_for_resources(
+        project_name=scope.project_name,
+        task_type=task_type,
+        resource_ids=[unit_id],
+        user_id=caller.user_id,
+    )
+    requested_facts = {key: value for key, value in payload.items() if key != "projects_root"}
+    if active:
+        existing_facts = {
+            key: value for key, value in (active[0].get("payload") or {}).items() if key != "projects_root"
+        }
+        if existing_facts != requested_facts:
+            return ToolOutcome(
+                problem=ToolProblem(
+                    "generation_active_task_conflict",
+                    "generation_active_task_conflict",
+                    action=GenerationAction.WAIT_FOR_TASK,
+                    params={"task_id": active[0]["task_id"], "status": active[0]["status"]},
+                )
+            )
+    snapshot = GenerationBatchRequestSnapshot(
+        selection=GenerationSelectionMode.EXPLICIT,
+        requested=[GenerationBatchRequestedItem(unit_id=unit_id)],
+    )
+    batch_id = await services.queue.create_generation_batch(
+        project_name=scope.project_name,
+        operation=operation,
+        requested=snapshot,
+        blocked=[],
+        source=caller.source,
+        user_id=caller.user_id,
+    )
+    try:
+        enqueue = await services.queue.enqueue_task(
+            project_name=scope.project_name,
+            task_type=task_type,
+            media_type="text",
+            resource_id=unit_id,
+            payload={**payload, "projects_root": str(scope.projects_root)},
+            source=caller.source,
+            user_id=caller.user_id,
+            batch_id=batch_id,
+            batch_unit_id=unit_id,
+        )
+    except ActiveTaskRequestConflict as exc:
+        return ToolOutcome(
+            problem=ToolProblem(
+                "generation_active_task_conflict",
+                "generation_active_task_conflict",
+                action=GenerationAction.WAIT_FOR_TASK,
+                params={"task_id": exc.existing_task_id},
+            )
+        )
+    if caller.source == "embedded" and not enqueue.get("deduped"):
+        _TEXT_TASK_SERVICES[enqueue["task_id"]] = services
+    batch = await services.queue.get_generation_batch(
+        project_name=scope.project_name, batch_id=batch_id, user_id=caller.user_id
+    )
+    if caller.source == "mcp":
+        return ToolOutcome(value=batch)
+
+    try:
+        task = await wait_for_task(enqueue["task_id"], queue=services.queue)
+    finally:
+        _TEXT_TASK_SERVICES.pop(enqueue["task_id"], None)
+    if task["status"] == "cancelled":
+        problem = problem_from_task_failure(task.get("error_message"), cancelled=True)
+        return ToolOutcome(problem=ToolProblem(**problem.model_dump(mode="json")))
+    if task["status"] == "failed":
+        problem = problem_from_task_failure(task.get("error_message"))
+        return ToolOutcome(problem=ToolProblem(**problem.model_dump(mode="json")))
+    result = task.get("result") or {}
+    if task_type == _TEXT_EPISODE_PLAN:
+        return ToolOutcome(value=PlanEpisodesResult.model_validate(result))
+    return ToolOutcome(value=TextGenerationResult(**result))
+
+
+async def _execute_text_handler(
+    operation: str,
+    handler: Callable[..., Awaitable[TextGenerationResult]],
+    request: TextGenerationRequest,
+    scope: ProjectScope,
+    services: Services,
+) -> ToolOutcome[TextGenerationResult]:
+    return await _run_text_generation(
+        operation,
+        handler(
+            request,
+            project_name=scope.project_name,
+            projects=services.projects,
+            config_resolver=services.capabilities,
+        ),
+    )
+
+
 async def generate_episode_script(
     request: ToolRequest[TextGenerationRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
-) -> ToolOutcome[TextGenerationResult]:
-    return await _run_text_generation(
-        "generate_episode_script",
-        generate_episode_script_handler(
-            request.value,
-            project_name=scope.project_name,
-            projects=services.projects,
-            config_resolver=services.capabilities,
-        ),
+) -> ToolOutcome[Any]:
+    if request.value.dry_run:
+        return await _execute_text_handler(
+            "generate_episode_script", generate_episode_script_handler, request.value, scope, services
+        )
+    try:
+        await asyncio.to_thread(
+            _episode_generation_preflight,
+            services.projects.get_project_path(scope.project_name),
+            request.value.episode,
+            enforce_review_gate=True,
+        )
+    except TextGenerationError as exc:
+        return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"generate_episode_script 失败: {exc}"))
+    return await _submit_text_task(
+        task_type=_TEXT_EPISODE_SCRIPT,
+        operation="generate_episode_script",
+        unit_id=f"episode-{request.value.episode}",
+        payload=asdict(request.value),
+        scope=scope,
+        caller=_caller,
+        services=services,
     )
 
 
@@ -282,32 +441,34 @@ async def generate_step1(
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
-) -> ToolOutcome[TextGenerationResult]:
+) -> ToolOutcome[Any]:
     try:
         project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
         content_mode = project.get("content_mode", "narration")
         if content_mode == "ad":
             raise TextGenerationError("广告/短片项目无 step1，请直接调用 generate_episode_script")
         if is_reference_video_project(project):
-            handler = generate_reference_step1
+            handler, task_type = generate_reference_step1, _TEXT_REFERENCE_STEP1
         elif content_mode == "narration":
-            handler = generate_narration_step1
+            handler, task_type = generate_narration_step1, _TEXT_NARRATION_STEP1
         elif content_mode == "drama":
-            handler = generate_drama_step1
+            handler, task_type = generate_drama_step1, _TEXT_DRAMA_STEP1
         else:
             raise TextGenerationError(f"不支持的创作类型: {content_mode}")
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:  # noqa: BLE001
         return ToolOutcome(problem=ToolProblem("internal_error", f"generate_step1 失败: {exc}"))
-    return await _run_text_generation(
-        "generate_step1",
-        handler(
-            request.value,
-            project_name=scope.project_name,
-            projects=services.projects,
-            config_resolver=services.capabilities,
-        ),
+    if request.value.dry_run:
+        return await _execute_text_handler("generate_step1", handler, request.value, scope, services)
+    return await _submit_text_task(
+        task_type=task_type,
+        operation="generate_step1",
+        unit_id=f"episode-{request.value.episode}",
+        payload=asdict(request.value),
+        scope=scope,
+        caller=_caller,
+        services=services,
     )
 
 
@@ -1431,10 +1592,9 @@ def _format_plan(result: PlanResult) -> str:
     return "\n".join(lines)
 
 
-async def plan_episodes(
+async def _execute_plan_episodes(
     request: ToolRequest[PlanEpisodesRequest],
     scope: ProjectScope,
-    _caller: CallerContext,
     services: Services,
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
@@ -1467,6 +1627,79 @@ async def plan_episodes(
             ledger_stats=_ledger_stats_payload(result.ledger_stats),
         )
     )
+
+
+async def plan_episodes(
+    request: ToolRequest[PlanEpisodesRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+    *,
+    planner_cls: type[EpisodePlanner] = EpisodePlanner,
+) -> ToolOutcome[Any]:
+    if problem := await migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    if planner_cls is not EpisodePlanner:
+        return await _execute_plan_episodes(request, scope, services, planner_cls=planner_cls)
+    return await _submit_text_task(
+        task_type=_TEXT_EPISODE_PLAN,
+        operation="plan_episodes",
+        unit_id="episode-planning",
+        payload=request.value.model_dump(mode="json"),
+        scope=scope,
+        caller=caller,
+        services=services,
+    )
+
+
+async def execute_queued_text_task(
+    task: dict[str, Any], *, planner_cls: type[EpisodePlanner] = EpisodePlanner
+) -> dict[str, Any]:
+    """Execute one durable text task through the same host-independent handlers."""
+    payload = task.get("payload") or {}
+    scope = ProjectScope(project_name=str(task["project_name"]), projects_root=Path(payload["projects_root"]))
+    services = _TEXT_TASK_SERVICES.pop(str(task["task_id"]), None)
+    if services is None:
+        projects = ProjectManager(str(payload["projects_root"]))
+        services = Services(
+            projects=projects,
+            workflow_planner=WorkflowPlanner(projects),
+            capabilities=ConfigResolver(async_session_factory),
+        )
+    task_type = task["task_type"]
+    if task_type == _TEXT_EPISODE_PLAN:
+        outcome = await _execute_plan_episodes(
+            ToolRequest(PlanEpisodesRequest(instructions=payload.get("instructions"))),
+            scope,
+            services,
+            planner_cls=planner_cls,
+        )
+    else:
+        request = TextGenerationRequest(
+            episode=payload["episode"],
+            source=payload.get("source"),
+            instructions=payload.get("instructions"),
+            dry_run=bool(payload.get("dry_run")),
+        )
+        handlers = {
+            _TEXT_EPISODE_SCRIPT: ("generate_episode_script", generate_episode_script_handler),
+            _TEXT_DRAMA_STEP1: ("generate_step1", generate_drama_step1),
+            _TEXT_NARRATION_STEP1: ("generate_step1", generate_narration_step1),
+            _TEXT_REFERENCE_STEP1: ("generate_step1", generate_reference_step1),
+        }
+        try:
+            operation, handler = handlers[task_type]
+        except KeyError as exc:
+            raise ValueError(f"unsupported text task_type: {task_type}") from exc
+        outcome = await _execute_text_handler(operation, handler, request, scope, services)
+    if outcome.problem is not None:
+        raise RuntimeError(encode_generation_problem(_queued_generation_problem(outcome.problem)))
+    value = outcome.value
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
+    raise RuntimeError("text task returned no result")
 
 
 async def reset_episode_planning(

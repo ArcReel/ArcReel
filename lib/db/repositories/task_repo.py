@@ -35,6 +35,7 @@ _MAX_ERROR_MESSAGE_LEN = 2000
 def _active_dedupe_clauses(
     *,
     project_name: str,
+    user_id: str,
     task_type: str,
     script_file: str | None,
     resource_type: str | None,
@@ -47,6 +48,7 @@ def _active_dedupe_clauses(
     """
     return [
         Task.project_name == project_name,
+        Task.user_id == user_id,
         Task.task_type == task_type,
         func.coalesce(Task.script_file, "") == (script_file or ""),
         func.coalesce(Task.resource_type, "") == (resource_type or ""),
@@ -227,6 +229,7 @@ class TaskRepository(BaseRepository):
                 .where(
                     *_active_dedupe_clauses(
                         project_name=project_name,
+                        user_id=user_id,
                         task_type=task_type,
                         script_file=script_file,
                         resource_type=resource_type,
@@ -290,11 +293,14 @@ class TaskRepository(BaseRepository):
         )
         await self.session.commit()
 
-    async def get_batch(self, *, project_name: str, batch_id: str) -> dict[str, Any] | None:
+    async def get_batch(
+        self, *, project_name: str, batch_id: str, user_id: str = DEFAULT_USER_ID
+    ) -> dict[str, Any] | None:
         result = await self.session.execute(
             select(GenerationBatch).where(
                 GenerationBatch.batch_id == batch_id,
                 GenerationBatch.project_name == project_name,
+                GenerationBatch.user_id == user_id,
             )
         )
         batch = result.scalar_one_or_none()
@@ -346,6 +352,7 @@ class TaskRepository(BaseRepository):
         resource_ids: list[str],
         script_file: str | None = None,
         resource_type: str | None = None,
+        user_id: str = DEFAULT_USER_ID,
     ) -> list[dict[str, Any]]:
         """查询命中 ``idx_tasks_dedupe_active`` 去重键、当前处于活动态的任务。
 
@@ -361,6 +368,7 @@ class TaskRepository(BaseRepository):
             .where(
                 *_active_dedupe_clauses(
                     project_name=project_name,
+                    user_id=user_id,
                     task_type=task_type,
                     script_file=script_file,
                     resource_type=resource_type,

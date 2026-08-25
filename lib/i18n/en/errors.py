@@ -44,6 +44,7 @@ MESSAGES = {
     "task_fail_dispatch_provider_requeue_failed": "The task provider changed from {claimed_provider_id} to {actual_provider_id}, but the task could not be requeued for a new slot; please retry",
     "task_fail_restart_lost_image": "The image task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
     "task_fail_restart_lost_audio": "The audio task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
+    "task_fail_restart_lost_text": "The text task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
     "task_fail_restart_lost_no_job_id": "The video task did not persist a resume handle before the service restart and cannot recover automatically; please retry manually",
     "task_fail_restart_lost_resume_no_job_id": "The task is missing a resume handle and cannot be recovered; please retry manually",
     "task_fail_restart_lost_checkpoint_no_job_id": "The task crossed the submission boundary without saving a provider job ID and cannot retry automatically without risking duplicate billing",

@@ -80,11 +80,12 @@ async def wait_for_task(
     task_id: str,
     poll_interval: float | None = None,
     *,
+    queue=None,
     timeout_seconds: float | None = None,
     lease_name: str = "default",
     worker_offline_grace_seconds: float | None = None,
 ) -> dict[str, Any]:
-    queue = get_generation_queue()
+    queue = queue or get_generation_queue()
     interval = poll_interval if poll_interval is not None else read_queue_poll_interval()
     timeout = read_task_wait_timeout() if timeout_seconds is None else timeout_seconds
     if timeout is not None:

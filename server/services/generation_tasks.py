@@ -3486,6 +3486,10 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
         raise ValueError("task.task_type is required")
 
     executor = _TASK_EXECUTORS.get(task_type)
+    if task_type.startswith("text_"):
+        from server.tool_runtime import execute_queued_text_task
+
+        return await execute_queued_text_task(task)
     if executor is None:
         raise ValueError(f"unsupported task_type: {task_type}")
 

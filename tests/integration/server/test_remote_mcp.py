@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -9,14 +10,19 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_STEP1, read_quarantine
+from lib.generation_queue import GenerationQueue
+from lib.generation_worker import CapacityTable, GenerationWorker
 from lib.project_manager import ProjectManager
 from lib.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
 from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow_state import WorkflowStatus
+from server.agent_runtime.sdk_tools._context import ToolContext
+from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
 from server.auth import create_download_token, create_token
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services
+from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import _call
 
 
 class _Planner:
@@ -421,6 +427,125 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert progress_messages == ["Generating step1", "Generating episode script"]
     assert patched.isError
     assert patched.structuredContent["script_patch"]["problems"][0]["code"] == "revision_conflict"
+
+
+async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_best_effort(
+    tmp_path: Path, file_db_factory, monkeypatch
+) -> None:
+    class RecordingQueue(GenerationQueue):
+        def __init__(self) -> None:
+            super().__init__(session_factory=file_db_factory)
+            self.batch_ids: list[str] = []
+            self.deduped = asyncio.Event()
+
+        async def create_generation_batch(self, **kwargs) -> str:
+            batch_id = await super().create_generation_batch(**kwargs)
+            self.batch_ids.append(batch_id)
+            return batch_id
+
+        async def enqueue_task(self, **kwargs):
+            result = await super().enqueue_task(**kwargs)
+            if result["deduped"]:
+                self.deduped.set()
+            return result
+
+    projects = ProjectManager(tmp_path / "projects")
+    projects.create_project("demo", content_mode="ad")
+    projects.create_project_metadata("demo", "Demo", "", "ad", target_duration=30, brief="卖点")
+    queue = RecordingQueue()
+    services = Services(projects=projects, workflow_planner=_Planner(), capabilities=_Capabilities(), queue=queue)
+
+    async def verify_api_key(token: str):
+        return {"sub": "apikey:test", "via": "apikey"} if token == "arc-valid" else None
+
+    server = build_remote_mcp_server(
+        projects=projects,
+        services=services,
+        token_verifier=ArcApiKeyVerifier(verify_api_key),
+    )
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    release = asyncio.Event()
+
+    async def noninterruptible_text(_task):
+        started.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            await release.wait()
+        return {"message": "done"}
+
+    async def text_provider(_task):
+        return "text"
+
+    monkeypatch.setattr("server.tool_runtime.execute_queued_text_task", noninterruptible_text)
+    monkeypatch.setattr("lib.generation_queue.assert_project_migration_ok", lambda _project: None)
+    worker = GenerationWorker(
+        queue=queue,
+        capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
+        provider_projection=text_provider,
+        lanes=("text",),
+    )
+    worker.poll_interval = 0.01
+    worker.heartbeat_interval = 0.01
+    queue.set_worker_cancel_callback(worker.request_cancel)
+    await worker.start()
+
+    app = _mounted(server)
+    try:
+        async with server.session_manager.run():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://localhost",
+                headers={"Authorization": "Bearer arc-valid"},
+                follow_redirects=True,
+            ) as client:
+                async with streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        remote = await session.call_tool("generate_episode_script", {"project": "demo", "episode": 1})
+                        await started.wait()
+                        embedded_ctx = ToolContext(
+                            project_name="demo",
+                            projects_root=projects.projects_root,
+                            pm=projects,
+                            queue=queue,
+                        )
+                        embedded = asyncio.create_task(
+                            _call(generate_episode_script_tool(embedded_ctx), {"episode": 1})
+                        )
+                        await queue.deduped.wait()
+
+                        assert not embedded.done()
+                        assert remote.structuredContent is not None
+                        remote_batch = remote.structuredContent["generation_batch"]
+                        assert remote_batch["members"][0]["deduped"] is False
+                        assert len(queue.batch_ids) == 2
+
+                        cancel_result = await session.call_tool(
+                            "cancel_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
+                        )
+                        await cancelled.wait()
+                        release.set()
+                        embedded_result = await embedded
+                        terminal = await session.call_tool(
+                            "get_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
+                        )
+
+        assert cancel_result.structuredContent["generation_batch_cancellation"]["cancelling"] == [
+            remote_batch["members"][0]["task_id"]
+        ]
+        assert embedded_result["problem"]["code"] == "generation_task_cancelled"
+        assert terminal.structuredContent["generation_batch"]["done"] is True
+        assert terminal.structuredContent["generation_batch"]["members"][0]["status"] == "cancelled"
+        second = await queue.get_generation_batch(project_name="demo", batch_id=queue.batch_ids[1])
+        assert second.members[0].task_id == remote_batch["members"][0]["task_id"]
+        assert second.members[0].deduped is True
+    finally:
+        release.set()
+        await worker.stop()
+        queue.set_worker_cancel_callback(None)
 
 
 @pytest.mark.parametrize("tool", ["generate_step1", "generate_episode_script"])

@@ -6,10 +6,14 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from lib.generation_queue import GenerationQueue
+from lib.generation_worker import CapacityTable, GenerationWorker
 from server.agent_runtime.sdk_tools._context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _fake_reference_projection,
@@ -18,7 +22,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 
 
 @pytest.fixture
-def fake_ctx(tmp_path: Path) -> ToolContext:
+async def fake_ctx(tmp_path: Path, file_db_factory) -> AsyncIterator[ToolContext]:
     project_dir = tmp_path / "demo"
     project_dir.mkdir()
     # Build a storyboard image so video tools can find it.
@@ -29,11 +33,32 @@ def fake_ctx(tmp_path: Path) -> ToolContext:
     (project_dir / "audio" / "segment_E1S01.wav").write_bytes(b"")
     (project_dir / "audio" / "segment_E1S02.wav").write_bytes(b"")
 
-    return ToolContext(
+    generation_queue = GenerationQueue(session_factory=file_db_factory)
+    ctx = ToolContext(
         project_name="demo",
         projects_root=tmp_path,
         pm=_FakePM("demo", project_dir),  # type: ignore[arg-type]
+        queue=generation_queue,
     )
+
+    async def text_provider(_task: dict[str, Any]) -> str:
+        return "text"
+
+    worker = GenerationWorker(
+        queue=generation_queue,
+        capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
+        provider_projection=text_provider,
+        lanes=("text",),
+    )
+    worker.poll_interval = 0.01
+    worker.heartbeat_interval = 0.01
+    generation_queue.set_worker_cancel_callback(worker.request_cancel)
+    await worker.start()
+    try:
+        yield ctx
+    finally:
+        await worker.stop()
+        generation_queue.set_worker_cancel_callback(None)
 
 
 @pytest.fixture

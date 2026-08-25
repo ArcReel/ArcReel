@@ -104,6 +104,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "dispatch_provider_requeue_failed": "task_fail_dispatch_provider_requeue_failed",
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",
+    "restart_lost_text": "task_fail_restart_lost_text",
     "restart_lost_no_job_id": "task_fail_restart_lost_no_job_id",
     "restart_lost_resume_no_job_id": "task_fail_restart_lost_resume_no_job_id",
     "resume_unsupported_provider": "task_fail_resume_unsupported_provider",

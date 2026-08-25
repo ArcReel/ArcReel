@@ -227,7 +227,7 @@ class CapacityTable:
             )
             for pid, meta in PROVIDER_REGISTRY.items()
         }
-        return cls(_limits=limits, _defaults={"image": image_max, "video": video_max, "audio": audio_max})
+        return cls(_limits=limits, _defaults={"image": image_max, "video": video_max, "audio": audio_max, "text": 1})
 
     @classmethod
     async def from_db(cls) -> CapacityTable:
@@ -276,7 +276,7 @@ class CapacityTable:
         logger.info("从 DB 加载供应商容量表: %s", limits)
         return cls(
             _limits=limits,
-            _defaults={"image": default_image, "video": default_video, "audio": default_audio},
+            _defaults={"image": default_image, "video": default_video, "audio": default_audio, "text": 1},
         )
 
 
@@ -415,8 +415,11 @@ async def _extract_provider(task: dict[str, Any]) -> str:
         # callers and must not be able to redirect claim-time current-state projection to a different script.
         payload = {**payload, "script_file": task["script_file"]}
     # 以 media lane 区分 video / audio / image：reference_video 等 task_type 同属 video lane。
+    is_text = task.get("media_type") == "text"
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
     is_audio = task.get("media_type") == "audio" or task.get("task_type") == "tts"
+    if is_text:
+        return "text"
 
     # 整体兜底：含项目加载（队列里可能残留指向已删除/不可读项目的任务，load_project 会抛
     # FileNotFoundError）在内的任何失败都回退 DEFAULT_PROVIDER，绝不冒泡阻断认领循环（见 docstring）。
@@ -452,7 +455,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
 
 
 class GenerationWorker:
-    """Queue worker with per-provider image/video/audio lanes and single-active lease."""
+    """Queue worker with per-provider image/video/audio/text lanes and single-active lease."""
 
     def __init__(
         self,
@@ -461,10 +464,12 @@ class GenerationWorker:
         capacity: CapacityTable | None = None,
         slots: SlotTable | None = None,
         provider_projection: ProviderProjection = _extract_provider,
+        lanes: tuple[str, ...] = ("image", "video", "audio", "text"),
     ):
         self.queue = queue or get_generation_queue()
         # 认领期与执行期共用的 provider 投影：限流按它的结果路由到对应容量桶。
         self._provider_projection = provider_projection
+        self._lanes = lanes
         self.lease_name = lease_name
         self.owner_id = f"worker-{uuid.uuid4().hex[:10]}"
 
@@ -613,7 +618,7 @@ class GenerationWorker:
         """
         claimed_any = False
 
-        for media_type in ("image", "video", "audio"):
+        for media_type in self._lanes:
             attempted_current_state_tasks: set[str] = set()
             while True:
                 # 每轮重算池满集合：刚 claim 的任务可能让某 provider 进入满状态
@@ -701,6 +706,8 @@ class GenerationWorker:
                         name=f"generation-{media_type}-{task['task_id']}",
                     ),
                 )
+                if media_type == "text":
+                    break
 
         return claimed_any
 
@@ -1132,6 +1139,15 @@ class GenerationWorker:
                     task_id,
                     encode_failure("restart_lost_audio"),
                 )
+                if rows == 0:
+                    await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
+                continue
+
+            # text 同步调用可能在线程中继续运行，但进程重启后没有可接续的 job identity；
+            # 与 image/audio 一样不自动重交，避免重复计费。
+            if media_type == "text":
+                logger.warning("孤儿 text running → [restart_lost]: %s", task_id)
+                rows = await self.queue.mark_task_failed(task_id, encode_failure("restart_lost_text"))
                 if rows == 0:
                     await self.queue.mark_task_cancelled(task_id, cancelled_by="user")
                 continue

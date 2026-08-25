@@ -198,6 +198,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "dispatch_provider_requeue_failed": GenerationAction.RETRY,
     "restart_lost_image": GenerationAction.RETRY,
     "restart_lost_audio": GenerationAction.RETRY,
+    "restart_lost_text": GenerationAction.RETRY,
     "restart_lost_no_job_id": GenerationAction.RETRY,
     "restart_lost_resume_no_job_id": GenerationAction.RETRY,
     "restart_lost_checkpoint_no_job_id": GenerationAction.RETRY,
@@ -218,6 +219,24 @@ class GenerationProblem(BaseModel):
     detail: str
     action: GenerationAction
     params: dict[str, Any] = Field(default_factory=dict)
+
+
+_PERSISTED_GENERATION_PROBLEM_PREFIX = "generation_problem:"
+
+
+def encode_generation_problem(problem: GenerationProblem) -> str:
+    """Persist a typed generation problem without losing its action or params."""
+
+    return _PERSISTED_GENERATION_PROBLEM_PREFIX + problem.model_dump_json()
+
+
+def _persisted_generation_problem(error_message: str | None) -> GenerationProblem | None:
+    if not error_message or not error_message.startswith(_PERSISTED_GENERATION_PROBLEM_PREFIX):
+        return None
+    try:
+        return GenerationProblem.model_validate_json(error_message.removeprefix(_PERSISTED_GENERATION_PROBLEM_PREFIX))
+    except ValueError:
+        return None
 
 
 def migration_problem(record: MigrationFailureRecord) -> GenerationProblem:
@@ -541,6 +560,8 @@ def problem_from_task_failure(
             detail=error_message or "wait for task was interrupted before it reached a terminal state",
             action=GenerationAction.WAIT_FOR_TASK,
         )
+    if persisted := _persisted_generation_problem(error_message):
+        return persisted
     parsed = parse_failure(error_message)
     if parsed is None:
         return GenerationProblem(
@@ -979,6 +1000,7 @@ __all__ = [
     "ProviderCheckpoint",
     "artifact_is_reusable",
     "artifact_state_problem",
+    "encode_generation_problem",
     "enqueue_problem",
     "migration_problem",
     "normalize_requested_ids",

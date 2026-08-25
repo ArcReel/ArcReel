@@ -44,6 +44,7 @@ MESSAGES = {
     "task_fail_dispatch_provider_requeue_failed": "Nhà cung cấp tác vụ đã đổi từ {claimed_provider_id} sang {actual_provider_id}, nhưng không thể đưa tác vụ trở lại hàng đợi để nhận khe mới; vui lòng thử lại",
     "task_fail_restart_lost_image": "Tác vụ ảnh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
     "task_fail_restart_lost_audio": "Tác vụ âm thanh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
+    "task_fail_restart_lost_text": "Tác vụ văn bản bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
     "task_fail_restart_lost_no_job_id": "Tác vụ video không lưu thông tin tiếp tục trước khi dịch vụ khởi động lại và không thể tự khôi phục; vui lòng thử lại thủ công",
     "task_fail_restart_lost_resume_no_job_id": "Tác vụ thiếu thông tin tiếp tục và không thể khôi phục; vui lòng thử lại thủ công",
     "task_fail_restart_lost_checkpoint_no_job_id": "Tác vụ đã vượt qua ranh giới gửi nhưng chưa lưu mã tác vụ của nhà cung cấp và không thể tự động thử lại vì có nguy cơ tính phí trùng",
