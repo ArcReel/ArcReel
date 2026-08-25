@@ -2,6 +2,8 @@
 
 ArcReel 的内嵌 Agent 不提供「更换 Agent 运行时后端」的选项——不支持把 Claude Agent SDK 替换为 Codex、其他 agent 框架或任何非 Anthropic 协议的运行时。
 
+这一拒绝边界只约束内嵌 Agent 的运行时后端。外部 Agent 经远程 MCP 作为第二宿主接入，不替换 Claude Agent SDK；两种宿主可以并存，因此不在本文件拒绝的范围内。
+
 ## Why this is out of scope
 
 Agent 运行时（`server/agent_runtime/`）在架构上构建于 Claude Agent SDK 之上，且产品的核心 Agent 能力全部依赖该 SDK 的专属机制：

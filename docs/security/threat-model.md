@@ -195,7 +195,7 @@ There is no account-level RBAC, scoped API key, MFA, JWT revocation list, centra
 
 The absence of a `CurrentUser` parameter in a route function does not establish that the route is unauthenticated. The built-in `providers.router` is currently protected by the centralized registration dependency.
 
-Public routes include authentication bootstrap/login, project/global file delivery, `/health`, and `/skill.md`. Self-authenticating routes include event streams that accept a query token and project export routes that verify a short-lived download token.
+Public routes include authentication bootstrap/login, project/global file delivery, `/health`, and `/agent-installation-guide.md`. Self-authenticating routes include event streams that accept a query token and project export routes that verify a short-lived download token.
 
 ### 9.2 Secret handling
 

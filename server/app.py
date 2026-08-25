@@ -47,7 +47,6 @@ from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.remote_mcp import remote_mcp_host
 from server.routers import (
-    agent_chat,
     agent_config,
     api_keys,
     assets,
@@ -633,7 +632,6 @@ app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
 app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
 app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])
-app.include_router(agent_chat.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 对话"])
 app.include_router(agent_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 配置"])
 app.include_router(
     custom_providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义供应商"]
@@ -682,12 +680,12 @@ async def health_check():
     return {"status": "ok", "message": "视频项目管理 WebUI 运行正常"}
 
 
-@app.get("/skill.md", include_in_schema=False)
-async def serve_skill_md(request: Request) -> Response:
-    """动态渲染 skill.md 模板，将 {{BASE_URL}} 替换为实际服务地址（无需认证）。"""
+@app.get("/agent-installation-guide.md", include_in_schema=False)
+async def serve_agent_installation_guide(request: Request) -> Response:
+    """动态渲染 Agent 安装指引，将 {{BASE_URL}} 替换为实际服务地址（无需认证）。"""
     from starlette.responses import PlainTextResponse
 
-    template_path = PROJECT_ROOT / "public" / "skill.md.template"
+    template_path = PROJECT_ROOT / "public" / "agent-installation-guide.md"
 
     def _read() -> tuple[bool, str]:
         if not template_path.exists():
@@ -696,7 +694,7 @@ async def serve_skill_md(request: Request) -> Response:
 
     exists, template = await asyncio.to_thread(_read)
     if not exists:
-        return PlainTextResponse("skill.md 模板不存在", status_code=404)
+        return PlainTextResponse("Agent 安装指引不存在", status_code=404)
 
     # 从请求推断 base URL；仅信任 x-forwarded-proto（反向代理标准头），
     # host 使用连接实际目标地址，不接受可被用户伪造的 x-forwarded-host。
