@@ -1471,6 +1471,8 @@ export default {
   'tool_name_complete_asset_inventory': 'Complete asset inventory',
   'tool_name_complete_step1_rebuild': 'Complete step 1 rebuild',
   'tool_name_get_workflow_plan': 'Get complete workflow plan',
+  'tool_name_get_generation_batch': 'Get generation batch',
+  'tool_name_cancel_generation_batch': 'Cancel generation batch',
   'tool_name_get_project_content': 'Read project content',
   'tool_name_list_source_files': 'List source files',
   'tool_name_get_source_text': 'Read source text',

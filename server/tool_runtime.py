@@ -12,7 +12,7 @@ import re
 import stat
 import tempfile
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
@@ -49,6 +49,7 @@ from lib.episode_reset import (
 from lib.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
+from lib.generation_queue import GenerationBatchNotFound, GenerationQueue, get_generation_queue
 from lib.generation_result import migration_problem
 from lib.path_safety import safe_join
 from lib.profile_manifest import ContentMode
@@ -134,6 +135,7 @@ class Services:
     projects: ProjectManager
     workflow_planner: WorkflowPlanner
     capabilities: ConfigResolver
+    queue: GenerationQueue = field(default_factory=get_generation_queue)
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +159,48 @@ class ToolProblem:
 class ToolOutcome[ResultT]:
     value: ResultT | None = None
     problem: ToolProblem | None = None
+
+
+class GenerationBatchToolRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    batch_id: str = Field(min_length=1)
+
+
+async def get_generation_batch(
+    request: ToolRequest[GenerationBatchToolRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[Any]:
+    try:
+        result = await services.queue.get_generation_batch(
+            project_name=scope.project_name,
+            batch_id=request.value.batch_id,
+        )
+    except GenerationBatchNotFound as exc:
+        return ToolOutcome(problem=ToolProblem("generation_batch_not_found", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"get_generation_batch 失败: {exc}"))
+    return ToolOutcome(value=result)
+
+
+async def cancel_generation_batch(
+    request: ToolRequest[GenerationBatchToolRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[Any]:
+    try:
+        result = await services.queue.cancel_generation_batch(
+            project_name=scope.project_name,
+            batch_id=request.value.batch_id,
+        )
+    except GenerationBatchNotFound as exc:
+        return ToolOutcome(problem=ToolProblem("generation_batch_not_found", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        return ToolOutcome(problem=ToolProblem("internal_error", f"cancel_generation_batch 失败: {exc}"))
+    return ToolOutcome(value=result)
 
 
 class PatchUpdateOperation(BaseModel):
@@ -1857,6 +1901,7 @@ __all__ = [
     "CompleteAssetInventoryRequest",
     "CompleteStep1RebuildRequest",
     "CreateProjectToolRequest",
+    "GenerationBatchToolRequest",
     "EpisodeScriptContent",
     "EPISODE_META_FIELDS",
     "MAX_INSTRUCTIONS_LEN",
@@ -1889,10 +1934,12 @@ __all__ = [
     "ToolRequest",
     "UploadSourceRequest",
     "complete_asset_inventory",
+    "cancel_generation_batch",
     "complete_step1_rebuild",
     "create_project",
     "discard_draft",
     "get_episode_script",
+    "get_generation_batch",
     "get_project_content",
     "get_source_text",
     "get_step1_content",

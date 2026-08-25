@@ -43,6 +43,7 @@ from server.tool_runtime import (
     CompleteAssetInventoryRequest,
     CompleteStep1RebuildRequest,
     CreateProjectToolRequest,
+    GenerationBatchToolRequest,
     PatchEpisodeMetaRequest,
     PatchEpisodeScriptRequest,
     PatchProjectRequest,
@@ -55,6 +56,7 @@ from server.tool_runtime import (
     ToolProblem,
     ToolRequest,
     UploadSourceRequest,
+    cancel_generation_batch,
     complete_asset_inventory,
     complete_step1_rebuild,
     confirm_script_review,
@@ -63,6 +65,7 @@ from server.tool_runtime import (
     generate_episode_script,
     generate_step1,
     get_episode_script,
+    get_generation_batch,
     get_project_content,
     get_source_text,
     get_step1_content,
@@ -450,6 +453,35 @@ def build_remote_mcp_server(
         except ValueError as exc:
             return _to_mcp_result("workflow_plan", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result("workflow_plan", await get_workflow_plan(ToolRequest(request), scope, caller, services))
+
+    @server.tool(name="get_generation_batch", structured_output=False)
+    async def remote_get_generation_batch(project: str, batch_id: str) -> CallToolResult:
+        """Read durable member states, counts, polling guidance and the terminal generation result."""
+        try:
+            scope = _project_scope(project, projects)
+            request = GenerationBatchToolRequest(batch_id=batch_id)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result("generation_batch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
+        return _to_mcp_result(
+            "generation_batch",
+            await get_generation_batch(ToolRequest(request), scope, caller, services),
+        )
+
+    @server.tool(name="cancel_generation_batch", structured_output=False)
+    async def remote_cancel_generation_batch(project: str, batch_id: str) -> CallToolResult:
+        """Cancel every non-terminal member through the normal queue cancellation path."""
+        try:
+            scope = _project_scope(project, projects)
+            request = GenerationBatchToolRequest(batch_id=batch_id)
+        except (FileNotFoundError, ValueError) as exc:
+            return _to_mcp_result(
+                "generation_batch_cancellation",
+                ToolOutcome(problem=ToolProblem("invalid_request", str(exc))),
+            )
+        return _to_mcp_result(
+            "generation_batch_cancellation",
+            await cancel_generation_batch(ToolRequest(request), scope, caller, services),
+        )
 
     @server.tool(name="get_video_capabilities", structured_output=False)
     async def remote_video_capabilities(project: str) -> CallToolResult:

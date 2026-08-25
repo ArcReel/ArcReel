@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
@@ -17,8 +18,16 @@ from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskRepository
 from lib.generation_admission import generation_admission_lock
+from lib.generation_batch import (
+    GenerationBatchBlockedItem,
+    GenerationBatchCancelResult,
+    GenerationBatchReadModel,
+    GenerationBatchRequestSnapshot,
+    build_generation_batch_read_model,
+    validate_blocked_items,
+)
 from lib.project_migration_guard import assert_project_migration_ok
-from lib.task_terminal_events import emit_task_terminal_events
+from lib.task_terminal_events import TERMINAL_TASK_STATUSES, emit_task_terminal_events
 
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver, ProviderModel, VideoCapability
@@ -45,6 +54,10 @@ class ActiveTaskRequestConflict(RuntimeError):
             f"resource '{resource_id}' already has active task '{existing_task_id}' "
             "with a different narration delivery request"
         )
+
+
+class GenerationBatchNotFound(ValueError):
+    pass
 
 
 def _narration_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, object] | None:
@@ -263,7 +276,6 @@ async def _derive_execution_model_for_enqueue(
 
 
 ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
-TERMINAL_TASK_STATUSES = ("succeeded", "failed", "cancelled")
 TASK_WORKER_LEASE_TTL_SEC = 10.0
 TASK_WORKER_HEARTBEAT_SEC = 3.0
 TASK_POLL_INTERVAL_SEC = 1.0
@@ -344,6 +356,8 @@ class GenerationQueue:
         dependency_index: int | None = None,
         user_id: str = DEFAULT_USER_ID,
         provider_id: str | None = None,
+        batch_id: str | None = None,
+        batch_unit_id: str | None = None,
     ) -> dict[str, Any]:
         # Every Web, Agent and batch generation entry reaches the queue through this
         # method, so a project whose migration failed is refused here once instead of
@@ -370,6 +384,12 @@ class GenerationQueue:
                 # Video provider/model is only an advisory claim projection until the worker materializes the
                 # current request and persists its pre-submit checkpoint. Enqueue payload never freezes identity.
 
+        requested_facts = _narration_request_facts(task_type, payload)
+
+        def _guard_deduped(existing_payload: dict[str, Any], existing_task_id: str) -> None:
+            if requested_facts is not None and _narration_request_facts(task_type, existing_payload) != requested_facts:
+                raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
+
         async def _enqueue() -> dict[str, Any]:
             async with self._task_repo() as repo:
                 return await repo.enqueue(
@@ -386,6 +406,9 @@ class GenerationQueue:
                     dependency_index=dependency_index,
                     user_id=user_id,
                     provider_id=provider_id,
+                    batch_id=batch_id,
+                    batch_unit_id=batch_unit_id,
+                    dedupe_guard=_guard_deduped,
                 )
 
         # Audio restoration observes active TTS/video consumers while holding the
@@ -403,23 +426,82 @@ class GenerationQueue:
         # The unique index intentionally protects one active task per resource. A matching
         # video task is reusable only when its durable narration request facts also match;
         # current TTS evidence and other mutable generation intent are re-read by the worker.
-        existing_payload = result.pop("_existing_payload", None)
-        requested_facts = _narration_request_facts(task_type, payload)
-        if result.get("deduped") and requested_facts is not None:
-            existing_facts = _narration_request_facts(
-                task_type,
-                existing_payload if isinstance(existing_payload, dict) else None,
-            )
-            if existing_facts != requested_facts:
-                raise ActiveTaskRequestConflict(
-                    resource_id=resource_id,
-                    existing_task_id=str(result["task_id"]),
-                )
+        result.pop("_existing_payload", None)
         if not result.get("deduped"):
             logger.info("任务入队 task_id=%s type=%s", result["task_id"], task_type)
         else:
             logger.debug("任务去重 task_id=%s", result["task_id"])
         return result
+
+    async def create_generation_batch(
+        self,
+        *,
+        project_name: str,
+        operation: str,
+        requested: GenerationBatchRequestSnapshot,
+        blocked: list[GenerationBatchBlockedItem],
+        source: str,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> str:
+        validate_blocked_items(requested, blocked)
+        batch_id = uuid.uuid4().hex
+        async with self._task_repo() as repo:
+            await repo.create_batch(
+                batch_id=batch_id,
+                project_name=project_name,
+                operation=operation,
+                requested=requested.model_dump(mode="json"),
+                blocked=[item.model_dump(mode="json") for item in blocked],
+                source=source,
+                user_id=user_id,
+            )
+        return batch_id
+
+    async def get_generation_batch(self, *, project_name: str, batch_id: str) -> GenerationBatchReadModel:
+        async with self._task_repo() as repo:
+            batch = await repo.get_batch(project_name=project_name, batch_id=batch_id)
+        if batch is None:
+            raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
+        return build_generation_batch_read_model(batch, batch["memberships"], batch["queue_depth"])
+
+    async def cancel_generation_batch(
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+    ) -> GenerationBatchCancelResult:
+        async with self._task_repo() as repo:
+            batch = await repo.get_batch(project_name=project_name, batch_id=batch_id)
+        if batch is None:
+            raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
+
+        initial = {item["task_id"]: item["status"] for item in batch["memberships"]}
+        for task_id, status in initial.items():
+            if status not in TERMINAL_TASK_STATUSES and status != "cancelling":
+                await self.cancel_task(task_id)
+
+        async with self._task_repo() as repo:
+            updated = await repo.get_batch(project_name=project_name, batch_id=batch_id)
+        assert updated is not None
+        current = {item["task_id"]: item["status"] for item in updated["memberships"]}
+        cancelled: list[str] = []
+        cancelling: list[str] = []
+        skipped_terminal: list[str] = []
+        for task_id, previous in initial.items():
+            status = current[task_id]
+            if previous in TERMINAL_TASK_STATUSES:
+                skipped_terminal.append(task_id)
+            elif status == "cancelled":
+                cancelled.append(task_id)
+            elif status == "cancelling":
+                cancelling.append(task_id)
+            else:
+                skipped_terminal.append(task_id)
+        return GenerationBatchCancelResult(
+            cancelled=cancelled,
+            cancelling=cancelling,
+            skipped_terminal=skipped_terminal,
+        )
 
     async def get_active_tasks_for_resources(
         self,

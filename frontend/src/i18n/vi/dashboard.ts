@@ -1594,6 +1594,8 @@ export default {
   'tool_name_complete_asset_inventory': 'Hoàn tất kiểm kê tài sản',
   'tool_name_complete_step1_rebuild': 'Hoàn tất tái tạo bước 1',
   'tool_name_get_workflow_plan': 'Xem kế hoạch quy trình đầy đủ',
+  'tool_name_get_generation_batch': 'Xem lô tạo nội dung',
+  'tool_name_cancel_generation_batch': 'Hủy lô tạo nội dung',
   'tool_name_get_project_content': 'Đọc nội dung dự án',
   'tool_name_list_source_files': 'Liệt kê tệp nguồn',
   'tool_name_get_source_text': 'Đọc văn bản nguồn',

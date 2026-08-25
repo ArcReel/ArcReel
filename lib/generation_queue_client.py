@@ -137,6 +137,8 @@ async def enqueue_and_wait(
     dependency_group: str | None = None,
     dependency_index: int | None = None,
     user_id: str = DEFAULT_USER_ID,
+    batch_id: str | None = None,
+    batch_unit_id: str | None = None,
 ) -> dict[str, Any]:
     enqueue_result = await enqueue_task_only(
         project_name=project_name,
@@ -151,6 +153,8 @@ async def enqueue_and_wait(
         dependency_group=dependency_group,
         dependency_index=dependency_index,
         user_id=user_id,
+        batch_id=batch_id,
+        batch_unit_id=batch_unit_id,
     )
 
     task = await wait_for_task(
@@ -186,6 +190,8 @@ async def enqueue_task_only(
     dependency_group: str | None = None,
     dependency_index: int | None = None,
     user_id: str = DEFAULT_USER_ID,
+    batch_id: str | None = None,
+    batch_unit_id: str | None = None,
 ) -> dict[str, Any]:
     queue = get_generation_queue()
 
@@ -214,6 +220,8 @@ async def enqueue_task_only(
         dependency_group=dependency_group,
         dependency_index=dependency_index,
         user_id=user_id,
+        batch_id=batch_id,
+        batch_unit_id=batch_unit_id,
     )
     return enqueue_result
 
@@ -382,6 +390,7 @@ class TaskSpec:
     dependency_resource_id: str | None = None
     dependency_group: str | None = None
     dependency_index: int | None = None
+    unit_id: str | None = None
 
     @classmethod
     def from_request(
@@ -397,6 +406,7 @@ class TaskSpec:
         dependency_resource_id: str | None = None,
         dependency_group: str | None = None,
         dependency_index: int | None = None,
+        unit_id: str | None = None,
     ) -> TaskSpec:
         """Validate a request structurally and build a :class:`TaskSpec`.
 
@@ -443,6 +453,7 @@ class TaskSpec:
             dependency_resource_id=dependency_resource_id,
             dependency_group=dependency_group,
             dependency_index=dependency_index,
+            unit_id=unit_id,
         )
 
 
@@ -511,6 +522,7 @@ async def _enqueue_sequentially(
     specs: list[TaskSpec],
     stop_on_failure: bool,
     user_id: str = DEFAULT_USER_ID,
+    batch_id: str | None = None,
 ) -> tuple[list[EnqueuedTask], list[BatchTaskResult]]:
     """Queue *specs* in order, resolving each dependency against its predecessor.
 
@@ -560,6 +572,8 @@ async def _enqueue_sequentially(
                 dependency_group=spec.dependency_group,
                 dependency_index=spec.dependency_index,
                 user_id=user_id,
+                batch_id=batch_id,
+                batch_unit_id=(spec.unit_id or spec.resource_id) if batch_id is not None else None,
             )
         except Exception as exc:  # noqa: BLE001
             failures.append(
@@ -598,6 +612,7 @@ async def batch_enqueue_only(
     project_name: str,
     specs: list[TaskSpec],
     user_id: str = DEFAULT_USER_ID,
+    batch_id: str | None = None,
 ) -> tuple[list[EnqueuedTask], list[BatchTaskResult]]:
     """Create the batch's tasks without waiting for their results.
 
@@ -612,6 +627,7 @@ async def batch_enqueue_only(
         specs=specs,
         stop_on_failure=True,
         user_id=user_id,
+        batch_id=batch_id,
     )
 
 
@@ -622,6 +638,7 @@ async def batch_enqueue_and_wait(
     on_success: Callable[[BatchTaskResult], None] | None = None,
     on_failure: Callable[[BatchTaskResult], None] | None = None,
     stop_on_failure: bool = False,
+    batch_id: str | None = None,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Async: enqueue sequentially, then gather-wait all tasks.
 
@@ -641,6 +658,7 @@ async def batch_enqueue_and_wait(
         project_name=project_name,
         specs=specs,
         stop_on_failure=stop_on_failure,
+        batch_id=batch_id,
     )
     task_ids = {item.resource_id: item.task_id for item in enqueued}
 
@@ -700,6 +718,7 @@ def batch_enqueue_and_wait_sync(
     specs: list[TaskSpec],
     on_success: Callable[[BatchTaskResult], None] | None = None,
     on_failure: Callable[[BatchTaskResult], None] | None = None,
+    batch_id: str | None = None,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Batch-enqueue all tasks then wait for all of them to complete.
 
@@ -720,5 +739,6 @@ def batch_enqueue_and_wait_sync(
             specs=specs,
             on_success=on_success,
             on_failure=on_failure,
+            batch_id=batch_id,
         )
     )

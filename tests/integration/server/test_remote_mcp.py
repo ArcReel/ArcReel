@@ -223,6 +223,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
         "confirm_script_review",
         "patch_episode_script",
     }
+    batches = {"get_generation_batch", "cancel_generation_batch"}
     retired = {
         "normalize_drama_script",
         "split_narration_segments",
@@ -235,10 +236,11 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(re
         "get_episode_script_revision",
     }
     listed = {tool.name: tool for tool in tools.tools}
-    assert migrated | readers | drafts | text_and_script <= listed.keys()
+    assert migrated | readers | drafts | text_and_script | batches <= listed.keys()
     assert retired.isdisjoint(listed)
     assert all(
-        "project" in listed[name].inputSchema["required"] for name in migrated | readers | drafts | text_and_script
+        "project" in listed[name].inputSchema["required"]
+        for name in migrated | readers | drafts | text_and_script | batches
     )
     assert all(listed[name].inputSchema["properties"]["episode"]["minimum"] == 1 for name in drafts)
     assert "base_revision" in listed["discard_draft"].inputSchema["required"]

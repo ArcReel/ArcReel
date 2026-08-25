@@ -1470,6 +1470,8 @@ export default {
   'tool_name_complete_asset_inventory': '完成资产清单分析',
   'tool_name_complete_step1_rebuild': '完成第一阶段重建',
   'tool_name_get_workflow_plan': '查询完整工作流计划',
+  'tool_name_get_generation_batch': '查询生成批次',
+  'tool_name_cancel_generation_batch': '取消生成批次',
   'tool_name_get_project_content': '读取项目内容',
   'tool_name_list_source_files': '列出源文件',
   'tool_name_get_source_text': '读取源文',
