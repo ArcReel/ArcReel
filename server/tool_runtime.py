@@ -856,7 +856,7 @@ async def upload_source(
         }
 
     try:
-        return ToolOutcome(value=await asyncio.to_thread(_upload))
+        return ToolOutcome(value=await _run_sync_transaction(_upload))
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("project_not_found", str(exc)))
     except ValueError as exc:

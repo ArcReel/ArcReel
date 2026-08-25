@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -265,6 +267,52 @@ async def test_upload_source_respects_migration_failure_gate(tmp_path: Path) -> 
     assert outcome.problem is not None
     assert outcome.problem.code == MIGRATION_FAILURE_CODE
     assert not (project_dir / "source" / "novel.txt").exists()
+
+
+async def test_upload_source_settles_write_before_propagating_cancellation(tmp_path: Path) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    class BlockingSourceProjectManager(ProjectManager):
+        @contextmanager
+        def locked_source_mutation(self, project_name: str) -> Iterator[Path]:
+            with super().locked_source_mutation(project_name) as source_dir:
+                started.set()
+                release.wait()
+                try:
+                    yield source_dir
+                finally:
+                    finished.set()
+
+    projects = BlockingSourceProjectManager(tmp_path / "projects")
+    projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo")
+    services = Services(
+        projects=projects,
+        workflow_planner=_Unused(),  # type: ignore[arg-type]
+        capabilities=_Unused(),  # type: ignore[arg-type]
+    )
+    task = asyncio.create_task(
+        upload_source(
+            ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
+            ProjectScope(project_name="demo", projects_root=projects.projects_root),
+            CallerContext(user_id="test", source="mcp"),
+            services,
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+        task_results = await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout=1)
+        assert await asyncio.to_thread(finished.wait, 1)
+
+    assert isinstance(task_results[0], asyncio.CancelledError)
+    assert (projects.get_project_path("demo") / "source" / "novel.txt").read_text() == "hello"
 
 
 async def test_reset_episode_planning_settles_write_before_propagating_cancellation(tmp_path: Path) -> None:
